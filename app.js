@@ -224,6 +224,7 @@ const suiteVrSpots = [
 const state = {
   credits: CREDIT_START,
   authToken: localStorage.getItem("raisingGameToken") || "",
+  soundEnabled: localStorage.getItem("raisingGameSoundEnabled") !== "0",
   user: null,
   loginMode: "login",
   config: null,
@@ -267,6 +268,7 @@ const state = {
 const els = {
   creditCount: document.querySelector("#creditCount"),
   topUpBtn: document.querySelector("#topUpBtn"),
+  soundToggleBtn: document.querySelector("#soundToggleBtn"),
   userBtn: document.querySelector("#userBtn"),
   sceneName: document.querySelector("#sceneName"),
   gameStage: document.querySelector("#gameStage"),
@@ -834,11 +836,42 @@ function updateJob(title, detail, progress = 0) {
   els.jobProgress.style.width = `${Math.max(0, Math.min(progress, 100))}%`;
 }
 
+function applyVideoAudio(videoEl, { forcePlay = false } = {}) {
+  if (!videoEl) return;
+  videoEl.muted = !state.soundEnabled;
+  videoEl.volume = state.soundEnabled ? 1 : 0;
+  if (forcePlay) videoEl.play().catch(() => {});
+}
+
+function syncAllVideoAudio() {
+  applyVideoAudio(els.homeHeroVideo);
+  applyVideoAudio(els.boundSceneVideoPlayer);
+  applyVideoAudio(els.resultVideo);
+}
+
+function renderSoundToggle() {
+  if (!els.soundToggleBtn) return;
+  els.soundToggleBtn.setAttribute("aria-pressed", String(state.soundEnabled));
+  els.soundToggleBtn.setAttribute("aria-label", state.soundEnabled ? "Sound on" : "Sound off");
+  els.soundToggleBtn.innerHTML = state.soundEnabled
+    ? '<i data-lucide="volume-2"></i>'
+    : '<i data-lucide="volume-x"></i>';
+  refreshIcons();
+}
+
+function setSoundEnabled(nextValue) {
+  state.soundEnabled = Boolean(nextValue);
+  localStorage.setItem("raisingGameSoundEnabled", state.soundEnabled ? "1" : "0");
+  renderSoundToggle();
+  syncAllVideoAudio();
+}
+
 function showVideoResult(videoUrl) {
   const url = String(videoUrl || "").trim();
   if (!url) return;
   els.resultVideo.loop = true;
   els.resultVideo.src = url;
+  applyVideoAudio(els.resultVideo);
   openDialog(els.videoDialog);
   els.resultVideo.play().catch(() => {});
   refreshIcons();
@@ -930,6 +963,7 @@ function applyBoundScenePreview(scene, bound) {
   }
   els.boundSceneVideoPanel.hidden = false;
   els.boundSceneVideoPlayer.src = url;
+  applyVideoAudio(els.boundSceneVideoPlayer);
 }
 
 function switchHomeVideoItem(direction) {
@@ -1109,6 +1143,7 @@ function renderHomeHero() {
         video.load();
       }
       video.poster = coverUrl || "";
+      applyVideoAudio(video);
       video.hidden = false;
       video.play().catch(() => {});
     } else {
@@ -2496,6 +2531,9 @@ function bindEvents() {
   els.topUpBtn.addEventListener("click", () => {
     openRechargeDialog();
   });
+  els.soundToggleBtn?.addEventListener("click", () => {
+    setSoundEnabled(!state.soundEnabled);
+  });
   els.userBtn?.addEventListener("click", () => {
     if (state.user) {
       updateJob("Signed in", `${state.user.username} · balance ${state.credits} credits.`, 0);
@@ -2707,6 +2745,7 @@ function revealApp() {
 async function init() {
   try {
     state.intimacy = loadIntimacyMap();
+    renderSoundToggle();
     await loadPublicConfig();
     await loadCharacterAssets();
     await loadSession();
@@ -2720,6 +2759,7 @@ async function init() {
     renderHomeHero();
     updateRotation(0);
     bindEvents();
+    syncAllVideoAudio();
     refreshIcons();
     await waitForHomeHeroReady();
   } catch (err) {

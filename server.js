@@ -155,7 +155,7 @@ const DEFAULT_CONFIG = {
     resolution: "720p",
     duration: 15,
     quality: "high",
-    generateAudio: false,
+    generateAudio: true,
   },
   homeVideo: {
     provider: "seedance",
@@ -725,6 +725,7 @@ function makeHomeVideoPrompt(item = {}, overridePrompt = "", { decorate = false 
     "Create a 15-second vertical cinematic image-to-video FULL-BODY short drama shot featuring the same original adult woman from the reference image.",
     "Identity lock: preserve her face impression, adult age impression, hairstyle, outfit colors, outfit silhouette, body proportions, shoes, and visible accessories from the reference image.",
     "Mood: seductive, elegant, intimate, confident, premium mobile romance drama, strictly non-explicit.",
+    "Audio: include soft sensual female voiceover and breathy teasing spoken lines, flirtatious and alluring, short intimate phrases, low-volume cinematic mix, no explicit sexual language.",
     "Scene: luxury private suite lounge with warm lamp light, mirrored wall, rain on tall windows, rose-gold highlights, polished high-end atmosphere.",
     "Action timeline: 0-4s she walks toward camera in full-body view, legs crossing naturally in stride, direct confident eye contact; 4-9s she stops, slowly turns 360 to show her full silhouette, hands resting at her hips, long legs clearly visible; 9-15s she leans against the mirrored wall, one leg slightly forward in a fashion editorial pose, slow low-angle camera tilt highlights her long legs while she gives a restrained flirtatious smile.",
   ].join(" ");
@@ -733,8 +734,9 @@ function makeHomeVideoPrompt(item = {}, overridePrompt = "", { decorate = false 
 
 function makeSceneVideoPrompt(scene = {}, overridePrompt = "") {
   const userPrompt = String(overridePrompt || "").trim();
-  if (userPrompt) return userPrompt;
-  return String(scene.prompt || "").trim() || `15-second vertical cinematic short drama in scene ${scene.name || scene.id || "scene"}.`;
+  const audioDirection = "Audio: include soft alluring female voice, teasing intimate one-liners, breathy seductive delivery, tasteful flirtation, cinematic ambience, no explicit sexual language.";
+  if (userPrompt) return `${userPrompt} ${audioDirection}`.trim();
+  return `${String(scene.prompt || "").trim() || `15-second vertical cinematic short drama in scene ${scene.name || scene.id || "scene"}.`} ${audioDirection}`.trim();
 }
 
 function makeInteractiveSceneVideoPrompt(scene = {}, primaryName = "", partnerName = "", overridePrompt = "") {
@@ -748,6 +750,7 @@ function makeInteractiveSceneVideoPrompt(scene = {}, primaryName = "", partnerNa
     "They should interact naturally with eye contact, body turns, mirrored movement, and shared framing.",
     "Do not turn this into a solo portrait. Keep both characters visible in meaningful parts of the scene.",
     "Maintain tasteful non-explicit romance-drama energy.",
+    "Audio: use soft seductive female voices with playful teasing dialogue and short spoken lines, intimate but non-explicit.",
   ].join(" ");
   return [userPrompt || base, interaction].filter(Boolean).join(" ");
 }
@@ -1801,7 +1804,7 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     config,
     prompt,
     referenceAssetUri: prepared.referenceAssetUri,
-    body: seedanceBody,
+    body: { ...seedanceBody, generateAudio: true },
     slug: `user-character-${prepared.id}`,
   });
 
@@ -2170,7 +2173,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
       config,
       prompt,
       referenceAssetUri: record.referenceAssetUri,
-      body,
+      body: { ...body, generateAudio: true },
       slug: `user-scene-${characterId}-${sceneConfig.id}`,
     });
     task = result.task;
@@ -2567,7 +2570,7 @@ async function handleAdminCreateHomeVideo(req, res) {
     config,
     prompt,
     referenceAssetUri: referenceItem.referenceAssetUri || config.homeVideo.referenceAssetUri,
-    body,
+    body: { ...body, generateAudio: true },
     slug: "home-video",
   });
 
@@ -2649,7 +2652,7 @@ async function handleAdminCreateCharacterSceneVideo(req, res) {
     config,
     prompt,
     referenceAssetUri,
-    body,
+    body: { ...body, generateAudio: true },
     slug: `home-scene-${sceneConfig.id}`,
   });
 
@@ -3451,7 +3454,7 @@ async function handleCreateSceneVideo(req, res) {
   const payload = {
     model,
     content: [{ type: "text", text: finalPrompt }],
-    generate_audio: body.generateAudio === true || config.video.generateAudio === true,
+    generate_audio: true,
     ratio: body.ratio || config.video.ratio || "9:16",
     resolution: body.resolution || config.video.resolution || "720p",
     duration: clampNumber(body.duration, config.video.duration || 15, 5, 15),
