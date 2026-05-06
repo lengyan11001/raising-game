@@ -182,8 +182,8 @@ const DEFAULT_ADMIN_HOME_ITEMS = [
   },
   {
     id: "demo-aria-vintage",
-    name: "Demo Aria",
-    title: "Rainy Suite",
+    name: "Mira",
+    title: "Velvet Muse",
     posterUrl: "/assets/admin/home/demo-aria-reference.png",
     localImageUrl: "/assets/admin/home/demo-aria-reference.png",
     sourceImageUrl: "/assets/admin/home/demo-aria-reference.png",
@@ -237,8 +237,8 @@ const DEFAULT_CONFIG = {
     items: [
       {
         id: "demo-aria-vintage",
-        name: "Demo Aria",
-        title: "Rainy Suite",
+        name: "Mira",
+        title: "Velvet Muse",
         posterUrl: "/assets/admin/home/demo-aria-reference.png",
         localImageUrl: "/assets/admin/home/demo-aria-reference.png",
         sourceImageUrl: "/assets/admin/home/demo-aria-reference.png",
