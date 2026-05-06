@@ -4544,7 +4544,7 @@ async function serveStatic(req, res, url) {
         "content-length": chunkEnd - chunkStart + 1,
         "content-range": `bytes ${chunkStart}-${chunkEnd}/${stat.size}`,
         "accept-ranges": "bytes",
-        "cache-control": "public, max-age=60",
+        "cache-control": "public, max-age=604800, immutable",
       });
 
       if (req.method === "HEAD") return res.end();
@@ -4556,7 +4556,11 @@ async function serveStatic(req, res, url) {
       "content-type": contentType,
       "content-length": stat.size,
       "accept-ranges": contentType.startsWith("video/") ? "bytes" : "none",
-      "cache-control": contentType.startsWith("text/") ? "no-cache" : "public, max-age=60",
+      "cache-control": contentType.startsWith("text/")
+        ? "no-cache"
+        : contentType.startsWith("video/")
+          ? "public, max-age=604800, immutable"
+          : "public, max-age=60",
     });
     if (req.method === "HEAD") return res.end();
     res.end(data);

@@ -240,6 +240,9 @@ const state = {
   frameCovers: {},
   frameCoverFailures: {},
   framePrewarmRunning: false,
+  videoPreloadQueue: [],
+  videoPreloadSeen: {},
+  homeHeroStarted: false,
   awaitingSoundUnlock: false,
   welcomePromptShown: false,
   userAssets: [],
@@ -1008,7 +1011,10 @@ function getSceneVideoForActive(sceneId) {
 }
 
 function getHomeSceneEntriesForActive() {
-  const item = getActiveHomeVideoItem();
+  return getHomeSceneEntriesForItem(getActiveHomeVideoItem());
+}
+
+function getHomeSceneEntriesForItem(item) {
   if (!item) return [];
   const entries = item.homeSceneVideos || {};
   return scenes.map((scene) => {
@@ -1032,6 +1038,10 @@ function getActiveHomeSceneEntry() {
 function getActiveHomeSceneVideoUrl() {
   const binding = getActiveHomeSceneEntry();
   return binding?.entry?.videoUrl || "";
+}
+
+function mediaUrlFromEntry(entry = {}) {
+  return String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
 }
 
 function getActiveUnlockVideoMeta() {
@@ -1218,83 +1228,95 @@ function getCoverForItem(item, sceneId = "") {
   return state.frameCovers?.[homeCoverKey(item, sceneId)] || "";
 }
 
-function preloadFrameCoversForItems(items = []) {
-  if (state.framePrewarmRunning) return;
-  const queue = items.flatMap((item) => {
-    if (!item || !item.id) return [];
-    return scenes.map((scene) => {
-      const entry = item.homeSceneVideos?.[scene.id] || {};
-      const url = String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
-      return { item, sceneId: scene.id, coverKey: homeCoverKey(item, scene.id), url };
-    }).filter((entry) => entry.url && !state.frameCovers[entry.coverKey] && !state.frameCoverFailures[entry.coverKey]);
-  });
-  if (!queue.length) return;
-  state.framePrewarmRunning = true;
-  const probe = document.createElement("video");
-  probe.muted = true;
-  probe.playsInline = true;
-  probe.preload = "auto";
-  probe.crossOrigin = "anonymous";
-  probe.style.cssText = "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;";
-  document.body.appendChild(probe);
-  let cancelled = false;
+function homeSceneEntryForItem(item, sceneId) {
+  if (!item || !sceneId) return null;
+  const entry = item.homeSceneVideos?.[sceneId];
+  const url = mediaUrlFromEntry(entry);
+  return entry && url ? { ...entry, videoUrl: url } : null;
+}
 
-  const run = async () => {
-    for (const queued of queue) {
-      if (cancelled) break;
-      const { item, sceneId, coverKey, url } = queued;
-      if (!url) continue;
-      try {
-        await new Promise((resolve) => {
-          let done = false;
-          const finish = () => {
-            if (done) return;
-            done = true;
-            probe.onloadeddata = null;
-            probe.onerror = null;
-            resolve();
-          };
-          probe.onloadeddata = () => {
-            const ok = captureVideoFrame(probe, coverKey);
-            if (!ok) {
-              const fallback = document.createElement("video");
-              fallback.muted = true;
-              fallback.playsInline = true;
-              fallback.preload = "auto";
-              fallback.style.cssText = probe.style.cssText;
-              document.body.appendChild(fallback);
-              fallback.onloadeddata = () => {
-                captureVideoFrame(fallback, coverKey);
-                fallback.remove();
-                finish();
-              };
-              fallback.onerror = () => { fallback.remove(); finish(); };
-              fallback.src = url;
-              return;
-            }
-            finish();
-          };
-          probe.onerror = () => finish();
-          setTimeout(finish, 7000);
-          probe.src = url;
-        });
-        if (state.frameCovers[coverKey] && getActiveHomeVideoItem()?.id === item.id && getActiveHomeSceneEntry()?.scene?.id === sceneId) {
-          renderHomeHero();
-        }
-      } catch (error) {
-        state.frameCoverFailures[coverKey] = String(error?.message || error || "load-failed");
-      }
+function enqueueHomeVideoPreload(item, sceneId, priority = 50) {
+  const entry = homeSceneEntryForItem(item, sceneId);
+  if (!item?.id || !sceneId || !entry?.videoUrl) return;
+  const key = homeCoverKey(item, sceneId);
+  if (state.videoPreloadSeen[key]) return;
+  if (state.frameCovers[key] || state.frameCoverFailures[key]) return;
+  state.videoPreloadSeen[key] = true;
+  state.videoPreloadQueue.push({ item, sceneId, key, url: entry.videoUrl, priority });
+  state.videoPreloadQueue.sort((a, b) => a.priority - b.priority);
+}
+
+function scheduleHomeVideoPreloads(activeItem = getActiveHomeVideoItem(), activeScene = state.currentScene) {
+  const items = getHomeVideoItems();
+  if (!items.length || !activeItem?.id) return;
+  const scenesForItem = getHomeSceneEntriesForItem(activeItem);
+  const activeItemIndex = items.findIndex((item) => item.id === activeItem.id);
+  const activeSceneIndex = Math.max(0, scenesForItem.findIndex((entry) => entry.scene?.id === activeScene?.id));
+  const sceneCount = Math.max(1, scenesForItem.length);
+  const nextScene = scenesForItem[(activeSceneIndex + 1) % sceneCount]?.scene;
+  const prevScene = scenesForItem[(activeSceneIndex - 1 + sceneCount) % sceneCount]?.scene;
+  const nextItem = items[(activeItemIndex + 1 + items.length) % items.length];
+  const prevItem = items[(activeItemIndex - 1 + items.length) % items.length];
+
+  enqueueHomeVideoPreload(activeItem, nextScene?.id, 10);
+  enqueueHomeVideoPreload(activeItem, prevScene?.id, 20);
+  enqueueHomeVideoPreload(nextItem, "room", 30);
+  enqueueHomeVideoPreload(prevItem, "room", 40);
+  startHomeVideoPreloadWorker();
+}
+
+function idleDelay(ms = 800) {
+  return new Promise((resolve) => {
+    const run = () => window.setTimeout(resolve, ms);
+    if ("requestIdleCallback" in window) {
+      window.requestIdleCallback(run, { timeout: 1800 });
+    } else {
+      run();
     }
-    probe.remove();
-    state.framePrewarmRunning = false;
-  };
-
-  run().catch(() => {
-    probe.remove();
-    state.framePrewarmRunning = false;
   });
+}
 
-  return () => { cancelled = true; };
+function preloadVideoMetadata(url) {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      video.onloadedmetadata = null;
+      video.onloadeddata = null;
+      video.onerror = null;
+      video.removeAttribute("src");
+      try { video.load(); } catch {}
+      video.remove();
+      resolve();
+    };
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.style.cssText = "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;";
+    video.onloadedmetadata = finish;
+    video.onloadeddata = finish;
+    video.onerror = finish;
+    document.body.appendChild(video);
+    window.setTimeout(finish, 5000);
+    video.src = url;
+  });
+}
+
+async function startHomeVideoPreloadWorker() {
+  if (state.framePrewarmRunning) return;
+  state.framePrewarmRunning = true;
+  try {
+    while (state.videoPreloadQueue.length) {
+      const next = state.videoPreloadQueue.shift();
+      await idleDelay(900);
+      if (!next?.url || state.frameCovers[next.key]) continue;
+      await preloadVideoMetadata(next.url);
+    }
+  } finally {
+    state.framePrewarmRunning = false;
+  }
 }
 
 function renderHomeHero() {
@@ -1325,7 +1347,7 @@ function renderHomeHero() {
     "./assets/admin/home/default-hero.jpg";
   const videoUrl = getActiveHomeSceneVideoUrl();
 
-  const coverUrl = cachedFrame || (!videoUrl ? fallbackPoster : "");
+  const coverUrl = cachedFrame || fallbackPoster;
 
   if (els.homeHeroPoster) {
     if (coverUrl) {
@@ -1339,9 +1361,15 @@ function renderHomeHero() {
 
   if (els.homeHeroVideo) {
     const video = els.homeHeroVideo;
+    video.preload = state.homeHeroStarted ? "auto" : "metadata";
     video.onloadeddata = () => {
       if (els.homeHeroPoster) els.homeHeroPoster.hidden = true;
       captureVideoFrame(video, homeCoverKey(activeItem, activeScene?.id || ""));
+      scheduleHomeVideoPreloads(activeItem, activeScene);
+    };
+    video.oncanplay = () => {
+      state.homeHeroStarted = true;
+      scheduleHomeVideoPreloads(activeItem, activeScene);
     };
     video.onerror = () => {
       video.hidden = true;
@@ -1383,8 +1411,6 @@ function renderHomeHero() {
   renderIntimacy();
   renderUnlockButton();
   refreshIcons();
-
-  preloadFrameCoversForItems(items);
 }
 
 function applyCompanionColors(companion) {
@@ -3003,7 +3029,7 @@ function bindEvents() {
   });
 }
 
-function waitForHomeHeroReady(timeoutMs = 4500) {
+function waitForHomeHeroReady(timeoutMs = 1800) {
   return new Promise((resolve) => {
     const poster = els.homeHeroPoster;
     const video = els.homeHeroVideo;
@@ -3017,7 +3043,7 @@ function waitForHomeHeroReady(timeoutMs = 4500) {
     const cleanupTimer = () => clearTimeout(timer);
 
     const posterReady = !poster?.src || poster.complete;
-    const videoNeeded = video && !video.hidden && video.src;
+    const videoNeeded = video && !video.hidden && video.src && video.readyState < 2;
 
     if (posterReady && !videoNeeded) {
       cleanupTimer();
