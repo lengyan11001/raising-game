@@ -238,6 +238,7 @@ const state = {
   frameCovers: {},
   frameCoverFailures: {},
   framePrewarmRunning: false,
+  awaitingSoundUnlock: false,
   userAssets: [],
   selectedUserAssetId: "",
   selectedScenePartnerId: "",
@@ -838,17 +839,31 @@ function updateJob(title, detail, progress = 0) {
   els.jobProgress.style.width = `${Math.max(0, Math.min(progress, 100))}%`;
 }
 
-function applyVideoAudio(videoEl, { forcePlay = false } = {}) {
+function playVideo(videoEl, { allowMutedFallback = false } = {}) {
   if (!videoEl) return;
-  videoEl.muted = !state.soundEnabled;
-  videoEl.volume = state.soundEnabled ? 1 : 0;
-  if (forcePlay) videoEl.play().catch(() => {});
+  const playPromise = videoEl.play();
+  if (!playPromise?.catch) return;
+  playPromise.catch(() => {
+    if (!allowMutedFallback || !state.soundEnabled) return;
+    state.awaitingSoundUnlock = true;
+    videoEl.muted = true;
+    videoEl.volume = 0;
+    videoEl.play().catch(() => {});
+  });
 }
 
-function syncAllVideoAudio() {
-  applyVideoAudio(els.homeHeroVideo);
-  applyVideoAudio(els.boundSceneVideoPlayer);
-  applyVideoAudio(els.resultVideo);
+function applyVideoAudio(videoEl, { forcePlay = false, allowMutedFallback = false } = {}) {
+  if (!videoEl) return;
+  const muted = !state.soundEnabled || state.awaitingSoundUnlock;
+  videoEl.muted = muted;
+  videoEl.volume = muted ? 0 : 1;
+  if (forcePlay) playVideo(videoEl, { allowMutedFallback });
+}
+
+function syncAllVideoAudio(options = {}) {
+  applyVideoAudio(els.homeHeroVideo, options);
+  applyVideoAudio(els.boundSceneVideoPlayer, options);
+  applyVideoAudio(els.resultVideo, options);
 }
 
 function renderSoundToggle() {
@@ -863,9 +878,16 @@ function renderSoundToggle() {
 
 function setSoundEnabled(nextValue) {
   state.soundEnabled = Boolean(nextValue);
+  state.awaitingSoundUnlock = false;
   localStorage.setItem("raisingGameSoundEnabled", state.soundEnabled ? "1" : "0");
   renderSoundToggle();
-  syncAllVideoAudio();
+  syncAllVideoAudio({ forcePlay: true });
+}
+
+function unlockSoundAfterGesture() {
+  if (!state.awaitingSoundUnlock) return;
+  state.awaitingSoundUnlock = false;
+  syncAllVideoAudio({ forcePlay: true });
 }
 
 function showVideoResult(videoUrl) {
@@ -1151,10 +1173,9 @@ function preloadFrameCoversForItems(items = []) {
 function renderHomeHero() {
   const homeVideo = state.config?.homeVideo || {};
   const items = getHomeVideoItems();
-  const activeId = homeVideo.activeItemId;
-  if (activeId && !state.homeVideo) {
-    const activeIndex = items.findIndex((item) => item.id === activeId);
-    if (activeIndex >= 0) state.homeVideoIndex = activeIndex;
+  if (!state.homeVideo) {
+    state.homeVideoIndex = 0;
+    state.homeSceneIndex = 0;
   }
   const activeItem = getActiveHomeVideoItem() || {};
   const activeSceneBinding = getActiveHomeSceneEntry();
@@ -1213,7 +1234,7 @@ function renderHomeHero() {
       video.poster = coverUrl || "";
       applyVideoAudio(video);
       video.hidden = false;
-      video.play().catch(() => {});
+      playVideo(video, { allowMutedFallback: true });
     } else {
       video.removeAttribute("src");
       video.hidden = true;
@@ -2610,6 +2631,7 @@ function handleOutfit() {
 
 function handleDragStart(event) {
   if (event.target.closest("button, input, textarea, dialog")) return;
+  unlockSoundAfterGesture();
   if (els.gameStage.classList.contains("is-home-mode")) {
     state.homeSwipeStartX = event.clientX;
     state.homeSwipeStartY = event.clientY;
@@ -2652,6 +2674,8 @@ function handleDragEnd(event) {
 
 function bindEvents() {
   bindVrEvents();
+  document.addEventListener("click", unlockSoundAfterGesture, { capture: true });
+  document.addEventListener("keydown", unlockSoundAfterGesture, { capture: true });
 
   els.topUpBtn.addEventListener("click", () => {
     openRechargeDialog();
