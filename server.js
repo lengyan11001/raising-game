@@ -180,6 +180,25 @@ const DEFAULT_ADMIN_HOME_ITEMS = [
     createdAt: "2026-05-03T13:54:33.753Z",
     sceneVideos: {},
   },
+  {
+    id: "demo-aria-vintage",
+    name: "Demo Aria",
+    title: "Rainy Suite",
+    posterUrl: "/assets/admin/home/demo-aria-reference.png",
+    localImageUrl: "/assets/admin/home/demo-aria-reference.png",
+    sourceImageUrl: "/assets/admin/home/demo-aria-reference.png",
+    imageMime: "image/png",
+    sourceImageMime: "image/png",
+    syntheticReferenceLocalUrl: "/assets/admin/home/demo-aria-reference.png",
+    syntheticReferenceTaskId: "demo-clean-frame",
+    referenceAssetUri: "asset://asset-20260429190434-6plrk",
+    videoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
+    localVideoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
+    taskId: "cgt-20260502191234-jdb6s",
+    status: "succeeded",
+    createdAt: "2026-05-02T11:17:48.000Z",
+    sceneVideos: {},
+  },
 ];
 
 const DEFAULT_CONFIG = {
@@ -218,15 +237,15 @@ const DEFAULT_CONFIG = {
     items: [
       {
         id: "demo-aria-vintage",
-        name: "Aria",
+        name: "Demo Aria",
         title: "Rainy Suite",
-        posterUrl: "/assets/admin/home/default-hero.jpg",
-        localImageUrl: "/assets/admin/home/default-hero.jpg",
-        sourceImageUrl: "/assets/admin/home/default-hero.jpg",
-        imageMime: "image/jpeg",
-        sourceImageMime: "image/jpeg",
-        syntheticReferenceLocalUrl: "/assets/admin/home/default-hero.jpg",
-        syntheticReferenceTaskId: "demo-seed",
+        posterUrl: "/assets/admin/home/demo-aria-reference.png",
+        localImageUrl: "/assets/admin/home/demo-aria-reference.png",
+        sourceImageUrl: "/assets/admin/home/demo-aria-reference.png",
+        imageMime: "image/png",
+        sourceImageMime: "image/png",
+        syntheticReferenceLocalUrl: "/assets/admin/home/demo-aria-reference.png",
+        syntheticReferenceTaskId: "demo-clean-frame",
         referenceAssetUri: "asset://asset-20260429190434-6plrk",
         videoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
         localVideoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
@@ -333,6 +352,10 @@ async function readDb() {
   };
 }
 
+function isSoftDeleted(record) {
+  return Boolean(record?.deletedAt);
+}
+
 async function writeDb(db) {
   await setKv("app_db", db);
 }
@@ -411,6 +434,7 @@ function publicHomeVideoItem(item) {
     status: item.status || "",
     referenceAssetUri: item.referenceAssetUri || "",
     referenceState,
+    deletedAt: item.deletedAt || "",
     createdAt: item.createdAt || "",
     homeSceneVideos: publicSceneVideoMap(item.homeSceneVideos || {}),
     sceneVideos: publicSceneVideoMap(item.sceneVideos || {}),
@@ -442,6 +466,7 @@ function legacyHomeItem(homeVideo = {}) {
 function normalizeHomeVideo(homeVideo = {}) {
   const items = Array.isArray(homeVideo.items) ? homeVideo.items.filter(Boolean) : [];
   const normalized = (items.length ? items : [legacyHomeItem(homeVideo)].filter((item) => item.posterUrl || item.videoUrl))
+    .filter((item) => !isSoftDeleted(item))
     .map((item) => ({
       ...item,
       homeSceneVideos: normalizeHomeSceneVideosForItem(item),
@@ -1384,6 +1409,7 @@ async function upsertGenerationRecord(nextRecord) {
   const record = {
     ...(index >= 0 ? records[index] : { createdAt: now }),
     ...nextRecord,
+    deletedAt: nextRecord.deletedAt ?? (index >= 0 ? records[index].deletedAt || "" : ""),
     updatedAt: now,
   };
 
@@ -1798,6 +1824,8 @@ async function handleUploadUserAsset(req, res) {
     publicUrl: PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/assets/user-uploads/${auth.user.id}/${fileName}` : "",
     assetUri: "",
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    deletedAt: "",
   };
   auth.db.userAssets.unshift(userAsset);
   await writeDb(auth.db);
@@ -1807,8 +1835,25 @@ async function handleUploadUserAsset(req, res) {
 async function handleListUserAssets(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const assets = auth.db.userAssets.filter((asset) => asset.userId === auth.user.id).slice(0, 50);
+  const assets = auth.db.userAssets
+    .filter((asset) => asset.userId === auth.user.id && !isSoftDeleted(asset))
+    .slice(0, 50);
   return sendJson(res, 200, { ok: true, assets });
+}
+
+async function handleDeleteUserAsset(req, res, assetId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id);
+  if (!asset || isSoftDeleted(asset)) {
+    return sendJson(res, 404, { ok: false, message: "Asset not found." });
+  }
+  const nowIso = new Date().toISOString();
+  asset.deletedAt = nowIso;
+  asset.updatedAt = nowIso;
+  auth.db.userAssets = auth.db.userAssets.map((entry) => (entry.id === asset.id ? asset : entry));
+  await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, asset });
 }
 
 const USER_CHARACTER_DIR = path.join(ROOT, "assets", "user-characters");
@@ -1826,6 +1871,7 @@ function publicUserCharacter(character) {
     error: character.error || "",
     referenceAssetUri: character.referenceAssetUri || "",
     sceneVideos: publicSceneVideoMap(character.sceneVideos || {}),
+    deletedAt: character.deletedAt || "",
     createdAt: character.createdAt || "",
     updatedAt: character.updatedAt || "",
   };
@@ -2042,6 +2088,7 @@ async function handleSaveMyCharacterDraft(req, res) {
     status: "draft",
     prompt: String(body.prompt || "").trim(),
     sceneVideos: {},
+    deletedAt: "",
     createdAt: nowIso,
     updatedAt: nowIso,
   };
@@ -2109,6 +2156,7 @@ async function handleCreateMyCharacter(req, res) {
     status: "image_uploaded",
     prompt: String(body.prompt || "").trim(),
     sceneVideos: {},
+    deletedAt: "",
     createdAt: nowIso,
     updatedAt: nowIso,
   };
@@ -2143,7 +2191,7 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const body = await readJson(req);
-  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id);
+  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id && !isSoftDeleted(entry));
   if (!record) {
     return sendJson(res, 404, { ok: false, message: "Character not found." });
   }
@@ -2225,7 +2273,7 @@ async function handleListMyCharacters(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const characters = auth.db.userCharacters
-    .filter((character) => character.userId === auth.user.id)
+    .filter((character) => character.userId === auth.user.id && !isSoftDeleted(character))
     .slice(0, 50)
     .map(publicUserCharacter);
   return sendJson(res, 200, { ok: true, characters });
@@ -2234,15 +2282,39 @@ async function handleListMyCharacters(req, res) {
 async function handleGetMyCharacter(req, res, characterId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id);
+  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id && !isSoftDeleted(entry));
   if (!record) return sendJson(res, 404, { ok: false, message: "Character not found." });
+  return sendJson(res, 200, { ok: true, character: publicUserCharacter(record) });
+}
+
+async function handleDeleteMyCharacter(req, res, characterId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id);
+  if (!record || isSoftDeleted(record)) {
+    return sendJson(res, 404, { ok: false, message: "Character not found." });
+  }
+  const nowIso = new Date().toISOString();
+  record.deletedAt = nowIso;
+  record.updatedAt = nowIso;
+  auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
+
+  const records = await readGenerationRecords();
+  let changedRecords = false;
+  const nextRecords = records.map((entry) => {
+    if (entry.companionId !== record.id || entry.userId !== auth.user.id || entry.deletedAt) return entry;
+    changedRecords = true;
+    return { ...entry, deletedAt: nowIso, updatedAt: nowIso };
+  });
+  await writeDb(auth.db);
+  if (changedRecords) await writeGenerationRecords(nextRecords);
   return sendJson(res, 200, { ok: true, character: publicUserCharacter(record) });
 }
 
 async function handleQueryMyCharacterMainVideo(req, res, characterId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id);
+  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id && !isSoftDeleted(entry));
   if (!record) return sendJson(res, 404, { ok: false, message: "Character not found." });
   if (!record.taskId) return sendJson(res, 400, { ok: false, message: "This character has no video task yet." });
 
@@ -2290,7 +2362,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
   const sceneId = String(body.sceneId || "").trim();
   if (!sceneId) return sendJson(res, 400, { ok: false, message: "Missing sceneId." });
 
-  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id);
+  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id && !isSoftDeleted(entry));
   if (!record) return sendJson(res, 404, { ok: false, message: "Character not found." });
   if (!record.referenceAssetUri) {
     return sendJson(res, 400, { ok: false, message: "This character isn't ready yet. Wait for the main video task to finish or recreate the character." });
@@ -2406,6 +2478,7 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
   let matchedSceneId = "";
   for (const entry of auth.db.userCharacters) {
     if (entry.userId !== auth.user.id) continue;
+    if (isSoftDeleted(entry)) continue;
     const sceneVideos = entry.sceneVideos || {};
     for (const sceneId of Object.keys(sceneVideos)) {
       if (sceneVideos[sceneId]?.taskId === taskId) {
@@ -3188,6 +3261,7 @@ function adminMyCharacterView(record, userMap) {
     status: record.status || "",
     error: record.error || "",
     sceneVideos: publicSceneVideoMap(record.sceneVideos || {}),
+    deletedAt: record.deletedAt || "",
     createdAt: record.createdAt || "",
     updatedAt: record.updatedAt || "",
   };
@@ -3222,8 +3296,12 @@ function adminUserAssetView(asset, userMap) {
     userId: asset.userId,
     username: user?.username || "",
     url: asset.url || "",
+    localUrl: asset.localUrl || "",
+    publicUrl: asset.publicUrl || "",
     mime: asset.mime || "",
     createdAt: asset.createdAt,
+    updatedAt: asset.updatedAt || "",
+    deletedAt: asset.deletedAt || "",
   };
 }
 
@@ -3344,11 +3422,12 @@ async function handleAdminDeleteUser(req, res, userId) {
       return sendJson(res, 400, { ok: false, message: "至少要保留一名管理员。" });
     }
   }
+  const nowIso = new Date().toISOString();
   auth.db.users = (auth.db.users || []).filter((u) => u.id !== userId);
   auth.db.sessions = (auth.db.sessions || []).filter((s) => s.userId !== userId);
   auth.db.walletOrders = (auth.db.walletOrders || []).filter((o) => o.userId !== userId);
-  auth.db.userAssets = (auth.db.userAssets || []).filter((a) => a.userId !== userId);
-  auth.db.userCharacters = (auth.db.userCharacters || []).filter((c) => c.userId !== userId);
+  auth.db.userAssets = (auth.db.userAssets || []).map((a) => (a.userId === userId ? { ...a, deletedAt: a.deletedAt || nowIso, updatedAt: nowIso } : a));
+  auth.db.userCharacters = (auth.db.userCharacters || []).map((c) => (c.userId === userId ? { ...c, deletedAt: c.deletedAt || nowIso, updatedAt: nowIso } : c));
   await writeDb(auth.db);
   return sendJson(res, 200, { ok: true });
 }
@@ -3365,12 +3444,24 @@ async function handleAdminListMyCharacters(req, res) {
 async function handleAdminDeleteMyCharacter(req, res, characterId) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
-  const before = (auth.db.userCharacters || []).length;
-  auth.db.userCharacters = (auth.db.userCharacters || []).filter((c) => c.id !== characterId);
-  if (auth.db.userCharacters.length === before) {
+  const record = (auth.db.userCharacters || []).find((c) => c.id === characterId);
+  if (!record || isSoftDeleted(record)) {
     return sendJson(res, 404, { ok: false, message: "角色不存在。" });
   }
+  const nowIso = new Date().toISOString();
+  record.deletedAt = nowIso;
+  record.updatedAt = nowIso;
+  auth.db.userCharacters = (auth.db.userCharacters || []).map((c) => (c.id === characterId ? record : c));
+
+  const records = await readGenerationRecords();
+  let changedRecords = false;
+  const nextRecords = records.map((entry) => {
+    if (entry.companionId !== record.id || entry.deletedAt) return entry;
+    changedRecords = true;
+    return { ...entry, deletedAt: nowIso, updatedAt: nowIso };
+  });
   await writeDb(auth.db);
+  if (changedRecords) await writeGenerationRecords(nextRecords);
   return sendJson(res, 200, { ok: true });
 }
 
@@ -3402,12 +3493,23 @@ async function handleAdminDeleteHomeItem(req, res, itemId) {
   if (remaining.length === items.length) {
     return sendJson(res, 404, { ok: false, message: "角色不存在。" });
   }
+  const nowIso = new Date().toISOString();
+  const deleted = items.find((it) => it.id === itemId);
   config.homeVideo.items = remaining;
   if (config.homeVideo.activeItemId === itemId) {
     config.homeVideo.activeItemId = remaining[0]?.id || "";
   }
   config.homeVideo = syncHomeVideoActiveFields(config.homeVideo);
   await writeAppConfig(config);
+  if (deleted) {
+    const records = await readGenerationRecords();
+    const nextRecords = records.map((entry) => (
+      entry.companionId === itemId && !entry.deletedAt
+        ? { ...entry, deletedAt: nowIso, updatedAt: nowIso }
+        : entry
+    ));
+    await writeGenerationRecords(nextRecords);
+  }
   return sendJson(res, 200, { ok: true, homeVideo: config.homeVideo });
 }
 
@@ -3724,7 +3826,7 @@ async function handleCreateSceneVideo(req, res) {
         });
       }
     } else {
-      const userChar = (auth.db.userCharacters || []).find((entry) => entry.id === resolvedCompanionId && entry.userId === auth.user.id);
+      const userChar = (auth.db.userCharacters || []).find((entry) => entry.id === resolvedCompanionId && entry.userId === auth.user.id && !isSoftDeleted(entry));
       if (userChar) {
         try {
           const prepared = await ensureCharacterReferenceForRecord({ ...userChar });
@@ -3764,7 +3866,7 @@ async function handleCreateSceneVideo(req, res) {
   }
 
   if (partnerCharacterId) {
-    const partner = (auth.db.userCharacters || []).find((entry) => entry.id === partnerCharacterId && entry.userId === auth.user.id);
+    const partner = (auth.db.userCharacters || []).find((entry) => entry.id === partnerCharacterId && entry.userId === auth.user.id && !isSoftDeleted(entry));
     if (!partner) {
       return sendJson(res, 404, { ok: false, message: "Partner character not found." });
     }
@@ -4021,6 +4123,11 @@ async function handleRequest(req, res) {
       return await handleListUserAssets(req, res);
     }
 
+    const userAssetMatch = url.pathname.match(/^\/api\/user-assets\/([^/]+)$/);
+    if (req.method === "DELETE" && userAssetMatch) {
+      return await handleDeleteUserAsset(req, res, userAssetMatch[1]);
+    }
+
     if (req.method === "POST" && url.pathname === "/api/character-image") {
       return await handleCreateCharacterImage(req, res);
     }
@@ -4171,6 +4278,9 @@ async function handleRequest(req, res) {
     const myCharacterMatch = url.pathname.match(/^\/api\/my\/characters\/([^/]+)$/);
     if (req.method === "GET" && myCharacterMatch) {
       return await handleGetMyCharacter(req, res, myCharacterMatch[1]);
+    }
+    if (req.method === "DELETE" && myCharacterMatch) {
+      return await handleDeleteMyCharacter(req, res, myCharacterMatch[1]);
     }
 
     const myCharacterMainTaskMatch = url.pathname.match(/^\/api\/my\/characters\/([^/]+)\/main-video$/);

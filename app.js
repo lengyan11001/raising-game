@@ -284,6 +284,7 @@ const els = {
   homeHeroPoster: document.querySelector("#homeHeroPoster"),
   prevHomeBtn: document.querySelector("#prevHomeBtn"),
   nextHomeBtn: document.querySelector("#nextHomeBtn"),
+  nextRoleHintBtn: document.querySelector("#nextRoleHintBtn"),
   vrView: document.querySelector("#vrView"),
   vrCanvas: document.querySelector("#vrCanvas"),
   closeVrBtn: document.querySelector("#closeVrBtn"),
@@ -1220,16 +1221,14 @@ function renderHomeHero() {
   }
 
   if (els.sceneName) els.sceneName.textContent = activeScene?.name || activeItem.title || "Featured drama";
-  if (els.avatarSource) {
-    const sceneTotal = getHomeSceneEntriesForActive().length || scenes.length || 1;
-    els.avatarSource.textContent = `${state.homeVideoIndex + 1}/${items.length || 1} · ${state.homeSceneIndex + 1}/${sceneTotal}`;
-  }
+  if (els.avatarSource) els.avatarSource.textContent = activeItem.title || activeScene?.name || "Featured";
   if (els.avatarName) els.avatarName.textContent = activeItem.name || "Featured";
   if (els.sceneAssetRow) els.sceneAssetRow.hidden = Boolean(getHomeReferenceAssetUri());
 
   const showArrows = getHomeSceneEntriesForActive().length > 1;
   if (els.prevHomeBtn) els.prevHomeBtn.hidden = !showArrows;
   if (els.nextHomeBtn) els.nextHomeBtn.hidden = !showArrows;
+  if (els.nextRoleHintBtn) els.nextRoleHintBtn.hidden = items.length <= 1;
   renderIntimacy();
   refreshIcons();
 
@@ -1548,6 +1547,8 @@ function renderAssetLibrary() {
 
   els.userAssetList.innerHTML = "";
   state.userAssets.forEach((asset) => {
+    const chip = document.createElement("div");
+    chip.className = "asset-chip-wrap";
     const button = document.createElement("button");
     button.className = "asset-chip";
     button.type = "button";
@@ -1558,7 +1559,17 @@ function renderAssetLibrary() {
       renderAssetLibrary();
       updateJob("Asset selected", "This photo is selected.", 0);
     });
-    els.userAssetList.appendChild(button);
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "asset-delete-btn";
+    deleteBtn.type = "button";
+    deleteBtn.setAttribute("aria-label", `Delete ${asset.name || "asset"}`);
+    deleteBtn.innerHTML = '<i data-lucide="x"></i>';
+    deleteBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteUserAsset(asset.id);
+    });
+    chip.append(button, deleteBtn);
+    els.userAssetList.appendChild(chip);
   });
 
   const activeItem = getActiveHomeVideoItem();
@@ -1573,6 +1584,21 @@ function renderAssetLibrary() {
     option.selected = character.id === state.selectedScenePartnerId;
     els.sceneAssetSelect.appendChild(option);
   });
+}
+
+async function deleteUserAsset(assetId) {
+  if (!assetId) return;
+  try {
+    await requestJson(`/api/user-assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
+    state.userAssets = state.userAssets.filter((asset) => asset.id !== assetId);
+    if (state.selectedUserAssetId === assetId) {
+      state.selectedUserAssetId = state.userAssets[0]?.id || "";
+    }
+    renderAssetLibrary();
+    updateJob("Asset removed", "The upload is hidden from your library. Existing records stay archived.", 0);
+  } catch (error) {
+    updateJob("Remove failed", error.message || String(error), 0);
+  }
 }
 
 async function loadUserAssets() {
@@ -1678,6 +1704,13 @@ function renderCustomCharacterList() {
       actions.appendChild(startBtn);
     }
 
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "danger-action";
+    deleteBtn.innerHTML = '<i data-lucide="trash-2"></i>Delete';
+    deleteBtn.addEventListener("click", () => deleteMyCharacter(character.id));
+    actions.appendChild(deleteBtn);
+
     els.customCharacterList.appendChild(card);
   });
   refreshIcons();
@@ -1685,6 +1718,26 @@ function renderCustomCharacterList() {
 
 function setCustomCharacterStatus(text) {
   if (els.customCharacterStatus) els.customCharacterStatus.textContent = text || "";
+}
+
+async function deleteMyCharacter(characterId) {
+  if (!characterId) return;
+  try {
+    await requestJson(`/api/my/characters/${encodeURIComponent(characterId)}`, { method: "DELETE" });
+    state.myCharacters = state.myCharacters.filter((character) => character.id !== characterId);
+    const activeItem = getActiveHomeVideoItem();
+    if (activeItem?.id === characterId) {
+      state.homeVideoIndex = 0;
+      state.homeSceneIndex = 0;
+    }
+    renderCustomCharacterList();
+    renderAssetLibrary();
+    renderHomeHero();
+    setCustomCharacterStatus("Character removed from your list. Generated files and task records stay archived.");
+    updateJob("Character removed", "Hidden from your list and home carousel; records are kept safely.", 0);
+  } catch (error) {
+    setCustomCharacterStatus(error.message || String(error));
+  }
 }
 
 function openCustomCharacterDialog() {
@@ -2738,6 +2791,10 @@ function bindEvents() {
   els.nextHomeBtn?.addEventListener("click", (event) => {
     event.stopPropagation();
     switchHomeScene(1);
+  });
+  els.nextRoleHintBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    switchHomeVideoItem(1);
   });
 
   els.openScenePickerBtn?.addEventListener("click", (event) => {

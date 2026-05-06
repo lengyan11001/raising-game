@@ -285,6 +285,53 @@ svg {
 
 .scene-stage:not(.is-home-mode) .home-arrow { display: none; }
 
+.next-role-hint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(48px + env(safe-area-inset-bottom));
+  z-index: 6;
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 245, 232, 0.22);
+  border-radius: 999px;
+  color: rgba(255, 245, 232, 0.86);
+  background: rgba(8, 5, 12, 0.24);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transform: translateX(-50%);
+  cursor: pointer;
+  opacity: 0.76;
+  animation: nextRoleHint 1.8s ease-in-out infinite;
+}
+
+.next-role-hint svg {
+  width: 22px;
+  height: 22px;
+}
+
+.next-role-hint:hover {
+  opacity: 1;
+  background: rgba(8, 5, 12, 0.38);
+}
+
+.next-role-hint[hidden],
+.scene-stage:not(.is-home-mode) .next-role-hint {
+  display: none;
+}
+
+@keyframes nextRoleHint {
+  0%,
+  100% {
+    transform: translate(-50%, -2px);
+  }
+  50% {
+    transform: translate(-50%, 8px);
+  }
+}
+
 @media (max-width: 540px) {
   .home-arrow { width: 40px; height: 40px; }
   .home-arrow svg { width: 22px; height: 22px; }
@@ -1813,6 +1860,8 @@ input[type="text"]:focus {
 
 .custom-character-card .actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
 }
 
@@ -1826,11 +1875,22 @@ input[type="text"]:focus {
   background: rgba(240, 68, 117, 0.18);
 }
 
+.custom-character-card .actions button.danger-action {
+  border-color: rgba(255, 132, 132, 0.48);
+  color: rgba(255, 226, 226, 0.96);
+  background: rgba(155, 41, 72, 0.2);
+}
+
 .asset-library {
   display: flex;
   gap: 8px;
   overflow-x: auto;
   padding: 10px 0 2px;
+}
+
+.asset-chip-wrap {
+  position: relative;
+  flex: 0 0 auto;
 }
 
 .asset-chip {
@@ -1847,6 +1907,26 @@ input[type="text"]:focus {
 .asset-chip[aria-pressed="true"] {
   border-color: rgba(216, 168, 92, 0.9);
   box-shadow: 0 0 0 2px rgba(216, 168, 92, 0.18);
+}
+
+.asset-delete-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255, 226, 226, 0.36);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(18, 9, 14, 0.86);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.36);
+}
+
+.asset-delete-btn svg {
+  width: 13px;
+  height: 13px;
 }
 
 .asset-chip img {
