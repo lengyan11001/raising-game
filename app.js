@@ -1221,7 +1221,7 @@ function renderHomeHero() {
   }
 
   if (els.sceneName) els.sceneName.textContent = activeScene?.name || activeItem.title || "Featured drama";
-  if (els.avatarSource) els.avatarSource.textContent = activeItem.title || activeScene?.name || "Featured";
+  if (els.avatarSource) els.avatarSource.textContent = activeScene?.name || activeItem.title || "Featured";
   if (els.avatarName) els.avatarName.textContent = activeItem.name || "Featured";
   if (els.sceneAssetRow) els.sceneAssetRow.hidden = Boolean(getHomeReferenceAssetUri());
 
