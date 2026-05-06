@@ -1579,6 +1579,25 @@ input[type="text"]:focus {
   line-height: 1.6;
 }
 
+.welcome-dialog {
+  inset: auto 18px calc(24px + env(safe-area-inset-bottom));
+}
+
+.welcome-dialog form {
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(255, 244, 247, 0.12);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(240, 68, 117, 0.22), transparent 48%),
+    rgba(18, 10, 16, 0.94);
+}
+
+.welcome-dialog .primary-btn {
+  min-height: 54px;
+  box-shadow: 0 18px 40px rgba(240, 68, 117, 0.28);
+}
+
 .video-dialog video {
   width: 100%;
   max-height: min(68dvh, 640px);

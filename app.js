@@ -239,6 +239,7 @@ const state = {
   frameCoverFailures: {},
   framePrewarmRunning: false,
   awaitingSoundUnlock: false,
+  welcomePromptShown: false,
   userAssets: [],
   selectedUserAssetId: "",
   selectedScenePartnerId: "",
@@ -299,6 +300,8 @@ const els = {
   photoDialog: document.querySelector("#photoDialog"),
   dateDialog: document.querySelector("#dateDialog"),
   payDialog: document.querySelector("#payDialog"),
+  welcomeDialog: document.querySelector("#welcomeDialog"),
+  welcomeStartBtn: document.querySelector("#welcomeStartBtn"),
   presetGrid: document.querySelector("#presetGrid"),
   presetTemplate: document.querySelector("#presetTemplate"),
   sceneOrbit: document.querySelector("#sceneOrbit"),
@@ -866,6 +869,14 @@ function syncAllVideoAudio(options = {}) {
   applyVideoAudio(els.resultVideo, options);
 }
 
+function playHomeHeroWithSound() {
+  state.soundEnabled = true;
+  state.awaitingSoundUnlock = false;
+  localStorage.setItem("raisingGameSoundEnabled", "1");
+  renderSoundToggle();
+  applyVideoAudio(els.homeHeroVideo, { forcePlay: true });
+}
+
 function renderSoundToggle() {
   if (!els.soundToggleBtn) return;
   els.soundToggleBtn.setAttribute("aria-pressed", String(state.soundEnabled));
@@ -888,6 +899,18 @@ function unlockSoundAfterGesture() {
   if (!state.awaitingSoundUnlock) return;
   state.awaitingSoundUnlock = false;
   syncAllVideoAudio({ forcePlay: true });
+}
+
+function openWelcomeDialog() {
+  if (state.welcomePromptShown || !els.welcomeDialog || !state.soundEnabled) return;
+  if (document.querySelector("dialog[open]")) return;
+  state.welcomePromptShown = true;
+  try {
+    els.welcomeDialog.showModal();
+  } catch {
+    /* ignore */
+  }
+  refreshIcons();
 }
 
 function showVideoResult(videoUrl) {
@@ -2683,6 +2706,10 @@ function bindEvents() {
   els.soundToggleBtn?.addEventListener("click", () => {
     setSoundEnabled(!state.soundEnabled);
   });
+  els.welcomeStartBtn?.addEventListener("click", () => {
+    closeDialog(els.welcomeDialog);
+    playHomeHeroWithSound();
+  });
   els.userBtn?.addEventListener("click", () => {
     if (state.user) {
       updateJob("Signed in", `${state.user.username} · balance ${state.credits} credits.`, 0);
@@ -2917,6 +2944,7 @@ async function init() {
     syncAllVideoAudio();
     refreshIcons();
     await waitForHomeHeroReady();
+    openWelcomeDialog();
   } catch (err) {
     console.error("[init] failed", err);
   } finally {
