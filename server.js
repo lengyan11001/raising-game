@@ -274,6 +274,7 @@ const DEFAULT_CONFIG = {
       icon: "bed-double",
       enabled: true,
       price: 25,
+      entries: [{ id: "default", name: "Suite Night" }],
       prompt:
         "15-second photorealistic vertical cinematic full-body shot inside a luxurious modern apartment suite at night. Adult girlfriend in a tasteful short fitted dress or high-slit long dress, walking and turning slowly so her long legs stay visible the entire time, rain on the window, warm lamp light, teal and crimson highlights, slow tracking and low-to-mid angle camera, intimate but non-explicit mood.",
     },
@@ -284,6 +285,7 @@ const DEFAULT_CONFIG = {
       icon: "martini",
       enabled: true,
       price: 25,
+      entries: [{ id: "default", name: "Wine Lounge" }],
       prompt:
         "15-second photorealistic vertical cinematic full-body lounge date. Mature stylish woman in a high-slit red dress with long leg reveal walking past the bar, low jazz lighting, red wine glass, slow dolly camera framing her entire silhouette from head to heels, intimate eye contact, glossy reflections, premium overseas dating drama tone, non-explicit.",
     },
@@ -294,6 +296,7 @@ const DEFAULT_CONFIG = {
       icon: "building-2",
       enabled: true,
       price: 25,
+      entries: [{ id: "default", name: "Neon Rooftop" }],
       prompt:
         "15-second photorealistic vertical rooftop night full-body shot. Confident adult woman in a fitted mini dress or short skirt with thigh-high boots, neon city skyline behind her, breeze in hair and around her legs, slow walk and turn, low-angle wide camera that frames her full silhouette and long legs, cinematic teal and warm crimson palette, non-explicit.",
     },
@@ -304,6 +307,7 @@ const DEFAULT_CONFIG = {
       icon: "clapperboard",
       enabled: true,
       price: 25,
+      entries: [{ id: "default", name: "Private Cinema" }],
       prompt:
         "15-second photorealistic vertical private cinema full-body shot. Elegant adult woman in a sleek short evening outfit walking down the aisle of a private theater, projector light streaks across her body, velvet seats around her, slow tracking camera that always shows her full body and long legs, intimate whispering mood, premium scene, non-explicit.",
     },
@@ -374,12 +378,26 @@ async function readAppConfig() {
     homeVideo: mergedHomeVideo,
     ifilm: { ...DEFAULT_CONFIG.ifilm, ...(saved.ifilm || {}) },
     characterImage: { ...DEFAULT_CONFIG.characterImage, ...(saved.characterImage || {}) },
-    scenes: scenes.map((scene) => ({ ...(bySceneId.get(scene.id) || {}), ...scene })),
+    scenes: scenes.map((scene) => normalizeSceneConfig({ ...(bySceneId.get(scene.id) || {}), ...scene })),
   };
 }
 
 async function writeAppConfig(config) {
   await setKv("app_config", config);
+}
+
+async function ensureSceneEntriesPersisted(config) {
+  const saved = await getKv("app_config", DEFAULT_CONFIG);
+  const bySceneId = new Map(DEFAULT_CONFIG.scenes.map((scene) => [scene.id, scene]));
+  const savedScenes = Array.isArray(saved.scenes) ? saved.scenes : DEFAULT_CONFIG.scenes;
+  const nextScenes = savedScenes.map((scene) => normalizeSceneConfig({ ...(bySceneId.get(scene.id) || {}), ...scene }));
+  const changed =
+    savedScenes.some((scene) => !Array.isArray(scene.entries) || !scene.entries.length) ||
+    JSON.stringify(nextScenes) !== JSON.stringify(savedScenes);
+  if (!changed) return config;
+  const nextConfig = { ...config, scenes: nextScenes, updatedAt: new Date().toISOString() };
+  await writeAppConfig(nextConfig);
+  return nextConfig;
 }
 
 function publicConfig(config) {
@@ -408,12 +426,74 @@ function publicConfig(config) {
     characterImage: config.characterImage,
     scenes: config.scenes
       .filter((scene) => scene.enabled !== false)
-      .map(({ prompt, ...scene }) => scene),
+      .map((scene) => {
+        const { prompt, ...publicScene } = normalizeSceneConfig(scene);
+        return publicScene;
+      }),
   };
 }
 
 function makeHomeVideoItemId() {
   return `home-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
+}
+
+function makeSceneEntryId() {
+  return `entry-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
+}
+
+function normalizeSceneEntry(entry = {}, scene = {}) {
+  const id = String(entry.id || "default").trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 48) || "default";
+  const fallbackName = scene.shortName || scene.name || "Default";
+  return {
+    id,
+    name: String(entry.name || fallbackName).trim().slice(0, 40) || fallbackName,
+    enabled: entry.enabled !== false,
+    createdAt: entry.createdAt || "",
+    updatedAt: entry.updatedAt || "",
+  };
+}
+
+function normalizeSceneEntries(scene = {}) {
+  const entries = Array.isArray(scene.entries) ? scene.entries : [];
+  const normalized = entries
+    .map((entry) => normalizeSceneEntry(entry, scene))
+    .filter((entry, index, list) => list.findIndex((item) => item.id === entry.id) === index);
+  if (!normalized.length) {
+    normalized.push(normalizeSceneEntry({
+      id: "default",
+      name: scene.shortName || scene.name || "Default",
+    }, scene));
+  }
+  return normalized;
+}
+
+function normalizeSceneConfig(scene = {}) {
+  return {
+    ...scene,
+    entries: normalizeSceneEntries(scene),
+  };
+}
+
+function findSceneEntryConfig(scene = {}, entryId = "") {
+  const entries = normalizeSceneEntries(scene);
+  const requestedId = String(entryId || "").trim();
+  return (
+    entries.find((entry) => entry.id === requestedId && entry.enabled !== false) ||
+    entries.find((entry) => entry.id === "default" && entry.enabled !== false) ||
+    entries.find((entry) => entry.enabled !== false) ||
+    entries[0] ||
+    normalizeSceneEntry({ id: "default", name: scene.shortName || scene.name || "Default" }, scene)
+  );
+}
+
+function makeSceneVideoKey(sceneId, sceneEntryId = "default") {
+  const cleanSceneId = String(sceneId || "").trim();
+  const cleanEntryId = String(sceneEntryId || "default").trim() || "default";
+  return cleanEntryId === "default" ? cleanSceneId : `${cleanSceneId}__${cleanEntryId}`;
+}
+
+function sceneIdFromVideoKey(videoKey = "") {
+  return String(videoKey || "").split("__")[0] || "";
 }
 
 function publicHomeVideoItem(item) {
@@ -704,6 +784,8 @@ function publicSceneVideo(entry = {}) {
     posterUrl: entry.posterUrl || "",
     taskId: entry.taskId || "",
     status: entry.status || "",
+    sceneEntryId: entry.sceneEntryId || "default",
+    sceneEntryName: entry.sceneEntryName || "",
     referenceAssetUri: entry.referenceAssetUri || "",
     partnerCharacterId: entry.partnerCharacterId || "",
     partnerCharacterName: entry.partnerCharacterName || "",
@@ -722,9 +804,17 @@ function publicSceneVideo(entry = {}) {
 function publicSceneVideoMap(sceneVideos = {}) {
   if (!sceneVideos || typeof sceneVideos !== "object") return {};
   const out = {};
-  Object.keys(sceneVideos).forEach((sceneId) => {
-    const entry = publicSceneVideo({ ...sceneVideos[sceneId], sceneId });
-    if (entry) out[sceneId] = entry;
+  Object.keys(sceneVideos).forEach((videoKey) => {
+    const rawEntry = sceneVideos[videoKey] || {};
+    const sceneId = rawEntry.sceneId || sceneIdFromVideoKey(videoKey);
+    const entry = publicSceneVideo({ ...rawEntry, sceneId });
+    if (entry) out[videoKey] = entry;
+  });
+  Object.keys(out).forEach((videoKey) => {
+    const entry = out[videoKey];
+    if (entry.sceneEntryId === "default" && entry.sceneId && !out[entry.sceneId]) {
+      out[entry.sceneId] = entry;
+    }
   });
   return out;
 }
@@ -2376,6 +2466,8 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
   if (!sceneConfig || sceneConfig.id !== sceneId) {
     return sendJson(res, 404, { ok: false, message: "Scene not found." });
   }
+  const sceneEntry = findSceneEntryConfig(sceneConfig, body.sceneEntryId);
+  const sceneVideoKey = makeSceneVideoKey(sceneConfig.id, sceneEntry.id);
 
   const cost = clampNumber(body.cost, Number(sceneConfig.price || config.prices.dateVideo || 25), 0, 9999);
   if (auth.user.credits < cost) {
@@ -2398,7 +2490,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
       prompt,
       referenceAssetUri: record.referenceAssetUri,
       body: { ...body, generateAudio: true },
-      slug: `user-scene-${characterId}-${sceneConfig.id}`,
+      slug: `user-scene-${characterId}-${sceneVideoKey}`,
     });
     task = result.task;
     payload = result.payload;
@@ -2411,9 +2503,11 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
 
   const nowIso = new Date().toISOString();
   const sceneVideos = { ...(record.sceneVideos || {}) };
-  sceneVideos[sceneConfig.id] = {
+  sceneVideos[sceneVideoKey] = {
     sceneId: sceneConfig.id,
     sceneName: sceneConfig.name,
+    sceneEntryId: sceneEntry.id,
+    sceneEntryName: sceneEntry.name,
     posterUrl: record.posterUrl || record.localImageUrl || "",
     prompt: userPrompt || prompt,
     userPrompt,
@@ -2429,7 +2523,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     videoUrl: "",
     localVideoUrl: "",
     remoteVideoUrl: task.videoUrl || "",
-    createdAt: sceneVideos[sceneConfig.id]?.createdAt || nowIso,
+    createdAt: sceneVideos[sceneVideoKey]?.createdAt || nowIso,
     updatedAt: nowIso,
     error: "",
   };
@@ -2445,6 +2539,8 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     model: MODEL_QUALITY,
     sceneId: sceneConfig.id,
     sceneName: sceneConfig.name,
+    sceneEntryId: sceneEntry.id,
+    sceneEntryName: sceneEntry.name,
     companionId: record.id,
     companionName: record.name,
     userId: auth.user.id,
@@ -2464,7 +2560,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
   return sendJson(res, 200, {
     ok: true,
     character: publicUserCharacter(record),
-    sceneVideo: sceneVideos[sceneConfig.id],
+    sceneVideo: sceneVideos[sceneVideoKey],
     task,
     user: userView(auth.user),
     cost,
@@ -2492,6 +2588,8 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
   if (!record || !matchedSceneId) {
     return sendJson(res, 404, { ok: false, message: "No matching user-character scene video task found." });
   }
+  const matchedVideoKey = matchedSceneId;
+  const matchedSceneBaseId = sceneIdFromVideoKey(matchedVideoKey);
 
   const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
   const task = normalizeTask(raw);
@@ -2510,10 +2608,10 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
 
   const nowIso = new Date().toISOString();
   const sceneVideos = { ...(record.sceneVideos || {}) };
-  const previous = sceneVideos[matchedSceneId] || {};
-  sceneVideos[matchedSceneId] = {
+  const previous = sceneVideos[matchedVideoKey] || {};
+  sceneVideos[matchedVideoKey] = {
     ...previous,
-    sceneId: matchedSceneId,
+    sceneId: previous.sceneId || matchedSceneBaseId,
     taskId: task.taskId || taskId,
     status: task.status,
     videoUrl: localVideoUrl || task.videoUrl || previous.videoUrl || "",
@@ -2537,7 +2635,7 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
     error: task.error || downloadError || "",
   });
 
-  return sendJson(res, 200, { ok: true, character: publicUserCharacter(record), sceneVideo: sceneVideos[matchedSceneId], task });
+  return sendJson(res, 200, { ok: true, character: publicUserCharacter(record), sceneVideo: sceneVideos[matchedVideoKey], task });
 }
 
 async function handleAdminGetConfig(req, res) {
@@ -3548,9 +3646,53 @@ async function handleAdminUpdateScene(req, res, sceneId) {
   if (typeof body.enabled === "boolean") scene.enabled = body.enabled;
   if (typeof body.price === "number" && Number.isFinite(body.price)) scene.price = Math.max(0, Math.round(body.price));
   if (typeof body.prompt === "string") scene.prompt = body.prompt;
+  config.scenes[idx] = normalizeSceneConfig(scene);
+  await writeAppConfig(config);
+  return sendJson(res, 200, { ok: true, scene: config.scenes[idx] });
+}
+
+async function handleAdminCreateSceneEntry(req, res, sceneId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const idx = (config.scenes || []).findIndex((s) => s.id === sceneId);
+  if (idx < 0) return sendJson(res, 404, { ok: false, message: "场景不存在。" });
+  const body = await readJson(req);
+  const nowIso = new Date().toISOString();
+  const scene = normalizeSceneConfig(config.scenes[idx]);
+  const entry = normalizeSceneEntry({
+    id: makeSceneEntryId(),
+    name: String(body.name || "新入口").trim() || "新入口",
+    enabled: body.enabled !== false,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  }, scene);
+  scene.entries = [...scene.entries, entry];
+  scene.updatedAt = nowIso;
   config.scenes[idx] = scene;
   await writeAppConfig(config);
-  return sendJson(res, 200, { ok: true, scene });
+  return sendJson(res, 200, { ok: true, scene, entry });
+}
+
+async function handleAdminUpdateSceneEntry(req, res, sceneId, entryId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const idx = (config.scenes || []).findIndex((s) => s.id === sceneId);
+  if (idx < 0) return sendJson(res, 404, { ok: false, message: "场景不存在。" });
+  const body = await readJson(req);
+  const scene = normalizeSceneConfig(config.scenes[idx]);
+  const entryIdx = scene.entries.findIndex((entry) => entry.id === entryId);
+  if (entryIdx < 0) return sendJson(res, 404, { ok: false, message: "入口不存在。" });
+  const entry = { ...scene.entries[entryIdx] };
+  if (typeof body.name === "string") entry.name = body.name.trim().slice(0, 40) || entry.name;
+  if (typeof body.enabled === "boolean") entry.enabled = body.enabled;
+  entry.updatedAt = new Date().toISOString();
+  scene.entries[entryIdx] = normalizeSceneEntry(entry, scene);
+  scene.updatedAt = entry.updatedAt;
+  config.scenes[idx] = scene;
+  await writeAppConfig(config);
+  return sendJson(res, 200, { ok: true, scene, entry: scene.entries[entryIdx] });
 }
 
 async function handleAdminListWalletOrders(req, res) {
@@ -3758,6 +3900,10 @@ async function handleCreateSceneVideo(req, res) {
   const body = await readJson(req);
   let config = await readAppConfig();
   const sceneConfig = findSceneConfig(config, body.sceneId);
+  if (!sceneConfig || sceneConfig.id !== String(body.sceneId || "").trim()) {
+    return sendJson(res, 404, { ok: false, message: "Scene not found." });
+  }
+  const sceneEntry = findSceneEntryConfig(sceneConfig, body.sceneEntryId);
   const userPrompt = makeScenePrompt(body);
   const prompt = makeSceneVideoPrompt(sceneConfig, userPrompt);
   const model = MODEL_QUALITY;
@@ -3942,6 +4088,8 @@ async function handleCreateSceneVideo(req, res) {
     model,
     sceneId: body.sceneId || "",
     sceneName: body.sceneName || "",
+    sceneEntryId: sceneEntry.id,
+    sceneEntryName: sceneEntry.name,
     companionId: resolvedCompanionId || body.companionId || "",
     companionName: resolvedCompanionName || body.companionName || "",
     userId: auth.user.id,
@@ -3971,6 +4119,7 @@ async function handleCreateSceneVideo(req, res) {
     },
     user: userView(auth.user),
     cost,
+    sceneEntry,
   });
 }
 
@@ -4087,6 +4236,7 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/config/public") {
       let config = await readAppConfig();
+      config = await ensureSceneEntriesPersisted(config);
       config = await refreshCompletedHomeVideoItems(config);
       return sendJson(res, 200, { ok: true, config: publicConfig(config) });
     }
@@ -4239,6 +4389,16 @@ async function handleRequest(req, res) {
     const adminSceneMatch = url.pathname.match(/^\/api\/admin\/scenes\/([^/]+)$/);
     if (req.method === "PATCH" && adminSceneMatch) {
       return await handleAdminUpdateScene(req, res, adminSceneMatch[1]);
+    }
+
+    const adminSceneEntryCollectionMatch = url.pathname.match(/^\/api\/admin\/scenes\/([^/]+)\/entries$/);
+    if (req.method === "POST" && adminSceneEntryCollectionMatch) {
+      return await handleAdminCreateSceneEntry(req, res, adminSceneEntryCollectionMatch[1]);
+    }
+
+    const adminSceneEntryMatch = url.pathname.match(/^\/api\/admin\/scenes\/([^/]+)\/entries\/([^/]+)$/);
+    if (req.method === "PATCH" && adminSceneEntryMatch) {
+      return await handleAdminUpdateSceneEntry(req, res, adminSceneEntryMatch[1], adminSceneEntryMatch[2]);
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/wallet-orders") {

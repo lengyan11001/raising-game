@@ -253,6 +253,7 @@ const state = {
   currentVrSpotId: "window",
   vr: null,
   currentScene: scenes[0],
+  pendingSceneEntry: null,
   pendingScene: scenes[0],
   uploadedDataUrl: "",
   pendingPayment: null,
@@ -994,7 +995,7 @@ function getSceneVideoForActive(sceneId) {
   const item = getActiveHomeVideoItem();
   if (!item || !sceneId) return null;
   const sceneVideos = item.sceneVideos || {};
-  const entry = sceneVideos[sceneId];
+  const entry = sceneVideos[sceneId] || Object.values(sceneVideos).find((candidate) => candidate?.sceneId === sceneId);
   if (!entry || typeof entry !== "object") return null;
   const url = String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
   if (!url) return null;
@@ -1381,17 +1382,28 @@ function renderPresets() {
 function renderSceneHotspots() {
   els.sceneOrbit.innerHTML = "";
   scenes.forEach((scene) => {
-    const node = els.sceneHotspotTemplate.content.firstElementChild.cloneNode(true);
-    const icon = node.querySelector(".short-card-media i") || node.querySelector("i");
-    node.dataset.sceneId = scene.id;
-    node.style.setProperty("--scene-card-image", `url("${scenePreviewImages[scene.id] || scenePreviewImages.room}")`);
-    node.classList.toggle("is-active", scene.id === state.currentScene.id);
-    icon.setAttribute("data-lucide", scene.icon);
-    node.querySelector(".short-card-copy strong").textContent = scene.shortName || scene.name;
-    node.querySelector(".short-card-copy em").textContent = scene.desc || scene.name;
-    node.addEventListener("click", () => openDateDialog(scene));
-    els.sceneOrbit.appendChild(node);
+    const entries = getSceneEntries(scene);
+    entries.forEach((entry) => {
+      const node = els.sceneHotspotTemplate.content.firstElementChild.cloneNode(true);
+      const icon = node.querySelector(".short-card-media i") || node.querySelector("i");
+      node.dataset.sceneId = scene.id;
+      node.dataset.entryId = entry.id;
+      node.style.setProperty("--scene-card-image", `url("${scenePreviewImages[scene.id] || scenePreviewImages.room}")`);
+      node.classList.toggle("is-active", scene.id === state.currentScene.id);
+      icon.setAttribute("data-lucide", scene.icon);
+      node.querySelector(".short-card-copy strong").textContent = entry.name || scene.shortName || scene.name;
+      node.querySelector(".short-card-copy em").textContent = scene.shortName || scene.name;
+      node.addEventListener("click", () => openDateDialog(scene, entry));
+      els.sceneOrbit.appendChild(node);
+    });
   });
+  refreshIcons();
+}
+
+function getSceneEntries(scene = {}) {
+  const entries = Array.isArray(scene.entries) ? scene.entries.filter((entry) => entry?.enabled !== false) : [];
+  if (entries.length) return entries;
+  return [{ id: "default", name: scene.shortName || scene.name || "Default" }];
 }
 
 function renderScenePickerGrid() {
@@ -1436,10 +1448,12 @@ function openScenePicker() {
   if (els.scenePickerDialog) openDialog(els.scenePickerDialog);
 }
 
-function openDateDialog(scene) {
+function openDateDialog(scene, entry = null) {
+  const sceneEntry = entry || getSceneEntries(scene)[0] || { id: "default", name: scene.shortName || scene.name };
   state.pendingScene = scene;
+  state.pendingSceneEntry = sceneEntry;
   selectScene(scene, { silent: true });
-  els.dateDialogTitle.textContent = scene.name;
+  els.dateDialogTitle.textContent = sceneEntry.name || scene.name;
   els.dateDialogDesc.textContent = scene.shortName || scene.name;
   els.scenePreview.dataset.scene = scene.id;
   els.scenePrompt.value = "";
@@ -2395,6 +2409,7 @@ async function startDateVideoJob(scene) {
   const requestId = Date.now();
   state.sceneRequestId = requestId;
   const activeItem = getActiveHomeVideoItem();
+  const sceneEntry = state.pendingSceneEntry || getSceneEntries(scene)[0] || { id: "default", name: scene.shortName || scene.name };
 
   selectScene(scene, { silent: true });
 
@@ -2411,8 +2426,8 @@ async function startDateVideoJob(scene) {
   const homeReferenceAssetUri = activeItem?.referenceAssetUri || getHomeReferenceAssetUri();
   const selectedPartnerId = state.selectedScenePartnerId || els.sceneAssetSelect.value || "";
   const submitDetail = selectedPartnerId
-    ? `Preparing "${activeItem?.name || "this character"}" and partner for "${scene.name}"...`
-    : `Preparing "${activeItem?.name || "this character"}" for "${scene.name}"...`;
+    ? `Preparing "${activeItem?.name || "this character"}" and partner for "${sceneEntry.name || scene.name}"...`
+    : `Preparing "${activeItem?.name || "this character"}" for "${sceneEntry.name || scene.name}"...`;
 
   /* updateJob(
     "Submitting video task",
@@ -2427,6 +2442,8 @@ async function startDateVideoJob(scene) {
       body: JSON.stringify({
         sceneId: scene.id,
         sceneName: scene.name,
+        sceneEntryId: sceneEntry.id || "default",
+        sceneEntryName: sceneEntry.name || scene.shortName || scene.name,
         companionId: activeItem?.id || state.selectedCompanion.id,
         companionName: activeItem?.name || state.selectedCompanion.name,
         // The backend will resolve referenceAssetUri from companionId via the
@@ -2451,7 +2468,7 @@ async function startDateVideoJob(scene) {
 
     if (created.user) syncUser(created.user);
     updateJob("Seedance submitted", `Task ${task.taskId.slice(0, 18)} is queued.`, 22);
-    pollSceneVideoTask(task.taskId, scene, prompt, requestId);
+    pollSceneVideoTask(task.taskId, scene, prompt, requestId, sceneEntry);
   } catch (error) {
     if (state.sceneRequestId !== requestId) return;
     let message = error.message || String(error);
@@ -2462,17 +2479,23 @@ async function startDateVideoJob(scene) {
   }
 }
 
-async function startUserCharacterSceneJob(scene, character, requestId, prompt = "") {
+async function startUserCharacterSceneJob(scene, character, requestId, prompt = "", entry = null) {
   const userPrompt = String(prompt || "").trim();
+  const sceneEntry = entry || state.pendingSceneEntry || getSceneEntries(scene)[0] || { id: "default", name: scene.shortName || scene.name };
   const promptHint = userPrompt
     ? `using your custom prompt (${userPrompt.length} chars)`
     : `using the scene's default prompt`;
-  updateJob("Submitting video task", `Generating "${scene.name}" for your character "${character.name}" ${promptHint}…`, 10);
+  updateJob("Submitting video task", `Generating "${sceneEntry.name || scene.name}" for your character "${character.name}" ${promptHint}…`, 10);
 
   try {
     const created = await requestJson(`/api/my/characters/${encodeURIComponent(character.id)}/scene-video`, {
       method: "POST",
-      body: JSON.stringify({ sceneId: scene.id, prompt: userPrompt }),
+      body: JSON.stringify({
+        sceneId: scene.id,
+        sceneEntryId: sceneEntry.id || "default",
+        sceneEntryName: sceneEntry.name || scene.shortName || scene.name,
+        prompt: userPrompt,
+      }),
     });
     if (state.sceneRequestId !== requestId) return;
     if (created.user) syncUser(created.user);
@@ -2480,14 +2503,14 @@ async function startUserCharacterSceneJob(scene, character, requestId, prompt = 
     const taskId = created.task?.taskId;
     if (!taskId) throw new Error("Backend didn't return a task id.");
     updateJob("Seedance submitted", `Task ${taskId.slice(0, 18)} is queued.`, 22);
-    pollUserCharacterSceneTask(taskId, scene, character.id, requestId);
+    pollUserCharacterSceneTask(taskId, scene, character.id, requestId, sceneEntry);
   } catch (error) {
     if (state.sceneRequestId !== requestId) return;
     updateJob("Submit failed", error.message, 0);
   }
 }
 
-function pollUserCharacterSceneTask(taskId, scene, characterId, requestId) {
+function pollUserCharacterSceneTask(taskId, scene, characterId, requestId, entry = null) {
   let progress = 26;
   let polling = false;
   let queryFailures = 0;
@@ -2508,9 +2531,10 @@ function pollUserCharacterSceneTask(taskId, scene, characterId, requestId) {
         bumpIntimacy(characterId, 1);
         if (playbackUrl) showVideoResult(playbackUrl);
         await loadMyCharacters();
+        const entryName = result.sceneVideo?.sceneEntryName || entry?.name || scene.name;
         updateJob(
           "Date video ready",
-          playbackUrl ? `Video bound to "${result.character?.name || "your character"}" × "${scene.name}". Opens above — loops until you close. Intimacy +1.` : `Task done — scene: ${scene.name}. Intimacy +1.`,
+          playbackUrl ? `Video bound to "${result.character?.name || "your character"}" × "${entryName}". Opens above — loops until you close. Intimacy +1.` : `Task done — scene: ${entryName}. Intimacy +1.`,
           100,
         );
         return;
@@ -2521,7 +2545,7 @@ function pollUserCharacterSceneTask(taskId, scene, characterId, requestId) {
       }
 
       queryFailures = 0;
-      updateJob(status === "queued" ? "Seedance queued" : "Rendering date scene", `Scene: ${scene.name}; full-body long-leg drama prompt locked.`, progress);
+      updateJob(status === "queued" ? "Seedance queued" : "Rendering date scene", `Scene: ${entry?.name || scene.name}; full-body long-leg drama prompt locked.`, progress);
     } catch (error) {
       queryFailures += 1;
       if (queryFailures < 5) {
@@ -2539,7 +2563,7 @@ function pollUserCharacterSceneTask(taskId, scene, characterId, requestId) {
   state.sceneTimer = window.setInterval(poll, 6000);
 }
 
-function pollSceneVideoTask(taskId, scene, prompt, requestId) {
+function pollSceneVideoTask(taskId, scene, prompt, requestId, entry = null) {
   let progress = 26;
   let polling = false;
   let queryFailures = 0;
@@ -2561,9 +2585,10 @@ function pollSceneVideoTask(taskId, scene, prompt, requestId) {
         const activeItem = getActiveHomeVideoItem();
         if (activeItem?.id) bumpIntimacy(activeItem.id, 1);
         if (playbackUrl) showVideoResult(playbackUrl);
+        const entryName = entry?.name || scene.name;
         updateJob(
           "Date video ready",
-          playbackUrl ? `Video saved — player opens above and loops. Scene: ${scene.name}. Intimacy +1.` : `Task done — scene: ${scene.name}. Intimacy +1.`,
+          playbackUrl ? `Video saved — player opens above and loops. Scene: ${entryName}. Intimacy +1.` : `Task done — scene: ${entryName}. Intimacy +1.`,
           100,
         );
         if (task.remoteVideoUrl) console.info("Seedance remote video URL", task.remoteVideoUrl);
@@ -2575,7 +2600,7 @@ function pollSceneVideoTask(taskId, scene, prompt, requestId) {
       }
 
       queryFailures = 0;
-      updateJob(status === "queued" ? "Seedance queued" : "Rendering date scene", `Scene: ${scene.name}; backend prompt locked.`, progress);
+      updateJob(status === "queued" ? "Seedance queued" : "Rendering date scene", `Scene: ${entry?.name || scene.name}; backend prompt locked.`, progress);
     } catch (error) {
       queryFailures += 1;
       if (queryFailures < 5) {
@@ -2768,9 +2793,10 @@ function bindEvents() {
 
   els.sceneGenerateBtn.addEventListener("click", () => {
     const scene = state.pendingScene;
+    const sceneEntry = state.pendingSceneEntry || getSceneEntries(scene)[0] || { id: "default", name: scene.shortName || scene.name };
     state.selectedScenePartnerId = els.sceneAssetSelect.value;
     openPayment({
-      label: `Generate "${scene.name}" date video`,
+      label: `Generate "${sceneEntry.name || scene.name}" date video`,
       cost: Number(scene.price || priceOf("dateVideo", DATE_VIDEO_COST)),
       run: () => startDateVideoJob(scene),
     });

@@ -1215,6 +1215,125 @@ function sceneCard(scene) {
   `;
 }
 
+/* Scene-entry aware override. Kept after the legacy scene renderer so the
+   route uses the latest definition without disturbing the rest of admin.js. */
+async function renderScenes() {
+  const config = await loadConfig(true);
+  const scenes = config.scenes || [];
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>场景管理</h2>
+          <p class="adm-muted">一个场景可以配置多个入口；用户端会直接展示这些入口。</p>
+        </div>
+      </div>
+      ${scenes.length ? `
+        <div class="adm-grid adm-mt">
+          ${scenes.map((s) => sceneCard(s)).join("")}
+        </div>` : `<div class="adm-card adm-mt"><div class="adm-empty"><i data-lucide="map"></i><p>暂无场景</p></div></div>`}
+    </section>
+  `;
+  refreshIcons();
+  els.adminContent.querySelectorAll(".adm-card").forEach((card) => {
+    const id = card.dataset.id;
+    if (!id) return;
+    card.querySelector('[data-act="save-scene"]')?.addEventListener("click", async () => {
+      try {
+        await api(`/api/admin/scenes/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: {
+            name: card.querySelector('[data-f="name"]').value.trim(),
+            shortName: card.querySelector('[data-f="shortName"]').value.trim(),
+            icon: card.querySelector('[data-f="icon"]').value.trim(),
+            price: Number(card.querySelector('[data-f="price"]').value) || 0,
+            enabled: card.querySelector('[data-f="enabled"]').checked,
+            prompt: card.querySelector('[data-f="prompt"]').value,
+          },
+        });
+        toast("场景已保存。", "success");
+        state.config = null;
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+    card.querySelector('[data-act="add-entry"]')?.addEventListener("click", async () => {
+      const name = prompt("入口名字", "新入口");
+      if (!name) return;
+      try {
+        await api(`/api/admin/scenes/${encodeURIComponent(id)}/entries`, {
+          method: "POST",
+          body: { name: name.trim() },
+        });
+        toast("入口已新增。", "success");
+        state.config = null;
+        renderScenes();
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+    card.querySelectorAll("[data-entry-id]").forEach((row) => {
+      row.querySelector('[data-act="save-entry"]')?.addEventListener("click", async () => {
+        const entryId = row.dataset.entryId;
+        try {
+          await api(`/api/admin/scenes/${encodeURIComponent(id)}/entries/${encodeURIComponent(entryId)}`, {
+            method: "PATCH",
+            body: {
+              name: row.querySelector('[data-f="entryName"]').value.trim(),
+              enabled: row.querySelector('[data-f="entryEnabled"]').checked,
+            },
+          });
+          toast("入口已保存。", "success");
+          state.config = null;
+          renderScenes();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
+    });
+  });
+}
+
+function sceneCard(scene) {
+  const entries = Array.isArray(scene.entries) && scene.entries.length
+    ? scene.entries
+    : [{ id: "default", name: scene.shortName || scene.name || "Default", enabled: true }];
+  return `
+    <article class="adm-card" data-id="${escapeHtml(scene.id)}">
+      <header class="adm-card-head">
+        <h3>${escapeHtml(scene.name)} (${escapeHtml(scene.id)})</h3>
+        <span class="adm-pill">${escapeHtml(scene.icon || "—")}</span>
+      </header>
+      <div class="adm-card-body">
+        <div class="adm-grid adm-grid-3">
+          <div class="adm-form-row"><span>名字</span><input data-f="name" type="text" value="${escapeHtml(scene.name)}" /></div>
+          <div class="adm-form-row"><span>短名</span><input data-f="shortName" type="text" value="${escapeHtml(scene.shortName || "")}" /></div>
+          <div class="adm-form-row"><span>图标 (lucide)</span><input data-f="icon" type="text" value="${escapeHtml(scene.icon || "")}" /></div>
+          <div class="adm-form-row"><span>消耗（爱心币）</span><input data-f="price" type="number" min="0" value="${escapeHtml(scene.price ?? 0)}" /></div>
+          <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:6px;align-items:center;"><input data-f="enabled" type="checkbox" ${scene.enabled ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端可见</span></label></div>
+        </div>
+        <div class="adm-form-row"><span>预制 Prompt</span><textarea data-f="prompt" rows="6">${escapeHtml(scene.prompt || "")}</textarea></div>
+        <div class="adm-form-row">
+          <span>入口</span>
+          <div class="adm-entry-list">
+            ${entries.map((entry) => `
+              <div class="adm-entry-row" data-entry-id="${escapeHtml(entry.id)}">
+                <input data-f="entryName" type="text" value="${escapeHtml(entry.name || "")}" />
+                <label class="adm-flex" style="gap:6px;align-items:center;"><input data-f="entryEnabled" type="checkbox" ${entry.enabled !== false ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">启用</span></label>
+                <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="save-entry" type="button"><i data-lucide="save"></i>保存入口</button>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+        <div class="adm-form-actions">
+          <button class="adm-btn adm-btn-primary" data-act="save-scene"><i data-lucide="save"></i>保存场景</button>
+          <button class="adm-btn adm-btn-ghost" data-act="add-entry" type="button"><i data-lucide="plus"></i>新增入口</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
 /* ============ USERS ============ */
 async function renderUsers() {
   const payload = await api("/api/admin/users");
