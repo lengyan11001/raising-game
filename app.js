@@ -230,6 +230,7 @@ const state = {
   config: null,
   homeVideo: null,
   homeVideoIndex: 0,
+  homeSceneIndex: 0,
   homeSwipeStartX: 0,
   homeSwipeStartY: 0,
   homeSwipeTracking: false,
@@ -887,7 +888,12 @@ function getHomeReferenceAssetUri() {
 
 function adminHomeItems() {
   const homeVideo = state.config?.homeVideo || {};
-  const items = Array.isArray(homeVideo.items) ? homeVideo.items.filter((item) => item.posterUrl || item.videoUrl) : [];
+  const items = Array.isArray(homeVideo.items)
+    ? homeVideo.items.filter((item) => {
+        const hasHomeSceneVideo = Object.values(item.homeSceneVideos || {}).some((entry) => entry?.videoUrl || entry?.localVideoUrl || entry?.remoteVideoUrl || entry?.taskId);
+        return item.posterUrl || item.localImageUrl || item.videoUrl || hasHomeSceneVideo;
+      })
+    : [];
   if (items.length) return items.map((item) => ({ ...item, ownerType: "admin" }));
   return [{
     id: homeVideo.activeItemId || "home-default",
@@ -897,6 +903,7 @@ function adminHomeItems() {
     posterUrl: homeVideo.posterUrl || "./assets/admin/home/default-hero.jpg",
     videoUrl: homeVideo.videoUrl || homeVideo.localVideoUrl || "",
     referenceAssetUri: homeVideo.referenceAssetUri || "",
+    homeSceneVideos: {},
     sceneVideos: {},
   }];
 }
@@ -910,7 +917,20 @@ function userHomeItems() {
       if (["failed", "error", "cancelled", "canceled"].includes(st)) return false;
       return true;
     })
-    .map((character) => ({ ...character, ownerType: "user" }));
+    .map((character) => ({
+      ...character,
+      ownerType: "user",
+      homeSceneVideos: {
+        room: {
+          sceneId: "room",
+          sceneName: "Suite Night",
+          videoUrl: character.videoUrl || character.localVideoUrl || "",
+          posterUrl: character.posterUrl || character.localImageUrl || "",
+          taskId: character.taskId || "",
+          status: character.status || "",
+        },
+      },
+    }));
 }
 
 function getHomeVideoItems() {
@@ -933,6 +953,33 @@ function getSceneVideoForActive(sceneId) {
   const url = String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
   if (!url) return null;
   return { item, entry: { ...entry, videoUrl: url } };
+}
+
+function getHomeSceneEntriesForActive() {
+  const item = getActiveHomeVideoItem();
+  if (!item) return [];
+  const entries = item.homeSceneVideos || {};
+  return scenes.map((scene) => {
+    const entry = entries[scene.id];
+    const url = entry ? String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim() : "";
+    return {
+      scene,
+      item,
+      entry: entry && url ? { ...entry, videoUrl: url } : null,
+    };
+  });
+}
+
+function getActiveHomeSceneEntry() {
+  const entries = getHomeSceneEntriesForActive();
+  if (!entries.length) return null;
+  state.homeSceneIndex = ((state.homeSceneIndex % entries.length) + entries.length) % entries.length;
+  return entries[state.homeSceneIndex];
+}
+
+function getActiveHomeSceneVideoUrl() {
+  const binding = getActiveHomeSceneEntry();
+  return binding?.entry?.videoUrl || "";
 }
 
 function resetBoundSceneVideoPlayer() {
@@ -970,6 +1017,14 @@ function switchHomeVideoItem(direction) {
   const items = getHomeVideoItems();
   if (items.length <= 1) return;
   state.homeVideoIndex = (state.homeVideoIndex + direction + items.length) % items.length;
+  state.homeSceneIndex = 0;
+  renderHomeHero();
+}
+
+function switchHomeScene(direction) {
+  const entries = getHomeSceneEntriesForActive();
+  if (entries.length <= 1) return;
+  state.homeSceneIndex = (state.homeSceneIndex + direction + entries.length) % entries.length;
   renderHomeHero();
 }
 
@@ -982,9 +1037,14 @@ function isSameVideoSrc(videoEl, url) {
   }
 }
 
-function captureVideoFrame(videoEl, itemId) {
-  if (!itemId || !videoEl) return false;
-  if (state.frameCovers[itemId]) return true;
+function homeCoverKey(item, sceneId = "") {
+  if (!item?.id) return "";
+  return `${item.id}::${sceneId || "home"}`;
+}
+
+function captureVideoFrame(videoEl, coverKey) {
+  if (!coverKey || !videoEl) return false;
+  if (state.frameCovers[coverKey]) return true;
   if (!videoEl.videoWidth || !videoEl.videoHeight) return false;
   try {
     const canvas = document.createElement("canvas");
@@ -995,27 +1055,28 @@ function captureVideoFrame(videoEl, itemId) {
     const ctx = canvas.getContext("2d");
     ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.78);
-    state.frameCovers[itemId] = dataUrl;
+    state.frameCovers[coverKey] = dataUrl;
     return true;
   } catch (error) {
-    state.frameCoverFailures[itemId] = String(error?.message || error || "tainted-canvas");
+    state.frameCoverFailures[coverKey] = String(error?.message || error || "tainted-canvas");
     return false;
   }
 }
 
-function getCoverForItem(item) {
+function getCoverForItem(item, sceneId = "") {
   if (!item) return "";
-  return state.frameCovers?.[item.id] || "";
+  return state.frameCovers?.[homeCoverKey(item, sceneId)] || "";
 }
 
 function preloadFrameCoversForItems(items = []) {
   if (state.framePrewarmRunning) return;
-  const queue = items.filter((item) => {
-    if (!item || !item.id) return false;
-    if (state.frameCovers[item.id]) return false;
-    if (state.frameCoverFailures[item.id]) return false;
-    const url = item.videoUrl || item.localVideoUrl || "";
-    return Boolean(url);
+  const queue = items.flatMap((item) => {
+    if (!item || !item.id) return [];
+    return scenes.map((scene) => {
+      const entry = item.homeSceneVideos?.[scene.id] || {};
+      const url = String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
+      return { item, sceneId: scene.id, coverKey: homeCoverKey(item, scene.id), url };
+    }).filter((entry) => entry.url && !state.frameCovers[entry.coverKey] && !state.frameCoverFailures[entry.coverKey]);
   });
   if (!queue.length) return;
   state.framePrewarmRunning = true;
@@ -1029,9 +1090,9 @@ function preloadFrameCoversForItems(items = []) {
   let cancelled = false;
 
   const run = async () => {
-    for (const item of queue) {
+    for (const queued of queue) {
       if (cancelled) break;
-      const url = item.videoUrl || item.localVideoUrl || "";
+      const { item, sceneId, coverKey, url } = queued;
       if (!url) continue;
       try {
         await new Promise((resolve) => {
@@ -1044,7 +1105,7 @@ function preloadFrameCoversForItems(items = []) {
             resolve();
           };
           probe.onloadeddata = () => {
-            const ok = captureVideoFrame(probe, item.id);
+            const ok = captureVideoFrame(probe, coverKey);
             if (!ok) {
               const fallback = document.createElement("video");
               fallback.muted = true;
@@ -1053,7 +1114,7 @@ function preloadFrameCoversForItems(items = []) {
               fallback.style.cssText = probe.style.cssText;
               document.body.appendChild(fallback);
               fallback.onloadeddata = () => {
-                captureVideoFrame(fallback, item.id);
+                captureVideoFrame(fallback, coverKey);
                 fallback.remove();
                 finish();
               };
@@ -1067,11 +1128,11 @@ function preloadFrameCoversForItems(items = []) {
           setTimeout(finish, 7000);
           probe.src = url;
         });
-        if (state.frameCovers[item.id] && getActiveHomeVideoItem()?.id === item.id) {
+        if (state.frameCovers[coverKey] && getActiveHomeVideoItem()?.id === item.id && getActiveHomeSceneEntry()?.scene?.id === sceneId) {
           renderHomeHero();
         }
       } catch (error) {
-        state.frameCoverFailures[item.id] = String(error?.message || error || "load-failed");
+        state.frameCoverFailures[coverKey] = String(error?.message || error || "load-failed");
       }
     }
     probe.remove();
@@ -1095,17 +1156,23 @@ function renderHomeHero() {
     if (activeIndex >= 0) state.homeVideoIndex = activeIndex;
   }
   const activeItem = getActiveHomeVideoItem() || {};
+  const activeSceneBinding = getActiveHomeSceneEntry();
+  const activeScene = activeSceneBinding?.scene || scenes[0];
   state.homeVideo = homeVideo;
   els.gameStage?.classList.add("is-home-mode");
 
-  const cachedFrame = getCoverForItem(activeItem);
+  const cachedFrame = getCoverForItem(activeItem, activeScene?.id || "");
   // IMPORTANT: never fall back to `homeVideo.posterUrl` / `homeVideo.videoUrl`
   // here — those legacy fields hold the *active* item's media, so falling
   // back on them makes a character without its own video silently borrow
   // the active character's video, which looks like "all characters share
   // one video".
-  const fallbackPoster = activeItem.posterUrl || activeItem.localImageUrl || "./assets/admin/home/default-hero.jpg";
-  const videoUrl = activeItem.videoUrl || activeItem.localVideoUrl || "";
+  const fallbackPoster =
+    activeSceneBinding?.entry?.posterUrl ||
+    activeItem.posterUrl ||
+    activeItem.localImageUrl ||
+    "./assets/admin/home/default-hero.jpg";
+  const videoUrl = getActiveHomeSceneVideoUrl();
 
   const coverUrl = cachedFrame || (!videoUrl ? fallbackPoster : "");
 
@@ -1123,7 +1190,7 @@ function renderHomeHero() {
     const video = els.homeHeroVideo;
     video.onloadeddata = () => {
       if (els.homeHeroPoster) els.homeHeroPoster.hidden = true;
-      captureVideoFrame(video, activeItem.id);
+      captureVideoFrame(video, homeCoverKey(activeItem, activeScene?.id || ""));
     };
     video.onerror = () => {
       video.hidden = true;
@@ -1152,12 +1219,15 @@ function renderHomeHero() {
     }
   }
 
-  if (els.sceneName) els.sceneName.textContent = activeItem.title || "Featured drama";
-  if (els.avatarSource) els.avatarSource.textContent = items.length > 1 ? `${state.homeVideoIndex + 1}/${items.length}` : (videoUrl ? "Main video" : "Hero poster");
+  if (els.sceneName) els.sceneName.textContent = activeScene?.name || activeItem.title || "Featured drama";
+  if (els.avatarSource) {
+    const sceneTotal = getHomeSceneEntriesForActive().length || scenes.length || 1;
+    els.avatarSource.textContent = `${state.homeVideoIndex + 1}/${items.length || 1} · ${state.homeSceneIndex + 1}/${sceneTotal}`;
+  }
   if (els.avatarName) els.avatarName.textContent = activeItem.name || "Featured";
   if (els.sceneAssetRow) els.sceneAssetRow.hidden = Boolean(getHomeReferenceAssetUri());
 
-  const showArrows = items.length > 1;
+  const showArrows = getHomeSceneEntriesForActive().length > 1;
   if (els.prevHomeBtn) els.prevHomeBtn.hidden = !showArrows;
   if (els.nextHomeBtn) els.nextHomeBtn.hidden = !showArrows;
   renderIntimacy();
@@ -2514,8 +2584,10 @@ function handleDragEnd(event) {
     els.gameStage.releasePointerCapture?.(event.pointerId);
     const deltaX = event.clientX - state.homeSwipeStartX;
     const deltaY = event.clientY - state.homeSwipeStartY;
-    if (Math.abs(deltaX) > 58 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4) {
-      switchHomeVideoItem(deltaX < 0 ? 1 : -1);
+    if (Math.abs(deltaX) > 58 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+      switchHomeScene(deltaX < 0 ? 1 : -1);
+    } else if (Math.abs(deltaY) > 58 && Math.abs(deltaY) > Math.abs(deltaX) * 1.2) {
+      switchHomeVideoItem(deltaY < 0 ? 1 : -1);
     }
     return;
   }
@@ -2661,11 +2733,11 @@ function bindEvents() {
 
   els.prevHomeBtn?.addEventListener("click", (event) => {
     event.stopPropagation();
-    switchHomeVideoItem(-1);
+    switchHomeScene(-1);
   });
   els.nextHomeBtn?.addEventListener("click", (event) => {
     event.stopPropagation();
-    switchHomeVideoItem(1);
+    switchHomeScene(1);
   });
 
   els.openScenePickerBtn?.addEventListener("click", (event) => {
@@ -2676,8 +2748,10 @@ function bindEvents() {
   document.addEventListener("keydown", (event) => {
     if (event.target.closest("input, textarea, select, dialog[open]")) return;
     if (!els.gameStage?.classList.contains("is-home-mode")) return;
-    if (event.key === "ArrowLeft") switchHomeVideoItem(-1);
-    else if (event.key === "ArrowRight") switchHomeVideoItem(1);
+    if (event.key === "ArrowLeft") switchHomeScene(-1);
+    else if (event.key === "ArrowRight") switchHomeScene(1);
+    else if (event.key === "ArrowUp") switchHomeVideoItem(-1);
+    else if (event.key === "ArrowDown") switchHomeVideoItem(1);
   });
 }
 

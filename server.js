@@ -5,6 +5,12 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { URL } = require("node:url");
+const {
+  dbEnabled,
+  migrateFileDataToDb,
+  getKv,
+  setKv,
+} = require("./db");
 
 const ROOT = __dirname;
 
@@ -26,6 +32,8 @@ function loadLocalEnv(filePath) {
 }
 
 loadLocalEnv(path.join(ROOT, ".env.local"));
+
+const DATABASE_URL = process.env.DATABASE_URL || "";
 
 const PORT = Number(process.env.PORT || 4174);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
@@ -108,6 +116,7 @@ const DEFAULT_DB = {
   walletOrders: [],
   userAssets: [],
   userCharacters: [],
+  adminHomeItems: [],
 };
 
 const FULL_BODY_LEG_DIRECTIVE = [
@@ -133,6 +142,62 @@ function decorateFullBodyLegPrompt(corePrompt, extraDirection = "") {
     `Negative constraints: ${FULL_BODY_LEG_NEGATIVES}`,
   ].filter(Boolean).join(" ");
 }
+
+const DEFAULT_ADMIN_HOME_ITEMS = [
+  {
+    id: "suite-seductive-demo",
+    name: "Aria",
+    title: "Rainy Suite",
+    posterUrl: "/assets/admin/home/default-hero.jpg",
+    localImageUrl: "/assets/admin/home/default-hero.jpg",
+    sourceImageUrl: "/assets/admin/home/default-hero.jpg",
+    imageMime: "image/jpeg",
+    sourceImageMime: "image/jpeg",
+    syntheticReferenceLocalUrl: "/assets/admin/home/default-hero.jpg",
+    syntheticReferenceTaskId: "demo-seed",
+    referenceAssetUri: "asset://asset-20260429190434-6plrk",
+    videoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
+    localVideoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
+    taskId: "cgt-20260502191234-jdb6s",
+    status: "succeeded",
+    createdAt: "2026-05-02T11:17:48.000Z",
+    sceneVideos: {},
+  },
+  {
+    id: "pink-1777738973553-a9cfba",
+    name: "Rose",
+    title: "Morning Studio",
+    posterUrl: "/assets/admin/home/pink-upload-synthetic-reference.png",
+    localImageUrl: "/assets/admin/home/pink-upload-synthetic-reference.png",
+    sourceImageUrl: "/assets/admin/home/pink-1777738973553-a9cfba.png",
+    imageMime: "image/png",
+    sourceImageMime: "image/png",
+    referenceAssetUri: "",
+    videoUrl: "",
+    localVideoUrl: "",
+    taskId: "",
+    status: "draft",
+    createdAt: "2026-05-03T13:54:33.753Z",
+    sceneVideos: {},
+  },
+  {
+    id: "suite-rose-vintage",
+    name: "Bianca",
+    title: "Velvet Lounge",
+    posterUrl: "/assets/admin/home/pink-seedance-rose-reference.png",
+    localImageUrl: "/assets/admin/home/pink-seedance-rose-reference.png",
+    sourceImageUrl: "/assets/admin/home/pink-seedance-rose-reference.png",
+    imageMime: "image/png",
+    sourceImageMime: "image/png",
+    referenceAssetUri: "",
+    videoUrl: "",
+    localVideoUrl: "",
+    taskId: "",
+    status: "draft",
+    createdAt: "2026-05-03T13:54:33.753Z",
+    sceneVideos: {},
+  },
+];
 
 const DEFAULT_CONFIG = {
   defaultCompanionId: "aria",
@@ -274,31 +339,32 @@ async function writeJsonFile(filePath, payload) {
 }
 
 async function readDb() {
-  const db = await readJsonFile(APP_DB_PATH, DEFAULT_DB);
+  const db = await getKv("app_db", DEFAULT_DB);
   return {
     users: Array.isArray(db.users) ? db.users : [],
     sessions: Array.isArray(db.sessions) ? db.sessions : [],
     walletOrders: Array.isArray(db.walletOrders) ? db.walletOrders : [],
     userAssets: Array.isArray(db.userAssets) ? db.userAssets : [],
     userCharacters: Array.isArray(db.userCharacters) ? db.userCharacters : [],
+    adminHomeItems: Array.isArray(db.adminHomeItems) ? db.adminHomeItems : [],
   };
 }
 
 async function writeDb(db) {
-  await writeJsonFile(APP_DB_PATH, db);
+  await setKv("app_db", db);
 }
 
 async function readAppConfig() {
-  const saved = await readJsonFile(APP_CONFIG_PATH, DEFAULT_CONFIG);
+  const saved = await getKv("app_config", DEFAULT_CONFIG);
   const bySceneId = new Map(DEFAULT_CONFIG.scenes.map((scene) => [scene.id, scene]));
   const scenes = Array.isArray(saved.scenes) ? saved.scenes : DEFAULT_CONFIG.scenes;
-  const mergedHomeVideo = normalizeHomeVideo({ ...DEFAULT_CONFIG.homeVideo, ...(saved.homeVideo || {}) });
+  const mergedHomeVideo = normalizeHomeVideo(seedSystemHomeVideoItems({ ...DEFAULT_CONFIG.homeVideo, ...(saved.homeVideo || {}) }));
   return {
     ...DEFAULT_CONFIG,
     ...saved,
     prices: { ...DEFAULT_CONFIG.prices, ...(saved.prices || {}) },
     wallet: { ...DEFAULT_CONFIG.wallet, ...(saved.wallet || {}) },
-    video: { ...DEFAULT_CONFIG.video, ...(saved.video || {}) },
+    video: { ...DEFAULT_CONFIG.video, ...(saved.video || {}), generateAudio: true },
     homeVideo: mergedHomeVideo,
     ifilm: { ...DEFAULT_CONFIG.ifilm, ...(saved.ifilm || {}) },
     characterImage: { ...DEFAULT_CONFIG.characterImage, ...(saved.characterImage || {}) },
@@ -307,7 +373,7 @@ async function readAppConfig() {
 }
 
 async function writeAppConfig(config) {
-  await writeJsonFile(APP_CONFIG_PATH, config);
+  await setKv("app_config", config);
 }
 
 function publicConfig(config) {
@@ -363,6 +429,7 @@ function publicHomeVideoItem(item) {
     referenceAssetUri: item.referenceAssetUri || "",
     referenceState,
     createdAt: item.createdAt || "",
+    homeSceneVideos: publicSceneVideoMap(item.homeSceneVideos || {}),
     sceneVideos: publicSceneVideoMap(item.sceneVideos || {}),
   };
 }
@@ -391,7 +458,12 @@ function legacyHomeItem(homeVideo = {}) {
 
 function normalizeHomeVideo(homeVideo = {}) {
   const items = Array.isArray(homeVideo.items) ? homeVideo.items.filter(Boolean) : [];
-  const normalized = items.length ? items : [legacyHomeItem(homeVideo)].filter((item) => item.posterUrl || item.videoUrl);
+  const normalized = (items.length ? items : [legacyHomeItem(homeVideo)].filter((item) => item.posterUrl || item.videoUrl))
+    .map((item) => ({
+      ...item,
+      homeSceneVideos: normalizeHomeSceneVideosForItem(item),
+      sceneVideos: item.sceneVideos && typeof item.sceneVideos === "object" ? item.sceneVideos : {},
+    }));
   const activeItemId = homeVideo.activeItemId || normalized[0]?.id || "";
   const active = normalized.find((item) => item.id === activeItemId) || normalized[0] || {};
   return {
@@ -412,6 +484,43 @@ function normalizeHomeVideo(homeVideo = {}) {
   };
 }
 
+function normalizeHomeSceneVideosForItem(item = {}) {
+  const homeSceneVideos =
+    item.homeSceneVideos && typeof item.homeSceneVideos === "object"
+      ? { ...item.homeSceneVideos }
+      : {};
+  if (!homeSceneVideos.room) {
+    const videoUrl = String(item.videoUrl || item.localVideoUrl || item.remoteVideoUrl || "").trim();
+    const taskId = String(item.taskId || "").trim();
+    if (videoUrl || taskId) {
+      homeSceneVideos.room = {
+        sceneId: "room",
+        sceneName: "Suite Night",
+        posterUrl: item.posterUrl || item.localImageUrl || "",
+        prompt: item.prompt || "",
+        finalPrompt: item.finalPrompt || item.prompt || "",
+        referenceAssetUri: item.referenceAssetUri || "",
+        model: item.model || MODEL_QUALITY,
+        ratio: item.ratio || DEFAULT_CONFIG.video.ratio,
+        resolution: item.resolution || DEFAULT_CONFIG.video.resolution,
+        duration: item.duration || DEFAULT_CONFIG.video.duration,
+        provider: item.provider || "seedance",
+        taskId,
+        status: item.status || "",
+        videoUrl,
+        localVideoUrl: item.localVideoUrl || "",
+        localVideoPath: item.localVideoPath || "",
+        remoteVideoUrl: item.remoteVideoUrl || "",
+        createdAt: item.createdAt || "",
+        updatedAt: item.updatedAt || item.createdAt || "",
+        error: item.error || "",
+        source: "legacy-home-video",
+      };
+    }
+  }
+  return homeSceneVideos;
+}
+
 function syncHomeVideoActiveFields(homeVideo = {}) {
   const normalized = normalizeHomeVideo(homeVideo);
   return normalized;
@@ -419,7 +528,8 @@ function syncHomeVideoActiveFields(homeVideo = {}) {
 
 function findHomeVideoItem(homeVideo = {}, itemId = "") {
   const normalized = normalizeHomeVideo(homeVideo);
-  return normalized.items.find((item) => item.id === itemId) || normalized.items.find((item) => item.id === normalized.activeItemId) || normalized.items[0];
+  if (itemId) return normalized.items.find((item) => item.id === itemId) || null;
+  return normalized.items.find((item) => item.id === normalized.activeItemId) || normalized.items[0];
 }
 
 function upsertHomeVideoItem(homeVideo = {}, item) {
@@ -427,6 +537,31 @@ function upsertHomeVideoItem(homeVideo = {}, item) {
   const items = normalized.items.filter((next) => next.id !== item.id);
   items.unshift(item);
   return syncHomeVideoActiveFields({ ...normalized, activeItemId: item.id, items });
+}
+
+function replaceHomeVideoItem(homeVideo = {}, item) {
+  const normalized = normalizeHomeVideo(homeVideo);
+  let found = false;
+  const items = normalized.items.map((next) => {
+    if (next.id !== item.id) return next;
+    found = true;
+    return { ...next, ...item };
+  });
+  return syncHomeVideoActiveFields(found ? { ...normalized, items } : normalized);
+}
+
+function seedSystemHomeVideoItems(homeVideo = {}) {
+  const normalized = normalizeHomeVideo(homeVideo);
+  const byId = new Map((normalized.items || []).map((item) => [item.id, item]));
+  for (const item of DEFAULT_ADMIN_HOME_ITEMS) {
+    if (!byId.has(item.id)) {
+      byId.set(item.id, structuredClone(item));
+    }
+  }
+  return {
+    ...normalized,
+    items: Array.from(byId.values()),
+  };
 }
 
 function userView(user) {
@@ -561,9 +696,6 @@ function publicSceneVideo(entry = {}) {
     posterUrl: entry.posterUrl || "",
     taskId: entry.taskId || "",
     status: entry.status || "",
-    prompt: entry.prompt || "",
-    userPrompt: entry.userPrompt || "",
-    finalPrompt: entry.finalPrompt || entry.prompt || "",
     referenceAssetUri: entry.referenceAssetUri || "",
     partnerCharacterId: entry.partnerCharacterId || "",
     partnerCharacterName: entry.partnerCharacterName || "",
@@ -719,15 +851,58 @@ function makeHomeSyntheticReferencePrompt(item = {}) {
   ].filter(Boolean).join(" ");
 }
 
-function makeHomeVideoPrompt(item = {}, overridePrompt = "", { decorate = false } = {}) {
+const HOME_SCENE_DIRECTIONS = {
+  room: {
+    label: "Suite Night",
+    scene: "luxury private suite at night, rain on tall windows, warm lamp light, mirrored wall, rose-gold highlights",
+    action:
+      "0-4s she slowly opens the suite curtains and turns back toward camera; 4-9s she walks diagonally across the room in full-body view with relaxed hip sway and steady eye contact; 9-15s she leans against the mirrored wall, one leg forward, giving a soft teasing smile while speaking a short intimate line.",
+  },
+  cafe: {
+    label: "Wine Lounge",
+    scene: "upscale wine lounge with jazz lighting, glossy bar reflections, red wine glass, low amber and crimson light",
+    action:
+      "0-4s she glides past the bar with a wine glass in hand; 4-9s she pauses beside a lounge table, crosses one leg and gently lifts the glass toward camera; 9-15s she steps closer, places the glass down, and whispers a playful invitation with direct eye contact.",
+  },
+  park: {
+    label: "Neon Rooftop",
+    scene: "neon rooftop at night with city skyline, light breeze, wet floor reflections, cinematic teal and warm red highlights",
+    action:
+      "0-4s she walks along the rooftop edge with wind moving her hair and outfit; 4-9s she spins once under the neon sign, full silhouette visible from head to heels; 9-15s she rests both hands on the railing, looks over her shoulder, then turns back with a confident teasing line.",
+  },
+  cinema: {
+    label: "Private Cinema",
+    scene: "private cinema with velvet seats, projector beam, dim aisle lights, soft dust in the light shaft",
+    action:
+      "0-4s she walks down the cinema aisle between velvet seats; 4-9s she stops in the projector beam and slowly turns, letting the light trace her silhouette; 9-15s she sits on the armrest, leans toward camera, and murmurs a flirtatious non-explicit line.",
+  },
+};
+
+function getHomeSceneDirection(scene = {}) {
+  const id = String(scene?.id || "").trim();
+  const fallback = {
+    label: scene?.name || scene?.shortName || "Main Scene",
+    scene: String(scene?.prompt || "").trim() || "premium intimate mobile romance drama setting",
+    action:
+      "0-4s she enters the scene in full-body view; 4-9s she performs a distinct slow movement suited to the setting; 9-15s she settles into an elegant flirtatious pose and speaks a short non-explicit teasing line.",
+  };
+  return { ...fallback, ...(HOME_SCENE_DIRECTIONS[id] || {}) };
+}
+
+function makeHomeVideoPrompt(item = {}, overridePrompt = "", { decorate = false, scene = null } = {}) {
   const userPrompt = String(overridePrompt || item.prompt || "").trim();
+  const sceneDirection = scene ? getHomeSceneDirection(scene) : null;
   const core = userPrompt || [
     "Create a 15-second vertical cinematic image-to-video FULL-BODY short drama shot featuring the same original adult woman from the reference image.",
     "Identity lock: preserve her face impression, adult age impression, hairstyle, outfit colors, outfit silhouette, body proportions, shoes, and visible accessories from the reference image.",
     "Mood: seductive, elegant, intimate, confident, premium mobile romance drama, strictly non-explicit.",
     "Audio: include soft sensual female voiceover and breathy teasing spoken lines, flirtatious and alluring, short intimate phrases, low-volume cinematic mix, no explicit sexual language.",
-    "Scene: luxury private suite lounge with warm lamp light, mirrored wall, rain on tall windows, rose-gold highlights, polished high-end atmosphere.",
-    "Action timeline: 0-4s she walks toward camera in full-body view, legs crossing naturally in stride, direct confident eye contact; 4-9s she stops, slowly turns 360 to show her full silhouette, hands resting at her hips, long legs clearly visible; 9-15s she leans against the mirrored wall, one leg slightly forward in a fashion editorial pose, slow low-angle camera tilt highlights her long legs while she gives a restrained flirtatious smile.",
+    sceneDirection
+      ? `Scene: ${sceneDirection.scene}.`
+      : "Scene: luxury private suite lounge with warm lamp light, mirrored wall, rain on tall windows, rose-gold highlights, polished high-end atmosphere.",
+    sceneDirection
+      ? `Action timeline: ${sceneDirection.action}`
+      : "Action timeline: 0-4s she walks toward camera in full-body view, legs crossing naturally in stride, direct confident eye contact; 4-9s she stops, slowly turns 360 to show her full silhouette, hands resting at her hips, long legs clearly visible; 9-15s she leans against the mirrored wall, one leg slightly forward in a fashion editorial pose, slow low-angle camera tilt highlights her long legs while she gives a restrained flirtatious smile.",
   ].join(" ");
   return decorate ? decorateFullBodyLegPrompt(core) : core;
 }
@@ -951,7 +1126,7 @@ async function ensureSyntheticReferenceForHomeItem(config, itemId, options = {})
       publicImageUrl: "",
       tosKey: "",
     };
-    config.homeVideo = upsertHomeVideoItem(config.homeVideo, working);
+    config.homeVideo = replaceHomeVideoItem(config.homeVideo, working);
     await writeAppConfig(config);
   } else if (hasAsset && hasSynthetic) {
     return config;
@@ -977,7 +1152,7 @@ async function ensureSyntheticReferenceForHomeItem(config, itemId, options = {})
       status: "reference_ready",
       updatedAt: new Date().toISOString(),
     };
-    config.homeVideo = upsertHomeVideoItem(config.homeVideo, referenceItem);
+    config.homeVideo = replaceHomeVideoItem(config.homeVideo, referenceItem);
     await writeAppConfig(config);
   } else if (referenceItem.syntheticReferenceLocalUrl && referenceItem.localImageUrl !== referenceItem.syntheticReferenceLocalUrl) {
     referenceItem = {
@@ -988,7 +1163,7 @@ async function ensureSyntheticReferenceForHomeItem(config, itemId, options = {})
       imageMime: "image/png",
       updatedAt: new Date().toISOString(),
     };
-    config.homeVideo = upsertHomeVideoItem(config.homeVideo, referenceItem);
+    config.homeVideo = replaceHomeVideoItem(config.homeVideo, referenceItem);
     await writeAppConfig(config);
   }
 
@@ -1052,7 +1227,7 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
     tosKey: uploaded.key,
     updatedAt: new Date().toISOString(),
   };
-  config.homeVideo = upsertHomeVideoItem(config.homeVideo, next);
+  config.homeVideo = replaceHomeVideoItem(config.homeVideo, next);
   return config;
 }
 
@@ -1211,18 +1386,12 @@ async function apizRequest(pathname, body) {
 }
 
 async function readGenerationRecords() {
-  try {
-    const data = await fs.readFile(GENERATION_RECORDS_PATH, "utf8");
-    const records = JSON.parse(data);
-    return Array.isArray(records) ? records : [];
-  } catch {
-    return [];
-  }
+  const records = await getKv("generation_records", []);
+  return Array.isArray(records) ? records : [];
 }
 
 async function writeGenerationRecords(records) {
-  await fs.mkdir(path.dirname(GENERATION_RECORDS_PATH), { recursive: true });
-  await fs.writeFile(GENERATION_RECORDS_PATH, `${JSON.stringify(records, null, 2)}\n`);
+  await setKv("generation_records", records);
 }
 
 async function upsertGenerationRecord(nextRecord) {
@@ -2428,7 +2597,7 @@ async function handleAdminRebuildHomeItemReference(req, res, itemId) {
     const cfg = await readAppConfig();
     const before = findHomeVideoItem(cfg.homeVideo || {}, itemId);
     if (before) {
-      cfg.homeVideo = upsertHomeVideoItem(cfg.homeVideo, {
+      cfg.homeVideo = replaceHomeVideoItem(cfg.homeVideo, {
         ...before,
         referenceAssetUri: "",
         publicImageUrl: "",
@@ -2471,7 +2640,7 @@ function scheduleHomeItemReferenceBuild(itemId) {
       cfg = await ensureSyntheticReferenceForHomeItem(cfg, itemId, { force: false, _fromScheduler: true });
       const item = findHomeVideoItem(cfg.homeVideo || {}, itemId);
       if (item && (item.status === "reference_failed" || item.error)) {
-        cfg.homeVideo = upsertHomeVideoItem(cfg.homeVideo, {
+        cfg.homeVideo = replaceHomeVideoItem(cfg.homeVideo, {
           ...item,
           status: "reference_ready",
           error: "",
@@ -2486,7 +2655,7 @@ function scheduleHomeItemReferenceBuild(itemId) {
         const cfg = await readAppConfig();
         const item = findHomeVideoItem(cfg.homeVideo || {}, itemId);
         if (item) {
-          cfg.homeVideo = upsertHomeVideoItem(cfg.homeVideo, {
+          cfg.homeVideo = replaceHomeVideoItem(cfg.homeVideo, {
             ...item,
             status: "reference_failed",
             error: String(error.message || error),
@@ -2548,9 +2717,11 @@ async function handleAdminCreateHomeVideo(req, res) {
     });
   }
   const activeItem = findHomeVideoItem(config.homeVideo);
+  const sceneId = String(body.sceneId || "room").trim() || "room";
+  const sceneConfig = findSceneConfig(config, sceneId);
   const provider = String(body.provider || config.homeVideo.provider || "seedance");
   const userPrompt = String(body.prompt || activeItem?.prompt || "").trim();
-  const prompt = makeHomeVideoPrompt(activeItem, userPrompt);
+  const prompt = makeHomeVideoPrompt(activeItem, userPrompt, { scene: sceneConfig });
 
   if (provider === "ifilm-cli") {
     return sendJson(res, 503, {
@@ -2577,14 +2748,43 @@ async function handleAdminCreateHomeVideo(req, res) {
   const nextItem = {
     ...referenceItem,
     provider,
-    prompt,
+    prompt: referenceItem.prompt || "",
     taskId: task.taskId,
     status: task.status,
-    videoUrl: task.videoUrl || "",
-    localVideoUrl: "",
     updatedAt: new Date().toISOString(),
   };
-  config.homeVideo = upsertHomeVideoItem(config.homeVideo, nextItem);
+  const nowIso = new Date().toISOString();
+  const homeSceneVideos = { ...(referenceItem.homeSceneVideos || {}) };
+  homeSceneVideos[sceneConfig.id] = {
+    sceneId: sceneConfig.id,
+    sceneName: sceneConfig.name,
+    posterUrl: referenceItem.posterUrl || referenceItem.localImageUrl || "",
+    prompt: userPrompt || prompt,
+    userPrompt,
+    finalPrompt: prompt,
+    referenceAssetUri: nextItem.referenceAssetUri || referenceItem.referenceAssetUri || config.homeVideo.referenceAssetUri,
+    model: MODEL_QUALITY,
+    ratio: payload.ratio,
+    resolution: payload.resolution,
+    duration: payload.duration,
+    provider: "seedance",
+    taskId: task.taskId,
+    status: task.status,
+    videoUrl: "",
+    localVideoUrl: "",
+    remoteVideoUrl: task.videoUrl || "",
+    createdAt: homeSceneVideos[sceneConfig.id]?.createdAt || nowIso,
+    updatedAt: nowIso,
+    error: "",
+    source: "admin-home-scene",
+  };
+  nextItem.homeSceneVideos = homeSceneVideos;
+  if (sceneConfig.id === "room") {
+    nextItem.videoUrl = "";
+    nextItem.localVideoUrl = "";
+    nextItem.remoteVideoUrl = task.videoUrl || "";
+  }
+  config.homeVideo = replaceHomeVideoItem(config.homeVideo, nextItem);
   await writeAppConfig(config);
   await upsertGenerationRecord({
     taskId: task.taskId,
@@ -2595,6 +2795,8 @@ async function handleAdminCreateHomeVideo(req, res) {
     companionId: referenceItem.id || "home",
     companionName: referenceItem.name || "首页预设角色",
     userId: auth.user.id,
+    sceneId: sceneConfig.id,
+    sceneName: sceneConfig.name,
     referenceAssetUri: nextItem.referenceAssetUri || referenceItem.referenceAssetUri || config.homeVideo.referenceAssetUri,
     prompt: userPrompt,
     finalPrompt: prompt,
@@ -2605,9 +2807,10 @@ async function handleAdminCreateHomeVideo(req, res) {
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl: "",
     error: "",
+    source: "admin-home-scene",
   });
 
-  return sendJson(res, 200, { ok: true, homeVideo: config.homeVideo, item: nextItem, task });
+  return sendJson(res, 200, { ok: true, homeVideo: config.homeVideo, item: nextItem, homeSceneVideo: homeSceneVideos[sceneConfig.id], task });
 }
 
 async function handleAdminCreateCharacterSceneVideo(req, res) {
@@ -2634,8 +2837,6 @@ async function handleAdminCreateCharacterSceneVideo(req, res) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "缺少 ARK_API_KEY，不能提交 Seedance 视频任务。" });
   }
 
-  config.homeVideo.activeItemId = item.id;
-  config.homeVideo = syncHomeVideoActiveFields(config.homeVideo);
   config = await ensureSyntheticReferenceForHomeItem(config, item.id);
   const refItem = findHomeVideoItem(config.homeVideo, itemId) || item;
   const referenceAssetUri = refItem.referenceAssetUri || config.homeVideo.referenceAssetUri;
@@ -2681,7 +2882,7 @@ async function handleAdminCreateCharacterSceneVideo(req, res) {
     error: "",
   };
   const nextItem = { ...refItem, sceneVideos, updatedAt: nowIso };
-  config.homeVideo = upsertHomeVideoItem(config.homeVideo, nextItem);
+  config.homeVideo = replaceHomeVideoItem(config.homeVideo, nextItem);
   await writeAppConfig(config);
 
   await upsertGenerationRecord({
@@ -2763,7 +2964,7 @@ async function handleAdminGetCharacterSceneVideo(req, res, taskId) {
     updatedAt: nowIso,
   };
   const nextItem = { ...matchedItem, sceneVideos, updatedAt: nowIso };
-  config.homeVideo = upsertHomeVideoItem(config.homeVideo, nextItem);
+  config.homeVideo = replaceHomeVideoItem(config.homeVideo, nextItem);
   await writeAppConfig(config);
 
   await upsertGenerationRecord({
@@ -2799,9 +3000,25 @@ async function handleAdminGetHomeVideo(req, res, taskId) {
   }
 
   config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
-  const matchedItem =
-    config.homeVideo.items.find((item) => item.taskId === taskId || item.taskId === task.taskId) ||
-    findHomeVideoItem(config.homeVideo);
+  let matchedItem = null;
+  let matchedSceneId = "";
+  for (const candidate of config.homeVideo.items || []) {
+    const homeSceneVideos = candidate.homeSceneVideos || {};
+    for (const sceneId of Object.keys(homeSceneVideos)) {
+      if (homeSceneVideos[sceneId]?.taskId === taskId || homeSceneVideos[sceneId]?.taskId === task.taskId) {
+        matchedItem = candidate;
+        matchedSceneId = sceneId;
+        break;
+      }
+    }
+    if (matchedItem) break;
+  }
+  if (!matchedItem) {
+    matchedItem = config.homeVideo.items.find((item) => item.taskId === taskId || item.taskId === task.taskId);
+  }
+  if (!matchedItem) {
+    return sendJson(res, 404, { ok: false, message: "No matching home video task found." });
+  }
   const nextItem = {
     ...matchedItem,
     taskId: task.taskId || taskId,
@@ -2813,7 +3030,30 @@ async function handleAdminGetHomeVideo(req, res, taskId) {
     error: task.error || downloadError || "",
     updatedAt: new Date().toISOString(),
   };
-  config.homeVideo = upsertHomeVideoItem(config.homeVideo, nextItem);
+  if (matchedSceneId) {
+    const homeSceneVideos = { ...(matchedItem.homeSceneVideos || {}) };
+    const previous = homeSceneVideos[matchedSceneId] || {};
+    homeSceneVideos[matchedSceneId] = {
+      ...previous,
+      sceneId: matchedSceneId,
+      taskId: task.taskId || taskId,
+      status: task.status,
+      videoUrl: localVideoUrl || task.videoUrl || previous.videoUrl || "",
+      localVideoUrl: localVideoUrl || previous.localVideoUrl || "",
+      localVideoPath: localVideoPath || previous.localVideoPath || "",
+      remoteVideoUrl: task.videoUrl || previous.remoteVideoUrl || "",
+      error: task.error || downloadError || "",
+      updatedAt: new Date().toISOString(),
+    };
+    nextItem.homeSceneVideos = homeSceneVideos;
+    if (matchedSceneId !== "room") {
+      nextItem.videoUrl = matchedItem.videoUrl || "";
+      nextItem.localVideoUrl = matchedItem.localVideoUrl || "";
+      nextItem.remoteVideoUrl = matchedItem.remoteVideoUrl || "";
+      nextItem.localVideoPath = matchedItem.localVideoPath || "";
+    }
+  }
+  config.homeVideo = replaceHomeVideoItem(config.homeVideo, nextItem);
   await writeAppConfig(config);
   await upsertGenerationRecord({
     taskId: task.taskId || taskId,
@@ -2825,6 +3065,127 @@ async function handleAdminGetHomeVideo(req, res, taskId) {
   });
 
   return sendJson(res, 200, { ok: true, homeVideo: config.homeVideo, item: nextItem, task: nextItem });
+}
+
+async function refreshCompletedHomeVideoItems(config) {
+  let nextConfig = normalizeHomeVideo(config.homeVideo || {});
+  let changed = false;
+
+  for (const item of nextConfig.items || []) {
+    const homeSceneVideos = { ...(item.homeSceneVideos || {}) };
+    let updatedItem = item;
+    for (const sceneId of Object.keys(homeSceneVideos)) {
+      const entry = homeSceneVideos[sceneId] || {};
+      const sceneTaskId = String(entry.taskId || "").trim();
+      const sceneStatus = String(entry.status || "").toLowerCase();
+      const sceneHasVideo = Boolean(String(entry.videoUrl || entry.localVideoUrl || "").trim());
+      if (!sceneTaskId || sceneHasVideo || !sceneStatus || isFailedStatus(sceneStatus)) continue;
+
+      let task;
+      try {
+        task = normalizeTask(await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(sceneTaskId)}`));
+      } catch {
+        continue;
+      }
+      if (!isSucceededStatus(task.status) || !task.videoUrl) continue;
+
+      let localVideoUrl = "";
+      let localVideoPath = "";
+      try {
+        const localVideo = await downloadGeneratedVideo(task.taskId || sceneTaskId, task.videoUrl);
+        localVideoUrl = localVideo.localVideoUrl;
+        localVideoPath = localVideo.localVideoPath;
+      } catch {}
+
+      const nextEntry = {
+        ...entry,
+        taskId: task.taskId || sceneTaskId,
+        status: task.status,
+        videoUrl: localVideoUrl || task.videoUrl || entry.videoUrl || "",
+        localVideoUrl: localVideoUrl || entry.localVideoUrl || "",
+        localVideoPath: localVideoPath || entry.localVideoPath || "",
+        remoteVideoUrl: task.videoUrl || entry.remoteVideoUrl || "",
+        updatedAt: new Date().toISOString(),
+        error: "",
+      };
+      homeSceneVideos[sceneId] = nextEntry;
+      updatedItem = { ...updatedItem, homeSceneVideos, updatedAt: nextEntry.updatedAt };
+      if (sceneId === "room") {
+        updatedItem = {
+          ...updatedItem,
+          taskId: nextEntry.taskId,
+          status: nextEntry.status,
+          videoUrl: nextEntry.videoUrl,
+          localVideoUrl: nextEntry.localVideoUrl,
+          localVideoPath: nextEntry.localVideoPath || updatedItem.localVideoPath || "",
+          remoteVideoUrl: nextEntry.remoteVideoUrl || updatedItem.remoteVideoUrl || "",
+        };
+      }
+      nextConfig = replaceHomeVideoItem(nextConfig, updatedItem);
+      await upsertGenerationRecord({
+        taskId: task.taskId || sceneTaskId,
+        status: task.status,
+        remoteVideoUrl: task.videoUrl || "",
+        localVideoUrl,
+        localVideoPath,
+        error: "",
+        source: "admin-home-scene",
+      });
+      changed = true;
+    }
+
+    const taskId = String(item.taskId || "").trim();
+    const status = String(item.status || "").toLowerCase();
+    const hasVideo = Boolean(String(item.videoUrl || item.localVideoUrl || "").trim());
+    if (!taskId || hasVideo || !status || isFailedStatus(status)) continue;
+
+    let task;
+    try {
+      task = normalizeTask(await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`));
+    } catch {
+      continue;
+    }
+    if (!isSucceededStatus(task.status) || !task.videoUrl) continue;
+
+    let localVideoUrl = "";
+    let localVideoPath = "";
+    try {
+      const localVideo = await downloadGeneratedVideo(task.taskId || taskId, task.videoUrl);
+      localVideoUrl = localVideo.localVideoUrl;
+      localVideoPath = localVideo.localVideoPath;
+    } catch {}
+
+    const legacyUpdatedItem = {
+      ...item,
+      taskId: task.taskId || taskId,
+      status: task.status,
+      videoUrl: localVideoUrl || task.videoUrl || item.videoUrl || "",
+      localVideoUrl: localVideoUrl || item.localVideoUrl || "",
+      localVideoPath: localVideoPath || item.localVideoPath || "",
+      remoteVideoUrl: task.videoUrl || item.remoteVideoUrl || "",
+      updatedAt: new Date().toISOString(),
+      error: "",
+    };
+    nextConfig = replaceHomeVideoItem(nextConfig, legacyUpdatedItem);
+    await upsertGenerationRecord({
+      taskId: task.taskId || taskId,
+      status: task.status,
+      remoteVideoUrl: task.videoUrl || "",
+      localVideoUrl,
+      localVideoPath,
+      error: "",
+    });
+    changed = true;
+  }
+
+  if (changed) {
+    config.homeVideo = nextConfig;
+    await writeAppConfig(config);
+  } else {
+    config.homeVideo = nextConfig;
+  }
+
+  return config;
 }
 
 function adminMyCharacterView(record, userMap) {
@@ -3640,7 +4001,8 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/config/public") {
-      const config = await readAppConfig();
+      let config = await readAppConfig();
+      config = await refreshCompletedHomeVideoItems(config);
       return sendJson(res, 200, { ok: true, config: publicConfig(config) });
     }
 
@@ -3844,12 +4206,8 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/character-assets") {
-      try {
-        const data = await fs.readFile(path.join(ROOT, "data", "character-assets.json"), "utf8");
-        return sendJson(res, 200, { ok: true, assets: JSON.parse(data) });
-      } catch {
-        return sendJson(res, 200, { ok: true, assets: {} });
-      }
+      const assets = await getKv("character_assets", {});
+      return sendJson(res, 200, { ok: true, assets: assets && typeof assets === "object" ? assets : {} });
     }
 
     if (req.method === "GET" && url.pathname === "/api/generation-records") {
@@ -3893,7 +4251,22 @@ const server = http.createServer((req, res) => {
   handleRequest(req, res);
 });
 
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
-  console.log(`Ark configured: ${ARK_API_KEY ? "yes" : "no"}`);
+async function bootstrap() {
+  if (dbEnabled()) {
+    await migrateFileDataToDb({
+      defaultDb: DEFAULT_DB,
+      defaultConfig: DEFAULT_CONFIG,
+    });
+  }
+
+  server.listen(PORT, "127.0.0.1", () => {
+    console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
+    console.log(`Ark configured: ${ARK_API_KEY ? "yes" : "no"}`);
+    console.log(`Database configured: ${DATABASE_URL ? "yes" : "no"}`);
+  });
+}
+
+bootstrap().catch((error) => {
+  console.error("[bootstrap] failed", error);
+  process.exit(1);
 });

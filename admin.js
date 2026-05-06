@@ -667,6 +667,7 @@ async function openRegenPresetDialog(itemId) {
   const item = (config.homeVideo?.items || []).find((i) => i.id === itemId);
   if (!item) return;
   const tpl = document.createElement("div");
+  const scenes = config.scenes || [];
   tpl.innerHTML = `
     <p class="adm-muted">为「${escapeHtml(item.name)}」重新生成首页主视频。流程：</p>
     <ol class="adm-muted" style="padding-left:18px;line-height:1.6;">
@@ -677,16 +678,25 @@ async function openRegenPresetDialog(itemId) {
     <div class="adm-form-row adm-mt"><span>生成流程</span><select id="genProvider"><option value="seedance">Seedance / Ark</option><option value="ifilm-cli">ifilm CLI（本机已安装时）</option></select></div>
     <div class="adm-form-row"><span>额外 Prompt（可留空，使用角色保存的 Prompt）</span><textarea id="genPrompt" placeholder="留空使用角色保存的 Prompt 与默认全身美腿 Prompt。"></textarea></div>
   `;
+  const providerRow = tpl.querySelector("#genProvider")?.closest(".adm-form-row");
+  if (providerRow && scenes.length) {
+    const sceneRow = document.createElement("div");
+    sceneRow.className = "adm-form-row";
+    sceneRow.innerHTML = `<span>Home scene</span><select id="genHomeScene">${scenes.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name || s.id)}</option>`).join("")}</select>`;
+    providerRow.insertAdjacentElement("afterend", sceneRow);
+  }
+
   openDialog({
     title: "重新生成主视频",
     body: tpl,
     confirmText: "开始生成",
     onConfirm: async () => {
       const provider = tpl.querySelector("#genProvider").value;
+      const sceneId = tpl.querySelector("#genHomeScene")?.value || "room";
       const prompt = tpl.querySelector("#genPrompt").value.trim();
       await api("/api/admin/home-video", {
         method: "POST",
-        body: { itemId, provider, prompt, name: item.name, title: item.title },
+        body: { itemId, sceneId, provider, prompt, name: item.name, title: item.title },
       });
       toast("已提交任务，可在「视频」页面查看进度。", "success");
       state.config = null;
