@@ -180,23 +180,6 @@ const DEFAULT_ADMIN_HOME_ITEMS = [
     createdAt: "2026-05-03T13:54:33.753Z",
     sceneVideos: {},
   },
-  {
-    id: "suite-rose-vintage",
-    name: "Bianca",
-    title: "Velvet Lounge",
-    posterUrl: "/assets/admin/home/pink-seedance-rose-reference.png",
-    localImageUrl: "/assets/admin/home/pink-seedance-rose-reference.png",
-    sourceImageUrl: "/assets/admin/home/pink-seedance-rose-reference.png",
-    imageMime: "image/png",
-    sourceImageMime: "image/png",
-    referenceAssetUri: "",
-    videoUrl: "",
-    localVideoUrl: "",
-    taskId: "",
-    status: "draft",
-    createdAt: "2026-05-03T13:54:33.753Z",
-    sceneVideos: {},
-  },
 ];
 
 const DEFAULT_CONFIG = {
