@@ -1204,8 +1204,10 @@ function renderHomeHero() {
   const activeItem = getActiveHomeVideoItem() || {};
   const activeSceneBinding = getActiveHomeSceneEntry();
   const activeScene = activeSceneBinding?.scene || scenes[0];
+  state.currentScene = activeScene;
   state.homeVideo = homeVideo;
   els.gameStage?.classList.add("is-home-mode");
+  if (els.gameStage && activeScene?.id) els.gameStage.dataset.scene = activeScene.id;
 
   const cachedFrame = getCoverForItem(activeItem, activeScene?.id || "");
   // IMPORTANT: never fall back to `homeVideo.posterUrl` / `homeVideo.videoUrl`
@@ -1269,6 +1271,7 @@ function renderHomeHero() {
   if (els.avatarSource) els.avatarSource.textContent = activeScene?.name || activeItem.title || "Featured";
   if (els.avatarName) els.avatarName.textContent = activeItem.name || "Featured";
   if (els.sceneAssetRow) els.sceneAssetRow.hidden = Boolean(getHomeReferenceAssetUri());
+  renderSceneHotspots(activeScene);
 
   const showArrows = getHomeSceneEntriesForActive().length > 1;
   if (els.prevHomeBtn) els.prevHomeBtn.hidden = !showArrows;
@@ -1379,23 +1382,24 @@ function renderPresets() {
   });
 }
 
-function renderSceneHotspots() {
+function renderSceneHotspots(sceneOverride = null) {
   els.sceneOrbit.innerHTML = "";
-  scenes.forEach((scene) => {
-    const entries = getSceneEntries(scene);
-    entries.forEach((entry) => {
-      const node = els.sceneHotspotTemplate.content.firstElementChild.cloneNode(true);
-      const icon = node.querySelector(".short-card-media i") || node.querySelector("i");
-      node.dataset.sceneId = scene.id;
-      node.dataset.entryId = entry.id;
-      node.style.setProperty("--scene-card-image", `url("${scenePreviewImages[scene.id] || scenePreviewImages.room}")`);
-      node.classList.toggle("is-active", scene.id === state.currentScene.id);
-      icon.setAttribute("data-lucide", scene.icon);
-      node.querySelector(".short-card-copy strong").textContent = entry.name || scene.shortName || scene.name;
-      node.querySelector(".short-card-copy em").textContent = scene.shortName || scene.name;
-      node.addEventListener("click", () => openDateDialog(scene, entry));
-      els.sceneOrbit.appendChild(node);
-    });
+  const scene = sceneOverride || getActiveHomeSceneEntry()?.scene || state.currentScene || scenes[0];
+  getSceneEntries(scene).forEach((entry) => {
+    const node = els.sceneHotspotTemplate.content.firstElementChild.cloneNode(true);
+    const icon = node.querySelector(".short-card-media i") || node.querySelector("i");
+    const label = entry.name || scene.shortName || scene.name;
+    node.dataset.sceneId = scene.id;
+    node.dataset.entryId = entry.id;
+    node.title = label;
+    node.setAttribute("aria-label", label);
+    node.style.setProperty("--scene-card-image", `url("${scenePreviewImages[scene.id] || scenePreviewImages.room}")`);
+    node.classList.add("is-active");
+    icon.setAttribute("data-lucide", scene.icon || "video");
+    node.querySelector(".short-card-copy strong").textContent = label;
+    node.querySelector(".short-card-copy em").textContent = scene.shortName || scene.name;
+    node.addEventListener("click", () => openDateDialog(scene, entry));
+    els.sceneOrbit.appendChild(node);
   });
   refreshIcons();
 }
