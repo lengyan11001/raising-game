@@ -2,6 +2,7 @@ const CREDIT_START = 0;
 const MEET_COST = 12;
 const PHOTO_COST = 18;
 const DATE_VIDEO_COST = 25;
+const UNLOCK_VIDEO_COST = 18;
 const ASSET_VERSION = "official-2d-1";
 
 const frameSet = (folder) => Array.from(
@@ -235,6 +236,7 @@ const state = {
   homeSwipeStartY: 0,
   homeSwipeTracking: false,
   intimacy: {},
+  unlocks: [],
   frameCovers: {},
   frameCoverFailures: {},
   framePrewarmRunning: false,
@@ -288,6 +290,7 @@ const els = {
   prevHomeBtn: document.querySelector("#prevHomeBtn"),
   nextHomeBtn: document.querySelector("#nextHomeBtn"),
   nextRoleHintBtn: document.querySelector("#nextRoleHintBtn"),
+  unlockVideoBtn: document.querySelector("#unlockVideoBtn"),
   vrView: document.querySelector("#vrView"),
   vrCanvas: document.querySelector("#vrCanvas"),
   closeVrBtn: document.querySelector("#closeVrBtn"),
@@ -470,8 +473,10 @@ function syncUser(user) {
     state.credits = Number(state.user.credits || 0);
   } else {
     state.credits = CREDIT_START;
+    state.unlocks = [];
   }
   renderCredits();
+  renderUnlockButton();
   els.userBtn?.classList.toggle("is-active", Boolean(state.user));
 }
 
@@ -1029,6 +1034,104 @@ function getActiveHomeSceneVideoUrl() {
   return binding?.entry?.videoUrl || "";
 }
 
+function getActiveUnlockVideoMeta() {
+  const item = getActiveHomeVideoItem();
+  const scene = getActiveHomeSceneEntry()?.scene || state.currentScene || scenes[0];
+  if (!item || !scene?.id) return null;
+  const unlockVideos = item.unlockVideos || {};
+  const entry =
+    unlockVideos[scene.id] ||
+    Object.values(unlockVideos).find((candidate) => candidate?.sceneId === scene.id);
+  if (!entry || typeof entry !== "object") return null;
+  return { item, scene, video: { ...entry, sceneId: entry.sceneId || scene.id } };
+}
+
+function unlockRecordKey(itemId, sceneId, sceneEntryId = "default") {
+  return [itemId, sceneId, sceneEntryId || "default"].map((part) => String(part || "").trim()).join("::");
+}
+
+function hasUnlockForVideo(itemId, sceneId, sceneEntryId = "default") {
+  const target = unlockRecordKey(itemId, sceneId, sceneEntryId);
+  return state.unlocks.some((record) => unlockRecordKey(record.itemId, record.sceneId, record.sceneEntryId || "default") === target);
+}
+
+function renderUnlockButton() {
+  const meta = getActiveUnlockVideoMeta();
+  if (!els.unlockVideoBtn) return;
+  if (!meta) {
+    els.unlockVideoBtn.hidden = true;
+    return;
+  }
+  const { item, scene, video } = meta;
+  const price = Number(video.price ?? priceOf("unlockVideo", UNLOCK_VIDEO_COST));
+  const owned = hasUnlockForVideo(item.id, scene.id, video.sceneEntryId || "default");
+  els.unlockVideoBtn.hidden = false;
+  els.unlockVideoBtn.disabled = String(video.status || "").toLowerCase() === "failed";
+  els.unlockVideoBtn.classList.toggle("is-unlocked", owned);
+  els.unlockVideoBtn.dataset.itemId = item.id || "";
+  els.unlockVideoBtn.dataset.sceneId = scene.id || "";
+  els.unlockVideoBtn.innerHTML = owned
+    ? '<i data-lucide="play"></i><span>Play</span>'
+    : `<i data-lucide="lock-keyhole"></i><span>Unlock ${price}</span>`;
+}
+
+async function loadUnlocks() {
+  if (!state.user) {
+    state.unlocks = [];
+    renderUnlockButton();
+    return;
+  }
+  try {
+    const payload = await requestJson("/api/unlocks");
+    state.unlocks = Array.isArray(payload.unlocks) ? payload.unlocks : [];
+  } catch (error) {
+    console.warn("unlocks unavailable", error);
+    state.unlocks = [];
+  }
+  renderUnlockButton();
+}
+
+async function unlockActiveVideo(metaOverride = null) {
+  const meta = metaOverride || getActiveUnlockVideoMeta();
+  if (!meta) return;
+  const { item, scene, video } = meta;
+  try {
+    const payload = await requestJson("/api/unlock-video", {
+      method: "POST",
+      body: JSON.stringify({
+        itemId: item.id,
+        sceneId: scene.id,
+        sceneEntryId: video.sceneEntryId || "default",
+      }),
+    });
+    if (payload.user) syncUser(payload.user);
+    if (Array.isArray(payload.unlocks)) state.unlocks = payload.unlocks;
+    renderUnlockButton();
+    const playbackUrl = payload.video?.videoUrl || "";
+    if (playbackUrl) showVideoResult(playbackUrl);
+    updateJob(payload.charged ? "Unlocked" : "Playing unlocked video", payload.video?.title || scene.name || "Unlocked scene", 100);
+  } catch (error) {
+    updateJob("Unlock failed", error.message || String(error), 0);
+    if (String(error?.code || "").includes("INSUFFICIENT")) openRechargeDialog();
+  }
+}
+
+function handleUnlockVideoClick() {
+  const meta = getActiveUnlockVideoMeta();
+  if (!meta) return;
+  const { item, scene, video } = meta;
+  const owned = hasUnlockForVideo(item.id, scene.id, video.sceneEntryId || "default");
+  if (owned) {
+    unlockActiveVideo(meta);
+    return;
+  }
+  openPayment({
+    label: `Unlock "${video.title || scene.name}" video`,
+    cost: Number(video.price ?? priceOf("unlockVideo", UNLOCK_VIDEO_COST)),
+    run: () => unlockActiveVideo(meta),
+  });
+}
+
 function resetBoundSceneVideoPlayer() {
   const video = els.boundSceneVideoPlayer;
   if (!video) return;
@@ -1278,6 +1381,7 @@ function renderHomeHero() {
   if (els.nextHomeBtn) els.nextHomeBtn.hidden = !showArrows;
   if (els.nextRoleHintBtn) els.nextRoleHintBtn.hidden = items.length <= 1;
   renderIntimacy();
+  renderUnlockButton();
   refreshIcons();
 
   preloadFrameCoversForItems(items);
@@ -1560,7 +1664,11 @@ async function requestJson(url, options = {}) {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok || payload.ok === false) {
-    throw new Error(payload.message || payload.detail || `Request failed: ${response.status}`);
+    const error = new Error(payload.message || payload.detail || `Request failed: ${response.status}`);
+    error.code = payload.code || "";
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
 
   return payload;
@@ -1982,6 +2090,7 @@ async function submitLogin() {
     localStorage.setItem("raisingGameToken", state.authToken);
     syncUser(payload.user);
     closeDialog(els.loginDialog);
+    await loadUnlocks();
     await loadUserAssets();
     await loadMyCharacters();
     updateJob(state.loginMode === "register" ? "Sign up succeeded" : "Signed in", `${payload.user.username} is now in.`, 0);
@@ -2739,6 +2848,7 @@ function bindEvents() {
     closeDialog(els.welcomeDialog);
     playHomeHeroWithSound();
   });
+  els.unlockVideoBtn?.addEventListener("click", handleUnlockVideoClick);
   els.userBtn?.addEventListener("click", () => {
     if (state.user) {
       updateJob("Signed in", `${state.user.username} · balance ${state.credits} credits.`, 0);
@@ -2961,6 +3071,7 @@ async function init() {
     await loadPublicConfig();
     await loadCharacterAssets();
     await loadSession();
+    await loadUnlocks();
     await loadUserAssets();
     await loadMyCharacters();
     renderCredits();

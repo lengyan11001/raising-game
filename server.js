@@ -116,6 +116,7 @@ const DEFAULT_DB = {
   walletOrders: [],
   userAssets: [],
   userCharacters: [],
+  userUnlocks: [],
   adminHomeItems: [],
 };
 
@@ -208,6 +209,7 @@ const DEFAULT_CONFIG = {
     photo: 18,
     dateVideo: 25,
     customCharacter: 30,
+    unlockVideo: 18,
   },
   wallet: {
     asset: "USDT",
@@ -352,6 +354,7 @@ async function readDb() {
     walletOrders: Array.isArray(db.walletOrders) ? db.walletOrders : [],
     userAssets: Array.isArray(db.userAssets) ? db.userAssets : [],
     userCharacters: Array.isArray(db.userCharacters) ? db.userCharacters : [],
+    userUnlocks: Array.isArray(db.userUnlocks) ? db.userUnlocks : [],
     adminHomeItems: Array.isArray(db.adminHomeItems) ? db.adminHomeItems : [],
   };
 }
@@ -518,6 +521,7 @@ function publicHomeVideoItem(item) {
     createdAt: item.createdAt || "",
     homeSceneVideos: publicSceneVideoMap(item.homeSceneVideos || {}),
     sceneVideos: publicSceneVideoMap(item.sceneVideos || {}),
+    unlockVideos: publicUnlockVideoMap(item.unlockVideos || {}),
   };
 }
 
@@ -551,6 +555,7 @@ function normalizeHomeVideo(homeVideo = {}) {
       ...item,
       homeSceneVideos: normalizeHomeSceneVideosForItem(item),
       sceneVideos: item.sceneVideos && typeof item.sceneVideos === "object" ? item.sceneVideos : {},
+      unlockVideos: item.unlockVideos && typeof item.unlockVideos === "object" ? item.unlockVideos : {},
     }));
   const activeItemId = homeVideo.activeItemId || normalized[0]?.id || "";
   const active = normalized.find((item) => item.id === activeItemId) || normalized[0] || {};
@@ -618,6 +623,188 @@ function findHomeVideoItem(homeVideo = {}, itemId = "") {
   const normalized = normalizeHomeVideo(homeVideo);
   if (itemId) return normalized.items.find((item) => item.id === itemId) || null;
   return normalized.items.find((item) => item.id === normalized.activeItemId) || normalized.items[0];
+}
+
+function normalizeUnlockVideo(entry = {}, videoKey = "") {
+  if (!entry || typeof entry !== "object") return null;
+  const sceneId = String(entry.sceneId || sceneIdFromVideoKey(videoKey) || "").trim();
+  const videoUrl = String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
+  const taskId = String(entry.taskId || "").trim();
+  if (!sceneId || (!videoUrl && !taskId)) return null;
+  return {
+    ...entry,
+    sceneId,
+    sceneName: entry.sceneName || "",
+    sceneEntryId: entry.sceneEntryId || "default",
+    sceneEntryName: entry.sceneEntryName || "",
+    title: String(entry.title || entry.sceneEntryName || entry.sceneName || "Unlocked video").trim(),
+    price: clampNumber(entry.price, DEFAULT_CONFIG.prices.unlockVideo, 0, 9999),
+    videoUrl,
+    localVideoUrl: entry.localVideoUrl || "",
+    remoteVideoUrl: entry.remoteVideoUrl || "",
+    taskId,
+    status: entry.status || "",
+  };
+}
+
+function publicUnlockVideo(entry = {}, videoKey = "") {
+  const normalized = normalizeUnlockVideo(entry, videoKey);
+  if (!normalized) return null;
+  return {
+    sceneId: normalized.sceneId,
+    sceneName: normalized.sceneName || "",
+    sceneEntryId: normalized.sceneEntryId || "default",
+    sceneEntryName: normalized.sceneEntryName || "",
+    title: normalized.title || "Unlocked video",
+    posterUrl: normalized.posterUrl || "",
+    taskId: normalized.taskId || "",
+    status: normalized.status || "",
+    price: normalized.price,
+    provider: normalized.provider || "seedance",
+    updatedAt: normalized.updatedAt || "",
+    createdAt: normalized.createdAt || "",
+    error: normalized.error || "",
+  };
+}
+
+function publicUnlockVideoMap(unlockVideos = {}) {
+  if (!unlockVideos || typeof unlockVideos !== "object") return {};
+  const out = {};
+  Object.keys(unlockVideos).forEach((videoKey) => {
+    const entry = publicUnlockVideo(unlockVideos[videoKey], videoKey);
+    if (entry) out[videoKey] = entry;
+  });
+  Object.keys(out).forEach((videoKey) => {
+    const entry = out[videoKey];
+    if (entry.sceneEntryId === "default" && entry.sceneId && !out[entry.sceneId]) {
+      out[entry.sceneId] = entry;
+    }
+  });
+  return out;
+}
+
+function findUnlockVideoForItem(item = {}, sceneId = "", sceneEntryId = "") {
+  const videos = item.unlockVideos && typeof item.unlockVideos === "object" ? item.unlockVideos : {};
+  const requestedScene = String(sceneId || "").trim();
+  const requestedEntry = String(sceneEntryId || "").trim();
+  const exactKey = requestedEntry ? makeSceneVideoKey(requestedScene, requestedEntry) : requestedScene;
+  const candidates = [
+    exactKey,
+    requestedScene,
+    ...Object.keys(videos),
+  ].filter(Boolean);
+  for (const key of candidates) {
+    const raw = videos[key];
+    const entry = normalizeUnlockVideo(raw, key);
+    if (!entry || entry.sceneId !== requestedScene) continue;
+    if (requestedEntry && entry.sceneEntryId !== requestedEntry) continue;
+    return { key, entry };
+  }
+  return null;
+}
+
+function makeUnlockRecordKey(itemId, sceneId, sceneEntryId = "default") {
+  return [itemId, sceneId, sceneEntryId || "default"].map((part) => String(part || "").trim()).join("::");
+}
+
+function publicUserUnlock(record = {}) {
+  return {
+    id: record.id || "",
+    itemId: record.itemId || "",
+    itemName: record.itemName || "",
+    sceneId: record.sceneId || "",
+    sceneName: record.sceneName || "",
+    sceneEntryId: record.sceneEntryId || "default",
+    sceneEntryName: record.sceneEntryName || "",
+    videoKey: record.videoKey || "",
+    cost: Number(record.cost || 0),
+    createdAt: record.createdAt || "",
+  };
+}
+
+function findUserUnlock(db, userId, itemId, sceneId, sceneEntryId = "default") {
+  const key = makeUnlockRecordKey(itemId, sceneId, sceneEntryId);
+  return (db.userUnlocks || []).find((record) => {
+    if (isSoftDeleted(record)) return false;
+    if (record.userId !== userId) return false;
+    const recordKey = makeUnlockRecordKey(record.itemId, record.sceneId, record.sceneEntryId || "default");
+    return recordKey === key;
+  }) || null;
+}
+
+const UNLOCK_STREAM_TTL_MS = 6 * 60 * 60 * 1000;
+
+function unlockStreamSecret() {
+  return process.env.UNLOCK_STREAM_SECRET || process.env.SESSION_SECRET || ARK_API_KEY || "raising-game-unlock-stream";
+}
+
+function base64UrlEncode(value) {
+  return Buffer.from(value).toString("base64url");
+}
+
+function base64UrlJson(value) {
+  return base64UrlEncode(JSON.stringify(value));
+}
+
+function signUnlockStreamPayload(encodedPayload) {
+  return crypto.createHmac("sha256", unlockStreamSecret()).update(encodedPayload).digest("base64url");
+}
+
+function makeUnlockStreamToken({ userId, itemId, sceneId, sceneEntryId = "default", videoKey = "" }) {
+  const payload = base64UrlJson({
+    userId,
+    itemId,
+    sceneId,
+    sceneEntryId: sceneEntryId || "default",
+    videoKey,
+    exp: Date.now() + UNLOCK_STREAM_TTL_MS,
+  });
+  return `${payload}.${signUnlockStreamPayload(payload)}`;
+}
+
+function parseUnlockStreamToken(token = "") {
+  const [payload, signature] = String(token || "").split(".");
+  if (!payload || !signature) return null;
+  const expected = signUnlockStreamPayload(payload);
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!decoded || Number(decoded.exp || 0) < Date.now()) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+function getUnlockVideoUrl(entry = {}) {
+  return String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
+}
+
+function secureUnlockVideoUrl({ userId, itemId, sceneId, sceneEntryId = "default", videoKey = "" }) {
+  const token = makeUnlockStreamToken({ userId, itemId, sceneId, sceneEntryId, videoKey });
+  return `/api/unlock-video/stream/${encodeURIComponent(token)}`;
+}
+
+function normalizePublicAssetPath(value = "") {
+  const clean = String(value || "").split("?")[0].trim();
+  if (!clean || /^https?:\/\//i.test(clean)) return "";
+  return `/${clean.replace(/^\/+/, "")}`;
+}
+
+async function isProtectedUnlockAssetPath(publicPath = "") {
+  const normalizedPath = normalizePublicAssetPath(publicPath);
+  if (!normalizedPath.startsWith("/assets/generated/videos/")) return false;
+  const config = await readAppConfig();
+  const homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  return (homeVideo.items || []).some((item) => {
+    const unlockVideos = item.unlockVideos && typeof item.unlockVideos === "object" ? item.unlockVideos : {};
+    return Object.values(unlockVideos).some((entry) => {
+      const localVideoPath = normalizePublicAssetPath(entry?.videoUrl || entry?.localVideoUrl || "");
+      return localVideoPath && localVideoPath === normalizedPath;
+    });
+  });
 }
 
 function upsertHomeVideoItem(homeVideo = {}, item) {
@@ -1886,6 +2073,162 @@ async function handleSpendCredits(req, res) {
   auth.user.updatedAt = new Date().toISOString();
   await writeDb(auth.db);
   return sendJson(res, 200, { ok: true, user: userView(auth.user), cost, label: String(body.label || "") });
+}
+
+async function handleListUnlocks(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const unlocks = (auth.db.userUnlocks || [])
+    .filter((record) => record.userId === auth.user.id && !isSoftDeleted(record))
+    .map(publicUserUnlock);
+  return sendJson(res, 200, { ok: true, unlocks });
+}
+
+async function handleUnlockVideo(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  const body = await readJson(req);
+  const itemId = String(body.itemId || "").trim();
+  const sceneId = String(body.sceneId || "").trim();
+  const sceneEntryId = String(body.sceneEntryId || "").trim();
+  if (!itemId || !sceneId) {
+    return sendJson(res, 400, { ok: false, message: "Missing itemId or sceneId." });
+  }
+
+  let config = await readAppConfig();
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const item = findHomeVideoItem(config.homeVideo, itemId);
+  if (!item) return sendJson(res, 404, { ok: false, message: "Character not found." });
+
+  const match = findUnlockVideoForItem(item, sceneId, sceneEntryId);
+  if (!match) return sendJson(res, 404, { ok: false, message: "No unlock video for this scene yet." });
+
+  const video = match.entry;
+  const videoUrl = getUnlockVideoUrl(video);
+  if (!videoUrl) {
+    return sendJson(res, 409, { ok: false, message: "Unlock video is still generating.", video: publicUnlockVideo(video, match.key) });
+  }
+
+  const unlockSceneEntryId = video.sceneEntryId || "default";
+  let unlock = findUserUnlock(auth.db, auth.user.id, item.id, video.sceneId, unlockSceneEntryId);
+  const cost = clampNumber(video.price, config.prices?.unlockVideo || DEFAULT_CONFIG.prices.unlockVideo, 0, 9999);
+  let charged = false;
+
+  if (!unlock) {
+    if (auth.user.credits < cost) {
+      return sendJson(res, 402, {
+        ok: false,
+        code: "INSUFFICIENT_CREDITS",
+        message: "Not enough credits. Please top up first.",
+        cost,
+        credits: auth.user.credits,
+      });
+    }
+    auth.user.credits -= cost;
+    auth.user.updatedAt = new Date().toISOString();
+    unlock = {
+      id: randomId("unlock"),
+      userId: auth.user.id,
+      itemId: item.id,
+      itemName: item.name || "",
+      sceneId: video.sceneId,
+      sceneName: video.sceneName || "",
+      sceneEntryId: unlockSceneEntryId,
+      sceneEntryName: video.sceneEntryName || "",
+      videoKey: match.key,
+      cost,
+      createdAt: new Date().toISOString(),
+      deletedAt: "",
+    };
+    auth.db.userUnlocks.unshift(unlock);
+    charged = cost > 0;
+    await writeDb(auth.db);
+  }
+
+  const unlocks = (auth.db.userUnlocks || [])
+    .filter((record) => record.userId === auth.user.id && !isSoftDeleted(record))
+    .map(publicUserUnlock);
+  return sendJson(res, 200, {
+    ok: true,
+    charged,
+    cost: charged ? cost : 0,
+    user: userView(auth.user),
+    unlock: publicUserUnlock(unlock),
+    unlocks,
+    video: {
+      ...publicUnlockVideo(video, match.key),
+      videoUrl: secureUnlockVideoUrl({
+        userId: auth.user.id,
+        itemId: item.id,
+        sceneId: video.sceneId,
+        sceneEntryId: unlockSceneEntryId,
+        videoKey: match.key,
+      }),
+    },
+  });
+}
+
+async function streamVideoFile(req, res, filePath) {
+  const stat = await fs.stat(filePath);
+  const range = req.headers.range;
+  if (range) {
+    const match = range.match(/bytes=(\d*)-(\d*)/);
+    const start = match?.[1] ? Number(match[1]) : 0;
+    const end = match?.[2] ? Number(match[2]) : stat.size - 1;
+    const chunkStart = Math.max(0, start);
+    const chunkEnd = Math.min(stat.size - 1, end);
+
+    if (chunkStart > chunkEnd || Number.isNaN(chunkStart) || Number.isNaN(chunkEnd)) {
+      res.writeHead(416, { "content-range": `bytes */${stat.size}` });
+      return res.end();
+    }
+
+    res.writeHead(206, {
+      "content-type": "video/mp4",
+      "content-length": chunkEnd - chunkStart + 1,
+      "content-range": `bytes ${chunkStart}-${chunkEnd}/${stat.size}`,
+      "accept-ranges": "bytes",
+      "cache-control": "private, no-store",
+    });
+    if (req.method === "HEAD") return res.end();
+    return fsSync.createReadStream(filePath, { start: chunkStart, end: chunkEnd }).pipe(res);
+  }
+
+  res.writeHead(200, {
+    "content-type": "video/mp4",
+    "content-length": stat.size,
+    "accept-ranges": "bytes",
+    "cache-control": "private, no-store",
+  });
+  if (req.method === "HEAD") return res.end();
+  return fsSync.createReadStream(filePath).pipe(res);
+}
+
+async function handleStreamUnlockVideo(req, res, token) {
+  const payload = parseUnlockStreamToken(token);
+  if (!payload) return sendJson(res, 403, { ok: false, message: "Unlock video link expired." });
+
+  const db = await readDb();
+  const user = db.users.find((entry) => entry.id === payload.userId && !isSoftDeleted(entry));
+  if (!user) return sendJson(res, 401, { ok: false, message: "Please sign in to continue." });
+  const unlock = findUserUnlock(db, user.id, payload.itemId, payload.sceneId, payload.sceneEntryId || "default");
+  if (!unlock) return sendJson(res, 403, { ok: false, message: "Unlock required." });
+
+  let config = await readAppConfig();
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const item = findHomeVideoItem(config.homeVideo, payload.itemId);
+  const match = item ? findUnlockVideoForItem(item, payload.sceneId, payload.sceneEntryId || "default") : null;
+  if (!match) return sendJson(res, 404, { ok: false, message: "Unlock video not found." });
+
+  const videoUrl = getUnlockVideoUrl(match.entry);
+  if (!videoUrl) return sendJson(res, 409, { ok: false, message: "Unlock video is still generating." });
+  if (/^https?:\/\//i.test(videoUrl)) return res.writeHead(302, { location: videoUrl }).end();
+
+  const localPath = path.normalize(path.join(ROOT, videoUrl.replace(/^\//, "")));
+  const generatedRoot = path.normalize(GENERATED_VIDEO_DIR);
+  if (!localPath.startsWith(generatedRoot)) return sendJson(res, 403, { ok: false, message: "Forbidden." });
+  return streamVideoFile(req, res, localPath);
 }
 
 async function handleUploadUserAsset(req, res) {
@@ -4170,6 +4513,9 @@ async function handleGetSceneVideo(req, res, taskId) {
 
 async function serveStatic(req, res, url) {
   const pathname = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
+  if (await isProtectedUnlockAssetPath(pathname)) {
+    return sendText(res, 403, "Unlock required");
+  }
   const filePath = path.normalize(path.join(ROOT, pathname));
 
   if (!filePath.startsWith(ROOT)) {
@@ -4263,6 +4609,19 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/wallet/spend") {
       return await handleSpendCredits(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/unlocks") {
+      return await handleListUnlocks(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/unlock-video") {
+      return await handleUnlockVideo(req, res);
+    }
+
+    const unlockStreamMatch = url.pathname.match(/^\/api\/unlock-video\/stream\/([^/]+)$/);
+    if ((req.method === "GET" || req.method === "HEAD") && unlockStreamMatch) {
+      return await handleStreamUnlockVideo(req, res, unlockStreamMatch[1]);
     }
 
     if (req.method === "POST" && url.pathname === "/api/user-assets") {

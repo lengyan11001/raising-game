@@ -620,6 +620,50 @@ svg {
   font-size: 0.9rem;
 }
 
+.unlock-video-btn {
+  position: absolute;
+  top: 55px;
+  right: 12px;
+  z-index: 7;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 204, 102, 0.52);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(255, 193, 94, 0.26), rgba(240, 68, 117, 0.2)),
+    rgba(19, 9, 15, 0.68);
+  color: #ffe1a6;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  backdrop-filter: blur(16px);
+}
+
+.unlock-video-btn[hidden] {
+  display: none;
+}
+
+.unlock-video-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.unlock-video-btn.is-unlocked {
+  border-color: rgba(118, 255, 190, 0.44);
+  background:
+    linear-gradient(135deg, rgba(118, 255, 190, 0.2), rgba(255, 204, 102, 0.18)),
+    rgba(19, 9, 15, 0.68);
+  color: #c9ffe4;
+}
+
+.scene-stage.is-home-mode .bond-panel {
+  right: 118px;
+}
+
 .bond-panel {
   position: absolute;
   top: 56px;
