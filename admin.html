@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>After Dark · 管理后台</title>
+    <link rel="stylesheet" href="./admin.css?v=adm-6" />
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  </head>
+  <body class="adm">
+    <section id="loginView" class="adm-login" hidden>
+      <form class="adm-login-card" id="loginForm" autocomplete="on">
+        <header>
+          <strong>After Dark</strong>
+          <h1>管理后台</h1>
+          <p>仅限管理员账号登录</p>
+        </header>
+        <label>
+          <span>账号</span>
+          <input id="loginUsername" type="text" autocomplete="username" required minlength="3" />
+        </label>
+        <label>
+          <span>密码</span>
+          <input id="loginPassword" type="password" autocomplete="current-password" required minlength="6" />
+        </label>
+        <button type="submit" class="adm-btn adm-btn-primary" id="loginSubmit">
+          <i data-lucide="log-in"></i>
+          登录
+        </button>
+        <p id="loginError" class="adm-error" hidden></p>
+        <p class="adm-tip">忘记密码？让其他管理员在用户管理里重置；首位注册的账号默认为管理员。</p>
+      </form>
+    </section>
+
+    <section id="appView" class="adm-app" hidden>
+      <aside class="adm-sidebar">
+        <div class="adm-brand">
+          <i data-lucide="film"></i>
+          <div>
+            <strong>After Dark</strong>
+            <span>Admin Console</span>
+          </div>
+        </div>
+        <nav class="adm-nav" id="adminNav">
+          <a href="#/dashboard" data-route="dashboard"><i data-lucide="layout-dashboard"></i><span>仪表盘</span></a>
+          <a href="#/characters" data-route="characters"><i data-lucide="user-round"></i><span>角色</span></a>
+          <a href="#/videos" data-route="videos"><i data-lucide="film"></i><span>视频</span></a>
+          <a href="#/scenes" data-route="scenes"><i data-lucide="map-pinned"></i><span>场景</span></a>
+          <a href="#/users" data-route="users"><i data-lucide="users-round"></i><span>用户</span></a>
+          <a href="#/wallet" data-route="wallet"><i data-lucide="wallet"></i><span>钱包</span></a>
+          <a href="#/config" data-route="config"><i data-lucide="settings-2"></i><span>系统配置</span></a>
+        </nav>
+        <div class="adm-side-foot">
+          <button id="navToggle" class="adm-btn adm-btn-ghost adm-mobile-only" type="button">
+            <i data-lucide="menu"></i>
+          </button>
+        </div>
+      </aside>
+
+      <header class="adm-topbar">
+        <button id="sidebarToggle" class="adm-btn adm-btn-ghost adm-mobile-only" type="button" aria-label="菜单">
+          <i data-lucide="menu"></i>
+        </button>
+        <div class="adm-bread">
+          <span class="adm-bread-eyebrow">Admin</span>
+          <strong id="pageTitle">仪表盘</strong>
+        </div>
+        <div class="adm-userbar">
+          <span id="adminUserBadge" class="adm-badge" title="当前管理员"></span>
+          <a class="adm-btn adm-btn-ghost" href="./index.html" target="_blank" rel="noopener">
+            <i data-lucide="external-link"></i><span>用户端</span>
+          </a>
+          <button class="adm-btn adm-btn-ghost" id="logoutBtn" type="button">
+            <i data-lucide="log-out"></i><span>退出</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="adm-content" id="adminContent" aria-live="polite">
+        <div class="adm-loading"><div class="adm-spinner"></div></div>
+      </main>
+    </section>
+
+    <dialog id="adminDialog" class="adm-dialog">
+      <form method="dialog" id="adminDialogForm">
+        <header>
+          <strong id="adminDialogTitle">对话框</strong>
+          <button type="submit" value="cancel" class="adm-icon-btn" aria-label="关闭" formnovalidate><i data-lucide="x"></i></button>
+        </header>
+        <div id="adminDialogBody" class="adm-dialog-body"></div>
+        <footer>
+          <button type="submit" value="cancel" class="adm-btn adm-btn-ghost" id="adminDialogCancel" formnovalidate>取消</button>
+          <button type="submit" value="confirm" class="adm-btn adm-btn-primary" id="adminDialogConfirm">确定</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <div id="adminToast" class="adm-toast" hidden role="status" aria-live="polite"></div>
+
+    <div id="appLoadingScreen" class="adm-app-loading">
+      <div class="adm-spinner"></div>
+    </div>
+
+    <script src="./admin.js?v=adm-6"></script>
+  </body>
+</html>

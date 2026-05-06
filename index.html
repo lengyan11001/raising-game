@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>After Dark Girlfriend Demo</title>
+    <link rel="stylesheet" href="./styles.css?v=home-en13" />
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  </head>
+  <body class="is-loading">
+    <div id="appLoading" class="app-loading" aria-live="polite" aria-busy="true">
+      <div class="app-loading-spinner" aria-hidden="true"></div>
+      <p class="app-loading-tip">Loading…</p>
+    </div>
+
+    <header class="game-topbar">
+      <div class="game-title">
+        <span>After Dark</span>
+        <strong id="sceneName">Suite Night</strong>
+      </div>
+      <div class="wallet" aria-live="polite">
+        <i data-lucide="gem"></i>
+        <strong id="creditCount">0</strong>
+        <button id="customCharacterBtn" class="icon-action" type="button" aria-label="Custom character">
+          <i data-lucide="user-plus"></i>
+        </button>
+        <button id="topUpBtn" class="icon-action" type="button" aria-label="Top up credits">
+          <i data-lucide="plus"></i>
+        </button>
+        <button id="userBtn" class="icon-action" type="button" aria-label="Account">
+          <i data-lucide="user-round"></i>
+        </button>
+      </div>
+    </header>
+
+    <main class="game-screen">
+      <section class="scene-stage" id="gameStage" data-scene="room" aria-label="After Dark girlfriend stage">
+        <div class="room-window"></div>
+        <div class="room-sofa"></div>
+        <div class="room-plant"></div>
+        <div class="room-floor"></div>
+        <video id="homeHeroVideo" class="home-hero-video" autoplay muted loop playsinline hidden></video>
+        <img id="homeHeroPoster" class="home-hero-poster" alt="Featured drama poster" hidden />
+
+        <button id="prevHomeBtn" class="home-arrow home-arrow-prev" type="button" aria-label="Previous character" hidden>
+          <i data-lucide="chevron-left"></i>
+        </button>
+        <button id="nextHomeBtn" class="home-arrow home-arrow-next" type="button" aria-label="Next character" hidden>
+          <i data-lucide="chevron-right"></i>
+        </button>
+
+        <div class="stage-title">
+          <span id="avatarSource">Featured</span>
+          <strong id="avatarName">Aria</strong>
+          <span class="intimacy-badge" id="intimacyBadge" title="Intimacy — grows with every generated video">
+            <i data-lucide="heart"></i>
+            <em id="intimacyValue">0</em>
+          </span>
+        </div>
+
+        <div class="bond-panel" aria-label="Companion stats">
+          <span><i data-lucide="heart"></i>Bond <strong id="bondValue">42</strong></span>
+          <span><i data-lucide="smile"></i>Mood <strong id="moodValue">84</strong></span>
+          <span><i data-lucide="battery-medium"></i>Energy <strong id="energyValue">66</strong></span>
+        </div>
+
+        <button class="orb-action orb-profile" id="openProfileBtn" type="button" aria-label="Companion profile">
+          <i data-lucide="id-card"></i>
+          <span>Profile</span>
+        </button>
+        <button class="orb-action orb-wish" id="openWishBtn" type="button" aria-label="Wish settings">
+          <i data-lucide="message-square-heart"></i>
+          <span>Wish</span>
+        </button>
+        <button class="orb-action orb-meet" id="meetBtn" type="button" aria-label="AI meet">
+          <i data-lucide="sparkles"></i>
+          <span>Meet</span>
+        </button>
+        <button class="orb-action orb-photo" id="openPhotoBtn" type="button" aria-label="Photo to companion">
+          <i data-lucide="image-plus"></i>
+          <span>Photo</span>
+        </button>
+        <button class="orb-action orb-chat" id="chatBtn" type="button" aria-label="Chat">
+          <i data-lucide="messages-square"></i>
+          <span>Chat</span>
+        </button>
+        <button class="orb-action orb-outfit" id="outfitBtn" type="button" aria-label="Outfit">
+          <i data-lucide="shirt"></i>
+          <span>Outfit</span>
+        </button>
+
+        <div class="avatar-pad">
+          <div class="avatar-model" id="avatarModel" data-frame="0">
+            <div class="shadow"></div>
+            <div class="aura"></div>
+            <img id="characterSprite" class="character-sprite" src="./assets/generated/characters/aria360/frame-0.png?v=360clean3" alt="Aria portrait" />
+            <div class="character-body">
+              <div class="hair-back"></div>
+              <div class="dress-back"></div>
+              <div class="arm left"></div>
+              <div class="arm right"></div>
+              <div class="dress"></div>
+              <div class="head">
+                <div class="hair"></div>
+                <div class="face"></div>
+              </div>
+              <div class="leg left"></div>
+              <div class="leg right"></div>
+            </div>
+            <img id="referenceOverlay" alt="Reference overlay" />
+          </div>
+          <div class="nameplate">
+            <div class="nameplate-row">
+              <strong id="avatarNamePlate">Aria</strong>
+              <span class="intimacy-pill" id="intimacyPill" title="Intimacy with this character">
+                <i data-lucide="sparkles"></i>
+                <em id="intimacyPillValue">0</em>
+              </span>
+            </div>
+            <span id="avatarBio">27 years old, editorial Asian look, black satin gown — perfect for the suite night and intimate dates.</span>
+          </div>
+        </div>
+
+        <div class="scene-orbit" id="sceneOrbit" aria-label="Scene generators"></div>
+
+        <button class="scene-picker-btn" id="openScenePickerBtn" type="button" aria-label="Choose a scene">
+          <i data-lucide="layout-grid"></i>
+          <span>Scenes</span>
+        </button>
+
+        <button class="vr-launch-btn" id="openVrBtn" type="button" aria-label="Open VR scene">
+          <i data-lucide="scan-eye"></i>
+          <span>VR</span>
+        </button>
+
+        <div class="job-toast" id="jobPanel">
+          <strong id="jobTitle">Adopted</strong>
+          <span id="jobDetail">Drag the character left and right to view her front, side and back.</span>
+          <div class="progress-track"><span id="jobProgress"></span></div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="profileDialog" class="game-dialog">
+      <form method="dialog">
+        <header class="dialog-head">
+          <div>
+            <span>Companion library</span>
+            <strong>Pick a default companion</strong>
+          </div>
+          <button class="icon-action" value="cancel" type="submit" aria-label="Close" formnovalidate>
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+        <div class="preset-grid" id="presetGrid"></div>
+      </form>
+    </dialog>
+
+    <dialog id="wishDialog" class="game-dialog">
+      <form method="dialog">
+        <header class="dialog-head">
+          <div>
+            <span>Wish settings</span>
+            <strong>Describe a mature style</strong>
+          </div>
+          <button class="icon-action" value="cancel" type="submit" aria-label="Close" formnovalidate>
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+        <textarea
+          id="characterPrompt"
+          rows="5"
+          placeholder="e.g. mature woman, sleek black gown, sensual but tasteful, late-night setting, wine-tinted lighting — works for an 8-direction storyboard."
+        ></textarea>
+        <div class="dialog-actions">
+          <button id="saveWishBtn" class="secondary-btn" value="cancel" type="submit">
+            <i data-lucide="save"></i>
+            Save wish
+          </button>
+          <button id="wishGenerateBtn" class="primary-btn" value="cancel" type="button">
+            <i data-lucide="sparkles"></i>
+            Generate · 12
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="photoDialog" class="game-dialog">
+      <form method="dialog">
+        <header class="dialog-head">
+          <div>
+            <span>Photo reference</span>
+            <strong>Generate her from a photo</strong>
+          </div>
+          <button class="icon-action" value="cancel" type="submit" aria-label="Close" formnovalidate>
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+        <p class="dialog-tip photo-upload-flow-tip">
+          这里<strong>只保存素材</strong>到下方列表，不会自动出图，也<strong>不会</strong>生成首页全屏主视频。要生成可拖拽的 360° 角色：选好图后点下面「Generate from photo」并支付积分。要首页那种主视频：请用主界面「自定义角色」入口上传全身照并创建。
+        </p>
+        <label class="upload-zone">
+          <input id="uploadInput" type="file" accept="image/*" />
+          <span>
+            <i data-lucide="image-up"></i>
+            Upload reference photo
+          </span>
+          <img id="uploadPreview" alt="Upload preview" />
+        </label>
+        <div class="asset-library" id="userAssetList"></div>
+        <button id="uploadGenerateBtn" class="primary-btn" value="cancel" type="button">
+          <i data-lucide="wand-sparkles"></i>
+          Generate from photo · 18
+        </button>
+      </form>
+    </dialog>
+
+    <dialog id="scenePickerDialog" class="game-dialog">
+      <form method="dialog">
+        <header class="dialog-head">
+          <div>
+            <span>Scene library</span>
+            <strong>Pick a scene to generate</strong>
+          </div>
+          <button class="icon-action" value="cancel" type="submit" aria-label="Close" formnovalidate>
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+        <p class="dialog-tip">Tap a scene to open the prompt editor. Free preview will play first if the studio has bound a default video for the current character.</p>
+        <div class="scene-picker-grid" id="scenePickerGrid"></div>
+      </form>
+    </dialog>
+
+    <dialog id="dateDialog" class="game-dialog">
+      <form method="dialog">
+        <header class="dialog-head">
+          <div>
+            <span>Date video</span>
+            <strong id="dateDialogTitle">Suite Night</strong>
+          </div>
+          <button class="icon-action" value="cancel" type="submit" aria-label="Close" formnovalidate>
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+
+        <div class="bound-scene-video" id="boundSceneVideoPanel" hidden>
+          <span class="bound-scene-tag"><i data-lucide="badge-check"></i>Default preview</span>
+          <video id="boundSceneVideoPlayer" controls playsinline></video>
+          <p id="boundSceneVideoNote">Free preview.</p>
+        </div>
+
+        <div class="scene-preview" id="scenePreview">
+          <i data-lucide="video"></i>
+          <span id="dateDialogDesc">Suite Night</span>
+        </div>
+        <label class="field-row scene-prompt-row">
+          <span>Your prompt (optional · leave empty to use the scene default)</span>
+          <textarea
+            id="scenePrompt"
+            rows="4"
+            placeholder="e.g. she walks through the rain-lit suite, slow low-angle dolly, full-body silhouette, restrained smile…"
+          ></textarea>
+          <em id="scenePromptHint" class="scene-prompt-hint"></em>
+        </label>
+        <label class="field-row" id="sceneAssetRow">
+          <span>Partner</span>
+          <select id="sceneAssetSelect"></select>
+        </label>
+        <button id="sceneGenerateBtn" class="primary-btn" value="cancel" type="button">
+          <i data-lucide="video"></i>
+          Generate video · 25
+        </button>
+      </form>
+    </dialog>
+
+    <dialog id="customCharacterDialog" class="game-dialog">
+      <form method="dialog">
+        <header class="dialog-head">
+          <div>
+            <span>Custom character</span>
+            <strong>Upload a photo to create</strong>
+          </div>
+          <button class="icon-action" value="cancel" type="submit" aria-label="Close" formnovalidate>
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+
+        <p class="dialog-tip" id="customCharacterTip">
+          Step 1: Upload + name, tap <strong>Save draft</strong> (no credits). Step 2: On the card, tap <strong>Main video</strong> — credits are charged only then. Progress shows in this dialog; the home carousel lists this character only after the main video succeeds.
+        </p>
+
+        <label class="upload-zone">
+          <input id="customCharacterInput" type="file" accept="image/*" />
+          <span>
+            <i data-lucide="image-up"></i>
+            Upload character photo
+          </span>
+          <img id="customCharacterPreview" alt="Custom character preview" />
+        </label>
+
+        <label class="field-row">
+          <span>Name</span>
+          <input id="customCharacterName" type="text" maxlength="20" placeholder="e.g. Mia" />
+        </label>
+
+        <label class="field-row">
+          <span>Main video title</span>
+          <input id="customCharacterTitle" type="text" maxlength="20" placeholder="e.g. Velvet Night" />
+        </label>
+
+        <button id="customCharacterSaveDraftBtn" class="primary-btn" value="cancel" type="button">
+          <i data-lucide="save"></i>
+          Save draft
+        </button>
+
+        <p id="customCharacterStatus" class="dialog-tip"></p>
+
+        <div class="custom-character-list" id="customCharacterList"></div>
+      </form>
+    </dialog>
+
+    <dialog id="payDialog" class="pay-dialog">
+      <form method="dialog">
+        <div class="dialog-icon">
+          <i data-lucide="badge-dollar-sign"></i>
+        </div>
+        <h3 id="payTitle">Confirm spend</h3>
+        <p id="payDetail">This action will deduct credits.</p>
+        <div class="dialog-actions">
+          <button class="secondary-btn" value="cancel" type="submit" formnovalidate>Cancel</button>
+          <button id="confirmPayBtn" class="primary-btn" value="confirm" type="submit">
+            <i data-lucide="check"></i>
+            Confirm
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="loginDialog" class="pay-dialog">
+      <form method="dialog">
+        <div class="dialog-icon">
+          <i data-lucide="user-round"></i>
+        </div>
+        <h3 id="loginTitle">Sign in</h3>
+        <p id="loginHint">Sign in to generate, upload references and top up credits.</p>
+        <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" />
+        <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password" />
+        <div class="dialog-actions">
+          <button class="secondary-btn" value="cancel" type="submit" formnovalidate>Cancel</button>
+          <button id="toggleLoginModeBtn" class="secondary-btn" value="cancel" type="button" formnovalidate>Sign up</button>
+          <button id="loginSubmitBtn" class="primary-btn" value="cancel" type="button">
+            <i data-lucide="log-in"></i>
+            Sign in
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="rechargeDialog" class="pay-dialog recharge-dialog">
+      <form method="dialog">
+        <h3>USDT · TRC20</h3>
+        <div class="recharge-static">
+          <img class="recharge-qr" src="./assets/wallet/usdt-trc20-qr.png?v=home-en10" width="168" height="168" alt="USDT TRC20 QR" />
+          <div class="recharge-addr-row">
+            <code id="staticWalletAddr">TDqGn6PH4AmvzTwH77gopRGX2tyGBtpjFs</code>
+            <button type="button" class="recharge-copy-btn" id="copyWalletBtn" aria-label="Copy address">
+              <i data-lucide="copy"></i>
+            </button>
+          </div>
+          <p class="recharge-note">TRC20 USDT only — wrong token/network is lost. <strong>1 USDT = 1 credit.</strong> After you create an order, send the <strong>exact</strong> USDT amount shown (includes a match suffix).</p>
+        </div>
+        <label class="recharge-amount-label" for="rechargeAmount">Credits to buy</label>
+        <input id="rechargeAmount" type="number" min="1" step="1" value="100" />
+        <div id="orderResult" class="order-result"></div>
+        <div class="dialog-actions">
+          <button class="secondary-btn" value="cancel" type="submit" formnovalidate>Close</button>
+          <button id="createOrderBtn" class="primary-btn" value="cancel" type="button">
+            <i data-lucide="receipt"></i>
+            Create order
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="videoDialog" class="game-dialog video-dialog">
+      <form method="dialog">
+        <header class="dialog-head">
+          <div>
+            <span>Result</span>
+            <strong>Date video</strong>
+          </div>
+          <button class="icon-action" value="cancel" type="submit" aria-label="Close" formnovalidate>
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+        <video id="resultVideo" controls playsinline loop></video>
+      </form>
+    </dialog>
+
+    <section class="vr-view" id="vrView" hidden aria-label="VR panorama">
+      <canvas id="vrCanvas"></canvas>
+      <div class="vr-topbar">
+        <div>
+          <span>VR Scene</span>
+          <strong id="vrSceneLabel">Suite Night</strong>
+        </div>
+        <button class="icon-action" id="closeVrBtn" type="button" aria-label="Close VR">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="vr-tabs" id="vrSceneTabs" aria-label="Switch panorama">
+        <button class="is-active" type="button" data-vr-scene="suite">Suite</button>
+        <button type="button" data-vr-scene="rooftop">Rooftop</button>
+      </div>
+      <div class="vr-spots" id="vrSpotTabs" aria-label="Suite spots">
+        <button class="is-active" type="button" data-vr-spot="window">Window</button>
+        <button type="button" data-vr-spot="bar">Bar</button>
+        <button type="button" data-vr-spot="bed">Bedside</button>
+      </div>
+      <div class="vr-companion-layer" id="vrCompanionLayer">
+        <div class="vr-character-shadow"></div>
+        <img id="vrCharacterSprite" alt="VR companion" />
+      </div>
+    </section>
+
+    <template id="presetTemplate">
+      <button class="preset-card" type="button">
+        <img class="mini-avatar-img" alt="" />
+        <strong></strong>
+        <em></em>
+      </button>
+    </template>
+
+    <template id="sceneHotspotTemplate">
+      <button class="scene-hotspot short-drama-card" type="button">
+        <span class="short-card-media">
+          <i data-lucide="video"></i>
+        </span>
+        <span class="short-card-copy">
+          <strong></strong>
+          <em></em>
+        </span>
+        <span class="short-card-play">
+          <i data-lucide="play"></i>
+        </span>
+      </button>
+    </template>
+
+    <script src="./assets/vendor/three.min.js"></script>
+    <script src="./app.js?v=home-en15"></script>
+  </body>
+</html>

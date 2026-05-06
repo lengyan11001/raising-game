@@ -1,0 +1,3896 @@
+const http = require("node:http");
+const crypto = require("node:crypto");
+const fsSync = require("node:fs");
+const fs = require("node:fs/promises");
+const path = require("node:path");
+const { execFile } = require("node:child_process");
+const { URL } = require("node:url");
+
+const ROOT = __dirname;
+
+function loadLocalEnv(filePath) {
+  if (!fsSync.existsSync(filePath)) return;
+  const lines = fsSync.readFileSync(filePath, "utf8").split(/\r?\n/);
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+    const index = trimmed.indexOf("=");
+    if (index < 1) return;
+    const key = trimmed.slice(0, index).trim();
+    let value = trimmed.slice(index + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) process.env[key] = value;
+  });
+}
+
+loadLocalEnv(path.join(ROOT, ".env.local"));
+
+const PORT = Number(process.env.PORT || 4174);
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+const GENERATION_RECORDS_PATH = path.join(ROOT, "data", "generation-records.json");
+const APP_DB_PATH = path.join(ROOT, "data", "app-db.json");
+const APP_CONFIG_PATH = path.join(ROOT, "data", "app-config.json");
+const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
+const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
+const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
+const GENERATED_CHARACTER_DIR = path.join(ROOT, "assets", "generated", "characters", "apiz");
+const GENERATED_PANORAMA_DIR = path.join(ROOT, "assets", "generated", "panoramas");
+const ARK_BASE_URL = process.env.ARK_BASE_URL || "https://ark.ap-southeast.bytepluses.com/api/v3";
+const ARK_API_KEY =
+  process.env.ARK_API_KEY ||
+  process.env.BYTEPLUS_ARK_API_KEY ||
+  process.env.MODELARK_API_KEY ||
+  "";
+
+const MODEL_FAST =
+  process.env.SEEDANCE_FAST_ENDPOINT_ID ||
+  process.env.SEEDANCE_FAST_MODEL ||
+  "dreamina-seedance-2-0-fast-260128";
+const MODEL_QUALITY =
+  process.env.SEEDANCE_ENDPOINT_ID ||
+  process.env.SEEDANCE_MODEL ||
+  "dreamina-seedance-2-0-260128";
+
+const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
+const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
+const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
+  "auto_2K",
+  "auto_3K",
+  "square_hd",
+  "square",
+  "portrait_4_3",
+  "portrait_16_9",
+  "landscape_4_3",
+  "landscape_16_9",
+]);
+
+const TOS = {
+  accessKey: process.env.TOS_ACCESS_KEY_ID,
+  secretKey: process.env.TOS_SECRET_ACCESS_KEY,
+  endpoint: process.env.TOS_ENDPOINT,
+  region: process.env.TOS_REGION,
+  bucket: process.env.TOS_BUCKET,
+  publicDomain: process.env.TOS_PUBLIC_DOMAIN,
+};
+
+const ARK_OPENAPI = {
+  accessKey: process.env.BYTEPLUS_ACCESS_KEY_ID || process.env.VOLC_ACCESS_KEY_ID,
+  secretKey: process.env.BYTEPLUS_SECRET_ACCESS_KEY || process.env.VOLC_ACCESS_KEY_SECRET,
+  host: process.env.BYTEPLUS_OPENAPI_HOST || "ark.ap-southeast-1.byteplusapi.com",
+  region: process.env.BYTEPLUS_OPENAPI_REGION || "ap-southeast-1",
+  service: process.env.BYTEPLUS_OPENAPI_SERVICE || "ark",
+  version: process.env.BYTEPLUS_OPENAPI_VERSION || "2024-01-01",
+  groupId: process.env.BYTEPLUS_ASSET_GROUP_ID || "group-20260429190412-6lzgq",
+  projectName: process.env.BYTEPLUS_PROJECT_NAME || "xin",
+};
+
+const demoTasks = new Map();
+
+const mimeTypes = new Map([
+  [".html", "text/html; charset=utf-8"],
+  [".css", "text/css; charset=utf-8"],
+  [".js", "text/javascript; charset=utf-8"],
+  [".json", "application/json; charset=utf-8"],
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".webp", "image/webp"],
+  [".svg", "image/svg+xml"],
+  [".mp4", "video/mp4"],
+  [".webm", "video/webm"],
+]);
+
+const DEFAULT_DB = {
+  users: [],
+  sessions: [],
+  walletOrders: [],
+  userAssets: [],
+  userCharacters: [],
+};
+
+const FULL_BODY_LEG_DIRECTIVE = [
+  "Framing: STRICT FULL-BODY HEAD-TO-SHOES SHOT every second. Vertical 9:16 portrait composition. NEVER crop above the knees. NEVER use upper-body-only or face close-up framing. Her entire body, including long elegant legs and shoes, must stay fully visible.",
+  "Outfit: tasteful adult fashion that visually highlights long beautiful legs - short fitted dress, mini skirt, high-slit long dress with leg reveal, fitted leggings under cropped jacket, or thigh-high boots with short skirt. Fabric must be fully opaque, fully clothed, no nudity, no underwear shot, no see-through.",
+  "Camera: prefer wide tracking, slow low-to-mid angle push-in, occasional gentle low-angle tilt that emphasizes long legs in a tasteful editorial way. 35mm photorealistic look, shallow depth of field, real motion, coherent face and hands.",
+].join(" ");
+
+const FULL_BODY_LEG_NEGATIVES = [
+  "no half-body crop, no upper-body-only crop, no headshot, no close-up of face only,",
+  "no nudity, no underwear visible, no explicit sexual action, no minors, no fetish content,",
+  "no transparent clothing, no see-through fabric, no text, no logo, no watermark,",
+  "no extra people, no distorted body, no duplicated face, no missing feet, no simple pan-only motion.",
+].join(" ");
+
+function decorateFullBodyLegPrompt(corePrompt, extraDirection = "") {
+  const core = String(corePrompt || "").trim();
+  const extra = String(extraDirection || "").trim();
+  return [
+    core,
+    FULL_BODY_LEG_DIRECTIVE,
+    extra ? `Extra user direction: ${extra}` : "",
+    `Negative constraints: ${FULL_BODY_LEG_NEGATIVES}`,
+  ].filter(Boolean).join(" ");
+}
+
+const DEFAULT_CONFIG = {
+  defaultCompanionId: "aria",
+  prices: {
+    meet: 12,
+    photo: 18,
+    dateVideo: 25,
+    customCharacter: 30,
+  },
+  wallet: {
+    asset: "USDT",
+    network: "TRC20",
+    address: "TDqGn6PH4AmvzTwH77gopRGX2tyGBtpjFs",
+    suffixDigits: 6,
+    /** Credits granted per 1 USDT of the order's integer base amount (1:1). */
+    creditsPerUsdt: 1,
+  },
+  video: {
+    ratio: "9:16",
+    resolution: "720p",
+    duration: 15,
+    quality: "high",
+    generateAudio: false,
+  },
+  homeVideo: {
+    provider: "seedance",
+    posterUrl: "/assets/admin/home/default-hero.jpg",
+    localImageUrl: "/assets/admin/home/default-hero.jpg",
+    publicImageUrl: "",
+    referenceAssetUri: "",
+    videoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
+    taskId: "cgt-20260502191234-jdb6s",
+    status: "succeeded",
+    activeItemId: "demo-aria-vintage",
+    items: [
+      {
+        id: "demo-aria-vintage",
+        name: "Aria",
+        title: "Rainy Suite",
+        posterUrl: "/assets/admin/home/default-hero.jpg",
+        localImageUrl: "/assets/admin/home/default-hero.jpg",
+        sourceImageUrl: "/assets/admin/home/default-hero.jpg",
+        imageMime: "image/jpeg",
+        sourceImageMime: "image/jpeg",
+        syntheticReferenceLocalUrl: "/assets/admin/home/default-hero.jpg",
+        syntheticReferenceTaskId: "demo-seed",
+        referenceAssetUri: "asset://asset-20260429190434-6plrk",
+        videoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
+        localVideoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
+        taskId: "cgt-20260502191234-jdb6s",
+        status: "succeeded",
+        createdAt: "2026-05-02T11:17:48.000Z",
+        sceneVideos: {},
+      },
+    ],
+    prompt: "",
+  },
+  ifilm: {
+    cliPath: "ifilm",
+    commandTemplate: "",
+  },
+  characterImage: {
+    textModel: "fal-ai/bytedance/seedream/v5/lite/text-to-image",
+    editModel: "fal-ai/bytedance/seedream/v5/lite/edit",
+    imageSize: "1024x1536",
+  },
+  scenes: [
+    {
+      id: "room",
+      name: "Suite Night",
+      shortName: "Suite",
+      icon: "bed-double",
+      enabled: true,
+      price: 25,
+      prompt:
+        "15-second photorealistic vertical cinematic full-body shot inside a luxurious modern apartment suite at night. Adult girlfriend in a tasteful short fitted dress or high-slit long dress, walking and turning slowly so her long legs stay visible the entire time, rain on the window, warm lamp light, teal and crimson highlights, slow tracking and low-to-mid angle camera, intimate but non-explicit mood.",
+    },
+    {
+      id: "cafe",
+      name: "Wine Lounge",
+      shortName: "Lounge",
+      icon: "martini",
+      enabled: true,
+      price: 25,
+      prompt:
+        "15-second photorealistic vertical cinematic full-body lounge date. Mature stylish woman in a high-slit red dress with long leg reveal walking past the bar, low jazz lighting, red wine glass, slow dolly camera framing her entire silhouette from head to heels, intimate eye contact, glossy reflections, premium overseas dating drama tone, non-explicit.",
+    },
+    {
+      id: "park",
+      name: "Neon Rooftop",
+      shortName: "Rooftop",
+      icon: "building-2",
+      enabled: true,
+      price: 25,
+      prompt:
+        "15-second photorealistic vertical rooftop night full-body shot. Confident adult woman in a fitted mini dress or short skirt with thigh-high boots, neon city skyline behind her, breeze in hair and around her legs, slow walk and turn, low-angle wide camera that frames her full silhouette and long legs, cinematic teal and warm crimson palette, non-explicit.",
+    },
+    {
+      id: "cinema",
+      name: "Private Cinema",
+      shortName: "Cinema",
+      icon: "clapperboard",
+      enabled: true,
+      price: 25,
+      prompt:
+        "15-second photorealistic vertical private cinema full-body shot. Elegant adult woman in a sleek short evening outfit walking down the aisle of a private theater, projector light streaks across her body, velvet seats around her, slow tracking camera that always shows her full body and long legs, intimate whispering mood, premium scene, non-explicit.",
+    },
+  ],
+};
+
+function sendJson(res, statusCode, payload) {
+  const body = JSON.stringify(payload);
+  res.writeHead(statusCode, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  res.end(body);
+}
+
+function sendText(res, statusCode, body) {
+  res.writeHead(statusCode, { "content-type": "text/plain; charset=utf-8" });
+  res.end(body);
+}
+
+async function readJsonFile(filePath, fallback) {
+  try {
+    const data = await fs.readFile(filePath, "utf8");
+    const parsed = JSON.parse(data.replace(/^\uFEFF/, ""));
+    if (Array.isArray(fallback)) return Array.isArray(parsed) ? parsed : fallback;
+    return parsed && typeof parsed === "object" ? parsed : fallback;
+  } catch {
+    return structuredClone(fallback);
+  }
+}
+
+async function writeJsonFile(filePath, payload) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+async function readDb() {
+  const db = await readJsonFile(APP_DB_PATH, DEFAULT_DB);
+  return {
+    users: Array.isArray(db.users) ? db.users : [],
+    sessions: Array.isArray(db.sessions) ? db.sessions : [],
+    walletOrders: Array.isArray(db.walletOrders) ? db.walletOrders : [],
+    userAssets: Array.isArray(db.userAssets) ? db.userAssets : [],
+    userCharacters: Array.isArray(db.userCharacters) ? db.userCharacters : [],
+  };
+}
+
+async function writeDb(db) {
+  await writeJsonFile(APP_DB_PATH, db);
+}
+
+async function readAppConfig() {
+  const saved = await readJsonFile(APP_CONFIG_PATH, DEFAULT_CONFIG);
+  const bySceneId = new Map(DEFAULT_CONFIG.scenes.map((scene) => [scene.id, scene]));
+  const scenes = Array.isArray(saved.scenes) ? saved.scenes : DEFAULT_CONFIG.scenes;
+  const mergedHomeVideo = normalizeHomeVideo({ ...DEFAULT_CONFIG.homeVideo, ...(saved.homeVideo || {}) });
+  return {
+    ...DEFAULT_CONFIG,
+    ...saved,
+    prices: { ...DEFAULT_CONFIG.prices, ...(saved.prices || {}) },
+    wallet: { ...DEFAULT_CONFIG.wallet, ...(saved.wallet || {}) },
+    video: { ...DEFAULT_CONFIG.video, ...(saved.video || {}) },
+    homeVideo: mergedHomeVideo,
+    ifilm: { ...DEFAULT_CONFIG.ifilm, ...(saved.ifilm || {}) },
+    characterImage: { ...DEFAULT_CONFIG.characterImage, ...(saved.characterImage || {}) },
+    scenes: scenes.map((scene) => ({ ...(bySceneId.get(scene.id) || {}), ...scene })),
+  };
+}
+
+async function writeAppConfig(config) {
+  await writeJsonFile(APP_CONFIG_PATH, config);
+}
+
+function publicConfig(config) {
+  const homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  return {
+    defaultCompanionId: config.defaultCompanionId,
+    prices: config.prices,
+    wallet: {
+      asset: config.wallet.asset,
+      network: config.wallet.network,
+      address: config.wallet.address,
+      suffixDigits: config.wallet.suffixDigits,
+      creditsPerUsdt: clampNumber(config.wallet.creditsPerUsdt, 1, 0.01, 100000),
+    },
+    video: config.video,
+    homeVideo: {
+      provider: homeVideo.provider || "seedance",
+      posterUrl: homeVideo.posterUrl || "",
+      videoUrl: homeVideo.videoUrl || "",
+      taskId: homeVideo.taskId || "",
+      status: homeVideo.status || "",
+      referenceAssetUri: homeVideo.referenceAssetUri || "",
+      activeItemId: homeVideo.activeItemId || "",
+      items: homeVideo.items.map(publicHomeVideoItem),
+    },
+    characterImage: config.characterImage,
+    scenes: config.scenes
+      .filter((scene) => scene.enabled !== false)
+      .map(({ prompt, ...scene }) => scene),
+  };
+}
+
+function makeHomeVideoItemId() {
+  return `home-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
+}
+
+function publicHomeVideoItem(item) {
+  const hasSynth = Boolean(item.syntheticReferenceLocalUrl || item.syntheticReferenceUrl);
+  const hasAsset = Boolean(item.referenceAssetUri);
+  let referenceState = "missing";
+  if (hasSynth && hasAsset) referenceState = "ready";
+  else if (hasSynth) referenceState = "asset_pending";
+  else if (item.status === "reference_failed") referenceState = "failed";
+  else if (item.status === "image_uploaded") referenceState = "synth_pending";
+  return {
+    id: item.id || "",
+    name: item.name || "Featured",
+    title: item.title || "Featured drama",
+    posterUrl: item.posterUrl || item.localImageUrl || "",
+    videoUrl: item.videoUrl || item.localVideoUrl || "",
+    taskId: item.taskId || "",
+    status: item.status || "",
+    referenceAssetUri: item.referenceAssetUri || "",
+    referenceState,
+    createdAt: item.createdAt || "",
+    sceneVideos: publicSceneVideoMap(item.sceneVideos || {}),
+  };
+}
+
+function legacyHomeItem(homeVideo = {}) {
+  return {
+    id: homeVideo.activeItemId || "home-default",
+    name: homeVideo.name || "Featured",
+    title: homeVideo.title || "Featured drama",
+    posterUrl: homeVideo.posterUrl || homeVideo.localImageUrl || "",
+    localImageUrl: homeVideo.localImageUrl || homeVideo.posterUrl || "",
+    imageMime: homeVideo.imageMime || "",
+    publicImageUrl: homeVideo.publicImageUrl || "",
+    referenceAssetUri: homeVideo.referenceAssetUri || "",
+    videoUrl: homeVideo.videoUrl || homeVideo.localVideoUrl || "",
+    localVideoUrl: homeVideo.localVideoUrl || homeVideo.videoUrl || "",
+    remoteVideoUrl: homeVideo.remoteVideoUrl || "",
+    localVideoPath: homeVideo.localVideoPath || "",
+    taskId: homeVideo.taskId || "",
+    status: homeVideo.status || "",
+    prompt: homeVideo.prompt || "",
+    createdAt: homeVideo.createdAt || "",
+    updatedAt: homeVideo.updatedAt || "",
+  };
+}
+
+function normalizeHomeVideo(homeVideo = {}) {
+  const items = Array.isArray(homeVideo.items) ? homeVideo.items.filter(Boolean) : [];
+  const normalized = items.length ? items : [legacyHomeItem(homeVideo)].filter((item) => item.posterUrl || item.videoUrl);
+  const activeItemId = homeVideo.activeItemId || normalized[0]?.id || "";
+  const active = normalized.find((item) => item.id === activeItemId) || normalized[0] || {};
+  return {
+    ...homeVideo,
+    activeItemId: active.id || activeItemId,
+    items: normalized,
+    posterUrl: active.posterUrl || active.localImageUrl || homeVideo.posterUrl || "",
+    localImageUrl: active.localImageUrl || active.posterUrl || homeVideo.localImageUrl || "",
+    imageMime: active.imageMime || homeVideo.imageMime || "",
+    publicImageUrl: active.publicImageUrl || homeVideo.publicImageUrl || "",
+    referenceAssetUri: active.referenceAssetUri || homeVideo.referenceAssetUri || "",
+    videoUrl: active.videoUrl || active.localVideoUrl || homeVideo.videoUrl || "",
+    localVideoUrl: active.localVideoUrl || active.videoUrl || homeVideo.localVideoUrl || "",
+    remoteVideoUrl: active.remoteVideoUrl || homeVideo.remoteVideoUrl || "",
+    localVideoPath: active.localVideoPath || homeVideo.localVideoPath || "",
+    taskId: active.taskId || homeVideo.taskId || "",
+    status: active.status || homeVideo.status || "",
+  };
+}
+
+function syncHomeVideoActiveFields(homeVideo = {}) {
+  const normalized = normalizeHomeVideo(homeVideo);
+  return normalized;
+}
+
+function findHomeVideoItem(homeVideo = {}, itemId = "") {
+  const normalized = normalizeHomeVideo(homeVideo);
+  return normalized.items.find((item) => item.id === itemId) || normalized.items.find((item) => item.id === normalized.activeItemId) || normalized.items[0];
+}
+
+function upsertHomeVideoItem(homeVideo = {}, item) {
+  const normalized = normalizeHomeVideo(homeVideo);
+  const items = normalized.items.filter((next) => next.id !== item.id);
+  items.unshift(item);
+  return syncHomeVideoActiveFields({ ...normalized, activeItemId: item.id, items });
+}
+
+function userView(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.username,
+    role: user.role || "user",
+    credits: Number(user.credits || 0),
+    createdAt: user.createdAt,
+  };
+}
+
+function randomId(prefix) {
+  return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
+  const hash = crypto.pbkdf2Sync(String(password), salt, 120000, 32, "sha256").toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  const [salt, expected] = String(stored || "").split(":");
+  if (!salt || !expected) return false;
+  const actual = hashPassword(password, salt).split(":")[1];
+  return crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+}
+
+function getBearerToken(req) {
+  const auth = req.headers.authorization || "";
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
+async function getAuth(req) {
+  const token = getBearerToken(req);
+  if (!token) return { db: await readDb(), user: null, session: null };
+  const db = await readDb();
+  const session = db.sessions.find((item) => item.token === token);
+  if (!session) return { db, user: null, session: null };
+  const user = db.users.find((item) => item.id === session.userId) || null;
+  return { db, user, session };
+}
+
+async function requireUser(req, res) {
+  const auth = await getAuth(req);
+  if (!auth.user) {
+    sendJson(res, 401, { ok: false, code: "LOGIN_REQUIRED", message: "Please sign in to continue." });
+    return null;
+  }
+  return auth;
+}
+
+async function requireAdmin(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return null;
+  if (auth.user.role !== "admin") {
+    sendJson(res, 403, { ok: false, code: "ADMIN_REQUIRED", message: "需要管理员权限。" });
+    return null;
+  }
+  return auth;
+}
+
+function makeUniquePaymentAmount(baseAmount, suffixDigits) {
+  const amount = Math.max(1, Math.round(Number(baseAmount || 0)));
+  const max = 10 ** suffixDigits;
+  const suffixNumber = crypto.randomInt(1, max);
+  const suffix = String(suffixNumber).padStart(suffixDigits, "0");
+  const payableAmountText = `${amount}.${suffix}`;
+  const payableAmount = Number(payableAmountText);
+  return { amount, suffix, payableAmount, payableAmountText };
+}
+
+function decodeDataUrl(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,([a-z0-9+/=]+)$/i);
+  if (!match) {
+    const error = new Error("Only PNG/JPG/WebP images are supported.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return {
+    mime: match[1].replace("image/jpg", "image/jpeg"),
+    bytes: Buffer.from(match[2], "base64"),
+  };
+}
+
+function imageExtFromMime(mime) {
+  if (mime === "image/png") return ".png";
+  if (mime === "image/webp") return ".webp";
+  return ".jpg";
+}
+
+function imageMimeFromPath(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  return "image/jpeg";
+}
+
+function execFileJson(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { timeout: 120000, windowsHide: true, ...options }, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      const text = String(stdout || "").trim();
+      try {
+        resolve(text ? JSON.parse(text) : {});
+      } catch {
+        resolve({ text, stderr: String(stderr || "") });
+      }
+    });
+  });
+}
+
+function findSceneConfig(config, sceneId) {
+  return config.scenes.find((scene) => scene.id === sceneId) || config.scenes[0] || DEFAULT_CONFIG.scenes[0];
+}
+
+function publicSceneVideo(entry = {}) {
+  if (!entry || typeof entry !== "object") return null;
+  const videoUrl = entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "";
+  if (!videoUrl && !entry.taskId) return null;
+  return {
+    sceneId: entry.sceneId || "",
+    sceneName: entry.sceneName || "",
+    videoUrl,
+    posterUrl: entry.posterUrl || "",
+    taskId: entry.taskId || "",
+    status: entry.status || "",
+    prompt: entry.prompt || "",
+    userPrompt: entry.userPrompt || "",
+    finalPrompt: entry.finalPrompt || entry.prompt || "",
+    referenceAssetUri: entry.referenceAssetUri || "",
+    partnerCharacterId: entry.partnerCharacterId || "",
+    partnerCharacterName: entry.partnerCharacterName || "",
+    partnerReferenceAssetUri: entry.partnerReferenceAssetUri || "",
+    model: entry.model || "",
+    ratio: entry.ratio || "",
+    resolution: entry.resolution || "",
+    duration: entry.duration || 0,
+    provider: entry.provider || "seedance",
+    updatedAt: entry.updatedAt || "",
+    createdAt: entry.createdAt || "",
+    error: entry.error || "",
+  };
+}
+
+function publicSceneVideoMap(sceneVideos = {}) {
+  if (!sceneVideos || typeof sceneVideos !== "object") return {};
+  const out = {};
+  Object.keys(sceneVideos).forEach((sceneId) => {
+    const entry = publicSceneVideo({ ...sceneVideos[sceneId], sceneId });
+    if (entry) out[sceneId] = entry;
+  });
+  return out;
+}
+
+function requireValue(label, value) {
+  if (!value) {
+    const error = new Error(`Missing ${label}`);
+    error.statusCode = 503;
+    throw error;
+  }
+}
+
+function sha256Hex(data) {
+  return crypto.createHash("sha256").update(data).digest("hex");
+}
+
+function hmac(key, data, encoding) {
+  return crypto.createHmac("sha256", key).update(data).digest(encoding);
+}
+
+function signKey(secret, date, region, service) {
+  return hmac(hmac(hmac(hmac(secret, date), region), service), "request");
+}
+
+function amzDate() {
+  const value = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+  return { xDate: value, date: value.slice(0, 8) };
+}
+
+function encodePathname(input) {
+  return input
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function makeTosAuth({ method, key, body, contentType }) {
+  const host = `${TOS.bucket}.${TOS.endpoint}`;
+  const { xDate, date } = amzDate();
+  const payloadHash = sha256Hex(body);
+  const canonicalUri = `/${encodePathname(key)}`;
+  const headers = {
+    "content-type": contentType,
+    host,
+    "x-tos-content-sha256": payloadHash,
+    "x-tos-date": xDate,
+  };
+  const sortedKeys = Object.keys(headers).sort();
+  const signedHeaders = sortedKeys.join(";");
+  const canonicalHeaders = sortedKeys.map((header) => `${header}:${headers[header]}\n`).join("");
+  const canonicalRequest = [method, canonicalUri, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const scope = `${date}/${TOS.region}/tos/request`;
+  const stringToSign = ["TOS4-HMAC-SHA256", xDate, scope, sha256Hex(canonicalRequest)].join("\n");
+  const signature = hmac(signKey(TOS.secretKey, date, TOS.region, "tos"), stringToSign, "hex");
+
+  return {
+    host,
+    canonicalUri,
+    headers: {
+      "content-type": contentType,
+      "x-tos-content-sha256": payloadHash,
+      "x-tos-date": xDate,
+      authorization: `TOS4-HMAC-SHA256 Credential=${TOS.accessKey}/${scope},SignedHeaders=${signedHeaders},Signature=${signature}`,
+    },
+  };
+}
+
+function makeArkOpenApiAuth({ action, body }) {
+  const { xDate, date } = amzDate();
+  const query = new URLSearchParams({ Action: action, Version: ARK_OPENAPI.version }).toString();
+  const payloadHash = sha256Hex(body);
+  const headers = {
+    "content-type": "application/json",
+    host: ARK_OPENAPI.host,
+    "x-content-sha256": payloadHash,
+    "x-date": xDate,
+  };
+  const sortedKeys = Object.keys(headers).sort();
+  const signedHeaders = sortedKeys.join(";");
+  const canonicalHeaders = sortedKeys.map((header) => `${header}:${headers[header]}\n`).join("");
+  const canonicalRequest = ["POST", "/", query, canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const scope = `${date}/${ARK_OPENAPI.region}/${ARK_OPENAPI.service}/request`;
+  const stringToSign = ["HMAC-SHA256", xDate, scope, sha256Hex(canonicalRequest)].join("\n");
+  const signature = hmac(signKey(ARK_OPENAPI.secretKey, date, ARK_OPENAPI.region, ARK_OPENAPI.service), stringToSign, "hex");
+
+  return {
+    url: `https://${ARK_OPENAPI.host}/?${query}`,
+    headers: {
+      ...headers,
+      authorization: `HMAC-SHA256 Credential=${ARK_OPENAPI.accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+    },
+  };
+}
+
+async function uploadBufferToTos({ userId, assetId, bytes, mime }) {
+  requireValue("TOS_ACCESS_KEY_ID", TOS.accessKey);
+  requireValue("TOS_SECRET_ACCESS_KEY", TOS.secretKey);
+  requireValue("TOS_ENDPOINT", TOS.endpoint);
+  requireValue("TOS_REGION", TOS.region);
+  requireValue("TOS_BUCKET", TOS.bucket);
+  requireValue("TOS_PUBLIC_DOMAIN", TOS.publicDomain);
+
+  const key = `seedance-assets/raising-game/users/${userId}/${assetId}-${Date.now()}${imageExtFromMime(mime)}`;
+  const auth = makeTosAuth({ method: "PUT", key, body: bytes, contentType: mime });
+  const url = `https://${auth.host}${auth.canonicalUri}`;
+  const response = await fetch(url, { method: "PUT", headers: auth.headers, body: bytes });
+  const text = await response.text();
+  if (!response.ok) {
+    const error = new Error(`TOS upload failed: ${response.status} ${text}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  return {
+    key,
+    tosUrl: url,
+    publicUrl: `${TOS.publicDomain.replace(/\/$/, "")}/${key}`,
+  };
+}
+
+function makeHomeSyntheticReferencePrompt(item = {}) {
+  const extra = String(item.referencePrompt || item.prompt || "").trim();
+  return [
+    "Use Figure 1 as the strict visual reference for a synthetic original adult female character.",
+    "Keep the same face impression, adult age impression, hairstyle, body proportions, outfit silhouette, fabric colors, fabric textures, shoes, and visible accessories from the uploaded image.",
+    "Generate one premium photorealistic FULL-BODY portrait, head-to-shoes fully visible inside the frame, front-facing, vertical 9:16 portrait composition, centered with generous margin, clean soft studio background, natural skin texture, no anime, no CGI, no plastic doll look.",
+    "Composition must show her entire body from the top of her head down to her shoes; her long elegant legs must be clearly visible in the lower half of the image. Outfit should highlight her legs in a tasteful editorial way (short fitted dress, mini skirt, high-slit long dress, or fitted leggings) while remaining fully clothed.",
+    "The character should feel like the same uploaded character rebuilt as a fictional digital model, not a different woman.",
+    "Tasteful alluring confidence, mature adult fashion look, non-nude, non-explicit, no transparent clothing.",
+    "No text, no logo, no watermark, no extra people, no cropped feet, no headshot, no upper-body-only crop, no distorted hands.",
+    extra ? `Extra direction: ${extra}` : "",
+  ].filter(Boolean).join(" ");
+}
+
+function makeHomeVideoPrompt(item = {}, overridePrompt = "", { decorate = false } = {}) {
+  const userPrompt = String(overridePrompt || item.prompt || "").trim();
+  const core = userPrompt || [
+    "Create a 15-second vertical cinematic image-to-video FULL-BODY short drama shot featuring the same original adult woman from the reference image.",
+    "Identity lock: preserve her face impression, adult age impression, hairstyle, outfit colors, outfit silhouette, body proportions, shoes, and visible accessories from the reference image.",
+    "Mood: seductive, elegant, intimate, confident, premium mobile romance drama, strictly non-explicit.",
+    "Scene: luxury private suite lounge with warm lamp light, mirrored wall, rain on tall windows, rose-gold highlights, polished high-end atmosphere.",
+    "Action timeline: 0-4s she walks toward camera in full-body view, legs crossing naturally in stride, direct confident eye contact; 4-9s she stops, slowly turns 360 to show her full silhouette, hands resting at her hips, long legs clearly visible; 9-15s she leans against the mirrored wall, one leg slightly forward in a fashion editorial pose, slow low-angle camera tilt highlights her long legs while she gives a restrained flirtatious smile.",
+  ].join(" ");
+  return decorate ? decorateFullBodyLegPrompt(core) : core;
+}
+
+function makeSceneVideoPrompt(scene = {}, overridePrompt = "") {
+  const userPrompt = String(overridePrompt || "").trim();
+  if (userPrompt) return userPrompt;
+  return String(scene.prompt || "").trim() || `15-second vertical cinematic short drama in scene ${scene.name || scene.id || "scene"}.`;
+}
+
+function makeInteractiveSceneVideoPrompt(scene = {}, primaryName = "", partnerName = "", overridePrompt = "") {
+  const userPrompt = String(overridePrompt || "").trim();
+  const base = makeSceneVideoPrompt(scene, "");
+  const who = primaryName || "the main woman";
+  const withWho = partnerName || "the selected partner";
+  const interaction = [
+    `Feature two adult women together in the same shot: ${who} and ${withWho}.`,
+    `Keep both identities distinct and consistent from their reference images.`,
+    "They should interact naturally with eye contact, body turns, mirrored movement, and shared framing.",
+    "Do not turn this into a solo portrait. Keep both characters visible in meaningful parts of the scene.",
+    "Maintain tasteful non-explicit romance-drama energy.",
+  ].join(" ");
+  return [userPrompt || base, interaction].filter(Boolean).join(" ");
+}
+
+async function submitSeedanceVideoTask({ config, prompt, referenceAssetUri, extraReferenceAssetUris = [], body = {}, slug = "" }) {
+  const content = [{ type: "text", text: prompt }];
+  if (referenceAssetUri && referenceAssetUri.startsWith("asset://")) {
+    content.push({
+      type: "image_url",
+      image_url: { url: referenceAssetUri },
+      role: "reference_image",
+    });
+  }
+  extraReferenceAssetUris
+    .filter((uri) => uri && uri.startsWith("asset://") && uri !== referenceAssetUri)
+    .forEach((uri) => {
+      content.push({
+        type: "image_url",
+        image_url: { url: uri },
+        role: "reference_image",
+      });
+    });
+
+  const payload = {
+    model: MODEL_QUALITY,
+    content,
+    generate_audio: body.generateAudio === true || config.video.generateAudio === true,
+    ratio: body.ratio || config.video.ratio || "9:16",
+    resolution: body.resolution || config.video.resolution || "720p",
+    duration: clampNumber(body.duration, config.video.duration || 15, 5, 15),
+    watermark: false,
+  };
+
+  console.log(`[seedance-submit-${slug || "video"}]`, JSON.stringify(payload, null, 2));
+  let raw;
+  let lastSubmitError = "";
+  for (let attempt = 0; attempt < 18; attempt += 1) {
+    try {
+      raw = await arkRequest("POST", "/contents/generations/tasks", payload);
+      break;
+    } catch (error) {
+      lastSubmitError = error.message || String(error);
+      if (!/asset is still processing|not available yet/i.test(lastSubmitError)) throw error;
+      await delay(10000);
+    }
+  }
+  if (!raw) {
+    const error = new Error(lastSubmitError || "Upstream asset still processing, Seedance submit failed.");
+    error.statusCode = 502;
+    throw error;
+  }
+  return { task: normalizeTask(raw), payload };
+}
+
+async function downloadHomeReferenceImage(imageUrl, itemId) {
+  const response = await fetch(imageUrl, { signal: AbortSignal.timeout(180000) });
+  if (!response.ok) {
+    const error = new Error(`Failed to download synthetic reference: ${response.status}`);
+    error.statusCode = 502;
+    throw error;
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const fileName = `home-ref-${String(itemId || "role").replace(/[^a-z0-9_-]/gi, "-")}-${Date.now()}.png`;
+  const localPath = path.join(ADMIN_HOME_DIR, fileName);
+  await fs.mkdir(ADMIN_HOME_DIR, { recursive: true });
+  await fs.writeFile(localPath, bytes);
+  return {
+    bytes,
+    localPath,
+    localUrl: `/assets/admin/home/${fileName}`,
+    mime: "image/png",
+  };
+}
+
+async function createHomeSyntheticReference(item) {
+  requireValue("APIZ_API_KEY", APIZ_API_KEY);
+  const sourceUrl = item.sourceImageUrl || item.originalImageUrl || item.localImageUrl || item.posterUrl;
+  if (!sourceUrl || /^https?:\/\//i.test(sourceUrl)) {
+    const error = new Error("Save the home character locally first before generating a faithful reference image.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const sourcePath = path.join(ROOT, sourceUrl.replace(/^\//, ""));
+  const bytes = await fs.readFile(sourcePath);
+  const uploaded = await uploadBufferToTos({
+    userId: "admin",
+    assetId: `${item.id || "home-role"}-source`,
+    bytes,
+    mime: item.sourceImageMime || item.imageMime || imageMimeFromPath(sourcePath),
+  });
+  const prompt = makeHomeSyntheticReferencePrompt(item);
+  const model = process.env.HOME_REFERENCE_MODEL || process.env.OFFICIAL_PRESET_MODEL || DEFAULT_CONFIG.characterImage.editModel;
+  const created = await apizRequest("/api/v3/tasks/create", {
+    model,
+    params: {
+      prompt,
+      image_urls: [uploaded.publicUrl],
+      image_size: "auto_3K",
+      num_images: 1,
+      max_images: 1,
+      enhance_prompt_mode: "standard",
+    },
+    channel: null,
+  });
+  const taskId = created.task_id || created.taskId || created.id;
+  if (!taskId) {
+    const error = new Error(`Seedream did not return task id: ${JSON.stringify(created)}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  let task = created;
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    await delay(5000);
+    task = await apizRequest("/api/v3/tasks/query", { task_id: taskId });
+    if (isCompletedStatus(task.status)) break;
+    if (isFailedStatus(task.status)) {
+      const error = new Error(`Synthetic reference generation failed: ${task.error || task.message || JSON.stringify(task)}`);
+      error.statusCode = 502;
+      throw error;
+    }
+  }
+  if (!isCompletedStatus(task.status)) {
+    const error = new Error(`Synthetic reference generation timed out: ${taskId}`);
+    error.statusCode = 504;
+    throw error;
+  }
+
+  const imageUrl = collectOutputImageUrls(task)[0];
+  if (!imageUrl) {
+    const error = new Error(`Synthetic reference task returned no image: ${taskId}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const local = await downloadHomeReferenceImage(imageUrl, item.id);
+  return {
+    model,
+    prompt,
+    taskId,
+    imageUrl,
+    sourcePublicUrl: uploaded.publicUrl,
+    sourceTosKey: uploaded.key,
+    local,
+  };
+}
+
+async function ensureHomeSyntheticReference(config) {
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const item = findHomeVideoItem(config.homeVideo);
+  if (!item) {
+    const error = new Error("Please upload or select a home character first.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return ensureSyntheticReferenceForHomeItem(config, item.id);
+}
+
+/**
+ * Make sure the given home item has BOTH a high-quality apiz Seedream synthetic
+ * reference image AND an upstream Seedance asset built from that image.
+ * Self-heals if a previous version wrote referenceAssetUri straight from the
+ * raw upload (i.e. syntheticReferenceLocalUrl missing).
+ */
+async function ensureSyntheticReferenceForHomeItem(config, itemId, options = {}) {
+  // If a background scheduler is already building this item, wait for
+  // it to finish to avoid firing two Seedream tasks for the same image.
+  if (
+    !options._fromScheduler &&
+    typeof HOME_REFERENCE_BUILDS !== "undefined" &&
+    HOME_REFERENCE_BUILDS &&
+    HOME_REFERENCE_BUILDS.has(itemId)
+  ) {
+    try { await HOME_REFERENCE_BUILDS.get(itemId); } catch {}
+    return await readAppConfig();
+  }
+
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const item = findHomeVideoItem(config.homeVideo, itemId);
+  if (!item) {
+    const error = new Error(`Home item ${itemId} not found.`);
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const force = options.force === true;
+  const hasSynthetic = Boolean(item.syntheticReferenceLocalUrl || item.syntheticReferenceUrl);
+  const hasAsset = Boolean(item.referenceAssetUri);
+
+  // Self-heal: a stale referenceAssetUri exists but no synthetic image was
+  // ever produced. Treat it as invalid and rebuild from scratch.
+  let working = item;
+  if (force || (hasAsset && !hasSynthetic)) {
+    working = {
+      ...item,
+      referenceAssetUri: "",
+      publicImageUrl: "",
+      tosKey: "",
+    };
+    config.homeVideo = upsertHomeVideoItem(config.homeVideo, working);
+    await writeAppConfig(config);
+  } else if (hasAsset && hasSynthetic) {
+    return config;
+  }
+
+  let referenceItem = working;
+  if (!referenceItem.syntheticReferenceLocalUrl && !referenceItem.syntheticReferenceUrl) {
+    const synthetic = await createHomeSyntheticReference(referenceItem);
+    referenceItem = {
+      ...referenceItem,
+      sourceImageUrl: referenceItem.sourceImageUrl || referenceItem.localImageUrl || referenceItem.posterUrl,
+      sourceImageMime: referenceItem.sourceImageMime || referenceItem.imageMime || "",
+      posterUrl: synthetic.local.localUrl,
+      localImageUrl: synthetic.local.localUrl,
+      imageMime: synthetic.local.mime,
+      syntheticReferenceLocalUrl: synthetic.local.localUrl,
+      syntheticReferenceUrl: synthetic.imageUrl,
+      syntheticReferenceTaskId: synthetic.taskId,
+      syntheticReferenceModel: synthetic.model,
+      syntheticReferencePrompt: synthetic.prompt,
+      sourcePublicUrl: synthetic.sourcePublicUrl,
+      sourceTosKey: synthetic.sourceTosKey,
+      status: "reference_ready",
+      updatedAt: new Date().toISOString(),
+    };
+    config.homeVideo = upsertHomeVideoItem(config.homeVideo, referenceItem);
+    await writeAppConfig(config);
+  } else if (referenceItem.syntheticReferenceLocalUrl && referenceItem.localImageUrl !== referenceItem.syntheticReferenceLocalUrl) {
+    referenceItem = {
+      ...referenceItem,
+      sourceImageUrl: referenceItem.sourceImageUrl || referenceItem.localImageUrl || referenceItem.posterUrl,
+      posterUrl: referenceItem.syntheticReferenceLocalUrl,
+      localImageUrl: referenceItem.syntheticReferenceLocalUrl,
+      imageMime: "image/png",
+      updatedAt: new Date().toISOString(),
+    };
+    config.homeVideo = upsertHomeVideoItem(config.homeVideo, referenceItem);
+    await writeAppConfig(config);
+  }
+
+  return ensureSeedanceAssetForHomeItem(config, referenceItem.id);
+}
+
+async function ensureSeedanceAssetForHomeImage(config) {
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const item = findHomeVideoItem(config.homeVideo);
+  if (!item) {
+    const error = new Error("Please upload or select a home character first.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return ensureSeedanceAssetForHomeItem(config, item.id);
+}
+
+async function ensureSeedanceAssetForHomeItem(config, itemId) {
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const item = findHomeVideoItem(config.homeVideo, itemId);
+  if (!item) {
+    const error = new Error(`Home item ${itemId} not found.`);
+    error.statusCode = 404;
+    throw error;
+  }
+  if (item.referenceAssetUri) return config;
+  // Prefer the synthetic image as the reference, fall back to the local image.
+  const localUrl = item.syntheticReferenceLocalUrl || item.localImageUrl || item.posterUrl;
+  if (!localUrl || /^https?:\/\//i.test(localUrl)) {
+    const error = new Error("The home image must be uploaded locally first before creating an upstream reference asset.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const localPath = path.join(ROOT, localUrl.replace(/^\//, ""));
+  const bytes = await fs.readFile(localPath);
+  const uploaded = await uploadBufferToTos({
+    userId: "admin",
+    assetId: `${item.id || "home-video-reference"}-ref`,
+    bytes,
+    mime: item.imageMime || config.homeVideo?.imageMime || imageMimeFromPath(localPath),
+  });
+  const created = await arkOpenApiAction("CreateAsset", {
+    GroupId: ARK_OPENAPI.groupId,
+    URL: uploaded.publicUrl,
+    AssetType: "Image",
+    Name: `raising-game-home-${item.id}-${Date.now()}`,
+    ProjectName: ARK_OPENAPI.projectName,
+  });
+  const assetId = extractAssetId(created);
+  if (!assetId) {
+    const error = new Error(`CreateAsset did not return asset id: ${JSON.stringify(created)}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const next = {
+    ...item,
+    publicImageUrl: uploaded.publicUrl,
+    referenceAssetUri: `asset://${assetId}`,
+    tosKey: uploaded.key,
+    updatedAt: new Date().toISOString(),
+  };
+  config.homeVideo = upsertHomeVideoItem(config.homeVideo, next);
+  return config;
+}
+
+function isPublicHttpUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return ["http:", "https:"].includes(url.protocol) && !["127.0.0.1", "localhost", "::1"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeSeedreamImageSize(value) {
+  return APIZ_SEEDREAM_IMAGE_SIZES.has(value) ? value : "auto_3K";
+}
+
+async function ensurePublicUrlForUserAsset(db, userAsset) {
+  if (isPublicHttpUrl(userAsset.publicUrl)) return userAsset;
+
+  const localPath = path.join(ROOT, userAsset.localUrl.replace(/^\//, ""));
+  const bytes = await fs.readFile(localPath);
+  const uploaded = await uploadBufferToTos({
+    userId: userAsset.userId,
+    assetId: `${userAsset.id}-apiz`,
+    bytes,
+    mime: userAsset.mime || "image/png",
+  });
+
+  userAsset.publicUrl = uploaded.publicUrl;
+  userAsset.publicTosKey = uploaded.key;
+  userAsset.publicUploadedAt = new Date().toISOString();
+  await writeDb(db);
+  return userAsset;
+}
+
+async function arkOpenApiAction(action, payload) {
+  requireValue("BYTEPLUS_ACCESS_KEY_ID or VOLC_ACCESS_KEY_ID", ARK_OPENAPI.accessKey);
+  requireValue("BYTEPLUS_SECRET_ACCESS_KEY or VOLC_ACCESS_KEY_SECRET", ARK_OPENAPI.secretKey);
+
+  const body = JSON.stringify(payload);
+  const transientCodes = /InternalServiceTimeout|InternalServiceError|RequestTimeout|ServerBusy|TooManyRequests/i;
+  let lastError = null;
+  // Each iteration freshly signs the request because the signed timestamp
+  // would otherwise drift between attempts.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const auth = makeArkOpenApiAuth({ action, body });
+      const response = await fetch(auth.url, { method: "POST", headers: auth.headers, body });
+      const text = await response.text();
+      const json = text ? JSON.parse(text) : {};
+      if (!response.ok || json.ResponseMetadata?.Error) {
+        const detail = json.ResponseMetadata?.Error;
+        const message = `${action} failed: ${detail?.Code || response.status} ${detail?.Message || text}`;
+        const isTransient =
+          (detail?.Code && transientCodes.test(detail.Code)) ||
+          (detail?.Message && transientCodes.test(detail.Message)) ||
+          (text && transientCodes.test(text)) ||
+          response.status === 503 ||
+          response.status === 504 ||
+          response.status === 429;
+        if (isTransient && attempt < 3) {
+          lastError = message;
+          const wait = 4000 * (attempt + 1);
+          console.warn(`[ark-openapi] ${action} transient error: ${message} — retrying in ${wait}ms`);
+          await delay(wait);
+          continue;
+        }
+        const error = new Error(message);
+        error.statusCode = response.ok ? 502 : response.status;
+        error.payload = json;
+        throw error;
+      }
+      return json.Result || json;
+    } catch (error) {
+      // Network-layer errors get one retry only when they look transient.
+      const msg = String(error.message || error);
+      if (attempt < 3 && /timeout|network|ECONN|fetch failed/i.test(msg)) {
+        lastError = msg;
+        const wait = 4000 * (attempt + 1);
+        console.warn(`[ark-openapi] ${action} network error: ${msg} — retrying in ${wait}ms`);
+        await delay(wait);
+        continue;
+      }
+      throw error;
+    }
+  }
+  const error = new Error(`${action} failed after retries: ${lastError || "unknown error"}`);
+  error.statusCode = 502;
+  throw error;
+}
+
+function extractAssetId(result) {
+  return result.Id || result.AssetId || result.Asset?.Id || result.Asset?.AssetId || result.Item?.Id || "";
+}
+
+async function ensureSeedanceAssetForUserAsset(db, userAsset) {
+  if (userAsset.assetUri) return userAsset;
+
+  const localPath = path.join(ROOT, userAsset.localUrl.replace(/^\//, ""));
+  const bytes = await fs.readFile(localPath);
+  const uploaded = await uploadBufferToTos({
+    userId: userAsset.userId,
+    assetId: userAsset.id,
+    bytes,
+    mime: userAsset.mime || "image/png",
+  });
+  const created = await arkOpenApiAction("CreateAsset", {
+    GroupId: ARK_OPENAPI.groupId,
+    URL: uploaded.publicUrl,
+    AssetType: "Image",
+    Name: `raising-game-user-${userAsset.id}-${Date.now()}`,
+    ProjectName: ARK_OPENAPI.projectName,
+  });
+  const assetId = extractAssetId(created);
+  if (!assetId) {
+    const error = new Error(`CreateAsset did not return asset id: ${JSON.stringify(created)}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  userAsset.assetId = assetId;
+  userAsset.assetUri = `asset://${assetId}`;
+  userAsset.publicUrl = uploaded.publicUrl;
+  userAsset.tosKey = uploaded.key;
+  userAsset.upstreamCreatedAt = new Date().toISOString();
+  await writeDb(db);
+  return userAsset;
+}
+
+async function apizRequest(pathname, body) {
+  if (!APIZ_API_KEY) {
+    const error = new Error("Missing APIZ_API_KEY");
+    error.statusCode = 503;
+    error.code = "MISSING_APIZ_API_KEY";
+    throw error;
+  }
+
+  const response = await fetch(`${APIZ_BASE_URL}${pathname}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${APIZ_API_KEY}`,
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : {};
+  if (!response.ok || payload.code >= 400) {
+    const error = new Error(payload.message || payload.detail || `apiz request failed: ${response.status}`);
+    error.statusCode = response.status || 502;
+    error.payload = payload;
+    throw error;
+  }
+  return payload.data || payload;
+}
+
+async function readGenerationRecords() {
+  try {
+    const data = await fs.readFile(GENERATION_RECORDS_PATH, "utf8");
+    const records = JSON.parse(data);
+    return Array.isArray(records) ? records : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeGenerationRecords(records) {
+  await fs.mkdir(path.dirname(GENERATION_RECORDS_PATH), { recursive: true });
+  await fs.writeFile(GENERATION_RECORDS_PATH, `${JSON.stringify(records, null, 2)}\n`);
+}
+
+async function upsertGenerationRecord(nextRecord) {
+  const records = await readGenerationRecords();
+  const index = records.findIndex((record) => record.taskId === nextRecord.taskId);
+  const now = new Date().toISOString();
+  const record = {
+    ...(index >= 0 ? records[index] : { createdAt: now }),
+    ...nextRecord,
+    updatedAt: now,
+  };
+
+  if (index >= 0) {
+    records[index] = record;
+  } else {
+    records.unshift(record);
+  }
+
+  await writeGenerationRecords(records.slice(0, 100));
+  return record;
+}
+
+async function getGenerationRecord(taskId) {
+  const records = await readGenerationRecords();
+  return records.find((record) => record.taskId === taskId) || null;
+}
+
+function isSucceededStatus(status) {
+  return ["succeeded", "success", "done", "completed"].includes(String(status || "").toLowerCase());
+}
+
+function isFailedStatus(status) {
+  return ["failed", "error", "cancelled", "canceled"].includes(String(status || "").toLowerCase());
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function videoFileName(taskId) {
+  return `${String(taskId).replace(/[^a-z0-9_-]/gi, "_")}.mp4`;
+}
+
+async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
+  const existing = await getGenerationRecord(taskId);
+  if (existing?.localVideoUrl) {
+    try {
+      await fs.access(path.join(ROOT, existing.localVideoUrl.replace(/^\//, "")));
+      return {
+        localVideoPath: existing.localVideoPath,
+        localVideoUrl: existing.localVideoUrl,
+      };
+    } catch {
+      // Fall through and re-download if the record points to a missing file.
+    }
+  }
+
+  await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
+  const fileName = videoFileName(taskId);
+  const localVideoPath = path.join(GENERATED_VIDEO_DIR, fileName);
+  const localVideoUrl = `/assets/generated/videos/${fileName}`;
+
+  const response = await fetch(remoteVideoUrl, { signal: AbortSignal.timeout(15 * 60 * 1000) });
+  if (!response.ok) {
+    throw new Error(`Failed to download generated video: ${response.status}`);
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+  await fs.writeFile(localVideoPath, bytes);
+
+  return { localVideoPath, localVideoUrl };
+}
+
+async function readJson(req) {
+  const chunks = [];
+  const maxBodySize = 15 * 1024 * 1024;
+  for await (const chunk of req) {
+    chunks.push(chunk);
+    if (Buffer.concat(chunks).byteLength > maxBodySize) {
+      throw new Error("Request body too large");
+    }
+  }
+
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return raw ? JSON.parse(raw) : {};
+}
+
+function clampNumber(value, fallback, min, max) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return fallback;
+  return Math.max(min, Math.min(max, next));
+}
+
+function makeScenePrompt(body) {
+  return String(body.prompt || "").trim();
+}
+
+function normalizeTask(raw) {
+  const task = raw?.data || raw?.task || raw;
+  const content = task?.content || raw?.content;
+  const videoUrl =
+    content?.video_url ||
+    content?.[0]?.video_url ||
+    task?.output?.video_url ||
+    task?.result?.video_url ||
+    findVideoUrl(task) ||
+    "";
+
+  return {
+    taskId: task?.id || task?.task_id || task?.taskId || raw?.id || raw?.task_id || "",
+    status: task?.status || task?.state || task?.task_status || raw?.status || "unknown",
+    videoUrl,
+    error: task?.error?.message || task?.error || raw?.error?.message || raw?.message || "",
+  };
+}
+
+function findVideoUrl(value) {
+  if (!value || typeof value !== "object") return "";
+  if (typeof value.video_url === "string") return value.video_url;
+  if (typeof value.url === "string" && /\.(mp4|mov|webm)(\?|$)/i.test(value.url)) return value.url;
+
+  for (const item of Object.values(value)) {
+    const found = Array.isArray(item)
+      ? item.map(findVideoUrl).find(Boolean)
+      : findVideoUrl(item);
+    if (found) return found;
+  }
+
+  return "";
+}
+
+function collectImageUrls(value, urls = []) {
+  if (!value || typeof value !== "object") return urls;
+  if (typeof value.url === "string" && /\.(png|jpe?g|webp)(\?|$)/i.test(value.url)) urls.push(value.url);
+  if (typeof value.image_url === "string") urls.push(value.image_url);
+  if (typeof value.image === "string" && /^https?:\/\//i.test(value.image)) urls.push(value.image);
+  if (typeof value.output === "string" && /^https?:\/\//i.test(value.output)) urls.push(value.output);
+
+  for (const item of Object.values(value)) {
+    if (Array.isArray(item)) item.forEach((child) => collectImageUrls(child, urls));
+    else collectImageUrls(item, urls);
+  }
+  return [...new Set(urls)];
+}
+
+function collectOutputImageUrls(task) {
+  const output = task?.output || task?.result || task?.data?.output || {};
+  const direct = [
+    ...(Array.isArray(output.images) ? output.images.map((image) => image?.url || image?.image_url) : []),
+    output.url,
+    output.image_url,
+    output.image?.url,
+  ].filter(Boolean);
+  return direct.length ? direct : collectImageUrls(output);
+}
+
+function isCompletedStatus(status) {
+  return ["completed", "succeeded", "success", "done"].includes(String(status || "").toLowerCase());
+}
+
+async function downloadGeneratedCharacterSheet(taskId, imageUrl) {
+  await fs.mkdir(path.join(GENERATED_CHARACTER_DIR, taskId), { recursive: true });
+  const ext = path.extname(new URL(imageUrl).pathname).toLowerCase() || ".png";
+  const fileName = `sheet${[".png", ".jpg", ".jpeg", ".webp"].includes(ext) ? ext : ".png"}`;
+  const localPath = path.join(GENERATED_CHARACTER_DIR, taskId, fileName);
+  const localUrl = `/assets/generated/characters/apiz/${taskId}/${fileName}`;
+  try {
+    await fs.access(localPath);
+    return { localPath, localUrl };
+  } catch {
+    // Continue and download.
+  }
+
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    const error = new Error(`Failed to download character sheet: ${response.status}`);
+    error.statusCode = 502;
+    throw error;
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  await fs.writeFile(localPath, bytes);
+  return { localPath, localUrl };
+}
+
+async function downloadGeneratedPanorama(taskId, imageUrl, slug = "panorama") {
+  await fs.mkdir(GENERATED_PANORAMA_DIR, { recursive: true });
+  const safeSlug = String(slug || "panorama").replace(/[^a-z0-9_-]/gi, "-").slice(0, 60);
+  const fileName = `${safeSlug}-${String(taskId).replace(/[^a-z0-9_-]/gi, "_")}.png`;
+  const localPath = path.join(GENERATED_PANORAMA_DIR, fileName);
+  const localUrl = `/assets/generated/panoramas/${fileName}`;
+  try {
+    await fs.access(localPath);
+    return { localPath, localUrl };
+  } catch {
+    // Continue and download.
+  }
+
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    const error = new Error(`Failed to download panorama: ${response.status}`);
+    error.statusCode = 502;
+    throw error;
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  await fs.writeFile(localPath, bytes);
+  return { localPath, localUrl };
+}
+
+async function arkRequest(method, pathname, body) {
+  if (!ARK_API_KEY) {
+    const error = new Error("Missing ARK_API_KEY");
+    error.code = "MISSING_ARK_API_KEY";
+    throw error;
+  }
+
+  const maxAttempts = method === "GET" ? 3 : 2;
+  let response;
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      response = await fetch(`${ARK_BASE_URL}${pathname}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${ARK_API_KEY}`,
+          "content-type": "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 900));
+      }
+    }
+  }
+
+  if (!response) {
+    const error = new Error(`Ark request failed: ${lastError?.cause?.code || lastError?.message || "fetch failed"}`);
+    error.code = "ARK_FETCH_FAILED";
+    error.cause = lastError;
+    throw error;
+  }
+
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : {};
+
+  if (!response.ok) {
+    const error = new Error(payload?.error?.message || payload?.message || `Ark request failed: ${response.status}`);
+    error.statusCode = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+}
+
+function createDemoTask(body) {
+  const taskId = `demo-${Date.now()}`;
+  demoTasks.set(taskId, {
+    taskId,
+    createdAt: Date.now(),
+    prompt: makeScenePrompt(body),
+  });
+  return { taskId, status: "queued", demo: true };
+}
+
+function getDemoTask(taskId) {
+  const task = demoTasks.get(taskId);
+  if (!task) return null;
+
+  const elapsed = Date.now() - task.createdAt;
+  if (elapsed < 5000) return { ...task, status: "queued", progress: 18, demo: true };
+  if (elapsed < 14000) return { ...task, status: "running", progress: 58, demo: true };
+  return {
+    ...task,
+    status: "succeeded",
+    progress: 100,
+    videoUrl: "",
+    demo: true,
+  };
+}
+
+async function handleRegister(req, res) {
+  const body = await readJson(req);
+  const username = String(body.username || "").trim().toLowerCase();
+  const password = String(body.password || "");
+  if (!/^[a-z0-9_]{3,24}$/.test(username)) {
+    return sendJson(res, 400, { ok: false, message: "Username must be 3-24 chars: letters, digits or underscores." });
+  }
+  if (password.length < 6) {
+    return sendJson(res, 400, { ok: false, message: "Password must be at least 6 characters." });
+  }
+
+  const db = await readDb();
+  if (db.users.some((user) => user.username === username)) {
+    return sendJson(res, 409, { ok: false, message: "Username already exists — please sign in." });
+  }
+
+  const now = new Date().toISOString();
+  const user = {
+    id: randomId("user"),
+    username,
+    passwordHash: hashPassword(password),
+    role: db.users.length === 0 ? "admin" : "user",
+    credits: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const token = crypto.randomBytes(32).toString("hex");
+  db.users.push(user);
+  db.sessions.push({ token, userId: user.id, createdAt: now });
+  await writeDb(db);
+  return sendJson(res, 200, { ok: true, token, user: userView(user) });
+}
+
+async function handleLogin(req, res) {
+  const body = await readJson(req);
+  const username = String(body.username || "").trim().toLowerCase();
+  const password = String(body.password || "");
+  const db = await readDb();
+  const user = db.users.find((item) => item.username === username);
+  if (!user || !verifyPassword(password, user.passwordHash)) {
+    return sendJson(res, 401, { ok: false, message: "Wrong username or password." });
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  db.sessions.push({ token, userId: user.id, createdAt: new Date().toISOString() });
+  await writeDb(db);
+  return sendJson(res, 200, { ok: true, token, user: userView(user) });
+}
+
+async function handleMe(req, res) {
+  const auth = await getAuth(req);
+  return sendJson(res, 200, { ok: true, user: userView(auth.user) });
+}
+
+async function handleCreatePaymentOrder(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const amount = Number(body.amount || 0);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return sendJson(res, 400, { ok: false, message: "Top-up amount is invalid." });
+  }
+
+  const suffixDigits = clampNumber(config.wallet.suffixDigits, 6, 3, 6);
+  const payment = makeUniquePaymentAmount(amount, suffixDigits);
+  const order = {
+    id: randomId("order"),
+    userId: auth.user.id,
+    baseAmount: payment.amount,
+    suffix: payment.suffix,
+    payableAmount: payment.payableAmount,
+    payableAmountText: payment.payableAmountText,
+    asset: config.wallet.asset,
+    network: config.wallet.network,
+    address: config.wallet.address,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  };
+  auth.db.walletOrders.unshift(order);
+  await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, order });
+}
+
+async function handleListPaymentOrders(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const orders = auth.db.walletOrders.filter((order) => order.userId === auth.user.id).slice(0, 20);
+  return sendJson(res, 200, { ok: true, orders });
+}
+
+async function handleSpendCredits(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const cost = clampNumber(body.cost, 0, 0, 9999);
+  if (cost <= 0) return sendJson(res, 400, { ok: false, message: "Spend amount is invalid." });
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, {
+      ok: false,
+      code: "INSUFFICIENT_CREDITS",
+      message: "Not enough credits — please top up first.",
+      cost,
+      credits: auth.user.credits,
+    });
+  }
+  auth.user.credits -= cost;
+  auth.user.updatedAt = new Date().toISOString();
+  await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, user: userView(auth.user), cost, label: String(body.label || "") });
+}
+
+async function handleUploadUserAsset(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  const body = await readJson(req);
+  const { mime, bytes } = decodeDataUrl(body.dataUrl);
+  if (bytes.byteLength > 8 * 1024 * 1024) {
+    return sendJson(res, 400, { ok: false, message: "Image must be 8MB or smaller." });
+  }
+
+  const assetId = randomId("asset");
+  const fileName = `${assetId}${imageExtFromMime(mime)}`;
+  const dir = path.join(USER_UPLOAD_DIR, auth.user.id);
+  await fs.mkdir(dir, { recursive: true });
+  const filePath = path.join(dir, fileName);
+  await fs.writeFile(filePath, bytes);
+
+  const userAsset = {
+    id: assetId,
+    userId: auth.user.id,
+    name: String(body.name || "Upload").slice(0, 60),
+    mime,
+    localUrl: `/assets/user-uploads/${auth.user.id}/${fileName}`,
+    publicUrl: PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/assets/user-uploads/${auth.user.id}/${fileName}` : "",
+    assetUri: "",
+    createdAt: new Date().toISOString(),
+  };
+  auth.db.userAssets.unshift(userAsset);
+  await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, asset: userAsset });
+}
+
+async function handleListUserAssets(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const assets = auth.db.userAssets.filter((asset) => asset.userId === auth.user.id).slice(0, 50);
+  return sendJson(res, 200, { ok: true, assets });
+}
+
+const USER_CHARACTER_DIR = path.join(ROOT, "assets", "user-characters");
+
+function publicUserCharacter(character) {
+  if (!character) return null;
+  return {
+    id: character.id,
+    name: character.name || "My character",
+    title: character.title || "My drama",
+    posterUrl: character.posterUrl || character.localImageUrl || "",
+    videoUrl: character.videoUrl || character.localVideoUrl || "",
+    taskId: character.taskId || "",
+    status: character.status || "",
+    error: character.error || "",
+    referenceAssetUri: character.referenceAssetUri || "",
+    sceneVideos: publicSceneVideoMap(character.sceneVideos || {}),
+    createdAt: character.createdAt || "",
+    updatedAt: character.updatedAt || "",
+  };
+}
+
+async function ensureCharacterReferenceForRecord(record) {
+  if (record.referenceAssetUri) return record;
+  const sourceUrl = record.sourceImageUrl || record.localImageUrl || record.posterUrl;
+  if (!sourceUrl || /^https?:\/\//i.test(sourceUrl)) {
+    const error = new Error("Character image must be uploaded locally first before creating the upstream asset.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!record.syntheticReferenceLocalUrl) {
+    requireValue("APIZ_API_KEY", APIZ_API_KEY);
+    const sourcePath = path.join(ROOT, sourceUrl.replace(/^\//, ""));
+    const sourceBytes = await fs.readFile(sourcePath);
+    const uploaded = await uploadBufferToTos({
+      userId: record.userId || "user",
+      assetId: `${record.id}-source`,
+      bytes: sourceBytes,
+      mime: record.sourceImageMime || record.imageMime || imageMimeFromPath(sourcePath),
+    });
+    const refPrompt = makeHomeSyntheticReferencePrompt(record);
+    const model = process.env.HOME_REFERENCE_MODEL || process.env.OFFICIAL_PRESET_MODEL || DEFAULT_CONFIG.characterImage.editModel;
+    const created = await apizRequest("/api/v3/tasks/create", {
+      model,
+      params: {
+        prompt: refPrompt,
+        image_urls: [uploaded.publicUrl],
+        image_size: "auto_3K",
+        num_images: 1,
+        max_images: 1,
+        enhance_prompt_mode: "standard",
+      },
+      channel: null,
+    });
+    const taskId = created.task_id || created.taskId || created.id;
+    if (!taskId) {
+      const error = new Error(`Seedream did not return task id: ${JSON.stringify(created)}`);
+      error.statusCode = 502;
+      throw error;
+    }
+
+    let task = created;
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      await delay(5000);
+      task = await apizRequest("/api/v3/tasks/query", { task_id: taskId });
+      if (isCompletedStatus(task.status)) break;
+      if (isFailedStatus(task.status)) {
+        const error = new Error(`Character synthetic reference failed: ${task.error || task.message || JSON.stringify(task)}`);
+        error.statusCode = 502;
+        throw error;
+      }
+    }
+    if (!isCompletedStatus(task.status)) {
+      const error = new Error(`Character synthetic reference timed out: ${taskId}`);
+      error.statusCode = 504;
+      throw error;
+    }
+    const imageUrl = collectOutputImageUrls(task)[0];
+    if (!imageUrl) {
+      const error = new Error(`Character synthetic reference returned no image: ${taskId}`);
+      error.statusCode = 502;
+      throw error;
+    }
+
+    const fileName = `ref-${String(record.id).replace(/[^a-z0-9_-]/gi, "-")}-${Date.now()}.png`;
+    const localPath = path.join(USER_CHARACTER_DIR, record.userId || "user", fileName);
+    await fs.mkdir(path.dirname(localPath), { recursive: true });
+    const response = await fetch(imageUrl, { signal: AbortSignal.timeout(180000) });
+    if (!response.ok) {
+      const error = new Error(`Failed to download synthetic reference: ${response.status}`);
+      error.statusCode = 502;
+      throw error;
+    }
+    const refBytes = Buffer.from(await response.arrayBuffer());
+    await fs.writeFile(localPath, refBytes);
+
+    record.syntheticReferenceLocalUrl = `/assets/user-characters/${record.userId || "user"}/${fileName}`;
+    record.syntheticReferenceUrl = imageUrl;
+    record.syntheticReferenceTaskId = taskId;
+    record.syntheticReferenceModel = model;
+    record.syntheticReferencePrompt = refPrompt;
+    record.posterUrl = record.syntheticReferenceLocalUrl;
+    record.localImageUrl = record.syntheticReferenceLocalUrl;
+    record.imageMime = "image/png";
+    record.sourcePublicUrl = uploaded.publicUrl;
+    record.sourceTosKey = uploaded.key;
+    record.status = "reference_ready";
+    record.updatedAt = new Date().toISOString();
+  }
+
+  const localUrl = record.syntheticReferenceLocalUrl || record.localImageUrl || record.posterUrl;
+  const localPath = path.join(ROOT, localUrl.replace(/^\//, ""));
+  const refBytes = await fs.readFile(localPath);
+  const uploadedRef = await uploadBufferToTos({
+    userId: record.userId || "user",
+    assetId: `${record.id}-ref`,
+    bytes: refBytes,
+    mime: record.imageMime || imageMimeFromPath(localPath),
+  });
+  const created = await arkOpenApiAction("CreateAsset", {
+    GroupId: ARK_OPENAPI.groupId,
+    URL: uploadedRef.publicUrl,
+    AssetType: "Image",
+    Name: `raising-game-user-${record.id}-${Date.now()}`,
+    ProjectName: ARK_OPENAPI.projectName,
+  });
+  const assetId = extractAssetId(created);
+  if (!assetId) {
+    const error = new Error(`CreateAsset did not return asset id: ${JSON.stringify(created)}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  record.publicImageUrl = uploadedRef.publicUrl;
+  record.referenceAssetUri = `asset://${assetId}`;
+  record.tosKey = uploadedRef.key;
+  record.updatedAt = new Date().toISOString();
+  return record;
+}
+
+async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, seedanceBody = {}) {
+  const prompt = makeHomeVideoPrompt(prepared, userPrompt, { decorate: true });
+  const { task, payload } = await submitSeedanceVideoTask({
+    config,
+    prompt,
+    referenceAssetUri: prepared.referenceAssetUri,
+    body: seedanceBody,
+    slug: `user-character-${prepared.id}`,
+  });
+
+  auth.user.credits -= cost;
+  auth.user.updatedAt = new Date().toISOString();
+  await writeDb(auth.db);
+
+  prepared.taskId = task.taskId;
+  prepared.status = task.status;
+  prepared.videoUrl = task.videoUrl || "";
+  prepared.remoteVideoUrl = task.videoUrl || "";
+  prepared.prompt = prompt;
+  prepared.userPrompt = userPrompt;
+  prepared.updatedAt = new Date().toISOString();
+  auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === prepared.id ? { ...entry, ...prepared } : entry));
+  await writeDb(auth.db);
+
+  await upsertGenerationRecord({
+    taskId: task.taskId,
+    status: task.status,
+    model: MODEL_QUALITY,
+    sceneId: "user-character",
+    sceneName: prepared.title || "User custom character",
+    companionId: prepared.id,
+    companionName: prepared.name,
+    userId: auth.user.id,
+    referenceAssetUri: prepared.referenceAssetUri,
+    prompt: userPrompt,
+    finalPrompt: prompt,
+    ratio: payload.ratio,
+    resolution: payload.resolution,
+    duration: payload.duration,
+    quality: "high",
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl: "",
+    error: "",
+    source: "user-character",
+  });
+
+  return { task, payload };
+}
+
+async function handleSaveMyCharacterDraft(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const { mime, bytes } = decodeDataUrl(body.dataUrl || "");
+  if (bytes.byteLength > 8 * 1024 * 1024) {
+    return sendJson(res, 400, { ok: false, message: "Image must be 8MB or smaller." });
+  }
+  const name = String(body.name || "").trim().slice(0, 32);
+  if (!name) {
+    return sendJson(res, 400, { ok: false, message: "Name is required." });
+  }
+  const title = String(body.title || "My drama").trim().slice(0, 32) || "My drama";
+
+  const characterId = randomId("mychar");
+  const fileName = `${characterId}-source${imageExtFromMime(mime)}`;
+  const dir = path.join(USER_CHARACTER_DIR, auth.user.id);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, fileName), bytes);
+  const localUrl = `/assets/user-characters/${auth.user.id}/${fileName}`;
+
+  const nowIso = new Date().toISOString();
+  const record = {
+    id: characterId,
+    userId: auth.user.id,
+    name,
+    title,
+    posterUrl: localUrl,
+    localImageUrl: localUrl,
+    sourceImageUrl: localUrl,
+    imageMime: mime,
+    sourceImageMime: mime,
+    publicImageUrl: "",
+    referenceAssetUri: "",
+    syntheticReferenceLocalUrl: "",
+    syntheticReferenceUrl: "",
+    syntheticReferenceTaskId: "",
+    videoUrl: "",
+    localVideoUrl: "",
+    taskId: "",
+    status: "draft",
+    prompt: String(body.prompt || "").trim(),
+    sceneVideos: {},
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  auth.db.userCharacters.unshift(record);
+  await writeDb(auth.db);
+
+  return sendJson(res, 200, { ok: true, character: publicUserCharacter(record) });
+}
+
+async function handleCreateMyCharacter(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const { mime, bytes } = decodeDataUrl(body.dataUrl || "");
+  if (bytes.byteLength > 8 * 1024 * 1024) {
+    return sendJson(res, 400, { ok: false, message: "Image must be 8MB or smaller." });
+  }
+
+  if (!ARK_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
+  }
+  if (!APIZ_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_APIZ_API_KEY", message: "APIZ_API_KEY is missing — reference images cannot be generated." });
+  }
+
+  const config = await readAppConfig();
+  const cost = clampNumber(body.cost, Number(config.prices.customCharacter || 30), 0, 9999);
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, {
+      ok: false,
+      code: "INSUFFICIENT_CREDITS",
+      message: "Not enough credits — please top up first.",
+      cost,
+      credits: auth.user.credits,
+    });
+  }
+
+  const characterId = randomId("mychar");
+  const fileName = `${characterId}-source${imageExtFromMime(mime)}`;
+  const dir = path.join(USER_CHARACTER_DIR, auth.user.id);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, fileName), bytes);
+  const localUrl = `/assets/user-characters/${auth.user.id}/${fileName}`;
+
+  const nowIso = new Date().toISOString();
+  const record = {
+    id: characterId,
+    userId: auth.user.id,
+    name: String(body.name || "My character").trim().slice(0, 32) || "My character",
+    title: String(body.title || "My drama").trim().slice(0, 32) || "My drama",
+    posterUrl: localUrl,
+    localImageUrl: localUrl,
+    sourceImageUrl: localUrl,
+    imageMime: mime,
+    sourceImageMime: mime,
+    publicImageUrl: "",
+    referenceAssetUri: "",
+    syntheticReferenceLocalUrl: "",
+    syntheticReferenceUrl: "",
+    syntheticReferenceTaskId: "",
+    videoUrl: "",
+    localVideoUrl: "",
+    taskId: "",
+    status: "image_uploaded",
+    prompt: String(body.prompt || "").trim(),
+    sceneVideos: {},
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  auth.db.userCharacters.unshift(record);
+  await writeDb(auth.db);
+
+  let prepared;
+  try {
+    prepared = await ensureCharacterReferenceForRecord({ ...record });
+  } catch (error) {
+    record.status = "reference_failed";
+    record.error = error.message || "Failed to create upstream asset.";
+    auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
+    await writeDb(auth.db);
+    throw error;
+  }
+
+  const userPrompt = String(body.prompt || "").trim();
+  const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body);
+
+  return sendJson(res, 200, {
+    ok: true,
+    character: publicUserCharacter(prepared),
+    task: { taskId: task.taskId, status: task.status, videoUrl: task.videoUrl || "" },
+    user: userView(auth.user),
+    cost,
+  });
+}
+
+async function handleStartMyCharacterMainVideo(req, res, characterId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id);
+  if (!record) {
+    return sendJson(res, 404, { ok: false, message: "Character not found." });
+  }
+  if (record.taskId) {
+    return sendJson(res, 400, { ok: false, message: "Main video task already exists for this character — use refresh to check progress." });
+  }
+  const existingVideo = String(record.videoUrl || record.localVideoUrl || "").trim();
+  if (existingVideo) {
+    return sendJson(res, 400, { ok: false, message: "This character already has a main video." });
+  }
+
+  const st = String(record.status || "").toLowerCase();
+  const canStart = st === "draft" || st === "reference_failed" || st === "image_uploaded";
+  if (!canStart) {
+    return sendJson(res, 400, { ok: false, message: "This character cannot start main video generation from its current status." });
+  }
+
+  if (!ARK_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
+  }
+  if (!APIZ_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_APIZ_API_KEY", message: "APIZ_API_KEY is missing — reference images cannot be generated." });
+  }
+
+  const config = await readAppConfig();
+  const cost = clampNumber(body.cost, Number(config.prices.customCharacter || 30), 0, 9999);
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, {
+      ok: false,
+      code: "INSUFFICIENT_CREDITS",
+      message: "Not enough credits — please top up first.",
+      cost,
+      credits: auth.user.credits,
+    });
+  }
+
+  if (st === "reference_failed") {
+    record.referenceAssetUri = "";
+    record.syntheticReferenceLocalUrl = "";
+    record.syntheticReferenceUrl = "";
+    record.syntheticReferenceTaskId = "";
+    record.publicImageUrl = "";
+    record.tosKey = "";
+    record.error = "";
+    const src = record.sourceImageUrl || record.localImageUrl || record.posterUrl;
+    if (src) {
+      record.posterUrl = src;
+      record.localImageUrl = src;
+    }
+    record.status = "draft";
+    auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
+    await writeDb(auth.db);
+  }
+
+  let prepared;
+  try {
+    prepared = await ensureCharacterReferenceForRecord({ ...record });
+  } catch (error) {
+    record.status = "reference_failed";
+    record.error = error.message || "Failed to create upstream asset.";
+    auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
+    await writeDb(auth.db);
+    throw error;
+  }
+
+  const userPrompt = String(body.prompt || record.prompt || "").trim();
+  const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body);
+
+  return sendJson(res, 200, {
+    ok: true,
+    character: publicUserCharacter(prepared),
+    task: { taskId: task.taskId, status: task.status, videoUrl: task.videoUrl || "" },
+    user: userView(auth.user),
+    cost,
+  });
+}
+
+async function handleListMyCharacters(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const characters = auth.db.userCharacters
+    .filter((character) => character.userId === auth.user.id)
+    .slice(0, 50)
+    .map(publicUserCharacter);
+  return sendJson(res, 200, { ok: true, characters });
+}
+
+async function handleGetMyCharacter(req, res, characterId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id);
+  if (!record) return sendJson(res, 404, { ok: false, message: "Character not found." });
+  return sendJson(res, 200, { ok: true, character: publicUserCharacter(record) });
+}
+
+async function handleQueryMyCharacterMainVideo(req, res, characterId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id);
+  if (!record) return sendJson(res, 404, { ok: false, message: "Character not found." });
+  if (!record.taskId) return sendJson(res, 400, { ok: false, message: "This character has no video task yet." });
+
+  const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(record.taskId)}`);
+  const task = normalizeTask(raw);
+  let localVideoUrl = "";
+  let localVideoPath = "";
+  let downloadError = "";
+  if (isSucceededStatus(task.status) && task.videoUrl) {
+    try {
+      const localVideo = await downloadGeneratedVideo(record.taskId, task.videoUrl);
+      localVideoUrl = localVideo.localVideoUrl;
+      localVideoPath = localVideo.localVideoPath;
+    } catch (error) {
+      downloadError = error.message || "Failed to download character video.";
+    }
+  }
+
+  record.status = task.status;
+  record.videoUrl = localVideoUrl || task.videoUrl || record.videoUrl || "";
+  record.localVideoUrl = localVideoUrl || record.localVideoUrl || "";
+  record.localVideoPath = localVideoPath || record.localVideoPath || "";
+  record.remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
+  record.error = task.error || downloadError || "";
+  record.updatedAt = new Date().toISOString();
+  auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
+  await writeDb(auth.db);
+
+  await upsertGenerationRecord({
+    taskId: record.taskId,
+    status: record.status,
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl,
+    localVideoPath,
+    error: task.error || downloadError || "",
+  });
+
+  return sendJson(res, 200, { ok: true, character: publicUserCharacter(record), task: { ...task, videoUrl: record.videoUrl } });
+}
+
+async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const sceneId = String(body.sceneId || "").trim();
+  if (!sceneId) return sendJson(res, 400, { ok: false, message: "Missing sceneId." });
+
+  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id);
+  if (!record) return sendJson(res, 404, { ok: false, message: "Character not found." });
+  if (!record.referenceAssetUri) {
+    return sendJson(res, 400, { ok: false, message: "This character isn't ready yet. Wait for the main video task to finish or recreate the character." });
+  }
+  if (!ARK_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — scene video tasks cannot be submitted." });
+  }
+
+  const config = await readAppConfig();
+  const sceneConfig = findSceneConfig(config, sceneId);
+  if (!sceneConfig || sceneConfig.id !== sceneId) {
+    return sendJson(res, 404, { ok: false, message: "Scene not found." });
+  }
+
+  const cost = clampNumber(body.cost, Number(sceneConfig.price || config.prices.dateVideo || 25), 0, 9999);
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, {
+      ok: false,
+      code: "INSUFFICIENT_CREDITS",
+      message: "Not enough credits — please top up first.",
+      cost,
+      credits: auth.user.credits,
+    });
+  }
+
+  const userPrompt = String(body.prompt || "").trim();
+  const prompt = makeSceneVideoPrompt(sceneConfig, userPrompt);
+  let task;
+  let payload;
+  try {
+    const result = await submitSeedanceVideoTask({
+      config,
+      prompt,
+      referenceAssetUri: record.referenceAssetUri,
+      body,
+      slug: `user-scene-${characterId}-${sceneConfig.id}`,
+    });
+    task = result.task;
+    payload = result.payload;
+  } catch (error) {
+    throw error;
+  }
+
+  auth.user.credits -= cost;
+  auth.user.updatedAt = new Date().toISOString();
+
+  const nowIso = new Date().toISOString();
+  const sceneVideos = { ...(record.sceneVideos || {}) };
+  sceneVideos[sceneConfig.id] = {
+    sceneId: sceneConfig.id,
+    sceneName: sceneConfig.name,
+    posterUrl: record.posterUrl || record.localImageUrl || "",
+    prompt: userPrompt || prompt,
+    userPrompt,
+    finalPrompt: prompt,
+    referenceAssetUri: record.referenceAssetUri || "",
+    model: MODEL_QUALITY,
+    ratio: payload.ratio,
+    resolution: payload.resolution,
+    duration: payload.duration,
+    provider: "seedance",
+    taskId: task.taskId,
+    status: task.status,
+    videoUrl: "",
+    localVideoUrl: "",
+    remoteVideoUrl: task.videoUrl || "",
+    createdAt: sceneVideos[sceneConfig.id]?.createdAt || nowIso,
+    updatedAt: nowIso,
+    error: "",
+  };
+  record.sceneVideos = sceneVideos;
+  record.updatedAt = nowIso;
+
+  auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
+  await writeDb(auth.db);
+
+  await upsertGenerationRecord({
+    taskId: task.taskId,
+    status: task.status,
+    model: MODEL_QUALITY,
+    sceneId: sceneConfig.id,
+    sceneName: sceneConfig.name,
+    companionId: record.id,
+    companionName: record.name,
+    userId: auth.user.id,
+    referenceAssetUri: record.referenceAssetUri,
+    prompt: userPrompt,
+    finalPrompt: prompt,
+    ratio: payload.ratio,
+    resolution: payload.resolution,
+    duration: payload.duration,
+    quality: "high",
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl: "",
+    error: "",
+    source: "user-character-scene",
+  });
+
+  return sendJson(res, 200, {
+    ok: true,
+    character: publicUserCharacter(record),
+    sceneVideo: sceneVideos[sceneConfig.id],
+    task,
+    user: userView(auth.user),
+    cost,
+  });
+}
+
+async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  let record = null;
+  let matchedSceneId = "";
+  for (const entry of auth.db.userCharacters) {
+    if (entry.userId !== auth.user.id) continue;
+    const sceneVideos = entry.sceneVideos || {};
+    for (const sceneId of Object.keys(sceneVideos)) {
+      if (sceneVideos[sceneId]?.taskId === taskId) {
+        record = entry;
+        matchedSceneId = sceneId;
+        break;
+      }
+    }
+    if (record) break;
+  }
+  if (!record || !matchedSceneId) {
+    return sendJson(res, 404, { ok: false, message: "No matching user-character scene video task found." });
+  }
+
+  const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
+  const task = normalizeTask(raw);
+  let localVideoUrl = "";
+  let localVideoPath = "";
+  let downloadError = "";
+  if (isSucceededStatus(task.status) && task.videoUrl) {
+    try {
+      const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
+      localVideoUrl = localVideo.localVideoUrl;
+      localVideoPath = localVideo.localVideoPath;
+    } catch (error) {
+      downloadError = error.message || "Failed to download scene video.";
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const sceneVideos = { ...(record.sceneVideos || {}) };
+  const previous = sceneVideos[matchedSceneId] || {};
+  sceneVideos[matchedSceneId] = {
+    ...previous,
+    sceneId: matchedSceneId,
+    taskId: task.taskId || taskId,
+    status: task.status,
+    videoUrl: localVideoUrl || task.videoUrl || previous.videoUrl || "",
+    localVideoUrl: localVideoUrl || previous.localVideoUrl || "",
+    localVideoPath: localVideoPath || previous.localVideoPath || "",
+    remoteVideoUrl: task.videoUrl || previous.remoteVideoUrl || "",
+    error: task.error || downloadError || "",
+    updatedAt: nowIso,
+  };
+  record.sceneVideos = sceneVideos;
+  record.updatedAt = nowIso;
+  auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
+  await writeDb(auth.db);
+
+  await upsertGenerationRecord({
+    taskId: task.taskId || taskId,
+    status: task.status,
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl,
+    localVideoPath,
+    error: task.error || downloadError || "",
+  });
+
+  return sendJson(res, 200, { ok: true, character: publicUserCharacter(record), sceneVideo: sceneVideos[matchedSceneId], task });
+}
+
+async function handleAdminGetConfig(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  return sendJson(res, 200, { ok: true, config });
+}
+
+async function handleAdminSaveConfig(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const current = await readAppConfig();
+  const next = {
+    ...current,
+    ...(body.config || {}),
+    prices: { ...current.prices, ...((body.config || {}).prices || {}) },
+    wallet: { ...current.wallet, ...((body.config || {}).wallet || {}) },
+    video: { ...current.video, ...((body.config || {}).video || {}) },
+    homeVideo: { ...current.homeVideo, ...((body.config || {}).homeVideo || {}) },
+    ifilm: { ...current.ifilm, ...((body.config || {}).ifilm || {}) },
+    characterImage: { ...current.characterImage, ...((body.config || {}).characterImage || {}) },
+    scenes: Array.isArray((body.config || {}).scenes) ? body.config.scenes : current.scenes,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeAppConfig(next);
+  return sendJson(res, 200, { ok: true, config: next });
+}
+
+async function handleAdminList(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const records = await readGenerationRecords();
+  return sendJson(res, 200, {
+    ok: true,
+    users: auth.db.users.map(userView),
+    walletOrders: auth.db.walletOrders.slice(0, 100),
+    userAssets: auth.db.userAssets.slice(0, 100),
+    generationRecords: records.slice(0, 30),
+  });
+}
+
+async function handleAdminUploadHomeImage(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const { mime, bytes } = decodeDataUrl(body.dataUrl || "");
+  const ext = imageExtFromMime(mime);
+  const fileName = `home-${Date.now()}-${crypto.randomBytes(3).toString("hex")}${ext}`;
+  await fs.mkdir(ADMIN_HOME_DIR, { recursive: true });
+  const localPath = path.join(ADMIN_HOME_DIR, fileName);
+  await fs.writeFile(localPath, bytes);
+
+  const config = await readAppConfig();
+  const item = {
+    id: makeHomeVideoItemId(),
+    name: String(body.name || "新角色").trim() || "新角色",
+    title: String(body.title || "待生成").trim() || "待生成",
+    posterUrl: `/assets/admin/home/${fileName}`,
+    localImageUrl: `/assets/admin/home/${fileName}`,
+    sourceImageUrl: `/assets/admin/home/${fileName}`,
+    imageMime: mime,
+    sourceImageMime: mime,
+    publicImageUrl: "",
+    referenceAssetUri: "",
+    syntheticReferenceLocalUrl: "",
+    syntheticReferenceUrl: "",
+    syntheticReferenceTaskId: "",
+    videoUrl: "",
+    localVideoUrl: "",
+    taskId: "",
+    status: "image_uploaded",
+    prompt: String(body.prompt || "").trim(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  config.homeVideo = upsertHomeVideoItem(config.homeVideo, item);
+  await writeAppConfig(config);
+
+  // Kick off the synthetic-reference build in the background so the
+  // admin doesn't have to wait, but the item is "ready" before any video
+  // task touches it.
+  scheduleHomeItemReferenceBuild(item.id).catch((error) => {
+    console.warn(`[home-ref] background build failed for ${item.id}:`, error.message || error);
+  });
+
+  return sendJson(res, 200, { ok: true, homeVideo: config.homeVideo, item });
+}
+
+async function handleAdminRebuildHomeItemReference(req, res, itemId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  let body = {};
+  try { body = await readJson(req); } catch { body = {}; }
+  const force = body.force !== false;
+
+  const cfgInitial = await readAppConfig();
+  const item = findHomeVideoItem(cfgInitial.homeVideo || {}, itemId);
+  if (!item) return sendJson(res, 404, { ok: false, message: "没有找到这个角色。" });
+
+  if (HOME_REFERENCE_BUILDS.has(itemId)) {
+    return sendJson(res, 200, {
+      ok: true,
+      message: "参考图正在重建中，请稍候。",
+      itemId,
+      status: "building",
+    });
+  }
+
+  // Wipe synthetic state if force=true so we re-run apiz Seedream.
+  if (force) {
+    const cfg = await readAppConfig();
+    const before = findHomeVideoItem(cfg.homeVideo || {}, itemId);
+    if (before) {
+      cfg.homeVideo = upsertHomeVideoItem(cfg.homeVideo, {
+        ...before,
+        referenceAssetUri: "",
+        publicImageUrl: "",
+        tosKey: "",
+        syntheticReferenceLocalUrl: "",
+        syntheticReferenceUrl: "",
+        syntheticReferenceTaskId: "",
+        syntheticReferenceModel: "",
+        syntheticReferencePrompt: "",
+        // Restore poster/local to the original upload so the synthesizer
+        // works on the source image again.
+        posterUrl: before.sourceImageUrl || before.posterUrl,
+        localImageUrl: before.sourceImageUrl || before.localImageUrl,
+        imageMime: before.sourceImageMime || before.imageMime,
+        status: "image_uploaded",
+        updatedAt: new Date().toISOString(),
+      });
+      await writeAppConfig(cfg);
+    }
+  }
+
+  scheduleHomeItemReferenceBuild(itemId).catch(() => {});
+
+  return sendJson(res, 200, {
+    ok: true,
+    message: force ? "已清空旧参考图并重新合成。" : "已触发参考图合成。",
+    itemId,
+    status: "building",
+  });
+}
+
+const HOME_REFERENCE_BUILDS = new Map();
+
+function scheduleHomeItemReferenceBuild(itemId) {
+  if (!itemId) return Promise.resolve();
+  if (HOME_REFERENCE_BUILDS.has(itemId)) return HOME_REFERENCE_BUILDS.get(itemId);
+  const promise = (async () => {
+    try {
+      let cfg = await readAppConfig();
+      cfg = await ensureSyntheticReferenceForHomeItem(cfg, itemId, { force: false, _fromScheduler: true });
+      const item = findHomeVideoItem(cfg.homeVideo || {}, itemId);
+      if (item && (item.status === "reference_failed" || item.error)) {
+        cfg.homeVideo = upsertHomeVideoItem(cfg.homeVideo, {
+          ...item,
+          status: "reference_ready",
+          error: "",
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      await writeAppConfig(cfg);
+      console.log(`[home-ref] synthesized reference for item ${itemId}`);
+    } catch (error) {
+      console.warn(`[home-ref] failed to build reference for item ${itemId}:`, error.message || error);
+      try {
+        const cfg = await readAppConfig();
+        const item = findHomeVideoItem(cfg.homeVideo || {}, itemId);
+        if (item) {
+          cfg.homeVideo = upsertHomeVideoItem(cfg.homeVideo, {
+            ...item,
+            status: "reference_failed",
+            error: String(error.message || error),
+            updatedAt: new Date().toISOString(),
+          });
+          await writeAppConfig(cfg);
+        }
+      } catch (writeError) {
+        console.warn(`[home-ref] failed to persist failure state for ${itemId}:`, writeError.message || writeError);
+      }
+    } finally {
+      HOME_REFERENCE_BUILDS.delete(itemId);
+    }
+  })();
+  HOME_REFERENCE_BUILDS.set(itemId, promise);
+  return promise;
+}
+
+async function handleAdminIfilmStatus(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const cliPath = config.ifilm?.cliPath || "ifilm";
+  try {
+    const guide = await execFileJson(cliPath, ["guide", "--format", "json"], {
+      env: { ...process.env, FLOW_API_KEY: process.env.FLOW_API_KEY || "" },
+    });
+    return sendJson(res, 200, { ok: true, installed: true, cliPath, guide });
+  } catch (error) {
+    return sendJson(res, 200, {
+      ok: true,
+      installed: false,
+      cliPath,
+      message: error.code === "ENOENT" ? "ifilm CLI 未安装或不在 PATH。" : error.message,
+      stderr: error.stderr || "",
+    });
+  }
+}
+
+async function handleAdminCreateHomeVideo(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  let config = await readAppConfig();
+  config.homeVideo = normalizeHomeVideo({ ...config.homeVideo, ...(body.homeVideo || {}) });
+  if (body.itemId) {
+    const item = findHomeVideoItem(config.homeVideo, body.itemId);
+    if (!item) return sendJson(res, 404, { ok: false, message: "没有找到这个首页角色。" });
+    config.homeVideo.activeItemId = item.id;
+    config.homeVideo = syncHomeVideoActiveFields(config.homeVideo);
+  }
+  const editableItem = findHomeVideoItem(config.homeVideo);
+  if (editableItem && (body.name || body.title)) {
+    config.homeVideo = upsertHomeVideoItem(config.homeVideo, {
+      ...editableItem,
+      name: String(body.name || editableItem.name || "新角色").trim() || "新角色",
+      title: String(body.title || editableItem.title || "短剧角色").trim() || "短剧角色",
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  const activeItem = findHomeVideoItem(config.homeVideo);
+  const provider = String(body.provider || config.homeVideo.provider || "seedance");
+  const userPrompt = String(body.prompt || activeItem?.prompt || "").trim();
+  const prompt = makeHomeVideoPrompt(activeItem, userPrompt);
+
+  if (provider === "ifilm-cli") {
+    return sendJson(res, 503, {
+      ok: false,
+      code: "IFILM_TEMPLATE_REQUIRED",
+      message: "ifilm CLI 生成命令还未配置。先安装 CLI 后运行 ifilm guide，确认图片生视频命令格式，再写入后台 ifilm.commandTemplate。",
+    });
+  }
+
+  if (!ARK_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "缺少 ARK_API_KEY，不能提交 Seedance 视频任务。" });
+  }
+
+  config = await ensureSyntheticReferenceForHomeItem(config, activeItem.id);
+  const referenceItem = findHomeVideoItem(config.homeVideo, activeItem.id);
+  const { task, payload } = await submitSeedanceVideoTask({
+    config,
+    prompt,
+    referenceAssetUri: referenceItem.referenceAssetUri || config.homeVideo.referenceAssetUri,
+    body,
+    slug: "home-video",
+  });
+
+  const nextItem = {
+    ...referenceItem,
+    provider,
+    prompt,
+    taskId: task.taskId,
+    status: task.status,
+    videoUrl: task.videoUrl || "",
+    localVideoUrl: "",
+    updatedAt: new Date().toISOString(),
+  };
+  config.homeVideo = upsertHomeVideoItem(config.homeVideo, nextItem);
+  await writeAppConfig(config);
+  await upsertGenerationRecord({
+    taskId: task.taskId,
+    status: task.status,
+    model: MODEL_QUALITY,
+    sceneId: "home",
+    sceneName: referenceItem.title || "首页主视频",
+    companionId: referenceItem.id || "home",
+    companionName: referenceItem.name || "首页预设角色",
+    userId: auth.user.id,
+    referenceAssetUri: nextItem.referenceAssetUri || referenceItem.referenceAssetUri || config.homeVideo.referenceAssetUri,
+    prompt: userPrompt,
+    finalPrompt: prompt,
+    ratio: payload.ratio,
+    resolution: payload.resolution,
+    duration: payload.duration,
+    quality: "high",
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl: "",
+    error: "",
+  });
+
+  return sendJson(res, 200, { ok: true, homeVideo: config.homeVideo, item: nextItem, task });
+}
+
+async function handleAdminCreateCharacterSceneVideo(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const itemId = String(body.itemId || "").trim();
+  const sceneId = String(body.sceneId || "").trim();
+  if (!itemId || !sceneId) {
+    return sendJson(res, 400, { ok: false, message: "缺少 itemId 或 sceneId。" });
+  }
+
+  let config = await readAppConfig();
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const item = findHomeVideoItem(config.homeVideo, itemId);
+  if (!item || item.id !== itemId) {
+    return sendJson(res, 404, { ok: false, message: "没有找到这个角色。" });
+  }
+  const sceneConfig = findSceneConfig(config, sceneId);
+  if (!sceneConfig || sceneConfig.id !== sceneId) {
+    return sendJson(res, 404, { ok: false, message: "没有找到这个场景。" });
+  }
+  if (!ARK_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "缺少 ARK_API_KEY，不能提交 Seedance 视频任务。" });
+  }
+
+  config.homeVideo.activeItemId = item.id;
+  config.homeVideo = syncHomeVideoActiveFields(config.homeVideo);
+  config = await ensureSyntheticReferenceForHomeItem(config, item.id);
+  const refItem = findHomeVideoItem(config.homeVideo, itemId) || item;
+  const referenceAssetUri = refItem.referenceAssetUri || config.homeVideo.referenceAssetUri;
+  if (!referenceAssetUri) {
+    return sendJson(res, 400, { ok: false, message: "角色还没有可用的上游参考素材。" });
+  }
+  if (!refItem.syntheticReferenceLocalUrl) {
+    return sendJson(res, 400, { ok: false, message: "该角色的合成参考图还没准备好，请稍候再试或先点'重建参考图'。" });
+  }
+
+  const userPrompt = String(body.prompt || "").trim();
+  const prompt = makeSceneVideoPrompt(sceneConfig, userPrompt);
+  const { task, payload } = await submitSeedanceVideoTask({
+    config,
+    prompt,
+    referenceAssetUri,
+    body,
+    slug: `home-scene-${sceneConfig.id}`,
+  });
+
+  const nowIso = new Date().toISOString();
+  const sceneVideos = { ...(refItem.sceneVideos || {}) };
+  sceneVideos[sceneConfig.id] = {
+    sceneId: sceneConfig.id,
+    sceneName: sceneConfig.name,
+    posterUrl: refItem.posterUrl || refItem.localImageUrl || "",
+    prompt: userPrompt || prompt,
+    userPrompt,
+    finalPrompt: prompt,
+    referenceAssetUri,
+    model: MODEL_QUALITY,
+    ratio: payload.ratio,
+    resolution: payload.resolution,
+    duration: payload.duration,
+    provider: "seedance",
+    taskId: task.taskId,
+    status: task.status,
+    videoUrl: "",
+    localVideoUrl: "",
+    remoteVideoUrl: task.videoUrl || "",
+    createdAt: sceneVideos[sceneConfig.id]?.createdAt || nowIso,
+    updatedAt: nowIso,
+    error: "",
+  };
+  const nextItem = { ...refItem, sceneVideos, updatedAt: nowIso };
+  config.homeVideo = upsertHomeVideoItem(config.homeVideo, nextItem);
+  await writeAppConfig(config);
+
+  await upsertGenerationRecord({
+    taskId: task.taskId,
+    status: task.status,
+    model: MODEL_QUALITY,
+    sceneId: sceneConfig.id,
+    sceneName: sceneConfig.name,
+    companionId: refItem.id,
+    companionName: refItem.name,
+    userId: auth.user.id,
+    referenceAssetUri,
+    prompt: userPrompt,
+    finalPrompt: prompt,
+    ratio: payload.ratio,
+    resolution: payload.resolution,
+    duration: payload.duration,
+    quality: "high",
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl: "",
+    error: "",
+    source: "admin-character-scene",
+  });
+
+  return sendJson(res, 200, { ok: true, item: nextItem, sceneVideo: sceneVideos[sceneConfig.id], task });
+}
+
+async function handleAdminGetCharacterSceneVideo(req, res, taskId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  let config = await readAppConfig();
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+
+  let matchedItem = null;
+  let matchedSceneId = "";
+  for (const candidate of config.homeVideo.items) {
+    const sceneVideos = candidate.sceneVideos || {};
+    for (const sceneId of Object.keys(sceneVideos)) {
+      if (sceneVideos[sceneId]?.taskId === taskId) {
+        matchedItem = candidate;
+        matchedSceneId = sceneId;
+        break;
+      }
+    }
+    if (matchedItem) break;
+  }
+  if (!matchedItem || !matchedSceneId) {
+    return sendJson(res, 404, { ok: false, message: "找不到对应的场景视频任务。" });
+  }
+
+  const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
+  const task = normalizeTask(raw);
+  let localVideoUrl = "";
+  let localVideoPath = "";
+  let downloadError = "";
+  if (isSucceededStatus(task.status) && task.videoUrl) {
+    try {
+      const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
+      localVideoUrl = localVideo.localVideoUrl;
+      localVideoPath = localVideo.localVideoPath;
+    } catch (error) {
+      downloadError = error.message || "下载场景视频失败";
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const sceneVideos = { ...(matchedItem.sceneVideos || {}) };
+  const previous = sceneVideos[matchedSceneId] || {};
+  sceneVideos[matchedSceneId] = {
+    ...previous,
+    sceneId: matchedSceneId,
+    taskId: task.taskId || taskId,
+    status: task.status,
+    videoUrl: localVideoUrl || task.videoUrl || previous.videoUrl || "",
+    localVideoUrl: localVideoUrl || previous.localVideoUrl || "",
+    localVideoPath: localVideoPath || previous.localVideoPath || "",
+    remoteVideoUrl: task.videoUrl || previous.remoteVideoUrl || "",
+    error: task.error || downloadError || "",
+    updatedAt: nowIso,
+  };
+  const nextItem = { ...matchedItem, sceneVideos, updatedAt: nowIso };
+  config.homeVideo = upsertHomeVideoItem(config.homeVideo, nextItem);
+  await writeAppConfig(config);
+
+  await upsertGenerationRecord({
+    taskId: task.taskId || taskId,
+    status: task.status,
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl,
+    localVideoPath,
+    error: task.error || downloadError || "",
+  });
+
+  return sendJson(res, 200, { ok: true, item: nextItem, sceneVideo: sceneVideos[matchedSceneId], task });
+}
+
+async function handleAdminGetHomeVideo(req, res, taskId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  let config = await readAppConfig();
+  const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
+  const task = normalizeTask(raw);
+  let localVideoUrl = "";
+  let localVideoPath = "";
+  let downloadError = "";
+
+  if (isSucceededStatus(task.status) && task.videoUrl) {
+    try {
+      const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
+      localVideoUrl = localVideo.localVideoUrl;
+      localVideoPath = localVideo.localVideoPath;
+    } catch (error) {
+      downloadError = error.message || "下载首页视频失败";
+    }
+  }
+
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const matchedItem =
+    config.homeVideo.items.find((item) => item.taskId === taskId || item.taskId === task.taskId) ||
+    findHomeVideoItem(config.homeVideo);
+  const nextItem = {
+    ...matchedItem,
+    taskId: task.taskId || taskId,
+    status: task.status,
+    videoUrl: localVideoUrl || task.videoUrl || matchedItem?.videoUrl || config.homeVideo.videoUrl || "",
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl,
+    localVideoPath,
+    error: task.error || downloadError || "",
+    updatedAt: new Date().toISOString(),
+  };
+  config.homeVideo = upsertHomeVideoItem(config.homeVideo, nextItem);
+  await writeAppConfig(config);
+  await upsertGenerationRecord({
+    taskId: task.taskId || taskId,
+    status: task.status,
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl,
+    localVideoPath,
+    error: task.error || downloadError || "",
+  });
+
+  return sendJson(res, 200, { ok: true, homeVideo: config.homeVideo, item: nextItem, task: nextItem });
+}
+
+function adminMyCharacterView(record, userMap) {
+  if (!record) return null;
+  const user = userMap?.get(record.userId);
+  return {
+    id: record.id,
+    userId: record.userId,
+    username: user?.username || "",
+    name: record.name || "",
+    title: record.title || "",
+    posterUrl: record.posterUrl || record.localImageUrl || "",
+    sourceImageUrl: record.sourceImageUrl || "",
+    videoUrl: record.videoUrl || record.localVideoUrl || "",
+    localVideoUrl: record.localVideoUrl || "",
+    taskId: record.taskId || "",
+    status: record.status || "",
+    error: record.error || "",
+    sceneVideos: publicSceneVideoMap(record.sceneVideos || {}),
+    createdAt: record.createdAt || "",
+    updatedAt: record.updatedAt || "",
+  };
+}
+
+function adminWalletOrderView(order, userMap) {
+  if (!order) return null;
+  const user = userMap?.get(order.userId);
+  return {
+    id: order.id,
+    userId: order.userId,
+    username: user?.username || "",
+    baseAmount: order.baseAmount,
+    suffix: order.suffix,
+    payableAmount: order.payableAmount,
+    payableAmountText: order.payableAmountText,
+    asset: order.asset,
+    network: order.network,
+    address: order.address,
+    status: order.status || "pending",
+    createdAt: order.createdAt,
+    paidAt: order.paidAt || "",
+    note: order.note || "",
+  };
+}
+
+function adminUserAssetView(asset, userMap) {
+  if (!asset) return null;
+  const user = userMap?.get(asset.userId);
+  return {
+    id: asset.id,
+    userId: asset.userId,
+    username: user?.username || "",
+    url: asset.url || "",
+    mime: asset.mime || "",
+    createdAt: asset.createdAt,
+  };
+}
+
+async function handleAdminDashboard(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const records = await readGenerationRecords();
+  const items = Array.isArray(config.homeVideo?.items) ? config.homeVideo.items : [];
+  const sceneBindCount = items.reduce((sum, item) => sum + Object.keys(item.sceneVideos || {}).length, 0);
+  const userCharacters = Array.isArray(auth.db.userCharacters) ? auth.db.userCharacters : [];
+  const userSceneCount = userCharacters.reduce((sum, c) => sum + Object.keys(c.sceneVideos || {}).length, 0);
+  const totalCredits = (auth.db.users || []).reduce((sum, u) => sum + Number(u.credits || 0), 0);
+  const pendingOrders = (auth.db.walletOrders || []).filter((o) => o.status === "pending").length;
+  const recentRecords = records.slice(0, 5);
+  return sendJson(res, 200, {
+    ok: true,
+    stats: {
+      users: (auth.db.users || []).length,
+      admins: (auth.db.users || []).filter((u) => u.role === "admin").length,
+      totalCredits,
+      adminCharacters: items.length,
+      userCharacters: userCharacters.length,
+      sceneBindings: sceneBindCount,
+      userSceneVideos: userSceneCount,
+      walletOrders: (auth.db.walletOrders || []).length,
+      pendingOrders,
+      generationRecords: records.length,
+      sessions: (auth.db.sessions || []).length,
+      userAssets: (auth.db.userAssets || []).length,
+      scenes: Array.isArray(config.scenes) ? config.scenes.length : 0,
+    },
+    activeHomeItemId: config.homeVideo?.activeItemId || "",
+    recentRecords,
+  });
+}
+
+async function handleAdminListUsers(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const userCharacters = Array.isArray(auth.db.userCharacters) ? auth.db.userCharacters : [];
+  const charByUser = new Map();
+  userCharacters.forEach((c) => {
+    charByUser.set(c.userId, (charByUser.get(c.userId) || 0) + 1);
+  });
+  const orderByUser = new Map();
+  (auth.db.walletOrders || []).forEach((o) => {
+    orderByUser.set(o.userId, (orderByUser.get(o.userId) || 0) + 1);
+  });
+  const list = (auth.db.users || []).map((u) => ({
+    ...userView(u),
+    customCharacters: charByUser.get(u.id) || 0,
+    walletOrders: orderByUser.get(u.id) || 0,
+  }));
+  list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  return sendJson(res, 200, { ok: true, users: list });
+}
+
+async function handleAdminUpdateUser(req, res, userId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const user = (auth.db.users || []).find((u) => u.id === userId);
+  if (!user) return sendJson(res, 404, { ok: false, message: "用户不存在。" });
+  const body = await readJson(req);
+  let changed = false;
+  if (typeof body.credits === "number" && Number.isFinite(body.credits)) {
+    user.credits = Math.max(0, Math.round(body.credits));
+    changed = true;
+  } else if (typeof body.creditsDelta === "number" && Number.isFinite(body.creditsDelta)) {
+    user.credits = Math.max(0, Math.round(Number(user.credits || 0) + body.creditsDelta));
+    changed = true;
+  }
+  if (typeof body.role === "string" && ["admin", "user"].includes(body.role)) {
+    if (user.role === "admin" && body.role !== "admin") {
+      const admins = (auth.db.users || []).filter((u) => u.role === "admin");
+      if (admins.length <= 1) {
+        return sendJson(res, 400, { ok: false, message: "至少要保留一名管理员。" });
+      }
+    }
+    user.role = body.role;
+    changed = true;
+  }
+  if (changed) {
+    user.updatedAt = new Date().toISOString();
+    await writeDb(auth.db);
+  }
+  return sendJson(res, 200, { ok: true, user: userView(user) });
+}
+
+async function handleAdminResetPassword(req, res, userId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const user = (auth.db.users || []).find((u) => u.id === userId);
+  if (!user) return sendJson(res, 404, { ok: false, message: "用户不存在。" });
+  const body = await readJson(req);
+  const password = String(body.password || "");
+  if (password.length < 6) {
+    return sendJson(res, 400, { ok: false, message: "密码至少 6 位。" });
+  }
+  user.passwordHash = hashPassword(password);
+  user.updatedAt = new Date().toISOString();
+  auth.db.sessions = (auth.db.sessions || []).filter((s) => s.userId !== userId || s.token === auth.session.token);
+  await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, user: userView(user) });
+}
+
+async function handleAdminDeleteUser(req, res, userId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  if (auth.user.id === userId) {
+    return sendJson(res, 400, { ok: false, message: "不能删除自己。" });
+  }
+  const user = (auth.db.users || []).find((u) => u.id === userId);
+  if (!user) return sendJson(res, 404, { ok: false, message: "用户不存在。" });
+  if (user.role === "admin") {
+    const admins = (auth.db.users || []).filter((u) => u.role === "admin");
+    if (admins.length <= 1) {
+      return sendJson(res, 400, { ok: false, message: "至少要保留一名管理员。" });
+    }
+  }
+  auth.db.users = (auth.db.users || []).filter((u) => u.id !== userId);
+  auth.db.sessions = (auth.db.sessions || []).filter((s) => s.userId !== userId);
+  auth.db.walletOrders = (auth.db.walletOrders || []).filter((o) => o.userId !== userId);
+  auth.db.userAssets = (auth.db.userAssets || []).filter((a) => a.userId !== userId);
+  auth.db.userCharacters = (auth.db.userCharacters || []).filter((c) => c.userId !== userId);
+  await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true });
+}
+
+async function handleAdminListMyCharacters(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
+  const list = (auth.db.userCharacters || []).map((r) => adminMyCharacterView(r, userMap));
+  list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  return sendJson(res, 200, { ok: true, characters: list });
+}
+
+async function handleAdminDeleteMyCharacter(req, res, characterId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const before = (auth.db.userCharacters || []).length;
+  auth.db.userCharacters = (auth.db.userCharacters || []).filter((c) => c.id !== characterId);
+  if (auth.db.userCharacters.length === before) {
+    return sendJson(res, 404, { ok: false, message: "角色不存在。" });
+  }
+  await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true });
+}
+
+async function handleAdminUpdateHomeItem(req, res, itemId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const items = Array.isArray(config.homeVideo?.items) ? config.homeVideo.items : [];
+  const idx = items.findIndex((it) => it.id === itemId);
+  if (idx < 0) return sendJson(res, 404, { ok: false, message: "角色不存在。" });
+  const body = await readJson(req);
+  const item = items[idx];
+  if (typeof body.name === "string") item.name = body.name.trim().slice(0, 32) || item.name;
+  if (typeof body.title === "string") item.title = body.title.trim().slice(0, 32) || item.title;
+  if (typeof body.prompt === "string") item.prompt = body.prompt.trim();
+  item.updatedAt = new Date().toISOString();
+  items[idx] = item;
+  config.homeVideo.items = items;
+  await writeAppConfig(config);
+  return sendJson(res, 200, { ok: true, item, homeVideo: config.homeVideo });
+}
+
+async function handleAdminDeleteHomeItem(req, res, itemId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const items = Array.isArray(config.homeVideo?.items) ? config.homeVideo.items : [];
+  const remaining = items.filter((it) => it.id !== itemId);
+  if (remaining.length === items.length) {
+    return sendJson(res, 404, { ok: false, message: "角色不存在。" });
+  }
+  config.homeVideo.items = remaining;
+  if (config.homeVideo.activeItemId === itemId) {
+    config.homeVideo.activeItemId = remaining[0]?.id || "";
+  }
+  config.homeVideo = syncHomeVideoActiveFields(config.homeVideo);
+  await writeAppConfig(config);
+  return sendJson(res, 200, { ok: true, homeVideo: config.homeVideo });
+}
+
+async function handleAdminSetHomeActive(req, res, itemId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const items = Array.isArray(config.homeVideo?.items) ? config.homeVideo.items : [];
+  if (!items.find((it) => it.id === itemId)) {
+    return sendJson(res, 404, { ok: false, message: "角色不存在。" });
+  }
+  config.homeVideo.activeItemId = itemId;
+  config.homeVideo = syncHomeVideoActiveFields(config.homeVideo);
+  await writeAppConfig(config);
+  return sendJson(res, 200, { ok: true, homeVideo: config.homeVideo });
+}
+
+async function handleAdminListScenes(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  return sendJson(res, 200, { ok: true, scenes: Array.isArray(config.scenes) ? config.scenes : [] });
+}
+
+async function handleAdminUpdateScene(req, res, sceneId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const idx = (config.scenes || []).findIndex((s) => s.id === sceneId);
+  if (idx < 0) return sendJson(res, 404, { ok: false, message: "场景不存在。" });
+  const body = await readJson(req);
+  const scene = config.scenes[idx];
+  if (typeof body.name === "string") scene.name = body.name.trim() || scene.name;
+  if (typeof body.shortName === "string") scene.shortName = body.shortName.trim() || scene.shortName;
+  if (typeof body.icon === "string") scene.icon = body.icon.trim() || scene.icon;
+  if (typeof body.enabled === "boolean") scene.enabled = body.enabled;
+  if (typeof body.price === "number" && Number.isFinite(body.price)) scene.price = Math.max(0, Math.round(body.price));
+  if (typeof body.prompt === "string") scene.prompt = body.prompt;
+  config.scenes[idx] = scene;
+  await writeAppConfig(config);
+  return sendJson(res, 200, { ok: true, scene });
+}
+
+async function handleAdminListWalletOrders(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
+  const list = (auth.db.walletOrders || []).map((o) => adminWalletOrderView(o, userMap));
+  list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  return sendJson(res, 200, { ok: true, orders: list });
+}
+
+async function handleAdminUpdateWalletOrder(req, res, orderId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const order = (auth.db.walletOrders || []).find((o) => o.id === orderId);
+  if (!order) return sendJson(res, 404, { ok: false, message: "订单不存在。" });
+  const body = await readJson(req);
+  if (typeof body.status === "string" && ["pending", "paid", "cancelled"].includes(body.status)) {
+    if (body.status === "paid" && order.status !== "paid") {
+      const user = (auth.db.users || []).find((u) => u.id === order.userId);
+      if (user) {
+        const config = await readAppConfig();
+        const rate = clampNumber(config.wallet.creditsPerUsdt, 1, 0.01, 100000);
+        const base = Number(order.baseAmount || 0);
+        const creditDelta = Math.round(base * rate);
+        user.credits = Math.max(0, Number(user.credits || 0) + creditDelta);
+        user.updatedAt = new Date().toISOString();
+      }
+      order.paidAt = new Date().toISOString();
+    }
+    order.status = body.status;
+  }
+  if (typeof body.note === "string") order.note = body.note.slice(0, 200);
+  await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, order });
+}
+
+async function handleAdminListUserAssets(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
+  const list = (auth.db.userAssets || []).map((a) => adminUserAssetView(a, userMap));
+  list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  return sendJson(res, 200, { ok: true, assets: list });
+}
+
+async function handleAdminListGenerationRecords(req, res, url) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") || 80)));
+  const records = await readGenerationRecords();
+  return sendJson(res, 200, { ok: true, records: records.slice(0, limit), total: records.length });
+}
+
+async function handleCreateCharacterImageLegacy(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const userAsset = body.userAssetId
+    ? auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id)
+    : null;
+  const prompt = String(body.prompt || "").trim() || [
+    "full body photorealistic mature virtual girlfriend character sheet",
+    "eight clean turntable views in a 4x2 grid: front, front-right, right side, back-right, back, back-left, left side, front-left",
+    "consistent face, hair, body proportions and outfit in every frame",
+    "transparent or plain dark background, mobile dating game asset, elegant sensual fashion, no explicit nudity",
+  ].join(", ");
+  const model = userAsset ? config.characterImage.editModel : config.characterImage.textModel;
+  const params = {
+    prompt,
+    image_size: config.characterImage.imageSize,
+  };
+
+  if (userAsset?.publicUrl) {
+    params.image_url = userAsset.publicUrl;
+  }
+
+  const submitted = await apizRequest("/api/v3/tasks/create", { model, params });
+  return sendJson(res, 200, {
+    ok: true,
+    task: submitted,
+    model,
+    note: "角色图会按 4x2 方向分镜生成；前端拿到结果图后可切成 8 帧用于拖动旋转。",
+  });
+}
+
+async function handleCreateCharacterImage(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const userAsset = body.userAssetId
+    ? auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id)
+    : null;
+  if (body.userAssetId && !userAsset) {
+    return sendJson(res, 404, { ok: false, message: "User asset not found." });
+  }
+
+  const userPrompt = String(body.prompt || "").trim();
+  const prompt = [
+    userAsset
+      ? "Use Figure 1 only as the identity and outfit reference. Rebuild it as a premium photorealistic human model asset, not anime, not illustration, not CGI, not doll-like."
+      : "Create a premium photorealistic human model asset, not anime, not illustration, not CGI, not doll-like.",
+    "Generate one complete 4x2 character turnaround sheet with exactly eight full-body views in this order: front, front-right, right side, back-right, back, back-left, left side, front-left.",
+    "Keep the same face, hair, body proportions, outfit silhouette, fabric color, fabric texture, and adult age in every view.",
+    "Each cell must contain one centered full-body woman from head to shoes, no cropping, no duplicate panels, no text labels, no UI, no room background.",
+    "Use a pure flat chroma green background (#00ff00) in every cell for clean cutout; no gradient, no studio backdrop, no floor line, no cast shadow touching the frame border, and do not use green anywhere on the character.",
+    "Mature seductive fashion editorial pose, confident eye contact, fitted evening or club outfit, elegant and sensual but non-nude and non-explicit.",
+    userPrompt ? `Extra user direction: ${userPrompt}` : "",
+  ].filter(Boolean).join(" ");
+  const model = userAsset ? config.characterImage.editModel : config.characterImage.textModel;
+  const params = {
+    prompt,
+    image_size: normalizeSeedreamImageSize(config.characterImage.imageSize),
+    num_images: 1,
+    max_images: 1,
+    enhance_prompt_mode: "standard",
+  };
+
+  if (userAsset) {
+    const publicAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
+    params.image_urls = [publicAsset.publicUrl];
+  }
+
+  if (body.dryRun === true) {
+    return sendJson(res, 200, { ok: true, dryRun: true, model, params });
+  }
+
+  console.log("[apiz-character-submit]", JSON.stringify({ model, params }, null, 2));
+  const submitted = await apizRequest("/api/v3/tasks/create", { model, params });
+  return sendJson(res, 200, {
+    ok: true,
+    task: submitted,
+    model,
+    params,
+    note: "Character sheet task submitted. The frontend will slice the 4x2 result into 8 rotation frames.",
+  });
+}
+
+async function handleGetCharacterImage(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const task = await apizRequest("/api/v3/tasks/query", { task_id: taskId });
+  const imageUrls = collectImageUrls(task);
+  let localSheetUrl = "";
+  let localSheetPath = "";
+
+  if (isCompletedStatus(task.status) && imageUrls[0]) {
+    const local = await downloadGeneratedCharacterSheet(taskId, imageUrls[0]);
+    localSheetUrl = local.localUrl;
+    localSheetPath = local.localPath;
+  }
+
+  return sendJson(res, 200, { ok: true, task, imageUrls, localSheetUrl, localSheetPath });
+}
+
+async function handleCreatePanoramaImage(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+
+  const body = await readJson(req);
+  const prompt = String(body.prompt || "").trim();
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "缺少全景图 prompt。" });
+
+  const params = {
+    prompt,
+    image_size: body.image_size || "16:9",
+    resolution: body.resolution || "4K",
+    quality: body.quality || "medium",
+    num_images: 1,
+    output_format: "png",
+  };
+  const task = await apizRequest("/api/v3/tasks/create", {
+    model: body.model || "openai/gpt-image-2",
+    params,
+    channel: null,
+  });
+  return sendJson(res, 200, { ok: true, task, params, slug: body.slug || "panorama" });
+}
+
+async function handleGetPanoramaImage(req, res, taskId, url) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+
+  const task = await apizRequest("/api/v3/tasks/query", { task_id: taskId });
+  const imageUrls = collectImageUrls(task);
+  let localUrl = "";
+  let localPath = "";
+  if (isCompletedStatus(task.status) && imageUrls[0]) {
+    const local = await downloadGeneratedPanorama(taskId, imageUrls[0], url.searchParams.get("slug") || "panorama");
+    localUrl = local.localUrl;
+    localPath = local.localPath;
+  }
+
+  return sendJson(res, 200, { ok: true, task, imageUrls, localUrl, localPath });
+}
+
+async function handleCreateSceneVideo(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  const body = await readJson(req);
+  let config = await readAppConfig();
+  const sceneConfig = findSceneConfig(config, body.sceneId);
+  const userPrompt = makeScenePrompt(body);
+  const prompt = makeSceneVideoPrompt(sceneConfig, userPrompt);
+  const model = MODEL_QUALITY;
+  const quality = "high";
+  const dryRun = body.dryRun === true || process.env.SEEDANCE_DRY_RUN === "1";
+  if (!prompt) {
+    return sendJson(res, 400, { ok: false, message: "No prompt configured for this scene." });
+  }
+
+  const cost = clampNumber(body.cost, Number(sceneConfig.price || config.prices.dateVideo || 25), 0, 9999);
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, {
+      ok: false,
+      code: "INSUFFICIENT_CREDITS",
+      message: "Not enough credits — please top up first.",
+      cost,
+      credits: auth.user.credits,
+    });
+  }
+
+  if (dryRun || !ARK_API_KEY) {
+    return sendJson(res, dryRun ? 200 : 503, {
+      ok: dryRun,
+      code: dryRun ? "DRY_RUN" : "MISSING_ARK_API_KEY",
+      message: dryRun ? "Demo task created locally." : "ARK_API_KEY is missing — real Seedance tasks cannot be submitted.",
+      task: createDemoTask(body),
+      model,
+      request: { ratio: body.ratio || "9:16", resolution: body.resolution || "720p", duration: 15 },
+    });
+  }
+
+  // Resolve the reference asset by character (admin home item OR user
+  // custom character). We always go through the synthetic-reference
+  // pipeline so the generated video shows the character, not just the
+  // raw upload "moving a bit".
+  let referenceAssetUri = "";
+  let resolvedCompanionId = String(body.companionId || "").trim();
+  let resolvedCompanionName = String(body.companionName || "").trim();
+  let partnerCharacterId = String(body.partnerCharacterId || "").trim();
+  let partnerCharacterName = "";
+  let partnerReferenceAssetUri = "";
+
+  if (resolvedCompanionId) {
+    config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+    const homeItem = findHomeVideoItem(config.homeVideo, resolvedCompanionId);
+    if (homeItem) {
+      try {
+        config = await ensureSyntheticReferenceForHomeItem(config, homeItem.id);
+        const refItem = findHomeVideoItem(config.homeVideo, homeItem.id);
+        if (!refItem?.referenceAssetUri || !refItem?.syntheticReferenceLocalUrl) {
+          return sendJson(res, 503, {
+            ok: false,
+            code: "REFERENCE_NOT_READY",
+            message: "Character reference is still being built upstream — please retry in a few seconds.",
+          });
+        }
+        referenceAssetUri = refItem.referenceAssetUri;
+        resolvedCompanionId = refItem.id;
+        resolvedCompanionName = refItem.name || resolvedCompanionName;
+      } catch (error) {
+        const status = error.statusCode || 502;
+        return sendJson(res, status, {
+          ok: false,
+          code: "REFERENCE_BUILD_FAILED",
+          message: `Failed to prepare character reference: ${error.message || error}`,
+        });
+      }
+    } else {
+      const userChar = (auth.db.userCharacters || []).find((entry) => entry.id === resolvedCompanionId && entry.userId === auth.user.id);
+      if (userChar) {
+        try {
+          const prepared = await ensureCharacterReferenceForRecord({ ...userChar });
+          if (!prepared.referenceAssetUri) {
+            return sendJson(res, 503, {
+              ok: false,
+              code: "REFERENCE_NOT_READY",
+              message: "Custom character reference still building — please retry in a few seconds.",
+            });
+          }
+          auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === prepared.id ? prepared : entry));
+          await writeDb(auth.db);
+          referenceAssetUri = prepared.referenceAssetUri;
+          resolvedCompanionName = prepared.name || resolvedCompanionName;
+        } catch (error) {
+          const status = error.statusCode || 502;
+          return sendJson(res, status, {
+            ok: false,
+            code: "REFERENCE_BUILD_FAILED",
+            message: `Failed to prepare custom character reference: ${error.message || error}`,
+          });
+        }
+      }
+    }
+  }
+
+  if (!referenceAssetUri) {
+    referenceAssetUri = String(body.referenceAssetUri || "");
+  }
+
+  if (!referenceAssetUri) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "MISSING_REFERENCE_ASSET",
+      message: "No character reference is available — please pick a character first.",
+    });
+  }
+
+  if (partnerCharacterId) {
+    const partner = (auth.db.userCharacters || []).find((entry) => entry.id === partnerCharacterId && entry.userId === auth.user.id);
+    if (!partner) {
+      return sendJson(res, 404, { ok: false, message: "Partner character not found." });
+    }
+    try {
+      const preparedPartner = await ensureCharacterReferenceForRecord({ ...partner });
+      if (!preparedPartner.referenceAssetUri) {
+        return sendJson(res, 503, {
+          ok: false,
+          code: "REFERENCE_NOT_READY",
+          message: "Partner character reference still building - please retry in a few seconds.",
+        });
+      }
+      auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === preparedPartner.id ? preparedPartner : entry));
+      await writeDb(auth.db);
+      partnerCharacterName = preparedPartner.name || "Partner";
+      partnerReferenceAssetUri = preparedPartner.referenceAssetUri || "";
+    } catch (error) {
+      const status = error.statusCode || 502;
+      return sendJson(res, status, {
+        ok: false,
+        code: "REFERENCE_BUILD_FAILED",
+        message: `Failed to prepare partner character reference: ${error.message || error}`,
+      });
+    }
+  }
+
+  const finalPrompt = partnerReferenceAssetUri
+    ? makeInteractiveSceneVideoPrompt(sceneConfig, resolvedCompanionName || body.companionName || "", partnerCharacterName, userPrompt)
+    : prompt;
+
+  const payload = {
+    model,
+    content: [{ type: "text", text: finalPrompt }],
+    generate_audio: body.generateAudio === true || config.video.generateAudio === true,
+    ratio: body.ratio || config.video.ratio || "9:16",
+    resolution: body.resolution || config.video.resolution || "720p",
+    duration: clampNumber(body.duration, config.video.duration || 15, 5, 15),
+    watermark: false,
+  };
+
+  if (referenceAssetUri.startsWith("asset://")) {
+    payload.content.push({
+      type: "image_url",
+      image_url: { url: referenceAssetUri },
+      role: "reference_image",
+    });
+  }
+  if (partnerReferenceAssetUri && partnerReferenceAssetUri.startsWith("asset://") && partnerReferenceAssetUri !== referenceAssetUri) {
+    payload.content.push({
+      type: "image_url",
+      image_url: { url: partnerReferenceAssetUri },
+      role: "reference_image",
+    });
+  }
+
+  auth.user.credits -= cost;
+  auth.user.updatedAt = new Date().toISOString();
+  await writeDb(auth.db);
+
+  console.log("[seedance-submit-payload]", JSON.stringify(payload, null, 2));
+  let raw;
+  try {
+    raw = await arkRequest("POST", "/contents/generations/tasks", payload);
+  } catch (error) {
+    auth.user.credits += cost;
+    await writeDb(auth.db);
+    throw error;
+  }
+  const task = normalizeTask(raw);
+  await upsertGenerationRecord({
+    taskId: task.taskId,
+    status: task.status,
+    model,
+    sceneId: body.sceneId || "",
+    sceneName: body.sceneName || "",
+    companionId: resolvedCompanionId || body.companionId || "",
+    companionName: resolvedCompanionName || body.companionName || "",
+    userId: auth.user.id,
+    referenceAssetUri,
+    partnerCharacterId,
+    partnerCharacterName,
+    partnerReferenceAssetUri,
+    prompt: body.prompt || "",
+    finalPrompt,
+    ratio: payload.ratio,
+    resolution: payload.resolution,
+    duration: payload.duration,
+    quality,
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl: "",
+    error: "",
+    source: "user-scene-video",
+  });
+
+  return sendJson(res, 200, {
+    ok: true,
+    model,
+    task: {
+      taskId: task.taskId,
+      status: task.status,
+      videoUrl: task.videoUrl,
+    },
+    user: userView(auth.user),
+    cost,
+  });
+}
+
+async function handleGetSceneVideo(req, res, taskId) {
+  if (taskId.startsWith("demo-")) {
+    const task = getDemoTask(taskId);
+    if (!task) return sendJson(res, 404, { ok: false, message: "Demo task not found." });
+    return sendJson(res, 200, { ok: true, task });
+  }
+
+  const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
+  const task = normalizeTask(raw);
+  let localVideoUrl = "";
+  let localVideoPath = "";
+  let downloadError = "";
+
+  if (isSucceededStatus(task.status) && task.videoUrl) {
+    try {
+      const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
+      localVideoUrl = localVideo.localVideoUrl;
+      localVideoPath = localVideo.localVideoPath;
+    } catch (error) {
+      downloadError = error.message || "Failed to download generated video.";
+    }
+  }
+
+  await upsertGenerationRecord({
+    taskId: task.taskId || taskId,
+    status: task.status,
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl,
+    localVideoPath,
+    error: task.error || downloadError || "",
+  });
+
+  return sendJson(res, 200, {
+    ok: true,
+    task: {
+      taskId: task.taskId || taskId,
+      status: task.status,
+      videoUrl: localVideoUrl || task.videoUrl,
+      remoteVideoUrl: task.videoUrl,
+      localVideoUrl,
+      error: task.error || downloadError,
+    },
+  });
+}
+
+async function serveStatic(req, res, url) {
+  const pathname = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
+  const filePath = path.normalize(path.join(ROOT, pathname));
+
+  if (!filePath.startsWith(ROOT)) {
+    return sendText(res, 403, "Forbidden");
+  }
+
+  try {
+    const contentType = mimeTypes.get(path.extname(filePath).toLowerCase()) || "application/octet-stream";
+    const stat = await fs.stat(filePath);
+    const range = req.headers.range;
+
+    if (range && contentType.startsWith("video/")) {
+      const match = range.match(/bytes=(\d*)-(\d*)/);
+      const start = match?.[1] ? Number(match[1]) : 0;
+      const end = match?.[2] ? Number(match[2]) : stat.size - 1;
+      const chunkStart = Math.max(0, start);
+      const chunkEnd = Math.min(stat.size - 1, end);
+
+      if (chunkStart > chunkEnd || Number.isNaN(chunkStart) || Number.isNaN(chunkEnd)) {
+        res.writeHead(416, { "content-range": `bytes */${stat.size}` });
+        return res.end();
+      }
+
+      res.writeHead(206, {
+        "content-type": contentType,
+        "content-length": chunkEnd - chunkStart + 1,
+        "content-range": `bytes ${chunkStart}-${chunkEnd}/${stat.size}`,
+        "accept-ranges": "bytes",
+        "cache-control": "public, max-age=60",
+      });
+
+      if (req.method === "HEAD") return res.end();
+      return fsSync.createReadStream(filePath, { start: chunkStart, end: chunkEnd }).pipe(res);
+    }
+
+    const data = await fs.readFile(filePath);
+    res.writeHead(200, {
+      "content-type": contentType,
+      "content-length": stat.size,
+      "accept-ranges": contentType.startsWith("video/") ? "bytes" : "none",
+      "cache-control": contentType.startsWith("text/") ? "no-cache" : "public, max-age=60",
+    });
+    if (req.method === "HEAD") return res.end();
+    res.end(data);
+  } catch (error) {
+    if (error.code === "ENOENT") return sendText(res, 404, "Not Found");
+    throw error;
+  }
+}
+
+async function handleRequest(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+
+  try {
+    if (req.method === "GET" && url.pathname === "/api/health") {
+      return sendJson(res, 200, {
+        ok: true,
+        arkConfigured: Boolean(ARK_API_KEY),
+        apizConfigured: Boolean(APIZ_API_KEY),
+        baseUrl: ARK_BASE_URL,
+        models: { fast: MODEL_FAST, quality: MODEL_QUALITY },
+      });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/config/public") {
+      const config = await readAppConfig();
+      return sendJson(res, 200, { ok: true, config: publicConfig(config) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/register") {
+      return await handleRegister(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/login") {
+      return await handleLogin(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/auth/me") {
+      return await handleMe(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/pay/orders") {
+      return await handleCreatePaymentOrder(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/pay/orders") {
+      return await handleListPaymentOrders(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/wallet/spend") {
+      return await handleSpendCredits(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/user-assets") {
+      return await handleUploadUserAsset(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/user-assets") {
+      return await handleListUserAssets(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/character-image") {
+      return await handleCreateCharacterImage(req, res);
+    }
+
+    const characterImageTaskMatch = url.pathname.match(/^\/api\/character-image\/([^/]+)$/);
+    if (req.method === "GET" && characterImageTaskMatch) {
+      return await handleGetCharacterImage(req, res, characterImageTaskMatch[1]);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/panorama-image") {
+      return await handleCreatePanoramaImage(req, res);
+    }
+
+    const panoramaImageTaskMatch = url.pathname.match(/^\/api\/panorama-image\/([^/]+)$/);
+    if (req.method === "GET" && panoramaImageTaskMatch) {
+      return await handleGetPanoramaImage(req, res, panoramaImageTaskMatch[1], url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/config") {
+      return await handleAdminGetConfig(req, res);
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/admin/config") {
+      return await handleAdminSaveConfig(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/overview") {
+      return await handleAdminList(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/home-image") {
+      return await handleAdminUploadHomeImage(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/home-video") {
+      return await handleAdminCreateHomeVideo(req, res);
+    }
+
+    const homeVideoTaskMatch = url.pathname.match(/^\/api\/admin\/home-video\/([^/]+)$/);
+    if (req.method === "GET" && homeVideoTaskMatch) {
+      return await handleAdminGetHomeVideo(req, res, homeVideoTaskMatch[1]);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/character-scene-video") {
+      return await handleAdminCreateCharacterSceneVideo(req, res);
+    }
+
+    const adminSceneVideoTaskMatch = url.pathname.match(/^\/api\/admin\/character-scene-video\/([^/]+)$/);
+    if (req.method === "GET" && adminSceneVideoTaskMatch) {
+      return await handleAdminGetCharacterSceneVideo(req, res, adminSceneVideoTaskMatch[1]);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/ifilm/status") {
+      return await handleAdminIfilmStatus(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/dashboard") {
+      return await handleAdminDashboard(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/users") {
+      return await handleAdminListUsers(req, res);
+    }
+
+    const adminUserMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+    if (req.method === "PATCH" && adminUserMatch) {
+      return await handleAdminUpdateUser(req, res, adminUserMatch[1]);
+    }
+    if (req.method === "DELETE" && adminUserMatch) {
+      return await handleAdminDeleteUser(req, res, adminUserMatch[1]);
+    }
+
+    const adminUserPwMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/password$/);
+    if (req.method === "POST" && adminUserPwMatch) {
+      return await handleAdminResetPassword(req, res, adminUserPwMatch[1]);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/my-characters") {
+      return await handleAdminListMyCharacters(req, res);
+    }
+
+    const adminMyCharMatch = url.pathname.match(/^\/api\/admin\/my-characters\/([^/]+)$/);
+    if (req.method === "DELETE" && adminMyCharMatch) {
+      return await handleAdminDeleteMyCharacter(req, res, adminMyCharMatch[1]);
+    }
+
+    const adminHomeItemMatch = url.pathname.match(/^\/api\/admin\/home-items\/([^/]+)$/);
+    if (req.method === "PATCH" && adminHomeItemMatch) {
+      return await handleAdminUpdateHomeItem(req, res, adminHomeItemMatch[1]);
+    }
+    if (req.method === "DELETE" && adminHomeItemMatch) {
+      return await handleAdminDeleteHomeItem(req, res, adminHomeItemMatch[1]);
+    }
+
+    const adminHomeActiveMatch = url.pathname.match(/^\/api\/admin\/home-items\/([^/]+)\/active$/);
+    if (req.method === "POST" && adminHomeActiveMatch) {
+      return await handleAdminSetHomeActive(req, res, adminHomeActiveMatch[1]);
+    }
+
+    const adminHomeRebuildMatch = url.pathname.match(/^\/api\/admin\/home-items\/([^/]+)\/rebuild-reference$/);
+    if (req.method === "POST" && adminHomeRebuildMatch) {
+      return await handleAdminRebuildHomeItemReference(req, res, adminHomeRebuildMatch[1]);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/scenes") {
+      return await handleAdminListScenes(req, res);
+    }
+
+    const adminSceneMatch = url.pathname.match(/^\/api\/admin\/scenes\/([^/]+)$/);
+    if (req.method === "PATCH" && adminSceneMatch) {
+      return await handleAdminUpdateScene(req, res, adminSceneMatch[1]);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/wallet-orders") {
+      return await handleAdminListWalletOrders(req, res);
+    }
+
+    const adminOrderMatch = url.pathname.match(/^\/api\/admin\/wallet-orders\/([^/]+)$/);
+    if (req.method === "PATCH" && adminOrderMatch) {
+      return await handleAdminUpdateWalletOrder(req, res, adminOrderMatch[1]);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/user-assets") {
+      return await handleAdminListUserAssets(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/generation-records") {
+      return await handleAdminListGenerationRecords(req, res, url);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/my/characters/draft") {
+      return await handleSaveMyCharacterDraft(req, res);
+    }
+
+    const myCharacterStartMainMatch = url.pathname.match(/^\/api\/my\/characters\/([^/]+)\/start-main-video$/);
+    if (req.method === "POST" && myCharacterStartMainMatch) {
+      return await handleStartMyCharacterMainVideo(req, res, myCharacterStartMainMatch[1]);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/my/characters") {
+      return await handleCreateMyCharacter(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/my/characters") {
+      return await handleListMyCharacters(req, res);
+    }
+
+    const myCharacterMatch = url.pathname.match(/^\/api\/my\/characters\/([^/]+)$/);
+    if (req.method === "GET" && myCharacterMatch) {
+      return await handleGetMyCharacter(req, res, myCharacterMatch[1]);
+    }
+
+    const myCharacterMainTaskMatch = url.pathname.match(/^\/api\/my\/characters\/([^/]+)\/main-video$/);
+    if (req.method === "GET" && myCharacterMainTaskMatch) {
+      return await handleQueryMyCharacterMainVideo(req, res, myCharacterMainTaskMatch[1]);
+    }
+
+    const myCharacterSceneCreateMatch = url.pathname.match(/^\/api\/my\/characters\/([^/]+)\/scene-video$/);
+    if (req.method === "POST" && myCharacterSceneCreateMatch) {
+      return await handleCreateMyCharacterSceneVideo(req, res, myCharacterSceneCreateMatch[1]);
+    }
+
+    const myCharacterSceneTaskMatch = url.pathname.match(/^\/api\/my\/scene-video\/([^/]+)$/);
+    if (req.method === "GET" && myCharacterSceneTaskMatch) {
+      return await handleQueryMyCharacterSceneVideo(req, res, myCharacterSceneTaskMatch[1]);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/character-assets") {
+      try {
+        const data = await fs.readFile(path.join(ROOT, "data", "character-assets.json"), "utf8");
+        return sendJson(res, 200, { ok: true, assets: JSON.parse(data) });
+      } catch {
+        return sendJson(res, 200, { ok: true, assets: {} });
+      }
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/generation-records") {
+      const records = await readGenerationRecords();
+      return sendJson(res, 200, { ok: true, records });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/scene-video") {
+      return await handleCreateSceneVideo(req, res);
+    }
+
+    const taskMatch = url.pathname.match(/^\/api\/scene-video\/([^/]+)$/);
+    if (req.method === "GET" && taskMatch) {
+      return await handleGetSceneVideo(req, res, taskMatch[1]);
+    }
+
+    if (url.pathname.startsWith("/api/")) {
+      return sendJson(res, 404, { ok: false, message: "API not found." });
+    }
+
+    return await serveStatic(req, res, url);
+  } catch (error) {
+    const statusCode = error.statusCode || (error.code === "MISSING_ARK_API_KEY" ? 503 : 500);
+    console.error("[api-error]", {
+      method: req.method,
+      path: url.pathname,
+      code: error.code || "SERVER_ERROR",
+      message: error.message,
+      cause: error.cause?.code || error.cause?.message || "",
+    });
+    return sendJson(res, statusCode, {
+      ok: false,
+      code: error.code || "SERVER_ERROR",
+      message: error.message || "Server error",
+      detail: error.payload?.error?.message || error.payload?.message || error.cause?.message || "",
+    });
+  }
+}
+
+const server = http.createServer((req, res) => {
+  handleRequest(req, res);
+});
+
+server.listen(PORT, "127.0.0.1", () => {
+  console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
+  console.log(`Ark configured: ${ARK_API_KEY ? "yes" : "no"}`);
+});
