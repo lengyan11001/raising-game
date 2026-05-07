@@ -351,6 +351,7 @@ const els = {
   bondValue: document.querySelector("#bondValue"),
   moodValue: document.querySelector("#moodValue"),
   energyValue: document.querySelector("#energyValue"),
+  jobPanel: document.querySelector("#jobPanel"),
   jobTitle: document.querySelector("#jobTitle"),
   jobDetail: document.querySelector("#jobDetail"),
   jobProgress: document.querySelector("#jobProgress"),
@@ -870,10 +871,10 @@ function bumpStats(delta) {
 }
 
 function updateJob(title, detail, progress = 0) {
-  els.jobPanel.classList.add("is-active");
-  els.jobTitle.textContent = title;
-  els.jobDetail.textContent = detail;
-  els.jobProgress.style.width = `${Math.max(0, Math.min(progress, 100))}%`;
+  els.jobPanel?.classList.add("is-active");
+  if (els.jobTitle) els.jobTitle.textContent = title;
+  if (els.jobDetail) els.jobDetail.textContent = detail;
+  if (els.jobProgress) els.jobProgress.style.width = `${Math.max(0, Math.min(progress, 100))}%`;
 }
 
 function playVideo(videoEl, { allowMutedFallback = false } = {}) {
