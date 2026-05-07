@@ -271,6 +271,7 @@ const state = {
   dragStartX: 0,
   dragStartFrame: 0,
   dragging: false,
+  paymentRunning: false,
   stats: { ...companions[0].stats },
 };
 
@@ -1860,20 +1861,34 @@ function openPayment(action) {
 }
 
 function handlePaymentClose() {
-  const action = state.pendingPayment;
-  if (!action || els.payDialog.returnValue !== "confirm") {
-    state.pendingPayment = null;
+  if (els.payDialog.returnValue === "confirm") {
+    runPendingPaymentAction();
     return;
   }
+  if (!state.paymentRunning) {
+    state.pendingPayment = null;
+  }
+}
 
+function runPendingPaymentAction() {
+  if (state.paymentRunning) return;
+  const action = state.pendingPayment;
+  if (!action) return;
   if (state.credits < action.cost) {
     state.pendingPayment = null;
+    closeDialog(els.payDialog);
     openRechargeDialog();
     return;
   }
 
-  action.run();
+  state.paymentRunning = true;
   state.pendingPayment = null;
+  closeDialog(els.payDialog);
+  Promise.resolve()
+    .then(() => action.run())
+    .finally(() => {
+      state.paymentRunning = false;
+    });
 }
 
 function randomChoice(items) {
@@ -3177,6 +3192,10 @@ function bindEvents() {
 
   els.loginSubmitBtn?.addEventListener("click", submitLogin);
   els.createOrderBtn?.addEventListener("click", createRechargeOrder);
+  els.confirmPayBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    runPendingPaymentAction();
+  });
 
   els.copyWalletBtn?.addEventListener("click", async () => {
     const addr = els.staticWalletAddr?.textContent?.trim() || "";
