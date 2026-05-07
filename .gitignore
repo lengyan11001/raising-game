@@ -24,3 +24,4 @@ LOCAL_CREDENTIALS.md
 scripts/fyshark_*
 scripts/deploy_to_fyshark.py
 scripts/__pycache__/
+.env.deploy

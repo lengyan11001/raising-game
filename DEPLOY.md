@@ -30,3 +30,13 @@ systemctl restart raising-game-demo
 ```
 
 This avoids overwriting runtime data like `data/app-config.json` and `data/app-db.json`.
+
+From the local machine, use the helper only after pushing:
+
+```powershell
+$env:FYSHARK_SSH_PASSWORD="..."
+python .\scripts\deploy_pull.py
+```
+
+The old SFTP upload deploy is intentionally removed. Do not deploy by copying
+files into `/opt/raising-game-demo`; that leaves Git unable to pull cleanly.
