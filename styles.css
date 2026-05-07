@@ -107,7 +107,9 @@ svg {
 }
 
 .game-topbar {
+  position: relative;
   z-index: 10;
+  pointer-events: auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;

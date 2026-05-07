@@ -484,6 +484,18 @@ function syncUser(user) {
 }
 
 function renderLoginMode() {
+  const isAccount = state.loginMode === "account" && state.user;
+  els.loginUsername.hidden = isAccount;
+  els.loginPassword.hidden = isAccount;
+  els.loginSubmitBtn.hidden = isAccount;
+  els.toggleLoginModeBtn.hidden = isAccount;
+  if (isAccount) {
+    els.loginTitle.textContent = "Account";
+    els.loginHint.textContent = `${state.user.username} · balance ${state.credits} credits.`;
+    refreshIcons();
+    return;
+  }
+
   const isRegister = state.loginMode === "register";
   els.loginTitle.textContent = isRegister ? "Sign up" : "Sign in";
   els.loginHint.textContent = isRegister ? "The first account that signs up automatically becomes admin." : "Sign in to generate, upload references and top up credits.";
@@ -494,11 +506,17 @@ function renderLoginMode() {
   refreshIcons();
 }
 
-function openLoginDialog(mode = "login") {
-  state.loginMode = mode;
+function openLoginDialog(mode = state.user ? "account" : "login") {
+  state.loginMode = mode === "register" ? "register" : mode === "account" && state.user ? "account" : "login";
   renderLoginMode();
-  els.loginDialog.showModal();
-  setTimeout(() => els.loginUsername.focus(), 60);
+  [els.welcomeDialog, els.payDialog, els.rechargeDialog].forEach(closeDialog);
+  closeGameDialogs();
+  if (!els.loginDialog.open) {
+    els.loginDialog.showModal();
+  }
+  if (state.loginMode !== "account") {
+    setTimeout(() => els.loginUsername.focus(), 60);
+  }
 }
 
 function openRechargeDialog() {
@@ -2876,11 +2894,7 @@ function bindEvents() {
   });
   els.unlockVideoBtn?.addEventListener("click", handleUnlockVideoClick);
   els.userBtn?.addEventListener("click", () => {
-    if (state.user) {
-      updateJob("Signed in", `${state.user.username} · balance ${state.credits} credits.`, 0);
-      return;
-    }
-    openLoginDialog();
+    openLoginDialog(state.user ? "account" : "login");
   });
 
   els.customCharacterBtn?.addEventListener("click", openCustomCharacterDialog);
