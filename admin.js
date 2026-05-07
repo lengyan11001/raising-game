@@ -804,6 +804,9 @@ async function renderUserCharacters() {
   byId("refreshUserCharBtn")?.addEventListener("click", () => renderCharacters());
   pane.querySelectorAll('.adm-char-card').forEach((card) => {
     const id = card.dataset.id;
+    card.querySelector('[data-act="add-user-credits"]')?.addEventListener("click", () => {
+      openAddCreditsFromCharacterDialog(id, list);
+    });
     card.querySelector('[data-act="delete-user-char"]')?.addEventListener("click", async () => {
       const ok = await confirmAction("删除用户角色", "确认删除该用户自定义角色（不会删除用户账号）？", { danger: true, confirmText: "删除" });
       if (!ok) return;
@@ -827,10 +830,52 @@ function userCharCard(c) {
       </div>
       <div class="adm-char-actions">
         ${c.videoUrl ? `<a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(c.videoUrl)}" target="_blank" rel="noopener"><i data-lucide="play"></i>播放</a>` : ""}
+        ${c.userId ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="add-user-credits"><i data-lucide="gem"></i>加积分</button>` : ""}
         <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-user-char"><i data-lucide="trash-2"></i>删除</button>
       </div>
     </article>
   `;
+}
+
+function openAddCreditsFromCharacterDialog(id, characters) {
+  const character = (characters || []).find((item) => item.id === id);
+  if (!character?.userId) {
+    toast("找不到这个角色的归属账号。", "error");
+    return;
+  }
+
+  const account = character.username || character.userId;
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(account)}" disabled /></div>
+    <div class="adm-form-row"><span>增加积分</span><input id="addCreditsAmount" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 100" /></div>
+    <p class="adm-muted">会直接增加到该账号余额，不生成充值订单。</p>
+  `;
+
+  openDialog({
+    title: "增加积分",
+    body: tpl,
+    confirmText: "确认增加",
+    onConfirm: async () => {
+      const amount = Number(tpl.querySelector("#addCreditsAmount")?.value);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        toast("请输入大于 0 的积分。", "error");
+        return false;
+      }
+      const creditsDelta = Math.round(amount);
+      if (creditsDelta <= 0) {
+        toast("积分必须至少增加 1。", "error");
+        return false;
+      }
+      await api(`/api/admin/users/${encodeURIComponent(character.userId)}`, {
+        method: "PATCH",
+        body: { creditsDelta },
+      });
+      toast(`已给 ${account} 增加 ${creditsDelta} 积分。`, "success");
+      renderCharacters();
+    },
+  });
+  setTimeout(() => tpl.querySelector("#addCreditsAmount")?.focus(), 60);
 }
 
 /* ============ VIDEOS ============ */
