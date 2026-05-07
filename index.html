@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>After Dark Girlfriend Demo</title>
-    <link rel="stylesheet" href="./styles.css?v=home-en16" />
+    <link rel="stylesheet" href="./styles.css?v=home-en17" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="is-loading">
@@ -29,6 +29,9 @@
         </button>
         <button id="soundToggleBtn" class="icon-action" type="button" aria-label="Sound on" aria-pressed="true">
           <i data-lucide="volume-2"></i>
+        </button>
+        <button id="generationHistoryBtn" class="icon-action" type="button" aria-label="Generation records">
+          <i data-lucide="history"></i>
         </button>
         <button id="userBtn" class="icon-action" type="button" aria-label="Account">
           <i data-lucide="user-round"></i>
@@ -422,6 +425,30 @@
       </form>
     </dialog>
 
+    <dialog id="generationHistoryDialog" class="game-dialog history-dialog">
+      <form method="dialog">
+        <header class="dialog-head">
+          <div>
+            <span>Records</span>
+            <strong>Generation history</strong>
+          </div>
+          <button class="icon-action" value="cancel" type="submit" aria-label="Close" formnovalidate>
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+        <div class="history-toolbar">
+          <p>All your main videos and scene videos are kept here.</p>
+          <button id="generationHistoryRefreshBtn" class="secondary-btn compact-btn" type="button">
+            <i data-lucide="refresh-cw"></i>
+            Refresh
+          </button>
+        </div>
+        <div class="history-list" id="generationHistoryList">
+          <div class="history-empty">No records yet.</div>
+        </div>
+      </form>
+    </dialog>
+
     <section class="vr-view" id="vrView" hidden aria-label="VR panorama">
       <canvas id="vrCanvas"></canvas>
       <div class="vr-topbar">
@@ -472,6 +499,6 @@
     </template>
 
     <script src="./assets/vendor/three.min.js"></script>
-    <script src="./app.js?v=home-en18"></script>
+    <script src="./app.js?v=home-en20"></script>
   </body>
 </html>

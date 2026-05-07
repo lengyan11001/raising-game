@@ -284,7 +284,7 @@ function openDialog({ title, body, confirmText = "确定", cancelText = "取消"
   refreshIcons();
   return new Promise((resolve) => {
     const handler = async (event) => {
-      const value = event.submitter?.value || "cancel";
+      const value = event.submitter?.value || "close";
       if (value === "confirm" && typeof onConfirm === "function") {
         event.preventDefault();
         try {
@@ -309,7 +309,7 @@ function openDialog({ title, body, confirmText = "确定", cancelText = "取消"
     const closeHandler = () => {
       els.dialogForm.removeEventListener("submit", handler);
       els.dialog.removeEventListener("close", closeHandler);
-      resolve("cancel");
+      resolve(els.dialog.returnValue || "close");
     };
     els.dialogForm.addEventListener("submit", handler);
     els.dialog.addEventListener("close", closeHandler);
@@ -533,8 +533,8 @@ function presetCharCard(item, activeId, scenes) {
       <div class="adm-char-actions">
         ${item.id !== activeId ? `<button class="adm-btn adm-btn-sm" data-act="set-active"><i data-lucide="star"></i>设为主推</button>` : ""}
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit"><i data-lucide="pencil"></i>编辑</button>
-        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="regen"><i data-lucide="refresh-cw"></i>重新生成</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="bind-scene"><i data-lucide="map-pinned"></i>场景视频</button>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="regen"><i data-lucide="clapperboard"></i>主视频</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="rebuild-ref" title="清空旧的合成参考图，重新跑一次 apiz Seedream + Seedance CreateAsset"><i data-lucide="image-down"></i>重建参考图</button>
         <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete"><i data-lucide="trash-2"></i>删除</button>
       </div>
@@ -668,40 +668,72 @@ async function openRegenPresetDialog(itemId) {
   if (!item) return;
   const tpl = document.createElement("div");
   const scenes = config.scenes || [];
+  const homeSceneVideos = item.homeSceneVideos || {};
   tpl.innerHTML = `
-    <p class="adm-muted">为「${escapeHtml(item.name)}」重新生成首页主视频。流程：</p>
-    <ol class="adm-muted" style="padding-left:18px;line-height:1.6;">
-      <li>用 Apiz Seedream 生成"贴近原图"的合成参考图</li>
-      <li>提交 Seedance（或 ifilm CLI）15 秒短剧任务</li>
-      <li>任务完成后会自动写回该角色的 videoUrl</li>
-    </ol>
-    <div class="adm-form-row adm-mt"><span>生成流程</span><select id="genProvider"><option value="seedance">Seedance / Ark</option><option value="ifilm-cli">ifilm CLI（本机已安装时）</option></select></div>
-    <div class="adm-form-row"><span>额外 Prompt（可留空，使用角色保存的 Prompt）</span><textarea id="genPrompt" placeholder="留空使用角色保存的 Prompt 与默认全身美腿 Prompt。"></textarea></div>
+    <p class="adm-muted">Configure the main video shown on the home page for "${escapeHtml(item.name)}". You can save the prompt only, or submit generation now.</p>
+    <div class="adm-form-row adm-mt"><span>Provider</span><select id="genProvider"><option value="seedance">Seedance / Ark</option><option value="ifilm-cli">ifilm CLI (when available)</option></select></div>
+    <div class="adm-form-row"><span>Scene</span><select id="genHomeScene">
+      ${scenes.map((scene) => {
+        const entry = homeSceneVideos[scene.id] || {};
+        const tag = entry.taskId ? `(${statusText(entry.status)})` : entry.userPrompt ? "(prompt saved)" : "(not generated)";
+        return `<option value="${escapeHtml(scene.id)}" data-default-prompt="${escapeHtml(scene.prompt || "")}">${escapeHtml(scene.name || scene.id)} ${tag}</option>`;
+      }).join("")}
+    </select></div>
+    <div class="adm-form-row"><span>Prompt</span><textarea id="genPrompt" rows="6" placeholder="Enter a prompt, then save it or generate the main video."></textarea></div>
+    <p class="adm-muted adm-mt" id="genPromptHint"></p>
   `;
-  const providerRow = tpl.querySelector("#genProvider")?.closest(".adm-form-row");
-  if (providerRow && scenes.length) {
-    const sceneRow = document.createElement("div");
-    sceneRow.className = "adm-form-row";
-    sceneRow.innerHTML = `<span>Home scene</span><select id="genHomeScene">${scenes.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name || s.id)}</option>`).join("")}</select>`;
-    providerRow.insertAdjacentElement("afterend", sceneRow);
+
+  const select = tpl.querySelector("#genHomeScene");
+  const promptEl = tpl.querySelector("#genPrompt");
+  const hintEl = tpl.querySelector("#genPromptHint");
+  function syncMainPrompt() {
+    const sceneId = select.value;
+    const entry = homeSceneVideos[sceneId] || {};
+    const savedPrompt = String(entry.userPrompt || entry.savedPrompt || "").trim();
+    const fallback = String(entry.prompt || item.prompt || select.options[select.selectedIndex]?.dataset.defaultPrompt || "").trim();
+    promptEl.value = savedPrompt || "";
+    promptEl.placeholder = fallback || "Save this prompt to prefill the user creation dialog.";
+    const lines = [];
+    if (entry.taskId) lines.push(`Existing main video task ${entry.taskId} (${statusText(entry.status)}).`);
+    if (savedPrompt) lines.push("Saved prompt will prefill the user creation dialog.");
+    else if (fallback) lines.push("No saved prompt yet; generation can still use the fallback prompt.");
+    hintEl.textContent = lines.join(" ");
   }
+  select.addEventListener("change", syncMainPrompt);
+  setTimeout(syncMainPrompt, 0);
 
   openDialog({
-    title: "重新生成主视频",
+    title: `Main video - ${item.name || item.id}`,
     body: tpl,
-    confirmText: "开始生成",
+    confirmText: "Generate",
+    cancelText: "Save prompt only",
     onConfirm: async () => {
       const provider = tpl.querySelector("#genProvider").value;
-      const sceneId = tpl.querySelector("#genHomeScene")?.value || "room";
-      const prompt = tpl.querySelector("#genPrompt").value.trim();
+      const sceneId = select.value || "room";
+      const prompt = promptEl.value.trim();
       await api("/api/admin/home-video", {
         method: "POST",
         body: { itemId, sceneId, provider, prompt, name: item.name, title: item.title },
       });
-      toast("已提交任务，可在「视频」页面查看进度。", "success");
+      toast("Main video task submitted. Check the Videos page for progress.", "success");
       state.config = null;
       renderCharacters();
     },
+  }).then(async (value) => {
+    if (value !== "cancel") return;
+    const sceneId = select.value || "room";
+    const prompt = promptEl.value.trim();
+    try {
+      await api("/api/admin/home-video", {
+        method: "POST",
+        body: { itemId, sceneId, provider: tpl.querySelector("#genProvider").value, prompt, name: item.name, title: item.title, saveOnly: true },
+      });
+      toast("Main video prompt saved.", "success");
+      state.config = null;
+      renderCharacters();
+    } catch (err) {
+      toast(err.message, "error");
+    }
   });
 }
 
@@ -728,53 +760,55 @@ function openSceneBindDialog(itemId, scenes) {
     const sceneVideos = item.sceneVideos || {};
     const tpl = document.createElement("div");
     tpl.innerHTML = `
-      <p class="adm-muted">为「${escapeHtml(item.name)}」选择一个场景，输入提示词后立即提交。提交后会自动跳转到「视频管理」页查看进度、查询状态、再次生成。</p>
+      <p class="adm-muted">Configure the scene video users create from the popup for "${escapeHtml(item.name)}". You can save the prompt only, or submit generation now.</p>
       <label class="adm-field adm-mt">
-        <span>选择场景</span>
+        <span>Scene</span>
         <select id="sceneBindScene">
-          ${scenes.map((s) => {
-            const entry = sceneVideos[s.id] || {};
-            const tag = entry.taskId ? `（${statusText(entry.status)}）` : "（未生成）";
-            return `<option value="${escapeHtml(s.id)}" data-prompt="${escapeHtml(s.prompt || "")}">${escapeHtml(s.name || s.id)} ${tag}</option>`;
+          ${scenes.map((scene) => {
+            const entry = sceneVideos[scene.id] || {};
+            const tag = entry.taskId ? `(${statusText(entry.status)})` : entry.userPrompt ? "(prompt saved)" : "(not generated)";
+            return `<option value="${escapeHtml(scene.id)}" data-default-prompt="${escapeHtml(scene.prompt || "")}">${escapeHtml(scene.name || scene.id)} ${tag}</option>`;
           }).join("")}
         </select>
       </label>
       <label class="adm-field adm-mt">
-        <span>提示词（留空则用场景默认提示词，发什么写什么）</span>
-        <textarea id="sceneBindPrompt" rows="6" placeholder="支持长 prompt，原样发到 Seedance 2.0"></textarea>
+        <span>Prompt</span>
+        <textarea id="sceneBindPrompt" rows="6" placeholder="Enter a prompt, then save it or generate the scene video."></textarea>
       </label>
       <p class="adm-muted adm-mt" id="sceneBindHint"></p>
     `;
-    const select = tpl.querySelector('#sceneBindScene');
-    const promptEl = tpl.querySelector('#sceneBindPrompt');
-    const hintEl = tpl.querySelector('#sceneBindHint');
+    const select = tpl.querySelector("#sceneBindScene");
+    const promptEl = tpl.querySelector("#sceneBindPrompt");
+    const hintEl = tpl.querySelector("#sceneBindHint");
     function syncHint() {
-      const opt = select.options[select.selectedIndex];
-      const sceneId = opt?.value;
+      const sceneId = select.value;
       const entry = sceneVideos[sceneId] || {};
-      const def = opt?.dataset.prompt || "";
+      const savedPrompt = String(entry.userPrompt || entry.savedPrompt || "").trim();
+      const fallback = String(entry.prompt || select.options[select.selectedIndex]?.dataset.defaultPrompt || "").trim();
+      promptEl.value = savedPrompt || "";
+      promptEl.placeholder = fallback || "Save this prompt to prefill the user creation dialog.";
       const lines = [];
-      if (entry.taskId) lines.push(`已有任务 ${entry.taskId}（${statusText(entry.status)}）。再次提交会覆盖记录。`);
-      if (def) lines.push(`场景默认提示词：${def.length > 80 ? def.slice(0, 80) + "…" : def}`);
-      hintEl.textContent = lines.join("  ");
-      if (!promptEl.value) promptEl.placeholder = def || "支持长 prompt，原样发到 Seedance 2.0";
+      if (entry.taskId) lines.push(`Existing scene video task ${entry.taskId} (${statusText(entry.status)}); submitting again will overwrite the record.`);
+      if (savedPrompt) lines.push("Saved prompt will prefill the user creation dialog.");
+      else if (fallback) lines.push(`Fallback prompt: ${fallback.length > 80 ? fallback.slice(0, 80) + "..." : fallback}`);
+      hintEl.textContent = lines.join(" ");
     }
-    select.addEventListener('change', syncHint);
+    select.addEventListener("change", syncHint);
     setTimeout(syncHint, 0);
     openDialog({
-      title: `生成场景视频 · ${item.name || item.id}`,
+      title: `Scene video - ${item.name || item.id}`,
       body: tpl,
-      confirmText: "提交并跳转视频页",
-      cancelText: "取消",
+      confirmText: "Generate",
+      cancelText: "Save prompt only",
       onConfirm: async () => {
         const sceneId = select.value;
         const prompt = promptEl.value.trim();
         try {
           await api("/api/admin/character-scene-video", {
-      method: "POST",
+            method: "POST",
             body: { itemId, sceneId, prompt },
           });
-          toast(`已提交「${sceneId}」任务，跳转到视频管理。`, "success");
+          toast(`Scene video task submitted for ${sceneId}.`, "success");
           state.config = null;
           sessionStorage.setItem("admTabVideos", "scene");
           window.location.hash = "#/videos";
@@ -783,6 +817,21 @@ function openSceneBindDialog(itemId, scenes) {
           throw err;
         }
       },
+    }).then(async (value) => {
+      if (value !== "cancel") return;
+      const sceneId = select.value;
+      const prompt = promptEl.value.trim();
+      try {
+        await api("/api/admin/character-scene-video", {
+          method: "POST",
+          body: { itemId, sceneId, prompt, saveOnly: true },
+        });
+        toast("Scene video prompt saved.", "success");
+        state.config = null;
+        renderCharacters();
+      } catch (err) {
+        toast(err.message, "error");
+      }
     });
   });
 }

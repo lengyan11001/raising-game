@@ -186,6 +186,20 @@ svg {
   height: 16px;
 }
 
+@media (max-width: 380px) {
+  .wallet {
+    gap: 4px;
+    padding-inline: 6px;
+  }
+
+  .wallet .icon-action {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+  }
+}
+
 .game-screen {
   width: min(100%, 480px);
   min-height: 0;
@@ -1643,6 +1657,14 @@ input[type="text"]:focus {
   background: rgba(255, 244, 247, 0.08);
 }
 
+.compact-btn {
+  min-height: 36px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+}
+
 .dialog-icon {
   display: grid;
   width: 54px;
@@ -1691,6 +1713,132 @@ input[type="text"]:focus {
   border-radius: 18px;
   background: #050306;
   object-fit: contain;
+}
+
+.history-dialog {
+  width: min(520px, calc(100vw - 24px));
+}
+
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.history-toolbar p {
+  margin: 0;
+  color: rgba(255, 245, 232, 0.66);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+  max-height: min(62dvh, 520px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.history-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(255, 244, 247, 0.14);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(255, 244, 247, 0.075), rgba(255, 244, 247, 0.025)),
+    rgba(8, 6, 10, 0.48);
+}
+
+.history-item-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+}
+
+.history-item-head div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.history-item-head strong {
+  overflow: hidden;
+  font-size: 0.92rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item-head em {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-status {
+  padding: 5px 9px;
+  border: 1px solid rgba(255, 244, 247, 0.16);
+  border-radius: 999px;
+  color: var(--amber);
+  background: rgba(216, 168, 92, 0.1);
+  font-size: 0.68rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.history-status.is-ready {
+  color: #9df5dc;
+  background: rgba(46, 212, 207, 0.13);
+}
+
+.history-status.is-failed,
+.history-status.is-canceled {
+  color: #ff9bb4;
+  background: rgba(240, 68, 117, 0.13);
+}
+
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.history-actions button[disabled] {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.history-params {
+  max-height: 220px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid rgba(255, 244, 247, 0.12);
+  border-radius: 12px;
+  color: rgba(255, 245, 232, 0.74);
+  background: rgba(0, 0, 0, 0.26);
+  font: 11px/1.55 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.history-empty {
+  display: grid;
+  min-height: 108px;
+  place-items: center;
+  padding: 18px;
+  border: 1px dashed rgba(255, 244, 247, 0.16);
+  border-radius: 18px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
 @media (max-height: 720px) {

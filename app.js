@@ -278,6 +278,7 @@ const els = {
   creditCount: document.querySelector("#creditCount"),
   topUpBtn: document.querySelector("#topUpBtn"),
   soundToggleBtn: document.querySelector("#soundToggleBtn"),
+  generationHistoryBtn: document.querySelector("#generationHistoryBtn"),
   userBtn: document.querySelector("#userBtn"),
   sceneName: document.querySelector("#sceneName"),
   gameStage: document.querySelector("#gameStage"),
@@ -334,6 +335,9 @@ const els = {
   intimacyPillValue: document.querySelector("#intimacyPillValue"),
   videoDialog: document.querySelector("#videoDialog"),
   resultVideo: document.querySelector("#resultVideo"),
+  generationHistoryDialog: document.querySelector("#generationHistoryDialog"),
+  generationHistoryList: document.querySelector("#generationHistoryList"),
+  generationHistoryRefreshBtn: document.querySelector("#generationHistoryRefreshBtn"),
   avatarModel: document.querySelector("#avatarModel"),
   characterSprite: document.querySelector("#characterSprite"),
   referenceOverlay: document.querySelector("#referenceOverlay"),
@@ -396,7 +400,7 @@ function closeDialog(dialog) {
 }
 
 function closeGameDialogs() {
-  [els.profileDialog, els.wishDialog, els.photoDialog, els.dateDialog, els.videoDialog, els.customCharacterDialog, els.scenePickerDialog].forEach(closeDialog);
+  [els.profileDialog, els.wishDialog, els.photoDialog, els.dateDialog, els.videoDialog, els.customCharacterDialog, els.scenePickerDialog, els.generationHistoryDialog].forEach(closeDialog);
 }
 
 const INTIMACY_STORAGE_KEY = "raisingGameIntimacy";
@@ -951,6 +955,191 @@ function showVideoResult(videoUrl) {
   refreshIcons();
 }
 
+function generationRecordVideoUrl(record) {
+  return String(record?.localVideoUrl || record?.videoUrl || record?.remoteVideoUrl || "").trim();
+}
+
+function generationRecordKindLabel(record) {
+  return record?.kind === "main-video" ? "Main video" : "Scene video";
+}
+
+function generationRecordTitle(record) {
+  const character = String(record?.companionName || "Character").trim();
+  const sceneEntry = String(record?.sceneEntryName || "").trim();
+  const scene = String(record?.sceneName || "").trim();
+  if (record?.kind === "main-video") return `${character} main video`;
+  return [character, sceneEntry || scene || "Scene video"].filter(Boolean).join(" / ");
+}
+
+function generationRecordStatusLabel(status) {
+  const value = String(status || "submitted").toLowerCase();
+  if (["succeeded", "success", "done", "completed"].includes(value)) return "Ready";
+  if (["failed", "error"].includes(value)) return "Failed";
+  if (["cancelled", "canceled"].includes(value)) return "Canceled";
+  if (["running", "processing", "in_progress"].includes(value)) return "Generating";
+  if (["queued", "pending", "submitted", "created"].includes(value)) return "Queued";
+  return status || "Submitted";
+}
+
+function formatRecordDate(value) {
+  const time = value ? new Date(value) : null;
+  if (!time || Number.isNaN(time.getTime())) return "";
+  return time.toLocaleString([], {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function generationRecordParams(record) {
+  const lines = [
+    ["Task ID", record.taskId],
+    ["Status", record.status],
+    ["Type", generationRecordKindLabel(record)],
+    ["Character", record.companionName],
+    ["Scene", record.sceneName],
+    ["Entry", record.sceneEntryName],
+    ["Partner", record.partnerCharacterName],
+    ["Model", record.model],
+    ["Provider", record.provider],
+    ["Ratio", record.ratio],
+    ["Resolution", record.resolution],
+    ["Duration", record.duration],
+    ["Quality", record.quality],
+    ["Prompt", record.prompt],
+    ["Final prompt", record.finalPrompt],
+    ["Video", generationRecordVideoUrl(record)],
+    ["Error", record.error],
+  ];
+  return lines
+    .filter(([, value]) => value !== undefined && value !== null && String(value).trim())
+    .map(([key, value]) => `${key}: ${String(value).trim()}`)
+    .join("\n");
+}
+
+function renderGenerationHistory(records = [], { loading = false } = {}) {
+  if (!els.generationHistoryList) return;
+  if (loading) {
+    els.generationHistoryList.innerHTML = '<div class="history-empty">Loading records...</div>';
+    return;
+  }
+  if (!records.length) {
+    els.generationHistoryList.innerHTML = '<div class="history-empty">No records yet. Your generated main videos and scene videos will appear here.</div>';
+    return;
+  }
+
+  els.generationHistoryList.innerHTML = records.map((record, index) => {
+    const videoUrl = generationRecordVideoUrl(record);
+    const params = generationRecordParams(record);
+    const status = generationRecordStatusLabel(record.status);
+    const statusClass = status.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const meta = [
+      generationRecordKindLabel(record),
+      record.sceneName,
+      record.sceneEntryName,
+      formatRecordDate(record.updatedAt || record.createdAt),
+    ].filter(Boolean).join(" / ");
+    return `
+      <article class="history-item" data-history-index="${index}">
+        <header class="history-item-head">
+          <div>
+            <strong>${escapeHtmlSafe(generationRecordTitle(record))}</strong>
+            <em>${escapeHtmlSafe(meta)}</em>
+          </div>
+          <span class="history-status is-${escapeHtmlSafe(statusClass)}">${escapeHtmlSafe(status)}</span>
+        </header>
+        <div class="history-actions">
+          <button class="primary-btn compact-btn" type="button" data-history-action="play" ${videoUrl ? "" : "disabled"}>
+            <i data-lucide="play"></i>
+            ${videoUrl ? "Play" : "Not ready"}
+          </button>
+          <button class="secondary-btn compact-btn" type="button" data-history-action="params">
+            <i data-lucide="sliders-horizontal"></i>
+            Params
+          </button>
+        </div>
+        <pre class="history-params" hidden>${escapeHtmlSafe(params || "No parameters recorded.")}</pre>
+      </article>
+    `;
+  }).join("");
+
+  els.generationHistoryList.querySelectorAll("[data-history-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = button.closest(".history-item");
+      const record = records[Number(item?.dataset.historyIndex || -1)];
+      if (!record) return;
+      if (button.dataset.historyAction === "play") {
+        playGenerationHistoryRecord(record, button);
+        return;
+      }
+      const params = item.querySelector(".history-params");
+      if (params) params.hidden = !params.hidden;
+    });
+  });
+  refreshIcons();
+}
+
+async function playGenerationHistoryRecord(record, button) {
+  const existingUrl = generationRecordVideoUrl(record);
+  const taskId = String(record?.taskId || "").trim();
+  if (!taskId) {
+    if (existingUrl) showVideoResult(existingUrl);
+    return;
+  }
+  const previousHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-circle"></i>Checking';
+    refreshIcons();
+  }
+  try {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
+    const nextRecord = payload.record || {};
+    const videoUrl = generationRecordVideoUrl(nextRecord);
+    if (videoUrl) {
+      showVideoResult(videoUrl);
+    } else if (existingUrl) {
+      showVideoResult(existingUrl);
+    } else {
+      updateJob("Video not ready", "Refresh the record later. The generation task is still in progress.", 0);
+    }
+    loadGenerationHistory();
+  } catch (error) {
+    updateJob("Record check failed", error.message || String(error), 0);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = previousHtml;
+      refreshIcons();
+    }
+  }
+}
+
+async function loadGenerationHistory() {
+  renderGenerationHistory([], { loading: true });
+  try {
+    const payload = await requestJson("/api/generation-records?limit=80");
+    renderGenerationHistory(Array.isArray(payload.records) ? payload.records : []);
+  } catch (error) {
+    if (error.status === 401 || error.code === "LOGIN_REQUIRED") {
+      closeDialog(els.generationHistoryDialog);
+      openLoginDialog();
+      return;
+    }
+    els.generationHistoryList.innerHTML = `<div class="history-empty">Failed to load records: ${escapeHtmlSafe(error.message || String(error))}</div>`;
+  }
+}
+
+function openGenerationHistoryDialog() {
+  if (!state.user) {
+    openLoginDialog();
+    return;
+  }
+  if (els.generationHistoryDialog) openDialog(els.generationHistoryDialog);
+  loadGenerationHistory();
+}
+
 function getHomeReferenceAssetUri() {
   // Only use the active item's own reference asset. Falling back to
   // `state.homeVideo.referenceAssetUri` would let a non-active character
@@ -1026,6 +1215,14 @@ function getSceneVideoForActive(sceneId) {
   const url = String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
   if (!url) return null;
   return { item, entry: { ...entry, videoUrl: url } };
+}
+
+function getSavedScenePromptForActive(sceneId) {
+  const item = getActiveHomeVideoItem();
+  if (!item || !sceneId) return "";
+  const sceneVideos = item.sceneVideos || {};
+  const entry = sceneVideos[sceneId] || Object.values(sceneVideos).find((candidate) => candidate?.sceneId === sceneId);
+  return String(entry?.userPrompt || entry?.savedPrompt || "").trim();
 }
 
 function getHomeSceneEntriesForActive() {
@@ -1608,7 +1805,8 @@ function openDateDialog(scene, entry = null) {
   els.dateDialogTitle.textContent = sceneEntry.name || scene.name;
   els.dateDialogDesc.textContent = scene.shortName || scene.name;
   els.scenePreview.dataset.scene = scene.id;
-  els.scenePrompt.value = "";
+  const savedPrompt = getSavedScenePromptForActive(scene.id);
+  els.scenePrompt.value = savedPrompt;
   if (els.sceneAssetRow) els.sceneAssetRow.hidden = false;
   state.selectedScenePartnerId = "";
 
@@ -1616,9 +1814,9 @@ function openDateDialog(scene, entry = null) {
     const def = String(scene.prompt || "").trim();
     if (def) {
       const teaser = def.length > 160 ? def.slice(0, 160) + "…" : def;
-      els.scenePromptHint.textContent = "Leave empty for default.";
+      els.scenePromptHint.textContent = savedPrompt ? "Default prompt loaded from this character and scene." : "Leave empty for default.";
     } else {
-      els.scenePromptHint.textContent = "Leave empty for default.";
+      els.scenePromptHint.textContent = savedPrompt ? "Default prompt loaded from this character and scene." : "Leave empty for default.";
     }
   }
 
@@ -2888,6 +3086,8 @@ function bindEvents() {
   els.soundToggleBtn?.addEventListener("click", () => {
     setSoundEnabled(!state.soundEnabled);
   });
+  els.generationHistoryBtn?.addEventListener("click", openGenerationHistoryDialog);
+  els.generationHistoryRefreshBtn?.addEventListener("click", loadGenerationHistory);
   els.welcomeStartBtn?.addEventListener("click", () => {
     closeDialog(els.welcomeDialog);
     playHomeHeroWithSound();

@@ -963,7 +963,8 @@ function findSceneConfig(config, sceneId) {
 function publicSceneVideo(entry = {}) {
   if (!entry || typeof entry !== "object") return null;
   const videoUrl = entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "";
-  if (!videoUrl && !entry.taskId) return null;
+  const savedPrompt = String(entry.userPrompt || "").trim();
+  if (!videoUrl && !entry.taskId && !savedPrompt) return null;
   return {
     sceneId: entry.sceneId || "",
     sceneName: entry.sceneName || "",
@@ -977,6 +978,8 @@ function publicSceneVideo(entry = {}) {
     partnerCharacterId: entry.partnerCharacterId || "",
     partnerCharacterName: entry.partnerCharacterName || "",
     partnerReferenceAssetUri: entry.partnerReferenceAssetUri || "",
+    savedPrompt,
+    userPrompt: savedPrompt,
     model: entry.model || "",
     ratio: entry.ratio || "",
     resolution: entry.resolution || "",
@@ -1703,6 +1706,85 @@ async function upsertGenerationRecord(nextRecord) {
 async function getGenerationRecord(taskId) {
   const records = await readGenerationRecords();
   return records.find((record) => record.taskId === taskId) || null;
+}
+
+const USER_VISIBLE_GENERATION_SOURCES = new Set([
+  "user-character",
+  "user-character-scene",
+  "user-scene-video",
+]);
+
+function isUserVisibleGenerationRecord(record) {
+  if (!record || record.deletedAt) return false;
+  const source = String(record.source || "").trim();
+  return USER_VISIBLE_GENERATION_SOURCES.has(source);
+}
+
+function generationRecordKind(record = {}) {
+  const source = String(record.source || "").trim();
+  if (source === "user-character" || source.includes("home")) return "main-video";
+  return "scene-video";
+}
+
+function generationRecordVideoUrl(record = {}) {
+  return String(record.localVideoUrl || record.videoUrl || record.remoteVideoUrl || "");
+}
+
+function publicGenerationRecord(record = {}) {
+  return {
+    taskId: String(record.taskId || ""),
+    status: String(record.status || "submitted"),
+    source: String(record.source || ""),
+    kind: generationRecordKind(record),
+    sceneId: String(record.sceneId || ""),
+    sceneName: String(record.sceneName || ""),
+    sceneEntryId: String(record.sceneEntryId || ""),
+    sceneEntryName: String(record.sceneEntryName || ""),
+    companionId: String(record.companionId || ""),
+    companionName: String(record.companionName || ""),
+    partnerCharacterId: String(record.partnerCharacterId || ""),
+    partnerCharacterName: String(record.partnerCharacterName || ""),
+    prompt: String(record.prompt || ""),
+    finalPrompt: String(record.finalPrompt || ""),
+    model: String(record.model || ""),
+    provider: String(record.provider || "seedance"),
+    ratio: String(record.ratio || ""),
+    resolution: String(record.resolution || ""),
+    duration: record.duration || "",
+    quality: String(record.quality || ""),
+    videoUrl: generationRecordVideoUrl(record),
+    localVideoUrl: String(record.localVideoUrl || ""),
+    remoteVideoUrl: String(record.remoteVideoUrl || ""),
+    error: String(record.error || ""),
+    createdAt: String(record.createdAt || ""),
+    updatedAt: String(record.updatedAt || ""),
+  };
+}
+
+function shouldRefreshGenerationRecord(record = {}) {
+  const status = String(record.status || "").toLowerCase();
+  if (isFailedStatus(status)) return false;
+  if (isSucceededStatus(status)) return !generationRecordVideoUrl(record) && Boolean(record.taskId);
+  return Boolean(record.taskId) && !String(record.taskId).startsWith("demo-");
+}
+
+async function refreshGenerationRecordStatus(record = {}) {
+  if (!ARK_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+  try {
+    const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(record.taskId)}`);
+    const task = normalizeTask(raw);
+    return await upsertGenerationRecord({
+      taskId: record.taskId,
+      status: task.status || record.status || "unknown",
+      remoteVideoUrl: task.videoUrl || record.remoteVideoUrl || "",
+      localVideoUrl: record.localVideoUrl || "",
+      localVideoPath: record.localVideoPath || "",
+      error: task.error || record.error || "",
+    });
+  } catch (error) {
+    console.warn("[generation-record-refresh-failed]", record.taskId, error.message || error);
+    return record;
+  }
 }
 
 function isSucceededStatus(status) {
@@ -3217,7 +3299,28 @@ async function handleAdminCreateHomeVideo(req, res) {
   const sceneId = String(body.sceneId || "room").trim() || "room";
   const sceneConfig = findSceneConfig(config, sceneId);
   const provider = String(body.provider || config.homeVideo.provider || "seedance");
-  const userPrompt = String(body.prompt || activeItem?.prompt || "").trim();
+  const submittedPrompt = String(body.prompt || "").trim();
+  const userPrompt = body.saveOnly === true ? submittedPrompt : String(body.prompt || activeItem?.prompt || "").trim();
+  if (body.saveOnly === true) {
+    const nowIso = new Date().toISOString();
+    const sceneVideos = { ...(activeItem.homeSceneVideos || {}) };
+    const previous = sceneVideos[sceneConfig.id] || {};
+    sceneVideos[sceneConfig.id] = {
+      ...previous,
+      sceneId: sceneConfig.id,
+      sceneName: sceneConfig.name,
+      posterUrl: previous.posterUrl || activeItem.posterUrl || activeItem.localImageUrl || "",
+      prompt: userPrompt,
+      userPrompt,
+      updatedAt: nowIso,
+      createdAt: previous.createdAt || nowIso,
+      source: previous.source || "admin-home-scene",
+    };
+    const nextItem = { ...activeItem, provider, homeSceneVideos: sceneVideos, updatedAt: nowIso };
+    config.homeVideo = replaceHomeVideoItem(config.homeVideo, nextItem);
+    await writeAppConfig(config);
+    return sendJson(res, 200, { ok: true, saved: true, homeVideo: config.homeVideo, item: nextItem, homeSceneVideo: sceneVideos[sceneConfig.id] });
+  }
   const prompt = makeHomeVideoPrompt(activeItem, userPrompt, { scene: sceneConfig });
 
   if (provider === "ifilm-cli") {
@@ -3345,6 +3448,25 @@ async function handleAdminCreateCharacterSceneVideo(req, res) {
   }
 
   const userPrompt = String(body.prompt || "").trim();
+  if (body.saveOnly === true) {
+    const nowIso = new Date().toISOString();
+    const sceneVideos = { ...(item.sceneVideos || {}) };
+    const previous = sceneVideos[sceneConfig.id] || {};
+    sceneVideos[sceneConfig.id] = {
+      ...previous,
+      sceneId: sceneConfig.id,
+      sceneName: sceneConfig.name,
+      posterUrl: previous.posterUrl || item.posterUrl || item.localImageUrl || "",
+      prompt: userPrompt,
+      userPrompt,
+      updatedAt: nowIso,
+      createdAt: previous.createdAt || nowIso,
+    };
+    const nextItem = { ...item, sceneVideos, updatedAt: nowIso };
+    config.homeVideo = replaceHomeVideoItem(config.homeVideo, nextItem);
+    await writeAppConfig(config);
+    return sendJson(res, 200, { ok: true, saved: true, item: nextItem, sceneVideo: sceneVideos[sceneConfig.id] });
+  }
   const prompt = makeSceneVideoPrompt(sceneConfig, userPrompt);
   const { task, payload } = await submitSeedanceVideoTask({
     config,
@@ -4090,6 +4212,73 @@ async function handleAdminListGenerationRecords(req, res, url) {
   return sendJson(res, 200, { ok: true, records: records.slice(0, limit), total: records.length });
 }
 
+async function handleListGenerationRecords(req, res, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 60)));
+  const records = await readGenerationRecords();
+  const ownRecords = records
+    .filter((record) => record.userId === auth.user.id && isUserVisibleGenerationRecord(record))
+    .slice(0, limit);
+
+  const refreshable = ownRecords.filter(shouldRefreshGenerationRecord).slice(0, 8);
+  if (refreshable.length) {
+    const refreshedByTask = new Map(
+      (await Promise.all(refreshable.map(refreshGenerationRecordStatus))).map((record) => [record.taskId, record]),
+    );
+    ownRecords.forEach((record, index) => {
+      if (refreshedByTask.has(record.taskId)) ownRecords[index] = refreshedByTask.get(record.taskId);
+    });
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    records: ownRecords.map(publicGenerationRecord),
+    total: ownRecords.length,
+  });
+}
+
+async function handleGetGenerationRecord(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const records = await readGenerationRecords();
+  const record = records.find((entry) => entry.taskId === taskId && entry.userId === auth.user.id && isUserVisibleGenerationRecord(entry));
+  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+
+  let nextRecord = record;
+  if (ARK_API_KEY && !String(taskId).startsWith("demo-") && !isFailedStatus(record.status)) {
+    try {
+      const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
+      const task = normalizeTask(raw);
+      let localVideoUrl = record.localVideoUrl || "";
+      let localVideoPath = record.localVideoPath || "";
+      let downloadError = "";
+      const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
+      if (isSucceededStatus(task.status) && remoteVideoUrl) {
+        try {
+          const localVideo = await downloadGeneratedVideo(taskId, remoteVideoUrl);
+          localVideoUrl = localVideo.localVideoUrl;
+          localVideoPath = localVideo.localVideoPath;
+        } catch (error) {
+          downloadError = error.message || "Failed to download generated video.";
+        }
+      }
+      nextRecord = await upsertGenerationRecord({
+        taskId,
+        status: task.status || record.status || "unknown",
+        remoteVideoUrl,
+        localVideoUrl,
+        localVideoPath,
+        error: task.error || downloadError || "",
+      });
+    } catch (error) {
+      console.warn("[generation-record-detail-refresh-failed]", taskId, error.message || error);
+    }
+  }
+
+  return sendJson(res, 200, { ok: true, record: publicGenerationRecord(nextRecord) });
+}
+
 async function handleCreateCharacterImageLegacy(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -4827,8 +5016,12 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/generation-records") {
-      const records = await readGenerationRecords();
-      return sendJson(res, 200, { ok: true, records });
+      return await handleListGenerationRecords(req, res, url);
+    }
+
+    const generationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)$/);
+    if (req.method === "GET" && generationRecordMatch) {
+      return await handleGetGenerationRecord(req, res, decodeURIComponent(generationRecordMatch[1]));
     }
 
     if (req.method === "POST" && url.pathname === "/api/scene-video") {
