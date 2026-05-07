@@ -273,6 +273,7 @@ const state = {
   dragStartFrame: 0,
   dragging: false,
   paymentRunning: false,
+  eventsBound: false,
   stats: { ...companions[0].stats },
 };
 
@@ -2799,6 +2800,7 @@ async function startDateVideoJob(scene) {
     `Preparing character reference and connecting to Seedance 2.0 for "${scene.name}" on ${activeItem?.name || "this character"}…`,
     10
   ); */
+  closeDialog(els.dateDialog);
   updateJob("Submitting video task", submitDetail, 10);
 
   try {
@@ -3090,6 +3092,8 @@ function handleDragEnd(event) {
 }
 
 function bindEvents() {
+  if (state.eventsBound) return;
+  state.eventsBound = true;
   bindVrEvents();
   document.addEventListener("click", unlockSoundAfterGesture, { capture: true });
   document.addEventListener("keydown", unlockSoundAfterGesture, { capture: true });
@@ -3330,6 +3334,7 @@ async function init() {
   try {
     state.intimacy = loadIntimacyMap();
     renderSoundToggle();
+    bindEvents();
     await loadPublicConfig();
     await loadCharacterAssets();
     await loadSession();
@@ -3343,7 +3348,6 @@ async function init() {
     selectScene(state.currentScene, { silent: true });
     renderHomeHero();
     updateRotation(0);
-    bindEvents();
     syncAllVideoAudio();
     refreshIcons();
     await waitForHomeHeroReady();
