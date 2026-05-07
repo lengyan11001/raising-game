@@ -266,6 +266,7 @@ const state = {
   characterRequestId: 0,
   sceneTimer: null,
   sceneRequestId: 0,
+  sceneSubmitting: false,
   outfitIndex: 0,
   rotationFrame: 0,
   dragStartX: 0,
@@ -2775,6 +2776,9 @@ async function startCompanionJob(type) {
 }
 
 async function startDateVideoJob(scene) {
+  if (state.sceneSubmitting) return;
+  state.sceneSubmitting = true;
+  if (els.sceneGenerateBtn) els.sceneGenerateBtn.disabled = true;
   window.clearInterval(state.sceneTimer);
   const prompt = els.scenePrompt.value.trim();
   const requestId = Date.now();
@@ -2783,16 +2787,6 @@ async function startDateVideoJob(scene) {
   const sceneEntry = state.pendingSceneEntry || getSceneEntries(scene)[0] || { id: "default", name: scene.shortName || scene.name };
 
   selectScene(scene, { silent: true });
-
-  const refState = activeItem?.referenceState || "";
-  if (refState && refState !== "ready" && refState !== "asset_pending") {
-    updateJob(
-      "Character not ready",
-      `Reference image for "${activeItem?.name || "this character"}" is still being prepared upstream. Please try again in a moment.`,
-      0
-    );
-    return;
-  }
 
   const homeReferenceAssetUri = activeItem?.referenceAssetUri || getHomeReferenceAssetUri();
   const selectedPartnerId = state.selectedScenePartnerId || els.sceneAssetSelect.value || "";
@@ -2847,6 +2841,10 @@ async function startDateVideoJob(scene) {
       message = "Character reference is still being prepared. Please try again shortly.";
     }
     updateJob("Submit failed", message, 0);
+  } finally {
+    state.sceneSubmitting = false;
+    if (els.sceneGenerateBtn) els.sceneGenerateBtn.disabled = false;
+    refreshIcons();
   }
 }
 
@@ -3163,13 +3161,17 @@ function bindEvents() {
 
   els.sceneGenerateBtn.addEventListener("click", () => {
     const scene = state.pendingScene;
-    const sceneEntry = state.pendingSceneEntry || getSceneEntries(scene)[0] || { id: "default", name: scene.shortName || scene.name };
     state.selectedScenePartnerId = els.sceneAssetSelect.value;
-    openPayment({
-      label: `Generate "${sceneEntry.name || scene.name}" date video`,
-      cost: Number(scene.price || priceOf("dateVideo", DATE_VIDEO_COST)),
-      run: () => startDateVideoJob(scene),
-    });
+    if (!state.user) {
+      state.pendingPayment = { label: "Generate date video", cost: Number(scene.price || priceOf("dateVideo", DATE_VIDEO_COST)), run: () => startDateVideoJob(scene) };
+      openLoginDialog();
+      return;
+    }
+    if (state.credits < Number(scene.price || priceOf("dateVideo", DATE_VIDEO_COST))) {
+      openRechargeDialog();
+      return;
+    }
+    startDateVideoJob(scene);
   });
 
   // `openDialog()` always calls `closeGameDialogs()` first — never clear the
