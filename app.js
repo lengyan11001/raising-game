@@ -960,6 +960,7 @@ function generationRecordVideoUrl(record) {
 }
 
 function generationRecordKindLabel(record) {
+  if (record?.kind === "unlock-video") return "Unlock video";
   return record?.kind === "main-video" ? "Main video" : "Scene video";
 }
 
@@ -1025,7 +1026,7 @@ function renderGenerationHistory(records = [], { loading = false } = {}) {
     return;
   }
   if (!records.length) {
-    els.generationHistoryList.innerHTML = '<div class="history-empty">No records yet. Your generated main videos and scene videos will appear here.</div>';
+    els.generationHistoryList.innerHTML = '<div class="history-empty">No video generation tasks yet. Saving a custom character draft is not a video task; tap Main video or Generate video after saving to create one.</div>';
     return;
   }
 
@@ -1050,9 +1051,9 @@ function renderGenerationHistory(records = [], { loading = false } = {}) {
           <span class="history-status is-${escapeHtmlSafe(statusClass)}">${escapeHtmlSafe(status)}</span>
         </header>
         <div class="history-actions">
-          <button class="primary-btn compact-btn" type="button" data-history-action="play" ${videoUrl ? "" : "disabled"}>
-            <i data-lucide="play"></i>
-            ${videoUrl ? "Play" : "Not ready"}
+          <button class="primary-btn compact-btn" type="button" data-history-action="play">
+            <i data-lucide="${videoUrl ? "play" : "refresh-cw"}"></i>
+            ${videoUrl ? "Play" : "Check"}
           </button>
           <button class="secondary-btn compact-btn" type="button" data-history-action="params">
             <i data-lucide="sliders-horizontal"></i>

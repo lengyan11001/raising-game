@@ -1708,21 +1708,14 @@ async function getGenerationRecord(taskId) {
   return records.find((record) => record.taskId === taskId) || null;
 }
 
-const USER_VISIBLE_GENERATION_SOURCES = new Set([
-  "user-character",
-  "user-character-scene",
-  "user-scene-video",
-]);
-
 function isUserVisibleGenerationRecord(record) {
-  if (!record || record.deletedAt) return false;
-  const source = String(record.source || "").trim();
-  return USER_VISIBLE_GENERATION_SOURCES.has(source);
+  return Boolean(record && record.taskId && !record.deletedAt);
 }
 
 function generationRecordKind(record = {}) {
   const source = String(record.source || "").trim();
   if (source === "user-character" || source.includes("home")) return "main-video";
+  if (source.includes("unlock")) return "unlock-video";
   return "scene-video";
 }
 
