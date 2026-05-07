@@ -139,7 +139,7 @@ function decorateFullBodyLegPrompt(corePrompt, extraDirection = "") {
   return [
     core,
     FULL_BODY_LEG_DIRECTIVE,
-    extra ? `Extra user direction: ${extra}` : "",
+    extra ? `Reference direction: ${extra}` : "",
     `Negative constraints: ${FULL_BODY_LEG_NEGATIVES}`,
   ].filter(Boolean).join(" ");
 }
@@ -1126,7 +1126,7 @@ async function uploadBufferToTos({ userId, assetId, bytes, mime }) {
 }
 
 function makeHomeSyntheticReferencePrompt(item = {}) {
-  const extra = String(item.referencePrompt || item.prompt || "").trim();
+  const extra = String(item.referencePrompt || "").trim();
   return [
     "Use Figure 1 as the strict visual reference for a synthetic original adult female character.",
     "Keep the same face impression, adult age impression, hairstyle, body proportions, outfit silhouette, fabric colors, fabric textures, shoes, and visible accessories from the uploaded image.",
@@ -1178,9 +1178,10 @@ function getHomeSceneDirection(scene = {}) {
 }
 
 function makeHomeVideoPrompt(item = {}, overridePrompt = "", { decorate = false, scene = null } = {}) {
-  const userPrompt = String(overridePrompt || item.prompt || "").trim();
+  const rawPrompt = overridePrompt !== undefined && overridePrompt !== null ? String(overridePrompt) : String(item.prompt || "");
+  if (rawPrompt.trim()) return rawPrompt;
   const sceneDirection = scene ? getHomeSceneDirection(scene) : null;
-  const core = userPrompt || [
+  const core = [
     "Create a 15-second vertical cinematic image-to-video FULL-BODY short drama shot featuring the same original adult woman from the reference image.",
     "Identity lock: preserve her face impression, adult age impression, hairstyle, outfit colors, outfit silhouette, body proportions, shoes, and visible accessories from the reference image.",
     "Mood: seductive, elegant, intimate, confident, premium mobile romance drama, strictly non-explicit.",
@@ -1196,14 +1197,14 @@ function makeHomeVideoPrompt(item = {}, overridePrompt = "", { decorate = false,
 }
 
 function makeSceneVideoPrompt(scene = {}, overridePrompt = "") {
-  const userPrompt = String(overridePrompt || "").trim();
-  const audioDirection = "Audio: include soft alluring female voice, teasing intimate one-liners, breathy seductive delivery, tasteful flirtation, cinematic ambience, no explicit sexual language.";
-  if (userPrompt) return `${userPrompt} ${audioDirection}`.trim();
-  return `${String(scene.prompt || "").trim() || `15-second vertical cinematic short drama in scene ${scene.name || scene.id || "scene"}.`} ${audioDirection}`.trim();
+  const userPrompt = String(overridePrompt || "");
+  if (userPrompt.trim()) return userPrompt;
+  return String(scene.prompt || "").trim() || `15-second vertical cinematic short drama in scene ${scene.name || scene.id || "scene"}.`;
 }
 
 function makeInteractiveSceneVideoPrompt(scene = {}, primaryName = "", partnerName = "", overridePrompt = "") {
-  const userPrompt = String(overridePrompt || "").trim();
+  const userPrompt = String(overridePrompt || "");
+  if (userPrompt.trim()) return userPrompt;
   const base = makeSceneVideoPrompt(scene, "");
   const who = primaryName || "the main woman";
   const withWho = partnerName || "the selected partner";
@@ -1847,7 +1848,7 @@ function clampNumber(value, fallback, min, max) {
 }
 
 function makeScenePrompt(body) {
-  return String(body.prompt || "").trim();
+  return typeof body.prompt === "string" ? body.prompt : "";
 }
 
 function normalizeTask(raw) {
@@ -2522,8 +2523,9 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
   prepared.status = task.status;
   prepared.videoUrl = task.videoUrl || "";
   prepared.remoteVideoUrl = task.videoUrl || "";
-  prepared.prompt = prompt;
+  prepared.prompt = userPrompt || prompt;
   prepared.userPrompt = userPrompt;
+  prepared.finalPrompt = prompt;
   prepared.updatedAt = new Date().toISOString();
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === prepared.id ? { ...entry, ...prepared } : entry));
   await writeDb(auth.db);
@@ -2538,7 +2540,7 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     companionName: prepared.name,
     userId: auth.user.id,
     referenceAssetUri: prepared.referenceAssetUri,
-    prompt: userPrompt,
+    prompt: prompt,
     finalPrompt: prompt,
     ratio: payload.ratio,
     resolution: payload.resolution,
@@ -2594,7 +2596,7 @@ async function handleSaveMyCharacterDraft(req, res) {
     localVideoUrl: "",
     taskId: "",
     status: "draft",
-    prompt: String(body.prompt || "").trim(),
+    prompt: typeof body.prompt === "string" ? body.prompt : "",
     sceneVideos: {},
     deletedAt: "",
     createdAt: nowIso,
@@ -2662,7 +2664,7 @@ async function handleCreateMyCharacter(req, res) {
     localVideoUrl: "",
     taskId: "",
     status: "image_uploaded",
-    prompt: String(body.prompt || "").trim(),
+    prompt: typeof body.prompt === "string" ? body.prompt : "",
     sceneVideos: {},
     deletedAt: "",
     createdAt: nowIso,
@@ -2683,7 +2685,7 @@ async function handleCreateMyCharacter(req, res) {
     throw error;
   }
 
-  const userPrompt = String(body.prompt || "").trim();
+  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
   const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body);
 
   return sendJson(res, 200, {
@@ -2765,7 +2767,7 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     throw error;
   }
 
-  const userPrompt = String(body.prompt || record.prompt || "").trim();
+  const userPrompt = typeof body.prompt === "string" ? body.prompt : String(record.prompt || "");
   const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body);
 
   return sendJson(res, 200, {
@@ -2898,7 +2900,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     });
   }
 
-  const userPrompt = String(body.prompt || "").trim();
+  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
   const prompt = makeSceneVideoPrompt(sceneConfig, userPrompt);
   let task;
   let payload;
@@ -2927,7 +2929,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     sceneEntryId: sceneEntry.id,
     sceneEntryName: sceneEntry.name,
     posterUrl: record.posterUrl || record.localImageUrl || "",
-    prompt: userPrompt || prompt,
+    prompt: prompt,
     userPrompt,
     finalPrompt: prompt,
     referenceAssetUri: record.referenceAssetUri || "",
@@ -2963,7 +2965,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     companionName: record.name,
     userId: auth.user.id,
     referenceAssetUri: record.referenceAssetUri,
-    prompt: userPrompt,
+    prompt: prompt,
     finalPrompt: prompt,
     ratio: payload.ratio,
     resolution: payload.resolution,
@@ -3127,7 +3129,7 @@ async function handleAdminUploadHomeImage(req, res) {
     localVideoUrl: "",
     taskId: "",
     status: "image_uploaded",
-    prompt: String(body.prompt || "").trim(),
+    prompt: typeof body.prompt === "string" ? body.prompt : "",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -3292,8 +3294,8 @@ async function handleAdminCreateHomeVideo(req, res) {
   const sceneId = String(body.sceneId || "room").trim() || "room";
   const sceneConfig = findSceneConfig(config, sceneId);
   const provider = String(body.provider || config.homeVideo.provider || "seedance");
-  const submittedPrompt = String(body.prompt || "").trim();
-  const userPrompt = body.saveOnly === true ? submittedPrompt : String(body.prompt || activeItem?.prompt || "").trim();
+  const submittedPrompt = typeof body.prompt === "string" ? body.prompt : "";
+  const userPrompt = body.saveOnly === true ? submittedPrompt : (submittedPrompt.trim() ? submittedPrompt : String(activeItem?.prompt || ""));
   if (body.saveOnly === true) {
     const nowIso = new Date().toISOString();
     const sceneVideos = { ...(activeItem.homeSceneVideos || {}) };
@@ -3352,7 +3354,7 @@ async function handleAdminCreateHomeVideo(req, res) {
     sceneId: sceneConfig.id,
     sceneName: sceneConfig.name,
     posterUrl: referenceItem.posterUrl || referenceItem.localImageUrl || "",
-    prompt: userPrompt || prompt,
+    prompt: prompt,
     userPrompt,
     finalPrompt: prompt,
     referenceAssetUri: nextItem.referenceAssetUri || referenceItem.referenceAssetUri || config.homeVideo.referenceAssetUri,
@@ -3391,7 +3393,7 @@ async function handleAdminCreateHomeVideo(req, res) {
     sceneId: sceneConfig.id,
     sceneName: sceneConfig.name,
     referenceAssetUri: nextItem.referenceAssetUri || referenceItem.referenceAssetUri || config.homeVideo.referenceAssetUri,
-    prompt: userPrompt,
+    prompt: prompt,
     finalPrompt: prompt,
     ratio: payload.ratio,
     resolution: payload.resolution,
@@ -3440,7 +3442,7 @@ async function handleAdminCreateCharacterSceneVideo(req, res) {
     return sendJson(res, 400, { ok: false, message: "该角色的合成参考图还没准备好，请稍候再试或先点'重建参考图'。" });
   }
 
-  const userPrompt = String(body.prompt || "").trim();
+  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
   if (body.saveOnly === true) {
     const nowIso = new Date().toISOString();
     const sceneVideos = { ...(item.sceneVideos || {}) };
@@ -3475,7 +3477,7 @@ async function handleAdminCreateCharacterSceneVideo(req, res) {
     sceneId: sceneConfig.id,
     sceneName: sceneConfig.name,
     posterUrl: refItem.posterUrl || refItem.localImageUrl || "",
-    prompt: userPrompt || prompt,
+    prompt: prompt,
     userPrompt,
     finalPrompt: prompt,
     referenceAssetUri,
@@ -3507,7 +3509,7 @@ async function handleAdminCreateCharacterSceneVideo(req, res) {
     companionName: refItem.name,
     userId: auth.user.id,
     referenceAssetUri,
-    prompt: userPrompt,
+    prompt: prompt,
     finalPrompt: prompt,
     ratio: payload.ratio,
     resolution: payload.resolution,
@@ -4032,7 +4034,7 @@ async function handleAdminUpdateHomeItem(req, res, itemId) {
   const item = items[idx];
   if (typeof body.name === "string") item.name = body.name.trim().slice(0, 32) || item.name;
   if (typeof body.title === "string") item.title = body.title.trim().slice(0, 32) || item.title;
-  if (typeof body.prompt === "string") item.prompt = body.prompt.trim();
+  if (typeof body.prompt === "string") item.prompt = body.prompt;
   item.updatedAt = new Date().toISOString();
   items[idx] = item;
   config.homeVideo.items = items;
@@ -4281,7 +4283,7 @@ async function handleCreateCharacterImageLegacy(req, res) {
   const userAsset = body.userAssetId
     ? auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id)
     : null;
-  const prompt = String(body.prompt || "").trim() || [
+  const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : [
     "full body photorealistic mature virtual girlfriend character sheet",
     "eight clean turntable views in a 4x2 grid: front, front-right, right side, back-right, back, back-left, left side, front-left",
     "consistent face, hair, body proportions and outfit in every frame",
@@ -4319,8 +4321,8 @@ async function handleCreateCharacterImage(req, res) {
     return sendJson(res, 404, { ok: false, message: "User asset not found." });
   }
 
-  const userPrompt = String(body.prompt || "").trim();
-  const prompt = [
+  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
+  const prompt = userPrompt.trim() ? userPrompt : [
     userAsset
       ? "Use Figure 1 only as the identity and outfit reference. Rebuild it as a premium photorealistic human model asset, not anime, not illustration, not CGI, not doll-like."
       : "Create a premium photorealistic human model asset, not anime, not illustration, not CGI, not doll-like.",
@@ -4329,7 +4331,6 @@ async function handleCreateCharacterImage(req, res) {
     "Each cell must contain one centered full-body woman from head to shoes, no cropping, no duplicate panels, no text labels, no UI, no room background.",
     "Use a pure flat chroma green background (#00ff00) in every cell for clean cutout; no gradient, no studio backdrop, no floor line, no cast shadow touching the frame border, and do not use green anywhere on the character.",
     "Mature seductive fashion editorial pose, confident eye contact, fitted evening or club outfit, elegant and sensual but non-nude and non-explicit.",
-    userPrompt ? `Extra user direction: ${userPrompt}` : "",
   ].filter(Boolean).join(" ");
   const model = userAsset ? config.characterImage.editModel : config.characterImage.textModel;
   const params = {
@@ -4382,7 +4383,7 @@ async function handleCreatePanoramaImage(req, res) {
   if (!auth) return;
 
   const body = await readJson(req);
-  const prompt = String(body.prompt || "").trim();
+  const prompt = typeof body.prompt === "string" ? body.prompt : "";
   if (!prompt) return sendJson(res, 400, { ok: false, message: "缺少全景图 prompt。" });
 
   const params = {

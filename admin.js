@@ -592,7 +592,7 @@ function openCreatePresetDialog() {
     </label>
     <div class="adm-form-row adm-mt"><span>角色名</span><input id="presetName" type="text" maxlength="20" placeholder="例如 暮悠悠" /></div>
     <div class="adm-form-row"><span>短剧标题</span><input id="presetTitle" type="text" maxlength="20" placeholder="例如 雨夜套房" /></div>
-    <div class="adm-form-row"><span>补充 Prompt（可留空，使用全身美腿默认 Prompt）</span><textarea id="presetPrompt" placeholder="留空即可。这里写的会附加在系统默认 Prompt 后面。"></textarea></div>
+    <div class="adm-form-row"><span>Prompt（保存后生成视频时原样使用）</span><textarea id="presetPrompt" placeholder="可留空。填写后只作为视频 prompt 保存，不会附加到参考图 prompt。"></textarea></div>
   `;
   let dataUrl = "";
   setTimeout(() => {
@@ -618,7 +618,7 @@ function openCreatePresetDialog() {
     onConfirm: async () => {
       const name = tpl.querySelector("#presetName").value.trim();
       const title = tpl.querySelector("#presetTitle").value.trim();
-      const prompt = tpl.querySelector("#presetPrompt").value.trim();
+      const prompt = tpl.querySelector("#presetPrompt").value;
       if (!dataUrl) { toast("请先选择一张角色图。", "error"); return false; }
       if (!name || !title) { toast("请填写角色名和短剧标题。", "error"); return false; }
       await api("/api/admin/home-image", {
@@ -652,7 +652,7 @@ async function openEditPresetDialog(itemId) {
         body: {
           name: tpl.querySelector("#editName").value.trim(),
           title: tpl.querySelector("#editTitle").value.trim(),
-          prompt: tpl.querySelector("#editPrompt").value.trim(),
+          prompt: tpl.querySelector("#editPrompt").value,
         },
       });
       toast("已更新。", "success");
@@ -710,7 +710,7 @@ async function openRegenPresetDialog(itemId) {
     onConfirm: async () => {
       const provider = tpl.querySelector("#genProvider").value;
       const sceneId = select.value || "room";
-      const prompt = promptEl.value.trim();
+      const prompt = promptEl.value;
       await api("/api/admin/home-video", {
         method: "POST",
         body: { itemId, sceneId, provider, prompt, name: item.name, title: item.title },
@@ -722,7 +722,7 @@ async function openRegenPresetDialog(itemId) {
   }).then(async (value) => {
     if (value !== "cancel") return;
     const sceneId = select.value || "room";
-    const prompt = promptEl.value.trim();
+    const prompt = promptEl.value;
     try {
       await api("/api/admin/home-video", {
         method: "POST",
@@ -802,7 +802,7 @@ function openSceneBindDialog(itemId, scenes) {
       cancelText: "Save prompt only",
       onConfirm: async () => {
         const sceneId = select.value;
-        const prompt = promptEl.value.trim();
+        const prompt = promptEl.value;
         try {
           await api("/api/admin/character-scene-video", {
             method: "POST",
@@ -820,7 +820,7 @@ function openSceneBindDialog(itemId, scenes) {
     }).then(async (value) => {
       if (value !== "cancel") return;
       const sceneId = select.value;
-      const prompt = promptEl.value.trim();
+      const prompt = promptEl.value;
       try {
         await api("/api/admin/character-scene-video", {
           method: "POST",
@@ -1229,7 +1229,7 @@ function historyRecordHtml(r, idx) {
         ${r.error ? `<em class="adm-error-text">${escapeHtml(r.error)}</em>` : ""}
       </div>
       <details class="adm-prompt-box adm-mt"${idx === 0 ? " open" : ""}>
-        <summary>查看完整 Prompt（${(finalPrompt || "").length} chars${sameAsFinal ? "" : "，含装饰约束"}）</summary>
+        <summary>查看完整 Prompt（${(finalPrompt || "").length} chars${sameAsFinal ? "" : "，历史任务可能含旧版拼接"}）</summary>
         ${userPrompt && !sameAsFinal ? `<div class="adm-prompt-section"><h4>用户原始 prompt</h4><pre class="adm-prompt-pre">${escapeHtml(userPrompt)}</pre></div>` : ""}
         <div class="adm-prompt-section"><h4>${sameAsFinal ? "Prompt（原样发送）" : "实际发送 prompt"}</h4><pre class="adm-prompt-pre">${escapeHtml(finalPrompt || "（无）")}</pre></div>
         <div class="adm-row adm-mt">

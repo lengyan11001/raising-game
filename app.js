@@ -2394,7 +2394,7 @@ function makeGeneratedCompanion(type) {
   const names = type === "photo"
     ? ["Her in the photo", "Mirror Mia", "Reference Vivian", "Private Natasha"]
     : ["Mia", "Natasha", "Camilla", "Isabella"];
-  const prompt = els.characterPrompt.value.trim();
+  const prompt = els.characterPrompt.value;
   const promptText = prompt ? `Wish blended: "${prompt.slice(0, 28)}${prompt.length > 28 ? "..." : ""}"` : "Default mature evening date setting.";
 
   return {
@@ -2743,14 +2743,14 @@ async function startCompanionJob(type) {
       ? "fal-ai/bytedance/seedream/v5/lite/edit"
       : "fal-ai/bytedance/seedream/v5/lite/text-to-image",
     source: isPhoto ? "photo_reference" : "text_prompt",
-    prompt: els.characterPrompt.value.trim() || "adult virtual girlfriend, mature confident woman, elegant sensual non-nude evening outfit, overseas dating sim style, 8 direction character sheet",
+    prompt: els.characterPrompt.value.trim() ? els.characterPrompt.value : "adult virtual girlfriend, mature confident woman, elegant sensual non-nude evening outfit, overseas dating sim style, 8 direction character sheet",
   });
 
   requestJson("/api/character-image", {
     method: "POST",
     body: JSON.stringify({
       userAssetId: isPhoto ? state.selectedUserAssetId : "",
-      prompt: els.characterPrompt.value.trim(),
+      prompt: els.characterPrompt.value,
     }),
   }).then((payload) => {
     console.info("apiz character task", payload);
@@ -2782,7 +2782,7 @@ async function startDateVideoJob(scene) {
   state.sceneSubmitting = true;
   if (els.sceneGenerateBtn) els.sceneGenerateBtn.disabled = true;
   window.clearInterval(state.sceneTimer);
-  const prompt = els.scenePrompt.value.trim();
+  const prompt = els.scenePrompt.value;
   const requestId = Date.now();
   state.sceneRequestId = requestId;
   const activeItem = getActiveHomeVideoItem();
@@ -2852,9 +2852,9 @@ async function startDateVideoJob(scene) {
 }
 
 async function startUserCharacterSceneJob(scene, character, requestId, prompt = "", entry = null) {
-  const userPrompt = String(prompt || "").trim();
+  const userPrompt = String(prompt || "");
   const sceneEntry = entry || state.pendingSceneEntry || getSceneEntries(scene)[0] || { id: "default", name: scene.shortName || scene.name };
-  const promptHint = userPrompt
+  const promptHint = userPrompt.trim()
     ? `using your custom prompt (${userPrompt.length} chars)`
     : `using the scene's default prompt`;
   updateJob("Submitting video task", `Generating "${sceneEntry.name || scene.name}" for your character "${character.name}" ${promptHint}…`, 10);
