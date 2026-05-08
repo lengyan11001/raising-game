@@ -401,6 +401,24 @@ function sendText(res, statusCode, body) {
   res.end(body);
 }
 
+function sendMarkdown(res, statusCode, body) {
+  res.writeHead(statusCode, {
+    "content-type": "text/markdown; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  res.end(body);
+}
+
+function publicOriginFromRequest(req) {
+  if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL;
+  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
+  if (!host) return "https://123vips.com";
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const localHost = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host);
+  const protocol = forwardedProto || (localHost ? "http" : "https");
+  return `${protocol}://${host}`.replace(/\/+$/, "");
+}
+
 async function readJsonFile(filePath, fallback) {
   try {
     const data = await fs.readFile(filePath, "utf8");
@@ -3168,6 +3186,288 @@ async function handlePlatformEstimates(req, res, url) {
   }));
 
   return sendJson(res, 200, { ok: true, estimates });
+}
+
+function docsJsonBlock(value) {
+  return JSON.stringify(value, null, 2);
+}
+
+function markdownCodeBlock(language, value) {
+  return [
+    `\`\`\`${language}`,
+    typeof value === "string" ? value : docsJsonBlock(value),
+    "```",
+  ].join("\n");
+}
+
+function markdownText(value, fallback = "") {
+  return String(value || fallback || "")
+    .replace(/\r?\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function docsPlatformExampleBody(template = {}) {
+  const body = {
+    templateId: template.id || "template-id",
+  };
+  if (template.type === "image-to-video") body.dataUrl = "data:image/png;base64,...";
+  body.prompt = "optional override";
+  return body;
+}
+
+function docsAdvancedExampleBody(item = {}) {
+  const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
+  return {
+    caseId: item.id || "case-id",
+    prompt: item.prompt || params.prompt || "your prompt",
+    ratio: params.ratio || params.aspect_ratio || "9:16",
+    resolution: params.resolution || "720p",
+    duration: durationSecondsFromParams(params) || 5,
+    generateAudio: params.generateAudio !== false,
+  };
+}
+
+function docsPricingView(estimate = {}) {
+  if (!estimate.available) {
+    return {
+      available: false,
+      credits: null,
+      source: "",
+      message: estimate.message || "Pricing is unavailable.",
+    };
+  }
+  return {
+    available: true,
+    credits: creditsAmount(estimate.credits),
+    source: estimate.source || "model_pricing",
+    durationSeconds: estimate.durationSeconds || 0,
+  };
+}
+
+async function buildTemplateModelDoc(template, origin) {
+  const configuredPrompt = typeof template.requestJson?.prompt === "string" ? template.requestJson.prompt : template.prompt;
+  const imagePlaceholder = template.type === "image-to-video" ? `${origin}/example-reference.png` : "";
+  const upstreamPayload = platformApizPayload({
+    template,
+    prompt: configuredPrompt,
+    imageUrl: imagePlaceholder,
+  });
+  let estimate;
+  try {
+    estimate = await makePlatformEstimate(template);
+  } catch (error) {
+    estimate = {
+      available: false,
+      message: error.message || "Pricing is unavailable.",
+      code: error.code || "PRICING_UNAVAILABLE",
+    };
+  }
+
+  const durationSeconds =
+    durationSecondsFromParams(upstreamPayload.params) ||
+    estimate.durationSeconds ||
+    0;
+
+  return {
+    id: template.id,
+    title: template.title,
+    type: template.type,
+    category: template.category,
+    badge: template.badge,
+    model: upstreamPayload.model,
+    requestModel: upstreamPayload.params?.model || upstreamPayload.model,
+    durationSeconds,
+    pricing: docsPricingView(estimate),
+    coverUrl: template.coverUrl,
+    previewUrl: template.previewUrl,
+    prompt: configuredPrompt || "",
+    negativePrompt: template.negativePrompt || "",
+    endpoint: {
+      method: "POST",
+      url: `${origin}/api/platform/generate`,
+      auth: "Bearer <user-token>",
+    },
+    requestFields: [
+      { name: "templateId", type: "string", required: true, description: "Template id from this document." },
+      { name: "dataUrl", type: "string", required: template.type === "image-to-video", description: "Base64 data URL. Required for image-to-video templates." },
+      { name: "prompt", type: "string", required: false, description: "Optional prompt override. Leave empty to use the saved template prompt." },
+      { name: "params", type: "object", required: false, description: "Optional advanced overrides. Most clients should omit this." },
+    ],
+    exampleRequest: {
+      method: "POST",
+      url: `${origin}/api/platform/generate`,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: docsPlatformExampleBody(template),
+    },
+    upstreamJson: upstreamPayload.params,
+  };
+}
+
+function buildAdvancedModelDoc(item, origin) {
+  const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
+  return {
+    id: item.id,
+    title: item.title,
+    category: item.category,
+    description: item.description || "",
+    pricing: {
+      available: true,
+      credits: creditsAmount(item.price),
+      source: "configured_case_price",
+      durationSeconds: durationSecondsFromParams(params) || 0,
+    },
+    coverUrl: item.coverUrl,
+    previewUrl: item.previewUrl,
+    prompt: item.prompt || params.prompt || "",
+    params,
+    requiresApproval: true,
+    endpoint: {
+      method: "POST",
+      url: `${origin}/api/advanced/generate`,
+      auth: "Bearer <user-token>",
+    },
+    exampleRequest: {
+      method: "POST",
+      url: `${origin}/api/advanced/generate`,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: docsAdvancedExampleBody(item),
+    },
+  };
+}
+
+async function buildModelDocs(req) {
+  const origin = publicOriginFromRequest(req);
+  const config = await readAppConfig();
+  const platform = normalizePlatformConfig(config.platform || {});
+  const templates = await Promise.all(platform.templates.map((template) => buildTemplateModelDoc(template, origin)));
+  const advancedCases = (platform.advanced?.cases || [])
+    .filter((item) => item.enabled !== false)
+    .map((item) => buildAdvancedModelDoc(item, origin));
+
+  return {
+    ok: true,
+    title: `${platform.brand || "Vipeak AI"} Model Guide`,
+    baseUrl: origin,
+    updatedAt: new Date().toISOString(),
+    billing: {
+      unit: "credits",
+      note: "Credits are settled as RMB cents. Template estimates are calculated from the saved upstream JSON model and duration.",
+    },
+    endpoints: {
+      docsMarkdown: `${origin}/docs/models.md`,
+      modelsJson: `${origin}/api/models`,
+      platformGenerate: `${origin}/api/platform/generate`,
+      advancedGenerate: `${origin}/api/advanced/generate`,
+      generationRecords: `${origin}/api/generation-records`,
+      generationRecordDetail: `${origin}/api/generation-records/<taskId>`,
+      advancedAccessRequest: `${origin}/api/advanced/request-access`,
+    },
+    templates,
+    advanced: {
+      requiresApproval: true,
+      telegram: String(platform.advanced?.telegram || ""),
+      cases: advancedCases,
+    },
+  };
+}
+
+function templateDocMarkdown(item) {
+  const lines = [
+    `### ${markdownText(item.title, item.id)}`,
+    "",
+    `- templateId: \`${item.id}\``,
+    `- type: \`${item.type}\``,
+    `- model: \`${item.requestModel || item.model}\``,
+    `- duration: ${item.durationSeconds || "configured"}s`,
+    `- estimated cost: ${item.pricing.available ? `${item.pricing.credits} credits` : "pricing unavailable"}`,
+  ];
+  if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
+  if (item.coverUrl) lines.push(`- cover: ${item.coverUrl}`);
+  if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
+  lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
+  lines.push("", "**Server-side upstream JSON**", "", markdownCodeBlock("json", item.upstreamJson));
+  return lines.join("\n");
+}
+
+function advancedDocMarkdown(item) {
+  const lines = [
+    `### ${markdownText(item.title, item.id)}`,
+    "",
+    `- caseId: \`${item.id}\``,
+    "- access: approval required",
+    `- estimated cost: ${item.pricing.credits} credits`,
+  ];
+  if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
+  if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
+  if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
+  lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
+  return lines.join("\n");
+}
+
+function buildModelDocsMarkdown(docs) {
+  const templateSections = docs.templates.length
+    ? docs.templates.map(templateDocMarkdown).join("\n\n")
+    : "No public templates are configured.";
+  const advancedSections = docs.advanced.cases.length
+    ? docs.advanced.cases.map(advancedDocMarkdown).join("\n\n")
+    : "No advanced cases are configured.";
+
+  return [
+    `# ${docs.title}`,
+    "",
+    `Base URL: ${docs.baseUrl}`,
+    "",
+    "This document is generated from the live admin configuration. When templates or cases change, this page changes with them.",
+    "",
+    "## Authentication",
+    "",
+    "Use the token from your account page:",
+    "",
+    markdownCodeBlock("http", "Authorization: Bearer <user-token>"),
+    "",
+    "## Quick Start",
+    "",
+    "1. Read `/api/models` or this Markdown file to choose a template.",
+    "2. For image-to-video templates, send `templateId` and `dataUrl` to `/api/platform/generate`.",
+    "3. For text-to-video templates, send `templateId` and an optional `prompt` to `/api/platform/generate`.",
+    "4. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
+    "",
+    "## Billing",
+    "",
+    docs.billing.note,
+    "",
+    "## Endpoints",
+    "",
+    markdownCodeBlock("json", docs.endpoints),
+    "",
+    "## Template Gallery Models",
+    "",
+    templateSections,
+    "",
+    "## Advanced Generate",
+    "",
+    "Advanced generation requires approval. Request access with `POST /api/advanced/request-access`, then call `/api/advanced/generate`.",
+    docs.advanced.telegram ? `\nSupport: ${docs.advanced.telegram}\n` : "",
+    advancedSections,
+    "",
+  ].join("\n");
+}
+
+async function handleModelsJson(req, res) {
+  const docs = await buildModelDocs(req);
+  return sendJson(res, 200, docs);
+}
+
+async function handleModelsMarkdown(req, res) {
+  const docs = await buildModelDocs(req);
+  return sendMarkdown(res, 200, buildModelDocsMarkdown(docs));
 }
 
 async function refreshApizGenerationRecord(record) {
@@ -6036,6 +6336,14 @@ async function handleRequest(req, res) {
       config = await ensureSceneEntriesPersisted(config);
       config = await refreshCompletedHomeVideoItems(config);
       return sendJson(res, 200, { ok: true, config: publicConfig(config) });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/models") {
+      return await handleModelsJson(req, res);
+    }
+
+    if (req.method === "GET" && (url.pathname === "/docs/models.md" || url.pathname === "/models.md")) {
+      return await handleModelsMarkdown(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/auth/register") {

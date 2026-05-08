@@ -309,6 +309,19 @@ main { width: min(1600px, calc(100vw - 40px)); margin: 0 auto; }
   letter-spacing: -0.045em;
 }
 .copy-main p { color: #b7c5df; line-height: 1.8; }
+.copy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.copy-actions .ghost-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  text-decoration: none;
+}
 .copy-btn, .generate-btn {
   display: inline-flex;
   align-items: center;

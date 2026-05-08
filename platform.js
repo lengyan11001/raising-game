@@ -124,6 +124,8 @@ Response:
   "user": { "credits": 12345 }
 }
 
+GET https://123vips.com/docs/models.md
+GET https://123vips.com/api/models
 GET https://123vips.com/api/generation-records
 GET https://123vips.com/api/generation-records/<taskId>`;
 

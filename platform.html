@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-15" />
+    <link rel="stylesheet" href="./platform.css?v=ai-16" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -113,7 +113,11 @@
             <span class="copy-kicker"><i data-lucide="copy"></i> COPY AND CONNECT</span>
             <h3 id="accessGuideTitle">HTTP API</h3>
             <p id="accessGuideDesc">Submit generation tasks and query results through the current production API.</p>
-            <button class="copy-btn" id="copyAccessBtn" type="button"><i data-lucide="clipboard"></i>Copy API guide</button>
+            <div class="copy-actions">
+              <a class="ghost-button" href="/docs/models.md" target="_blank" rel="noopener"><i data-lucide="book-open"></i>Model docs</a>
+              <a class="ghost-button" href="/api/models" target="_blank" rel="noopener"><i data-lucide="braces"></i>Models JSON</a>
+              <button class="copy-btn" id="copyAccessBtn" type="button"><i data-lucide="clipboard"></i>Copy API guide</button>
+            </div>
           </div>
           <pre class="copy-preview" id="accessCopy"></pre>
         </div>
@@ -223,6 +227,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-15"></script>
+    <script src="./platform.js?v=ai-16"></script>
   </body>
 </html>
