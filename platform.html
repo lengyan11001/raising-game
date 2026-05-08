@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI - 模板广场</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-1" />
+    <link rel="stylesheet" href="./platform.css?v=ai-2" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -18,7 +18,7 @@
       </a>
       <nav class="top-tabs" aria-label="Main sections">
         <button class="top-tab is-active" data-tab="gallery" type="button">模板广场</button>
-        <button class="top-tab" data-tab="access" type="button">API 接入</button>
+        <button class="top-tab" data-tab="access" type="button">接入方式</button>
       </nav>
       <div class="head-actions">
         <a class="ghost-link" href="/game">养成游戏</a>
@@ -30,13 +30,13 @@
     <main>
       <section class="hero">
         <div>
-          <p class="eyebrow">APIZ Powered Creative Hub</p>
-          <h1 id="heroTitle">AI 模板广场与 API 接入</h1>
-          <p id="heroSubtitle">上传一张图，套用同款提示词生成视频；也可以直接按 APIZ 方式接入模型能力。</p>
+          <p class="eyebrow">Template Plaza</p>
+          <h1 id="heroTitle">一键生成同款视频</h1>
+          <p id="heroSubtitle">选择模板，上传图片或输入文字，生成图生视频 / 文生视频。</p>
         </div>
         <div class="hero-panel">
           <span>限时开放</span>
-          <strong id="heroNotice">模板广场上线中，生成任务统一走 APIZ 上游并在本站留档。</strong>
+          <strong id="heroNotice">模板、提示词、参数和封面都可在后台配置。</strong>
         </div>
       </section>
 
@@ -68,21 +68,21 @@
         <div class="section-head centered">
           <p class="eyebrow">Integration</p>
           <h2>接入方式</h2>
-          <p>默认复制 Agent 接入指令，也可以按需选择 MCP、SDK 或 CLI。</p>
+          <p>复制接入说明，按你的业务系统调用生成能力。</p>
         </div>
         <div class="access-tabs">
-          <button class="access-tab is-active" type="button">Agent Kit<span>复制给 Cursor / Codex</span></button>
-          <button class="access-tab" type="button">MCP<span>Cursor / Claude</span></button>
-          <button class="access-tab" type="button">TypeScript<span>npm install apiz-sdk</span></button>
-          <button class="access-tab" type="button">Python<span>pip install apiz</span></button>
-          <button class="access-tab" type="button">CLI<span>Go 单文件</span></button>
+          <button class="access-tab is-active" type="button">HTTP API<span>直接提交任务</span></button>
+          <button class="access-tab" type="button">MCP<span>工具调用</span></button>
+          <button class="access-tab" type="button">TypeScript<span>服务端接入</span></button>
+          <button class="access-tab" type="button">Python<span>服务端接入</span></button>
+          <button class="access-tab" type="button">CLI<span>命令行调用</span></button>
         </div>
         <div class="copy-card">
           <div class="copy-main">
-            <span class="copy-kicker"><i data-lucide="copy"></i> ONE COPY AGENT KIT</span>
-            <h3>复制一次，Agent 直接开工</h3>
-            <p>页面只保留一个复制动作。模型列表、调用约束、JSON 输出协议和结果轮询都写入接入指令，可直接粘贴到 Cursor、Claude Code、Codex 等 Agent 规则区。</p>
-            <button class="copy-btn" id="copyAccessBtn" type="button"><i data-lucide="clipboard"></i>复制 Agent 接入指令</button>
+            <span class="copy-kicker"><i data-lucide="copy"></i> ONE COPY INTEGRATION</span>
+            <h3>复制一次，快速接入</h3>
+            <p>保留必要的提交、查询和结果字段。用户侧负责上传素材和选择模板，生成结果会自动进入本站记录。</p>
+            <button class="copy-btn" id="copyAccessBtn" type="button"><i data-lucide="clipboard"></i>复制接入说明</button>
           </div>
           <pre class="copy-preview" id="accessCopy"></pre>
         </div>
@@ -132,6 +132,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-1"></script>
+    <script src="./platform.js?v=ai-2"></script>
   </body>
 </html>

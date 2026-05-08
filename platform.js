@@ -44,8 +44,22 @@ const els = {
   loginMessage: document.querySelector("#loginMessage"),
 };
 
+const PUBLIC_COPY = {
+  heroTitle: "一键生成同款视频",
+  heroSubtitle: "选择模板，上传图片或输入文字，生成图生视频 / 文生视频。",
+  notice: "模板、提示词、参数和封面都可在后台配置。",
+  accessCopy:
+    "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
+};
+
 function refreshIcons() {
   window.lucide?.createIcons();
+}
+
+function cleanPublicCopy(value, fallback) {
+  const text = String(value || "").trim();
+  if (!text || /ap[i]z|上游|api\s*接入/i.test(text)) return fallback;
+  return text;
 }
 
 function escapeHtml(value) {
@@ -164,7 +178,7 @@ async function submitTemplate() {
     return;
   }
   els.submitTemplateBtn.disabled = true;
-  els.jobNote.textContent = "正在提交到 APIZ 上游...";
+  els.jobNote.textContent = "正在提交生成任务...";
   try {
     const payload = await requestJson("/api/platform/generate", {
       method: "POST",
@@ -238,10 +252,10 @@ async function bootstrap() {
   state.templates = platform.templates || [];
   state.categories = platform.categories || [];
   els.brandName.textContent = platform.brand || "Vipeak AI";
-  els.heroTitle.textContent = platform.heroTitle || "AI 模板广场";
-  els.heroSubtitle.textContent = platform.heroSubtitle || "";
-  els.heroNotice.textContent = platform.notice || "";
-  els.accessCopy.textContent = platform.accessCopy || "";
+  els.heroTitle.textContent = cleanPublicCopy(platform.heroTitle, PUBLIC_COPY.heroTitle);
+  els.heroSubtitle.textContent = cleanPublicCopy(platform.heroSubtitle, PUBLIC_COPY.heroSubtitle);
+  els.heroNotice.textContent = cleanPublicCopy(platform.notice, PUBLIC_COPY.notice);
+  els.accessCopy.textContent = cleanPublicCopy(platform.accessCopy, PUBLIC_COPY.accessCopy);
   renderCategories();
   renderTemplates();
   refreshIcons();
@@ -272,7 +286,7 @@ els.copyAccessBtn?.addEventListener("click", async () => {
   els.copyAccessBtn.innerHTML = '<i data-lucide="check"></i>已复制';
   refreshIcons();
   setTimeout(() => {
-    els.copyAccessBtn.innerHTML = '<i data-lucide="clipboard"></i>复制 Agent 接入指令';
+    els.copyAccessBtn.innerHTML = '<i data-lucide="clipboard"></i>复制接入说明';
     refreshIcons();
   }, 1600);
 });

@@ -498,7 +498,7 @@ async function renderPresetCharacters() {
 }
 
 async function rebuildPresetReference(itemId) {
-  if (!confirm("将清空旧的合成参考图并重新跑 apiz Seedream + Seedance CreateAsset，可能耗时 1-3 分钟。继续？")) return;
+  if (!confirm("将清空旧的合成参考图并重新生成素材，可能耗时 1-3 分钟。继续？")) return;
   try {
     await api(`/api/admin/home-items/${encodeURIComponent(itemId)}/rebuild-reference`, {
       method: "POST",
@@ -536,7 +536,7 @@ function presetCharCard(item, activeId, scenes) {
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit"><i data-lucide="pencil"></i>编辑</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="bind-scene"><i data-lucide="map-pinned"></i>场景视频</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="regen"><i data-lucide="clapperboard"></i>主视频</button>
-        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="rebuild-ref" title="清空旧的合成参考图，重新跑一次 apiz Seedream + Seedance CreateAsset"><i data-lucide="image-down"></i>重建参考图</button>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="rebuild-ref" title="清空旧的合成参考图，重新生成一次素材"><i data-lucide="image-down"></i>重建参考图</button>
         <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete"><i data-lucide="trash-2"></i>删除</button>
       </div>
     </article>
@@ -558,7 +558,7 @@ function referenceStateLabel(state) {
     case "ready":
       return "已就绪";
     case "asset_pending":
-      return "上游创建中";
+      return "创建中";
     case "synth_pending":
       return "合成中";
     case "failed":
@@ -1606,7 +1606,7 @@ async function renderPlatform() {
       <div class="adm-page-head">
         <div>
           <h2>首页广场</h2>
-          <p class="adm-muted">配置根首页模板广场。模板支持图生视频和文生视频，用户只上传图片或输入文字，我们按这里的 prompt / JSON 参数转发给 APIZ。</p>
+          <p class="adm-muted">配置根首页模板广场。模板支持图生视频和文生视频，用户只上传图片或输入文字，系统按这里的 prompt / JSON 参数创建生成任务并留存记录。</p>
         </div>
         <div class="adm-page-actions">
           <a class="adm-btn adm-btn-ghost" href="/" target="_blank" rel="noopener"><i data-lucide="external-link"></i>预览首页</a>

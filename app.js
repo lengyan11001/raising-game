@@ -1007,7 +1007,6 @@ function generationRecordParams(record) {
     ["Entry", record.sceneEntryName],
     ["Partner", record.partnerCharacterName],
     ["Model", record.model],
-    ["Provider", record.provider],
     ["Ratio", record.ratio],
     ["Resolution", record.resolution],
     ["Duration", record.duration],

@@ -228,11 +228,11 @@ const DEFAULT_CONFIG = {
   },
   platform: {
     brand: "Vipeak AI",
-    heroTitle: "AI 模板广场与 API 接入",
-    heroSubtitle: "上传一张图，套用同款提示词生成视频；也可以直接按 APIZ 方式接入模型能力。",
-    notice: "模板广场上线中，生成任务统一走 APIZ 上游并在本站留档。",
+    heroTitle: "一键生成同款视频",
+    heroSubtitle: "选择模板，上传图片或输入文字，生成图生视频 / 文生视频。",
+    notice: "模板、提示词、参数和封面都可在后台配置。",
     accessCopy:
-      "curl -fsSL https://apiz.ai/cli | sh\napiz auth login --api-key \"$APIZ_API_KEY\"\napiz models list --category video --json\napiz generate \"<prompt>\" --model <model-id> --wait --json",
+      "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
     categories: [
       { id: "featured", name: "精选模板" },
       { id: "i2v", name: "图生视频" },
@@ -508,6 +508,12 @@ function normalizePlatformTemplate(template = {}, index = 0) {
   };
 }
 
+function cleanPlatformPublicCopy(value, fallback) {
+  const text = String(value || "").trim();
+  if (!text || /ap[i]z|上游|api\s*接入/i.test(text)) return String(fallback || "");
+  return text;
+}
+
 function normalizePlatformConfig(platform = {}) {
   const fallback = DEFAULT_CONFIG.platform || {};
   const categories = Array.isArray(platform.categories) ? platform.categories : fallback.categories || [];
@@ -516,10 +522,10 @@ function normalizePlatformConfig(platform = {}) {
     ...fallback,
     ...platform,
     brand: String(platform.brand || fallback.brand || "Vipeak AI"),
-    heroTitle: String(platform.heroTitle || fallback.heroTitle || "AI 模板广场"),
-    heroSubtitle: String(platform.heroSubtitle || fallback.heroSubtitle || ""),
-    notice: String(platform.notice || fallback.notice || ""),
-    accessCopy: String(platform.accessCopy || fallback.accessCopy || ""),
+    heroTitle: cleanPlatformPublicCopy(platform.heroTitle, fallback.heroTitle || "一键生成同款视频"),
+    heroSubtitle: cleanPlatformPublicCopy(platform.heroSubtitle, fallback.heroSubtitle || ""),
+    notice: cleanPlatformPublicCopy(platform.notice, fallback.notice || ""),
+    accessCopy: cleanPlatformPublicCopy(platform.accessCopy, fallback.accessCopy || ""),
     categories: categories.map((category, index) => ({
       id: String(category.id || `cat-${index + 1}`).trim().replace(/[^a-z0-9_-]/gi, "-") || `cat-${index + 1}`,
       name: String(category.name || category.id || `Category ${index + 1}`).trim(),
@@ -1748,9 +1754,9 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
 
 async function apizRequest(pathname, body) {
   if (!APIZ_API_KEY) {
-    const error = new Error("Missing APIZ_API_KEY");
+    const error = new Error("Generation service is not configured.");
     error.statusCode = 503;
-    error.code = "MISSING_APIZ_API_KEY";
+    error.code = "GENERATION_SERVICE_NOT_CONFIGURED";
     throw error;
   }
 
@@ -1766,7 +1772,7 @@ async function apizRequest(pathname, body) {
   const text = await response.text();
   const payload = text ? JSON.parse(text) : {};
   if (!response.ok || payload.code >= 400) {
-    const error = new Error(payload.message || payload.detail || `apiz request failed: ${response.status}`);
+    const error = new Error(payload.message || payload.detail || `Generation request failed: ${response.status}`);
     error.statusCode = response.status || 502;
     error.payload = payload;
     throw error;
@@ -1845,9 +1851,7 @@ function publicGenerationRecord(record = {}) {
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
     params: record.params || null,
-    upstreamPayload: record.upstreamPayload || null,
     model: String(record.model || ""),
-    provider: String(record.provider || "seedance"),
     ratio: String(record.ratio || ""),
     resolution: String(record.resolution || ""),
     duration: record.duration || "",
@@ -2873,7 +2877,7 @@ async function handleCreateMyCharacter(req, res) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
   if (!APIZ_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_APIZ_API_KEY", message: "APIZ_API_KEY is missing — reference images cannot be generated." });
+    return sendJson(res, 503, { ok: false, code: "GENERATION_SERVICE_NOT_CONFIGURED", message: "Generation service is not configured." });
   }
 
   const config = await readAppConfig();
@@ -2974,7 +2978,7 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
   if (!APIZ_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_APIZ_API_KEY", message: "APIZ_API_KEY is missing — reference images cannot be generated." });
+    return sendJson(res, 503, { ok: false, code: "GENERATION_SERVICE_NOT_CONFIGURED", message: "Generation service is not configured." });
   }
 
   const config = await readAppConfig();
@@ -5020,7 +5024,7 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, {
         ok: true,
         arkConfigured: Boolean(ARK_API_KEY),
-        apizConfigured: Boolean(APIZ_API_KEY),
+        generationConfigured: Boolean(APIZ_API_KEY),
         baseUrl: ARK_BASE_URL,
         models: { fast: MODEL_FAST, quality: MODEL_QUALITY },
       });
