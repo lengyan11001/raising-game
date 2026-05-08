@@ -59,7 +59,7 @@ const PUBLIC_COPY = {
   galleryNotice: "上传素材后即可生成，结果会保存到生成记录。",
   accessTitle: "业务接入",
   accessSubtitle: "复制接入说明，把生成能力接到你的产品或工作流。",
-  accessNotice: "接入说明只放必要参数和返回结果，不混入模板广场的用户流程。",
+  accessNotice: "接入说明只放必要参数和返回结果。",
   accessCopy:
     "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
 };
@@ -69,7 +69,7 @@ let ACCESS_GUIDES = [
     id: "http",
     title: "HTTP API",
     subtitle: "Available now",
-    desc: "This is the live integration path. Submit a template generation task, then query history or a task detail for progress and result video.",
+    desc: "This is the live integration path. Submit a generation job, then query history or a task detail for progress and result video.",
     copy:
       "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
   },
@@ -163,10 +163,10 @@ curl "https://123vips.com/api/generation-records" \\
 
 const AGENT_ACCESS_COPY = `Agent instruction:
 
-Use the 123vips template generation API.
+Use the 123vips generation API.
 
-When the user asks to generate the same style:
-1. Ask for or use a templateId.
+When the user asks to create a video:
+1. Ask for or use a configured generation templateId.
 2. Convert the uploaded image to a data URL.
 3. POST https://123vips.com/api/platform/generate with:
    - Authorization: Bearer <user-token>
@@ -174,7 +174,7 @@ When the user asks to generate the same style:
 4. Return taskId and tell the user to check generation history.
 5. To check progress, GET /api/generation-records or /api/generation-records/<taskId>.
 
-Never invent upstream parameters on the client side. The template JSON is configured in the admin console; client code only sends templateId, image data, and optional prompt override.`;
+Never invent upstream parameters on the client side. The generation JSON is configured in the admin console; client code only sends templateId, image data, and optional prompt override.`;
 
 const MCP_ACCESS_COPY = `MCP wrapper approach:
 
@@ -206,8 +206,8 @@ PUBLIC_COPY.galleryTitle = "Create videos from templates";
 PUBLIC_COPY.gallerySubtitle = "Choose a template, upload an image or enter text, and generate the same style.";
 PUBLIC_COPY.galleryNotice = "Generated results are saved in your history.";
 PUBLIC_COPY.accessTitle = "API Access";
-PUBLIC_COPY.accessSubtitle = "Use the same template generation flow from your own service, scripts, agents, or an MCP wrapper.";
-PUBLIC_COPY.accessNotice = "All examples below call the current production API. The admin template JSON stays server-side.";
+PUBLIC_COPY.accessSubtitle = "Connect your product, scripts, agents, or MCP wrapper to the production generation API.";
+PUBLIC_COPY.accessNotice = "All examples below call the current production API. Upstream JSON stays server-side.";
 PUBLIC_COPY.accessCopy = LIVE_HTTP_ACCESS_COPY;
 
 ACCESS_GUIDES = [
@@ -215,7 +215,7 @@ ACCESS_GUIDES = [
     id: "http",
     title: "HTTP API",
     subtitle: "Direct endpoint",
-    desc: "Production endpoint. Submit template generation tasks and query records/results.",
+    desc: "Production endpoint. Submit generation jobs and query records/results.",
     copy: LIVE_HTTP_ACCESS_COPY,
   },
   {
@@ -243,7 +243,7 @@ ACCESS_GUIDES = [
     id: "agent",
     title: "Agent Kit",
     subtitle: "Prompt rules",
-    desc: "Copy these rules into an agent so it calls the production API instead of inventing parameters.",
+    desc: "Copy these rules into an agent so it calls the production API instead of inventing upstream parameters.",
     copy: AGENT_ACCESS_COPY,
   },
   {
