@@ -63,6 +63,7 @@ const MODEL_QUALITY =
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
+const PLATFORM_GENERATION_PREDEDUCT_CREDITS = clampNumber(process.env.PLATFORM_GENERATION_PREDEDUCT_CREDITS, 20, 0, 100000);
 const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
   "auto_2K",
   "auto_3K",
@@ -114,6 +115,7 @@ const DEFAULT_DB = {
   users: [],
   sessions: [],
   walletOrders: [],
+  creditLedger: [],
   userAssets: [],
   userCharacters: [],
   userUnlocks: [],
@@ -400,6 +402,7 @@ async function readDb() {
     users: Array.isArray(db.users) ? db.users : [],
     sessions: Array.isArray(db.sessions) ? db.sessions : [],
     walletOrders: Array.isArray(db.walletOrders) ? db.walletOrders : [],
+    creditLedger: Array.isArray(db.creditLedger) ? db.creditLedger : [],
     userAssets: Array.isArray(db.userAssets) ? db.userAssets : [],
     userCharacters: Array.isArray(db.userCharacters) ? db.userCharacters : [],
     userUnlocks: Array.isArray(db.userUnlocks) ? db.userUnlocks : [],
@@ -491,6 +494,12 @@ function normalizePlatformTemplate(template = {}, index = 0) {
   const type = String(template.type || "image-to-video").trim();
   const safeType = type === "text-to-video" ? "text-to-video" : "image-to-video";
   const id = String(template.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId;
+  const configuredCost =
+    positiveCreditsOrNull(template.cost) ??
+    positiveCreditsOrNull(template.price) ??
+    positiveCreditsOrNull(template.params?.cost) ??
+    positiveCreditsOrNull(template.params?.credits) ??
+    PLATFORM_GENERATION_PREDEDUCT_CREDITS;
   return {
     id,
     title: String(template.title || "Untitled template").trim().slice(0, 80) || "Untitled template",
@@ -502,6 +511,7 @@ function normalizePlatformTemplate(template = {}, index = 0) {
     prompt: typeof template.prompt === "string" ? template.prompt : "",
     negativePrompt: typeof template.negativePrompt === "string" ? template.negativePrompt : "",
     params: template.params && typeof template.params === "object" && !Array.isArray(template.params) ? template.params : {},
+    cost: configuredCost,
     enabled: template.enabled !== false,
     sort: Number.isFinite(Number(template.sort)) ? Number(template.sort) : index,
   };
@@ -961,6 +971,66 @@ function userView(user) {
     credits: Number(user.credits || 0),
     createdAt: user.createdAt,
   };
+}
+
+function creditsAmount(value, fallback = 0) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return Math.max(0, Math.round(Number(fallback || 0) * 10000) / 10000);
+  return Math.max(0, Math.round(next * 10000) / 10000);
+}
+
+function positiveCreditsOrNull(value) {
+  const next = Number(value);
+  if (!Number.isFinite(next) || next <= 0) return null;
+  return creditsAmount(next);
+}
+
+function appendCreditLedger(db, user, delta, type, meta = {}) {
+  if (!db || !user) return null;
+  const amount = Math.round(Number(delta || 0) * 10000) / 10000;
+  if (!Number.isFinite(amount) || amount === 0) return null;
+  db.creditLedger = Array.isArray(db.creditLedger) ? db.creditLedger : [];
+  const record = {
+    id: randomId("ledger"),
+    userId: user.id,
+    username: user.username || "",
+    delta: amount,
+    balanceAfter: creditsAmount(user.credits),
+    type,
+    meta,
+    createdAt: new Date().toISOString(),
+  };
+  db.creditLedger.unshift(record);
+  db.creditLedger = db.creditLedger.slice(0, 1000);
+  return record;
+}
+
+function changeUserCredits(db, userId, delta, type, meta = {}) {
+  const user = (db.users || []).find((entry) => entry.id === userId);
+  if (!user) {
+    const error = new Error("User not found for billing.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const amount = Math.round(Number(delta || 0) * 10000) / 10000;
+  if (!Number.isFinite(amount)) {
+    const error = new Error("Invalid credit amount.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const rawNext = Number(user.credits || 0) + amount;
+  if (rawNext < -0.0001) {
+    const error = new Error("Not enough credits - please top up first.");
+    error.statusCode = 402;
+    error.code = "INSUFFICIENT_CREDITS";
+    error.credits = creditsAmount(user.credits);
+    error.cost = creditsAmount(-amount);
+    throw error;
+  }
+  user.credits = creditsAmount(rawNext);
+  user.updatedAt = new Date().toISOString();
+  appendCreditLedger(db, user, amount, type, meta);
+  return user;
 }
 
 function randomId(prefix) {
@@ -1813,7 +1883,7 @@ async function upsertGenerationRecord(nextRecord) {
     records.unshift(record);
   }
 
-  await writeGenerationRecords(records.slice(0, 100));
+  await writeGenerationRecords(records.slice(0, 500));
   return record;
 }
 
@@ -1867,12 +1937,14 @@ function publicGenerationRecord(record = {}) {
     localVideoUrl: String(record.localVideoUrl || ""),
     remoteVideoUrl: String(record.remoteVideoUrl || ""),
     error: String(record.error || ""),
+    billing: publicBilling(record),
     createdAt: String(record.createdAt || ""),
     updatedAt: String(record.updatedAt || ""),
   };
 }
 
 function shouldRefreshGenerationRecord(record = {}) {
+  if (record.provider === "apiz" && !record.billingSettledAt && record.taskId && !String(record.taskId).startsWith("demo-")) return true;
   const status = String(record.status || "").toLowerCase();
   if (isFailedStatus(status)) return false;
   if (isSucceededStatus(status)) return !generationRecordVideoUrl(record) && Boolean(record.taskId);
@@ -2048,6 +2120,143 @@ function apizResultUrl(task = {}) {
   return findVideoUrl(task) || collectOutputImageUrls(task)[0] || "";
 }
 
+async function settleApizGenerationRecord(record = {}, task = {}, reason = "query") {
+  if (!record?.taskId || record.provider !== "apiz" || record.billingSettledAt) return record;
+  const status = apizStatus(task) || record.status || "";
+  if (!isSucceededStatus(status) && !isFailedStatus(status)) return record;
+
+  const db = await readDb();
+  let finalCredits = 0;
+  let delta = 0;
+  let billingStatus = "settled";
+  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+
+  if (isFailedStatus(status)) {
+    finalCredits = 0;
+    delta = preDeducted;
+    billingStatus = "refunded";
+  } else {
+    const reported = extractApizReportedCredits(task) ?? (record.createReportedCredits === undefined ? null : creditsAmount(record.createReportedCredits));
+    finalCredits = reported === null ? preDeducted : reported;
+    delta = preDeducted - finalCredits;
+  }
+
+  try {
+    if (delta > 0) {
+      changeUserCredits(db, record.userId, delta, "generation_refund", {
+        taskId: record.taskId,
+        reason,
+        preDeducted,
+        finalCredits,
+      });
+      await writeDb(db);
+    } else if (delta < 0) {
+      changeUserCredits(db, record.userId, delta, "generation_settle", {
+        taskId: record.taskId,
+        reason,
+        preDeducted,
+        finalCredits,
+      });
+      await writeDb(db);
+    }
+  } catch (error) {
+    if (error.code === "INSUFFICIENT_CREDITS") {
+      billingStatus = "settle_pending_insufficient";
+      return upsertGenerationRecord({
+        taskId: record.taskId,
+        finalCredits,
+        billingStatus,
+        billingError: error.message || "Not enough credits for final settlement.",
+      });
+    }
+    throw error;
+  }
+
+  return upsertGenerationRecord({
+    taskId: record.taskId,
+    finalCredits,
+    billingStatus,
+    billingSettledAt: new Date().toISOString(),
+    billingError: "",
+  });
+}
+
+function extractApizReportedCredits(value, depth = 0) {
+  if (value === null || value === undefined || depth > 40) return null;
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return null;
+    if (text.startsWith("{") || text.startsWith("[")) {
+      try {
+        return extractApizReportedCredits(JSON.parse(text), depth + 1);
+      } catch {
+        return null;
+      }
+    }
+    const number = Number(text);
+    return Number.isFinite(number) && number >= 0 ? creditsAmount(number) : null;
+  }
+  if (typeof value === "number") return value >= 0 ? creditsAmount(value) : null;
+  if (Array.isArray(value)) {
+    let best = null;
+    value.forEach((item) => {
+      const next = extractApizReportedCredits(item, depth + 1);
+      if (next !== null) best = Math.max(best ?? 0, next);
+    });
+    return best;
+  }
+  if (typeof value !== "object") return null;
+
+  const billing = value.x_billing ?? value["X-Billing"] ?? value.billing;
+  const billingCredits = billing ? extractApizReportedCredits(billing, depth + 1) : null;
+  if (billingCredits !== null) return billingCredits;
+
+  const balanceLike = Object.prototype.hasOwnProperty.call(value, "balance") || Object.prototype.hasOwnProperty.call(value, "balance_yuan");
+  let best = null;
+  for (const [key, item] of Object.entries(value)) {
+    const lower = key.toLowerCase();
+    if (["balance", "balance_yuan", "remaining", "account", "token"].includes(lower)) continue;
+    if (["credits_used", "credits_charged", "credits_final", "credit_cost", "consumed_credits", "usage_credits", "price", "cost"].includes(lower)) {
+      const next = extractApizReportedCredits(item, depth + 1);
+      if (next !== null) best = Math.max(best ?? 0, next);
+    } else if (lower === "credits" && !balanceLike) {
+      const next = extractApizReportedCredits(item, depth + 1);
+      if (next !== null) best = Math.max(best ?? 0, next);
+    } else if (item && typeof item === "object") {
+      const next = extractApizReportedCredits(item, depth + 1);
+      if (next !== null) best = Math.max(best ?? 0, next);
+    } else if (typeof item === "string" && item.trim().startsWith("{")) {
+      const next = extractApizReportedCredits(item, depth + 1);
+      if (next !== null) best = Math.max(best ?? 0, next);
+    }
+  }
+  return best === null ? null : creditsAmount(best);
+}
+
+function platformTemplatePreDeductCost(template = {}, body = {}) {
+  const candidates = [
+    template.cost,
+    template.price,
+    template.params?.cost,
+    template.params?.credits,
+    PLATFORM_GENERATION_PREDEDUCT_CREDITS,
+  ];
+  for (const candidate of candidates) {
+    const amount = positiveCreditsOrNull(candidate);
+    if (amount !== null) return amount;
+  }
+  return 0;
+}
+
+function publicBilling(record = {}) {
+  return {
+    preDeducted: creditsAmount(record.preDeductedCredits || 0),
+    final: record.finalCredits === undefined || record.finalCredits === null ? null : creditsAmount(record.finalCredits || 0),
+    settled: Boolean(record.billingSettledAt),
+    status: record.billingStatus || "",
+  };
+}
+
 function platformApizPayload({ template, prompt, imageUrl, overrides = {} }) {
   const params = {
     ...(template.params || {}),
@@ -2116,16 +2325,59 @@ async function handlePlatformGenerate(req, res) {
   const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : template.prompt;
   if (!String(prompt || "").trim()) return sendJson(res, 400, { ok: false, message: "缺少 prompt。" });
 
+  const preDeductedCredits = platformTemplatePreDeductCost(template, body);
+  if (auth.user.credits < preDeductedCredits) {
+    return sendJson(res, 402, {
+      ok: false,
+      code: "INSUFFICIENT_CREDITS",
+      message: "Not enough credits - please top up first.",
+      cost: preDeductedCredits,
+      credits: auth.user.credits,
+    });
+  }
+
   const upstreamPayload = platformApizPayload({
     template,
     prompt,
     imageUrl,
     overrides: body.params,
   });
-  const task = await apizRequest("/api/v3/tasks/create", upstreamPayload);
+  if (preDeductedCredits > 0) {
+    changeUserCredits(auth.db, auth.user.id, -preDeductedCredits, "generation_pre_deduct", {
+      source: "platform-template",
+      templateId: template.id,
+      templateTitle: template.title,
+    });
+    await writeDb(auth.db);
+  }
+
+  let task;
+  try {
+    task = await apizRequest("/api/v3/tasks/create", upstreamPayload);
+  } catch (error) {
+    if (preDeductedCredits > 0) {
+      const refundDb = await readDb();
+      changeUserCredits(refundDb, auth.user.id, preDeductedCredits, "generation_submit_refund", {
+        source: "platform-template",
+        templateId: template.id,
+        reason: error.message || "submit failed",
+      });
+      await writeDb(refundDb);
+    }
+    throw error;
+  }
   const taskId = apizTaskId(task);
   if (!taskId) {
-    const error = new Error(`APIZ 未返回 task id: ${JSON.stringify(task)}`);
+    if (preDeductedCredits > 0) {
+      const refundDb = await readDb();
+      changeUserCredits(refundDb, auth.user.id, preDeductedCredits, "generation_submit_refund", {
+        source: "platform-template",
+        templateId: template.id,
+        reason: "missing task id",
+      });
+      await writeDb(refundDb);
+    }
+    const error = new Error(`Generation service did not return task id: ${JSON.stringify(task)}`);
     error.statusCode = 502;
     throw error;
   }
@@ -2146,16 +2398,27 @@ async function handlePlatformGenerate(req, res) {
     finalPrompt: prompt,
     params: upstreamPayload.params,
     upstreamPayload,
+    preDeductedCredits,
+    finalCredits: null,
+    billingStatus: preDeductedCredits > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
+    billingError: "",
+    createResponse: task,
+    createReportedCredits: extractApizReportedCredits(task),
     remoteVideoUrl: apizResultUrl(task),
     localVideoUrl: "",
     error: "",
   });
+  const settledRecord = await settleApizGenerationRecord(record, task, "create");
+  const latestDb = await readDb();
+  const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
 
   return sendJson(res, 200, {
     ok: true,
     task,
     taskId,
-    record: publicGenerationRecord(record),
+    record: publicGenerationRecord(settledRecord),
+    user: userView(latestUser),
   });
 }
 
@@ -2163,13 +2426,15 @@ async function refreshApizGenerationRecord(record) {
   if (record.provider !== "apiz") return record;
   const task = await apizRequest("/api/v3/tasks/query", { task_id: record.taskId });
   const resultUrl = apizResultUrl(task);
-  return upsertGenerationRecord({
+  const nextRecord = await upsertGenerationRecord({
     taskId: record.taskId,
     status: apizStatus(task),
     remoteVideoUrl: resultUrl || record.remoteVideoUrl || "",
     videoUrl: resultUrl || record.videoUrl || "",
     error: task.error?.message || task.error || task.message || "",
+    queryResponse: task,
   });
+  return settleApizGenerationRecord(nextRecord, task, "query");
 }
 
 function isCompletedStatus(status) {
@@ -4493,6 +4758,7 @@ async function handleListGenerationRecords(req, res, url) {
     ok: true,
     records: ownRecords.map(publicGenerationRecord),
     total: ownRecords.length,
+    user: userView((await readDb()).users.find((user) => user.id === auth.user.id) || auth.user),
   });
 }
 
@@ -4540,7 +4806,11 @@ async function handleGetGenerationRecord(req, res, taskId) {
     }
   }
 
-  return sendJson(res, 200, { ok: true, record: publicGenerationRecord(nextRecord) });
+  return sendJson(res, 200, {
+    ok: true,
+    record: publicGenerationRecord(nextRecord),
+    user: userView((await readDb()).users.find((user) => user.id === auth.user.id) || auth.user),
+  });
 }
 
 async function handleCreateCharacterImageLegacy(req, res) {

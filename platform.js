@@ -38,6 +38,10 @@ const els = {
   accessGuideDesc: document.querySelector("#accessGuideDesc"),
   accessCopy: document.querySelector("#accessCopy"),
   copyAccessBtn: document.querySelector("#copyAccessBtn"),
+  historyBtn: document.querySelector("#historyBtn"),
+  historyDialog: document.querySelector("#historyDialog"),
+  historyList: document.querySelector("#historyList"),
+  refreshHistoryBtn: document.querySelector("#refreshHistoryBtn"),
   loginBtn: document.querySelector("#loginBtn"),
   loginDialog: document.querySelector("#loginDialog"),
   loginTitle: document.querySelector("#loginTitle"),
@@ -112,6 +116,35 @@ function cleanPublicCopy(value, fallback) {
   const text = String(value || "").trim();
   if (!text || /ap[i]z|上游|后台|api\s*接入/i.test(text)) return fallback;
   return text;
+}
+
+function setUser(user) {
+  state.user = user || null;
+  if (state.user) {
+    els.loginBtn.textContent = `${state.user.username} · ${Number(state.user.credits || 0)}积分`;
+  } else {
+    els.loginBtn.textContent = "登录 / 注册";
+  }
+}
+
+function generationVideoUrl(record) {
+  return record?.videoUrl || record?.localVideoUrl || record?.remoteVideoUrl || "";
+}
+
+function statusLabel(status) {
+  const value = String(status || "").toLowerCase();
+  if (["succeeded", "success", "done", "completed"].includes(value)) return "已完成";
+  if (["failed", "error", "cancelled", "canceled"].includes(value)) return "失败";
+  if (["running", "processing", "in_progress"].includes(value)) return "生成中";
+  return status || "已提交";
+}
+
+function billingLabel(billing = {}) {
+  const pre = Number(billing.preDeducted || 0);
+  const final = billing.final === null || billing.final === undefined ? null : Number(billing.final || 0);
+  if (billing.status === "settle_pending_insufficient") return `预扣 ${pre}，实际 ${final}，待补扣`;
+  if (billing.settled && final !== null) return `预扣 ${pre}，实际 ${final}`;
+  return pre > 0 ? `预扣 ${pre}` : "未扣费";
 }
 
 function escapeHtml(value) {
@@ -275,12 +308,62 @@ async function submitTemplate() {
         dataUrl: state.uploadDataUrl,
       },
     });
+    if (payload.user) setUser(payload.user);
     els.jobNote.innerHTML = `任务已提交：<code>${escapeHtml(payload.taskId)}</code>。可在生成记录里查看进度。`;
+    loadHistory();
   } catch (error) {
     els.jobNote.textContent = error.message;
   } finally {
     els.submitTemplateBtn.disabled = false;
   }
+}
+
+function renderHistory(records = []) {
+  if (!els.historyList) return;
+  if (!records.length) {
+    els.historyList.innerHTML = '<div class="job-note">暂无生成记录。</div>';
+    return;
+  }
+  els.historyList.innerHTML = records.map((record) => {
+    const videoUrl = generationVideoUrl(record);
+    return `
+      <article class="history-item">
+        <header>
+          <div>
+            <strong>${escapeHtml(record.templateTitle || record.sceneEntryName || "生成任务")}</strong>
+            <small>${escapeHtml(record.taskId || "")}</small>
+          </div>
+          <small>${escapeHtml(statusLabel(record.status))}</small>
+        </header>
+        ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline></video>` : ""}
+        <div class="history-meta">
+          <span>${escapeHtml(record.kind || "")}</span>
+          <span>${escapeHtml(billingLabel(record.billing || {}))}</span>
+          <span>${escapeHtml(record.createdAt ? new Date(record.createdAt).toLocaleString() : "")}</span>
+        </div>
+        <p class="history-prompt">${escapeHtml(record.finalPrompt || record.prompt || "")}</p>
+      </article>
+    `;
+  }).join("");
+}
+
+async function loadHistory() {
+  if (!state.user || !els.historyList) return;
+  els.historyList.innerHTML = '<div class="job-note">正在加载生成记录...</div>';
+  try {
+    const payload = await requestJson("/api/generation-records?limit=50");
+    if (payload.user) setUser(payload.user);
+    renderHistory(payload.records || []);
+  } catch (error) {
+    els.historyList.innerHTML = `<div class="job-note">加载失败：${escapeHtml(error.message || String(error))}</div>`;
+  }
+}
+
+function openHistory() {
+  if (!state.user) return openLogin();
+  els.historyDialog.showModal();
+  loadHistory();
+  refreshIcons();
 }
 
 function openLogin() {
@@ -310,9 +393,8 @@ async function submitLogin() {
       body: { username, password },
     });
     state.token = payload.token;
-    state.user = payload.user;
+    setUser(payload.user);
     localStorage.setItem(TOKEN_KEY, payload.token);
-    els.loginBtn.textContent = payload.user.username;
     els.loginDialog.close();
   } catch (error) {
     els.loginMessage.textContent = error.message;
@@ -323,11 +405,11 @@ async function loadMe() {
   if (!state.token) return;
   try {
     const payload = await requestJson("/api/auth/me");
-    state.user = payload.user;
-    els.loginBtn.textContent = payload.user?.username || "账号";
+    setUser(payload.user);
   } catch {
     state.token = "";
     localStorage.removeItem(TOKEN_KEY);
+    setUser(null);
   }
 }
 
@@ -357,6 +439,8 @@ els.templateImage?.addEventListener("change", async () => {
   els.uploadBox.classList.add("has-image");
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
+els.historyBtn?.addEventListener("click", openHistory);
+els.refreshHistoryBtn?.addEventListener("click", loadHistory);
 els.loginBtn?.addEventListener("click", openLogin);
 els.toggleLoginMode?.addEventListener("click", () => {
   state.loginMode = state.loginMode === "login" ? "register" : "login";

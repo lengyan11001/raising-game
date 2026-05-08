@@ -343,6 +343,44 @@ textarea, input {
 textarea:focus, input:focus { border-color: rgba(25,216,255,.72); }
 .job-note { margin: 0; color: #b4c0dd; line-height: 1.6; }
 .auth-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.modal-actions { display: flex; gap: 8px; align-items: center; }
+.history-list { display: grid; gap: 12px; max-height: min(68vh, 620px); overflow: auto; }
+.history-item {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255,255,255,.035);
+}
+.history-item header { padding: 0; border: 0; align-items: start; }
+.history-item strong { display: block; }
+.history-item small { color: var(--muted); }
+.history-item video {
+  width: 100%;
+  max-height: 360px;
+  border-radius: 14px;
+  background: #05070d;
+}
+.history-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: .82rem;
+}
+.history-meta span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+.history-prompt {
+  margin: 0;
+  color: #b8c4de;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 @media (max-width: 1080px) {
   .template-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI - 模板广场</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-4" />
+    <link rel="stylesheet" href="./platform.css?v=ai-5" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -22,6 +22,7 @@
       </nav>
       <div class="head-actions">
         <a class="ghost-link" href="/game">养成游戏</a>
+        <button class="ghost-link" id="historyBtn" type="button">生成记录</button>
         <button class="primary-pill" id="loginBtn" type="button">登录 / 注册</button>
       </div>
     </header>
@@ -115,6 +116,21 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-4"></script>
+    <dialog id="historyDialog" class="modal history-modal">
+      <form method="dialog">
+        <header>
+          <strong>生成记录</strong>
+          <div class="modal-actions">
+            <button class="icon-btn" id="refreshHistoryBtn" type="button" aria-label="刷新"><i data-lucide="refresh-cw"></i></button>
+            <button class="icon-btn" value="cancel" type="submit" aria-label="关闭"><i data-lucide="x"></i></button>
+          </div>
+        </header>
+        <div class="modal-body">
+          <div class="history-list" id="historyList"></div>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./platform.js?v=ai-5"></script>
   </body>
 </html>
