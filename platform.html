@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI - 模板广场</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-7" />
+    <link rel="stylesheet" href="./platform.css?v=ai-8" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -17,8 +17,8 @@
         <strong id="brandName">Vipeak AI</strong>
       </a>
       <nav class="top-tabs" aria-label="Main sections">
-        <button class="top-tab is-active" data-tab="gallery" type="button">模板广场</button>
-        <button class="top-tab" data-tab="access" type="button">接入方式</button>
+        <button class="top-tab is-active" data-tab="gallery" type="button">Template Plaza</button>
+        <button class="top-tab" data-tab="access" type="button">API Access</button>
       </nav>
       <div class="head-actions">
         <a class="ghost-link" href="/game">养成游戏</a>
@@ -57,16 +57,16 @@
       <section class="access-panel" data-panel="access" hidden>
         <div class="section-head centered">
           <p class="eyebrow">Integration</p>
-          <h2>接入方式</h2>
-          <p>这里是给业务系统接入用的说明，和模板广场的用户生成流程分开。</p>
+          <h2>API Access</h2>
+          <p>This tab is on the same page as the plaza. It only documents integrations that are live and usable now.</p>
         </div>
         <div class="access-tabs" id="accessTabs"></div>
         <div class="copy-card">
           <div class="copy-main">
-            <span class="copy-kicker"><i data-lucide="copy"></i> ONE COPY INTEGRATION</span>
+            <span class="copy-kicker"><i data-lucide="copy"></i> LIVE HTTP API</span>
             <h3 id="accessGuideTitle">HTTP API</h3>
-            <p id="accessGuideDesc">服务端提交生成任务，查询进度，读取结果。</p>
-            <button class="copy-btn" id="copyAccessBtn" type="button"><i data-lucide="clipboard"></i>复制接入说明</button>
+            <p id="accessGuideDesc">Submit generation tasks and query results through the current production API.</p>
+            <button class="copy-btn" id="copyAccessBtn" type="button"><i data-lucide="clipboard"></i>Copy API guide</button>
           </div>
           <pre class="copy-preview" id="accessCopy"></pre>
         </div>
@@ -131,6 +131,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-7"></script>
+    <script src="./platform.js?v=ai-8"></script>
   </body>
 </html>

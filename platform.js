@@ -64,48 +64,53 @@ const PUBLIC_COPY = {
     "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
 };
 
-const ACCESS_GUIDES = [
+let ACCESS_GUIDES = [
   {
     id: "http",
     title: "HTTP API",
-    subtitle: "直接提交任务",
-    desc: "服务端提交生成任务，查询进度，读取结果。",
+    subtitle: "Available now",
+    desc: "This is the live integration path. Submit a template generation task, then query history or a task detail for progress and result video.",
     copy:
       "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
   },
-  {
-    id: "mcp",
-    title: "MCP",
-    subtitle: "工具调用",
-    desc: "把模板生成封装成工具，由业务系统按模板 ID 和素材调用。",
-    copy:
-      "tool: create_template_video\ninput:\n  templateId: template-id\n  prompt: optional user prompt\n  image: uploaded image url or data url\noutput:\n  taskId\n  status\n  videoUrl",
-  },
-  {
-    id: "typescript",
-    title: "TypeScript",
-    subtitle: "服务端接入",
-    desc: "在服务端用 token 调用本站接口，前端只负责传素材和展示记录。",
-    copy:
-      "const res = await fetch('https://123vips.com/api/platform/generate', {\n  method: 'POST',\n  headers: {\n    authorization: `Bearer ${userToken}`,\n    'content-type': 'application/json',\n  },\n  body: JSON.stringify({ templateId, prompt, dataUrl }),\n});\nconst job = await res.json();",
-  },
-  {
-    id: "python",
-    title: "Python",
-    subtitle: "服务端接入",
-    desc: "后端任务、脚本或内部系统都可以按同一套接口提交和查询。",
-    copy:
-      "import requests\n\nresp = requests.post(\n    'https://123vips.com/api/platform/generate',\n    headers={'Authorization': f'Bearer {user_token}'},\n    json={'templateId': template_id, 'prompt': prompt, 'dataUrl': data_url},\n)\njob = resp.json()",
-  },
-  {
-    id: "cli",
-    title: "CLI",
-    subtitle: "命令行调用",
-    desc: "适合内部运营或自动化脚本，直接用 HTTP 提交任务。",
-    copy:
-      "curl -X POST https://123vips.com/api/platform/generate \\\n  -H \"Authorization: Bearer <user-token>\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"...\"}'",
-  },
 ];
+
+const LIVE_HTTP_ACCESS_COPY = `POST https://123vips.com/api/platform/generate
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "templateId": "template-id",
+  "dataUrl": "data:image/png;base64,...",
+  "prompt": "optional override"
+}
+
+Response:
+{
+  "ok": true,
+  "taskId": "...",
+  "record": { "status": "submitted", "billing": { "preDeducted": 485 } },
+  "user": { "credits": 12345 }
+}
+
+GET https://123vips.com/api/generation-records
+GET https://123vips.com/api/generation-records/<taskId>`;
+
+PUBLIC_COPY.galleryTitle = "Create videos from templates";
+PUBLIC_COPY.gallerySubtitle = "Choose a template, upload an image or enter text, and generate the same style.";
+PUBLIC_COPY.galleryNotice = "Generated results are saved in your history.";
+PUBLIC_COPY.accessTitle = "API Access";
+PUBLIC_COPY.accessSubtitle = "Use the same template generation flow from your own service through our HTTP API.";
+PUBLIC_COPY.accessNotice = "Currently available: HTTP API.";
+PUBLIC_COPY.accessCopy = LIVE_HTTP_ACCESS_COPY;
+
+ACCESS_GUIDES = [{
+  id: "http",
+  title: "HTTP API",
+  subtitle: "Available now",
+  desc: "This is the live integration path. Submit a template generation task, then query history or a task detail for progress and result video.",
+  copy: LIVE_HTTP_ACCESS_COPY,
+}];
 
 let activeAccessGuide = ACCESS_GUIDES[0];
 
@@ -210,7 +215,7 @@ function renderHero() {
     els.heroEyebrow.textContent = "Integration";
     els.heroTitle.textContent = PUBLIC_COPY.accessTitle;
     els.heroSubtitle.textContent = PUBLIC_COPY.accessSubtitle;
-    els.heroBadge.textContent = "接入方式";
+    els.heroBadge.textContent = "HTTP API";
     els.heroNotice.textContent = PUBLIC_COPY.accessNotice;
     return;
   }
@@ -218,7 +223,7 @@ function renderHero() {
   els.heroEyebrow.textContent = "Template Plaza";
   els.heroTitle.textContent = cleanPublicCopy(platform.heroTitle, PUBLIC_COPY.galleryTitle);
   els.heroSubtitle.textContent = cleanPublicCopy(platform.heroSubtitle, PUBLIC_COPY.gallerySubtitle);
-  els.heroBadge.textContent = "模板广场";
+  els.heroBadge.textContent = "Template Plaza";
   els.heroNotice.textContent = cleanPublicCopy(platform.notice, PUBLIC_COPY.galleryNotice);
 }
 
@@ -500,10 +505,10 @@ els.toggleLoginMode?.addEventListener("click", () => {
 els.loginSubmit?.addEventListener("click", submitLogin);
 els.copyAccessBtn?.addEventListener("click", async () => {
   await navigator.clipboard.writeText(els.accessCopy.textContent || "");
-  els.copyAccessBtn.innerHTML = '<i data-lucide="check"></i>已复制';
+  els.copyAccessBtn.innerHTML = '<i data-lucide="check"></i>Copied';
   refreshIcons();
   setTimeout(() => {
-    els.copyAccessBtn.innerHTML = '<i data-lucide="clipboard"></i>复制接入说明';
+    els.copyAccessBtn.innerHTML = '<i data-lucide="clipboard"></i>Copy API guide';
     refreshIcons();
   }, 1600);
 });
