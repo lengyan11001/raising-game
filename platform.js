@@ -96,21 +96,164 @@ Response:
 GET https://123vips.com/api/generation-records
 GET https://123vips.com/api/generation-records/<taskId>`;
 
+const TYPE_SCRIPT_ACCESS_COPY = `async function createTemplateVideo({ userToken, templateId, dataUrl, prompt = "" }) {
+  const response = await fetch("https://123vips.com/api/platform/generate", {
+    method: "POST",
+    headers: {
+      "authorization": \`Bearer \${userToken}\`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ templateId, dataUrl, prompt })
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.message || "Generation failed");
+  }
+  return payload;
+}
+
+async function listGenerationRecords(userToken) {
+  const response = await fetch("https://123vips.com/api/generation-records", {
+    headers: { "authorization": \`Bearer \${userToken}\` }
+  });
+  return response.json();
+}`;
+
+const PYTHON_ACCESS_COPY = `import requests
+
+BASE_URL = "https://123vips.com"
+
+def create_template_video(user_token, template_id, data_url, prompt=""):
+    resp = requests.post(
+        f"{BASE_URL}/api/platform/generate",
+        headers={
+            "Authorization": f"Bearer {user_token}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "templateId": template_id,
+            "dataUrl": data_url,
+            "prompt": prompt,
+        },
+        timeout=120,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+def list_generation_records(user_token):
+    resp = requests.get(
+        f"{BASE_URL}/api/generation-records",
+        headers={"Authorization": f"Bearer {user_token}"},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()`;
+
+const CLI_ACCESS_COPY = `curl -X POST "https://123vips.com/api/platform/generate" \\
+  -H "Authorization: Bearer <user-token>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "templateId": "template-id",
+    "dataUrl": "data:image/png;base64,...",
+    "prompt": "optional override"
+  }'
+
+curl "https://123vips.com/api/generation-records" \\
+  -H "Authorization: Bearer <user-token>"`;
+
+const AGENT_ACCESS_COPY = `Agent instruction:
+
+Use the 123vips template generation API.
+
+When the user asks to generate the same style:
+1. Ask for or use a templateId.
+2. Convert the uploaded image to a data URL.
+3. POST https://123vips.com/api/platform/generate with:
+   - Authorization: Bearer <user-token>
+   - JSON body: { templateId, dataUrl, prompt }
+4. Return taskId and tell the user to check generation history.
+5. To check progress, GET /api/generation-records or /api/generation-records/<taskId>.
+
+Never invent upstream parameters on the client side. The template JSON is configured in the admin console; client code only sends templateId, image data, and optional prompt override.`;
+
+const MCP_ACCESS_COPY = `MCP wrapper approach:
+
+There is no separate hosted MCP endpoint yet. To use MCP today, create a tiny MCP tool that wraps the live HTTP API above.
+
+Tool: create_template_video
+Input schema:
+{
+  "templateId": "string",
+  "dataUrl": "string",
+  "prompt": "string optional"
+}
+
+Handler behavior:
+POST https://123vips.com/api/platform/generate
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+Return:
+{
+  "taskId": "...",
+  "status": "...",
+  "record": { ... }
+}
+
+This is usable as an MCP integration once your wrapper supplies the user token.`;
+
 PUBLIC_COPY.galleryTitle = "Create videos from templates";
 PUBLIC_COPY.gallerySubtitle = "Choose a template, upload an image or enter text, and generate the same style.";
 PUBLIC_COPY.galleryNotice = "Generated results are saved in your history.";
 PUBLIC_COPY.accessTitle = "API Access";
-PUBLIC_COPY.accessSubtitle = "Use the same template generation flow from your own service through our HTTP API.";
-PUBLIC_COPY.accessNotice = "Currently available: HTTP API.";
+PUBLIC_COPY.accessSubtitle = "Use the same template generation flow from your own service, scripts, agents, or an MCP wrapper.";
+PUBLIC_COPY.accessNotice = "All examples below call the current production API. The admin template JSON stays server-side.";
 PUBLIC_COPY.accessCopy = LIVE_HTTP_ACCESS_COPY;
 
-ACCESS_GUIDES = [{
-  id: "http",
-  title: "HTTP API",
-  subtitle: "Available now",
-  desc: "This is the live integration path. Submit a template generation task, then query history or a task detail for progress and result video.",
-  copy: LIVE_HTTP_ACCESS_COPY,
-}];
+ACCESS_GUIDES = [
+  {
+    id: "http",
+    title: "HTTP API",
+    subtitle: "Direct endpoint",
+    desc: "Production endpoint. Submit template generation tasks and query records/results.",
+    copy: LIVE_HTTP_ACCESS_COPY,
+  },
+  {
+    id: "typescript",
+    title: "TypeScript",
+    subtitle: "Server code",
+    desc: "A working fetch wrapper around the same production HTTP API.",
+    copy: TYPE_SCRIPT_ACCESS_COPY,
+  },
+  {
+    id: "python",
+    title: "Python",
+    subtitle: "Server code",
+    desc: "A working requests wrapper around the same production HTTP API.",
+    copy: PYTHON_ACCESS_COPY,
+  },
+  {
+    id: "cli",
+    title: "CLI",
+    subtitle: "curl",
+    desc: "Direct curl commands for submitting and checking generation jobs.",
+    copy: CLI_ACCESS_COPY,
+  },
+  {
+    id: "agent",
+    title: "Agent Kit",
+    subtitle: "Prompt rules",
+    desc: "Copy these rules into an agent so it calls the production API instead of inventing parameters.",
+    copy: AGENT_ACCESS_COPY,
+  },
+  {
+    id: "mcp",
+    title: "MCP",
+    subtitle: "HTTP wrapper",
+    desc: "MCP is available through a wrapper around the current HTTP API; there is no separate hosted MCP endpoint yet.",
+    copy: MCP_ACCESS_COPY,
+  },
+];
 
 let activeAccessGuide = ACCESS_GUIDES[0];
 
