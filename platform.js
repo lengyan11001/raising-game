@@ -6,6 +6,7 @@ const state = {
   config: null,
   templates: [],
   categories: [],
+  estimates: {},
   tab: "gallery",
   category: "all",
   activeTemplate: null,
@@ -147,6 +148,30 @@ function billingLabel(billing = {}) {
   return pre > 0 ? `预扣 ${pre}` : "未扣费";
 }
 
+function formatCredits(value) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return "";
+  return Number.isInteger(next) ? String(next) : next.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function templateCostLabel(templateId) {
+  const estimate = state.estimates?.[templateId];
+  if (!estimate) return "Checking cost...";
+  if (estimate.available === false || estimate.credits === null || estimate.credits === undefined) return "Cost unavailable";
+  return `${formatCredits(estimate.credits)} credits`;
+}
+
+function templateGenerateLabel(templateId) {
+  return `Generate · ${templateCostLabel(templateId)}`;
+}
+
+function updateSubmitButtonCost() {
+  if (!els.submitTemplateBtn) return;
+  const templateId = state.activeTemplate?.id || "";
+  els.submitTemplateBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(templateGenerateLabel(templateId))}`;
+  refreshIcons();
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -230,7 +255,7 @@ function renderTemplates() {
         <span>${escapeHtml(template.badge || (template.type === "image-to-video" ? "Image to Video" : "Text to Video"))}</span>
         <strong>${escapeHtml(template.title)}</strong>
         <p>${escapeHtml(template.prompt || "").slice(0, 72)}${String(template.prompt || "").length > 72 ? "..." : ""}</p>
-        <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">生成同款</button>
+        <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
       </div>
     </article>
   `).join("") : `<div class="job-note">暂无可用模板，请稍后再试。</div>`;
@@ -277,6 +302,7 @@ function openTemplate(templateId) {
   els.uploadBox.classList.remove("has-image");
   els.uploadPreview.removeAttribute("src");
   els.templateImage.value = "";
+  updateSubmitButtonCost();
   els.templateDialog.showModal();
   refreshIcons();
 }
@@ -315,6 +341,7 @@ async function submitTemplate() {
     els.jobNote.textContent = error.message;
   } finally {
     els.submitTemplateBtn.disabled = false;
+    updateSubmitButtonCost();
   }
 }
 
@@ -413,6 +440,24 @@ async function loadMe() {
   }
 }
 
+async function loadPlatformEstimates() {
+  if (!state.templates.length) return;
+  try {
+    const payload = await requestJson("/api/platform/estimates");
+    state.estimates = {};
+    (payload.estimates || []).forEach((estimate) => {
+      if (estimate?.templateId) state.estimates[estimate.templateId] = estimate;
+    });
+  } catch (error) {
+    state.estimates = Object.fromEntries(state.templates.map((template) => [
+      template.id,
+      { templateId: template.id, available: false, credits: null, message: error.message },
+    ]));
+  }
+  renderTemplates();
+  updateSubmitButtonCost();
+}
+
 async function bootstrap() {
   await loadMe();
   const payload = await requestJson("/api/config/public");
@@ -426,6 +471,7 @@ async function bootstrap() {
   renderTemplates();
   renderAccessGuides();
   refreshIcons();
+  loadPlatformEstimates();
 }
 
 document.querySelectorAll("[data-tab]").forEach((button) => {

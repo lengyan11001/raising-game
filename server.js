@@ -2803,6 +2803,56 @@ async function handlePlatformGenerate(req, res) {
   });
 }
 
+async function makePlatformEstimate(template, overrides = {}) {
+  const prompt =
+    typeof overrides.prompt === "string" && overrides.prompt.trim()
+      ? overrides.prompt
+      : template.prompt || "";
+  const upstreamPayload = platformApizPayload({
+    template,
+    prompt,
+    imageUrl: "",
+    overrides: overrides.params,
+  });
+  const pricingEstimate = await estimatePlatformPreDeductCredits(upstreamPayload.model, upstreamPayload.params, template);
+  return {
+    templateId: template.id,
+    credits: creditsAmount(pricingEstimate.credits),
+    source: pricingEstimate.source,
+    available: true,
+  };
+}
+
+async function handlePlatformEstimates(req, res, url) {
+  const config = await readAppConfig();
+  const requestedTemplateId = String(url.searchParams.get("templateId") || "").trim();
+  const platform = normalizePlatformConfig(config.platform || {});
+  const templates = requestedTemplateId
+    ? platform.templates.filter((template) => template.id === requestedTemplateId)
+    : platform.templates;
+
+  if (requestedTemplateId && !templates.length) {
+    return sendJson(res, 404, { ok: false, message: "Template not found." });
+  }
+
+  const estimates = await Promise.all(templates.map(async (template) => {
+    try {
+      return await makePlatformEstimate(template);
+    } catch (error) {
+      return {
+        templateId: template.id,
+        credits: null,
+        source: "",
+        available: false,
+        code: error.code || "PRICING_UNAVAILABLE",
+        message: error.message || "Pricing is unavailable.",
+      };
+    }
+  }));
+
+  return sendJson(res, 200, { ok: true, estimates });
+}
+
 async function refreshApizGenerationRecord(record) {
   if (record.provider !== "apiz") return record;
   const task = await apizRequest("/api/v3/tasks/query", { task_id: record.taskId });
@@ -5707,6 +5757,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/platform/generate") {
       return await handlePlatformGenerate(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/platform/estimates") {
+      return await handlePlatformEstimates(req, res, url);
     }
 
     if (req.method === "GET" && url.pathname === "/api/user-assets") {
