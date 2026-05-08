@@ -7,7 +7,6 @@ const state = {
   templates: [],
   categories: [],
   tab: "gallery",
-  filter: "all",
   category: "all",
   activeTemplate: null,
   uploadDataUrl: "",
@@ -165,14 +164,6 @@ function renderHero() {
   els.heroNotice.textContent = cleanPublicCopy(platform.notice, PUBLIC_COPY.galleryNotice);
 }
 
-function setFilter(filter) {
-  state.filter = filter;
-  document.querySelectorAll("[data-filter]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.filter === filter);
-  });
-  renderTemplates();
-}
-
 function setCategory(category) {
   state.category = category;
   renderCategories();
@@ -180,7 +171,8 @@ function setCategory(category) {
 }
 
 function renderCategories() {
-  const chips = [{ id: "all", name: "全部" }, ...state.categories];
+  const visibleCategories = state.categories.filter((category) => !isHiddenCategory(category));
+  const chips = [{ id: "all", name: "全部" }, ...visibleCategories];
   els.categoryRow.innerHTML = chips.map((category) => `
     <button class="category-chip ${state.category === category.id ? "is-active" : ""}" data-category="${escapeHtml(category.id)}" type="button">
       ${escapeHtml(category.name)}
@@ -193,7 +185,7 @@ function renderCategories() {
 
 function renderTemplates() {
   const list = state.templates.filter((template) => {
-    if (state.filter !== "all" && template.type !== state.filter) return false;
+    if (isHiddenCategory({ id: template.category, name: template.category })) return false;
     if (state.category !== "all" && template.category !== state.category) return false;
     return true;
   });
@@ -213,6 +205,11 @@ function renderTemplates() {
   els.templateGrid.querySelectorAll("[data-template-id]").forEach((button) => {
     button.addEventListener("click", () => openTemplate(button.dataset.templateId));
   });
+}
+
+function isHiddenCategory(category) {
+  const value = `${category?.id || ""} ${category?.name || ""}`.toLowerCase();
+  return value.includes("business") || value.includes("商业接入");
 }
 
 function renderAccessGuides() {
@@ -351,9 +348,6 @@ async function bootstrap() {
 
 document.querySelectorAll("[data-tab]").forEach((button) => {
   button.addEventListener("click", () => setTab(button.dataset.tab));
-});
-document.querySelectorAll("[data-filter]").forEach((button) => {
-  button.addEventListener("click", () => setFilter(button.dataset.filter));
 });
 els.templateImage?.addEventListener("change", async () => {
   const file = els.templateImage.files?.[0];

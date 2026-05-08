@@ -237,7 +237,6 @@ const DEFAULT_CONFIG = {
       { id: "featured", name: "精选模板" },
       { id: "i2v", name: "图生视频" },
       { id: "t2v", name: "文生视频" },
-      { id: "business", name: "商业接入" },
     ],
     templates: [
       {
@@ -514,6 +513,11 @@ function cleanPlatformPublicCopy(value, fallback) {
   return text;
 }
 
+function isHiddenPlatformCategory(category = {}) {
+  const value = `${category.id || ""} ${category.name || ""}`.toLowerCase();
+  return value.includes("business") || value.includes("商业接入");
+}
+
 function normalizePlatformConfig(platform = {}) {
   const fallback = DEFAULT_CONFIG.platform || {};
   const categories = Array.isArray(platform.categories) ? platform.categories : fallback.categories || [];
@@ -526,13 +530,16 @@ function normalizePlatformConfig(platform = {}) {
     heroSubtitle: cleanPlatformPublicCopy(platform.heroSubtitle, fallback.heroSubtitle || ""),
     notice: cleanPlatformPublicCopy(platform.notice, fallback.notice || ""),
     accessCopy: cleanPlatformPublicCopy(platform.accessCopy, fallback.accessCopy || ""),
-    categories: categories.map((category, index) => ({
-      id: String(category.id || `cat-${index + 1}`).trim().replace(/[^a-z0-9_-]/gi, "-") || `cat-${index + 1}`,
-      name: String(category.name || category.id || `Category ${index + 1}`).trim(),
-    })),
+    categories: categories
+      .map((category, index) => ({
+        id: String(category.id || `cat-${index + 1}`).trim().replace(/[^a-z0-9_-]/gi, "-") || `cat-${index + 1}`,
+        name: String(category.name || category.id || `Category ${index + 1}`).trim(),
+      }))
+      .filter((category) => !isHiddenPlatformCategory(category)),
     templates: templates
       .map(normalizePlatformTemplate)
       .filter((template) => template.enabled !== false)
+      .filter((template) => !isHiddenPlatformCategory({ id: template.category, name: template.category }))
       .sort((a, b) => a.sort - b.sort),
   };
 }
