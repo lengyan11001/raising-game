@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-11" />
+    <link rel="stylesheet" href="./platform.css?v=ai-12" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -61,6 +61,17 @@
           <p>Connect your product or workflow to the current production generation API.</p>
         </div>
         <div class="access-tabs" id="accessTabs"></div>
+        <div class="token-card" id="accessTokenCard">
+          <div>
+            <span>Current API token</span>
+            <strong id="accessTokenDisplay">Login to auto-fill your token</strong>
+            <small id="accessTokenHint">The copied examples use the full token. The page masks it by default.</small>
+          </div>
+          <div class="token-actions">
+            <button class="ghost-button" id="toggleAccessTokenBtn" type="button">Show full</button>
+            <button class="copy-btn" id="copyTokenBtn" type="button"><i data-lucide="key-round"></i>Copy token</button>
+          </div>
+        </div>
         <div class="copy-card">
           <div class="copy-main">
             <span class="copy-kicker"><i data-lucide="copy"></i> COPY AND CONNECT</span>
@@ -116,6 +127,39 @@
       </form>
     </dialog>
 
+    <dialog id="accountDialog" class="modal account-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span>Account</span>
+            <strong id="accountName">Account</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <div class="account-grid">
+            <div>
+              <span>Credits</span>
+              <strong id="accountCredits">0</strong>
+            </div>
+            <div>
+              <span>Role</span>
+              <strong id="accountRole">user</strong>
+            </div>
+          </div>
+          <div class="token-box">
+            <span>API token</span>
+            <code id="accountToken">Login to view token</code>
+            <div class="token-actions">
+              <button class="ghost-button" id="toggleAccountTokenBtn" type="button">Show full</button>
+              <button class="copy-btn" id="copyAccountTokenBtn" type="button"><i data-lucide="copy"></i>Copy token</button>
+            </div>
+          </div>
+          <button class="ghost-button danger-link" id="logoutAccountBtn" type="button"><i data-lucide="log-out"></i>Log out</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="historyDialog" class="modal history-modal">
       <form method="dialog">
         <header>
@@ -131,6 +175,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-11"></script>
+    <script src="./platform.js?v=ai-12"></script>
   </body>
 </html>

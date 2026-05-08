@@ -14,6 +14,8 @@ const state = {
   token: localStorage.getItem(TOKEN_KEY) || "",
   user: null,
   loginMode: "login",
+  showAccessToken: false,
+  showAccountToken: false,
 };
 
 const els = {
@@ -39,11 +41,23 @@ const els = {
   accessGuideDesc: document.querySelector("#accessGuideDesc"),
   accessCopy: document.querySelector("#accessCopy"),
   copyAccessBtn: document.querySelector("#copyAccessBtn"),
+  accessTokenDisplay: document.querySelector("#accessTokenDisplay"),
+  accessTokenHint: document.querySelector("#accessTokenHint"),
+  toggleAccessTokenBtn: document.querySelector("#toggleAccessTokenBtn"),
+  copyTokenBtn: document.querySelector("#copyTokenBtn"),
   historyBtn: document.querySelector("#historyBtn"),
   historyDialog: document.querySelector("#historyDialog"),
   historyList: document.querySelector("#historyList"),
   refreshHistoryBtn: document.querySelector("#refreshHistoryBtn"),
   loginBtn: document.querySelector("#loginBtn"),
+  accountDialog: document.querySelector("#accountDialog"),
+  accountName: document.querySelector("#accountName"),
+  accountCredits: document.querySelector("#accountCredits"),
+  accountRole: document.querySelector("#accountRole"),
+  accountToken: document.querySelector("#accountToken"),
+  toggleAccountTokenBtn: document.querySelector("#toggleAccountTokenBtn"),
+  copyAccountTokenBtn: document.querySelector("#copyAccountTokenBtn"),
+  logoutAccountBtn: document.querySelector("#logoutAccountBtn"),
   loginDialog: document.querySelector("#loginDialog"),
   loginTitle: document.querySelector("#loginTitle"),
   loginUsername: document.querySelector("#loginUsername"),
@@ -96,7 +110,9 @@ Response:
 GET https://123vips.com/api/generation-records
 GET https://123vips.com/api/generation-records/<taskId>`;
 
-const TYPE_SCRIPT_ACCESS_COPY = `async function createTemplateVideo({ userToken, templateId, dataUrl, prompt = "" }) {
+const TYPE_SCRIPT_ACCESS_COPY = `const USER_TOKEN = "<user-token>";
+
+async function createTemplateVideo({ templateId, dataUrl, prompt = "", userToken = USER_TOKEN }) {
   const response = await fetch("https://123vips.com/api/platform/generate", {
     method: "POST",
     headers: {
@@ -112,7 +128,7 @@ const TYPE_SCRIPT_ACCESS_COPY = `async function createTemplateVideo({ userToken,
   return payload;
 }
 
-async function listGenerationRecords(userToken) {
+async function listGenerationRecords(userToken = USER_TOKEN) {
   const response = await fetch("https://123vips.com/api/generation-records", {
     headers: { "authorization": \`Bearer \${userToken}\` }
   });
@@ -122,8 +138,9 @@ async function listGenerationRecords(userToken) {
 const PYTHON_ACCESS_COPY = `import requests
 
 BASE_URL = "https://123vips.com"
+USER_TOKEN = "<user-token>"
 
-def create_template_video(user_token, template_id, data_url, prompt=""):
+def create_template_video(template_id, data_url, prompt="", user_token=USER_TOKEN):
     resp = requests.post(
         f"{BASE_URL}/api/platform/generate",
         headers={
@@ -140,7 +157,7 @@ def create_template_video(user_token, template_id, data_url, prompt=""):
     resp.raise_for_status()
     return resp.json()
 
-def list_generation_records(user_token):
+def list_generation_records(user_token=USER_TOKEN):
     resp = requests.get(
         f"{BASE_URL}/api/generation-records",
         headers={"Authorization": f"Bearer {user_token}"},
@@ -273,6 +290,59 @@ function setUser(user) {
     els.loginBtn.textContent = `${state.user.username} · ${Number(state.user.credits || 0)} credits`;
   } else {
     els.loginBtn.textContent = "Login / Sign up";
+  }
+  renderTokenDisplays();
+  renderAccessGuides();
+}
+
+function maskToken(token = "") {
+  const value = String(token || "");
+  if (!value) return "";
+  if (value.length <= 12) return `${value.slice(0, 3)}...${value.slice(-3)}`;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function currentTokenLabel(showFull = false) {
+  if (!state.token || !state.user) return "Login to auto-fill your token";
+  return showFull ? state.token : maskToken(state.token);
+}
+
+function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
+  const token = state.token && state.user ? state.token : "<user-token>";
+  const tokenLabel = state.token && state.user ? (revealToken ? token : maskToken(token)) : "<user-token>";
+  return String(copy || PUBLIC_COPY.accessCopy).replaceAll("<user-token>", tokenLabel);
+}
+
+function fullAccessCopy() {
+  return hydrateAccessCopy(activeAccessGuide.copy, { revealToken: true });
+}
+
+function renderTokenDisplays() {
+  if (els.accessTokenDisplay) {
+    els.accessTokenDisplay.textContent = currentTokenLabel(state.showAccessToken);
+  }
+  if (els.accessTokenHint) {
+    els.accessTokenHint.textContent = state.user
+      ? "Copied guides use the full token. The page masks it by default."
+      : "Login first, then the examples below will use your token automatically.";
+  }
+  if (els.toggleAccessTokenBtn) {
+    els.toggleAccessTokenBtn.textContent = state.showAccessToken ? "Hide" : "Show full";
+    els.toggleAccessTokenBtn.disabled = !state.token || !state.user;
+  }
+  if (els.copyTokenBtn) {
+    els.copyTokenBtn.disabled = !state.token || !state.user;
+  }
+  if (els.accountName) els.accountName.textContent = state.user?.username || "Account";
+  if (els.accountCredits) els.accountCredits.textContent = String(Number(state.user?.credits || 0));
+  if (els.accountRole) els.accountRole.textContent = state.user?.role || "user";
+  if (els.accountToken) els.accountToken.textContent = currentTokenLabel(state.showAccountToken);
+  if (els.toggleAccountTokenBtn) {
+    els.toggleAccountTokenBtn.textContent = state.showAccountToken ? "Hide" : "Show full";
+    els.toggleAccountTokenBtn.disabled = !state.token || !state.user;
+  }
+  if (els.copyAccountTokenBtn) {
+    els.copyAccountTokenBtn.disabled = !state.token || !state.user;
   }
 }
 
@@ -432,7 +502,8 @@ function renderAccessGuides() {
   `).join("");
   els.accessGuideTitle.textContent = activeAccessGuide.title;
   els.accessGuideDesc.textContent = activeAccessGuide.desc;
-  els.accessCopy.textContent = cleanPublicCopy(activeAccessGuide.copy, PUBLIC_COPY.accessCopy);
+  els.accessCopy.textContent = hydrateAccessCopy(activeAccessGuide.copy || PUBLIC_COPY.accessCopy, { revealToken: state.showAccessToken });
+  renderTokenDisplays();
   els.accessTabs.querySelectorAll("[data-access-guide]").forEach((button) => {
     button.addEventListener("click", () => {
       activeAccessGuide = ACCESS_GUIDES.find((guide) => guide.id === button.dataset.accessGuide) || ACCESS_GUIDES[0];
@@ -547,8 +618,25 @@ function openHistory() {
 }
 
 function openLogin() {
+  if (state.user) return openAccount();
   renderLoginMode();
   els.loginDialog.showModal();
+}
+
+function openAccount() {
+  renderTokenDisplays();
+  els.accountDialog?.showModal();
+  refreshIcons();
+}
+
+function logout() {
+  state.token = "";
+  state.user = null;
+  state.showAccessToken = false;
+  state.showAccountToken = false;
+  localStorage.removeItem(TOKEN_KEY);
+  els.accountDialog?.close();
+  setUser(null);
 }
 
 function renderLoginMode() {
@@ -576,6 +664,7 @@ async function submitLogin() {
     setUser(payload.user);
     localStorage.setItem(TOKEN_KEY, payload.token);
     els.loginDialog.close();
+    if (state.tab === "access") renderAccessGuides();
   } catch (error) {
     els.loginMessage.textContent = error.message;
   }
@@ -623,6 +712,7 @@ async function bootstrap() {
   renderCategories();
   renderTemplates();
   renderAccessGuides();
+  renderTokenDisplays();
   refreshIcons();
   loadPlatformEstimates();
 }
@@ -640,14 +730,17 @@ els.templateImage?.addEventListener("change", async () => {
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
 els.historyBtn?.addEventListener("click", openHistory);
 els.refreshHistoryBtn?.addEventListener("click", loadHistory);
-els.loginBtn?.addEventListener("click", openLogin);
+els.loginBtn?.addEventListener("click", () => {
+  if (state.user) openAccount();
+  else openLogin();
+});
 els.toggleLoginMode?.addEventListener("click", () => {
   state.loginMode = state.loginMode === "login" ? "register" : "login";
   renderLoginMode();
 });
 els.loginSubmit?.addEventListener("click", submitLogin);
 els.copyAccessBtn?.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(els.accessCopy.textContent || "");
+  await navigator.clipboard.writeText(fullAccessCopy());
   els.copyAccessBtn.innerHTML = '<i data-lucide="check"></i>Copied';
   refreshIcons();
   setTimeout(() => {
@@ -655,6 +748,35 @@ els.copyAccessBtn?.addEventListener("click", async () => {
     refreshIcons();
   }, 1600);
 });
+els.toggleAccessTokenBtn?.addEventListener("click", () => {
+  state.showAccessToken = !state.showAccessToken;
+  renderAccessGuides();
+});
+els.copyTokenBtn?.addEventListener("click", async () => {
+  if (!state.token || !state.user) return openLogin();
+  await navigator.clipboard.writeText(state.token);
+  els.copyTokenBtn.innerHTML = '<i data-lucide="check"></i>Copied token';
+  refreshIcons();
+  setTimeout(() => {
+    els.copyTokenBtn.innerHTML = '<i data-lucide="key-round"></i>Copy token';
+    refreshIcons();
+  }, 1600);
+});
+els.toggleAccountTokenBtn?.addEventListener("click", () => {
+  state.showAccountToken = !state.showAccountToken;
+  renderTokenDisplays();
+});
+els.copyAccountTokenBtn?.addEventListener("click", async () => {
+  if (!state.token || !state.user) return openLogin();
+  await navigator.clipboard.writeText(state.token);
+  els.copyAccountTokenBtn.innerHTML = '<i data-lucide="check"></i>Copied';
+  refreshIcons();
+  setTimeout(() => {
+    els.copyAccountTokenBtn.innerHTML = '<i data-lucide="copy"></i>Copy token';
+    refreshIcons();
+  }, 1600);
+});
+els.logoutAccountBtn?.addEventListener("click", logout);
 
 bootstrap().catch((error) => {
   document.body.insertAdjacentHTML("beforeend", `<div class="job-note" style="position:fixed;left:20px;bottom:20px;background:#11182b;padding:14px 16px;border-radius:14px;">${escapeHtml(error.message)}</div>`);

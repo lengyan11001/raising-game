@@ -1614,53 +1614,69 @@ function platformCategoryOptions(categories = [], selected = "") {
   `).join("");
 }
 
-function platformTemplateCard(template = {}, index = 0, categories = []) {
-  const requestJson = JSON.stringify(platformTemplateRequestJson(template), null, 2);
+function platformTemplatePreview(template = {}) {
+  const src = template.previewUrl || template.coverUrl || "";
+  if (!src) return '<div class="platform-mini-preview"><i data-lucide="image"></i></div>';
+  if (/\.(mp4|webm|mov)(\?|#|$)/i.test(src)) {
+    return `<video class="platform-mini-preview" src="${escapeHtml(src)}" muted playsinline preload="metadata"></video>`;
+  }
+  return `<img class="platform-mini-preview" src="${escapeHtml(src)}" alt="" loading="lazy" />`;
+}
+
+function platformTemplateSummary(template = {}, index = 0, categories = []) {
+  const category = categories.find((item) => item.id === template.category);
+  const requestJson = platformTemplateRequestJson(template);
+  const model = requestJson.model || template.model || "—";
+  const prompt = requestJson.prompt || template.prompt || "";
   return `
-    <article class="adm-card platform-template-card" data-template-index="${index}">
-      <header class="adm-card-head">
-        <div>
-          <h3>${escapeHtml(template.title || `Template ${index + 1}`)}</h3>
-          <span class="adm-muted">${escapeHtml(template.id || "")}</span>
-        </div>
-        <div class="adm-form-actions">
-          <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="save-template" type="button"><i data-lucide="save"></i>保存模板</button>
+    <tr data-template-index="${index}">
+      <td>${platformTemplatePreview(template)}</td>
+      <td>
+        <strong>${escapeHtml(template.title || `Template ${index + 1}`)}</strong>
+        <small class="adm-muted adm-block adm-mono">${escapeHtml(template.id || "")}</small>
+      </td>
+      <td>${escapeHtml(category?.name || template.category || "—")}</td>
+      <td>${escapeHtml(template.type === "text-to-video" ? "Text to Video" : "Image to Video")}</td>
+      <td class="adm-mono adm-truncate" title="${escapeHtml(String(model))}">${escapeHtml(String(model)).slice(0, 42)}</td>
+      <td class="adm-truncate" title="${escapeHtml(prompt)}">${escapeHtml(prompt).slice(0, 80)}</td>
+      <td>${template.enabled === false ? '<span class="adm-pill is-cancelled">Off</span>' : '<span class="adm-pill is-success">On</span>'}</td>
+      <td>${Number.isFinite(Number(template.sort)) ? Number(template.sort) : index}</td>
+      <td>
+        <div class="adm-actions">
+          <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit-template" type="button"><i data-lucide="pencil"></i>编辑</button>
           <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-template" type="button"><i data-lucide="trash-2"></i>删除</button>
         </div>
-      </header>
-      <div class="adm-card-body">
-        <div class="platform-template-layout">
-          <div class="platform-preview-box">
-            ${template.previewUrl
-              ? `<video src="${escapeHtml(template.previewUrl)}" poster="${escapeHtml(template.coverUrl || "")}" controls muted playsinline preload="metadata"></video>`
-              : template.coverUrl
-                ? `<img src="${escapeHtml(template.coverUrl)}" alt="" />`
-                : `<div class="adm-empty"><i data-lucide="image"></i><p>暂无预览</p></div>`}
-          </div>
-          <div class="adm-grid">
-            <div class="adm-grid adm-grid-3">
-              <div class="adm-form-row"><span>模板标题</span><input data-f="title" value="${escapeHtml(template.title || "")}" /></div>
-              <div class="adm-form-row"><span>分类</span><select data-f="category">${platformCategoryOptions(categories, template.category || "")}</select></div>
-              <div class="adm-form-row"><span>类型</span><select data-f="type">
-                <option value="image-to-video" ${template.type !== "text-to-video" ? "selected" : ""}>Image to Video</option>
-                <option value="text-to-video" ${template.type === "text-to-video" ? "selected" : ""}>Text to Video</option>
-              </select></div>
-            </div>
-            <div class="adm-grid adm-grid-3">
-              <div class="adm-form-row"><span>徽标</span><input data-f="badge" value="${escapeHtml(template.badge || "")}" placeholder="Hot / Image to Video" /></div>
-              <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(template.sort ?? index)}" /></div>
-              <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:8px;align-items:center;"><input data-f="enabled" type="checkbox" ${template.enabled !== false ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端展示</span></label></div>
-            </div>
-            <div class="adm-form-row"><span>预览 URL（用户看到的演示视频或图片）</span><input data-f="previewUrl" value="${escapeHtml(template.previewUrl || "")}" placeholder="https://.../preview.mp4" /></div>
-            <div class="adm-form-row"><span>封面 URL（可选，视频未加载前展示）</span><input data-f="coverUrl" value="${escapeHtml(template.coverUrl || "")}" placeholder="https://.../cover.jpg" /></div>
-            <div class="adm-form-row">
-              <span>上游 JSON 参数（生成时只替换里面的图片字段为用户上传图）</span>
-              <textarea data-f="requestJson" rows="12" spellcheck="false">${escapeHtml(requestJson)}</textarea>
-            </div>
-          </div>
-        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function platformTemplateEditor(template = {}, index = 0, categories = []) {
+  const requestJson = JSON.stringify(platformTemplateRequestJson(template), null, 2);
+  return `
+    <div class="platform-template-editor" data-template-index="${index}">
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>模板标题</span><input data-f="title" value="${escapeHtml(template.title || "")}" /></div>
+        <div class="adm-form-row"><span>分类</span><select data-f="category">${platformCategoryOptions(categories, template.category || "")}</select></div>
+        <div class="adm-form-row"><span>类型</span><select data-f="type">
+          <option value="image-to-video" ${template.type !== "text-to-video" ? "selected" : ""}>Image to Video</option>
+          <option value="text-to-video" ${template.type === "text-to-video" ? "selected" : ""}>Text to Video</option>
+        </select></div>
       </div>
-    </article>
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>徽标</span><input data-f="badge" value="${escapeHtml(template.badge || "")}" placeholder="Hot / Image to Video" /></div>
+        <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(template.sort ?? index)}" /></div>
+        <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:8px;align-items:center;"><input data-f="enabled" type="checkbox" ${template.enabled !== false ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端展示</span></label></div>
+      </div>
+      <div class="adm-grid adm-grid-2">
+        <div class="adm-form-row"><span>预览 URL（用户看到的演示视频或图片）</span><input data-f="previewUrl" value="${escapeHtml(template.previewUrl || "")}" placeholder="https://.../preview.mp4" /></div>
+        <div class="adm-form-row"><span>封面 URL（可选，视频未加载前展示）</span><input data-f="coverUrl" value="${escapeHtml(template.coverUrl || "")}" placeholder="https://.../cover.jpg" /></div>
+      </div>
+      <div class="adm-form-row">
+        <span>上游 JSON 参数（生成时只替换里面的图片字段为用户上传图）</span>
+        <textarea data-f="requestJson" rows="16" spellcheck="false">${escapeHtml(requestJson)}</textarea>
+      </div>
+    </div>
   `;
 }
 
@@ -1716,78 +1732,6 @@ function defaultPlatformTemplate(categories = [], index = 0) {
 async function renderPlatform() {
   const config = await loadConfig(true);
   const platform = config.platform || {};
-  els.adminContent.innerHTML = `
-    <section class="adm-page">
-      <div class="adm-page-head">
-        <div>
-          <h2>首页广场</h2>
-          <p class="adm-muted">配置根首页模板广场。模板支持图生视频和文生视频，用户只上传图片或输入文字，系统按这里的 prompt / JSON 参数创建生成任务并留存记录。</p>
-        </div>
-        <div class="adm-page-actions">
-          <a class="adm-btn adm-btn-ghost" href="/" target="_blank" rel="noopener"><i data-lucide="external-link"></i>预览首页</a>
-          <button class="adm-btn adm-btn-primary" id="savePlatformBtn"><i data-lucide="save"></i>保存广场配置</button>
-        </div>
-      </div>
-      <div class="adm-grid adm-grid-2">
-        <div class="adm-card">
-          <div class="adm-card-head"><h3>基础信息</h3></div>
-          <div class="adm-card-body">
-            <div class="adm-form-row"><span>品牌名</span><input id="platformBrand" value="${escapeHtml(platform.brand || "")}" /></div>
-            <div class="adm-form-row"><span>主标题</span><input id="platformHeroTitle" value="${escapeHtml(platform.heroTitle || "")}" /></div>
-            <div class="adm-form-row"><span>副标题</span><textarea id="platformHeroSubtitle" rows="3">${escapeHtml(platform.heroSubtitle || "")}</textarea></div>
-            <div class="adm-form-row"><span>公告</span><textarea id="platformNotice" rows="3">${escapeHtml(platform.notice || "")}</textarea></div>
-          </div>
-        </div>
-        <div class="adm-card">
-          <div class="adm-card-head"><h3>Agent 接入指令</h3></div>
-          <div class="adm-card-body">
-            <textarea id="platformAccessCopy" rows="12" spellcheck="false">${escapeHtml(platform.accessCopy || "")}</textarea>
-          </div>
-        </div>
-      </div>
-      <div class="adm-card adm-mt">
-        <div class="adm-card-head"><h3>分类 JSON</h3></div>
-        <div class="adm-card-body">
-          <textarea id="platformCategories" rows="7" spellcheck="false">${escapeHtml(JSON.stringify(platform.categories || [], null, 2))}</textarea>
-        </div>
-      </div>
-      <div class="adm-card adm-mt">
-        <div class="adm-card-head">
-          <h3>模板 JSON</h3>
-          <span class="adm-muted">字段：id/title/category/type/coverUrl/model/badge/prompt/params/enabled/sort</span>
-        </div>
-        <div class="adm-card-body">
-          <textarea id="platformTemplates" rows="22" spellcheck="false">${escapeHtml(JSON.stringify(platform.templates || [], null, 2))}</textarea>
-        </div>
-      </div>
-    </section>
-  `;
-  refreshIcons();
-  byId("savePlatformBtn")?.addEventListener("click", async () => {
-    try {
-      const nextPlatform = {
-        brand: byId("platformBrand").value,
-        heroTitle: byId("platformHeroTitle").value,
-        heroSubtitle: byId("platformHeroSubtitle").value,
-        notice: byId("platformNotice").value,
-        accessCopy: byId("platformAccessCopy").value,
-        categories: JSON.parse(byId("platformCategories").value || "[]"),
-        templates: JSON.parse(byId("platformTemplates").value || "[]"),
-      };
-      const nextConfig = { ...config, platform: nextPlatform };
-      const payload = await api("/api/admin/config", { method: "PUT", body: { config: nextConfig } });
-      state.config = payload.config;
-      toast("首页广场配置已保存。", "success");
-      renderPlatform();
-    } catch (err) {
-      toast(err.message, "error");
-    }
-  });
-}
-
-async function renderPlatform() {
-  const config = await loadConfig(true);
-  const platform = config.platform || {};
   const categories = Array.isArray(platform.categories) && platform.categories.length
     ? platform.categories
     : [{ id: "i2v", name: "Image to Video" }, { id: "t2v", name: "Text to Video" }];
@@ -1828,8 +1772,24 @@ async function renderPlatform() {
           </div>
         </div>
       </div>
-      <div class="adm-grid adm-mt" id="platformTemplateList">
-        ${templates.length ? templates.map((template, index) => platformTemplateCard(template, index, categories)).join("") : `<div class="adm-card"><div class="adm-empty"><i data-lucide="layout-template"></i><p>暂无模板，点击「新增模板」。</p></div></div>`}
+      <div class="adm-card adm-mt">
+        <div class="adm-card-head">
+          <div>
+            <h3>模板列表</h3>
+            <span class="adm-muted">${templates.length} 条，列表只展示摘要，点击编辑维护预览 URL 和上游 JSON。</span>
+          </div>
+          <input class="platform-template-search" id="platformTemplateSearch" placeholder="搜索标题 / ID / prompt / model" />
+        </div>
+        <div class="adm-card-body adm-table-wrap platform-template-table-wrap">
+          ${templates.length ? `
+            <table class="adm-table platform-template-table">
+              <thead><tr><th>预览</th><th>标题 / ID</th><th>分类</th><th>类型</th><th>模型</th><th>Prompt</th><th>状态</th><th>排序</th><th></th></tr></thead>
+              <tbody id="platformTemplateList">
+                ${templates.map((template, index) => platformTemplateSummary(template, index, categories)).join("")}
+              </tbody>
+            </table>
+          ` : `<div class="adm-empty"><i data-lucide="layout-template"></i><p>暂无模板，点击「新增模板」。</p></div>`}
+        </div>
       </div>
     </section>
   `;
@@ -1842,10 +1802,6 @@ async function renderPlatform() {
 
   const saveAll = async () => {
     const nextCategories = collectCategories();
-    const nextTemplates = Array.from(els.adminContent.querySelectorAll("[data-template-index]")).map((card) => {
-      const index = Number(card.dataset.templateIndex || 0);
-      return collectPlatformTemplateFromCard(card, templates[index] || {});
-    });
     const nextPlatform = {
       ...platform,
       brand: byId("platformBrand").value,
@@ -1853,7 +1809,7 @@ async function renderPlatform() {
       heroSubtitle: byId("platformHeroSubtitle").value,
       notice: byId("platformNotice").value,
       categories: nextCategories,
-      templates: nextTemplates,
+      templates,
     };
     const payload = await api("/api/admin/config", { method: "PUT", body: { config: { ...config, platform: nextPlatform } } });
     state.config = payload.config;
@@ -1885,16 +1841,52 @@ async function renderPlatform() {
     }
   });
 
-  els.adminContent.querySelectorAll("[data-template-index]").forEach((card) => {
-    card.querySelector('[data-act="save-template"]')?.addEventListener("click", async () => {
-      try {
-        await saveAll();
-      } catch (err) {
-        toast(err.message, "error");
-      }
+  byId("platformTemplateSearch")?.addEventListener("input", (event) => {
+    const keyword = event.target.value.trim().toLowerCase();
+    els.adminContent.querySelectorAll("#platformTemplateList tr[data-template-index]").forEach((row) => {
+      row.hidden = keyword && !row.textContent.toLowerCase().includes(keyword);
     });
-    card.querySelector('[data-act="delete-template"]')?.addEventListener("click", async () => {
-      const index = Number(card.dataset.templateIndex || 0);
+  });
+
+  els.adminContent.querySelectorAll("#platformTemplateList tr[data-template-index]").forEach((row) => {
+    row.querySelector('[data-act="edit-template"]')?.addEventListener("click", async () => {
+      const index = Number(row.dataset.templateIndex || 0);
+      const result = await openDialog({
+        title: `编辑模板：${templates[index]?.title || `Template ${index + 1}`}`,
+        body: platformTemplateEditor(templates[index] || {}, index, categories),
+        confirmText: "保存模板",
+        cancelText: "取消",
+        onConfirm: async () => {
+          const editor = els.dialogBody.querySelector("[data-template-index]");
+          const nextCategories = collectCategories();
+          const nextTemplates = templates.map((item, itemIndex) => (
+            itemIndex === index ? collectPlatformTemplateFromCard(editor, item) : item
+          ));
+          const payload = await api("/api/admin/config", {
+            method: "PUT",
+            body: {
+              config: {
+                ...config,
+                platform: {
+                  ...platform,
+                  brand: byId("platformBrand").value,
+                  heroTitle: byId("platformHeroTitle").value,
+                  heroSubtitle: byId("platformHeroSubtitle").value,
+                  notice: byId("platformNotice").value,
+                  categories: nextCategories,
+                  templates: nextTemplates,
+                },
+              },
+            },
+          });
+          state.config = payload.config;
+          toast("模板已保存。", "success");
+        },
+      });
+      if (result === "confirm") renderPlatform();
+    });
+    row.querySelector('[data-act="delete-template"]')?.addEventListener("click", async () => {
+      const index = Number(row.dataset.templateIndex || 0);
       const ok = await confirmAction("删除模板", `确认删除「${templates[index]?.title || "Template"}」？`, { danger: true, confirmText: "删除" });
       if (!ok) return;
       const nextTemplates = templates.filter((_, i) => i !== index);
