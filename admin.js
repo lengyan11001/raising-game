@@ -1598,6 +1598,12 @@ async function renderWallet() {
 }
 
 /* ============ PLATFORM ============ */
+const FIXED_PLATFORM_CATEGORIES = [
+  { id: "featured", name: "精选模板" },
+  { id: "i2v", name: "图生视频" },
+  { id: "t2v", name: "文生视频" },
+];
+
 function platformTemplateRequestJson(template = {}) {
   if (template.requestJson && typeof template.requestJson === "object" && !Array.isArray(template.requestJson)) return template.requestJson;
   return {
@@ -1708,10 +1714,11 @@ function collectPlatformTemplateFromCard(card, existing = {}) {
 }
 
 function defaultPlatformTemplate(categories = [], index = 0) {
+  const fixedCategories = categories.length ? categories : FIXED_PLATFORM_CATEGORIES;
   return {
     id: `template-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     title: "New Template",
-    category: categories[0]?.id || "i2v",
+    category: fixedCategories[0]?.id || "featured",
     type: "image-to-video",
     badge: "Image to Video",
     previewUrl: "",
@@ -1732,44 +1739,19 @@ function defaultPlatformTemplate(categories = [], index = 0) {
 async function renderPlatform() {
   const config = await loadConfig(true);
   const platform = config.platform || {};
-  const categories = Array.isArray(platform.categories) && platform.categories.length
-    ? platform.categories
-    : [{ id: "i2v", name: "Image to Video" }, { id: "t2v", name: "Text to Video" }];
+  const categories = FIXED_PLATFORM_CATEGORIES;
   const templates = Array.isArray(platform.templates) ? platform.templates : [];
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
         <div>
           <h2>首页广场</h2>
-          <p class="adm-muted">配置用户看到的模板。每个模板单独维护预览 URL 和发给上游的 JSON 参数，用户生成时只把上传图片替换进 JSON 里的图片字段。</p>
+          <p class="adm-muted">只配置模板记录。首页品牌、标题、公告和分类已固定，不在后台反复改。</p>
         </div>
         <div class="adm-page-actions">
           <a class="adm-btn adm-btn-ghost" href="/" target="_blank" rel="noopener"><i data-lucide="external-link"></i>预览首页</a>
           <button class="adm-btn adm-btn-ghost" id="addPlatformTemplateBtn"><i data-lucide="plus"></i>新增模板</button>
           <button class="adm-btn adm-btn-primary" id="savePlatformBtn"><i data-lucide="save"></i>保存全部</button>
-        </div>
-      </div>
-      <div class="adm-grid adm-grid-2">
-        <div class="adm-card">
-          <div class="adm-card-head"><h3>基础信息</h3></div>
-          <div class="adm-card-body">
-            <div class="adm-form-row"><span>品牌名</span><input id="platformBrand" value="${escapeHtml(platform.brand || "")}" /></div>
-            <div class="adm-form-row"><span>主标题</span><input id="platformHeroTitle" value="${escapeHtml(platform.heroTitle || "")}" /></div>
-            <div class="adm-form-row"><span>副标题</span><textarea id="platformHeroSubtitle" rows="3">${escapeHtml(platform.heroSubtitle || "")}</textarea></div>
-            <div class="adm-form-row"><span>公告</span><textarea id="platformNotice" rows="3">${escapeHtml(platform.notice || "")}</textarea></div>
-          </div>
-        </div>
-        <div class="adm-card">
-          <div class="adm-card-head"><h3>分类</h3></div>
-          <div class="adm-card-body">
-            <div class="adm-grid adm-grid-2">
-              <div class="adm-form-row"><span>分类 1 ID</span><input id="platformCat1Id" value="${escapeHtml(categories[0]?.id || "i2v")}" /></div>
-              <div class="adm-form-row"><span>分类 1 名称</span><input id="platformCat1Name" value="${escapeHtml(categories[0]?.name || "Image to Video")}" /></div>
-              <div class="adm-form-row"><span>分类 2 ID</span><input id="platformCat2Id" value="${escapeHtml(categories[1]?.id || "t2v")}" /></div>
-              <div class="adm-form-row"><span>分类 2 名称</span><input id="platformCat2Name" value="${escapeHtml(categories[1]?.name || "Text to Video")}" /></div>
-            </div>
-            <p class="adm-muted" style="margin:0;">不再要求维护整段模板 JSON；只需要在下面每个模板里维护它自己的上游 JSON。</p>
-          </div>
         </div>
       </div>
       <div class="adm-card adm-mt">
@@ -1795,20 +1777,10 @@ async function renderPlatform() {
   `;
   refreshIcons();
 
-  const collectCategories = () => [
-    { id: byId("platformCat1Id").value.trim() || "i2v", name: byId("platformCat1Name").value.trim() || "Image to Video" },
-    { id: byId("platformCat2Id").value.trim() || "t2v", name: byId("platformCat2Name").value.trim() || "Text to Video" },
-  ];
-
   const saveAll = async () => {
-    const nextCategories = collectCategories();
     const nextPlatform = {
       ...platform,
-      brand: byId("platformBrand").value,
-      heroTitle: byId("platformHeroTitle").value,
-      heroSubtitle: byId("platformHeroSubtitle").value,
-      notice: byId("platformNotice").value,
-      categories: nextCategories,
+      categories,
       templates,
     };
     const payload = await api("/api/admin/config", { method: "PUT", body: { config: { ...config, platform: nextPlatform } } });
@@ -1827,11 +1799,10 @@ async function renderPlatform() {
 
   byId("addPlatformTemplateBtn")?.addEventListener("click", async () => {
     try {
-      const nextCategories = collectCategories();
-      const nextTemplates = [...templates, defaultPlatformTemplate(nextCategories, templates.length)];
+      const nextTemplates = [...templates, defaultPlatformTemplate(categories, templates.length)];
       const payload = await api("/api/admin/config", {
         method: "PUT",
-        body: { config: { ...config, platform: { ...platform, categories: nextCategories, templates: nextTemplates } } },
+        body: { config: { ...config, platform: { ...platform, categories, templates: nextTemplates } } },
       });
       state.config = payload.config;
       toast("模板已新增。", "success");
@@ -1858,7 +1829,6 @@ async function renderPlatform() {
         cancelText: "取消",
         onConfirm: async () => {
           const editor = els.dialogBody.querySelector("[data-template-index]");
-          const nextCategories = collectCategories();
           const nextTemplates = templates.map((item, itemIndex) => (
             itemIndex === index ? collectPlatformTemplateFromCard(editor, item) : item
           ));
@@ -1869,11 +1839,7 @@ async function renderPlatform() {
                 ...config,
                 platform: {
                   ...platform,
-                  brand: byId("platformBrand").value,
-                  heroTitle: byId("platformHeroTitle").value,
-                  heroSubtitle: byId("platformHeroSubtitle").value,
-                  notice: byId("platformNotice").value,
-                  categories: nextCategories,
+                  categories,
                   templates: nextTemplates,
                 },
               },
