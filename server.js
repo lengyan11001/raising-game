@@ -63,7 +63,9 @@ const MODEL_QUALITY =
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
-const PLATFORM_GENERATION_PREDEDUCT_CREDITS = clampNumber(process.env.PLATFORM_GENERATION_PREDEDUCT_CREDITS, 20, 0, 100000);
+const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
+const apizPricingCache = new Map();
+let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
   "auto_2K",
   "auto_3K",
@@ -247,10 +249,10 @@ const DEFAULT_CONFIG = {
         category: "i2v",
         type: "image-to-video",
         coverUrl: "/assets/admin/home/demo-aria-reference.png",
-        model: "seedance",
+        model: "bytedance/seedance-2.0/fast/image-to-video",
         badge: "Image to Video",
         prompt: "A cinematic vertical video where the uploaded character transforms into a radiant mechanical angel, glowing wings unfolding, dramatic clouds, golden light, slow heroic camera push, high detail, fantasy film style.",
-        params: { ratio: "9:16", duration: 5 },
+        params: { aspect_ratio: "9:16", duration: "5", resolution: "720p" },
       },
       {
         id: "hero-rescue",
@@ -258,10 +260,10 @@ const DEFAULT_CONFIG = {
         category: "i2v",
         type: "image-to-video",
         coverUrl: "/assets/admin/home/default-hero.jpg",
-        model: "seedance",
+        model: "bytedance/seedance-2.0/fast/image-to-video",
         badge: "Hot",
         prompt: "Use the uploaded image as the main character reference. Create a dynamic superhero rescue video, urban basketball court, purple energy portal, dramatic action pose, cinematic camera shake, realistic motion, high contrast.",
-        params: { ratio: "9:16", duration: 5 },
+        params: { aspect_ratio: "9:16", duration: "5", resolution: "720p" },
       },
       {
         id: "product-fire",
@@ -269,10 +271,10 @@ const DEFAULT_CONFIG = {
         category: "t2v",
         type: "text-to-video",
         coverUrl: "/assets/admin/home/pink-upload-synthetic-reference.png",
-        model: "seedance",
+        model: "bytedance/seedance-2.0/fast/text-to-video",
         badge: "Text to Video",
         prompt: "A bold product commercial video with a glowing orange fire-powered object in a dark studio, sparks and smoke, dramatic hand gesture, premium advertisement lighting, slow orbit camera, cinematic energy.",
-        params: { ratio: "16:9", duration: 5 },
+        params: { aspect_ratio: "16:9", duration: "5", resolution: "720p" },
       },
     ],
   },
@@ -494,24 +496,17 @@ function normalizePlatformTemplate(template = {}, index = 0) {
   const type = String(template.type || "image-to-video").trim();
   const safeType = type === "text-to-video" ? "text-to-video" : "image-to-video";
   const id = String(template.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId;
-  const configuredCost =
-    positiveCreditsOrNull(template.cost) ??
-    positiveCreditsOrNull(template.price) ??
-    positiveCreditsOrNull(template.params?.cost) ??
-    positiveCreditsOrNull(template.params?.credits) ??
-    PLATFORM_GENERATION_PREDEDUCT_CREDITS;
   return {
     id,
     title: String(template.title || "Untitled template").trim().slice(0, 80) || "Untitled template",
     category: String(template.category || (safeType === "image-to-video" ? "i2v" : "t2v")).trim() || "featured",
     type: safeType,
     coverUrl: String(template.coverUrl || "").trim(),
-    model: String(template.model || "seedance").trim(),
+    model: resolvePlatformModelId(template.model, safeType),
     badge: String(template.badge || "").trim().slice(0, 40),
     prompt: typeof template.prompt === "string" ? template.prompt : "",
     negativePrompt: typeof template.negativePrompt === "string" ? template.negativePrompt : "",
     params: template.params && typeof template.params === "object" && !Array.isArray(template.params) ? template.params : {},
-    cost: configuredCost,
     enabled: template.enabled !== false,
     sort: Number.isFinite(Number(template.sort)) ? Number(template.sort) : index,
   };
@@ -521,6 +516,14 @@ function cleanPlatformPublicCopy(value, fallback) {
   const text = String(value || "").trim();
   if (!text || /ap[i]z|上游|后台|api\s*接入/i.test(text)) return String(fallback || "");
   return text;
+}
+
+function resolvePlatformModelId(model, type = "image-to-video") {
+  const raw = String(model || "").trim();
+  if (raw && raw !== "seedance") return raw;
+  return type === "text-to-video"
+    ? "bytedance/seedance-2.0/fast/text-to-video"
+    : "bytedance/seedance-2.0/fast/image-to-video";
 }
 
 function isHiddenPlatformCategory(category = {}) {
@@ -1857,6 +1860,354 @@ async function apizRequest(pathname, body) {
   return payload.data || payload;
 }
 
+function apizModelPathId(modelId = "") {
+  return encodeURIComponent(String(modelId || "").trim()).replace(/%2F/gi, "/");
+}
+
+async function apizGet(pathname, query = {}) {
+  if (!APIZ_API_KEY) {
+    const error = new Error("Generation service is not configured.");
+    error.statusCode = 503;
+    error.code = "GENERATION_SERVICE_NOT_CONFIGURED";
+    throw error;
+  }
+
+  const url = new URL(`${APIZ_BASE_URL}${pathname}`);
+  Object.entries(query || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+  });
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${APIZ_API_KEY}`,
+      accept: "application/json",
+    },
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : {};
+  if (!response.ok || payload.code >= 400) {
+    const error = new Error(payload.message || payload.detail || `Generation metadata request failed: ${response.status}`);
+    error.statusCode = response.status || 502;
+    error.payload = payload;
+    throw error;
+  }
+  return payload.data || payload;
+}
+
+function apizPricingNumber(value) {
+  if (typeof value === "boolean") return null;
+  const next = Number(value);
+  return Number.isFinite(next) ? next : null;
+}
+
+function apizPricingBaseAmount(pricing = {}) {
+  for (const key of ["base_price", "amount", "price", "credits", "credit_cost"]) {
+    const next = apizPricingNumber(pricing?.[key]);
+    if (next !== null) return next;
+  }
+  return null;
+}
+
+function apizCreditsFromPricingAmount(amount, unit = "") {
+  const next = apizPricingNumber(amount);
+  if (next === null || next < 0) return null;
+  const normalizedUnit = String(unit || "").toLowerCase();
+  if (normalizedUnit.includes("元") || normalizedUnit.includes("yuan") || normalizedUnit.includes("cny")) {
+    return creditsAmount(next * 100);
+  }
+  return creditsAmount(next);
+}
+
+function durationSecondsFromParams(params = {}) {
+  for (const key of ["duration", "duration_sec", "duration_seconds", "seconds", "length", "video_length", "audio_length"]) {
+    const next = apizPricingNumber(params?.[key]);
+    if (next !== null && next > 0) return next;
+  }
+  return 0;
+}
+
+function numOutputsFromParams(params = {}) {
+  const next = apizPricingNumber(params.num_images ?? params.n ?? params.batch_size ?? params.num_outputs ?? 1);
+  return Math.max(1, Math.ceil(next || 1));
+}
+
+function durationFromPricingExample(example = {}) {
+  for (const key of ["duration", "duration_sec", "duration_seconds", "seconds", "length"]) {
+    const next = apizPricingNumber(example?.[key]);
+    if (next !== null && next > 0) return next;
+  }
+  const text = String(example.description || example.label || example.name || "");
+  const match = text.match(/(\d+(?:\.\d+)?)\s*(?:秒|s|sec|second)/i);
+  const parsed = match ? apizPricingNumber(match[1]) : null;
+  return parsed && parsed > 0 ? parsed : 0;
+}
+
+function exampleMatchesPricingParams(example = {}, params = {}) {
+  const text = String(example.description || example.label || example.name || "").toLowerCase();
+  const resolution = String(params.resolution || params.quality || "").trim().toLowerCase();
+  const modelVariant = String(params.model || params.model_type || "").trim().toLowerCase();
+
+  if (resolution && text && !text.includes(resolution)) {
+    const mentionedResolution = /\b\d{3,4}p\b/i.test(text);
+    if (mentionedResolution) return false;
+  }
+  if (modelVariant && text) {
+    if (modelVariant.includes("fast") && !text.includes("fast")) return false;
+    if ((modelVariant.includes("direct") || modelVariant.includes("standard")) && text.includes("fast")) return false;
+    if (modelVariant.includes("vip") && !text.includes("vip")) return false;
+  }
+  return true;
+}
+
+function pricingExamplePrices(pricing = {}) {
+  const examples = pricing.examples || pricing.duration_prices || pricing.prices || [];
+  if (!Array.isArray(examples)) return [];
+  return examples
+    .map((example) => {
+      if (!example || typeof example !== "object") return null;
+      const price = apizPricingBaseAmount(example);
+      if (price === null) return null;
+      return { duration: durationFromPricingExample(example), price };
+    })
+    .filter(Boolean);
+}
+
+function priceFromDurationExamples(pricing = {}, params = {}) {
+  const examples = pricing.examples || pricing.duration_prices || pricing.prices || [];
+  const scopedExamples = Array.isArray(examples) ? examples.filter((example) => exampleMatchesPricingParams(example, params)) : [];
+  const prices = pricingExamplePrices({ ...pricing, examples: scopedExamples.length ? scopedExamples : examples });
+  if (!prices.length) return null;
+  const duration = durationSecondsFromParams(params);
+  if (duration > 0) {
+    const withDuration = prices.filter((item) => item.duration > 0).sort((a, b) => a.duration - b.duration);
+    const matched = withDuration.find((item) => duration <= item.duration);
+    if (matched) {
+      return Math.max(...withDuration.filter((item) => item.duration === matched.duration).map((item) => item.price));
+    }
+    if (withDuration.length) {
+      const maxDuration = withDuration[withDuration.length - 1].duration;
+      return Math.max(...withDuration.filter((item) => item.duration === maxDuration).map((item) => item.price));
+    }
+  }
+  return Math.max(...prices.map((item) => item.price));
+}
+
+function matrixPriceCandidates(value) {
+  const direct = apizPricingNumber(value);
+  if (direct !== null) return [direct];
+  if (Array.isArray(value)) return value.flatMap(matrixPriceCandidates);
+  if (value && typeof value === "object") {
+    const base = apizPricingBaseAmount(value);
+    const nested = Object.values(value).flatMap(matrixPriceCandidates);
+    return base === null ? nested : [base, ...nested];
+  }
+  return [];
+}
+
+function priceFromQualitySizeMatrix(pricing = {}, params = {}) {
+  const matrix = pricing.quality_size_matrix || pricing.matrix || pricing.size_quality_matrix;
+  if (!matrix || typeof matrix !== "object" || Array.isArray(matrix)) return null;
+  const qualities = ["quality", "image_quality", "resolution_quality", "mode", "resolution"]
+    .map((key) => String(params[key] || "").trim())
+    .filter(Boolean);
+  const sizes = ["size", "image_size", "resolution", "aspect_ratio", "ratio"]
+    .map((key) => String(params[key] || "").trim())
+    .filter(Boolean);
+
+  for (const quality of qualities) {
+    const sub = matrix[quality];
+    if (sub && typeof sub === "object") {
+      for (const size of sizes) {
+        const values = matrixPriceCandidates(sub[size]);
+        if (values.length) return Math.max(...values);
+      }
+      const values = matrixPriceCandidates(sub);
+      if (values.length) return Math.max(...values);
+    }
+  }
+  for (const size of sizes) {
+    const values = matrixPriceCandidates(matrix[size]);
+    if (values.length) return Math.max(...values);
+  }
+  const values = matrixPriceCandidates(matrix);
+  return values.length ? Math.max(...values) : null;
+}
+
+function defaultDurationFromDocs(docs = {}) {
+  const properties = docs.params_schema?.properties;
+  const durationSchema = properties?.duration;
+  if (!durationSchema || typeof durationSchema !== "object") return 0;
+  const direct = apizPricingNumber(durationSchema.default);
+  if (direct && direct > 0) return direct;
+  if (Array.isArray(durationSchema.enum)) {
+    const values = durationSchema.enum.map(apizPricingNumber).filter((value) => value && value > 0);
+    if (values.length) return Math.min(...values);
+  }
+  return 0;
+}
+
+function normalizeApizPricing(pricing, docs = {}) {
+  if (!pricing || typeof pricing !== "object" || Array.isArray(pricing)) return null;
+  const next = { ...pricing };
+  const defaultDuration = defaultDurationFromDocs(docs);
+  if (defaultDuration > 0) next._default_duration_seconds = defaultDuration;
+  return next;
+}
+
+function pricingIsFreeFixed(pricing = {}) {
+  const priceType = String(pricing.price_type || pricing.type || "").trim().toLowerCase();
+  const amount = apizPricingBaseAmount(pricing);
+  return priceType === "fixed" && amount === 0;
+}
+
+function estimateCreditsFromApizPricing(pricing = {}, params = {}) {
+  if (!pricing || typeof pricing !== "object") return 0;
+  const unit = pricing.price_unit || pricing.unit || "";
+  const priceType = String(pricing.price_type || pricing.type || "").trim().toLowerCase();
+  const baseAmount = apizPricingBaseAmount(pricing);
+  const duration = durationSecondsFromParams(params) || apizPricingNumber(pricing._default_duration_seconds) || 0;
+
+  if (priceType === "fixed" && baseAmount === 0) return 0;
+
+  if (priceType === "per_second" || priceType === "dynamic_per_second") {
+    const examplePrice = priceFromDurationExamples(pricing, params);
+    if (examplePrice !== null) return apizCreditsFromPricingAmount(examplePrice, unit) || 0;
+    let rate = apizPricingNumber(pricing.per_second);
+    if (!rate || rate <= 0) {
+      if (priceType === "dynamic_per_second" && baseAmount && pricing._default_duration_seconds) {
+        rate = baseAmount / Number(pricing._default_duration_seconds);
+      } else {
+        rate = baseAmount;
+      }
+    }
+    if (!rate || rate <= 0) return 0;
+    return apizCreditsFromPricingAmount(Math.ceil(Math.max(duration, 5) * rate), unit) || 0;
+  }
+
+  if (priceType === "per_minute") {
+    const rate = apizPricingNumber(pricing.per_minute) ?? baseAmount;
+    if (!rate || rate <= 0) return 0;
+    return apizCreditsFromPricingAmount(Math.max(1, Math.ceil(Math.max(duration, 60) / 60)) * rate, unit) || 0;
+  }
+
+  if (priceType === "duration_map" || priceType === "duration_based" || priceType === "duration_price") {
+    const examplePrice = priceFromDurationExamples(pricing, params);
+    if (examplePrice !== null) return apizCreditsFromPricingAmount(examplePrice, unit) || 0;
+    if (!baseAmount || baseAmount <= 0) return 0;
+    if (duration > 0 && priceType !== "duration_map") return apizCreditsFromPricingAmount(Math.ceil(duration * baseAmount), unit) || 0;
+    return apizCreditsFromPricingAmount(baseAmount, unit) || 0;
+  }
+
+  if (priceType === "token_postcharge") {
+    const examplePrice = priceFromDurationExamples(pricing, params);
+    if (examplePrice !== null) return apizCreditsFromPricingAmount(examplePrice, unit) || 0;
+    return apizCreditsFromPricingAmount(baseAmount || 0, unit) || 0;
+  }
+
+  if (priceType === "quantity_based") {
+    if (!baseAmount || baseAmount <= 0) return 0;
+    return apizCreditsFromPricingAmount(baseAmount * numOutputsFromParams(params), unit) || 0;
+  }
+
+  if (priceType === "quality_size_matrix" || priceType === "matrix") {
+    const matrixPrice = priceFromQualitySizeMatrix(pricing, params);
+    const amount = matrixPrice ?? baseAmount;
+    if (!amount || amount <= 0) return 0;
+    return apizCreditsFromPricingAmount(amount * numOutputsFromParams(params), unit) || 0;
+  }
+
+  if (priceType === "token_based") {
+    if (!baseAmount || baseAmount <= 0) return 0;
+    const tokens = Math.max(0, Number(params.prompt_tokens || 0) + Number(params.completion_tokens || 0));
+    return apizCreditsFromPricingAmount(baseAmount * Math.max(1, Math.ceil(tokens / 1000)), unit) || 0;
+  }
+
+  if (priceType === "audio_duration_based" || priceType === "audio_duration" || priceType === "char_based") {
+    if (!baseAmount || baseAmount <= 0) return 0;
+    if (priceType === "char_based") {
+      const chars = String(params.prompt || params.text || "").length || 100;
+      return apizCreditsFromPricingAmount(baseAmount * Math.max(1, Math.ceil(chars / 1000)), unit) || 0;
+    }
+    return apizCreditsFromPricingAmount(baseAmount * Math.max(1, Math.ceil(duration || 1)), unit) || 0;
+  }
+
+  if (priceType === "resolution_quantity" || priceType === "size_based") {
+    if (!baseAmount || baseAmount <= 0) return 0;
+    return apizCreditsFromPricingAmount(baseAmount * numOutputsFromParams(params), unit) || 0;
+  }
+
+  return apizCreditsFromPricingAmount(baseAmount || 0, unit) || 0;
+}
+
+async function fetchApizModelPricing(modelId = "") {
+  const model = String(modelId || "").trim();
+  if (!model) return null;
+  const cached = apizPricingCache.get(model);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  let value = null;
+  try {
+    const docs = await apizGet(`/api/v3/models/${apizModelPathId(model)}/docs`, { lang: "zh" });
+    value = normalizeApizPricing(docs?.pricing, docs);
+  } catch (error) {
+    if (!error.statusCode || error.statusCode !== 404) {
+      console.warn("[apiz-pricing-docs-failed]", model, error.message || error);
+    }
+  }
+
+  if (!value) {
+    try {
+      const detail = await apizGet(`/api/v3/mcp/models/${apizModelPathId(model)}`, { lang: "zh" });
+      value = normalizeApizPricing(detail?.pricing, detail);
+    } catch (error) {
+      if (!error.statusCode || error.statusCode !== 404) {
+        console.warn("[apiz-pricing-detail-failed]", model, error.message || error);
+      }
+    }
+  }
+
+  if (!value) {
+    value = await fetchApizModelListPricing(model);
+  }
+
+  apizPricingCache.set(model, { value, expiresAt: Date.now() + APIZ_PRICING_CACHE_TTL_MS });
+  return value;
+}
+
+async function fetchApizModelListPricing(modelId = "") {
+  const model = String(modelId || "").trim();
+  if (!model) return null;
+  if (apizModelListPricingCache.expiresAt <= Date.now()) {
+    const values = new Map();
+    try {
+      const data = await apizGet("/api/v3/mcp/models", { lang: "zh-CN" });
+      const models = Array.isArray(data?.models) ? data.models : [];
+      models.forEach((item) => {
+        const id = String(item?.id || "").trim();
+        const pricing = normalizeApizPricing(item?.pricing, item);
+        if (id && pricing) values.set(id, pricing);
+      });
+    } catch (error) {
+      console.warn("[apiz-pricing-list-failed]", error.message || error);
+    }
+    apizModelListPricingCache = { expiresAt: Date.now() + APIZ_PRICING_CACHE_TTL_MS, values };
+  }
+  return apizModelListPricingCache.values.get(model) || null;
+}
+
+async function estimatePlatformPreDeductCredits(model, params = {}, template = {}) {
+  const pricing = await fetchApizModelPricing(model);
+  const estimated = estimateCreditsFromApizPricing(pricing, params);
+  if (estimated > 0 || pricingIsFreeFixed(pricing)) {
+    return { credits: estimated, source: "model_pricing", pricing };
+  }
+
+  const error = new Error("模型定价未配置，暂不能提交生成。请在后台模板里填写上游真实模型 ID。");
+  error.statusCode = 422;
+  error.code = "MODEL_PRICING_UNAVAILABLE";
+  throw error;
+}
+
 async function readGenerationRecords() {
   const records = await getKv("generation_records", []);
   return Array.isArray(records) ? records : [];
@@ -2233,21 +2584,6 @@ function extractApizReportedCredits(value, depth = 0) {
   return best === null ? null : creditsAmount(best);
 }
 
-function platformTemplatePreDeductCost(template = {}, body = {}) {
-  const candidates = [
-    template.cost,
-    template.price,
-    template.params?.cost,
-    template.params?.credits,
-    PLATFORM_GENERATION_PREDEDUCT_CREDITS,
-  ];
-  for (const candidate of candidates) {
-    const amount = positiveCreditsOrNull(candidate);
-    if (amount !== null) return amount;
-  }
-  return 0;
-}
-
 function publicBilling(record = {}) {
   return {
     preDeducted: creditsAmount(record.preDeductedCredits || 0),
@@ -2258,18 +2594,30 @@ function publicBilling(record = {}) {
 }
 
 function platformApizPayload({ template, prompt, imageUrl, overrides = {} }) {
+  const model = resolvePlatformModelId(template.model, template.type);
   const params = {
     ...(template.params || {}),
     ...(overrides && typeof overrides === "object" && !Array.isArray(overrides) ? overrides : {}),
     prompt,
   };
+  if (params.ratio && !params.aspect_ratio) {
+    params.aspect_ratio = params.ratio;
+    delete params.ratio;
+  }
+  if ((model === "bytedance/seedance-2.0/fast/image-to-video" || model === "bytedance/seedance-2.0/fast/text-to-video") && !params.resolution) {
+    params.resolution = "720p";
+  }
   if (template.negativePrompt && !params.negative_prompt) params.negative_prompt = template.negativePrompt;
   if (imageUrl) {
     params.image_url = imageUrl;
-    params.image_urls = Array.isArray(params.image_urls) ? [imageUrl, ...params.image_urls] : [imageUrl];
+    if (model === "bytedance/seedance-2.0/fast/image-to-video" || model === "bytedance/seedance-2.0/image-to-video") {
+      delete params.image_urls;
+    } else {
+      params.image_urls = Array.isArray(params.image_urls) ? [imageUrl, ...params.image_urls] : [imageUrl];
+    }
   }
   return {
-    model: template.model || "seedance",
+    model,
     params,
     channel: null,
   };
@@ -2325,7 +2673,14 @@ async function handlePlatformGenerate(req, res) {
   const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : template.prompt;
   if (!String(prompt || "").trim()) return sendJson(res, 400, { ok: false, message: "缺少 prompt。" });
 
-  const preDeductedCredits = platformTemplatePreDeductCost(template, body);
+  const upstreamPayload = platformApizPayload({
+    template,
+    prompt,
+    imageUrl,
+    overrides: body.params,
+  });
+  const pricingEstimate = await estimatePlatformPreDeductCredits(upstreamPayload.model, upstreamPayload.params, template);
+  const preDeductedCredits = pricingEstimate.credits;
   if (auth.user.credits < preDeductedCredits) {
     return sendJson(res, 402, {
       ok: false,
@@ -2336,17 +2691,12 @@ async function handlePlatformGenerate(req, res) {
     });
   }
 
-  const upstreamPayload = platformApizPayload({
-    template,
-    prompt,
-    imageUrl,
-    overrides: body.params,
-  });
   if (preDeductedCredits > 0) {
     changeUserCredits(auth.db, auth.user.id, -preDeductedCredits, "generation_pre_deduct", {
       source: "platform-template",
       templateId: template.id,
       templateTitle: template.title,
+      pricingSource: pricingEstimate.source,
     });
     await writeDb(auth.db);
   }
@@ -2399,6 +2749,10 @@ async function handlePlatformGenerate(req, res) {
     params: upstreamPayload.params,
     upstreamPayload,
     preDeductedCredits,
+    pricingEstimate: {
+      source: pricingEstimate.source,
+      pricing: pricingEstimate.pricing || null,
+    },
     finalCredits: null,
     billingStatus: preDeductedCredits > 0 ? "pre_deducted" : "free",
     billingSettledAt: "",
