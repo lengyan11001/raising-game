@@ -19,7 +19,9 @@ const state = {
 const els = {
   brandName: document.querySelector("#brandName"),
   heroTitle: document.querySelector("#heroTitle"),
+  heroEyebrow: document.querySelector("#heroEyebrow"),
   heroSubtitle: document.querySelector("#heroSubtitle"),
+  heroBadge: document.querySelector("#heroBadge"),
   heroNotice: document.querySelector("#heroNotice"),
   categoryRow: document.querySelector("#categoryRow"),
   templateGrid: document.querySelector("#templateGrid"),
@@ -32,6 +34,9 @@ const els = {
   templatePrompt: document.querySelector("#templatePrompt"),
   submitTemplateBtn: document.querySelector("#submitTemplateBtn"),
   jobNote: document.querySelector("#jobNote"),
+  accessTabs: document.querySelector("#accessTabs"),
+  accessGuideTitle: document.querySelector("#accessGuideTitle"),
+  accessGuideDesc: document.querySelector("#accessGuideDesc"),
   accessCopy: document.querySelector("#accessCopy"),
   copyAccessBtn: document.querySelector("#copyAccessBtn"),
   loginBtn: document.querySelector("#loginBtn"),
@@ -45,12 +50,60 @@ const els = {
 };
 
 const PUBLIC_COPY = {
-  heroTitle: "一键生成同款视频",
-  heroSubtitle: "选择模板，上传图片或输入文字，生成图生视频 / 文生视频。",
-  notice: "模板、提示词、参数和封面都可在后台配置。",
+  galleryTitle: "一键生成同款视频",
+  gallerySubtitle: "选择模板，上传图片或输入文字，生成图生视频 / 文生视频。",
+  galleryNotice: "上传素材后即可生成，结果会保存到生成记录。",
+  accessTitle: "业务接入",
+  accessSubtitle: "复制接入说明，把生成能力接到你的产品或工作流。",
+  accessNotice: "接入说明只放必要参数和返回结果，不混入模板广场的用户流程。",
   accessCopy:
     "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
 };
+
+const ACCESS_GUIDES = [
+  {
+    id: "http",
+    title: "HTTP API",
+    subtitle: "直接提交任务",
+    desc: "服务端提交生成任务，查询进度，读取结果。",
+    copy:
+      "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
+  },
+  {
+    id: "mcp",
+    title: "MCP",
+    subtitle: "工具调用",
+    desc: "把模板生成封装成工具，由业务系统按模板 ID 和素材调用。",
+    copy:
+      "tool: create_template_video\ninput:\n  templateId: template-id\n  prompt: optional user prompt\n  image: uploaded image url or data url\noutput:\n  taskId\n  status\n  videoUrl",
+  },
+  {
+    id: "typescript",
+    title: "TypeScript",
+    subtitle: "服务端接入",
+    desc: "在服务端用 token 调用本站接口，前端只负责传素材和展示记录。",
+    copy:
+      "const res = await fetch('https://123vips.com/api/platform/generate', {\n  method: 'POST',\n  headers: {\n    authorization: `Bearer ${userToken}`,\n    'content-type': 'application/json',\n  },\n  body: JSON.stringify({ templateId, prompt, dataUrl }),\n});\nconst job = await res.json();",
+  },
+  {
+    id: "python",
+    title: "Python",
+    subtitle: "服务端接入",
+    desc: "后端任务、脚本或内部系统都可以按同一套接口提交和查询。",
+    copy:
+      "import requests\n\nresp = requests.post(\n    'https://123vips.com/api/platform/generate',\n    headers={'Authorization': f'Bearer {user_token}'},\n    json={'templateId': template_id, 'prompt': prompt, 'dataUrl': data_url},\n)\njob = resp.json()",
+  },
+  {
+    id: "cli",
+    title: "CLI",
+    subtitle: "命令行调用",
+    desc: "适合内部运营或自动化脚本，直接用 HTTP 提交任务。",
+    copy:
+      "curl -X POST https://123vips.com/api/platform/generate \\\n  -H \"Authorization: Bearer <user-token>\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"...\"}'",
+  },
+];
+
+let activeAccessGuide = ACCESS_GUIDES[0];
 
 function refreshIcons() {
   window.lucide?.createIcons();
@@ -58,7 +111,7 @@ function refreshIcons() {
 
 function cleanPublicCopy(value, fallback) {
   const text = String(value || "").trim();
-  if (!text || /ap[i]z|上游|api\s*接入/i.test(text)) return fallback;
+  if (!text || /ap[i]z|上游|后台|api\s*接入/i.test(text)) return fallback;
   return text;
 }
 
@@ -92,6 +145,24 @@ function setTab(tab) {
   document.querySelectorAll("[data-tab]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.tab === tab);
   });
+  renderHero();
+}
+
+function renderHero() {
+  if (state.tab === "access") {
+    els.heroEyebrow.textContent = "Integration";
+    els.heroTitle.textContent = PUBLIC_COPY.accessTitle;
+    els.heroSubtitle.textContent = PUBLIC_COPY.accessSubtitle;
+    els.heroBadge.textContent = "接入方式";
+    els.heroNotice.textContent = PUBLIC_COPY.accessNotice;
+    return;
+  }
+  const platform = state.config?.platform || {};
+  els.heroEyebrow.textContent = "Template Plaza";
+  els.heroTitle.textContent = cleanPublicCopy(platform.heroTitle, PUBLIC_COPY.galleryTitle);
+  els.heroSubtitle.textContent = cleanPublicCopy(platform.heroSubtitle, PUBLIC_COPY.gallerySubtitle);
+  els.heroBadge.textContent = "模板广场";
+  els.heroNotice.textContent = cleanPublicCopy(platform.notice, PUBLIC_COPY.galleryNotice);
 }
 
 function setFilter(filter) {
@@ -137,10 +208,29 @@ function renderTemplates() {
         <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">生成同款</button>
       </div>
     </article>
-  `).join("") : `<div class="job-note">暂无模板，请在后台“首页广场”配置。</div>`;
+  `).join("") : `<div class="job-note">暂无可用模板，请稍后再试。</div>`;
 
   els.templateGrid.querySelectorAll("[data-template-id]").forEach((button) => {
     button.addEventListener("click", () => openTemplate(button.dataset.templateId));
+  });
+}
+
+function renderAccessGuides() {
+  els.accessTabs.innerHTML = ACCESS_GUIDES.map((guide) => `
+    <button class="access-tab ${activeAccessGuide.id === guide.id ? "is-active" : ""}" data-access-guide="${escapeHtml(guide.id)}" type="button">
+      <strong>${escapeHtml(guide.title)}</strong>
+      <span>${escapeHtml(guide.subtitle)}</span>
+    </button>
+  `).join("");
+  els.accessGuideTitle.textContent = activeAccessGuide.title;
+  els.accessGuideDesc.textContent = activeAccessGuide.desc;
+  els.accessCopy.textContent = cleanPublicCopy(activeAccessGuide.copy, PUBLIC_COPY.accessCopy);
+  els.accessTabs.querySelectorAll("[data-access-guide]").forEach((button) => {
+    button.addEventListener("click", () => {
+      activeAccessGuide = ACCESS_GUIDES.find((guide) => guide.id === button.dataset.accessGuide) || ACCESS_GUIDES[0];
+      renderAccessGuides();
+      refreshIcons();
+    });
   });
 }
 
@@ -252,12 +342,10 @@ async function bootstrap() {
   state.templates = platform.templates || [];
   state.categories = platform.categories || [];
   els.brandName.textContent = platform.brand || "Vipeak AI";
-  els.heroTitle.textContent = cleanPublicCopy(platform.heroTitle, PUBLIC_COPY.heroTitle);
-  els.heroSubtitle.textContent = cleanPublicCopy(platform.heroSubtitle, PUBLIC_COPY.heroSubtitle);
-  els.heroNotice.textContent = cleanPublicCopy(platform.notice, PUBLIC_COPY.notice);
-  els.accessCopy.textContent = cleanPublicCopy(platform.accessCopy, PUBLIC_COPY.accessCopy);
+  renderHero();
   renderCategories();
   renderTemplates();
+  renderAccessGuides();
   refreshIcons();
 }
 

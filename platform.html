@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI - 模板广场</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-2" />
+    <link rel="stylesheet" href="./platform.css?v=ai-3" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -22,7 +22,6 @@
       </nav>
       <div class="head-actions">
         <a class="ghost-link" href="/game">养成游戏</a>
-        <a class="ghost-link" href="/admin.html">后台</a>
         <button class="primary-pill" id="loginBtn" type="button">登录 / 注册</button>
       </div>
     </header>
@@ -30,28 +29,23 @@
     <main>
       <section class="hero">
         <div>
-          <p class="eyebrow">Template Plaza</p>
+          <p class="eyebrow" id="heroEyebrow">Template Plaza</p>
           <h1 id="heroTitle">一键生成同款视频</h1>
           <p id="heroSubtitle">选择模板，上传图片或输入文字，生成图生视频 / 文生视频。</p>
         </div>
         <div class="hero-panel">
-          <span>限时开放</span>
-          <strong id="heroNotice">模板、提示词、参数和封面都可在后台配置。</strong>
+          <span id="heroBadge">模板广场</span>
+          <strong id="heroNotice">上传素材后即可生成，结果会保存到生成记录。</strong>
         </div>
       </section>
 
       <section class="workspace" data-panel="gallery">
-        <aside class="rail">
-          <button class="rail-item is-active" data-tab="gallery" type="button"><i data-lucide="sparkles"></i><span>广场</span></button>
-          <button class="rail-item" data-tab="access" type="button"><i data-lucide="terminal-square"></i><span>接入</span></button>
-          <a class="rail-item" href="/game"><i data-lucide="gamepad-2"></i><span>游戏</span></a>
-        </aside>
-
         <section class="gallery-panel">
           <div class="section-head">
             <div>
               <p class="eyebrow">Template Plaza</p>
               <h2>模板广场</h2>
+              <p>选一个模板，上传素材或输入文字，直接生成同款。</p>
             </div>
             <div class="mode-switch">
               <button class="mode-btn is-active" data-filter="all" type="button">全部</button>
@@ -68,20 +62,14 @@
         <div class="section-head centered">
           <p class="eyebrow">Integration</p>
           <h2>接入方式</h2>
-          <p>复制接入说明，按你的业务系统调用生成能力。</p>
+          <p>这里是给业务系统接入用的说明，和模板广场的用户生成流程分开。</p>
         </div>
-        <div class="access-tabs">
-          <button class="access-tab is-active" type="button">HTTP API<span>直接提交任务</span></button>
-          <button class="access-tab" type="button">MCP<span>工具调用</span></button>
-          <button class="access-tab" type="button">TypeScript<span>服务端接入</span></button>
-          <button class="access-tab" type="button">Python<span>服务端接入</span></button>
-          <button class="access-tab" type="button">CLI<span>命令行调用</span></button>
-        </div>
+        <div class="access-tabs" id="accessTabs"></div>
         <div class="copy-card">
           <div class="copy-main">
             <span class="copy-kicker"><i data-lucide="copy"></i> ONE COPY INTEGRATION</span>
-            <h3>复制一次，快速接入</h3>
-            <p>保留必要的提交、查询和结果字段。用户侧负责上传素材和选择模板，生成结果会自动进入本站记录。</p>
+            <h3 id="accessGuideTitle">HTTP API</h3>
+            <p id="accessGuideDesc">服务端提交生成任务，查询进度，读取结果。</p>
             <button class="copy-btn" id="copyAccessBtn" type="button"><i data-lucide="clipboard"></i>复制接入说明</button>
           </div>
           <pre class="copy-preview" id="accessCopy"></pre>
@@ -132,6 +120,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-2"></script>
+    <script src="./platform.js?v=ai-3"></script>
   </body>
 </html>

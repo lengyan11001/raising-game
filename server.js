@@ -230,7 +230,7 @@ const DEFAULT_CONFIG = {
     brand: "Vipeak AI",
     heroTitle: "一键生成同款视频",
     heroSubtitle: "选择模板，上传图片或输入文字，生成图生视频 / 文生视频。",
-    notice: "模板、提示词、参数和封面都可在后台配置。",
+    notice: "上传素材后即可生成，结果会保存到生成记录。",
     accessCopy:
       "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
     categories: [
@@ -510,7 +510,7 @@ function normalizePlatformTemplate(template = {}, index = 0) {
 
 function cleanPlatformPublicCopy(value, fallback) {
   const text = String(value || "").trim();
-  if (!text || /ap[i]z|上游|api\s*接入/i.test(text)) return String(fallback || "");
+  if (!text || /ap[i]z|上游|后台|api\s*接入/i.test(text)) return String(fallback || "");
   return text;
 }
 
