@@ -988,6 +988,23 @@ function positiveCreditsOrNull(value) {
   return creditsAmount(next);
 }
 
+function insufficientCreditsMessage(cost, credits) {
+  const need = creditsAmount(cost);
+  const current = creditsAmount(credits);
+  return `Not enough credits. This generation needs ${need} credits; your balance is ${current}. Please top up and try again.`;
+}
+
+function insufficientCreditsPayload(cost, credits, extra = {}) {
+  return {
+    ok: false,
+    code: "INSUFFICIENT_CREDITS",
+    message: insufficientCreditsMessage(cost, credits),
+    cost: creditsAmount(cost),
+    credits: creditsAmount(credits),
+    ...extra,
+  };
+}
+
 function appendCreditLedger(db, user, delta, type, meta = {}) {
   if (!db || !user) return null;
   const amount = Math.round(Number(delta || 0) * 10000) / 10000;
@@ -1023,7 +1040,7 @@ function changeUserCredits(db, userId, delta, type, meta = {}) {
   }
   const rawNext = Number(user.credits || 0) + amount;
   if (rawNext < -0.0001) {
-    const error = new Error("Not enough credits - please top up first.");
+    const error = new Error(insufficientCreditsMessage(-amount, user.credits));
     error.statusCode = 402;
     error.code = "INSUFFICIENT_CREDITS";
     error.credits = creditsAmount(user.credits);
@@ -2682,13 +2699,7 @@ async function handlePlatformGenerate(req, res) {
   const pricingEstimate = await estimatePlatformPreDeductCredits(upstreamPayload.model, upstreamPayload.params, template);
   const preDeductedCredits = pricingEstimate.credits;
   if (auth.user.credits < preDeductedCredits) {
-    return sendJson(res, 402, {
-      ok: false,
-      code: "INSUFFICIENT_CREDITS",
-      message: "Not enough credits - please top up first.",
-      cost: preDeductedCredits,
-      credits: auth.user.credits,
-    });
+    return sendJson(res, 402, insufficientCreditsPayload(preDeductedCredits, auth.user.credits));
   }
 
   if (preDeductedCredits > 0) {
@@ -3018,13 +3029,7 @@ async function handleSpendCredits(req, res) {
   const cost = clampNumber(body.cost, 0, 0, 9999);
   if (cost <= 0) return sendJson(res, 400, { ok: false, message: "Spend amount is invalid." });
   if (auth.user.credits < cost) {
-    return sendJson(res, 402, {
-      ok: false,
-      code: "INSUFFICIENT_CREDITS",
-      message: "Not enough credits — please top up first.",
-      cost,
-      credits: auth.user.credits,
-    });
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
   auth.user.credits -= cost;
   auth.user.updatedAt = new Date().toISOString();
@@ -3074,13 +3079,7 @@ async function handleUnlockVideo(req, res) {
 
   if (!unlock) {
     if (auth.user.credits < cost) {
-      return sendJson(res, 402, {
-        ok: false,
-        code: "INSUFFICIENT_CREDITS",
-        message: "Not enough credits. Please top up first.",
-        cost,
-        credits: auth.user.credits,
-      });
+      return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
     }
     auth.user.credits -= cost;
     auth.user.updatedAt = new Date().toISOString();
@@ -3509,13 +3508,7 @@ async function handleCreateMyCharacter(req, res) {
   const config = await readAppConfig();
   const cost = clampNumber(body.cost, Number(config.prices.customCharacter || 30), 0, 9999);
   if (auth.user.credits < cost) {
-    return sendJson(res, 402, {
-      ok: false,
-      code: "INSUFFICIENT_CREDITS",
-      message: "Not enough credits — please top up first.",
-      cost,
-      credits: auth.user.credits,
-    });
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
 
   const characterId = randomId("mychar");
@@ -3610,13 +3603,7 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
   const config = await readAppConfig();
   const cost = clampNumber(body.cost, Number(config.prices.customCharacter || 30), 0, 9999);
   if (auth.user.credits < cost) {
-    return sendJson(res, 402, {
-      ok: false,
-      code: "INSUFFICIENT_CREDITS",
-      message: "Not enough credits — please top up first.",
-      cost,
-      credits: auth.user.credits,
-    });
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
 
   if (st === "reference_failed") {
@@ -3772,13 +3759,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
 
   const cost = clampNumber(body.cost, Number(sceneConfig.price || config.prices.dateVideo || 25), 0, 9999);
   if (auth.user.credits < cost) {
-    return sendJson(res, 402, {
-      ok: false,
-      code: "INSUFFICIENT_CREDITS",
-      message: "Not enough credits — please top up first.",
-      cost,
-      credits: auth.user.credits,
-    });
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
 
   const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
@@ -5334,13 +5315,7 @@ async function handleCreateSceneVideo(req, res) {
 
   const cost = clampNumber(body.cost, Number(sceneConfig.price || config.prices.dateVideo || 25), 0, 9999);
   if (auth.user.credits < cost) {
-    return sendJson(res, 402, {
-      ok: false,
-      code: "INSUFFICIENT_CREDITS",
-      message: "Not enough credits — please top up first.",
-      cost,
-      credits: auth.user.credits,
-    });
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
 
   if (dryRun || !ARK_API_KEY) {
