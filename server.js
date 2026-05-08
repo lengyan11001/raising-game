@@ -537,7 +537,7 @@ function cleanPlatformPublicCopy(value, fallback) {
 
 function cleanPlatformHeroCopy(value, fallback) {
   const text = String(value || "").trim();
-  if (!text || /template\s*plaza|模板广场|同款|same\s*style|ap[i]z|upstream|admin|上游|后台|api\s*接入/i.test(text)) {
+  if (!text || /[\u4e00-\u9fff]|template\s*plaza|模板广场|同款|same\s*style|ap[i]z|upstream|admin|上游|后台|api\s*接入/i.test(text)) {
     return String(fallback || "");
   }
   return text;
