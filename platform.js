@@ -372,11 +372,18 @@ function formatCredits(value) {
   return Number.isInteger(next) ? String(next) : next.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 
+function formatDurationSeconds(value) {
+  const next = Number(value);
+  if (!Number.isFinite(next) || next <= 0) return "";
+  return `${Number.isInteger(next) ? next : next.toFixed(1).replace(/0+$/, "").replace(/\.$/, "")}s`;
+}
+
 function templateCostLabel(templateId) {
   const estimate = state.estimates?.[templateId];
   if (!estimate) return "Checking cost...";
   if (estimate.available === false || estimate.credits === null || estimate.credits === undefined) return "Cost unavailable";
-  return `${formatCredits(estimate.credits)} credits`;
+  const duration = formatDurationSeconds(estimate.durationSeconds);
+  return `${formatCredits(estimate.credits)} credits${duration ? ` · ${duration}` : ""}`;
 }
 
 function templateGenerateLabel(templateId) {

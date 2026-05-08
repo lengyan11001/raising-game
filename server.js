@@ -1960,6 +1960,16 @@ async function apizGet(pathname, query = {}) {
 
 function apizPricingNumber(value) {
   if (typeof value === "boolean") return null;
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text || /^auto$/i.test(text)) return null;
+    const direct = Number(text);
+    if (Number.isFinite(direct)) return direct;
+    const match = text.match(/-?\d+(?:\.\d+)?/);
+    if (!match) return null;
+    const parsed = Number(match[0]);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
   const next = Number(value);
   return Number.isFinite(next) ? next : null;
 }
@@ -1990,6 +2000,75 @@ function durationSecondsFromParams(params = {}) {
   return 0;
 }
 
+function apizPricingText(value = {}) {
+  if (!value || typeof value !== "object") return "";
+  return [
+    value.description,
+    value.label,
+    value.name,
+    value.title,
+    value.price_description,
+    Array.isArray(value.price_factors) ? value.price_factors.join(" ") : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function mediaValueLooksLikeVideo(value) {
+  if (!value) return false;
+  if (typeof value === "string") return /\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#]|$)/i.test(value);
+  if (Array.isArray(value)) return value.some(mediaValueLooksLikeVideo);
+  if (typeof value === "object") {
+    return mediaValueLooksLikeVideo(value.url || value.src || value.path || value.file || value.file_url || value.fileUrl);
+  }
+  return false;
+}
+
+function paramsHaveVideoInput(params = {}) {
+  return Object.entries(params || {}).some(([key, value]) => {
+    const normalizedKey = key.toLowerCase();
+    if (/^video_(?:file|url)?_\d+$/.test(normalizedKey) || /^video_file_\d+$/.test(normalizedKey) || ["video_file", "video_url", "video_files", "video_urls"].includes(normalizedKey)) {
+      return Boolean(value);
+    }
+    if (["media_files", "filepaths", "file_paths"].includes(normalizedKey)) {
+      return mediaValueLooksLikeVideo(value);
+    }
+    return false;
+  });
+}
+
+function modelVariantFromParams(params = {}) {
+  const raw = String(params.model || params.model_type || params.variant || "").trim();
+  const compact = raw.toLowerCase().replace(/[\s_/-]+/g, "");
+  if (!compact) return { known: false, fast: null, vip: null };
+  if (compact.includes("superseed2")) return { known: true, fast: true, vip: false };
+  if (!compact.includes("seedance")) return { known: false, fast: null, vip: null };
+  const vip = compact.includes("vip");
+  const fast = compact.includes("fast");
+  return { known: true, fast, vip };
+}
+
+function exampleMentionsVideoInput(text = "") {
+  return /含\s*视频|视频素材|with\s+video|video\s+(?:material|input|reference|file)|video_file/i.test(text);
+}
+
+function exampleMentionsNoVideoInput(text = "") {
+  return /文生视频|text\s*to\s*video|without\s+video|no\s+video/i.test(text);
+}
+
+function seedanceDynamicPerSecondRate(pricing = {}, params = {}) {
+  const description = apizPricingText(pricing);
+  if (!/seedance|fast|标准|standard/i.test(description)) return null;
+  const variant = modelVariantFromParams(params);
+  if (!variant.known) return null;
+  const hasVideoInput = paramsHaveVideoInput(params);
+  if (variant.fast && variant.vip) return hasVideoInput ? 240 : 120;
+  if (variant.fast) return hasVideoInput ? 120 : 60;
+  if (variant.vip) return hasVideoInput ? 300 : 150;
+  return hasVideoInput ? 180 : 90;
+}
+
 function numOutputsFromParams(params = {}) {
   const next = apizPricingNumber(params.num_images ?? params.n ?? params.batch_size ?? params.num_outputs ?? 1);
   return Math.max(1, Math.ceil(next || 1));
@@ -2007,18 +2086,26 @@ function durationFromPricingExample(example = {}) {
 }
 
 function exampleMatchesPricingParams(example = {}, params = {}) {
-  const text = String(example.description || example.label || example.name || "").toLowerCase();
+  const text = apizPricingText(example);
   const resolution = String(params.resolution || params.quality || "").trim().toLowerCase();
-  const modelVariant = String(params.model || params.model_type || "").trim().toLowerCase();
+  const modelVariant = modelVariantFromParams(params);
+  const hasVideoInput = paramsHaveVideoInput(params);
 
   if (resolution && text && !text.includes(resolution)) {
     const mentionedResolution = /\b\d{3,4}p\b/i.test(text);
     if (mentionedResolution) return false;
   }
-  if (modelVariant && text) {
-    if (modelVariant.includes("fast") && !text.includes("fast")) return false;
-    if ((modelVariant.includes("direct") || modelVariant.includes("standard")) && text.includes("fast")) return false;
-    if (modelVariant.includes("vip") && !text.includes("vip")) return false;
+  if (modelVariant.known && text) {
+    const mentionsVip = /\bvip\b/i.test(text);
+    const mentionsFast = /\bfast\b/i.test(text);
+    const mentionsStandard = /标准|standard/i.test(text);
+    if (modelVariant.vip !== null && mentionsVip !== modelVariant.vip) return false;
+    if (modelVariant.fast === true && mentionsStandard) return false;
+    if (modelVariant.fast === false && mentionsFast) return false;
+  }
+  if (text) {
+    if (exampleMentionsVideoInput(text) && !hasVideoInput) return false;
+    if (exampleMentionsNoVideoInput(text) && hasVideoInput) return false;
   }
   return true;
 }
@@ -2050,7 +2137,9 @@ function priceFromDurationExamples(pricing = {}, params = {}) {
     }
     if (withDuration.length) {
       const maxDuration = withDuration[withDuration.length - 1].duration;
-      return Math.max(...withDuration.filter((item) => item.duration === maxDuration).map((item) => item.price));
+      const maxDurationPrice = Math.max(...withDuration.filter((item) => item.duration === maxDuration).map((item) => item.price));
+      if (maxDuration > 0) return Math.ceil((maxDurationPrice / maxDuration) * duration);
+      return maxDurationPrice;
     }
   }
   return Math.max(...prices.map((item) => item.price));
@@ -2134,6 +2223,10 @@ function estimateCreditsFromApizPricing(pricing = {}, params = {}) {
   if (priceType === "fixed" && baseAmount === 0) return 0;
 
   if (priceType === "per_second" || priceType === "dynamic_per_second") {
+    const explicitRate = priceType === "dynamic_per_second" ? seedanceDynamicPerSecondRate(pricing, params) : null;
+    if (explicitRate && explicitRate > 0) {
+      return apizCreditsFromPricingAmount(Math.ceil((duration || 5) * explicitRate), unit) || 0;
+    }
     const examplePrice = priceFromDurationExamples(pricing, params);
     if (examplePrice !== null) return apizCreditsFromPricingAmount(examplePrice, unit) || 0;
     let rate = apizPricingNumber(pricing.per_second);
@@ -2868,10 +2961,14 @@ async function makePlatformEstimate(template, overrides = {}) {
     overrides: overrides.params,
   });
   const pricingEstimate = await estimatePlatformPreDeductCredits(upstreamPayload.model, upstreamPayload.params, template);
+  const durationSeconds = durationSecondsFromParams(upstreamPayload.params) || apizPricingNumber(pricingEstimate.pricing?._default_duration_seconds) || 0;
   return {
     templateId: template.id,
     credits: creditsAmount(pricingEstimate.credits),
     source: pricingEstimate.source,
+    model: upstreamPayload.model,
+    requestModel: upstreamPayload.params.model || upstreamPayload.model,
+    durationSeconds,
     available: true,
   };
 }
