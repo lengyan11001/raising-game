@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Vipeak AI - 模板广场</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-10" />
+    <title>Vipeak AI</title>
+    <link rel="stylesheet" href="./platform.css?v=ai-11" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -17,26 +17,26 @@
         <strong id="brandName">Vipeak AI</strong>
       </a>
       <nav class="top-tabs" aria-label="Main sections">
-        <button class="top-tab is-active" data-tab="gallery" type="button">Template Plaza</button>
+        <button class="top-tab is-active" data-tab="gallery" type="button">Gallery</button>
         <button class="top-tab" data-tab="access" type="button">API Access</button>
       </nav>
       <div class="head-actions">
-        <a class="ghost-link" href="/game">养成游戏</a>
-        <button class="ghost-link" id="historyBtn" type="button">生成记录</button>
-        <button class="primary-pill" id="loginBtn" type="button">登录 / 注册</button>
+        <a class="ghost-link" href="/game">Game</a>
+        <button class="ghost-link" id="historyBtn" type="button">History</button>
+        <button class="primary-pill" id="loginBtn" type="button">Login / Sign up</button>
       </div>
     </header>
 
     <main>
       <section class="hero">
         <div>
-          <p class="eyebrow" id="heroEyebrow">Template Plaza</p>
-          <h1 id="heroTitle">一键生成同款视频</h1>
-          <p id="heroSubtitle">选择模板，上传图片或输入文字，生成图生视频 / 文生视频。</p>
+          <p class="eyebrow" id="heroEyebrow">Gallery</p>
+          <h1 id="heroTitle">Create AI videos</h1>
+          <p id="heroSubtitle">Choose a template, upload an image or enter text, and create a new video.</p>
         </div>
         <div class="hero-panel">
-          <span id="heroBadge">模板广场</span>
-          <strong id="heroNotice">上传素材后即可生成，结果会保存到生成记录。</strong>
+          <span id="heroBadge">Templates</span>
+          <strong id="heroNotice">Generated results are saved in your history.</strong>
         </div>
       </section>
 
@@ -44,9 +44,9 @@
         <section class="gallery-panel">
           <div class="section-head">
             <div>
-              <p class="eyebrow">Template Plaza</p>
-              <h2>模板广场</h2>
-              <p>选一个模板，上传素材或输入文字，直接生成同款。</p>
+              <p class="eyebrow">Gallery</p>
+              <h2>AI Templates</h2>
+              <p>Choose a template, upload material, and generate a new result.</p>
             </div>
           </div>
           <div class="category-row" id="categoryRow"></div>
@@ -78,21 +78,21 @@
         <header>
           <div>
             <span id="modalType">Image to Video</span>
-            <strong id="modalTitle">模板生成</strong>
+            <strong id="modalTitle">Create video</strong>
           </div>
-          <button class="icon-btn" value="cancel" type="submit" aria-label="关闭"><i data-lucide="x"></i></button>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
           <label class="upload-box" id="uploadBox">
             <input id="templateImage" type="file" accept="image/*" />
-            <img id="uploadPreview" alt="上传预览" />
-            <span><i data-lucide="image-up"></i>上传参考图片</span>
+            <img id="uploadPreview" alt="Upload preview" />
+            <span><i data-lucide="image-up"></i>Upload reference image</span>
           </label>
           <label class="field">
             <span>Prompt</span>
             <textarea id="templatePrompt" rows="7"></textarea>
           </label>
-          <button class="generate-btn" id="submitTemplateBtn" type="button"><i data-lucide="wand-sparkles"></i>生成同款</button>
+          <button class="generate-btn" id="submitTemplateBtn" type="button"><i data-lucide="wand-sparkles"></i>Generate</button>
           <p class="job-note" id="jobNote"></p>
         </div>
       </form>
@@ -101,15 +101,15 @@
     <dialog id="loginDialog" class="modal auth-modal">
       <form method="dialog">
         <header>
-          <strong id="loginTitle">登录</strong>
-          <button class="icon-btn" value="cancel" type="submit" aria-label="关闭"><i data-lucide="x"></i></button>
+          <strong id="loginTitle">Login</strong>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
-          <input id="loginUsername" type="text" autocomplete="username" placeholder="用户名" />
-          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="密码，至少 6 位" />
+          <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" />
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" />
           <div class="auth-actions">
-            <button class="ghost-button" id="toggleLoginMode" type="button">注册账号</button>
-            <button class="generate-btn" id="loginSubmit" type="button">登录</button>
+            <button class="ghost-button" id="toggleLoginMode" type="button">Create account</button>
+            <button class="generate-btn" id="loginSubmit" type="button">Login</button>
           </div>
           <p class="job-note" id="loginMessage"></p>
         </div>
@@ -119,10 +119,10 @@
     <dialog id="historyDialog" class="modal history-modal">
       <form method="dialog">
         <header>
-          <strong>生成记录</strong>
+          <strong>Generation History</strong>
           <div class="modal-actions">
-            <button class="icon-btn" id="refreshHistoryBtn" type="button" aria-label="刷新"><i data-lucide="refresh-cw"></i></button>
-            <button class="icon-btn" value="cancel" type="submit" aria-label="关闭"><i data-lucide="x"></i></button>
+            <button class="icon-btn" id="refreshHistoryBtn" type="button" aria-label="Refresh"><i data-lucide="refresh-cw"></i></button>
+            <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
           </div>
         </header>
         <div class="modal-body">
@@ -131,6 +131,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-10"></script>
+    <script src="./platform.js?v=ai-11"></script>
   </body>
 </html>

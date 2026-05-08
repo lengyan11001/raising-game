@@ -54,12 +54,12 @@ const els = {
 };
 
 const PUBLIC_COPY = {
-  galleryTitle: "一键生成同款视频",
-  gallerySubtitle: "选择模板，上传图片或输入文字，生成图生视频 / 文生视频。",
-  galleryNotice: "上传素材后即可生成，结果会保存到生成记录。",
-  accessTitle: "业务接入",
-  accessSubtitle: "复制接入说明，把生成能力接到你的产品或工作流。",
-  accessNotice: "接入说明只放必要参数和返回结果。",
+  galleryTitle: "Create AI videos",
+  gallerySubtitle: "Choose a template, upload an image or enter text, and create a new video.",
+  galleryNotice: "Generated results are saved in your history.",
+  accessTitle: "API Access",
+  accessSubtitle: "Connect your product or workflow to the production generation API.",
+  accessNotice: "Only the required parameters and response format are shown here.",
   accessCopy:
     "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
 };
@@ -202,8 +202,8 @@ Return:
 
 This is usable as an MCP integration once your wrapper supplies the user token.`;
 
-PUBLIC_COPY.galleryTitle = "Create videos from templates";
-PUBLIC_COPY.gallerySubtitle = "Choose a template, upload an image or enter text, and generate the same style.";
+PUBLIC_COPY.galleryTitle = "Create AI videos";
+PUBLIC_COPY.gallerySubtitle = "Choose a template, upload an image or enter text, and create a new video.";
 PUBLIC_COPY.galleryNotice = "Generated results are saved in your history.";
 PUBLIC_COPY.accessTitle = "API Access";
 PUBLIC_COPY.accessSubtitle = "Connect your product, scripts, agents, or MCP wrapper to the production generation API.";
@@ -263,16 +263,16 @@ function refreshIcons() {
 
 function cleanPublicCopy(value, fallback) {
   const text = String(value || "").trim();
-  if (!text || /ap[i]z|上游|后台|api\s*接入/i.test(text)) return fallback;
+  if (!text || /ap[i]z|upstream|admin|上游|后台|api\s*接入/i.test(text)) return fallback;
   return text;
 }
 
 function setUser(user) {
   state.user = user || null;
   if (state.user) {
-    els.loginBtn.textContent = `${state.user.username} · ${Number(state.user.credits || 0)}积分`;
+    els.loginBtn.textContent = `${state.user.username} · ${Number(state.user.credits || 0)} credits`;
   } else {
-    els.loginBtn.textContent = "登录 / 注册";
+    els.loginBtn.textContent = "Login / Sign up";
   }
 }
 
@@ -282,18 +282,18 @@ function generationVideoUrl(record) {
 
 function statusLabel(status) {
   const value = String(status || "").toLowerCase();
-  if (["succeeded", "success", "done", "completed"].includes(value)) return "已完成";
-  if (["failed", "error", "cancelled", "canceled"].includes(value)) return "失败";
-  if (["running", "processing", "in_progress"].includes(value)) return "生成中";
-  return status || "已提交";
+  if (["succeeded", "success", "done", "completed"].includes(value)) return "Completed";
+  if (["failed", "error", "cancelled", "canceled"].includes(value)) return "Failed";
+  if (["running", "processing", "in_progress"].includes(value)) return "Processing";
+  return status || "Submitted";
 }
 
 function billingLabel(billing = {}) {
   const pre = Number(billing.preDeducted || 0);
   const final = billing.final === null || billing.final === undefined ? null : Number(billing.final || 0);
-  if (billing.status === "settle_pending_insufficient") return `预扣 ${pre}，实际 ${final}，待补扣`;
-  if (billing.settled && final !== null) return `预扣 ${pre}，实际 ${final}`;
-  return pre > 0 ? `预扣 ${pre}` : "未扣费";
+  if (billing.status === "settle_pending_insufficient") return `Prepaid ${pre}, final ${final}, pending`;
+  if (billing.settled && final !== null) return `Prepaid ${pre}, final ${final}`;
+  return pre > 0 ? `Prepaid ${pre}` : "No charge";
 }
 
 function formatCredits(value) {
@@ -338,7 +338,7 @@ async function requestJson(url, options = {}) {
     body: options.body === undefined ? undefined : typeof options.body === "string" ? options.body : JSON.stringify(options.body),
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.detail || `请求失败：${response.status}`);
+  if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.detail || `Request failed: ${response.status}`);
   return payload;
 }
 
@@ -363,10 +363,10 @@ function renderHero() {
     return;
   }
   const platform = state.config?.platform || {};
-  els.heroEyebrow.textContent = "Template Plaza";
+  els.heroEyebrow.textContent = "Gallery";
   els.heroTitle.textContent = cleanPublicCopy(platform.heroTitle, PUBLIC_COPY.galleryTitle);
   els.heroSubtitle.textContent = cleanPublicCopy(platform.heroSubtitle, PUBLIC_COPY.gallerySubtitle);
-  els.heroBadge.textContent = "Template Plaza";
+  els.heroBadge.textContent = "Templates";
   els.heroNotice.textContent = cleanPublicCopy(platform.notice, PUBLIC_COPY.galleryNotice);
 }
 
@@ -378,7 +378,7 @@ function setCategory(category) {
 
 function renderCategories() {
   const visibleCategories = state.categories.filter((category) => !isHiddenCategory(category));
-  const chips = [{ id: "all", name: "全部" }, ...visibleCategories];
+  const chips = [{ id: "all", name: "All" }, ...visibleCategories];
   els.categoryRow.innerHTML = chips.map((category) => `
     <button class="category-chip ${state.category === category.id ? "is-active" : ""}" data-category="${escapeHtml(category.id)}" type="button">
       ${escapeHtml(category.name)}
@@ -408,7 +408,7 @@ function renderTemplates() {
         <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
       </div>
     </article>
-  `).join("") : `<div class="job-note">暂无可用模板，请稍后再试。</div>`;
+  `).join("") : `<div class="job-note">No templates available yet.</div>`;
 
   els.templateGrid.querySelectorAll("[data-template-id]").forEach((button) => {
     button.addEventListener("click", () => openTemplate(button.dataset.templateId));
@@ -447,10 +447,10 @@ function openTemplate(templateId) {
   if (!template) return;
   state.activeTemplate = template;
   state.uploadDataUrl = "";
-  els.modalType.textContent = template.type === "image-to-video" ? "图生视频" : "文生视频";
+  els.modalType.textContent = template.type === "image-to-video" ? "Image to Video" : "Text to Video";
   els.modalTitle.textContent = template.title;
   els.templatePrompt.value = template.prompt || "";
-  els.jobNote.textContent = "用户输入的 prompt 会原样提交；不填则使用模板 prompt。";
+  els.jobNote.textContent = "The prompt is submitted exactly as entered. Leave it empty to use the saved prompt.";
   els.uploadBox.hidden = template.type !== "image-to-video";
   els.uploadBox.classList.remove("has-image");
   els.uploadPreview.removeAttribute("src");
@@ -464,7 +464,7 @@ function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("图片读取失败"));
+    reader.onerror = () => reject(new Error("Failed to read image"));
     reader.readAsDataURL(file);
   });
 }
@@ -473,11 +473,11 @@ async function submitTemplate() {
   if (!state.activeTemplate) return;
   if (!state.user) {
     openLogin();
-    els.jobNote.textContent = "请先登录后再生成。";
+    els.jobNote.textContent = "Please log in before generating.";
     return;
   }
   els.submitTemplateBtn.disabled = true;
-  els.jobNote.textContent = "正在提交生成任务...";
+  els.jobNote.textContent = "Submitting generation job...";
   try {
     const payload = await requestJson("/api/platform/generate", {
       method: "POST",
@@ -488,7 +488,7 @@ async function submitTemplate() {
       },
     });
     if (payload.user) setUser(payload.user);
-    els.jobNote.innerHTML = `任务已提交：<code>${escapeHtml(payload.taskId)}</code>。可在生成记录里查看进度。`;
+    els.jobNote.innerHTML = `Job submitted: <code>${escapeHtml(payload.taskId)}</code>. Check progress in history.`;
     loadHistory();
   } catch (error) {
     els.jobNote.textContent = error.message;
@@ -501,7 +501,7 @@ async function submitTemplate() {
 function renderHistory(records = []) {
   if (!els.historyList) return;
   if (!records.length) {
-    els.historyList.innerHTML = '<div class="job-note">暂无生成记录。</div>';
+    els.historyList.innerHTML = '<div class="job-note">No generation records yet.</div>';
     return;
   }
   els.historyList.innerHTML = records.map((record) => {
@@ -510,7 +510,7 @@ function renderHistory(records = []) {
       <article class="history-item">
         <header>
           <div>
-            <strong>${escapeHtml(record.templateTitle || record.sceneEntryName || "生成任务")}</strong>
+            <strong>${escapeHtml(record.templateTitle || record.sceneEntryName || "Generation job")}</strong>
             <small>${escapeHtml(record.taskId || "")}</small>
           </div>
           <small>${escapeHtml(statusLabel(record.status))}</small>
@@ -529,13 +529,13 @@ function renderHistory(records = []) {
 
 async function loadHistory() {
   if (!state.user || !els.historyList) return;
-  els.historyList.innerHTML = '<div class="job-note">正在加载生成记录...</div>';
+  els.historyList.innerHTML = '<div class="job-note">Loading generation records...</div>';
   try {
     const payload = await requestJson("/api/generation-records?limit=50");
     if (payload.user) setUser(payload.user);
     renderHistory(payload.records || []);
   } catch (error) {
-    els.historyList.innerHTML = `<div class="job-note">加载失败：${escapeHtml(error.message || String(error))}</div>`;
+    els.historyList.innerHTML = `<div class="job-note">Load failed: ${escapeHtml(error.message || String(error))}</div>`;
   }
 }
 
@@ -553,9 +553,9 @@ function openLogin() {
 
 function renderLoginMode() {
   const isRegister = state.loginMode === "register";
-  els.loginTitle.textContent = isRegister ? "注册" : "登录";
-  els.loginSubmit.textContent = isRegister ? "注册并登录" : "登录";
-  els.toggleLoginMode.textContent = isRegister ? "已有账号，去登录" : "注册账号";
+  els.loginTitle.textContent = isRegister ? "Create account" : "Login";
+  els.loginSubmit.textContent = isRegister ? "Create and login" : "Login";
+  els.toggleLoginMode.textContent = isRegister ? "Already have an account" : "Create account";
   els.loginMessage.textContent = "";
 }
 
@@ -563,7 +563,7 @@ async function submitLogin() {
   const username = els.loginUsername.value.trim();
   const password = els.loginPassword.value;
   if (!username || password.length < 6) {
-    els.loginMessage.textContent = "请输入用户名和至少 6 位密码。";
+    els.loginMessage.textContent = "Enter a username and a password with at least 6 characters.";
     return;
   }
   const endpoint = state.loginMode === "register" ? "/api/auth/register" : "/api/auth/login";
