@@ -226,6 +226,55 @@ const DEFAULT_CONFIG = {
     quality: "high",
     generateAudio: true,
   },
+  platform: {
+    brand: "Vipeak AI",
+    heroTitle: "AI 模板广场与 API 接入",
+    heroSubtitle: "上传一张图，套用同款提示词生成视频；也可以直接按 APIZ 方式接入模型能力。",
+    notice: "模板广场上线中，生成任务统一走 APIZ 上游并在本站留档。",
+    accessCopy:
+      "curl -fsSL https://apiz.ai/cli | sh\napiz auth login --api-key \"$APIZ_API_KEY\"\napiz models list --category video --json\napiz generate \"<prompt>\" --model <model-id> --wait --json",
+    categories: [
+      { id: "featured", name: "精选模板" },
+      { id: "i2v", name: "图生视频" },
+      { id: "t2v", name: "文生视频" },
+      { id: "business", name: "商业接入" },
+    ],
+    templates: [
+      {
+        id: "angel-rise",
+        title: "发条天使",
+        category: "i2v",
+        type: "image-to-video",
+        coverUrl: "/assets/admin/home/demo-aria-reference.png",
+        model: "seedance",
+        badge: "Image to Video",
+        prompt: "A cinematic vertical video where the uploaded character transforms into a radiant mechanical angel, glowing wings unfolding, dramatic clouds, golden light, slow heroic camera push, high detail, fantasy film style.",
+        params: { ratio: "9:16", duration: 5 },
+      },
+      {
+        id: "hero-rescue",
+        title: "超级英雄救援",
+        category: "i2v",
+        type: "image-to-video",
+        coverUrl: "/assets/admin/home/default-hero.jpg",
+        model: "seedance",
+        badge: "Hot",
+        prompt: "Use the uploaded image as the main character reference. Create a dynamic superhero rescue video, urban basketball court, purple energy portal, dramatic action pose, cinematic camera shake, realistic motion, high contrast.",
+        params: { ratio: "9:16", duration: 5 },
+      },
+      {
+        id: "product-fire",
+        title: "火力产品展示",
+        category: "t2v",
+        type: "text-to-video",
+        coverUrl: "/assets/admin/home/pink-upload-synthetic-reference.png",
+        model: "seedance",
+        badge: "Text to Video",
+        prompt: "A bold product commercial video with a glowing orange fire-powered object in a dark studio, sparks and smoke, dramatic hand gesture, premium advertisement lighting, slow orbit camera, cinematic energy.",
+        params: { ratio: "16:9", duration: 5 },
+      },
+    ],
+  },
   homeVideo: {
     provider: "seedance",
     posterUrl: "/assets/admin/home/default-hero.jpg",
@@ -378,6 +427,7 @@ async function readAppConfig() {
     prices: { ...DEFAULT_CONFIG.prices, ...(saved.prices || {}) },
     wallet: { ...DEFAULT_CONFIG.wallet, ...(saved.wallet || {}) },
     video: { ...DEFAULT_CONFIG.video, ...(saved.video || {}), generateAudio: true },
+    platform: normalizePlatformConfig(saved.platform || DEFAULT_CONFIG.platform),
     homeVideo: mergedHomeVideo,
     ifilm: { ...DEFAULT_CONFIG.ifilm, ...(saved.ifilm || {}) },
     characterImage: { ...DEFAULT_CONFIG.characterImage, ...(saved.characterImage || {}) },
@@ -426,6 +476,7 @@ function publicConfig(config) {
       activeItemId: homeVideo.activeItemId || "",
       items: homeVideo.items.map(publicHomeVideoItem),
     },
+    platform: normalizePlatformConfig(config.platform || {}),
     characterImage: config.characterImage,
     scenes: config.scenes
       .filter((scene) => scene.enabled !== false)
@@ -434,6 +485,55 @@ function publicConfig(config) {
         return publicScene;
       }),
   };
+}
+
+function normalizePlatformTemplate(template = {}, index = 0) {
+  const fallbackId = `template-${index + 1}`;
+  const type = String(template.type || "image-to-video").trim();
+  const safeType = type === "text-to-video" ? "text-to-video" : "image-to-video";
+  const id = String(template.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId;
+  return {
+    id,
+    title: String(template.title || "Untitled template").trim().slice(0, 80) || "Untitled template",
+    category: String(template.category || (safeType === "image-to-video" ? "i2v" : "t2v")).trim() || "featured",
+    type: safeType,
+    coverUrl: String(template.coverUrl || "").trim(),
+    model: String(template.model || "seedance").trim(),
+    badge: String(template.badge || "").trim().slice(0, 40),
+    prompt: typeof template.prompt === "string" ? template.prompt : "",
+    negativePrompt: typeof template.negativePrompt === "string" ? template.negativePrompt : "",
+    params: template.params && typeof template.params === "object" && !Array.isArray(template.params) ? template.params : {},
+    enabled: template.enabled !== false,
+    sort: Number.isFinite(Number(template.sort)) ? Number(template.sort) : index,
+  };
+}
+
+function normalizePlatformConfig(platform = {}) {
+  const fallback = DEFAULT_CONFIG.platform || {};
+  const categories = Array.isArray(platform.categories) ? platform.categories : fallback.categories || [];
+  const templates = Array.isArray(platform.templates) ? platform.templates : fallback.templates || [];
+  return {
+    ...fallback,
+    ...platform,
+    brand: String(platform.brand || fallback.brand || "Vipeak AI"),
+    heroTitle: String(platform.heroTitle || fallback.heroTitle || "AI 模板广场"),
+    heroSubtitle: String(platform.heroSubtitle || fallback.heroSubtitle || ""),
+    notice: String(platform.notice || fallback.notice || ""),
+    accessCopy: String(platform.accessCopy || fallback.accessCopy || ""),
+    categories: categories.map((category, index) => ({
+      id: String(category.id || `cat-${index + 1}`).trim().replace(/[^a-z0-9_-]/gi, "-") || `cat-${index + 1}`,
+      name: String(category.name || category.id || `Category ${index + 1}`).trim(),
+    })),
+    templates: templates
+      .map(normalizePlatformTemplate)
+      .filter((template) => template.enabled !== false)
+      .sort((a, b) => a.sort - b.sort),
+  };
+}
+
+function findPlatformTemplate(config, templateId) {
+  const platform = normalizePlatformConfig(config.platform || {});
+  return platform.templates.find((template) => template.id === String(templateId || "").trim()) || null;
 }
 
 function makeHomeVideoItemId() {
@@ -1729,7 +1829,9 @@ function publicGenerationRecord(record = {}) {
     taskId: String(record.taskId || ""),
     status: String(record.status || "submitted"),
     source: String(record.source || ""),
-    kind: generationRecordKind(record),
+    kind: String(record.kind || generationRecordKind(record)),
+    templateId: String(record.templateId || ""),
+    templateTitle: String(record.templateTitle || ""),
     sceneId: String(record.sceneId || ""),
     sceneName: String(record.sceneName || ""),
     sceneEntryId: String(record.sceneEntryId || ""),
@@ -1738,8 +1840,12 @@ function publicGenerationRecord(record = {}) {
     companionName: String(record.companionName || ""),
     partnerCharacterId: String(record.partnerCharacterId || ""),
     partnerCharacterName: String(record.partnerCharacterName || ""),
+    imageUrl: String(record.imageUrl || ""),
+    userAssetId: String(record.userAssetId || ""),
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
+    params: record.params || null,
+    upstreamPayload: record.upstreamPayload || null,
     model: String(record.model || ""),
     provider: String(record.provider || "seedance"),
     ratio: String(record.ratio || ""),
@@ -1763,6 +1869,15 @@ function shouldRefreshGenerationRecord(record = {}) {
 }
 
 async function refreshGenerationRecordStatus(record = {}) {
+  if (record.provider === "apiz") {
+    if (!APIZ_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+    try {
+      return await refreshApizGenerationRecord(record);
+    } catch (error) {
+      console.warn("[apiz-generation-record-refresh-failed]", record.taskId, error.message || error);
+      return record;
+    }
+  }
   if (!ARK_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
   try {
     const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(record.taskId)}`);
@@ -1908,6 +2023,142 @@ function collectOutputImageUrls(task) {
     output.image?.url,
   ].filter(Boolean);
   return direct.length ? direct : collectImageUrls(output);
+}
+
+function apizTaskId(task = {}) {
+  return task.task_id || task.taskId || task.id || task.data?.task_id || task.data?.id || "";
+}
+
+function apizStatus(task = {}) {
+  return task.status || task.state || task.task_status || task.data?.status || "submitted";
+}
+
+function apizResultUrl(task = {}) {
+  return findVideoUrl(task) || collectOutputImageUrls(task)[0] || "";
+}
+
+function platformApizPayload({ template, prompt, imageUrl, overrides = {} }) {
+  const params = {
+    ...(template.params || {}),
+    ...(overrides && typeof overrides === "object" && !Array.isArray(overrides) ? overrides : {}),
+    prompt,
+  };
+  if (template.negativePrompt && !params.negative_prompt) params.negative_prompt = template.negativePrompt;
+  if (imageUrl) {
+    params.image_url = imageUrl;
+    params.image_urls = Array.isArray(params.image_urls) ? [imageUrl, ...params.image_urls] : [imageUrl];
+  }
+  return {
+    model: template.model || "seedance",
+    params,
+    channel: null,
+  };
+}
+
+async function handlePlatformGenerate(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const template = findPlatformTemplate(config, body.templateId);
+  if (!template) return sendJson(res, 404, { ok: false, message: "模板不存在或未启用。" });
+
+  let imageUrl = "";
+  let userAsset = null;
+  if (template.type === "image-to-video") {
+    if (body.dataUrl) {
+      const { mime, bytes } = decodeDataUrl(body.dataUrl);
+      if (bytes.byteLength > 8 * 1024 * 1024) {
+        return sendJson(res, 400, { ok: false, message: "图片不能超过 8MB。" });
+      }
+      const assetId = randomId("asset");
+      const fileName = `${assetId}${imageExtFromMime(mime)}`;
+      const dir = path.join(USER_UPLOAD_DIR, auth.user.id);
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(path.join(dir, fileName), bytes);
+      userAsset = {
+        id: assetId,
+        userId: auth.user.id,
+        name: String(body.fileName || template.title || "Template upload").slice(0, 60),
+        mime,
+        localUrl: `/assets/user-uploads/${auth.user.id}/${fileName}`,
+        publicUrl: "",
+        assetUri: "",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: "",
+      };
+      auth.db.userAssets.unshift(userAsset);
+      await writeDb(auth.db);
+      userAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
+      imageUrl = userAsset.publicUrl;
+    } else if (body.userAssetId) {
+      userAsset = auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
+      if (!userAsset) return sendJson(res, 404, { ok: false, message: "上传图片不存在。" });
+      userAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
+      imageUrl = userAsset.publicUrl;
+    }
+    if (!imageUrl) return sendJson(res, 400, { ok: false, message: "这个模板需要先上传一张图片。" });
+  }
+
+  const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : template.prompt;
+  if (!String(prompt || "").trim()) return sendJson(res, 400, { ok: false, message: "缺少 prompt。" });
+
+  const upstreamPayload = platformApizPayload({
+    template,
+    prompt,
+    imageUrl,
+    overrides: body.params,
+  });
+  const task = await apizRequest("/api/v3/tasks/create", upstreamPayload);
+  const taskId = apizTaskId(task);
+  if (!taskId) {
+    const error = new Error(`APIZ 未返回 task id: ${JSON.stringify(task)}`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const record = await upsertGenerationRecord({
+    taskId,
+    status: apizStatus(task),
+    model: upstreamPayload.model,
+    provider: "apiz",
+    source: "platform-template",
+    kind: template.type,
+    templateId: template.id,
+    templateTitle: template.title,
+    userId: auth.user.id,
+    userAssetId: userAsset?.id || "",
+    imageUrl,
+    prompt,
+    finalPrompt: prompt,
+    params: upstreamPayload.params,
+    upstreamPayload,
+    remoteVideoUrl: apizResultUrl(task),
+    localVideoUrl: "",
+    error: "",
+  });
+
+  return sendJson(res, 200, {
+    ok: true,
+    task,
+    taskId,
+    record: publicGenerationRecord(record),
+  });
+}
+
+async function refreshApizGenerationRecord(record) {
+  if (record.provider !== "apiz") return record;
+  const task = await apizRequest("/api/v3/tasks/query", { task_id: record.taskId });
+  const resultUrl = apizResultUrl(task);
+  return upsertGenerationRecord({
+    taskId: record.taskId,
+    status: apizStatus(task),
+    remoteVideoUrl: resultUrl || record.remoteVideoUrl || "",
+    videoUrl: resultUrl || record.videoUrl || "",
+    error: task.error?.message || task.error || task.message || "",
+  });
 }
 
 function isCompletedStatus(status) {
@@ -3076,6 +3327,7 @@ async function handleAdminSaveConfig(req, res) {
     prices: { ...current.prices, ...((body.config || {}).prices || {}) },
     wallet: { ...current.wallet, ...((body.config || {}).wallet || {}) },
     video: { ...current.video, ...((body.config || {}).video || {}) },
+    platform: normalizePlatformConfig((body.config || {}).platform || current.platform || {}),
     homeVideo: { ...current.homeVideo, ...((body.config || {}).homeVideo || {}) },
     ifilm: { ...current.ifilm, ...((body.config || {}).ifilm || {}) },
     characterImage: { ...current.characterImage, ...((body.config || {}).characterImage || {}) },
@@ -4241,7 +4493,13 @@ async function handleGetGenerationRecord(req, res, taskId) {
   if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
 
   let nextRecord = record;
-  if (ARK_API_KEY && !String(taskId).startsWith("demo-") && !isFailedStatus(record.status)) {
+  if (record.provider === "apiz" && APIZ_API_KEY && !isFailedStatus(record.status)) {
+    try {
+      nextRecord = await refreshApizGenerationRecord(record);
+    } catch (error) {
+      console.warn("[apiz-generation-record-refresh-failed]", taskId, error.message || error);
+    }
+  } else if (ARK_API_KEY && !String(taskId).startsWith("demo-") && !isFailedStatus(record.status)) {
     try {
       const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
       const task = normalizeTask(raw);
@@ -4695,7 +4953,8 @@ async function handleGetSceneVideo(req, res, taskId) {
 }
 
 async function serveStatic(req, res, url) {
-  const pathname = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
+  let pathname = decodeURIComponent(url.pathname === "/" ? "/platform.html" : url.pathname);
+  if (pathname === "/game" || pathname === "/game/") pathname = "/index.html";
   if (await isProtectedUnlockAssetPath(pathname)) {
     return sendText(res, 403, "Unlock required");
   }
@@ -4813,6 +5072,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/user-assets") {
       return await handleUploadUserAsset(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/platform/generate") {
+      return await handlePlatformGenerate(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/user-assets") {

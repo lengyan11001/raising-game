@@ -5,6 +5,7 @@ const LEGACY_TOKEN_KEY = "raisingGameToken";
 
 const ROUTES = [
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
+  { id: "platform", title: "首页广场", render: renderPlatform },
   { id: "characters", title: "角色管理", render: renderCharacters },
   { id: "videos", title: "视频管理", render: renderVideos },
   { id: "scenes", title: "场景管理", render: renderScenes },
@@ -1593,6 +1594,79 @@ async function renderWallet() {
       toast("订单已取消。", "success");
       renderWallet();
     });
+  });
+}
+
+/* ============ PLATFORM ============ */
+async function renderPlatform() {
+  const config = await loadConfig(true);
+  const platform = config.platform || {};
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>首页广场</h2>
+          <p class="adm-muted">配置根首页模板广场。模板支持图生视频和文生视频，用户只上传图片或输入文字，我们按这里的 prompt / JSON 参数转发给 APIZ。</p>
+        </div>
+        <div class="adm-page-actions">
+          <a class="adm-btn adm-btn-ghost" href="/" target="_blank" rel="noopener"><i data-lucide="external-link"></i>预览首页</a>
+          <button class="adm-btn adm-btn-primary" id="savePlatformBtn"><i data-lucide="save"></i>保存广场配置</button>
+        </div>
+      </div>
+      <div class="adm-grid adm-grid-2">
+        <div class="adm-card">
+          <div class="adm-card-head"><h3>基础信息</h3></div>
+          <div class="adm-card-body">
+            <div class="adm-form-row"><span>品牌名</span><input id="platformBrand" value="${escapeHtml(platform.brand || "")}" /></div>
+            <div class="adm-form-row"><span>主标题</span><input id="platformHeroTitle" value="${escapeHtml(platform.heroTitle || "")}" /></div>
+            <div class="adm-form-row"><span>副标题</span><textarea id="platformHeroSubtitle" rows="3">${escapeHtml(platform.heroSubtitle || "")}</textarea></div>
+            <div class="adm-form-row"><span>公告</span><textarea id="platformNotice" rows="3">${escapeHtml(platform.notice || "")}</textarea></div>
+          </div>
+        </div>
+        <div class="adm-card">
+          <div class="adm-card-head"><h3>Agent 接入指令</h3></div>
+          <div class="adm-card-body">
+            <textarea id="platformAccessCopy" rows="12" spellcheck="false">${escapeHtml(platform.accessCopy || "")}</textarea>
+          </div>
+        </div>
+      </div>
+      <div class="adm-card adm-mt">
+        <div class="adm-card-head"><h3>分类 JSON</h3></div>
+        <div class="adm-card-body">
+          <textarea id="platformCategories" rows="7" spellcheck="false">${escapeHtml(JSON.stringify(platform.categories || [], null, 2))}</textarea>
+        </div>
+      </div>
+      <div class="adm-card adm-mt">
+        <div class="adm-card-head">
+          <h3>模板 JSON</h3>
+          <span class="adm-muted">字段：id/title/category/type/coverUrl/model/badge/prompt/params/enabled/sort</span>
+        </div>
+        <div class="adm-card-body">
+          <textarea id="platformTemplates" rows="22" spellcheck="false">${escapeHtml(JSON.stringify(platform.templates || [], null, 2))}</textarea>
+        </div>
+      </div>
+    </section>
+  `;
+  refreshIcons();
+  byId("savePlatformBtn")?.addEventListener("click", async () => {
+    try {
+      const nextPlatform = {
+        brand: byId("platformBrand").value,
+        heroTitle: byId("platformHeroTitle").value,
+        heroSubtitle: byId("platformHeroSubtitle").value,
+        notice: byId("platformNotice").value,
+        accessCopy: byId("platformAccessCopy").value,
+        categories: JSON.parse(byId("platformCategories").value || "[]"),
+        templates: JSON.parse(byId("platformTemplates").value || "[]"),
+      };
+      const nextConfig = { ...config, platform: nextPlatform };
+      const payload = await api("/api/admin/config", { method: "PUT", body: { config: nextConfig } });
+      state.config = payload.config;
+      toast("首页广场配置已保存。", "success");
+      renderPlatform();
+    } catch (err) {
+      toast(err.message, "error");
+    }
   });
 }
 

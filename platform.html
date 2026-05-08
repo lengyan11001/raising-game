@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Vipeak AI - 模板广场</title>
+    <link rel="stylesheet" href="./platform.css?v=ai-1" />
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  </head>
+  <body>
+    <div class="aurora aurora-a"></div>
+    <div class="aurora aurora-b"></div>
+
+    <header class="site-head">
+      <a class="brand" href="/">
+        <span class="brand-mark"></span>
+        <strong id="brandName">Vipeak AI</strong>
+      </a>
+      <nav class="top-tabs" aria-label="Main sections">
+        <button class="top-tab is-active" data-tab="gallery" type="button">模板广场</button>
+        <button class="top-tab" data-tab="access" type="button">API 接入</button>
+      </nav>
+      <div class="head-actions">
+        <a class="ghost-link" href="/game">养成游戏</a>
+        <a class="ghost-link" href="/admin.html">后台</a>
+        <button class="primary-pill" id="loginBtn" type="button">登录 / 注册</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">APIZ Powered Creative Hub</p>
+          <h1 id="heroTitle">AI 模板广场与 API 接入</h1>
+          <p id="heroSubtitle">上传一张图，套用同款提示词生成视频；也可以直接按 APIZ 方式接入模型能力。</p>
+        </div>
+        <div class="hero-panel">
+          <span>限时开放</span>
+          <strong id="heroNotice">模板广场上线中，生成任务统一走 APIZ 上游并在本站留档。</strong>
+        </div>
+      </section>
+
+      <section class="workspace" data-panel="gallery">
+        <aside class="rail">
+          <button class="rail-item is-active" data-tab="gallery" type="button"><i data-lucide="sparkles"></i><span>广场</span></button>
+          <button class="rail-item" data-tab="access" type="button"><i data-lucide="terminal-square"></i><span>接入</span></button>
+          <a class="rail-item" href="/game"><i data-lucide="gamepad-2"></i><span>游戏</span></a>
+        </aside>
+
+        <section class="gallery-panel">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Template Plaza</p>
+              <h2>模板广场</h2>
+            </div>
+            <div class="mode-switch">
+              <button class="mode-btn is-active" data-filter="all" type="button">全部</button>
+              <button class="mode-btn" data-filter="image-to-video" type="button">图生视频</button>
+              <button class="mode-btn" data-filter="text-to-video" type="button">文生视频</button>
+            </div>
+          </div>
+          <div class="category-row" id="categoryRow"></div>
+          <div class="template-grid" id="templateGrid"></div>
+        </section>
+      </section>
+
+      <section class="access-panel" data-panel="access" hidden>
+        <div class="section-head centered">
+          <p class="eyebrow">Integration</p>
+          <h2>接入方式</h2>
+          <p>默认复制 Agent 接入指令，也可以按需选择 MCP、SDK 或 CLI。</p>
+        </div>
+        <div class="access-tabs">
+          <button class="access-tab is-active" type="button">Agent Kit<span>复制给 Cursor / Codex</span></button>
+          <button class="access-tab" type="button">MCP<span>Cursor / Claude</span></button>
+          <button class="access-tab" type="button">TypeScript<span>npm install apiz-sdk</span></button>
+          <button class="access-tab" type="button">Python<span>pip install apiz</span></button>
+          <button class="access-tab" type="button">CLI<span>Go 单文件</span></button>
+        </div>
+        <div class="copy-card">
+          <div class="copy-main">
+            <span class="copy-kicker"><i data-lucide="copy"></i> ONE COPY AGENT KIT</span>
+            <h3>复制一次，Agent 直接开工</h3>
+            <p>页面只保留一个复制动作。模型列表、调用约束、JSON 输出协议和结果轮询都写入接入指令，可直接粘贴到 Cursor、Claude Code、Codex 等 Agent 规则区。</p>
+            <button class="copy-btn" id="copyAccessBtn" type="button"><i data-lucide="clipboard"></i>复制 Agent 接入指令</button>
+          </div>
+          <pre class="copy-preview" id="accessCopy"></pre>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="templateDialog" class="modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span id="modalType">Image to Video</span>
+            <strong id="modalTitle">模板生成</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="关闭"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <label class="upload-box" id="uploadBox">
+            <input id="templateImage" type="file" accept="image/*" />
+            <img id="uploadPreview" alt="上传预览" />
+            <span><i data-lucide="image-up"></i>上传参考图片</span>
+          </label>
+          <label class="field">
+            <span>Prompt</span>
+            <textarea id="templatePrompt" rows="7"></textarea>
+          </label>
+          <button class="generate-btn" id="submitTemplateBtn" type="button"><i data-lucide="wand-sparkles"></i>生成同款</button>
+          <p class="job-note" id="jobNote"></p>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="loginDialog" class="modal auth-modal">
+      <form method="dialog">
+        <header>
+          <strong id="loginTitle">登录</strong>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="关闭"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <input id="loginUsername" type="text" autocomplete="username" placeholder="用户名" />
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="密码，至少 6 位" />
+          <div class="auth-actions">
+            <button class="ghost-button" id="toggleLoginMode" type="button">注册账号</button>
+            <button class="generate-btn" id="loginSubmit" type="button">登录</button>
+          </div>
+          <p class="job-note" id="loginMessage"></p>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./platform.js?v=ai-1"></script>
+  </body>
+</html>
