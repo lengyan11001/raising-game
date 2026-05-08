@@ -66,6 +66,7 @@ const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "
 const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
+const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, 720, 1, 100000);
 const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
   "auto_2K",
   "auto_3K",
@@ -220,8 +221,8 @@ const DEFAULT_CONFIG = {
     network: "TRC20",
     address: "TDqGn6PH4AmvzTwH77gopRGX2tyGBtpjFs",
     suffixDigits: 6,
-    /** Credits granted per 1 USDT of the order's integer base amount (1:1). */
-    creditsPerUsdt: 1,
+    /** Credits use RMB cents, matching upstream billing points. 1 USDT -> CNY cents. */
+    cnyCentsPerUsdt: DEFAULT_USDT_CNY_CENTS,
   },
   video: {
     ratio: "9:16",
@@ -467,7 +468,7 @@ function publicConfig(config) {
       network: config.wallet.network,
       address: config.wallet.address,
       suffixDigits: config.wallet.suffixDigits,
-      creditsPerUsdt: clampNumber(config.wallet.creditsPerUsdt, 1, 0.01, 100000),
+      cnyCentsPerUsdt: walletCnyCentsPerUsdt(config.wallet),
     },
     video: config.video,
     homeVideo: {
@@ -1112,6 +1113,21 @@ function makeUniquePaymentAmount(baseAmount, suffixDigits) {
   const payableAmountText = `${amount}.${suffix}`;
   const payableAmount = Number(payableAmountText);
   return { amount, suffix, payableAmount, payableAmountText };
+}
+
+function walletCnyCentsPerUsdt(wallet = {}) {
+  const explicit = wallet.cnyCentsPerUsdt ?? wallet.usdtCnyCents;
+  if (explicit !== undefined && explicit !== null && explicit !== "") {
+    return clampNumber(explicit, DEFAULT_USDT_CNY_CENTS, 1, 100000);
+  }
+  const legacy = Number(wallet.creditsPerUsdt);
+  return Number.isFinite(legacy) && legacy >= 100
+    ? clampNumber(legacy, DEFAULT_USDT_CNY_CENTS, 1, 100000)
+    : DEFAULT_USDT_CNY_CENTS;
+}
+
+function walletCreditsForUsdtAmount(amount, wallet = {}) {
+  return creditsAmount(Math.round(Number(amount || 0) * walletCnyCentsPerUsdt(wallet)));
 }
 
 function decodeDataUrl(dataUrl) {
@@ -2997,10 +3013,13 @@ async function handleCreatePaymentOrder(req, res) {
 
   const suffixDigits = clampNumber(config.wallet.suffixDigits, 6, 3, 6);
   const payment = makeUniquePaymentAmount(amount, suffixDigits);
+  const creditAmount = walletCreditsForUsdtAmount(payment.amount, config.wallet);
   const order = {
     id: randomId("order"),
     userId: auth.user.id,
     baseAmount: payment.amount,
+    creditAmount,
+    cnyCentsPerUsdt: walletCnyCentsPerUsdt(config.wallet),
     suffix: payment.suffix,
     payableAmount: payment.payableAmount,
     payableAmountText: payment.payableAmountText,
@@ -4696,6 +4715,8 @@ function adminWalletOrderView(order, userMap) {
     userId: order.userId,
     username: user?.username || "",
     baseAmount: order.baseAmount,
+    creditAmount: order.creditAmount ?? walletCreditsForUsdtAmount(order.baseAmount, { cnyCentsPerUsdt: order.cnyCentsPerUsdt }),
+    cnyCentsPerUsdt: order.cnyCentsPerUsdt || "",
     suffix: order.suffix,
     payableAmount: order.payableAmount,
     payableAmountText: order.payableAmountText,
@@ -5038,10 +5059,10 @@ async function handleAdminUpdateWalletOrder(req, res, orderId) {
       const user = (auth.db.users || []).find((u) => u.id === order.userId);
       if (user) {
         const config = await readAppConfig();
-        const rate = clampNumber(config.wallet.creditsPerUsdt, 1, 0.01, 100000);
-        const base = Number(order.baseAmount || 0);
-        const creditDelta = Math.round(base * rate);
-        user.credits = Math.max(0, Number(user.credits || 0) + creditDelta);
+        const creditDelta = creditsAmount(order.creditAmount ?? walletCreditsForUsdtAmount(order.baseAmount, config.wallet));
+        order.creditAmount = creditDelta;
+        order.cnyCentsPerUsdt = order.cnyCentsPerUsdt || walletCnyCentsPerUsdt(config.wallet);
+        user.credits = creditsAmount(Number(user.credits || 0) + creditDelta);
         user.updatedAt = new Date().toISOString();
       }
       order.paidAt = new Date().toISOString();

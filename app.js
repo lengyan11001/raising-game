@@ -2373,7 +2373,7 @@ async function createRechargeOrder() {
     els.orderResult.innerHTML = [
       `<div class="order-pay-line"><span>Send</span> <strong>${order.payableAmountText || order.payableAmount} ${order.asset}</strong></div>`,
       `<div class="order-pay-line"><span>Suffix</span> <code>${order.suffix}</code></div>`,
-      `<div class="order-pay-line"><span>Credits</span> <strong>${order.baseAmount ?? "—"}</strong> after paid</div>`,
+      `<div class="order-pay-line"><span>Credits</span> <strong>${order.creditAmount ?? "—"}</strong> after paid</div>`,
     ].join("");
   } catch (error) {
     els.orderResult.textContent = error.message;
