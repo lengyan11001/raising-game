@@ -233,9 +233,9 @@ const DEFAULT_CONFIG = {
   },
   platform: {
     brand: "Vipeak AI",
-    heroTitle: "一键生成同款视频",
-    heroSubtitle: "选择模板，上传图片或输入文字，生成图生视频 / 文生视频。",
-    notice: "上传素材后即可生成，结果会保存到生成记录。",
+    heroTitle: "Create AI videos",
+    heroSubtitle: "Choose a template, upload an image or enter text, and create a new video.",
+    notice: "Generated results are saved in your history.",
     accessCopy:
       "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
     categories: [
@@ -531,7 +531,15 @@ function normalizePlatformTemplate(template = {}, index = 0) {
 
 function cleanPlatformPublicCopy(value, fallback) {
   const text = String(value || "").trim();
-  if (!text || /ap[i]z|上游|后台|api\s*接入/i.test(text)) return String(fallback || "");
+  if (!text || /ap[i]z|upstream|admin|上游|后台|api\s*接入/i.test(text)) return String(fallback || "");
+  return text;
+}
+
+function cleanPlatformHeroCopy(value, fallback) {
+  const text = String(value || "").trim();
+  if (!text || /template\s*plaza|模板广场|同款|same\s*style|ap[i]z|upstream|admin|上游|后台|api\s*接入/i.test(text)) {
+    return String(fallback || "");
+  }
   return text;
 }
 
@@ -563,9 +571,9 @@ function normalizePlatformConfig(platform = {}) {
     ...fallback,
     ...platform,
     brand: String(platform.brand || fallback.brand || "Vipeak AI"),
-    heroTitle: cleanPlatformPublicCopy(platform.heroTitle, fallback.heroTitle || "一键生成同款视频"),
-    heroSubtitle: cleanPlatformPublicCopy(platform.heroSubtitle, fallback.heroSubtitle || ""),
-    notice: cleanPlatformPublicCopy(platform.notice, fallback.notice || ""),
+    heroTitle: cleanPlatformHeroCopy(platform.heroTitle, fallback.heroTitle || "Create AI videos"),
+    heroSubtitle: cleanPlatformHeroCopy(platform.heroSubtitle, fallback.heroSubtitle || ""),
+    notice: cleanPlatformHeroCopy(platform.notice, fallback.notice || ""),
     accessCopy: cleanPlatformPublicCopy(platform.accessCopy, fallback.accessCopy || ""),
     categories: categories
       .map((category, index) => ({
