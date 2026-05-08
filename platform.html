@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-13" />
+    <link rel="stylesheet" href="./platform.css?v=ai-15" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -18,6 +18,7 @@
       </a>
       <nav class="top-tabs" aria-label="Main sections">
         <button class="top-tab is-active" data-tab="gallery" type="button">Gallery</button>
+        <button class="top-tab" data-tab="advanced" type="button">Advanced</button>
         <button class="top-tab" data-tab="access" type="button">API Access</button>
       </nav>
       <div class="head-actions">
@@ -52,6 +53,41 @@
           <div class="category-row" id="categoryRow"></div>
           <div class="template-grid" id="templateGrid"></div>
         </section>
+      </section>
+
+      <section class="advanced-panel" data-panel="advanced" hidden>
+        <div class="advanced-gate" id="advancedGate"></div>
+        <div class="advanced-workspace" id="advancedWorkspace" hidden>
+          <section class="advanced-form-card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">Direct Seedance</p>
+                <h2>Advanced Generate</h2>
+                <p>Use direct Seedance parameters after approval.</p>
+              </div>
+            </div>
+            <label class="field">
+              <span>Prompt</span>
+              <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..."></textarea>
+            </label>
+            <div class="advanced-fields">
+              <label class="field"><span>Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
+              <label class="field"><span>Resolution</span><select id="advancedResolution"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+              <label class="field"><span>Duration</span><input id="advancedDuration" type="number" min="5" max="15" value="5" /></label>
+            </div>
+            <button class="generate-btn" id="advancedSubmitBtn" type="button"><i data-lucide="sparkles"></i>Generate</button>
+            <p class="job-note" id="advancedNote"></p>
+          </section>
+          <section class="advanced-case-panel">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">Cases</p>
+                <h2>Start From A Case</h2>
+              </div>
+            </div>
+            <div class="advanced-case-grid" id="advancedCaseGrid"></div>
+          </section>
+        </div>
       </section>
 
       <section class="access-panel" data-panel="access" hidden>
@@ -175,6 +211,18 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-14"></script>
+    <dialog id="previewDialog" class="modal preview-modal">
+      <form method="dialog">
+        <header>
+          <strong id="previewTitle">Preview</strong>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <video id="previewVideo" controls playsinline></video>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./platform.js?v=ai-15"></script>
   </body>
 </html>

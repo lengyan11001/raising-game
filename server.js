@@ -243,6 +243,24 @@ const DEFAULT_CONFIG = {
       { id: "i2v", name: "图生视频" },
       { id: "t2v", name: "文生视频" },
     ],
+    advanced: {
+      telegram: "",
+      cases: [
+        {
+          id: "adv-soft-camera",
+          title: "Soft Camera Move",
+          category: "portrait",
+          price: 25,
+          coverUrl: "/assets/admin/home/demo-aria-reference.png",
+          previewUrl: "",
+          description: "A slow cinematic portrait movement with direct eye contact.",
+          prompt: "A tasteful cinematic portrait video, soft light, slow camera push, confident expression, natural movement, premium fashion film style.",
+          params: { ratio: "9:16", resolution: "720p", duration: 5 },
+          enabled: true,
+          sort: 0,
+        },
+      ],
+    },
     templates: [
       {
         id: "angel-rise",
@@ -529,6 +547,37 @@ function normalizePlatformTemplate(template = {}, index = 0) {
   };
 }
 
+function normalizeAdvancedCase(item = {}, index = 0) {
+  const fallbackId = `advanced-case-${index + 1}`;
+  const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
+  return {
+    id: String(item.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId,
+    title: String(item.title || "Advanced case").trim().slice(0, 80) || "Advanced case",
+    category: String(item.category || "advanced").trim().slice(0, 40) || "advanced",
+    price: clampNumber(item.price, DEFAULT_CONFIG.prices.dateVideo, 0, 999999),
+    coverUrl: String(item.coverUrl || "").trim(),
+    previewUrl: String(item.previewUrl || "").trim(),
+    description: String(item.description || "").trim().slice(0, 240),
+    prompt: String(item.prompt || params.prompt || "").trim(),
+    params,
+    enabled: item.enabled !== false,
+    sort: Number.isFinite(Number(item.sort)) ? Number(item.sort) : index,
+  };
+}
+
+function normalizePlatformAdvancedConfig(advanced = {}) {
+  const fallback = DEFAULT_CONFIG.platform?.advanced || {};
+  const cases = Array.isArray(advanced.cases) ? advanced.cases : fallback.cases || [];
+  return {
+    ...fallback,
+    ...advanced,
+    telegram: String(advanced.telegram || fallback.telegram || "").trim(),
+    cases: cases
+      .map(normalizeAdvancedCase)
+      .sort((a, b) => a.sort - b.sort),
+  };
+}
+
 function cleanPlatformPublicCopy(value, fallback) {
   const text = String(value || "").trim();
   if (!text || /ap[i]z|upstream|admin|上游|后台|api\s*接入/i.test(text)) return String(fallback || "");
@@ -575,6 +624,7 @@ function normalizePlatformConfig(platform = {}) {
     heroSubtitle: cleanPlatformHeroCopy(platform.heroSubtitle, fallback.heroSubtitle || ""),
     notice: cleanPlatformHeroCopy(platform.notice, fallback.notice || ""),
     accessCopy: cleanPlatformPublicCopy(platform.accessCopy, fallback.accessCopy || ""),
+    advanced: normalizePlatformAdvancedConfig(platform.advanced || fallback.advanced || {}),
     categories: categories
       .map((category, index) => ({
         id: String(category.id || `cat-${index + 1}`).trim().replace(/[^a-z0-9_-]/gi, "-") || `cat-${index + 1}`,
@@ -1004,6 +1054,8 @@ function userView(user) {
     username: user.username,
     role: user.role || "user",
     credits: Number(user.credits || 0),
+    advancedAccess: user.advancedAccess === true,
+    advancedAccessRequestedAt: user.advancedAccessRequestedAt || "",
     createdAt: user.createdAt,
   };
 }
@@ -1172,6 +1224,10 @@ function decodeDataUrl(dataUrl) {
     mime: match[1].replace("image/jpg", "image/jpeg"),
     bytes: Buffer.from(match[2], "base64"),
   };
+}
+
+function decodeImageDataUrl(dataUrl) {
+  return decodeDataUrl(dataUrl);
 }
 
 function imageExtFromMime(mime) {
@@ -2408,6 +2464,7 @@ function generationRecordKind(record = {}) {
   const source = String(record.source || "").trim();
   if (source === "user-character" || source.includes("home")) return "main-video";
   if (source.includes("unlock")) return "unlock-video";
+  if (source.includes("advanced")) return "advanced-video";
   return "scene-video";
 }
 
@@ -2947,6 +3004,116 @@ async function handlePlatformGenerate(req, res) {
     record: publicGenerationRecord(settledRecord),
     user: userView(latestUser),
   });
+}
+
+async function handleAdvancedAccessRequest(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!auth.user.advancedAccessRequestedAt) {
+    auth.user.advancedAccessRequestedAt = new Date().toISOString();
+    auth.user.updatedAt = new Date().toISOString();
+    await writeDb(auth.db);
+  }
+  return sendJson(res, 200, { ok: true, user: userView(auth.user) });
+}
+
+async function handleAdvancedGenerate(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (auth.user.role !== "admin" && auth.user.advancedAccess !== true) {
+    return sendJson(res, 403, { ok: false, code: "ADVANCED_ACCESS_REQUIRED", message: "Advanced generation requires approval." });
+  }
+  if (!ARK_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Seedance generation is not configured." });
+  }
+
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const advanced = config.platform?.advanced || {};
+  const cases = Array.isArray(advanced.cases) ? advanced.cases : [];
+  const selectedCase = cases.find((item) => item.id === String(body.caseId || "").trim());
+  const caseParams = selectedCase?.params && typeof selectedCase.params === "object" ? selectedCase.params : {};
+  const prompt = String(body.prompt || selectedCase?.prompt || caseParams.prompt || "").trim();
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+
+  const requestParams = {
+    ...caseParams,
+    ratio: body.ratio || caseParams.ratio || caseParams.aspect_ratio || config.video.ratio || "9:16",
+    resolution: body.resolution || caseParams.resolution || config.video.resolution || "720p",
+    duration: clampNumber(body.duration ?? caseParams.duration, config.video.duration || 5, 5, 15),
+    generateAudio: body.generateAudio !== false,
+  };
+  const cost = creditsAmount(selectedCase?.price ?? config.prices.dateVideo ?? DEFAULT_CONFIG.prices.dateVideo);
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+
+  const { task, payload } = await submitSeedanceVideoTask({
+    config,
+    prompt,
+    body: requestParams,
+    slug: "advanced",
+  });
+
+  if (cost > 0) {
+    changeUserCredits(auth.db, auth.user.id, -cost, "advanced_generation", {
+      taskId: task.taskId,
+      caseId: selectedCase?.id || "",
+      caseTitle: selectedCase?.title || "",
+    });
+    await writeDb(auth.db);
+  }
+
+  const record = await upsertGenerationRecord({
+    taskId: task.taskId,
+    status: task.status,
+    model: MODEL_QUALITY,
+    provider: "seedance",
+    source: "advanced-seedance",
+    kind: "advanced-video",
+    templateId: selectedCase?.id || "",
+    templateTitle: selectedCase?.title || "Advanced generation",
+    userId: auth.user.id,
+    prompt,
+    finalPrompt: prompt,
+    params: requestParams,
+    ratio: payload.ratio,
+    resolution: payload.resolution,
+    duration: payload.duration,
+    quality: "high",
+    remoteVideoUrl: task.videoUrl || "",
+    localVideoUrl: "",
+    error: "",
+    preDeductedCredits: cost,
+    finalCredits: cost,
+    billingStatus: cost > 0 ? "settled" : "free",
+    billingSettledAt: new Date().toISOString(),
+  });
+  const latestDb = await readDb();
+  const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
+  return sendJson(res, 200, {
+    ok: true,
+    task,
+    taskId: task.taskId,
+    record: publicGenerationRecord(record),
+    user: userView(latestUser),
+    cost,
+  });
+}
+
+async function handleAdminUploadPlatformCover(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const { mime, bytes } = decodeImageDataUrl(body.dataUrl || "");
+  if (bytes.byteLength > 4 * 1024 * 1024) {
+    return sendJson(res, 400, { ok: false, message: "Cover image must be 4MB or smaller." });
+  }
+  const safeName = String(body.name || "platform-cover").trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 50) || "platform-cover";
+  const fileName = `${safeName}-${Date.now()}${imageExtFromMime(mime)}`;
+  await fs.mkdir(ADMIN_HOME_DIR, { recursive: true });
+  await fs.writeFile(path.join(ADMIN_HOME_DIR, fileName), bytes);
+  return sendJson(res, 200, { ok: true, url: `/assets/admin/home/${fileName}` });
 }
 
 async function makePlatformEstimate(template, overrides = {}) {
@@ -4997,6 +5164,8 @@ async function handleAdminListUsers(req, res) {
     ...userView(u),
     customCharacters: charByUser.get(u.id) || 0,
     walletOrders: orderByUser.get(u.id) || 0,
+    advancedAccess: u.advancedAccess === true,
+    advancedAccessRequestedAt: u.advancedAccessRequestedAt || "",
   }));
   list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   return sendJson(res, 200, { ok: true, users: list });
@@ -5024,6 +5193,11 @@ async function handleAdminUpdateUser(req, res, userId) {
       }
     }
     user.role = body.role;
+    changed = true;
+  }
+  if (typeof body.advancedAccess === "boolean") {
+    user.advancedAccess = body.advancedAccess;
+    if (body.advancedAccess) user.advancedAccessReviewedAt = new Date().toISOString();
     changed = true;
   }
   if (changed) {
@@ -5909,6 +6083,14 @@ async function handleRequest(req, res) {
       return await handlePlatformGenerate(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/advanced/request-access") {
+      return await handleAdvancedAccessRequest(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/advanced/generate") {
+      return await handleAdvancedGenerate(req, res);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/platform/estimates") {
       return await handlePlatformEstimates(req, res, url);
     }
@@ -5954,6 +6136,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/admin/home-image") {
       return await handleAdminUploadHomeImage(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/platform-cover") {
+      return await handleAdminUploadPlatformCover(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/admin/home-video") {

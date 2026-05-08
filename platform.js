@@ -9,6 +9,8 @@ const state = {
   estimates: {},
   tab: "gallery",
   category: "all",
+  advancedCases: [],
+  activeAdvancedCaseId: "",
   activeTemplate: null,
   uploadDataUrl: "",
   token: localStorage.getItem(TOKEN_KEY) || "",
@@ -49,6 +51,18 @@ const els = {
   historyDialog: document.querySelector("#historyDialog"),
   historyList: document.querySelector("#historyList"),
   refreshHistoryBtn: document.querySelector("#refreshHistoryBtn"),
+  previewDialog: document.querySelector("#previewDialog"),
+  previewTitle: document.querySelector("#previewTitle"),
+  previewVideo: document.querySelector("#previewVideo"),
+  advancedGate: document.querySelector("#advancedGate"),
+  advancedWorkspace: document.querySelector("#advancedWorkspace"),
+  advancedPrompt: document.querySelector("#advancedPrompt"),
+  advancedRatio: document.querySelector("#advancedRatio"),
+  advancedResolution: document.querySelector("#advancedResolution"),
+  advancedDuration: document.querySelector("#advancedDuration"),
+  advancedSubmitBtn: document.querySelector("#advancedSubmitBtn"),
+  advancedNote: document.querySelector("#advancedNote"),
+  advancedCaseGrid: document.querySelector("#advancedCaseGrid"),
   loginBtn: document.querySelector("#loginBtn"),
   accountDialog: document.querySelector("#accountDialog"),
   accountName: document.querySelector("#accountName"),
@@ -74,6 +88,9 @@ const PUBLIC_COPY = {
   accessTitle: "API Access",
   accessSubtitle: "Connect your product or workflow to the production generation API.",
   accessNotice: "Only the required parameters and response format are shown here.",
+  advancedTitle: "Advanced Generate",
+  advancedSubtitle: "Direct Seedance controls for approved accounts.",
+  advancedNotice: "Approval is required before direct generation is enabled.",
   accessCopy:
     "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
 };
@@ -226,6 +243,9 @@ PUBLIC_COPY.accessTitle = "API Access";
 PUBLIC_COPY.accessSubtitle = "Connect your product, scripts, agents, or MCP wrapper to the production generation API.";
 PUBLIC_COPY.accessNotice = "All examples below call the current production API. Upstream JSON stays server-side.";
 PUBLIC_COPY.accessCopy = LIVE_HTTP_ACCESS_COPY;
+PUBLIC_COPY.advancedTitle = "Advanced Generate";
+PUBLIC_COPY.advancedSubtitle = "Direct Seedance controls for approved accounts.";
+PUBLIC_COPY.advancedNotice = "Apply once. After approval, cases can fill the form automatically.";
 
 ACCESS_GUIDES = [
   {
@@ -293,6 +313,7 @@ function setUser(user) {
   }
   renderTokenDisplays();
   renderAccessGuides();
+  renderAdvanced();
 }
 
 function maskToken(token = "") {
@@ -439,6 +460,14 @@ function renderHero() {
     els.heroNotice.textContent = PUBLIC_COPY.accessNotice;
     return;
   }
+  if (state.tab === "advanced") {
+    els.heroEyebrow.textContent = "Advanced";
+    els.heroTitle.textContent = PUBLIC_COPY.advancedTitle;
+    els.heroSubtitle.textContent = PUBLIC_COPY.advancedSubtitle;
+    els.heroBadge.textContent = "Permission";
+    els.heroNotice.textContent = PUBLIC_COPY.advancedNotice;
+    return;
+  }
   const platform = state.config?.platform || {};
   els.heroEyebrow.textContent = "Gallery";
   els.heroTitle.textContent = cleanPublicCopy(platform.heroTitle, PUBLIC_COPY.galleryTitle);
@@ -475,9 +504,8 @@ function renderTemplates() {
 
   els.templateGrid.innerHTML = list.length ? list.map((template) => `
     <article class="template-card">
-      ${template.previewUrl
-        ? `<video class="template-cover" src="${escapeHtml(template.previewUrl)}" poster="${escapeHtml(template.coverUrl || "")}" muted loop playsinline preload="metadata"></video>`
-        : `<img class="template-cover" src="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(template.title)}" loading="lazy" />`}
+      <img class="template-cover" src="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(template.title)}" loading="lazy" />
+      ${template.previewUrl ? `<button class="preview-play" data-preview-id="${escapeHtml(template.id)}" type="button" aria-label="Play preview"><i data-lucide="play"></i></button>` : ""}
       <div class="template-meta">
         <span>${escapeHtml(template.badge || (template.type === "image-to-video" ? "Image to Video" : "Text to Video"))}</span>
         <strong>${escapeHtml(template.title)}</strong>
@@ -490,14 +518,27 @@ function renderTemplates() {
   els.templateGrid.querySelectorAll("[data-template-id]").forEach((button) => {
     button.addEventListener("click", () => openTemplate(button.dataset.templateId));
   });
-  els.templateGrid.querySelectorAll("video.template-cover").forEach((video) => {
-    video.play().catch(() => {});
+  els.templateGrid.querySelectorAll("[data-preview-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openPreview(button.dataset.previewId);
+    });
   });
+  refreshIcons();
 }
 
 function isHiddenCategory(category) {
   const value = `${category?.id || ""} ${category?.name || ""}`.toLowerCase();
   return value.includes("business") || value.includes("商业接入");
+}
+
+function openPreview(templateId) {
+  const template = state.templates.find((item) => item.id === templateId);
+  if (!template?.previewUrl || !els.previewDialog || !els.previewVideo) return;
+  els.previewTitle.textContent = template.title || "Preview";
+  els.previewVideo.src = template.previewUrl;
+  els.previewDialog.showModal();
+  els.previewVideo.play().catch(() => {});
 }
 
 function renderAccessGuides() {
@@ -518,6 +559,120 @@ function renderAccessGuides() {
       refreshIcons();
     });
   });
+}
+
+function userHasAdvancedAccess() {
+  return state.user?.role === "admin" || state.user?.advancedAccess === true;
+}
+
+function renderAdvanced() {
+  if (!els.advancedGate || !els.advancedWorkspace) return;
+  if (!state.user) {
+    els.advancedWorkspace.hidden = true;
+    els.advancedGate.innerHTML = `
+      <div class="permission-card">
+        <span class="copy-kicker"><i data-lucide="lock-keyhole"></i> APPROVAL REQUIRED</span>
+        <h2>Advanced generation is invite-only.</h2>
+        <p>Login first, then submit an access request.</p>
+        <button class="generate-btn" id="advancedLoginBtn" type="button">Login / Sign up</button>
+      </div>
+    `;
+    document.querySelector("#advancedLoginBtn")?.addEventListener("click", openLogin);
+    refreshIcons();
+    return;
+  }
+  if (!userHasAdvancedAccess()) {
+    const requested = Boolean(state.user.advancedAccessRequestedAt);
+    const telegram = state.config?.platform?.advanced?.telegram || "";
+    els.advancedWorkspace.hidden = true;
+    els.advancedGate.innerHTML = `
+      <div class="permission-card">
+        <span class="copy-kicker"><i data-lucide="shield-check"></i> APPROVAL REQUIRED</span>
+        <h2>${requested ? "Request submitted" : "Apply for advanced generation"}</h2>
+        <p>${requested ? "Your request is waiting for review." : "Direct Seedance controls require manual approval."}</p>
+        ${telegram ? `<a class="ghost-button" href="${escapeHtml(telegram)}" target="_blank" rel="noopener">Contact support</a>` : ""}
+        <button class="generate-btn" id="requestAdvancedBtn" type="button" ${requested ? "disabled" : ""}>${requested ? "Waiting for approval" : "Apply access"}</button>
+      </div>
+    `;
+    document.querySelector("#requestAdvancedBtn")?.addEventListener("click", requestAdvancedAccess);
+    refreshIcons();
+    return;
+  }
+  els.advancedGate.innerHTML = "";
+  els.advancedWorkspace.hidden = false;
+  renderAdvancedCases();
+}
+
+function renderAdvancedCases() {
+  if (!els.advancedCaseGrid) return;
+  const cases = state.advancedCases.filter((item) => item.enabled !== false);
+  els.advancedCaseGrid.innerHTML = cases.length ? cases.map((item, index) => `
+    <article class="advanced-case-card" data-case-index="${index}">
+      <img src="${escapeHtml(item.coverUrl || item.previewUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || "Case")}" loading="lazy" />
+      <div>
+        <span>${escapeHtml(item.category || "Case")} · ${escapeHtml(item.price ? `${item.price} credits` : "Custom")}</span>
+        <strong>${escapeHtml(item.title || "Advanced case")}</strong>
+        <p>${escapeHtml(item.description || item.prompt || "").slice(0, 96)}</p>
+      </div>
+    </article>
+  `).join("") : '<div class="job-note">No cases configured yet.</div>';
+  els.advancedCaseGrid.querySelectorAll("[data-case-index]").forEach((card) => {
+    card.addEventListener("click", () => fillAdvancedCase(cases[Number(card.dataset.caseIndex || 0)]));
+  });
+}
+
+function fillAdvancedCase(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  state.activeAdvancedCaseId = item.id || "";
+  if (els.advancedPrompt) els.advancedPrompt.value = item.prompt || params.prompt || "";
+  if (els.advancedRatio) els.advancedRatio.value = params.ratio || params.aspect_ratio || item.ratio || "9:16";
+  if (els.advancedResolution) els.advancedResolution.value = params.resolution || item.resolution || "720p";
+  if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
+  if (els.advancedNote) els.advancedNote.textContent = `Loaded case: ${item.title || "Advanced case"}`;
+}
+
+async function requestAdvancedAccess() {
+  if (!state.user) return openLogin();
+  try {
+    const payload = await requestJson("/api/advanced/request-access", { method: "POST" });
+    if (payload.user) setUser(payload.user);
+    if (els.advancedNote) els.advancedNote.textContent = "Request submitted.";
+  } catch (error) {
+    if (els.advancedNote) els.advancedNote.textContent = error.message;
+  }
+}
+
+async function submitAdvancedGenerate() {
+  if (!state.user) return openLogin();
+  if (!userHasAdvancedAccess()) return renderAdvanced();
+  const prompt = els.advancedPrompt?.value.trim() || "";
+  if (!prompt) {
+    if (els.advancedNote) els.advancedNote.textContent = "Prompt is required.";
+    return;
+  }
+  const currentCase = state.advancedCases.find((item) => item.id === state.activeAdvancedCaseId);
+  if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
+  els.advancedSubmitBtn.disabled = true;
+  if (els.advancedNote) els.advancedNote.textContent = "Submitting advanced generation...";
+  try {
+    const payload = await requestJson("/api/advanced/generate", {
+      method: "POST",
+      body: {
+        caseId: state.activeAdvancedCaseId,
+        prompt,
+        ratio: els.advancedRatio?.value || "9:16",
+        resolution: els.advancedResolution?.value || "720p",
+        duration: Number(els.advancedDuration?.value || 5),
+      },
+    });
+    if (payload.user) setUser(payload.user);
+    if (els.advancedNote) els.advancedNote.textContent = `Job submitted: ${payload.taskId || payload.task?.taskId || ""}`;
+    loadHistory();
+  } catch (error) {
+    if (els.advancedNote) els.advancedNote.textContent = error.message;
+  } finally {
+    els.advancedSubmitBtn.disabled = false;
+  }
 }
 
 function openTemplate(templateId) {
@@ -584,25 +739,38 @@ function renderHistory(records = []) {
   }
   els.historyList.innerHTML = records.map((record) => {
     const videoUrl = generationVideoUrl(record);
+    const title = record.templateTitle || record.sceneEntryName || record.sceneName || "Generation job";
+    const created = record.createdAt ? new Date(record.createdAt).toLocaleString() : "";
+    const duration = record.duration ? `${record.duration}s` : "";
+    const cost = billingLabel(record.billing || {});
     return `
       <article class="history-item">
-        <header>
-          <div>
-            <strong>${escapeHtml(record.templateTitle || record.sceneEntryName || "Generation job")}</strong>
-            <small>${escapeHtml(record.taskId || "")}</small>
-          </div>
-          <small>${escapeHtml(statusLabel(record.status))}</small>
-        </header>
-        ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline></video>` : ""}
-        <div class="history-meta">
-          <span>${escapeHtml(record.kind || "")}</span>
-          <span>${escapeHtml(billingLabel(record.billing || {}))}</span>
-          <span>${escapeHtml(record.createdAt ? new Date(record.createdAt).toLocaleString() : "")}</span>
+        <div class="history-media">
+          ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata"></video>` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
-        <p class="history-prompt">${escapeHtml(record.finalPrompt || record.prompt || "")}</p>
+        <div class="history-info">
+          <header>
+            <div>
+              <strong>${escapeHtml(title)}</strong>
+              <small>${escapeHtml(record.taskId || "")}</small>
+            </div>
+            <small>${escapeHtml(statusLabel(record.status))}</small>
+          </header>
+          <div class="history-meta">
+            ${record.model ? `<span>${escapeHtml(record.model)}</span>` : ""}
+            ${duration ? `<span>${escapeHtml(duration)}</span>` : ""}
+            <span>${escapeHtml(cost)}</span>
+            ${created ? `<span>${escapeHtml(created)}</span>` : ""}
+          </div>
+          <details class="history-details">
+            <summary>View parameters</summary>
+            <pre>${escapeHtml(JSON.stringify({ prompt: record.finalPrompt || record.prompt || "", params: record.params || null, ratio: record.ratio, resolution: record.resolution, duration: record.duration }, null, 2))}</pre>
+          </details>
+        </div>
       </article>
     `;
   }).join("");
+  refreshIcons();
 }
 
 async function loadHistory() {
@@ -714,11 +882,13 @@ async function bootstrap() {
   state.config = payload.config;
   state.templates = platform.templates || [];
   state.categories = platform.categories || [];
+  state.advancedCases = platform.advanced?.cases || [];
   els.brandName.textContent = platform.brand || "Vipeak AI";
   renderHero();
   renderCategories();
   renderTemplates();
   renderAccessGuides();
+  renderAdvanced();
   renderTokenDisplays();
   refreshIcons();
   loadPlatformEstimates();
@@ -737,6 +907,13 @@ els.templateImage?.addEventListener("change", async () => {
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
 els.historyBtn?.addEventListener("click", openHistory);
 els.refreshHistoryBtn?.addEventListener("click", loadHistory);
+els.previewDialog?.addEventListener("close", () => {
+  if (!els.previewVideo) return;
+  els.previewVideo.pause();
+  els.previewVideo.removeAttribute("src");
+  els.previewVideo.load();
+});
+els.advancedSubmitBtn?.addEventListener("click", submitAdvancedGenerate);
 els.loginBtn?.addEventListener("click", () => {
   if (state.user) openAccount();
   else openLogin();

@@ -1444,13 +1444,14 @@ async function renderUsers() {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table">
-            <thead><tr><th>账号</th><th>角色</th><th>积分</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
+            <thead><tr><th>账号</th><th>角色</th><th>积分</th><th>高级生成</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
                 <tr data-id="${escapeHtml(u.id)}">
                   <td><strong>${escapeHtml(u.username)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(u.id)}</span></td>
                   <td><span class="adm-pill ${u.role === "admin" ? "is-admin" : ""}">${escapeHtml(u.role)}</span></td>
                   <td><strong>${escapeHtml(u.credits)}</strong></td>
+                  <td>${u.advancedAccess ? '<span class="adm-pill is-success">已开通</span>' : u.advancedAccessRequestedAt ? '<span class="adm-pill is-pending">待审核</span>' : '<span class="adm-muted">未申请</span>'}</td>
                   <td>${escapeHtml(u.customCharacters || 0)}</td>
                   <td>${escapeHtml(u.walletOrders || 0)}</td>
                   <td>${fmtDate(u.createdAt)}</td>
@@ -1489,6 +1490,7 @@ function openEditUserDialog(id, users) {
     </select></div>
     <div class="adm-form-row"><span>积分（直接设定）</span><input id="editCredits" type="number" min="0" value="${escapeHtml(user.credits)}" /></div>
     <div class="adm-form-row"><span>积分增减（可选）</span><input id="editCreditsDelta" type="number" placeholder="例如 +50 或 -10" /></div>
+    <div class="adm-form-row"><span>高级生成权限</span><label class="adm-flex" style="gap:8px;align-items:center;"><input id="editAdvancedAccess" type="checkbox" ${user.advancedAccess ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">${user.advancedAccessRequestedAt ? `用户已申请：${fmtDate(user.advancedAccessRequestedAt)}` : "用户未申请，也可手动开通"}</span></label></div>
   `;
   openDialog({
     title: `编辑用户：${user.username}`,
@@ -1501,6 +1503,7 @@ function openEditUserDialog(id, users) {
       const body = { role };
       if (Number.isFinite(delta) && delta !== 0) body.creditsDelta = delta;
       else if (Number.isFinite(credits)) body.credits = credits;
+      body.advancedAccess = Boolean(tpl.querySelector("#editAdvancedAccess")?.checked);
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
       toast("已更新。", "success");
       renderUsers();
@@ -1604,6 +1607,14 @@ const FIXED_PLATFORM_CATEGORIES = [
   { id: "t2v", name: "文生视频" },
 ];
 
+function defaultAdvancedConfig(platform = {}) {
+  const advanced = platform.advanced && typeof platform.advanced === "object" ? platform.advanced : {};
+  return {
+    telegram: advanced.telegram || "",
+    cases: Array.isArray(advanced.cases) ? advanced.cases : [],
+  };
+}
+
 function platformTemplateRequestJson(template = {}) {
   if (template.requestJson && typeof template.requestJson === "object" && !Array.isArray(template.requestJson)) return template.requestJson;
   return {
@@ -1621,12 +1632,69 @@ function platformCategoryOptions(categories = [], selected = "") {
 }
 
 function platformTemplatePreview(template = {}) {
-  const src = template.previewUrl || template.coverUrl || "";
+  const src = template.coverUrl || template.previewUrl || "";
   if (!src) return '<div class="platform-mini-preview"><i data-lucide="image"></i></div>';
-  if (/\.(mp4|webm|mov)(\?|#|$)/i.test(src)) {
-    return `<video class="platform-mini-preview" src="${escapeHtml(src)}" muted playsinline preload="metadata"></video>`;
-  }
   return `<img class="platform-mini-preview" src="${escapeHtml(src)}" alt="" loading="lazy" />`;
+}
+
+function isVideoUrl(url = "") {
+  return /\.(mp4|webm|mov|m4v)(?:[?#]|$)/i.test(String(url || ""));
+}
+
+function captureVideoFrameDataUrl(videoUrl = "") {
+  return new Promise((resolve) => {
+    if (!videoUrl || !isVideoUrl(videoUrl)) return resolve("");
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = videoUrl;
+    let timer = 0;
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      video.removeAttribute("src");
+      video.load();
+    };
+    const fail = () => {
+      cleanup();
+      resolve("");
+    };
+    timer = window.setTimeout(fail, 8000);
+    video.addEventListener("loadeddata", () => {
+      try {
+        video.currentTime = Math.min(0.25, Number(video.duration || 1) / 3);
+      } catch {
+        fail();
+      }
+    }, { once: true });
+    video.addEventListener("seeked", () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(240, video.videoWidth || 640);
+        canvas.height = Math.max(135, video.videoHeight || 360);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+        cleanup();
+        resolve(dataUrl);
+      } catch {
+        fail();
+      }
+    }, { once: true });
+    video.addEventListener("error", fail, { once: true });
+  });
+}
+
+async function ensurePlatformTemplateCover(template = {}) {
+  if (template.coverUrl || !isVideoUrl(template.previewUrl)) return template;
+  const dataUrl = await captureVideoFrameDataUrl(template.previewUrl);
+  if (!dataUrl) return template;
+  const payload = await api("/api/admin/platform-cover", {
+    method: "POST",
+    body: { dataUrl, name: template.id || template.title || "platform-cover" },
+  });
+  return { ...template, coverUrl: payload.url || template.coverUrl || "" };
 }
 
 function platformTemplateSummary(template = {}, index = 0, categories = []) {
@@ -1736,11 +1804,93 @@ function defaultPlatformTemplate(categories = [], index = 0) {
   };
 }
 
+function defaultAdvancedCase(index = 0) {
+  return {
+    id: `advanced-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    title: "Advanced Case",
+    category: "portrait",
+    price: 25,
+    coverUrl: "",
+    previewUrl: "",
+    description: "",
+    prompt: "A cinematic video, tasteful motion, premium lighting.",
+    params: { ratio: "9:16", resolution: "720p", duration: 5 },
+    enabled: true,
+    sort: index,
+  };
+}
+
+function advancedCaseSummary(item = {}, index = 0) {
+  return `
+    <tr data-advanced-index="${index}">
+      <td>${platformTemplatePreview(item)}</td>
+      <td><strong>${escapeHtml(item.title || `Case ${index + 1}`)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(item.id || "")}</small></td>
+      <td>${escapeHtml(item.category || "—")}</td>
+      <td>${escapeHtml(item.price ?? 0)}</td>
+      <td class="adm-truncate" title="${escapeHtml(item.prompt || "")}">${escapeHtml(item.prompt || "").slice(0, 80)}</td>
+      <td>${item.enabled === false ? '<span class="adm-pill is-cancelled">Off</span>' : '<span class="adm-pill is-success">On</span>'}</td>
+      <td>
+        <div class="adm-actions">
+          <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit-advanced" type="button"><i data-lucide="pencil"></i>编辑</button>
+          <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-advanced" type="button"><i data-lucide="trash-2"></i>删除</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function advancedCaseEditor(item = {}, index = 0) {
+  const params = JSON.stringify(item.params && typeof item.params === "object" ? item.params : { ratio: "9:16", resolution: "720p", duration: 5 }, null, 2);
+  return `
+    <div class="platform-template-editor" data-advanced-index="${index}">
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>标题</span><input data-f="title" value="${escapeHtml(item.title || "")}" /></div>
+        <div class="adm-form-row"><span>分类</span><input data-f="category" value="${escapeHtml(item.category || "portrait")}" /></div>
+        <div class="adm-form-row"><span>价格（积分）</span><input data-f="price" type="number" value="${escapeHtml(item.price ?? 25)}" /></div>
+      </div>
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(item.sort ?? index)}" /></div>
+        <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:8px;align-items:center;"><input data-f="enabled" type="checkbox" ${item.enabled !== false ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端展示</span></label></div>
+        <div class="adm-form-row"><span>预览 URL</span><input data-f="previewUrl" value="${escapeHtml(item.previewUrl || "")}" /></div>
+      </div>
+      <div class="adm-form-row"><span>封面 URL</span><input data-f="coverUrl" value="${escapeHtml(item.coverUrl || "")}" placeholder="留空时会尝试从预览视频取帧" /></div>
+      <div class="adm-form-row"><span>描述</span><textarea data-f="description" rows="3">${escapeHtml(item.description || "")}</textarea></div>
+      <div class="adm-form-row"><span>Prompt</span><textarea data-f="prompt" rows="5">${escapeHtml(item.prompt || "")}</textarea></div>
+      <div class="adm-form-row"><span>参数 JSON</span><textarea data-f="params" rows="8" spellcheck="false">${escapeHtml(params)}</textarea></div>
+    </div>
+  `;
+}
+
+function collectAdvancedCaseFromCard(card, existing = {}) {
+  const get = (field) => card.querySelector(`[data-f="${field}"]`);
+  let params;
+  try {
+    params = JSON.parse(get("params")?.value || "{}");
+  } catch {
+    throw new Error("高级案例参数 JSON 格式不正确。");
+  }
+  if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("高级案例参数必须是对象。");
+  return {
+    ...existing,
+    title: get("title")?.value.trim() || existing.title || "Advanced Case",
+    category: get("category")?.value.trim() || "portrait",
+    price: Number(get("price")?.value || 0),
+    coverUrl: get("coverUrl")?.value.trim() || "",
+    previewUrl: get("previewUrl")?.value.trim() || "",
+    description: get("description")?.value.trim() || "",
+    prompt: get("prompt")?.value.trim() || "",
+    params,
+    enabled: Boolean(get("enabled")?.checked),
+    sort: Number(get("sort")?.value || 0),
+  };
+}
+
 async function renderPlatform() {
   const config = await loadConfig(true);
   const platform = config.platform || {};
   const categories = FIXED_PLATFORM_CATEGORIES;
   const templates = Array.isArray(platform.templates) ? platform.templates : [];
+  const advanced = defaultAdvancedConfig(platform);
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
@@ -1771,6 +1921,31 @@ async function renderPlatform() {
               </tbody>
             </table>
           ` : `<div class="adm-empty"><i data-lucide="layout-template"></i><p>暂无模板，点击「新增模板」。</p></div>`}
+        </div>
+      </div>
+      <div class="adm-card adm-mt">
+        <div class="adm-card-head">
+          <div>
+            <h3>高级生成案例</h3>
+            <span class="adm-muted">用于前台 Advanced tab。用户点击案例后自动填充提示词和参数。</span>
+          </div>
+          <div class="adm-page-actions">
+            <button class="adm-btn adm-btn-ghost" id="addAdvancedCaseBtn"><i data-lucide="plus"></i>新增案例</button>
+            <button class="adm-btn adm-btn-primary" id="saveAdvancedBtn"><i data-lucide="save"></i>保存高级配置</button>
+          </div>
+        </div>
+        <div class="adm-card-body">
+          <div class="adm-form-row"><span>Telegram 客服链接</span><input id="advancedTelegram" value="${escapeHtml(advanced.telegram || "")}" placeholder="https://t.me/..." /></div>
+          <div class="adm-table-wrap platform-template-table-wrap adm-mt">
+            ${advanced.cases.length ? `
+              <table class="adm-table platform-template-table">
+                <thead><tr><th>封面</th><th>标题 / ID</th><th>分类</th><th>价格</th><th>Prompt</th><th>状态</th><th></th></tr></thead>
+                <tbody id="advancedCaseList">
+                  ${advanced.cases.map((item, index) => advancedCaseSummary(item, index)).join("")}
+                </tbody>
+              </table>
+            ` : `<div class="adm-empty"><i data-lucide="sparkles"></i><p>暂无高级案例。</p></div>`}
+          </div>
         </div>
       </div>
     </section>
@@ -1812,6 +1987,37 @@ async function renderPlatform() {
     }
   });
 
+  const saveAdvanced = async (nextCases = advanced.cases) => {
+    const nextAdvanced = {
+      ...advanced,
+      telegram: byId("advancedTelegram")?.value.trim() || "",
+      cases: nextCases,
+    };
+    const payload = await api("/api/admin/config", {
+      method: "PUT",
+      body: { config: { ...config, platform: { ...platform, categories, templates, advanced: nextAdvanced } } },
+    });
+    state.config = payload.config;
+    toast("高级生成配置已保存。", "success");
+    renderPlatform();
+  };
+
+  byId("saveAdvancedBtn")?.addEventListener("click", async () => {
+    try {
+      await saveAdvanced();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+
+  byId("addAdvancedCaseBtn")?.addEventListener("click", async () => {
+    try {
+      await saveAdvanced([...advanced.cases, defaultAdvancedCase(advanced.cases.length)]);
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+
   byId("platformTemplateSearch")?.addEventListener("input", (event) => {
     const keyword = event.target.value.trim().toLowerCase();
     els.adminContent.querySelectorAll("#platformTemplateList tr[data-template-index]").forEach((row) => {
@@ -1829,8 +2035,9 @@ async function renderPlatform() {
         cancelText: "取消",
         onConfirm: async () => {
           const editor = els.dialogBody.querySelector("[data-template-index]");
+          const collected = await ensurePlatformTemplateCover(collectPlatformTemplateFromCard(editor, templates[index]));
           const nextTemplates = templates.map((item, itemIndex) => (
-            itemIndex === index ? collectPlatformTemplateFromCard(editor, item) : item
+            itemIndex === index ? collected : item
           ));
           const payload = await api("/api/admin/config", {
             method: "PUT",
@@ -1863,6 +2070,31 @@ async function renderPlatform() {
       state.config = payload.config;
       toast("模板已删除。", "success");
       renderPlatform();
+    });
+  });
+
+  els.adminContent.querySelectorAll("#advancedCaseList tr[data-advanced-index]").forEach((row) => {
+    row.querySelector('[data-act="edit-advanced"]')?.addEventListener("click", async () => {
+      const index = Number(row.dataset.advancedIndex || 0);
+      const result = await openDialog({
+        title: `编辑高级案例：${advanced.cases[index]?.title || `Case ${index + 1}`}`,
+        body: advancedCaseEditor(advanced.cases[index] || {}, index),
+        confirmText: "保存案例",
+        cancelText: "取消",
+        onConfirm: async () => {
+          const editor = els.dialogBody.querySelector("[data-advanced-index]");
+          const collected = await ensurePlatformTemplateCover(collectAdvancedCaseFromCard(editor, advanced.cases[index]));
+          const nextCases = advanced.cases.map((item, itemIndex) => (itemIndex === index ? collected : item));
+          await saveAdvanced(nextCases);
+        },
+      });
+      if (result === "confirm") renderPlatform();
+    });
+    row.querySelector('[data-act="delete-advanced"]')?.addEventListener("click", async () => {
+      const index = Number(row.dataset.advancedIndex || 0);
+      const ok = await confirmAction("删除高级案例", `确认删除「${advanced.cases[index]?.title || "Case"}」？`, { danger: true, confirmText: "删除" });
+      if (!ok) return;
+      await saveAdvanced(advanced.cases.filter((_, i) => i !== index));
     });
   });
 }

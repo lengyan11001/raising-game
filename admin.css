@@ -461,6 +461,7 @@ a { color: inherit; text-decoration: none; }
 }
 .platform-template-table-wrap {
   max-height: min(68vh, 760px);
+  overflow: auto;
 }
 .platform-template-table th,
 .platform-template-table td {
@@ -503,6 +504,13 @@ a { color: inherit; text-decoration: none; }
   width: 100%;
   height: 260px;
   object-fit: cover;
+}
+.adm-block { display: block; }
+.adm-truncate {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .adm-upload {
