@@ -497,17 +497,33 @@ function normalizePlatformTemplate(template = {}, index = 0) {
   const type = String(template.type || "image-to-video").trim();
   const safeType = type === "text-to-video" ? "text-to-video" : "image-to-video";
   const id = String(template.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId;
+  const legacyParams = template.params && typeof template.params === "object" && !Array.isArray(template.params) ? template.params : {};
+  const requestJson = template.requestJson && typeof template.requestJson === "object" && !Array.isArray(template.requestJson)
+    ? template.requestJson
+    : {
+        model: resolvePlatformModelId(template.model, safeType),
+        ...legacyParams,
+        ...(typeof template.prompt === "string" && template.prompt ? { prompt: template.prompt } : {}),
+        ...(typeof template.negativePrompt === "string" && template.negativePrompt ? { negative_prompt: template.negativePrompt } : {}),
+      };
+  const promptText = typeof template.prompt === "string" && template.prompt
+    ? template.prompt
+    : typeof requestJson.prompt === "string"
+      ? requestJson.prompt
+      : "";
   return {
     id,
     title: String(template.title || "Untitled template").trim().slice(0, 80) || "Untitled template",
     category: String(template.category || (safeType === "image-to-video" ? "i2v" : "t2v")).trim() || "featured",
     type: safeType,
     coverUrl: String(template.coverUrl || "").trim(),
+    previewUrl: String(template.previewUrl || template.videoUrl || "").trim(),
     model: resolvePlatformModelId(template.model, safeType),
     badge: String(template.badge || "").trim().slice(0, 40),
-    prompt: typeof template.prompt === "string" ? template.prompt : "",
+    prompt: promptText,
     negativePrompt: typeof template.negativePrompt === "string" ? template.negativePrompt : "",
-    params: template.params && typeof template.params === "object" && !Array.isArray(template.params) ? template.params : {},
+    params: legacyParams,
+    requestJson,
     enabled: template.enabled !== false,
     sort: Number.isFinite(Number(template.sort)) ? Number(template.sort) : index,
   };
@@ -521,6 +537,13 @@ function cleanPlatformPublicCopy(value, fallback) {
 
 function resolvePlatformModelId(model, type = "image-to-video") {
   const raw = String(model || "").trim();
+  const compact = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  if (["seedance20fast", "seedance2.0fast", "seedance20", "seedance2.0", "superseed2"].includes(compact)) {
+    return "st-ai/super-seed2";
+  }
+  if (["seedance20fastdirect", "seedance20lite", "seedance2.0fastdirect", "seedance2.0lite", "superseed2lite"].includes(compact)) {
+    return "st-ai/super-seed2-lite";
+  }
   if (raw && raw !== "seedance") return raw;
   return type === "text-to-video"
     ? "bytedance/seedance-2.0/fast/text-to-video"
@@ -2626,32 +2649,53 @@ function publicBilling(record = {}) {
   };
 }
 
+function platformImageFieldKeys(payload = {}) {
+  const keys = Object.keys(payload || {}).filter((key) => (
+    /^image(?:_file)?_\d+$/i.test(key) ||
+    /^image_url$/i.test(key) ||
+    /^image_files$/i.test(key) ||
+    /^filePaths$/i.test(key)
+  ));
+  if (keys.length) return keys;
+  if (Array.isArray(payload.image_urls)) return ["image_urls"];
+  return ["image_url"];
+}
+
+function replacePlatformPayloadImages(payload = {}, imageUrl = "") {
+  if (!imageUrl) return payload;
+  const next = { ...payload };
+  platformImageFieldKeys(next).forEach((key) => {
+    if (["image_urls", "image_files", "filePaths"].includes(key)) {
+      next[key] = [imageUrl];
+    } else {
+      next[key] = imageUrl;
+    }
+  });
+  return next;
+}
+
 function platformApizPayload({ template, prompt, imageUrl, overrides = {} }) {
-  const model = resolvePlatformModelId(template.model, template.type);
+  const configured = template.requestJson && typeof template.requestJson === "object" && !Array.isArray(template.requestJson)
+    ? structuredClone(template.requestJson)
+    : {};
+  const model = resolvePlatformModelId(configured.model || template.model, template.type);
   const params = {
-    ...(template.params || {}),
+    ...(Object.keys(configured).length ? configured : { ...(template.params || {}), model }),
     ...(overrides && typeof overrides === "object" && !Array.isArray(overrides) ? overrides : {}),
-    prompt,
   };
+  if (!params.model) params.model = model;
+  if (prompt && !params.prompt) params.prompt = prompt;
   if (params.ratio && !params.aspect_ratio) {
     params.aspect_ratio = params.ratio;
-    delete params.ratio;
   }
   if ((model === "bytedance/seedance-2.0/fast/image-to-video" || model === "bytedance/seedance-2.0/fast/text-to-video") && !params.resolution) {
     params.resolution = "720p";
   }
   if (template.negativePrompt && !params.negative_prompt) params.negative_prompt = template.negativePrompt;
-  if (imageUrl) {
-    params.image_url = imageUrl;
-    if (model === "bytedance/seedance-2.0/fast/image-to-video" || model === "bytedance/seedance-2.0/image-to-video") {
-      delete params.image_urls;
-    } else {
-      params.image_urls = Array.isArray(params.image_urls) ? [imageUrl, ...params.image_urls] : [imageUrl];
-    }
-  }
+  const replacedParams = replacePlatformPayloadImages(params, imageUrl);
   return {
     model,
-    params,
+    params: replacedParams,
     channel: null,
   };
 }
@@ -2703,7 +2747,8 @@ async function handlePlatformGenerate(req, res) {
     if (!imageUrl) return sendJson(res, 400, { ok: false, message: "这个模板需要先上传一张图片。" });
   }
 
-  const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : template.prompt;
+  const configuredPrompt = typeof template.requestJson?.prompt === "string" ? template.requestJson.prompt : template.prompt;
+  const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : configuredPrompt;
   if (!String(prompt || "").trim()) return sendJson(res, 400, { ok: false, message: "缺少 prompt。" });
 
   const upstreamPayload = platformApizPayload({

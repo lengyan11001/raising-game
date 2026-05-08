@@ -178,6 +178,7 @@ main { width: min(1600px, calc(100vw - 40px)); margin: 0 auto; }
   height: 280px;
   object-fit: cover;
   background: linear-gradient(135deg, #17213a, #283b57);
+  display: block;
 }
 .template-meta {
   position: absolute;

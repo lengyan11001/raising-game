@@ -250,7 +250,9 @@ function renderTemplates() {
 
   els.templateGrid.innerHTML = list.length ? list.map((template) => `
     <article class="template-card">
-      <img class="template-cover" src="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(template.title)}" loading="lazy" />
+      ${template.previewUrl
+        ? `<video class="template-cover" src="${escapeHtml(template.previewUrl)}" poster="${escapeHtml(template.coverUrl || "")}" muted loop playsinline preload="metadata"></video>`
+        : `<img class="template-cover" src="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(template.title)}" loading="lazy" />`}
       <div class="template-meta">
         <span>${escapeHtml(template.badge || (template.type === "image-to-video" ? "Image to Video" : "Text to Video"))}</span>
         <strong>${escapeHtml(template.title)}</strong>
@@ -262,6 +264,9 @@ function renderTemplates() {
 
   els.templateGrid.querySelectorAll("[data-template-id]").forEach((button) => {
     button.addEventListener("click", () => openTemplate(button.dataset.templateId));
+  });
+  els.templateGrid.querySelectorAll("video.template-cover").forEach((video) => {
+    video.play().catch(() => {});
   });
 }
 
