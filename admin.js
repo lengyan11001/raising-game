@@ -1809,7 +1809,7 @@ function defaultAdvancedCase(index = 0) {
     id: `advanced-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     title: "Advanced Case",
     category: "portrait",
-    price: 25,
+    price: 500,
     coverUrl: "",
     previewUrl: "",
     description: "",
@@ -1820,13 +1820,24 @@ function defaultAdvancedCase(index = 0) {
   };
 }
 
+function advancedCaseDuration(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  const duration = Number(params.duration ?? item.duration ?? 5);
+  if (!Number.isFinite(duration)) return 5;
+  return Math.min(15, Math.max(5, duration));
+}
+
+function advancedCaseCredits(item = {}) {
+  return Math.round(advancedCaseDuration(item) * 100);
+}
+
 function advancedCaseSummary(item = {}, index = 0) {
   return `
     <tr data-advanced-index="${index}">
       <td>${platformTemplatePreview(item)}</td>
       <td><strong>${escapeHtml(item.title || `Case ${index + 1}`)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(item.id || "")}</small></td>
       <td>${escapeHtml(item.category || "—")}</td>
-      <td>${escapeHtml(item.price ?? 0)}</td>
+      <td>${advancedCaseCredits(item)}（${advancedCaseDuration(item)}s）</td>
       <td class="adm-truncate" title="${escapeHtml(item.prompt || "")}">${escapeHtml(item.prompt || "").slice(0, 80)}</td>
       <td>${item.enabled === false ? '<span class="adm-pill is-cancelled">Off</span>' : '<span class="adm-pill is-success">On</span>'}</td>
       <td>
@@ -1846,7 +1857,7 @@ function advancedCaseEditor(item = {}, index = 0) {
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>标题</span><input data-f="title" value="${escapeHtml(item.title || "")}" /></div>
         <div class="adm-form-row"><span>分类</span><input data-f="category" value="${escapeHtml(item.category || "portrait")}" /></div>
-        <div class="adm-form-row"><span>价格（积分）</span><input data-f="price" type="number" value="${escapeHtml(item.price ?? 25)}" /></div>
+        <div class="adm-form-row"><span>计费</span><input value="自动：100 积分 / 秒" disabled /></div>
       </div>
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(item.sort ?? index)}" /></div>
@@ -1874,7 +1885,7 @@ function collectAdvancedCaseFromCard(card, existing = {}) {
     ...existing,
     title: get("title")?.value.trim() || existing.title || "Advanced Case",
     category: get("category")?.value.trim() || "portrait",
-    price: Number(get("price")?.value || 0),
+    price: advancedCaseCredits({ params }),
     coverUrl: get("coverUrl")?.value.trim() || "",
     previewUrl: get("previewUrl")?.value.trim() || "",
     description: get("description")?.value.trim() || "",
@@ -1939,7 +1950,7 @@ async function renderPlatform() {
           <div class="adm-table-wrap platform-template-table-wrap adm-mt">
             ${advanced.cases.length ? `
               <table class="adm-table platform-template-table">
-                <thead><tr><th>封面</th><th>标题 / ID</th><th>分类</th><th>价格</th><th>Prompt</th><th>状态</th><th></th></tr></thead>
+                <thead><tr><th>封面</th><th>标题 / ID</th><th>分类</th><th>自动计费</th><th>Prompt</th><th>状态</th><th></th></tr></thead>
                 <tbody id="advancedCaseList">
                   ${advanced.cases.map((item, index) => advancedCaseSummary(item, index)).join("")}
                 </tbody>

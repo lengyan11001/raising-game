@@ -67,6 +67,7 @@ const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, 720, 1, 100000);
+const ADVANCED_GENERATION_CREDITS_PER_SECOND = 100;
 const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
   "auto_2K",
   "auto_3K",
@@ -568,11 +569,15 @@ function normalizePlatformTemplate(template = {}, index = 0) {
 function normalizeAdvancedCase(item = {}, index = 0) {
   const fallbackId = `advanced-case-${index + 1}`;
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
+  const duration = clampNumber(item.duration ?? params.duration, 5, 5, 15);
+  const estimatedCredits = advancedGenerationCost(duration);
   return {
     id: String(item.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId,
     title: String(item.title || "Advanced case").trim().slice(0, 80) || "Advanced case",
     category: String(item.category || "advanced").trim().slice(0, 40) || "advanced",
-    price: clampNumber(item.price, DEFAULT_CONFIG.prices.dateVideo, 0, 999999),
+    price: estimatedCredits,
+    creditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
+    estimatedCredits,
     coverUrl: String(item.coverUrl || "").trim(),
     previewUrl: String(item.previewUrl || "").trim(),
     description: String(item.description || "").trim().slice(0, 240),
@@ -1082,6 +1087,11 @@ function creditsAmount(value, fallback = 0) {
   const next = Number(value);
   if (!Number.isFinite(next)) return Math.max(0, Math.round(Number(fallback || 0) * 10000) / 10000);
   return Math.max(0, Math.round(next * 10000) / 10000);
+}
+
+function advancedGenerationCost(durationSeconds = 5) {
+  const duration = clampNumber(durationSeconds, 5, 5, 15);
+  return creditsAmount(duration * ADVANCED_GENERATION_CREDITS_PER_SECOND);
 }
 
 function positiveCreditsOrNull(value) {
@@ -3061,7 +3071,7 @@ async function handleAdvancedGenerate(req, res) {
     duration: clampNumber(body.duration ?? caseParams.duration, config.video.duration || 5, 5, 15),
     generateAudio: body.generateAudio !== false,
   };
-  const cost = creditsAmount(selectedCase?.price ?? config.prices.dateVideo ?? DEFAULT_CONFIG.prices.dateVideo);
+  const cost = advancedGenerationCost(requestParams.duration);
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
@@ -3078,6 +3088,8 @@ async function handleAdvancedGenerate(req, res) {
       taskId: task.taskId,
       caseId: selectedCase?.id || "",
       caseTitle: selectedCase?.title || "",
+      duration: requestParams.duration,
+      creditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
     });
     await writeDb(auth.db);
   }
@@ -3309,6 +3321,7 @@ async function buildTemplateModelDoc(template, origin) {
 
 function buildAdvancedModelDoc(item, origin) {
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
+  const durationSeconds = durationSecondsFromParams(params) || 5;
   return {
     id: item.id,
     title: item.title,
@@ -3316,9 +3329,10 @@ function buildAdvancedModelDoc(item, origin) {
     description: item.description || "",
     pricing: {
       available: true,
-      credits: creditsAmount(item.price),
-      source: "configured_case_price",
-      durationSeconds: durationSecondsFromParams(params) || 0,
+      credits: advancedGenerationCost(durationSeconds),
+      source: "duration_rate",
+      durationSeconds,
+      creditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
     },
     coverUrl: item.coverUrl,
     previewUrl: item.previewUrl,
@@ -3358,7 +3372,8 @@ async function buildModelDocs(req) {
     updatedAt: new Date().toISOString(),
     billing: {
       unit: "credits",
-      note: "Credits are settled as RMB cents. Template estimates are calculated from the saved upstream JSON model and duration.",
+      note: `Credits are settled as RMB cents. Template estimates are calculated from the saved upstream JSON model and duration. Advanced generation is ${ADVANCED_GENERATION_CREDITS_PER_SECOND} credits per second.`,
+      advancedCreditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
     },
     endpoints: {
       docsMarkdown: `${origin}/docs/models.md`,

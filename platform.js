@@ -1,6 +1,7 @@
 "use strict";
 
 const TOKEN_KEY = "raisingGameToken";
+const ADVANCED_GENERATION_CREDITS_PER_SECOND = 100;
 
 const state = {
   config: null,
@@ -420,6 +421,29 @@ function updateSubmitButtonCost() {
   refreshIcons();
 }
 
+function advancedCaseDuration(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  const duration = Number(params.duration ?? item.duration ?? 5);
+  if (!Number.isFinite(duration)) return 5;
+  return Math.min(15, Math.max(5, duration));
+}
+
+function advancedCostForDuration(duration) {
+  return Math.max(0, Math.round(Number(duration || 0) * ADVANCED_GENERATION_CREDITS_PER_SECOND));
+}
+
+function advancedCostLabel(duration) {
+  return `${formatCredits(advancedCostForDuration(duration))} credits · ${formatDurationSeconds(duration)}`;
+}
+
+function updateAdvancedButtonCost() {
+  if (!els.advancedSubmitBtn) return;
+  const rawDuration = Number(els.advancedDuration?.value || 5);
+  const duration = Number.isFinite(rawDuration) ? Math.min(15, Math.max(5, rawDuration)) : 5;
+  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>Generate · ${escapeHtml(advancedCostLabel(duration))}`;
+  refreshIcons();
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -603,6 +627,7 @@ function renderAdvanced() {
   els.advancedGate.innerHTML = "";
   els.advancedWorkspace.hidden = false;
   renderAdvancedCases();
+  updateAdvancedButtonCost();
 }
 
 function renderAdvancedCases() {
@@ -612,7 +637,7 @@ function renderAdvancedCases() {
     <article class="advanced-case-card" data-case-index="${index}">
       <img src="${escapeHtml(item.coverUrl || item.previewUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || "Case")}" loading="lazy" />
       <div>
-        <span>${escapeHtml(item.category || "Case")} · ${escapeHtml(item.price ? `${item.price} credits` : "Custom")}</span>
+        <span>${escapeHtml(item.category || "Case")} · ${escapeHtml(advancedCostLabel(advancedCaseDuration(item)))}</span>
         <strong>${escapeHtml(item.title || "Advanced case")}</strong>
         <p>${escapeHtml(item.description || item.prompt || "").slice(0, 96)}</p>
       </div>
@@ -630,7 +655,8 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedRatio) els.advancedRatio.value = params.ratio || params.aspect_ratio || item.ratio || "9:16";
   if (els.advancedResolution) els.advancedResolution.value = params.resolution || item.resolution || "720p";
   if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
-  if (els.advancedNote) els.advancedNote.textContent = `Loaded case: ${item.title || "Advanced case"}`;
+  updateAdvancedButtonCost();
+  if (els.advancedNote) els.advancedNote.textContent = `Loaded case: ${item.title || "Advanced case"} · ${advancedCostLabel(advancedCaseDuration(item))}`;
 }
 
 async function requestAdvancedAccess() {
@@ -655,7 +681,8 @@ async function submitAdvancedGenerate() {
   const currentCase = state.advancedCases.find((item) => item.id === state.activeAdvancedCaseId);
   if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
   els.advancedSubmitBtn.disabled = true;
-  if (els.advancedNote) els.advancedNote.textContent = "Submitting advanced generation...";
+  const duration = Math.min(15, Math.max(5, Number(els.advancedDuration?.value || 5)));
+  if (els.advancedNote) els.advancedNote.textContent = `Submitting advanced generation · ${advancedCostLabel(duration)}...`;
   try {
     const payload = await requestJson("/api/advanced/generate", {
       method: "POST",
@@ -664,16 +691,18 @@ async function submitAdvancedGenerate() {
         prompt,
         ratio: els.advancedRatio?.value || "9:16",
         resolution: els.advancedResolution?.value || "720p",
-        duration: Number(els.advancedDuration?.value || 5),
+        duration,
       },
     });
     if (payload.user) setUser(payload.user);
-    if (els.advancedNote) els.advancedNote.textContent = `Job submitted: ${payload.taskId || payload.task?.taskId || ""}`;
+    const charged = payload.cost ?? advancedCostForDuration(duration);
+    if (els.advancedNote) els.advancedNote.textContent = `Job submitted: ${payload.taskId || payload.task?.taskId || ""} · ${formatCredits(charged)} credits`;
     loadHistory();
   } catch (error) {
     if (els.advancedNote) els.advancedNote.textContent = error.message;
   } finally {
     els.advancedSubmitBtn.disabled = false;
+    updateAdvancedButtonCost();
   }
 }
 
@@ -916,6 +945,7 @@ els.previewDialog?.addEventListener("close", () => {
   els.previewVideo.load();
 });
 els.advancedSubmitBtn?.addEventListener("click", submitAdvancedGenerate);
+els.advancedDuration?.addEventListener("input", updateAdvancedButtonCost);
 els.loginBtn?.addEventListener("click", () => {
   if (state.user) openAccount();
   else openLogin();
