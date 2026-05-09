@@ -222,6 +222,8 @@ main { width: min(1600px, calc(100vw - 40px)); margin: 0 auto; }
   background: rgba(0,0,0,.5);
   backdrop-filter: blur(8px);
 }
+.advanced-case-card { position: relative; overflow: hidden; }
+.advanced-preview-play { top: 122px; z-index: 2; }
 .use-template {
   width: 100%;
   border: 0;

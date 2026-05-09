@@ -558,13 +558,23 @@ function isHiddenCategory(category) {
   return value.includes("business") || value.includes("商业接入");
 }
 
-function openPreview(templateId) {
-  const template = state.templates.find((item) => item.id === templateId);
-  if (!template?.previewUrl || !els.previewDialog || !els.previewVideo) return;
-  els.previewTitle.textContent = template.title || "Preview";
-  els.previewVideo.src = template.previewUrl;
+function playPreview({ title = "Preview", previewUrl = "" } = {}) {
+  if (!previewUrl || !els.previewDialog || !els.previewVideo) return;
+  els.previewTitle.textContent = title || "Preview";
+  els.previewVideo.src = previewUrl;
   els.previewDialog.showModal();
   els.previewVideo.play().catch(() => {});
+}
+
+function openPreview(templateId) {
+  const template = state.templates.find((item) => item.id === templateId);
+  playPreview({ title: template?.title, previewUrl: template?.previewUrl });
+}
+
+function openAdvancedPreview(index) {
+  const cases = state.advancedCases.filter((item) => item.enabled !== false);
+  const item = cases[Number(index || 0)];
+  playPreview({ title: item?.title, previewUrl: item?.previewUrl });
 }
 
 function renderAccessGuides() {
@@ -636,6 +646,7 @@ function renderAdvancedCases() {
   els.advancedCaseGrid.innerHTML = cases.length ? cases.map((item, index) => `
     <article class="advanced-case-card" data-case-index="${index}">
       <img src="${escapeHtml(item.coverUrl || item.previewUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || "Case")}" loading="lazy" />
+      ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="Play preview"><i data-lucide="play"></i></button>` : ""}
       <div>
         <span>${escapeHtml(item.category || "Case")} · ${escapeHtml(advancedCostLabel(advancedCaseDuration(item)))}</span>
         <strong>${escapeHtml(item.title || "Advanced case")}</strong>
@@ -645,6 +656,12 @@ function renderAdvancedCases() {
   `).join("") : '<div class="job-note">No cases configured yet.</div>';
   els.advancedCaseGrid.querySelectorAll("[data-case-index]").forEach((card) => {
     card.addEventListener("click", () => fillAdvancedCase(cases[Number(card.dataset.caseIndex || 0)]));
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-advanced-preview-index]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openAdvancedPreview(button.dataset.advancedPreviewIndex);
+    });
   });
 }
 
