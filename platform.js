@@ -2,6 +2,7 @@
 
 const TOKEN_KEY = "raisingGameToken";
 const ADVANCED_GENERATION_CREDITS_PER_SECOND = 100;
+const GENERATION_PRICE_MARKUP = 1.2;
 
 const state = {
   config: null,
@@ -429,7 +430,7 @@ function advancedCaseDuration(item = {}) {
 }
 
 function advancedCostForDuration(duration) {
-  return Math.max(0, Math.round(Number(duration || 0) * ADVANCED_GENERATION_CREDITS_PER_SECOND));
+  return Math.max(0, Math.round(Number(duration || 0) * ADVANCED_GENERATION_CREDITS_PER_SECOND * GENERATION_PRICE_MARKUP));
 }
 
 function advancedCostLabel(duration) {

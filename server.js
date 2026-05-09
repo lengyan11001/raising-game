@@ -67,6 +67,7 @@ const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, 720, 1, 100000);
+const GENERATION_PRICE_MARKUP = 1.2;
 const ADVANCED_GENERATION_CREDITS_PER_SECOND = 100;
 const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
   "auto_2K",
@@ -1089,9 +1090,24 @@ function creditsAmount(value, fallback = 0) {
   return Math.max(0, Math.round(next * 10000) / 10000);
 }
 
+function sellingCredits(value) {
+  return creditsAmount(Number(value || 0) * GENERATION_PRICE_MARKUP);
+}
+
+function costBreakdown(baseCredits, source = "") {
+  const base = creditsAmount(baseCredits);
+  const credits = sellingCredits(base);
+  return {
+    credits,
+    baseCredits: base,
+    markup: GENERATION_PRICE_MARKUP,
+    source,
+  };
+}
+
 function advancedGenerationCost(durationSeconds = 5) {
   const duration = clampNumber(durationSeconds, 5, 5, 15);
-  return creditsAmount(duration * ADVANCED_GENERATION_CREDITS_PER_SECOND);
+  return sellingCredits(duration * ADVANCED_GENERATION_CREDITS_PER_SECOND);
 }
 
 function positiveCreditsOrNull(value) {
@@ -2440,7 +2456,7 @@ async function estimatePlatformPreDeductCredits(model, params = {}, template = {
   const pricing = await fetchApizModelPricing(model);
   const estimated = estimateCreditsFromApizPricing(pricing, params);
   if (estimated > 0 || pricingIsFreeFixed(pricing)) {
-    return { credits: estimated, source: "model_pricing", pricing };
+    return { ...costBreakdown(estimated, "model_pricing"), pricing };
   }
 
   const error = new Error("模型定价未配置，暂不能提交生成。请在后台模板里填写上游真实模型 ID。");
@@ -2730,7 +2746,7 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
     billingStatus = "refunded";
   } else {
     const reported = extractApizReportedCredits(task) ?? (record.createReportedCredits === undefined ? null : creditsAmount(record.createReportedCredits));
-    finalCredits = reported === null ? preDeducted : reported;
+    finalCredits = reported === null ? preDeducted : sellingCredits(reported);
     delta = preDeducted - finalCredits;
   }
 
@@ -3010,6 +3026,8 @@ async function handlePlatformGenerate(req, res) {
     pricingEstimate: {
       source: pricingEstimate.source,
       pricing: pricingEstimate.pricing || null,
+      baseCredits: pricingEstimate.baseCredits ?? null,
+      markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
     },
     finalCredits: null,
     billingStatus: preDeductedCredits > 0 ? "pre_deducted" : "free",
@@ -3090,6 +3108,8 @@ async function handleAdvancedGenerate(req, res) {
       caseTitle: selectedCase?.title || "",
       duration: requestParams.duration,
       creditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
+      baseCredits: requestParams.duration * ADVANCED_GENERATION_CREDITS_PER_SECOND,
+      markup: GENERATION_PRICE_MARKUP,
     });
     await writeDb(auth.db);
   }
@@ -3162,6 +3182,8 @@ async function makePlatformEstimate(template, overrides = {}) {
   return {
     templateId: template.id,
     credits: creditsAmount(pricingEstimate.credits),
+    baseCredits: creditsAmount(pricingEstimate.baseCredits ?? pricingEstimate.credits),
+    markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
     source: pricingEstimate.source,
     model: upstreamPayload.model,
     requestModel: upstreamPayload.params.model || upstreamPayload.model,
@@ -3252,6 +3274,8 @@ function docsPricingView(estimate = {}) {
   return {
     available: true,
     credits: creditsAmount(estimate.credits),
+    baseCredits: creditsAmount(estimate.baseCredits ?? estimate.credits),
+    markup: estimate.markup ?? GENERATION_PRICE_MARKUP,
     source: estimate.source || "model_pricing",
     durationSeconds: estimate.durationSeconds || 0,
   };
@@ -3330,6 +3354,8 @@ function buildAdvancedModelDoc(item, origin) {
     pricing: {
       available: true,
       credits: advancedGenerationCost(durationSeconds),
+      baseCredits: creditsAmount(durationSeconds * ADVANCED_GENERATION_CREDITS_PER_SECOND),
+      markup: GENERATION_PRICE_MARKUP,
       source: "duration_rate",
       durationSeconds,
       creditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
@@ -3372,7 +3398,8 @@ async function buildModelDocs(req) {
     updatedAt: new Date().toISOString(),
     billing: {
       unit: "credits",
-      note: `Credits are settled as RMB cents. Template estimates are calculated from the saved upstream JSON model and duration. Advanced generation is ${ADVANCED_GENERATION_CREDITS_PER_SECOND} credits per second.`,
+      note: `Credits are settled as RMB cents. Prices include a ${GENERATION_PRICE_MARKUP}x selling markup over the base model cost. Template estimates are calculated from the saved upstream JSON model and duration. Advanced base generation is ${ADVANCED_GENERATION_CREDITS_PER_SECOND} credits per second before markup.`,
+      markup: GENERATION_PRICE_MARKUP,
       advancedCreditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
     },
     endpoints: {

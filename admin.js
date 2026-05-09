@@ -2,6 +2,7 @@
 
 const TOKEN_KEY = "raisingGameAdminToken";
 const LEGACY_TOKEN_KEY = "raisingGameToken";
+const GENERATION_PRICE_MARKUP = 1.2;
 
 const ROUTES = [
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
@@ -1828,7 +1829,7 @@ function advancedCaseDuration(item = {}) {
 }
 
 function advancedCaseCredits(item = {}) {
-  return Math.round(advancedCaseDuration(item) * 100);
+  return Math.round(advancedCaseDuration(item) * 100 * GENERATION_PRICE_MARKUP);
 }
 
 function advancedCaseSummary(item = {}, index = 0) {
@@ -1857,7 +1858,7 @@ function advancedCaseEditor(item = {}, index = 0) {
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>标题</span><input data-f="title" value="${escapeHtml(item.title || "")}" /></div>
         <div class="adm-form-row"><span>分类</span><input data-f="category" value="${escapeHtml(item.category || "portrait")}" /></div>
-        <div class="adm-form-row"><span>计费</span><input value="自动：100 积分 / 秒" disabled /></div>
+        <div class="adm-form-row"><span>计费</span><input value="自动：100 积分 / 秒 × 1.2" disabled /></div>
       </div>
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(item.sort ?? index)}" /></div>
