@@ -16,6 +16,7 @@ const state = {
   activeTemplate: null,
   uploadDataUrl: "",
   advancedUploadDataUrl: "",
+  wallet: null,
   token: localStorage.getItem(TOKEN_KEY) || "",
   user: null,
   loginMode: "login",
@@ -50,10 +51,14 @@ const els = {
   accessTokenHint: document.querySelector("#accessTokenHint"),
   toggleAccessTokenBtn: document.querySelector("#toggleAccessTokenBtn"),
   copyTokenBtn: document.querySelector("#copyTokenBtn"),
-  historyBtn: document.querySelector("#historyBtn"),
-  historyDialog: document.querySelector("#historyDialog"),
   historyList: document.querySelector("#historyList"),
   refreshHistoryBtn: document.querySelector("#refreshHistoryBtn"),
+  topupPanel: document.querySelector("#topupPanel"),
+  topupAmount: document.querySelector("#topupAmount"),
+  topupCredits: document.querySelector("#topupCredits"),
+  topupRate: document.querySelector("#topupRate"),
+  createTopupBtn: document.querySelector("#createTopupBtn"),
+  topupOrder: document.querySelector("#topupOrder"),
   previewDialog: document.querySelector("#previewDialog"),
   previewTitle: document.querySelector("#previewTitle"),
   previewVideo: document.querySelector("#previewVideo"),
@@ -97,6 +102,9 @@ const PUBLIC_COPY = {
   advancedTitle: "Advanced Generate",
   advancedSubtitle: "Direct Seedance controls for approved accounts.",
   advancedNotice: "Approval is required before direct generation is enabled.",
+  historyTitle: "Generation History",
+  historySubtitle: "Review your generated videos, prompts, parameters and billing in one compact list.",
+  historyNotice: "Only your own generation records are shown.",
   accessCopy:
     "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
 };
@@ -317,6 +325,9 @@ PUBLIC_COPY.accessCopy = LIVE_HTTP_ACCESS_COPY;
 PUBLIC_COPY.advancedTitle = "Advanced Generate";
 PUBLIC_COPY.advancedSubtitle = "Direct Seedance controls for approved accounts.";
 PUBLIC_COPY.advancedNotice = "Apply once. After approval, cases can fill the form automatically.";
+PUBLIC_COPY.historyTitle = "Generation History";
+PUBLIC_COPY.historySubtitle = "Review your generated videos, prompts, parameters and billing in one compact list.";
+PUBLIC_COPY.historyNotice = "Only your own generation records are shown.";
 
 ACCESS_GUIDES = [
   {
@@ -383,8 +394,10 @@ function setUser(user) {
     els.loginBtn.textContent = "Login / Sign up";
   }
   renderTokenDisplays();
+  renderTopupSummary();
   renderAccessGuides();
   renderAdvanced();
+  if (state.tab === "history") loadHistory();
 }
 
 function maskToken(token = "") {
@@ -479,7 +492,7 @@ function templateCostLabel(templateId) {
 }
 
 function templateGenerateLabel(templateId) {
-  return `Generate · ${templateCostLabel(templateId)}`;
+  return `Generate - ${templateCostLabel(templateId)}`;
 }
 
 function updateSubmitButtonCost() {
@@ -501,14 +514,14 @@ function advancedCostForDuration(duration) {
 }
 
 function advancedCostLabel(duration) {
-  return `${formatCredits(advancedCostForDuration(duration))} credits · ${formatDurationSeconds(duration)}`;
+  return `${formatCredits(advancedCostForDuration(duration))} credits - ${formatDurationSeconds(duration)}`;
 }
 
 function updateAdvancedButtonCost() {
   if (!els.advancedSubmitBtn) return;
   const rawDuration = Number(els.advancedDuration?.value || 5);
   const duration = Number.isFinite(rawDuration) ? Math.min(15, Math.max(5, rawDuration)) : 5;
-  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>Generate · ${escapeHtml(advancedCostLabel(duration))}`;
+  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>Generate - ${escapeHtml(advancedCostLabel(duration))}`;
   refreshIcons();
 }
 
@@ -543,6 +556,7 @@ function setTab(tab) {
     button.classList.toggle("is-active", button.dataset.tab === tab);
   });
   renderHero();
+  if (tab === "history") loadHistory();
 }
 
 function renderHero() {
@@ -560,6 +574,14 @@ function renderHero() {
     els.heroSubtitle.textContent = PUBLIC_COPY.advancedSubtitle;
     els.heroBadge.textContent = "Permission";
     els.heroNotice.textContent = PUBLIC_COPY.advancedNotice;
+    return;
+  }
+  if (state.tab === "history") {
+    els.heroEyebrow.textContent = "History";
+    els.heroTitle.textContent = PUBLIC_COPY.historyTitle;
+    els.heroSubtitle.textContent = PUBLIC_COPY.historySubtitle;
+    els.heroBadge.textContent = "Records";
+    els.heroNotice.textContent = PUBLIC_COPY.historyNotice;
     return;
   }
   const platform = state.config?.platform || {};
@@ -599,7 +621,7 @@ function renderTemplates() {
   els.templateGrid.innerHTML = list.length ? list.map((template) => `
     <article class="template-card">
       <img class="template-cover" src="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(template.title)}" loading="lazy" />
-      ${template.previewUrl ? `<button class="preview-play" data-preview-id="${escapeHtml(template.id)}" type="button" aria-label="Play preview"><i data-lucide="play"></i></button>` : ""}
+      ${template.previewUrl ? `<button class="preview-play" data-preview-id="${escapeHtml(template.id)}" type="button" aria-label="Play preview"><i data-lucide="play"></i><span>Preview</span></button>` : ""}
       <div class="template-meta">
         <span>${escapeHtml(template.badge || (template.type === "image-to-video" ? "Image to Video" : "Text to Video"))}</span>
         <strong>${escapeHtml(template.title)}</strong>
@@ -613,10 +635,17 @@ function renderTemplates() {
     button.addEventListener("click", () => openTemplate(button.dataset.templateId));
   });
   els.templateGrid.querySelectorAll("[data-preview-id]").forEach((button) => {
-    button.addEventListener("click", (event) => {
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
       event.stopPropagation();
-      openPreview(button.dataset.previewId);
+      event.stopImmediatePropagation?.();
     });
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      openPreview(button.dataset.previewId);
+    }, { capture: true });
   });
   refreshIcons();
 }
@@ -629,9 +658,11 @@ function isHiddenCategory(category) {
 function playPreview({ title = "Preview", previewUrl = "" } = {}) {
   if (!previewUrl || !els.previewDialog || !els.previewVideo) return;
   els.previewTitle.textContent = title || "Preview";
+  els.previewVideo.pause();
   els.previewVideo.src = previewUrl;
-  els.previewDialog.showModal();
-  els.previewVideo.play().catch(() => {});
+  els.previewVideo.load();
+  if (!els.previewDialog.open) els.previewDialog.showModal();
+  window.setTimeout(() => els.previewVideo.play().catch(() => {}), 80);
 }
 
 function openPreview(templateId) {
@@ -643,6 +674,70 @@ function openAdvancedPreview(index) {
   const cases = state.advancedCases.filter((item) => item.enabled !== false);
   const item = cases[Number(index || 0)];
   playPreview({ title: item?.title, previewUrl: item?.previewUrl });
+}
+
+function walletCreditsForAmount(amount) {
+  const rate = Number(state.wallet?.cnyCentsPerUsdt || 720);
+  return Math.max(0, Math.round(Number(amount || 0) * rate));
+}
+
+function renderTopupSummary() {
+  if (!els.topupPanel) return;
+  if (els.topupOrder && !els.topupOrder.hidden) return;
+  const amount = Number(els.topupAmount?.value || 0);
+  const credits = walletCreditsForAmount(amount);
+  const asset = state.wallet?.asset || "USDT";
+  const network = state.wallet?.network || "TRC20";
+  if (els.topupCredits) els.topupCredits.textContent = `${credits} credits`;
+  if (els.topupRate) {
+    els.topupRate.textContent = state.user
+      ? `${amount || 0} ${asset} via ${network}. Credits use RMB cents.`
+      : "Login to create a payment order.";
+  }
+}
+
+function renderTopupOrder(order) {
+  if (!els.topupOrder || !order) return;
+  els.topupOrder.hidden = false;
+  els.topupOrder.innerHTML = `
+    <div>
+      <span>Pay exactly</span>
+      <strong>${escapeHtml(order.payableAmountText || order.payableAmount || order.baseAmount)} ${escapeHtml(order.asset || "USDT")}</strong>
+      <small>${escapeHtml(order.network || "")} · ${escapeHtml(order.creditAmount || 0)} credits · ${escapeHtml(order.status || "pending")}</small>
+    </div>
+    <code>${escapeHtml(order.address || "")}</code>
+    <button class="ghost-button" type="button" data-copy-address><i data-lucide="copy"></i>Copy address</button>
+  `;
+  els.topupOrder.querySelector("[data-copy-address]")?.addEventListener("click", () => {
+    navigator.clipboard?.writeText(order.address || "").then(() => {
+      if (els.topupRate) els.topupRate.textContent = "Address copied. Transfer the exact amount shown.";
+    });
+  });
+  if (els.topupCredits) els.topupCredits.textContent = `${order.creditAmount || 0} credits`;
+  refreshIcons();
+}
+
+async function createTopupOrder() {
+  if (!state.user) return openLogin();
+  const amount = Number(els.topupAmount?.value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    if (els.topupRate) els.topupRate.textContent = "Enter a valid USDT amount.";
+    return;
+  }
+  els.createTopupBtn.disabled = true;
+  if (els.topupRate) els.topupRate.textContent = "Creating payment order...";
+  try {
+    const payload = await requestJson("/api/pay/orders", {
+      method: "POST",
+      body: { amount },
+    });
+    renderTopupOrder(payload.order);
+    if (els.topupRate) els.topupRate.textContent = "Order created. Transfer the exact amount including suffix.";
+  } catch (error) {
+    if (els.topupRate) els.topupRate.textContent = error.message;
+  } finally {
+    els.createTopupBtn.disabled = false;
+  }
 }
 
 function renderAccessGuides() {
@@ -852,8 +947,20 @@ async function submitTemplate() {
 
 function renderHistory(records = []) {
   if (!els.historyList) return;
+  if (!state.user) {
+    els.historyList.innerHTML = `
+      <div class="history-empty-card">
+        <strong>Login required</strong>
+        <p>Sign in to view your generation records.</p>
+        <button class="generate-btn" type="button" data-login-history>Login</button>
+      </div>
+    `;
+    els.historyList.querySelector("[data-login-history]")?.addEventListener("click", openLogin);
+    refreshIcons();
+    return;
+  }
   if (!records.length) {
-    els.historyList.innerHTML = '<div class="job-note">No generation records yet.</div>';
+    els.historyList.innerHTML = '<div class="history-empty-card"><strong>No generation records yet.</strong><p>Your submitted gallery and advanced jobs will appear here.</p></div>';
     return;
   }
   els.historyList.innerHTML = records.map((record) => {
@@ -893,7 +1000,11 @@ function renderHistory(records = []) {
 }
 
 async function loadHistory() {
-  if (!state.user || !els.historyList) return;
+  if (!els.historyList) return;
+  if (!state.user) {
+    renderHistory([]);
+    return;
+  }
   els.historyList.innerHTML = '<div class="job-note">Loading generation records...</div>';
   try {
     const payload = await requestJson("/api/generation-records?limit=50");
@@ -902,13 +1013,6 @@ async function loadHistory() {
   } catch (error) {
     els.historyList.innerHTML = `<div class="job-note">Load failed: ${escapeHtml(error.message || String(error))}</div>`;
   }
-}
-
-function openHistory() {
-  if (!state.user) return openLogin();
-  els.historyDialog.showModal();
-  loadHistory();
-  refreshIcons();
 }
 
 function openLogin() {
@@ -931,6 +1035,7 @@ function logout() {
   localStorage.removeItem(TOKEN_KEY);
   els.accountDialog?.close();
   setUser(null);
+  if (state.tab === "history") renderHistory([]);
 }
 
 function renderLoginMode() {
@@ -959,6 +1064,7 @@ async function submitLogin() {
     localStorage.setItem(TOKEN_KEY, payload.token);
     els.loginDialog.close();
     if (state.tab === "access") renderAccessGuides();
+    if (state.tab === "history") loadHistory();
   } catch (error) {
     els.loginMessage.textContent = error.message;
   }
@@ -999,6 +1105,7 @@ async function bootstrap() {
   const payload = await requestJson("/api/config/public");
   const platform = payload.config?.platform || {};
   state.config = payload.config;
+  state.wallet = payload.config?.wallet || null;
   state.templates = platform.templates || [];
   state.categories = platform.categories || [];
   state.advancedCases = platform.advanced?.cases || [];
@@ -1008,6 +1115,7 @@ async function bootstrap() {
   renderTemplates();
   renderAccessGuides();
   renderAdvanced();
+  renderTopupSummary();
   renderTokenDisplays();
   refreshIcons();
   loadPlatformEstimates();
@@ -1039,8 +1147,15 @@ els.advancedImage?.addEventListener("change", async () => {
   els.advancedUploadBox?.classList.add("has-image");
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
-els.historyBtn?.addEventListener("click", openHistory);
 els.refreshHistoryBtn?.addEventListener("click", loadHistory);
+els.topupAmount?.addEventListener("input", () => {
+  if (els.topupOrder) {
+    els.topupOrder.hidden = true;
+    els.topupOrder.innerHTML = "";
+  }
+  renderTopupSummary();
+});
+els.createTopupBtn?.addEventListener("click", createTopupOrder);
 els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;
   els.previewVideo.pause();
