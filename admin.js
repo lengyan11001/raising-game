@@ -9,6 +9,7 @@ const ROUTES = [
   { id: "platform", title: "首页广场", render: renderPlatform },
   { id: "characters", title: "角色管理", render: renderCharacters },
   { id: "videos", title: "视频管理", render: renderVideos },
+  { id: "records", title: "生成记录", render: renderGenerationRecords },
   { id: "scenes", title: "场景管理", render: renderScenes },
   { id: "users", title: "用户管理", render: renderUsers },
   { id: "wallet", title: "钱包订单", render: renderWallet },
@@ -90,6 +91,27 @@ function fmtBytes(n) {
   const u = ["B", "KB", "MB", "GB"]; let i = 0;
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
   return `${n.toFixed(1)} ${u[i]}`;
+}
+
+function shortText(value, length = 90) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > length ? `${text.slice(0, length - 1)}…` : text;
+}
+
+function jsonPretty(value) {
+  if (value === undefined || value === null || value === "") return "";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function copyText(text, success = "Copied.") {
+  if (!text) return;
+  navigator.clipboard?.writeText(text)
+    .then(() => toast(success, "success"))
+    .catch(() => toast("Copy failed.", "error"));
 }
 
 /* ============ toast ============ */
@@ -1241,6 +1263,228 @@ function historyRecordHtml(r, idx) {
       </details>
     </article>
   `;
+}
+
+/* ============ GENERATION RECORDS ============ */
+function recordVideoUrl(record) {
+  return record.videoUrl || record.localVideoUrl || record.remoteVideoUrl || "";
+}
+
+function recordBillingText(record) {
+  const billing = record.billing || {};
+  const final = billing.final === null || billing.final === undefined ? "" : billing.final;
+  const pre = billing.preDeducted || 0;
+  if (billing.settled && final !== "") return `${final} / pre ${pre}`;
+  return pre ? `pre ${pre}` : "0";
+}
+
+function recordOwnerText(record) {
+  return record.username || record.userId || "unknown";
+}
+
+async function renderGenerationRecords() {
+  const saved = JSON.parse(sessionStorage.getItem("admRecordFilters") || "{}");
+  const query = saved.q || "";
+  const provider = saved.provider || "";
+  const kind = saved.kind || "";
+  const status = saved.status || "";
+  const limit = saved.limit || 160;
+  els.adminContent.innerHTML = `
+    <section class="adm-page adm-records-page">
+      <div class="adm-page-head adm-records-head">
+        <div>
+          <h2>Generation Records</h2>
+          <p class="adm-muted">All user/API generation jobs. Compact table for browsing; open details for prompt, params and result preview.</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="refreshRecordsBtn"><i data-lucide="refresh-cw"></i>Refresh</button>
+        </div>
+      </div>
+      <form class="adm-record-filters" id="recordFilters">
+        <input id="recordQuery" type="search" placeholder="Search task, user, prompt, template..." value="${escapeHtml(query)}" />
+        <select id="recordProvider">
+          <option value="">All providers</option>
+          <option value="apiz" ${provider === "apiz" ? "selected" : ""}>apiz</option>
+          <option value="seedance" ${provider === "seedance" ? "selected" : ""}>seedance</option>
+        </select>
+        <select id="recordKind">
+          <option value="">All kinds</option>
+          <option value="image-to-video" ${kind === "image-to-video" ? "selected" : ""}>image-to-video</option>
+          <option value="text-to-video" ${kind === "text-to-video" ? "selected" : ""}>text-to-video</option>
+          <option value="advanced-video" ${kind === "advanced-video" ? "selected" : ""}>advanced-video</option>
+          <option value="scene-video" ${kind === "scene-video" ? "selected" : ""}>scene-video</option>
+          <option value="main-video" ${kind === "main-video" ? "selected" : ""}>main-video</option>
+        </select>
+        <select id="recordStatus">
+          <option value="">All status</option>
+          <option value="submitted" ${status === "submitted" ? "selected" : ""}>submitted</option>
+          <option value="running" ${status === "running" ? "selected" : ""}>running</option>
+          <option value="succeeded" ${status === "succeeded" ? "selected" : ""}>succeeded</option>
+          <option value="completed" ${status === "completed" ? "selected" : ""}>completed</option>
+          <option value="failed" ${status === "failed" ? "selected" : ""}>failed</option>
+        </select>
+        <select id="recordLimit">
+          <option value="80" ${String(limit) === "80" ? "selected" : ""}>80</option>
+          <option value="160" ${String(limit) === "160" ? "selected" : ""}>160</option>
+          <option value="300" ${String(limit) === "300" ? "selected" : ""}>300</option>
+          <option value="500" ${String(limit) === "500" ? "selected" : ""}>500</option>
+        </select>
+        <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>Apply</button>
+      </form>
+      <div id="recordTablePane" class="adm-card adm-mt">
+        <div class="adm-loading"><div class="adm-spinner"></div></div>
+      </div>
+    </section>
+  `;
+
+  const load = async () => {
+    const params = new URLSearchParams();
+    const next = {
+      q: byId("recordQuery")?.value.trim() || "",
+      provider: byId("recordProvider")?.value || "",
+      kind: byId("recordKind")?.value || "",
+      status: byId("recordStatus")?.value || "",
+      limit: byId("recordLimit")?.value || "160",
+    };
+    Object.entries(next).forEach(([key, value]) => { if (value) params.set(key, value); });
+    sessionStorage.setItem("admRecordFilters", JSON.stringify(next));
+    const payload = await api(`/api/admin/generation-records?${params.toString()}`);
+    renderGenerationRecordTable(payload.records || [], payload);
+  };
+
+  byId("recordFilters")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    byId("recordTablePane").innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
+    load().catch((err) => renderError(err));
+  });
+  byId("refreshRecordsBtn")?.addEventListener("click", () => load().catch((err) => renderError(err)));
+  refreshIcons();
+  await load();
+}
+
+function renderGenerationRecordTable(records, payload = {}) {
+  const pane = byId("recordTablePane");
+  pane.innerHTML = `
+    <header class="adm-card-head adm-record-summary">
+      <h3>${records.length} shown</h3>
+      <span class="adm-muted">filtered ${payload.filtered ?? records.length} / total ${payload.total ?? records.length}</span>
+    </header>
+    <div class="adm-table-wrap adm-record-table-wrap">
+      ${records.length ? `
+        <table class="adm-table adm-record-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>User</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Cost</th>
+              <th>Task</th>
+              <th>Prompt</th>
+              <th>Result</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${records.map((record, index) => generationRecordRowHtml(record, index)).join("")}
+          </tbody>
+        </table>
+      ` : '<div class="adm-empty"><i data-lucide="inbox"></i><p>No generation records found.</p></div>'}
+    </div>
+  `;
+  refreshIcons();
+  pane.querySelectorAll("[data-act='record-detail']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = records[Number(button.dataset.index || 0)];
+      if (record) openGenerationRecordDetail(record);
+    });
+  });
+  pane.querySelectorAll("[data-act='copy-record']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = records[Number(button.dataset.index || 0)];
+      if (record) copyText(record.finalPrompt || record.prompt || "", "Prompt copied.");
+    });
+  });
+}
+
+function generationRecordRowHtml(record, index) {
+  const video = recordVideoUrl(record);
+  const label = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "job";
+  return `
+    <tr>
+      <td><span class="adm-mono">${escapeHtml(fmtDate(record.createdAt).slice(5))}</span><span class="adm-block adm-muted">${escapeHtml(fmtRelative(record.updatedAt || record.createdAt))}</span></td>
+      <td><strong>${escapeHtml(recordOwnerText(record))}</strong><span class="adm-block adm-mono adm-record-id">${escapeHtml((record.userId || "").slice(0, 12))}</span></td>
+      <td><span class="adm-pill">${escapeHtml(record.provider || "n/a")}</span><span class="adm-block adm-muted">${escapeHtml(record.kind || record.source || "")}</span><span class="adm-block adm-truncate" title="${escapeHtml(label)}">${escapeHtml(label)}</span></td>
+      <td>${statusPill(record.status)}${record.error ? `<span class="adm-block adm-error-text" title="${escapeHtml(record.error)}">${escapeHtml(shortText(record.error, 54))}</span>` : ""}</td>
+      <td><span class="adm-mono">${escapeHtml(recordBillingText(record))}</span><span class="adm-block adm-muted">${escapeHtml(record.billing?.status || "")}</span></td>
+      <td><span class="adm-mono adm-truncate" title="${escapeHtml(record.taskId)}">${escapeHtml(shortText(record.taskId, 24))}</span><span class="adm-block adm-muted">${escapeHtml(record.model || "")}</span></td>
+      <td class="adm-record-prompt-cell" title="${escapeHtml(record.finalPrompt || record.prompt || "")}">${escapeHtml(shortText(record.finalPrompt || record.prompt || "", 150))}</td>
+      <td>${video ? `<video class="adm-record-thumb" src="${escapeHtml(video)}" preload="metadata" muted playsinline></video>` : record.imageUrl ? `<img class="adm-record-thumb" src="${escapeHtml(record.imageUrl)}" alt="" />` : '<span class="adm-muted">No result</span>'}</td>
+      <td class="adm-record-actions">
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>Detail</button>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-record" data-index="${index}"><i data-lucide="copy"></i>Prompt</button>
+      </td>
+    </tr>
+  `;
+}
+
+function openGenerationRecordDetail(record) {
+  const video = recordVideoUrl(record);
+  const paramsText = jsonPretty(record.params);
+  const upstreamText = jsonPretty(record.upstreamPayload);
+  const createText = jsonPretty(record.createResponse);
+  const queryText = jsonPretty(record.queryResponse);
+  const body = `
+    <div class="adm-record-detail">
+      <div class="adm-record-preview">
+        ${video ? `<video src="${escapeHtml(video)}" controls preload="metadata" playsinline></video>` : record.imageUrl ? `<img src="${escapeHtml(record.imageUrl)}" alt="" />` : '<div class="adm-empty"><i data-lucide="video-off"></i><p>No preview yet.</p></div>'}
+      </div>
+      <div class="adm-record-kv">
+        <span>User</span><strong>${escapeHtml(recordOwnerText(record))}</strong>
+        <span>Status</span><strong>${statusPill(record.status)}</strong>
+        <span>Task</span><code>${escapeHtml(record.taskId || "")}</code>
+        <span>Provider</span><strong>${escapeHtml(record.provider || "")}</strong>
+        <span>Kind</span><strong>${escapeHtml(record.kind || "")}</strong>
+        <span>Cost</span><strong>${escapeHtml(recordBillingText(record))}</strong>
+        <span>Created</span><strong>${escapeHtml(fmtDate(record.createdAt))}</strong>
+        <span>Updated</span><strong>${escapeHtml(fmtDate(record.updatedAt))}</strong>
+      </div>
+      ${record.referenceAssetUri ? `<div class="adm-record-line"><span>Reference</span><code>${escapeHtml(record.referenceAssetUri)}</code></div>` : ""}
+      ${record.imageUrl ? `<div class="adm-record-line"><span>Image</span><a href="${escapeHtml(record.imageUrl)}" target="_blank" rel="noopener">${escapeHtml(record.imageUrl)}</a></div>` : ""}
+      ${video ? `<div class="adm-record-line"><span>Result</span><a href="${escapeHtml(video)}" target="_blank" rel="noopener">${escapeHtml(video)}</a></div>` : ""}
+      <section class="adm-record-section">
+        <header><strong>Prompt</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="prompt"><i data-lucide="copy"></i>Copy</button></header>
+        <pre>${escapeHtml(record.finalPrompt || record.prompt || "")}</pre>
+      </section>
+      ${record.prompt && record.finalPrompt && record.prompt !== record.finalPrompt ? `<section class="adm-record-section"><header><strong>User Prompt</strong></header><pre>${escapeHtml(record.prompt)}</pre></section>` : ""}
+      <section class="adm-record-section">
+        <header><strong>Params</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="params"><i data-lucide="copy"></i>Copy</button></header>
+        <pre>${escapeHtml(paramsText || "{}")}</pre>
+      </section>
+      ${upstreamText ? `<section class="adm-record-section"><header><strong>Upstream Payload</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="upstream"><i data-lucide="copy"></i>Copy</button></header><pre>${escapeHtml(upstreamText)}</pre></section>` : ""}
+      ${createText ? `<section class="adm-record-section"><header><strong>Create Response</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="create"><i data-lucide="copy"></i>Copy</button></header><pre>${escapeHtml(createText)}</pre></section>` : ""}
+      ${queryText ? `<section class="adm-record-section"><header><strong>Query Response</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="query"><i data-lucide="copy"></i>Copy</button></header><pre>${escapeHtml(queryText)}</pre></section>` : ""}
+    </div>
+  `;
+  openDialog({
+    title: `Generation Detail · ${record.taskId || ""}`,
+    body,
+    hideConfirm: true,
+    cancelText: "Close",
+  });
+  const copyMap = {
+    prompt: record.finalPrompt || record.prompt || "",
+    params: paramsText,
+    upstream: upstreamText,
+    create: createText,
+    query: queryText,
+  };
+  setTimeout(() => {
+    els.dialogBody.querySelectorAll("[data-copy-detail]").forEach((button) => {
+      button.addEventListener("click", () => copyText(copyMap[button.dataset.copyDetail] || ""));
+    });
+    refreshIcons();
+  }, 0);
 }
 
 /* ============ SCENES ============ */

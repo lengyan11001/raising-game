@@ -2588,6 +2588,50 @@ function publicGenerationRecord(record = {}) {
   };
 }
 
+function adminGenerationRecordView(record = {}, userMap = new Map()) {
+  const user = userMap.get(record.userId);
+  const publicRecord = publicGenerationRecord(record);
+  const inferredProvider = record.provider || (String(record.source || "").includes("platform") ? "apiz" : "seedance");
+  return {
+    ...publicRecord,
+    userId: String(record.userId || ""),
+    username: user?.username || "",
+    provider: String(inferredProvider || ""),
+    upstreamPayload: record.upstreamPayload || null,
+    pricingEstimate: record.pricingEstimate || null,
+    createResponse: record.createResponse || null,
+    queryResponse: record.queryResponse || null,
+    createReportedCredits: record.createReportedCredits === undefined ? null : record.createReportedCredits,
+    billingError: String(record.billingError || ""),
+    partnerReferenceAssetUri: String(record.partnerReferenceAssetUri || ""),
+  };
+}
+
+function generationRecordMatchesQuery(record = {}, query = "") {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return true;
+  return [
+    record.taskId,
+    record.userId,
+    record.username,
+    record.source,
+    record.kind,
+    record.provider,
+    record.status,
+    record.templateId,
+    record.templateTitle,
+    record.sceneId,
+    record.sceneName,
+    record.sceneEntryId,
+    record.sceneEntryName,
+    record.companionId,
+    record.companionName,
+    record.prompt,
+    record.finalPrompt,
+    record.model,
+  ].some((value) => String(value || "").toLowerCase().includes(needle));
+}
+
 function shouldRefreshGenerationRecord(record = {}) {
   if (record.provider === "apiz" && !record.billingSettledAt && record.taskId && !String(record.taskId).startsWith("demo-")) return true;
   const status = String(record.status || "").toLowerCase();
@@ -3171,6 +3215,7 @@ async function handleAdvancedGenerate(req, res) {
     prompt,
     finalPrompt: prompt,
     params: requestParams,
+    upstreamPayload: payload,
     ratio: payload.ratio,
     resolution: payload.resolution,
     duration: payload.duration,
@@ -3182,6 +3227,7 @@ async function handleAdvancedGenerate(req, res) {
     finalCredits: cost,
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
+    createResponse: task,
   });
   const latestDb = await readDb();
   const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
@@ -4215,10 +4261,19 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     resolution: payload.resolution,
     duration: payload.duration,
     quality: "high",
+    provider: "seedance",
+    kind: "main-video",
+    params: payload,
+    upstreamPayload: payload,
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl: "",
     error: "",
     source: "user-character",
+    preDeductedCredits: cost,
+    finalCredits: cost,
+    billingStatus: cost > 0 ? "settled" : "free",
+    billingSettledAt: new Date().toISOString(),
+    createResponse: task,
   });
 
   return { task, payload };
@@ -4517,6 +4572,7 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
     localVideoUrl,
     localVideoPath,
     error: task.error || downloadError || "",
+    queryResponse: raw,
   });
 
   return sendJson(res, 200, { ok: true, character: publicUserCharacter(record), task: { ...task, videoUrl: record.videoUrl } });
@@ -4622,10 +4678,19 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     resolution: payload.resolution,
     duration: payload.duration,
     quality: "high",
+    provider: "seedance",
+    kind: "scene-video",
+    params: payload,
+    upstreamPayload: payload,
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl: "",
     error: "",
     source: "user-character-scene",
+    preDeductedCredits: cost,
+    finalCredits: cost,
+    billingStatus: cost > 0 ? "settled" : "free",
+    billingSettledAt: new Date().toISOString(),
+    createResponse: task,
   });
 
   return sendJson(res, 200, {
@@ -4704,6 +4769,7 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
     localVideoUrl,
     localVideoPath,
     error: task.error || downloadError || "",
+    queryResponse: raw,
   });
 
   return sendJson(res, 200, { ok: true, character: publicUserCharacter(record), sceneVideo: sceneVideos[matchedVideoKey], task });
@@ -5240,6 +5306,7 @@ async function handleAdminGetCharacterSceneVideo(req, res, taskId) {
     localVideoUrl,
     localVideoPath,
     error: task.error || downloadError || "",
+    queryResponse: raw,
   });
 
   return sendJson(res, 200, { ok: true, item: nextItem, sceneVideo: sceneVideos[matchedSceneId], task });
@@ -5863,9 +5930,26 @@ async function handleAdminListUserAssets(req, res) {
 async function handleAdminListGenerationRecords(req, res, url) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
-  const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") || 80)));
+  const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") || 160)));
+  const query = String(url.searchParams.get("q") || "").trim();
+  const provider = String(url.searchParams.get("provider") || "").trim();
+  const status = String(url.searchParams.get("status") || "").trim().toLowerCase();
+  const kind = String(url.searchParams.get("kind") || "").trim();
+  const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
   const records = await readGenerationRecords();
-  return sendJson(res, 200, { ok: true, records: records.slice(0, limit), total: records.length });
+  const enriched = records.map((record) => adminGenerationRecordView(record, userMap));
+  const filtered = enriched.filter((record) => {
+    if (provider && record.provider !== provider) return false;
+    if (kind && record.kind !== kind) return false;
+    if (status && String(record.status || "").toLowerCase() !== status) return false;
+    return generationRecordMatchesQuery(record, query);
+  });
+  return sendJson(res, 200, {
+    ok: true,
+    records: filtered.slice(0, limit),
+    total: records.length,
+    filtered: filtered.length,
+  });
 }
 
 async function handleListGenerationRecords(req, res, url) {
@@ -6295,10 +6379,19 @@ async function handleCreateSceneVideo(req, res) {
     resolution: payload.resolution,
     duration: payload.duration,
     quality,
+    provider: "seedance",
+    kind: "scene-video",
+    params: payload,
+    upstreamPayload: payload,
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl: "",
     error: "",
     source: "user-scene-video",
+    preDeductedCredits: cost,
+    finalCredits: cost,
+    billingStatus: cost > 0 ? "settled" : "free",
+    billingSettledAt: new Date().toISOString(),
+    createResponse: task,
   });
 
   return sendJson(res, 200, {

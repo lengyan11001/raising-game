@@ -604,6 +604,7 @@ a { color: inherit; text-decoration: none; }
   .adm-userbar .adm-btn span { display: none; }
   .adm-grid-2, .adm-grid-3, .adm-grid-4 { grid-template-columns: 1fr; }
   .platform-template-layout { grid-template-columns: 1fr; }
+  .adm-record-filters { grid-template-columns: 1fr 1fr; }
   .adm-table th, .adm-table td { padding: 10px 8px; font-size: 0.8rem; }
 }
 
@@ -682,6 +683,108 @@ a { color: inherit; text-decoration: none; }
   font-size: 0.78rem;
 }
 .adm-history-meta em { font-style: normal; color: var(--adm-text-soft, #475569); }
+
+/* Compact generation records */
+.adm-records-page .adm-page-head { align-items: end; }
+.adm-record-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 140px 150px 140px 90px auto;
+  gap: 8px;
+  align-items: center;
+}
+.adm-record-filters input,
+.adm-record-filters select { min-height: 34px; padding: 7px 10px; font-size: 0.82rem; }
+.adm-record-summary { min-height: 48px; }
+.adm-record-table-wrap { max-height: calc(100vh - 255px); overflow: auto; }
+.adm-record-table { min-width: 1220px; font-size: 0.78rem; }
+.adm-record-table th,
+.adm-record-table td { padding: 7px 9px; vertical-align: top; }
+.adm-record-table th { top: 0; z-index: 1; }
+.adm-record-id { max-width: 92px; opacity: 0.72; }
+.adm-record-prompt-cell {
+  max-width: 360px;
+  color: rgba(245, 240, 250, 0.86);
+  line-height: 1.35;
+}
+.adm-record-thumb {
+  width: 70px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--adm-line);
+}
+.adm-record-actions {
+  min-width: 142px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.adm-record-detail { display: grid; gap: 12px; }
+.adm-record-preview {
+  border: 1px solid var(--adm-line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #05040a;
+}
+.adm-record-preview video,
+.adm-record-preview img {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+}
+.adm-record-kv {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 7px 10px;
+  font-size: 0.82rem;
+}
+.adm-record-kv span,
+.adm-record-line span {
+  color: var(--adm-muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.adm-record-kv code,
+.adm-record-line code {
+  font: 0.78rem/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
+  word-break: break-all;
+}
+.adm-record-line {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--adm-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.adm-record-line a { color: var(--adm-mint); word-break: break-all; font-size: 0.82rem; }
+.adm-record-section {
+  border: 1px solid var(--adm-line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+}
+.adm-record-section header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--adm-line);
+}
+.adm-record-section pre {
+  margin: 0;
+  padding: 10px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 0.78rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: rgba(245, 240, 250, 0.92);
+}
 
 /* Field for dialog forms (scene bind dialog) */
 .adm-field { display: flex; flex-direction: column; gap: 6px; }
