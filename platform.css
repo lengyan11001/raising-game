@@ -478,6 +478,11 @@ select {
   border-radius: 999px;
   background: rgba(0,0,0,.55);
 }
+.advanced-upload-box { min-height: 190px; }
+.advanced-upload-box.has-image span {
+  align-self: end;
+  margin-bottom: 16px;
+}
 .field { display: grid; gap: 8px; color: var(--muted); }
 textarea, input {
   width: 100%;

@@ -1287,6 +1287,41 @@ function imageMimeFromPath(filePath) {
   return "image/jpeg";
 }
 
+async function createUserAssetFromDataUrl(db, user, { dataUrl, name = "Upload", fileName = "" } = {}) {
+  const { mime, bytes } = decodeDataUrl(dataUrl);
+  if (bytes.byteLength > 8 * 1024 * 1024) {
+    const error = new Error("Image must be 8MB or smaller.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const assetId = randomId("asset");
+  const storedFileName = `${assetId}${imageExtFromMime(mime)}`;
+  const dir = path.join(USER_UPLOAD_DIR, user.id);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, storedFileName), bytes);
+
+  const displayName = String(fileName || name || "Upload")
+    .split(/[\\/]/)
+    .pop()
+    .slice(0, 60);
+  const userAsset = {
+    id: assetId,
+    userId: user.id,
+    name: displayName || "Upload",
+    mime,
+    localUrl: `/assets/user-uploads/${user.id}/${storedFileName}`,
+    publicUrl: PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/assets/user-uploads/${user.id}/${storedFileName}` : "",
+    assetUri: "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    deletedAt: "",
+  };
+  db.userAssets.unshift(userAsset);
+  await writeDb(db);
+  return userAsset;
+}
+
 function execFileJson(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { timeout: 120000, windowsHide: true, ...options }, (error, stdout, stderr) => {
@@ -2534,6 +2569,7 @@ function publicGenerationRecord(record = {}) {
     partnerCharacterName: String(record.partnerCharacterName || ""),
     imageUrl: String(record.imageUrl || ""),
     userAssetId: String(record.userAssetId || ""),
+    referenceAssetUri: String(record.referenceAssetUri || ""),
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
     params: record.params || null,
@@ -2915,29 +2951,12 @@ async function handlePlatformGenerate(req, res) {
   let userAsset = null;
   if (template.type === "image-to-video") {
     if (body.dataUrl) {
-      const { mime, bytes } = decodeDataUrl(body.dataUrl);
-      if (bytes.byteLength > 8 * 1024 * 1024) {
-        return sendJson(res, 400, { ok: false, message: "图片不能超过 8MB。" });
-      }
-      const assetId = randomId("asset");
-      const fileName = `${assetId}${imageExtFromMime(mime)}`;
-      const dir = path.join(USER_UPLOAD_DIR, auth.user.id);
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(path.join(dir, fileName), bytes);
-      userAsset = {
-        id: assetId,
-        userId: auth.user.id,
-        name: String(body.fileName || template.title || "Template upload").slice(0, 60),
-        mime,
-        localUrl: `/assets/user-uploads/${auth.user.id}/${fileName}`,
-        publicUrl: "",
-        assetUri: "",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        deletedAt: "",
-      };
-      auth.db.userAssets.unshift(userAsset);
-      await writeDb(auth.db);
+      userAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
+        dataUrl: body.dataUrl,
+        fileName: body.fileName,
+        name: template.title || "Template upload",
+      });
+      userAsset.publicUrl = "";
       userAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
       imageUrl = userAsset.publicUrl;
     } else if (body.userAssetId) {
@@ -3094,9 +3113,29 @@ async function handleAdvancedGenerate(req, res) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
 
+  let userAsset = null;
+  let referenceAssetUri = "";
+  let imageUrl = "";
+  if (body.dataUrl) {
+    userAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
+      dataUrl: body.dataUrl,
+      fileName: body.fileName,
+      name: selectedCase?.title || "Advanced reference",
+    });
+  } else if (body.userAssetId) {
+    userAsset = auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
+    if (!userAsset) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
+  }
+  if (userAsset) {
+    userAsset = await ensureSeedanceAssetForUserAsset(auth.db, userAsset);
+    referenceAssetUri = userAsset.assetUri || "";
+    imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
+  }
+
   const { task, payload } = await submitSeedanceVideoTask({
     config,
     prompt,
+    referenceAssetUri,
     body: requestParams,
     slug: "advanced",
   });
@@ -3110,6 +3149,8 @@ async function handleAdvancedGenerate(req, res) {
       creditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
       baseCredits: requestParams.duration * ADVANCED_GENERATION_CREDITS_PER_SECOND,
       markup: GENERATION_PRICE_MARKUP,
+      userAssetId: userAsset?.id || "",
+      referenceAssetUri,
     });
     await writeDb(auth.db);
   }
@@ -3124,6 +3165,9 @@ async function handleAdvancedGenerate(req, res) {
     templateId: selectedCase?.id || "",
     templateTitle: selectedCase?.title || "Advanced generation",
     userId: auth.user.id,
+    userAssetId: userAsset?.id || "",
+    imageUrl,
+    referenceAssetUri,
     prompt,
     finalPrompt: prompt,
     params: requestParams,
@@ -3147,6 +3191,11 @@ async function handleAdvancedGenerate(req, res) {
     taskId: task.taskId,
     record: publicGenerationRecord(record),
     user: userView(latestUser),
+    referenceAsset: userAsset ? {
+      userAssetId: userAsset.id,
+      imageUrl,
+      referenceAssetUri,
+    } : null,
     cost,
   });
 }
@@ -3255,6 +3304,7 @@ function docsAdvancedExampleBody(item = {}) {
   return {
     caseId: item.id || "case-id",
     prompt: item.prompt || params.prompt || "your prompt",
+    dataUrl: "data:image/png;base64,...",
     ratio: params.ratio || params.aspect_ratio || "9:16",
     resolution: params.resolution || "720p",
     duration: durationSecondsFromParams(params) || 5,
@@ -3370,6 +3420,15 @@ function buildAdvancedModelDoc(item, origin) {
       url: `${origin}/api/advanced/generate`,
       auth: "Bearer <user-token>",
     },
+    requestFields: [
+      { name: "caseId", type: "string", required: false, description: "Advanced case id. Omit only when sending all parameters manually." },
+      { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
+      { name: "dataUrl", type: "string", required: false, description: "Optional uploaded reference character image. The server creates the upstream Seedance asset and sends it as a reference image." },
+      { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. Use instead of dataUrl." },
+      { name: "ratio", type: "string", required: false, description: "Video ratio, for example 9:16, 16:9, or 1:1." },
+      { name: "resolution", type: "string", required: false, description: "720p or 1080p." },
+      { name: "duration", type: "number", required: false, description: "Duration in seconds, clamped to 5-15." },
+    ],
     exampleRequest: {
       method: "POST",
       url: `${origin}/api/advanced/generate`,
@@ -3449,6 +3508,7 @@ function advancedDocMarkdown(item) {
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
+  lines.push("", "Optional reference character image: send `dataUrl`, or send `userAssetId` for an existing uploaded asset. The server creates the upstream reference asset before submitting the video job.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -3479,7 +3539,8 @@ function buildModelDocsMarkdown(docs) {
     "1. Read `/api/models` or this Markdown file to choose a template.",
     "2. For image-to-video templates, send `templateId` and `dataUrl` to `/api/platform/generate`.",
     "3. For text-to-video templates, send `templateId` and an optional `prompt` to `/api/platform/generate`.",
-    "4. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
+    "4. For approved advanced generation, send `dataUrl` or `userAssetId` when you want the video to use the user's reference character.",
+    "5. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
     "",
     "## Billing",
     "",

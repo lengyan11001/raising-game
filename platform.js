@@ -15,6 +15,7 @@ const state = {
   activeAdvancedCaseId: "",
   activeTemplate: null,
   uploadDataUrl: "",
+  advancedUploadDataUrl: "",
   token: localStorage.getItem(TOKEN_KEY) || "",
   user: null,
   loginMode: "login",
@@ -59,6 +60,9 @@ const els = {
   advancedGate: document.querySelector("#advancedGate"),
   advancedWorkspace: document.querySelector("#advancedWorkspace"),
   advancedPrompt: document.querySelector("#advancedPrompt"),
+  advancedImage: document.querySelector("#advancedImage"),
+  advancedUploadBox: document.querySelector("#advancedUploadBox"),
+  advancedUploadPreview: document.querySelector("#advancedUploadPreview"),
   advancedRatio: document.querySelector("#advancedRatio"),
   advancedResolution: document.querySelector("#advancedResolution"),
   advancedDuration: document.querySelector("#advancedDuration"),
@@ -129,7 +133,21 @@ Response:
 GET https://123vips.com/docs/models.md
 GET https://123vips.com/api/models
 GET https://123vips.com/api/generation-records
-GET https://123vips.com/api/generation-records/<taskId>`;
+GET https://123vips.com/api/generation-records/<taskId>
+
+Advanced accounts can also submit:
+POST https://123vips.com/api/advanced/generate
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "caseId": "case-id",
+  "prompt": "your exact prompt",
+  "dataUrl": "data:image/png;base64,...",
+  "ratio": "9:16",
+  "resolution": "720p",
+  "duration": 15
+}`;
 
 const TYPE_SCRIPT_ACCESS_COPY = `const USER_TOKEN = "<user-token>";
 
@@ -145,6 +163,22 @@ async function createTemplateVideo({ templateId, dataUrl, prompt = "", userToken
   const payload = await response.json();
   if (!response.ok || payload.ok === false) {
     throw new Error(payload.message || "Generation failed");
+  }
+  return payload;
+}
+
+async function createAdvancedVideo({ caseId, prompt, dataUrl = "", userAssetId = "", duration = 15, userToken = USER_TOKEN }) {
+  const response = await fetch("https://123vips.com/api/advanced/generate", {
+    method: "POST",
+    headers: {
+      "authorization": \`Bearer \${userToken}\`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ caseId, prompt, dataUrl, userAssetId, duration, ratio: "9:16", resolution: "720p" })
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.message || "Advanced generation failed");
   }
   return payload;
 }
@@ -178,6 +212,27 @@ def create_template_video(template_id, data_url, prompt="", user_token=USER_TOKE
     resp.raise_for_status()
     return resp.json()
 
+def create_advanced_video(case_id, prompt, data_url="", user_asset_id="", duration=15, user_token=USER_TOKEN):
+    resp = requests.post(
+        f"{BASE_URL}/api/advanced/generate",
+        headers={
+            "Authorization": f"Bearer {user_token}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "caseId": case_id,
+            "prompt": prompt,
+            "dataUrl": data_url,
+            "userAssetId": user_asset_id,
+            "duration": duration,
+            "ratio": "9:16",
+            "resolution": "720p",
+        },
+        timeout=120,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
 def list_generation_records(user_token=USER_TOKEN):
     resp = requests.get(
         f"{BASE_URL}/api/generation-records",
@@ -197,7 +252,19 @@ const CLI_ACCESS_COPY = `curl -X POST "https://123vips.com/api/platform/generate
   }'
 
 curl "https://123vips.com/api/generation-records" \\
-  -H "Authorization: Bearer <user-token>"`;
+  -H "Authorization: Bearer <user-token>"
+
+curl -X POST "https://123vips.com/api/advanced/generate" \\
+  -H "Authorization: Bearer <user-token>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "caseId": "case-id",
+    "prompt": "your exact prompt",
+    "dataUrl": "data:image/png;base64,...",
+    "duration": 15,
+    "ratio": "9:16",
+    "resolution": "720p"
+  }'`;
 
 const AGENT_ACCESS_COPY = `Agent instruction:
 
@@ -700,13 +767,16 @@ async function submitAdvancedGenerate() {
   if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
   els.advancedSubmitBtn.disabled = true;
   const duration = Math.min(15, Math.max(5, Number(els.advancedDuration?.value || 5)));
-  if (els.advancedNote) els.advancedNote.textContent = `Submitting advanced generation · ${advancedCostLabel(duration)}...`;
+  const referenceNote = state.advancedUploadDataUrl ? " with reference character" : "";
+  if (els.advancedNote) els.advancedNote.textContent = `Submitting advanced generation${referenceNote} · ${advancedCostLabel(duration)}...`;
   try {
     const payload = await requestJson("/api/advanced/generate", {
       method: "POST",
       body: {
         caseId: state.activeAdvancedCaseId,
         prompt,
+        dataUrl: state.advancedUploadDataUrl,
+        fileName: els.advancedImage?.files?.[0]?.name || "",
         ratio: els.advancedRatio?.value || "9:16",
         resolution: els.advancedResolution?.value || "720p",
         duration,
@@ -952,6 +1022,21 @@ els.templateImage?.addEventListener("change", async () => {
   state.uploadDataUrl = await readFileAsDataUrl(file);
   els.uploadPreview.src = state.uploadDataUrl;
   els.uploadBox.classList.add("has-image");
+});
+els.advancedImage?.addEventListener("change", async () => {
+  const file = els.advancedImage.files?.[0];
+  if (!file) return;
+  if (file.size > 8 * 1024 * 1024) {
+    state.advancedUploadDataUrl = "";
+    els.advancedImage.value = "";
+    els.advancedUploadBox?.classList.remove("has-image");
+    if (els.advancedUploadPreview) els.advancedUploadPreview.removeAttribute("src");
+    if (els.advancedNote) els.advancedNote.textContent = "Image must be 8MB or smaller.";
+    return;
+  }
+  state.advancedUploadDataUrl = await readFileAsDataUrl(file);
+  if (els.advancedUploadPreview) els.advancedUploadPreview.src = state.advancedUploadDataUrl;
+  els.advancedUploadBox?.classList.add("has-image");
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
 els.historyBtn?.addEventListener("click", openHistory);

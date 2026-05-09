@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-19" />
+    <link rel="stylesheet" href="./platform.css?v=ai-20" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -69,6 +69,11 @@
             <label class="field">
               <span>Prompt</span>
               <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..."></textarea>
+            </label>
+            <label class="upload-box advanced-upload-box" id="advancedUploadBox">
+              <input id="advancedImage" type="file" accept="image/*" />
+              <img id="advancedUploadPreview" alt="Advanced reference preview" />
+              <span><i data-lucide="image-up"></i>Upload reference character</span>
             </label>
             <div class="advanced-fields">
               <label class="field"><span>Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
@@ -227,6 +232,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-19"></script>
+    <script src="./platform.js?v=ai-20"></script>
   </body>
 </html>
