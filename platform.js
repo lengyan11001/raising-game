@@ -127,193 +127,64 @@ Content-Type: application/json
 {
   "templateId": "template-id",
   "dataUrl": "data:image/png;base64,...",
-  "prompt": "optional override"
-}
-
-Response:
-{
-  "ok": true,
-  "taskId": "...",
-  "record": { "status": "submitted", "billing": { "preDeducted": 485 } },
-  "user": { "credits": 12345 }
-}
-
-GET https://123vips.com/docs/models.md
-GET https://123vips.com/api/models
-GET https://123vips.com/api/generation-records
-GET https://123vips.com/api/generation-records/<taskId>
-
-Advanced accounts can also submit:
-POST https://123vips.com/api/advanced/generate
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "caseId": "case-id",
-  "prompt": "your exact prompt",
-  "dataUrl": "data:image/png;base64,...",
-  "ratio": "9:16",
-  "resolution": "720p",
-  "duration": 15
+  "prompt": ""
 }`;
 
-const TYPE_SCRIPT_ACCESS_COPY = `const USER_TOKEN = "<user-token>";
+const TYPE_SCRIPT_ACCESS_COPY = `const token = "<user-token>";
+const body = {
+  templateId: "template-id",
+  dataUrl: "data:image/png;base64,...",
+  prompt: ""
+};
 
-async function createTemplateVideo({ templateId, dataUrl, prompt = "", userToken = USER_TOKEN }) {
-  const response = await fetch("https://123vips.com/api/platform/generate", {
-    method: "POST",
-    headers: {
-      "authorization": \`Bearer \${userToken}\`,
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({ templateId, dataUrl, prompt })
-  });
-  const payload = await response.json();
-  if (!response.ok || payload.ok === false) {
-    throw new Error(payload.message || "Generation failed");
-  }
-  return payload;
-}
-
-async function createAdvancedVideo({ caseId, prompt, dataUrl = "", userAssetId = "", duration = 15, userToken = USER_TOKEN }) {
-  const response = await fetch("https://123vips.com/api/advanced/generate", {
-    method: "POST",
-    headers: {
-      "authorization": \`Bearer \${userToken}\`,
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({ caseId, prompt, dataUrl, userAssetId, duration, ratio: "9:16", resolution: "720p" })
-  });
-  const payload = await response.json();
-  if (!response.ok || payload.ok === false) {
-    throw new Error(payload.message || "Advanced generation failed");
-  }
-  return payload;
-}
-
-async function listGenerationRecords(userToken = USER_TOKEN) {
-  const response = await fetch("https://123vips.com/api/generation-records", {
-    headers: { "authorization": \`Bearer \${userToken}\` }
-  });
-  return response.json();
-}`;
+const res = await fetch("https://123vips.com/api/platform/generate", {
+  method: "POST",
+  headers: {
+    authorization: \`Bearer \${token}\`,
+    "content-type": "application/json"
+  },
+  body: JSON.stringify(body)
+});
+console.log(await res.json());`;
 
 const PYTHON_ACCESS_COPY = `import requests
 
-BASE_URL = "https://123vips.com"
-USER_TOKEN = "<user-token>"
+token = "<user-token>"
+payload = {
+    "templateId": "template-id",
+    "dataUrl": "data:image/png;base64,...",
+    "prompt": "",
+}
 
-def create_template_video(template_id, data_url, prompt="", user_token=USER_TOKEN):
-    resp = requests.post(
-        f"{BASE_URL}/api/platform/generate",
-        headers={
-            "Authorization": f"Bearer {user_token}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "templateId": template_id,
-            "dataUrl": data_url,
-            "prompt": prompt,
-        },
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-def create_advanced_video(case_id, prompt, data_url="", user_asset_id="", duration=15, user_token=USER_TOKEN):
-    resp = requests.post(
-        f"{BASE_URL}/api/advanced/generate",
-        headers={
-            "Authorization": f"Bearer {user_token}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "caseId": case_id,
-            "prompt": prompt,
-            "dataUrl": data_url,
-            "userAssetId": user_asset_id,
-            "duration": duration,
-            "ratio": "9:16",
-            "resolution": "720p",
-        },
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-def list_generation_records(user_token=USER_TOKEN):
-    resp = requests.get(
-        f"{BASE_URL}/api/generation-records",
-        headers={"Authorization": f"Bearer {user_token}"},
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.json()`;
+resp = requests.post(
+    "https://123vips.com/api/platform/generate",
+    headers={"Authorization": f"Bearer {token}"},
+    json=payload,
+    timeout=120,
+)
+print(resp.json())`;
 
 const CLI_ACCESS_COPY = `curl -X POST "https://123vips.com/api/platform/generate" \\
   -H "Authorization: Bearer <user-token>" \\
   -H "Content-Type: application/json" \\
-  -d '{
-    "templateId": "template-id",
-    "dataUrl": "data:image/png;base64,...",
-    "prompt": "optional override"
-  }'
+  -d '{"templateId":"template-id","dataUrl":"data:image/png;base64,...","prompt":""}'`;
 
-curl "https://123vips.com/api/generation-records" \\
-  -H "Authorization: Bearer <user-token>"
-
-curl -X POST "https://123vips.com/api/advanced/generate" \\
-  -H "Authorization: Bearer <user-token>" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "caseId": "case-id",
-    "prompt": "your exact prompt",
-    "dataUrl": "data:image/png;base64,...",
-    "duration": 15,
-    "ratio": "9:16",
-    "resolution": "720p"
-  }'`;
-
-const AGENT_ACCESS_COPY = `Agent instruction:
-
-Use the 123vips generation API.
-
-When the user asks to create a video:
-1. Ask for or use a configured generation templateId.
-2. Convert the uploaded image to a data URL.
-3. POST https://123vips.com/api/platform/generate with:
-   - Authorization: Bearer <user-token>
-   - JSON body: { templateId, dataUrl, prompt }
-4. Return taskId and tell the user to check generation history.
-5. To check progress, GET /api/generation-records or /api/generation-records/<taskId>.
-
-Never invent upstream parameters on the client side. The generation JSON is configured in the admin console; client code only sends templateId, image data, and optional prompt override.`;
-
-const MCP_ACCESS_COPY = `MCP wrapper approach:
-
-There is no separate hosted MCP endpoint yet. To use MCP today, create a tiny MCP tool that wraps the live HTTP API above.
-
-Tool: create_template_video
-Input schema:
-{
-  "templateId": "string",
-  "dataUrl": "string",
-  "prompt": "string optional"
-}
-
-Handler behavior:
+const AGENT_ACCESS_COPY = `Use this video API:
 POST https://123vips.com/api/platform/generate
 Authorization: Bearer <user-token>
-Content-Type: application/json
 
-Return:
-{
-  "taskId": "...",
-  "status": "...",
-  "record": { ... }
-}
+Body:
+{"templateId":"template-id","dataUrl":"data:image/png;base64,...","prompt":""}
 
-This is usable as an MCP integration once your wrapper supplies the user token.`;
+Check records:
+GET https://123vips.com/api/generation-records`;
+
+const MCP_ACCESS_COPY = `MCP wrapper target:
+POST https://123vips.com/api/platform/generate
+Authorization: Bearer <user-token>
+
+Input:
+{"templateId":"string","dataUrl":"string","prompt":"string"}`;
 
 PUBLIC_COPY.galleryTitle = "Create AI videos";
 PUBLIC_COPY.gallerySubtitle = "Choose a template, upload an image or enter text, and create a new video.";
@@ -428,8 +299,8 @@ function renderTokenDisplays() {
   }
   if (els.accessTokenHint) {
     els.accessTokenHint.textContent = state.user
-      ? "Copied guides use the full token. The page masks it by default."
-      : "Login first, then the examples below will use your token automatically.";
+      ? "Copied snippets use the full token. The page masks it by default."
+      : "Login first, then snippets below will use your token automatically.";
   }
   if (els.toggleAccessTokenBtn) {
     els.toggleAccessTokenBtn.textContent = state.showAccessToken ? "Hide" : "Show full";
@@ -1178,7 +1049,7 @@ els.copyAccessBtn?.addEventListener("click", async () => {
   els.copyAccessBtn.innerHTML = '<i data-lucide="check"></i>Copied';
   refreshIcons();
   setTimeout(() => {
-    els.copyAccessBtn.innerHTML = '<i data-lucide="clipboard"></i>Copy API guide';
+    els.copyAccessBtn.innerHTML = '<i data-lucide="clipboard"></i>Copy snippet';
     refreshIcons();
   }, 1600);
 });
