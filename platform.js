@@ -733,7 +733,7 @@ async function submitAdvancedGenerate() {
   if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
   els.advancedSubmitBtn.disabled = true;
   const duration = Math.min(15, Math.max(5, Number(els.advancedDuration?.value || 5)));
-  const referenceNote = state.advancedUploadDataUrl ? " with reference character" : "";
+  const referenceNote = state.advancedUploadDataUrl ? " · preparing safe reference first" : "";
   if (els.advancedNote) els.advancedNote.textContent = `Submitting advanced generation${referenceNote} · ${advancedCostLabel(duration)}...`;
   try {
     const payload = await requestJson("/api/advanced/generate", {
@@ -1016,6 +1016,7 @@ els.advancedImage?.addEventListener("change", async () => {
   state.advancedUploadDataUrl = await readFileAsDataUrl(file);
   if (els.advancedUploadPreview) els.advancedUploadPreview.src = state.advancedUploadDataUrl;
   els.advancedUploadBox?.classList.add("has-image");
+  if (els.advancedNote) els.advancedNote.textContent = "Reference selected. The server will prepare a safe Seedance reference before generation.";
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
 els.refreshHistoryBtn?.addEventListener("click", loadHistory);

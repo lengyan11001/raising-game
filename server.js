@@ -2031,6 +2031,50 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   return userAsset;
 }
 
+async function ensureSyntheticReferenceForUserAsset(db, userAsset) {
+  if (!userAsset) return null;
+  if (userAsset.syntheticReferenceAssetUri) return userAsset;
+
+  const prepared = await ensureCharacterReferenceForRecord({
+    id: userAsset.id,
+    userId: userAsset.userId,
+    name: userAsset.name || "Advanced reference",
+    title: userAsset.name || "Advanced reference",
+    sourceImageUrl: userAsset.sourceImageUrl || userAsset.localUrl,
+    localImageUrl: userAsset.sourceImageUrl || userAsset.localUrl,
+    posterUrl: userAsset.sourceImageUrl || userAsset.localUrl,
+    sourceImageMime: userAsset.sourceImageMime || userAsset.mime || "",
+    imageMime: userAsset.sourceImageMime || userAsset.mime || "",
+    syntheticReferenceLocalUrl: userAsset.syntheticReferenceLocalUrl || "",
+    syntheticReferenceUrl: userAsset.syntheticReferenceUrl || "",
+    syntheticReferenceTaskId: userAsset.syntheticReferenceTaskId || "",
+    syntheticReferenceModel: userAsset.syntheticReferenceModel || "",
+    syntheticReferencePrompt: userAsset.syntheticReferencePrompt || "",
+    referenceAssetUri: userAsset.syntheticReferenceAssetUri || "",
+  });
+
+  const next = {
+    ...userAsset,
+    sourceImageUrl: userAsset.sourceImageUrl || userAsset.localUrl,
+    sourceImageMime: userAsset.sourceImageMime || userAsset.mime || "",
+    syntheticReferenceLocalUrl: prepared.syntheticReferenceLocalUrl || userAsset.syntheticReferenceLocalUrl || "",
+    syntheticReferenceUrl: prepared.syntheticReferenceUrl || userAsset.syntheticReferenceUrl || "",
+    syntheticReferenceTaskId: prepared.syntheticReferenceTaskId || userAsset.syntheticReferenceTaskId || "",
+    syntheticReferenceModel: prepared.syntheticReferenceModel || userAsset.syntheticReferenceModel || "",
+    syntheticReferencePrompt: prepared.syntheticReferencePrompt || userAsset.syntheticReferencePrompt || "",
+    syntheticReferenceAssetUri: prepared.referenceAssetUri || userAsset.syntheticReferenceAssetUri || "",
+    syntheticReferencePublicUrl: prepared.publicImageUrl || userAsset.syntheticReferencePublicUrl || "",
+    syntheticReferenceTosKey: prepared.tosKey || userAsset.syntheticReferenceTosKey || "",
+    sourcePublicUrl: prepared.sourcePublicUrl || userAsset.sourcePublicUrl || "",
+    sourceTosKey: prepared.sourceTosKey || userAsset.sourceTosKey || "",
+    updatedAt: new Date().toISOString(),
+  };
+
+  db.userAssets = (db.userAssets || []).map((asset) => (asset.id === next.id ? next : asset));
+  await writeDb(db);
+  return next;
+}
+
 async function apizRequest(pathname, body) {
   if (!APIZ_API_KEY) {
     const error = new Error("Generation service is not configured.");
@@ -2573,6 +2617,9 @@ function publicGenerationRecord(record = {}) {
     partnerCharacterId: String(record.partnerCharacterId || ""),
     partnerCharacterName: String(record.partnerCharacterName || ""),
     imageUrl: String(record.imageUrl || ""),
+    sourceImageUrl: String(record.sourceImageUrl || ""),
+    syntheticReferenceLocalUrl: String(record.syntheticReferenceLocalUrl || ""),
+    syntheticReferenceUrl: String(record.syntheticReferenceUrl || ""),
     userAssetId: String(record.userAssetId || ""),
     referenceAssetUri: String(record.referenceAssetUri || ""),
     prompt: String(record.prompt || ""),
@@ -3218,6 +3265,9 @@ async function handleAdvancedGenerate(req, res) {
   let userAsset = null;
   let referenceAssetUri = "";
   let imageUrl = "";
+  let sourceImageUrl = "";
+  let syntheticReferenceLocalUrl = "";
+  let syntheticReferenceUrl = "";
   if (body.dataUrl) {
     userAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
       dataUrl: body.dataUrl,
@@ -3229,9 +3279,12 @@ async function handleAdvancedGenerate(req, res) {
     if (!userAsset) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
   }
   if (userAsset) {
-    userAsset = await ensureSeedanceAssetForUserAsset(auth.db, userAsset);
-    referenceAssetUri = userAsset.assetUri || "";
-    imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
+    userAsset = await ensureSyntheticReferenceForUserAsset(auth.db, userAsset);
+    referenceAssetUri = userAsset.syntheticReferenceAssetUri || userAsset.assetUri || "";
+    imageUrl = userAsset.syntheticReferenceLocalUrl || userAsset.syntheticReferenceUrl || userAsset.publicUrl || userAsset.localUrl || "";
+    sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
+    syntheticReferenceLocalUrl = userAsset.syntheticReferenceLocalUrl || "";
+    syntheticReferenceUrl = userAsset.syntheticReferenceUrl || "";
   }
 
   const { task, payload } = await submitSeedanceVideoTask({
@@ -3269,6 +3322,9 @@ async function handleAdvancedGenerate(req, res) {
     userId: auth.user.id,
     userAssetId: userAsset?.id || "",
     imageUrl,
+    sourceImageUrl,
+    syntheticReferenceLocalUrl,
+    syntheticReferenceUrl,
     referenceAssetUri,
     prompt,
     finalPrompt: prompt,
@@ -3298,6 +3354,9 @@ async function handleAdvancedGenerate(req, res) {
     referenceAsset: userAsset ? {
       userAssetId: userAsset.id,
       imageUrl,
+      sourceImageUrl,
+      syntheticReferenceLocalUrl,
+      syntheticReferenceUrl,
       referenceAssetUri,
     } : null,
     cost,
