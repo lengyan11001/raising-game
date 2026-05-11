@@ -2530,6 +2530,11 @@ async function upsertGenerationRecord(nextRecord) {
   return record;
 }
 
+async function upsertAndSettleGenerationRecord(nextRecord, reason = "query") {
+  const record = await upsertGenerationRecord(nextRecord);
+  return settleSeedanceGenerationRecord(record, reason);
+}
+
 async function getGenerationRecord(taskId) {
   const records = await readGenerationRecords();
   return records.find((record) => record.taskId === taskId) || null;
@@ -2633,6 +2638,7 @@ function generationRecordMatchesQuery(record = {}, query = "") {
 }
 
 function shouldRefreshGenerationRecord(record = {}) {
+  if (needsSeedanceFailureRefund(record)) return true;
   if (record.provider === "apiz" && !record.billingSettledAt && record.taskId && !String(record.taskId).startsWith("demo-")) return true;
   const status = String(record.status || "").toLowerCase();
   if (isFailedStatus(status)) return false;
@@ -2641,6 +2647,9 @@ function shouldRefreshGenerationRecord(record = {}) {
 }
 
 async function refreshGenerationRecordStatus(record = {}) {
+  if (needsSeedanceFailureRefund(record)) {
+    return settleSeedanceGenerationRecord(record, "refresh");
+  }
   if (record.provider === "apiz") {
     if (!APIZ_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
     try {
@@ -2654,14 +2663,14 @@ async function refreshGenerationRecordStatus(record = {}) {
   try {
     const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(record.taskId)}`);
     const task = normalizeTask(raw);
-    return await upsertGenerationRecord({
+    return await upsertAndSettleGenerationRecord({
       taskId: record.taskId,
       status: task.status || record.status || "unknown",
       remoteVideoUrl: task.videoUrl || record.remoteVideoUrl || "",
       localVideoUrl: record.localVideoUrl || "",
       localVideoPath: record.localVideoPath || "",
       error: task.error || record.error || "",
-    });
+    }, "query");
   } catch (error) {
     console.warn("[generation-record-refresh-failed]", record.taskId, error.message || error);
     return record;
@@ -2868,6 +2877,55 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
     billingSettledAt: new Date().toISOString(),
     billingError: "",
   });
+}
+
+function needsSeedanceFailureRefund(record = {}) {
+  const provider = String(record.provider || "").toLowerCase();
+  if (provider !== "seedance") return false;
+  if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
+  if (String(record.billingStatus || "").toLowerCase() === "refunded") return false;
+  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  const finalCredits = record.finalCredits === undefined || record.finalCredits === null
+    ? preDeducted
+    : creditsAmount(record.finalCredits || 0);
+  return preDeducted > 0 && finalCredits > 0;
+}
+
+async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
+  if (!needsSeedanceFailureRefund(record)) return record;
+  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  const db = await readDb();
+  const alreadyRefunded = (db.creditLedger || []).some((entry) => (
+    entry.userId === record.userId &&
+    entry.type === "generation_refund" &&
+    entry.meta?.taskId === record.taskId
+  ));
+
+  try {
+    if (!alreadyRefunded) {
+      changeUserCredits(db, record.userId, preDeducted, "generation_refund", {
+        taskId: record.taskId,
+        provider: "seedance",
+        reason,
+        preDeducted,
+        finalCredits: 0,
+      });
+      await writeDb(db);
+    }
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      finalCredits: 0,
+      billingStatus: "refunded",
+      billingSettledAt: new Date().toISOString(),
+      billingError: "",
+    });
+  } catch (error) {
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      billingStatus: "refund_failed",
+      billingError: error.message || "Failed to refund failed generation.",
+    });
+  }
 }
 
 function extractApizReportedCredits(value, depth = 0) {
@@ -3199,7 +3257,7 @@ async function handleAdvancedGenerate(req, res) {
     await writeDb(auth.db);
   }
 
-  const record = await upsertGenerationRecord({
+  const record = await upsertAndSettleGenerationRecord({
     taskId: task.taskId,
     status: task.status,
     model: MODEL_QUALITY,
@@ -3228,7 +3286,7 @@ async function handleAdvancedGenerate(req, res) {
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
     createResponse: task,
-  });
+  }, "create");
   const latestDb = await readDb();
   const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
   return sendJson(res, 200, {
@@ -3866,8 +3924,9 @@ async function handleSpendCredits(req, res) {
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
-  auth.user.credits -= cost;
-  auth.user.updatedAt = new Date().toISOString();
+  changeUserCredits(auth.db, auth.user.id, -cost, "spend", {
+    label: String(body.label || ""),
+  });
   await writeDb(auth.db);
   return sendJson(res, 200, { ok: true, user: userView(auth.user), cost, label: String(body.label || "") });
 }
@@ -3916,8 +3975,12 @@ async function handleUnlockVideo(req, res) {
     if (auth.user.credits < cost) {
       return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
     }
-    auth.user.credits -= cost;
-    auth.user.updatedAt = new Date().toISOString();
+    changeUserCredits(auth.db, auth.user.id, -cost, "unlock_video", {
+      itemId: item.id,
+      sceneId: video.sceneId,
+      sceneEntryId: unlockSceneEntryId,
+      videoKey: match.key,
+    });
     unlock = {
       id: randomId("unlock"),
       userId: auth.user.id,
@@ -4230,8 +4293,11 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     slug: `user-character-${prepared.id}`,
   });
 
-  auth.user.credits -= cost;
-  auth.user.updatedAt = new Date().toISOString();
+  changeUserCredits(auth.db, auth.user.id, -cost, "user_character_main_video", {
+    taskId: task.taskId,
+    characterId: prepared.id,
+    duration: payload.duration,
+  });
   await writeDb(auth.db);
 
   prepared.taskId = task.taskId;
@@ -4245,7 +4311,7 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === prepared.id ? { ...entry, ...prepared } : entry));
   await writeDb(auth.db);
 
-  await upsertGenerationRecord({
+  await upsertAndSettleGenerationRecord({
     taskId: task.taskId,
     status: task.status,
     model: MODEL_QUALITY,
@@ -4274,7 +4340,7 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
     createResponse: task,
-  });
+  }, "create");
 
   return { task, payload };
 }
@@ -4565,7 +4631,7 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
   await writeDb(auth.db);
 
-  await upsertGenerationRecord({
+  await upsertAndSettleGenerationRecord({
     taskId: record.taskId,
     status: record.status,
     remoteVideoUrl: task.videoUrl || "",
@@ -4573,7 +4639,7 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
     localVideoPath,
     error: task.error || downloadError || "",
     queryResponse: raw,
-  });
+  }, "character-main-query");
 
   return sendJson(res, 200, { ok: true, character: publicUserCharacter(record), task: { ...task, videoUrl: record.videoUrl } });
 }
@@ -4625,8 +4691,13 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     throw error;
   }
 
-  auth.user.credits -= cost;
-  auth.user.updatedAt = new Date().toISOString();
+  changeUserCredits(auth.db, auth.user.id, -cost, "user_character_scene_video", {
+    taskId: task.taskId,
+    characterId,
+    sceneId: sceneConfig.id,
+    sceneEntryId: sceneEntry.id,
+    duration: payload.duration,
+  });
 
   const nowIso = new Date().toISOString();
   const sceneVideos = { ...(record.sceneVideos || {}) };
@@ -4660,7 +4731,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
   await writeDb(auth.db);
 
-  await upsertGenerationRecord({
+  await upsertAndSettleGenerationRecord({
     taskId: task.taskId,
     status: task.status,
     model: MODEL_QUALITY,
@@ -4691,7 +4762,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
     createResponse: task,
-  });
+  }, "create");
 
   return sendJson(res, 200, {
     ok: true,
@@ -4762,7 +4833,7 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
   await writeDb(auth.db);
 
-  await upsertGenerationRecord({
+  await upsertAndSettleGenerationRecord({
     taskId: task.taskId || taskId,
     status: task.status,
     remoteVideoUrl: task.videoUrl || "",
@@ -4770,7 +4841,7 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
     localVideoPath,
     error: task.error || downloadError || "",
     queryResponse: raw,
-  });
+  }, "character-scene-query");
 
   return sendJson(res, 200, { ok: true, character: publicUserCharacter(record), sceneVideo: sceneVideos[matchedVideoKey], task });
 }
@@ -5299,7 +5370,7 @@ async function handleAdminGetCharacterSceneVideo(req, res, taskId) {
   config.homeVideo = replaceHomeVideoItem(config.homeVideo, nextItem);
   await writeAppConfig(config);
 
-  await upsertGenerationRecord({
+  await upsertAndSettleGenerationRecord({
     taskId: task.taskId || taskId,
     status: task.status,
     remoteVideoUrl: task.videoUrl || "",
@@ -5307,7 +5378,7 @@ async function handleAdminGetCharacterSceneVideo(req, res, taskId) {
     localVideoPath,
     error: task.error || downloadError || "",
     queryResponse: raw,
-  });
+  }, "admin-character-scene-query");
 
   return sendJson(res, 200, { ok: true, item: nextItem, sceneVideo: sceneVideos[matchedSceneId], task });
 }
@@ -5388,14 +5459,14 @@ async function handleAdminGetHomeVideo(req, res, taskId) {
   }
   config.homeVideo = replaceHomeVideoItem(config.homeVideo, nextItem);
   await writeAppConfig(config);
-  await upsertGenerationRecord({
+  await upsertAndSettleGenerationRecord({
     taskId: task.taskId || taskId,
     status: task.status,
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl,
     localVideoPath,
     error: task.error || downloadError || "",
-  });
+  }, "admin-home-query");
 
   return sendJson(res, 200, { ok: true, homeVideo: config.homeVideo, item: nextItem, task: nextItem });
 }
@@ -5455,7 +5526,7 @@ async function refreshCompletedHomeVideoItems(config) {
         };
       }
       nextConfig = replaceHomeVideoItem(nextConfig, updatedItem);
-      await upsertGenerationRecord({
+      await upsertAndSettleGenerationRecord({
         taskId: task.taskId || sceneTaskId,
         status: task.status,
         remoteVideoUrl: task.videoUrl || "",
@@ -5463,7 +5534,7 @@ async function refreshCompletedHomeVideoItems(config) {
         localVideoPath,
         error: "",
         source: "admin-home-scene",
-      });
+      }, "home-config-refresh");
       changed = true;
     }
 
@@ -5500,14 +5571,14 @@ async function refreshCompletedHomeVideoItems(config) {
       error: "",
     };
     nextConfig = replaceHomeVideoItem(nextConfig, legacyUpdatedItem);
-    await upsertGenerationRecord({
+    await upsertAndSettleGenerationRecord({
       taskId: task.taskId || taskId,
       status: task.status,
       remoteVideoUrl: task.videoUrl || "",
       localVideoUrl,
       localVideoPath,
       error: "",
-    });
+    }, "home-config-refresh");
     changed = true;
   }
 
@@ -5936,7 +6007,18 @@ async function handleAdminListGenerationRecords(req, res, url) {
   const status = String(url.searchParams.get("status") || "").trim().toLowerCase();
   const kind = String(url.searchParams.get("kind") || "").trim();
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
-  const records = await readGenerationRecords();
+  let records = await readGenerationRecords();
+  const refundable = records.filter(needsSeedanceFailureRefund).slice(0, 100);
+  const statusRefreshable = records
+    .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecord(record))
+    .slice(0, 12);
+  const refreshable = [...refundable, ...statusRefreshable];
+  if (refreshable.length) {
+    const refreshedByTask = new Map(
+      (await Promise.all(refreshable.map(refreshGenerationRecordStatus))).map((record) => [record.taskId, record]),
+    );
+    records = records.map((record) => refreshedByTask.get(record.taskId) || record);
+  }
   const enriched = records.map((record) => adminGenerationRecordView(record, userMap));
   const filtered = enriched.filter((record) => {
     if (provider && record.provider !== provider) return false;
@@ -5961,7 +6043,11 @@ async function handleListGenerationRecords(req, res, url) {
     .filter((record) => record.userId === auth.user.id && isUserVisibleGenerationRecord(record))
     .slice(0, limit);
 
-  const refreshable = ownRecords.filter(shouldRefreshGenerationRecord).slice(0, 8);
+  const refundable = ownRecords.filter(needsSeedanceFailureRefund).slice(0, 50);
+  const statusRefreshable = ownRecords
+    .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecord(record))
+    .slice(0, 8);
+  const refreshable = [...refundable, ...statusRefreshable];
   if (refreshable.length) {
     const refreshedByTask = new Map(
       (await Promise.all(refreshable.map(refreshGenerationRecordStatus))).map((record) => [record.taskId, record]),
@@ -5987,7 +6073,9 @@ async function handleGetGenerationRecord(req, res, taskId) {
   if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
 
   let nextRecord = record;
-  if (record.provider === "apiz" && APIZ_API_KEY && !isFailedStatus(record.status)) {
+  if (needsSeedanceFailureRefund(record)) {
+    nextRecord = await settleSeedanceGenerationRecord(record, "detail");
+  } else if (record.provider === "apiz" && APIZ_API_KEY && !isFailedStatus(record.status)) {
     try {
       nextRecord = await refreshApizGenerationRecord(record);
     } catch (error) {
@@ -6010,14 +6098,14 @@ async function handleGetGenerationRecord(req, res, taskId) {
           downloadError = error.message || "Failed to download generated video.";
         }
       }
-      nextRecord = await upsertGenerationRecord({
+      nextRecord = await upsertAndSettleGenerationRecord({
         taskId,
         status: task.status || record.status || "unknown",
         remoteVideoUrl,
         localVideoUrl,
         localVideoPath,
         error: task.error || downloadError || "",
-      });
+      }, "detail");
     } catch (error) {
       console.warn("[generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
@@ -6344,8 +6432,11 @@ async function handleCreateSceneVideo(req, res) {
     });
   }
 
-  auth.user.credits -= cost;
-  auth.user.updatedAt = new Date().toISOString();
+  changeUserCredits(auth.db, auth.user.id, -cost, "user_scene_video", {
+    sceneId: body.sceneId || "",
+    sceneEntryId: sceneEntry.id,
+    companionId: resolvedCompanionId || body.companionId || "",
+  });
   await writeDb(auth.db);
 
   console.log("[seedance-submit-payload]", JSON.stringify(payload, null, 2));
@@ -6353,12 +6444,16 @@ async function handleCreateSceneVideo(req, res) {
   try {
     raw = await arkRequest("POST", "/contents/generations/tasks", payload);
   } catch (error) {
-    auth.user.credits += cost;
+    changeUserCredits(auth.db, auth.user.id, cost, "user_scene_video_submit_refund", {
+      sceneId: body.sceneId || "",
+      sceneEntryId: sceneEntry.id,
+      reason: error.message || "submit failed",
+    });
     await writeDb(auth.db);
     throw error;
   }
   const task = normalizeTask(raw);
-  await upsertGenerationRecord({
+  await upsertAndSettleGenerationRecord({
     taskId: task.taskId,
     status: task.status,
     model,
@@ -6392,7 +6487,7 @@ async function handleCreateSceneVideo(req, res) {
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
     createResponse: task,
-  });
+  }, "create");
 
   return sendJson(res, 200, {
     ok: true,
@@ -6431,14 +6526,14 @@ async function handleGetSceneVideo(req, res, taskId) {
     }
   }
 
-  await upsertGenerationRecord({
+  await upsertAndSettleGenerationRecord({
     taskId: task.taskId || taskId,
     status: task.status,
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl,
     localVideoPath,
     error: task.error || downloadError || "",
-  });
+  }, "scene-query");
 
   return sendJson(res, 200, {
     ok: true,
