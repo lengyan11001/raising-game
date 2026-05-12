@@ -1023,7 +1023,6 @@ function renderHistory(records = []) {
             ${duration ? `<span>${escapeHtml(duration)}</span>` : ""}
             <span>${escapeHtml(cost)}</span>
             ${created ? `<span>${escapeHtml(created)}</span>` : ""}
-            ${videoUrl ? `<button class="history-play-btn" type="button" data-history-preview="${escapeHtml(record.taskId || "")}"><i data-lucide="play"></i>Play</button>` : ""}
           </div>
           <details class="history-details">
             <summary>View parameters</summary>
@@ -1033,12 +1032,6 @@ function renderHistory(records = []) {
       </article>
     `;
   }).join("");
-  els.historyList.querySelectorAll("[data-history-preview]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const record = records.find((item) => item.taskId === button.dataset.historyPreview);
-      playPreview({ title: record?.templateTitle || record?.sceneEntryName || record?.sceneName || "Generation job", previewUrl: generationVideoUrl(record) });
-    });
-  });
   refreshIcons();
 }
 

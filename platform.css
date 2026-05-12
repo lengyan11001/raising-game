@@ -634,17 +634,6 @@ textarea:focus, input:focus { border-color: rgba(25,216,255,.72); }
   border-radius: 999px;
   padding: 4px 8px;
 }
-.history-play-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid rgba(25,216,255,.35);
-  border-radius: 999px;
-  padding: 4px 9px;
-  color: var(--cyan);
-  background: rgba(25,216,255,.08);
-  cursor: pointer;
-}
 .history-details summary { color: var(--cyan); cursor: pointer; font-size: .85rem; }
 .history-details pre {
   max-height: 220px;
