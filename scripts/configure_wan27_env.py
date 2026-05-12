@@ -159,6 +159,7 @@ def main() -> None:
     parser.add_argument("--base-url", default=os.environ.get("ALIYUN_DASHSCOPE_BASE_URL", DEFAULT_BASE_URL))
     parser.add_argument("--model", default=os.environ.get("ALIYUN_WAN27_MODEL", DEFAULT_MODEL))
     parser.add_argument("--check-only", action="store_true", help="Only inspect current env and health.")
+    parser.add_argument("--model-only", action="store_true", help="Only update ALIYUN_WAN27_MODEL and keep the existing key.")
     parser.add_argument("--no-restart", action="store_true", help="Write env without restarting systemd service.")
     args = parser.parse_args()
 
@@ -169,9 +170,9 @@ def main() -> None:
         or os.environ.get("BAILIAN_API_KEY")
         or ""
     )
-    if not args.check_only and not dashscope_key:
+    if not args.check_only and not args.model_only and not dashscope_key:
         dashscope_key = getpass.getpass("ALIYUN_DASHSCOPE_API_KEY: ")
-    if not args.check_only and not dashscope_key.strip():
+    if not args.check_only and not args.model_only and not dashscope_key.strip():
         raise SystemExit("ALIYUN_DASHSCOPE_API_KEY is required unless --check-only is used.")
 
     client = paramiko.SSHClient()
@@ -186,11 +187,13 @@ def main() -> None:
             health_check(client, args.health_url)
             return
 
-        updates = {
-            "ALIYUN_DASHSCOPE_API_KEY": dashscope_key.strip(),
-            "ALIYUN_DASHSCOPE_BASE_URL": args.base_url,
-            "ALIYUN_WAN27_MODEL": args.model,
-        }
+        updates = {"ALIYUN_WAN27_MODEL": args.model}
+        if not args.model_only:
+            updates = {
+                "ALIYUN_DASHSCOPE_API_KEY": dashscope_key.strip(),
+                "ALIYUN_DASHSCOPE_BASE_URL": args.base_url,
+                **updates,
+            }
         next_content = upsert_env(content, updates)
         write_remote_file(client, args.env_file, next_content)
 
