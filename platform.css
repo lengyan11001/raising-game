@@ -133,6 +133,8 @@ main { width: min(1600px, calc(100vw - 40px)); margin: 0 auto; }
 }
 .section-head.compact h2 { font-size: clamp(1.35rem, 2.3vw, 2rem); }
 .section-head.compact p { margin: 8px 0 0; }
+.advanced-workspace .section-head.compact h2 { font-size: 1.34rem; }
+.advanced-workspace .section-head.compact p { margin-top: 4px; font-size: .84rem; line-height: 1.4; }
 .section-head {
   display: flex;
   align-items: end;
@@ -238,7 +240,12 @@ main { width: min(1600px, calc(100vw - 40px)); margin: 0 auto; }
   white-space: nowrap;
 }
 .advanced-case-card { position: relative; overflow: hidden; }
-.advanced-preview-play { top: 122px; z-index: 2; }
+.advanced-preview-play {
+  top: 48px;
+  width: 38px;
+  height: 38px;
+  z-index: 2;
+}
 .use-template {
   width: 100%;
   border: 0;
@@ -433,22 +440,31 @@ main { width: min(1600px, calc(100vw - 40px)); margin: 0 auto; }
 .permission-card p { margin: 0; color: #b7c5df; line-height: 1.65; }
 .advanced-workspace {
   display: grid;
-  grid-template-columns: minmax(320px, 520px) minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(340px, 500px) minmax(360px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.advanced-panel {
+  padding: 14px;
+  border-radius: 22px;
 }
 .advanced-form-card,
 .advanced-case-panel {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   border: 1px solid var(--line);
-  border-radius: 26px;
-  padding: 20px;
-  background: rgba(255,255,255,.035);
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(9, 14, 27, .78);
+  align-content: start;
+}
+.advanced-case-panel {
+  min-height: auto;
 }
 .advanced-fields {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
 }
 select {
   width: 100%;
@@ -461,31 +477,31 @@ select {
 }
 .advanced-case-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
 }
 .advanced-case-card {
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.08);
-  border-radius: 20px;
+  border-radius: 14px;
   background: rgba(14,20,38,.88);
   cursor: pointer;
 }
 .advanced-case-card img {
   width: 100%;
-  height: 130px;
+  height: 96px;
   object-fit: cover;
   display: block;
 }
-.advanced-case-card div { padding: 12px; }
-.advanced-case-card span { color: var(--cyan); font-size: .74rem; }
-.advanced-case-card strong { display: block; margin-top: 6px; }
+.advanced-case-card div { padding: 9px 10px 10px; }
+.advanced-case-card span { color: var(--cyan); font-size: .68rem; }
+.advanced-case-card strong { display: block; margin-top: 5px; font-size: .88rem; line-height: 1.25; }
 .advanced-case-card p {
-  margin: 7px 0 0;
-  max-height: 40px;
+  margin: 5px 0 0;
+  max-height: 34px;
   overflow: hidden;
   color: #a8b4d2;
-  font-size: .82rem;
+  font-size: .75rem;
   line-height: 1.35;
 }
 
@@ -546,12 +562,20 @@ select {
   border-radius: 999px;
   background: rgba(0,0,0,.55);
 }
-.advanced-upload-box { min-height: 190px; }
+.advanced-upload-box { min-height: 150px; background: rgba(5, 9, 18, .82); }
+.advanced-upload-box img { object-fit: contain; padding: 6px; }
 .advanced-upload-box.has-image span {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
   align-self: end;
-  margin-bottom: 16px;
+  margin: 0;
+  padding: 7px 10px;
+  font-size: .78rem;
+  background: rgba(0,0,0,.58);
 }
 @media (max-width: 920px) {
+  .advanced-workspace { grid-template-columns: 1fr; }
   .advanced-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .field { display: grid; gap: 8px; color: var(--muted); }
