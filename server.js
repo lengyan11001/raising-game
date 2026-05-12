@@ -78,7 +78,7 @@ const ALIYUN_DASHSCOPE_API_KEY =
   process.env.DASHSCOPE_API_KEY ||
   process.env.BAILIAN_API_KEY ||
   "";
-const ALIYUN_WAN27_MODEL = process.env.ALIYUN_WAN27_MODEL || "wan2.7-i2v";
+const ALIYUN_WAN27_MODEL = process.env.ALIYUN_WAN27_MODEL || "wan2.7-i2v-2026-04-25";
 const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
   "auto_2K",
   "auto_3K",

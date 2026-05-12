@@ -20,7 +20,7 @@ DEFAULT_ENV_FILE = "/etc/raising-game-demo.env"
 DEFAULT_SERVICE = "raising-game-demo"
 DEFAULT_HEALTH_URL = "https://123vips.com/api/health"
 DEFAULT_BASE_URL = "https://dashscope-intl.aliyuncs.com"
-DEFAULT_MODEL = "wan2.7-i2v"
+DEFAULT_MODEL = "wan2.7-i2v-2026-04-25"
 
 
 @dataclass
