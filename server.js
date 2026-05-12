@@ -68,7 +68,17 @@ const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, 720, 1, 100000);
 const GENERATION_PRICE_MARKUP = 1.2;
-const ADVANCED_GENERATION_CREDITS_PER_SECOND = 100;
+const ADVANCED_SEEDANCE_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_SEEDANCE_CREDITS_PER_SECOND, 150, 1, 100000);
+const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_WAN27_720P_CREDITS_PER_SECOND, 100, 1, 100000);
+const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_WAN27_1080P_CREDITS_PER_SECOND, 150, 1, 100000);
+const ADVANCED_GENERATION_CREDITS_PER_SECOND = ADVANCED_SEEDANCE_CREDITS_PER_SECOND;
+const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
+const ALIYUN_DASHSCOPE_API_KEY =
+  process.env.ALIYUN_DASHSCOPE_API_KEY ||
+  process.env.DASHSCOPE_API_KEY ||
+  process.env.BAILIAN_API_KEY ||
+  "";
+const ALIYUN_WAN27_MODEL = process.env.ALIYUN_WAN27_MODEL || "wan2.7-i2v";
 const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
   "auto_2K",
   "auto_3K",
@@ -498,6 +508,7 @@ async function ensureSceneEntriesPersisted(config) {
 
 function publicConfig(config) {
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const platform = normalizePlatformConfig(config.platform || {});
   return {
     defaultCompanionId: config.defaultCompanionId,
     prices: config.prices,
@@ -519,7 +530,17 @@ function publicConfig(config) {
       activeItemId: homeVideo.activeItemId || "",
       items: homeVideo.items.map(publicHomeVideoItem),
     },
-    platform: normalizePlatformConfig(config.platform || {}),
+    platform: {
+      ...platform,
+      advancedPricing: {
+        markup: 1,
+        seedanceCreditsPerSecond: ADVANCED_SEEDANCE_CREDITS_PER_SECOND,
+        wan27CreditsPerSecondByResolution: {
+          "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
+          "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
+        },
+      },
+    },
     characterImage: config.characterImage,
     scenes: config.scenes
       .filter((scene) => scene.enabled !== false)
@@ -571,14 +592,21 @@ function normalizeAdvancedCase(item = {}, index = 0) {
   const fallbackId = `advanced-case-${index + 1}`;
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
   const duration = clampNumber(item.duration ?? params.duration, 5, 5, 15);
-  const estimatedCredits = advancedGenerationCost(duration);
+  const provider = normalizeAdvancedProvider(item.provider || params.provider || params.modelProvider || params.model_provider);
+  const pricing = advancedModelPricing(provider, {
+    duration,
+    resolution: item.resolution || params.resolution,
+  });
+  const estimatedCredits = pricing.credits;
   return {
     id: String(item.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId,
     title: String(item.title || "Advanced case").trim().slice(0, 80) || "Advanced case",
     category: String(item.category || "advanced").trim().slice(0, 40) || "advanced",
+    provider,
     price: estimatedCredits,
-    creditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
+    creditsPerSecond: pricing.creditsPerSecond,
     estimatedCredits,
+    pricing,
     coverUrl: String(item.coverUrl || "").trim(),
     previewUrl: String(item.previewUrl || "").trim(),
     description: String(item.description || "").trim().slice(0, 240),
@@ -1079,6 +1107,7 @@ function userView(user) {
     role: user.role || "user",
     credits: Number(user.credits || 0),
     advancedAccess: user.advancedAccess === true,
+    advancedAccessLevel: user.advancedAccess === true ? "advanced" : "platform",
     advancedAccessRequestedAt: user.advancedAccessRequestedAt || "",
     createdAt: user.createdAt,
   };
@@ -1105,9 +1134,56 @@ function costBreakdown(baseCredits, source = "") {
   };
 }
 
-function advancedGenerationCost(durationSeconds = 5) {
-  const duration = clampNumber(durationSeconds, 5, 5, 15);
-  return sellingCredits(duration * ADVANCED_GENERATION_CREDITS_PER_SECOND);
+function normalizeAdvancedProvider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (["wan27", "wan2.7", "wan"].includes(normalized)) return "wan27";
+  return "seedance";
+}
+
+function advancedDurationBounds(provider = "seedance") {
+  return normalizeAdvancedProvider(provider) === "wan27"
+    ? { fallback: 5, min: 2, max: 15 }
+    : { fallback: 5, min: 5, max: 15 };
+}
+
+function advancedModelPricing(provider = "seedance", options = {}) {
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  const bounds = advancedDurationBounds(normalizedProvider);
+  const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, bounds.min, bounds.max);
+  if (normalizedProvider === "wan27") {
+    const resolution = normalizeWan27Resolution(options.resolution);
+    const creditsPerSecond = resolution === "1080P"
+      ? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND
+      : ADVANCED_WAN27_720P_CREDITS_PER_SECOND;
+    const credits = creditsAmount(duration * creditsPerSecond);
+    return {
+      provider: "wan27",
+      providerLabel: "Wan2.7",
+      model: ALIYUN_WAN27_MODEL,
+      duration,
+      resolution,
+      creditsPerSecond,
+      baseCredits: credits,
+      credits,
+      markup: 1,
+    };
+  }
+  const credits = creditsAmount(duration * ADVANCED_SEEDANCE_CREDITS_PER_SECOND);
+  return {
+    provider: "seedance",
+    providerLabel: "Seedance",
+    model: MODEL_QUALITY,
+    duration,
+    creditsPerSecond: ADVANCED_SEEDANCE_CREDITS_PER_SECOND,
+    resolution: String(options.resolution || "720p"),
+    baseCredits: credits,
+    credits,
+    markup: 1,
+  };
+}
+
+function advancedGenerationCost(durationSeconds = 5, provider = "seedance", options = {}) {
+  return advancedModelPricing(provider, { ...options, duration: durationSeconds }).credits;
 }
 
 function positiveCreditsOrNull(value) {
@@ -1652,6 +1728,154 @@ async function submitSeedanceVideoTask({ config, prompt, referenceAssetUri, extr
     throw error;
   }
   return { task: normalizeTask(raw), payload };
+}
+
+function normalizeWan27Resolution(value = "") {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (normalized === "1080P") return "1080P";
+  return "720P";
+}
+
+function normalizeWan27Task(raw = {}) {
+  const output = raw.output || raw.data?.output || raw.data || raw;
+  const task = raw.task || raw.data?.task || {};
+  return {
+    taskId:
+      output.task_id ||
+      output.taskId ||
+      task.task_id ||
+      task.taskId ||
+      raw.task_id ||
+      raw.taskId ||
+      raw.id ||
+      "",
+    status:
+      output.task_status ||
+      output.status ||
+      task.task_status ||
+      task.status ||
+      raw.task_status ||
+      raw.status ||
+      "unknown",
+    videoUrl:
+      output.video_url ||
+      output.videoUrl ||
+      output.results?.[0]?.url ||
+      output.results?.[0]?.video_url ||
+      findVideoUrl(raw) ||
+      "",
+    error:
+      output.message ||
+      output.error_message ||
+      output.error?.message ||
+      raw.message ||
+      raw.error_message ||
+      raw.error?.message ||
+      "",
+  };
+}
+
+async function aliyunDashscopeRequest(pathname, { method = "POST", body = null, asyncTask = false } = {}) {
+  if (!ALIYUN_DASHSCOPE_API_KEY) {
+    const error = new Error("Wan2.7 generation is not configured.");
+    error.statusCode = 503;
+    error.code = "MISSING_ALIYUN_DASHSCOPE_API_KEY";
+    throw error;
+  }
+  const response = await fetch(`${ALIYUN_DASHSCOPE_BASE_URL}${pathname}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${ALIYUN_DASHSCOPE_API_KEY}`,
+      accept: "application/json",
+      ...(body ? { "content-type": "application/json" } : {}),
+      ...(asyncTask ? { "X-DashScope-Async": "enable" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(180000),
+  });
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { text };
+  }
+  if (!response.ok || payload.code >= 400) {
+    const error = new Error(payload.message || payload.error?.message || payload.output?.message || `Wan2.7 request failed: ${response.status}`);
+    error.statusCode = response.status || 502;
+    error.payload = payload;
+    error.code = payload.code || payload.error?.code || "";
+    throw error;
+  }
+  return payload;
+}
+
+async function submitWan27VideoTask({ prompt, imageUrl, body = {} }) {
+  if (!isPublicHttpUrl(imageUrl)) {
+    const error = new Error("Wan2.7 requires a public reference image URL.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const wanBounds = advancedDurationBounds("wan27");
+  const duration = clampNumber(body.duration, wanBounds.fallback, wanBounds.min, wanBounds.max);
+  const seed = Number(body.seed);
+  const parameters = {
+    resolution: normalizeWan27Resolution(body.resolution),
+    duration,
+    prompt_extend: body.promptExtend !== false,
+    watermark: false,
+  };
+  if (Number.isFinite(seed) && seed >= 0) parameters.seed = Math.floor(seed);
+
+  const payload = {
+    model: body.model || ALIYUN_WAN27_MODEL,
+    input: {
+      prompt,
+      media: [{ type: "first_frame", url: imageUrl }],
+    },
+    parameters,
+  };
+  if (body.promptExtendText) {
+    payload.parameters.prompt_extend = true;
+    payload.parameters.prompt_extend_text = String(body.promptExtendText);
+  }
+  console.log("[wan27-submit-advanced]", JSON.stringify(payload, null, 2));
+  const raw = await aliyunDashscopeRequest("/api/v1/services/aigc/video-generation/video-synthesis", {
+    method: "POST",
+    body: payload,
+    asyncTask: true,
+  });
+  return { task: normalizeWan27Task(raw), payload, raw };
+}
+
+async function refreshWan27GenerationRecord(record = {}, { download = false, reason = "query" } = {}) {
+  if (!record.taskId) return record;
+  const raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(record.taskId)}`, {
+    method: "GET",
+  });
+  const task = normalizeWan27Task(raw);
+  let localVideoUrl = record.localVideoUrl || "";
+  let localVideoPath = record.localVideoPath || "";
+  let downloadError = "";
+  const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
+  if (download && isSucceededStatus(task.status) && remoteVideoUrl) {
+    try {
+      const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
+      localVideoUrl = localVideo.localVideoUrl;
+      localVideoPath = localVideo.localVideoPath;
+    } catch (error) {
+      downloadError = error.message || "Failed to download generated video.";
+    }
+  }
+  return upsertAndSettleGenerationRecord({
+    taskId: record.taskId,
+    status: task.status || record.status || "unknown",
+    remoteVideoUrl,
+    localVideoUrl,
+    localVideoPath,
+    error: task.error || downloadError || record.error || "",
+    queryResponse: raw,
+  }, reason);
 }
 
 async function downloadHomeReferenceImage(imageUrl, itemId) {
@@ -2626,6 +2850,7 @@ function publicGenerationRecord(record = {}) {
     finalPrompt: String(record.finalPrompt || ""),
     params: record.params || null,
     model: String(record.model || ""),
+    provider: String(record.provider || ""),
     ratio: String(record.ratio || ""),
     resolution: String(record.resolution || ""),
     duration: record.duration || "",
@@ -2703,6 +2928,15 @@ async function refreshGenerationRecordStatus(record = {}) {
       return await refreshApizGenerationRecord(record);
     } catch (error) {
       console.warn("[apiz-generation-record-refresh-failed]", record.taskId, error.message || error);
+      return record;
+    }
+  }
+  if (record.provider === "aliyun-wan27") {
+    if (!ALIYUN_DASHSCOPE_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+    try {
+      return await refreshWan27GenerationRecord(record, { reason: "query" });
+    } catch (error) {
+      console.warn("[wan27-generation-record-refresh-failed]", record.taskId, error.message || error);
       return record;
     }
   }
@@ -2928,7 +3162,7 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
 
 function needsSeedanceFailureRefund(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
-  if (provider !== "seedance") return false;
+  if (!["seedance", "aliyun-wan27"].includes(provider)) return false;
   if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
   if (String(record.billingStatus || "").toLowerCase() === "refunded") return false;
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
@@ -2952,7 +3186,7 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
     if (!alreadyRefunded) {
       changeUserCredits(db, record.userId, preDeducted, "generation_refund", {
         taskId: record.taskId,
-        provider: "seedance",
+        provider: record.provider || "seedance",
         reason,
         preDeducted,
         finalCredits: 0,
@@ -3237,9 +3471,6 @@ async function handleAdvancedGenerate(req, res) {
   if (auth.user.role !== "admin" && auth.user.advancedAccess !== true) {
     return sendJson(res, 403, { ok: false, code: "ADVANCED_ACCESS_REQUIRED", message: "Advanced generation requires approval." });
   }
-  if (!ARK_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Seedance generation is not configured." });
-  }
 
   const body = await readJson(req);
   const config = await readAppConfig();
@@ -3247,17 +3478,36 @@ async function handleAdvancedGenerate(req, res) {
   const cases = Array.isArray(advanced.cases) ? advanced.cases : [];
   const selectedCase = cases.find((item) => item.id === String(body.caseId || "").trim());
   const caseParams = selectedCase?.params && typeof selectedCase.params === "object" ? selectedCase.params : {};
+  const provider = normalizeAdvancedProvider(body.provider || selectedCase?.provider || caseParams.provider || caseParams.modelProvider || caseParams.model_provider);
+  if (provider === "seedance" && !ARK_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Seedance generation is not configured." });
+  }
+  if (provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 generation is not configured." });
+  }
   const prompt = String(body.prompt || selectedCase?.prompt || caseParams.prompt || "").trim();
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
 
   const requestParams = {
     ...caseParams,
+    provider,
     ratio: body.ratio || caseParams.ratio || caseParams.aspect_ratio || config.video.ratio || "9:16",
     resolution: body.resolution || caseParams.resolution || config.video.resolution || "720p",
-    duration: clampNumber(body.duration ?? caseParams.duration, config.video.duration || 5, 5, 15),
+    duration: clampNumber(
+      body.duration ?? caseParams.duration,
+      config.video.duration || advancedDurationBounds(provider).fallback,
+      advancedDurationBounds(provider).min,
+      advancedDurationBounds(provider).max,
+    ),
     generateAudio: body.generateAudio !== false,
   };
-  const cost = advancedGenerationCost(requestParams.duration);
+  requestParams.preprocessReference = body.preprocessReference === undefined
+    ? caseParams.preprocessReference !== false
+    : body.preprocessReference !== false;
+  requestParams.seed = body.seed ?? caseParams.seed ?? "";
+  if (provider === "wan27") requestParams.model = ALIYUN_WAN27_MODEL;
+  const pricing = advancedModelPricing(provider, requestParams);
+  const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
@@ -3268,6 +3518,13 @@ async function handleAdvancedGenerate(req, res) {
   let sourceImageUrl = "";
   let syntheticReferenceLocalUrl = "";
   let syntheticReferenceUrl = "";
+  let providerName = "seedance";
+  let recordSource = "advanced-seedance";
+  let model = MODEL_QUALITY;
+  let quality = "high";
+  let task = null;
+  let payload = null;
+  let createResponse = null;
   if (body.dataUrl) {
     userAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
       dataUrl: body.dataUrl,
@@ -3279,31 +3536,69 @@ async function handleAdvancedGenerate(req, res) {
     if (!userAsset) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
   }
   if (userAsset) {
-    userAsset = await ensureSyntheticReferenceForUserAsset(auth.db, userAsset);
-    referenceAssetUri = userAsset.syntheticReferenceAssetUri || userAsset.assetUri || "";
-    imageUrl = userAsset.syntheticReferenceLocalUrl || userAsset.syntheticReferenceUrl || userAsset.publicUrl || userAsset.localUrl || "";
-    sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
-    syntheticReferenceLocalUrl = userAsset.syntheticReferenceLocalUrl || "";
-    syntheticReferenceUrl = userAsset.syntheticReferenceUrl || "";
+    if (provider === "seedance") {
+      if (requestParams.preprocessReference !== false) {
+        userAsset = await ensureSyntheticReferenceForUserAsset(auth.db, userAsset);
+        referenceAssetUri = userAsset.syntheticReferenceAssetUri || userAsset.assetUri || "";
+        imageUrl = userAsset.syntheticReferenceLocalUrl || userAsset.syntheticReferenceUrl || userAsset.publicUrl || userAsset.localUrl || "";
+        sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
+        syntheticReferenceLocalUrl = userAsset.syntheticReferenceLocalUrl || "";
+        syntheticReferenceUrl = userAsset.syntheticReferenceUrl || "";
+      } else {
+        userAsset = await ensureSeedanceAssetForUserAsset(auth.db, userAsset);
+        referenceAssetUri = userAsset.assetUri || "";
+        imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
+        sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
+      }
+    } else {
+      userAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
+      imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
+      sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
+    }
   }
 
-  const { task, payload } = await submitSeedanceVideoTask({
-    config,
-    prompt,
-    referenceAssetUri,
-    body: requestParams,
-    slug: "advanced",
-  });
+  if (provider === "wan27") {
+    if (!imageUrl || !isPublicHttpUrl(imageUrl)) {
+      return sendJson(res, 400, { ok: false, message: "Wan2.7 requires an uploaded reference image." });
+    }
+    providerName = "aliyun-wan27";
+    recordSource = "advanced-wan27";
+    model = ALIYUN_WAN27_MODEL;
+    quality = normalizeWan27Resolution(requestParams.resolution);
+    const submitted = await submitWan27VideoTask({
+      prompt,
+      imageUrl,
+      body: requestParams,
+    });
+    task = submitted.task;
+    payload = submitted.payload;
+    createResponse = submitted.raw;
+  } else {
+    const submitted = await submitSeedanceVideoTask({
+      config,
+      prompt,
+      referenceAssetUri,
+      body: requestParams,
+      slug: "advanced",
+    });
+    task = submitted.task;
+    payload = submitted.payload;
+    createResponse = task;
+  }
 
   if (cost > 0) {
     changeUserCredits(auth.db, auth.user.id, -cost, "advanced_generation", {
       taskId: task.taskId,
+      provider: providerName,
+      model,
       caseId: selectedCase?.id || "",
       caseTitle: selectedCase?.title || "",
       duration: requestParams.duration,
-      creditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
-      baseCredits: requestParams.duration * ADVANCED_GENERATION_CREDITS_PER_SECOND,
-      markup: GENERATION_PRICE_MARKUP,
+      creditsPerSecond: pricing.creditsPerSecond,
+      baseCredits: pricing.baseCredits,
+      markup: pricing.markup,
+      resolution: pricing.resolution || requestParams.resolution,
+      preprocessReference: requestParams.preprocessReference,
       userAssetId: userAsset?.id || "",
       referenceAssetUri,
     });
@@ -3313,9 +3608,9 @@ async function handleAdvancedGenerate(req, res) {
   const record = await upsertAndSettleGenerationRecord({
     taskId: task.taskId,
     status: task.status,
-    model: MODEL_QUALITY,
-    provider: "seedance",
-    source: "advanced-seedance",
+    model,
+    provider: providerName,
+    source: recordSource,
     kind: "advanced-video",
     templateId: selectedCase?.id || "",
     templateTitle: selectedCase?.title || "Advanced generation",
@@ -3330,10 +3625,10 @@ async function handleAdvancedGenerate(req, res) {
     finalPrompt: prompt,
     params: requestParams,
     upstreamPayload: payload,
-    ratio: payload.ratio,
-    resolution: payload.resolution,
-    duration: payload.duration,
-    quality: "high",
+    ratio: payload.ratio || requestParams.ratio || "",
+    resolution: payload.resolution || payload.parameters?.resolution || requestParams.resolution || "",
+    duration: payload.duration || payload.parameters?.duration || requestParams.duration,
+    quality,
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl: "",
     error: "",
@@ -3341,7 +3636,8 @@ async function handleAdvancedGenerate(req, res) {
     finalCredits: cost,
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
-    createResponse: task,
+    pricingEstimate: pricing,
+    createResponse,
   }, "create");
   const latestDb = await readDb();
   const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
@@ -3359,6 +3655,7 @@ async function handleAdvancedGenerate(req, res) {
       syntheticReferenceUrl,
       referenceAssetUri,
     } : null,
+    pricing,
     cost,
   });
 }
@@ -3464,13 +3761,17 @@ function docsPlatformExampleBody(template = {}) {
 
 function docsAdvancedExampleBody(item = {}) {
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
+  const provider = normalizeAdvancedProvider(item.provider || params.provider);
   return {
     caseId: item.id || "case-id",
+    provider,
     prompt: item.prompt || params.prompt || "your prompt",
     dataUrl: "data:image/png;base64,...",
     ratio: params.ratio || params.aspect_ratio || "9:16",
     resolution: params.resolution || "720p",
     duration: durationSecondsFromParams(params) || 5,
+    preprocessReference: provider === "seedance" ? params.preprocessReference !== false : undefined,
+    seed: provider === "wan27" ? (params.seed || 123456) : undefined,
     generateAudio: params.generateAudio !== false,
   };
 }
@@ -3559,19 +3860,27 @@ async function buildTemplateModelDoc(template, origin) {
 function buildAdvancedModelDoc(item, origin) {
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
   const durationSeconds = durationSecondsFromParams(params) || 5;
+  const provider = normalizeAdvancedProvider(item.provider || params.provider);
+  const pricing = advancedModelPricing(provider, {
+    duration: durationSeconds,
+    resolution: params.resolution,
+  });
   return {
     id: item.id,
     title: item.title,
     category: item.category,
+    provider,
+    model: pricing.model,
     description: item.description || "",
     pricing: {
       available: true,
-      credits: advancedGenerationCost(durationSeconds),
-      baseCredits: creditsAmount(durationSeconds * ADVANCED_GENERATION_CREDITS_PER_SECOND),
-      markup: GENERATION_PRICE_MARKUP,
+      credits: pricing.credits,
+      baseCredits: pricing.baseCredits,
+      markup: pricing.markup ?? 1,
       source: "duration_rate",
       durationSeconds,
-      creditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
+      creditsPerSecond: pricing.creditsPerSecond,
+      resolution: pricing.resolution || params.resolution || "",
     },
     coverUrl: item.coverUrl,
     previewUrl: item.previewUrl,
@@ -3585,12 +3894,15 @@ function buildAdvancedModelDoc(item, origin) {
     },
     requestFields: [
       { name: "caseId", type: "string", required: false, description: "Advanced case id. Omit only when sending all parameters manually." },
+      { name: "provider", type: "string", required: false, description: "`seedance` or `wan27`. Defaults to the saved case provider." },
       { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
-      { name: "dataUrl", type: "string", required: false, description: "Optional uploaded reference character image. The server creates the upstream Seedance asset and sends it as a reference image." },
+      { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded reference image as a base64 data URL. Required for Wan2.7 first-frame generation; optional for Seedance." },
       { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. Use instead of dataUrl." },
       { name: "ratio", type: "string", required: false, description: "Video ratio, for example 9:16, 16:9, or 1:1." },
       { name: "resolution", type: "string", required: false, description: "720p or 1080p." },
-      { name: "duration", type: "number", required: false, description: "Duration in seconds, clamped to 5-15." },
+      { name: "duration", type: "number", required: false, description: "Duration in seconds. Seedance is clamped to 5-15; Wan2.7 is clamped to 2-15." },
+      { name: "preprocessReference", type: "boolean", required: false, description: "Seedance only. true prepares a safer synthetic reference first; false sends the original uploaded image asset." },
+      { name: "seed", type: "number", required: false, description: "Wan2.7 random seed." },
     ],
     exampleRequest: {
       method: "POST",
@@ -3620,9 +3932,14 @@ async function buildModelDocs(req) {
     updatedAt: new Date().toISOString(),
     billing: {
       unit: "credits",
-      note: `Credits are settled as RMB cents. Prices include a ${GENERATION_PRICE_MARKUP}x selling markup over the base model cost. Template estimates are calculated from the saved upstream JSON model and duration. Advanced base generation is ${ADVANCED_GENERATION_CREDITS_PER_SECOND} credits per second before markup.`,
-      markup: GENERATION_PRICE_MARKUP,
-      advancedCreditsPerSecond: ADVANCED_GENERATION_CREDITS_PER_SECOND,
+      note: `Credits are settled as RMB cents. Template estimates are calculated from the saved upstream JSON model and duration. Advanced selling prices are fixed: Seedance ${ADVANCED_SEEDANCE_CREDITS_PER_SECOND} credits/s, Wan2.7 720p ${ADVANCED_WAN27_720P_CREDITS_PER_SECOND} credits/s, Wan2.7 1080p ${ADVANCED_WAN27_1080P_CREDITS_PER_SECOND} credits/s.`,
+      galleryMarkup: GENERATION_PRICE_MARKUP,
+      advancedMarkup: 1,
+      advancedSeedanceCreditsPerSecond: ADVANCED_SEEDANCE_CREDITS_PER_SECOND,
+      advancedWan27CreditsPerSecondByResolution: {
+        "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
+        "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
+      },
     },
     endpoints: {
       docsMarkdown: `${origin}/docs/models.md`,
@@ -3665,13 +3982,15 @@ function advancedDocMarkdown(item) {
     `### ${markdownText(item.title, item.id)}`,
     "",
     `- caseId: \`${item.id}\``,
+    `- provider: \`${item.provider || "seedance"}\``,
+    item.model ? `- model: \`${item.model}\`` : "",
     "- access: approval required",
     `- estimated cost: ${item.pricing.credits} credits`,
-  ];
+  ].filter(Boolean);
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
-  lines.push("", "Optional reference character image: send `dataUrl`, or send `userAssetId` for an existing uploaded asset. The server creates the upstream reference asset before submitting the video job.");
+  lines.push("", "Reference image: send `dataUrl`, or send `userAssetId` for an existing uploaded asset. Wan2.7 requires a reference image and sends it as the first frame; Seedance can optionally preprocess it into a safer synthetic reference.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -3702,8 +4021,9 @@ function buildModelDocsMarkdown(docs) {
     "1. Read `/api/models` or this Markdown file to choose a template.",
     "2. For image-to-video templates, send `templateId` and `dataUrl` to `/api/platform/generate`.",
     "3. For text-to-video templates, send `templateId` and an optional `prompt` to `/api/platform/generate`.",
-    "4. For approved advanced generation, send `dataUrl` or `userAssetId` when you want the video to use the user's reference character.",
-    "5. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
+    "4. For approved advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"`.",
+    "5. For approved advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional `seed`, and duration.",
+    "6. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
     "",
     "## Billing",
     "",
@@ -6140,6 +6460,12 @@ async function handleGetGenerationRecord(req, res, taskId) {
     } catch (error) {
       console.warn("[apiz-generation-record-refresh-failed]", taskId, error.message || error);
     }
+  } else if (record.provider === "aliyun-wan27" && ALIYUN_DASHSCOPE_API_KEY && !isFailedStatus(record.status)) {
+    try {
+      nextRecord = await refreshWan27GenerationRecord(record, { download: true, reason: "detail" });
+    } catch (error) {
+      console.warn("[wan27-generation-record-detail-refresh-failed]", taskId, error.message || error);
+    }
   } else if (ARK_API_KEY && !String(taskId).startsWith("demo-") && !isFailedStatus(record.status)) {
     try {
       const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
@@ -6675,9 +7001,10 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, {
         ok: true,
         arkConfigured: Boolean(ARK_API_KEY),
+        aliyunConfigured: Boolean(ALIYUN_DASHSCOPE_API_KEY),
         generationConfigured: Boolean(APIZ_API_KEY),
         baseUrl: ARK_BASE_URL,
-        models: { fast: MODEL_FAST, quality: MODEL_QUALITY },
+        models: { fast: MODEL_FAST, quality: MODEL_QUALITY, wan27: ALIYUN_WAN27_MODEL },
       });
     }
 

@@ -2,7 +2,9 @@
 
 const TOKEN_KEY = "raisingGameAdminToken";
 const LEGACY_TOKEN_KEY = "raisingGameToken";
-const GENERATION_PRICE_MARKUP = 1.2;
+const ADVANCED_SEEDANCE_CREDITS_PER_SECOND = 150;
+const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
+const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
 
 const ROUTES = [
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
@@ -2054,12 +2056,13 @@ function defaultAdvancedCase(index = 0) {
     id: `advanced-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     title: "Advanced Case",
     category: "portrait",
+    provider: "seedance",
     price: 500,
     coverUrl: "",
     previewUrl: "",
     description: "",
     prompt: "A cinematic video, tasteful motion, premium lighting.",
-    params: { ratio: "9:16", resolution: "720p", duration: 5 },
+    params: { provider: "seedance", ratio: "9:16", resolution: "720p", duration: 5, preprocessReference: true },
     enabled: true,
     sort: index,
   };
@@ -2073,7 +2076,14 @@ function advancedCaseDuration(item = {}) {
 }
 
 function advancedCaseCredits(item = {}) {
-  return Math.round(advancedCaseDuration(item) * 100 * GENERATION_PRICE_MARKUP);
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  const provider = String(item.provider || params.provider || "seedance").toLowerCase().replace(/[\s_-]+/g, "");
+  if (provider === "wan27" || provider === "wan2.7") {
+    const resolution = String(params.resolution || "720p").toLowerCase() === "1080p" ? "1080p" : "720p";
+    const perSecond = resolution === "1080p" ? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND : ADVANCED_WAN27_720P_CREDITS_PER_SECOND;
+    return Math.round(advancedCaseDuration(item) * perSecond);
+  }
+  return Math.round(advancedCaseDuration(item) * ADVANCED_SEEDANCE_CREDITS_PER_SECOND);
 }
 
 function advancedCaseSummary(item = {}, index = 0) {
@@ -2082,7 +2092,7 @@ function advancedCaseSummary(item = {}, index = 0) {
       <td>${platformTemplatePreview(item)}</td>
       <td><strong>${escapeHtml(item.title || `Case ${index + 1}`)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(item.id || "")}</small></td>
       <td>${escapeHtml(item.category || "—")}</td>
-      <td>${advancedCaseCredits(item)}（${advancedCaseDuration(item)}s）</td>
+      <td>${escapeHtml(item.provider || item.params?.provider || "seedance")} / ${advancedCaseCredits(item)}（${advancedCaseDuration(item)}s）</td>
       <td class="adm-truncate" title="${escapeHtml(item.prompt || "")}">${escapeHtml(item.prompt || "").slice(0, 80)}</td>
       <td>${item.enabled === false ? '<span class="adm-pill is-cancelled">Off</span>' : '<span class="adm-pill is-success">On</span>'}</td>
       <td>
@@ -2097,22 +2107,26 @@ function advancedCaseSummary(item = {}, index = 0) {
 
 function advancedCaseEditor(item = {}, index = 0) {
   const params = JSON.stringify(item.params && typeof item.params === "object" ? item.params : { ratio: "9:16", resolution: "720p", duration: 5 }, null, 2);
+  const provider = String(item.provider || item.params?.provider || "seedance").toLowerCase().replace(/[\s_-]+/g, "") === "wan27" ? "wan27" : "seedance";
   return `
     <div class="platform-template-editor" data-advanced-index="${index}">
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>标题</span><input data-f="title" value="${escapeHtml(item.title || "")}" /></div>
         <div class="adm-form-row"><span>分类</span><input data-f="category" value="${escapeHtml(item.category || "portrait")}" /></div>
-        <div class="adm-form-row"><span>计费</span><input value="自动：100 积分 / 秒 × 1.2" disabled /></div>
+        <div class="adm-form-row"><span>模型</span><select data-f="provider"><option value="seedance" ${provider === "seedance" ? "selected" : ""}>Seedance</option><option value="wan27" ${provider === "wan27" ? "selected" : ""}>Wan2.7</option></select></div>
       </div>
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(item.sort ?? index)}" /></div>
         <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:8px;align-items:center;"><input data-f="enabled" type="checkbox" ${item.enabled !== false ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端展示</span></label></div>
-        <div class="adm-form-row"><span>预览 URL</span><input data-f="previewUrl" value="${escapeHtml(item.previewUrl || "")}" /></div>
+        <div class="adm-form-row"><span>计费</span><input value="Seedance 150/s；Wan2.7 720p 100/s，1080p 150/s" disabled /></div>
       </div>
-      <div class="adm-form-row"><span>封面 URL</span><input data-f="coverUrl" value="${escapeHtml(item.coverUrl || "")}" placeholder="留空时会尝试从预览视频取帧" /></div>
+      <div class="adm-grid adm-grid-2">
+        <div class="adm-form-row"><span>预览 URL</span><input data-f="previewUrl" value="${escapeHtml(item.previewUrl || "")}" /></div>
+        <div class="adm-form-row"><span>封面 URL</span><input data-f="coverUrl" value="${escapeHtml(item.coverUrl || "")}" placeholder="留空时会尝试从预览视频取帧" /></div>
+      </div>
       <div class="adm-form-row"><span>描述</span><textarea data-f="description" rows="3">${escapeHtml(item.description || "")}</textarea></div>
       <div class="adm-form-row"><span>Prompt</span><textarea data-f="prompt" rows="5">${escapeHtml(item.prompt || "")}</textarea></div>
-      <div class="adm-form-row"><span>参数 JSON</span><textarea data-f="params" rows="8" spellcheck="false">${escapeHtml(params)}</textarea></div>
+      <div class="adm-form-row"><span>参数 JSON（Seedance: preprocessReference；Wan2.7: seed / resolution）</span><textarea data-f="params" rows="8" spellcheck="false">${escapeHtml(params)}</textarea></div>
     </div>
   `;
 }
@@ -2126,11 +2140,14 @@ function collectAdvancedCaseFromCard(card, existing = {}) {
     throw new Error("高级案例参数 JSON 格式不正确。");
   }
   if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("高级案例参数必须是对象。");
+  const provider = get("provider")?.value === "wan27" ? "wan27" : "seedance";
+  params.provider = provider;
   return {
     ...existing,
     title: get("title")?.value.trim() || existing.title || "Advanced Case",
     category: get("category")?.value.trim() || "portrait",
-    price: advancedCaseCredits({ params }),
+    provider,
+    price: advancedCaseCredits({ params, provider }),
     coverUrl: get("coverUrl")?.value.trim() || "",
     previewUrl: get("previewUrl")?.value.trim() || "",
     description: get("description")?.value.trim() || "",

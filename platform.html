@@ -73,9 +73,9 @@
           <section class="advanced-form-card">
             <div class="section-head compact">
               <div>
-                <p class="eyebrow">Direct Seedance</p>
+                <p class="eyebrow">Advanced Models</p>
                 <h2>Advanced Generate</h2>
-                <p>Use direct Seedance parameters after approval.</p>
+                <p>Use Seedance or Wan2.7 parameters after approval.</p>
               </div>
             </div>
             <label class="field">
@@ -88,9 +88,12 @@
               <span><i data-lucide="image-up"></i>Upload reference character</span>
             </label>
             <div class="advanced-fields">
+              <label class="field"><span>Model</span><select id="advancedProvider"><option value="seedance">Seedance</option><option value="wan27">Wan2.7</option></select></label>
               <label class="field"><span>Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
               <label class="field"><span>Resolution</span><select id="advancedResolution"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
-              <label class="field"><span>Duration</span><input id="advancedDuration" type="number" min="5" max="15" value="5" /></label>
+              <label class="field"><span>Duration</span><input id="advancedDuration" type="number" min="2" max="15" value="5" /></label>
+              <label class="field advanced-seedance-option"><span>Seedance image handling</span><select id="advancedPreprocessReference"><option value="yes">Prepare safe reference</option><option value="no">Use original image</option></select></label>
+              <label class="field advanced-wan-option" hidden><span>Random seed</span><input id="advancedWanSeed" type="number" min="0" step="1" placeholder="Optional" /></label>
             </div>
             <button class="generate-btn" id="advancedSubmitBtn" type="button"><i data-lucide="sparkles"></i>Generate</button>
             <p class="job-note" id="advancedNote"></p>
@@ -241,6 +244,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-23"></script>
-  </body>
+  <script src="./platform.js?v=ai-24"></script>
+</body>
 </html>

@@ -1,8 +1,10 @@
 "use strict";
 
 const TOKEN_KEY = "raisingGameToken";
-const ADVANCED_GENERATION_CREDITS_PER_SECOND = 100;
-const GENERATION_PRICE_MARKUP = 1.2;
+const ADVANCED_SEEDANCE_CREDITS_PER_SECOND = 150;
+const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
+const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
+const ADVANCED_GENERATION_CREDITS_PER_SECOND = ADVANCED_SEEDANCE_CREDITS_PER_SECOND;
 
 const state = {
   config: null,
@@ -68,9 +70,12 @@ const els = {
   advancedImage: document.querySelector("#advancedImage"),
   advancedUploadBox: document.querySelector("#advancedUploadBox"),
   advancedUploadPreview: document.querySelector("#advancedUploadPreview"),
+  advancedProvider: document.querySelector("#advancedProvider"),
   advancedRatio: document.querySelector("#advancedRatio"),
   advancedResolution: document.querySelector("#advancedResolution"),
   advancedDuration: document.querySelector("#advancedDuration"),
+  advancedPreprocessReference: document.querySelector("#advancedPreprocessReference"),
+  advancedWanSeed: document.querySelector("#advancedWanSeed"),
   advancedSubmitBtn: document.querySelector("#advancedSubmitBtn"),
   advancedNote: document.querySelector("#advancedNote"),
   advancedCaseGrid: document.querySelector("#advancedCaseGrid"),
@@ -124,42 +129,84 @@ const LIVE_HTTP_ACCESS_COPY = `POST https://123vips.com/api/platform/generate
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
+Gallery template:
 {
   "templateId": "template-id",
   "dataUrl": "data:image/png;base64,...",
   "prompt": ""
+}
+
+Advanced Seedance:
+POST https://123vips.com/api/advanced/generate
+{
+  "provider": "seedance",
+  "prompt": "your prompt",
+  "dataUrl": "data:image/png;base64,...",
+  "resolution": "720p",
+  "duration": 5,
+  "preprocessReference": true
+}
+
+Advanced Wan2.7:
+POST https://123vips.com/api/advanced/generate
+{
+  "provider": "wan27",
+  "prompt": "your prompt",
+  "dataUrl": "data:image/png;base64,...",
+  "resolution": "1080p",
+  "duration": 5,
+  "seed": 123456
 }`;
 
 const TYPE_SCRIPT_ACCESS_COPY = `const token = "<user-token>";
-const body = {
+const galleryBody = {
   templateId: "template-id",
   dataUrl: "data:image/png;base64,...",
   prompt: ""
 };
 
-const res = await fetch("https://123vips.com/api/platform/generate", {
+const advancedBody = {
+  provider: "wan27", // "seedance" or "wan27"
+  prompt: "your prompt",
+  dataUrl: "data:image/png;base64,...",
+  resolution: "720p",
+  duration: 5,
+  seed: 123456,
+  preprocessReference: true
+};
+
+const res = await fetch("https://123vips.com/api/advanced/generate", {
   method: "POST",
   headers: {
     authorization: \`Bearer \${token}\`,
     "content-type": "application/json"
   },
-  body: JSON.stringify(body)
+  body: JSON.stringify(advancedBody)
 });
 console.log(await res.json());`;
 
 const PYTHON_ACCESS_COPY = `import requests
 
 token = "<user-token>"
-payload = {
+gallery_payload = {
     "templateId": "template-id",
     "dataUrl": "data:image/png;base64,...",
     "prompt": "",
 }
 
+advanced_payload = {
+    "provider": "seedance",  # or "wan27"
+    "prompt": "your prompt",
+    "dataUrl": "data:image/png;base64,...",
+    "resolution": "720p",
+    "duration": 5,
+    "preprocessReference": True,
+}
+
 resp = requests.post(
-    "https://123vips.com/api/platform/generate",
+    "https://123vips.com/api/advanced/generate",
     headers={"Authorization": f"Bearer {token}"},
-    json=payload,
+    json=advanced_payload,
     timeout=120,
 )
 print(resp.json())`;
@@ -167,14 +214,26 @@ print(resp.json())`;
 const CLI_ACCESS_COPY = `curl -X POST "https://123vips.com/api/platform/generate" \\
   -H "Authorization: Bearer <user-token>" \\
   -H "Content-Type: application/json" \\
-  -d '{"templateId":"template-id","dataUrl":"data:image/png;base64,...","prompt":""}'`;
+  -d '{"templateId":"template-id","dataUrl":"data:image/png;base64,...","prompt":""}'
+
+curl -X POST "https://123vips.com/api/advanced/generate" \\
+  -H "Authorization: Bearer <user-token>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5,"seed":123456}'`;
 
 const AGENT_ACCESS_COPY = `Use this video API:
+Gallery templates:
 POST https://123vips.com/api/platform/generate
 Authorization: Bearer <user-token>
-
 Body:
 {"templateId":"template-id","dataUrl":"data:image/png;base64,...","prompt":""}
+
+Advanced direct generation:
+POST https://123vips.com/api/advanced/generate
+Body:
+{"provider":"seedance","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"720p","duration":5,"preprocessReference":true}
+or:
+{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5,"seed":123456}
 
 Check records:
 GET https://123vips.com/api/generation-records`;
@@ -182,9 +241,14 @@ GET https://123vips.com/api/generation-records`;
 const MCP_ACCESS_COPY = `MCP wrapper target:
 POST https://123vips.com/api/platform/generate
 Authorization: Bearer <user-token>
-
 Input:
-{"templateId":"string","dataUrl":"string","prompt":"string"}`;
+{"templateId":"string","dataUrl":"string","prompt":"string"}
+
+Advanced MCP wrapper target:
+POST https://123vips.com/api/advanced/generate
+Authorization: Bearer <user-token>
+Input:
+{"provider":"seedance|wan27","prompt":"string","dataUrl":"data:image/png;base64,...","resolution":"720p|1080p","duration":5,"preprocessReference":true,"seed":123456}`;
 
 PUBLIC_COPY.galleryTitle = "Create AI videos";
 PUBLIC_COPY.gallerySubtitle = "Choose a template, upload an image or enter text, and create a new video.";
@@ -194,7 +258,7 @@ PUBLIC_COPY.accessSubtitle = "Connect your product, scripts, agents, or MCP wrap
 PUBLIC_COPY.accessNotice = "All examples below call the current production API. Upstream JSON stays server-side.";
 PUBLIC_COPY.accessCopy = LIVE_HTTP_ACCESS_COPY;
 PUBLIC_COPY.advancedTitle = "Advanced Generate";
-PUBLIC_COPY.advancedSubtitle = "Direct Seedance controls for approved accounts.";
+PUBLIC_COPY.advancedSubtitle = "Direct model controls for approved accounts.";
 PUBLIC_COPY.advancedNotice = "Apply once. After approval, cases can fill the form automatically.";
 PUBLIC_COPY.historyTitle = "Generation History";
 PUBLIC_COPY.historySubtitle = "Review your generated videos, prompts, parameters and billing in one compact list.";
@@ -380,19 +444,79 @@ function advancedCaseDuration(item = {}) {
   return Math.min(15, Math.max(5, duration));
 }
 
-function advancedCostForDuration(duration) {
-  return Math.max(0, Math.round(Number(duration || 0) * ADVANCED_GENERATION_CREDITS_PER_SECOND * GENERATION_PRICE_MARKUP));
+function normalizeAdvancedProvider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return normalized === "wan27" || normalized === "wan2.7" || normalized === "wan" ? "wan27" : "seedance";
 }
 
-function advancedCostLabel(duration) {
-  return `${formatCredits(advancedCostForDuration(duration))} credits - ${formatDurationSeconds(duration)}`;
+function advancedCaseProvider(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  return normalizeAdvancedProvider(item.provider || params.provider || params.modelProvider || params.model_provider || "seedance");
+}
+
+function normalizeAdvancedResolution(value = "", provider = "seedance") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (normalizeAdvancedProvider(provider) === "wan27") return raw === "1080p" ? "1080p" : "720p";
+  return raw || "720p";
+}
+
+function advancedDurationBounds(provider = "seedance") {
+  return normalizeAdvancedProvider(provider) === "wan27"
+    ? { min: 2, max: 15, fallback: 5 }
+    : { min: 5, max: 15, fallback: 5 };
+}
+
+function advancedPricing(duration, provider = "seedance", resolution = "720p") {
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  const bounds = advancedDurationBounds(normalizedProvider);
+  const rawSeconds = Number(duration || bounds.fallback);
+  const seconds = Number.isFinite(rawSeconds) ? Math.min(bounds.max, Math.max(bounds.min, rawSeconds)) : bounds.fallback;
+  const configPricing = state.config?.platform?.advancedPricing || {};
+  if (normalizedProvider === "wan27") {
+    const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
+    const byResolution = configPricing.wan27CreditsPerSecondByResolution || {};
+    const fallbackPerSecond = normalizedResolution === "1080p" ? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND : ADVANCED_WAN27_720P_CREDITS_PER_SECOND;
+    const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
+    return {
+      provider: "wan27",
+      duration: seconds,
+      resolution: normalizedResolution,
+      credits: Math.max(0, Math.round(seconds * perSecond)),
+    };
+  }
+  const seedancePerSecond = Number(configPricing.seedanceCreditsPerSecond || ADVANCED_SEEDANCE_CREDITS_PER_SECOND) || ADVANCED_SEEDANCE_CREDITS_PER_SECOND;
+  return {
+    provider: "seedance",
+    duration: seconds,
+    resolution: normalizeAdvancedResolution(resolution, normalizedProvider),
+    credits: Math.max(0, Math.round(seconds * seedancePerSecond)),
+  };
+}
+
+function advancedCostForDuration(duration, provider = "seedance", resolution = "720p") {
+  return advancedPricing(duration, provider, resolution).credits;
+}
+
+function currentAdvancedProvider() {
+  return normalizeAdvancedProvider(els.advancedProvider?.value || "seedance");
+}
+
+function currentAdvancedResolution() {
+  return normalizeAdvancedResolution(els.advancedResolution?.value || "720p", currentAdvancedProvider());
+}
+
+function advancedCostLabel(duration, provider = "seedance", resolution = "720p") {
+  const pricing = advancedPricing(duration, provider, resolution);
+  const suffix = pricing.provider === "wan27" ? ` - ${pricing.resolution}` : "";
+  return `${formatCredits(pricing.credits)} credits - ${formatDurationSeconds(pricing.duration)}${suffix}`;
 }
 
 function updateAdvancedButtonCost() {
   if (!els.advancedSubmitBtn) return;
   const rawDuration = Number(els.advancedDuration?.value || 5);
-  const duration = Number.isFinite(rawDuration) ? Math.min(15, Math.max(5, rawDuration)) : 5;
-  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>Generate - ${escapeHtml(advancedCostLabel(duration))}`;
+  const bounds = advancedDurationBounds(currentAdvancedProvider());
+  const duration = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
+  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>Generate - ${escapeHtml(advancedCostLabel(duration, currentAdvancedProvider(), currentAdvancedResolution()))}`;
   refreshIcons();
 }
 
@@ -659,7 +783,7 @@ function renderAdvanced() {
       <div class="permission-card">
         <span class="copy-kicker"><i data-lucide="shield-check"></i> APPROVAL REQUIRED</span>
         <h2>${requested ? "Request submitted" : "Apply for advanced generation"}</h2>
-        <p>${requested ? "Your request is waiting for review." : "Direct Seedance controls require manual approval."}</p>
+        <p>${requested ? "Your request is waiting for review." : "Direct model controls require manual approval."}</p>
         ${telegram ? `<a class="ghost-button" href="${escapeHtml(telegram)}" target="_blank" rel="noopener">Contact support</a>` : ""}
         <button class="generate-btn" id="requestAdvancedBtn" type="button" ${requested ? "disabled" : ""}>${requested ? "Waiting for approval" : "Apply access"}</button>
       </div>
@@ -671,6 +795,31 @@ function renderAdvanced() {
   els.advancedGate.innerHTML = "";
   els.advancedWorkspace.hidden = false;
   renderAdvancedCases();
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+function updateAdvancedModelControls() {
+  const provider = currentAdvancedProvider();
+  const bounds = advancedDurationBounds(provider);
+  if (els.advancedDuration) {
+    els.advancedDuration.min = String(bounds.min);
+    els.advancedDuration.max = String(bounds.max);
+  }
+  document.querySelectorAll(".advanced-wan-option").forEach((item) => {
+    item.hidden = provider !== "wan27";
+  });
+  document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
+    item.hidden = provider !== "seedance";
+  });
+  if (els.advancedNote && state.advancedUploadDataUrl) {
+    if (provider === "seedance") {
+      const mode = els.advancedPreprocessReference?.value === "no" ? "original image" : "safe reference";
+      els.advancedNote.textContent = `Reference selected. Seedance will use ${mode}.`;
+    } else {
+      els.advancedNote.textContent = "Reference selected. Wan2.7 will use the uploaded image as the first frame.";
+    }
+  }
   updateAdvancedButtonCost();
 }
 
@@ -682,7 +831,7 @@ function renderAdvancedCases() {
       <img src="${escapeHtml(item.coverUrl || item.previewUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || "Case")}" loading="lazy" />
       ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="Play preview"><i data-lucide="play"></i></button>` : ""}
       <div>
-        <span>${escapeHtml(item.category || "Case")} · ${escapeHtml(advancedCostLabel(advancedCaseDuration(item)))}</span>
+        <span>${escapeHtml(item.category || "Case")} - ${escapeHtml(advancedCostLabel(advancedCaseDuration(item), advancedCaseProvider(item), item.params?.resolution))}</span>
         <strong>${escapeHtml(item.title || "Advanced case")}</strong>
         <p>${escapeHtml(item.description || item.prompt || "").slice(0, 96)}</p>
       </div>
@@ -701,13 +850,18 @@ function renderAdvancedCases() {
 
 function fillAdvancedCase(item = {}) {
   const params = item.params && typeof item.params === "object" ? item.params : {};
+  const provider = advancedCaseProvider(item);
   state.activeAdvancedCaseId = item.id || "";
+  if (els.advancedProvider) els.advancedProvider.value = provider;
   if (els.advancedPrompt) els.advancedPrompt.value = item.prompt || params.prompt || "";
   if (els.advancedRatio) els.advancedRatio.value = params.ratio || params.aspect_ratio || item.ratio || "9:16";
   if (els.advancedResolution) els.advancedResolution.value = params.resolution || item.resolution || "720p";
   if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
+  if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = params.preprocessReference === false ? "no" : "yes";
+  if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || "";
+  updateAdvancedModelControls();
   updateAdvancedButtonCost();
-  if (els.advancedNote) els.advancedNote.textContent = `Loaded case: ${item.title || "Advanced case"} · ${advancedCostLabel(advancedCaseDuration(item))}`;
+  if (els.advancedNote) els.advancedNote.textContent = `Loaded case: ${item.title || "Advanced case"} - ${advancedCostLabel(advancedCaseDuration(item), provider, params.resolution)}`;
 }
 
 async function requestAdvancedAccess() {
@@ -732,25 +886,36 @@ async function submitAdvancedGenerate() {
   const currentCase = state.advancedCases.find((item) => item.id === state.activeAdvancedCaseId);
   if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
   els.advancedSubmitBtn.disabled = true;
-  const duration = Math.min(15, Math.max(5, Number(els.advancedDuration?.value || 5)));
-  const referenceNote = state.advancedUploadDataUrl ? " · preparing safe reference first" : "";
-  if (els.advancedNote) els.advancedNote.textContent = `Submitting advanced generation${referenceNote} · ${advancedCostLabel(duration)}...`;
+  const provider = currentAdvancedProvider();
+  const bounds = advancedDurationBounds(provider);
+  const duration = Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration?.value || bounds.fallback)));
+  const resolution = currentAdvancedResolution();
+  const preprocessReference = els.advancedPreprocessReference?.value !== "no";
+  const referenceNote = state.advancedUploadDataUrl
+    ? provider === "seedance"
+      ? (preprocessReference ? " - preparing safe reference first" : " - using original image")
+      : " - using uploaded image as first frame"
+    : "";
+  if (els.advancedNote) els.advancedNote.textContent = `Submitting advanced generation${referenceNote} - ${advancedCostLabel(duration, provider, resolution)}...`;
   try {
     const payload = await requestJson("/api/advanced/generate", {
       method: "POST",
       body: {
         caseId: state.activeAdvancedCaseId,
+        provider,
         prompt,
         dataUrl: state.advancedUploadDataUrl,
         fileName: els.advancedImage?.files?.[0]?.name || "",
         ratio: els.advancedRatio?.value || "9:16",
         resolution: els.advancedResolution?.value || "720p",
         duration,
+        preprocessReference,
+        seed: els.advancedWanSeed?.value || "",
       },
     });
     if (payload.user) setUser(payload.user);
-    const charged = payload.cost ?? advancedCostForDuration(duration);
-    if (els.advancedNote) els.advancedNote.textContent = `Job submitted: ${payload.taskId || payload.task?.taskId || ""} · ${formatCredits(charged)} credits`;
+    const charged = payload.cost ?? advancedCostForDuration(duration, provider, resolution);
+    if (els.advancedNote) els.advancedNote.textContent = `Job submitted: ${payload.taskId || payload.task?.taskId || ""} - ${formatCredits(charged)} credits`;
     loadHistory();
   } catch (error) {
     if (els.advancedNote) els.advancedNote.textContent = error.message;
@@ -1016,7 +1181,7 @@ els.advancedImage?.addEventListener("change", async () => {
   state.advancedUploadDataUrl = await readFileAsDataUrl(file);
   if (els.advancedUploadPreview) els.advancedUploadPreview.src = state.advancedUploadDataUrl;
   els.advancedUploadBox?.classList.add("has-image");
-  if (els.advancedNote) els.advancedNote.textContent = "Reference selected. The server will prepare a safe Seedance reference before generation.";
+  updateAdvancedModelControls();
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
 els.refreshHistoryBtn?.addEventListener("click", loadHistory);
@@ -1036,6 +1201,9 @@ els.previewDialog?.addEventListener("close", () => {
 });
 els.advancedSubmitBtn?.addEventListener("click", submitAdvancedGenerate);
 els.advancedDuration?.addEventListener("input", updateAdvancedButtonCost);
+els.advancedProvider?.addEventListener("change", updateAdvancedModelControls);
+els.advancedResolution?.addEventListener("change", updateAdvancedButtonCost);
+els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelControls);
 els.loginBtn?.addEventListener("click", () => {
   if (state.user) openAccount();
   else openLogin();
