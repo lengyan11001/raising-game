@@ -475,6 +475,14 @@ select {
   background: rgba(255,255,255,.05);
   outline: none;
 }
+select option {
+  color: #07111f;
+  background: #f7fbff;
+}
+select option:checked {
+  color: #ffffff;
+  background: #1b67e8;
+}
 .advanced-case-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -578,7 +586,13 @@ select {
   .advanced-workspace { grid-template-columns: 1fr; }
   .advanced-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-.field { display: grid; gap: 8px; color: var(--muted); }
+.field { display: grid; gap: 8px; color: var(--muted); min-width: 0; }
+.field > span {
+  min-height: 2.3em;
+  line-height: 1.15;
+  display: flex;
+  align-items: end;
+}
 textarea, input {
   width: 100%;
   border: 1px solid var(--line);
