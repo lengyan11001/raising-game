@@ -310,6 +310,7 @@ ACCESS_GUIDES = [
 ];
 
 let activeAccessGuide = ACCESS_GUIDES[0];
+let historyLoading = false;
 
 function refreshIcons() {
   window.lucide?.createIcons();
@@ -321,7 +322,7 @@ function cleanPublicCopy(value, fallback) {
   return text;
 }
 
-function setUser(user) {
+function setUser(user, { refreshHistory = false } = {}) {
   state.user = user || null;
   if (state.user) {
     els.loginBtn.textContent = `${state.user.username} · ${Number(state.user.credits || 0)} credits`;
@@ -332,7 +333,7 @@ function setUser(user) {
   renderTopupSummary();
   renderAccessGuides();
   renderAdvanced();
-  if (state.tab === "history") loadHistory();
+  if (refreshHistory && state.tab === "history") loadHistory();
 }
 
 function maskToken(token = "") {
@@ -1020,18 +1021,26 @@ function renderHistory(records = []) {
           </header>
           <div class="history-meta">
             ${record.model ? `<span>${escapeHtml(record.model)}</span>` : ""}
+            ${record.provider ? `<span>${escapeHtml(record.provider)}</span>` : ""}
             ${duration ? `<span>${escapeHtml(duration)}</span>` : ""}
             <span>${escapeHtml(cost)}</span>
             ${created ? `<span>${escapeHtml(created)}</span>` : ""}
+            ${videoUrl ? `<button class="history-play-btn" type="button" data-history-preview="${escapeHtml(record.taskId || "")}"><i data-lucide="play"></i>Play</button>` : ""}
           </div>
           <details class="history-details">
             <summary>View parameters</summary>
-            <pre>${escapeHtml(JSON.stringify({ prompt: record.finalPrompt || record.prompt || "", params: record.params || null, ratio: record.ratio, resolution: record.resolution, duration: record.duration }, null, 2))}</pre>
+            <pre>${escapeHtml(JSON.stringify({ taskId: record.taskId || "", provider: record.provider || "", source: record.source || "", prompt: record.finalPrompt || record.prompt || "", params: record.params || null, ratio: record.ratio, resolution: record.resolution, duration: record.duration, billing: record.billing || null }, null, 2))}</pre>
           </details>
         </div>
       </article>
     `;
   }).join("");
+  els.historyList.querySelectorAll("[data-history-preview]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = records.find((item) => item.taskId === button.dataset.historyPreview);
+      playPreview({ title: record?.templateTitle || record?.sceneEntryName || record?.sceneName || "Generation job", previewUrl: generationVideoUrl(record) });
+    });
+  });
   refreshIcons();
 }
 
@@ -1041,6 +1050,8 @@ async function loadHistory() {
     renderHistory([]);
     return;
   }
+  if (historyLoading) return;
+  historyLoading = true;
   els.historyList.innerHTML = '<div class="job-note">Loading generation records...</div>';
   try {
     const payload = await requestJson("/api/generation-records?limit=50");
@@ -1048,6 +1059,8 @@ async function loadHistory() {
     renderHistory(payload.records || []);
   } catch (error) {
     els.historyList.innerHTML = `<div class="job-note">Load failed: ${escapeHtml(error.message || String(error))}</div>`;
+  } finally {
+    historyLoading = false;
   }
 }
 
