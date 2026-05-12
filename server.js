@@ -1894,6 +1894,7 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
     localVideoPath,
     error: task.error || downloadError || record.error || "",
     queryResponse: raw,
+    completedAt: isSucceededStatus(task.status) ? (record.completedAt || new Date().toISOString()) : record.completedAt || "",
   }, reason);
 }
 
@@ -2953,7 +2954,7 @@ async function refreshGenerationRecordStatus(record = {}) {
   if (record.provider === "aliyun-wan27") {
     if (!ALIYUN_DASHSCOPE_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
     try {
-      return await refreshWan27GenerationRecord(record, { reason: "query" });
+      return await refreshWan27GenerationRecord(record, { download: true, reason: "query" });
     } catch (error) {
       console.warn("[wan27-generation-record-refresh-failed]", record.taskId, error.message || error);
       return record;
