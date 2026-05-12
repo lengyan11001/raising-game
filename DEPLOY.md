@@ -40,3 +40,26 @@ python .\scripts\deploy_pull.py
 
 The old SFTP upload deploy is intentionally removed. Do not deploy by copying
 files into `/opt/raising-game-demo`; that leaves Git unable to pull cleanly.
+
+## Wan2.7 production env
+
+Wan2.7 generation requires DashScope credentials in the systemd env file used by
+`raising-game-demo`.
+
+Check the current redacted state:
+
+```powershell
+$env:FYSHARK_SSH_PASSWORD="..."
+python .\scripts\configure_wan27_env.py --check-only
+```
+
+Configure or rotate the key, restart the service, and verify `/api/health`:
+
+```powershell
+$env:FYSHARK_SSH_PASSWORD="..."
+$env:ALIYUN_DASHSCOPE_API_KEY="..."
+python .\scripts\configure_wan27_env.py
+```
+
+The helper updates `/etc/raising-game-demo.env`, creates a timestamped backup,
+restarts `raising-game-demo`, and prints only redacted key lengths.

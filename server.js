@@ -1736,6 +1736,13 @@ function normalizeWan27Resolution(value = "") {
   return "720P";
 }
 
+function optionalWan27Seed(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const seed = Number(value);
+  if (!Number.isFinite(seed) || seed < 0) return null;
+  return Math.min(2147483647, Math.floor(seed));
+}
+
 function normalizeWan27Task(raw = {}) {
   const output = raw.output || raw.data?.output || raw.data || raw;
   const task = raw.task || raw.data?.task || {};
@@ -1818,14 +1825,14 @@ async function submitWan27VideoTask({ prompt, imageUrl, body = {} }) {
   }
   const wanBounds = advancedDurationBounds("wan27");
   const duration = clampNumber(body.duration, wanBounds.fallback, wanBounds.min, wanBounds.max);
-  const seed = Number(body.seed);
+  const seed = optionalWan27Seed(body.seed);
   const parameters = {
     resolution: normalizeWan27Resolution(body.resolution),
     duration,
-    prompt_extend: body.promptExtend !== false,
+    prompt_extend: body.promptExtend === true,
     watermark: false,
   };
-  if (Number.isFinite(seed) && seed >= 0) parameters.seed = Math.floor(seed);
+  if (seed !== null) parameters.seed = seed;
 
   const payload = {
     model: body.model || ALIYUN_WAN27_MODEL,
@@ -1839,7 +1846,19 @@ async function submitWan27VideoTask({ prompt, imageUrl, body = {} }) {
     payload.parameters.prompt_extend = true;
     payload.parameters.prompt_extend_text = String(body.promptExtendText);
   }
-  console.log("[wan27-submit-advanced]", JSON.stringify(payload, null, 2));
+  console.log("[wan27-submit-advanced]", JSON.stringify({
+    model: payload.model,
+    mediaTypes: payload.input.media.map((item) => item.type),
+    imageHost: (() => {
+      try {
+        return new URL(imageUrl).host;
+      } catch {
+        return "";
+      }
+    })(),
+    promptLength: prompt.length,
+    parameters,
+  }, null, 2));
   const raw = await aliyunDashscopeRequest("/api/v1/services/aigc/video-generation/video-synthesis", {
     method: "POST",
     body: payload,
@@ -3771,7 +3790,7 @@ function docsAdvancedExampleBody(item = {}) {
     resolution: params.resolution || "720p",
     duration: durationSecondsFromParams(params) || 5,
     preprocessReference: provider === "seedance" ? params.preprocessReference !== false : undefined,
-    seed: provider === "wan27" ? (params.seed || 123456) : undefined,
+    seed: provider === "wan27" ? optionalWan27Seed(params.seed) ?? undefined : undefined,
     generateAudio: params.generateAudio !== false,
   };
 }

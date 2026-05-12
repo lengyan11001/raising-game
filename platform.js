@@ -154,8 +154,7 @@ POST https://123vips.com/api/advanced/generate
   "prompt": "your prompt",
   "dataUrl": "data:image/png;base64,...",
   "resolution": "1080p",
-  "duration": 5,
-  "seed": 123456
+  "duration": 5
 }`;
 
 const TYPE_SCRIPT_ACCESS_COPY = `const token = "<user-token>";
@@ -171,7 +170,6 @@ const advancedBody = {
   dataUrl: "data:image/png;base64,...",
   resolution: "720p",
   duration: 5,
-  seed: 123456,
   preprocessReference: true
 };
 
@@ -219,7 +217,7 @@ const CLI_ACCESS_COPY = `curl -X POST "https://123vips.com/api/platform/generate
 curl -X POST "https://123vips.com/api/advanced/generate" \\
   -H "Authorization: Bearer <user-token>" \\
   -H "Content-Type: application/json" \\
-  -d '{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5,"seed":123456}'`;
+  -d '{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}'`;
 
 const AGENT_ACCESS_COPY = `Use this video API:
 Gallery templates:
@@ -233,7 +231,7 @@ POST https://123vips.com/api/advanced/generate
 Body:
 {"provider":"seedance","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"720p","duration":5,"preprocessReference":true}
 or:
-{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5,"seed":123456}
+{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}
 
 Check records:
 GET https://123vips.com/api/generation-records`;
@@ -248,7 +246,7 @@ Advanced MCP wrapper target:
 POST https://123vips.com/api/advanced/generate
 Authorization: Bearer <user-token>
 Input:
-{"provider":"seedance|wan27","prompt":"string","dataUrl":"data:image/png;base64,...","resolution":"720p|1080p","duration":5,"preprocessReference":true,"seed":123456}`;
+{"provider":"seedance|wan27","prompt":"string","dataUrl":"data:image/png;base64,...","resolution":"720p|1080p","duration":5,"preprocessReference":true,"seed":123456 optional}`;
 
 PUBLIC_COPY.galleryTitle = "Create AI videos";
 PUBLIC_COPY.gallerySubtitle = "Choose a template, upload an image or enter text, and create a new video.";
