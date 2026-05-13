@@ -8,6 +8,9 @@ NGINX_MAIN="${NGINX_MAIN:-/etc/nginx/nginx.conf}"
 NGINX_SITE="${NGINX_SITE:-/etc/nginx/sites-enabled/default}"
 BACKUP_DIR="${BACKUP_DIR:-/root/raising-game-config-backups}"
 STAMP="$(date +%Y%m%d%H%M%S)"
+NGINX_GEO_DIR="${NGINX_GEO_DIR:-/etc/nginx/geo}"
+CN_GEO_FILE="${CN_GEO_FILE:-${NGINX_GEO_DIR}/mainland_cn.conf}"
+CF_REAL_IP_FILE="${CF_REAL_IP_FILE:-${NGINX_GEO_DIR}/cloudflare_real_ip.conf}"
 
 require_root() {
   if [ "$(id -u)" -ne 0 ]; then
@@ -30,6 +33,85 @@ backup_file() {
 move_stale_included_backups() {
   mkdir -p "$BACKUP_DIR"
   find /etc/nginx/sites-enabled -maxdepth 1 -type f -name '*.bak.*' -exec mv -f {} "$BACKUP_DIR"/ \;
+}
+
+write_cloudflare_real_ip() {
+  mkdir -p "$NGINX_GEO_DIR"
+  cat > "$CF_REAL_IP_FILE" <<'NGINX'
+# managed by raising-game production tuning
+set_real_ip_from 173.245.48.0/20;
+set_real_ip_from 103.21.244.0/22;
+set_real_ip_from 103.22.200.0/22;
+set_real_ip_from 103.31.4.0/22;
+set_real_ip_from 141.101.64.0/18;
+set_real_ip_from 108.162.192.0/18;
+set_real_ip_from 190.93.240.0/20;
+set_real_ip_from 188.114.96.0/20;
+set_real_ip_from 197.234.240.0/22;
+set_real_ip_from 198.41.128.0/17;
+set_real_ip_from 162.158.0.0/15;
+set_real_ip_from 104.16.0.0/13;
+set_real_ip_from 104.24.0.0/14;
+set_real_ip_from 172.64.0.0/13;
+set_real_ip_from 131.0.72.0/22;
+set_real_ip_from 2400:cb00::/32;
+set_real_ip_from 2606:4700::/32;
+set_real_ip_from 2803:f800::/32;
+set_real_ip_from 2405:b500::/32;
+set_real_ip_from 2405:8100::/32;
+set_real_ip_from 2a06:98c0::/29;
+set_real_ip_from 2c0f:f248::/32;
+real_ip_header CF-Connecting-IP;
+real_ip_recursive on;
+NGINX
+}
+
+write_mainland_geo() {
+  mkdir -p "$NGINX_GEO_DIR"
+  local tmp_file="${CN_GEO_FILE}.tmp"
+  if python3 - "$tmp_file" <<'PY'
+import ipaddress
+import sys
+import urllib.request
+
+target = sys.argv[1]
+url = "https://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest"
+ranges = []
+
+with urllib.request.urlopen(url, timeout=30) as response:
+    for raw in response:
+        line = raw.decode("utf-8", "ignore").strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("|")
+        if len(parts) < 7 or parts[1] != "CN" or parts[2] not in {"ipv4", "ipv6"} or parts[6] not in {"allocated", "assigned"}:
+            continue
+        start = ipaddress.ip_address(parts[3])
+        if parts[2] == "ipv4":
+            count = int(parts[4])
+            end = start + count - 1
+            ranges.extend(ipaddress.summarize_address_range(start, end))
+        else:
+            ranges.append(ipaddress.ip_network(f"{parts[3]}/{int(parts[4])}", strict=False))
+
+ranges = sorted(set(ranges), key=lambda item: (item.version, int(item.network_address), item.prefixlen))
+with open(target, "w", encoding="utf-8") as fh:
+    fh.write("# managed by raising-game production tuning; source: APNIC delegated CN ranges\n")
+    for network in ranges:
+        fh.write(f"{network} 1;\n")
+PY
+  then
+    mv -f "$tmp_file" "$CN_GEO_FILE"
+  elif [ ! -s "$CN_GEO_FILE" ]; then
+    cat > "$CN_GEO_FILE" <<'NGINX'
+# managed by raising-game production tuning
+# APNIC download failed and no previous CN range file exists.
+# Cloudflare CF-IPCountry=CN blocking still applies.
+NGINX
+  else
+    rm -f "$tmp_file"
+    echo "warning=kept existing $CN_GEO_FILE because APNIC download failed" >&2
+  fi
 }
 
 upsert_env() {
@@ -87,6 +169,24 @@ http {
     client_header_timeout 20s;
     send_timeout 120s;
 
+    include /etc/nginx/geo/cloudflare_real_ip.conf;
+
+    geo $blocked_mainland_ip {
+        default 0;
+        include /etc/nginx/geo/mainland_cn.conf;
+    }
+
+    map $http_cf_ipcountry $blocked_cf_country {
+        default 0;
+        CN 1;
+    }
+
+    map "$blocked_cf_country:$blocked_mainland_ip" $blocked_mainland_access {
+        default 0;
+        ~^1: 1;
+        ~^0:1$ 1;
+    }
+
     include /etc/nginx/conf.d/*.conf;
     include /etc/nginx/sites-enabled/*;
 }
@@ -116,6 +216,10 @@ server {
     listen [::]:80 default_server;
     server_name 123vips.com www.123vips.com api.123vips.com admin.123vips.com;
 
+    if ($blocked_mainland_access) {
+        return 451 "Service is not available in this region.\n";
+    }
+
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/html;
         allow all;
@@ -137,6 +241,10 @@ server {
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
     client_max_body_size 20m;
+
+    if ($blocked_mainland_access) {
+        return 451 "Service is not available in this region.\n";
+    }
 
     location ^~ /assets/generated/videos/ {
         proxy_pass http://raising_game_app;
@@ -252,6 +360,10 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
+    if ($blocked_mainland_access) {
+        return 451 "Service is not available in this region.\n";
+    }
+
     location /api/ {
         proxy_pass http://raising_game_app/api/;
         proxy_http_version 1.1;
@@ -299,9 +411,14 @@ upsert_env HTTP_HEADERS_TIMEOUT_MS "${HTTP_HEADERS_TIMEOUT_MS:-70000}"
 upsert_env HTTP_REQUEST_TIMEOUT_MS "${HTTP_REQUEST_TIMEOUT_MS:-180000}"
 upsert_env HTTP_MAX_REQUESTS_PER_SOCKET "${HTTP_MAX_REQUESTS_PER_SOCKET:-1000}"
 upsert_env HTTP_MAX_CONNECTIONS "${HTTP_MAX_CONNECTIONS:-2000}"
+upsert_env BLOCK_MAINLAND_CHINA "${BLOCK_MAINLAND_CHINA:-1}"
 
 backup_file "$NGINX_MAIN"
 backup_file "$NGINX_SITE"
+backup_file "$CF_REAL_IP_FILE"
+backup_file "$CN_GEO_FILE"
+write_cloudflare_real_ip
+write_mainland_geo
 write_nginx_main
 write_nginx_site
 write_systemd_override

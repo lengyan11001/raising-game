@@ -34,6 +34,7 @@ function loadLocalEnv(filePath) {
 loadLocalEnv(path.join(ROOT, ".env.local"));
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
+const BLOCK_MAINLAND_CHINA = process.env.BLOCK_MAINLAND_CHINA !== "0";
 
 const PORT = Number(process.env.PORT || 4174);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
@@ -411,6 +412,37 @@ function sendJson(res, statusCode, payload) {
 function sendText(res, statusCode, body) {
   res.writeHead(statusCode, { "content-type": "text/plain; charset=utf-8" });
   res.end(body);
+}
+
+function requestCountryCode(req) {
+  return String(
+    req.headers["cf-ipcountry"] ||
+      req.headers["x-vercel-ip-country"] ||
+      req.headers["x-country-code"] ||
+      "",
+  ).trim().toUpperCase();
+}
+
+function isMainlandChinaRequest(req) {
+  return BLOCK_MAINLAND_CHINA && requestCountryCode(req) === "CN";
+}
+
+function sendMainlandBlocked(req, res, url) {
+  const headers = {
+    "cache-control": "no-store",
+    "vary": "CF-IPCountry",
+    "x-region-blocked": "CN",
+  };
+  if (url.pathname.startsWith("/api/")) {
+    res.writeHead(451, { ...headers, "content-type": "application/json; charset=utf-8" });
+    return res.end(JSON.stringify({
+      ok: false,
+      code: "REGION_BLOCKED",
+      message: "Service is not available in this region.",
+    }));
+  }
+  res.writeHead(451, { ...headers, "content-type": "text/plain; charset=utf-8" });
+  return res.end("Service is not available in this region.");
 }
 
 function sendMarkdown(res, statusCode, body) {
@@ -7047,6 +7079,10 @@ async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   try {
+    if (isMainlandChinaRequest(req)) {
+      return sendMainlandBlocked(req, res, url);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/health") {
       return sendJson(res, 200, {
         ok: true,

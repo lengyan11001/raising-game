@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-24" />
+    <link rel="stylesheet" href="./platform.css?v=ai-25" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -16,14 +16,24 @@
         <span class="brand-mark"></span>
         <strong id="brandName">Vipeak AI</strong>
       </a>
+      <label class="language-switch" aria-label="Language">
+        <i data-lucide="languages"></i>
+        <select id="languageSelect" aria-label="Language">
+          <option value="en">English</option>
+          <option value="vi">Tiếng Việt</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+          <option value="id">Bahasa Indonesia</option>
+        </select>
+      </label>
       <nav class="top-tabs" aria-label="Main sections">
-        <button class="top-tab is-active" data-tab="gallery" type="button">Gallery</button>
-        <button class="top-tab" data-tab="advanced" type="button">Advanced</button>
-        <button class="top-tab" data-tab="access" type="button">API Access</button>
-        <button class="top-tab" data-tab="history" type="button">History</button>
+        <button class="top-tab is-active" data-tab="gallery" data-i18n="nav.gallery" type="button">Gallery</button>
+        <button class="top-tab" data-tab="advanced" data-i18n="nav.advanced" type="button">Advanced</button>
+        <button class="top-tab" data-tab="access" data-i18n="nav.access" type="button">API Access</button>
+        <button class="top-tab" data-tab="history" data-i18n="nav.history" type="button">History</button>
       </nav>
       <div class="head-actions">
-        <a class="ghost-link" href="/game">Game</a>
+        <a class="ghost-link" href="/game" data-i18n="nav.game">Game</a>
         <button class="primary-pill" id="loginBtn" type="button">Login / Sign up</button>
       </div>
     </header>
@@ -44,22 +54,22 @@
       <section class="workspace" data-panel="gallery">
         <section class="topup-strip" id="topupPanel">
           <div>
-            <span>USDT Top Up</span>
+            <span data-i18n="topup.title">USDT Top Up</span>
             <strong id="topupCredits">0 credits</strong>
             <small id="topupRate">Login to create a payment order.</small>
           </div>
           <div class="topup-actions">
             <input id="topupAmount" type="number" min="1" step="1" value="10" aria-label="USDT amount" />
-            <button class="copy-btn" id="createTopupBtn" type="button"><i data-lucide="wallet"></i>Create order</button>
+            <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create order</button>
           </div>
           <div class="topup-order" id="topupOrder" hidden></div>
         </section>
         <section class="gallery-panel">
           <div class="section-head">
             <div>
-              <p class="eyebrow">Gallery</p>
-              <h2>AI Templates</h2>
-              <p>Choose a template, upload material, and generate a new result.</p>
+              <p class="eyebrow" data-i18n="hero.gallery.eyebrow">Gallery</p>
+              <h2 data-i18n="gallery.title">AI Templates</h2>
+              <p data-i18n="gallery.subtitle">Choose a template, upload material, and generate a new result.</p>
             </div>
           </div>
           <div class="category-row" id="categoryRow"></div>
@@ -73,27 +83,27 @@
           <section class="advanced-form-card">
             <div class="section-head compact">
               <div>
-                <p class="eyebrow">Advanced Models</p>
-                <h2>Advanced Generate</h2>
-                <p>Use Seedance or Wan2.7 parameters after approval.</p>
+                <p class="eyebrow" data-i18n="advanced.models">Advanced Models</p>
+                <h2 data-i18n="advanced.title">Advanced Generate</h2>
+                <p data-i18n="advanced.subtitle">Use Seedance or Wan2.7 parameters after approval.</p>
               </div>
             </div>
             <label class="field">
-              <span>Prompt</span>
-              <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..."></textarea>
+              <span data-i18n="field.prompt">Prompt</span>
+              <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..." data-i18n-placeholder="advanced.promptPlaceholder"></textarea>
             </label>
             <label class="upload-box advanced-upload-box" id="advancedUploadBox">
               <input id="advancedImage" type="file" accept="image/*" />
               <img id="advancedUploadPreview" alt="Advanced reference preview" />
-              <span><i data-lucide="image-up"></i>Upload reference character</span>
+              <span data-i18n="advanced.uploadReference"><i data-lucide="image-up"></i>Upload reference character</span>
             </label>
             <div class="advanced-fields">
-              <label class="field"><span>Model</span><select id="advancedProvider"><option value="seedance">Seedance</option><option value="wan27">Wan2.7</option></select></label>
-              <label class="field"><span>Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
-              <label class="field"><span>Resolution</span><select id="advancedResolution"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
-              <label class="field"><span>Duration</span><input id="advancedDuration" type="number" min="2" max="15" value="5" /></label>
-              <label class="field advanced-seedance-option"><span>Seedance image handling</span><select id="advancedPreprocessReference"><option value="yes">Prepare safe reference</option><option value="no">Use original image</option></select></label>
-              <label class="field advanced-wan-option" hidden><span>Random seed</span><input id="advancedWanSeed" type="number" min="0" step="1" placeholder="Optional" /></label>
+              <label class="field"><span data-i18n="field.model">Model</span><select id="advancedProvider"><option value="seedance">Seedance</option><option value="wan27">Wan2.7</option></select></label>
+              <label class="field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
+              <label class="field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+              <label class="field"><span data-i18n="field.duration">Duration</span><input id="advancedDuration" type="number" min="2" max="15" value="5" /></label>
+              <label class="field advanced-seedance-option"><span data-i18n="advanced.seedanceHandling">Seedance image handling</span><select id="advancedPreprocessReference"><option value="yes" data-i18n="advanced.prepareReference">Prepare safe reference</option><option value="no" data-i18n="advanced.originalImage">Use original image</option></select></label>
+              <label class="field advanced-wan-option" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="0" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
             </div>
             <button class="generate-btn" id="advancedSubmitBtn" type="button"><i data-lucide="sparkles"></i>Generate</button>
             <p class="job-note" id="advancedNote"></p>
@@ -101,8 +111,8 @@
           <section class="advanced-case-panel">
             <div class="section-head compact">
               <div>
-                <p class="eyebrow">Cases</p>
-                <h2>Start From A Case</h2>
+                <p class="eyebrow" data-i18n="advanced.cases">Cases</p>
+                <h2 data-i18n="advanced.caseTitle">Start From A Case</h2>
               </div>
             </div>
             <div class="advanced-case-grid" id="advancedCaseGrid"></div>
@@ -112,31 +122,31 @@
 
       <section class="access-panel" data-panel="access" hidden>
         <div class="section-head centered">
-          <p class="eyebrow">Integration</p>
-          <h2>API Access</h2>
-          <p>Connect your product or workflow to the current production generation API.</p>
+          <p class="eyebrow" data-i18n="access.integration">Integration</p>
+          <h2 data-i18n="access.title">API Access</h2>
+          <p data-i18n="access.subtitle">Connect your product or workflow to the current production generation API.</p>
         </div>
         <div class="access-tabs" id="accessTabs"></div>
         <div class="token-card" id="accessTokenCard">
           <div>
-            <span>Current API token</span>
+            <span data-i18n="access.currentToken">Current API token</span>
             <strong id="accessTokenDisplay">Login to auto-fill your token</strong>
             <small id="accessTokenHint">The copied examples use the full token. The page masks it by default.</small>
           </div>
           <div class="token-actions">
             <button class="ghost-button" id="toggleAccessTokenBtn" type="button">Show full</button>
-            <button class="copy-btn" id="copyTokenBtn" type="button"><i data-lucide="key-round"></i>Copy token</button>
+            <button class="copy-btn" id="copyTokenBtn" data-i18n="common.copyToken" type="button"><i data-lucide="key-round"></i>Copy token</button>
           </div>
         </div>
         <div class="copy-card">
           <div class="copy-main">
-            <span class="copy-kicker"><i data-lucide="copy"></i> COPY AND CONNECT</span>
+            <span class="copy-kicker" data-i18n="access.copyKicker"><i data-lucide="copy"></i> COPY AND CONNECT</span>
             <h3 id="accessGuideTitle">HTTP API</h3>
             <p id="accessGuideDesc">Submit generation tasks and query results through the current production API.</p>
             <div class="copy-actions">
-              <a class="ghost-button" href="/docs/models.md" target="_blank" rel="noopener"><i data-lucide="book-open"></i>Model docs</a>
-              <a class="ghost-button" href="/api/models" target="_blank" rel="noopener"><i data-lucide="braces"></i>Models JSON</a>
-              <button class="copy-btn" id="copyAccessBtn" type="button"><i data-lucide="clipboard"></i>Copy snippet</button>
+              <a class="ghost-button" href="/docs/models.md" data-i18n="access.modelDocs" target="_blank" rel="noopener"><i data-lucide="book-open"></i>Model docs</a>
+              <a class="ghost-button" href="/api/models" data-i18n="access.modelsJson" target="_blank" rel="noopener"><i data-lucide="braces"></i>Models JSON</a>
+              <button class="copy-btn" id="copyAccessBtn" data-i18n="access.copySnippet" type="button"><i data-lucide="clipboard"></i>Copy snippet</button>
             </div>
           </div>
           <pre class="copy-preview" id="accessCopy"></pre>
@@ -146,11 +156,11 @@
       <section class="history-panel" data-panel="history" hidden>
         <div class="section-head compact">
           <div>
-            <p class="eyebrow">History</p>
-            <h2>Generation Records</h2>
-            <p>Compact list of your generated videos, prompts and parameters.</p>
+            <p class="eyebrow" data-i18n="history.eyebrow">History</p>
+            <h2 data-i18n="history.title">Generation Records</h2>
+            <p data-i18n="history.subtitle">Compact list of your generated videos, prompts and parameters.</p>
           </div>
-          <button class="ghost-button" id="refreshHistoryBtn" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
+          <button class="ghost-button" id="refreshHistoryBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
         </div>
         <div class="history-list compact-history" id="historyList"></div>
       </section>
@@ -163,16 +173,16 @@
             <span id="modalType">Image to Video</span>
             <strong id="modalTitle">Create video</strong>
           </div>
-          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
           <label class="upload-box" id="uploadBox">
             <input id="templateImage" type="file" accept="image/*" />
             <img id="uploadPreview" alt="Upload preview" />
-            <span><i data-lucide="image-up"></i>Upload reference image</span>
+            <span data-i18n="modal.uploadReference"><i data-lucide="image-up"></i>Upload reference image</span>
           </label>
           <label class="field">
-            <span>Prompt</span>
+            <span data-i18n="field.prompt">Prompt</span>
             <textarea id="templatePrompt" rows="7"></textarea>
           </label>
           <button class="generate-btn" id="submitTemplateBtn" type="button"><i data-lucide="wand-sparkles"></i>Generate</button>
@@ -185,11 +195,11 @@
       <form method="dialog">
         <header>
           <strong id="loginTitle">Login</strong>
-          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
-          <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" />
-          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" />
+          <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" data-i18n-placeholder="auth.password" />
           <div class="auth-actions">
             <button class="ghost-button" id="toggleLoginMode" type="button">Create account</button>
             <button class="generate-btn" id="loginSubmit" type="button">Login</button>
@@ -203,31 +213,31 @@
       <form method="dialog">
         <header>
           <div>
-            <span>Account</span>
+            <span data-i18n="account.title">Account</span>
             <strong id="accountName">Account</strong>
           </div>
-          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
           <div class="account-grid">
             <div>
-              <span>Credits</span>
+              <span data-i18n="account.credits">Credits</span>
               <strong id="accountCredits">0</strong>
             </div>
             <div>
-              <span>Role</span>
+              <span data-i18n="account.role">Role</span>
               <strong id="accountRole">user</strong>
             </div>
           </div>
           <div class="token-box">
-            <span>API token</span>
+            <span data-i18n="account.apiToken">API token</span>
             <code id="accountToken">Login to view token</code>
             <div class="token-actions">
               <button class="ghost-button" id="toggleAccountTokenBtn" type="button">Show full</button>
-              <button class="copy-btn" id="copyAccountTokenBtn" type="button"><i data-lucide="copy"></i>Copy token</button>
+              <button class="copy-btn" id="copyAccountTokenBtn" data-i18n="common.copyToken" type="button"><i data-lucide="copy"></i>Copy token</button>
             </div>
           </div>
-          <button class="ghost-button danger-link" id="logoutAccountBtn" type="button"><i data-lucide="log-out"></i>Log out</button>
+          <button class="ghost-button danger-link" id="logoutAccountBtn" data-i18n="account.logout" type="button"><i data-lucide="log-out"></i>Log out</button>
         </div>
       </form>
     </dialog>
@@ -236,7 +246,7 @@
       <form method="dialog">
         <header>
           <strong id="previewTitle">Preview</strong>
-          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
           <video id="previewVideo" controls playsinline></video>
@@ -244,6 +254,6 @@
       </form>
     </dialog>
 
-  <script src="./platform.js?v=ai-26"></script>
+  <script src="./platform.js?v=ai-27"></script>
 </body>
 </html>
