@@ -6,6 +6,7 @@ SERVICE="${SERVICE:-raising-game-demo}"
 ENV_FILE="${ENV_FILE:-/etc/raising-game-demo.env}"
 NGINX_MAIN="${NGINX_MAIN:-/etc/nginx/nginx.conf}"
 NGINX_SITE="${NGINX_SITE:-/etc/nginx/sites-enabled/default}"
+BACKUP_DIR="${BACKUP_DIR:-/root/raising-game-config-backups}"
 STAMP="$(date +%Y%m%d%H%M%S)"
 
 require_root() {
@@ -18,9 +19,17 @@ require_root() {
 backup_file() {
   local file="$1"
   if [ -f "$file" ]; then
-    cp -p "$file" "${file}.bak.${STAMP}"
-    echo "backup=${file}.bak.${STAMP}"
+    mkdir -p "$BACKUP_DIR"
+    local safe_name
+    safe_name="$(echo "$file" | sed 's|^/||; s|/|__|g')"
+    cp -p "$file" "${BACKUP_DIR}/${safe_name}.bak.${STAMP}"
+    echo "backup=${BACKUP_DIR}/${safe_name}.bak.${STAMP}"
   fi
+}
+
+move_stale_included_backups() {
+  mkdir -p "$BACKUP_DIR"
+  find /etc/nginx/sites-enabled -maxdepth 1 -type f -name '*.bak.*' -exec mv -f {} "$BACKUP_DIR"/ \;
 }
 
 upsert_env() {
@@ -277,6 +286,7 @@ SYSTEMD
 
 require_root
 cd "$APP_DIR"
+move_stale_included_backups
 
 backup_file "$ENV_FILE"
 upsert_env NODE_ENV production
