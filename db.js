@@ -35,6 +35,10 @@ function getPool() {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.PGSSLMODE === "disable" ? false : undefined,
+      max: Number(process.env.PGPOOL_MAX || 20),
+      idleTimeoutMillis: Number(process.env.PGPOOL_IDLE_TIMEOUT_MS || 30000),
+      connectionTimeoutMillis: Number(process.env.PGPOOL_CONNECTION_TIMEOUT_MS || 5000),
+      maxUses: Number(process.env.PGPOOL_MAX_USES || 7500),
     });
   }
   return pool;

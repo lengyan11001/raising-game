@@ -2994,6 +2994,35 @@ function videoFileName(taskId) {
   return `${String(taskId).replace(/[^a-z0-9_-]/gi, "_")}.mp4`;
 }
 
+function pipeFileStream(res, filePath, options = {}) {
+  const stream = fsSync.createReadStream(filePath, options);
+  stream.on("error", (error) => {
+    if (!res.headersSent) {
+      res.writeHead(error.code === "ENOENT" ? 404 : 500, { "content-type": "text/plain; charset=utf-8" });
+    }
+    res.end(error.code === "ENOENT" ? "Not Found" : "File stream error");
+  });
+  return stream.pipe(res);
+}
+
+function internalAssetRedirectPath(filePath = "") {
+  const relative = path.relative(path.join(ROOT, "assets"), filePath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return "";
+  return `/__protected_assets__/${relative.split(path.sep).map(encodeURIComponent).join("/")}`;
+}
+
+function sendInternalAsset(res, filePath, contentType, stat, { privateCache = false } = {}) {
+  const redirectPath = internalAssetRedirectPath(filePath);
+  if (!redirectPath) return false;
+  res.writeHead(200, {
+    "content-type": contentType,
+    "cache-control": privateCache ? "private, no-store" : "public, max-age=604800, immutable",
+    "x-accel-redirect": redirectPath,
+  });
+  res.end();
+  return true;
+}
+
 async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
   const existing = await getGenerationRecord(taskId);
   if (existing?.localVideoUrl) {
@@ -4424,6 +4453,7 @@ async function handleUnlockVideo(req, res) {
 
 async function streamVideoFile(req, res, filePath) {
   const stat = await fs.stat(filePath);
+  if (sendInternalAsset(res, filePath, "video/mp4", stat, { privateCache: true })) return;
   const range = req.headers.range;
   if (range) {
     const match = range.match(/bytes=(\d*)-(\d*)/);
@@ -6970,6 +7000,7 @@ async function serveStatic(req, res, url) {
     const stat = await fs.stat(filePath);
     const range = req.headers.range;
 
+    if (contentType.startsWith("video/") && sendInternalAsset(res, filePath, contentType, stat)) return;
     if (range && contentType.startsWith("video/")) {
       const match = range.match(/bytes=(\d*)-(\d*)/);
       const start = match?.[1] ? Number(match[1]) : 0;
@@ -6991,10 +7022,9 @@ async function serveStatic(req, res, url) {
       });
 
       if (req.method === "HEAD") return res.end();
-      return fsSync.createReadStream(filePath, { start: chunkStart, end: chunkEnd }).pipe(res);
+      return pipeFileStream(res, filePath, { start: chunkStart, end: chunkEnd });
     }
 
-    const data = await fs.readFile(filePath);
     res.writeHead(200, {
       "content-type": contentType,
       "content-length": stat.size,
@@ -7006,7 +7036,7 @@ async function serveStatic(req, res, url) {
           : "public, max-age=60",
     });
     if (req.method === "HEAD") return res.end();
-    res.end(data);
+    return pipeFileStream(res, filePath);
   } catch (error) {
     if (error.code === "ENOENT") return sendText(res, 404, "Not Found");
     throw error;
@@ -7342,6 +7372,11 @@ async function handleRequest(req, res) {
 const server = http.createServer((req, res) => {
   handleRequest(req, res);
 });
+server.keepAliveTimeout = Number(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS || 65000);
+server.headersTimeout = Number(process.env.HTTP_HEADERS_TIMEOUT_MS || 70000);
+server.requestTimeout = Number(process.env.HTTP_REQUEST_TIMEOUT_MS || 180000);
+server.maxRequestsPerSocket = Number(process.env.HTTP_MAX_REQUESTS_PER_SOCKET || 1000);
+server.maxConnections = Number(process.env.HTTP_MAX_CONNECTIONS || 2000);
 
 async function bootstrap() {
   if (dbEnabled()) {
