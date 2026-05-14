@@ -165,6 +165,9 @@ events {
 }
 
 http {
+    map_hash_bucket_size 128;
+    map_hash_max_size 4096;
+
     map $arg_cnpass $mainland_bypass_arg {
         default 0;
         include /etc/nginx/geo/mainland_bypass_token.conf;
@@ -261,10 +264,6 @@ server {
     listen [::]:80 default_server;
     server_name 123vips.com www.123vips.com api.123vips.com admin.123vips.com;
 
-    if ($mainland_bypass_arg) {
-        add_header Set-Cookie "cnpass=$arg_cnpass; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax" always;
-    }
-
     if ($block_mainland_request) {
         return 451 "Service is not available in this region.\n";
     }
@@ -290,10 +289,6 @@ server {
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
     client_max_body_size 20m;
-
-    if ($mainland_bypass_arg) {
-        add_header Set-Cookie "cnpass=$arg_cnpass; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax" always;
-    }
 
     if ($block_mainland_request) {
         return 451 "Service is not available in this region.\n";
@@ -412,10 +407,6 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/123vips.com/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-
-    if ($mainland_bypass_arg) {
-        add_header Set-Cookie "cnpass=$arg_cnpass; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax" always;
-    }
 
     if ($block_mainland_request) {
         return 451 "Service is not available in this region.\n";
