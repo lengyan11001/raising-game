@@ -35,6 +35,13 @@ loadLocalEnv(path.join(ROOT, ".env.local"));
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const BLOCK_MAINLAND_CHINA = process.env.BLOCK_MAINLAND_CHINA !== "0";
+const MAINLAND_BYPASS_TOKEN = String(process.env.MAINLAND_BYPASS_TOKEN || "").trim();
+const MAINLAND_BYPASS_QUERY_PARAM = process.env.MAINLAND_BYPASS_QUERY_PARAM || "cnpass";
+const MAINLAND_BYPASS_COOKIE = process.env.MAINLAND_BYPASS_COOKIE || "cnpass";
+const MAINLAND_BYPASS_MAX_AGE_SECONDS = Math.max(
+  60,
+  Math.min(30 * 24 * 60 * 60, Number(process.env.MAINLAND_BYPASS_MAX_AGE_SECONDS || 24 * 60 * 60) || 24 * 60 * 60),
+);
 
 const PORT = Number(process.env.PORT || 4174);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
@@ -421,6 +428,62 @@ function requestCountryCode(req) {
       req.headers["x-country-code"] ||
       "",
   ).trim().toUpperCase();
+}
+
+function parseCookieHeader(header = "") {
+  const cookies = {};
+  String(header || "").split(";").forEach((part) => {
+    const index = part.indexOf("=");
+    if (index < 0) return;
+    const key = part.slice(0, index).trim();
+    if (!key) return;
+    cookies[key] = decodeURIComponent(part.slice(index + 1).trim());
+  });
+  return cookies;
+}
+
+function timingSafeEqualString(a = "", b = "") {
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function requestHasMainlandBypass(req, url) {
+  if (!MAINLAND_BYPASS_TOKEN) return false;
+  const queryToken = url.searchParams.get(MAINLAND_BYPASS_QUERY_PARAM) || "";
+  if (queryToken && timingSafeEqualString(queryToken, MAINLAND_BYPASS_TOKEN)) return true;
+  const cookies = parseCookieHeader(req.headers.cookie || "");
+  return timingSafeEqualString(cookies[MAINLAND_BYPASS_COOKIE] || "", MAINLAND_BYPASS_TOKEN);
+}
+
+function setMainlandBypassCookie(res) {
+  if (!MAINLAND_BYPASS_TOKEN) return;
+  const cookie = [
+    `${MAINLAND_BYPASS_COOKIE}=${encodeURIComponent(MAINLAND_BYPASS_TOKEN)}`,
+    "Path=/",
+    `Max-Age=${MAINLAND_BYPASS_MAX_AGE_SECONDS}`,
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax",
+  ].join("; ");
+  const previous = res.getHeader("set-cookie");
+  const next = previous ? (Array.isArray(previous) ? [...previous, cookie] : [previous, cookie]) : cookie;
+  res.setHeader("set-cookie", next);
+}
+
+function redirectWithoutBypassParam(res, url) {
+  const redirectUrl = new URL(url.pathname + url.search, "https://123vips.com");
+  redirectUrl.searchParams.delete(MAINLAND_BYPASS_QUERY_PARAM);
+  const location = `${redirectUrl.pathname}${redirectUrl.search}${url.hash || ""}` || "/";
+  res.writeHead(302, {
+    location,
+    "cache-control": "no-store",
+  });
+  return res.end();
+}
+
+function shouldCleanBypassUrl(req, url) {
+  return req.method === "GET" && !url.pathname.startsWith("/api/") && url.searchParams.has(MAINLAND_BYPASS_QUERY_PARAM);
 }
 
 function isMainlandChinaRequest(req) {
@@ -7080,7 +7143,19 @@ async function handleRequest(req, res) {
 
   try {
     if (isMainlandChinaRequest(req)) {
-      return sendMainlandBlocked(req, res, url);
+      if (requestHasMainlandBypass(req, url)) {
+        setMainlandBypassCookie(res);
+        if (shouldCleanBypassUrl(req, url)) {
+          return redirectWithoutBypassParam(res, url);
+        }
+      } else {
+        return sendMainlandBlocked(req, res, url);
+      }
+    } else if (url.searchParams.has(MAINLAND_BYPASS_QUERY_PARAM) && requestHasMainlandBypass(req, url)) {
+      setMainlandBypassCookie(res);
+      if (shouldCleanBypassUrl(req, url)) {
+        return redirectWithoutBypassParam(res, url);
+      }
     }
 
     if (req.method === "GET" && url.pathname === "/api/health") {

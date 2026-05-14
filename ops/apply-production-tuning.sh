@@ -114,6 +114,17 @@ NGINX
   fi
 }
 
+write_mainland_bypass_token() {
+  mkdir -p "$NGINX_GEO_DIR"
+  local token
+  token="$(grep '^MAINLAND_BYPASS_TOKEN=' "$ENV_FILE" | tail -1 | cut -d= -f2-)"
+  cat > "${NGINX_GEO_DIR}/mainland_bypass_token.conf" <<NGINX
+# managed by raising-game production tuning
+"${token}" 1;
+NGINX
+  chmod 600 "${NGINX_GEO_DIR}/mainland_bypass_token.conf"
+}
+
 upsert_env() {
   local key="$1"
   local value="$2"
@@ -122,6 +133,18 @@ upsert_env() {
   if grep -q "^${key}=" "$ENV_FILE"; then
     sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
   else
+    printf '\n%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+  fi
+}
+
+ensure_secret_env() {
+  local key="$1"
+  local bytes="${2:-24}"
+  touch "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+  if ! grep -q "^${key}=" "$ENV_FILE" || [ -z "$(grep "^${key}=" "$ENV_FILE" | tail -1 | cut -d= -f2-)" ]; then
+    local value
+    value="$(openssl rand -hex "$bytes")"
     printf '\n%s=%s\n' "$key" "$value" >> "$ENV_FILE"
   fi
 }
@@ -142,6 +165,22 @@ events {
 }
 
 http {
+    map $arg_cnpass $mainland_bypass_arg {
+        default 0;
+        include /etc/nginx/geo/mainland_bypass_token.conf;
+    }
+
+    map $cookie_cnpass $mainland_bypass_cookie {
+        default 0;
+        include /etc/nginx/geo/mainland_bypass_token.conf;
+    }
+
+    map "$mainland_bypass_arg:$mainland_bypass_cookie" $mainland_bypass_access {
+        default 0;
+        ~^1: 1;
+        ~^0:1$ 1;
+    }
+
     sendfile on;
     tcp_nopush on;
     tcp_nodelay on;
@@ -183,8 +222,14 @@ http {
 
     map "$blocked_cf_country:$blocked_mainland_ip" $blocked_mainland_access {
         default 0;
-        ~^1: 1;
-        ~^0:1$ 1;
+        "1:0" 1;
+        "0:1" 1;
+        "1:1" 1;
+    }
+
+    map "$blocked_mainland_access:$mainland_bypass_access" $block_mainland_request {
+        default 0;
+        "1:0" 1;
     }
 
     include /etc/nginx/conf.d/*.conf;
@@ -216,7 +261,11 @@ server {
     listen [::]:80 default_server;
     server_name 123vips.com www.123vips.com api.123vips.com admin.123vips.com;
 
-    if ($blocked_mainland_access) {
+    if ($mainland_bypass_arg) {
+        add_header Set-Cookie "cnpass=$arg_cnpass; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax" always;
+    }
+
+    if ($block_mainland_request) {
         return 451 "Service is not available in this region.\n";
     }
 
@@ -242,7 +291,11 @@ server {
 
     client_max_body_size 20m;
 
-    if ($blocked_mainland_access) {
+    if ($mainland_bypass_arg) {
+        add_header Set-Cookie "cnpass=$arg_cnpass; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax" always;
+    }
+
+    if ($block_mainland_request) {
         return 451 "Service is not available in this region.\n";
     }
 
@@ -360,7 +413,11 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    if ($blocked_mainland_access) {
+    if ($mainland_bypass_arg) {
+        add_header Set-Cookie "cnpass=$arg_cnpass; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax" always;
+    }
+
+    if ($block_mainland_request) {
         return 451 "Service is not available in this region.\n";
     }
 
@@ -412,6 +469,10 @@ upsert_env HTTP_REQUEST_TIMEOUT_MS "${HTTP_REQUEST_TIMEOUT_MS:-180000}"
 upsert_env HTTP_MAX_REQUESTS_PER_SOCKET "${HTTP_MAX_REQUESTS_PER_SOCKET:-1000}"
 upsert_env HTTP_MAX_CONNECTIONS "${HTTP_MAX_CONNECTIONS:-2000}"
 upsert_env BLOCK_MAINLAND_CHINA "${BLOCK_MAINLAND_CHINA:-1}"
+upsert_env MAINLAND_BYPASS_QUERY_PARAM "${MAINLAND_BYPASS_QUERY_PARAM:-cnpass}"
+upsert_env MAINLAND_BYPASS_COOKIE "${MAINLAND_BYPASS_COOKIE:-cnpass}"
+upsert_env MAINLAND_BYPASS_MAX_AGE_SECONDS "${MAINLAND_BYPASS_MAX_AGE_SECONDS:-86400}"
+ensure_secret_env MAINLAND_BYPASS_TOKEN 24
 
 backup_file "$NGINX_MAIN"
 backup_file "$NGINX_SITE"
@@ -419,6 +480,7 @@ backup_file "$CF_REAL_IP_FILE"
 backup_file "$CN_GEO_FILE"
 write_cloudflare_real_ip
 write_mainland_geo
+write_mainland_bypass_token
 write_nginx_main
 write_nginx_site
 write_systemd_override
