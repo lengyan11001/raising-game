@@ -26,6 +26,8 @@ const state = {
   loginMode: "login",
   showAccessToken: false,
   showAccountToken: false,
+  topupRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [] },
+  spendingRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [], types: [] },
 };
 
 const els = {
@@ -58,6 +60,22 @@ const els = {
   copyTokenBtn: document.querySelector("#copyTokenBtn"),
   historyList: document.querySelector("#historyList"),
   refreshHistoryBtn: document.querySelector("#refreshHistoryBtn"),
+  topupFilters: document.querySelector("#topupFilters"),
+  topupSearch: document.querySelector("#topupSearch"),
+  topupStatus: document.querySelector("#topupStatus"),
+  topupFrom: document.querySelector("#topupFrom"),
+  topupTo: document.querySelector("#topupTo"),
+  topupTable: document.querySelector("#topupTable"),
+  topupPager: document.querySelector("#topupPager"),
+  exportTopupsBtn: document.querySelector("#exportTopupsBtn"),
+  spendingFilters: document.querySelector("#spendingFilters"),
+  spendingSearch: document.querySelector("#spendingSearch"),
+  spendingType: document.querySelector("#spendingType"),
+  spendingFrom: document.querySelector("#spendingFrom"),
+  spendingTo: document.querySelector("#spendingTo"),
+  spendingTable: document.querySelector("#spendingTable"),
+  spendingPager: document.querySelector("#spendingPager"),
+  exportSpendingBtn: document.querySelector("#exportSpendingBtn"),
   topupDialog: document.querySelector("#topupDialog"),
   topupTriggerBtn: document.querySelector("#topupTriggerBtn"),
   topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
@@ -109,6 +127,8 @@ const I18N = {
     "nav.advanced": "Advanced",
     "nav.access": "API Access",
     "nav.history": "History",
+    "nav.topups": "Top-ups",
+    "nav.spending": "Spending",
     "nav.game": "Game",
     "nav.login": "Login / Sign up",
     "common.close": "Close",
@@ -140,12 +160,22 @@ const I18N = {
     "copy.historyTitle": "Generation History",
     "copy.historySubtitle": "Review your generated videos, prompts, parameters and billing in one compact list.",
     "copy.historyNotice": "Only your own generation records are shown.",
+    "copy.topupsTitle": "Top-up Records",
+    "copy.topupsSubtitle": "Review USDT top-up orders with search, pagination and export.",
+    "copy.topupsNotice": "Top-up orders are listed separately from spending records.",
+    "copy.spendingTitle": "Spending Records",
+    "copy.spendingSubtitle": "Review credit consumption across generation and unlock actions.",
+    "copy.spendingNotice": "Only actual credit deductions are shown here.",
     "hero.access.eyebrow": "Integration",
     "hero.access.badge": "HTTP API",
     "hero.advanced.eyebrow": "Advanced",
     "hero.advanced.badge": "Permission",
     "hero.history.eyebrow": "History",
     "hero.history.badge": "Records",
+    "hero.topups.eyebrow": "Billing",
+    "hero.topups.badge": "Top-ups",
+    "hero.spending.eyebrow": "Billing",
+    "hero.spending.badge": "Credits",
     "hero.gallery.badge": "Templates",
     "gallery.title": "AI Templates",
     "gallery.subtitle": "Choose a template, upload material, and generate a new result.",
@@ -258,6 +288,43 @@ const I18N = {
     "history.viewParameters": "View parameters",
     "history.loading": "Loading generation records...",
     "history.loadFailed": "Load failed: {message}",
+    "ledger.search": "Search",
+    "ledger.status": "Status",
+    "ledger.type": "Type",
+    "ledger.from": "From",
+    "ledger.to": "To",
+    "ledger.query": "Query",
+    "ledger.export": "Export",
+    "ledger.prev": "Prev",
+    "ledger.next": "Next",
+    "ledger.page": "Page {page} / {totalPages} · {total} records",
+    "ledger.loginRequired": "Login required",
+    "ledger.loginDesc": "Sign in to view billing records.",
+    "ledger.empty": "No records found.",
+    "ledger.loading": "Loading records...",
+    "ledger.loadFailed": "Load failed: {message}",
+    "ledger.allStatuses": "All statuses",
+    "ledger.status.pending": "Pending",
+    "ledger.status.paid": "Paid",
+    "ledger.status.cancelled": "Cancelled",
+    "ledger.allTypes": "All types",
+    "ledger.orderId": "Order ID",
+    "ledger.createdAt": "Created",
+    "ledger.paidAt": "Paid",
+    "ledger.amount": "Amount",
+    "ledger.payable": "Payable",
+    "ledger.credits": "Credits",
+    "ledger.balanceAfter": "Balance after",
+    "ledger.title": "Title",
+    "ledger.taskId": "Task ID",
+    "topups.eyebrow": "Billing",
+    "topups.title": "Top-up Records",
+    "topups.subtitle": "Search and export your USDT top-up orders.",
+    "topups.searchPlaceholder": "Order ID / status",
+    "spending.eyebrow": "Billing",
+    "spending.title": "Spending Records",
+    "spending.subtitle": "Search and export your credit consumption records.",
+    "spending.searchPlaceholder": "Task / type / title",
     "status.completed": "Completed",
     "status.failed": "Failed",
     "status.processing": "Processing",
@@ -290,6 +357,8 @@ const I18N = {
     "nav.advanced": "Nâng cao",
     "nav.access": "Truy cập API",
     "nav.history": "Lịch sử",
+    "nav.topups": "Nạp tiền",
+    "nav.spending": "Chi tiêu",
     "nav.game": "Trò chơi",
     "nav.login": "Đăng nhập / Đăng ký",
     "common.close": "Đóng",
@@ -321,12 +390,22 @@ const I18N = {
     "copy.historyTitle": "Lịch sử tạo",
     "copy.historySubtitle": "Xem video, prompt, tham số và chi phí trong một danh sách gọn.",
     "copy.historyNotice": "Chỉ hiển thị bản ghi tạo của riêng bạn.",
+    "copy.topupsTitle": "Lịch sử nạp tiền",
+    "copy.topupsSubtitle": "Xem đơn nạp USDT với tìm kiếm, phân trang và xuất file.",
+    "copy.topupsNotice": "Đơn nạp được tách riêng khỏi lịch sử chi tiêu.",
+    "copy.spendingTitle": "Lịch sử chi tiêu",
+    "copy.spendingSubtitle": "Xem các lần tiêu credits cho tạo video và mở khóa.",
+    "copy.spendingNotice": "Chỉ hiển thị các khoản trừ credits thực tế.",
     "hero.access.eyebrow": "Tích hợp",
     "hero.access.badge": "HTTP API",
     "hero.advanced.eyebrow": "Nâng cao",
     "hero.advanced.badge": "Quyền",
     "hero.history.eyebrow": "Lịch sử",
     "hero.history.badge": "Bản ghi",
+    "hero.topups.eyebrow": "Thanh toán",
+    "hero.topups.badge": "Nạp tiền",
+    "hero.spending.eyebrow": "Thanh toán",
+    "hero.spending.badge": "Credits",
     "hero.gallery.badge": "Mẫu",
     "gallery.title": "Mẫu AI",
     "gallery.subtitle": "Chọn mẫu, tải tư liệu lên và tạo kết quả mới.",
@@ -439,6 +518,43 @@ const I18N = {
     "history.viewParameters": "Xem tham số",
     "history.loading": "Đang tải bản ghi tạo...",
     "history.loadFailed": "Tải thất bại: {message}",
+    "ledger.search": "Tìm kiếm",
+    "ledger.status": "Trạng thái",
+    "ledger.type": "Loại",
+    "ledger.from": "Từ",
+    "ledger.to": "Đến",
+    "ledger.query": "Tìm",
+    "ledger.export": "Xuất",
+    "ledger.prev": "Trước",
+    "ledger.next": "Sau",
+    "ledger.page": "Trang {page} / {totalPages} · {total} bản ghi",
+    "ledger.loginRequired": "Cần đăng nhập",
+    "ledger.loginDesc": "Đăng nhập để xem lịch sử thanh toán.",
+    "ledger.empty": "Không có bản ghi.",
+    "ledger.loading": "Đang tải bản ghi...",
+    "ledger.loadFailed": "Tải thất bại: {message}",
+    "ledger.allStatuses": "Tất cả trạng thái",
+    "ledger.status.pending": "Đang chờ",
+    "ledger.status.paid": "Đã thanh toán",
+    "ledger.status.cancelled": "Đã hủy",
+    "ledger.allTypes": "Tất cả loại",
+    "ledger.orderId": "Mã đơn",
+    "ledger.createdAt": "Tạo lúc",
+    "ledger.paidAt": "Thanh toán",
+    "ledger.amount": "Số tiền",
+    "ledger.payable": "Cần trả",
+    "ledger.credits": "Credits",
+    "ledger.balanceAfter": "Số dư sau",
+    "ledger.title": "Tiêu đề",
+    "ledger.taskId": "Task ID",
+    "topups.eyebrow": "Thanh toán",
+    "topups.title": "Lịch sử nạp tiền",
+    "topups.subtitle": "Tìm kiếm và xuất các đơn nạp USDT.",
+    "topups.searchPlaceholder": "Mã đơn / trạng thái",
+    "spending.eyebrow": "Thanh toán",
+    "spending.title": "Lịch sử chi tiêu",
+    "spending.subtitle": "Tìm kiếm và xuất lịch sử tiêu credits.",
+    "spending.searchPlaceholder": "Task / loại / tiêu đề",
     "status.completed": "Hoàn thành",
     "status.failed": "Thất bại",
     "status.processing": "Đang xử lý",
@@ -471,6 +587,8 @@ const I18N = {
     "nav.advanced": "高度設定",
     "nav.access": "API アクセス",
     "nav.history": "履歴",
+    "nav.topups": "チャージ履歴",
+    "nav.spending": "消費履歴",
     "nav.game": "ゲーム",
     "nav.login": "ログイン / 登録",
     "common.close": "閉じる",
@@ -502,12 +620,22 @@ const I18N = {
     "copy.historyTitle": "生成履歴",
     "copy.historySubtitle": "生成動画、プロンプト、パラメータ、課金をコンパクトに確認できます。",
     "copy.historyNotice": "自分の生成記録のみ表示されます。",
+    "copy.topupsTitle": "チャージ履歴",
+    "copy.topupsSubtitle": "USDT チャージ注文を検索、ページ表示、エクスポートできます。",
+    "copy.topupsNotice": "チャージ注文は消費履歴とは別に表示されます。",
+    "copy.spendingTitle": "消費履歴",
+    "copy.spendingSubtitle": "生成やアンロックで消費した credits を確認できます。",
+    "copy.spendingNotice": "実際に差し引かれた credits のみ表示されます。",
     "hero.access.eyebrow": "連携",
     "hero.access.badge": "HTTP API",
     "hero.advanced.eyebrow": "高度設定",
     "hero.advanced.badge": "権限",
     "hero.history.eyebrow": "履歴",
     "hero.history.badge": "記録",
+    "hero.topups.eyebrow": "課金",
+    "hero.topups.badge": "チャージ",
+    "hero.spending.eyebrow": "課金",
+    "hero.spending.badge": "Credits",
     "hero.gallery.badge": "テンプレート",
     "gallery.title": "AI テンプレート",
     "gallery.subtitle": "テンプレートを選び、素材をアップロードして新しい結果を生成します。",
@@ -620,6 +748,43 @@ const I18N = {
     "history.viewParameters": "パラメータを表示",
     "history.loading": "生成記録を読み込み中...",
     "history.loadFailed": "読み込み失敗: {message}",
+    "ledger.search": "検索",
+    "ledger.status": "ステータス",
+    "ledger.type": "タイプ",
+    "ledger.from": "開始",
+    "ledger.to": "終了",
+    "ledger.query": "検索",
+    "ledger.export": "エクスポート",
+    "ledger.prev": "前へ",
+    "ledger.next": "次へ",
+    "ledger.page": "ページ {page} / {totalPages} · {total} 件",
+    "ledger.loginRequired": "ログインが必要です",
+    "ledger.loginDesc": "課金履歴を見るにはログインしてください。",
+    "ledger.empty": "記録がありません。",
+    "ledger.loading": "記録を読み込み中...",
+    "ledger.loadFailed": "読み込み失敗: {message}",
+    "ledger.allStatuses": "すべてのステータス",
+    "ledger.status.pending": "保留中",
+    "ledger.status.paid": "支払い済み",
+    "ledger.status.cancelled": "キャンセル済み",
+    "ledger.allTypes": "すべてのタイプ",
+    "ledger.orderId": "注文 ID",
+    "ledger.createdAt": "作成日時",
+    "ledger.paidAt": "支払日時",
+    "ledger.amount": "金額",
+    "ledger.payable": "支払額",
+    "ledger.credits": "Credits",
+    "ledger.balanceAfter": "差引後残高",
+    "ledger.title": "タイトル",
+    "ledger.taskId": "Task ID",
+    "topups.eyebrow": "課金",
+    "topups.title": "チャージ履歴",
+    "topups.subtitle": "USDT チャージ注文を検索、エクスポートできます。",
+    "topups.searchPlaceholder": "注文 ID / ステータス",
+    "spending.eyebrow": "課金",
+    "spending.title": "消費履歴",
+    "spending.subtitle": "credits 消費履歴を検索、エクスポートできます。",
+    "spending.searchPlaceholder": "Task / タイプ / タイトル",
     "status.completed": "完了",
     "status.failed": "失敗",
     "status.processing": "処理中",
@@ -652,6 +817,8 @@ const I18N = {
     "nav.advanced": "고급",
     "nav.access": "API 접근",
     "nav.history": "기록",
+    "nav.topups": "충전 내역",
+    "nav.spending": "소비 내역",
     "nav.game": "게임",
     "nav.login": "로그인 / 가입",
     "common.close": "닫기",
@@ -683,12 +850,22 @@ const I18N = {
     "copy.historyTitle": "생성 기록",
     "copy.historySubtitle": "생성 비디오, 프롬프트, 파라미터와 과금을 간단히 확인하세요.",
     "copy.historyNotice": "본인의 생성 기록만 표시됩니다.",
+    "copy.topupsTitle": "충전 내역",
+    "copy.topupsSubtitle": "USDT 충전 주문을 검색, 페이지 확인, 내보내기할 수 있습니다.",
+    "copy.topupsNotice": "충전 주문은 소비 내역과 분리되어 표시됩니다.",
+    "copy.spendingTitle": "소비 내역",
+    "copy.spendingSubtitle": "생성 및 잠금 해제에 사용된 credits 소비를 확인하세요.",
+    "copy.spendingNotice": "실제로 차감된 credits만 표시됩니다.",
     "hero.access.eyebrow": "연동",
     "hero.access.badge": "HTTP API",
     "hero.advanced.eyebrow": "고급",
     "hero.advanced.badge": "권한",
     "hero.history.eyebrow": "기록",
     "hero.history.badge": "레코드",
+    "hero.topups.eyebrow": "결제",
+    "hero.topups.badge": "충전",
+    "hero.spending.eyebrow": "결제",
+    "hero.spending.badge": "Credits",
     "hero.gallery.badge": "템플릿",
     "gallery.title": "AI 템플릿",
     "gallery.subtitle": "템플릿을 선택하고 자료를 업로드한 뒤 새 결과를 생성하세요.",
@@ -801,6 +978,43 @@ const I18N = {
     "history.viewParameters": "파라미터 보기",
     "history.loading": "생성 기록 로딩 중...",
     "history.loadFailed": "로드 실패: {message}",
+    "ledger.search": "검색",
+    "ledger.status": "상태",
+    "ledger.type": "유형",
+    "ledger.from": "시작",
+    "ledger.to": "종료",
+    "ledger.query": "조회",
+    "ledger.export": "내보내기",
+    "ledger.prev": "이전",
+    "ledger.next": "다음",
+    "ledger.page": "페이지 {page} / {totalPages} · {total}건",
+    "ledger.loginRequired": "로그인 필요",
+    "ledger.loginDesc": "결제 내역을 보려면 로그인하세요.",
+    "ledger.empty": "기록이 없습니다.",
+    "ledger.loading": "기록 로딩 중...",
+    "ledger.loadFailed": "로드 실패: {message}",
+    "ledger.allStatuses": "전체 상태",
+    "ledger.status.pending": "대기 중",
+    "ledger.status.paid": "결제됨",
+    "ledger.status.cancelled": "취소됨",
+    "ledger.allTypes": "전체 유형",
+    "ledger.orderId": "주문 ID",
+    "ledger.createdAt": "생성일",
+    "ledger.paidAt": "결제일",
+    "ledger.amount": "금액",
+    "ledger.payable": "결제 금액",
+    "ledger.credits": "Credits",
+    "ledger.balanceAfter": "차감 후 잔액",
+    "ledger.title": "제목",
+    "ledger.taskId": "Task ID",
+    "topups.eyebrow": "결제",
+    "topups.title": "충전 내역",
+    "topups.subtitle": "USDT 충전 주문을 검색하고 내보낼 수 있습니다.",
+    "topups.searchPlaceholder": "주문 ID / 상태",
+    "spending.eyebrow": "결제",
+    "spending.title": "소비 내역",
+    "spending.subtitle": "credits 소비 내역을 검색하고 내보낼 수 있습니다.",
+    "spending.searchPlaceholder": "Task / 유형 / 제목",
     "status.completed": "완료",
     "status.failed": "실패",
     "status.processing": "처리 중",
@@ -833,6 +1047,8 @@ const I18N = {
     "nav.advanced": "Lanjutan",
     "nav.access": "Akses API",
     "nav.history": "Riwayat",
+    "nav.topups": "Top-up",
+    "nav.spending": "Pemakaian",
     "nav.game": "Game",
     "nav.login": "Login / Daftar",
     "common.close": "Tutup",
@@ -864,12 +1080,22 @@ const I18N = {
     "copy.historyTitle": "Riwayat Pembuatan",
     "copy.historySubtitle": "Tinjau video, prompt, parameter, dan biaya dalam daftar ringkas.",
     "copy.historyNotice": "Hanya catatan pembuatan milik Anda yang ditampilkan.",
+    "copy.topupsTitle": "Riwayat Top-up",
+    "copy.topupsSubtitle": "Tinjau order top-up USDT dengan pencarian, halaman, dan ekspor.",
+    "copy.topupsNotice": "Order top-up dipisahkan dari riwayat pemakaian.",
+    "copy.spendingTitle": "Riwayat Pemakaian",
+    "copy.spendingSubtitle": "Tinjau pemakaian credits untuk pembuatan dan unlock.",
+    "copy.spendingNotice": "Hanya pemotongan credits aktual yang ditampilkan.",
     "hero.access.eyebrow": "Integrasi",
     "hero.access.badge": "HTTP API",
     "hero.advanced.eyebrow": "Lanjutan",
     "hero.advanced.badge": "Izin",
     "hero.history.eyebrow": "Riwayat",
     "hero.history.badge": "Catatan",
+    "hero.topups.eyebrow": "Billing",
+    "hero.topups.badge": "Top-up",
+    "hero.spending.eyebrow": "Billing",
+    "hero.spending.badge": "Credits",
     "hero.gallery.badge": "Template",
     "gallery.title": "Template AI",
     "gallery.subtitle": "Pilih template, unggah materi, dan buat hasil baru.",
@@ -982,6 +1208,43 @@ const I18N = {
     "history.viewParameters": "Lihat parameter",
     "history.loading": "Memuat catatan pembuatan...",
     "history.loadFailed": "Gagal memuat: {message}",
+    "ledger.search": "Cari",
+    "ledger.status": "Status",
+    "ledger.type": "Tipe",
+    "ledger.from": "Dari",
+    "ledger.to": "Sampai",
+    "ledger.query": "Cari",
+    "ledger.export": "Ekspor",
+    "ledger.prev": "Sebelumnya",
+    "ledger.next": "Berikutnya",
+    "ledger.page": "Halaman {page} / {totalPages} · {total} catatan",
+    "ledger.loginRequired": "Login diperlukan",
+    "ledger.loginDesc": "Login untuk melihat catatan billing.",
+    "ledger.empty": "Tidak ada catatan.",
+    "ledger.loading": "Memuat catatan...",
+    "ledger.loadFailed": "Gagal memuat: {message}",
+    "ledger.allStatuses": "Semua status",
+    "ledger.status.pending": "Pending",
+    "ledger.status.paid": "Dibayar",
+    "ledger.status.cancelled": "Dibatalkan",
+    "ledger.allTypes": "Semua tipe",
+    "ledger.orderId": "ID order",
+    "ledger.createdAt": "Dibuat",
+    "ledger.paidAt": "Dibayar",
+    "ledger.amount": "Jumlah",
+    "ledger.payable": "Harus dibayar",
+    "ledger.credits": "Credits",
+    "ledger.balanceAfter": "Saldo setelahnya",
+    "ledger.title": "Judul",
+    "ledger.taskId": "Task ID",
+    "topups.eyebrow": "Billing",
+    "topups.title": "Riwayat Top-up",
+    "topups.subtitle": "Cari dan ekspor order top-up USDT Anda.",
+    "topups.searchPlaceholder": "ID order / status",
+    "spending.eyebrow": "Billing",
+    "spending.title": "Riwayat Pemakaian",
+    "spending.subtitle": "Cari dan ekspor riwayat pemakaian credits.",
+    "spending.searchPlaceholder": "Task / tipe / judul",
     "status.completed": "Selesai",
     "status.failed": "Gagal",
     "status.processing": "Diproses",
@@ -1332,6 +1595,8 @@ function applyLanguage() {
   updateSubmitButtonCost();
   updateAdvancedButtonCost();
   if (state.tab === "history" && !historyLoading) loadHistory();
+  if (state.tab === "topups") loadTopupRecords();
+  if (state.tab === "spending") loadSpendingRecords();
   refreshIcons();
 }
 
@@ -1353,6 +1618,8 @@ function setUser(user, { refreshHistory = false } = {}) {
   renderTopupSummary();
   renderAccessGuides();
   renderAdvanced();
+  if (state.tab === "topups") loadTopupRecords(1);
+  if (state.tab === "spending") loadSpendingRecords(1);
   if (refreshHistory && state.tab === "history") loadHistory();
 }
 
@@ -1437,6 +1704,12 @@ function formatDurationSeconds(value) {
   const next = Number(value);
   if (!Number.isFinite(next) || next <= 0) return "";
   return t("cost.seconds", { value: Number.isInteger(next) ? next : next.toFixed(1).replace(/0+$/, "").replace(/\.$/, "") });
+}
+
+function formatDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }
 
 function templateCostLabel(templateId) {
@@ -1574,6 +1847,8 @@ function setTab(tab) {
   });
   renderHero();
   if (tab === "history") loadHistory();
+  if (tab === "topups") loadTopupRecords();
+  if (tab === "spending") loadSpendingRecords();
 }
 
 function renderHero() {
@@ -1599,6 +1874,22 @@ function renderHero() {
     els.heroSubtitle.textContent = t("copy.historySubtitle");
     els.heroBadge.textContent = t("hero.history.badge");
     els.heroNotice.textContent = t("copy.historyNotice");
+    return;
+  }
+  if (state.tab === "topups") {
+    els.heroEyebrow.textContent = t("hero.topups.eyebrow");
+    els.heroTitle.textContent = t("copy.topupsTitle");
+    els.heroSubtitle.textContent = t("copy.topupsSubtitle");
+    els.heroBadge.textContent = t("hero.topups.badge");
+    els.heroNotice.textContent = t("copy.topupsNotice");
+    return;
+  }
+  if (state.tab === "spending") {
+    els.heroEyebrow.textContent = t("hero.spending.eyebrow");
+    els.heroTitle.textContent = t("copy.spendingTitle");
+    els.heroSubtitle.textContent = t("copy.spendingSubtitle");
+    els.heroBadge.textContent = t("hero.spending.badge");
+    els.heroNotice.textContent = t("copy.spendingNotice");
     return;
   }
   const platform = state.config?.platform || {};
@@ -2097,6 +2388,239 @@ async function loadHistory() {
   }
 }
 
+function ledgerLoginCard() {
+  return `
+    <div class="history-empty-card">
+      <strong>${escapeHtml(t("ledger.loginRequired"))}</strong>
+      <p>${escapeHtml(t("ledger.loginDesc"))}</p>
+      <button class="generate-btn" type="button" data-login-ledger>${escapeHtml(t("history.login"))}</button>
+    </div>
+  `;
+}
+
+function ledgerParams(kind, page = 1, exportCsv = false) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(kind === "topups" ? state.topupRecords.limit : state.spendingRecords.limit),
+  });
+  const controls = kind === "topups"
+    ? {
+        q: els.topupSearch?.value,
+        status: els.topupStatus?.value,
+        from: els.topupFrom?.value,
+        to: els.topupTo?.value,
+      }
+    : {
+        q: els.spendingSearch?.value,
+        type: els.spendingType?.value,
+        from: els.spendingFrom?.value,
+        to: els.spendingTo?.value,
+      };
+  Object.entries(controls).forEach(([key, value]) => {
+    const text = String(value || "").trim();
+    if (text) params.set(key, text);
+  });
+  if (exportCsv) params.set("export", "csv");
+  return params;
+}
+
+function renderLedgerPager(kind) {
+  const data = kind === "topups" ? state.topupRecords : state.spendingRecords;
+  const holder = kind === "topups" ? els.topupPager : els.spendingPager;
+  if (!holder) return;
+  holder.innerHTML = `
+    <button class="ghost-button" type="button" data-page="prev" ${data.page <= 1 ? "disabled" : ""}>${escapeHtml(t("ledger.prev"))}</button>
+    <span>${escapeHtml(t("ledger.page", { page: data.page, totalPages: data.totalPages, total: data.total }))}</span>
+    <button class="ghost-button" type="button" data-page="next" ${data.page >= data.totalPages ? "disabled" : ""}>${escapeHtml(t("ledger.next"))}</button>
+  `;
+  holder.querySelector('[data-page="prev"]')?.addEventListener("click", () => {
+    if (data.page > 1) (kind === "topups" ? loadTopupRecords : loadSpendingRecords)(data.page - 1);
+  });
+  holder.querySelector('[data-page="next"]')?.addEventListener("click", () => {
+    if (data.page < data.totalPages) (kind === "topups" ? loadTopupRecords : loadSpendingRecords)(data.page + 1);
+  });
+}
+
+function renderTopupRecords() {
+  if (!els.topupTable) return;
+  if (!state.user) {
+    els.topupTable.innerHTML = ledgerLoginCard();
+    els.topupPager.innerHTML = "";
+    els.topupTable.querySelector("[data-login-ledger]")?.addEventListener("click", openLogin);
+    refreshIcons();
+    return;
+  }
+  const records = state.topupRecords.records || [];
+  if (!records.length) {
+    els.topupTable.innerHTML = `<div class="history-empty-card"><strong>${escapeHtml(t("ledger.empty"))}</strong></div>`;
+    renderLedgerPager("topups");
+    return;
+  }
+  els.topupTable.innerHTML = `
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>${escapeHtml(t("ledger.orderId"))}</th>
+          <th>${escapeHtml(t("ledger.status"))}</th>
+          <th>${escapeHtml(t("ledger.amount"))}</th>
+          <th>${escapeHtml(t("ledger.payable"))}</th>
+          <th>${escapeHtml(t("ledger.credits"))}</th>
+          <th>${escapeHtml(t("ledger.createdAt"))}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${records.map((order) => `
+          <tr>
+            <td data-label="${escapeHtml(t("ledger.orderId"))}"><code>${escapeHtml(order.id)}</code></td>
+            <td data-label="${escapeHtml(t("ledger.status"))}"><span class="ledger-badge">${escapeHtml(order.status || "")}</span></td>
+            <td data-label="${escapeHtml(t("ledger.amount"))}">${escapeHtml(formatCredits(order.amount))} ${escapeHtml(order.asset || "USDT")}</td>
+            <td data-label="${escapeHtml(t("ledger.payable"))}"><strong>${escapeHtml(order.payableAmountText || order.payableAmount || "")}</strong><small>${escapeHtml(order.network || "")}</small></td>
+            <td data-label="${escapeHtml(t("ledger.credits"))}">${escapeHtml(formatCredits(order.creditAmount))}</td>
+            <td data-label="${escapeHtml(t("ledger.createdAt"))}">${escapeHtml(formatDateTime(order.createdAt))}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+  renderLedgerPager("topups");
+}
+
+function renderSpendingTypeOptions(types = []) {
+  if (!els.spendingType) return;
+  const current = els.spendingType.value;
+  els.spendingType.innerHTML = `<option value="">${escapeHtml(t("ledger.allTypes"))}</option>${types.map((type) => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`).join("")}`;
+  if (types.includes(current)) els.spendingType.value = current;
+}
+
+function renderSpendingRecords() {
+  if (!els.spendingTable) return;
+  if (!state.user) {
+    els.spendingTable.innerHTML = ledgerLoginCard();
+    els.spendingPager.innerHTML = "";
+    els.spendingTable.querySelector("[data-login-ledger]")?.addEventListener("click", openLogin);
+    refreshIcons();
+    return;
+  }
+  const records = state.spendingRecords.records || [];
+  renderSpendingTypeOptions(state.spendingRecords.types || []);
+  if (!records.length) {
+    els.spendingTable.innerHTML = `<div class="history-empty-card"><strong>${escapeHtml(t("ledger.empty"))}</strong></div>`;
+    renderLedgerPager("spending");
+    return;
+  }
+  els.spendingTable.innerHTML = `
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>${escapeHtml(t("ledger.createdAt"))}</th>
+          <th>${escapeHtml(t("ledger.type"))}</th>
+          <th>${escapeHtml(t("ledger.title"))}</th>
+          <th>${escapeHtml(t("ledger.credits"))}</th>
+          <th>${escapeHtml(t("ledger.balanceAfter"))}</th>
+          <th>${escapeHtml(t("ledger.taskId"))}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${records.map((entry) => `
+          <tr>
+            <td data-label="${escapeHtml(t("ledger.createdAt"))}">${escapeHtml(formatDateTime(entry.createdAt))}</td>
+            <td data-label="${escapeHtml(t("ledger.type"))}"><span class="ledger-badge">${escapeHtml(entry.type || "")}</span></td>
+            <td data-label="${escapeHtml(t("ledger.title"))}"><strong>${escapeHtml(entry.title || entry.type || "")}</strong><small>${[entry.provider, entry.resolution, entry.duration ? `${entry.duration}s` : ""].filter(Boolean).join(" / ")}</small></td>
+            <td data-label="${escapeHtml(t("ledger.credits"))}" class="ledger-negative">-${escapeHtml(formatCredits(entry.amount))}</td>
+            <td data-label="${escapeHtml(t("ledger.balanceAfter"))}">${escapeHtml(formatCredits(entry.balanceAfter))}</td>
+            <td data-label="${escapeHtml(t("ledger.taskId"))}"><code>${escapeHtml(entry.taskId || entry.id || "")}</code></td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+  renderLedgerPager("spending");
+}
+
+async function loadTopupRecords(page = state.topupRecords.page || 1) {
+  if (!els.topupTable) return;
+  if (!state.user) {
+    renderTopupRecords();
+    return;
+  }
+  els.topupTable.innerHTML = `<div class="job-note">${escapeHtml(t("ledger.loading"))}</div>`;
+  try {
+    const payload = await requestJson(`/api/billing/topups?${ledgerParams("topups", page).toString()}`);
+    state.topupRecords = {
+      ...state.topupRecords,
+      records: payload.records || [],
+      page: payload.page || page,
+      limit: payload.limit || state.topupRecords.limit,
+      total: payload.total || 0,
+      totalPages: payload.totalPages || 1,
+    };
+    renderTopupRecords();
+  } catch (error) {
+    els.topupTable.innerHTML = `<div class="job-note">${escapeHtml(t("ledger.loadFailed", { message: error.message || String(error) }))}</div>`;
+  }
+  refreshIcons();
+}
+
+async function loadSpendingRecords(page = state.spendingRecords.page || 1) {
+  if (!els.spendingTable) return;
+  if (!state.user) {
+    renderSpendingRecords();
+    return;
+  }
+  els.spendingTable.innerHTML = `<div class="job-note">${escapeHtml(t("ledger.loading"))}</div>`;
+  try {
+    const payload = await requestJson(`/api/billing/spending?${ledgerParams("spending", page).toString()}`);
+    if (payload.user) setUser(payload.user);
+    state.spendingRecords = {
+      ...state.spendingRecords,
+      records: payload.records || [],
+      types: payload.types || state.spendingRecords.types || [],
+      page: payload.page || page,
+      limit: payload.limit || state.spendingRecords.limit,
+      total: payload.total || 0,
+      totalPages: payload.totalPages || 1,
+    };
+    renderSpendingRecords();
+  } catch (error) {
+    els.spendingTable.innerHTML = `<div class="job-note">${escapeHtml(t("ledger.loadFailed", { message: error.message || String(error) }))}</div>`;
+  }
+  refreshIcons();
+}
+
+async function exportLedger(kind) {
+  if (!state.user) return openLogin();
+  const endpoint = kind === "topups" ? "/api/billing/topups" : "/api/billing/spending";
+  const params = ledgerParams(kind, 1, true);
+  const button = kind === "topups" ? els.exportTopupsBtn : els.exportSpendingBtn;
+  const table = kind === "topups" ? els.topupTable : els.spendingTable;
+  const filename = kind === "topups" ? "topup-records.csv" : "spending-records.csv";
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch(`${endpoint}?${params.toString()}`, {
+      headers: state.token ? { authorization: `Bearer ${state.token}` } : {},
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.message || `Export failed: ${response.status}`);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    if (table) {
+      table.insertAdjacentHTML("afterbegin", `<div class="job-note">${escapeHtml(error.message || String(error))}</div>`);
+    }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 function openLogin() {
   if (state.user) return openAccount();
   renderLoginMode();
@@ -2118,6 +2642,8 @@ function logout() {
   els.accountDialog?.close();
   setUser(null);
   if (state.tab === "history") renderHistory([]);
+  if (state.tab === "topups") renderTopupRecords();
+  if (state.tab === "spending") renderSpendingRecords();
 }
 
 function renderLoginMode() {
@@ -2147,6 +2673,8 @@ async function submitLogin() {
     els.loginDialog.close();
     if (state.tab === "access") renderAccessGuides();
     if (state.tab === "history") loadHistory();
+    if (state.tab === "topups") loadTopupRecords(1);
+    if (state.tab === "spending") loadSpendingRecords(1);
   } catch (error) {
     els.loginMessage.textContent = error.message;
   }
@@ -2231,6 +2759,16 @@ els.advancedImage?.addEventListener("change", async () => {
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
 els.refreshHistoryBtn?.addEventListener("click", loadHistory);
+els.topupFilters?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  loadTopupRecords(1);
+});
+els.spendingFilters?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  loadSpendingRecords(1);
+});
+els.exportTopupsBtn?.addEventListener("click", () => exportLedger("topups"));
+els.exportSpendingBtn?.addEventListener("click", () => exportLedger("spending"));
 els.topupAmount?.addEventListener("input", () => {
   if (els.topupOrder) {
     els.topupOrder.hidden = true;

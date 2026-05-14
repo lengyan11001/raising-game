@@ -421,6 +421,28 @@ function sendText(res, statusCode, body) {
   res.end(body);
 }
 
+function sendCsv(res, filename, body) {
+  const safeName = String(filename || "export.csv").replace(/[^a-z0-9._-]/gi, "-") || "export.csv";
+  res.writeHead(200, {
+    "content-type": "text/csv; charset=utf-8",
+    "content-disposition": `attachment; filename="${safeName}"`,
+    "cache-control": "no-store",
+  });
+  res.end(`\uFEFF${body}`);
+}
+
+function csvValue(value) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(headers, rows) {
+  return [
+    headers.map(({ label }) => csvValue(label)).join(","),
+    ...rows.map((row) => headers.map(({ key }) => csvValue(row[key])).join(",")),
+  ].join("\n");
+}
+
 function requestCountryCode(req) {
   return String(
     req.headers["cf-ipcountry"] ||
@@ -4438,6 +4460,198 @@ async function handleListPaymentOrders(req, res) {
   return sendJson(res, 200, { ok: true, orders });
 }
 
+function pagingFromUrl(url, { defaultLimit = 12, maxLimit = 100 } = {}) {
+  const page = Math.max(1, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1);
+  const limit = Math.min(maxLimit, Math.max(1, Number.parseInt(url.searchParams.get("limit") || String(defaultLimit), 10) || defaultLimit));
+  return { page, limit, offset: (page - 1) * limit };
+}
+
+function dateFromQuery(value, endOfDay = false) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(text)
+    ? `${text}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`
+    : text;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function recordInDateRange(createdAt, fromDate, toDate) {
+  const date = new Date(createdAt || "");
+  if (Number.isNaN(date.getTime())) return true;
+  if (fromDate && date < fromDate) return false;
+  if (toDate && date > toDate) return false;
+  return true;
+}
+
+function publicTopupOrder(order = {}, wallet = {}) {
+  const cnyCentsPerUsdt = order.cnyCentsPerUsdt || walletCnyCentsPerUsdt(wallet);
+  const creditAmount = order.creditAmount ?? (
+    order.baseAmount
+      ? walletCreditsForUsdtAmount(order.baseAmount, { cnyCentsPerUsdt })
+      : 0
+  );
+  return {
+    id: order.id || "",
+    amount: order.baseAmount ?? "",
+    creditAmount: creditsAmount(creditAmount),
+    cnyCentsPerUsdt,
+    payableAmount: order.payableAmount ?? "",
+    payableAmountText: order.payableAmountText || String(order.payableAmount || order.baseAmount || ""),
+    asset: order.asset || "USDT",
+    network: order.network || "",
+    address: order.address || "",
+    status: order.status || "pending",
+    createdAt: order.createdAt || "",
+    paidAt: order.paidAt || "",
+    note: order.note || "",
+  };
+}
+
+function publicSpendingLedger(entry = {}) {
+  const meta = entry.meta && typeof entry.meta === "object" ? entry.meta : {};
+  const amount = Math.abs(Number(entry.delta || 0));
+  return {
+    id: entry.id || "",
+    amount: creditsAmount(amount),
+    delta: Number(entry.delta || 0),
+    balanceAfter: creditsAmount(entry.balanceAfter || 0),
+    type: entry.type || "",
+    title: meta.templateTitle || meta.caseTitle || meta.sceneName || meta.label || meta.source || entry.type || "",
+    taskId: meta.taskId || "",
+    templateId: meta.templateId || meta.caseId || "",
+    provider: meta.provider || "",
+    resolution: meta.resolution || "",
+    duration: meta.duration || "",
+    createdAt: entry.createdAt || "",
+  };
+}
+
+function billingQueryFilters(url) {
+  return {
+    q: String(url.searchParams.get("q") || "").trim().toLowerCase(),
+    status: String(url.searchParams.get("status") || "").trim().toLowerCase(),
+    type: String(url.searchParams.get("type") || "").trim().toLowerCase(),
+    fromDate: dateFromQuery(url.searchParams.get("from"), false),
+    toDate: dateFromQuery(url.searchParams.get("to"), true),
+    exportCsv: String(url.searchParams.get("export") || "").toLowerCase() === "csv",
+  };
+}
+
+async function handleListTopupRecords(req, res, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 12, maxLimit: 200 });
+  const { q, status, fromDate, toDate, exportCsv } = billingQueryFilters(url);
+  const records = (auth.db.walletOrders || [])
+    .filter((order) => order.userId === auth.user.id)
+    .map((order) => publicTopupOrder(order, config.wallet))
+    .filter((order) => {
+      if (status && String(order.status || "").toLowerCase() !== status) return false;
+      if (!recordInDateRange(order.createdAt, fromDate, toDate)) return false;
+      if (!q) return true;
+      return [order.id, order.payableAmountText, order.asset, order.network, order.status, order.note]
+        .some((value) => String(value || "").toLowerCase().includes(q));
+    });
+
+  if (exportCsv) {
+    const rows = records.map((order) => ({
+      id: order.id,
+      status: order.status,
+      amount: order.amount,
+      payableAmount: order.payableAmountText || order.payableAmount,
+      asset: order.asset,
+      network: order.network,
+      credits: order.creditAmount,
+      createdAt: order.createdAt,
+      paidAt: order.paidAt,
+      note: order.note,
+    }));
+    return sendCsv(res, "topup-records.csv", csvRows([
+      { key: "id", label: "Order ID" },
+      { key: "status", label: "Status" },
+      { key: "amount", label: "Amount" },
+      { key: "payableAmount", label: "Payable Amount" },
+      { key: "asset", label: "Asset" },
+      { key: "network", label: "Network" },
+      { key: "credits", label: "Credits" },
+      { key: "createdAt", label: "Created At" },
+      { key: "paidAt", label: "Paid At" },
+      { key: "note", label: "Note" },
+    ], rows));
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    records: records.slice(offset, offset + limit),
+    total: records.length,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(records.length / limit)),
+  });
+}
+
+async function handleListSpendingRecords(req, res, url) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 12, maxLimit: 200 });
+  const { q, type, fromDate, toDate, exportCsv } = billingQueryFilters(url);
+  const records = (auth.db.creditLedger || [])
+    .filter((entry) => entry.userId === auth.user.id && Number(entry.delta || 0) < 0)
+    .map(publicSpendingLedger)
+    .filter((entry) => {
+      if (type && String(entry.type || "").toLowerCase() !== type) return false;
+      if (!recordInDateRange(entry.createdAt, fromDate, toDate)) return false;
+      if (!q) return true;
+      return [entry.id, entry.type, entry.title, entry.taskId, entry.templateId, entry.provider, entry.resolution]
+        .some((value) => String(value || "").toLowerCase().includes(q));
+    });
+
+  const types = Array.from(new Set((auth.db.creditLedger || [])
+    .filter((entry) => entry.userId === auth.user.id && Number(entry.delta || 0) < 0)
+    .map((entry) => String(entry.type || "").trim())
+    .filter(Boolean))).sort();
+
+  if (exportCsv) {
+    const rows = records.map((entry) => ({
+      id: entry.id,
+      type: entry.type,
+      title: entry.title,
+      amount: entry.amount,
+      balanceAfter: entry.balanceAfter,
+      taskId: entry.taskId,
+      provider: entry.provider,
+      resolution: entry.resolution,
+      duration: entry.duration,
+      createdAt: entry.createdAt,
+    }));
+    return sendCsv(res, "spending-records.csv", csvRows([
+      { key: "id", label: "Ledger ID" },
+      { key: "type", label: "Type" },
+      { key: "title", label: "Title" },
+      { key: "amount", label: "Credits Spent" },
+      { key: "balanceAfter", label: "Balance After" },
+      { key: "taskId", label: "Task ID" },
+      { key: "provider", label: "Provider" },
+      { key: "resolution", label: "Resolution" },
+      { key: "duration", label: "Duration" },
+      { key: "createdAt", label: "Created At" },
+    ], rows));
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    records: records.slice(offset, offset + limit),
+    total: records.length,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(records.length / limit)),
+    types,
+    user: userView(auth.user),
+  });
+}
+
 async function handleSpendCredits(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -7202,6 +7416,14 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/pay/orders") {
       return await handleListPaymentOrders(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/billing/topups") {
+      return await handleListTopupRecords(req, res, url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/billing/spending") {
+      return await handleListSpendingRecords(req, res, url);
     }
 
     if (req.method === "POST" && url.pathname === "/api/wallet/spend") {

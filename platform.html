@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-27" />
+    <link rel="stylesheet" href="./platform.css?v=ai-28" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -36,6 +36,8 @@
         <button class="top-tab" data-tab="advanced" data-i18n="nav.advanced" type="button">Advanced</button>
         <button class="top-tab" data-tab="access" data-i18n="nav.access" type="button">API Access</button>
         <button class="top-tab" data-tab="history" data-i18n="nav.history" type="button">History</button>
+        <button class="top-tab" data-tab="topups" data-i18n="nav.topups" type="button">Top-up Records</button>
+        <button class="top-tab" data-tab="spending" data-i18n="nav.spending" type="button">Spending Records</button>
       </nav>
       <div class="head-actions">
         <a class="ghost-link" href="/game" data-i18n="nav.game">Game</a>
@@ -157,6 +159,46 @@
         </div>
         <div class="history-list compact-history" id="historyList"></div>
       </section>
+
+      <section class="ledger-panel" data-panel="topups" hidden>
+        <div class="section-head compact">
+          <div>
+            <p class="eyebrow" data-i18n="topups.eyebrow">Billing</p>
+            <h2 data-i18n="topups.title">Top-up Records</h2>
+            <p data-i18n="topups.subtitle">Search and export your USDT top-up orders.</p>
+          </div>
+          <button class="ghost-button" id="exportTopupsBtn" data-i18n="ledger.export" type="button"><i data-lucide="download"></i>Export</button>
+        </div>
+        <form class="ledger-toolbar" id="topupFilters">
+          <label><span data-i18n="ledger.search">Search</span><input id="topupSearch" type="search" placeholder="Order ID / status" data-i18n-placeholder="topups.searchPlaceholder" /></label>
+          <label><span data-i18n="ledger.status">Status</span><select id="topupStatus"><option value="" data-i18n="ledger.allStatuses">All statuses</option><option value="pending" data-i18n="ledger.status.pending">Pending</option><option value="paid" data-i18n="ledger.status.paid">Paid</option><option value="cancelled" data-i18n="ledger.status.cancelled">Cancelled</option></select></label>
+          <label><span data-i18n="ledger.from">From</span><input id="topupFrom" type="date" /></label>
+          <label><span data-i18n="ledger.to">To</span><input id="topupTo" type="date" /></label>
+          <button class="copy-btn" data-i18n="ledger.query" type="submit"><i data-lucide="search"></i>Query</button>
+        </form>
+        <div class="ledger-table-wrap" id="topupTable"></div>
+        <div class="ledger-pager" id="topupPager"></div>
+      </section>
+
+      <section class="ledger-panel" data-panel="spending" hidden>
+        <div class="section-head compact">
+          <div>
+            <p class="eyebrow" data-i18n="spending.eyebrow">Billing</p>
+            <h2 data-i18n="spending.title">Spending Records</h2>
+            <p data-i18n="spending.subtitle">Search and export your credit consumption records.</p>
+          </div>
+          <button class="ghost-button" id="exportSpendingBtn" data-i18n="ledger.export" type="button"><i data-lucide="download"></i>Export</button>
+        </div>
+        <form class="ledger-toolbar" id="spendingFilters">
+          <label><span data-i18n="ledger.search">Search</span><input id="spendingSearch" type="search" placeholder="Task / type / title" data-i18n-placeholder="spending.searchPlaceholder" /></label>
+          <label><span data-i18n="ledger.type">Type</span><select id="spendingType"><option value="" data-i18n="ledger.allTypes">All types</option></select></label>
+          <label><span data-i18n="ledger.from">From</span><input id="spendingFrom" type="date" /></label>
+          <label><span data-i18n="ledger.to">To</span><input id="spendingTo" type="date" /></label>
+          <button class="copy-btn" data-i18n="ledger.query" type="submit"><i data-lucide="search"></i>Query</button>
+        </form>
+        <div class="ledger-table-wrap" id="spendingTable"></div>
+        <div class="ledger-pager" id="spendingPager"></div>
+      </section>
     </main>
 
     <dialog id="templateDialog" class="modal">
@@ -273,6 +315,6 @@
       </form>
     </dialog>
 
-  <script src="./platform.js?v=ai-29"></script>
+  <script src="./platform.js?v=ai-30"></script>
 </body>
 </html>
