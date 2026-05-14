@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-25" />
+    <link rel="stylesheet" href="./platform.css?v=ai-27" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -26,6 +26,11 @@
           <option value="id">Bahasa Indonesia</option>
         </select>
       </label>
+      <button class="topup-trigger" id="topupTriggerBtn" type="button">
+        <i data-lucide="wallet"></i>
+        <span data-i18n="topup.compact">Top Up</span>
+        <strong id="topupTriggerCredits" hidden></strong>
+      </button>
       <nav class="top-tabs" aria-label="Main sections">
         <button class="top-tab is-active" data-tab="gallery" data-i18n="nav.gallery" type="button">Gallery</button>
         <button class="top-tab" data-tab="advanced" data-i18n="nav.advanced" type="button">Advanced</button>
@@ -52,18 +57,6 @@
       </section>
 
       <section class="workspace" data-panel="gallery">
-        <section class="topup-strip" id="topupPanel">
-          <div>
-            <span data-i18n="topup.title">USDT Top Up</span>
-            <strong id="topupCredits">0 credits</strong>
-            <small id="topupRate">Login to create a payment order.</small>
-          </div>
-          <div class="topup-actions">
-            <input id="topupAmount" type="number" min="1" step="1" value="10" aria-label="USDT amount" />
-            <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create order</button>
-          </div>
-          <div class="topup-order" id="topupOrder" hidden></div>
-        </section>
         <section class="gallery-panel">
           <div class="section-head">
             <div>
@@ -242,6 +235,32 @@
       </form>
     </dialog>
 
+    <dialog id="topupDialog" class="modal topup-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span data-i18n="topup.title">USDT Top Up</span>
+            <strong data-i18n="topup.dialogTitle">Top up credits</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <section class="topup-strip topup-modal-panel" id="topupPanel">
+            <div>
+              <span data-i18n="topup.title">USDT Top Up</span>
+              <strong id="topupCredits">0 credits</strong>
+              <small id="topupRate">Login to create a payment order.</small>
+            </div>
+            <div class="topup-actions">
+              <input id="topupAmount" type="number" min="1" step="1" value="10" aria-label="USDT amount" />
+              <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create order</button>
+            </div>
+            <div class="topup-order" id="topupOrder" hidden></div>
+          </section>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="previewDialog" class="modal preview-modal">
       <form method="dialog">
         <header>
@@ -254,6 +273,6 @@
       </form>
     </dialog>
 
-  <script src="./platform.js?v=ai-28"></script>
+  <script src="./platform.js?v=ai-29"></script>
 </body>
 </html>

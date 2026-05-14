@@ -58,6 +58,9 @@ const els = {
   copyTokenBtn: document.querySelector("#copyTokenBtn"),
   historyList: document.querySelector("#historyList"),
   refreshHistoryBtn: document.querySelector("#refreshHistoryBtn"),
+  topupDialog: document.querySelector("#topupDialog"),
+  topupTriggerBtn: document.querySelector("#topupTriggerBtn"),
+  topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
   topupPanel: document.querySelector("#topupPanel"),
   topupAmount: document.querySelector("#topupAmount"),
   topupCredits: document.querySelector("#topupCredits"),
@@ -153,6 +156,9 @@ const I18N = {
     "template.imageToVideo": "Image to Video",
     "template.textToVideo": "Text to Video",
     "template.generate": "Generate - {cost}",
+    "templateTitle.angel-rise": "Clockwork Angel",
+    "templateTitle.hero-rescue": "Superhero Rescue",
+    "templateTitle.product-fire": "Fire Product Showcase",
     "cost.checking": "Checking cost...",
     "cost.unavailable": "Cost unavailable",
     "cost.seconds": "{value}s",
@@ -163,6 +169,8 @@ const I18N = {
     "billing.prepaid": "Prepaid {pre}",
     "billing.noCharge": "No charge",
     "topup.title": "USDT Top Up",
+    "topup.compact": "Top Up",
+    "topup.dialogTitle": "Top up credits",
     "topup.createOrder": "Create order",
     "topup.login": "Login to create a payment order.",
     "topup.rate": "{amount} {asset} via {network}. Credits use RMB cents.",
@@ -329,6 +337,9 @@ const I18N = {
     "template.imageToVideo": "Ảnh thành video",
     "template.textToVideo": "Văn bản thành video",
     "template.generate": "Tạo - {cost}",
+    "templateTitle.angel-rise": "Thiên thần cơ khí",
+    "templateTitle.hero-rescue": "Giải cứu siêu anh hùng",
+    "templateTitle.product-fire": "Trình diễn sản phẩm lửa",
     "cost.checking": "Đang kiểm tra chi phí...",
     "cost.unavailable": "Không lấy được chi phí",
     "cost.seconds": "{value}s",
@@ -339,6 +350,8 @@ const I18N = {
     "billing.prepaid": "Đã tạm trừ {pre}",
     "billing.noCharge": "Không tính phí",
     "topup.title": "Nạp USDT",
+    "topup.compact": "Nạp",
+    "topup.dialogTitle": "Nạp credits",
     "topup.createOrder": "Tạo đơn",
     "topup.login": "Đăng nhập để tạo đơn thanh toán.",
     "topup.rate": "{amount} {asset} qua {network}. Credits tính theo cent RMB.",
@@ -505,6 +518,9 @@ const I18N = {
     "template.imageToVideo": "画像から動画",
     "template.textToVideo": "テキストから動画",
     "template.generate": "生成 - {cost}",
+    "templateTitle.angel-rise": "機械仕掛けの天使",
+    "templateTitle.hero-rescue": "スーパーヒーロー救出",
+    "templateTitle.product-fire": "炎のプロダクト紹介",
     "cost.checking": "コスト確認中...",
     "cost.unavailable": "コストを取得できません",
     "cost.seconds": "{value}s",
@@ -515,6 +531,8 @@ const I18N = {
     "billing.prepaid": "事前差引 {pre}",
     "billing.noCharge": "課金なし",
     "topup.title": "USDT チャージ",
+    "topup.compact": "チャージ",
+    "topup.dialogTitle": "Credits をチャージ",
     "topup.createOrder": "注文作成",
     "topup.login": "ログインして支払い注文を作成してください。",
     "topup.rate": "{amount} {asset} / {network}。Credits は RMB セントで計算されます。",
@@ -681,6 +699,9 @@ const I18N = {
     "template.imageToVideo": "이미지에서 비디오",
     "template.textToVideo": "텍스트에서 비디오",
     "template.generate": "생성 - {cost}",
+    "templateTitle.angel-rise": "태엽 천사",
+    "templateTitle.hero-rescue": "슈퍼히어로 구조",
+    "templateTitle.product-fire": "화염 제품 쇼케이스",
     "cost.checking": "비용 확인 중...",
     "cost.unavailable": "비용을 사용할 수 없음",
     "cost.seconds": "{value}s",
@@ -691,6 +712,8 @@ const I18N = {
     "billing.prepaid": "선차감 {pre}",
     "billing.noCharge": "요금 없음",
     "topup.title": "USDT 충전",
+    "topup.compact": "충전",
+    "topup.dialogTitle": "Credits 충전",
     "topup.createOrder": "주문 생성",
     "topup.login": "결제 주문을 만들려면 로그인하세요.",
     "topup.rate": "{amount} {asset}, {network}. Credits는 RMB 센트 기준입니다.",
@@ -857,6 +880,9 @@ const I18N = {
     "template.imageToVideo": "Gambar ke Video",
     "template.textToVideo": "Teks ke Video",
     "template.generate": "Buat - {cost}",
+    "templateTitle.angel-rise": "Malaikat mekanis",
+    "templateTitle.hero-rescue": "Penyelamatan superhero",
+    "templateTitle.product-fire": "Showcase produk api",
     "cost.checking": "Memeriksa biaya...",
     "cost.unavailable": "Biaya tidak tersedia",
     "cost.seconds": "{value}s",
@@ -867,6 +893,8 @@ const I18N = {
     "billing.prepaid": "Prabayar {pre}",
     "billing.noCharge": "Tidak ada biaya",
     "topup.title": "Top Up USDT",
+    "topup.compact": "Top Up",
+    "topup.dialogTitle": "Top up credits",
     "topup.createOrder": "Buat order",
     "topup.login": "Login untuk membuat order pembayaran.",
     "topup.rate": "{amount} {asset} via {network}. Credits memakai sen RMB.",
@@ -1250,6 +1278,23 @@ function localizedTemplateBadge(template = {}) {
   return badge;
 }
 
+function titleFromTemplateId(id = "") {
+  return String(id || "")
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function localizedTemplateTitle(template = {}) {
+  const key = `templateTitle.${template.id || ""}`;
+  const translated = I18N[state.lang]?.[key] || I18N.en[key];
+  if (translated) return translated;
+  const rawTitle = String(template.title || "").trim();
+  if (state.lang === "en" && /[\u4e00-\u9fff]/.test(rawTitle)) return titleFromTemplateId(template.id) || "Template";
+  return rawTitle || titleFromTemplateId(template.id) || "Template";
+}
+
 function setLocalizedContent(element, text) {
   if (!element) return;
   const icon = element.querySelector(":scope > svg, :scope > i");
@@ -1592,11 +1637,11 @@ function renderTemplates() {
 
   els.templateGrid.innerHTML = list.length ? list.map((template) => `
     <article class="template-card">
-      <img class="template-cover" src="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(template.title)}" loading="lazy" />
+      <img class="template-cover" src="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(localizedTemplateTitle(template))}" loading="lazy" />
       ${template.previewUrl ? `<button class="preview-play" data-preview-id="${escapeHtml(template.id)}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i><span>${escapeHtml(t("common.preview"))}</span></button>` : ""}
       <div class="template-meta">
         <span>${escapeHtml(localizedTemplateBadge(template))}</span>
-        <strong>${escapeHtml(template.title)}</strong>
+        <strong>${escapeHtml(localizedTemplateTitle(template))}</strong>
         <p>${escapeHtml(template.prompt || "").slice(0, 72)}${String(template.prompt || "").length > 72 ? "..." : ""}</p>
         <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
       </div>
@@ -1661,6 +1706,10 @@ function renderTopupSummary() {
   const asset = state.wallet?.asset || "USDT";
   const network = state.wallet?.network || "TRC20";
   if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits });
+  if (els.topupTriggerCredits) {
+    els.topupTriggerCredits.hidden = !state.user;
+    els.topupTriggerCredits.textContent = state.user ? formatCredits(Number(state.user.credits || 0)) : "";
+  }
   if (els.topupRate) {
     els.topupRate.textContent = state.user
       ? t("topup.rate", { amount: amount || 0, asset, network })
@@ -2190,6 +2239,11 @@ els.topupAmount?.addEventListener("input", () => {
   renderTopupSummary();
 });
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
+els.topupTriggerBtn?.addEventListener("click", () => {
+  renderTopupSummary();
+  if (!els.topupDialog?.open) els.topupDialog?.showModal();
+  refreshIcons();
+});
 els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;
   els.previewVideo.pause();
