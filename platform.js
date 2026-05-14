@@ -147,6 +147,9 @@ const I18N = {
     "gallery.title": "AI Templates",
     "gallery.subtitle": "Choose a template, upload material, and generate a new result.",
     "gallery.noTemplates": "No templates available yet.",
+    "category.featured": "Featured",
+    "category.i2v": "Image to Video",
+    "category.t2v": "Text to Video",
     "template.imageToVideo": "Image to Video",
     "template.textToVideo": "Text to Video",
     "template.generate": "Generate - {cost}",
@@ -320,6 +323,9 @@ const I18N = {
     "gallery.title": "Mẫu AI",
     "gallery.subtitle": "Chọn mẫu, tải tư liệu lên và tạo kết quả mới.",
     "gallery.noTemplates": "Chưa có mẫu nào.",
+    "category.featured": "Nổi bật",
+    "category.i2v": "Ảnh thành video",
+    "category.t2v": "Văn bản thành video",
     "template.imageToVideo": "Ảnh thành video",
     "template.textToVideo": "Văn bản thành video",
     "template.generate": "Tạo - {cost}",
@@ -493,6 +499,9 @@ const I18N = {
     "gallery.title": "AI テンプレート",
     "gallery.subtitle": "テンプレートを選び、素材をアップロードして新しい結果を生成します。",
     "gallery.noTemplates": "テンプレートはまだありません。",
+    "category.featured": "おすすめ",
+    "category.i2v": "画像から動画",
+    "category.t2v": "テキストから動画",
     "template.imageToVideo": "画像から動画",
     "template.textToVideo": "テキストから動画",
     "template.generate": "生成 - {cost}",
@@ -666,6 +675,9 @@ const I18N = {
     "gallery.title": "AI 템플릿",
     "gallery.subtitle": "템플릿을 선택하고 자료를 업로드한 뒤 새 결과를 생성하세요.",
     "gallery.noTemplates": "아직 사용할 수 있는 템플릿이 없습니다.",
+    "category.featured": "추천",
+    "category.i2v": "이미지에서 비디오",
+    "category.t2v": "텍스트에서 비디오",
     "template.imageToVideo": "이미지에서 비디오",
     "template.textToVideo": "텍스트에서 비디오",
     "template.generate": "생성 - {cost}",
@@ -839,6 +851,9 @@ const I18N = {
     "gallery.title": "Template AI",
     "gallery.subtitle": "Pilih template, unggah materi, dan buat hasil baru.",
     "gallery.noTemplates": "Belum ada template.",
+    "category.featured": "Unggulan",
+    "category.i2v": "Gambar ke Video",
+    "category.t2v": "Teks ke Video",
     "template.imageToVideo": "Gambar ke Video",
     "template.textToVideo": "Teks ke Video",
     "template.generate": "Buat - {cost}",
@@ -1208,6 +1223,33 @@ function guideText(guide, field) {
   return t(`guide.${guide.id}.${field}`, {}, guide[field] || "");
 }
 
+function normalizeCopyKey(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "")
+    .replace(/[：:]/g, "");
+}
+
+function localizedCategoryName(category = {}) {
+  const id = normalizeCopyKey(category.id);
+  const name = normalizeCopyKey(category.name);
+  if (id === "featured" || name === "精选模板" || name === "featured") return t("category.featured");
+  if (id === "i2v" || name === "图生视频" || name === "imagetovideo") return t("category.i2v");
+  if (id === "t2v" || name === "文生视频" || name === "texttovideo") return t("category.t2v");
+  return category.name || category.id || "";
+}
+
+function localizedTemplateBadge(template = {}) {
+  const badge = String(template.badge || "").trim();
+  const normalized = normalizeCopyKey(badge);
+  if (!badge) return template.type === "image-to-video" ? t("template.imageToVideo") : t("template.textToVideo");
+  if (normalized === "图生视频" || normalized === "imagetovideo") return t("template.imageToVideo");
+  if (normalized === "文生视频" || normalized === "texttovideo") return t("template.textToVideo");
+  if (normalized === "精选模板" || normalized === "featured") return t("category.featured");
+  return badge;
+}
+
 function setLocalizedContent(element, text) {
   if (!element) return;
   const icon = element.querySelector(":scope > svg, :scope > i");
@@ -1533,7 +1575,7 @@ function renderCategories() {
   const chips = [{ id: "all", name: t("common.all") }, ...visibleCategories];
   els.categoryRow.innerHTML = chips.map((category) => `
     <button class="category-chip ${state.category === category.id ? "is-active" : ""}" data-category="${escapeHtml(category.id)}" type="button">
-      ${escapeHtml(category.name)}
+      ${escapeHtml(localizedCategoryName(category))}
     </button>
   `).join("");
   els.categoryRow.querySelectorAll("[data-category]").forEach((button) => {
@@ -1553,7 +1595,7 @@ function renderTemplates() {
       <img class="template-cover" src="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(template.title)}" loading="lazy" />
       ${template.previewUrl ? `<button class="preview-play" data-preview-id="${escapeHtml(template.id)}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i><span>${escapeHtml(t("common.preview"))}</span></button>` : ""}
       <div class="template-meta">
-        <span>${escapeHtml(template.badge || (template.type === "image-to-video" ? t("template.imageToVideo") : t("template.textToVideo")))}</span>
+        <span>${escapeHtml(localizedTemplateBadge(template))}</span>
         <strong>${escapeHtml(template.title)}</strong>
         <p>${escapeHtml(template.prompt || "").slice(0, 72)}${String(template.prompt || "").length > 72 ? "..." : ""}</p>
         <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
