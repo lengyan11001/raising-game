@@ -2,6 +2,7 @@
 
 const TOKEN_KEY = "raisingGameToken";
 const LANG_KEY = "raisingGameLanguage";
+const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_CREDITS_PER_SECOND = 150;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
@@ -2187,8 +2188,8 @@ function renderTemplates() {
 
   els.templateGrid.innerHTML = list.length ? list.map((template) => `
     <article class="template-card" data-card-template-id="${escapeHtml(template.id)}">
-      <img class="template-cover" src="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(localizedTemplateTitle(template))}" loading="lazy" />
-      ${template.previewUrl ? `<video class="template-hover-video" src="${escapeHtml(template.previewUrl)}" poster="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" muted loop playsinline preload="metadata" disablepictureinpicture></video>` : ""}
+      <img class="template-cover" src="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(localizedTemplateTitle(template))}" loading="lazy" />
+      ${template.previewUrl ? `<video class="template-hover-video" src="${escapeHtml(template.previewUrl)}" poster="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" muted loop playsinline preload="metadata" disablepictureinpicture></video>` : ""}
       <div class="template-meta">
         <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
       </div>
@@ -2200,6 +2201,21 @@ function renderTemplates() {
   });
   els.templateGrid.querySelectorAll(".template-card").forEach((card) => {
     const video = card.querySelector(".template-hover-video");
+    const cover = card.querySelector(".template-cover");
+    const useFallbackCover = () => {
+      if (!cover || cover.dataset.fallbackApplied === "1") return;
+      cover.dataset.fallbackApplied = "1";
+      if (video) {
+        card.classList.add("cover-failed");
+        video.load();
+        return;
+      }
+      if (cover.getAttribute("src") !== DEFAULT_TEMPLATE_COVER) {
+        cover.src = DEFAULT_TEMPLATE_COVER;
+      }
+    };
+    cover?.addEventListener("error", useFallbackCover);
+    if (cover?.complete && cover.naturalWidth === 0) useFallbackCover();
     if (!video) return;
     let active = false;
     let loadTimer = null;
@@ -2234,7 +2250,10 @@ function renderTemplates() {
     video.addEventListener("canplay", showVideo);
     video.addEventListener("playing", showVideo);
     video.addEventListener("error", () => {
-      card.classList.remove("is-loading-preview", "is-previewing");
+      card.classList.remove("cover-failed", "is-loading-preview", "is-previewing");
+      if (cover && cover.getAttribute("src") !== DEFAULT_TEMPLATE_COVER) {
+        cover.src = DEFAULT_TEMPLATE_COVER;
+      }
     });
     card.addEventListener("pointerenter", start);
     card.addEventListener("pointerleave", stop);
