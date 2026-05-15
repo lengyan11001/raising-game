@@ -2188,7 +2188,7 @@ function renderTemplates() {
   els.templateGrid.innerHTML = list.length ? list.map((template) => `
     <article class="template-card" data-card-template-id="${escapeHtml(template.id)}">
       <img class="template-cover" src="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(localizedTemplateTitle(template))}" loading="lazy" />
-      ${template.previewUrl ? `<video class="template-hover-video" data-template-preview-src="${escapeHtml(template.previewUrl)}" muted loop playsinline preload="none"></video>` : ""}
+      ${template.previewUrl ? `<video class="template-hover-video" data-template-preview-src="${escapeHtml(template.previewUrl)}" muted loop playsinline preload="none" crossorigin="anonymous" referrerpolicy="no-referrer"></video>` : ""}
       <div class="template-meta">
         <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
       </div>
@@ -2201,17 +2201,44 @@ function renderTemplates() {
   els.templateGrid.querySelectorAll(".template-card").forEach((card) => {
     const video = card.querySelector(".template-hover-video");
     if (!video) return;
+    let active = false;
+    let loadTimer = null;
+    const showVideo = () => {
+      if (!active || video.readyState < 2) return;
+      card.classList.add("is-previewing");
+    };
     const start = () => {
       if (!video.dataset.templatePreviewSrc) return;
-      if (!video.src) video.src = video.dataset.templatePreviewSrc;
-      card.classList.add("is-previewing");
-      video.play().catch(() => {});
+      active = true;
+      card.classList.add("is-loading-preview");
+      if (!video.src) {
+        video.src = video.dataset.templatePreviewSrc;
+        video.load();
+      }
+      clearTimeout(loadTimer);
+      loadTimer = window.setTimeout(showVideo, 120);
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.then === "function") {
+        playPromise.then(showVideo).catch(() => {
+          card.classList.remove("is-loading-preview", "is-previewing");
+        });
+      } else {
+        showVideo();
+      }
     };
     const stop = () => {
+      active = false;
+      clearTimeout(loadTimer);
       video.pause();
       video.currentTime = 0;
-      card.classList.remove("is-previewing");
+      card.classList.remove("is-loading-preview", "is-previewing");
     };
+    video.addEventListener("loadeddata", showVideo);
+    video.addEventListener("canplay", showVideo);
+    video.addEventListener("playing", showVideo);
+    video.addEventListener("error", () => {
+      card.classList.remove("is-loading-preview", "is-previewing");
+    });
     card.addEventListener("mouseenter", start);
     card.addEventListener("mouseleave", stop);
     card.addEventListener("focusin", start);
