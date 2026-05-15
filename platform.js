@@ -2186,13 +2186,10 @@ function renderTemplates() {
   });
 
   els.templateGrid.innerHTML = list.length ? list.map((template) => `
-    <article class="template-card">
+    <article class="template-card" data-card-template-id="${escapeHtml(template.id)}">
       <img class="template-cover" src="${escapeHtml(template.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(localizedTemplateTitle(template))}" loading="lazy" />
-      ${template.previewUrl ? `<button class="preview-play" data-preview-id="${escapeHtml(template.id)}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i><span>${escapeHtml(t("common.preview"))}</span></button>` : ""}
+      ${template.previewUrl ? `<video class="template-hover-video" data-template-preview-src="${escapeHtml(template.previewUrl)}" muted loop playsinline preload="none"></video>` : ""}
       <div class="template-meta">
-        <span>${escapeHtml(localizedTemplateBadge(template))}</span>
-        <strong>${escapeHtml(localizedTemplateTitle(template))}</strong>
-        <p>${escapeHtml(template.prompt || "").slice(0, 72)}${String(template.prompt || "").length > 72 ? "..." : ""}</p>
         <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
       </div>
     </article>
@@ -2201,18 +2198,24 @@ function renderTemplates() {
   els.templateGrid.querySelectorAll("[data-template-id]").forEach((button) => {
     button.addEventListener("click", () => openTemplate(button.dataset.templateId));
   });
-  els.templateGrid.querySelectorAll("[data-preview-id]").forEach((button) => {
-    button.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation?.();
-    });
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation?.();
-      openPreview(button.dataset.previewId);
-    }, { capture: true });
+  els.templateGrid.querySelectorAll(".template-card").forEach((card) => {
+    const video = card.querySelector(".template-hover-video");
+    if (!video) return;
+    const start = () => {
+      if (!video.dataset.templatePreviewSrc) return;
+      if (!video.src) video.src = video.dataset.templatePreviewSrc;
+      card.classList.add("is-previewing");
+      video.play().catch(() => {});
+    };
+    const stop = () => {
+      video.pause();
+      video.currentTime = 0;
+      card.classList.remove("is-previewing");
+    };
+    card.addEventListener("mouseenter", start);
+    card.addEventListener("mouseleave", stop);
+    card.addEventListener("focusin", start);
+    card.addEventListener("focusout", stop);
   });
   refreshIcons();
 }
