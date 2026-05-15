@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-28" />
+    <link rel="stylesheet" href="./platform.css?v=ai-29" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -201,6 +201,18 @@
       </section>
     </main>
 
+    <footer class="site-foot">
+      <div>
+        <strong>Vipeak AI</strong>
+        <span data-i18n="footer.note">Responsible AI video generation for creative workflows.</span>
+      </div>
+      <nav aria-label="Legal links">
+        <button class="footer-link" data-legal-doc="privacy" data-i18n="legal.privacy" type="button">Privacy Policy</button>
+        <button class="footer-link" data-legal-doc="registration" data-i18n="legal.registration" type="button">User Registration Agreement</button>
+        <button class="footer-link" data-legal-doc="disclaimer" data-i18n="legal.disclaimer" type="button">Disclaimer</button>
+      </nav>
+    </footer>
+
     <dialog id="templateDialog" class="modal">
       <form method="dialog">
         <header>
@@ -315,6 +327,19 @@
       </form>
     </dialog>
 
-  <script src="./platform.js?v=ai-30"></script>
+    <dialog id="legalDialog" class="modal legal-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span id="legalKicker" data-i18n="legal.kicker">Legal</span>
+            <strong id="legalTitle">Privacy Policy</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body legal-body" id="legalBody"></div>
+      </form>
+    </dialog>
+
+  <script src="./platform.js?v=ai-31"></script>
 </body>
 </html>

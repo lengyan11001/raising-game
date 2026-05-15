@@ -148,6 +148,42 @@ a { color: inherit; text-decoration: none; }
 }
 
 main { width: min(1200px, calc(100vw - 44px)); margin: 0 auto; }
+.site-foot {
+  width: min(1200px, calc(100vw - 44px));
+  margin: 34px auto 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .88rem;
+}
+.site-foot > div {
+  display: grid;
+  gap: 4px;
+}
+.site-foot strong { color: var(--text); }
+.site-foot nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.footer-link {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #304056;
+  background: rgba(255,255,255,.52);
+  font-weight: 700;
+}
+.footer-link:hover {
+  border-color: rgba(15,148,139,.35);
+  color: var(--cyan);
+  background: rgba(15,148,139,.08);
+}
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;
@@ -601,6 +637,40 @@ select option:checked {
   background: rgba(17,29,53,.04);
 }
 .modal-body { display: grid; gap: 16px; padding: 22px; }
+.legal-modal {
+  width: min(860px, calc(100vw - 28px));
+}
+.legal-body {
+  max-height: min(72vh, 720px);
+  overflow: auto;
+  gap: 18px;
+  line-height: 1.65;
+}
+.legal-body section {
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(17,29,53,.08);
+}
+.legal-body section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.legal-body h3 {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 1rem;
+}
+.legal-body p {
+  margin: 0;
+  color: #405168;
+}
+.legal-updated {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #0d574f;
+  background: rgba(15,148,139,.08);
+  font-weight: 800;
+}
 .upload-box {
   position: relative;
   display: grid;
@@ -902,6 +972,12 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   .hero h1 { font-size: clamp(1.85rem, 10vw, 2.3rem); }
   .hero p { font-size: .95rem; line-height: 1.6; }
   .hero-panel { padding: 14px; }
+  .site-foot {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .site-foot nav { justify-content: flex-start; }
+  .footer-link { flex: 1 1 100%; text-align: left; }
   .gallery-panel, .access-panel, .advanced-panel, .history-panel, .ledger-panel { padding: 18px; }
   .template-grid { grid-template-columns: 1fr; }
   .section-head { align-items: start; flex-direction: column; }

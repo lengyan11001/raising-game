@@ -103,6 +103,9 @@ const els = {
   advancedSubmitBtn: document.querySelector("#advancedSubmitBtn"),
   advancedNote: document.querySelector("#advancedNote"),
   advancedCaseGrid: document.querySelector("#advancedCaseGrid"),
+  legalDialog: document.querySelector("#legalDialog"),
+  legalTitle: document.querySelector("#legalTitle"),
+  legalBody: document.querySelector("#legalBody"),
   loginBtn: document.querySelector("#loginBtn"),
   accountDialog: document.querySelector("#accountDialog"),
   accountName: document.querySelector("#accountName"),
@@ -142,6 +145,12 @@ const I18N = {
     "common.preview": "Preview",
     "common.all": "All",
     "common.credits": "credits",
+    "footer.note": "Responsible AI video generation for creative workflows.",
+    "legal.kicker": "Legal",
+    "legal.privacy": "Privacy Policy",
+    "legal.registration": "User Registration Agreement",
+    "legal.disclaimer": "Disclaimer",
+    "legal.updated": "Last updated: {date}",
     "field.prompt": "Prompt",
     "field.model": "Model",
     "field.ratio": "Ratio",
@@ -372,6 +381,12 @@ const I18N = {
     "common.preview": "Xem trước",
     "common.all": "Tất cả",
     "common.credits": "credits",
+    "footer.note": "Tạo video AI có trách nhiệm cho quy trình sáng tạo.",
+    "legal.kicker": "Pháp lý",
+    "legal.privacy": "Chính sách quyền riêng tư",
+    "legal.registration": "Thỏa thuận đăng ký người dùng",
+    "legal.disclaimer": "Tuyên bố miễn trừ trách nhiệm",
+    "legal.updated": "Cập nhật lần cuối: {date}",
     "field.prompt": "Prompt",
     "field.model": "Mô hình",
     "field.ratio": "Tỷ lệ",
@@ -602,6 +617,12 @@ const I18N = {
     "common.preview": "プレビュー",
     "common.all": "すべて",
     "common.credits": "credits",
+    "footer.note": "クリエイティブワークフロー向けの責任ある AI 動画生成。",
+    "legal.kicker": "法務",
+    "legal.privacy": "プライバシーポリシー",
+    "legal.registration": "ユーザー登録規約",
+    "legal.disclaimer": "免責事項",
+    "legal.updated": "最終更新日: {date}",
     "field.prompt": "プロンプト",
     "field.model": "モデル",
     "field.ratio": "比率",
@@ -832,6 +853,12 @@ const I18N = {
     "common.preview": "미리보기",
     "common.all": "전체",
     "common.credits": "credits",
+    "footer.note": "크리에이티브 워크플로를 위한 책임 있는 AI 영상 생성.",
+    "legal.kicker": "법률",
+    "legal.privacy": "개인정보 처리방침",
+    "legal.registration": "사용자 등록 약관",
+    "legal.disclaimer": "면책 고지",
+    "legal.updated": "최종 업데이트: {date}",
     "field.prompt": "프롬프트",
     "field.model": "모델",
     "field.ratio": "비율",
@@ -1062,6 +1089,12 @@ const I18N = {
     "common.preview": "Pratinjau",
     "common.all": "Semua",
     "common.credits": "credits",
+    "footer.note": "Pembuatan video AI yang bertanggung jawab untuk alur kerja kreatif.",
+    "legal.kicker": "Legal",
+    "legal.privacy": "Kebijakan Privasi",
+    "legal.registration": "Perjanjian Pendaftaran Pengguna",
+    "legal.disclaimer": "Sanggahan",
+    "legal.updated": "Terakhir diperbarui: {date}",
     "field.prompt": "Prompt",
     "field.model": "Model",
     "field.ratio": "Rasio",
@@ -1484,6 +1517,205 @@ ACCESS_GUIDES = [
   },
 ];
 
+const LEGAL_UPDATED_AT = "2026-05-15";
+const LEGAL_DOCS = {
+  en: {
+    privacy: {
+      title: "Privacy Policy",
+      sections: [
+        ["Information we collect", "We collect account information, login credentials, contact or support messages, uploaded prompts and reference files, generation records, wallet order records, device and request logs, and information needed to keep the service secure."],
+        ["How we use information", "We use this information to provide AI video generation, authenticate users, process credits and top-ups, prevent abuse, troubleshoot jobs, improve reliability, respond to support requests, and comply with applicable legal obligations."],
+        ["AI content and uploads", "Prompts, uploaded images, generated videos, parameters, and task metadata may be processed by our infrastructure and model providers only as needed to operate the service, review failures, enforce safety rules, or preserve billing records."],
+        ["Sharing", "We do not sell personal information. We may share limited data with hosting, payment, analytics, security, and model service providers, or disclose information when required by law, safety, fraud prevention, or enforcement of our agreements."],
+        ["Retention and security", "We keep account, billing, generation, and log data for as long as needed for service operation, dispute handling, security, legal compliance, and backup recovery. We use reasonable administrative, technical, and organizational safeguards, but no online system is risk-free."],
+        ["Your choices", "You may contact us to request access, correction, deletion, export, or restriction of personal information where applicable. Some records may be retained when required for legal, fraud-prevention, security, or accounting reasons."],
+        ["Children", "The service is intended for adults or users with legal authority to accept these terms. Do not use the service if you are below the age required by your jurisdiction."],
+        ["Changes", "We may update this policy when the product, laws, or operational needs change. The updated version takes effect when posted unless a later date is stated."],
+      ],
+    },
+    registration: {
+      title: "User Registration Agreement",
+      sections: [
+        ["Account eligibility", "By registering or using Vipeak AI, you confirm that you can legally enter this agreement and that the information you provide is truthful, current, and complete."],
+        ["Account security", "You are responsible for safeguarding your password, API token, generated credentials, and activity under your account. Notify us promptly if you suspect unauthorized access."],
+        ["Acceptable use", "You must not use the service to create illegal, non-consensual, deceptive, infringing, hateful, exploitative, abusive, or unsafe content, or to bypass safety controls, rate limits, access controls, or payment rules."],
+        ["Uploads and rights", "You represent that you have the necessary rights, permissions, and consent for images, prompts, text, names, likenesses, trademarks, and other materials that you upload or request the service to process."],
+        ["Credits and billing", "Credits are used for generation and related actions. Prices, model availability, duration, resolution, and credit consumption may change. Completed purchases and consumed credits are generally non-refundable unless required by law or expressly approved by us."],
+        ["Generated content", "Generated outputs depend on model behavior and user inputs. You are responsible for reviewing outputs before publication or commercial use and for ensuring your use complies with law, platform rules, and third-party rights."],
+        ["Service changes", "We may modify, suspend, throttle, or discontinue features, models, accounts, or access when needed for security, compliance, abuse prevention, maintenance, or business reasons."],
+        ["Termination", "We may restrict or terminate accounts that violate this agreement, create risk, misuse the service, interfere with operations, or fail to pay amounts owed."],
+      ],
+    },
+    disclaimer: {
+      title: "Disclaimer",
+      sections: [
+        ["No professional advice", "The service provides creative AI tools and does not provide legal, financial, medical, safety, or other professional advice."],
+        ["AI output limits", "AI-generated content may be inaccurate, unexpected, offensive, biased, incomplete, or unsuitable for a particular purpose. You must independently review and verify outputs before relying on them."],
+        ["User responsibility", "You are responsible for prompts, uploads, generated content, publication, distribution, and downstream use. Do not represent generated content as real footage or real statements when that would mislead others."],
+        ["Third-party services", "The service may depend on model providers, hosting providers, networks, wallets, and other third parties. Availability, latency, moderation results, and output quality may vary and are not guaranteed."],
+        ["No warranties", "To the maximum extent permitted by law, the service is provided as is and as available, without warranties of uninterrupted operation, error-free output, merchantability, fitness for a particular purpose, or non-infringement."],
+        ["Limitation of liability", "To the maximum extent permitted by law, Vipeak AI and its operators are not liable for indirect, incidental, special, consequential, punitive, or lost-profit damages arising from use or inability to use the service."],
+      ],
+    },
+  },
+  vi: {
+    privacy: {
+      title: "Chính sách quyền riêng tư",
+      sections: [
+        ["Thông tin chúng tôi thu thập", "Chúng tôi thu thập thông tin tài khoản, thông tin đăng nhập, tin nhắn hỗ trợ, prompt và tệp tham chiếu đã tải lên, lịch sử tạo, đơn nạp ví, nhật ký thiết bị và yêu cầu, cùng dữ liệu cần thiết để giữ dịch vụ an toàn."],
+        ["Cách chúng tôi sử dụng thông tin", "Thông tin được dùng để cung cấp tạo video AI, xác thực người dùng, xử lý credits và nạp tiền, ngăn lạm dụng, xử lý lỗi tác vụ, cải thiện độ ổn định, hỗ trợ khách hàng và tuân thủ nghĩa vụ pháp lý."],
+        ["Nội dung AI và tệp tải lên", "Prompt, hình ảnh tải lên, video tạo ra, tham số và metadata tác vụ có thể được xử lý bởi hạ tầng của chúng tôi và nhà cung cấp mô hình khi cần để vận hành dịch vụ, kiểm tra lỗi, thực thi quy tắc an toàn hoặc lưu hồ sơ thanh toán."],
+        ["Chia sẻ", "Chúng tôi không bán thông tin cá nhân. Chúng tôi có thể chia sẻ dữ liệu giới hạn với nhà cung cấp lưu trữ, thanh toán, phân tích, bảo mật và mô hình, hoặc tiết lộ khi pháp luật, an toàn, chống gian lận hoặc việc thực thi thỏa thuận yêu cầu."],
+        ["Lưu giữ và bảo mật", "Dữ liệu tài khoản, thanh toán, tạo nội dung và nhật ký được lưu trong thời gian cần thiết cho vận hành, xử lý tranh chấp, bảo mật, tuân thủ pháp luật và khôi phục sao lưu. Chúng tôi dùng biện pháp bảo vệ hợp lý, nhưng không hệ thống trực tuyến nào tuyệt đối an toàn."],
+        ["Lựa chọn của bạn", "Bạn có thể liên hệ để yêu cầu truy cập, chỉnh sửa, xóa, xuất hoặc hạn chế xử lý thông tin cá nhân khi pháp luật áp dụng cho phép. Một số hồ sơ có thể được giữ lại vì lý do pháp lý, chống gian lận, bảo mật hoặc kế toán."],
+        ["Trẻ em", "Dịch vụ dành cho người trưởng thành hoặc người có đủ thẩm quyền pháp lý để chấp nhận các điều khoản này. Không sử dụng dịch vụ nếu bạn chưa đủ tuổi theo quy định tại nơi bạn sinh sống."],
+        ["Thay đổi", "Chúng tôi có thể cập nhật chính sách này khi sản phẩm, luật pháp hoặc nhu cầu vận hành thay đổi. Phiên bản mới có hiệu lực khi được đăng, trừ khi nêu ngày hiệu lực khác."],
+      ],
+    },
+    registration: {
+      title: "Thỏa thuận đăng ký người dùng",
+      sections: [
+        ["Điều kiện tài khoản", "Khi đăng ký hoặc sử dụng Vipeak AI, bạn xác nhận rằng bạn có quyền pháp lý để tham gia thỏa thuận này và thông tin cung cấp là đúng, hiện hành và đầy đủ."],
+        ["Bảo mật tài khoản", "Bạn chịu trách nhiệm bảo vệ mật khẩu, API token, thông tin xác thực và mọi hoạt động trong tài khoản. Hãy thông báo ngay nếu nghi ngờ có truy cập trái phép."],
+        ["Sử dụng được phép", "Bạn không được dùng dịch vụ để tạo nội dung bất hợp pháp, không có sự đồng ý, lừa đảo, xâm phạm quyền, thù ghét, bóc lột, lạm dụng hoặc không an toàn, hoặc để vượt qua kiểm soát an toàn, giới hạn tốc độ, kiểm soát truy cập hay quy tắc thanh toán."],
+        ["Tệp tải lên và quyền", "Bạn cam kết có đầy đủ quyền, giấy phép và sự đồng ý cần thiết đối với hình ảnh, prompt, văn bản, tên, chân dung, nhãn hiệu và tài liệu khác mà bạn tải lên hoặc yêu cầu dịch vụ xử lý."],
+        ["Credits và thanh toán", "Credits được dùng cho tạo nội dung và hành động liên quan. Giá, mô hình, thời lượng, độ phân giải và mức tiêu thụ credits có thể thay đổi. Giao dịch đã hoàn tất và credits đã dùng thường không hoàn tiền, trừ khi pháp luật yêu cầu hoặc chúng tôi chấp thuận rõ ràng."],
+        ["Nội dung tạo ra", "Kết quả phụ thuộc vào hành vi mô hình và dữ liệu đầu vào. Bạn chịu trách nhiệm kiểm tra kết quả trước khi công bố hoặc dùng thương mại, và đảm bảo việc sử dụng tuân thủ pháp luật, quy tắc nền tảng và quyền của bên thứ ba."],
+        ["Thay đổi dịch vụ", "Chúng tôi có thể sửa đổi, tạm dừng, giới hạn hoặc ngừng tính năng, mô hình, tài khoản hoặc quyền truy cập khi cần cho bảo mật, tuân thủ, chống lạm dụng, bảo trì hoặc lý do kinh doanh."],
+        ["Chấm dứt", "Chúng tôi có thể hạn chế hoặc chấm dứt tài khoản vi phạm thỏa thuận này, tạo rủi ro, lạm dụng dịch vụ, gây ảnh hưởng vận hành hoặc không thanh toán số tiền đến hạn."],
+      ],
+    },
+    disclaimer: {
+      title: "Tuyên bố miễn trừ trách nhiệm",
+      sections: [
+        ["Không phải tư vấn chuyên môn", "Dịch vụ cung cấp công cụ AI sáng tạo và không phải tư vấn pháp lý, tài chính, y tế, an toàn hoặc tư vấn chuyên môn khác."],
+        ["Giới hạn của kết quả AI", "Nội dung do AI tạo có thể không chính xác, bất ngờ, gây khó chịu, thiên lệch, không đầy đủ hoặc không phù hợp với mục đích cụ thể. Bạn phải tự kiểm tra và xác minh trước khi dựa vào kết quả."],
+        ["Trách nhiệm của người dùng", "Bạn chịu trách nhiệm về prompt, tệp tải lên, nội dung tạo ra, công bố, phân phối và sử dụng sau đó. Không trình bày nội dung tạo ra như cảnh quay hoặc phát ngôn có thật nếu điều đó gây hiểu lầm."],
+        ["Dịch vụ bên thứ ba", "Dịch vụ có thể phụ thuộc vào nhà cung cấp mô hình, lưu trữ, mạng, ví và bên thứ ba khác. Tính khả dụng, độ trễ, kết quả kiểm duyệt và chất lượng đầu ra có thể thay đổi và không được bảo đảm."],
+        ["Không bảo đảm", "Trong phạm vi tối đa pháp luật cho phép, dịch vụ được cung cấp theo hiện trạng và khi sẵn có, không bảo đảm vận hành liên tục, không lỗi, khả năng thương mại, phù hợp mục đích cụ thể hoặc không xâm phạm."],
+        ["Giới hạn trách nhiệm", "Trong phạm vi tối đa pháp luật cho phép, Vipeak AI và đơn vị vận hành không chịu trách nhiệm cho thiệt hại gián tiếp, ngẫu nhiên, đặc biệt, hệ quả, trừng phạt hoặc mất lợi nhuận phát sinh từ việc sử dụng hoặc không thể sử dụng dịch vụ."],
+      ],
+    },
+  },
+  ja: {
+    privacy: {
+      title: "プライバシーポリシー",
+      sections: [
+        ["収集する情報", "当社は、アカウント情報、ログイン情報、サポート連絡、アップロードされたプロンプトと参照ファイル、生成履歴、ウォレット注文履歴、デバイスおよびリクエストログ、サービスの安全維持に必要な情報を収集します。"],
+        ["利用目的", "これらの情報は、AI 動画生成の提供、ユーザー認証、credits とチャージ処理、不正利用防止、ジョブの障害対応、信頼性改善、サポート対応、適用法令上の義務履行のために利用します。"],
+        ["AI コンテンツとアップロード", "プロンプト、アップロード画像、生成動画、パラメータ、タスクメタデータは、サービス運営、障害調査、安全ルールの適用、請求記録の保存に必要な範囲で、当社インフラおよびモデル提供者により処理される場合があります。"],
+        ["共有", "当社は個人情報を販売しません。ホスティング、決済、分析、セキュリティ、モデルサービス提供者に限定的なデータを共有する場合、または法令、安全、不正防止、契約の執行に必要な場合に情報を開示することがあります。"],
+        ["保存と保護", "アカウント、請求、生成、ログデータは、サービス運営、紛争対応、セキュリティ、法令遵守、バックアップ復旧に必要な期間保存します。合理的な管理的、技術的、組織的保護措置を講じますが、オンラインシステムに完全な安全はありません。"],
+        ["利用者の選択", "適用法令で認められる場合、個人情報へのアクセス、訂正、削除、エクスポート、処理制限を求めることができます。法令、不正防止、セキュリティ、会計上必要な記録は保持される場合があります。"],
+        ["未成年者", "本サービスは成人、または本規約に同意する法的権限を有する利用者向けです。居住地の法令で必要な年齢に満たない場合は利用しないでください。"],
+        ["変更", "製品、法令、運用上の必要性が変わった場合、本ポリシーを更新することがあります。別途記載がない限り、掲載時点で効力を生じます。"],
+      ],
+    },
+    registration: {
+      title: "ユーザー登録規約",
+      sections: [
+        ["アカウント資格", "Vipeak AI に登録または利用することで、利用者は本契約を締結する法的能力を有し、提供する情報が真実、最新かつ完全であることを確認します。"],
+        ["アカウントの安全", "パスワード、API トークン、認証情報、およびアカウント上の活動を保護する責任は利用者にあります。不正アクセスの疑いがある場合は速やかに通知してください。"],
+        ["許容される利用", "違法、非同意、欺瞞的、権利侵害、憎悪的、搾取的、虐待的、または安全でないコンテンツの作成、ならびに安全制御、レート制限、アクセス制御、支払いルールの回避に本サービスを使用してはなりません。"],
+        ["アップロードと権利", "利用者は、アップロードまたは処理を依頼する画像、プロンプト、テキスト、氏名、肖像、商標その他の素材について、必要な権利、許可、同意を有することを表明します。"],
+        ["credits と請求", "credits は生成および関連操作に使用されます。価格、モデル提供状況、時間、解像度、credits 消費量は変更される場合があります。完了した購入および消費済み credits は、法令で義務付けられる場合または当社が明示的に承認した場合を除き、原則返金されません。"],
+        ["生成コンテンツ", "生成結果はモデルの挙動と入力内容に依存します。公開または商用利用前に結果を確認し、法令、プラットフォーム規則、第三者の権利を遵守する責任は利用者にあります。"],
+        ["サービス変更", "当社は、セキュリティ、コンプライアンス、不正利用防止、保守、事業上の理由により、機能、モデル、アカウント、アクセスを変更、一時停止、制限、終了することがあります。"],
+        ["終了", "本規約違反、リスクの発生、サービスの不正利用、運営妨害、支払不履行があるアカウントについて、当社は制限または終了することがあります。"],
+      ],
+    },
+    disclaimer: {
+      title: "免責事項",
+      sections: [
+        ["専門的助言ではありません", "本サービスは創作用 AI ツールを提供するものであり、法律、金融、医療、安全その他の専門的助言を提供するものではありません。"],
+        ["AI 出力の限界", "AI 生成コンテンツは、不正確、予期しない、不快、偏り、不完全、または特定目的に不適切な場合があります。依拠する前に利用者自身で確認、検証してください。"],
+        ["利用者の責任", "プロンプト、アップロード、生成コンテンツ、公開、配布、その後の利用については利用者が責任を負います。他者を誤認させる形で、生成コンテンツを実在の映像や発言として表示してはなりません。"],
+        ["第三者サービス", "本サービスはモデル提供者、ホスティング、ネットワーク、ウォレットその他第三者に依存する場合があります。可用性、遅延、モデレーション結果、出力品質は変動し、保証されません。"],
+        ["保証なし", "法令で許される最大限の範囲で、本サービスは現状有姿かつ提供可能な範囲で提供され、連続稼働、無エラー、商品性、特定目的適合性、非侵害について保証しません。"],
+        ["責任制限", "法令で許される最大限の範囲で、Vipeak AI および運営者は、本サービスの利用または利用不能から生じる間接、偶発、特別、結果的、懲罰的損害または逸失利益について責任を負いません。"],
+      ],
+    },
+  },
+  ko: {
+    privacy: {
+      title: "개인정보 처리방침",
+      sections: [
+        ["수집하는 정보", "당사는 계정 정보, 로그인 자격 증명, 문의 및 지원 메시지, 업로드된 프롬프트와 참조 파일, 생성 기록, 지갑 주문 기록, 기기 및 요청 로그, 서비스 보안을 유지하는 데 필요한 정보를 수집합니다."],
+        ["이용 목적", "이 정보는 AI 영상 생성 제공, 사용자 인증, credits 및 충전 처리, 남용 방지, 작업 오류 해결, 안정성 개선, 지원 요청 응답, 관련 법적 의무 준수를 위해 사용됩니다."],
+        ["AI 콘텐츠와 업로드", "프롬프트, 업로드 이미지, 생성 영상, 파라미터, 작업 메타데이터는 서비스 운영, 오류 검토, 안전 규칙 집행, 결제 기록 보존에 필요한 범위에서 당사 인프라와 모델 제공자가 처리할 수 있습니다."],
+        ["공유", "당사는 개인정보를 판매하지 않습니다. 호스팅, 결제, 분석, 보안, 모델 서비스 제공자와 제한된 데이터를 공유하거나, 법률, 안전, 사기 방지 또는 약관 집행에 필요한 경우 정보를 공개할 수 있습니다."],
+        ["보관 및 보안", "계정, 결제, 생성, 로그 데이터는 서비스 운영, 분쟁 처리, 보안, 법적 준수, 백업 복구에 필요한 기간 동안 보관됩니다. 합리적인 관리적, 기술적, 조직적 보호조치를 사용하지만 온라인 시스템에 완전한 무위험은 없습니다."],
+        ["이용자의 선택", "관련 법률이 허용하는 경우 개인정보의 열람, 정정, 삭제, 내보내기 또는 처리 제한을 요청할 수 있습니다. 법률, 사기 방지, 보안 또는 회계상 필요한 일부 기록은 보관될 수 있습니다."],
+        ["아동", "본 서비스는 성인 또는 본 약관을 수락할 법적 권한이 있는 이용자를 대상으로 합니다. 관할 지역에서 요구하는 연령 미만인 경우 서비스를 이용하지 마십시오."],
+        ["변경", "제품, 법률 또는 운영상 필요가 변경되면 본 방침을 업데이트할 수 있습니다. 별도 날짜가 명시되지 않는 한 게시 시점부터 효력이 발생합니다."],
+      ],
+    },
+    registration: {
+      title: "사용자 등록 약관",
+      sections: [
+        ["계정 자격", "Vipeak AI에 등록하거나 사용함으로써 귀하는 본 계약을 체결할 법적 능력이 있으며 제공하는 정보가 진실하고 최신이며 완전함을 확인합니다."],
+        ["계정 보안", "비밀번호, API 토큰, 인증 정보 및 계정 활동을 보호할 책임은 귀하에게 있습니다. 무단 접근이 의심되면 즉시 알려주십시오."],
+        ["허용되는 사용", "불법, 비동의, 기만, 권리 침해, 혐오, 착취, 학대 또는 안전하지 않은 콘텐츠를 만들거나 안전 제어, 속도 제한, 접근 제어, 결제 규칙을 우회하기 위해 서비스를 사용해서는 안 됩니다."],
+        ["업로드와 권리", "귀하는 업로드하거나 서비스가 처리하도록 요청하는 이미지, 프롬프트, 텍스트, 이름, 초상, 상표 및 기타 자료에 필요한 권리, 허가 및 동의를 보유하고 있음을 진술합니다."],
+        ["credits 및 결제", "credits는 생성 및 관련 작업에 사용됩니다. 가격, 모델 제공 여부, 길이, 해상도 및 credits 소비량은 변경될 수 있습니다. 완료된 구매와 사용된 credits는 법률상 요구되거나 당사가 명시적으로 승인한 경우를 제외하고 일반적으로 환불되지 않습니다."],
+        ["생성 콘텐츠", "생성 결과는 모델 동작과 사용자 입력에 따라 달라집니다. 공개 또는 상업적 사용 전에 결과를 검토하고 법률, 플랫폼 규칙 및 제3자 권리를 준수할 책임은 귀하에게 있습니다."],
+        ["서비스 변경", "당사는 보안, 준수, 남용 방지, 유지보수 또는 사업상 필요에 따라 기능, 모델, 계정 또는 접근을 수정, 일시 중지, 제한 또는 중단할 수 있습니다."],
+        ["종료", "본 약관을 위반하거나 위험을 초래하거나 서비스를 오용하거나 운영을 방해하거나 미납 금액이 있는 계정은 제한 또는 종료될 수 있습니다."],
+      ],
+    },
+    disclaimer: {
+      title: "면책 고지",
+      sections: [
+        ["전문 조언 아님", "본 서비스는 창작용 AI 도구를 제공하며 법률, 금융, 의료, 안전 또는 기타 전문 조언을 제공하지 않습니다."],
+        ["AI 출력의 한계", "AI 생성 콘텐츠는 부정확하거나 예상 밖이거나 불쾌하거나 편향되거나 불완전하거나 특정 목적에 적합하지 않을 수 있습니다. 결과에 의존하기 전에 독립적으로 검토하고 확인해야 합니다."],
+        ["사용자 책임", "프롬프트, 업로드, 생성 콘텐츠, 게시, 배포 및 이후 사용에 대한 책임은 귀하에게 있습니다. 타인을 오도할 수 있는 경우 생성 콘텐츠를 실제 영상이나 실제 발언으로 표시하지 마십시오."],
+        ["제3자 서비스", "서비스는 모델 제공자, 호스팅, 네트워크, 지갑 및 기타 제3자에 의존할 수 있습니다. 가용성, 지연, 검수 결과 및 출력 품질은 달라질 수 있으며 보장되지 않습니다."],
+        ["보증 없음", "법률이 허용하는 최대 범위에서 서비스는 있는 그대로 및 이용 가능한 상태로 제공되며 중단 없는 운영, 오류 없는 출력, 상품성, 특정 목적 적합성 또는 비침해를 보증하지 않습니다."],
+        ["책임 제한", "법률이 허용하는 최대 범위에서 Vipeak AI와 운영자는 서비스 이용 또는 이용 불가로 발생하는 간접, 부수, 특별, 결과, 징벌적 손해 또는 이익 손실에 대해 책임지지 않습니다."],
+      ],
+    },
+  },
+  id: {
+    privacy: {
+      title: "Kebijakan Privasi",
+      sections: [
+        ["Informasi yang kami kumpulkan", "Kami mengumpulkan informasi akun, kredensial login, pesan dukungan, prompt dan file referensi yang diunggah, riwayat pembuatan, catatan pesanan dompet, log perangkat dan permintaan, serta informasi yang diperlukan untuk menjaga keamanan layanan."],
+        ["Cara kami menggunakan informasi", "Informasi digunakan untuk menyediakan pembuatan video AI, mengautentikasi pengguna, memproses credits dan top-up, mencegah penyalahgunaan, menangani kegagalan job, meningkatkan keandalan, menjawab dukungan, dan mematuhi kewajiban hukum yang berlaku."],
+        ["Konten AI dan unggahan", "Prompt, gambar yang diunggah, video yang dibuat, parameter, dan metadata tugas dapat diproses oleh infrastruktur kami dan penyedia model sejauh diperlukan untuk mengoperasikan layanan, meninjau kegagalan, menerapkan aturan keselamatan, atau menyimpan catatan billing."],
+        ["Berbagi", "Kami tidak menjual informasi pribadi. Kami dapat membagikan data terbatas kepada penyedia hosting, pembayaran, analitik, keamanan, dan layanan model, atau mengungkapkan informasi bila diwajibkan hukum, keselamatan, pencegahan penipuan, atau penegakan perjanjian."],
+        ["Retensi dan keamanan", "Data akun, billing, pembuatan, dan log disimpan selama diperlukan untuk operasi layanan, penanganan sengketa, keamanan, kepatuhan hukum, dan pemulihan cadangan. Kami memakai perlindungan administratif, teknis, dan organisasi yang wajar, tetapi tidak ada sistem online yang sepenuhnya bebas risiko."],
+        ["Pilihan Anda", "Anda dapat menghubungi kami untuk meminta akses, koreksi, penghapusan, ekspor, atau pembatasan informasi pribadi jika diizinkan hukum yang berlaku. Beberapa catatan dapat tetap disimpan untuk alasan hukum, pencegahan penipuan, keamanan, atau akuntansi."],
+        ["Anak-anak", "Layanan ini ditujukan untuk orang dewasa atau pengguna yang memiliki kewenangan hukum untuk menerima ketentuan ini. Jangan gunakan layanan jika Anda berada di bawah usia yang disyaratkan di yurisdiksi Anda."],
+        ["Perubahan", "Kami dapat memperbarui kebijakan ini ketika produk, hukum, atau kebutuhan operasional berubah. Versi yang diperbarui berlaku saat diposting kecuali dinyatakan tanggal lain."],
+      ],
+    },
+    registration: {
+      title: "Perjanjian Pendaftaran Pengguna",
+      sections: [
+        ["Kelayakan akun", "Dengan mendaftar atau menggunakan Vipeak AI, Anda menyatakan bahwa Anda dapat secara hukum membuat perjanjian ini dan informasi yang Anda berikan benar, terkini, dan lengkap."],
+        ["Keamanan akun", "Anda bertanggung jawab menjaga kata sandi, token API, kredensial, dan aktivitas di akun Anda. Beri tahu kami segera jika Anda mencurigai akses tanpa izin."],
+        ["Penggunaan yang diperbolehkan", "Anda tidak boleh menggunakan layanan untuk membuat konten ilegal, tanpa persetujuan, menipu, melanggar hak, kebencian, eksploitatif, abusif, atau tidak aman, atau untuk melewati kontrol keselamatan, batas laju, kontrol akses, atau aturan pembayaran."],
+        ["Unggahan dan hak", "Anda menyatakan memiliki hak, izin, dan persetujuan yang diperlukan atas gambar, prompt, teks, nama, kemiripan, merek dagang, dan materi lain yang Anda unggah atau minta untuk diproses layanan."],
+        ["Credits dan billing", "Credits digunakan untuk pembuatan dan tindakan terkait. Harga, ketersediaan model, durasi, resolusi, dan konsumsi credits dapat berubah. Pembelian yang selesai dan credits yang telah digunakan umumnya tidak dapat dikembalikan kecuali diwajibkan hukum atau disetujui secara tegas oleh kami."],
+        ["Konten yang dibuat", "Output bergantung pada perilaku model dan input pengguna. Anda bertanggung jawab meninjau output sebelum publikasi atau penggunaan komersial dan memastikan penggunaan Anda mematuhi hukum, aturan platform, dan hak pihak ketiga."],
+        ["Perubahan layanan", "Kami dapat mengubah, menangguhkan, membatasi, atau menghentikan fitur, model, akun, atau akses bila diperlukan untuk keamanan, kepatuhan, pencegahan penyalahgunaan, pemeliharaan, atau alasan bisnis."],
+        ["Pengakhiran", "Kami dapat membatasi atau mengakhiri akun yang melanggar perjanjian ini, menimbulkan risiko, menyalahgunakan layanan, mengganggu operasi, atau gagal membayar jumlah yang terutang."],
+      ],
+    },
+    disclaimer: {
+      title: "Sanggahan",
+      sections: [
+        ["Bukan nasihat profesional", "Layanan ini menyediakan alat AI kreatif dan tidak memberikan nasihat hukum, keuangan, medis, keselamatan, atau nasihat profesional lainnya."],
+        ["Batasan output AI", "Konten buatan AI dapat tidak akurat, tidak terduga, menyinggung, bias, tidak lengkap, atau tidak sesuai untuk tujuan tertentu. Anda harus meninjau dan memverifikasi output secara independen sebelum mengandalkannya."],
+        ["Tanggung jawab pengguna", "Anda bertanggung jawab atas prompt, unggahan, konten yang dibuat, publikasi, distribusi, dan penggunaan lanjutan. Jangan menyatakan konten yang dibuat sebagai rekaman nyata atau pernyataan nyata jika hal itu dapat menyesatkan orang lain."],
+        ["Layanan pihak ketiga", "Layanan dapat bergantung pada penyedia model, hosting, jaringan, dompet, dan pihak ketiga lainnya. Ketersediaan, latensi, hasil moderasi, dan kualitas output dapat berbeda dan tidak dijamin."],
+        ["Tanpa jaminan", "Sejauh diizinkan hukum, layanan disediakan sebagaimana adanya dan sebagaimana tersedia, tanpa jaminan operasi tanpa gangguan, output bebas kesalahan, kelayakan jual, kesesuaian untuk tujuan tertentu, atau tidak melanggar hak."],
+        ["Batasan tanggung jawab", "Sejauh diizinkan hukum, Vipeak AI dan operatornya tidak bertanggung jawab atas kerugian tidak langsung, insidental, khusus, konsekuensial, hukuman, atau kehilangan keuntungan yang timbul dari penggunaan atau ketidakmampuan menggunakan layanan."],
+      ],
+    },
+  },
+};
+
 let activeAccessGuide = ACCESS_GUIDES[0];
 let historyLoading = false;
 const SUPPORTED_LANGS = new Set(Object.keys(I18N));
@@ -1512,6 +1744,32 @@ function localizedPublicCopy(configValue, key) {
 
 function guideText(guide, field) {
   return t(`guide.${guide.id}.${field}`, {}, guide[field] || "");
+}
+
+function legalDoc(type) {
+  return LEGAL_DOCS[state.lang]?.[type] || LEGAL_DOCS.en[type] || LEGAL_DOCS.en.privacy;
+}
+
+function renderLegalDialog(type = "privacy") {
+  const doc = legalDoc(type);
+  if (!doc || !els.legalTitle || !els.legalBody) return;
+  els.legalTitle.textContent = doc.title;
+  els.legalBody.innerHTML = `
+    <p class="legal-updated">${escapeHtml(t("legal.updated", { date: LEGAL_UPDATED_AT }))}</p>
+    ${doc.sections.map(([heading, body]) => `
+      <section>
+        <h3>${escapeHtml(heading)}</h3>
+        <p>${escapeHtml(body)}</p>
+      </section>
+    `).join("")}
+  `;
+}
+
+function openLegalDialog(type = "privacy") {
+  if (els.legalDialog) els.legalDialog.dataset.doc = type;
+  renderLegalDialog(type);
+  els.legalDialog?.showModal();
+  refreshIcons();
 }
 
 function normalizeCopyKey(value = "") {
@@ -1592,6 +1850,7 @@ function applyLanguage() {
   renderTopupSummary();
   renderTokenDisplays();
   renderLoginMode();
+  if (els.legalDialog?.open) renderLegalDialog(els.legalDialog.dataset.doc || "privacy");
   updateSubmitButtonCost();
   updateAdvancedButtonCost();
   if (state.tab === "history" && !historyLoading) loadHistory();
@@ -2769,6 +3028,9 @@ els.spendingFilters?.addEventListener("submit", (event) => {
 });
 els.exportTopupsBtn?.addEventListener("click", () => exportLedger("topups"));
 els.exportSpendingBtn?.addEventListener("click", () => exportLedger("spending"));
+document.querySelectorAll("[data-legal-doc]").forEach((button) => {
+  button.addEventListener("click", () => openLegalDialog(button.dataset.legalDoc || "privacy"));
+});
 els.topupAmount?.addEventListener("input", () => {
   if (els.topupOrder) {
     els.topupOrder.hidden = true;
