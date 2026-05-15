@@ -764,10 +764,16 @@ function cleanPlatformHeroCopy(value, fallback) {
 function resolvePlatformModelId(model, type = "image-to-video") {
   const raw = String(model || "").trim();
   const compact = raw.toLowerCase().replace(/[\s_-]+/g, "");
-  if (["seedance20fast", "seedance2.0fast", "seedance20", "seedance2.0", "superseed2"].includes(compact)) {
+  if (/^ep-\d+-[a-z0-9]+$/i.test(raw)) {
+    return "ark/seedance-2.0";
+  }
+  if (compact.startsWith("dreaminaseedance2.0")) {
+    return "st-ai/pippit-seed2";
+  }
+  if (["seedance20fast", "seedance2.0fast", "seedance20fastvip", "seedance2.0fastvip", "seedance20vip", "seedance2.0vip", "seedance20", "seedance2.0", "superseed2"].includes(compact)) {
     return "st-ai/super-seed2";
   }
-  if (["seedance20fastdirect", "seedance20lite", "seedance2.0fastdirect", "seedance2.0lite", "superseed2lite"].includes(compact)) {
+  if (["seedance20direct", "seedance2.0direct", "seedance20fastdirect", "seedance20lite", "seedance2.0fastdirect", "seedance2.0lite", "superseed2lite"].includes(compact)) {
     return "st-ai/super-seed2-lite";
   }
   if (raw && raw !== "seedance") return raw;
@@ -2760,6 +2766,21 @@ function estimateCreditsFromApizPricing(pricing = {}, params = {}) {
   const baseAmount = apizPricingBaseAmount(pricing);
   const duration = durationSecondsFromParams(params) || apizPricingNumber(pricing._default_duration_seconds) || 0;
 
+  if (pricing.pricing_mode === "token") {
+    const inputRate = apizPricingNumber(pricing.input_price_credits_per_1m);
+    const outputRate = apizPricingNumber(pricing.output_price_credits_per_1m);
+    const promptTokens = Math.max(0, Number(params.prompt_tokens || params.input_tokens || 0));
+    const completionTokens = Math.max(0, Number(params.completion_tokens || params.output_tokens || 0));
+    const promptText = String(params.prompt || params.text || "");
+    const fallbackInputTokens = promptText ? Math.ceil(promptText.length / 3) : 1000;
+    const fallbackOutputTokens = Math.max(1000, Math.ceil(Math.max(duration, 5) * 21780));
+    if (inputRate !== null || outputRate !== null) {
+      const inputCredits = ((inputRate || 0) * (promptTokens || fallbackInputTokens)) / 1000000;
+      const outputCredits = ((outputRate || 0) * (completionTokens || fallbackOutputTokens)) / 1000000;
+      return creditsAmount(inputCredits + outputCredits);
+    }
+  }
+
   if (priceType === "fixed" && baseAmount === 0) return 0;
 
   if (priceType === "per_second" || priceType === "dynamic_per_second") {
@@ -2859,6 +2880,16 @@ async function fetchApizModelPricing(modelId = "") {
     } catch (error) {
       if (!error.statusCode || error.statusCode !== 404) {
         console.warn("[apiz-pricing-detail-failed]", model, error.message || error);
+      }
+    }
+  }
+
+  if (!value) {
+    try {
+      value = normalizeApizPricing(await apizGet(`/v1/pricing/${encodeURIComponent(model)}`), {});
+    } catch (error) {
+      if (!error.statusCode || error.statusCode !== 404) {
+        console.warn("[apiz-pricing-v1-failed]", model, error.message || error);
       }
     }
   }
@@ -3441,7 +3472,9 @@ function platformImageFieldKeys(payload = {}) {
     /^image(?:_file)?_\d+$/i.test(key) ||
     /^image_url$/i.test(key) ||
     /^image_files$/i.test(key) ||
-    /^filePaths$/i.test(key)
+    /^filePaths$/i.test(key) ||
+    /^images$/i.test(key) ||
+    /^content$/i.test(key)
   ));
   if (keys.length) return keys;
   if (Array.isArray(payload.image_urls)) return ["image_urls"];
@@ -3454,6 +3487,29 @@ function replacePlatformPayloadImages(payload = {}, imageUrl = "") {
   platformImageFieldKeys(next).forEach((key) => {
     if (["image_urls", "image_files", "filePaths"].includes(key)) {
       next[key] = [imageUrl];
+    } else if (key === "images") {
+      const images = Array.isArray(next.images) && next.images.length
+        ? next.images
+        : [{ name: "image_1" }];
+      next.images = images.map((item, index) => (
+        item && typeof item === "object" && !Array.isArray(item)
+          ? { ...item, url: imageUrl }
+          : { url: imageUrl, name: `image_${index + 1}` }
+      ));
+    } else if (key === "content") {
+      const content = Array.isArray(next.content) ? next.content : [];
+      let replaced = false;
+      next.content = content.map((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item) || item.type !== "image_url") return item;
+        replaced = true;
+        const imageValue = item.image_url && typeof item.image_url === "object" && !Array.isArray(item.image_url)
+          ? { ...item.image_url, url: imageUrl }
+          : { url: imageUrl };
+        return { ...item, image_url: imageValue };
+      });
+      if (!replaced) {
+        next.content.push({ type: "image_url", image_url: { url: imageUrl }, role: "reference_image" });
+      }
     } else {
       next[key] = imageUrl;
     }
