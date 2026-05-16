@@ -782,6 +782,29 @@ function resolvePlatformModelId(model, type = "image-to-video") {
     : "bytedance/seedance-2.0/fast/image-to-video";
 }
 
+function resolvePlatformRequestModel(model, platformModel, type = "image-to-video") {
+  const raw = String(model || "").trim();
+  const compact = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  const resolvedPlatformModel = resolvePlatformModelId(platformModel || raw, type);
+
+  if (resolvedPlatformModel === "ark/seedance-2.0") {
+    return compact.includes("fast") || /^ep-\d+-[a-z0-9]+$/i.test(raw)
+      ? "seedance_2.0_fast"
+      : "seedance_2.0";
+  }
+  if (resolvedPlatformModel === "st-ai/super-seed2") {
+    return compact.includes("fast") ? "seedance_2.0_fast" : "seedance_2.0";
+  }
+  if (resolvedPlatformModel === "st-ai/super-seed2-lite") {
+    return compact.includes("fast") ? "seedance2.0_fast_direct" : "seedance2.0_direct";
+  }
+  if (resolvedPlatformModel === "st-ai/pippit-seed2") {
+    return "dreamina_seedance_2.0";
+  }
+
+  return raw || resolvedPlatformModel;
+}
+
 function isHiddenPlatformCategory(category = {}) {
   const value = `${category.id || ""} ${category.name || ""}`.toLowerCase();
   return value.includes("business") || value.includes("商业接入");
@@ -3526,7 +3549,7 @@ function platformApizPayload({ template, prompt, imageUrl, overrides = {} }) {
     ...(Object.keys(configured).length ? configured : { ...(template.params || {}), model }),
     ...(overrides && typeof overrides === "object" && !Array.isArray(overrides) ? overrides : {}),
   };
-  if (!params.model) params.model = model;
+  params.model = resolvePlatformRequestModel(params.model || model, model, template.type);
   if (prompt && !params.prompt) params.prompt = prompt;
   if (params.ratio && !params.aspect_ratio) {
     params.aspect_ratio = params.ratio;
