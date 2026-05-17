@@ -255,9 +255,9 @@ const DEFAULT_CONFIG = {
     brand: "Vipeak AI",
     heroTitle: "Create AI videos",
     heroSubtitle: "Choose a template, upload an image or enter text, and create a new video.",
-    notice: "Generated results are saved in your history.",
+    notice: "Generated results are saved in history. Video links may expire after 24 hours, so download and save them in time.",
     accessCopy:
-      "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
+      "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>\n\nImportant: returned video URLs may expire after 24 hours. Download and save successful videos promptly.",
     categories: [
       { id: "featured", name: "精选模板" },
       { id: "i2v", name: "图生视频" },

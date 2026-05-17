@@ -1308,10 +1308,62 @@ const I18N = {
   },
 };
 
+const VIDEO_EXPIRY_NOTICE = "Video links may expire after 24 hours. Download and save successful results in time.";
+const EXPIRY_I18N_COPY = {
+  en: {
+    "common.download": "Download",
+    "copy.videoExpiryShort": "Video links may expire after 24 hours; download and save them in time.",
+    "copy.galleryNotice": "Generated results are saved in history. Video links may expire after 24 hours, so download and save them in time.",
+    "copy.accessNotice": "All examples call the production API. Download or persist returned video URLs within 24 hours.",
+    "copy.historyNotice": "Only your own records are shown. Video links may expire after 24 hours; download/save successful results in time.",
+    "history.expiryNotice": VIDEO_EXPIRY_NOTICE,
+    "modal.submitted": "Job submitted: {taskId}. Check progress in history, then download the video within 24 hours.",
+  },
+  vi: {
+    "common.download": "Tải xuống",
+    "copy.videoExpiryShort": "Liên kết video có thể hết hạn sau 24 giờ; hãy tải xuống và lưu kịp thời.",
+    "copy.galleryNotice": "Kết quả được lưu trong lịch sử. Liên kết video có thể hết hạn sau 24 giờ, hãy tải xuống và lưu kịp thời.",
+    "copy.accessNotice": "Các ví dụ gọi API production. Hãy tải xuống hoặc lưu URL video trả về trong vòng 24 giờ.",
+    "copy.historyNotice": "Chỉ hiển thị bản ghi của bạn. Liên kết video có thể hết hạn sau 24 giờ; hãy tải xuống/lưu kết quả thành công kịp thời.",
+    "history.expiryNotice": "Liên kết video có thể hết hạn sau 24 giờ. Hãy tải xuống và lưu kết quả thành công kịp thời.",
+    "modal.submitted": "Đã gửi job: {taskId}. Kiểm tra tiến độ trong lịch sử, sau đó tải video trong vòng 24 giờ.",
+  },
+  ja: {
+    "common.download": "ダウンロード",
+    "copy.videoExpiryShort": "動画リンクは24時間後に期限切れになる場合があります。早めにダウンロードして保存してください。",
+    "copy.galleryNotice": "生成結果は履歴に保存されます。動画リンクは24時間後に期限切れになる場合があるため、早めにダウンロードして保存してください。",
+    "copy.accessNotice": "すべての例は本番APIを呼び出します。返された動画URLは24時間以内にダウンロードまたは保存してください。",
+    "copy.historyNotice": "自分の記録のみ表示されます。動画リンクは24時間後に期限切れになる場合があります。成功した結果は早めに保存してください。",
+    "history.expiryNotice": "動画リンクは24時間後に期限切れになる場合があります。成功した結果は早めにダウンロードして保存してください。",
+    "modal.submitted": "ジョブを送信しました: {taskId}。履歴で進捗を確認し、24時間以内に動画をダウンロードしてください。",
+  },
+  ko: {
+    "common.download": "다운로드",
+    "copy.videoExpiryShort": "동영상 링크는 24시간 후 만료될 수 있습니다. 제때 다운로드해 저장해 주세요.",
+    "copy.galleryNotice": "생성 결과는 기록에 저장됩니다. 동영상 링크는 24시간 후 만료될 수 있으니 제때 다운로드해 저장해 주세요.",
+    "copy.accessNotice": "모든 예시는 production API를 호출합니다. 반환된 동영상 URL은 24시간 이내에 다운로드하거나 저장해 주세요.",
+    "copy.historyNotice": "본인의 기록만 표시됩니다. 동영상 링크는 24시간 후 만료될 수 있으니 성공한 결과를 제때 저장해 주세요.",
+    "history.expiryNotice": "동영상 링크는 24시간 후 만료될 수 있습니다. 성공한 결과를 제때 다운로드해 저장해 주세요.",
+    "modal.submitted": "작업이 제출되었습니다: {taskId}. 기록에서 진행 상황을 확인한 뒤 24시간 이내에 동영상을 다운로드해 주세요.",
+  },
+  id: {
+    "common.download": "Unduh",
+    "copy.videoExpiryShort": "Tautan video dapat kedaluwarsa setelah 24 jam; unduh dan simpan tepat waktu.",
+    "copy.galleryNotice": "Hasil pembuatan disimpan di riwayat. Tautan video dapat kedaluwarsa setelah 24 jam, jadi unduh dan simpan tepat waktu.",
+    "copy.accessNotice": "Semua contoh memanggil API production. Unduh atau simpan URL video yang dikembalikan dalam 24 jam.",
+    "copy.historyNotice": "Hanya catatan Anda yang ditampilkan. Tautan video dapat kedaluwarsa setelah 24 jam; unduh/simpan hasil yang berhasil tepat waktu.",
+    "history.expiryNotice": "Tautan video dapat kedaluwarsa setelah 24 jam. Unduh dan simpan hasil yang berhasil tepat waktu.",
+    "modal.submitted": "Job dikirim: {taskId}. Cek progres di riwayat, lalu unduh video dalam 24 jam.",
+  },
+};
+Object.entries(EXPIRY_I18N_COPY).forEach(([lang, copy]) => {
+  if (I18N[lang]) Object.assign(I18N[lang], copy);
+});
+
 const PUBLIC_COPY = {
   galleryTitle: "Create AI videos",
   gallerySubtitle: "Choose a template, upload an image or enter text, and create a new video.",
-  galleryNotice: "Generated results are saved in your history.",
+  galleryNotice: "Generated results are saved in history. Video links may expire after 24 hours, so download and save them in time.",
   accessTitle: "API Access",
   accessSubtitle: "Connect your product or workflow to the production generation API.",
   accessNotice: "Only the required parameters and response format are shown here.",
@@ -1320,7 +1372,7 @@ const PUBLIC_COPY = {
   advancedNotice: "Approval is required before direct generation is enabled.",
   historyTitle: "Generation History",
   historySubtitle: "Review your generated videos, prompts, parameters and billing in one compact list.",
-  historyNotice: "Only your own generation records are shown.",
+  historyNotice: "Only your own records are shown. Video links may expire after 24 hours; download/save successful results in time.",
   accessCopy:
     "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
 };
@@ -1339,6 +1391,8 @@ let ACCESS_GUIDES = [
 const LIVE_HTTP_ACCESS_COPY = `POST https://123vips.com/api/platform/generate
 Authorization: Bearer <user-token>
 Content-Type: application/json
+
+Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
 
 Gallery template:
 {
@@ -1392,7 +1446,10 @@ const res = await fetch("https://123vips.com/api/advanced/generate", {
   },
   body: JSON.stringify(advancedBody)
 });
-console.log(await res.json());`;
+console.log(await res.json());
+
+// Important: returned video URLs may expire after 24 hours.
+// Download and save successful videos promptly.`;
 
 const PYTHON_ACCESS_COPY = `import requests
 
@@ -1418,7 +1475,10 @@ resp = requests.post(
     json=advanced_payload,
     timeout=120,
 )
-print(resp.json())`;
+print(resp.json())
+
+# Important: returned video URLs may expire after 24 hours.
+# Download and save successful videos promptly.`;
 
 const CLI_ACCESS_COPY = `curl -X POST "https://123vips.com/api/platform/generate" \\
   -H "Authorization: Bearer <user-token>" \\
@@ -1428,9 +1488,13 @@ const CLI_ACCESS_COPY = `curl -X POST "https://123vips.com/api/platform/generate
 curl -X POST "https://123vips.com/api/advanced/generate" \\
   -H "Authorization: Bearer <user-token>" \\
   -H "Content-Type: application/json" \\
-  -d '{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}'`;
+  -d '{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}'
+
+# Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
 const AGENT_ACCESS_COPY = `Use this video API:
+Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
+
 Gallery templates:
 POST https://123vips.com/api/platform/generate
 Authorization: Bearer <user-token>
@@ -1457,21 +1521,23 @@ Advanced MCP wrapper target:
 POST https://123vips.com/api/advanced/generate
 Authorization: Bearer <user-token>
 Input:
-{"provider":"seedance|wan27","prompt":"string","dataUrl":"data:image/png;base64,...","resolution":"720p|1080p","duration":5,"preprocessReference":true,"seed":123456 optional}`;
+{"provider":"seedance|wan27","prompt":"string","dataUrl":"data:image/png;base64,...","resolution":"720p|1080p","duration":5,"preprocessReference":true,"seed":123456 optional}
+
+Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
 PUBLIC_COPY.galleryTitle = "Create AI videos";
 PUBLIC_COPY.gallerySubtitle = "Choose a template, upload an image or enter text, and create a new video.";
-PUBLIC_COPY.galleryNotice = "Generated results are saved in your history.";
+PUBLIC_COPY.galleryNotice = "Generated results are saved in history. Video links may expire after 24 hours, so download and save them in time.";
 PUBLIC_COPY.accessTitle = "API Access";
 PUBLIC_COPY.accessSubtitle = "Connect your product, scripts, agents, or MCP wrapper to the production generation API.";
-PUBLIC_COPY.accessNotice = "All examples below call the current production API. Upstream JSON stays server-side.";
+PUBLIC_COPY.accessNotice = "All examples call the production API. Download or persist returned video URLs within 24 hours.";
 PUBLIC_COPY.accessCopy = LIVE_HTTP_ACCESS_COPY;
 PUBLIC_COPY.advancedTitle = "Advanced Generate";
 PUBLIC_COPY.advancedSubtitle = "Direct model controls for approved accounts.";
 PUBLIC_COPY.advancedNotice = "Apply once. After approval, cases can fill the form automatically.";
 PUBLIC_COPY.historyTitle = "Generation History";
 PUBLIC_COPY.historySubtitle = "Review your generated videos, prompts, parameters and billing in one compact list.";
-PUBLIC_COPY.historyNotice = "Only your own generation records are shown.";
+PUBLIC_COPY.historyNotice = "Only your own records are shown. Video links may expire after 24 hours; download/save successful results in time.";
 
 ACCESS_GUIDES = [
   {
@@ -1741,6 +1807,14 @@ function localizedPublicCopy(configValue, key) {
   const fallback = t(`copy.${key}`, {}, PUBLIC_COPY[key] || "");
   if (state.lang !== "en") return fallback;
   return cleanPublicCopy(configValue, fallback);
+}
+
+function withExpiryNotice(text = "") {
+  const notice = t("copy.videoExpiryShort", {}, VIDEO_EXPIRY_NOTICE);
+  const value = String(text || "").trim();
+  if (!value) return notice;
+  if (/24/.test(value)) return value;
+  return `${value} ${notice}`;
 }
 
 function guideText(guide, field) {
@@ -2157,7 +2231,7 @@ function renderHero() {
   els.heroTitle.textContent = localizedPublicCopy(platform.heroTitle, "galleryTitle");
   els.heroSubtitle.textContent = localizedPublicCopy(platform.heroSubtitle, "gallerySubtitle");
   els.heroBadge.textContent = t("hero.gallery.badge");
-  els.heroNotice.textContent = localizedPublicCopy(platform.notice, "galleryNotice");
+  els.heroNotice.textContent = withExpiryNotice(localizedPublicCopy(platform.notice, "galleryNotice"));
 }
 
 function setCategory(category) {
@@ -2622,8 +2696,15 @@ async function submitTemplate() {
 
 function renderHistory(records = []) {
   if (!els.historyList) return;
+  const expiryNotice = `
+    <div class="history-expiry-note">
+      <i data-lucide="download"></i>
+      <span>${escapeHtml(t("history.expiryNotice"))}</span>
+    </div>
+  `;
   if (!state.user) {
     els.historyList.innerHTML = `
+      ${expiryNotice}
       <div class="history-empty-card">
         <strong>${escapeHtml(t("history.loginRequired"))}</strong>
         <p>${escapeHtml(t("history.loginDesc"))}</p>
@@ -2635,10 +2716,11 @@ function renderHistory(records = []) {
     return;
   }
   if (!records.length) {
-    els.historyList.innerHTML = `<div class="history-empty-card"><strong>${escapeHtml(t("history.emptyTitle"))}</strong><p>${escapeHtml(t("history.emptyDesc"))}</p></div>`;
+    els.historyList.innerHTML = `${expiryNotice}<div class="history-empty-card"><strong>${escapeHtml(t("history.emptyTitle"))}</strong><p>${escapeHtml(t("history.emptyDesc"))}</p></div>`;
+    refreshIcons();
     return;
   }
-  els.historyList.innerHTML = records.map((record) => {
+  els.historyList.innerHTML = `${expiryNotice}${records.map((record) => {
     const videoUrl = generationVideoUrl(record);
     const title = record.templateTitle || record.sceneEntryName || record.sceneName || t("history.job");
     const created = record.createdAt ? new Date(record.createdAt).toLocaleString() : "";
@@ -2648,6 +2730,7 @@ function renderHistory(records = []) {
       <article class="history-item">
         <div class="history-media">
           ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata"></video>` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
+          ${videoUrl ? `<a class="history-download" href="${escapeHtml(videoUrl)}" download target="_blank" rel="noopener"><i data-lucide="download"></i>${escapeHtml(t("common.download"))}</a>` : ""}
         </div>
         <div class="history-info">
           <header>
@@ -2671,7 +2754,7 @@ function renderHistory(records = []) {
         </div>
       </article>
     `;
-  }).join("");
+  }).join("")}`;
   refreshIcons();
 }
 
