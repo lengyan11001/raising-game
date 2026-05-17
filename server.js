@@ -3105,7 +3105,7 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (record.provider === "apiz" && !record.billingSettledAt && record.taskId && !String(record.taskId).startsWith("demo-")) return true;
   const status = String(record.status || "").toLowerCase();
   if (isFailedStatus(status)) return false;
-  if (isSucceededStatus(status)) return !generationRecordVideoUrl(record) && Boolean(record.taskId);
+  if (isSucceededStatus(status)) return Boolean(record.taskId) && !record.localVideoUrl;
   return Boolean(record.taskId) && !String(record.taskId).startsWith("demo-");
 }
 
@@ -3135,13 +3135,26 @@ async function refreshGenerationRecordStatus(record = {}) {
   try {
     const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(record.taskId)}`);
     const task = normalizeTask(raw);
+    let localVideoUrl = record.localVideoUrl || "";
+    let localVideoPath = record.localVideoPath || "";
+    let downloadError = "";
+    const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
+    if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+      try {
+        const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
+        localVideoUrl = localVideo.localVideoUrl;
+        localVideoPath = localVideo.localVideoPath;
+      } catch (error) {
+        downloadError = error.message || "Failed to download generated video.";
+      }
+    }
     return await upsertAndSettleGenerationRecord({
       taskId: record.taskId,
       status: task.status || record.status || "unknown",
-      remoteVideoUrl: task.videoUrl || record.remoteVideoUrl || "",
-      localVideoUrl: record.localVideoUrl || "",
-      localVideoPath: record.localVideoPath || "",
-      error: task.error || record.error || "",
+      remoteVideoUrl,
+      localVideoUrl,
+      localVideoPath,
+      error: task.error || downloadError || record.error || "",
     }, "query");
   } catch (error) {
     console.warn("[generation-record-refresh-failed]", record.taskId, error.message || error);
@@ -6828,6 +6841,7 @@ async function handleAdminListGenerationRecords(req, res, url) {
   const refundable = records.filter(needsSeedanceFailureRefund).slice(0, 100);
   const statusRefreshable = records
     .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecord(record))
+    .filter((record) => !query || generationRecordMatchesQuery(record, query))
     .slice(0, 12);
   const refreshable = [...refundable, ...statusRefreshable];
   if (refreshable.length) {
