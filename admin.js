@@ -1269,7 +1269,29 @@ function historyRecordHtml(r, idx) {
 
 /* ============ GENERATION RECORDS ============ */
 function recordVideoUrl(record) {
-  return record.videoUrl || record.localVideoUrl || record.remoteVideoUrl || "";
+  return record.localVideoUrl || "";
+}
+
+function recordRemoteVideoUrl(record) {
+  return record.remoteVideoUrl || record.videoUrl || "";
+}
+
+function recordPreviewHtml(record) {
+  const localVideo = recordVideoUrl(record);
+  const remoteVideo = recordRemoteVideoUrl(record);
+  if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="metadata" playsinline></video>`;
+  if (remoteVideo) {
+    return `
+      <div class="adm-record-preview-missing">
+        <i data-lucide="video-off"></i>
+        <strong>Remote preview unavailable</strong>
+        <p>${escapeHtml(record.error || "The upstream temporary video link may have expired before it was cached locally.")}</p>
+        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(remoteVideo)}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open original URL</a>
+      </div>
+    `;
+  }
+  if (record.imageUrl) return `<img src="${escapeHtml(record.imageUrl)}" alt="" />`;
+  return '<div class="adm-empty"><i data-lucide="video-off"></i><p>No preview yet.</p></div>';
 }
 
 function recordBillingText(record) {
@@ -1411,6 +1433,7 @@ function renderGenerationRecordTable(records, payload = {}) {
 
 function generationRecordRowHtml(record, index) {
   const video = recordVideoUrl(record);
+  const remoteVideo = recordRemoteVideoUrl(record);
   const label = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "job";
   return `
     <tr>
@@ -1421,7 +1444,7 @@ function generationRecordRowHtml(record, index) {
       <td><span class="adm-mono">${escapeHtml(recordBillingText(record))}</span><span class="adm-block adm-muted">${escapeHtml(record.billing?.status || "")}</span></td>
       <td><span class="adm-mono adm-truncate" title="${escapeHtml(record.taskId)}">${escapeHtml(shortText(record.taskId, 24))}</span><span class="adm-block adm-muted">${escapeHtml(record.model || "")}</span></td>
       <td class="adm-record-prompt-cell" title="${escapeHtml(record.finalPrompt || record.prompt || "")}">${escapeHtml(shortText(record.finalPrompt || record.prompt || "", 150))}</td>
-      <td>${video ? `<video class="adm-record-thumb" src="${escapeHtml(video)}" preload="metadata" muted playsinline></video>` : record.imageUrl ? `<img class="adm-record-thumb" src="${escapeHtml(record.imageUrl)}" alt="" />` : '<span class="adm-muted">No result</span>'}</td>
+      <td>${video ? `<video class="adm-record-thumb" src="${escapeHtml(video)}" preload="metadata" muted playsinline></video>` : record.imageUrl ? `<img class="adm-record-thumb" src="${escapeHtml(record.imageUrl)}" alt="" />` : remoteVideo ? '<span class="adm-muted">Remote only</span>' : '<span class="adm-muted">No result</span>'}</td>
       <td class="adm-record-actions">
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>Detail</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-record" data-index="${index}"><i data-lucide="copy"></i>Prompt</button>
@@ -1432,6 +1455,7 @@ function generationRecordRowHtml(record, index) {
 
 function openGenerationRecordDetail(record) {
   const video = recordVideoUrl(record);
+  const remoteVideo = recordRemoteVideoUrl(record);
   const paramsText = jsonPretty(record.params);
   const upstreamText = jsonPretty(record.upstreamPayload);
   const createText = jsonPretty(record.createResponse);
@@ -1439,7 +1463,7 @@ function openGenerationRecordDetail(record) {
   const body = `
     <div class="adm-record-detail">
       <div class="adm-record-preview">
-        ${video ? `<video src="${escapeHtml(video)}" controls preload="metadata" playsinline></video>` : record.imageUrl ? `<img src="${escapeHtml(record.imageUrl)}" alt="" />` : '<div class="adm-empty"><i data-lucide="video-off"></i><p>No preview yet.</p></div>'}
+        ${recordPreviewHtml(record)}
       </div>
       <div class="adm-record-kv">
         <span>User</span><strong>${escapeHtml(recordOwnerText(record))}</strong>
@@ -1454,6 +1478,8 @@ function openGenerationRecordDetail(record) {
       ${record.referenceAssetUri ? `<div class="adm-record-line"><span>Reference</span><code>${escapeHtml(record.referenceAssetUri)}</code></div>` : ""}
       ${record.imageUrl ? `<div class="adm-record-line"><span>Image</span><a href="${escapeHtml(record.imageUrl)}" target="_blank" rel="noopener">${escapeHtml(record.imageUrl)}</a></div>` : ""}
       ${video ? `<div class="adm-record-line"><span>Result</span><a href="${escapeHtml(video)}" target="_blank" rel="noopener">${escapeHtml(video)}</a></div>` : ""}
+      ${!video && remoteVideo ? `<div class="adm-record-line"><span>Remote result</span><a href="${escapeHtml(remoteVideo)}" target="_blank" rel="noopener">${escapeHtml(remoteVideo)}</a></div>` : ""}
+      ${record.error ? `<div class="adm-record-line"><span>Error</span><code>${escapeHtml(record.error)}</code></div>` : ""}
       <section class="adm-record-section">
         <header><strong>Prompt</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="prompt"><i data-lucide="copy"></i>Copy</button></header>
         <pre>${escapeHtml(record.finalPrompt || record.prompt || "")}</pre>
