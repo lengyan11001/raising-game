@@ -106,7 +106,7 @@ PY
     cat > "$CN_GEO_FILE" <<'NGINX'
 # managed by raising-game production tuning
 # APNIC download failed and no previous CN range file exists.
-# Cloudflare CF-IPCountry=CN blocking still applies.
+# Mainland region blocking is disabled.
 NGINX
   else
     rm -f "$tmp_file"
@@ -168,22 +168,6 @@ http {
     map_hash_bucket_size 128;
     map_hash_max_size 4096;
 
-    map $arg_cnpass $mainland_bypass_arg {
-        default 0;
-        include /etc/nginx/geo/mainland_bypass_token.conf;
-    }
-
-    map $cookie_cnpass $mainland_bypass_cookie {
-        default 0;
-        include /etc/nginx/geo/mainland_bypass_token.conf;
-    }
-
-    map "$mainland_bypass_arg:$mainland_bypass_cookie" $mainland_bypass_access {
-        default 0;
-        ~^1: 1;
-        ~^0:1$ 1;
-    }
-
     sendfile on;
     tcp_nopush on;
     tcp_nodelay on;
@@ -212,28 +196,6 @@ http {
     send_timeout 120s;
 
     include /etc/nginx/geo/cloudflare_real_ip.conf;
-
-    geo $blocked_mainland_ip {
-        default 0;
-        include /etc/nginx/geo/mainland_cn.conf;
-    }
-
-    map $http_cf_ipcountry $blocked_cf_country {
-        default 0;
-        CN 1;
-    }
-
-    map "$blocked_cf_country:$blocked_mainland_ip" $blocked_mainland_access {
-        default 0;
-        "1:0" 1;
-        "0:1" 1;
-        "1:1" 1;
-    }
-
-    map "$blocked_mainland_access:$mainland_bypass_access" $block_mainland_request {
-        default 0;
-        "1:0" 1;
-    }
 
     include /etc/nginx/conf.d/*.conf;
     include /etc/nginx/sites-enabled/*;
@@ -264,10 +226,6 @@ server {
     listen [::]:80 default_server;
     server_name 123vips.com www.123vips.com api.123vips.com admin.123vips.com;
 
-    if ($block_mainland_request) {
-        return 451 "Service is not available in this region.\n";
-    }
-
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/html;
         allow all;
@@ -289,10 +247,6 @@ server {
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
     client_max_body_size 20m;
-
-    if ($block_mainland_request) {
-        return 451 "Service is not available in this region.\n";
-    }
 
     location ^~ /assets/generated/videos/ {
         proxy_pass http://raising_game_app;
@@ -408,10 +362,6 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    if ($block_mainland_request) {
-        return 451 "Service is not available in this region.\n";
-    }
-
     location /api/ {
         proxy_pass http://raising_game_app/api/;
         proxy_http_version 1.1;
@@ -459,7 +409,7 @@ upsert_env HTTP_HEADERS_TIMEOUT_MS "${HTTP_HEADERS_TIMEOUT_MS:-70000}"
 upsert_env HTTP_REQUEST_TIMEOUT_MS "${HTTP_REQUEST_TIMEOUT_MS:-180000}"
 upsert_env HTTP_MAX_REQUESTS_PER_SOCKET "${HTTP_MAX_REQUESTS_PER_SOCKET:-1000}"
 upsert_env HTTP_MAX_CONNECTIONS "${HTTP_MAX_CONNECTIONS:-2000}"
-upsert_env BLOCK_MAINLAND_CHINA "${BLOCK_MAINLAND_CHINA:-1}"
+upsert_env BLOCK_MAINLAND_CHINA "${BLOCK_MAINLAND_CHINA:-0}"
 upsert_env MAINLAND_BYPASS_QUERY_PARAM "${MAINLAND_BYPASS_QUERY_PARAM:-cnpass}"
 upsert_env MAINLAND_BYPASS_COOKIE "${MAINLAND_BYPASS_COOKIE:-cnpass}"
 upsert_env MAINLAND_BYPASS_MAX_AGE_SECONDS "${MAINLAND_BYPASS_MAX_AGE_SECONDS:-86400}"
