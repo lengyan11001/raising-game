@@ -8,6 +8,7 @@ const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
 const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
+const ADVANCED_GENERATION_MARKUP = 1.5;
 
 const state = {
   config: null,
@@ -2126,6 +2127,7 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   const rawSeconds = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawSeconds) ? Math.min(bounds.max, Math.max(bounds.min, rawSeconds)) : bounds.fallback;
   const configPricing = state.config?.platform?.advancedPricing || {};
+  const markup = Number(configPricing.markup || ADVANCED_GENERATION_MARKUP) || ADVANCED_GENERATION_MARKUP;
   if (normalizedProvider === "wan27") {
     const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
     const byResolution = configPricing.wan27CreditsPerSecondByResolution || {};
@@ -2135,7 +2137,9 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       provider: "wan27",
       duration: seconds,
       resolution: normalizedResolution,
-      credits: Math.max(0, Math.round(seconds * perSecond)),
+      baseCredits: Math.max(0, seconds * perSecond),
+      credits: Math.max(0, Math.round(seconds * perSecond * markup)),
+      markup,
     };
   }
   const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
@@ -2146,13 +2150,16 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   const fps = Number(seedanceConfig.fps || ADVANCED_SEEDANCE_FPS) || ADVANCED_SEEDANCE_FPS;
   const { width, height } = videoPixelDimensions(normalizedResolution, normalizedRatio);
   const outputTokens = Math.ceil((seconds * width * height * fps) / 1024);
+  const baseCredits = Math.max(0, (outputTokens * yuanPerMillionTokens * 100) / 1000000);
   return {
     provider: "seedance",
     duration: seconds,
     resolution: normalizedResolution,
     ratio: normalizedRatio,
     outputTokens,
-    credits: Math.max(0, Math.round((outputTokens * yuanPerMillionTokens * 100) / 1000000)),
+    baseCredits,
+    credits: Math.max(0, Math.round(baseCredits * markup)),
+    markup,
   };
 }
 

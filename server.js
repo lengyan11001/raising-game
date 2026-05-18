@@ -82,6 +82,7 @@ const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = clampNumber(process.env.AD
 const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS, 51, 0.0001, 100000);
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_WAN27_720P_CREDITS_PER_SECOND, 100, 1, 100000);
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_WAN27_1080P_CREDITS_PER_SECOND, 150, 1, 100000);
+const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_MARKUP, 1.5, 1, 100);
 const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_DASHSCOPE_API_KEY =
   process.env.ALIYUN_DASHSCOPE_API_KEY ||
@@ -654,7 +655,7 @@ function publicConfig(config) {
     platform: {
       ...platform,
       advancedPricing: {
-        markup: 1,
+        markup: ADVANCED_GENERATION_MARKUP,
         seedanceTokenPricing: {
           fps: ADVANCED_SEEDANCE_FPS,
           yuanPerMillionTokensByResolution: {
@@ -1300,6 +1301,10 @@ function costBreakdown(baseCredits, source = "") {
   };
 }
 
+function advancedSellingCredits(baseCredits, markup = ADVANCED_GENERATION_MARKUP) {
+  return creditsAmount(Math.round(creditsAmount(baseCredits) * Number(markup || ADVANCED_GENERATION_MARKUP)));
+}
+
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (["wan27", "wan2.7", "wan"].includes(normalized)) return "wan27";
@@ -1344,7 +1349,7 @@ function seedanceTokenPricing(options = {}) {
   const yuanPerMillionTokens = resolution === "1080p"
     ? ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS
     : ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS;
-  const baseCredits = creditsAmount(Math.round((outputTokens * yuanPerMillionTokens * 100) / 1000000));
+  const baseCredits = creditsAmount((outputTokens * yuanPerMillionTokens * 100) / 1000000);
   return {
     resolution,
     ratio,
@@ -1373,21 +1378,22 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     const creditsPerSecond = resolution === "1080P"
       ? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND
       : ADVANCED_WAN27_720P_CREDITS_PER_SECOND;
-    const credits = creditsAmount(duration * creditsPerSecond);
+    const baseCredits = creditsAmount(duration * creditsPerSecond);
+    const credits = advancedSellingCredits(baseCredits);
     return {
       provider: "wan27",
       providerLabel: "Wan2.7",
       model: ALIYUN_WAN27_MODEL,
       duration,
       resolution,
-      creditsPerSecond,
-      baseCredits: credits,
+      creditsPerSecond: creditsAmount(credits / Math.max(1, duration)),
+      baseCredits,
       credits,
-      markup: 1,
+      markup: ADVANCED_GENERATION_MARKUP,
     };
   }
   const tokenPricing = seedanceTokenPricing({ ...options, duration });
-  const credits = tokenPricing.baseCredits;
+  const credits = advancedSellingCredits(tokenPricing.baseCredits);
   return {
     provider: "seedance",
     providerLabel: "Seedance",
@@ -1403,7 +1409,7 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     creditsPerSecond: creditsAmount(credits / Math.max(1, tokenPricing.duration)),
     baseCredits: tokenPricing.baseCredits,
     credits,
-    markup: 1,
+    markup: ADVANCED_GENERATION_MARKUP,
     source: "seedance_token_estimate",
   };
 }
@@ -3756,10 +3762,14 @@ function seedanceFinalCreditsFromUsage(record = {}) {
   const yuanPerMillionTokens = Number(pricing.yuanPerMillionTokens || (resolution === "1080p"
     ? ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS
     : ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS));
+  const markup = Number(pricing.markup || ADVANCED_GENERATION_MARKUP) || ADVANCED_GENERATION_MARKUP;
+  const baseCredits = creditsAmount((completionTokens * yuanPerMillionTokens * 100) / 1000000);
   return {
     completionTokens,
     yuanPerMillionTokens,
-    credits: creditsAmount(Math.round((completionTokens * yuanPerMillionTokens * 100) / 1000000)),
+    baseCredits,
+    markup,
+    credits: advancedSellingCredits(baseCredits, markup),
   };
 }
 
@@ -3785,7 +3795,9 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           provider: record.provider || "seedance",
           reason,
           preDeducted,
+          baseCredits: usage.baseCredits,
           finalCredits,
+          markup: usage.markup,
           completionTokens: usage.completionTokens,
         });
         await writeDb(db);
@@ -3795,7 +3807,9 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           provider: record.provider || "seedance",
           reason,
           preDeducted,
+          baseCredits: usage.baseCredits,
           finalCredits,
+          markup: usage.markup,
           completionTokens: usage.completionTokens,
         });
         await writeDb(db);
@@ -3809,6 +3823,7 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           billingStatus,
           billingError: error.message || "Not enough credits for final settlement.",
           usageCompletionTokens: usage.completionTokens,
+          usageBaseCredits: usage.baseCredits,
         });
       }
       throw error;
@@ -3820,6 +3835,7 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
       billingSettledAt: new Date().toISOString(),
       billingError: "",
       usageCompletionTokens: usage.completionTokens,
+      usageBaseCredits: usage.baseCredits,
     });
   }
 
@@ -4632,9 +4648,9 @@ async function buildModelDocs(req) {
     updatedAt: new Date().toISOString(),
     billing: {
       unit: "credits",
-      note: `Credits are settled as RMB cents. Template estimates are calculated from the saved upstream JSON model and duration. Advanced Seedance 2.0 is estimated by Ark token pricing, output resolution, ratio, fps and duration; Wan2.7 is fixed at 720p ${ADVANCED_WAN27_720P_CREDITS_PER_SECOND} credits/s and 1080p ${ADVANCED_WAN27_1080P_CREDITS_PER_SECOND} credits/s.`,
+      note: `Credits are settled as RMB cents. Template estimates are calculated from the saved upstream JSON model and duration. Advanced generation selling price is procurement cost multiplied by ${ADVANCED_GENERATION_MARKUP}. Advanced Seedance 2.0 procurement cost is estimated by Ark token pricing, output resolution, ratio, fps and duration; Wan2.7 procurement cost is fixed at 720p ${ADVANCED_WAN27_720P_CREDITS_PER_SECOND} credits/s and 1080p ${ADVANCED_WAN27_1080P_CREDITS_PER_SECOND} credits/s.`,
       galleryMarkup: GENERATION_PRICE_MARKUP,
-      advancedMarkup: 1,
+      advancedMarkup: ADVANCED_GENERATION_MARKUP,
       advancedSeedanceTokenPricing: {
         fps: ADVANCED_SEEDANCE_FPS,
         yuanPerMillionTokensByResolution: {
