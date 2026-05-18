@@ -2147,12 +2147,12 @@ function advancedCaseEditor(item = {}, index = 0) {
         <div class="adm-form-row"><span>计费</span><input value="Seedance 150/s；Wan2.7 720p 100/s，1080p 150/s" disabled /></div>
       </div>
       <div class="adm-grid adm-grid-2">
-        <div class="adm-form-row"><span>预览 URL</span><input data-f="previewUrl" value="${escapeHtml(item.previewUrl || "")}" /></div>
-        <div class="adm-form-row"><span>封面 URL</span><input data-f="coverUrl" value="${escapeHtml(item.coverUrl || "")}" placeholder="留空时会尝试从预览视频取帧" /></div>
+        <div class="adm-form-row"><span>样例视频 URL（前台案例卡片播放）</span><input data-f="previewUrl" value="${escapeHtml(item.previewUrl || "")}" placeholder="https://.../case-preview.mp4" /></div>
+        <div class="adm-form-row"><span>封面 URL（可选）</span><input data-f="coverUrl" value="${escapeHtml(item.coverUrl || "")}" placeholder="留空时会尝试从样例视频取帧" /></div>
       </div>
       <div class="adm-form-row"><span>描述</span><textarea data-f="description" rows="3">${escapeHtml(item.description || "")}</textarea></div>
-      <div class="adm-form-row"><span>Prompt</span><textarea data-f="prompt" rows="5">${escapeHtml(item.prompt || "")}</textarea></div>
-      <div class="adm-form-row"><span>参数 JSON（Seedance: preprocessReference；Wan2.7: seed / resolution）</span><textarea data-f="params" rows="8" spellcheck="false">${escapeHtml(params)}</textarea></div>
+      <div class="adm-form-row"><span>Prompt（点案例后自动填到前台）</span><textarea data-f="prompt" rows="5">${escapeHtml(item.prompt || "")}</textarea></div>
+      <div class="adm-form-row"><span>参数 JSON（点案例后自动带入；Seedance: preprocessReference；Wan2.7: seed / resolution）</span><textarea data-f="params" rows="8" spellcheck="false">${escapeHtml(params)}</textarea></div>
     </div>
   `;
 }
@@ -2207,7 +2207,7 @@ async function renderPlatform() {
         <div class="adm-card-head">
           <div>
             <h3>模板列表</h3>
-            <span class="adm-muted">${templates.length} 条，列表只展示摘要，点击编辑维护预览 URL 和上游 JSON。</span>
+            <span class="adm-muted">${templates.length} 条。点击新增或编辑维护预览 URL、封面和上游 JSON。</span>
           </div>
           <input class="platform-template-search" id="platformTemplateSearch" placeholder="搜索标题 / ID / prompt / model" />
         </div>
@@ -2226,7 +2226,7 @@ async function renderPlatform() {
         <div class="adm-card-head">
           <div>
             <h3>高级生成案例</h3>
-            <span class="adm-muted">用于前台 Advanced tab。用户点击案例后自动填充提示词和参数。</span>
+            <span class="adm-muted">用于前台 Advanced tab。新增案例可配置样例视频、封面、提示词和模型参数。</span>
           </div>
           <div class="adm-page-actions">
             <button class="adm-btn adm-btn-ghost" id="addAdvancedCaseBtn"><i data-lucide="plus"></i>新增案例</button>
@@ -2243,7 +2243,7 @@ async function renderPlatform() {
                   ${advanced.cases.map((item, index) => advancedCaseSummary(item, index)).join("")}
                 </tbody>
               </table>
-            ` : `<div class="adm-empty"><i data-lucide="sparkles"></i><p>暂无高级案例。</p></div>`}
+            ` : `<div class="adm-empty"><i data-lucide="sparkles"></i><p>暂无高级案例，点击「新增案例」配置样例视频和参数。</p></div>`}
           </div>
         </div>
       </div>
@@ -2273,14 +2273,25 @@ async function renderPlatform() {
 
   byId("addPlatformTemplateBtn")?.addEventListener("click", async () => {
     try {
-      const nextTemplates = [...templates, defaultPlatformTemplate(categories, templates.length)];
-      const payload = await api("/api/admin/config", {
-        method: "PUT",
-        body: { config: { ...config, platform: { ...platform, categories, templates: nextTemplates } } },
+      const draft = defaultPlatformTemplate(categories, templates.length);
+      const result = await openDialog({
+        title: "新增模板",
+        body: platformTemplateEditor(draft, templates.length, categories),
+        confirmText: "保存模板",
+        cancelText: "取消",
+        onConfirm: async () => {
+          const editor = els.dialogBody.querySelector("[data-template-index]");
+          const collected = await ensurePlatformTemplateCover(collectPlatformTemplateFromCard(editor, draft));
+          const nextTemplates = [...templates, collected];
+          const payload = await api("/api/admin/config", {
+            method: "PUT",
+            body: { config: { ...config, platform: { ...platform, categories, templates: nextTemplates } } },
+          });
+          state.config = payload.config;
+          toast("模板已新增。", "success");
+        },
       });
-      state.config = payload.config;
-      toast("模板已新增。", "success");
-      renderPlatform();
+      if (result === "confirm") renderPlatform();
     } catch (err) {
       toast(err.message, "error");
     }
@@ -2311,7 +2322,19 @@ async function renderPlatform() {
 
   byId("addAdvancedCaseBtn")?.addEventListener("click", async () => {
     try {
-      await saveAdvanced([...advanced.cases, defaultAdvancedCase(advanced.cases.length)]);
+      const draft = defaultAdvancedCase(advanced.cases.length);
+      const result = await openDialog({
+        title: "新增高级案例",
+        body: advancedCaseEditor(draft, advanced.cases.length),
+        confirmText: "保存案例",
+        cancelText: "取消",
+        onConfirm: async () => {
+          const editor = els.dialogBody.querySelector("[data-advanced-index]");
+          const collected = await ensurePlatformTemplateCover(collectAdvancedCaseFromCard(editor, draft));
+          await saveAdvanced([...advanced.cases, collected]);
+        },
+      });
+      if (result === "confirm") renderPlatform();
     } catch (err) {
       toast(err.message, "error");
     }
