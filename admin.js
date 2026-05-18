@@ -9,6 +9,7 @@ const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
 const ROUTES = [
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
   { id: "platform", title: "首页广场", render: renderPlatform },
+  { id: "advanced-cases", title: "高级案例", render: renderAdvancedCases },
   { id: "characters", title: "角色管理", render: renderCharacters },
   { id: "videos", title: "视频管理", render: renderVideos },
   { id: "records", title: "生成记录", render: renderGenerationRecords },
@@ -2184,26 +2185,33 @@ function collectAdvancedCaseFromCard(card, existing = {}) {
   };
 }
 
-async function renderPlatform() {
+async function renderAdvancedCases() {
+  await renderPlatform({ advancedOnly: true });
+}
+
+async function renderPlatform(options = {}) {
+  const advancedOnly = Boolean(options.advancedOnly);
   const config = await loadConfig(true);
   const platform = config.platform || {};
   const categories = FIXED_PLATFORM_CATEGORIES;
   const templates = Array.isArray(platform.templates) ? platform.templates : [];
   const advanced = defaultAdvancedConfig(platform);
+  const rerenderPlatform = () => renderPlatform({ advancedOnly });
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
         <div>
-          <h2>首页广场</h2>
-          <p class="adm-muted">只配置模板记录。首页品牌、标题、公告和分类已固定，不在后台反复改。</p>
+          <h2>${advancedOnly ? "高级案例" : "首页广场"}</h2>
+          <p class="adm-muted">${advancedOnly ? "配置前台 Advanced tab 的样例视频、封面、提示词和模型参数。" : "只配置模板记录。首页品牌、标题、公告和分类已固定，不在后台反复改。"}</p>
         </div>
         <div class="adm-page-actions">
           <a class="adm-btn adm-btn-ghost" href="/" target="_blank" rel="noopener"><i data-lucide="external-link"></i>预览首页</a>
-          <button class="adm-btn adm-btn-ghost" id="addPlatformTemplateBtn"><i data-lucide="plus"></i>新增模板</button>
-          <button class="adm-btn adm-btn-primary" id="savePlatformBtn"><i data-lucide="save"></i>保存全部</button>
+          ${advancedOnly ? '<a class="adm-btn adm-btn-ghost" href="#/platform"><i data-lucide="layout-template"></i>模板列表</a>' : '<a class="adm-btn adm-btn-ghost" href="#/advanced-cases"><i data-lucide="wand-sparkles"></i>高级案例</a>'}
+          ${advancedOnly ? '<button class="adm-btn adm-btn-ghost" id="addAdvancedCaseTopBtn"><i data-lucide="plus"></i>新增案例</button>' : '<button class="adm-btn adm-btn-ghost" id="addPlatformTemplateBtn"><i data-lucide="plus"></i>新增模板</button>'}
+          <button class="adm-btn adm-btn-primary" id="${advancedOnly ? "saveAdvancedTopBtn" : "savePlatformBtn"}"><i data-lucide="save"></i>${advancedOnly ? "保存高级配置" : "保存全部"}</button>
         </div>
       </div>
-      <div class="adm-card adm-mt">
+      ${advancedOnly ? "" : `<div class="adm-card adm-mt">
         <div class="adm-card-head">
           <div>
             <h3>模板列表</h3>
@@ -2221,8 +2229,8 @@ async function renderPlatform() {
             </table>
           ` : `<div class="adm-empty"><i data-lucide="layout-template"></i><p>暂无模板，点击「新增模板」。</p></div>`}
         </div>
-      </div>
-      <div class="adm-card adm-mt">
+      </div>`}
+      <div class="adm-card adm-mt" id="advancedCasesCard">
         <div class="adm-card-head">
           <div>
             <h3>高级生成案例</h3>
@@ -2260,7 +2268,7 @@ async function renderPlatform() {
     const payload = await api("/api/admin/config", { method: "PUT", body: { config: { ...config, platform: nextPlatform } } });
     state.config = payload.config;
     toast("首页广场已保存。", "success");
-    renderPlatform();
+    rerenderPlatform();
   };
 
   byId("savePlatformBtn")?.addEventListener("click", async () => {
@@ -2291,7 +2299,7 @@ async function renderPlatform() {
           toast("模板已新增。", "success");
         },
       });
-      if (result === "confirm") renderPlatform();
+      if (result === "confirm") rerenderPlatform();
     } catch (err) {
       toast(err.message, "error");
     }
@@ -2309,7 +2317,7 @@ async function renderPlatform() {
     });
     state.config = payload.config;
     toast("高级生成配置已保存。", "success");
-    renderPlatform();
+    rerenderPlatform();
   };
 
   byId("saveAdvancedBtn")?.addEventListener("click", async () => {
@@ -2319,8 +2327,15 @@ async function renderPlatform() {
       toast(err.message, "error");
     }
   });
+  byId("saveAdvancedTopBtn")?.addEventListener("click", async () => {
+    try {
+      await saveAdvanced();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
 
-  byId("addAdvancedCaseBtn")?.addEventListener("click", async () => {
+  const openAddAdvancedCaseDialog = async () => {
     try {
       const draft = defaultAdvancedCase(advanced.cases.length);
       const result = await openDialog({
@@ -2334,11 +2349,13 @@ async function renderPlatform() {
           await saveAdvanced([...advanced.cases, collected]);
         },
       });
-      if (result === "confirm") renderPlatform();
+      if (result === "confirm") rerenderPlatform();
     } catch (err) {
       toast(err.message, "error");
     }
-  });
+  };
+  byId("addAdvancedCaseBtn")?.addEventListener("click", openAddAdvancedCaseDialog);
+  byId("addAdvancedCaseTopBtn")?.addEventListener("click", openAddAdvancedCaseDialog);
 
   byId("platformTemplateSearch")?.addEventListener("input", (event) => {
     const keyword = event.target.value.trim().toLowerCase();
@@ -2378,7 +2395,7 @@ async function renderPlatform() {
           toast("模板已保存。", "success");
         },
       });
-      if (result === "confirm") renderPlatform();
+      if (result === "confirm") rerenderPlatform();
     });
     row.querySelector('[data-act="delete-template"]')?.addEventListener("click", async () => {
       const index = Number(row.dataset.templateIndex || 0);
@@ -2391,7 +2408,7 @@ async function renderPlatform() {
       });
       state.config = payload.config;
       toast("模板已删除。", "success");
-      renderPlatform();
+      rerenderPlatform();
     });
   });
 
@@ -2410,7 +2427,7 @@ async function renderPlatform() {
           await saveAdvanced(nextCases);
         },
       });
-      if (result === "confirm") renderPlatform();
+      if (result === "confirm") rerenderPlatform();
     });
     row.querySelector('[data-act="delete-advanced"]')?.addEventListener("click", async () => {
       const index = Number(row.dataset.advancedIndex || 0);
