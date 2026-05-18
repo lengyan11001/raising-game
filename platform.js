@@ -3,10 +3,11 @@
 const TOKEN_KEY = "raisingGameToken";
 const LANG_KEY = "raisingGameLanguage";
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
-const ADVANCED_SEEDANCE_CREDITS_PER_SECOND = 150;
+const ADVANCED_SEEDANCE_FPS = 24;
+const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
+const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
-const ADVANCED_GENERATION_CREDITS_PER_SECOND = ADVANCED_SEEDANCE_CREDITS_PER_SECOND;
 
 const state = {
   config: null,
@@ -2068,9 +2069,10 @@ function updateSubmitButtonCost() {
 
 function advancedCaseDuration(item = {}) {
   const params = item.params && typeof item.params === "object" ? item.params : {};
+  const bounds = advancedDurationBounds(advancedCaseProvider(item));
   const duration = Number(params.duration ?? item.duration ?? 5);
-  if (!Number.isFinite(duration)) return 5;
-  return Math.min(15, Math.max(5, duration));
+  if (!Number.isFinite(duration)) return bounds.fallback;
+  return Math.min(bounds.max, Math.max(bounds.min, duration));
 }
 
 function normalizeAdvancedProvider(value = "") {
@@ -2086,7 +2088,7 @@ function advancedCaseProvider(item = {}) {
 function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
   if (normalizeAdvancedProvider(provider) === "wan27") return raw === "1080p" ? "1080p" : "720p";
-  return raw || "720p";
+  return raw === "1080p" ? "1080p" : "720p";
 }
 
 function advancedDurationBounds(provider = "seedance") {
@@ -2095,7 +2097,30 @@ function advancedDurationBounds(provider = "seedance") {
     : { min: 5, max: 15, fallback: 5 };
 }
 
-function advancedPricing(duration, provider = "seedance", resolution = "720p") {
+function normalizeVideoRatio(value = "") {
+  const normalized = String(value || "").trim().replace(/[：xX]/g, ":");
+  if (/^\d+\s*:\s*\d+$/.test(normalized)) {
+    const [width, height] = normalized.split(":").map((part) => Math.max(1, Number(part.trim()) || 1));
+    return `${width}:${height}`;
+  }
+  return "16:9";
+}
+
+function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
+  const shortSide = normalizeAdvancedResolution(resolution) === "1080p" ? 1080 : 720;
+  const [ratioW, ratioH] = normalizeVideoRatio(ratio).split(":").map((part) => Math.max(1, Number(part) || 1));
+  if (ratioW >= ratioH) {
+    return {
+      width: Math.max(1, Math.round((shortSide * ratioW) / ratioH)),
+      height: shortSide,
+    };
+  }
+  const width = shortSide;
+  const height = Math.max(1, Math.round((shortSide * ratioH) / ratioW));
+  return { width, height };
+}
+
+function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawSeconds = Number(duration || bounds.fallback);
@@ -2113,17 +2138,26 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p") {
       credits: Math.max(0, Math.round(seconds * perSecond)),
     };
   }
-  const seedancePerSecond = Number(configPricing.seedanceCreditsPerSecond || ADVANCED_SEEDANCE_CREDITS_PER_SECOND) || ADVANCED_SEEDANCE_CREDITS_PER_SECOND;
+  const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
+  const normalizedRatio = normalizeVideoRatio(ratio);
+  const seedanceConfig = configPricing.seedanceTokenPricing || {};
+  const byResolution = seedanceConfig.yuanPerMillionTokensByResolution || {};
+  const yuanPerMillionTokens = Number(byResolution[normalizedResolution] || (normalizedResolution === "1080p" ? ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS : ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS));
+  const fps = Number(seedanceConfig.fps || ADVANCED_SEEDANCE_FPS) || ADVANCED_SEEDANCE_FPS;
+  const { width, height } = videoPixelDimensions(normalizedResolution, normalizedRatio);
+  const outputTokens = Math.ceil((seconds * width * height * fps) / 1024);
   return {
     provider: "seedance",
     duration: seconds,
-    resolution: normalizeAdvancedResolution(resolution, normalizedProvider),
-    credits: Math.max(0, Math.round(seconds * seedancePerSecond)),
+    resolution: normalizedResolution,
+    ratio: normalizedRatio,
+    outputTokens,
+    credits: Math.max(0, Math.round((outputTokens * yuanPerMillionTokens * 100) / 1000000)),
   };
 }
 
-function advancedCostForDuration(duration, provider = "seedance", resolution = "720p") {
-  return advancedPricing(duration, provider, resolution).credits;
+function advancedCostForDuration(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
+  return advancedPricing(duration, provider, resolution, ratio).credits;
 }
 
 function currentAdvancedProvider() {
@@ -2134,9 +2168,13 @@ function currentAdvancedResolution() {
   return normalizeAdvancedResolution(els.advancedResolution?.value || "720p", currentAdvancedProvider());
 }
 
-function advancedCostLabel(duration, provider = "seedance", resolution = "720p") {
-  const pricing = advancedPricing(duration, provider, resolution);
-  const suffix = pricing.provider === "wan27" ? ` - ${pricing.resolution}` : "";
+function currentAdvancedRatio() {
+  return normalizeVideoRatio(els.advancedRatio?.value || "16:9");
+}
+
+function advancedCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
+  const pricing = advancedPricing(duration, provider, resolution, ratio);
+  const suffix = ` - ${pricing.resolution}`;
   return `${t("cost.creditsDuration", { credits: formatCredits(pricing.credits), duration: formatDurationSeconds(pricing.duration) })}${suffix}`;
 }
 
@@ -2145,7 +2183,7 @@ function updateAdvancedButtonCost() {
   const rawDuration = Number(els.advancedDuration?.value || 5);
   const bounds = advancedDurationBounds(currentAdvancedProvider());
   const duration = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
-  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(duration, currentAdvancedProvider(), currentAdvancedResolution()) }))}`;
+  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(duration, currentAdvancedProvider(), currentAdvancedResolution(), currentAdvancedRatio()) }))}`;
   refreshIcons();
 }
 
@@ -2529,7 +2567,7 @@ function renderAdvancedCases() {
       <img src="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
       ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
       <div>
-        <span>${escapeHtml(item.category || t("advanced.cases"))} - ${escapeHtml(advancedCostLabel(advancedCaseDuration(item), advancedCaseProvider(item), item.params?.resolution))}</span>
+        <span>${escapeHtml(item.category || t("advanced.cases"))} - ${escapeHtml(advancedCostLabel(advancedCaseDuration(item), advancedCaseProvider(item), item.params?.resolution, item.params?.ratio || item.params?.aspect_ratio))}</span>
         <strong>${escapeHtml(item.title || t("advanced.defaultCase"))}</strong>
         <p>${escapeHtml(item.description || item.prompt || "").slice(0, 96)}</p>
       </div>
@@ -2562,7 +2600,7 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedNote) {
     els.advancedNote.textContent = t("advanced.loadedCase", {
       title: item.title || t("advanced.defaultCase"),
-      cost: advancedCostLabel(advancedCaseDuration(item), provider, params.resolution),
+      cost: advancedCostLabel(advancedCaseDuration(item), provider, params.resolution, params.ratio || params.aspect_ratio),
     });
   }
 }
@@ -2602,7 +2640,7 @@ async function submitAdvancedGenerate() {
   if (els.advancedNote) {
     els.advancedNote.textContent = t("advanced.submitting", {
       note: referenceNote,
-      cost: advancedCostLabel(duration, provider, resolution),
+      cost: advancedCostLabel(duration, provider, resolution, currentAdvancedRatio()),
     });
   }
   try {
@@ -2622,7 +2660,7 @@ async function submitAdvancedGenerate() {
       },
     });
     if (payload.user) setUser(payload.user);
-    const charged = payload.cost ?? advancedCostForDuration(duration, provider, resolution);
+    const charged = payload.cost ?? advancedCostForDuration(duration, provider, resolution, currentAdvancedRatio());
     if (els.advancedNote) {
       els.advancedNote.textContent = t("advanced.jobSubmitted", {
         taskId: payload.taskId || payload.task?.taskId || "",
@@ -3184,6 +3222,7 @@ els.previewDialog?.addEventListener("close", () => {
 els.advancedSubmitBtn?.addEventListener("click", submitAdvancedGenerate);
 els.advancedDuration?.addEventListener("input", updateAdvancedButtonCost);
 els.advancedProvider?.addEventListener("change", updateAdvancedModelControls);
+els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedResolution?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelControls);
 els.loginBtn?.addEventListener("click", () => {

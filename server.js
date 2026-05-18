@@ -77,10 +77,11 @@ const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, 720, 1, 100000);
 const GENERATION_PRICE_MARKUP = 1.2;
-const ADVANCED_SEEDANCE_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_SEEDANCE_CREDITS_PER_SECOND, 150, 1, 100000);
+const ADVANCED_SEEDANCE_FPS = clampNumber(process.env.ADVANCED_SEEDANCE_FPS, 24, 1, 120);
+const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS, 46, 0.0001, 100000);
+const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS, 51, 0.0001, 100000);
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_WAN27_720P_CREDITS_PER_SECOND, 100, 1, 100000);
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_WAN27_1080P_CREDITS_PER_SECOND, 150, 1, 100000);
-const ADVANCED_GENERATION_CREDITS_PER_SECOND = ADVANCED_SEEDANCE_CREDITS_PER_SECOND;
 const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_DASHSCOPE_API_KEY =
   process.env.ALIYUN_DASHSCOPE_API_KEY ||
@@ -654,7 +655,13 @@ function publicConfig(config) {
       ...platform,
       advancedPricing: {
         markup: 1,
-        seedanceCreditsPerSecond: ADVANCED_SEEDANCE_CREDITS_PER_SECOND,
+        seedanceTokenPricing: {
+          fps: ADVANCED_SEEDANCE_FPS,
+          yuanPerMillionTokensByResolution: {
+            "720p": ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS,
+            "1080p": ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS,
+          },
+        },
         wan27CreditsPerSecondByResolution: {
           "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
           "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
@@ -711,11 +718,13 @@ function normalizePlatformTemplate(template = {}, index = 0) {
 function normalizeAdvancedCase(item = {}, index = 0) {
   const fallbackId = `advanced-case-${index + 1}`;
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
-  const duration = clampNumber(item.duration ?? params.duration, 5, 5, 15);
   const provider = normalizeAdvancedProvider(item.provider || params.provider || params.modelProvider || params.model_provider);
+  const bounds = advancedDurationBounds(provider);
+  const duration = clampNumber(item.duration ?? params.duration, bounds.fallback, bounds.min, bounds.max);
   const pricing = advancedModelPricing(provider, {
     duration,
     resolution: item.resolution || params.resolution,
+    ratio: item.ratio || params.ratio || params.aspect_ratio,
   });
   const estimatedCredits = pricing.credits;
   return {
@@ -1297,6 +1306,58 @@ function normalizeAdvancedProvider(value = "") {
   return "seedance";
 }
 
+function normalizeAdvancedResolution(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "1080p" ? "1080p" : "720p";
+}
+
+function normalizeVideoRatio(value = "") {
+  const normalized = String(value || "").trim().replace(/[：xX]/g, ":");
+  if (/^\d+\s*:\s*\d+$/.test(normalized)) {
+    const [width, height] = normalized.split(":").map((part) => Math.max(1, Number(part.trim()) || 1));
+    return `${width}:${height}`;
+  }
+  return "16:9";
+}
+
+function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
+  const shortSide = normalizeAdvancedResolution(resolution) === "1080p" ? 1080 : 720;
+  const [ratioW, ratioH] = normalizeVideoRatio(ratio).split(":").map((part) => Math.max(1, Number(part) || 1));
+  if (ratioW >= ratioH) {
+    return {
+      width: Math.max(1, Math.round((shortSide * ratioW) / ratioH)),
+      height: shortSide,
+    };
+  }
+  const width = shortSide;
+  const height = Math.max(1, Math.round((shortSide * ratioH) / ratioW));
+  return { width, height };
+}
+
+function seedanceTokenPricing(options = {}) {
+  const resolution = normalizeAdvancedResolution(options.resolution);
+  const ratio = normalizeVideoRatio(options.ratio || options.aspect_ratio || "16:9");
+  const duration = clampNumber(options.duration ?? options.durationSeconds, advancedDurationBounds("seedance").fallback, advancedDurationBounds("seedance").min, advancedDurationBounds("seedance").max);
+  const fps = clampNumber(options.fps || ADVANCED_SEEDANCE_FPS, ADVANCED_SEEDANCE_FPS, 1, 120);
+  const { width, height } = videoPixelDimensions(resolution, ratio);
+  const outputTokens = Math.ceil((duration * width * height * fps) / 1024);
+  const yuanPerMillionTokens = resolution === "1080p"
+    ? ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS
+    : ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS;
+  const baseCredits = creditsAmount(Math.round((outputTokens * yuanPerMillionTokens * 100) / 1000000));
+  return {
+    resolution,
+    ratio,
+    duration,
+    fps,
+    width,
+    height,
+    outputTokens,
+    yuanPerMillionTokens,
+    baseCredits,
+  };
+}
+
 function advancedDurationBounds(provider = "seedance") {
   return normalizeAdvancedProvider(provider) === "wan27"
     ? { fallback: 5, min: 2, max: 15 }
@@ -1325,17 +1386,25 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       markup: 1,
     };
   }
-  const credits = creditsAmount(duration * ADVANCED_SEEDANCE_CREDITS_PER_SECOND);
+  const tokenPricing = seedanceTokenPricing({ ...options, duration });
+  const credits = tokenPricing.baseCredits;
   return {
     provider: "seedance",
     providerLabel: "Seedance",
     model: MODEL_QUALITY,
-    duration,
-    creditsPerSecond: ADVANCED_SEEDANCE_CREDITS_PER_SECOND,
-    resolution: String(options.resolution || "720p"),
-    baseCredits: credits,
+    duration: tokenPricing.duration,
+    ratio: tokenPricing.ratio,
+    resolution: tokenPricing.resolution,
+    fps: tokenPricing.fps,
+    width: tokenPricing.width,
+    height: tokenPricing.height,
+    outputTokens: tokenPricing.outputTokens,
+    yuanPerMillionTokens: tokenPricing.yuanPerMillionTokens,
+    creditsPerSecond: creditsAmount(credits / Math.max(1, tokenPricing.duration)),
+    baseCredits: tokenPricing.baseCredits,
     credits,
     markup: 1,
+    source: "seedance_token_estimate",
   };
 }
 
@@ -1942,7 +2011,7 @@ async function submitSeedanceVideoTask({ config, prompt, referenceAssetUri, extr
     error.statusCode = 502;
     throw error;
   }
-  return { task: normalizeTask(raw), payload };
+  return { task: normalizeTask(raw), payload, raw };
 }
 
 function normalizeWan27Resolution(value = "") {
@@ -3174,7 +3243,10 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (record.provider === "apiz" && !record.billingSettledAt && record.taskId && !String(record.taskId).startsWith("demo-")) return true;
   const status = String(record.status || "").toLowerCase();
   if (isFailedStatus(status)) return false;
-  if (isSucceededStatus(status)) return Boolean(record.taskId) && !record.localVideoUrl;
+  if (isSucceededStatus(status)) {
+    if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.taskId);
+    return Boolean(record.taskId) && !record.localVideoUrl;
+  }
   return Boolean(record.taskId) && !String(record.taskId).startsWith("demo-");
 }
 
@@ -3224,9 +3296,13 @@ async function refreshGenerationRecordStatus(record = {}) {
       localVideoUrl,
       localVideoPath,
       error: task.error || downloadError || record.error || "",
+      queryResponse: raw,
     }, "query");
   } catch (error) {
     console.warn("[generation-record-refresh-failed]", record.taskId, error.message || error);
+    if (needsSeedanceFailureRefund(record) || (seedanceUsesTokenPricing(record) && isSucceededStatus(record.status) && !record.billingSettledAt)) {
+      return settleSeedanceGenerationRecord(record, "refresh-fallback");
+    }
     return record;
   }
 }
@@ -3626,9 +3702,128 @@ function needsSeedanceFailureRefund(record = {}) {
   return preDeducted > 0 && finalCredits > 0;
 }
 
+function seedanceUsesTokenPricing(record = {}) {
+  if (String(record.provider || "").toLowerCase() !== "seedance") return false;
+  const pricing = record.pricingEstimate && typeof record.pricingEstimate === "object" ? record.pricingEstimate : {};
+  if (String(pricing.source || "") === "seedance_token_estimate") return true;
+  return String(record.source || "").includes("advanced");
+}
+
+function extractUsageCompletionTokens(value, depth = 0) {
+  if (value === null || value === undefined || depth > 30) return null;
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return null;
+    if (text.startsWith("{") || text.startsWith("[")) {
+      try {
+        return extractUsageCompletionTokens(JSON.parse(text), depth + 1);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+  if (Array.isArray(value)) {
+    let best = null;
+    value.forEach((item) => {
+      const next = extractUsageCompletionTokens(item, depth + 1);
+      if (next !== null) best = Math.max(best ?? 0, next);
+    });
+    return best;
+  }
+  if (typeof value !== "object") return null;
+
+  const usage = value.usage && typeof value.usage === "object" ? value.usage : value;
+  for (const key of ["completion_tokens", "output_tokens", "video_tokens"]) {
+    const next = Number(usage[key]);
+    if (Number.isFinite(next) && next > 0) return Math.ceil(next);
+  }
+
+  let best = null;
+  for (const item of Object.values(value)) {
+    if (!item || typeof item !== "object") continue;
+    const next = extractUsageCompletionTokens(item, depth + 1);
+    if (next !== null) best = Math.max(best ?? 0, next);
+  }
+  return best;
+}
+
+function seedanceFinalCreditsFromUsage(record = {}) {
+  const completionTokens = extractUsageCompletionTokens(record.queryResponse) ?? extractUsageCompletionTokens(record.createResponse);
+  if (!completionTokens) return null;
+  const pricing = record.pricingEstimate && typeof record.pricingEstimate === "object" ? record.pricingEstimate : {};
+  const resolution = normalizeAdvancedResolution(record.resolution || pricing.resolution || record.params?.resolution);
+  const yuanPerMillionTokens = Number(pricing.yuanPerMillionTokens || (resolution === "1080p"
+    ? ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS
+    : ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS));
+  return {
+    completionTokens,
+    yuanPerMillionTokens,
+    credits: creditsAmount(Math.round((completionTokens * yuanPerMillionTokens * 100) / 1000000)),
+  };
+}
+
 async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
-  if (!needsSeedanceFailureRefund(record)) return record;
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  if (
+    seedanceUsesTokenPricing(record) &&
+    record.taskId &&
+    record.userId &&
+    isSucceededStatus(record.status) &&
+    !record.billingSettledAt
+  ) {
+    const usage = seedanceFinalCreditsFromUsage(record);
+    if (!usage) return record;
+    const finalCredits = usage.credits;
+    const delta = preDeducted - finalCredits;
+    let billingStatus = "settled";
+    const db = await readDb();
+    try {
+      if (delta > 0) {
+        changeUserCredits(db, record.userId, delta, "generation_refund", {
+          taskId: record.taskId,
+          provider: record.provider || "seedance",
+          reason,
+          preDeducted,
+          finalCredits,
+          completionTokens: usage.completionTokens,
+        });
+        await writeDb(db);
+      } else if (delta < 0) {
+        changeUserCredits(db, record.userId, delta, "generation_settle", {
+          taskId: record.taskId,
+          provider: record.provider || "seedance",
+          reason,
+          preDeducted,
+          finalCredits,
+          completionTokens: usage.completionTokens,
+        });
+        await writeDb(db);
+      }
+    } catch (error) {
+      if (error.code === "INSUFFICIENT_CREDITS") {
+        billingStatus = "settle_pending_insufficient";
+        return upsertGenerationRecord({
+          taskId: record.taskId,
+          finalCredits,
+          billingStatus,
+          billingError: error.message || "Not enough credits for final settlement.",
+          usageCompletionTokens: usage.completionTokens,
+        });
+      }
+      throw error;
+    }
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      finalCredits,
+      billingStatus,
+      billingSettledAt: new Date().toISOString(),
+      billingError: "",
+      usageCompletionTokens: usage.completionTokens,
+    });
+  }
+
+  if (!needsSeedanceFailureRefund(record)) return record;
   const db = await readDb();
   const alreadyRefunded = (db.creditLedger || []).some((entry) => (
     entry.userId === record.userId &&
@@ -3980,6 +4175,8 @@ async function handleAdvancedGenerate(req, res) {
     ),
     generateAudio: body.generateAudio !== false,
   };
+  requestParams.ratio = normalizeVideoRatio(requestParams.ratio);
+  requestParams.resolution = provider === "wan27" ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
   requestParams.preprocessReference = body.preprocessReference === undefined
     ? caseParams.preprocessReference !== false
     : body.preprocessReference !== false;
@@ -4062,7 +4259,7 @@ async function handleAdvancedGenerate(req, res) {
     });
     task = submitted.task;
     payload = submitted.payload;
-    createResponse = task;
+    createResponse = submitted.raw || task;
   }
 
   if (cost > 0) {
@@ -4077,6 +4274,10 @@ async function handleAdvancedGenerate(req, res) {
       baseCredits: pricing.baseCredits,
       markup: pricing.markup,
       resolution: pricing.resolution || requestParams.resolution,
+      ratio: pricing.ratio || requestParams.ratio,
+      outputTokens: pricing.outputTokens || null,
+      yuanPerMillionTokens: pricing.yuanPerMillionTokens || null,
+      pricingSource: pricing.source || "duration_rate",
       preprocessReference: requestParams.preprocessReference,
       userAssetId: userAsset?.id || "",
       referenceAssetUri,
@@ -4112,9 +4313,9 @@ async function handleAdvancedGenerate(req, res) {
     localVideoUrl: "",
     error: "",
     preDeductedCredits: cost,
-    finalCredits: cost,
-    billingStatus: cost > 0 ? "settled" : "free",
-    billingSettledAt: new Date().toISOString(),
+    finalCredits: provider === "wan27" ? cost : null,
+    billingStatus: cost > 0 ? (provider === "wan27" ? "settled" : "pre_deducted") : "free",
+    billingSettledAt: provider === "wan27" ? new Date().toISOString() : "",
     pricingEstimate: pricing,
     createResponse,
   }, "create");
@@ -4359,6 +4560,7 @@ function buildAdvancedModelDoc(item, origin) {
   const pricing = advancedModelPricing(provider, {
     duration: durationSeconds,
     resolution: params.resolution,
+    ratio: params.ratio || params.aspect_ratio,
   });
   return {
     id: item.id,
@@ -4372,10 +4574,13 @@ function buildAdvancedModelDoc(item, origin) {
       credits: pricing.credits,
       baseCredits: pricing.baseCredits,
       markup: pricing.markup ?? 1,
-      source: "duration_rate",
+      source: pricing.source || "duration_rate",
       durationSeconds,
       creditsPerSecond: pricing.creditsPerSecond,
       resolution: pricing.resolution || params.resolution || "",
+      ratio: pricing.ratio || params.ratio || params.aspect_ratio || "",
+      outputTokens: pricing.outputTokens || null,
+      yuanPerMillionTokens: pricing.yuanPerMillionTokens || null,
     },
     coverUrl: item.coverUrl,
     previewUrl: item.previewUrl,
@@ -4427,10 +4632,16 @@ async function buildModelDocs(req) {
     updatedAt: new Date().toISOString(),
     billing: {
       unit: "credits",
-      note: `Credits are settled as RMB cents. Template estimates are calculated from the saved upstream JSON model and duration. Advanced selling prices are fixed: Seedance ${ADVANCED_SEEDANCE_CREDITS_PER_SECOND} credits/s, Wan2.7 720p ${ADVANCED_WAN27_720P_CREDITS_PER_SECOND} credits/s, Wan2.7 1080p ${ADVANCED_WAN27_1080P_CREDITS_PER_SECOND} credits/s.`,
+      note: `Credits are settled as RMB cents. Template estimates are calculated from the saved upstream JSON model and duration. Advanced Seedance 2.0 is estimated by Ark token pricing, output resolution, ratio, fps and duration; Wan2.7 is fixed at 720p ${ADVANCED_WAN27_720P_CREDITS_PER_SECOND} credits/s and 1080p ${ADVANCED_WAN27_1080P_CREDITS_PER_SECOND} credits/s.`,
       galleryMarkup: GENERATION_PRICE_MARKUP,
       advancedMarkup: 1,
-      advancedSeedanceCreditsPerSecond: ADVANCED_SEEDANCE_CREDITS_PER_SECOND,
+      advancedSeedanceTokenPricing: {
+        fps: ADVANCED_SEEDANCE_FPS,
+        yuanPerMillionTokensByResolution: {
+          "720p": ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS,
+          "1080p": ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS,
+        },
+      },
       advancedWan27CreditsPerSecondByResolution: {
         "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
         "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
@@ -7179,6 +7390,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
         localVideoUrl,
         localVideoPath,
         error: task.error || downloadError || "",
+        queryResponse: raw,
       }, "detail");
     } catch (error) {
       console.warn("[generation-record-detail-refresh-failed]", taskId, error.message || error);
@@ -7607,6 +7819,7 @@ async function handleGetSceneVideo(req, res, taskId) {
     localVideoUrl,
     localVideoPath,
     error: task.error || downloadError || "",
+    queryResponse: raw,
   }, "scene-query");
 
   return sendJson(res, 200, {

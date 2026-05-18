@@ -2,7 +2,9 @@
 
 const TOKEN_KEY = "raisingGameAdminToken";
 const LEGACY_TOKEN_KEY = "raisingGameToken";
-const ADVANCED_SEEDANCE_CREDITS_PER_SECOND = 150;
+const ADVANCED_SEEDANCE_FPS = 24;
+const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
+const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
 
@@ -2097,20 +2099,57 @@ function defaultAdvancedCase(index = 0) {
 
 function advancedCaseDuration(item = {}) {
   const params = item.params && typeof item.params === "object" ? item.params : {};
+  const provider = String(item.provider || params.provider || "seedance").toLowerCase().replace(/[\s_-]+/g, "");
+  const min = provider === "wan27" || provider === "wan2.7" ? 2 : 5;
   const duration = Number(params.duration ?? item.duration ?? 5);
   if (!Number.isFinite(duration)) return 5;
-  return Math.min(15, Math.max(5, duration));
+  return Math.min(15, Math.max(min, duration));
+}
+
+function normalizeAdvancedResolution(value = "") {
+  return String(value || "").trim().toLowerCase() === "1080p" ? "1080p" : "720p";
+}
+
+function normalizeVideoRatio(value = "") {
+  const normalized = String(value || "").trim().replace(/[：xX]/g, ":");
+  if (/^\d+\s*:\s*\d+$/.test(normalized)) {
+    const [width, height] = normalized.split(":").map((part) => Math.max(1, Number(part.trim()) || 1));
+    return `${width}:${height}`;
+  }
+  return "16:9";
+}
+
+function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
+  const shortSide = normalizeAdvancedResolution(resolution) === "1080p" ? 1080 : 720;
+  const [ratioW, ratioH] = normalizeVideoRatio(ratio).split(":").map((part) => Math.max(1, Number(part) || 1));
+  if (ratioW >= ratioH) {
+    return {
+      width: Math.max(1, Math.round((shortSide * ratioW) / ratioH)),
+      height: shortSide,
+    };
+  }
+  const width = shortSide;
+  const height = Math.max(1, Math.round((shortSide * ratioH) / ratioW));
+  return { width, height };
 }
 
 function advancedCaseCredits(item = {}) {
   const params = item.params && typeof item.params === "object" ? item.params : {};
   const provider = String(item.provider || params.provider || "seedance").toLowerCase().replace(/[\s_-]+/g, "");
   if (provider === "wan27" || provider === "wan2.7") {
-    const resolution = String(params.resolution || "720p").toLowerCase() === "1080p" ? "1080p" : "720p";
+    const resolution = normalizeAdvancedResolution(params.resolution);
     const perSecond = resolution === "1080p" ? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND : ADVANCED_WAN27_720P_CREDITS_PER_SECOND;
     return Math.round(advancedCaseDuration(item) * perSecond);
   }
-  return Math.round(advancedCaseDuration(item) * ADVANCED_SEEDANCE_CREDITS_PER_SECOND);
+  const duration = advancedCaseDuration(item);
+  const resolution = normalizeAdvancedResolution(params.resolution);
+  const ratio = normalizeVideoRatio(params.ratio || params.aspect_ratio);
+  const { width, height } = videoPixelDimensions(resolution, ratio);
+  const outputTokens = Math.ceil((duration * width * height * ADVANCED_SEEDANCE_FPS) / 1024);
+  const yuanPerMillionTokens = resolution === "1080p"
+    ? ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS
+    : ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS;
+  return Math.round((outputTokens * yuanPerMillionTokens * 100) / 1000000);
 }
 
 function advancedCaseSummary(item = {}, index = 0) {
@@ -2147,7 +2186,7 @@ function advancedCaseEditor(item = {}, index = 0) {
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(item.sort ?? index)}" /></div>
         <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:8px;align-items:center;"><input data-f="enabled" type="checkbox" ${item.enabled !== false ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端展示</span></label></div>
-        <div class="adm-form-row"><span>计费</span><input value="Seedance 150/s；Wan2.7 720p 100/s，1080p 150/s" disabled /></div>
+        <div class="adm-form-row"><span>计费</span><input value="Seedance 按 Ark Token/分辨率计费；Wan2.7 720p 100/s，1080p 150/s" disabled /></div>
       </div>
       <div class="adm-grid adm-grid-2">
         <div class="adm-form-row"><span>样例视频链接（必填，http/https）</span><input data-f="sourceVideoUrl" value="${escapeHtml(videoInput)}" placeholder="https://.../case-preview.mp4" /></div>
