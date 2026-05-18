@@ -3273,7 +3273,7 @@ function generationRecordMatchesQuery(record = {}, query = "") {
 function shouldRefreshGenerationRecord(record = {}) {
   if (needsSeedanceFailureRefund(record)) return true;
   if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
-  if (record.provider === "apiz" && !record.billingSettledAt && record.taskId && !String(record.taskId).startsWith("demo-")) return true;
+  if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
   const status = String(record.status || "").toLowerCase();
   if (isFailedStatus(status)) return false;
   if (isSucceededStatus(status)) {
@@ -3281,6 +3281,9 @@ function shouldRefreshGenerationRecord(record = {}) {
     return Boolean(record.taskId) && !record.localVideoUrl;
   }
   if (String(record.provider || "").toLowerCase() === "seedance" && record.source === "advanced-seedance") {
+    return Boolean(record.upstreamTaskId) && !String(record.upstreamTaskId).startsWith("demo-");
+  }
+  if (String(record.provider || "").toLowerCase() === "apiz") {
     return Boolean(record.upstreamTaskId) && !String(record.upstreamTaskId).startsWith("demo-");
   }
   return Boolean(record.taskId) && !String(record.taskId).startsWith("demo-");
@@ -3968,6 +3971,114 @@ function publicBilling(record = {}) {
   };
 }
 
+function platformRecordKind(template = {}) {
+  return template.type === "image-to-video" ? "image-to-video" : "text-to-video";
+}
+
+function startPlatformGenerationJob(job) {
+  setImmediate(() => {
+    runPlatformGenerationJob(job).catch((error) => {
+      console.error("[platform-generation-job-failed]", job.taskId, error.message || error);
+    });
+  });
+}
+
+async function runPlatformGenerationJob(job = {}) {
+  const {
+    taskId,
+    userId,
+    templateId,
+    templateTitle,
+    templateType,
+    prompt,
+    imageUrl,
+    userAssetId,
+    upstreamPayload,
+    pricingEstimate,
+    preDeductedCredits,
+  } = job;
+
+  try {
+    await updateGenerationRecord(taskId, {
+      status: "submitting",
+      awaitingUpstreamTask: true,
+      error: "",
+    }, "platform-submitting");
+
+    const task = await apizRequest("/api/v3/tasks/create", upstreamPayload);
+    const upstreamTaskId = apizTaskId(task);
+    if (!upstreamTaskId) {
+      const error = new Error(`Generation service did not return task id: ${JSON.stringify(task)}`);
+      error.statusCode = 502;
+      throw error;
+    }
+
+    const record = await upsertGenerationRecord({
+      taskId,
+      upstreamTaskId,
+      awaitingUpstreamTask: false,
+      status: apizStatus(task),
+      model: upstreamPayload.model,
+      provider: "apiz",
+      source: "platform-template",
+      kind: platformRecordKind({ type: templateType }),
+      templateId,
+      templateTitle,
+      userId,
+      userAssetId: userAssetId || "",
+      imageUrl,
+      prompt,
+      finalPrompt: prompt,
+      params: upstreamPayload.params,
+      upstreamPayload,
+      preDeductedCredits,
+      pricingEstimate: {
+        source: pricingEstimate.source,
+        pricing: pricingEstimate.pricing || null,
+        baseCredits: pricingEstimate.baseCredits ?? null,
+        markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
+      },
+      finalCredits: null,
+      billingStatus: preDeductedCredits > 0 ? "pre_deducted" : "free",
+      billingSettledAt: "",
+      billingError: "",
+      createResponse: task,
+      createReportedCredits: extractApizReportedCredits(task),
+      remoteVideoUrl: apizResultUrl(task),
+      localVideoUrl: "",
+      error: "",
+      submittedAt: new Date().toISOString(),
+    });
+    await settleApizGenerationRecord(record, task, "create");
+  } catch (error) {
+    console.warn("[platform-generation-job-error]", taskId, error.message || error);
+    try {
+      await updateGenerationRecord(taskId, {
+        status: "failed",
+        awaitingUpstreamTask: false,
+        error: error.message || "Generation submission failed.",
+        billingError: "",
+        failedAt: new Date().toISOString(),
+        provider: "apiz",
+        source: "platform-template",
+        kind: platformRecordKind({ type: templateType }),
+        templateId,
+        templateTitle,
+        model: upstreamPayload?.model || "",
+        pricingEstimate: {
+          source: pricingEstimate.source,
+          pricing: pricingEstimate.pricing || null,
+          baseCredits: pricingEstimate.baseCredits ?? null,
+          markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
+        },
+        preDeductedCredits,
+      }, "platform-failed");
+    } catch (updateError) {
+      console.error("[platform-generation-fail-update-error]", taskId, updateError.message || updateError);
+    }
+  }
+}
+
 function platformImageFieldKeys(payload = {}) {
   const keys = Object.keys(payload || {}).filter((key) => (
     /^image(?:_file)?_\d+$/i.test(key) ||
@@ -4090,54 +4201,15 @@ async function handlePlatformGenerate(req, res) {
     return sendJson(res, 402, insufficientCreditsPayload(preDeductedCredits, auth.user.credits));
   }
 
-  if (preDeductedCredits > 0) {
-    changeUserCredits(auth.db, auth.user.id, -preDeductedCredits, "generation_pre_deduct", {
-      source: "platform-template",
-      templateId: template.id,
-      templateTitle: template.title,
-      pricingSource: pricingEstimate.source,
-    });
-    await writeDb(auth.db);
-  }
-
-  let task;
-  try {
-    task = await apizRequest("/api/v3/tasks/create", upstreamPayload);
-  } catch (error) {
-    if (preDeductedCredits > 0) {
-      const refundDb = await readDb();
-      changeUserCredits(refundDb, auth.user.id, preDeductedCredits, "generation_submit_refund", {
-        source: "platform-template",
-        templateId: template.id,
-        reason: error.message || "submit failed",
-      });
-      await writeDb(refundDb);
-    }
-    throw error;
-  }
-  const taskId = apizTaskId(task);
-  if (!taskId) {
-    if (preDeductedCredits > 0) {
-      const refundDb = await readDb();
-      changeUserCredits(refundDb, auth.user.id, preDeductedCredits, "generation_submit_refund", {
-        source: "platform-template",
-        templateId: template.id,
-        reason: "missing task id",
-      });
-      await writeDb(refundDb);
-    }
-    const error = new Error(`Generation service did not return task id: ${JSON.stringify(task)}`);
-    error.statusCode = 502;
-    throw error;
-  }
+  const taskId = localGenerationTaskId("cgt");
 
   const record = await upsertGenerationRecord({
     taskId,
-    status: apizStatus(task),
+    status: "submitting",
     model: upstreamPayload.model,
     provider: "apiz",
     source: "platform-template",
-    kind: template.type,
+    kind: platformRecordKind(template),
     templateId: template.id,
     templateTitle: template.title,
     userId: auth.user.id,
@@ -4158,21 +4230,45 @@ async function handlePlatformGenerate(req, res) {
     billingStatus: preDeductedCredits > 0 ? "pre_deducted" : "free",
     billingSettledAt: "",
     billingError: "",
-    createResponse: task,
-    createReportedCredits: extractApizReportedCredits(task),
-    remoteVideoUrl: apizResultUrl(task),
+    createResponse: null,
+    createReportedCredits: null,
+    remoteVideoUrl: "",
     localVideoUrl: "",
     error: "",
   });
-  const settledRecord = await settleApizGenerationRecord(record, task, "create");
+
+  if (preDeductedCredits > 0) {
+    changeUserCredits(auth.db, auth.user.id, -preDeductedCredits, "generation_pre_deduct", {
+      source: "platform-template",
+      templateId: template.id,
+      templateTitle: template.title,
+      pricingSource: pricingEstimate.source,
+      taskId,
+    });
+    await writeDb(auth.db);
+  }
+
+  startPlatformGenerationJob({
+    taskId,
+    userId: auth.user.id,
+    templateId: template.id,
+    templateTitle: template.title,
+    templateType: template.type,
+    prompt,
+    imageUrl,
+    userAssetId: userAsset?.id || "",
+    upstreamPayload,
+    pricingEstimate,
+    preDeductedCredits,
+  });
   const latestDb = await readDb();
   const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
 
   return sendJson(res, 200, {
     ok: true,
-    task,
+    task: { taskId, status: record.status },
     taskId,
-    record: publicGenerationRecord(settledRecord),
+    record: publicGenerationRecord(record),
     user: userView(latestUser),
   });
 }
@@ -4958,10 +5054,12 @@ async function handleModelsMarkdown(req, res) {
 
 async function refreshApizGenerationRecord(record) {
   if (record.provider !== "apiz") return record;
-  const task = await apizRequest("/api/v3/tasks/query", { task_id: record.taskId });
+  const queryTaskId = record.upstreamTaskId || record.taskId;
+  const task = await apizRequest("/api/v3/tasks/query", { task_id: queryTaskId });
   const resultUrl = apizResultUrl(task);
   const nextRecord = await upsertGenerationRecord({
     taskId: record.taskId,
+    upstreamTaskId: apizTaskId(task) || queryTaskId,
     status: apizStatus(task),
     remoteVideoUrl: resultUrl || record.remoteVideoUrl || "",
     videoUrl: resultUrl || record.videoUrl || "",
