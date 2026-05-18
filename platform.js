@@ -2756,6 +2756,7 @@ async function submitTemplate() {
 
 function renderHistory(records = []) {
   if (!els.historyList) return;
+  const sortedRecords = [...records].sort((left, right) => new Date(right.createdAt || right.updatedAt || 0) - new Date(left.createdAt || left.updatedAt || 0));
   const expiryNotice = `
     <div class="history-expiry-note">
       <i data-lucide="download"></i>
@@ -2775,12 +2776,12 @@ function renderHistory(records = []) {
     refreshIcons();
     return;
   }
-  if (!records.length) {
+  if (!sortedRecords.length) {
     els.historyList.innerHTML = `${expiryNotice}<div class="history-empty-card"><strong>${escapeHtml(t("history.emptyTitle"))}</strong><p>${escapeHtml(t("history.emptyDesc"))}</p></div>`;
     refreshIcons();
     return;
   }
-  els.historyList.innerHTML = `${expiryNotice}${records.map((record) => {
+  els.historyList.innerHTML = `${expiryNotice}${sortedRecords.map((record) => {
     const videoUrl = generationVideoUrl(record);
     const taskId = record.taskId || "";
     const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
