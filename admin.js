@@ -2135,6 +2135,8 @@ function advancedCaseSummary(item = {}, index = 0) {
 function advancedCaseEditor(item = {}, index = 0) {
   const params = JSON.stringify(item.params && typeof item.params === "object" ? item.params : { ratio: "9:16", resolution: "720p", duration: 5 }, null, 2);
   const provider = String(item.provider || item.params?.provider || "seedance").toLowerCase().replace(/[\s_-]+/g, "") === "wan27" ? "wan27" : "seedance";
+  const videoInput = item.sourceVideoUrl || (/^https?:\/\//i.test(item.previewUrl || "") ? item.previewUrl : "");
+  const coverInput = item.sourceCoverUrl || (/^https?:\/\//i.test(item.coverUrl || "") ? item.coverUrl : "");
   return `
     <div class="platform-template-editor" data-advanced-index="${index}">
       <div class="adm-grid adm-grid-3">
@@ -2148,9 +2150,15 @@ function advancedCaseEditor(item = {}, index = 0) {
         <div class="adm-form-row"><span>计费</span><input value="Seedance 150/s；Wan2.7 720p 100/s，1080p 150/s" disabled /></div>
       </div>
       <div class="adm-grid adm-grid-2">
-        <div class="adm-form-row"><span>样例视频 URL（前台案例卡片播放）</span><input data-f="previewUrl" value="${escapeHtml(item.previewUrl || "")}" placeholder="https://.../case-preview.mp4" /></div>
-        <div class="adm-form-row"><span>封面 URL（可选）</span><input data-f="coverUrl" value="${escapeHtml(item.coverUrl || "")}" placeholder="留空时会尝试从样例视频取帧" /></div>
+        <div class="adm-form-row"><span>样例视频链接（必填，http/https）</span><input data-f="sourceVideoUrl" value="${escapeHtml(videoInput)}" placeholder="https://.../case-preview.mp4" /></div>
+        <div class="adm-form-row"><span>封面链接（选填，http/https）</span><input data-f="sourceCoverUrl" value="${escapeHtml(coverInput)}" placeholder="不填则保存时从视频抽帧" /></div>
       </div>
+      ${(item.localVideoUrl || item.cdnVideoUrl || item.localCoverUrl || item.cdnCoverUrl) ? `
+        <div class="adm-form-row">
+          <span>已入库素材</span>
+          <input value="${escapeHtml(item.cdnVideoUrl || item.localVideoUrl || item.previewUrl || "")}" disabled />
+        </div>
+      ` : ""}
       <div class="adm-form-row"><span>描述</span><textarea data-f="description" rows="3">${escapeHtml(item.description || "")}</textarea></div>
       <div class="adm-form-row"><span>Prompt（点案例后自动填到前台）</span><textarea data-f="prompt" rows="5">${escapeHtml(item.prompt || "")}</textarea></div>
       <div class="adm-form-row"><span>参数 JSON（点案例后自动带入；Seedance: preprocessReference；Wan2.7: seed / resolution）</span><textarea data-f="params" rows="8" spellcheck="false">${escapeHtml(params)}</textarea></div>
@@ -2175,13 +2183,62 @@ function collectAdvancedCaseFromCard(card, existing = {}) {
     category: get("category")?.value.trim() || "portrait",
     provider,
     price: advancedCaseCredits({ params, provider }),
-    coverUrl: get("coverUrl")?.value.trim() || "",
-    previewUrl: get("previewUrl")?.value.trim() || "",
+    sourceVideoUrl: get("sourceVideoUrl")?.value.trim() || existing.sourceVideoUrl || "",
+    sourceCoverUrl: get("sourceCoverUrl")?.value.trim() || existing.sourceCoverUrl || "",
+    coverUrl: existing.coverUrl || "",
+    previewUrl: existing.previewUrl || "",
     description: get("description")?.value.trim() || "",
     prompt: get("prompt")?.value.trim() || "",
     params,
     enabled: Boolean(get("enabled")?.checked),
     sort: Number(get("sort")?.value || 0),
+  };
+}
+
+function isHttpUrl(value = "") {
+  try {
+    const parsed = new URL(String(value || "").trim());
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function ingestAdvancedCaseMediaForSave(item = {}) {
+  const sourceVideoUrl = String(item.sourceVideoUrl || "").trim();
+  const sourceCoverUrl = String(item.sourceCoverUrl || "").trim();
+  if (!isHttpUrl(sourceVideoUrl)) {
+    throw new Error("样例视频链接必须是 http 或 https 格式。");
+  }
+  if (sourceCoverUrl && !isHttpUrl(sourceCoverUrl)) {
+    throw new Error("封面链接必须是 http 或 https 格式。");
+  }
+  const unchanged =
+    sourceVideoUrl === item.mediaSourceVideoUrl &&
+    sourceCoverUrl === (item.mediaSourceCoverUrl || "");
+  if (unchanged && item.localVideoUrl && item.previewUrl) return item;
+  const payload = await api("/api/admin/advanced-case-media", {
+    method: "POST",
+    body: {
+      caseId: item.id || item.title || "advanced-case",
+      videoUrl: sourceVideoUrl,
+      coverUrl: sourceCoverUrl,
+    },
+  });
+  const media = payload.media || {};
+  if (media.cdnError) toast(`素材已本地入库，CDN 上传失败：${media.cdnError}`, "warning");
+  return {
+    ...item,
+    mediaSourceVideoUrl: sourceVideoUrl,
+    mediaSourceCoverUrl: sourceCoverUrl,
+    sourceVideoUrl,
+    sourceCoverUrl,
+    localVideoUrl: media.localVideoUrl || item.localVideoUrl || "",
+    localCoverUrl: media.localCoverUrl || item.localCoverUrl || "",
+    cdnVideoUrl: media.cdnVideoUrl || "",
+    cdnCoverUrl: media.cdnCoverUrl || "",
+    previewUrl: media.previewUrl || media.cdnVideoUrl || media.localVideoUrl || item.previewUrl || "",
+    coverUrl: media.coverUrl || media.cdnCoverUrl || media.localCoverUrl || item.coverUrl || "",
   };
 }
 
@@ -2345,7 +2402,8 @@ async function renderPlatform(options = {}) {
         cancelText: "取消",
         onConfirm: async () => {
           const editor = els.dialogBody.querySelector("[data-advanced-index]");
-          const collected = await ensurePlatformTemplateCover(collectAdvancedCaseFromCard(editor, draft));
+          let collected = collectAdvancedCaseFromCard(editor, draft);
+          collected = await ingestAdvancedCaseMediaForSave(collected);
           await saveAdvanced([...advanced.cases, collected]);
         },
       });
@@ -2422,7 +2480,8 @@ async function renderPlatform(options = {}) {
         cancelText: "取消",
         onConfirm: async () => {
           const editor = els.dialogBody.querySelector("[data-advanced-index]");
-          const collected = await ensurePlatformTemplateCover(collectAdvancedCaseFromCard(editor, advanced.cases[index]));
+          let collected = collectAdvancedCaseFromCard(editor, advanced.cases[index]);
+          collected = await ingestAdvancedCaseMediaForSave(collected);
           const nextCases = advanced.cases.map((item, itemIndex) => (itemIndex === index ? collected : item));
           await saveAdvanced(nextCases);
         },

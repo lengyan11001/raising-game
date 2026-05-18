@@ -2526,7 +2526,7 @@ function renderAdvancedCases() {
   const cases = state.advancedCases.filter((item) => item.enabled !== false);
   els.advancedCaseGrid.innerHTML = cases.length ? cases.map((item, index) => `
     <article class="advanced-case-card" data-case-index="${index}">
-      <img src="${escapeHtml(item.coverUrl || item.previewUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
+      <img src="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
       ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
       <div>
         <span>${escapeHtml(item.category || t("advanced.cases"))} - ${escapeHtml(advancedCostLabel(advancedCaseDuration(item), advancedCaseProvider(item), item.params?.resolution))}</span>

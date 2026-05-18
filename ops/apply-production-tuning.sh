@@ -269,6 +269,14 @@ server {
         try_files $uri =404;
     }
 
+    location ^~ /assets/admin/advanced-cases/ {
+        alias /opt/raising-game-demo/assets/admin/advanced-cases/;
+        access_log off;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800, immutable" always;
+        try_files $uri =404;
+    }
+
     location ^~ /assets/user-uploads/ {
         alias /opt/raising-game-demo/assets/user-uploads/;
         access_log off;

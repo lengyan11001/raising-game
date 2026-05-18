@@ -50,6 +50,7 @@ const APP_DB_PATH = path.join(ROOT, "data", "app-db.json");
 const APP_CONFIG_PATH = path.join(ROOT, "data", "app-config.json");
 const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
 const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
+const ADMIN_ADVANCED_CASE_DIR = path.join(ROOT, "assets", "admin", "advanced-cases");
 const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
 const GENERATED_CHARACTER_DIR = path.join(ROOT, "assets", "generated", "characters", "apiz");
 const GENERATED_PANORAMA_DIR = path.join(ROOT, "assets", "generated", "panoramas");
@@ -132,6 +133,8 @@ const mimeTypes = new Map([
   [".svg", "image/svg+xml"],
   [".mp4", "video/mp4"],
   [".webm", "video/webm"],
+  [".mov", "video/quicktime"],
+  [".m4v", "video/x-m4v"],
 ]);
 
 const DEFAULT_DB = {
@@ -726,6 +729,14 @@ function normalizeAdvancedCase(item = {}, index = 0) {
     pricing,
     coverUrl: String(item.coverUrl || "").trim(),
     previewUrl: String(item.previewUrl || "").trim(),
+    sourceVideoUrl: String(item.sourceVideoUrl || "").trim(),
+    sourceCoverUrl: String(item.sourceCoverUrl || "").trim(),
+    mediaSourceVideoUrl: String(item.mediaSourceVideoUrl || item.sourceVideoUrl || "").trim(),
+    mediaSourceCoverUrl: String(item.mediaSourceCoverUrl || item.sourceCoverUrl || "").trim(),
+    localVideoUrl: String(item.localVideoUrl || "").trim(),
+    localCoverUrl: String(item.localCoverUrl || "").trim(),
+    cdnVideoUrl: String(item.cdnVideoUrl || "").trim(),
+    cdnCoverUrl: String(item.cdnCoverUrl || "").trim(),
     description: String(item.description || "").trim().slice(0, 240),
     prompt: String(item.prompt || params.prompt || "").trim(),
     params,
@@ -1509,6 +1520,24 @@ function imageMimeFromPath(filePath) {
   return "image/jpeg";
 }
 
+function videoExtFromMime(mime = "", fallbackPath = "") {
+  const cleanMime = String(mime || "").split(";")[0].trim().toLowerCase();
+  if (cleanMime === "video/webm") return ".webm";
+  if (cleanMime === "video/quicktime") return ".mov";
+  if (cleanMime === "video/x-m4v") return ".m4v";
+  const ext = path.extname(String(fallbackPath || "").split("?")[0]).toLowerCase();
+  if ([".mp4", ".webm", ".mov", ".m4v"].includes(ext)) return ext;
+  return ".mp4";
+}
+
+function videoMimeFromPath(filePath = "") {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".webm") return "video/webm";
+  if (ext === ".mov") return "video/quicktime";
+  if (ext === ".m4v") return "video/x-m4v";
+  return "video/mp4";
+}
+
 async function createUserAssetFromDataUrl(db, user, { dataUrl, name = "Upload", fileName = "" } = {}) {
   const { mime, bytes } = decodeDataUrl(dataUrl);
   if (bytes.byteLength > 8 * 1024 * 1024) {
@@ -1559,6 +1588,20 @@ function execFileJson(command, args, options = {}) {
       } catch {
         resolve({ text, stderr: String(stderr || "") });
       }
+    });
+  });
+}
+
+function execFileQuiet(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { timeout: 120000, windowsHide: true, ...options }, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr });
     });
   });
 }
@@ -1725,6 +1768,32 @@ async function uploadBufferToTos({ userId, assetId, bytes, mime }) {
     throw error;
   }
 
+  return {
+    key,
+    tosUrl: url,
+    publicUrl: `${TOS.publicDomain.replace(/\/$/, "")}/${key}`,
+  };
+}
+
+function tosEnabled() {
+  return Boolean(TOS.accessKey && TOS.secretKey && TOS.endpoint && TOS.region && TOS.bucket && TOS.publicDomain);
+}
+
+async function uploadStaticAssetToTos({ key, bytes, mime }) {
+  requireValue("TOS_ACCESS_KEY_ID", TOS.accessKey);
+  requireValue("TOS_SECRET_ACCESS_KEY", TOS.secretKey);
+  requireValue("TOS_ENDPOINT", TOS.endpoint);
+  requireValue("TOS_REGION", TOS.region);
+  requireValue("TOS_BUCKET", TOS.bucket);
+  requireValue("TOS_PUBLIC_DOMAIN", TOS.publicDomain);
+
+  const auth = makeTosAuth({ method: "PUT", key, body: bytes, contentType: mime });
+  const url = `https://${auth.host}${auth.canonicalUri}`;
+  const response = await fetch(url, { method: "PUT", headers: auth.headers, body: bytes });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`TOS upload failed: ${response.status} ${text}`);
+  }
   return {
     key,
     tosUrl: url,
@@ -3237,6 +3306,158 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
   return { localVideoPath, localVideoUrl };
 }
 
+function requireHttpUrl(value = "", label = "URL") {
+  let parsed;
+  try {
+    parsed = new URL(String(value || "").trim());
+  } catch {
+    const error = new Error(`${label} must be a valid http or https URL.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    const error = new Error(`${label} must use http or https.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return parsed.toString();
+}
+
+async function downloadRemoteFileToBuffer(fileUrl, { label = "file", maxBytes = 200 * 1024 * 1024, timeoutMs = 15 * 60 * 1000 } = {}) {
+  const response = await fetch(fileUrl, { redirect: "follow", signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) {
+    const error = new Error(`Failed to download ${label}: ${response.status}`);
+    error.statusCode = 400;
+    throw error;
+  }
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (contentLength && contentLength > maxBytes) {
+    const error = new Error(`${label} is too large. Max ${Math.round(maxBytes / 1024 / 1024)}MB.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.byteLength > maxBytes) {
+    const error = new Error(`${label} is too large. Max ${Math.round(maxBytes / 1024 / 1024)}MB.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return {
+    bytes,
+    mime: String(response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase(),
+  };
+}
+
+async function captureVideoPosterFrame(videoPath, posterPath) {
+  try {
+    await execFileQuiet("ffmpeg", [
+      "-y",
+      "-ss",
+      "00:00:00.500",
+      "-i",
+      videoPath,
+      "-frames:v",
+      "1",
+      "-q:v",
+      "3",
+      posterPath,
+    ], { timeout: 60000 });
+    await fs.access(posterPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } = {}) {
+  const sourceVideoUrl = requireHttpUrl(videoUrl, "Video URL");
+  const sourceCoverUrl = String(coverUrl || "").trim() ? requireHttpUrl(coverUrl, "Cover URL") : "";
+  const safeId = String(caseId || `advanced-${Date.now()}`).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || `advanced-${Date.now()}`;
+  await fs.mkdir(ADMIN_ADVANCED_CASE_DIR, { recursive: true });
+
+  const videoDownload = await downloadRemoteFileToBuffer(sourceVideoUrl, { label: "video", maxBytes: 300 * 1024 * 1024 });
+  const videoPathname = new URL(sourceVideoUrl).pathname;
+  if (!String(videoDownload.mime || "").startsWith("video/") && !/\.(mp4|webm|mov|m4v)$/i.test(videoPathname)) {
+    const error = new Error("Video URL must point to a video file.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const videoExt = videoExtFromMime(videoDownload.mime, sourceVideoUrl);
+  const videoName = `${safeId}-video-${Date.now()}${videoExt}`;
+  const videoPath = path.join(ADMIN_ADVANCED_CASE_DIR, videoName);
+  const localVideoUrl = `/assets/admin/advanced-cases/${videoName}`;
+  await fs.writeFile(videoPath, videoDownload.bytes);
+
+  let localCoverUrl = "";
+  let coverPath = "";
+  let coverBytes = null;
+  let coverMime = "";
+  if (sourceCoverUrl) {
+    const coverDownload = await downloadRemoteFileToBuffer(sourceCoverUrl, { label: "cover", maxBytes: 8 * 1024 * 1024, timeoutMs: 120000 });
+    const coverPathname = new URL(sourceCoverUrl).pathname;
+    if (!String(coverDownload.mime || "").startsWith("image/") && !/\.(png|jpe?g|webp)$/i.test(coverPathname)) {
+      const error = new Error("Cover URL must point to an image file.");
+      error.statusCode = 400;
+      throw error;
+    }
+    coverMime = coverDownload.mime && coverDownload.mime.startsWith("image/") ? coverDownload.mime : "image/jpeg";
+    const coverExt = imageExtFromMime(coverMime);
+    const coverName = `${safeId}-cover-${Date.now()}${coverExt}`;
+    coverPath = path.join(ADMIN_ADVANCED_CASE_DIR, coverName);
+    localCoverUrl = `/assets/admin/advanced-cases/${coverName}`;
+    coverBytes = coverDownload.bytes;
+    await fs.writeFile(coverPath, coverBytes);
+  } else {
+    const coverName = `${safeId}-cover-${Date.now()}.jpg`;
+    coverPath = path.join(ADMIN_ADVANCED_CASE_DIR, coverName);
+    const captured = await captureVideoPosterFrame(videoPath, coverPath);
+    if (captured) {
+      localCoverUrl = `/assets/admin/advanced-cases/${coverName}`;
+      coverMime = "image/jpeg";
+      coverBytes = await fs.readFile(coverPath);
+    }
+  }
+
+  const result = {
+    sourceVideoUrl,
+    sourceCoverUrl,
+    localVideoUrl,
+    localCoverUrl,
+    previewUrl: localVideoUrl,
+    coverUrl: localCoverUrl,
+    cdnVideoUrl: "",
+    cdnCoverUrl: "",
+    cdnEnabled: tosEnabled(),
+    cdnError: "",
+  };
+
+  if (tosEnabled()) {
+    try {
+      const baseKey = `seedance-assets/raising-game/admin/advanced-cases/${safeId}/${Date.now()}`;
+      const videoUpload = await uploadStaticAssetToTos({
+        key: `${baseKey}${videoExt}`,
+        bytes: videoDownload.bytes,
+        mime: videoDownload.mime && videoDownload.mime.startsWith("video/") ? videoDownload.mime : videoMimeFromPath(videoName),
+      });
+      result.cdnVideoUrl = videoUpload.publicUrl;
+      result.previewUrl = videoUpload.publicUrl;
+      if (coverBytes && localCoverUrl) {
+        const coverUpload = await uploadStaticAssetToTos({
+          key: `${baseKey}-cover${path.extname(coverPath) || ".jpg"}`,
+          bytes: coverBytes,
+          mime: coverMime || "image/jpeg",
+        });
+        result.cdnCoverUrl = coverUpload.publicUrl;
+        result.coverUrl = coverUpload.publicUrl;
+      }
+    } catch (error) {
+      result.cdnError = error.message || "CDN upload failed";
+    }
+  }
+
+  return result;
+}
+
 async function readJson(req) {
   const chunks = [];
   const maxBodySize = 15 * 1024 * 1024;
@@ -3931,6 +4152,22 @@ async function handleAdminUploadPlatformCover(req, res) {
   await fs.mkdir(ADMIN_HOME_DIR, { recursive: true });
   await fs.writeFile(path.join(ADMIN_HOME_DIR, fileName), bytes);
   return sendJson(res, 200, { ok: true, url: `/assets/admin/home/${fileName}` });
+}
+
+async function handleAdminIngestAdvancedCaseMedia(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  try {
+    const media = await ingestAdvancedCaseMedia({
+      videoUrl: body.videoUrl,
+      coverUrl: body.coverUrl,
+      caseId: body.caseId || body.name || "advanced-case",
+    });
+    return sendJson(res, 200, { ok: true, media });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 500, { ok: false, message: error.message || "Failed to ingest media." });
+  }
 }
 
 async function makePlatformEstimate(template, overrides = {}) {
@@ -7601,6 +7838,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/admin/platform-cover") {
       return await handleAdminUploadPlatformCover(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/advanced-case-media") {
+      return await handleAdminIngestAdvancedCaseMedia(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/admin/home-video") {
