@@ -34,7 +34,7 @@ function loadLocalEnv(filePath) {
 loadLocalEnv(path.join(ROOT, ".env.local"));
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
-const BLOCK_MAINLAND_CHINA = process.env.BLOCK_MAINLAND_CHINA !== "0";
+const BLOCK_MAINLAND_CHINA = false;
 const MAINLAND_BYPASS_TOKEN = String(process.env.MAINLAND_BYPASS_TOKEN || "").trim();
 const MAINLAND_BYPASS_QUERY_PARAM = process.env.MAINLAND_BYPASS_QUERY_PARAM || "cnpass";
 const MAINLAND_BYPASS_COOKIE = process.env.MAINLAND_BYPASS_COOKIE || "cnpass";
