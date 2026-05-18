@@ -804,6 +804,9 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   border-radius: 8px;
   background: rgba(255,255,255,.65);
 }
+.history-item.is-failed { border-color: rgba(239,68,68,.28); background: rgba(255,255,255,.78); }
+.history-item.is-running .history-placeholder svg { animation: spin 1.2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .history-info { display: grid; gap: 8px; min-width: 0; }
 .history-item header { padding: 0; border: 0; align-items: start; gap: 12px; }
 .history-item strong { display: block; }
@@ -826,6 +829,11 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   place-items: center;
   color: var(--muted);
 }
+.history-media-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
 .history-download {
   display: inline-flex;
   align-items: center;
@@ -839,12 +847,14 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   font-size: .78rem;
   font-weight: 800;
   text-decoration: none;
+  cursor: pointer;
 }
 .history-download svg { width: 14px; height: 14px; }
 .history-download:hover {
   border-color: rgba(14,165,233,.48);
   background: #fff;
 }
+.history-icon-action { min-width: 36px; padding: 0 8px; }
 .history-meta {
   display: flex;
   gap: 8px;

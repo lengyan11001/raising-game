@@ -1473,6 +1473,7 @@ function openGenerationRecordDetail(record) {
         <span>User</span><strong>${escapeHtml(recordOwnerText(record))}</strong>
         <span>Status</span><strong>${statusPill(record.status)}</strong>
         <span>Task</span><code>${escapeHtml(record.taskId || "")}</code>
+        ${record.upstreamTaskId ? `<span>Upstream</span><code>${escapeHtml(record.upstreamTaskId)}</code>` : ""}
         <span>Provider</span><strong>${escapeHtml(record.provider || "")}</strong>
         <span>Kind</span><strong>${escapeHtml(record.kind || "")}</strong>
         <span>Cost</span><strong>${escapeHtml(recordBillingText(record))}</strong>

@@ -148,6 +148,7 @@ const I18N = {
     "common.preview": "Preview",
     "common.all": "All",
     "common.credits": "credits",
+    "common.fullscreen": "Fullscreen",
     "footer.note": "Responsible AI video generation for creative workflows.",
     "legal.kicker": "Legal",
     "legal.privacy": "Privacy Policy",
@@ -384,6 +385,7 @@ const I18N = {
     "common.preview": "Xem trước",
     "common.all": "Tất cả",
     "common.credits": "credits",
+    "common.fullscreen": "Toàn màn hình",
     "footer.note": "Tạo video AI có trách nhiệm cho quy trình sáng tạo.",
     "legal.kicker": "Pháp lý",
     "legal.privacy": "Chính sách quyền riêng tư",
@@ -620,6 +622,7 @@ const I18N = {
     "common.preview": "プレビュー",
     "common.all": "すべて",
     "common.credits": "credits",
+    "common.fullscreen": "全画面",
     "footer.note": "クリエイティブワークフロー向けの責任ある AI 動画生成。",
     "legal.kicker": "法務",
     "legal.privacy": "プライバシーポリシー",
@@ -856,6 +859,7 @@ const I18N = {
     "common.preview": "미리보기",
     "common.all": "전체",
     "common.credits": "credits",
+    "common.fullscreen": "전체 화면",
     "footer.note": "크리에이티브 워크플로를 위한 책임 있는 AI 영상 생성.",
     "legal.kicker": "법률",
     "legal.privacy": "개인정보 처리방침",
@@ -1092,6 +1096,7 @@ const I18N = {
     "common.preview": "Pratinjau",
     "common.all": "Semua",
     "common.credits": "credits",
+    "common.fullscreen": "Layar penuh",
     "footer.note": "Pembuatan video AI yang bertanggung jawab untuk alur kerja kreatif.",
     "legal.kicker": "Legal",
     "legal.privacy": "Kebijakan Privasi",
@@ -1787,6 +1792,7 @@ const LEGAL_DOCS = {
 
 let activeAccessGuide = ACCESS_GUIDES[0];
 let historyLoading = false;
+let historyRefreshTimer = null;
 const SUPPORTED_LANGS = new Set(Object.keys(I18N));
 if (!SUPPORTED_LANGS.has(state.lang)) state.lang = "en";
 
@@ -2018,8 +2024,16 @@ function statusLabel(status) {
   const value = String(status || "").toLowerCase();
   if (["succeeded", "success", "done", "completed"].includes(value)) return t("status.completed");
   if (["failed", "error", "cancelled", "canceled"].includes(value)) return t("status.failed");
-  if (["running", "processing", "in_progress"].includes(value)) return t("status.processing");
+  if (["running", "processing", "in_progress", "preparing", "submitting", "queued"].includes(value)) return t("status.processing");
   return status || t("status.submitted");
+}
+
+function statusClass(status) {
+  const value = String(status || "").toLowerCase();
+  if (["succeeded", "success", "done", "completed"].includes(value)) return "succeeded";
+  if (["failed", "error", "cancelled", "canceled"].includes(value)) return "failed";
+  if (["preparing", "submitting", "running", "processing", "in_progress", "queued"].includes(value)) return "running";
+  return "submitted";
 }
 
 function billingLabel(billing = {}) {
@@ -2674,7 +2688,8 @@ async function submitAdvancedGenerate() {
         credits: formatCredits(charged),
       });
     }
-    loadHistory();
+    setTab("history");
+    scheduleHistoryRefresh();
   } catch (error) {
     if (els.advancedNote) els.advancedNote.textContent = error.message;
   } finally {
@@ -2767,15 +2782,24 @@ function renderHistory(records = []) {
   }
   els.historyList.innerHTML = `${expiryNotice}${records.map((record) => {
     const videoUrl = generationVideoUrl(record);
+    const taskId = record.taskId || "";
+    const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
     const title = record.templateTitle || record.sceneEntryName || record.sceneName || t("history.job");
     const created = record.createdAt ? new Date(record.createdAt).toLocaleString() : "";
     const duration = record.duration ? `${record.duration}s` : "";
     const cost = billingLabel(record.billing || {});
+    const failed = statusClass(record.status) === "failed";
+    const error = record.error || "";
     return `
-      <article class="history-item">
+      <article class="history-item is-${escapeHtml(statusClass(record.status))}">
         <div class="history-media">
-          ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata"></video>` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
-          ${videoUrl ? `<a class="history-download" href="${escapeHtml(videoUrl)}" download target="_blank" rel="noopener"><i data-lucide="download"></i>${escapeHtml(t("common.download"))}</a>` : ""}
+          ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata" data-history-video="${escapeHtml(mediaKey)}"></video>` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
+          ${videoUrl ? `
+            <div class="history-media-actions">
+              <a class="history-download" href="${escapeHtml(videoUrl)}" download target="_blank" rel="noopener"><i data-lucide="download"></i>${escapeHtml(t("common.download"))}</a>
+              <button class="history-download history-icon-action" type="button" aria-label="${escapeHtml(t("common.fullscreen"))}" title="${escapeHtml(t("common.fullscreen"))}" data-history-fullscreen="${escapeHtml(mediaKey)}"><i data-lucide="maximize-2"></i></button>
+            </div>
+          ` : ""}
         </div>
         <div class="history-info">
           <header>
@@ -2785,6 +2809,7 @@ function renderHistory(records = []) {
             </div>
             <small>${escapeHtml(statusLabel(record.status))}</small>
           </header>
+          ${failed && error ? `<div class="job-note">${escapeHtml(error)}</div>` : ""}
           <div class="history-meta">
             ${record.model ? `<span>${escapeHtml(record.model)}</span>` : ""}
             ${record.provider ? `<span>${escapeHtml(record.provider)}</span>` : ""}
@@ -2800,7 +2825,39 @@ function renderHistory(records = []) {
       </article>
     `;
   }).join("")}`;
+  els.historyList.querySelectorAll("[data-history-fullscreen]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const mediaKey = button.dataset.historyFullscreen || "";
+      const video = Array.from(els.historyList.querySelectorAll("video[data-history-video]"))
+        .find((item) => item.dataset.historyVideo === mediaKey);
+      requestVideoFullscreen(video);
+    });
+  });
   refreshIcons();
+}
+
+async function requestVideoFullscreen(video) {
+  if (!video) return;
+  try {
+    if (video.requestFullscreen) await video.requestFullscreen();
+    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+    else if (video.webkitRequestFullscreen) await video.webkitRequestFullscreen();
+    await video.play().catch(() => {});
+  } catch {
+    video.controls = true;
+  }
+}
+
+function scheduleHistoryRefresh(times = 4, delayMs = 8000) {
+  if (historyRefreshTimer) window.clearTimeout(historyRefreshTimer);
+  const tick = (remaining) => {
+    historyRefreshTimer = window.setTimeout(() => {
+      if (state.tab === "history") loadHistory();
+      if (remaining > 1) tick(remaining - 1);
+      else historyRefreshTimer = null;
+    }, delayMs);
+  };
+  tick(times);
 }
 
 async function loadHistory() {

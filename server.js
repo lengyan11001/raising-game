@@ -1493,6 +1493,19 @@ function randomId(prefix) {
   return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
 }
 
+function localGenerationTaskId(prefix = "cgt") {
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0"),
+  ].join("");
+  return `${prefix}-${stamp}-${crypto.randomBytes(3).toString("hex")}`;
+}
+
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
   const hash = crypto.pbkdf2Sync(String(password), salt, 120000, 32, "sha256").toString("hex");
   return `${salt}:${hash}`;
@@ -2158,8 +2171,9 @@ async function submitWan27VideoTask({ prompt, imageUrl, body = {} }) {
 }
 
 async function refreshWan27GenerationRecord(record = {}, { download = false, reason = "query" } = {}) {
-  if (!record.taskId) return record;
-  const raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(record.taskId)}`, {
+  const queryTaskId = record.upstreamTaskId || record.taskId;
+  if (!queryTaskId) return record;
+  const raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
     method: "GET",
   });
   const task = normalizeWan27Task(raw);
@@ -2178,6 +2192,7 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
   }
   return upsertAndSettleGenerationRecord({
     taskId: record.taskId,
+    upstreamTaskId: task.taskId || queryTaskId,
     status: task.status || record.status || "unknown",
     remoteVideoUrl,
     localVideoUrl,
@@ -3138,6 +3153,13 @@ async function upsertAndSettleGenerationRecord(nextRecord, reason = "query") {
   return settleSeedanceGenerationRecord(record, reason);
 }
 
+async function updateGenerationRecord(taskId, updates = {}, reason = "update") {
+  if (!taskId) return null;
+  const nextRecord = { ...updates, taskId };
+  if (reason) nextRecord.lastUpdateReason = reason;
+  return upsertAndSettleGenerationRecord(nextRecord, reason);
+}
+
 async function getGenerationRecord(taskId) {
   const records = await readGenerationRecords();
   return records.find((record) => record.taskId === taskId) || null;
@@ -3162,6 +3184,7 @@ function generationRecordVideoUrl(record = {}) {
 function publicGenerationRecord(record = {}) {
   return {
     taskId: String(record.taskId || ""),
+    upstreamTaskId: String(record.upstreamTaskId || ""),
     status: String(record.status || "submitted"),
     source: String(record.source || ""),
     kind: String(record.kind || generationRecordKind(record)),
@@ -3197,6 +3220,7 @@ function publicGenerationRecord(record = {}) {
     billing: publicBilling(record),
     createdAt: String(record.createdAt || ""),
     updatedAt: String(record.updatedAt || ""),
+    awaitingUpstreamTask: record.awaitingUpstreamTask === true,
   };
 }
 
@@ -3224,6 +3248,7 @@ function generationRecordMatchesQuery(record = {}, query = "") {
   if (!needle) return true;
   return [
     record.taskId,
+    record.upstreamTaskId,
     record.userId,
     record.username,
     record.source,
@@ -3241,17 +3266,22 @@ function generationRecordMatchesQuery(record = {}, query = "") {
     record.prompt,
     record.finalPrompt,
     record.model,
+    record.error,
   ].some((value) => String(value || "").toLowerCase().includes(needle));
 }
 
 function shouldRefreshGenerationRecord(record = {}) {
   if (needsSeedanceFailureRefund(record)) return true;
+  if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   if (record.provider === "apiz" && !record.billingSettledAt && record.taskId && !String(record.taskId).startsWith("demo-")) return true;
   const status = String(record.status || "").toLowerCase();
   if (isFailedStatus(status)) return false;
   if (isSucceededStatus(status)) {
-    if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.taskId);
+    if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.upstreamTaskId || record.taskId);
     return Boolean(record.taskId) && !record.localVideoUrl;
+  }
+  if (String(record.provider || "").toLowerCase() === "seedance" && record.source === "advanced-seedance") {
+    return Boolean(record.upstreamTaskId) && !String(record.upstreamTaskId).startsWith("demo-");
   }
   return Boolean(record.taskId) && !String(record.taskId).startsWith("demo-");
 }
@@ -3280,7 +3310,8 @@ async function refreshGenerationRecordStatus(record = {}) {
   }
   if (!ARK_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
   try {
-    const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(record.taskId)}`);
+    const queryTaskId = record.upstreamTaskId || record.taskId;
+    const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(queryTaskId)}`);
     const task = normalizeTask(raw);
     let localVideoUrl = record.localVideoUrl || "";
     let localVideoPath = record.localVideoPath || "";
@@ -3297,6 +3328,7 @@ async function refreshGenerationRecordStatus(record = {}) {
     }
     return await upsertAndSettleGenerationRecord({
       taskId: record.taskId,
+      upstreamTaskId: task.taskId || queryTaskId,
       status: task.status || record.status || "unknown",
       remoteVideoUrl,
       localVideoUrl,
@@ -3710,6 +3742,7 @@ function needsSeedanceFailureRefund(record = {}) {
 
 function seedanceUsesTokenPricing(record = {}) {
   if (String(record.provider || "").toLowerCase() !== "seedance") return false;
+  if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   const pricing = record.pricingEstimate && typeof record.pricingEstimate === "object" ? record.pricingEstimate : {};
   if (String(pricing.source || "") === "seedance_token_estimate") return true;
   return String(record.source || "").includes("advanced");
@@ -4155,6 +4188,195 @@ async function handleAdvancedAccessRequest(req, res) {
   return sendJson(res, 200, { ok: true, user: userView(auth.user) });
 }
 
+function advancedRuntimeForProvider(provider, requestParams = {}) {
+  if (provider === "wan27") {
+    return {
+      providerName: "aliyun-wan27",
+      recordSource: "advanced-wan27",
+      model: ALIYUN_WAN27_MODEL,
+      quality: normalizeWan27Resolution(requestParams.resolution),
+    };
+  }
+  return {
+    providerName: "seedance",
+    recordSource: "advanced-seedance",
+    model: MODEL_QUALITY,
+    quality: "high",
+  };
+}
+
+function startAdvancedGenerationJob(job) {
+  setImmediate(() => {
+    runAdvancedGenerationJob(job).catch((error) => {
+      console.error("[advanced-generation-job-failed]", job.taskId, error.message || error);
+    });
+  });
+}
+
+async function runAdvancedGenerationJob(job = {}) {
+  const {
+    taskId,
+    userId,
+    userAssetId,
+    provider,
+    prompt,
+    requestParams,
+    pricing,
+    cost,
+    caseId,
+    caseTitle,
+  } = job;
+  const runtime = advancedRuntimeForProvider(provider, requestParams);
+  let userAsset = null;
+  let referenceAssetUri = "";
+  let imageUrl = "";
+  let sourceImageUrl = "";
+  let syntheticReferenceLocalUrl = "";
+  let syntheticReferenceUrl = "";
+  let payload = null;
+  let createResponse = null;
+
+  try {
+    await updateGenerationRecord(taskId, {
+      status: "preparing",
+      awaitingUpstreamTask: true,
+      error: "",
+    }, "advanced-preparing");
+
+    let db = await readDb();
+    if (userAssetId) {
+      userAsset = (db.userAssets || []).find((asset) => asset.id === userAssetId && asset.userId === userId && !isSoftDeleted(asset));
+      if (!userAsset) {
+        const error = new Error("Reference image not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+    }
+
+    if (userAsset) {
+      if (provider === "seedance") {
+        if (requestParams.preprocessReference !== false) {
+          userAsset = await ensureSyntheticReferenceForUserAsset(db, userAsset);
+          referenceAssetUri = userAsset.syntheticReferenceAssetUri || userAsset.assetUri || "";
+          imageUrl = userAsset.syntheticReferenceLocalUrl || userAsset.syntheticReferenceUrl || userAsset.publicUrl || userAsset.localUrl || "";
+          sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
+          syntheticReferenceLocalUrl = userAsset.syntheticReferenceLocalUrl || "";
+          syntheticReferenceUrl = userAsset.syntheticReferenceUrl || "";
+        } else {
+          userAsset = await ensureSeedanceAssetForUserAsset(db, userAsset);
+          referenceAssetUri = userAsset.assetUri || "";
+          imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
+          sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
+        }
+      } else {
+        userAsset = await ensurePublicUrlForUserAsset(db, userAsset);
+        imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
+        sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
+      }
+    }
+
+    await updateGenerationRecord(taskId, {
+      status: "submitting",
+      imageUrl,
+      sourceImageUrl,
+      syntheticReferenceLocalUrl,
+      syntheticReferenceUrl,
+      referenceAssetUri,
+      error: "",
+    }, "advanced-reference-ready");
+
+    const config = job.config || await readAppConfig();
+    let task = null;
+    if (provider === "wan27") {
+      if (!imageUrl || !isPublicHttpUrl(imageUrl)) {
+        const error = new Error("Wan2.7 requires an uploaded reference image.");
+        error.statusCode = 400;
+        throw error;
+      }
+      const submitted = await submitWan27VideoTask({
+        prompt,
+        imageUrl,
+        body: requestParams,
+      });
+      task = submitted.task;
+      payload = submitted.payload;
+      createResponse = submitted.raw;
+    } else {
+      const submitted = await submitSeedanceVideoTask({
+        config,
+        prompt,
+        referenceAssetUri,
+        body: requestParams,
+        slug: "advanced",
+      });
+      task = submitted.task;
+      payload = submitted.payload;
+      createResponse = submitted.raw || task;
+    }
+
+    const upstreamTaskId = task?.taskId || "";
+    if (!upstreamTaskId) {
+      const error = new Error(`Generation service did not return task id: ${JSON.stringify(task || createResponse || {})}`);
+      error.statusCode = 502;
+      throw error;
+    }
+
+    const submittedAt = new Date().toISOString();
+    const fixedBilling = provider === "wan27"
+      ? {
+          finalCredits: cost,
+          billingStatus: cost > 0 ? "settled" : "free",
+          billingSettledAt: cost > 0 ? submittedAt : "",
+        }
+      : {};
+    await updateGenerationRecord(taskId, {
+      status: task.status || "submitted",
+      upstreamTaskId,
+      awaitingUpstreamTask: false,
+      model: runtime.model,
+      provider: runtime.providerName,
+      source: runtime.recordSource,
+      kind: "advanced-video",
+      imageUrl,
+      sourceImageUrl,
+      syntheticReferenceLocalUrl,
+      syntheticReferenceUrl,
+      referenceAssetUri,
+      upstreamPayload: payload,
+      ratio: payload?.ratio || requestParams.ratio || "",
+      resolution: payload?.resolution || payload?.parameters?.resolution || requestParams.resolution || "",
+      duration: payload?.duration || payload?.parameters?.duration || requestParams.duration,
+      quality: runtime.quality,
+      remoteVideoUrl: task.videoUrl || "",
+      error: "",
+      createResponse,
+      submittedAt,
+      ...fixedBilling,
+    }, "advanced-submit");
+  } catch (error) {
+    console.warn("[advanced-generation-job-error]", taskId, error.message || error);
+    try {
+      await updateGenerationRecord(taskId, {
+        status: "failed",
+        awaitingUpstreamTask: false,
+        error: error.message || "Advanced generation failed.",
+        billingError: "",
+        failedAt: new Date().toISOString(),
+        provider: runtime.providerName,
+        source: runtime.recordSource,
+        model: runtime.model,
+        kind: "advanced-video",
+        pricingEstimate: pricing,
+        preDeductedCredits: cost,
+        templateId: caseId || "",
+        templateTitle: caseTitle || "Advanced generation",
+      }, "advanced-failed");
+    } catch (updateError) {
+      console.error("[advanced-generation-fail-update-error]", taskId, updateError.message || updateError);
+    }
+  }
+}
+
 async function handleAdvancedGenerate(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -4205,18 +4427,6 @@ async function handleAdvancedGenerate(req, res) {
   }
 
   let userAsset = null;
-  let referenceAssetUri = "";
-  let imageUrl = "";
-  let sourceImageUrl = "";
-  let syntheticReferenceLocalUrl = "";
-  let syntheticReferenceUrl = "";
-  let providerName = "seedance";
-  let recordSource = "advanced-seedance";
-  let model = MODEL_QUALITY;
-  let quality = "high";
-  let task = null;
-  let payload = null;
-  let createResponse = null;
   if (body.dataUrl) {
     userAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
       dataUrl: body.dataUrl,
@@ -4227,62 +4437,16 @@ async function handleAdvancedGenerate(req, res) {
     userAsset = auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
     if (!userAsset) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
   }
-  if (userAsset) {
-    if (provider === "seedance") {
-      if (requestParams.preprocessReference !== false) {
-        userAsset = await ensureSyntheticReferenceForUserAsset(auth.db, userAsset);
-        referenceAssetUri = userAsset.syntheticReferenceAssetUri || userAsset.assetUri || "";
-        imageUrl = userAsset.syntheticReferenceLocalUrl || userAsset.syntheticReferenceUrl || userAsset.publicUrl || userAsset.localUrl || "";
-        sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
-        syntheticReferenceLocalUrl = userAsset.syntheticReferenceLocalUrl || "";
-        syntheticReferenceUrl = userAsset.syntheticReferenceUrl || "";
-      } else {
-        userAsset = await ensureSeedanceAssetForUserAsset(auth.db, userAsset);
-        referenceAssetUri = userAsset.assetUri || "";
-        imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
-        sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
-      }
-    } else {
-      userAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
-      imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
-      sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
-    }
-  }
-
-  if (provider === "wan27") {
-    if (!imageUrl || !isPublicHttpUrl(imageUrl)) {
-      return sendJson(res, 400, { ok: false, message: "Wan2.7 requires an uploaded reference image." });
-    }
-    providerName = "aliyun-wan27";
-    recordSource = "advanced-wan27";
-    model = ALIYUN_WAN27_MODEL;
-    quality = normalizeWan27Resolution(requestParams.resolution);
-    const submitted = await submitWan27VideoTask({
-      prompt,
-      imageUrl,
-      body: requestParams,
-    });
-    task = submitted.task;
-    payload = submitted.payload;
-    createResponse = submitted.raw;
-  } else {
-    const submitted = await submitSeedanceVideoTask({
-      config,
-      prompt,
-      referenceAssetUri,
-      body: requestParams,
-      slug: "advanced",
-    });
-    task = submitted.task;
-    payload = submitted.payload;
-    createResponse = submitted.raw || task;
-  }
+  const runtime = advancedRuntimeForProvider(provider, requestParams);
+  const taskId = localGenerationTaskId("cgt");
+  const initialImageUrl = userAsset?.localUrl || userAsset?.publicUrl || "";
+  const initialSourceImageUrl = userAsset?.sourceImageUrl || userAsset?.localUrl || "";
 
   if (cost > 0) {
     changeUserCredits(auth.db, auth.user.id, -cost, "advanced_generation", {
-      taskId: task.taskId,
-      provider: providerName,
-      model,
+      taskId,
+      provider: runtime.providerName,
+      model: runtime.model,
       caseId: selectedCase?.id || "",
       caseTitle: selectedCase?.title || "",
       duration: requestParams.duration,
@@ -4296,60 +4460,74 @@ async function handleAdvancedGenerate(req, res) {
       pricingSource: pricing.source || "duration_rate",
       preprocessReference: requestParams.preprocessReference,
       userAssetId: userAsset?.id || "",
-      referenceAssetUri,
+      referenceAssetUri: "",
     });
     await writeDb(auth.db);
   }
 
-  const record = await upsertAndSettleGenerationRecord({
-    taskId: task.taskId,
-    status: task.status,
-    model,
-    provider: providerName,
-    source: recordSource,
+  const record = await upsertGenerationRecord({
+    taskId,
+    status: "preparing",
+    model: runtime.model,
+    provider: runtime.providerName,
+    source: runtime.recordSource,
     kind: "advanced-video",
     templateId: selectedCase?.id || "",
     templateTitle: selectedCase?.title || "Advanced generation",
     userId: auth.user.id,
     userAssetId: userAsset?.id || "",
-    imageUrl,
-    sourceImageUrl,
-    syntheticReferenceLocalUrl,
-    syntheticReferenceUrl,
-    referenceAssetUri,
+    imageUrl: initialImageUrl,
+    sourceImageUrl: initialSourceImageUrl,
+    syntheticReferenceLocalUrl: "",
+    syntheticReferenceUrl: "",
+    referenceAssetUri: "",
     prompt,
     finalPrompt: prompt,
     params: requestParams,
-    upstreamPayload: payload,
-    ratio: payload.ratio || requestParams.ratio || "",
-    resolution: payload.resolution || payload.parameters?.resolution || requestParams.resolution || "",
-    duration: payload.duration || payload.parameters?.duration || requestParams.duration,
-    quality,
-    remoteVideoUrl: task.videoUrl || "",
+    upstreamPayload: null,
+    ratio: requestParams.ratio || "",
+    resolution: requestParams.resolution || "",
+    duration: requestParams.duration,
+    quality: runtime.quality,
+    remoteVideoUrl: "",
     localVideoUrl: "",
     error: "",
     preDeductedCredits: cost,
-    finalCredits: provider === "wan27" ? cost : null,
-    billingStatus: cost > 0 ? (provider === "wan27" ? "settled" : "pre_deducted") : "free",
-    billingSettledAt: provider === "wan27" ? new Date().toISOString() : "",
+    finalCredits: null,
+    billingStatus: cost > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
     pricingEstimate: pricing,
-    createResponse,
-  }, "create");
+    createResponse: null,
+    awaitingUpstreamTask: true,
+  });
+  startAdvancedGenerationJob({
+    taskId,
+    userId: auth.user.id,
+    userAssetId: userAsset?.id || "",
+    provider,
+    prompt,
+    requestParams,
+    pricing,
+    cost,
+    caseId: selectedCase?.id || "",
+    caseTitle: selectedCase?.title || "",
+    config,
+  });
   const latestDb = await readDb();
   const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
   return sendJson(res, 200, {
     ok: true,
-    task,
-    taskId: task.taskId,
+    task: { taskId, status: record.status },
+    taskId,
     record: publicGenerationRecord(record),
     user: userView(latestUser),
     referenceAsset: userAsset ? {
       userAssetId: userAsset.id,
-      imageUrl,
-      sourceImageUrl,
-      syntheticReferenceLocalUrl,
-      syntheticReferenceUrl,
-      referenceAssetUri,
+      imageUrl: initialImageUrl,
+      sourceImageUrl: initialSourceImageUrl,
+      syntheticReferenceLocalUrl: "",
+      syntheticReferenceUrl: "",
+      referenceAssetUri: "",
     } : null,
     pricing,
     cost,
@@ -7370,21 +7548,22 @@ async function handleGetGenerationRecord(req, res, taskId) {
   let nextRecord = record;
   if (needsSeedanceFailureRefund(record)) {
     nextRecord = await settleSeedanceGenerationRecord(record, "detail");
-  } else if (record.provider === "apiz" && APIZ_API_KEY && !isFailedStatus(record.status)) {
+  } else if (record.provider === "apiz" && APIZ_API_KEY && shouldRefreshGenerationRecord(record)) {
     try {
       nextRecord = await refreshApizGenerationRecord(record);
     } catch (error) {
       console.warn("[apiz-generation-record-refresh-failed]", taskId, error.message || error);
     }
-  } else if (record.provider === "aliyun-wan27" && ALIYUN_DASHSCOPE_API_KEY && !isFailedStatus(record.status)) {
+  } else if (record.provider === "aliyun-wan27" && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(record)) {
     try {
       nextRecord = await refreshWan27GenerationRecord(record, { download: true, reason: "detail" });
     } catch (error) {
       console.warn("[wan27-generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
-  } else if (ARK_API_KEY && !String(taskId).startsWith("demo-") && !isFailedStatus(record.status)) {
+  } else if (ARK_API_KEY && shouldRefreshGenerationRecord(record) && !String(taskId).startsWith("demo-")) {
     try {
-      const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
+      const queryTaskId = record.upstreamTaskId || taskId;
+      const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(queryTaskId)}`);
       const task = normalizeTask(raw);
       let localVideoUrl = record.localVideoUrl || "";
       let localVideoPath = record.localVideoPath || "";
@@ -7401,6 +7580,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
       }
       nextRecord = await upsertAndSettleGenerationRecord({
         taskId,
+        upstreamTaskId: task.taskId || queryTaskId,
         status: task.status || record.status || "unknown",
         remoteVideoUrl,
         localVideoUrl,
