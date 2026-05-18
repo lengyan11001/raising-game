@@ -239,7 +239,7 @@ const DEFAULT_CONFIG = {
   wallet: {
     asset: "USDT",
     network: "TRC20",
-    address: "TDqGn6PH4AmvzTwH77gopRGX2tyGBtpjFs",
+    address: "TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
     suffixDigits: 6,
     /** Credits use RMB cents, matching upstream billing points. 1 USDT -> CNY cents. */
     cnyCentsPerUsdt: DEFAULT_USDT_CNY_CENTS,
