@@ -909,7 +909,19 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 .history-panel .job-note { grid-column: 1 / -1; }
 .history-empty-card strong { display: block; font-size: 1.1rem; }
 .history-empty-card p { color: var(--muted); margin: 8px 0 14px; }
-.preview-modal video { width: 100%; max-height: 76vh; border-radius: 8px; background: #05070d; }
+.preview-modal .modal-body {
+  display: grid;
+  place-items: center;
+}
+.preview-modal video {
+  width: min(100%, calc(76vh * var(--video-ratio-value, 1.7778)));
+  max-width: 100%;
+  max-height: 76vh;
+  aspect-ratio: var(--video-ratio, 16 / 9);
+  border-radius: 8px;
+  background: #05070d;
+  object-fit: contain;
+}
 
 .ledger-toolbar {
   display: grid;

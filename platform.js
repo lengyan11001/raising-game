@@ -2149,7 +2149,7 @@ function normalizeVideoRatio(value = "") {
 
 function ratioStyle(value = "") {
   const [width, height] = normalizeVideoRatio(value).split(":").map((part) => Math.max(1, Number(part) || 1));
-  return `--video-ratio:${width} / ${height};`;
+  return `--video-ratio:${width} / ${height};--video-ratio-value:${width / height};`;
 }
 
 function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
@@ -2438,10 +2438,17 @@ function isHiddenCategory(category) {
   return value.includes("business") || value.includes("商业接入");
 }
 
-function playPreview({ title = "", previewUrl = "" } = {}) {
+function previewRatioFromItem(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  const requestJson = item.requestJson && typeof item.requestJson === "object" ? item.requestJson : {};
+  return item.ratio || params.ratio || params.aspect_ratio || requestJson.ratio || requestJson.aspect_ratio || "16:9";
+}
+
+function playPreview({ title = "", previewUrl = "", ratio = "16:9" } = {}) {
   if (!previewUrl || !els.previewDialog || !els.previewVideo) return;
   els.previewTitle.textContent = title || t("common.preview");
   els.previewVideo.pause();
+  els.previewVideo.setAttribute("style", ratioStyle(ratio));
   els.previewVideo.src = previewUrl;
   els.previewVideo.load();
   if (!els.previewDialog.open) els.previewDialog.showModal();
@@ -2450,13 +2457,13 @@ function playPreview({ title = "", previewUrl = "" } = {}) {
 
 function openPreview(templateId) {
   const template = state.templates.find((item) => item.id === templateId);
-  playPreview({ title: template?.title, previewUrl: template?.previewUrl });
+  playPreview({ title: template?.title, previewUrl: template?.previewUrl, ratio: previewRatioFromItem(template) });
 }
 
 function openAdvancedPreview(index) {
   const cases = state.advancedCases.filter((item) => item.enabled !== false);
   const item = cases[Number(index || 0)];
-  playPreview({ title: item?.title, previewUrl: item?.previewUrl });
+  playPreview({ title: item?.title, previewUrl: item?.previewUrl, ratio: previewRatioFromItem(item) });
 }
 
 function walletCreditsForAmount(amount) {
@@ -2823,7 +2830,8 @@ function renderHistory(records = []) {
     const title = record.templateTitle || record.sceneEntryName || record.sceneName || t("history.job");
     const created = record.createdAt ? new Date(record.createdAt).toLocaleString() : "";
     const duration = record.duration ? `${record.duration}s` : "";
-    const mediaStyle = ratioStyle(record.ratio || record.params?.ratio || record.params?.aspect_ratio);
+    const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio;
+    const mediaStyle = ratioStyle(recordRatio);
     const cost = billingLabel(record.billing || {});
     const failed = statusClass(record.status) === "failed";
     const error = record.error || "";
@@ -2834,7 +2842,7 @@ function renderHistory(records = []) {
           ${videoUrl ? `
             <div class="history-media-actions">
               <a class="history-download" href="${escapeHtml(videoUrl)}" download target="_blank" rel="noopener"><i data-lucide="download"></i>${escapeHtml(t("common.download"))}</a>
-              <button class="history-download history-icon-action" type="button" aria-label="${escapeHtml(t("common.fullscreen"))}" title="${escapeHtml(t("common.fullscreen"))}" data-history-fullscreen="${escapeHtml(mediaKey)}"><i data-lucide="maximize-2"></i></button>
+              <button class="history-download history-icon-action" type="button" aria-label="${escapeHtml(t("common.fullscreen"))}" title="${escapeHtml(t("common.fullscreen"))}" data-history-preview="${escapeHtml(mediaKey)}" data-history-preview-url="${escapeHtml(videoUrl)}" data-history-preview-title="${escapeHtml(title)}" data-history-preview-ratio="${escapeHtml(recordRatio)}"><i data-lucide="maximize-2"></i></button>
             </div>
           ` : ""}
         </div>
@@ -2862,12 +2870,13 @@ function renderHistory(records = []) {
       </article>
     `;
   }).join("")}`;
-  els.historyList.querySelectorAll("[data-history-fullscreen]").forEach((button) => {
+  els.historyList.querySelectorAll("[data-history-preview]").forEach((button) => {
     button.addEventListener("click", () => {
-      const mediaKey = button.dataset.historyFullscreen || "";
-      const video = Array.from(els.historyList.querySelectorAll("video[data-history-video]"))
-        .find((item) => item.dataset.historyVideo === mediaKey);
-      requestVideoFullscreen(video);
+      playPreview({
+        title: button.dataset.historyPreviewTitle || t("common.preview"),
+        previewUrl: button.dataset.historyPreviewUrl || "",
+        ratio: button.dataset.historyPreviewRatio || "16:9",
+      });
     });
   });
   refreshIcons();
@@ -3340,6 +3349,7 @@ els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;
   els.previewVideo.pause();
   els.previewVideo.removeAttribute("src");
+  els.previewVideo.removeAttribute("style");
   els.previewVideo.load();
 });
 els.advancedSubmitBtn?.addEventListener("click", submitAdvancedGenerate);
