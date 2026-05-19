@@ -346,33 +346,12 @@ function stopAdminAutoRefresh() {
   adminRecordSignature = "";
 }
 
-function scheduleAdminHistoryPoll(records = [], delayMs = 15000) {
+function scheduleAdminHistoryPoll() {
   stopAdminHistoryPoll();
-  const activeTab = sessionStorage.getItem("admTabVideos") || "scene";
-  if (state.route !== "videos" || activeTab !== "history") return;
-  if (!records.some(shouldPollGenerationRecord)) return;
-  adminHistoryPollTimer = window.setTimeout(() => {
-    adminHistoryPollTimer = null;
-    if (state.route !== "videos" || (sessionStorage.getItem("admTabVideos") || "scene") !== "history") return;
-    renderHistory({ silent: true }).catch((err) => {
-      console.warn("admin history auto refresh failed", err);
-      scheduleAdminHistoryPoll([{ taskId: "retry", status: "running" }], 30000);
-    });
-  }, delayMs);
 }
 
-function scheduleAdminRecordPoll(records = [], load, delayMs = 15000) {
+function scheduleAdminRecordPoll() {
   stopAdminRecordPoll();
-  if (state.route !== "records" || typeof load !== "function") return;
-  if (!records.some(shouldPollGenerationRecord)) return;
-  adminRecordPollTimer = window.setTimeout(() => {
-    adminRecordPollTimer = null;
-    if (state.route !== "records") return;
-    load({ silent: true }).catch((err) => {
-      console.warn("admin records auto refresh failed", err);
-      scheduleAdminRecordPoll([{ taskId: "retry", status: "running" }], load, 30000);
-    });
-  }, delayMs);
 }
 
 function videoOrPoster(item) {
@@ -622,10 +601,7 @@ async function rebuildPresetReference(itemId) {
       method: "POST",
       body: JSON.stringify({ force: true }),
     });
-    toast("已开始重建参考图，状态会在列表里更新。");
-    setTimeout(() => renderCharacters(), 5000);
-    setTimeout(() => renderCharacters(), 30000);
-    setTimeout(() => renderCharacters(), 90000);
+    toast("已开始重建参考图，需要时请手动点击刷新。");
   } catch (error) {
     toast(`重建失败：${error.message}`);
   }
