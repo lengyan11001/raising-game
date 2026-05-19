@@ -2951,7 +2951,7 @@ async function loadHistory({ silent = false } = {}) {
   const previousScrollTop = els.historyList.scrollTop || 0;
   if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
   try {
-    const payload = await requestJson("/api/generation-records?limit=50");
+    const payload = await requestJson("/api/generation-records?limit=50&refresh=1");
     if (payload.user) setUser(payload.user);
     const records = payload.records || [];
     const nextSignature = generationRecordsSignature(records);

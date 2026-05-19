@@ -3617,7 +3617,7 @@ function normalizeTask(raw) {
 
   return {
     taskId: task?.id || task?.task_id || task?.taskId || raw?.id || raw?.task_id || "",
-    status: task?.status || task?.state || task?.task_status || raw?.status || "unknown",
+    status: task?.status || task?.state || task?.task_status || raw?.status || "",
     videoUrl,
     error: task?.error?.message || task?.error || raw?.error?.message || raw?.message || "",
   };
