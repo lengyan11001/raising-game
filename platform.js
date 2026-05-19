@@ -1794,6 +1794,7 @@ let activeAccessGuide = ACCESS_GUIDES[0];
 let historyLoading = false;
 let historyRefreshTimer = null;
 let historyRefreshInFlight = false;
+let historyRecordsSignature = "";
 const SUPPORTED_LANGS = new Set(Object.keys(I18N));
 if (!SUPPORTED_LANGS.has(state.lang)) state.lang = "en";
 
@@ -2021,6 +2022,30 @@ function generationVideoUrl(record) {
   return record?.videoUrl || record?.localVideoUrl || record?.remoteVideoUrl || "";
 }
 
+function generationRecordSignature(record = {}) {
+  const billing = record.billing || {};
+  return [
+    record.taskId,
+    record.updatedAt,
+    record.status,
+    generationVideoUrl(record),
+    record.error,
+    record.ratio,
+    record.resolution,
+    record.duration,
+    billing.status,
+    billing.final,
+    billing.settled,
+  ].map((value) => String(value ?? "")).join("|");
+}
+
+function generationRecordsSignature(records = []) {
+  return [...records]
+    .sort((left, right) => String(left.taskId || "").localeCompare(String(right.taskId || "")))
+    .map(generationRecordSignature)
+    .join("\n");
+}
+
 function statusLabel(status) {
   const value = String(status || "").toLowerCase();
   if (["succeeded", "success", "done", "completed"].includes(value)) return t("status.completed");
@@ -2238,7 +2263,10 @@ async function requestJson(url, options = {}) {
 
 function setTab(tab) {
   state.tab = tab;
-  if (tab !== "history") stopHistoryRefresh();
+  if (tab !== "history") {
+    stopHistoryRefresh();
+    historyRecordsSignature = "";
+  }
   document.querySelectorAll("[data-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.panel !== tab;
   });
@@ -2881,6 +2909,7 @@ async function loadHistory({ silent = false } = {}) {
   if (!els.historyList) return;
   if (!state.user) {
     stopHistoryRefresh();
+    historyRecordsSignature = "";
     renderHistory([]);
     return;
   }
@@ -2893,8 +2922,12 @@ async function loadHistory({ silent = false } = {}) {
     const payload = await requestJson("/api/generation-records?limit=50");
     if (payload.user) setUser(payload.user);
     const records = payload.records || [];
-    renderHistory(records);
-    els.historyList.scrollTop = previousScrollTop;
+    const nextSignature = generationRecordsSignature(records);
+    if (!silent || nextSignature !== historyRecordsSignature) {
+      renderHistory(records);
+      historyRecordsSignature = nextSignature;
+      els.historyList.scrollTop = previousScrollTop;
+    }
     if (records.some(isPendingGenerationRecord)) scheduleHistoryRefresh();
     else stopHistoryRefresh();
   } catch (error) {

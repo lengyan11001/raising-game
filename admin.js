@@ -32,6 +32,8 @@ const state = {
 
 let adminHistoryPollTimer = null;
 let adminRecordPollTimer = null;
+let adminHistorySignature = "";
+let adminRecordSignature = "";
 
 const els = {
   loginView: byId("loginView"),
@@ -299,6 +301,34 @@ function shouldPollGenerationRecord(record = {}) {
   return Boolean(record.taskId) && !isTerminalGenerationStatus(record.status);
 }
 
+function recordPreviewUrl(record = {}) {
+  return record.localVideoUrl || record.videoUrl || record.remoteVideoUrl || "";
+}
+
+function generationRecordSignature(record = {}) {
+  const billing = record.billing || {};
+  return [
+    record.taskId,
+    record.updatedAt,
+    record.status,
+    record.error,
+    recordPreviewUrl(record),
+    record.ratio,
+    record.resolution,
+    record.duration,
+    billing.status,
+    billing.final,
+    billing.settled,
+  ].map((value) => String(value ?? "")).join("|");
+}
+
+function generationRecordsSignature(records = []) {
+  return [...records]
+    .sort((left, right) => String(left.taskId || "").localeCompare(String(right.taskId || "")))
+    .map(generationRecordSignature)
+    .join("\n");
+}
+
 function stopAdminHistoryPoll() {
   if (adminHistoryPollTimer) window.clearTimeout(adminHistoryPollTimer);
   adminHistoryPollTimer = null;
@@ -312,6 +342,8 @@ function stopAdminRecordPoll() {
 function stopAdminAutoRefresh() {
   stopAdminHistoryPoll();
   stopAdminRecordPoll();
+  adminHistorySignature = "";
+  adminRecordSignature = "";
 }
 
 function scheduleAdminHistoryPoll(records = [], delayMs = 15000) {
@@ -1238,6 +1270,12 @@ async function renderHistory({ silent = false } = {}) {
   const payload = await api("/api/admin/generation-records?limit=120");
   const records = payload.records || [];
   if (!pane) return;
+  const nextSignature = generationRecordsSignature(records);
+  if (silent && nextSignature === adminHistorySignature) {
+    scheduleAdminHistoryPoll(records);
+    return;
+  }
+  adminHistorySignature = nextSignature;
   pane.innerHTML = `
     <div class="adm-card adm-mt">
       <header class="adm-card-head">
@@ -1454,13 +1492,20 @@ async function renderGenerationRecords() {
     sessionStorage.setItem("admRecordFilters", JSON.stringify(next));
     if (!silent) tablePane.innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
     const payload = await api(`/api/admin/generation-records?${params.toString()}`);
-    renderGenerationRecordTable(payload.records || [], payload);
+    const records = payload.records || [];
+    const nextSignature = generationRecordsSignature(records);
+    if (silent && nextSignature === adminRecordSignature) {
+      scheduleAdminRecordPoll(records, load);
+      return;
+    }
+    adminRecordSignature = nextSignature;
+    renderGenerationRecordTable(records, payload);
     const nextScrollHost = byId("recordTablePane")?.querySelector(".adm-record-table-wrap");
     if (nextScrollHost) {
       nextScrollHost.scrollTop = previousScrollTop;
       nextScrollHost.scrollLeft = previousScrollLeft;
     }
-    scheduleAdminRecordPoll(payload.records || [], load);
+    scheduleAdminRecordPoll(records, load);
   };
 
   byId("recordFilters")?.addEventListener("submit", (event) => {
