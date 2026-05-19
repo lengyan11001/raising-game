@@ -30,6 +30,9 @@ const state = {
   cache: {},
 };
 
+let adminHistoryPollTimer = null;
+let adminRecordPollTimer = null;
+
 const els = {
   loginView: byId("loginView"),
   loginForm: byId("loginForm"),
@@ -251,6 +254,7 @@ function routeFromHash() {
   const hash = window.location.hash.replace(/^#\//, "").trim();
   const route = ROUTES.find((r) => r.id === hash) || ROUTES[0];
   state.route = route.id;
+  stopAdminAutoRefresh();
   els.adminNav.querySelectorAll("a").forEach((a) => {
     a.classList.toggle("is-active", a.dataset.route === route.id);
   });
@@ -284,6 +288,59 @@ function statusPill(status) {
     : ["running", "in_progress"].includes(value) ? "is-running"
     : "";
   return `<span class="adm-pill ${cls}">${escapeHtml(status)}</span>`;
+}
+
+function isTerminalGenerationStatus(status) {
+  return ["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled"]
+    .includes(String(status || "").toLowerCase().trim());
+}
+
+function shouldPollGenerationRecord(record = {}) {
+  return Boolean(record.taskId) && !isTerminalGenerationStatus(record.status);
+}
+
+function stopAdminHistoryPoll() {
+  if (adminHistoryPollTimer) window.clearTimeout(adminHistoryPollTimer);
+  adminHistoryPollTimer = null;
+}
+
+function stopAdminRecordPoll() {
+  if (adminRecordPollTimer) window.clearTimeout(adminRecordPollTimer);
+  adminRecordPollTimer = null;
+}
+
+function stopAdminAutoRefresh() {
+  stopAdminHistoryPoll();
+  stopAdminRecordPoll();
+}
+
+function scheduleAdminHistoryPoll(records = [], delayMs = 15000) {
+  stopAdminHistoryPoll();
+  const activeTab = sessionStorage.getItem("admTabVideos") || "scene";
+  if (state.route !== "videos" || activeTab !== "history") return;
+  if (!records.some(shouldPollGenerationRecord)) return;
+  adminHistoryPollTimer = window.setTimeout(() => {
+    adminHistoryPollTimer = null;
+    if (state.route !== "videos" || (sessionStorage.getItem("admTabVideos") || "scene") !== "history") return;
+    renderHistory({ silent: true }).catch((err) => {
+      console.warn("admin history auto refresh failed", err);
+      scheduleAdminHistoryPoll([{ taskId: "retry", status: "running" }], 30000);
+    });
+  }, delayMs);
+}
+
+function scheduleAdminRecordPoll(records = [], load, delayMs = 15000) {
+  stopAdminRecordPoll();
+  if (state.route !== "records" || typeof load !== "function") return;
+  if (!records.some(shouldPollGenerationRecord)) return;
+  adminRecordPollTimer = window.setTimeout(() => {
+    adminRecordPollTimer = null;
+    if (state.route !== "records") return;
+    load({ silent: true }).catch((err) => {
+      console.warn("admin records auto refresh failed", err);
+      scheduleAdminRecordPoll([{ taskId: "retry", status: "running" }], load, 30000);
+    });
+  }, delayMs);
 }
 
 function videoOrPoster(item) {
@@ -961,6 +1018,7 @@ function openAddCreditsFromCharacterDialog(id, characters) {
 async function renderVideos() {
   const stored = sessionStorage.getItem("admTabVideos");
   const tab = ["scene", "history"].includes(stored) ? stored : "scene";
+  if (tab !== "history") stopAdminHistoryPoll();
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
@@ -1171,10 +1229,12 @@ function sceneVideoCardHtml(c, idx) {
   `;
 }
 
-async function renderHistory() {
+async function renderHistory({ silent = false } = {}) {
+  stopAdminHistoryPoll();
   const payload = await api("/api/admin/generation-records?limit=120");
   const records = payload.records || [];
   const pane = byId("videoPaneBody");
+  if (!pane) return;
   pane.innerHTML = `
     <div class="adm-card adm-mt">
       <header class="adm-card-head">
@@ -1191,6 +1251,7 @@ async function renderHistory() {
     </div>
   `;
   refreshIcons();
+  scheduleAdminHistoryPoll(records);
   byId("refreshHistoryBtn")?.addEventListener("click", () => renderVideos());
   pane.querySelectorAll('[data-act="copy-text"]').forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1365,7 +1426,8 @@ async function renderGenerationRecords() {
     </section>
   `;
 
-  const load = async () => {
+  const load = async ({ silent = false } = {}) => {
+    stopAdminRecordPoll();
     const params = new URLSearchParams();
     const next = {
       q: byId("recordQuery")?.value.trim() || "",
@@ -1376,13 +1438,14 @@ async function renderGenerationRecords() {
     };
     Object.entries(next).forEach(([key, value]) => { if (value) params.set(key, value); });
     sessionStorage.setItem("admRecordFilters", JSON.stringify(next));
+    if (!silent) byId("recordTablePane").innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
     const payload = await api(`/api/admin/generation-records?${params.toString()}`);
     renderGenerationRecordTable(payload.records || [], payload);
+    scheduleAdminRecordPoll(payload.records || [], load);
   };
 
   byId("recordFilters")?.addEventListener("submit", (event) => {
     event.preventDefault();
-    byId("recordTablePane").innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
     load().catch((err) => renderError(err));
   });
   byId("refreshRecordsBtn")?.addEventListener("click", () => load().catch((err) => renderError(err)));
