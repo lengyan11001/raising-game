@@ -835,12 +835,13 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 .history-media video,
 .history-placeholder {
   width: 100%;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: var(--video-ratio, 16 / 9);
   height: auto;
   min-height: 112px;
+  max-height: 360px;
   border-radius: 8px;
   background: #e4ece9;
-  object-fit: cover;
+  object-fit: contain;
 }
 .history-placeholder {
   display: grid;

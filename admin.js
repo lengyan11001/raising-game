@@ -1341,10 +1341,16 @@ function recordRemoteVideoUrl(record) {
   return record.remoteVideoUrl || record.videoUrl || "";
 }
 
+function recordRatioStyle(record = {}) {
+  const ratio = normalizeVideoRatio(record.ratio || record.params?.ratio || record.params?.aspect_ratio || record.upstreamPayload?.ratio || record.upstreamPayload?.aspect_ratio);
+  const [width, height] = ratio.split(":").map((part) => Math.max(1, Number(part) || 1));
+  return `--video-ratio:${width} / ${height};`;
+}
+
 function recordPreviewHtml(record) {
   const localVideo = recordVideoUrl(record);
   const remoteVideo = recordRemoteVideoUrl(record);
-  if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="metadata" playsinline></video>`;
+  if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="metadata" playsinline style="${escapeHtml(recordRatioStyle(record))}"></video>`;
   if (remoteVideo) {
     return `
       <div class="adm-record-preview-missing">
@@ -1502,6 +1508,7 @@ function generationRecordRowHtml(record, index) {
   const video = recordVideoUrl(record);
   const remoteVideo = recordRemoteVideoUrl(record);
   const label = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "job";
+  const ratioStyle = recordRatioStyle(record);
   return `
     <tr>
       <td><span class="adm-mono">${escapeHtml(fmtDate(record.createdAt).slice(5))}</span><span class="adm-block adm-muted">${escapeHtml(fmtRelative(record.updatedAt || record.createdAt))}</span></td>
@@ -1511,7 +1518,7 @@ function generationRecordRowHtml(record, index) {
       <td><span class="adm-mono">${escapeHtml(recordBillingText(record))}</span><span class="adm-block adm-muted">${escapeHtml(record.billing?.status || "")}</span></td>
       <td><span class="adm-mono adm-truncate" title="${escapeHtml(record.taskId)}">${escapeHtml(shortText(record.taskId, 24))}</span><span class="adm-block adm-muted">${escapeHtml(record.model || "")}</span></td>
       <td class="adm-record-prompt-cell" title="${escapeHtml(record.finalPrompt || record.prompt || "")}">${escapeHtml(shortText(record.finalPrompt || record.prompt || "", 150))}</td>
-      <td>${video ? `<video class="adm-record-thumb" src="${escapeHtml(video)}" preload="metadata" muted playsinline></video>` : record.imageUrl ? `<img class="adm-record-thumb" src="${escapeHtml(record.imageUrl)}" alt="" />` : remoteVideo ? '<span class="adm-muted">Remote only</span>' : '<span class="adm-muted">No result</span>'}</td>
+      <td>${video ? `<video class="adm-record-thumb" src="${escapeHtml(video)}" preload="metadata" muted playsinline style="${escapeHtml(ratioStyle)}"></video>` : record.imageUrl ? `<img class="adm-record-thumb" src="${escapeHtml(record.imageUrl)}" alt="" />` : remoteVideo ? '<span class="adm-muted">Remote only</span>' : '<span class="adm-muted">No result</span>'}</td>
       <td class="adm-record-actions">
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>Detail</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-record" data-index="${index}"><i data-lucide="copy"></i>Prompt</button>

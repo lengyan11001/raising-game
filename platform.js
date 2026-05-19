@@ -2122,6 +2122,11 @@ function normalizeVideoRatio(value = "") {
   return "16:9";
 }
 
+function ratioStyle(value = "") {
+  const [width, height] = normalizeVideoRatio(value).split(":").map((part) => Math.max(1, Number(part) || 1));
+  return `--video-ratio:${width} / ${height};`;
+}
+
 function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
   const shortSide = normalizeAdvancedResolution(resolution) === "1080p" ? 1080 : 720;
   const [ratioW, ratioH] = normalizeVideoRatio(ratio).split(":").map((part) => Math.max(1, Number(part) || 1));
@@ -2790,12 +2795,13 @@ function renderHistory(records = []) {
     const title = record.templateTitle || record.sceneEntryName || record.sceneName || t("history.job");
     const created = record.createdAt ? new Date(record.createdAt).toLocaleString() : "";
     const duration = record.duration ? `${record.duration}s` : "";
+    const mediaStyle = ratioStyle(record.ratio || record.params?.ratio || record.params?.aspect_ratio);
     const cost = billingLabel(record.billing || {});
     const failed = statusClass(record.status) === "failed";
     const error = record.error || "";
     return `
       <article class="history-item is-${escapeHtml(statusClass(record.status))}">
-        <div class="history-media">
+        <div class="history-media" style="${escapeHtml(mediaStyle)}">
           ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata" data-history-video="${escapeHtml(mediaKey)}"></video>` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
           ${videoUrl ? `
             <div class="history-media-actions">
