@@ -1793,6 +1793,7 @@ const LEGAL_DOCS = {
 let activeAccessGuide = ACCESS_GUIDES[0];
 let historyLoading = false;
 let historyRefreshTimer = null;
+let historyRefreshInFlight = false;
 const SUPPORTED_LANGS = new Set(Object.keys(I18N));
 if (!SUPPORTED_LANGS.has(state.lang)) state.lang = "en";
 
@@ -2232,6 +2233,7 @@ async function requestJson(url, options = {}) {
 
 function setTab(tab) {
   state.tab = tab;
+  if (tab !== "history") stopHistoryRefresh();
   document.querySelectorAll("[data-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.panel !== tab;
   });
@@ -2689,7 +2691,7 @@ async function submitAdvancedGenerate() {
       });
     }
     setTab("history");
-    scheduleHistoryRefresh();
+    scheduleHistoryRefresh({ delayMs: 8000, force: true });
   } catch (error) {
     if (els.advancedNote) els.advancedNote.textContent = error.message;
   } finally {
@@ -2837,6 +2839,11 @@ function renderHistory(records = []) {
   refreshIcons();
 }
 
+function isPendingGenerationRecord(record = {}) {
+  if (generationVideoUrl(record)) return false;
+  return !["failed", "error", "cancelled", "canceled"].includes(String(record.status || "").toLowerCase());
+}
+
 async function requestVideoFullscreen(video) {
   if (!video) return;
   try {
@@ -2849,35 +2856,45 @@ async function requestVideoFullscreen(video) {
   }
 }
 
-function scheduleHistoryRefresh(times = 4, delayMs = 8000) {
+function stopHistoryRefresh() {
   if (historyRefreshTimer) window.clearTimeout(historyRefreshTimer);
-  const tick = (remaining) => {
-    historyRefreshTimer = window.setTimeout(() => {
-      if (state.tab === "history") loadHistory();
-      if (remaining > 1) tick(remaining - 1);
-      else historyRefreshTimer = null;
-    }, delayMs);
-  };
-  tick(times);
+  historyRefreshTimer = null;
 }
 
-async function loadHistory() {
+function scheduleHistoryRefresh({ delayMs = 15000, force = false } = {}) {
+  if (historyRefreshTimer && !force) return;
+  stopHistoryRefresh();
+  if (state.tab !== "history" || !state.user) return;
+  historyRefreshTimer = window.setTimeout(() => {
+    historyRefreshTimer = null;
+    if (state.tab === "history") loadHistory({ silent: true });
+  }, delayMs);
+}
+
+async function loadHistory({ silent = false } = {}) {
   if (!els.historyList) return;
   if (!state.user) {
+    stopHistoryRefresh();
     renderHistory([]);
     return;
   }
-  if (historyLoading) return;
+  if (historyLoading || historyRefreshInFlight) return;
   historyLoading = true;
-  els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
+  historyRefreshInFlight = true;
+  if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
   try {
     const payload = await requestJson("/api/generation-records?limit=50");
     if (payload.user) setUser(payload.user);
-    renderHistory(payload.records || []);
+    const records = payload.records || [];
+    renderHistory(records);
+    if (records.some(isPendingGenerationRecord)) scheduleHistoryRefresh();
+    else stopHistoryRefresh();
   } catch (error) {
-    els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loadFailed", { message: error.message || String(error) }))}</div>`;
+    if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loadFailed", { message: error.message || String(error) }))}</div>`;
+    scheduleHistoryRefresh({ delayMs: 30000, force: true });
   } finally {
     historyLoading = false;
+    historyRefreshInFlight = false;
   }
 }
 
@@ -3251,7 +3268,7 @@ els.advancedImage?.addEventListener("change", async () => {
   updateAdvancedModelControls();
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
-els.refreshHistoryBtn?.addEventListener("click", loadHistory);
+els.refreshHistoryBtn?.addEventListener("click", () => loadHistory());
 els.topupFilters?.addEventListener("submit", (event) => {
   event.preventDefault();
   loadTopupRecords(1);
