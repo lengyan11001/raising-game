@@ -2,6 +2,8 @@
 
 const TOKEN_KEY = "raisingGameToken";
 const LANG_KEY = "raisingGameLanguage";
+const TAB_KEY = "raisingGamePlatformTab";
+const VALID_TABS = new Set(["gallery", "advanced", "access", "history", "topups", "spending"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
@@ -11,12 +13,22 @@ const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
 const ADVANCED_GENERATION_MARKUP = 1.5;
 const DEFAULT_ADVANCED_PROVIDER = "wan27";
 
+function normalizePlatformTab(value = "") {
+  const normalized = String(value || "").trim().replace(/^#\/?/, "");
+  return VALID_TABS.has(normalized) ? normalized : "gallery";
+}
+
+function initialPlatformTab() {
+  if (window.location.hash) return normalizePlatformTab(window.location.hash);
+  return normalizePlatformTab(localStorage.getItem(TAB_KEY) || "");
+}
+
 const state = {
   config: null,
   templates: [],
   categories: [],
   estimates: {},
-  tab: "gallery",
+  tab: initialPlatformTab(),
   category: "all",
   advancedCases: [],
   activeAdvancedCaseId: "",
@@ -2263,21 +2275,28 @@ async function requestJson(url, options = {}) {
 }
 
 function setTab(tab) {
-  state.tab = tab;
-  if (tab !== "history") {
+  const nextTab = normalizePlatformTab(tab);
+  state.tab = nextTab;
+  localStorage.setItem(TAB_KEY, nextTab);
+  const nextHash = nextTab === "gallery" ? "" : `#${nextTab}`;
+  if (window.location.hash !== nextHash) {
+    const nextUrl = `${window.location.pathname}${window.location.search}${nextHash}`;
+    window.history.replaceState(null, "", nextUrl);
+  }
+  if (nextTab !== "history") {
     stopHistoryRefresh();
     historyRecordsSignature = "";
   }
   document.querySelectorAll("[data-panel]").forEach((panel) => {
-    panel.hidden = panel.dataset.panel !== tab;
+    panel.hidden = panel.dataset.panel !== nextTab;
   });
   document.querySelectorAll("[data-tab]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.tab === tab);
+    button.classList.toggle("is-active", button.dataset.tab === nextTab);
   });
   renderHero();
-  if (tab === "history") loadHistory();
-  if (tab === "topups") loadTopupRecords();
-  if (tab === "spending") loadSpendingRecords();
+  if (nextTab === "history") loadHistory();
+  if (nextTab === "topups") loadTopupRecords();
+  if (nextTab === "spending") loadSpendingRecords();
 }
 
 function renderHero() {
@@ -2836,17 +2855,20 @@ function renderHistory(records = []) {
     const cost = billingLabel(record.billing || {});
     const failed = statusClass(record.status) === "failed";
     const error = record.error || "";
+    const showMedia = Boolean(videoUrl) || !failed;
     return `
       <article class="history-item is-${escapeHtml(statusClass(record.status))}">
-        <div class="history-media" style="${escapeHtml(mediaStyle)}">
-          ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata" data-history-video="${escapeHtml(mediaKey)}"></video>` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
-          ${videoUrl ? `
-            <div class="history-media-actions">
-              <a class="history-download" href="${escapeHtml(videoUrl)}" download target="_blank" rel="noopener"><i data-lucide="download"></i>${escapeHtml(t("common.download"))}</a>
-              <button class="history-download history-icon-action" type="button" aria-label="${escapeHtml(t("common.fullscreen"))}" title="${escapeHtml(t("common.fullscreen"))}" data-history-preview="${escapeHtml(mediaKey)}" data-history-preview-url="${escapeHtml(videoUrl)}" data-history-preview-title="${escapeHtml(title)}" data-history-preview-ratio="${escapeHtml(recordRatio)}"><i data-lucide="maximize-2"></i></button>
-            </div>
-          ` : ""}
-        </div>
+        ${showMedia ? `
+          <div class="history-media" style="${escapeHtml(mediaStyle)}">
+            ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata" data-history-video="${escapeHtml(mediaKey)}"></video>` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
+            ${videoUrl ? `
+              <div class="history-media-actions">
+                <a class="history-download" href="${escapeHtml(videoUrl)}" download target="_blank" rel="noopener"><i data-lucide="download"></i>${escapeHtml(t("common.download"))}</a>
+                <button class="history-download history-icon-action" type="button" aria-label="${escapeHtml(t("common.fullscreen"))}" title="${escapeHtml(t("common.fullscreen"))}" data-history-preview="${escapeHtml(mediaKey)}" data-history-preview-url="${escapeHtml(videoUrl)}" data-history-preview-title="${escapeHtml(title)}" data-history-preview-ratio="${escapeHtml(recordRatio)}"><i data-lucide="maximize-2"></i></button>
+              </div>
+            ` : ""}
+          </div>
+        ` : ""}
         <div class="history-info">
           <header>
             <div>
@@ -2855,7 +2877,7 @@ function renderHistory(records = []) {
             </div>
             <small>${escapeHtml(statusLabel(record.status))}</small>
           </header>
-          ${failed && error ? `<div class="job-note">${escapeHtml(error)}</div>` : ""}
+          ${failed && error ? `<div class="history-error" title="${escapeHtml(error)}">${escapeHtml(error)}</div>` : ""}
           <div class="history-meta">
             ${record.model ? `<span>${escapeHtml(record.model)}</span>` : ""}
             ${record.provider ? `<span>${escapeHtml(record.provider)}</span>` : ""}
@@ -3288,6 +3310,7 @@ async function bootstrap() {
   renderAdvanced();
   renderTopupSummary();
   renderTokenDisplays();
+  setTab(state.tab);
   refreshIcons();
   loadPlatformEstimates();
 }
@@ -3295,6 +3318,7 @@ async function bootstrap() {
 document.querySelectorAll("[data-tab]").forEach((button) => {
   button.addEventListener("click", () => setTab(button.dataset.tab));
 });
+window.addEventListener("hashchange", () => setTab(window.location.hash));
 els.templateImage?.addEventListener("change", async () => {
   const file = els.templateImage.files?.[0];
   if (!file) return;

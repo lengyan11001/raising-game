@@ -819,12 +819,21 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255,255,255,.65);
+  min-width: 0;
 }
 .history-item.is-failed { border-color: rgba(239,68,68,.28); background: rgba(255,255,255,.78); }
 .history-item.is-running .history-placeholder svg { animation: spin 1.2s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .history-info { display: grid; gap: 8px; min-width: 0; }
-.history-item header { padding: 0; border: 0; align-items: start; gap: 8px; }
+.history-item header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0;
+  border: 0;
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+}
 .history-item strong { display: block; }
 .history-item small { color: var(--muted); word-break: break-all; }
 .history-media {
@@ -880,11 +889,26 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   flex-wrap: wrap;
   color: var(--muted);
   font-size: .75rem;
+  min-width: 0;
 }
 .history-meta span {
+  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 3px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-error {
+  display: -webkit-box;
+  max-height: 4.35em;
+  overflow: hidden;
+  color: #8a2f27;
+  font-size: .82rem;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 .history-details summary { color: var(--cyan); cursor: pointer; font-size: .85rem; }
 .history-details pre {
