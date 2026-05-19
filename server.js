@@ -3290,6 +3290,10 @@ function shouldRefreshGenerationRecord(record = {}) {
   return Boolean(record.taskId) && !String(record.taskId).startsWith("demo-");
 }
 
+function generationListRefreshRequested(url) {
+  return ["1", "true", "yes", "on"].includes(String(url.searchParams.get("refresh") || "").toLowerCase());
+}
+
 async function refreshGenerationRecordStatus(record = {}) {
   if (needsSeedanceFailureRefund(record)) {
     return settleSeedanceGenerationRecord(record, "refresh");
@@ -7579,11 +7583,14 @@ async function handleAdminListGenerationRecords(req, res, url) {
   const kind = String(url.searchParams.get("kind") || "").trim();
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
   let records = await readGenerationRecords();
+  const refreshRequested = generationListRefreshRequested(url);
   const refundable = records.filter(needsSeedanceFailureRefund).slice(0, 100);
-  const statusRefreshable = records
-    .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecord(record))
-    .filter((record) => !query || generationRecordMatchesQuery(record, query))
-    .slice(0, 12);
+  const statusRefreshable = refreshRequested
+    ? records
+      .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecord(record))
+      .filter((record) => !query || generationRecordMatchesQuery(record, query))
+      .slice(0, 12)
+    : [];
   const refreshable = [...refundable, ...statusRefreshable];
   if (refreshable.length) {
     const refreshedByTask = new Map(
@@ -7615,10 +7622,13 @@ async function handleListGenerationRecords(req, res, url) {
     .filter((record) => record.userId === auth.user.id && isUserVisibleGenerationRecord(record))
     .slice(0, limit);
 
+  const refreshRequested = generationListRefreshRequested(url);
   const refundable = ownRecords.filter(needsSeedanceFailureRefund).slice(0, 50);
-  const statusRefreshable = ownRecords
-    .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecord(record))
-    .slice(0, 8);
+  const statusRefreshable = refreshRequested
+    ? ownRecords
+      .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecord(record))
+      .slice(0, 8)
+    : [];
   const refreshable = [...refundable, ...statusRefreshable];
   if (refreshable.length) {
     const refreshedByTask = new Map(

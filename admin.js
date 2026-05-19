@@ -63,6 +63,24 @@ const els = {
 function byId(id) { return document.getElementById(id); }
 function refreshIcons() { if (window.lucide) window.lucide.createIcons(); }
 
+function isActiveRoute(routeId) {
+  return state.route === routeId && !els.appView?.hidden;
+}
+
+function activeRoutePane(id, routeId) {
+  const pane = byId(id);
+  if (!pane || !pane.isConnected || !isActiveRoute(routeId)) return null;
+  return pane;
+}
+
+function renderRouteError(routeId, err) {
+  if (!routeId || isActiveRoute(routeId)) {
+    renderError(err);
+    return;
+  }
+  console.warn("Ignored stale admin render error:", err);
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -255,7 +273,8 @@ function hideAppLoading() {
 function routeFromHash() {
   const hash = window.location.hash.replace(/^#\//, "").trim();
   const route = ROUTES.find((r) => r.id === hash) || ROUTES[0];
-  state.route = route.id;
+  const routeId = route.id;
+  state.route = routeId;
   stopAdminAutoRefresh();
   els.adminNav.querySelectorAll("a").forEach((a) => {
     a.classList.toggle("is-active", a.dataset.route === route.id);
@@ -266,7 +285,7 @@ function routeFromHash() {
   els.appView.classList?.remove("is-nav-open");
   Promise.resolve()
     .then(() => route.render())
-    .catch((err) => renderError(err));
+    .catch((err) => renderRouteError(routeId, err));
 }
 
 function renderError(err) {
@@ -440,6 +459,7 @@ async function renderDashboard() {
     api("/api/admin/dashboard"),
     loadConfig(),
   ]);
+  if (!isActiveRoute("dashboard")) return;
   const s = dashboard.stats || {};
   const recent = dashboard.recentRecords || [];
   const items = (config.homeVideo?.items) || [];
@@ -563,10 +583,11 @@ async function renderCharacters() {
 
 async function renderPresetCharacters() {
   const config = await loadConfig(true);
+  const pane = activeRoutePane("charPaneBody", "characters");
+  if (!pane || (sessionStorage.getItem("admTabCharacters") || "preset") !== "preset") return;
   const items = config.homeVideo?.items || [];
   const activeId = config.homeVideo?.activeItemId || "";
   const scenes = config.scenes || [];
-  const pane = byId("charPaneBody");
   pane.innerHTML = `
     <div class="adm-page-actions adm-mt">
       <button class="adm-btn adm-btn-primary" id="newPresetBtn"><i data-lucide="plus"></i>上传角色图</button>
@@ -933,8 +954,9 @@ function openSceneBindDialog(itemId, scenes) {
 
 async function renderUserCharacters() {
   const payload = await api("/api/admin/my-characters");
+  const pane = activeRoutePane("charPaneBody", "characters");
+  if (!pane || (sessionStorage.getItem("admTabCharacters") || "preset") !== "user") return;
   const list = payload.characters || [];
-  const pane = byId("charPaneBody");
   pane.innerHTML = `
     <div class="adm-page-actions adm-mt">
       <button class="adm-btn adm-btn-ghost" id="refreshUserCharBtn"><i data-lucide="refresh-cw"></i>刷新</button>
@@ -1050,19 +1072,21 @@ async function renderVideos() {
     renderVideos();
   });
 
-  const pane = byId("videoPaneBody");
-  pane.innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
+  const pane = activeRoutePane("videoPaneBody", "videos");
+  if (pane) pane.innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
   if (tab === "scene") await renderSceneVideos();
   else await renderHistory();
 }
 
 async function renderSceneVideos() {
-  const pane = byId("videoPaneBody");
-  const previousScrollTop = pane?.scrollTop || 0;
+  const initialPane = activeRoutePane("videoPaneBody", "videos");
+  const previousScrollTop = initialPane?.scrollTop || 0;
   const [config, myChars] = await Promise.all([
     loadConfig(true),
     api("/api/admin/my-characters"),
   ]);
+  const pane = activeRoutePane("videoPaneBody", "videos");
+  if (!pane || (sessionStorage.getItem("admTabVideos") || "scene") !== "scene") return;
   const scenes = config.scenes || [];
   const sceneNameById = new Map(scenes.map((s) => [s.id, s.name]));
   const cards = [];
@@ -1239,13 +1263,14 @@ function sceneVideoCardHtml(c, idx) {
   `;
 }
 
-async function renderHistory({ silent = false } = {}) {
+async function renderHistory({ silent = false, refresh = false } = {}) {
   stopAdminHistoryPoll();
-  const pane = byId("videoPaneBody");
-  const previousScrollTop = pane?.scrollTop || 0;
-  const payload = await api("/api/admin/generation-records?limit=120");
+  const initialPane = activeRoutePane("videoPaneBody", "videos");
+  const previousScrollTop = initialPane?.scrollTop || 0;
+  const payload = await api(`/api/admin/generation-records?limit=120${refresh ? "&refresh=1" : ""}`);
+  const pane = activeRoutePane("videoPaneBody", "videos");
+  if (!pane || (sessionStorage.getItem("admTabVideos") || "scene") !== "history") return;
   const records = payload.records || [];
-  if (!pane) return;
   const nextSignature = generationRecordsSignature(records);
   if (silent && nextSignature === adminHistorySignature) {
     scheduleAdminHistoryPoll(records);
@@ -1270,7 +1295,7 @@ async function renderHistory({ silent = false } = {}) {
   refreshIcons();
   pane.scrollTop = previousScrollTop;
   scheduleAdminHistoryPoll(records);
-  byId("refreshHistoryBtn")?.addEventListener("click", () => renderHistory());
+  byId("refreshHistoryBtn")?.addEventListener("click", () => renderHistory({ refresh: true }));
   pane.querySelectorAll('[data-act="copy-text"]').forEach((btn) => {
     btn.addEventListener("click", () => {
       const text = btn.dataset.text || "";
@@ -1457,9 +1482,10 @@ async function renderGenerationRecords() {
     </section>
   `;
 
-  const load = async ({ silent = false } = {}) => {
+  const load = async ({ silent = false, refresh = false } = {}) => {
     stopAdminRecordPoll();
-    const tablePane = byId("recordTablePane");
+    const tablePane = activeRoutePane("recordTablePane", "records");
+    if (!tablePane) return;
     const scrollHost = tablePane?.querySelector(".adm-record-table-wrap");
     const previousScrollTop = scrollHost?.scrollTop || 0;
     const previousScrollLeft = scrollHost?.scrollLeft || 0;
@@ -1472,9 +1498,11 @@ async function renderGenerationRecords() {
       limit: byId("recordLimit")?.value || "160",
     };
     Object.entries(next).forEach(([key, value]) => { if (value) params.set(key, value); });
+    if (refresh) params.set("refresh", "1");
     sessionStorage.setItem("admRecordFilters", JSON.stringify(next));
     if (!silent) tablePane.innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
     const payload = await api(`/api/admin/generation-records?${params.toString()}`);
+    if (!activeRoutePane("recordTablePane", "records")) return;
     const records = payload.records || [];
     const nextSignature = generationRecordsSignature(records);
     if (silent && nextSignature === adminRecordSignature) {
@@ -1493,15 +1521,16 @@ async function renderGenerationRecords() {
 
   byId("recordFilters")?.addEventListener("submit", (event) => {
     event.preventDefault();
-    load().catch((err) => renderError(err));
+    load().catch((err) => renderRouteError("records", err));
   });
-  byId("refreshRecordsBtn")?.addEventListener("click", () => load().catch((err) => renderError(err)));
+  byId("refreshRecordsBtn")?.addEventListener("click", () => load({ refresh: true }).catch((err) => renderRouteError("records", err)));
   refreshIcons();
   await load();
 }
 
 function renderGenerationRecordTable(records, payload = {}) {
-  const pane = byId("recordTablePane");
+  const pane = activeRoutePane("recordTablePane", "records");
+  if (!pane) return;
   pane.innerHTML = `
     <header class="adm-card-head adm-record-summary">
       <h3>${records.length} shown</h3>
@@ -1732,6 +1761,7 @@ function openGenerationRecordDetail(record) {
 /* ============ SCENES ============ */
 async function renderScenes() {
   const config = await loadConfig(true);
+  if (!isActiveRoute("scenes")) return;
   const scenes = config.scenes || [];
   els.adminContent.innerHTML = `
     <section class="adm-page">
@@ -1801,6 +1831,7 @@ function sceneCard(scene) {
    route uses the latest definition without disturbing the rest of admin.js. */
 async function renderScenes() {
   const config = await loadConfig(true);
+  if (!isActiveRoute("scenes")) return;
   const scenes = config.scenes || [];
   els.adminContent.innerHTML = `
     <section class="adm-page">
@@ -1919,6 +1950,7 @@ function sceneCard(scene) {
 /* ============ USERS ============ */
 async function renderUsers() {
   const payload = await api("/api/admin/users");
+  if (!isActiveRoute("users")) return;
   const users = payload.users || [];
   els.adminContent.innerHTML = `
     <section class="adm-page">
@@ -2033,6 +2065,7 @@ async function deleteUser(id, users) {
 /* ============ WALLET ============ */
 async function renderWallet() {
   const payload = await api("/api/admin/wallet-orders");
+  if (!isActiveRoute("wallet")) return;
   const orders = payload.orders || [];
   els.adminContent.innerHTML = `
     <section class="adm-page">
@@ -2500,6 +2533,8 @@ async function renderAdvancedCases() {
 async function renderPlatform(options = {}) {
   const advancedOnly = Boolean(options.advancedOnly);
   const config = await loadConfig(true);
+  const routeId = advancedOnly ? "advanced-cases" : "platform";
+  if (!isActiveRoute(routeId)) return;
   const platform = config.platform || {};
   const categories = FIXED_PLATFORM_CATEGORIES;
   const templates = Array.isArray(platform.templates) ? platform.templates : [];
@@ -2751,6 +2786,7 @@ async function renderPlatform(options = {}) {
 /* ============ CONFIG ============ */
 async function renderConfig() {
   const config = await loadConfig(true);
+  if (!isActiveRoute("config")) return;
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
