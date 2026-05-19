@@ -1307,6 +1307,7 @@ function advancedSellingCredits(baseCredits, markup = ADVANCED_GENERATION_MARKUP
 
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (!normalized) return "wan27";
   if (["wan27", "wan2.7", "wan"].includes(normalized)) return "wan27";
   return "seedance";
 }
@@ -4884,7 +4885,7 @@ function buildAdvancedModelDoc(item, origin) {
     },
     requestFields: [
       { name: "caseId", type: "string", required: false, description: "Advanced case id. Omit only when sending all parameters manually." },
-      { name: "provider", type: "string", required: false, description: "`seedance` or `wan27`. Defaults to the saved case provider." },
+      { name: "provider", type: "string", required: false, description: "`wan27` or `seedance`. Defaults to the saved case provider, or Wan2.7 when no case/provider is supplied." },
       { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
       { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded reference image as a base64 data URL. Required for Wan2.7 first-frame generation; optional for Seedance." },
       { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. Use instead of dataUrl." },

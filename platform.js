@@ -9,6 +9,7 @@ const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
 const ADVANCED_GENERATION_MARKUP = 1.5;
+const DEFAULT_ADVANCED_PROVIDER = "wan27";
 
 const state = {
   config: null,
@@ -1375,7 +1376,7 @@ const PUBLIC_COPY = {
   accessSubtitle: "Connect your product or workflow to the production generation API.",
   accessNotice: "Only the required parameters and response format are shown here.",
   advancedTitle: "Advanced Generate",
-  advancedSubtitle: "Direct Seedance controls for approved accounts.",
+  advancedSubtitle: "Direct advanced model controls for approved accounts.",
   advancedNotice: "Approval is required before direct generation is enabled.",
   historyTitle: "Generation History",
   historySubtitle: "Review your generated videos, prompts, parameters and billing in one compact list.",
@@ -1408,6 +1409,16 @@ Gallery template:
   "prompt": ""
 }
 
+Advanced default Wan2.7:
+POST https://123vips.com/api/advanced/generate
+{
+  "provider": "wan27",
+  "prompt": "your prompt",
+  "dataUrl": "data:image/png;base64,...",
+  "resolution": "1080p",
+  "duration": 5
+}
+
 Advanced Seedance:
 POST https://123vips.com/api/advanced/generate
 {
@@ -1417,16 +1428,6 @@ POST https://123vips.com/api/advanced/generate
   "resolution": "720p",
   "duration": 5,
   "preprocessReference": true
-}
-
-Advanced Wan2.7:
-POST https://123vips.com/api/advanced/generate
-{
-  "provider": "wan27",
-  "prompt": "your prompt",
-  "dataUrl": "data:image/png;base64,...",
-  "resolution": "1080p",
-  "duration": 5
 }`;
 
 const TYPE_SCRIPT_ACCESS_COPY = `const token = "<user-token>";
@@ -1468,12 +1469,11 @@ gallery_payload = {
 }
 
 advanced_payload = {
-    "provider": "seedance",  # or "wan27"
+    "provider": "wan27",  # or "seedance"
     "prompt": "your prompt",
     "dataUrl": "data:image/png;base64,...",
     "resolution": "720p",
     "duration": 5,
-    "preprocessReference": True,
 }
 
 resp = requests.post(
@@ -1511,9 +1511,9 @@ Body:
 Advanced direct generation:
 POST https://123vips.com/api/advanced/generate
 Body:
-{"provider":"seedance","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"720p","duration":5,"preprocessReference":true}
-or:
 {"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}
+or:
+{"provider":"seedance","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"720p","duration":5,"preprocessReference":true}
 
 Check records:
 GET https://123vips.com/api/generation-records`;
@@ -1528,7 +1528,7 @@ Advanced MCP wrapper target:
 POST https://123vips.com/api/advanced/generate
 Authorization: Bearer <user-token>
 Input:
-{"provider":"seedance|wan27","prompt":"string","dataUrl":"data:image/png;base64,...","resolution":"720p|1080p","duration":5,"preprocessReference":true,"seed":123456 optional}
+{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","resolution":"720p|1080p","duration":5,"preprocessReference":true,"seed":123456 optional}
 
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
@@ -2118,12 +2118,13 @@ function advancedCaseDuration(item = {}) {
 
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (!normalized) return DEFAULT_ADVANCED_PROVIDER;
   return normalized === "wan27" || normalized === "wan2.7" || normalized === "wan" ? "wan27" : "seedance";
 }
 
 function advancedCaseProvider(item = {}) {
   const params = item.params && typeof item.params === "object" ? item.params : {};
-  return normalizeAdvancedProvider(item.provider || params.provider || params.modelProvider || params.model_provider || "seedance");
+  return normalizeAdvancedProvider(item.provider || params.provider || params.modelProvider || params.model_provider);
 }
 
 function normalizeAdvancedResolution(value = "", provider = "seedance") {
@@ -2213,7 +2214,7 @@ function advancedCostForDuration(duration, provider = "seedance", resolution = "
 }
 
 function currentAdvancedProvider() {
-  return normalizeAdvancedProvider(els.advancedProvider?.value || "seedance");
+  return normalizeAdvancedProvider(els.advancedProvider?.value);
 }
 
 function currentAdvancedResolution() {
