@@ -1359,6 +1359,13 @@ function recordRemoteVideoUrl(record) {
   return record.remoteVideoUrl || record.videoUrl || "";
 }
 
+function toAbsoluteHttpUrl(value = "") {
+  const url = String(value || "").trim();
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("/")) return `${window.location.origin}${url}`;
+  return "";
+}
+
 function recordRatioStyle(record = {}) {
   const ratio = normalizeVideoRatio(record.ratio || record.params?.ratio || record.params?.aspect_ratio || record.upstreamPayload?.ratio || record.upstreamPayload?.aspect_ratio);
   const [width, height] = ratio.split(":").map((part) => Math.max(1, Number(part) || 1));
@@ -1536,11 +1543,18 @@ function renderGenerationRecordTable(records, payload = {}) {
       if (record) copyText(record.finalPrompt || record.prompt || "", "Prompt copied.");
     });
   });
+  pane.querySelectorAll("[data-act='promote-advanced']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = records[Number(button.dataset.index || 0)];
+      if (record) promoteRecordToAdvancedCase(record, button);
+    });
+  });
 }
 
 function generationRecordRowHtml(record, index) {
   const video = recordVideoUrl(record);
   const remoteVideo = recordRemoteVideoUrl(record);
+  const canPromote = Boolean(video || remoteVideo);
   const label = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "job";
   const ratioStyle = recordRatioStyle(record);
   return `
@@ -1556,9 +1570,100 @@ function generationRecordRowHtml(record, index) {
       <td class="adm-record-actions">
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>Detail</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-record" data-index="${index}"><i data-lucide="copy"></i>Prompt</button>
+        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="promote-advanced" data-index="${index}"><i data-lucide="wand-sparkles"></i>Advanced</button>` : ""}
       </td>
     </tr>
   `;
+}
+
+function advancedProviderFromRecord(record = {}) {
+  const provider = String(record.provider || record.params?.provider || "").toLowerCase();
+  if (provider.includes("wan")) return "wan27";
+  if (provider.includes("seedance")) return "seedance";
+  return "wan27";
+}
+
+function advancedCaseFromRecord(record = {}, index = 0) {
+  const provider = advancedProviderFromRecord(record);
+  const params = {
+    provider,
+    ratio: normalizeVideoRatio(record.ratio || record.params?.ratio || record.params?.aspect_ratio || record.upstreamPayload?.ratio || "9:16"),
+    resolution: normalizeAdvancedResolution(record.resolution || record.params?.resolution || record.upstreamPayload?.resolution || "720p"),
+    duration: advancedCaseDuration({
+      provider,
+      params: {
+        provider,
+        duration: record.duration || record.params?.duration || record.upstreamPayload?.duration || 5,
+      },
+    }),
+  };
+  if (provider === "seedance") params.preprocessReference = record.params?.preprocessReference !== false;
+  if (provider === "wan27" && record.params?.seed) params.seed = record.params.seed;
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || "Advanced generation";
+  const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
+  const sourceCoverUrl = toAbsoluteHttpUrl(record.coverUrl || record.posterUrl || record.imageUrl || "");
+  return {
+    id: `advanced-record-${String(record.taskId || Date.now()).replace(/[^a-z0-9_-]/gi, "-").slice(0, 48)}`,
+    title: String(title || "Advanced generation").slice(0, 80),
+    category: "advanced",
+    provider,
+    price: advancedCaseCredits({ provider, params }),
+    coverUrl: "",
+    previewUrl: sourceVideoUrl,
+    sourceVideoUrl,
+    sourceCoverUrl,
+    description: `${recordOwnerText(record)} · ${fmtDate(record.createdAt)}`,
+    prompt: record.finalPrompt || record.prompt || "",
+    params,
+    enabled: true,
+    sort: index,
+  };
+}
+
+async function promoteRecordToAdvancedCase(record = {}, button = null) {
+  const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
+  if (!sourceVideoUrl) {
+    toast("该记录没有可用视频，不能设置到 Advanced 广场。", "error");
+    return;
+  }
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "Advanced generation";
+  const ok = await confirmAction(
+    "设置到 Advanced 广场",
+    `确认把「${title}」加入前台 Advanced 案例？保存时会把视频下载到本地/OSS，并自动生成封面。`,
+    { confirmText: "加入 Advanced" },
+  );
+  if (!ok) return;
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-circle"></i>Saving';
+    refreshIcons();
+  }
+  try {
+    const config = await loadConfig(true);
+    const platform = config.platform || {};
+    const advanced = defaultAdvancedConfig(platform);
+    let nextCase = advancedCaseFromRecord(record, advanced.cases.length);
+    nextCase = await ingestAdvancedCaseMediaForSave(nextCase);
+    const nextAdvanced = {
+      ...advanced,
+      cases: [...advanced.cases.filter((item) => item.id !== nextCase.id), nextCase],
+    };
+    const payload = await api("/api/admin/config", {
+      method: "PUT",
+      body: { config: { ...config, platform: { ...platform, advanced: nextAdvanced } } },
+    });
+    state.config = payload.config;
+    toast("已加入 Advanced 广场。", "success");
+  } catch (error) {
+    toast(error.message || "加入 Advanced 失败。", "error");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }
+  }
 }
 
 function openGenerationRecordDetail(record) {
