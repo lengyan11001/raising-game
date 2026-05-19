@@ -1049,6 +1049,8 @@ async function renderVideos() {
 }
 
 async function renderSceneVideos() {
+  const pane = byId("videoPaneBody");
+  const previousScrollTop = pane?.scrollTop || 0;
   const [config, myChars] = await Promise.all([
     loadConfig(true),
     api("/api/admin/my-characters"),
@@ -1125,7 +1127,6 @@ async function renderSceneVideos() {
   const adminCount = cards.filter((c) => c.ownerKind === "admin").length;
   const userCount = cards.filter((c) => c.ownerKind === "user").length;
 
-  const pane = byId("videoPaneBody");
   pane.innerHTML = cards.length ? `
     <div class="adm-row adm-mt" style="justify-content:space-between;align-items:center;">
       <p class="adm-muted" style="margin:0;">共 ${cards.length} 条场景视频（后台 ${adminCount} · 用户 ${userCount}）。点「查询」拉取最新状态，点「重新生成」基于原 prompt 再发一次任务。</p>
@@ -1135,8 +1136,9 @@ async function renderSceneVideos() {
       ${cards.map((c, idx) => sceneVideoCardHtml(c, idx)).join("")}
     </div>` : `<div class="adm-card adm-mt"><div class="adm-empty"><i data-lucide="link"></i><p>还没有场景视频。在「角色」页面里给角色生成场景视频，会出现在这里。</p></div></div>`;
   refreshIcons();
+  pane.scrollTop = previousScrollTop;
 
-  byId("refreshSceneVideosBtn")?.addEventListener("click", () => renderVideos());
+  byId("refreshSceneVideosBtn")?.addEventListener("click", () => renderSceneVideos());
 
   pane.querySelectorAll('.adm-video-card').forEach((card, idx) => {
     const c = cards[idx];
@@ -1149,7 +1151,7 @@ async function renderSceneVideos() {
         await api(`/api/admin/character-scene-video/${encodeURIComponent(c.taskId)}`);
         toast("已刷新任务状态。", "success");
         state.config = null;
-        renderVideos();
+        renderSceneVideos();
       } catch (err) {
         toast(err.message, "error");
       } finally {
@@ -1172,7 +1174,7 @@ async function renderSceneVideos() {
         });
         toast("已提交新任务。", "success");
         state.config = null;
-        renderVideos();
+        renderSceneVideos();
       } catch (err) {
         toast(err.message, "error");
   } finally {
@@ -1231,9 +1233,10 @@ function sceneVideoCardHtml(c, idx) {
 
 async function renderHistory({ silent = false } = {}) {
   stopAdminHistoryPoll();
+  const pane = byId("videoPaneBody");
+  const previousScrollTop = pane?.scrollTop || 0;
   const payload = await api("/api/admin/generation-records?limit=120");
   const records = payload.records || [];
-  const pane = byId("videoPaneBody");
   if (!pane) return;
   pane.innerHTML = `
     <div class="adm-card adm-mt">
@@ -1251,8 +1254,9 @@ async function renderHistory({ silent = false } = {}) {
     </div>
   `;
   refreshIcons();
+  pane.scrollTop = previousScrollTop;
   scheduleAdminHistoryPoll(records);
-  byId("refreshHistoryBtn")?.addEventListener("click", () => renderVideos());
+  byId("refreshHistoryBtn")?.addEventListener("click", () => renderHistory());
   pane.querySelectorAll('[data-act="copy-text"]').forEach((btn) => {
     btn.addEventListener("click", () => {
       const text = btn.dataset.text || "";
@@ -1273,7 +1277,7 @@ async function renderHistory({ silent = false } = {}) {
           await api(`/api/admin/character-scene-video/${encodeURIComponent(taskId)}`).catch(() => null);
         }
         toast("已尝试刷新任务状态。", "success");
-        renderVideos();
+        renderHistory();
       } catch (err) {
         toast(err.message || "刷新失败。", "error");
   } finally {
@@ -1434,6 +1438,10 @@ async function renderGenerationRecords() {
 
   const load = async ({ silent = false } = {}) => {
     stopAdminRecordPoll();
+    const tablePane = byId("recordTablePane");
+    const scrollHost = tablePane?.querySelector(".adm-record-table-wrap");
+    const previousScrollTop = scrollHost?.scrollTop || 0;
+    const previousScrollLeft = scrollHost?.scrollLeft || 0;
     const params = new URLSearchParams();
     const next = {
       q: byId("recordQuery")?.value.trim() || "",
@@ -1444,9 +1452,14 @@ async function renderGenerationRecords() {
     };
     Object.entries(next).forEach(([key, value]) => { if (value) params.set(key, value); });
     sessionStorage.setItem("admRecordFilters", JSON.stringify(next));
-    if (!silent) byId("recordTablePane").innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
+    if (!silent) tablePane.innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
     const payload = await api(`/api/admin/generation-records?${params.toString()}`);
     renderGenerationRecordTable(payload.records || [], payload);
+    const nextScrollHost = byId("recordTablePane")?.querySelector(".adm-record-table-wrap");
+    if (nextScrollHost) {
+      nextScrollHost.scrollTop = previousScrollTop;
+      nextScrollHost.scrollLeft = previousScrollLeft;
+    }
     scheduleAdminRecordPoll(payload.records || [], load);
   };
 

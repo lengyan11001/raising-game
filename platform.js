@@ -2887,12 +2887,14 @@ async function loadHistory({ silent = false } = {}) {
   if (historyLoading || historyRefreshInFlight) return;
   historyLoading = true;
   historyRefreshInFlight = true;
+  const previousScrollTop = els.historyList.scrollTop || 0;
   if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
   try {
     const payload = await requestJson("/api/generation-records?limit=50");
     if (payload.user) setUser(payload.user);
     const records = payload.records || [];
     renderHistory(records);
+    els.historyList.scrollTop = previousScrollTop;
     if (records.some(isPendingGenerationRecord)) scheduleHistoryRefresh();
     else stopHistoryRefresh();
   } catch (error) {
