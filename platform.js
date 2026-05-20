@@ -35,6 +35,7 @@ const state = {
   advancedCases: [],
   activeAdvancedCaseId: "",
   activeTemplate: null,
+  accessDocMode: "http",
   uploadDataUrl: "",
   advancedUploadDataUrl: "",
   advancedReferenceImages: [],
@@ -70,6 +71,7 @@ const els = {
   submitTemplateBtn: document.querySelector("#submitTemplateBtn"),
   jobNote: document.querySelector("#jobNote"),
   accessTabs: document.querySelector("#accessTabs"),
+  accessDocs: document.querySelector("#accessDocs"),
   accessGuideTitle: document.querySelector("#accessGuideTitle"),
   accessGuideDesc: document.querySelector("#accessGuideDesc"),
   accessCopy: document.querySelector("#accessCopy"),
@@ -123,6 +125,7 @@ const els = {
   advancedWanMediaMode: document.querySelector("#advancedWanMediaMode"),
   advancedWanLastFrame: document.querySelector("#advancedWanLastFrame"),
   advancedWanLastFramePreview: document.querySelector("#advancedWanLastFramePreview"),
+  advancedWanFirstFramePreview: document.querySelector("#advancedWanFirstFramePreview"),
   advancedWanAudioUrl: document.querySelector("#advancedWanAudioUrl"),
   advancedWanClipUrl: document.querySelector("#advancedWanClipUrl"),
   advancedReferenceSummary: document.querySelector("#advancedReferenceSummary"),
@@ -1455,6 +1458,32 @@ let ACCESS_GUIDES = [
     desc: "This is the live integration path. Submit a generation job, then query history or a task detail for progress and result video.",
     copy:
       "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
+    docs: "platform",
+  },
+  {
+    id: "advanced",
+    title: "Advanced API",
+    subtitle: "Model controls",
+    desc: "Approved accounts can call Seedance or Wan2.7 directly and pass reference images explicitly.",
+    copy: LIVE_HTTP_ACCESS_COPY,
+    docs: "advanced",
+  },
+  {
+    id: "records",
+    title: "Records API",
+    subtitle: "Progress & results",
+    desc: "Query generation history or a single task detail to get current status and video URL.",
+    copy:
+      "GET /api/generation-records?limit=60\nAuthorization: Bearer <user-token>\n\nGET /api/generation-records/<taskId>\nAuthorization: Bearer <user-token>",
+    docs: "records",
+  },
+  {
+    id: "types",
+    title: "Code Samples",
+    subtitle: "TS / Python / CLI / MCP",
+    desc: "Copy a ready-made client snippet for your stack and swap in your token.",
+    copy: LIVE_HTTP_ACCESS_COPY,
+    docs: "samples",
   },
 ];
 
@@ -1600,6 +1629,103 @@ Input:
 {"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"dataUrl":"data:image/png;base64,...","fileName":"reference-1.png"}],"resolution":"720p|1080p","duration":5,"preprocessReference":true,"seed":123456 optional}
 
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
+
+const ACCESS_DOCS = {
+  platform: {
+    title: "Template Generation",
+    summary: "Use this endpoint for gallery templates. Send the template id, prompt, and the image data when the template is image-to-video.",
+    request: [
+      ["Authorization", "Bearer <user-token>"],
+      ["Content-Type", "application/json"],
+      ["templateId", "Template id from /api/models or the docs page."],
+      ["prompt", "Optional override prompt. If omitted, the saved template prompt is used."],
+      ["dataUrl", "Required for image-to-video templates. Base64 image data URL."],
+      ["userAssetId", "Optional existing uploaded asset id instead of dataUrl."],
+      ["params", "Optional advanced override object for power users."],
+    ],
+    response: [
+      ["ok", "true when the request is accepted."],
+      ["taskId", "Local generation task id."],
+      ["task.status", "Usually submitting when the request is queued."],
+      ["record", "Public generation record, including billing and prompt."],
+      ["user", "Updated user snapshot, including current credits."],
+    ],
+    example: `POST /api/platform/generate
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "templateId": "template-id",
+  "prompt": "...",
+  "dataUrl": "data:image/png;base64,..."
+}`,
+  },
+  advanced: {
+    title: "Advanced Generation",
+    summary: "Approved accounts can call Seedance or Wan2.7 directly. Seedance supports multiple reference images in one field.",
+    request: [
+      ["Authorization", "Bearer <user-token>"],
+      ["Content-Type", "application/json"],
+      ["caseId", "Optional advanced case id."],
+      ["provider", "wan27 or seedance."],
+      ["prompt", "Required prompt."],
+      ["dataUrl", "Wan2.7 first-frame image. Optional for Seedance."],
+      ["referenceImages", "Seedance only. Array of base64 image objects in the same field."],
+      ["userAssetId", "Existing uploaded asset id for a reference image."],
+      ["extraReferenceAssetIds", "Seedance compatibility field for additional asset ids."],
+      ["ratio", "9:16, 16:9, or 1:1."],
+      ["resolution", "720p or 1080p."],
+      ["duration", "Seconds. Clamped by provider."],
+      ["preprocessReference", "Seedance only. true or false."],
+      ["seed", "Optional Wan2.7 seed."],
+    ],
+    response: [
+      ["ok", "true when the request is accepted."],
+      ["taskId", "Local generation task id."],
+      ["task.status", "Usually preparing or submitting right after submission."],
+      ["record", "Public generation record with provider/model/billing."],
+      ["user", "Updated user snapshot, including current credits."],
+    ],
+    example: LIVE_HTTP_ACCESS_COPY,
+  },
+  records: {
+    title: "Records",
+    summary: "Query generation history for the current user, then fetch a single task for a fresher status or final video URL.",
+    request: [
+      ["Authorization", "Bearer <user-token>"],
+      ["GET /api/generation-records?limit=60", "List current user records. Optional refresh=1 to refresh pending tasks."],
+      ["GET /api/generation-records/<taskId>", "Fetch one record by task id."],
+    ],
+    response: [
+      ["ok", "true when the request succeeds."],
+      ["records", "Array of generation records."],
+      ["total", "Total record count for the user."],
+      ["user", "Updated user snapshot."],
+      ["record", "Single record when calling the detail endpoint."],
+    ],
+    example: `GET /api/generation-records?limit=60
+Authorization: Bearer <user-token>
+
+GET /api/generation-records/<taskId>
+Authorization: Bearer <user-token>`,
+  },
+  samples: {
+    title: "Ready-made Clients",
+    summary: "These are copy-ready snippets for TypeScript, Python, curl, agent instructions, and MCP wrappers.",
+    request: [
+      ["TypeScript", "fetch wrapper with Authorization header and JSON body."],
+      ["Python", "requests wrapper with JSON body and timeout."],
+      ["CLI", "curl command examples."],
+      ["Agent", "Prompt rules for an agent."],
+      ["MCP", "HTTP wrapper input format."],
+    ],
+    response: [
+      ["Video URL", "Returned video URLs may expire after 24 hours."],
+      ["History", "Use /api/generation-records or /api/generation-records/<taskId> to check progress."],
+    ],
+    example: LIVE_HTTP_ACCESS_COPY,
+  },
+};
 
 PUBLIC_COPY.galleryTitle = "Create AI videos";
 PUBLIC_COPY.gallerySubtitle = "Choose a template, upload an image or enter text, and create a new video.";
@@ -1903,6 +2029,29 @@ function withExpiryNotice(text = "") {
 
 function guideText(guide, field) {
   return t(`guide.${guide.id}.${field}`, {}, guide[field] || "");
+}
+
+function accessDoc(guide = activeAccessGuide) {
+  return ACCESS_DOCS[guide.docs || guide.id] || ACCESS_DOCS.platform;
+}
+
+function accessFieldTable(rows = []) {
+  if (!rows.length) return "";
+  return `
+    <div class="access-doc-table">
+      ${rows.map(([name, desc]) => `
+        <div class="access-doc-row">
+          <strong>${escapeHtml(name)}</strong>
+          <span>${escapeHtml(desc)}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function accessQuickList(items = []) {
+  if (!items.length) return "";
+  return `<ul class="access-doc-quick">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
 }
 
 function legalDoc(type) {
@@ -2672,6 +2821,38 @@ function renderAccessGuides() {
   els.accessGuideTitle.textContent = guideText(activeAccessGuide, "title");
   els.accessGuideDesc.textContent = guideText(activeAccessGuide, "desc");
   els.accessCopy.textContent = hydrateAccessCopy(activeAccessGuide.copy || PUBLIC_COPY.accessCopy, { revealToken: state.showAccessToken });
+  const doc = accessDoc(activeAccessGuide);
+  if (els.accessDocs) {
+    els.accessDocs.innerHTML = `
+      <article class="access-doc-card">
+        <div class="access-doc-head">
+          <div>
+            <span class="copy-kicker"><i data-lucide="book-open-text"></i>${escapeHtml(doc.title)}</span>
+            <p>${escapeHtml(doc.summary)}</p>
+          </div>
+        </div>
+        <div class="access-doc-grid">
+          <section>
+            <h4>Request</h4>
+            ${accessFieldTable(doc.request)}
+          </section>
+          <section>
+            <h4>Response</h4>
+            ${accessFieldTable(doc.response)}
+          </section>
+        </div>
+        ${accessQuickList([
+          doc === ACCESS_DOCS.platform ? "One token, one template id, and one image for image-to-video templates." : "",
+          doc === ACCESS_DOCS.advanced ? "Seedance uses referenceImages; Wan2.7 uses dataUrl as the first frame." : "",
+          doc === ACCESS_DOCS.records ? "Use refresh=1 on list views when you want pending tasks to refresh." : "",
+        ].filter(Boolean))}
+        <details class="access-doc-example" open>
+          <summary>Example</summary>
+          <pre>${escapeHtml(doc.example)}</pre>
+        </details>
+      </article>
+    `;
+  }
   renderTokenDisplays();
   els.accessTabs.querySelectorAll("[data-access-guide]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2740,6 +2921,9 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
     item.hidden = provider !== "seedance";
   });
+  document.querySelectorAll(".wan-first-frame").forEach((item) => {
+    item.hidden = provider !== "wan27" || !wanModeNeedsFirstFrame(wanMode);
+  });
   document.querySelectorAll(".wan-last-frame").forEach((item) => {
     item.hidden = provider !== "wan27" || !wanModeNeedsLastFrame(wanMode);
   });
@@ -2751,6 +2935,12 @@ function updateAdvancedModelControls() {
   });
   if (els.advancedUploadBox) {
     els.advancedUploadBox.hidden = provider === "wan27" && !wanModeNeedsFirstFrame(wanMode);
+    els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
+    els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
+    const label = els.advancedUploadBox.querySelector("span");
+    if (label) {
+      label.innerHTML = `<i data-lucide="image-up"></i>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : t("advanced.uploadReference"))}`;
+    }
   }
   renderAdvancedReferencePreviews();
   updateAdvancedReferenceSummary();
@@ -2955,6 +3145,16 @@ function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   return normalizeAdvancedProvider(provider) === "seedance" ? images : images.slice(0, 1);
 }
 
+function dedupeAdvancedReferenceImages(images = []) {
+  const seen = new Set();
+  return images.filter((item) => {
+    const key = `${item?.fileName || ""}::${item?.dataUrl || ""}`;
+    if (!item?.dataUrl || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function renderAdvancedReferencePreviews() {
   if (!els.advancedUploadPreview) return;
   const provider = currentAdvancedProvider();
@@ -2966,6 +3166,16 @@ function renderAdvancedReferencePreviews() {
     </figure>
   `).join("");
   els.advancedUploadBox?.classList.toggle("has-image", images.length > 0);
+  if (els.advancedWanFirstFramePreview) {
+    const firstFrame = images[0]?.dataUrl || state.advancedUploadDataUrl || "";
+    if (provider === "wan27" && firstFrame) {
+      els.advancedWanFirstFramePreview.src = firstFrame;
+      els.advancedWanFirstFramePreview.classList.add("is-visible");
+    } else {
+      els.advancedWanFirstFramePreview.removeAttribute("src");
+      els.advancedWanFirstFramePreview.classList.remove("is-visible");
+    }
+  }
 }
 
 function updateAdvancedReferenceSummary() {
@@ -3582,31 +3792,42 @@ els.advancedImage?.addEventListener("change", async () => {
   const provider = currentAdvancedProvider();
   const files = Array.from(els.advancedImage.files || []);
   if (!files.length) return;
-  if (provider === "seedance" && files.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
-    state.advancedUploadDataUrl = "";
-    state.advancedReferenceImages = [];
+  if (files.some((file) => file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES)) {
     els.advancedImage.value = "";
-    els.advancedUploadBox?.classList.remove("has-image");
-    if (els.advancedUploadPreview) els.advancedUploadPreview.innerHTML = "";
-    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: ADVANCED_SEEDANCE_REFERENCE_LIMIT });
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
     updateAdvancedModelControls();
     return;
   }
-  const selectedFiles = provider === "seedance" ? files : files.slice(0, 1);
-  if (selectedFiles.some((file) => file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES)) {
-    state.advancedUploadDataUrl = "";
-    state.advancedReferenceImages = [];
+  if (provider === "seedance") {
+    const existing = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
+    const roomLeft = Math.max(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT - existing.length);
+    if (!roomLeft) {
+      els.advancedImage.value = "";
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: ADVANCED_SEEDANCE_REFERENCE_LIMIT });
+      updateAdvancedModelControls();
+      return;
+    }
+    const selectedFiles = files.slice(0, roomLeft);
+    const addedImages = await Promise.all(selectedFiles.map(async (file) => ({
+      dataUrl: await readFileAsDataUrl(file),
+      fileName: file.name || "",
+    })));
+    state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ...addedImages]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
     els.advancedImage.value = "";
-    els.advancedUploadBox?.classList.remove("has-image");
-    if (els.advancedUploadPreview) els.advancedUploadPreview.innerHTML = "";
-    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
+    if (files.length > selectedFiles.length && els.advancedNote) {
+      els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: ADVANCED_SEEDANCE_REFERENCE_LIMIT });
+    }
+    updateAdvancedModelControls();
     return;
   }
-  state.advancedReferenceImages = await Promise.all(selectedFiles.map(async (file) => ({
-    dataUrl: await readFileAsDataUrl(file),
-    fileName: file.name || "",
-  })));
+  const selectedFile = files[0];
+  state.advancedReferenceImages = [{
+    dataUrl: await readFileAsDataUrl(selectedFile),
+    fileName: selectedFile.name || "",
+  }];
   state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+  els.advancedImage.value = "";
   updateAdvancedModelControls();
 });
 els.advancedWanLastFrame?.addEventListener("change", async () => {
@@ -3617,6 +3838,7 @@ els.advancedWanLastFrame?.addEventListener("change", async () => {
     els.advancedWanLastFrame.value = "";
     els.advancedWanLastFramePreview?.removeAttribute("src");
     els.advancedWanLastFramePreview?.classList.remove("is-visible");
+    els.advancedWanLastFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
     if (els.advancedNote) els.advancedNote.textContent = "Last frame image must be 20MB or smaller.";
     return;
   }
@@ -3624,6 +3846,7 @@ els.advancedWanLastFrame?.addEventListener("change", async () => {
   if (els.advancedWanLastFramePreview) {
     els.advancedWanLastFramePreview.src = state.advancedWanLastFrameDataUrl;
     els.advancedWanLastFramePreview.classList.add("is-visible");
+    els.advancedWanLastFrame.closest(".wan-frame-upload")?.classList.add("has-image");
   }
   updateAdvancedModelControls();
 });
