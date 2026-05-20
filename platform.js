@@ -12,6 +12,8 @@ const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
 const ADVANCED_GENERATION_MARKUP = 1.5;
 const DEFAULT_ADVANCED_PROVIDER = "wan27";
+const ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT = 2;
+const ADVANCED_SEEDANCE_EXTRA_REFERENCE_MAX_BYTES = 3 * 1024 * 1024;
 
 function normalizePlatformTab(value = "") {
   const normalized = String(value || "").trim().replace(/^#\/?/, "");
@@ -36,6 +38,7 @@ const state = {
   uploadDataUrl: "",
   advancedUploadDataUrl: "",
   advancedWanLastFrameDataUrl: "",
+  advancedSeedanceExtraDataUrls: [],
   wallet: null,
   token: localStorage.getItem(TOKEN_KEY) || "",
   lang: localStorage.getItem(LANG_KEY) || "en",
@@ -121,6 +124,8 @@ const els = {
   advancedWanLastFrame: document.querySelector("#advancedWanLastFrame"),
   advancedWanAudioUrl: document.querySelector("#advancedWanAudioUrl"),
   advancedWanClipUrl: document.querySelector("#advancedWanClipUrl"),
+  advancedSeedanceExtraImages: document.querySelector("#advancedSeedanceExtraImages"),
+  advancedSeedanceExtraSummary: document.querySelector("#advancedSeedanceExtraSummary"),
   advancedSubmitBtn: document.querySelector("#advancedSubmitBtn"),
   advancedNote: document.querySelector("#advancedNote"),
   advancedCaseGrid: document.querySelector("#advancedCaseGrid"),
@@ -259,6 +264,10 @@ const I18N = {
     "advanced.seedanceHandling": "Seedance image handling",
     "advanced.prepareReference": "Prepare safe reference",
     "advanced.originalImage": "Use original image",
+    "advanced.extraReferences": "Extra reference images",
+    "advanced.extraReferenceHint": "Optional for Seedance multi-image reference. Up to 2 images, 3MB each.",
+    "advanced.extraReferencesCount": "{count} extra reference image(s) selected.",
+    "advanced.extraImageTooLarge": "Each extra reference image must be 3MB or smaller.",
     "advanced.randomSeed": "Random seed",
     "advanced.cases": "Cases",
     "advanced.caseTitle": "Start From A Case",
@@ -496,6 +505,10 @@ const I18N = {
     "advanced.seedanceHandling": "Xử lý ảnh Seedance",
     "advanced.prepareReference": "Chuẩn bị ảnh an toàn",
     "advanced.originalImage": "Dùng ảnh gốc",
+    "advanced.extraReferences": "Ảnh tham chiếu bổ sung",
+    "advanced.extraReferenceHint": "Tùy chọn cho Seedance nhiều ảnh. Tối đa 2 ảnh, mỗi ảnh 3MB.",
+    "advanced.extraReferencesCount": "Đã chọn {count} ảnh tham chiếu bổ sung.",
+    "advanced.extraImageTooLarge": "Mỗi ảnh tham chiếu bổ sung phải từ 3MB trở xuống.",
     "advanced.randomSeed": "Seed ngẫu nhiên",
     "advanced.cases": "Case",
     "advanced.caseTitle": "Bắt đầu từ case",
@@ -733,6 +746,10 @@ const I18N = {
     "advanced.seedanceHandling": "Seedance 画像処理",
     "advanced.prepareReference": "安全な参照を準備",
     "advanced.originalImage": "元画像を使用",
+    "advanced.extraReferences": "追加参照画像",
+    "advanced.extraReferenceHint": "Seedance の複数画像参照用。最大 2 枚、各 3MB。",
+    "advanced.extraReferencesCount": "追加参照画像を {count} 枚選択しました。",
+    "advanced.extraImageTooLarge": "追加参照画像は各 3MB 以下にしてください。",
     "advanced.randomSeed": "ランダムシード",
     "advanced.cases": "ケース",
     "advanced.caseTitle": "ケースから開始",
@@ -970,6 +987,10 @@ const I18N = {
     "advanced.seedanceHandling": "Seedance 이미지 처리",
     "advanced.prepareReference": "안전 참조 준비",
     "advanced.originalImage": "원본 이미지 사용",
+    "advanced.extraReferences": "추가 참조 이미지",
+    "advanced.extraReferenceHint": "Seedance 다중 이미지 참조용 옵션입니다. 최대 2장, 각 3MB.",
+    "advanced.extraReferencesCount": "추가 참조 이미지 {count}장을 선택했습니다.",
+    "advanced.extraImageTooLarge": "각 추가 참조 이미지는 3MB 이하여야 합니다.",
     "advanced.randomSeed": "랜덤 시드",
     "advanced.cases": "케이스",
     "advanced.caseTitle": "케이스에서 시작",
@@ -1207,6 +1228,10 @@ const I18N = {
     "advanced.seedanceHandling": "Penanganan gambar Seedance",
     "advanced.prepareReference": "Siapkan referensi aman",
     "advanced.originalImage": "Gunakan gambar asli",
+    "advanced.extraReferences": "Gambar referensi tambahan",
+    "advanced.extraReferenceHint": "Opsional untuk referensi multi-gambar Seedance. Maks 2 gambar, masing-masing 3MB.",
+    "advanced.extraReferencesCount": "{count} gambar referensi tambahan dipilih.",
+    "advanced.extraImageTooLarge": "Setiap gambar referensi tambahan harus 3MB atau lebih kecil.",
     "advanced.randomSeed": "Seed acak",
     "advanced.cases": "Case",
     "advanced.caseTitle": "Mulai Dari Case",
@@ -1452,6 +1477,9 @@ POST https://123vips.com/api/advanced/generate
   "provider": "seedance",
   "prompt": "your prompt",
   "dataUrl": "data:image/png;base64,...",
+  "extraReferenceDataUrls": [
+    {"dataUrl": "data:image/png;base64,...", "fileName": "reference-2.png"}
+  ],
   "resolution": "720p",
   "duration": 5,
   "preprocessReference": true
@@ -1468,6 +1496,8 @@ const advancedBody = {
   provider: "wan27", // "seedance" or "wan27"
   prompt: "your prompt",
   dataUrl: "data:image/png;base64,...",
+  // Seedance only: optional extra reference images
+  extraReferenceDataUrls: [{ dataUrl: "data:image/png;base64,...", fileName: "reference-2.png" }],
   resolution: "720p",
   duration: 5,
   preprocessReference: true
@@ -1499,6 +1529,8 @@ advanced_payload = {
     "provider": "wan27",  # or "seedance"
     "prompt": "your prompt",
     "dataUrl": "data:image/png;base64,...",
+    # Seedance only: optional extra reference images
+    "extraReferenceDataUrls": [{"dataUrl": "data:image/png;base64,...", "fileName": "reference-2.png"}],
     "resolution": "720p",
     "duration": 5,
 }
@@ -1540,7 +1572,7 @@ POST https://123vips.com/api/advanced/generate
 Body:
 {"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}
 or:
-{"provider":"seedance","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"720p","duration":5,"preprocessReference":true}
+{"provider":"seedance","prompt":"your prompt","dataUrl":"data:image/png;base64,...","extraReferenceDataUrls":[{"dataUrl":"data:image/png;base64,...","fileName":"reference-2.png"}],"resolution":"720p","duration":5,"preprocessReference":true}
 
 Check records:
 GET https://123vips.com/api/generation-records`;
@@ -1555,7 +1587,7 @@ Advanced MCP wrapper target:
 POST https://123vips.com/api/advanced/generate
 Authorization: Bearer <user-token>
 Input:
-{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","resolution":"720p|1080p","duration":5,"preprocessReference":true,"seed":123456 optional}
+{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","extraReferenceDataUrls":[{"dataUrl":"data:image/png;base64,...","fileName":"reference-2.png"}],"resolution":"720p|1080p","duration":5,"preprocessReference":true,"seed":123456 optional}
 
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
@@ -2686,10 +2718,17 @@ function updateAdvancedModelControls() {
   if (els.advancedUploadBox) {
     els.advancedUploadBox.hidden = provider === "wan27" && !wanModeNeedsFirstFrame(wanMode);
   }
+  if (els.advancedSeedanceExtraSummary) {
+    const count = state.advancedSeedanceExtraDataUrls.length;
+    els.advancedSeedanceExtraSummary.textContent = count
+      ? t("advanced.extraReferencesCount", { count })
+      : t("advanced.extraReferenceHint");
+  }
   if (els.advancedNote && state.advancedUploadDataUrl) {
     if (provider === "seedance") {
       const mode = els.advancedPreprocessReference?.value === "no" ? t("advanced.originalReference") : t("advanced.safeReference");
-      els.advancedNote.textContent = t("advanced.referenceSeedance", { mode });
+      const extra = state.advancedSeedanceExtraDataUrls.length ? ` + ${t("advanced.extraReferencesCount", { count: state.advancedSeedanceExtraDataUrls.length })}` : "";
+      els.advancedNote.textContent = `${t("advanced.referenceSeedance", { mode })}${extra}`;
     } else {
       els.advancedNote.textContent = t("advanced.referenceWan");
     }
@@ -2801,9 +2840,10 @@ async function submitAdvancedGenerate() {
       ? (preprocessReference ? t("advanced.notePrepare") : t("advanced.noteOriginal"))
       : t("advanced.noteWan")
     : "";
+  const extraReferenceDataUrls = provider === "seedance" ? state.advancedSeedanceExtraDataUrls : [];
   if (els.advancedNote) {
     els.advancedNote.textContent = t("advanced.submitting", {
-      note: referenceNote,
+      note: `${referenceNote}${extraReferenceDataUrls.length ? ` + ${t("advanced.extraReferencesCount", { count: extraReferenceDataUrls.length })}` : ""}`,
       cost: advancedCostLabel(duration, provider, resolution, currentAdvancedRatio()),
     });
   }
@@ -2816,6 +2856,7 @@ async function submitAdvancedGenerate() {
         prompt,
         dataUrl: state.advancedUploadDataUrl,
         firstFrameDataUrl: state.advancedUploadDataUrl,
+        extraReferenceDataUrls,
         lastFrameDataUrl: state.advancedWanLastFrameDataUrl,
         drivingAudioUrl: els.advancedWanAudioUrl?.value.trim() || "",
         firstClipUrl: els.advancedWanClipUrl?.value.trim() || "",
@@ -3485,6 +3526,26 @@ els.advancedWanLastFrame?.addEventListener("change", async () => {
     return;
   }
   state.advancedWanLastFrameDataUrl = await readFileAsDataUrl(file);
+  updateAdvancedModelControls();
+});
+els.advancedSeedanceExtraImages?.addEventListener("change", async () => {
+  const files = Array.from(els.advancedSeedanceExtraImages.files || []).slice(0, ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT);
+  if (!files.length) {
+    state.advancedSeedanceExtraDataUrls = [];
+    updateAdvancedModelControls();
+    return;
+  }
+  if (files.some((file) => file.size > ADVANCED_SEEDANCE_EXTRA_REFERENCE_MAX_BYTES)) {
+    state.advancedSeedanceExtraDataUrls = [];
+    els.advancedSeedanceExtraImages.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.extraImageTooLarge");
+    updateAdvancedModelControls();
+    return;
+  }
+  state.advancedSeedanceExtraDataUrls = await Promise.all(files.map(async (file) => ({
+    dataUrl: await readFileAsDataUrl(file),
+    fileName: file.name || "",
+  })));
   updateAdvancedModelControls();
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);

@@ -8,6 +8,8 @@ const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
 const ADVANCED_GENERATION_MARKUP = 1.5;
+const ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT = 2;
+const ADVANCED_SEEDANCE_EXTRA_REFERENCE_MAX_BYTES = 3 * 1024 * 1024;
 const WAN27_MEDIA_MODES = [
   ["first_frame", "单图首帧"],
   ["first_last_frame", "首帧 + 尾帧"],
@@ -2574,14 +2576,15 @@ function advancedGenerateForm(item = {}) {
       </div>
       <div class="adm-form-row"><span>Prompt</span><textarea data-g="prompt" rows="5">${escapeHtml(item.prompt || params.prompt || "")}</textarea></div>
       <div class="adm-grid adm-grid-2">
-        <div class="adm-form-row"><span>首帧图片</span><input data-g="firstFrame" type="file" accept="image/*" /></div>
+        <div class="adm-form-row"><span>首帧/主参考图</span><input data-g="firstFrame" type="file" accept="image/*" /></div>
         <div class="adm-form-row"><span>尾帧图片</span><input data-g="lastFrame" type="file" accept="image/*" /></div>
       </div>
+      <div class="adm-form-row"><span>Seedance 额外参考图</span><input data-g="seedanceExtraReferences" type="file" accept="image/*" multiple /></div>
       <div class="adm-grid adm-grid-2">
         <div class="adm-form-row"><span>音频 URL</span><input data-g="drivingAudioUrl" value="${escapeHtml(params.drivingAudioUrl || "")}" placeholder="https://.../audio.mp3" /></div>
         <div class="adm-form-row"><span>续写视频 URL</span><input data-g="firstClipUrl" value="${escapeHtml(params.firstClipUrl || "")}" placeholder="https://.../clip.mp4" /></div>
       </div>
-      <p class="adm-muted">后台生成会直接创建到当前管理员账号的 History。图片可上传；音频和续写视频请填公网 URL。</p>
+      <p class="adm-muted">后台生成会直接创建到当前管理员账号的 History。Seedance 支持主参考图 + 最多 2 张额外参考图；Wan2.7 按组合使用首帧/尾帧/音频/续写视频。</p>
     </div>
   `;
 }
@@ -2596,8 +2599,21 @@ async function collectAdvancedGenerateBody(dialogBody, item = {}) {
     reader.onerror = () => reject(new Error("读取文件失败"));
     reader.readAsDataURL(file);
   });
+  const readMultipleDataUrls = async (input) => {
+    const files = Array.from(input?.files || []).slice(0, ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT);
+    if (files.some((file) => file.size > ADVANCED_SEEDANCE_EXTRA_REFERENCE_MAX_BYTES)) {
+      throw new Error("Seedance 额外参考图每张不能超过 3MB");
+    }
+    return Promise.all(files.map((file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ dataUrl: String(reader.result || ""), fileName: file.name || "" });
+      reader.onerror = () => reject(new Error("读取文件失败"));
+      reader.readAsDataURL(file);
+    })));
+  };
   const first = await readDataUrl(get("firstFrame"));
   const last = await readDataUrl(get("lastFrame"));
+  const extraReferenceDataUrls = await readMultipleDataUrls(get("seedanceExtraReferences"));
   return {
     caseId: item.id || "",
     provider: get("provider")?.value || item.provider || "wan27",
@@ -2606,6 +2622,7 @@ async function collectAdvancedGenerateBody(dialogBody, item = {}) {
     dataUrl: first.dataUrl,
     firstFrameDataUrl: first.dataUrl,
     firstFrameFileName: first.fileName,
+    extraReferenceDataUrls,
     lastFrameDataUrl: last.dataUrl,
     lastFrameFileName: last.fileName,
     drivingAudioUrl: get("drivingAudioUrl")?.value.trim() || "",

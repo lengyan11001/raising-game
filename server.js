@@ -83,6 +83,7 @@ const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = clampNumber(process.env.A
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_WAN27_720P_CREDITS_PER_SECOND, 100, 1, 100000);
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_WAN27_1080P_CREDITS_PER_SECOND, 150, 1, 100000);
 const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_MARKUP, 1.5, 1, 100);
+const ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT, 2, 0, 8));
 const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_DASHSCOPE_API_KEY =
   process.env.ALIYUN_DASHSCOPE_API_KEY ||
@@ -2615,6 +2616,54 @@ function mediaAssetIdFromBody(body = {}, key = "") {
   return String(body[`${key}AssetId`] || body[`${key}_assetId`] || body[`${key}_asset_id`] || "").trim();
 }
 
+function arrayFromBody(value) {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function seedanceExtraReferenceInputsFromBody(body = {}) {
+  return [
+    ...arrayFromBody(body.extraReferenceDataUrls),
+    ...arrayFromBody(body.extraReferenceImages),
+    ...arrayFromBody(body.extraDataUrls),
+    ...arrayFromBody(body.referenceDataUrls),
+  ].filter((item) => {
+    if (!item) return false;
+    if (typeof item === "string") return item.trim();
+    return item.dataUrl;
+  }).slice(0, ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT);
+}
+
+function seedanceExtraReferenceAssetIdsFromBody(body = {}) {
+  return [
+    ...arrayFromBody(body.extraReferenceAssetIds),
+    ...arrayFromBody(body.extraUserAssetIds),
+  ].map((item) => String(item || "").trim()).filter(Boolean).slice(0, ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT);
+}
+
+async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "Reference" } = {}) {
+  const assets = [];
+  for (let index = 0; index < inputs.length; index += 1) {
+    const item = inputs[index];
+    if (!item) continue;
+    if (typeof item === "string") {
+      assets.push(await createUserAssetFromDataUrl(db, user, {
+        dataUrl: item,
+        name: `${name} ${index + 1}`,
+      }));
+      continue;
+    }
+    if (item.dataUrl) {
+      assets.push(await createUserAssetFromDataUrl(db, user, {
+        dataUrl: item.dataUrl,
+        fileName: item.fileName || "",
+        name: item.name || `${name} ${index + 1}`,
+      }));
+    }
+  }
+  return assets;
+}
+
 function validateWan27MediaKind(assetOrUrl = {}, expectedKind = "image", label = "Media") {
   const mime = String(assetOrUrl.mime || "").toLowerCase();
   if (mime) {
@@ -2878,6 +2927,22 @@ async function ensureSyntheticReferenceForUserAsset(db, userAsset) {
   db.userAssets = (db.userAssets || []).map((asset) => (asset.id === next.id ? next : asset));
   await writeDb(db);
   return next;
+}
+
+async function prepareSeedanceReferenceAsset(db, userAsset, preprocess = true) {
+  if (!userAsset) return { asset: null, referenceAssetUri: "", imageUrl: "", sourceImageUrl: "" };
+  validateWan27MediaKind(userAsset, "image", "Seedance reference image");
+  const prepared = preprocess
+    ? await ensureSyntheticReferenceForUserAsset(db, userAsset)
+    : await ensureSeedanceAssetForUserAsset(db, userAsset);
+  return {
+    asset: prepared,
+    referenceAssetUri: preprocess ? (prepared.syntheticReferenceAssetUri || prepared.assetUri || "") : (prepared.assetUri || ""),
+    imageUrl: preprocess
+      ? (prepared.syntheticReferenceLocalUrl || prepared.syntheticReferenceUrl || prepared.publicUrl || prepared.localUrl || "")
+      : (prepared.publicUrl || prepared.localUrl || ""),
+    sourceImageUrl: prepared.sourceImageUrl || prepared.localUrl || "",
+  };
 }
 
 async function apizRequest(pathname, body) {
@@ -3852,7 +3917,7 @@ async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } 
 
 async function readJson(req) {
   const chunks = [];
-  const maxBodySize = 15 * 1024 * 1024;
+  const maxBodySize = 20 * 1024 * 1024;
   for await (const chunk of req) {
     chunks.push(chunk);
     if (Buffer.concat(chunks).byteLength > maxBodySize) {
@@ -4589,6 +4654,7 @@ async function runAdvancedGenerationJob(job = {}) {
     taskId,
     userId,
     userAssetId,
+    extraUserAssetIds = [],
     provider,
     prompt,
     requestParams,
@@ -4606,6 +4672,8 @@ async function runAdvancedGenerationJob(job = {}) {
   let sourceImageUrl = "";
   let syntheticReferenceLocalUrl = "";
   let syntheticReferenceUrl = "";
+  let seedanceMediaAssets = [];
+  let extraReferenceAssetUris = [];
   let payload = null;
   let createResponse = null;
 
@@ -4625,27 +4693,59 @@ async function runAdvancedGenerationJob(job = {}) {
         throw error;
       }
     }
+    const requestedExtraAssetIds = Array.isArray(extraUserAssetIds) ? extraUserAssetIds.map((id) => String(id || "").trim()).filter(Boolean) : [];
+    const extraUserAssets = requestedExtraAssetIds.map((assetId) => (
+      (db.userAssets || []).find((asset) => asset.id === assetId && asset.userId === userId && !isSoftDeleted(asset))
+    ));
+    if (extraUserAssets.some((asset) => !asset)) {
+      const error = new Error("Extra reference image not found.");
+      error.statusCode = 404;
+      throw error;
+    }
 
     if (userAsset) {
       if (provider === "seedance") {
-        if (requestParams.preprocessReference !== false) {
-          userAsset = await ensureSyntheticReferenceForUserAsset(db, userAsset);
-          referenceAssetUri = userAsset.syntheticReferenceAssetUri || userAsset.assetUri || "";
-          imageUrl = userAsset.syntheticReferenceLocalUrl || userAsset.syntheticReferenceUrl || userAsset.publicUrl || userAsset.localUrl || "";
-          sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
-          syntheticReferenceLocalUrl = userAsset.syntheticReferenceLocalUrl || "";
-          syntheticReferenceUrl = userAsset.syntheticReferenceUrl || "";
-        } else {
-          userAsset = await ensureSeedanceAssetForUserAsset(db, userAsset);
-          referenceAssetUri = userAsset.assetUri || "";
-          imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
-          sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
-        }
+        const prepared = await prepareSeedanceReferenceAsset(db, userAsset, requestParams.preprocessReference !== false);
+        userAsset = prepared.asset;
+        referenceAssetUri = prepared.referenceAssetUri;
+        imageUrl = prepared.imageUrl;
+        sourceImageUrl = prepared.sourceImageUrl;
+        syntheticReferenceLocalUrl = userAsset.syntheticReferenceLocalUrl || "";
+        syntheticReferenceUrl = userAsset.syntheticReferenceUrl || "";
       } else {
         userAsset = await ensurePublicUrlForUserAsset(db, userAsset);
         imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
         sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
       }
+    }
+    if (provider === "seedance") {
+      const primaryMediaAsset = referenceAssetUri ? [{
+        type: "reference_image",
+        key: "primary",
+        userAssetId: userAsset?.id || "",
+        referenceAssetUri,
+        imageUrl,
+        sourceImageUrl,
+        localUrl: userAsset?.localUrl || "",
+        mime: userAsset?.mime || "",
+      }] : [];
+      const extraMediaAssets = [];
+      for (let index = 0; index < extraUserAssets.length; index += 1) {
+        const prepared = await prepareSeedanceReferenceAsset(db, extraUserAssets[index], requestParams.preprocessReference !== false);
+        if (!prepared.referenceAssetUri || prepared.referenceAssetUri === referenceAssetUri || extraReferenceAssetUris.includes(prepared.referenceAssetUri)) continue;
+        extraReferenceAssetUris.push(prepared.referenceAssetUri);
+        extraMediaAssets.push({
+          type: "reference_image",
+          key: `extra_${index + 1}`,
+          userAssetId: prepared.asset?.id || extraUserAssets[index]?.id || "",
+          referenceAssetUri: prepared.referenceAssetUri,
+          imageUrl: prepared.imageUrl,
+          sourceImageUrl: prepared.sourceImageUrl,
+          localUrl: prepared.asset?.localUrl || "",
+          mime: prepared.asset?.mime || "",
+        });
+      }
+      seedanceMediaAssets = [...primaryMediaAsset, ...extraMediaAssets];
     }
 
     let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || "first_frame";
@@ -4673,8 +4773,8 @@ async function runAdvancedGenerationJob(job = {}) {
       syntheticReferenceLocalUrl,
       syntheticReferenceUrl,
       referenceAssetUri,
-      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : "",
-      mediaAssets: provider === "wan27" ? resolvedWan27Media : [],
+      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (extraReferenceAssetUris.length ? "multi_reference" : ""),
+      mediaAssets: provider === "wan27" ? resolvedWan27Media : seedanceMediaAssets,
       error: "",
     }, "advanced-reference-ready");
 
@@ -4699,6 +4799,7 @@ async function runAdvancedGenerationJob(job = {}) {
         config,
         prompt,
         referenceAssetUri,
+        extraReferenceAssetUris,
         body: requestParams,
         slug: "advanced",
       });
@@ -4735,8 +4836,8 @@ async function runAdvancedGenerationJob(job = {}) {
       syntheticReferenceLocalUrl,
       syntheticReferenceUrl,
       referenceAssetUri,
-      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : "",
-      mediaAssets: provider === "wan27" ? resolvedWan27Media : [],
+      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (extraReferenceAssetUris.length ? "multi_reference" : ""),
+      mediaAssets: provider === "wan27" ? resolvedWan27Media : seedanceMediaAssets,
       upstreamPayload: payload,
       ratio: payload?.ratio || requestParams.ratio || "",
       resolution: payload?.resolution || payload?.parameters?.resolution || requestParams.resolution || "",
@@ -4822,6 +4923,8 @@ async function handleAdvancedGenerate(req, res) {
   }
 
   let userAsset = null;
+  let extraUserAssets = [];
+  let extraUserAssetIds = [];
   if (provider !== "wan27") {
     if (body.dataUrl) {
       userAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
@@ -4833,6 +4936,29 @@ async function handleAdvancedGenerate(req, res) {
       userAsset = auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
       if (!userAsset) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
     }
+    const seenSeedanceAssetIds = new Set([userAsset?.id].filter(Boolean));
+    for (const assetId of seedanceExtraReferenceAssetIdsFromBody(body)) {
+      if (seenSeedanceAssetIds.has(assetId) || extraUserAssets.length >= ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT) continue;
+      const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
+      if (!asset) return sendJson(res, 404, { ok: false, message: "Extra reference image not found." });
+      extraUserAssets.push(asset);
+      seenSeedanceAssetIds.add(asset.id);
+    }
+    const extraSlots = Math.max(0, ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT - extraUserAssets.length);
+    if (extraSlots > 0) {
+      const createdExtras = await createUserImageAssetsFromInputs(
+        auth.db,
+        auth.user,
+        seedanceExtraReferenceInputsFromBody(body).slice(0, extraSlots),
+        { name: selectedCase?.title ? `${selectedCase.title} extra reference` : "Advanced extra reference" },
+      );
+      createdExtras.forEach((asset) => {
+        if (!asset || seenSeedanceAssetIds.has(asset.id) || extraUserAssets.length >= ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT) return;
+        extraUserAssets.push(asset);
+        seenSeedanceAssetIds.add(asset.id);
+      });
+    }
+    extraUserAssetIds = extraUserAssets.map((asset) => asset.id);
   } else {
     const firstFrameDataUrl = body.firstFrameDataUrl || body.first_frame_data_url || body.dataUrl;
     if (firstFrameDataUrl) {
@@ -4866,6 +4992,29 @@ async function handleAdvancedGenerate(req, res) {
   const primaryWanMedia = wan27Media.find((item) => item.type === "first_frame" || item.type === "first_clip") || wan27Media[0] || null;
   const initialImageUrl = primaryWanMedia?.localUrl || primaryWanMedia?.url || userAsset?.localUrl || userAsset?.publicUrl || "";
   const initialSourceImageUrl = primaryWanMedia?.localUrl || userAsset?.sourceImageUrl || userAsset?.localUrl || "";
+  const initialSeedanceMediaAssets = provider === "seedance"
+    ? [
+        ...(userAsset ? [{
+          type: "reference_image",
+          key: "primary",
+          userAssetId: userAsset.id,
+          imageUrl: userAsset.localUrl || userAsset.publicUrl || "",
+          sourceImageUrl: userAsset.sourceImageUrl || userAsset.localUrl || "",
+          localUrl: userAsset.localUrl || "",
+          mime: userAsset.mime || "",
+        }] : []),
+        ...extraUserAssets.map((asset, index) => ({
+          type: "reference_image",
+          key: `extra_${index + 1}`,
+          userAssetId: asset.id,
+          imageUrl: asset.localUrl || asset.publicUrl || "",
+          sourceImageUrl: asset.sourceImageUrl || asset.localUrl || "",
+          localUrl: asset.localUrl || "",
+          mime: asset.mime || "",
+        })),
+      ]
+    : [];
+  const initialMediaMode = provider === "wan27" ? wan27MediaMode : (extraUserAssetIds.length ? "multi_reference" : "");
 
   if (cost > 0) {
     changeUserCredits(auth.db, auth.user.id, -cost, "advanced_generation", {
@@ -4885,8 +5034,11 @@ async function handleAdvancedGenerate(req, res) {
       pricingSource: pricing.source || "duration_rate",
       preprocessReference: requestParams.preprocessReference,
       userAssetId: userAsset?.id || "",
-      mediaMode: wan27MediaMode,
-      mediaAssets: wan27Media.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", mediaKind: item.mediaKind || "" })),
+      extraUserAssetIds,
+      mediaMode: initialMediaMode,
+      mediaAssets: provider === "wan27"
+        ? wan27Media.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", mediaKind: item.mediaKind || "" }))
+        : initialSeedanceMediaAssets.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "" })),
       referenceAssetUri: "",
     });
     await writeDb(auth.db);
@@ -4903,8 +5055,8 @@ async function handleAdvancedGenerate(req, res) {
     templateTitle: selectedCase?.title || "Advanced generation",
     userId: auth.user.id,
     userAssetId: userAsset?.id || "",
-    mediaMode: wan27MediaMode,
-    mediaAssets: wan27Media,
+    mediaMode: initialMediaMode,
+    mediaAssets: provider === "wan27" ? wan27Media : initialSeedanceMediaAssets,
     imageUrl: initialImageUrl,
     sourceImageUrl: initialSourceImageUrl,
     syntheticReferenceLocalUrl: "",
@@ -4933,6 +5085,7 @@ async function handleAdvancedGenerate(req, res) {
     taskId,
     userId: auth.user.id,
     userAssetId: userAsset?.id || "",
+    extraUserAssetIds,
     wan27MediaMode,
     wan27Media,
     provider,
@@ -4960,6 +5113,12 @@ async function handleAdvancedGenerate(req, res) {
       syntheticReferenceUrl: "",
       referenceAssetUri: "",
     } : null,
+    extraReferences: extraUserAssets.map((asset) => ({
+      userAssetId: asset.id,
+      imageUrl: asset.localUrl || asset.publicUrl || "",
+      sourceImageUrl: asset.sourceImageUrl || asset.localUrl || "",
+      referenceAssetUri: "",
+    })),
     pricing,
     cost,
   });
@@ -5089,7 +5248,7 @@ function docsPlatformExampleBody(template = {}) {
 function docsAdvancedExampleBody(item = {}) {
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
   const provider = normalizeAdvancedProvider(item.provider || params.provider);
-  return {
+  const body = {
     caseId: item.id || "case-id",
     provider,
     prompt: item.prompt || params.prompt || "your prompt",
@@ -5101,6 +5260,12 @@ function docsAdvancedExampleBody(item = {}) {
     seed: provider === "wan27" ? optionalWan27Seed(params.seed) ?? undefined : undefined,
     generateAudio: params.generateAudio !== false,
   };
+  if (provider === "seedance") {
+    body.extraReferenceDataUrls = [
+      { dataUrl: "data:image/png;base64,...", fileName: "reference-2.png" },
+    ];
+  }
+  return body;
 }
 
 function docsPricingView(estimate = {}) {
@@ -5229,6 +5394,8 @@ function buildAdvancedModelDoc(item, origin) {
       { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
       { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded reference image as a base64 data URL. Required for Wan2.7 first-frame generation; optional for Seedance." },
       { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. Use instead of dataUrl." },
+      { name: "extraReferenceDataUrls", type: "array", required: false, description: "Seedance only. Optional extra reference images as data URLs; production UI limits this to 2 extra images." },
+      { name: "extraReferenceAssetIds", type: "array", required: false, description: "Seedance only. Optional existing uploaded asset ids for extra references." },
       { name: "ratio", type: "string", required: false, description: "Video ratio, for example 9:16, 16:9, or 1:1." },
       { name: "resolution", type: "string", required: false, description: "720p or 1080p." },
       { name: "duration", type: "number", required: false, description: "Duration in seconds. Seedance is clamped to 5-15; Wan2.7 is clamped to 2-15." },
@@ -5327,7 +5494,7 @@ function advancedDocMarkdown(item) {
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
-  lines.push("", "Reference image: send `dataUrl`, or send `userAssetId` for an existing uploaded asset. Wan2.7 requires a reference image and sends it as the first frame; Seedance can optionally preprocess it into a safer synthetic reference.");
+  lines.push("", "Reference image: send `dataUrl`, or send `userAssetId` for an existing uploaded asset. Wan2.7 requires a reference image and sends it as the first frame; Seedance can optionally preprocess it into a safer synthetic reference. For Seedance multi-image reference, also send `extraReferenceDataUrls` or `extraReferenceAssetIds`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
