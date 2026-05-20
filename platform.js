@@ -343,6 +343,9 @@ const I18N = {
     "history.viewParameters": "View parameters",
     "history.loading": "Loading generation records...",
     "history.loadFailed": "Load failed: {message}",
+    "history.regenerate": "Regenerate",
+    "history.regenerating": "Regenerating...",
+    "history.regenerateSubmitted": "Submitted",
     "ledger.search": "Search",
     "ledger.status": "Status",
     "ledger.type": "Type",
@@ -586,6 +589,9 @@ const I18N = {
     "history.viewParameters": "Xem tham số",
     "history.loading": "Đang tải bản ghi tạo...",
     "history.loadFailed": "Tải thất bại: {message}",
+    "history.regenerate": "Regenerate",
+    "history.regenerating": "Regenerating...",
+    "history.regenerateSubmitted": "Submitted",
     "ledger.search": "Tìm kiếm",
     "ledger.status": "Trạng thái",
     "ledger.type": "Loại",
@@ -829,6 +835,9 @@ const I18N = {
     "history.viewParameters": "パラメータを表示",
     "history.loading": "生成記録を読み込み中...",
     "history.loadFailed": "読み込み失敗: {message}",
+    "history.regenerate": "Regenerate",
+    "history.regenerating": "Regenerating...",
+    "history.regenerateSubmitted": "Submitted",
     "ledger.search": "検索",
     "ledger.status": "ステータス",
     "ledger.type": "タイプ",
@@ -1072,6 +1081,9 @@ const I18N = {
     "history.viewParameters": "파라미터 보기",
     "history.loading": "생성 기록 로딩 중...",
     "history.loadFailed": "로드 실패: {message}",
+    "history.regenerate": "Regenerate",
+    "history.regenerating": "Regenerating...",
+    "history.regenerateSubmitted": "Submitted",
     "ledger.search": "검색",
     "ledger.status": "상태",
     "ledger.type": "유형",
@@ -1315,6 +1327,9 @@ const I18N = {
     "history.viewParameters": "Lihat parameter",
     "history.loading": "Memuat catatan pembuatan...",
     "history.loadFailed": "Gagal memuat: {message}",
+    "history.regenerate": "Regenerate",
+    "history.regenerating": "Regenerating...",
+    "history.regenerateSubmitted": "Submitted",
     "ledger.search": "Cari",
     "ledger.status": "Status",
     "ledger.type": "Tipe",
@@ -3263,6 +3278,13 @@ function renderHistory(records = []) {
             <span>${escapeHtml(cost)}</span>
             ${created ? `<span>${escapeHtml(created)}</span>` : ""}
           </div>
+          ${taskId ? `
+            <div class="history-record-actions">
+              <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
+                <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
+              </button>
+            </div>
+          ` : ""}
           <details class="history-details">
             <summary>${escapeHtml(t("history.viewParameters"))}</summary>
             <pre>${escapeHtml(JSON.stringify({ taskId: record.taskId || "", provider: record.provider || "", source: record.source || "", prompt: record.finalPrompt || record.prompt || "", params: record.params || null, ratio: record.ratio, resolution: record.resolution, duration: record.duration, billing: record.billing || null }, null, 2))}</pre>
@@ -3280,7 +3302,39 @@ function renderHistory(records = []) {
       });
     });
   });
+  els.historyList.querySelectorAll("[data-history-regenerate]").forEach((button) => {
+    button.addEventListener("click", () => regenerateHistoryRecord(button.dataset.historyRegenerate || "", button));
+  });
   refreshIcons();
+}
+
+async function regenerateHistoryRecord(taskId, button) {
+  if (!taskId || !button) return;
+  const originalHtml = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
+  refreshIcons();
+  try {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/regenerate`, { method: "POST" });
+    if (payload.user) setUser(payload.user);
+    button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.regenerateSubmitted"))}`;
+    refreshIcons();
+    window.setTimeout(() => loadHistory({ silent: true }), 300);
+  } catch (error) {
+    button.innerHTML = `<i data-lucide="alert-circle"></i>${escapeHtml(error.message || String(error))}`;
+    refreshIcons();
+    window.setTimeout(() => {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }, 2500);
+    return;
+  }
+  window.setTimeout(() => {
+    button.disabled = false;
+    button.innerHTML = originalHtml;
+    refreshIcons();
+  }, 1800);
 }
 
 function isPendingGenerationRecord(record = {}) {

@@ -1312,7 +1312,7 @@ function advancedSellingCredits(baseCredits, markup = ADVANCED_GENERATION_MARKUP
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
-  if (["wan27", "wan2.7", "wan"].includes(normalized)) return "wan27";
+  if (["wan27", "wan2.7", "wan"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7")) return "wan27";
   return "seedance";
 }
 
@@ -1527,6 +1527,16 @@ function getBearerToken(req) {
   const auth = req.headers.authorization || "";
   const match = auth.match(/^Bearer\s+(.+)$/i);
   return match ? match[1].trim() : "";
+}
+
+function withJsonBody(req, body = {}) {
+  return Object.create(req, {
+    [Symbol.asyncIterator]: {
+      value: async function* iterator() {
+        yield Buffer.from(JSON.stringify(body), "utf8");
+      },
+    },
+  });
 }
 
 async function getAuth(req) {
@@ -5172,6 +5182,91 @@ async function handleAdminAdvancedGenerate(req, res) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
   return handleAdvancedGenerate(req, res);
+}
+
+function mediaAssetIdsByType(record = {}, type = "") {
+  return (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => asset && asset.type === type && asset.userAssetId)
+    .map((asset) => String(asset.userAssetId || "").trim())
+    .filter(Boolean);
+}
+
+function mediaAssetUrlByType(record = {}, type = "") {
+  const asset = (Array.isArray(record.mediaAssets) ? record.mediaAssets : []).find((item) => item && item.type === type);
+  return String(asset?.url || asset?.imageUrl || asset?.localUrl || "").trim();
+}
+
+function platformRegenerateBody(record = {}) {
+  const body = {
+    templateId: record.templateId || "",
+    prompt: record.finalPrompt || record.prompt || "",
+  };
+  if (record.userAssetId) body.userAssetId = record.userAssetId;
+  if (record.params && typeof record.params === "object" && !Array.isArray(record.params)) {
+    body.params = { ...record.params };
+  }
+  return body;
+}
+
+function advancedRegenerateBody(record = {}) {
+  const params = record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
+  const provider = normalizeAdvancedProvider(record.provider || params.provider);
+  const body = {
+    caseId: record.templateId || "",
+    provider,
+    prompt: record.finalPrompt || record.prompt || params.prompt || "",
+    ratio: record.ratio || params.ratio || params.aspect_ratio || "9:16",
+    resolution: record.resolution || params.resolution || "720p",
+    duration: record.duration || params.duration || 5,
+  };
+  if (provider === "wan27") {
+    const mediaMode = normalizeWan27MediaMode(record.mediaMode || params.mediaMode);
+    body.mediaMode = mediaMode;
+    const firstFrame = mediaAssetIdsByType(record, "first_frame")[0] || record.userAssetId || "";
+    const lastFrame = mediaAssetIdsByType(record, "last_frame")[0] || "";
+    const firstClip = mediaAssetIdsByType(record, "first_clip")[0] || "";
+    const drivingAudio = mediaAssetIdsByType(record, "driving_audio")[0] || "";
+    if (firstFrame) body.firstFrameAssetId = firstFrame;
+    else if (mediaAssetUrlByType(record, "first_frame")) body.firstFrameUrl = mediaAssetUrlByType(record, "first_frame");
+    if (lastFrame) body.lastFrameAssetId = lastFrame;
+    else if (mediaAssetUrlByType(record, "last_frame")) body.lastFrameUrl = mediaAssetUrlByType(record, "last_frame");
+    if (firstClip) body.firstClipAssetId = firstClip;
+    else if (mediaAssetUrlByType(record, "first_clip")) body.firstClipUrl = mediaAssetUrlByType(record, "first_clip");
+    if (drivingAudio) body.drivingAudioAssetId = drivingAudio;
+    else if (mediaAssetUrlByType(record, "driving_audio")) body.drivingAudioUrl = mediaAssetUrlByType(record, "driving_audio");
+    if (!drivingAudio && (params.drivingAudioUrl || params.driving_audio_url)) body.drivingAudioUrl = params.drivingAudioUrl || params.driving_audio_url;
+    if (!firstClip && (params.firstClipUrl || params.first_clip_url)) body.firstClipUrl = params.firstClipUrl || params.first_clip_url;
+    if (params.seed) body.seed = params.seed;
+  } else {
+    const referenceIds = [
+      ...mediaAssetIdsByType(record, "reference_image"),
+      record.userAssetId || "",
+    ].map((id) => String(id || "").trim()).filter(Boolean);
+    const uniqueIds = [...new Set(referenceIds)].slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    if (uniqueIds.length) {
+      body.userAssetId = uniqueIds[0];
+      if (uniqueIds.length > 1) body.extraReferenceAssetIds = uniqueIds.slice(1);
+    }
+  }
+  return body;
+}
+
+async function handleRegenerateGenerationRecord(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const records = await readGenerationRecords();
+  const record = records.find((entry) => entry.taskId === taskId && entry.userId === auth.user.id && isUserVisibleGenerationRecord(entry));
+  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+
+  const source = String(record.source || "").toLowerCase();
+  const kind = String(record.kind || "").toLowerCase();
+  if (source === "platform-template" || (record.templateId && ["image-to-video", "text-to-video"].includes(kind))) {
+    return handlePlatformGenerate(withJsonBody(req, platformRegenerateBody(record)), res);
+  }
+  if (source.includes("advanced") || ["seedance", "aliyun-wan27"].includes(String(record.provider || "").toLowerCase())) {
+    return handleAdvancedGenerate(withJsonBody(req, advancedRegenerateBody(record)), res);
+  }
+  return sendJson(res, 400, { ok: false, message: "This record cannot be regenerated yet." });
 }
 
 async function handleAdminUploadPlatformCover(req, res) {
@@ -9071,6 +9166,10 @@ async function handleRequest(req, res) {
     const generationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)$/);
     if (req.method === "GET" && generationRecordMatch) {
       return await handleGetGenerationRecord(req, res, decodeURIComponent(generationRecordMatch[1]));
+    }
+    const regenerateGenerationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/regenerate$/);
+    if (req.method === "POST" && regenerateGenerationRecordMatch) {
+      return await handleRegenerateGenerationRecord(req, res, decodeURIComponent(regenerateGenerationRecordMatch[1]));
     }
 
     if (req.method === "POST" && url.pathname === "/api/scene-video") {
