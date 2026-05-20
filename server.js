@@ -2525,6 +2525,7 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
     GroupId: ARK_OPENAPI.groupId,
     URL: uploaded.publicUrl,
     AssetType: "Image",
+    Moderation: { Strategy: "Skip" },
     Name: `raising-game-home-${item.id}-${Date.now()}`,
     ProjectName: ARK_OPENAPI.projectName,
   });
@@ -2920,6 +2921,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     GroupId: ARK_OPENAPI.groupId,
     URL: uploaded.publicUrl,
     AssetType: "Image",
+    Moderation: { Strategy: "Skip" },
     Name: `raising-game-user-${userAsset.id}-${Date.now()}`,
     ProjectName: ARK_OPENAPI.projectName,
   });
@@ -6390,6 +6392,7 @@ async function ensureCharacterReferenceForRecord(record) {
     GroupId: ARK_OPENAPI.groupId,
     URL: uploadedRef.publicUrl,
     AssetType: "Image",
+    Moderation: { Strategy: "Skip" },
     Name: `raising-game-user-${record.id}-${Date.now()}`,
     ProjectName: ARK_OPENAPI.projectName,
   });

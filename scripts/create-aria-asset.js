@@ -201,6 +201,7 @@ async function main() {
     GroupId: ARK_OPENAPI.groupId,
     URL: uploaded.publicUrl,
     AssetType: "Image",
+    Moderation: { Strategy: "Skip" },
     Name: `raising-game-${CHARACTER_ID}-front-${Date.now()}`,
     ProjectName: ARK_OPENAPI.projectName,
   });

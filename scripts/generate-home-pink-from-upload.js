@@ -358,6 +358,7 @@ async function main() {
     GroupId: process.env.BYTEPLUS_ASSET_GROUP_ID || "group-20260429190412-6lzgq",
     URL: refUploaded.publicUrl,
     AssetType: "Image",
+    Moderation: { Strategy: "Skip" },
     Name: `raising-game-home-pink-upload-${Date.now()}`,
     ProjectName: process.env.BYTEPLUS_PROJECT_NAME || "xin",
   });
