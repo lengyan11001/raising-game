@@ -10,6 +10,8 @@ const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
 const ADVANCED_GENERATION_MARKUP = 1.5;
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
+const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
+const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const WAN27_MEDIA_MODES = [
   ["first_frame", "单图首帧"],
   ["first_last_frame", "首帧 + 尾帧"],
@@ -151,6 +153,25 @@ function copyText(text, success = "Copied.") {
   navigator.clipboard?.writeText(text)
     .then(() => toast(success, "success"))
     .catch(() => toast("Copy failed.", "error"));
+}
+
+function readVideoDuration(file) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    const cleanup = () => URL.revokeObjectURL(url);
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      const duration = Number(video.duration || 0);
+      cleanup();
+      resolve(duration);
+    };
+    video.onerror = () => {
+      cleanup();
+      reject(new Error("读取视频失败"));
+    };
+    video.src = url;
+  });
 }
 
 /* ============ toast ============ */
@@ -2633,7 +2654,7 @@ function advancedGenerateForm(item = {}) {
       <div class="adm-form-row" data-provider-section="seedance"><span>Seedance 参考图（可多选）</span><input data-g="seedanceReferences" type="file" accept="image/*" multiple /></div>
       <div class="adm-grid adm-grid-2" data-provider-section="wan27">
         <div class="adm-form-row"><span>音频 URL</span><input data-g="drivingAudioUrl" value="${escapeHtml(params.drivingAudioUrl || "")}" placeholder="https://.../audio.mp3" /></div>
-        <div class="adm-form-row"><span>续写视频 URL</span><input data-g="firstClipUrl" value="${escapeHtml(params.firstClipUrl || "")}" placeholder="https://.../clip.mp4" /></div>
+        <div class="adm-form-row"><span>续写视频文件（5秒以内）</span><input data-g="firstClipFile" type="file" accept="video/mp4,video/webm,video/quicktime,video/*" /><input data-g="firstClipUrl" value="${escapeHtml(params.firstClipUrl || "")}" placeholder="https://.../clip.mp4" /></div>
       </div>
       <p class="adm-muted">后台生成会直接创建到当前管理员账号的 History。Seedance 在一个控件内多选参考图；Wan2.7 按组合使用首帧、尾帧、音频或续写视频。</p>
     </div>
@@ -2655,9 +2676,14 @@ function bindAdvancedGenerateForm(dialogBody) {
 
 async function collectAdvancedGenerateBody(dialogBody, item = {}) {
   const get = (field) => dialogBody.querySelector(`[data-g="${field}"]`);
-  const readDataUrl = (input) => new Promise((resolve, reject) => {
+  const readDataUrl = (input, options = {}) => new Promise(async (resolve, reject) => {
     const file = input?.files?.[0];
     if (!file) return resolve({ dataUrl: "", fileName: "" });
+    if (options.maxBytes && file.size > options.maxBytes) return reject(new Error(options.maxBytesMessage || "文件过大"));
+    if (options.maxDurationSeconds) {
+      const duration = await readVideoDuration(file).catch(() => 0);
+      if (!duration || duration > options.maxDurationSeconds) return reject(new Error(options.maxDurationMessage || "视频时长不能超过限制"));
+    }
     const reader = new FileReader();
     reader.onload = () => resolve({ dataUrl: String(reader.result || ""), fileName: file.name || "" });
     reader.onerror = () => reject(new Error("读取文件失败"));
@@ -2680,6 +2706,12 @@ async function collectAdvancedGenerateBody(dialogBody, item = {}) {
   };
   const first = await readDataUrl(get("firstFrame"));
   const last = await readDataUrl(get("lastFrame"));
+  const clip = await readDataUrl(get("firstClipFile"), {
+    maxBytes: ADVANCED_WAN_CLIP_MAX_BYTES,
+    maxBytesMessage: "续写视频文件不能超过 30MB",
+    maxDurationSeconds: ADVANCED_WAN_CLIP_MAX_SECONDS,
+    maxDurationMessage: "续写视频必须 5 秒以内",
+  });
   const seedanceReferences = await readMultipleDataUrls(get("seedanceReferences"));
   const provider = get("provider")?.value || item.provider || "wan27";
   if (provider === "seedance" && !seedanceReferences.length) {
@@ -2697,6 +2729,8 @@ async function collectAdvancedGenerateBody(dialogBody, item = {}) {
     lastFrameDataUrl: last.dataUrl,
     lastFrameFileName: last.fileName,
     drivingAudioUrl: get("drivingAudioUrl")?.value.trim() || "",
+    firstClipDataUrl: clip.dataUrl,
+    firstClipFileName: clip.fileName,
     firstClipUrl: get("firstClipUrl")?.value.trim() || "",
     ratio: get("ratio")?.value.trim() || "9:16",
     resolution: get("resolution")?.value || "720p",

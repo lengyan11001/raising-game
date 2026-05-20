@@ -1732,7 +1732,7 @@ async function createUserWanMediaAssetFromDataUrl(db, user, { dataUrl, name = "W
     mime,
     name,
     fileName,
-    maxBytes: isImage ? 20 * 1024 * 1024 : 200 * 1024 * 1024,
+    maxBytes: isImage ? 20 * 1024 * 1024 : 30 * 1024 * 1024,
   });
 }
 

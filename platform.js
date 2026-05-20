@@ -14,6 +14,8 @@ const ADVANCED_GENERATION_MARKUP = 1.5;
 const DEFAULT_ADVANCED_PROVIDER = "wan27";
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
+const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
+const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 
 function normalizePlatformTab(value = "") {
   const normalized = String(value || "").trim().replace(/^#\/?/, "");
@@ -40,6 +42,8 @@ const state = {
   advancedUploadDataUrl: "",
   advancedReferenceImages: [],
   advancedWanLastFrameDataUrl: "",
+  advancedWanClipDataUrl: "",
+  advancedWanClipFileName: "",
   wallet: null,
   token: localStorage.getItem(TOKEN_KEY) || "",
   lang: localStorage.getItem(LANG_KEY) || "en",
@@ -130,6 +134,8 @@ const els = {
   advancedWanLastFramePreview: document.querySelector("#advancedWanLastFramePreview"),
   advancedWanFirstFramePreview: document.querySelector("#advancedWanFirstFramePreview"),
   advancedWanAudioUrl: document.querySelector("#advancedWanAudioUrl"),
+  advancedWanClipFile: document.querySelector("#advancedWanClipFile"),
+  advancedWanClipPreview: document.querySelector("#advancedWanClipPreview"),
   advancedWanClipUrl: document.querySelector("#advancedWanClipUrl"),
   advancedReferenceSummary: document.querySelector("#advancedReferenceSummary"),
   advancedSubmitBtn: document.querySelector("#advancedSubmitBtn"),
@@ -268,6 +274,10 @@ const I18N = {
     "advanced.lastFrame": "Last frame image",
     "advanced.audioUrl": "Driving audio URL",
     "advanced.clipUrl": "Source video URL",
+    "advanced.clipUpload": "Source video file",
+    "advanced.clipRequired": "Source video file or URL is required.",
+    "advanced.clipTooLarge": "Source video must be 30MB or smaller.",
+    "advanced.clipTooLong": "Source video must be 5 seconds or shorter.",
     "advanced.seedanceHandling": "Seedance image handling",
     "advanced.prepareReference": "Prepare safe reference",
     "advanced.originalImage": "Use original image",
@@ -3127,9 +3137,9 @@ async function submitAdvancedGenerate() {
       if (els.advancedNote) els.advancedNote.textContent = "Driving audio URL is required.";
       return;
     }
-    if (wanModeNeedsClip(mediaMode) && !String(els.advancedWanClipUrl?.value || "").trim()) {
+    if (wanModeNeedsClip(mediaMode) && !state.advancedWanClipDataUrl && !String(els.advancedWanClipUrl?.value || "").trim()) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Source video URL is required.";
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipRequired");
       return;
     }
   }
@@ -3156,7 +3166,9 @@ async function submitAdvancedGenerate() {
         referenceImages: provider === "seedance" ? referenceImages : undefined,
         lastFrameDataUrl: state.advancedWanLastFrameDataUrl,
         drivingAudioUrl: els.advancedWanAudioUrl?.value.trim() || "",
-        firstClipUrl: els.advancedWanClipUrl?.value.trim() || "",
+        firstClipDataUrl: selectedWanClipData(mediaMode),
+        firstClipFileName: selectedWanClipFileName(mediaMode),
+        firstClipUrl: selectedWanClipUrl(mediaMode),
         mediaMode,
         fileName: referenceImages[0]?.fileName || els.advancedImage?.files?.[0]?.name || "",
         lastFrameFileName: els.advancedWanLastFrame?.files?.[0]?.name || "",
@@ -3210,6 +3222,37 @@ function readFileAsDataUrl(file) {
     reader.onerror = () => reject(new Error(t("modal.readImageFailed")));
     reader.readAsDataURL(file);
   });
+}
+
+function readVideoDuration(file) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    const cleanup = () => URL.revokeObjectURL(url);
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      const duration = Number(video.duration || 0);
+      cleanup();
+      resolve(duration);
+    };
+    video.onerror = () => {
+      cleanup();
+      reject(new Error(t("modal.readImageFailed")));
+    };
+    video.src = url;
+  });
+}
+
+function selectedWanClipData(mediaMode = "first_frame") {
+  return wanModeNeedsClip(mediaMode) ? state.advancedWanClipDataUrl : "";
+}
+
+function selectedWanClipFileName(mediaMode = "first_frame") {
+  return wanModeNeedsClip(mediaMode) ? state.advancedWanClipFileName : "";
+}
+
+function selectedWanClipUrl(mediaMode = "first_frame") {
+  return wanModeNeedsClip(mediaMode) ? (els.advancedWanClipUrl?.value.trim() || "") : "";
 }
 
 function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
@@ -3920,6 +3963,39 @@ els.advancedWanLastFrame?.addEventListener("change", async () => {
     els.advancedWanLastFramePreview.src = state.advancedWanLastFrameDataUrl;
     els.advancedWanLastFramePreview.classList.add("is-visible");
     els.advancedWanLastFrame.closest(".wan-frame-upload")?.classList.add("has-image");
+  }
+  updateAdvancedModelControls();
+});
+els.advancedWanClipFile?.addEventListener("change", async () => {
+  const file = els.advancedWanClipFile.files?.[0];
+  if (!file) return;
+  if (file.size > ADVANCED_WAN_CLIP_MAX_BYTES) {
+    state.advancedWanClipDataUrl = "";
+    state.advancedWanClipFileName = "";
+    els.advancedWanClipFile.value = "";
+    els.advancedWanClipPreview?.removeAttribute("src");
+    els.advancedWanClipPreview?.classList.remove("is-visible");
+    els.advancedWanClipFile?.closest(".wan-frame-upload")?.classList.remove("has-image");
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLarge");
+    return;
+  }
+  const clipDuration = await readVideoDuration(file).catch(() => 0);
+  if (!clipDuration || clipDuration > ADVANCED_WAN_CLIP_MAX_SECONDS) {
+    state.advancedWanClipDataUrl = "";
+    state.advancedWanClipFileName = "";
+    els.advancedWanClipFile.value = "";
+    els.advancedWanClipPreview?.removeAttribute("src");
+    els.advancedWanClipPreview?.classList.remove("is-visible");
+    els.advancedWanClipFile?.closest(".wan-frame-upload")?.classList.remove("has-image");
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLong");
+    return;
+  }
+  state.advancedWanClipDataUrl = await readFileAsDataUrl(file);
+  state.advancedWanClipFileName = file.name || "";
+  if (els.advancedWanClipPreview) {
+    els.advancedWanClipPreview.src = state.advancedWanClipDataUrl;
+    els.advancedWanClipPreview.classList.add("is-visible");
+    els.advancedWanClipFile.closest(".wan-frame-upload")?.classList.add("has-image");
   }
   updateAdvancedModelControls();
 });

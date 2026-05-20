@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-48" />
+    <link rel="stylesheet" href="./platform.css?v=ai-49" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -130,7 +130,12 @@
                   <input id="advancedWanAudioUrl" type="url" placeholder="https://.../audio.mp3" />
                 </label>
                 <label class="field wan-extra wan-clip">
-                  <span data-i18n="advanced.clipUrl">Source video URL</span>
+                  <span data-i18n="advanced.clipUpload">Source video file</span>
+                  <div class="wan-frame-upload wan-video-upload">
+                    <input id="advancedWanClipFile" type="file" accept="video/mp4,video/webm,video/quicktime,video/*" />
+                    <video class="wan-frame-preview" id="advancedWanClipPreview" muted playsinline preload="metadata"></video>
+                    <span><i data-lucide="video-up"></i><span data-i18n="advanced.clipUpload">Source video file</span></span>
+                  </div>
                   <input id="advancedWanClipUrl" type="url" placeholder="https://.../clip.mp4" />
                 </label>
               </div>
@@ -397,6 +402,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-48"></script>
+    <script src="./platform.js?v=ai-49"></script>
 </body>
 </html>
