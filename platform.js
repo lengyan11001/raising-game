@@ -3236,9 +3236,9 @@ function renderHistory(records = []) {
     const cost = billingLabel(record.billing || {});
     const failed = statusClass(record.status) === "failed";
     const error = record.error || "";
-    const showMedia = Boolean(videoUrl) || !failed;
+    const showMedia = true;
     const imageAssets = recordImageAssets(record);
-    const referenceStrip = imageAssets.length ? `
+    const referenceStrip = `
       <div class="history-reference-strip">
         ${imageAssets.map((asset) => `
           <figure>
@@ -3247,7 +3247,7 @@ function renderHistory(records = []) {
           </figure>
         `).join("")}
       </div>
-    ` : "";
+    `;
     return `
       <article class="history-item is-${escapeHtml(statusClass(record.status))}">
         ${showMedia ? `
@@ -3258,7 +3258,7 @@ function renderHistory(records = []) {
                 <a class="history-download" href="${escapeHtml(videoUrl)}" download target="_blank" rel="noopener"><i data-lucide="download"></i>${escapeHtml(t("common.download"))}</a>
                 <button class="history-download history-icon-action" type="button" aria-label="${escapeHtml(t("common.fullscreen"))}" title="${escapeHtml(t("common.fullscreen"))}" data-history-preview="${escapeHtml(mediaKey)}" data-history-preview-url="${escapeHtml(videoUrl)}" data-history-preview-title="${escapeHtml(title)}" data-history-preview-ratio="${escapeHtml(recordRatio)}"><i data-lucide="maximize-2"></i></button>
               </div>
-            ` : ""}
+            ` : `<div class="history-media-actions history-media-actions-empty" aria-hidden="true"></div>`}
           </div>
         ` : ""}
         ${referenceStrip}
@@ -3270,7 +3270,7 @@ function renderHistory(records = []) {
             </div>
             <small>${escapeHtml(statusLabel(record.status))}</small>
           </header>
-          ${failed && error ? `<div class="history-error" title="${escapeHtml(error)}">${escapeHtml(error)}</div>` : ""}
+          <div class="history-error" title="${escapeHtml(error)}">${failed && error ? escapeHtml(error) : ""}</div>
           <div class="history-meta">
             ${record.model ? `<span>${escapeHtml(record.model)}</span>` : ""}
             ${record.provider ? `<span>${escapeHtml(record.provider)}</span>` : ""}
@@ -3278,13 +3278,13 @@ function renderHistory(records = []) {
             <span>${escapeHtml(cost)}</span>
             ${created ? `<span>${escapeHtml(created)}</span>` : ""}
           </div>
-          ${taskId ? `
-            <div class="history-record-actions">
+          <div class="history-record-actions${taskId ? "" : " history-record-actions-empty"}">
+            ${taskId ? `
               <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
                 <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
               </button>
-            </div>
-          ` : ""}
+            ` : ""}
+          </div>
           <details class="history-details">
             <summary>${escapeHtml(t("history.viewParameters"))}</summary>
             <pre>${escapeHtml(JSON.stringify({ taskId: record.taskId || "", provider: record.provider || "", source: record.source || "", prompt: record.finalPrompt || record.prompt || "", params: record.params || null, ratio: record.ratio, resolution: record.resolution, duration: record.duration, billing: record.billing || null }, null, 2))}</pre>
