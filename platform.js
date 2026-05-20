@@ -1485,8 +1485,7 @@ POST https://123vips.com/api/advanced/generate
     {"dataUrl": "data:image/png;base64,...", "fileName": "reference-2.png"}
   ],
   "resolution": "720p",
-  "duration": 5,
-  "preprocessReference": true
+  "duration": 5
 }`;
 
 const TYPE_SCRIPT_ACCESS_COPY = `const token = "<user-token>";
@@ -1503,8 +1502,7 @@ const advancedBody = {
   // Seedance only: send one or more reference images in the same field.
   referenceImages: [{ dataUrl: "data:image/png;base64,...", fileName: "reference-1.png" }],
   resolution: "720p",
-  duration: 5,
-  preprocessReference: true
+  duration: 5
 };
 
 const res = await fetch("https://123vips.com/api/advanced/generate", {
@@ -1576,7 +1574,7 @@ POST https://123vips.com/api/advanced/generate
 Body:
 {"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}
 or:
-{"provider":"seedance","prompt":"your prompt","referenceImages":[{"dataUrl":"data:image/png;base64,...","fileName":"reference-1.png"},{"dataUrl":"data:image/png;base64,...","fileName":"reference-2.png"}],"resolution":"720p","duration":5,"preprocessReference":true}
+{"provider":"seedance","prompt":"your prompt","referenceImages":[{"dataUrl":"data:image/png;base64,...","fileName":"reference-1.png"},{"dataUrl":"data:image/png;base64,...","fileName":"reference-2.png"}],"resolution":"720p","duration":5}
 
 Check records:
 GET https://123vips.com/api/generation-records`;
@@ -1591,7 +1589,7 @@ Advanced MCP wrapper target:
 POST https://123vips.com/api/advanced/generate
 Authorization: Bearer <user-token>
 Input:
-{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"dataUrl":"data:image/png;base64,...","fileName":"reference-1.png"}],"resolution":"720p|1080p","duration":5,"preprocessReference":true,"seed":123456 optional}
+{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"dataUrl":"data:image/png;base64,...","fileName":"reference-1.png"}],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
 
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
@@ -1641,7 +1639,6 @@ Content-Type: application/json
       ["ratio", "9:16, 16:9, or 1:1."],
       ["resolution", "720p or 1080p."],
       ["duration", "Seconds. Clamped by provider."],
-      ["preprocessReference", "Seedance only. true or false."],
       ["seed", "Optional Wan2.7 seed."],
     ],
     response: [
@@ -2909,11 +2906,11 @@ function updateAdvancedModelControls() {
   }
   renderAdvancedReferencePreviews();
   updateAdvancedReferenceSummary();
+  if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
   if (els.advancedNote && state.advancedUploadDataUrl) {
     if (provider === "seedance") {
-      const mode = els.advancedPreprocessReference?.value === "no" ? t("advanced.originalReference") : t("advanced.safeReference");
       const count = selectedAdvancedReferenceImages().length;
-      els.advancedNote.textContent = `${t("advanced.referenceSeedance", { mode })} ${t("advanced.seedanceReferenceCount", { count })}`;
+      els.advancedNote.textContent = `${t("advanced.referenceSeedance", { mode: t("advanced.originalReference") })} ${t("advanced.seedanceReferenceCount", { count })}`;
     } else {
       els.advancedNote.textContent = t("advanced.referenceWan");
     }
@@ -2955,7 +2952,7 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedRatio) els.advancedRatio.value = params.ratio || params.aspect_ratio || item.ratio || "9:16";
   if (els.advancedResolution) els.advancedResolution.value = params.resolution || item.resolution || "720p";
   if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
-  if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = params.preprocessReference === false ? "no" : "yes";
+  if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || "";
   if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = normalizeWanMediaMode(params.mediaMode || item.mediaMode || "first_frame");
   if (els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = params.drivingAudioUrl || params.driving_audio_url || "";
@@ -2996,7 +2993,7 @@ async function submitAdvancedGenerate() {
   const bounds = advancedDurationBounds(provider);
   const duration = Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration?.value || bounds.fallback)));
   const resolution = currentAdvancedResolution();
-  const preprocessReference = els.advancedPreprocessReference?.value !== "no";
+  const preprocessReference = false;
   const mediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
   const referenceImages = selectedAdvancedReferenceImages();
   if (provider === "seedance" && !referenceImages.length) {

@@ -1675,7 +1675,6 @@ function advancedCaseFromRecord(record = {}, index = 0) {
       },
     }),
   };
-  if (provider === "seedance") params.preprocessReference = record.params?.preprocessReference !== false;
   if (provider === "wan27" && record.params?.seed) params.seed = record.params.seed;
   const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || "Advanced generation";
   const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
@@ -2507,7 +2506,7 @@ function advancedCaseEditor(item = {}, index = 0) {
       ` : ""}
       <div class="adm-form-row"><span>描述</span><textarea data-f="description" rows="3">${escapeHtml(item.description || "")}</textarea></div>
       <div class="adm-form-row"><span>Prompt（点案例后自动填到前台）</span><textarea data-f="prompt" rows="5">${escapeHtml(item.prompt || "")}</textarea></div>
-      <div class="adm-form-row"><span>参数 JSON（点案例后自动带入；Seedance: preprocessReference；Wan2.7: seed / resolution）</span><textarea data-f="params" rows="8" spellcheck="false">${escapeHtml(params)}</textarea></div>
+      <div class="adm-form-row"><span>参数 JSON（点案例后自动带入；Seedance 默认使用原图；Wan2.7: seed / resolution）</span><textarea data-f="params" rows="8" spellcheck="false">${escapeHtml(params)}</textarea></div>
     </div>
   `;
 }

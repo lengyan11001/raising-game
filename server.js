@@ -2985,7 +2985,7 @@ async function ensureSyntheticReferenceForUserAsset(db, userAsset) {
   return next;
 }
 
-async function prepareSeedanceReferenceAsset(db, userAsset, preprocess = true) {
+async function prepareSeedanceReferenceAsset(db, userAsset, preprocess = false) {
   if (!userAsset) return { asset: null, referenceAssetUri: "", imageUrl: "", sourceImageUrl: "" };
   validateWan27MediaKind(userAsset, "image", "Seedance reference image");
   const prepared = preprocess
@@ -4760,7 +4760,7 @@ async function runAdvancedGenerationJob(job = {}) {
 
     if (userAsset) {
       if (provider === "seedance") {
-        const prepared = await prepareSeedanceReferenceAsset(db, userAsset, requestParams.preprocessReference !== false);
+        const prepared = await prepareSeedanceReferenceAsset(db, userAsset, false);
         userAsset = prepared.asset;
         referenceAssetUri = prepared.referenceAssetUri;
         imageUrl = prepared.imageUrl;
@@ -4786,7 +4786,7 @@ async function runAdvancedGenerationJob(job = {}) {
       }] : [];
       const extraMediaAssets = [];
       for (let index = 0; index < extraUserAssets.length; index += 1) {
-        const prepared = await prepareSeedanceReferenceAsset(db, extraUserAssets[index], requestParams.preprocessReference !== false);
+        const prepared = await prepareSeedanceReferenceAsset(db, extraUserAssets[index], false);
         if (!prepared.referenceAssetUri || prepared.referenceAssetUri === referenceAssetUri || extraReferenceAssetUris.includes(prepared.referenceAssetUri)) continue;
         extraReferenceAssetUris.push(prepared.referenceAssetUri);
         extraMediaAssets.push({
@@ -4966,9 +4966,7 @@ async function handleAdvancedGenerate(req, res) {
   };
   requestParams.ratio = normalizeVideoRatio(requestParams.ratio);
   requestParams.resolution = provider === "wan27" ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
-  requestParams.preprocessReference = body.preprocessReference === undefined
-    ? caseParams.preprocessReference !== false
-    : body.preprocessReference !== false;
+  requestParams.preprocessReference = false;
   requestParams.seed = body.seed ?? caseParams.seed ?? "";
   if (provider === "wan27") requestParams.model = ALIYUN_WAN27_MODEL;
   const pricing = advancedModelPricing(provider, requestParams);
@@ -5302,7 +5300,6 @@ function docsAdvancedExampleBody(item = {}) {
     ratio: params.ratio || params.aspect_ratio || "9:16",
     resolution: params.resolution || "720p",
     duration: durationSecondsFromParams(params) || 5,
-    preprocessReference: provider === "seedance" ? params.preprocessReference !== false : undefined,
     seed: provider === "wan27" ? optionalWan27Seed(params.seed) ?? undefined : undefined,
     generateAudio: params.generateAudio !== false,
   };
@@ -5447,7 +5444,6 @@ function buildAdvancedModelDoc(item, origin) {
       { name: "ratio", type: "string", required: false, description: "Video ratio, for example 9:16, 16:9, or 1:1." },
       { name: "resolution", type: "string", required: false, description: "720p or 1080p." },
       { name: "duration", type: "number", required: false, description: "Duration in seconds. Seedance is clamped to 5-15; Wan2.7 is clamped to 2-15." },
-      { name: "preprocessReference", type: "boolean", required: false, description: "Seedance only. true prepares a safer synthetic reference first; false sends the original uploaded image asset." },
       { name: "seed", type: "number", required: false, description: "Wan2.7 random seed." },
     ],
     exampleRequest: {
