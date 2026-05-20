@@ -1450,42 +1450,7 @@ const PUBLIC_COPY = {
     "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
 };
 
-let ACCESS_GUIDES = [
-  {
-    id: "http",
-    title: "HTTP API",
-    subtitle: "Available now",
-    desc: "This is the live integration path. Submit a generation job, then query history or a task detail for progress and result video.",
-    copy:
-      "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
-    docs: "platform",
-  },
-  {
-    id: "advanced",
-    title: "Advanced API",
-    subtitle: "Model controls",
-    desc: "Approved accounts can call Seedance or Wan2.7 directly and pass reference images explicitly.",
-    copy: LIVE_HTTP_ACCESS_COPY,
-    docs: "advanced",
-  },
-  {
-    id: "records",
-    title: "Records API",
-    subtitle: "Progress & results",
-    desc: "Query generation history or a single task detail to get current status and video URL.",
-    copy:
-      "GET /api/generation-records?limit=60\nAuthorization: Bearer <user-token>\n\nGET /api/generation-records/<taskId>\nAuthorization: Bearer <user-token>",
-    docs: "records",
-  },
-  {
-    id: "types",
-    title: "Code Samples",
-    subtitle: "TS / Python / CLI / MCP",
-    desc: "Copy a ready-made client snippet for your stack and swap in your token.",
-    copy: LIVE_HTTP_ACCESS_COPY,
-    docs: "samples",
-  },
-];
+let ACCESS_GUIDES = [];
 
 const LIVE_HTTP_ACCESS_COPY = `POST https://123vips.com/api/platform/generate
 Authorization: Bearer <user-token>
