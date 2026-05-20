@@ -8,8 +8,8 @@ const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
 const ADVANCED_GENERATION_MARKUP = 1.5;
-const ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT = 2;
-const ADVANCED_SEEDANCE_EXTRA_REFERENCE_MAX_BYTES = 3 * 1024 * 1024;
+const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
+const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
 const WAN27_MEDIA_MODES = [
   ["first_frame", "单图首帧"],
   ["first_last_frame", "首帧 + 尾帧"],
@@ -345,6 +345,7 @@ function generationRecordSignature(record = {}) {
     record.ratio,
     record.resolution,
     record.duration,
+    JSON.stringify(record.mediaAssets || []),
     billing.status,
     billing.final,
     billing.settled,
@@ -396,7 +397,7 @@ function videoOrPoster(item) {
 }
 
 /* ============ dialog helpers ============ */
-function openDialog({ title, body, confirmText = "确定", cancelText = "取消", showCancel = true, hideConfirm = false, onConfirm }) {
+function openDialog({ title, body, confirmText = "确定", cancelText = "取消", showCancel = true, hideConfirm = false, onConfirm, onOpen }) {
   els.dialogTitle.textContent = title || "";
   els.dialogBody.innerHTML = "";
   if (typeof body === "string") {
@@ -441,6 +442,9 @@ function openDialog({ title, body, confirmText = "确定", cancelText = "取消"
     els.dialogForm.addEventListener("submit", handler);
     els.dialog.addEventListener("close", closeHandler);
     els.dialog.showModal();
+    if (typeof onOpen === "function") {
+      onOpen(els.dialogBody);
+    }
   });
 }
 
@@ -1394,6 +1398,41 @@ function recordRemoteVideoUrl(record) {
   return record.remoteVideoUrl || record.videoUrl || "";
 }
 
+function recordMediaAssetPreviewUrl(asset = {}) {
+  return asset.imageUrl || asset.localUrl || asset.url || asset.sourceImageUrl || "";
+}
+
+function recordMediaAssetLabel(asset = {}, index = 0) {
+  if (asset.type === "first_frame" || asset.key === "firstFrame") return "First frame";
+  if (asset.type === "last_frame" || asset.key === "lastFrame") return "Last frame";
+  if (asset.type === "reference_image") return `Reference ${index + 1}`;
+  return String(asset.type || asset.key || `Image ${index + 1}`).replace(/_/g, " ");
+}
+
+function recordImageAssets(record = {}) {
+  const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const images = assets
+    .filter((asset) => recordMediaAssetPreviewUrl(asset) && !["driving_audio", "first_clip"].includes(asset.type))
+    .map((asset, index) => ({ ...asset, label: recordMediaAssetLabel(asset, index) }));
+  if (!images.length && record.imageUrl) images.push({ imageUrl: record.imageUrl, label: "Reference" });
+  return images;
+}
+
+function recordImageAssetsHtml(record = {}) {
+  const images = recordImageAssets(record);
+  if (!images.length) return "";
+  return `
+    <div class="adm-record-reference-grid">
+      ${images.map((asset) => `
+        <figure>
+          <img src="${escapeHtml(recordMediaAssetPreviewUrl(asset))}" alt="" />
+          <figcaption>${escapeHtml(asset.label || "")}</figcaption>
+        </figure>
+      `).join("")}
+    </div>
+  `;
+}
+
 function toAbsoluteHttpUrl(value = "") {
   const url = String(value || "").trim();
   if (/^https?:\/\//i.test(url)) return url;
@@ -1717,6 +1756,7 @@ function openGenerationRecordDetail(record) {
       <div class="adm-record-preview">
         ${recordPreviewHtml(record)}
       </div>
+      ${recordImageAssetsHtml(record)}
       <div class="adm-record-kv">
         <span>User</span><strong>${escapeHtml(recordOwnerText(record))}</strong>
         <span>Status</span><strong>${statusPill(record.status)}</strong>
@@ -2566,7 +2606,7 @@ function advancedGenerateForm(item = {}) {
     <div class="platform-template-editor">
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>模型</span><select data-g="provider"><option value="wan27" ${provider === "wan27" ? "selected" : ""}>Wan2.7</option><option value="seedance" ${provider === "seedance" ? "selected" : ""}>Seedance</option></select></div>
-        <div class="adm-form-row"><span>Wan 组合</span><select data-g="mediaMode">${WAN27_MEDIA_MODES.map(([mode, label]) => `<option value="${mode}" ${mediaMode === mode ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+        <div class="adm-form-row" data-provider-section="wan27"><span>Wan 组合</span><select data-g="mediaMode">${WAN27_MEDIA_MODES.map(([mode, label]) => `<option value="${mode}" ${mediaMode === mode ? "selected" : ""}>${label}</option>`).join("")}</select></div>
         <div class="adm-form-row"><span>分辨率</span><select data-g="resolution"><option value="720p" ${normalizeAdvancedResolution(params.resolution) === "720p" ? "selected" : ""}>720p</option><option value="1080p" ${normalizeAdvancedResolution(params.resolution) === "1080p" ? "selected" : ""}>1080p</option></select></div>
       </div>
       <div class="adm-grid adm-grid-3">
@@ -2575,18 +2615,31 @@ function advancedGenerateForm(item = {}) {
         <div class="adm-form-row"><span>Seed</span><input data-g="seed" type="number" min="0" value="${escapeHtml(params.seed || "")}" /></div>
       </div>
       <div class="adm-form-row"><span>Prompt</span><textarea data-g="prompt" rows="5">${escapeHtml(item.prompt || params.prompt || "")}</textarea></div>
-      <div class="adm-grid adm-grid-2">
+      <div class="adm-grid adm-grid-2" data-provider-section="wan27">
         <div class="adm-form-row"><span>首帧/主参考图</span><input data-g="firstFrame" type="file" accept="image/*" /></div>
         <div class="adm-form-row"><span>尾帧图片</span><input data-g="lastFrame" type="file" accept="image/*" /></div>
       </div>
-      <div class="adm-form-row"><span>Seedance 额外参考图</span><input data-g="seedanceExtraReferences" type="file" accept="image/*" multiple /></div>
-      <div class="adm-grid adm-grid-2">
+      <div class="adm-form-row" data-provider-section="seedance"><span>Seedance 参考图（可多选）</span><input data-g="seedanceReferences" type="file" accept="image/*" multiple /></div>
+      <div class="adm-grid adm-grid-2" data-provider-section="wan27">
         <div class="adm-form-row"><span>音频 URL</span><input data-g="drivingAudioUrl" value="${escapeHtml(params.drivingAudioUrl || "")}" placeholder="https://.../audio.mp3" /></div>
         <div class="adm-form-row"><span>续写视频 URL</span><input data-g="firstClipUrl" value="${escapeHtml(params.firstClipUrl || "")}" placeholder="https://.../clip.mp4" /></div>
       </div>
-      <p class="adm-muted">后台生成会直接创建到当前管理员账号的 History。Seedance 支持主参考图 + 最多 2 张额外参考图；Wan2.7 按组合使用首帧/尾帧/音频/续写视频。</p>
+      <p class="adm-muted">后台生成会直接创建到当前管理员账号的 History。Seedance 在一个控件内多选参考图；Wan2.7 按组合使用首帧、尾帧、音频或续写视频。</p>
     </div>
   `;
+}
+
+function bindAdvancedGenerateForm(dialogBody) {
+  const providerSelect = dialogBody.querySelector('[data-g="provider"]');
+  const sections = Array.from(dialogBody.querySelectorAll("[data-provider-section]"));
+  const sync = () => {
+    const provider = providerSelect?.value || "wan27";
+    sections.forEach((section) => {
+      section.hidden = section.dataset.providerSection !== provider;
+    });
+  };
+  providerSelect?.addEventListener("change", sync);
+  sync();
 }
 
 async function collectAdvancedGenerateBody(dialogBody, item = {}) {
@@ -2600,9 +2653,12 @@ async function collectAdvancedGenerateBody(dialogBody, item = {}) {
     reader.readAsDataURL(file);
   });
   const readMultipleDataUrls = async (input) => {
-    const files = Array.from(input?.files || []).slice(0, ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT);
-    if (files.some((file) => file.size > ADVANCED_SEEDANCE_EXTRA_REFERENCE_MAX_BYTES)) {
-      throw new Error("Seedance 额外参考图每张不能超过 3MB");
+    const files = Array.from(input?.files || []);
+    if (files.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+      throw new Error(`Seedance 参考图最多 ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} 张`);
+    }
+    if (files.some((file) => file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES)) {
+      throw new Error("Seedance 参考图每张不能超过 8MB");
     }
     return Promise.all(files.map((file) => new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -2613,16 +2669,20 @@ async function collectAdvancedGenerateBody(dialogBody, item = {}) {
   };
   const first = await readDataUrl(get("firstFrame"));
   const last = await readDataUrl(get("lastFrame"));
-  const extraReferenceDataUrls = await readMultipleDataUrls(get("seedanceExtraReferences"));
+  const seedanceReferences = await readMultipleDataUrls(get("seedanceReferences"));
+  const provider = get("provider")?.value || item.provider || "wan27";
+  if (provider === "seedance" && !seedanceReferences.length) {
+    throw new Error("请至少上传一张 Seedance 参考图");
+  }
   return {
     caseId: item.id || "",
-    provider: get("provider")?.value || item.provider || "wan27",
+    provider,
     prompt: get("prompt")?.value.trim() || item.prompt || "",
     mediaMode: normalizeWanMediaMode(get("mediaMode")?.value),
     dataUrl: first.dataUrl,
     firstFrameDataUrl: first.dataUrl,
     firstFrameFileName: first.fileName,
-    extraReferenceDataUrls,
+    referenceImages: provider === "seedance" ? seedanceReferences : undefined,
     lastFrameDataUrl: last.dataUrl,
     lastFrameFileName: last.fileName,
     drivingAudioUrl: get("drivingAudioUrl")?.value.trim() || "",
@@ -2873,6 +2933,7 @@ async function renderPlatform(options = {}) {
         body: advancedGenerateForm(item),
         confirmText: "提交生成",
         cancelText: "取消",
+        onOpen: bindAdvancedGenerateForm,
         onConfirm: async () => {
           const body = await collectAdvancedGenerateBody(els.dialogBody, item);
           const payload = await api("/api/admin/advanced/generate", { method: "POST", body });

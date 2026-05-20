@@ -83,7 +83,8 @@ const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = clampNumber(process.env.A
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_WAN27_720P_CREDITS_PER_SECOND, 100, 1, 100000);
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = clampNumber(process.env.ADVANCED_WAN27_1080P_CREDITS_PER_SECOND, 150, 1, 100000);
 const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_MARKUP, 1.5, 1, 100);
-const ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT, 2, 0, 8));
+const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_REFERENCE_LIMIT || process.env.ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT, 6, 1, 12));
+const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 80, 1, 200) * 1024 * 1024);
 const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_DASHSCOPE_API_KEY =
   process.env.ALIYUN_DASHSCOPE_API_KEY ||
@@ -2621,8 +2622,36 @@ function arrayFromBody(value) {
   return Array.isArray(value) ? value : [value];
 }
 
+function seedanceReferenceInputsFromBody(body = {}) {
+  const inputs = [
+    ...arrayFromBody(body.referenceImages),
+    ...arrayFromBody(body.referenceImageDataUrls),
+  ];
+  const filteredInputs = inputs.filter((item) => {
+    if (!item) return false;
+    if (typeof item === "string") return item.trim();
+    return item.dataUrl;
+  });
+  if (filteredInputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+    const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  if (filteredInputs.length) return filteredInputs;
+  const fallbackInputs = [
+    body.dataUrl ? { dataUrl: body.dataUrl, fileName: body.fileName || "", name: "Advanced reference 1" } : null,
+    ...seedanceExtraReferenceInputsFromBody(body),
+  ].filter(Boolean);
+  if (fallbackInputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+    const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return fallbackInputs;
+}
+
 function seedanceExtraReferenceInputsFromBody(body = {}) {
-  return [
+  const inputs = [
     ...arrayFromBody(body.extraReferenceDataUrls),
     ...arrayFromBody(body.extraReferenceImages),
     ...arrayFromBody(body.extraDataUrls),
@@ -2631,14 +2660,39 @@ function seedanceExtraReferenceInputsFromBody(body = {}) {
     if (!item) return false;
     if (typeof item === "string") return item.trim();
     return item.dataUrl;
-  }).slice(0, ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT);
+  });
+  if (inputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+    const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return inputs;
 }
 
 function seedanceExtraReferenceAssetIdsFromBody(body = {}) {
-  return [
+  const assetIds = [
     ...arrayFromBody(body.extraReferenceAssetIds),
     ...arrayFromBody(body.extraUserAssetIds),
-  ].map((item) => String(item || "").trim()).filter(Boolean).slice(0, ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT);
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  if (assetIds.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+    const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return assetIds;
+}
+
+function seedanceReferenceAssetIdsFromBody(body = {}) {
+  const assetIds = [
+    body.userAssetId,
+    ...seedanceExtraReferenceAssetIdsFromBody(body),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  if (assetIds.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+    const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return assetIds;
 }
 
 async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "Reference" } = {}) {
@@ -3917,10 +3971,9 @@ async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } 
 
 async function readJson(req) {
   const chunks = [];
-  const maxBodySize = 20 * 1024 * 1024;
   for await (const chunk of req) {
     chunks.push(chunk);
-    if (Buffer.concat(chunks).byteLength > maxBodySize) {
+    if (Buffer.concat(chunks).byteLength > JSON_BODY_MAX_BYTES) {
       throw new Error("Request body too large");
     }
   }
@@ -4926,38 +4979,29 @@ async function handleAdvancedGenerate(req, res) {
   let extraUserAssets = [];
   let extraUserAssetIds = [];
   if (provider !== "wan27") {
-    if (body.dataUrl) {
-      userAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
-        dataUrl: body.dataUrl,
-        fileName: body.fileName,
-        name: selectedCase?.title || "Advanced reference",
-      });
-    } else if (body.userAssetId) {
-      userAsset = auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
-      if (!userAsset) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
+    const referenceInputs = seedanceReferenceInputsFromBody(body);
+    const createdReferenceAssets = await createUserImageAssetsFromInputs(auth.db, auth.user, referenceInputs, {
+      name: selectedCase?.title || "Advanced reference",
+    });
+    if (createdReferenceAssets.length) {
+      [userAsset, ...extraUserAssets] = createdReferenceAssets;
+    } else {
+      const referenceAssetIds = seedanceReferenceAssetIdsFromBody(body);
+      if (referenceAssetIds.length) {
+        const foundAssets = referenceAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
+        if (foundAssets.some((asset) => !asset)) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
+        [userAsset, ...extraUserAssets] = foundAssets;
+      }
     }
     const seenSeedanceAssetIds = new Set([userAsset?.id].filter(Boolean));
     for (const assetId of seedanceExtraReferenceAssetIdsFromBody(body)) {
-      if (seenSeedanceAssetIds.has(assetId) || extraUserAssets.length >= ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT) continue;
+      if (seenSeedanceAssetIds.has(assetId) || extraUserAssets.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT - 1) continue;
       const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
       if (!asset) return sendJson(res, 404, { ok: false, message: "Extra reference image not found." });
       extraUserAssets.push(asset);
       seenSeedanceAssetIds.add(asset.id);
     }
-    const extraSlots = Math.max(0, ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT - extraUserAssets.length);
-    if (extraSlots > 0) {
-      const createdExtras = await createUserImageAssetsFromInputs(
-        auth.db,
-        auth.user,
-        seedanceExtraReferenceInputsFromBody(body).slice(0, extraSlots),
-        { name: selectedCase?.title ? `${selectedCase.title} extra reference` : "Advanced extra reference" },
-      );
-      createdExtras.forEach((asset) => {
-        if (!asset || seenSeedanceAssetIds.has(asset.id) || extraUserAssets.length >= ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT) return;
-        extraUserAssets.push(asset);
-        seenSeedanceAssetIds.add(asset.id);
-      });
-    }
+    extraUserAssets = extraUserAssets.slice(0, Math.max(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT - 1));
     extraUserAssetIds = extraUserAssets.map((asset) => asset.id);
   } else {
     const firstFrameDataUrl = body.firstFrameDataUrl || body.first_frame_data_url || body.dataUrl;
@@ -5261,7 +5305,8 @@ function docsAdvancedExampleBody(item = {}) {
     generateAudio: params.generateAudio !== false,
   };
   if (provider === "seedance") {
-    body.extraReferenceDataUrls = [
+    body.referenceImages = [
+      { dataUrl: "data:image/png;base64,...", fileName: "reference-1.png" },
       { dataUrl: "data:image/png;base64,...", fileName: "reference-2.png" },
     ];
   }
@@ -5393,9 +5438,10 @@ function buildAdvancedModelDoc(item, origin) {
       { name: "provider", type: "string", required: false, description: "`wan27` or `seedance`. Defaults to the saved case provider, or Wan2.7 when no case/provider is supplied." },
       { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
       { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded reference image as a base64 data URL. Required for Wan2.7 first-frame generation; optional for Seedance." },
+      { name: "referenceImages", type: "array", required: false, description: "Seedance only. One or more reference images as data URLs in the same field." },
       { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. Use instead of dataUrl." },
-      { name: "extraReferenceDataUrls", type: "array", required: false, description: "Seedance only. Optional extra reference images as data URLs; production UI limits this to 2 extra images." },
-      { name: "extraReferenceAssetIds", type: "array", required: false, description: "Seedance only. Optional existing uploaded asset ids for extra references." },
+      { name: "extraReferenceDataUrls", type: "array", required: false, description: "Seedance compatibility field. Prefer referenceImages for new integrations." },
+      { name: "extraReferenceAssetIds", type: "array", required: false, description: "Seedance only. Optional existing uploaded asset ids for additional references." },
       { name: "ratio", type: "string", required: false, description: "Video ratio, for example 9:16, 16:9, or 1:1." },
       { name: "resolution", type: "string", required: false, description: "720p or 1080p." },
       { name: "duration", type: "number", required: false, description: "Duration in seconds. Seedance is clamped to 5-15; Wan2.7 is clamped to 2-15." },
@@ -5494,7 +5540,7 @@ function advancedDocMarkdown(item) {
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
-  lines.push("", "Reference image: send `dataUrl`, or send `userAssetId` for an existing uploaded asset. Wan2.7 requires a reference image and sends it as the first frame; Seedance can optionally preprocess it into a safer synthetic reference. For Seedance multi-image reference, also send `extraReferenceDataUrls` or `extraReferenceAssetIds`.");
+  lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `referenceImages` for one or more images in the same field, or `userAssetId` / `extraReferenceAssetIds` for existing uploaded assets.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }

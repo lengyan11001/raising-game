@@ -246,7 +246,7 @@ server {
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    client_max_body_size 20m;
+    client_max_body_size 80m;
 
     location ^~ /assets/generated/videos/ {
         proxy_pass http://raising_game_app;

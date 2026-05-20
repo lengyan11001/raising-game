@@ -88,17 +88,11 @@
               <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..." data-i18n-placeholder="advanced.promptPlaceholder"></textarea>
             </label>
             <label class="upload-box advanced-upload-box" id="advancedUploadBox">
-              <input id="advancedImage" type="file" accept="image/*" />
-              <img id="advancedUploadPreview" alt="Advanced reference preview" />
+              <input id="advancedImage" type="file" accept="image/*" multiple />
+              <div class="advanced-upload-previews" id="advancedUploadPreview"></div>
               <span data-i18n="advanced.uploadReference"><i data-lucide="image-up"></i>Upload reference character</span>
             </label>
-            <div class="seedance-extra-panel advanced-seedance-option" id="advancedSeedanceExtraPanel" hidden>
-              <label class="field">
-                <span data-i18n="advanced.extraReferences">Extra reference images</span>
-                <input id="advancedSeedanceExtraImages" type="file" accept="image/*" multiple />
-              </label>
-              <p class="job-note" id="advancedSeedanceExtraSummary" data-i18n="advanced.extraReferenceHint">Optional for Seedance multi-image reference. Up to 2 images, 3MB each.</p>
-            </div>
+            <p class="job-note advanced-reference-summary" id="advancedReferenceSummary"></p>
             <div class="wan-media-panel advanced-wan-option" id="advancedWanMediaPanel" hidden>
               <label class="field">
                 <span data-i18n="advanced.wanMode">Wan2.7 input</span>
@@ -114,6 +108,7 @@
               <label class="field wan-extra wan-last-frame">
                 <span data-i18n="advanced.lastFrame">Last frame image</span>
                 <input id="advancedWanLastFrame" type="file" accept="image/*" />
+                <img class="wan-frame-preview" id="advancedWanLastFramePreview" alt="Wan2.7 last frame preview" />
               </label>
               <label class="field wan-extra wan-audio">
                 <span data-i18n="advanced.audioUrl">Driving audio URL</span>
