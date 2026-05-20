@@ -110,6 +110,9 @@ const els = {
   previewDialog: document.querySelector("#previewDialog"),
   previewTitle: document.querySelector("#previewTitle"),
   previewVideo: document.querySelector("#previewVideo"),
+  historyDetailDialog: document.querySelector("#historyDetailDialog"),
+  historyDetailTitle: document.querySelector("#historyDetailTitle"),
+  historyDetailBody: document.querySelector("#historyDetailBody"),
   advancedGate: document.querySelector("#advancedGate"),
   advancedWorkspace: document.querySelector("#advancedWorkspace"),
   advancedPrompt: document.querySelector("#advancedPrompt"),
@@ -346,6 +349,11 @@ const I18N = {
     "history.regenerate": "Regenerate",
     "history.regenerating": "Regenerating...",
     "history.regenerateSubmitted": "Submitted",
+    "history.detailTitle": "Generation detail",
+    "history.inputImages": "Input images",
+    "history.parameters": "Parameters",
+    "history.result": "Result",
+    "history.noInputImages": "No input images recorded.",
     "ledger.search": "Search",
     "ledger.status": "Status",
     "ledger.type": "Type",
@@ -592,6 +600,11 @@ const I18N = {
     "history.regenerate": "Regenerate",
     "history.regenerating": "Regenerating...",
     "history.regenerateSubmitted": "Submitted",
+    "history.detailTitle": "Chi tiết tạo",
+    "history.inputImages": "Ảnh đầu vào",
+    "history.parameters": "Tham số",
+    "history.result": "Kết quả",
+    "history.noInputImages": "Chưa lưu ảnh đầu vào.",
     "ledger.search": "Tìm kiếm",
     "ledger.status": "Trạng thái",
     "ledger.type": "Loại",
@@ -838,6 +851,11 @@ const I18N = {
     "history.regenerate": "Regenerate",
     "history.regenerating": "Regenerating...",
     "history.regenerateSubmitted": "Submitted",
+    "history.detailTitle": "生成詳細",
+    "history.inputImages": "入力画像",
+    "history.parameters": "パラメータ",
+    "history.result": "結果",
+    "history.noInputImages": "入力画像の記録はありません。",
     "ledger.search": "検索",
     "ledger.status": "ステータス",
     "ledger.type": "タイプ",
@@ -1084,6 +1102,11 @@ const I18N = {
     "history.regenerate": "Regenerate",
     "history.regenerating": "Regenerating...",
     "history.regenerateSubmitted": "Submitted",
+    "history.detailTitle": "생성 상세",
+    "history.inputImages": "입력 이미지",
+    "history.parameters": "파라미터",
+    "history.result": "결과",
+    "history.noInputImages": "기록된 입력 이미지가 없습니다.",
     "ledger.search": "검색",
     "ledger.status": "상태",
     "ledger.type": "유형",
@@ -1330,6 +1353,11 @@ const I18N = {
     "history.regenerate": "Regenerate",
     "history.regenerating": "Regenerating...",
     "history.regenerateSubmitted": "Submitted",
+    "history.detailTitle": "Detail pembuatan",
+    "history.inputImages": "Gambar input",
+    "history.parameters": "Parameter",
+    "history.result": "Hasil",
+    "history.noInputImages": "Tidak ada gambar input yang tercatat.",
     "ledger.search": "Cari",
     "ledger.status": "Status",
     "ledger.type": "Tipe",
@@ -2235,13 +2263,19 @@ function mediaAssetLabel(asset = {}, index = 0) {
 }
 
 function recordImageAssets(record = {}) {
-  const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
-  const images = mediaAssets
-    .filter((asset) => mediaAssetPreviewUrl(asset) && !["driving_audio", "first_clip"].includes(asset.type))
-    .map((asset, index) => ({ ...asset, label: mediaAssetLabel(asset, index) }));
-  if (!images.length && record.imageUrl) {
-    images.push({ imageUrl: record.imageUrl, label: "Reference" });
-  }
+  const images = [];
+  const seen = new Set();
+  const pushImage = (asset = {}, fallbackLabel = "") => {
+    const url = mediaAssetPreviewUrl(asset);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    images.push({ ...asset, label: asset.label || fallbackLabel || mediaAssetLabel(asset, images.length) });
+  };
+  (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => !["driving_audio", "first_clip"].includes(asset.type))
+    .forEach((asset) => pushImage(asset));
+  pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
+  pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
   return images;
 }
 
@@ -2707,6 +2741,67 @@ function playPreview({ title = "", previewUrl = "", ratio = "16:9" } = {}) {
   els.previewVideo.load();
   if (!els.previewDialog.open) els.previewDialog.showModal();
   window.setTimeout(() => els.previewVideo.play().catch(() => {}), 80);
+}
+
+function historyDetailPayload(record = {}) {
+  return {
+    taskId: record.taskId || "",
+    status: statusLabel(record.status),
+    provider: record.provider || "",
+    model: record.model || "",
+    source: record.source || "",
+    prompt: record.finalPrompt || record.prompt || "",
+    params: record.params || null,
+    ratio: record.ratio || record.params?.ratio || record.params?.aspect_ratio || "",
+    resolution: record.resolution || record.params?.resolution || "",
+    duration: record.duration || "",
+    mediaMode: record.mediaMode || record.params?.mediaMode || "",
+    billing: record.billing || null,
+    error: record.error || "",
+    result: generationVideoUrl(record) || "",
+    createdAt: record.createdAt || "",
+    updatedAt: record.updatedAt || "",
+  };
+}
+
+function openHistoryDetail(index) {
+  const record = state.historyRecords?.[Number(index || 0)];
+  if (!record || !els.historyDetailDialog || !els.historyDetailBody) return;
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle");
+  const videoUrl = generationVideoUrl(record);
+  const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
+  const images = recordImageAssets(record);
+  els.historyDetailTitle.textContent = title || t("history.detailTitle");
+  els.historyDetailBody.innerHTML = `
+    <section class="history-detail-section">
+      <header>
+        <strong>${escapeHtml(t("history.inputImages"))}</strong>
+        <span>${escapeHtml(record.taskId || "")}</span>
+      </header>
+      ${images.length ? `
+        <div class="history-detail-images">
+          ${images.map((asset) => `
+            <figure>
+              <img src="${escapeHtml(mediaAssetPreviewUrl(asset))}" alt="" loading="lazy" />
+              <figcaption>${escapeHtml(asset.label || "")}</figcaption>
+            </figure>
+          `).join("")}
+        </div>
+      ` : `<p class="history-detail-empty">${escapeHtml(t("history.noInputImages"))}</p>`}
+    </section>
+    <section class="history-detail-section">
+      <header><strong>${escapeHtml(t("history.parameters"))}</strong></header>
+      <pre>${escapeHtml(JSON.stringify(historyDetailPayload(record), null, 2))}</pre>
+    </section>
+    <section class="history-detail-section">
+      <header><strong>${escapeHtml(t("history.result"))}</strong></header>
+      ${videoUrl ? `
+        <video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata" style="${escapeHtml(ratioStyle(recordRatio))}"></video>
+      ` : `<pre>${escapeHtml(record.error || statusLabel(record.status))}</pre>`}
+    </section>
+  `;
+  if (!els.historyDetailDialog.open) els.historyDetailDialog.showModal();
+  refreshIcons();
 }
 
 function openPreview(templateId) {
@@ -3224,60 +3319,20 @@ function renderHistory(records = []) {
     refreshIcons();
     return;
   }
-  els.historyList.innerHTML = `${expiryNotice}${sortedRecords.map((record) => {
+  state.historyRecords = sortedRecords;
+  els.historyList.innerHTML = `${expiryNotice}${sortedRecords.map((record, index) => {
     const videoUrl = generationVideoUrl(record);
     const taskId = record.taskId || "";
     const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
     const title = record.templateTitle || record.sceneEntryName || record.sceneName || t("history.job");
-    const created = record.createdAt ? new Date(record.createdAt).toLocaleString() : "";
-    const duration = record.duration ? `${record.duration}s` : "";
     const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio;
     const mediaStyle = ratioStyle(recordRatio);
-    const cost = billingLabel(record.billing || {});
-    const failed = statusClass(record.status) === "failed";
-    const error = record.error || "";
-    const showMedia = true;
-    const imageAssets = recordImageAssets(record);
-    const referenceStrip = `
-      <div class="history-reference-strip">
-        ${imageAssets.map((asset) => `
-          <figure>
-            <img src="${escapeHtml(mediaAssetPreviewUrl(asset))}" alt="" loading="lazy" />
-            <figcaption>${escapeHtml(asset.label || "")}</figcaption>
-          </figure>
-        `).join("")}
-      </div>
-    `;
     return `
       <article class="history-item is-${escapeHtml(statusClass(record.status))}">
-        ${showMedia ? `
-          <div class="history-media" style="${escapeHtml(mediaStyle)}">
-            ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata" data-history-video="${escapeHtml(mediaKey)}"></video>` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
-            ${videoUrl ? `
-              <div class="history-media-actions">
-                <a class="history-download" href="${escapeHtml(videoUrl)}" download target="_blank" rel="noopener"><i data-lucide="download"></i>${escapeHtml(t("common.download"))}</a>
-                <button class="history-download history-icon-action" type="button" aria-label="${escapeHtml(t("common.fullscreen"))}" title="${escapeHtml(t("common.fullscreen"))}" data-history-preview="${escapeHtml(mediaKey)}" data-history-preview-url="${escapeHtml(videoUrl)}" data-history-preview-title="${escapeHtml(title)}" data-history-preview-ratio="${escapeHtml(recordRatio)}"><i data-lucide="maximize-2"></i></button>
-              </div>
-            ` : `<div class="history-media-actions history-media-actions-empty" aria-hidden="true"></div>`}
-          </div>
-        ` : ""}
-        ${referenceStrip}
-        <div class="history-info">
-          <header>
-            <div>
-              <strong>${escapeHtml(title)}</strong>
-              <small>${escapeHtml(record.taskId || "")}</small>
-            </div>
-            <small>${escapeHtml(statusLabel(record.status))}</small>
-          </header>
-          <div class="history-error" title="${escapeHtml(error)}">${failed && error ? escapeHtml(error) : ""}</div>
-          <div class="history-meta">
-            ${record.model ? `<span>${escapeHtml(record.model)}</span>` : ""}
-            ${record.provider ? `<span>${escapeHtml(record.provider)}</span>` : ""}
-            ${duration ? `<span>${escapeHtml(duration)}</span>` : ""}
-            <span>${escapeHtml(cost)}</span>
-            ${created ? `<span>${escapeHtml(created)}</span>` : ""}
-          </div>
+        <div class="history-media" style="${escapeHtml(mediaStyle)}">
+          ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata" data-history-video="${escapeHtml(mediaKey)}"></video>` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
+        </div>
+        <div class="history-card-actions">
           <div class="history-record-actions${taskId ? "" : " history-record-actions-empty"}">
             ${taskId ? `
               <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
@@ -3285,10 +3340,9 @@ function renderHistory(records = []) {
               </button>
             ` : ""}
           </div>
-          <details class="history-details">
-            <summary>${escapeHtml(t("history.viewParameters"))}</summary>
-            <pre>${escapeHtml(JSON.stringify({ taskId: record.taskId || "", provider: record.provider || "", source: record.source || "", prompt: record.finalPrompt || record.prompt || "", params: record.params || null, ratio: record.ratio, resolution: record.resolution, duration: record.duration, billing: record.billing || null }, null, 2))}</pre>
-          </details>
+          <button class="history-download history-params" type="button" data-history-detail="${index}">
+            <i data-lucide="sliders-horizontal"></i>${escapeHtml(t("history.viewParameters"))}
+          </button>
         </div>
       </article>
     `;
@@ -3304,6 +3358,9 @@ function renderHistory(records = []) {
   });
   els.historyList.querySelectorAll("[data-history-regenerate]").forEach((button) => {
     button.addEventListener("click", () => regenerateHistoryRecord(button.dataset.historyRegenerate || "", button));
+  });
+  els.historyList.querySelectorAll("[data-history-detail]").forEach((button) => {
+    button.addEventListener("click", () => openHistoryDetail(button.dataset.historyDetail || 0));
   });
   refreshIcons();
 }

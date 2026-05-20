@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-47" />
+    <link rel="stylesheet" href="./platform.css?v=ai-48" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -371,6 +371,19 @@
       </form>
     </dialog>
 
+    <dialog id="historyDetailDialog" class="modal history-detail-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span data-i18n="history.eyebrow">History</span>
+            <strong id="historyDetailTitle">Generation detail</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body history-detail-body" id="historyDetailBody"></div>
+      </form>
+    </dialog>
+
     <dialog id="legalDialog" class="modal legal-modal">
       <form method="dialog">
         <header>
@@ -384,6 +397,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-47"></script>
+    <script src="./platform.js?v=ai-48"></script>
 </body>
 </html>

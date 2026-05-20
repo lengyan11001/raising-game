@@ -1410,11 +1410,23 @@ function recordMediaAssetLabel(asset = {}, index = 0) {
 }
 
 function recordImageAssets(record = {}) {
-  const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
-  const images = assets
-    .filter((asset) => recordMediaAssetPreviewUrl(asset) && !["driving_audio", "first_clip"].includes(asset.type))
-    .map((asset, index) => ({ ...asset, label: recordMediaAssetLabel(asset, index) }));
-  if (!images.length && record.imageUrl) images.push({ imageUrl: record.imageUrl, label: "Reference" });
+  const images = [];
+  const seen = new Set();
+  const pushImage = (asset = {}, fallbackLabel = "") => {
+    const url = recordMediaAssetPreviewUrl(asset);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    images.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, images.length) });
+  };
+  (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => !["driving_audio", "first_clip"].includes(asset.type))
+    .forEach((asset) => pushImage(asset));
+  const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
+  upstreamMedia
+    .filter((asset) => !["driving_audio", "first_clip"].includes(asset.type))
+    .forEach((asset) => pushImage(asset));
+  pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
+  pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
   return images;
 }
 

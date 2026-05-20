@@ -1051,60 +1051,22 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 .history-item {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   gap: 9px;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255,255,255,.65);
   min-width: 0;
-  min-height: 420px;
+  min-height: 0;
   align-content: start;
 }
 .history-item.is-failed { border-color: rgba(239,68,68,.28); background: rgba(255,255,255,.78); }
 .history-item.is-running .history-placeholder svg { animation: spin 1.2s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.history-info {
-  display: grid;
-  grid-template-rows: 44px 54px 56px 30px auto;
-  align-content: start;
-  gap: 8px;
-  min-width: 0;
-}
-.history-item header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  padding: 0;
-  border: 0;
-  align-items: start;
-  gap: 8px;
-  min-width: 0;
-  min-height: 44px;
-  overflow: hidden;
-}
-.history-item header > div { min-width: 0; }
-.history-item strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.history-item small { color: var(--muted); word-break: break-all; }
-.history-item header small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  word-break: normal;
-}
-.history-item header > small {
-  max-width: 76px;
-  text-align: right;
-}
 .history-media {
   position: relative;
   display: grid;
-  gap: 6px;
   min-height: 0;
 }
 .history-media video,
@@ -1138,6 +1100,11 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 .history-media-actions-empty {
   visibility: hidden;
 }
+.history-card-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
 .history-record-actions {
   display: flex;
   align-items: center;
@@ -1149,45 +1116,6 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 }
 .history-record-actions-empty {
   visibility: hidden;
-}
-.history-reference-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(62px, 1fr));
-  gap: 6px;
-  min-height: 68px;
-  max-height: 68px;
-  overflow: hidden;
-}
-.history-reference-strip figure {
-  position: relative;
-  margin: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255,255,255,.62);
-}
-.history-reference-strip img {
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  max-height: 66px;
-  object-fit: contain;
-  display: block;
-  padding: 4px;
-}
-.history-reference-strip figcaption {
-  position: absolute;
-  left: 4px;
-  bottom: 4px;
-  max-width: calc(100% - 8px);
-  padding: 2px 5px;
-  border-radius: 999px;
-  color: #fff;
-  background: rgba(7,16,31,.7);
-  font-size: .62rem;
-  font-weight: 800;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .history-download {
   display: inline-flex;
@@ -1218,54 +1146,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   color: var(--ink);
   border-color: rgba(15,23,42,.16);
 }
-.history-meta {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-size: .75rem;
-  min-width: 0;
-  min-height: 56px;
-  max-height: 56px;
-  overflow: hidden;
-}
-.history-meta span {
-  max-width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 3px 7px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.history-error {
-  display: -webkit-box;
-  min-height: 54px;
-  max-height: 54px;
-  overflow: hidden;
-  color: #8a2f27;
-  font-size: .82rem;
-  line-height: 18px;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-.history-item:not(.is-failed) .history-error {
-  display: block;
-  visibility: hidden;
-}
-.history-details summary { color: var(--cyan); cursor: pointer; font-size: .85rem; }
-.history-details pre {
-  max-height: 220px;
-  overflow: auto;
-  margin: 8px 0 0;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: #34435a;
-  background: rgba(255,255,255,.65);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
+.history-params { color: #0f766e; }
 .history-empty-card {
   grid-column: 1 / -1;
   padding: 24px;
@@ -1285,6 +1166,93 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   max-width: 100%;
   max-height: 76vh;
   aspect-ratio: var(--video-ratio, 16 / 9);
+  border-radius: 8px;
+  background: #05070d;
+  object-fit: contain;
+}
+.history-detail-modal {
+  width: min(920px, calc(100vw - 24px));
+}
+.history-detail-body {
+  display: grid;
+  gap: 14px;
+}
+.history-detail-section {
+  display: grid;
+  gap: 10px;
+}
+.history-detail-section header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.history-detail-section header strong {
+  color: var(--text);
+  font-size: .98rem;
+}
+.history-detail-section header span {
+  color: var(--muted);
+  font-size: .78rem;
+  overflow-wrap: anywhere;
+}
+.history-detail-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+.history-detail-images figure {
+  position: relative;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255,255,255,.7);
+}
+.history-detail-images img {
+  display: block;
+  width: 100%;
+  height: 150px;
+  object-fit: contain;
+  padding: 7px;
+}
+.history-detail-images figcaption {
+  position: absolute;
+  left: 7px;
+  bottom: 7px;
+  max-width: calc(100% - 14px);
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(7,16,31,.7);
+  font-size: .72rem;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history-detail-empty {
+  margin: 0;
+  color: var(--muted);
+}
+.history-detail-section pre {
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #34435a;
+  background: rgba(255,255,255,.65);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.history-detail-section video {
+  width: min(100%, calc(58vh * var(--video-ratio-value, 1.7778)));
+  max-width: 100%;
+  max-height: 58vh;
+  aspect-ratio: var(--video-ratio, 16 / 9);
+  justify-self: center;
   border-radius: 8px;
   background: #05070d;
   object-fit: contain;
