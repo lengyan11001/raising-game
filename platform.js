@@ -1807,6 +1807,11 @@ let historyLoading = false;
 let historyRefreshTimer = null;
 let historyRefreshInFlight = false;
 let historyRecordsSignature = "";
+const HISTORY_PENDING_REFRESH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const HISTORY_DETAIL_REFRESH_COOLDOWN_MS = 30 * 1000;
+const HISTORY_DETAIL_REFRESH_LIMIT = 3;
+const historyDetailRefreshAt = new Map();
+const historyDetailRefreshInFlight = new Set();
 const SUPPORTED_LANGS = new Set(Object.keys(I18N));
 if (!SUPPORTED_LANGS.has(state.lang)) state.lang = "en";
 
@@ -2910,6 +2915,51 @@ function isPendingGenerationRecord(record = {}) {
   return !["failed", "error", "cancelled", "canceled"].includes(String(record.status || "").toLowerCase());
 }
 
+function generationRecordTime(record = {}) {
+  const value = Date.parse(record.updatedAt || record.createdAt || "");
+  return Number.isFinite(value) ? value : 0;
+}
+
+function isRecentPendingGenerationRecord(record = {}) {
+  if (!isPendingGenerationRecord(record) || !record.taskId) return false;
+  const time = generationRecordTime(record);
+  return !time || Date.now() - time <= HISTORY_PENDING_REFRESH_MAX_AGE_MS;
+}
+
+function canRefreshHistoryRecordDetail(record = {}) {
+  if (!isRecentPendingGenerationRecord(record)) return false;
+  const taskId = String(record.taskId || "");
+  if (!taskId || historyDetailRefreshInFlight.has(taskId)) return false;
+  const lastRefreshAt = historyDetailRefreshAt.get(taskId) || 0;
+  return Date.now() - lastRefreshAt >= HISTORY_DETAIL_REFRESH_COOLDOWN_MS;
+}
+
+async function refreshPendingHistoryRecords(records = []) {
+  if (state.tab !== "history" || !state.user) return;
+  const candidates = records
+    .filter(canRefreshHistoryRecordDetail)
+    .sort((left, right) => generationRecordTime(right) - generationRecordTime(left))
+    .slice(0, HISTORY_DETAIL_REFRESH_LIMIT);
+  if (!candidates.length) return;
+
+  const startedAt = Date.now();
+  candidates.forEach((record) => {
+    const taskId = String(record.taskId || "");
+    historyDetailRefreshAt.set(taskId, startedAt);
+    historyDetailRefreshInFlight.add(taskId);
+  });
+
+  const settled = await Promise.allSettled(candidates.map((record) => (
+    requestJson(`/api/generation-records/${encodeURIComponent(record.taskId)}`)
+  )));
+
+  candidates.forEach((record) => historyDetailRefreshInFlight.delete(String(record.taskId || "")));
+  if (state.tab !== "history" || !state.user) return;
+  if (settled.some((result) => result.status === "fulfilled")) {
+    window.setTimeout(() => loadHistory({ silent: true }), 500);
+  }
+}
+
 async function requestVideoFullscreen(video) {
   if (!video) return;
   try {
@@ -2951,7 +3001,7 @@ async function loadHistory({ silent = false } = {}) {
   const previousScrollTop = els.historyList.scrollTop || 0;
   if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
   try {
-    const payload = await requestJson("/api/generation-records?limit=50&refresh=1");
+    const payload = await requestJson("/api/generation-records?limit=50");
     if (payload.user) setUser(payload.user);
     const records = payload.records || [];
     const nextSignature = generationRecordsSignature(records);
@@ -2960,7 +3010,8 @@ async function loadHistory({ silent = false } = {}) {
       historyRecordsSignature = nextSignature;
       els.historyList.scrollTop = previousScrollTop;
     }
-    if (records.some(isPendingGenerationRecord)) scheduleHistoryRefresh();
+    refreshPendingHistoryRecords(records);
+    if (records.some(isRecentPendingGenerationRecord)) scheduleHistoryRefresh();
     else stopHistoryRefresh();
   } catch (error) {
     if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loadFailed", { message: error.message || String(error) }))}</div>`;

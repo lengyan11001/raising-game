@@ -3294,6 +3294,19 @@ function generationListRefreshRequested(url) {
   return ["1", "true", "yes", "on"].includes(String(url.searchParams.get("refresh") || "").toLowerCase());
 }
 
+const GENERATION_LIST_REFRESH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function generationRecordTime(record = {}) {
+  const value = Date.parse(record.updatedAt || record.createdAt || "");
+  return Number.isFinite(value) ? value : 0;
+}
+
+function shouldRefreshGenerationRecordFromList(record = {}) {
+  if (!shouldRefreshGenerationRecord(record)) return false;
+  const time = generationRecordTime(record);
+  return !time || Date.now() - time <= GENERATION_LIST_REFRESH_MAX_AGE_MS;
+}
+
 async function refreshGenerationRecordStatus(record = {}) {
   if (needsSeedanceFailureRefund(record)) {
     return settleSeedanceGenerationRecord(record, "refresh");
@@ -7587,7 +7600,7 @@ async function handleAdminListGenerationRecords(req, res, url) {
   const refundable = records.filter(needsSeedanceFailureRefund).slice(0, 100);
   const statusRefreshable = refreshRequested
     ? records
-      .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecord(record))
+      .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecordFromList(record))
       .filter((record) => !query || generationRecordMatchesQuery(record, query))
       .slice(0, 12)
     : [];
@@ -7626,7 +7639,7 @@ async function handleListGenerationRecords(req, res, url) {
   const refundable = ownRecords.filter(needsSeedanceFailureRefund).slice(0, 50);
   const statusRefreshable = refreshRequested
     ? ownRecords
-      .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecord(record))
+      .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecordFromList(record))
       .slice(0, 8)
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
