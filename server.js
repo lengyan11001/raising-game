@@ -728,6 +728,7 @@ function normalizeAdvancedCase(item = {}, index = 0) {
     ratio: item.ratio || params.ratio || params.aspect_ratio,
   });
   const estimatedCredits = pricing.credits;
+  const mediaMode = provider === "wan27" ? normalizeWan27MediaMode(item.mediaMode || params.mediaMode) : "";
   return {
     id: String(item.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId,
     title: String(item.title || "Advanced case").trim().slice(0, 80) || "Advanced case",
@@ -749,7 +750,8 @@ function normalizeAdvancedCase(item = {}, index = 0) {
     cdnCoverUrl: String(item.cdnCoverUrl || "").trim(),
     description: String(item.description || "").trim().slice(0, 240),
     prompt: String(item.prompt || params.prompt || "").trim(),
-    params,
+    params: provider === "wan27" ? { ...params, mediaMode } : params,
+    mediaMode,
     enabled: item.enabled !== false,
     sort: Number.isFinite(Number(item.sort)) ? Number(item.sort) : index,
   };
@@ -1599,6 +1601,7 @@ function decodeImageDataUrl(dataUrl) {
 function imageExtFromMime(mime) {
   if (mime === "image/png") return ".png";
   if (mime === "image/webp") return ".webp";
+  if (mime === "image/bmp") return ".bmp";
   return ".jpg";
 }
 
@@ -1627,16 +1630,52 @@ function videoMimeFromPath(filePath = "") {
   return "video/mp4";
 }
 
-async function createUserAssetFromDataUrl(db, user, { dataUrl, name = "Upload", fileName = "" } = {}) {
-  const { mime, bytes } = decodeDataUrl(dataUrl);
-  if (bytes.byteLength > 8 * 1024 * 1024) {
-    const error = new Error("Image must be 8MB or smaller.");
+function audioExtFromMime(mime = "", fallbackPath = "") {
+  const cleanMime = String(mime || "").split(";")[0].trim().toLowerCase();
+  if (cleanMime === "audio/mpeg" || cleanMime === "audio/mp3") return ".mp3";
+  if (cleanMime === "audio/wav" || cleanMime === "audio/x-wav") return ".wav";
+  if (cleanMime === "audio/mp4" || cleanMime === "audio/aac") return ".m4a";
+  if (cleanMime === "audio/ogg") return ".ogg";
+  const ext = path.extname(String(fallbackPath || "").split("?")[0]).toLowerCase();
+  if ([".mp3", ".wav", ".m4a", ".aac", ".ogg"].includes(ext)) return ext;
+  return ".mp3";
+}
+
+function mediaExtFromMime(mime = "", fallbackPath = "") {
+  const cleanMime = String(mime || "").split(";")[0].trim().toLowerCase();
+  if (cleanMime.startsWith("image/")) return imageExtFromMime(cleanMime);
+  if (cleanMime.startsWith("video/")) return videoExtFromMime(cleanMime, fallbackPath);
+  if (cleanMime.startsWith("audio/")) return audioExtFromMime(cleanMime, fallbackPath);
+  const fallbackExt = path.extname(String(fallbackPath || "").split("?")[0]).toLowerCase();
+  if (fallbackExt) return fallbackExt;
+  if (cleanMime === "application/octet-stream") return ".bin";
+  return "";
+}
+
+function decodeWanMediaDataUrl(dataUrl = "") {
+  const match = String(dataUrl || "").match(/^data:((?:image\/(?:png|jpeg|jpg|webp|bmp))|(?:audio\/(?:mpeg|mp3|wav|x-wav|mp4|aac|ogg))|(?:video\/(?:mp4|webm|quicktime|x-m4v)));base64,([a-z0-9+/=]+)$/i);
+  if (!match) {
+    const error = new Error("Only image, audio, or video data URLs are supported.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return {
+    mime: match[1].replace("image/jpg", "image/jpeg").replace("audio/mp3", "audio/mpeg"),
+    bytes: Buffer.from(match[2], "base64"),
+  };
+}
+
+async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Upload", fileName = "", maxBytes = 8 * 1024 * 1024 } = {}) {
+  if (bytes.byteLength > maxBytes) {
+    const label = mime.startsWith("image/") ? "Image" : mime.startsWith("audio/") ? "Audio" : "Media";
+    const error = new Error(`${label} must be ${Math.round(maxBytes / 1024 / 1024)}MB or smaller.`);
     error.statusCode = 400;
     throw error;
   }
 
   const assetId = randomId("asset");
-  const storedFileName = `${assetId}${imageExtFromMime(mime)}`;
+  const fallbackExt = mime.startsWith("image/") ? imageExtFromMime(mime) : ".bin";
+  const storedFileName = `${assetId}${mediaExtFromMime(mime, fileName) || fallbackExt}`;
   const dir = path.join(USER_UPLOAD_DIR, user.id);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, storedFileName), bytes);
@@ -1660,6 +1699,29 @@ async function createUserAssetFromDataUrl(db, user, { dataUrl, name = "Upload", 
   db.userAssets.unshift(userAsset);
   await writeDb(db);
   return userAsset;
+}
+
+async function createUserAssetFromDataUrl(db, user, { dataUrl, name = "Upload", fileName = "" } = {}) {
+  const { mime, bytes } = decodeDataUrl(dataUrl);
+  return createUserMediaAssetFromBytes(db, user, {
+    bytes,
+    mime,
+    name,
+    fileName,
+    maxBytes: 8 * 1024 * 1024,
+  });
+}
+
+async function createUserWanMediaAssetFromDataUrl(db, user, { dataUrl, name = "Wan media", fileName = "" } = {}) {
+  const { mime, bytes } = decodeWanMediaDataUrl(dataUrl);
+  const isImage = mime.startsWith("image/");
+  return createUserMediaAssetFromBytes(db, user, {
+    bytes,
+    mime,
+    name,
+    fileName,
+    maxBytes: isImage ? 20 * 1024 * 1024 : 200 * 1024 * 1024,
+  });
 }
 
 function execFileJson(command, args, options = {}) {
@@ -1838,7 +1900,7 @@ function makeArkOpenApiAuth({ action, body }) {
   };
 }
 
-async function uploadBufferToTos({ userId, assetId, bytes, mime }) {
+async function uploadBufferToTos({ userId, assetId, bytes, mime, extension = "" }) {
   requireValue("TOS_ACCESS_KEY_ID", TOS.accessKey);
   requireValue("TOS_SECRET_ACCESS_KEY", TOS.secretKey);
   requireValue("TOS_ENDPOINT", TOS.endpoint);
@@ -1846,7 +1908,7 @@ async function uploadBufferToTos({ userId, assetId, bytes, mime }) {
   requireValue("TOS_BUCKET", TOS.bucket);
   requireValue("TOS_PUBLIC_DOMAIN", TOS.publicDomain);
 
-  const key = `seedance-assets/raising-game/users/${userId}/${assetId}-${Date.now()}${imageExtFromMime(mime)}`;
+  const key = `seedance-assets/raising-game/users/${userId}/${assetId}-${Date.now()}${extension || mediaExtFromMime(mime) || imageExtFromMime(mime)}`;
   const auth = makeTosAuth({ method: "PUT", key, body: bytes, contentType: mime });
   const url = `https://${auth.host}${auth.canonicalUri}`;
   const response = await fetch(url, { method: "PUT", headers: auth.headers, body: bytes });
@@ -2121,12 +2183,39 @@ async function aliyunDashscopeRequest(pathname, { method = "POST", body = null, 
   return payload;
 }
 
-async function submitWan27VideoTask({ prompt, imageUrl, body = {} }) {
-  if (!isPublicHttpUrl(imageUrl)) {
-    const error = new Error("Wan2.7 requires a public reference image URL.");
+function normalizeWan27MediaItem(item = {}) {
+  const type = String(item.type || "").trim();
+  const url = String(item.url || "").trim();
+  if (!type || !isPublicHttpUrl(url)) {
+    const error = new Error(`Wan2.7 ${type || "media"} requires a public URL.`);
     error.statusCode = 400;
     throw error;
   }
+  return { type, url };
+}
+
+function validateWan27MediaCombination(media = []) {
+  const types = media.map((item) => item.type).join("|");
+  const valid = new Set([
+    "first_frame",
+    "first_frame|last_frame",
+    "first_frame|driving_audio",
+    "first_frame|last_frame|driving_audio",
+    "first_clip",
+    "first_clip|last_frame",
+  ]);
+  if (!valid.has(types)) {
+    const error = new Error(`Wan2.7 unsupported media combination: ${types || "empty"}.`);
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+async function submitWan27VideoTask({ prompt, imageUrl = "", media = [], body = {} }) {
+  const normalizedMedia = Array.isArray(media) && media.length
+    ? media.map(normalizeWan27MediaItem)
+    : [normalizeWan27MediaItem({ type: "first_frame", url: imageUrl })];
+  validateWan27MediaCombination(normalizedMedia);
   const wanBounds = advancedDurationBounds("wan27");
   const duration = clampNumber(body.duration, wanBounds.fallback, wanBounds.min, wanBounds.max);
   const seed = optionalWan27Seed(body.seed);
@@ -2142,7 +2231,7 @@ async function submitWan27VideoTask({ prompt, imageUrl, body = {} }) {
     model: body.model || ALIYUN_WAN27_MODEL,
     input: {
       prompt,
-      media: [{ type: "first_frame", url: imageUrl }],
+      media: normalizedMedia,
     },
     parameters,
   };
@@ -2153,13 +2242,13 @@ async function submitWan27VideoTask({ prompt, imageUrl, body = {} }) {
   console.log("[wan27-submit-advanced]", JSON.stringify({
     model: payload.model,
     mediaTypes: payload.input.media.map((item) => item.type),
-    imageHost: (() => {
+    mediaHosts: payload.input.media.map((item) => {
       try {
-        return new URL(imageUrl).host;
+        return new URL(item.url).host;
       } catch {
         return "";
       }
-    })(),
+    }),
     promptLength: prompt.length,
     parameters,
   }, null, 2));
@@ -2462,6 +2551,172 @@ function isPublicHttpUrl(value) {
   } catch {
     return false;
   }
+}
+
+const WAN27_MEDIA_MODE = new Set([
+  "first_frame",
+  "first_last_frame",
+  "first_frame_audio",
+  "first_last_frame_audio",
+  "first_clip",
+  "first_clip_last_frame",
+]);
+
+function normalizeWan27MediaMode(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["image", "single_image", "first", "single"].includes(normalized)) return "first_frame";
+  if (["multi_image", "two_images", "first_last", "first_and_last", "last_frame"].includes(normalized)) return "first_last_frame";
+  if (["image_audio", "audio", "first_audio", "first_and_audio"].includes(normalized)) return "first_frame_audio";
+  if (["multi_image_audio", "two_images_audio", "first_last_audio", "first_last_and_audio"].includes(normalized)) return "first_last_frame_audio";
+  if (["extend", "video", "clip", "continue", "continuation"].includes(normalized)) return "first_clip";
+  if (["extend_last", "clip_last", "video_last", "continuation_last"].includes(normalized)) return "first_clip_last_frame";
+  return WAN27_MEDIA_MODE.has(normalized) ? normalized : "first_frame";
+}
+
+function wan27ModeNeedsFirstFrame(mode) {
+  return ["first_frame", "first_last_frame", "first_frame_audio", "first_last_frame_audio"].includes(normalizeWan27MediaMode(mode));
+}
+
+function wan27ModeNeedsLastFrame(mode) {
+  return ["first_last_frame", "first_last_frame_audio", "first_clip_last_frame"].includes(normalizeWan27MediaMode(mode));
+}
+
+function wan27ModeNeedsAudio(mode) {
+  return ["first_frame_audio", "first_last_frame_audio"].includes(normalizeWan27MediaMode(mode));
+}
+
+function wan27ModeNeedsClip(mode) {
+  return ["first_clip", "first_clip_last_frame"].includes(normalizeWan27MediaMode(mode));
+}
+
+function wan27MediaSlotsForMode(mode) {
+  const normalizedMode = normalizeWan27MediaMode(mode);
+  const slots = [];
+  if (wan27ModeNeedsFirstFrame(normalizedMode)) slots.push({ key: "firstFrame", type: "first_frame", mediaKind: "image", label: "First frame" });
+  if (wan27ModeNeedsClip(normalizedMode)) slots.push({ key: "firstClip", type: "first_clip", mediaKind: "video", label: "First clip" });
+  if (wan27ModeNeedsLastFrame(normalizedMode)) slots.push({ key: "lastFrame", type: "last_frame", mediaKind: "image", label: "Last frame" });
+  if (wan27ModeNeedsAudio(normalizedMode)) slots.push({ key: "drivingAudio", type: "driving_audio", mediaKind: "audio", label: "Driving audio" });
+  return slots;
+}
+
+function mediaUrlFromBody(body = {}, key = "") {
+  return String(body[`${key}Url`] || body[`${key}_url`] || body[`${key}MediaUrl`] || "").trim();
+}
+
+function mediaDataUrlFromBody(body = {}, key = "") {
+  return String(body[`${key}DataUrl`] || body[`${key}_dataUrl`] || body[`${key}_data_url`] || "");
+}
+
+function mediaFileNameFromBody(body = {}, key = "") {
+  return String(body[`${key}FileName`] || body[`${key}_fileName`] || body[`${key}_file_name`] || "");
+}
+
+function mediaAssetIdFromBody(body = {}, key = "") {
+  return String(body[`${key}AssetId`] || body[`${key}_assetId`] || body[`${key}_asset_id`] || "").trim();
+}
+
+function validateWan27MediaKind(assetOrUrl = {}, expectedKind = "image", label = "Media") {
+  const mime = String(assetOrUrl.mime || "").toLowerCase();
+  if (mime) {
+    if (expectedKind === "image" && !mime.startsWith("image/")) throw new Error(`${label} must be an image.`);
+    if (expectedKind === "audio" && !mime.startsWith("audio/")) throw new Error(`${label} must be audio.`);
+    if (expectedKind === "video" && !mime.startsWith("video/")) throw new Error(`${label} must be a video.`);
+  }
+  const url = String(assetOrUrl.url || assetOrUrl.publicUrl || assetOrUrl.localUrl || "");
+  const ext = path.extname(url.split("?")[0]).toLowerCase();
+  if (!mime && ext) {
+    if (expectedKind === "image" && ![".jpg", ".jpeg", ".png", ".bmp", ".webp"].includes(ext)) throw new Error(`${label} must be an image URL.`);
+    if (expectedKind === "audio" && ![".mp3", ".wav", ".m4a", ".aac", ".ogg"].includes(ext)) throw new Error(`${label} must be an audio URL.`);
+    if (expectedKind === "video" && ![".mp4", ".webm", ".mov", ".m4v"].includes(ext)) throw new Error(`${label} must be a video URL.`);
+  }
+}
+
+async function resolveWan27MediaSlot({ db, user, body, slot, fallbackAsset = null } = {}) {
+  let asset = null;
+  let url = mediaUrlFromBody(body, slot.key);
+  const dataUrl = mediaDataUrlFromBody(body, slot.key);
+  const assetId = mediaAssetIdFromBody(body, slot.key);
+  if (!url && slot.key === "firstFrame" && body.dataUrl) {
+    asset = fallbackAsset;
+  } else if (dataUrl) {
+    asset = await createUserWanMediaAssetFromDataUrl(db, user, {
+      dataUrl,
+      fileName: mediaFileNameFromBody(body, slot.key),
+      name: `Wan ${slot.label}`,
+    });
+  } else if (assetId) {
+    asset = (db.userAssets || []).find((entry) => entry.id === assetId && entry.userId === user.id && !isSoftDeleted(entry));
+    if (!asset) {
+      const error = new Error(`${slot.label} asset not found.`);
+      error.statusCode = 404;
+      throw error;
+    }
+  }
+
+  if (asset) {
+    validateWan27MediaKind(asset, slot.mediaKind, slot.label);
+    asset = await ensurePublicUrlForUserMediaAsset(db, asset);
+    url = publicUrlForLocalAsset(asset);
+  }
+  if (!url || !isPublicHttpUrl(url)) {
+    const error = new Error(`Wan2.7 requires ${slot.label}.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  validateWan27MediaKind({ url }, slot.mediaKind, slot.label);
+  return {
+    type: slot.type,
+    url,
+    key: slot.key,
+    mediaKind: slot.mediaKind,
+    userAssetId: asset?.id || "",
+    localUrl: asset?.localUrl || "",
+    mime: asset?.mime || "",
+  };
+}
+
+async function resolveWan27Media({ db, user, body, requestParams, fallbackAsset = null } = {}) {
+  const mediaMode = normalizeWan27MediaMode(requestParams.mediaMode || body.mediaMode || body.wanMode || body.wanMediaMode);
+  const slots = wan27MediaSlotsForMode(mediaMode);
+  const media = [];
+  for (const slot of slots) {
+    media.push(await resolveWan27MediaSlot({ db, user, body, slot, fallbackAsset }));
+  }
+  return { mediaMode, media };
+}
+
+function publicUrlForLocalAsset(asset = {}) {
+  if (isPublicHttpUrl(asset.publicUrl)) return asset.publicUrl;
+  if (PUBLIC_BASE_URL && asset.localUrl) return `${PUBLIC_BASE_URL}${asset.localUrl}`;
+  return "";
+}
+
+async function ensurePublicUrlForUserMediaAsset(db, userAsset) {
+  if (isPublicHttpUrl(userAsset.publicUrl)) return userAsset;
+  if (PUBLIC_BASE_URL && userAsset.localUrl) {
+    userAsset.publicUrl = `${PUBLIC_BASE_URL}${userAsset.localUrl}`;
+    userAsset.updatedAt = new Date().toISOString();
+    db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
+    await writeDb(db);
+    return userAsset;
+  }
+
+  const localPath = path.join(ROOT, String(userAsset.localUrl || "").replace(/^\//, ""));
+  const bytes = await fs.readFile(localPath);
+  const uploaded = await uploadBufferToTos({
+    userId: userAsset.userId,
+    assetId: `${userAsset.id}-wan`,
+    bytes,
+    mime: userAsset.mime || "application/octet-stream",
+    extension: path.extname(localPath),
+  });
+  userAsset.publicUrl = uploaded.publicUrl;
+  userAsset.publicTosKey = uploaded.key;
+  userAsset.publicUploadedAt = new Date().toISOString();
+  userAsset.updatedAt = new Date().toISOString();
+  db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
+  await writeDb(db);
+  return userAsset;
 }
 
 function normalizeSeedreamImageSize(value) {
@@ -3205,6 +3460,8 @@ function publicGenerationRecord(record = {}) {
     syntheticReferenceUrl: String(record.syntheticReferenceUrl || ""),
     userAssetId: String(record.userAssetId || ""),
     referenceAssetUri: String(record.referenceAssetUri || ""),
+    mediaMode: String(record.mediaMode || record.params?.mediaMode || ""),
+    mediaAssets: Array.isArray(record.mediaAssets) ? record.mediaAssets : [],
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
     params: record.params || null,
@@ -4335,6 +4592,8 @@ async function runAdvancedGenerationJob(job = {}) {
     provider,
     prompt,
     requestParams,
+    wan27MediaMode,
+    wan27Media,
     pricing,
     cost,
     caseId,
@@ -4389,6 +4648,24 @@ async function runAdvancedGenerationJob(job = {}) {
       }
     }
 
+    let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || "first_frame";
+    let resolvedWan27Media = Array.isArray(wan27Media) ? wan27Media : [];
+    if (provider === "wan27" && !resolvedWan27Media.length) {
+      const resolved = await resolveWan27Media({
+        db,
+        user: { id: userId },
+        body: { dataUrl: userAsset ? "asset" : "", mediaMode: resolvedWan27MediaMode },
+        requestParams,
+        fallbackAsset: userAsset,
+      });
+      resolvedWan27MediaMode = resolved.mediaMode;
+      resolvedWan27Media = resolved.media;
+    }
+    if (provider === "wan27" && resolvedWan27Media[0]) {
+      imageUrl = resolvedWan27Media.find((item) => item.type === "first_frame" || item.type === "first_clip")?.url || imageUrl;
+      sourceImageUrl = imageUrl || sourceImageUrl;
+    }
+
     await updateGenerationRecord(taskId, {
       status: "submitting",
       imageUrl,
@@ -4396,20 +4673,22 @@ async function runAdvancedGenerationJob(job = {}) {
       syntheticReferenceLocalUrl,
       syntheticReferenceUrl,
       referenceAssetUri,
+      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : "",
+      mediaAssets: provider === "wan27" ? resolvedWan27Media : [],
       error: "",
     }, "advanced-reference-ready");
 
     const config = job.config || await readAppConfig();
     let task = null;
     if (provider === "wan27") {
-      if (!imageUrl || !isPublicHttpUrl(imageUrl)) {
-        const error = new Error("Wan2.7 requires an uploaded reference image.");
+      if (!resolvedWan27Media.length) {
+        const error = new Error("Wan2.7 requires media input.");
         error.statusCode = 400;
         throw error;
       }
       const submitted = await submitWan27VideoTask({
         prompt,
-        imageUrl,
+        media: resolvedWan27Media,
         body: requestParams,
       });
       task = submitted.task;
@@ -4456,6 +4735,8 @@ async function runAdvancedGenerationJob(job = {}) {
       syntheticReferenceLocalUrl,
       syntheticReferenceUrl,
       referenceAssetUri,
+      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : "",
+      mediaAssets: provider === "wan27" ? resolvedWan27Media : [],
       upstreamPayload: payload,
       ratio: payload?.ratio || requestParams.ratio || "",
       resolution: payload?.resolution || payload?.parameters?.resolution || requestParams.resolution || "",
@@ -4541,20 +4822,50 @@ async function handleAdvancedGenerate(req, res) {
   }
 
   let userAsset = null;
-  if (body.dataUrl) {
-    userAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
-      dataUrl: body.dataUrl,
-      fileName: body.fileName,
-      name: selectedCase?.title || "Advanced reference",
+  if (provider !== "wan27") {
+    if (body.dataUrl) {
+      userAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
+        dataUrl: body.dataUrl,
+        fileName: body.fileName,
+        name: selectedCase?.title || "Advanced reference",
+      });
+    } else if (body.userAssetId) {
+      userAsset = auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
+      if (!userAsset) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
+    }
+  } else {
+    const firstFrameDataUrl = body.firstFrameDataUrl || body.first_frame_data_url || body.dataUrl;
+    if (firstFrameDataUrl) {
+      userAsset = await createUserWanMediaAssetFromDataUrl(auth.db, auth.user, {
+        dataUrl: firstFrameDataUrl,
+        fileName: body.firstFrameFileName || body.fileName,
+        name: selectedCase?.title || "Advanced reference",
+      });
+    } else if (body.userAssetId || body.firstFrameAssetId) {
+      const firstAssetId = body.firstFrameAssetId || body.userAssetId;
+      userAsset = auth.db.userAssets.find((asset) => asset.id === firstAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
+      if (!userAsset) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
+    }
+  }
+  let wan27MediaMode = "";
+  let wan27Media = [];
+  if (provider === "wan27") {
+    requestParams.mediaMode = normalizeWan27MediaMode(body.mediaMode || body.wanMode || body.wanMediaMode || caseParams.mediaMode || "first_frame");
+    const resolved = await resolveWan27Media({
+      db: auth.db,
+      user: auth.user,
+      body: { ...caseParams, ...body },
+      requestParams,
+      fallbackAsset: userAsset,
     });
-  } else if (body.userAssetId) {
-    userAsset = auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
-    if (!userAsset) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
+    wan27MediaMode = resolved.mediaMode;
+    wan27Media = resolved.media;
   }
   const runtime = advancedRuntimeForProvider(provider, requestParams);
   const taskId = localGenerationTaskId("cgt");
-  const initialImageUrl = userAsset?.localUrl || userAsset?.publicUrl || "";
-  const initialSourceImageUrl = userAsset?.sourceImageUrl || userAsset?.localUrl || "";
+  const primaryWanMedia = wan27Media.find((item) => item.type === "first_frame" || item.type === "first_clip") || wan27Media[0] || null;
+  const initialImageUrl = primaryWanMedia?.localUrl || primaryWanMedia?.url || userAsset?.localUrl || userAsset?.publicUrl || "";
+  const initialSourceImageUrl = primaryWanMedia?.localUrl || userAsset?.sourceImageUrl || userAsset?.localUrl || "";
 
   if (cost > 0) {
     changeUserCredits(auth.db, auth.user.id, -cost, "advanced_generation", {
@@ -4574,6 +4885,8 @@ async function handleAdvancedGenerate(req, res) {
       pricingSource: pricing.source || "duration_rate",
       preprocessReference: requestParams.preprocessReference,
       userAssetId: userAsset?.id || "",
+      mediaMode: wan27MediaMode,
+      mediaAssets: wan27Media.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", mediaKind: item.mediaKind || "" })),
       referenceAssetUri: "",
     });
     await writeDb(auth.db);
@@ -4590,6 +4903,8 @@ async function handleAdvancedGenerate(req, res) {
     templateTitle: selectedCase?.title || "Advanced generation",
     userId: auth.user.id,
     userAssetId: userAsset?.id || "",
+    mediaMode: wan27MediaMode,
+    mediaAssets: wan27Media,
     imageUrl: initialImageUrl,
     sourceImageUrl: initialSourceImageUrl,
     syntheticReferenceLocalUrl: "",
@@ -4618,6 +4933,8 @@ async function handleAdvancedGenerate(req, res) {
     taskId,
     userId: auth.user.id,
     userAssetId: userAsset?.id || "",
+    wan27MediaMode,
+    wan27Media,
     provider,
     prompt,
     requestParams,
@@ -4646,6 +4963,12 @@ async function handleAdvancedGenerate(req, res) {
     pricing,
     cost,
   });
+}
+
+async function handleAdminAdvancedGenerate(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  return handleAdvancedGenerate(req, res);
 }
 
 async function handleAdminUploadPlatformCover(req, res) {
@@ -8318,6 +8641,9 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/advanced/generate") {
       return await handleAdvancedGenerate(req, res);
+    }
+    if (req.method === "POST" && url.pathname === "/api/admin/advanced/generate") {
+      return await handleAdminAdvancedGenerate(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/platform/estimates") {

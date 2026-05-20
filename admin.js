@@ -8,6 +8,14 @@ const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
 const ADVANCED_GENERATION_MARKUP = 1.5;
+const WAN27_MEDIA_MODES = [
+  ["first_frame", "单图首帧"],
+  ["first_last_frame", "首帧 + 尾帧"],
+  ["first_frame_audio", "首帧 + 音频"],
+  ["first_last_frame_audio", "首帧 + 尾帧 + 音频"],
+  ["first_clip", "视频续写"],
+  ["first_clip_last_frame", "视频续写 + 尾帧"],
+];
 
 const ROUTES = [
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
@@ -2335,7 +2343,7 @@ function defaultAdvancedCase(index = 0) {
     previewUrl: "",
     description: "",
     prompt: "A cinematic video, tasteful motion, premium lighting.",
-    params: { provider: "wan27", ratio: "9:16", resolution: "720p", duration: 5 },
+    params: { provider: "wan27", ratio: "9:16", resolution: "720p", duration: 5, mediaMode: "first_frame" },
     enabled: true,
     sort: index,
   };
@@ -2352,6 +2360,11 @@ function advancedCaseDuration(item = {}) {
 
 function normalizeAdvancedResolution(value = "") {
   return String(value || "").trim().toLowerCase() === "1080p" ? "1080p" : "720p";
+}
+
+function normalizeWanMediaMode(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return WAN27_MEDIA_MODES.some(([mode]) => mode === normalized) ? normalized : "first_frame";
 }
 
 function normalizeVideoRatio(value = "") {
@@ -2409,6 +2422,7 @@ function advancedCaseSummary(item = {}, index = 0) {
       <td>
         <div class="adm-actions">
           <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit-advanced" type="button"><i data-lucide="pencil"></i>编辑</button>
+          <button class="adm-btn adm-btn-sm adm-btn-primary" data-act="generate-advanced" type="button"><i data-lucide="wand-sparkles"></i>生成</button>
           <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-advanced" type="button"><i data-lucide="trash-2"></i>删除</button>
         </div>
       </td>
@@ -2419,6 +2433,7 @@ function advancedCaseSummary(item = {}, index = 0) {
 function advancedCaseEditor(item = {}, index = 0) {
   const params = JSON.stringify(item.params && typeof item.params === "object" ? item.params : { ratio: "9:16", resolution: "720p", duration: 5 }, null, 2);
   const provider = String(item.provider || item.params?.provider || "seedance").toLowerCase().replace(/[\s_-]+/g, "") === "wan27" ? "wan27" : "seedance";
+  const mediaMode = normalizeWanMediaMode(item.mediaMode || item.params?.mediaMode);
   const videoInput = item.sourceVideoUrl || (/^https?:\/\//i.test(item.previewUrl || "") ? item.previewUrl : "");
   const coverInput = item.sourceCoverUrl || (/^https?:\/\//i.test(item.coverUrl || "") ? item.coverUrl : "");
   return `
@@ -2427,6 +2442,11 @@ function advancedCaseEditor(item = {}, index = 0) {
         <div class="adm-form-row"><span>标题</span><input data-f="title" value="${escapeHtml(item.title || "")}" /></div>
         <div class="adm-form-row"><span>分类</span><input data-f="category" value="${escapeHtml(item.category || "portrait")}" /></div>
         <div class="adm-form-row"><span>模型</span><select data-f="provider"><option value="seedance" ${provider === "seedance" ? "selected" : ""}>Seedance</option><option value="wan27" ${provider === "wan27" ? "selected" : ""}>Wan2.7</option></select></div>
+      </div>
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>Wan2.7 输入组合</span><select data-f="mediaMode">${WAN27_MEDIA_MODES.map(([mode, label]) => `<option value="${mode}" ${mediaMode === mode ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+        <div class="adm-form-row"><span>默认音频 URL</span><input data-f="drivingAudioUrl" value="${escapeHtml(item.params?.drivingAudioUrl || item.params?.driving_audio_url || "")}" placeholder="https://.../audio.mp3" /></div>
+        <div class="adm-form-row"><span>默认续写视频 URL</span><input data-f="firstClipUrl" value="${escapeHtml(item.params?.firstClipUrl || item.params?.first_clip_url || "")}" placeholder="https://.../clip.mp4" /></div>
       </div>
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(item.sort ?? index)}" /></div>
@@ -2461,11 +2481,21 @@ function collectAdvancedCaseFromCard(card, existing = {}) {
   if (!params || typeof params !== "object" || Array.isArray(params)) throw new Error("高级案例参数必须是对象。");
   const provider = get("provider")?.value === "wan27" ? "wan27" : "seedance";
   params.provider = provider;
+  if (provider === "wan27") {
+    params.mediaMode = normalizeWanMediaMode(get("mediaMode")?.value || params.mediaMode);
+    const audioUrl = get("drivingAudioUrl")?.value.trim() || "";
+    const clipUrl = get("firstClipUrl")?.value.trim() || "";
+    if (audioUrl) params.drivingAudioUrl = audioUrl;
+    else delete params.drivingAudioUrl;
+    if (clipUrl) params.firstClipUrl = clipUrl;
+    else delete params.firstClipUrl;
+  }
   return {
     ...existing,
     title: get("title")?.value.trim() || existing.title || "Advanced Case",
     category: get("category")?.value.trim() || "portrait",
     provider,
+    mediaMode: provider === "wan27" ? params.mediaMode : "",
     price: advancedCaseCredits({ params, provider }),
     sourceVideoUrl: get("sourceVideoUrl")?.value.trim() || existing.sourceVideoUrl || "",
     sourceCoverUrl: get("sourceCoverUrl")?.value.trim() || existing.sourceCoverUrl || "",
@@ -2523,6 +2553,67 @@ async function ingestAdvancedCaseMediaForSave(item = {}) {
     cdnCoverUrl: media.cdnCoverUrl || "",
     previewUrl: media.previewUrl || media.cdnVideoUrl || media.localVideoUrl || item.previewUrl || "",
     coverUrl: media.coverUrl || media.cdnCoverUrl || media.localCoverUrl || item.coverUrl || "",
+  };
+}
+
+function advancedGenerateForm(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  const provider = String(item.provider || params.provider || "wan27") === "seedance" ? "seedance" : "wan27";
+  const mediaMode = normalizeWanMediaMode(item.mediaMode || params.mediaMode);
+  return `
+    <div class="platform-template-editor">
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>模型</span><select data-g="provider"><option value="wan27" ${provider === "wan27" ? "selected" : ""}>Wan2.7</option><option value="seedance" ${provider === "seedance" ? "selected" : ""}>Seedance</option></select></div>
+        <div class="adm-form-row"><span>Wan 组合</span><select data-g="mediaMode">${WAN27_MEDIA_MODES.map(([mode, label]) => `<option value="${mode}" ${mediaMode === mode ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+        <div class="adm-form-row"><span>分辨率</span><select data-g="resolution"><option value="720p" ${normalizeAdvancedResolution(params.resolution) === "720p" ? "selected" : ""}>720p</option><option value="1080p" ${normalizeAdvancedResolution(params.resolution) === "1080p" ? "selected" : ""}>1080p</option></select></div>
+      </div>
+      <div class="adm-grid adm-grid-3">
+        <div class="adm-form-row"><span>比例</span><input data-g="ratio" value="${escapeHtml(params.ratio || params.aspect_ratio || "9:16")}" /></div>
+        <div class="adm-form-row"><span>时长</span><input data-g="duration" type="number" min="2" max="15" value="${escapeHtml(params.duration || 5)}" /></div>
+        <div class="adm-form-row"><span>Seed</span><input data-g="seed" type="number" min="0" value="${escapeHtml(params.seed || "")}" /></div>
+      </div>
+      <div class="adm-form-row"><span>Prompt</span><textarea data-g="prompt" rows="5">${escapeHtml(item.prompt || params.prompt || "")}</textarea></div>
+      <div class="adm-grid adm-grid-2">
+        <div class="adm-form-row"><span>首帧图片</span><input data-g="firstFrame" type="file" accept="image/*" /></div>
+        <div class="adm-form-row"><span>尾帧图片</span><input data-g="lastFrame" type="file" accept="image/*" /></div>
+      </div>
+      <div class="adm-grid adm-grid-2">
+        <div class="adm-form-row"><span>音频 URL</span><input data-g="drivingAudioUrl" value="${escapeHtml(params.drivingAudioUrl || "")}" placeholder="https://.../audio.mp3" /></div>
+        <div class="adm-form-row"><span>续写视频 URL</span><input data-g="firstClipUrl" value="${escapeHtml(params.firstClipUrl || "")}" placeholder="https://.../clip.mp4" /></div>
+      </div>
+      <p class="adm-muted">后台生成会直接创建到当前管理员账号的 History。图片可上传；音频和续写视频请填公网 URL。</p>
+    </div>
+  `;
+}
+
+async function collectAdvancedGenerateBody(dialogBody, item = {}) {
+  const get = (field) => dialogBody.querySelector(`[data-g="${field}"]`);
+  const readDataUrl = (input) => new Promise((resolve, reject) => {
+    const file = input?.files?.[0];
+    if (!file) return resolve({ dataUrl: "", fileName: "" });
+    const reader = new FileReader();
+    reader.onload = () => resolve({ dataUrl: String(reader.result || ""), fileName: file.name || "" });
+    reader.onerror = () => reject(new Error("读取文件失败"));
+    reader.readAsDataURL(file);
+  });
+  const first = await readDataUrl(get("firstFrame"));
+  const last = await readDataUrl(get("lastFrame"));
+  return {
+    caseId: item.id || "",
+    provider: get("provider")?.value || item.provider || "wan27",
+    prompt: get("prompt")?.value.trim() || item.prompt || "",
+    mediaMode: normalizeWanMediaMode(get("mediaMode")?.value),
+    dataUrl: first.dataUrl,
+    firstFrameDataUrl: first.dataUrl,
+    firstFrameFileName: first.fileName,
+    lastFrameDataUrl: last.dataUrl,
+    lastFrameFileName: last.fileName,
+    drivingAudioUrl: get("drivingAudioUrl")?.value.trim() || "",
+    firstClipUrl: get("firstClipUrl")?.value.trim() || "",
+    ratio: get("ratio")?.value.trim() || "9:16",
+    resolution: get("resolution")?.value || "720p",
+    duration: Number(get("duration")?.value || 5),
+    seed: get("seed")?.value || "",
   };
 }
 
@@ -2757,6 +2848,22 @@ async function renderPlatform(options = {}) {
   });
 
   els.adminContent.querySelectorAll("#advancedCaseList tr[data-advanced-index]").forEach((row) => {
+    row.querySelector('[data-act="generate-advanced"]')?.addEventListener("click", async () => {
+      const index = Number(row.dataset.advancedIndex || 0);
+      const item = advanced.cases[index] || {};
+      const result = await openDialog({
+        title: `后台高级生成：${item.title || `Case ${index + 1}`}`,
+        body: advancedGenerateForm(item),
+        confirmText: "提交生成",
+        cancelText: "取消",
+        onConfirm: async () => {
+          const body = await collectAdvancedGenerateBody(els.dialogBody, item);
+          const payload = await api("/api/admin/advanced/generate", { method: "POST", body });
+          toast(`已提交：${payload.taskId || payload.task?.taskId || ""}`, "success");
+        },
+      });
+      if (result === "confirm") window.location.hash = "#/records";
+    });
     row.querySelector('[data-act="edit-advanced"]')?.addEventListener("click", async () => {
       const index = Number(row.dataset.advancedIndex || 0);
       const result = await openDialog({

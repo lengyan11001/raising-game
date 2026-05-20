@@ -35,6 +35,7 @@ const state = {
   activeTemplate: null,
   uploadDataUrl: "",
   advancedUploadDataUrl: "",
+  advancedWanLastFrameDataUrl: "",
   wallet: null,
   token: localStorage.getItem(TOKEN_KEY) || "",
   lang: localStorage.getItem(LANG_KEY) || "en",
@@ -116,6 +117,10 @@ const els = {
   advancedDuration: document.querySelector("#advancedDuration"),
   advancedPreprocessReference: document.querySelector("#advancedPreprocessReference"),
   advancedWanSeed: document.querySelector("#advancedWanSeed"),
+  advancedWanMediaMode: document.querySelector("#advancedWanMediaMode"),
+  advancedWanLastFrame: document.querySelector("#advancedWanLastFrame"),
+  advancedWanAudioUrl: document.querySelector("#advancedWanAudioUrl"),
+  advancedWanClipUrl: document.querySelector("#advancedWanClipUrl"),
   advancedSubmitBtn: document.querySelector("#advancedSubmitBtn"),
   advancedNote: document.querySelector("#advancedNote"),
   advancedCaseGrid: document.querySelector("#advancedCaseGrid"),
@@ -241,6 +246,16 @@ const I18N = {
     "advanced.subtitle": "Use Seedance or Wan2.7 parameters after approval.",
     "advanced.promptPlaceholder": "Describe the video you want...",
     "advanced.uploadReference": "Upload reference character",
+    "advanced.wanMode": "Wan2.7 input",
+    "advanced.wanModeFirst": "Single image",
+    "advanced.wanModeFirstLast": "First + last image",
+    "advanced.wanModeFirstAudio": "Image + audio",
+    "advanced.wanModeFirstLastAudio": "First + last image + audio",
+    "advanced.wanModeClip": "Video continuation",
+    "advanced.wanModeClipLast": "Video continuation + last image",
+    "advanced.lastFrame": "Last frame image",
+    "advanced.audioUrl": "Driving audio URL",
+    "advanced.clipUrl": "Source video URL",
     "advanced.seedanceHandling": "Seedance image handling",
     "advanced.prepareReference": "Prepare safe reference",
     "advanced.originalImage": "Use original image",
@@ -2242,6 +2257,28 @@ function currentAdvancedRatio() {
   return normalizeVideoRatio(els.advancedRatio?.value || "16:9");
 }
 
+function normalizeWanMediaMode(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const allowed = new Set(["first_frame", "first_last_frame", "first_frame_audio", "first_last_frame_audio", "first_clip", "first_clip_last_frame"]);
+  return allowed.has(normalized) ? normalized : "first_frame";
+}
+
+function wanModeNeedsFirstFrame(mode) {
+  return ["first_frame", "first_last_frame", "first_frame_audio", "first_last_frame_audio"].includes(normalizeWanMediaMode(mode));
+}
+
+function wanModeNeedsLastFrame(mode) {
+  return ["first_last_frame", "first_last_frame_audio", "first_clip_last_frame"].includes(normalizeWanMediaMode(mode));
+}
+
+function wanModeNeedsAudio(mode) {
+  return ["first_frame_audio", "first_last_frame_audio"].includes(normalizeWanMediaMode(mode));
+}
+
+function wanModeNeedsClip(mode) {
+  return ["first_clip", "first_clip_last_frame"].includes(normalizeWanMediaMode(mode));
+}
+
 function advancedCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
   const pricing = advancedPricing(duration, provider, resolution, ratio);
   const suffix = ` - ${pricing.resolution}`;
@@ -2625,6 +2662,7 @@ function renderAdvanced() {
 
 function updateAdvancedModelControls() {
   const provider = currentAdvancedProvider();
+  const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
   const bounds = advancedDurationBounds(provider);
   if (els.advancedDuration) {
     els.advancedDuration.min = String(bounds.min);
@@ -2636,6 +2674,18 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
     item.hidden = provider !== "seedance";
   });
+  document.querySelectorAll(".wan-last-frame").forEach((item) => {
+    item.hidden = provider !== "wan27" || !wanModeNeedsLastFrame(wanMode);
+  });
+  document.querySelectorAll(".wan-audio").forEach((item) => {
+    item.hidden = provider !== "wan27" || !wanModeNeedsAudio(wanMode);
+  });
+  document.querySelectorAll(".wan-clip").forEach((item) => {
+    item.hidden = provider !== "wan27" || !wanModeNeedsClip(wanMode);
+  });
+  if (els.advancedUploadBox) {
+    els.advancedUploadBox.hidden = provider === "wan27" && !wanModeNeedsFirstFrame(wanMode);
+  }
   if (els.advancedNote && state.advancedUploadDataUrl) {
     if (provider === "seedance") {
       const mode = els.advancedPreprocessReference?.value === "no" ? t("advanced.originalReference") : t("advanced.safeReference");
@@ -2683,6 +2733,9 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = params.preprocessReference === false ? "no" : "yes";
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || "";
+  if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = normalizeWanMediaMode(params.mediaMode || item.mediaMode || "first_frame");
+  if (els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = params.drivingAudioUrl || params.driving_audio_url || "";
+  if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = params.firstClipUrl || params.first_clip_url || "";
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
   if (els.advancedNote) {
@@ -2720,6 +2773,29 @@ async function submitAdvancedGenerate() {
   const duration = Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration?.value || bounds.fallback)));
   const resolution = currentAdvancedResolution();
   const preprocessReference = els.advancedPreprocessReference?.value !== "no";
+  const mediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
+  if (provider === "wan27") {
+    if (wanModeNeedsFirstFrame(mediaMode) && !state.advancedUploadDataUrl) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "First frame image is required.";
+      return;
+    }
+    if (wanModeNeedsLastFrame(mediaMode) && !state.advancedWanLastFrameDataUrl) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Last frame image is required.";
+      return;
+    }
+    if (wanModeNeedsAudio(mediaMode) && !String(els.advancedWanAudioUrl?.value || "").trim()) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Driving audio URL is required.";
+      return;
+    }
+    if (wanModeNeedsClip(mediaMode) && !String(els.advancedWanClipUrl?.value || "").trim()) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Source video URL is required.";
+      return;
+    }
+  }
   const referenceNote = state.advancedUploadDataUrl
     ? provider === "seedance"
       ? (preprocessReference ? t("advanced.notePrepare") : t("advanced.noteOriginal"))
@@ -2739,7 +2815,13 @@ async function submitAdvancedGenerate() {
         provider,
         prompt,
         dataUrl: state.advancedUploadDataUrl,
+        firstFrameDataUrl: state.advancedUploadDataUrl,
+        lastFrameDataUrl: state.advancedWanLastFrameDataUrl,
+        drivingAudioUrl: els.advancedWanAudioUrl?.value.trim() || "",
+        firstClipUrl: els.advancedWanClipUrl?.value.trim() || "",
+        mediaMode,
         fileName: els.advancedImage?.files?.[0]?.name || "",
+        lastFrameFileName: els.advancedWanLastFrame?.files?.[0]?.name || "",
         ratio: els.advancedRatio?.value || "9:16",
         resolution: els.advancedResolution?.value || "720p",
         duration,
@@ -3393,6 +3475,18 @@ els.advancedImage?.addEventListener("change", async () => {
   els.advancedUploadBox?.classList.add("has-image");
   updateAdvancedModelControls();
 });
+els.advancedWanLastFrame?.addEventListener("change", async () => {
+  const file = els.advancedWanLastFrame.files?.[0];
+  if (!file) return;
+  if (file.size > 20 * 1024 * 1024) {
+    state.advancedWanLastFrameDataUrl = "";
+    els.advancedWanLastFrame.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = "Last frame image must be 20MB or smaller.";
+    return;
+  }
+  state.advancedWanLastFrameDataUrl = await readFileAsDataUrl(file);
+  updateAdvancedModelControls();
+});
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
 els.refreshHistoryBtn?.addEventListener("click", () => loadHistory());
 els.topupFilters?.addEventListener("submit", (event) => {
@@ -3431,6 +3525,7 @@ els.previewDialog?.addEventListener("close", () => {
 els.advancedSubmitBtn?.addEventListener("click", submitAdvancedGenerate);
 els.advancedDuration?.addEventListener("input", updateAdvancedButtonCost);
 els.advancedProvider?.addEventListener("change", updateAdvancedModelControls);
+els.advancedWanMediaMode?.addEventListener("change", updateAdvancedModelControls);
 els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedResolution?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelControls);

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-40" />
+    <link rel="stylesheet" href="./platform.css?v=ai-41" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -92,6 +92,31 @@
               <img id="advancedUploadPreview" alt="Advanced reference preview" />
               <span data-i18n="advanced.uploadReference"><i data-lucide="image-up"></i>Upload reference character</span>
             </label>
+            <div class="wan-media-panel advanced-wan-option" id="advancedWanMediaPanel" hidden>
+              <label class="field">
+                <span data-i18n="advanced.wanMode">Wan2.7 input</span>
+                <select id="advancedWanMediaMode">
+                  <option value="first_frame" data-i18n="advanced.wanModeFirst">Single image</option>
+                  <option value="first_last_frame" data-i18n="advanced.wanModeFirstLast">First + last image</option>
+                  <option value="first_frame_audio" data-i18n="advanced.wanModeFirstAudio">Image + audio</option>
+                  <option value="first_last_frame_audio" data-i18n="advanced.wanModeFirstLastAudio">First + last image + audio</option>
+                  <option value="first_clip" data-i18n="advanced.wanModeClip">Video continuation</option>
+                  <option value="first_clip_last_frame" data-i18n="advanced.wanModeClipLast">Video continuation + last image</option>
+                </select>
+              </label>
+              <label class="field wan-extra wan-last-frame">
+                <span data-i18n="advanced.lastFrame">Last frame image</span>
+                <input id="advancedWanLastFrame" type="file" accept="image/*" />
+              </label>
+              <label class="field wan-extra wan-audio">
+                <span data-i18n="advanced.audioUrl">Driving audio URL</span>
+                <input id="advancedWanAudioUrl" type="url" placeholder="https://.../audio.mp3" />
+              </label>
+              <label class="field wan-extra wan-clip">
+                <span data-i18n="advanced.clipUrl">Source video URL</span>
+                <input id="advancedWanClipUrl" type="url" placeholder="https://.../clip.mp4" />
+              </label>
+            </div>
             <div class="advanced-fields">
               <label class="field"><span data-i18n="field.model">Model</span><select id="advancedProvider"><option value="wan27" selected>Wan2.7</option><option value="seedance">Seedance</option></select></label>
               <label class="field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
@@ -340,6 +365,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-41"></script>
+    <script src="./platform.js?v=ai-42"></script>
 </body>
 </html>

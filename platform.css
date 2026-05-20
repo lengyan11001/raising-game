@@ -593,6 +593,16 @@ main { width: min(1200px, calc(100vw - 44px)); margin: 0 auto; }
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 9px;
 }
+.wan-media-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid rgba(15,148,139,.16);
+  border-radius: 8px;
+  background: rgba(15,148,139,.04);
+}
+.wan-media-panel[hidden] { display: none; }
 select {
   width: 100%;
   border: 1px solid var(--line);
@@ -746,6 +756,7 @@ select option:checked {
 @media (max-width: 920px) {
   .advanced-workspace { grid-template-columns: 1fr; }
   .advanced-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wan-media-panel { grid-template-columns: 1fr; }
 }
 .field { display: grid; gap: 8px; color: var(--muted); min-width: 0; }
 .field > span {
