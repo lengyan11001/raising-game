@@ -2749,7 +2749,7 @@ function renderTemplates() {
   els.templateGrid.innerHTML = list.length ? list.map((template) => `
     <article class="template-card" data-card-template-id="${escapeHtml(template.id)}">
       <img class="template-cover" src="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(localizedTemplateTitle(template))}" loading="lazy" />
-      ${template.previewUrl ? `<video class="template-hover-video" data-src="${escapeHtml(template.previewUrl)}" poster="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
+      ${template.previewUrl || template.hoverPreviewUrl ? `<video class="template-hover-video" data-src="${escapeHtml(template.hoverPreviewUrl || template.previewUrl)}" poster="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
       <div class="template-meta">
         <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
       </div>
@@ -3102,7 +3102,7 @@ function renderAdvancedCases() {
   els.advancedCaseGrid.innerHTML = cases.length ? cases.map((item, index) => `
     <article class="advanced-case-card" data-case-index="${index}">
       <img class="advanced-case-cover" src="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
-      ${item.previewUrl ? `<video class="advanced-case-hover-video" data-src="${escapeHtml(item.previewUrl)}" poster="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
+      ${item.previewUrl || item.hoverPreviewUrl ? `<video class="advanced-case-hover-video" data-src="${escapeHtml(item.hoverPreviewUrl || item.previewUrl)}" poster="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
       ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
       <div>
         <span>${escapeHtml(item.category || t("advanced.cases"))} - ${escapeHtml(advancedCostLabel(advancedCaseDuration(item), advancedCaseProvider(item), item.params?.resolution, item.params?.ratio || item.params?.aspect_ratio))}</span>
