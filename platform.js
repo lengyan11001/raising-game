@@ -2657,7 +2657,7 @@ function renderTemplates() {
   els.templateGrid.innerHTML = list.length ? list.map((template) => `
     <article class="template-card" data-card-template-id="${escapeHtml(template.id)}">
       <img class="template-cover" src="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(localizedTemplateTitle(template))}" loading="lazy" />
-      ${template.previewUrl ? `<video class="template-hover-video" src="${escapeHtml(template.previewUrl)}" poster="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" muted loop playsinline preload="metadata" disablepictureinpicture></video>` : ""}
+      ${template.previewUrl ? `<video class="template-hover-video" src="${escapeHtml(template.previewUrl)}" poster="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" muted loop playsinline preload="auto" disablepictureinpicture></video>` : ""}
       <div class="template-meta">
         <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
       </div>
@@ -2687,27 +2687,47 @@ function renderTemplates() {
     if (!video) return;
     let active = false;
     let loadTimer = null;
+    let retryTimer = null;
+    let playbackToken = 0;
     const showVideo = () => {
       if (!active || video.readyState < 2) return;
+      card.classList.remove("is-loading-preview");
       card.classList.add("is-previewing");
     };
-    const start = () => {
-      active = true;
-      card.classList.add("is-loading-preview");
-      clearTimeout(loadTimer);
-      loadTimer = window.setTimeout(showVideo, 120);
+    const requestPlay = (token) => {
+      if (!active || token !== playbackToken) return;
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
       const playPromise = video.play();
       if (playPromise && typeof playPromise.then === "function") {
         playPromise.then(showVideo).catch(() => {
-          card.classList.remove("is-loading-preview", "is-previewing");
+          if (!active || token !== playbackToken) return;
+          clearTimeout(retryTimer);
+          retryTimer = window.setTimeout(() => requestPlay(token), 300);
         });
       } else {
         showVideo();
       }
     };
+    const start = () => {
+      active = true;
+      playbackToken += 1;
+      const token = playbackToken;
+      card.classList.add("is-loading-preview");
+      clearTimeout(loadTimer);
+      clearTimeout(retryTimer);
+      loadTimer = window.setTimeout(showVideo, 120);
+      if (video.networkState === HTMLMediaElement.NETWORK_EMPTY) {
+        video.load();
+      }
+      requestPlay(token);
+    };
     const stop = () => {
       active = false;
+      playbackToken += 1;
       clearTimeout(loadTimer);
+      clearTimeout(retryTimer);
       video.pause();
       try {
         video.currentTime = 0;
@@ -2717,6 +2737,21 @@ function renderTemplates() {
     video.addEventListener("loadeddata", showVideo);
     video.addEventListener("canplay", showVideo);
     video.addEventListener("playing", showVideo);
+    video.addEventListener("timeupdate", showVideo);
+    video.addEventListener("pause", () => {
+      if (!active) return;
+      const token = playbackToken;
+      clearTimeout(retryTimer);
+      retryTimer = window.setTimeout(() => requestPlay(token), 250);
+    });
+    video.addEventListener("stalled", () => {
+      if (!active) return;
+      requestPlay(playbackToken);
+    });
+    video.addEventListener("waiting", () => {
+      if (!active) return;
+      card.classList.add("is-loading-preview");
+    });
     video.addEventListener("error", () => {
       card.classList.remove("cover-failed", "is-loading-preview", "is-previewing");
       if (cover && cover.getAttribute("src") !== DEFAULT_TEMPLATE_COVER) {
@@ -2725,8 +2760,6 @@ function renderTemplates() {
     });
     card.addEventListener("pointerenter", start);
     card.addEventListener("pointerleave", stop);
-    card.addEventListener("mouseenter", start);
-    card.addEventListener("mouseleave", stop);
     card.addEventListener("focusin", start);
     card.addEventListener("focusout", stop);
   });
