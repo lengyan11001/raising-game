@@ -51,6 +51,7 @@ const APP_CONFIG_PATH = path.join(ROOT, "data", "app-config.json");
 const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
 const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
 const ADMIN_ADVANCED_CASE_DIR = path.join(ROOT, "assets", "admin", "advanced-cases");
+const ADMIN_PLATFORM_TEMPLATE_DIR = path.join(ROOT, "assets", "admin", "platform-templates");
 const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
 const GENERATED_POSTER_DIR = path.join(ROOT, "assets", "generated", "posters");
 const GENERATED_CHARACTER_DIR = path.join(ROOT, "assets", "generated", "characters", "apiz");
@@ -4149,6 +4150,96 @@ async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } 
   return result;
 }
 
+async function ingestPlatformTemplateMedia({ videoUrl, coverUrl = "", templateId = "" } = {}) {
+  const sourceVideoUrl = requireHttpUrl(videoUrl, "Video URL");
+  const sourceCoverUrl = String(coverUrl || "").trim() ? requireHttpUrl(coverUrl, "Cover URL") : "";
+  const safeId = String(templateId || `template-${Date.now()}`).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || `template-${Date.now()}`;
+  await fs.mkdir(ADMIN_PLATFORM_TEMPLATE_DIR, { recursive: true });
+
+  const videoDownload = await downloadRemoteFileToBuffer(sourceVideoUrl, { label: "video", maxBytes: 300 * 1024 * 1024 });
+  const videoPathname = new URL(sourceVideoUrl).pathname;
+  if (!String(videoDownload.mime || "").startsWith("video/") && !isLikelyVideoUrl(videoPathname)) {
+    const error = new Error("Video URL must point to a video file.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const videoExt = videoExtFromMime(videoDownload.mime, sourceVideoUrl);
+  const stamp = Date.now();
+  const videoName = `${safeId}-video-${stamp}${videoExt}`;
+  const videoPath = path.join(ADMIN_PLATFORM_TEMPLATE_DIR, videoName);
+  const localVideoUrl = `/assets/admin/platform-templates/${videoName}`;
+  await fs.writeFile(videoPath, videoDownload.bytes);
+
+  let localCoverUrl = "";
+  let coverPath = "";
+  let coverBytes = null;
+  let coverMime = "";
+  if (sourceCoverUrl) {
+    const coverDownload = await downloadRemoteFileToBuffer(sourceCoverUrl, { label: "cover", maxBytes: 8 * 1024 * 1024, timeoutMs: 120000 });
+    const coverPathname = new URL(sourceCoverUrl).pathname;
+    if (!String(coverDownload.mime || "").startsWith("image/") && !/\.(png|jpe?g|webp)$/i.test(coverPathname)) {
+      const error = new Error("Cover URL must point to an image file.");
+      error.statusCode = 400;
+      throw error;
+    }
+    coverMime = coverDownload.mime && coverDownload.mime.startsWith("image/") ? coverDownload.mime : "image/jpeg";
+    const coverExt = imageExtFromMime(coverMime);
+    const coverName = `${safeId}-cover-${stamp}${coverExt}`;
+    coverPath = path.join(ADMIN_PLATFORM_TEMPLATE_DIR, coverName);
+    localCoverUrl = `/assets/admin/platform-templates/${coverName}`;
+    coverBytes = coverDownload.bytes;
+    await fs.writeFile(coverPath, coverBytes);
+  } else {
+    const coverName = `${safeId}-cover-${stamp}.jpg`;
+    coverPath = path.join(ADMIN_PLATFORM_TEMPLATE_DIR, coverName);
+    const captured = await captureVideoPosterFrame(videoPath, coverPath);
+    if (captured) {
+      localCoverUrl = `/assets/admin/platform-templates/${coverName}`;
+      coverMime = "image/jpeg";
+      coverBytes = await fs.readFile(coverPath);
+    }
+  }
+
+  const result = {
+    sourceVideoUrl,
+    sourceCoverUrl,
+    localVideoUrl,
+    localCoverUrl,
+    previewUrl: localVideoUrl,
+    coverUrl: localCoverUrl,
+    cdnVideoUrl: "",
+    cdnCoverUrl: "",
+    cdnEnabled: tosEnabled(),
+    cdnError: "",
+  };
+
+  if (tosEnabled()) {
+    try {
+      const baseKey = `seedance-assets/raising-game/admin/platform-templates/${safeId}/${stamp}`;
+      const videoUpload = await uploadStaticAssetToTos({
+        key: `${baseKey}${videoExt}`,
+        bytes: videoDownload.bytes,
+        mime: videoDownload.mime && videoDownload.mime.startsWith("video/") ? videoDownload.mime : videoMimeFromPath(videoName),
+      });
+      result.cdnVideoUrl = videoUpload.publicUrl;
+      result.previewUrl = videoUpload.publicUrl;
+      if (coverBytes && localCoverUrl) {
+        const coverUpload = await uploadStaticAssetToTos({
+          key: `${baseKey}-cover${path.extname(coverPath) || ".jpg"}`,
+          bytes: coverBytes,
+          mime: coverMime || "image/jpeg",
+        });
+        result.cdnCoverUrl = coverUpload.publicUrl;
+        result.coverUrl = coverUpload.publicUrl;
+      }
+    } catch (error) {
+      result.cdnError = error.message || "CDN upload failed";
+    }
+  }
+
+  return result;
+}
+
 async function readJson(req) {
   const chunks = [];
   for await (const chunk of req) {
@@ -5519,6 +5610,22 @@ async function handleAdminIngestAdvancedCaseMedia(req, res) {
       videoUrl: body.videoUrl,
       coverUrl: body.coverUrl,
       caseId: body.caseId || body.name || "advanced-case",
+    });
+    return sendJson(res, 200, { ok: true, media });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 500, { ok: false, message: error.message || "Failed to ingest media." });
+  }
+}
+
+async function handleAdminIngestPlatformTemplateMedia(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  try {
+    const media = await ingestPlatformTemplateMedia({
+      videoUrl: body.videoUrl,
+      coverUrl: body.coverUrl,
+      templateId: body.templateId || body.name || "platform-template",
     });
     return sendJson(res, 200, { ok: true, media });
   } catch (error) {
@@ -9237,6 +9344,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/admin/platform-cover") {
       return await handleAdminUploadPlatformCover(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/platform-template-media") {
+      return await handleAdminIngestPlatformTemplateMedia(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/admin/advanced-case-media") {
