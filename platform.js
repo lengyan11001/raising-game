@@ -2003,6 +2003,7 @@ const LEGAL_DOCS = {
 };
 
 let activeAccessGuide = ACCESS_GUIDES[0];
+let activeHoverPreviewStop = null;
 let historyLoading = false;
 let historyRefreshTimer = null;
 let historyRefreshInFlight = false;
@@ -2647,7 +2648,98 @@ function renderCategories() {
   });
 }
 
+function bindHoverPreviewCard({ card, video, cover, fallbackCover = DEFAULT_TEMPLATE_COVER } = {}) {
+  if (!card || !video) return;
+  let active = false;
+  let loadTimer = null;
+  let retryTimer = null;
+  let playbackToken = 0;
+  const showVideo = () => {
+    if (!active || video.readyState < 2) return;
+    card.classList.remove("is-loading-preview");
+    card.classList.add("is-previewing");
+  };
+  const requestPlay = (token) => {
+    if (!active || token !== playbackToken) return;
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    if (!video.src && video.dataset.src) {
+      video.src = video.dataset.src;
+      video.load();
+    }
+    const playPromise = video.play();
+    if (playPromise && typeof playPromise.then === "function") {
+      playPromise.then(showVideo).catch(() => {
+        if (!active || token !== playbackToken) return;
+        clearTimeout(retryTimer);
+        retryTimer = window.setTimeout(() => requestPlay(token), 350);
+      });
+    } else {
+      showVideo();
+    }
+  };
+  const stop = () => {
+    active = false;
+    playbackToken += 1;
+    if (activeHoverPreviewStop === stop) activeHoverPreviewStop = null;
+    clearTimeout(loadTimer);
+    clearTimeout(retryTimer);
+    video.pause();
+    try {
+      video.currentTime = 0;
+    } catch (error) {}
+    card.classList.remove("is-loading-preview", "is-previewing");
+  };
+  const start = () => {
+    if (activeHoverPreviewStop && activeHoverPreviewStop !== stop) {
+      activeHoverPreviewStop();
+    }
+    active = true;
+    playbackToken += 1;
+    const token = playbackToken;
+    activeHoverPreviewStop = stop;
+    card.classList.add("is-loading-preview");
+    clearTimeout(loadTimer);
+    clearTimeout(retryTimer);
+    loadTimer = window.setTimeout(() => requestPlay(token), 180);
+  };
+  video.addEventListener("loadeddata", showVideo);
+  video.addEventListener("canplay", showVideo);
+  video.addEventListener("playing", showVideo);
+  video.addEventListener("timeupdate", showVideo);
+  video.addEventListener("pause", () => {
+    if (!active) return;
+    const token = playbackToken;
+    clearTimeout(retryTimer);
+    retryTimer = window.setTimeout(() => requestPlay(token), 300);
+  });
+  video.addEventListener("stalled", () => {
+    if (!active) return;
+    card.classList.add("is-loading-preview");
+    requestPlay(playbackToken);
+  });
+  video.addEventListener("waiting", () => {
+    if (!active) return;
+    card.classList.add("is-loading-preview");
+  });
+  video.addEventListener("error", () => {
+    clearTimeout(loadTimer);
+    clearTimeout(retryTimer);
+    card.classList.remove("cover-failed", "is-loading-preview", "is-previewing");
+    if (cover && fallbackCover && cover.getAttribute("src") !== fallbackCover) {
+      cover.src = fallbackCover;
+    }
+  });
+  card.addEventListener("pointerenter", start);
+  card.addEventListener("pointerleave", stop);
+  card.addEventListener("focusin", start);
+  card.addEventListener("focusout", stop);
+}
+
 function renderTemplates() {
+  activeHoverPreviewStop?.();
+  activeHoverPreviewStop = null;
   const list = state.templates.filter((template) => {
     if (isHiddenCategory({ id: template.category, name: template.category })) return false;
     if (state.category !== "all" && template.category !== state.category) return false;
@@ -2657,7 +2749,7 @@ function renderTemplates() {
   els.templateGrid.innerHTML = list.length ? list.map((template) => `
     <article class="template-card" data-card-template-id="${escapeHtml(template.id)}">
       <img class="template-cover" src="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(localizedTemplateTitle(template))}" loading="lazy" />
-      ${template.previewUrl ? `<video class="template-hover-video" src="${escapeHtml(template.previewUrl)}" poster="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" muted loop playsinline preload="auto" disablepictureinpicture></video>` : ""}
+      ${template.previewUrl ? `<video class="template-hover-video" data-src="${escapeHtml(template.previewUrl)}" poster="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
       <div class="template-meta">
         <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
       </div>
@@ -2684,84 +2776,12 @@ function renderTemplates() {
     };
     cover?.addEventListener("error", useFallbackCover);
     if (cover?.complete && cover.naturalWidth === 0) useFallbackCover();
-    if (!video) return;
-    let active = false;
-    let loadTimer = null;
-    let retryTimer = null;
-    let playbackToken = 0;
-    const showVideo = () => {
-      if (!active || video.readyState < 2) return;
-      card.classList.remove("is-loading-preview");
-      card.classList.add("is-previewing");
-    };
-    const requestPlay = (token) => {
-      if (!active || token !== playbackToken) return;
-      video.muted = true;
-      video.loop = true;
-      video.playsInline = true;
-      const playPromise = video.play();
-      if (playPromise && typeof playPromise.then === "function") {
-        playPromise.then(showVideo).catch(() => {
-          if (!active || token !== playbackToken) return;
-          clearTimeout(retryTimer);
-          retryTimer = window.setTimeout(() => requestPlay(token), 300);
-        });
-      } else {
-        showVideo();
-      }
-    };
-    const start = () => {
-      active = true;
-      playbackToken += 1;
-      const token = playbackToken;
-      card.classList.add("is-loading-preview");
-      clearTimeout(loadTimer);
-      clearTimeout(retryTimer);
-      loadTimer = window.setTimeout(showVideo, 120);
-      if (video.networkState === HTMLMediaElement.NETWORK_EMPTY) {
-        video.load();
-      }
-      requestPlay(token);
-    };
-    const stop = () => {
-      active = false;
-      playbackToken += 1;
-      clearTimeout(loadTimer);
-      clearTimeout(retryTimer);
-      video.pause();
-      try {
-        video.currentTime = 0;
-      } catch (error) {}
-      card.classList.remove("is-loading-preview", "is-previewing");
-    };
-    video.addEventListener("loadeddata", showVideo);
-    video.addEventListener("canplay", showVideo);
-    video.addEventListener("playing", showVideo);
-    video.addEventListener("timeupdate", showVideo);
-    video.addEventListener("pause", () => {
-      if (!active) return;
-      const token = playbackToken;
-      clearTimeout(retryTimer);
-      retryTimer = window.setTimeout(() => requestPlay(token), 250);
+    bindHoverPreviewCard({
+      card,
+      video,
+      cover,
+      fallbackCover: DEFAULT_TEMPLATE_COVER,
     });
-    video.addEventListener("stalled", () => {
-      if (!active) return;
-      requestPlay(playbackToken);
-    });
-    video.addEventListener("waiting", () => {
-      if (!active) return;
-      card.classList.add("is-loading-preview");
-    });
-    video.addEventListener("error", () => {
-      card.classList.remove("cover-failed", "is-loading-preview", "is-previewing");
-      if (cover && cover.getAttribute("src") !== DEFAULT_TEMPLATE_COVER) {
-        cover.src = DEFAULT_TEMPLATE_COVER;
-      }
-    });
-    card.addEventListener("pointerenter", start);
-    card.addEventListener("pointerleave", stop);
-    card.addEventListener("focusin", start);
-    card.addEventListener("focusout", stop);
   });
   refreshIcons();
 }
@@ -3076,10 +3096,13 @@ function updateAdvancedModelControls() {
 
 function renderAdvancedCases() {
   if (!els.advancedCaseGrid) return;
+  activeHoverPreviewStop?.();
+  activeHoverPreviewStop = null;
   const cases = state.advancedCases.filter((item) => item.enabled !== false);
   els.advancedCaseGrid.innerHTML = cases.length ? cases.map((item, index) => `
     <article class="advanced-case-card" data-case-index="${index}">
-      <img src="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
+      <img class="advanced-case-cover" src="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
+      ${item.previewUrl ? `<video class="advanced-case-hover-video" data-src="${escapeHtml(item.previewUrl)}" poster="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
       ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
       <div>
         <span>${escapeHtml(item.category || t("advanced.cases"))} - ${escapeHtml(advancedCostLabel(advancedCaseDuration(item), advancedCaseProvider(item), item.params?.resolution, item.params?.ratio || item.params?.aspect_ratio))}</span>
@@ -3090,6 +3113,11 @@ function renderAdvancedCases() {
   `).join("") : `<div class="job-note">${escapeHtml(t("advanced.noCases"))}</div>`;
   els.advancedCaseGrid.querySelectorAll("[data-case-index]").forEach((card) => {
     card.addEventListener("click", () => fillAdvancedCase(cases[Number(card.dataset.caseIndex || 0)]));
+    bindHoverPreviewCard({
+      card,
+      video: card.querySelector(".advanced-case-hover-video"),
+      cover: card.querySelector(".advanced-case-cover"),
+    });
   });
   els.advancedCaseGrid.querySelectorAll("[data-advanced-preview-index]").forEach((button) => {
     button.addEventListener("click", (event) => {
