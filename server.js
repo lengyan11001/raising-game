@@ -1733,10 +1733,6 @@ function settleWalletOrderPayment(db, order, config, meta = {}) {
   order.creditAmount = creditDelta;
   if (order.paymentProvider === "paypal") order.cnyCentsPerUnit = rate;
   else order.cnyCentsPerUsdt = rate;
-  order.status = "paid";
-  order.paidAt = order.paidAt || now;
-  order.updatedAt = now;
-  if (meta.note && !order.note) order.note = String(meta.note).slice(0, 200);
   if (meta.paypalCaptureId) order.paypalCaptureId = meta.paypalCaptureId;
   if (meta.paypalPayerEmail) order.paypalPayerEmail = meta.paypalPayerEmail;
   if (meta.paypalStatus) order.paypalStatus = meta.paypalStatus;
@@ -1749,6 +1745,10 @@ function settleWalletOrderPayment(db, order, config, meta = {}) {
     paypalOrderId: order.paypalOrderId || "",
     paypalCaptureId: order.paypalCaptureId || "",
   });
+  order.status = "paid";
+  order.paidAt = order.paidAt || now;
+  order.updatedAt = now;
+  if (meta.note && !order.note) order.note = String(meta.note).slice(0, 200);
   return { settled: true, user };
 }
 
@@ -1756,7 +1756,7 @@ function safeSettleWalletOrderPayment(db, order, config, meta = {}) {
   try {
     return settleWalletOrderPayment(db, order, config, meta);
   } catch (error) {
-    order.status = order.status || "pending";
+    order.status = order.status === "paid" ? "pending" : (order.status || "pending");
     order.note = error.message || "Failed to settle payment.";
     order.updatedAt = new Date().toISOString();
     return { settled: false, error };
