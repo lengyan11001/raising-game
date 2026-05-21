@@ -3531,7 +3531,7 @@ function scheduleHistoryRefresh({ delayMs = 15000, force = false } = {}) {
   }, delayMs);
 }
 
-async function loadHistory({ silent = false } = {}) {
+async function loadHistory({ silent = false, refresh = false } = {}) {
   if (!els.historyList) return;
   if (!state.user) {
     stopHistoryRefresh();
@@ -3545,7 +3545,8 @@ async function loadHistory({ silent = false } = {}) {
   const previousScrollTop = els.historyList.scrollTop || 0;
   if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
   try {
-    const payload = await requestJson("/api/generation-records?limit=50");
+    const historyUrl = `/api/generation-records?limit=50${refresh ? "&refresh=1" : ""}`;
+    const payload = await requestJson(historyUrl);
     if (payload.user) setUser(payload.user);
     const records = payload.records || [];
     const nextSignature = generationRecordsSignature(records);
@@ -4017,7 +4018,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
   updateAdvancedModelControls();
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
-els.refreshHistoryBtn?.addEventListener("click", () => loadHistory());
+els.refreshHistoryBtn?.addEventListener("click", () => loadHistory({ refresh: true }));
 els.topupFilters?.addEventListener("submit", (event) => {
   event.preventDefault();
   loadTopupRecords(1);
