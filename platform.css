@@ -1082,6 +1082,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   min-height: 0;
 }
 .history-media video,
+.history-poster,
 .history-placeholder {
   width: 100%;
   aspect-ratio: var(--video-ratio, 16 / 9);
@@ -1091,6 +1092,35 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   border-radius: 8px;
   background: #e4ece9;
   object-fit: contain;
+}
+.history-poster {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  color: var(--text);
+  cursor: pointer;
+}
+.history-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.history-poster i {
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(5, 8, 14, .62);
+  box-shadow: 0 8px 22px rgba(5, 8, 14, .22);
+}
+.history-poster span {
+  color: var(--muted);
+  font-size: .86rem;
 }
 .history-placeholder {
   display: grid;

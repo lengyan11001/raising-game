@@ -2257,7 +2257,11 @@ function renderTokenDisplays() {
 }
 
 function generationVideoUrl(record) {
-  return record?.videoUrl || record?.localVideoUrl || record?.remoteVideoUrl || "";
+  return record?.cdnVideoUrl || record?.videoUrl || record?.localVideoUrl || record?.remoteVideoUrl || "";
+}
+
+function generationPosterUrl(record) {
+  return record?.cdnPosterUrl || record?.posterUrl || record?.localPosterUrl || recordImageAssets(record)[0]?.imageUrl || "";
 }
 
 function mediaAssetPreviewUrl(asset = {}) {
@@ -2768,6 +2772,7 @@ function historyDetailPayload(record = {}) {
     mediaMode: record.mediaMode || record.params?.mediaMode || "",
     billing: record.billing || null,
     error: record.error || "",
+    poster: generationPosterUrl(record) || "",
     result: generationVideoUrl(record) || "",
     createdAt: record.createdAt || "",
     updatedAt: record.updatedAt || "",
@@ -2806,7 +2811,7 @@ function openHistoryDetail(index) {
     <section class="history-detail-section">
       <header><strong>${escapeHtml(t("history.result"))}</strong></header>
       ${videoUrl ? `
-        <video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata" style="${escapeHtml(ratioStyle(recordRatio))}"></video>
+        <video src="${escapeHtml(videoUrl)}" ${generationPosterUrl(record) ? `poster="${escapeHtml(generationPosterUrl(record))}"` : ""} controls playsinline preload="metadata" style="${escapeHtml(ratioStyle(recordRatio))}"></video>
       ` : `<pre>${escapeHtml(record.error || statusLabel(record.status))}</pre>`}
     </section>
   `;
@@ -3367,13 +3372,19 @@ function renderHistory(records = []) {
     const videoUrl = generationVideoUrl(record);
     const taskId = record.taskId || "";
     const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
-    const title = record.templateTitle || record.sceneEntryName || record.sceneName || t("history.job");
     const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio;
     const mediaStyle = ratioStyle(recordRatio);
+    const posterUrl = generationPosterUrl(record);
     return `
       <article class="history-item is-${escapeHtml(statusClass(record.status))}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">
-          ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata" data-history-video="${escapeHtml(mediaKey)}"></video>` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
+          ${videoUrl ? `
+            <button class="history-poster" type="button" data-history-load-video="${escapeHtml(mediaKey)}" aria-label="${escapeHtml(t("common.preview"))}">
+              ${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(statusLabel(record.status))}</span>`}
+              <i data-lucide="play"></i>
+            </button>
+            <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} controls playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
+          ` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
         <div class="history-card-actions">
           <div class="history-record-actions${taskId ? "" : " history-record-actions-empty"}">
@@ -3390,14 +3401,20 @@ function renderHistory(records = []) {
       </article>
     `;
   }).join("")}`;
-  els.historyList.querySelectorAll("[data-history-preview]").forEach((button) => {
-    button.addEventListener("click", () => {
-      playPreview({
-        title: button.dataset.historyPreviewTitle || t("common.preview"),
-        previewUrl: button.dataset.historyPreviewUrl || "",
-        ratio: button.dataset.historyPreviewRatio || "16:9",
-      });
-    });
+  els.historyList.querySelectorAll("[data-history-load-video]").forEach((button) => {
+    const showVideo = () => {
+      const key = button.dataset.historyLoadVideo || "";
+      const escapedKey = window.CSS?.escape ? CSS.escape(key) : key.replace(/["\\]/g, "\\$&");
+      const video = els.historyList.querySelector(`[data-history-video="${escapedKey}"]`);
+      if (!video) return;
+      if (!video.src) video.src = video.dataset.src || "";
+      video.hidden = false;
+      button.hidden = true;
+      video.play?.().catch(() => {});
+    };
+    button.addEventListener("mouseenter", showVideo, { once: true });
+    button.addEventListener("focus", showVideo, { once: true });
+    button.addEventListener("click", showVideo);
   });
   els.historyList.querySelectorAll("[data-history-regenerate]").forEach((button) => {
     button.addEventListener("click", () => regenerateHistoryRecord(button.dataset.historyRegenerate || "", button));
