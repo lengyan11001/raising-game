@@ -5,8 +5,10 @@ const LEGACY_TOKEN_KEY = "raisingGameToken";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
 const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
+const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
+const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
-const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
+const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
 const ADVANCED_GENERATION_MARKUP = 1.5;
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
@@ -2412,7 +2414,7 @@ function defaultAdvancedCase(index = 0) {
     title: "Advanced Case",
     category: "portrait",
     provider: "wan27",
-    price: 750,
+    price: 500,
     coverUrl: "",
     previewUrl: "",
     description: "",
@@ -2467,21 +2469,13 @@ function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
 function advancedCaseCredits(item = {}) {
   const params = item.params && typeof item.params === "object" ? item.params : {};
   const provider = String(item.provider || params.provider || "seedance").toLowerCase().replace(/[\s_-]+/g, "");
-  if (provider === "wan27" || provider === "wan2.7") {
-    const resolution = normalizeAdvancedResolution(params.resolution);
-    const perSecond = resolution === "1080p" ? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND : ADVANCED_WAN27_720P_CREDITS_PER_SECOND;
-    return Math.round(advancedCaseDuration(item) * perSecond * ADVANCED_GENERATION_MARKUP);
-  }
   const duration = advancedCaseDuration(item);
   const resolution = normalizeAdvancedResolution(params.resolution);
-  const ratio = normalizeVideoRatio(params.ratio || params.aspect_ratio);
-  const { width, height } = videoPixelDimensions(resolution, ratio);
-  const outputTokens = Math.ceil((duration * width * height * ADVANCED_SEEDANCE_FPS) / 1024);
-  const yuanPerMillionTokens = resolution === "1080p"
-    ? ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS
-    : ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS;
-  const baseCredits = (outputTokens * yuanPerMillionTokens * 100) / 1000000;
-  return Math.round(baseCredits * ADVANCED_GENERATION_MARKUP);
+  const isWan = provider === "wan27" || provider === "wan2.7";
+  const perSecond = isWan
+    ? (resolution === "1080p" ? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND : ADVANCED_WAN27_720P_CREDITS_PER_SECOND)
+    : (resolution === "1080p" ? ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND);
+  return Math.round(duration * perSecond);
 }
 
 function advancedCaseSummary(item = {}, index = 0) {

@@ -8,8 +8,10 @@ const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
 const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
+const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
+const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
-const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 150;
+const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
 const ADVANCED_GENERATION_MARKUP = 1.5;
 const DEFAULT_ADVANCED_PROVIDER = "wan27";
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
@@ -2445,7 +2447,6 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   const rawSeconds = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawSeconds) ? Math.min(bounds.max, Math.max(bounds.min, rawSeconds)) : bounds.fallback;
   const configPricing = state.config?.platform?.advancedPricing || {};
-  const markup = Number(configPricing.markup || ADVANCED_GENERATION_MARKUP) || ADVANCED_GENERATION_MARKUP;
   if (normalizedProvider === "wan27") {
     const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
     const byResolution = configPricing.wan27CreditsPerSecondByResolution || {};
@@ -2455,29 +2456,26 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       provider: "wan27",
       duration: seconds,
       resolution: normalizedResolution,
+      creditsPerSecond: perSecond,
       baseCredits: Math.max(0, seconds * perSecond),
-      credits: Math.max(0, Math.round(seconds * perSecond * markup)),
-      markup,
+      credits: Math.max(0, Math.round(seconds * perSecond)),
+      markup: 1,
     };
   }
   const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
   const normalizedRatio = normalizeVideoRatio(ratio);
-  const seedanceConfig = configPricing.seedanceTokenPricing || {};
-  const byResolution = seedanceConfig.yuanPerMillionTokensByResolution || {};
-  const yuanPerMillionTokens = Number(byResolution[normalizedResolution] || (normalizedResolution === "1080p" ? ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS : ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS));
-  const fps = Number(seedanceConfig.fps || ADVANCED_SEEDANCE_FPS) || ADVANCED_SEEDANCE_FPS;
-  const { width, height } = videoPixelDimensions(normalizedResolution, normalizedRatio);
-  const outputTokens = Math.ceil((seconds * width * height * fps) / 1024);
-  const baseCredits = Math.max(0, (outputTokens * yuanPerMillionTokens * 100) / 1000000);
+  const byResolution = configPricing.seedanceCreditsPerSecondByResolution || {};
+  const fallbackPerSecond = normalizedResolution === "1080p" ? ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND;
+  const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
   return {
     provider: "seedance",
     duration: seconds,
     resolution: normalizedResolution,
     ratio: normalizedRatio,
-    outputTokens,
-    baseCredits,
-    credits: Math.max(0, Math.round(baseCredits * markup)),
-    markup,
+    creditsPerSecond: perSecond,
+    baseCredits: Math.max(0, seconds * perSecond),
+    credits: Math.max(0, Math.round(seconds * perSecond)),
+    markup: 1,
   };
 }
 
