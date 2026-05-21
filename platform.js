@@ -47,6 +47,7 @@ const state = {
   advancedWanClipDataUrl: "",
   advancedWanClipFileName: "",
   wallet: null,
+  paypalConfig: null,
   token: localStorage.getItem(TOKEN_KEY) || "",
   lang: localStorage.getItem(LANG_KEY) || "en",
   user: null,
@@ -112,6 +113,9 @@ const els = {
   topupCredits: document.querySelector("#topupCredits"),
   topupRate: document.querySelector("#topupRate"),
   createTopupBtn: document.querySelector("#createTopupBtn"),
+  paypalBox: document.querySelector("#paypalBox"),
+  paypalButtons: document.querySelector("#paypalButtons"),
+  paypalStatus: document.querySelector("#paypalStatus"),
   topupOrder: document.querySelector("#topupOrder"),
   previewDialog: document.querySelector("#previewDialog"),
   previewTitle: document.querySelector("#previewTitle"),
@@ -248,18 +252,28 @@ const I18N = {
     "billing.final": "Prepaid {pre}, final {final}",
     "billing.prepaid": "Prepaid {pre}",
     "billing.noCharge": "No charge",
-    "topup.title": "USDT Top Up",
+    "topup.title": "Top Up",
     "topup.compact": "Top Up",
     "topup.dialogTitle": "Top up credits",
     "topup.createOrder": "Create order",
     "topup.login": "Login to create a payment order.",
     "topup.rate": "{amount} {asset} via {network}. Credits use RMB cents.",
     "topup.payExactly": "Pay exactly",
-    "topup.copyAddress": "Copy address",
-    "topup.addressCopied": "Address copied. Transfer the exact amount shown.",
-    "topup.invalid": "Enter a valid USDT amount.",
-    "topup.creating": "Creating payment order...",
-    "topup.created": "Order created. Transfer the exact amount including suffix.",
+  "topup.copyAddress": "Copy address",
+  "topup.addressCopied": "Address copied. Transfer the exact amount shown.",
+  "topup.invalid": "Enter a valid USDT amount.",
+  "topup.creating": "Creating payment order...",
+  "topup.created": "Order created. Transfer the exact amount including suffix.",
+  "topup.paypalTitle": "PayPal Checkout",
+  "topup.paypalLoading": "Loading PayPal...",
+  "topup.paypalUnavailable": "PayPal is not configured yet.",
+  "topup.paypalReady": "Pay securely with PayPal.",
+  "topup.paypalCreating": "Opening PayPal checkout...",
+  "topup.paypalApproved": "Payment approved. Confirming credits...",
+  "topup.paypalPaid": "Payment completed. Credits added.",
+  "topup.paypalCancelled": "PayPal payment cancelled.",
+  "topup.paypalOrder": "PayPal order",
+  "topup.provider": "Provider",
     "advanced.models": "Advanced Models",
     "advanced.title": "Advanced Generate",
     "advanced.subtitle": "Use Seedance or Wan2.7 parameters after approval.",
@@ -397,7 +411,7 @@ const I18N = {
     "ledger.taskId": "Task ID",
     "topups.eyebrow": "Billing",
     "topups.title": "Top-up Records",
-    "topups.subtitle": "Search and export your USDT top-up orders.",
+    "topups.subtitle": "Search and export your top-up orders.",
     "topups.searchPlaceholder": "Order ID / status",
     "spending.eyebrow": "Billing",
     "spending.title": "Spending Records",
@@ -513,18 +527,28 @@ const I18N = {
     "billing.final": "Đã tạm trừ {pre}, cuối cùng {final}",
     "billing.prepaid": "Đã tạm trừ {pre}",
     "billing.noCharge": "Không tính phí",
-    "topup.title": "Nạp USDT",
+    "topup.title": "Nạp tiền",
     "topup.compact": "Nạp",
     "topup.dialogTitle": "Nạp credits",
     "topup.createOrder": "Tạo đơn",
     "topup.login": "Đăng nhập để tạo đơn thanh toán.",
     "topup.rate": "{amount} {asset} qua {network}. Credits tính theo cent RMB.",
     "topup.payExactly": "Thanh toán chính xác",
-    "topup.copyAddress": "Sao chép địa chỉ",
-    "topup.addressCopied": "Đã sao chép địa chỉ. Chuyển đúng số tiền hiển thị.",
-    "topup.invalid": "Nhập số USDT hợp lệ.",
-    "topup.creating": "Đang tạo đơn thanh toán...",
-    "topup.created": "Đã tạo đơn. Chuyển đúng số tiền gồm phần đuôi.",
+  "topup.copyAddress": "Sao chép địa chỉ",
+  "topup.addressCopied": "Đã sao chép địa chỉ. Chuyển đúng số tiền hiển thị.",
+  "topup.invalid": "Nhập số USDT hợp lệ.",
+  "topup.creating": "Đang tạo đơn thanh toán...",
+  "topup.created": "Đã tạo đơn. Chuyển đúng số tiền gồm phần đuôi.",
+  "topup.paypalTitle": "Thanh toán PayPal",
+  "topup.paypalLoading": "Đang tải PayPal...",
+  "topup.paypalUnavailable": "PayPal chưa được cấu hình.",
+  "topup.paypalReady": "Thanh toán an toàn qua PayPal.",
+  "topup.paypalCreating": "Đang mở PayPal checkout...",
+  "topup.paypalApproved": "Đã duyệt thanh toán. Đang cộng credits...",
+  "topup.paypalPaid": "Thanh toán hoàn tất. Credits đã được cộng.",
+  "topup.paypalCancelled": "Đã hủy thanh toán PayPal.",
+  "topup.paypalOrder": "Đơn PayPal",
+  "topup.provider": "Nhà cung cấp",
     "advanced.models": "Mô hình nâng cao",
     "advanced.title": "Tạo nâng cao",
     "advanced.subtitle": "Dùng tham số Seedance hoặc Wan2.7 sau khi được duyệt.",
@@ -648,7 +672,7 @@ const I18N = {
     "ledger.taskId": "Task ID",
     "topups.eyebrow": "Thanh toán",
     "topups.title": "Lịch sử nạp tiền",
-    "topups.subtitle": "Tìm kiếm và xuất các đơn nạp USDT.",
+    "topups.subtitle": "Tìm kiếm và xuất các đơn nạp tiền.",
     "topups.searchPlaceholder": "Mã đơn / trạng thái",
     "spending.eyebrow": "Thanh toán",
     "spending.title": "Lịch sử chi tiêu",
@@ -764,18 +788,28 @@ const I18N = {
     "billing.final": "事前差引 {pre}、最終 {final}",
     "billing.prepaid": "事前差引 {pre}",
     "billing.noCharge": "課金なし",
-    "topup.title": "USDT チャージ",
+    "topup.title": "チャージ",
     "topup.compact": "チャージ",
     "topup.dialogTitle": "Credits をチャージ",
     "topup.createOrder": "注文作成",
     "topup.login": "ログインして支払い注文を作成してください。",
     "topup.rate": "{amount} {asset} / {network}。Credits は RMB セントで計算されます。",
     "topup.payExactly": "正確に支払う",
-    "topup.copyAddress": "アドレスをコピー",
-    "topup.addressCopied": "アドレスをコピーしました。表示金額を正確に送金してください。",
-    "topup.invalid": "有効な USDT 金額を入力してください。",
-    "topup.creating": "支払い注文を作成中...",
-    "topup.created": "注文を作成しました。末尾を含む正確な金額を送金してください。",
+  "topup.copyAddress": "アドレスをコピー",
+  "topup.addressCopied": "アドレスをコピーしました。表示金額を正確に送金してください。",
+  "topup.invalid": "有効な USDT 金額を入力してください。",
+  "topup.creating": "支払い注文を作成中...",
+  "topup.created": "注文を作成しました。末尾を含む正確な金額を送金してください。",
+  "topup.paypalTitle": "PayPal 決済",
+  "topup.paypalLoading": "PayPal を読み込み中...",
+  "topup.paypalUnavailable": "PayPal はまだ設定されていません。",
+  "topup.paypalReady": "PayPal で安全に支払えます。",
+  "topup.paypalCreating": "PayPal 決済を開いています...",
+  "topup.paypalApproved": "支払いが承認されました。Credits を確認中...",
+  "topup.paypalPaid": "支払い完了。Credits を追加しました。",
+  "topup.paypalCancelled": "PayPal 支払いはキャンセルされました。",
+  "topup.paypalOrder": "PayPal 注文",
+  "topup.provider": "プロバイダー",
     "advanced.models": "高度モデル",
     "advanced.title": "高度生成",
     "advanced.subtitle": "承認後に Seedance または Wan2.7 のパラメータを使用できます。",
@@ -899,7 +933,7 @@ const I18N = {
     "ledger.taskId": "Task ID",
     "topups.eyebrow": "課金",
     "topups.title": "チャージ履歴",
-    "topups.subtitle": "USDT チャージ注文を検索、エクスポートできます。",
+    "topups.subtitle": "チャージ注文を検索、エクスポートできます。",
     "topups.searchPlaceholder": "注文 ID / ステータス",
     "spending.eyebrow": "課金",
     "spending.title": "消費履歴",
@@ -1015,18 +1049,28 @@ const I18N = {
     "billing.final": "선차감 {pre}, 최종 {final}",
     "billing.prepaid": "선차감 {pre}",
     "billing.noCharge": "요금 없음",
-    "topup.title": "USDT 충전",
+    "topup.title": "충전",
     "topup.compact": "충전",
     "topup.dialogTitle": "Credits 충전",
     "topup.createOrder": "주문 생성",
     "topup.login": "결제 주문을 만들려면 로그인하세요.",
     "topup.rate": "{amount} {asset}, {network}. Credits는 RMB 센트 기준입니다.",
     "topup.payExactly": "정확히 결제",
-    "topup.copyAddress": "주소 복사",
-    "topup.addressCopied": "주소를 복사했습니다. 표시된 정확한 금액을 전송하세요.",
-    "topup.invalid": "올바른 USDT 금액을 입력하세요.",
-    "topup.creating": "결제 주문 생성 중...",
-    "topup.created": "주문이 생성되었습니다. 접미 금액까지 정확히 전송하세요.",
+  "topup.copyAddress": "주소 복사",
+  "topup.addressCopied": "주소를 복사했습니다. 표시된 정확한 금액을 전송하세요.",
+  "topup.invalid": "올바른 USDT 금액을 입력하세요.",
+  "topup.creating": "결제 주문 생성 중...",
+  "topup.created": "주문이 생성되었습니다. 접미 금액까지 정확히 전송하세요.",
+  "topup.paypalTitle": "PayPal 결제",
+  "topup.paypalLoading": "PayPal 로딩 중...",
+  "topup.paypalUnavailable": "PayPal이 아직 설정되지 않았습니다.",
+  "topup.paypalReady": "PayPal로 안전하게 결제하세요.",
+  "topup.paypalCreating": "PayPal 체크아웃을 여는 중...",
+  "topup.paypalApproved": "결제가 승인되었습니다. Credits 확인 중...",
+  "topup.paypalPaid": "결제가 완료되었습니다. Credits가 추가되었습니다.",
+  "topup.paypalCancelled": "PayPal 결제가 취소되었습니다.",
+  "topup.paypalOrder": "PayPal 주문",
+  "topup.provider": "제공자",
     "advanced.models": "고급 모델",
     "advanced.title": "고급 생성",
     "advanced.subtitle": "승인 후 Seedance 또는 Wan2.7 파라미터를 사용할 수 있습니다.",
@@ -1150,7 +1194,7 @@ const I18N = {
     "ledger.taskId": "Task ID",
     "topups.eyebrow": "결제",
     "topups.title": "충전 내역",
-    "topups.subtitle": "USDT 충전 주문을 검색하고 내보낼 수 있습니다.",
+    "topups.subtitle": "충전 주문을 검색하고 내보낼 수 있습니다.",
     "topups.searchPlaceholder": "주문 ID / 상태",
     "spending.eyebrow": "결제",
     "spending.title": "소비 내역",
@@ -1266,18 +1310,28 @@ const I18N = {
     "billing.final": "Prabayar {pre}, final {final}",
     "billing.prepaid": "Prabayar {pre}",
     "billing.noCharge": "Tidak ada biaya",
-    "topup.title": "Top Up USDT",
+    "topup.title": "Top Up",
     "topup.compact": "Top Up",
     "topup.dialogTitle": "Top up credits",
     "topup.createOrder": "Buat order",
     "topup.login": "Login untuk membuat order pembayaran.",
     "topup.rate": "{amount} {asset} via {network}. Credits memakai sen RMB.",
     "topup.payExactly": "Bayar tepat",
-    "topup.copyAddress": "Salin alamat",
-    "topup.addressCopied": "Alamat disalin. Transfer jumlah yang ditampilkan.",
-    "topup.invalid": "Masukkan jumlah USDT yang valid.",
-    "topup.creating": "Membuat order pembayaran...",
-    "topup.created": "Order dibuat. Transfer jumlah tepat termasuk akhiran.",
+  "topup.copyAddress": "Salin alamat",
+  "topup.addressCopied": "Alamat disalin. Transfer jumlah yang ditampilkan.",
+  "topup.invalid": "Masukkan jumlah USDT yang valid.",
+  "topup.creating": "Membuat order pembayaran...",
+  "topup.created": "Order dibuat. Transfer jumlah tepat termasuk akhiran.",
+  "topup.paypalTitle": "Checkout PayPal",
+  "topup.paypalLoading": "Memuat PayPal...",
+  "topup.paypalUnavailable": "PayPal belum dikonfigurasi.",
+  "topup.paypalReady": "Bayar aman dengan PayPal.",
+  "topup.paypalCreating": "Membuka checkout PayPal...",
+  "topup.paypalApproved": "Pembayaran disetujui. Memastikan credits...",
+  "topup.paypalPaid": "Pembayaran selesai. Credits ditambahkan.",
+  "topup.paypalCancelled": "Pembayaran PayPal dibatalkan.",
+  "topup.paypalOrder": "Order PayPal",
+  "topup.provider": "Provider",
     "advanced.models": "Model Lanjutan",
     "advanced.title": "Pembuatan Lanjutan",
     "advanced.subtitle": "Gunakan parameter Seedance atau Wan2.7 setelah disetujui.",
@@ -1401,7 +1455,7 @@ const I18N = {
     "ledger.taskId": "Task ID",
     "topups.eyebrow": "Billing",
     "topups.title": "Riwayat Top-up",
-    "topups.subtitle": "Cari dan ekspor order top-up USDT Anda.",
+    "topups.subtitle": "Cari dan ekspor order top-up Anda.",
     "topups.searchPlaceholder": "ID order / status",
     "spending.eyebrow": "Billing",
     "spending.title": "Riwayat Pemakaian",
@@ -2881,6 +2935,10 @@ function openAdvancedPreview(index) {
   playPreview({ title: item?.title, previewUrl: item?.previewUrl, ratio: previewRatioFromItem(item) });
 }
 
+let paypalConfigPromise = null;
+let paypalSdkPromise = null;
+let paypalButtonsRendered = false;
+
 function walletCreditsForAmount(amount) {
   const rate = Number(state.wallet?.cnyCentsPerUsdt || 720);
   return Math.max(0, Math.round(Number(amount || 0) * rate));
@@ -2908,6 +2966,20 @@ function renderTopupSummary() {
 function renderTopupOrder(order) {
   if (!els.topupOrder || !order) return;
   els.topupOrder.hidden = false;
+  const isPayPal = order.paymentProvider === "paypal" || order.network === "PayPal";
+  if (isPayPal) {
+    els.topupOrder.innerHTML = `
+      <div>
+        <span>${escapeHtml(t("topup.paypalOrder"))}</span>
+        <strong>${escapeHtml(order.paypalOrderId || order.id || "")}</strong>
+        <small>${escapeHtml(t("topup.provider"))}: PayPal · ${escapeHtml(t("cost.credits", { credits: order.creditAmount || 0 }))} · ${escapeHtml(order.status || "pending")}</small>
+      </div>
+      <code>${escapeHtml(order.payableAmountText || order.payableAmount || order.amount || "")} ${escapeHtml(order.currency || order.asset || "USD")}</code>
+    `;
+    if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits: order.creditAmount || 0 });
+    refreshIcons();
+    return;
+  }
   els.topupOrder.innerHTML = `
     <div>
       <span>${escapeHtml(t("topup.payExactly"))}</span>
@@ -2924,6 +2996,110 @@ function renderTopupOrder(order) {
   });
   if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits: order.creditAmount || 0 });
   refreshIcons();
+}
+
+async function loadPayPalConfig() {
+  if (!paypalConfigPromise) {
+    paypalConfigPromise = requestJson("/api/pay/paypal/config")
+      .then((payload) => payload.paypal || {})
+      .catch((error) => {
+        paypalConfigPromise = null;
+        throw error;
+      });
+  }
+  return paypalConfigPromise;
+}
+
+function loadPayPalSdk(config) {
+  if (window.paypal?.Buttons) return Promise.resolve(window.paypal);
+  if (paypalSdkPromise) return paypalSdkPromise;
+  paypalSdkPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    const params = new URLSearchParams({
+      "client-id": config.clientId,
+      currency: config.currency || "USD",
+      intent: "capture",
+      components: "buttons",
+    });
+    script.src = `https://www.paypal.com/sdk/js?${params.toString()}`;
+    script.async = true;
+    script.onload = () => resolve(window.paypal);
+    script.onerror = () => reject(new Error("Failed to load PayPal."));
+    document.head.appendChild(script);
+  });
+  return paypalSdkPromise;
+}
+
+async function renderPayPalCheckout() {
+  if (!els.paypalBox || !els.paypalButtons) return;
+  if (paypalButtonsRendered) return;
+  try {
+    const config = await loadPayPalConfig();
+    if (!config.enabled || !config.clientId) {
+      els.paypalBox.hidden = true;
+      els.paypalButtons.hidden = true;
+      if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalUnavailable");
+      return;
+    }
+    els.paypalBox.hidden = false;
+    if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalLoading");
+    const paypal = await loadPayPalSdk(config);
+    if (!paypal?.Buttons) throw new Error("PayPal is unavailable.");
+    els.paypalButtons.innerHTML = "";
+    els.paypalButtons.hidden = false;
+    const buttons = paypal.Buttons({
+      style: {
+        layout: "horizontal",
+        height: 40,
+        tagline: false,
+      },
+      onInit: () => {
+        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalReady");
+      },
+      createOrder: async () => {
+        if (!state.user) {
+          openLogin();
+          throw new Error(t("topup.login"));
+        }
+        const amount = Number(els.topupAmount?.value || 0);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          if (els.paypalStatus) els.paypalStatus.textContent = t("topup.invalid");
+          throw new Error(t("topup.invalid"));
+        }
+        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalCreating");
+        const payload = await requestJson("/api/pay/paypal/orders", {
+          method: "POST",
+          body: { amount },
+        });
+        renderTopupOrder(payload.order);
+        return payload.paypalOrderId;
+      },
+      onApprove: async (data) => {
+        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalApproved");
+        const paypalOrderId = data.orderID || data.orderId;
+        const payload = await requestJson(`/api/pay/paypal/orders/${encodeURIComponent(paypalOrderId)}/capture`, {
+          method: "POST",
+        });
+        if (payload.user) setUser(payload.user);
+        renderTopupOrder(payload.order);
+        renderTopupSummary();
+        if (state.tab === "topups") loadTopupRecords(1);
+        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalPaid");
+      },
+      onCancel: () => {
+        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalCancelled");
+      },
+      onError: (error) => {
+        if (els.paypalStatus) els.paypalStatus.textContent = error?.message || String(error || "PayPal error");
+      },
+    });
+    await buttons.render(els.paypalButtons);
+    paypalButtonsRendered = true;
+  } catch (error) {
+    els.paypalBox.hidden = true;
+    els.paypalButtons.hidden = true;
+    if (els.paypalStatus) els.paypalStatus.textContent = error.message || String(error);
+  }
 }
 
 async function createTopupOrder() {
@@ -3712,7 +3888,7 @@ function renderTopupRecords() {
             <td data-label="${escapeHtml(t("ledger.orderId"))}"><code>${escapeHtml(order.id)}</code></td>
             <td data-label="${escapeHtml(t("ledger.status"))}"><span class="ledger-badge">${escapeHtml(order.status || "")}</span></td>
             <td data-label="${escapeHtml(t("ledger.amount"))}">${escapeHtml(formatCredits(order.amount))} ${escapeHtml(order.asset || "USDT")}</td>
-            <td data-label="${escapeHtml(t("ledger.payable"))}"><strong>${escapeHtml(order.payableAmountText || order.payableAmount || "")}</strong><small>${escapeHtml(order.network || "")}</small></td>
+            <td data-label="${escapeHtml(t("ledger.payable"))}"><strong>${escapeHtml(order.payableAmountText || order.payableAmount || "")}</strong><small>${escapeHtml([order.network, order.paymentProvider === "paypal" ? order.paypalOrderId : ""].filter(Boolean).join(" · "))}</small></td>
             <td data-label="${escapeHtml(t("ledger.credits"))}">${escapeHtml(formatCredits(order.creditAmount))}</td>
             <td data-label="${escapeHtml(t("ledger.createdAt"))}">${escapeHtml(formatDateTime(order.createdAt))}</td>
           </tr>
@@ -4102,6 +4278,7 @@ els.createTopupBtn?.addEventListener("click", createTopupOrder);
 els.topupTriggerBtn?.addEventListener("click", () => {
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
+  renderPayPalCheckout();
   refreshIcons();
 });
 els.previewDialog?.addEventListener("close", () => {

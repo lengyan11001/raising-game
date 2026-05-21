@@ -2169,9 +2169,9 @@ async function renderWallet() {
                   <tr data-id="${escapeHtml(o.id)}">
                     <td class="adm-mono adm-truncate">${escapeHtml(o.id)}</td>
                     <td>${escapeHtml(o.username || o.userId)}</td>
-                    <td><strong>${escapeHtml(o.baseAmount)}</strong> ${escapeHtml(o.asset || "")}<br/><span class="adm-muted">Credits: ${escapeHtml(o.creditAmount || 0)}</span></td>
+                    <td><strong>${escapeHtml(o.baseAmount)}</strong> ${escapeHtml(o.asset || "")}<br/><span class="adm-muted">${escapeHtml(o.paymentProvider || "manual")} · Credits: ${escapeHtml(o.creditAmount || 0)}</span></td>
                     <td><strong>${escapeHtml(o.payableAmountText || "")}</strong></td>
-                    <td class="adm-mono adm-truncate">${escapeHtml(o.address || "—")}</td>
+                    <td class="adm-mono adm-truncate">${escapeHtml(o.address || o.paypalOrderId || "—")}</td>
                     <td>${statusPill(o.status)}</td>
                     <td>${fmtDate(o.createdAt)}</td>
                     <td>

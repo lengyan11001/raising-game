@@ -78,6 +78,20 @@ const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, 720, 1, 100000);
+const PAYPAL_ENV = /sandbox/i.test(process.env.PAYPAL_ENV || process.env.PAYPAL_MODE || "") ? "sandbox" : "live";
+const PAYPAL_CLIENT_ID = String(process.env.PAYPAL_CLIENT_ID || "").trim();
+const PAYPAL_CLIENT_SECRET = String(process.env.PAYPAL_CLIENT_SECRET || "").trim();
+const PAYPAL_WEBHOOK_ID = String(process.env.PAYPAL_WEBHOOK_ID || "").trim();
+const PAYPAL_CURRENCY = String(process.env.PAYPAL_CURRENCY || "USD").trim().toUpperCase() || "USD";
+const PAYPAL_BRAND_NAME = String(process.env.PAYPAL_BRAND_NAME || "Vipeak AI").trim() || "Vipeak AI";
+const PAYPAL_MIN_AMOUNT = clampNumber(process.env.PAYPAL_MIN_AMOUNT, 1, 0.01, 100000);
+const PAYPAL_MAX_AMOUNT = clampNumber(process.env.PAYPAL_MAX_AMOUNT, 10000, PAYPAL_MIN_AMOUNT, 1000000);
+const PAYPAL_CNY_CENTS_PER_UNIT_ENV =
+  process.env.PAYPAL_CNY_CENTS_PER_UNIT ||
+  process.env.PAYPAL_USD_CNY_CENTS ||
+  process.env.USD_CNY_CENTS ||
+  "";
+let paypalTokenCache = { accessToken: "", expiresAt: 0 };
 const GENERATION_PRICE_MARKUP = 1.2;
 const ADVANCED_SEEDANCE_FPS = clampNumber(process.env.ADVANCED_SEEDANCE_FPS, 24, 1, 120);
 const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS, 46, 0.0001, 100000);
@@ -1598,6 +1612,155 @@ function walletCnyCentsPerUsdt(wallet = {}) {
 
 function walletCreditsForUsdtAmount(amount, wallet = {}) {
   return creditsAmount(Math.round(Number(amount || 0) * walletCnyCentsPerUsdt(wallet)));
+}
+
+function paypalEnabled() {
+  return Boolean(PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
+}
+
+function paypalApiBaseUrl() {
+  return PAYPAL_ENV === "sandbox" ? "https://api-m.sandbox.paypal.com" : "https://api-m.paypal.com";
+}
+
+function paypalCnyCentsPerUnit(wallet = {}) {
+  if (PAYPAL_CNY_CENTS_PER_UNIT_ENV !== "") {
+    return clampNumber(PAYPAL_CNY_CENTS_PER_UNIT_ENV, DEFAULT_USDT_CNY_CENTS, 1, 100000);
+  }
+  return walletCnyCentsPerUsdt(wallet);
+}
+
+function paypalCreditsForAmount(amount, wallet = {}) {
+  return creditsAmount(Math.round(Number(amount || 0) * paypalCnyCentsPerUnit(wallet)));
+}
+
+function paypalMoneyValue(amount) {
+  return (Math.round(Number(amount || 0) * 100) / 100).toFixed(2);
+}
+
+function paypalPublicConfig() {
+  return {
+    enabled: paypalEnabled(),
+    clientId: PAYPAL_CLIENT_ID,
+    currency: PAYPAL_CURRENCY,
+    environment: PAYPAL_ENV,
+    minAmount: PAYPAL_MIN_AMOUNT,
+    maxAmount: PAYPAL_MAX_AMOUNT,
+  };
+}
+
+async function getPayPalAccessToken() {
+  if (!paypalEnabled()) {
+    const error = new Error("PayPal is not configured.");
+    error.statusCode = 503;
+    throw error;
+  }
+  if (paypalTokenCache.accessToken && Date.now() < paypalTokenCache.expiresAt - 60_000) {
+    return paypalTokenCache.accessToken;
+  }
+  const credentials = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString("base64");
+  const response = await fetch(`${paypalApiBaseUrl()}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${credentials}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.access_token) {
+    const error = new Error(payload.error_description || payload.message || "Failed to authenticate PayPal.");
+    error.statusCode = response.status || 502;
+    error.details = payload;
+    throw error;
+  }
+  paypalTokenCache = {
+    accessToken: payload.access_token,
+    expiresAt: Date.now() + Math.max(60, Number(payload.expires_in || 300)) * 1000,
+  };
+  return paypalTokenCache.accessToken;
+}
+
+async function paypalRequest(pathname, { method = "GET", body, headers = {} } = {}) {
+  const accessToken = await getPayPalAccessToken();
+  const response = await fetch(`${paypalApiBaseUrl()}${pathname}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+      ...headers,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.message || payload.error_description || payload.name || "PayPal request failed.");
+    error.statusCode = response.status || 502;
+    error.details = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function findPayPalApprovalLink(orderPayload = {}) {
+  const links = Array.isArray(orderPayload.links) ? orderPayload.links : [];
+  return links.find((link) => String(link.rel || "").toLowerCase() === "approve")?.href || "";
+}
+
+function paypalCaptureFromOrder(payload = {}) {
+  const purchaseUnits = Array.isArray(payload.purchase_units) ? payload.purchase_units : [];
+  for (const unit of purchaseUnits) {
+    const captures = Array.isArray(unit?.payments?.captures) ? unit.payments.captures : [];
+    const capture = captures.find(Boolean);
+    if (capture) return capture;
+  }
+  return null;
+}
+
+function settleWalletOrderPayment(db, order, config, meta = {}) {
+  if (!order) {
+    const error = new Error("Payment order not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const now = new Date().toISOString();
+  if (order.status === "paid") {
+    return { settled: false, user: (db.users || []).find((u) => u.id === order.userId) || null };
+  }
+  const rate = order.paymentProvider === "paypal"
+    ? (order.cnyCentsPerUnit || paypalCnyCentsPerUnit(config.wallet))
+    : (order.cnyCentsPerUsdt || walletCnyCentsPerUsdt(config.wallet));
+  const creditDelta = creditsAmount(order.creditAmount ?? Math.round(Number(order.baseAmount || 0) * rate));
+  order.creditAmount = creditDelta;
+  if (order.paymentProvider === "paypal") order.cnyCentsPerUnit = rate;
+  else order.cnyCentsPerUsdt = rate;
+  order.status = "paid";
+  order.paidAt = order.paidAt || now;
+  order.updatedAt = now;
+  if (meta.note && !order.note) order.note = String(meta.note).slice(0, 200);
+  if (meta.paypalCaptureId) order.paypalCaptureId = meta.paypalCaptureId;
+  if (meta.paypalPayerEmail) order.paypalPayerEmail = meta.paypalPayerEmail;
+  if (meta.paypalStatus) order.paypalStatus = meta.paypalStatus;
+  const user = changeUserCredits(db, order.userId, creditDelta, "wallet_topup", {
+    orderId: order.id,
+    amount: order.baseAmount,
+    asset: order.asset,
+    network: order.network,
+    provider: order.paymentProvider || "manual",
+    paypalOrderId: order.paypalOrderId || "",
+    paypalCaptureId: order.paypalCaptureId || "",
+  });
+  return { settled: true, user };
+}
+
+function safeSettleWalletOrderPayment(db, order, config, meta = {}) {
+  try {
+    return settleWalletOrderPayment(db, order, config, meta);
+  } catch (error) {
+    order.status = order.status || "pending";
+    order.note = error.message || "Failed to settle payment.";
+    order.updatedAt = new Date().toISOString();
+    return { settled: false, error };
+  }
 }
 
 function decodeDataUrl(dataUrl) {
@@ -4242,16 +4405,22 @@ async function ingestPlatformTemplateMedia({ videoUrl, coverUrl = "", templateId
   return result;
 }
 
-async function readJson(req) {
+async function readRawBody(req) {
   const chunks = [];
+  let byteLength = 0;
   for await (const chunk of req) {
     chunks.push(chunk);
-    if (Buffer.concat(chunks).byteLength > JSON_BODY_MAX_BYTES) {
+    byteLength += Buffer.byteLength(chunk);
+    if (byteLength > JSON_BODY_MAX_BYTES) {
       throw new Error("Request body too large");
     }
   }
 
-  const raw = Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function readJson(req) {
+  const raw = await readRawBody(req);
   return raw ? JSON.parse(raw) : {};
 }
 
@@ -6282,6 +6451,268 @@ async function handleListPaymentOrders(req, res) {
   return sendJson(res, 200, { ok: true, orders });
 }
 
+async function handlePayPalConfig(req, res) {
+  return sendJson(res, 200, { ok: true, paypal: paypalPublicConfig() });
+}
+
+async function handleCreatePayPalOrder(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const rawAmount = Number(body.amount || 0);
+  if (!Number.isFinite(rawAmount) || rawAmount < PAYPAL_MIN_AMOUNT || rawAmount > PAYPAL_MAX_AMOUNT) {
+    return sendJson(res, 400, {
+      ok: false,
+      message: `PayPal amount must be between ${PAYPAL_MIN_AMOUNT} and ${PAYPAL_MAX_AMOUNT} ${PAYPAL_CURRENCY}.`,
+    });
+  }
+  if (!paypalEnabled()) {
+    return sendJson(res, 503, { ok: false, code: "PAYPAL_NOT_CONFIGURED", message: "PayPal is not configured." });
+  }
+
+  const amountValue = paypalMoneyValue(rawAmount);
+  const amount = Number(amountValue);
+  const localOrderId = randomId("paypal");
+  const origin = publicOriginFromRequest(req);
+  const paypalOrder = await paypalRequest("/v2/checkout/orders", {
+    method: "POST",
+    headers: {
+      "paypal-request-id": localOrderId,
+    },
+    body: {
+      intent: "CAPTURE",
+      purchase_units: [{
+        reference_id: localOrderId,
+        custom_id: localOrderId,
+        invoice_id: localOrderId,
+        description: `${PAYPAL_BRAND_NAME} credits`,
+        amount: {
+          currency_code: PAYPAL_CURRENCY,
+          value: amountValue,
+        },
+      }],
+      payment_source: {
+        paypal: {
+          experience_context: {
+            brand_name: PAYPAL_BRAND_NAME,
+            landing_page: "LOGIN",
+            shipping_preference: "NO_SHIPPING",
+            user_action: "PAY_NOW",
+            return_url: `${origin}/#topups`,
+            cancel_url: `${origin}/#topups`,
+          },
+        },
+      },
+    },
+  });
+
+  const rate = paypalCnyCentsPerUnit(config.wallet);
+  const order = {
+    id: localOrderId,
+    userId: auth.user.id,
+    paymentProvider: "paypal",
+    baseAmount: amount,
+    creditAmount: paypalCreditsForAmount(amount, config.wallet),
+    cnyCentsPerUnit: rate,
+    currency: PAYPAL_CURRENCY,
+    payableAmount: amount,
+    payableAmountText: amountValue,
+    asset: PAYPAL_CURRENCY,
+    network: "PayPal",
+    address: "",
+    status: "pending",
+    paypalOrderId: paypalOrder.id || "",
+    paypalStatus: paypalOrder.status || "",
+    approvalUrl: findPayPalApprovalLink(paypalOrder),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  auth.db.walletOrders.unshift(order);
+  await writeDb(auth.db);
+  return sendJson(res, 200, {
+    ok: true,
+    paypalOrderId: order.paypalOrderId,
+    approvalUrl: order.approvalUrl,
+    order: publicTopupOrder(order, config.wallet),
+  });
+}
+
+async function handleCapturePayPalOrder(req, res, paypalOrderId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const order = (auth.db.walletOrders || []).find((entry) => (
+    entry.userId === auth.user.id &&
+    entry.paymentProvider === "paypal" &&
+    entry.paypalOrderId === paypalOrderId
+  ));
+  if (!order) return sendJson(res, 404, { ok: false, message: "PayPal order not found." });
+
+  if (order.status === "paid") {
+    return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet), user: userView(auth.user) });
+  }
+
+  let capturePayload;
+  try {
+    capturePayload = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}/capture`, {
+      method: "POST",
+      headers: {
+        "paypal-request-id": `${order.id}-capture`,
+      },
+      body: {},
+    });
+  } catch (error) {
+    if (error.statusCode !== 422) throw error;
+    capturePayload = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}`);
+  }
+
+  const capture = paypalCaptureFromOrder(capturePayload);
+  order.paypalStatus = capturePayload.status || capture?.status || order.paypalStatus || "";
+  order.paypalCaptureId = capture?.id || order.paypalCaptureId || "";
+  order.paypalPayerId = capturePayload.payer?.payer_id || order.paypalPayerId || "";
+  order.paypalPayerEmail = capturePayload.payer?.email_address || order.paypalPayerEmail || "";
+  order.updatedAt = new Date().toISOString();
+
+  const completed = String(capturePayload.status || "").toUpperCase() === "COMPLETED" ||
+    String(capture?.status || "").toUpperCase() === "COMPLETED";
+  if (!completed) {
+    await writeDb(auth.db);
+    return sendJson(res, 409, {
+      ok: false,
+      code: "PAYPAL_NOT_COMPLETED",
+      message: "PayPal payment is not completed yet.",
+      order: publicTopupOrder(order, config.wallet),
+    });
+  }
+
+  const capturedAmount = Number(capture?.amount?.value || 0);
+  const capturedCurrency = String(capture?.amount?.currency_code || PAYPAL_CURRENCY).toUpperCase();
+  if (capturedCurrency !== PAYPAL_CURRENCY || Math.abs(capturedAmount - Number(order.baseAmount || 0)) > 0.009) {
+    order.status = "pending";
+    order.note = "PayPal capture amount mismatch. Manual review required.";
+    await writeDb(auth.db);
+    return sendJson(res, 409, {
+      ok: false,
+      code: "PAYPAL_AMOUNT_MISMATCH",
+      message: "PayPal payment amount does not match the top-up order.",
+      order: publicTopupOrder(order, config.wallet),
+    });
+  }
+
+  const { user } = settleWalletOrderPayment(auth.db, order, config, {
+    paypalCaptureId: order.paypalCaptureId,
+    paypalPayerEmail: order.paypalPayerEmail,
+    paypalStatus: order.paypalStatus,
+  });
+  await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet), user: userView(user) });
+}
+
+async function verifyPayPalWebhookEvent(req, event) {
+  if (!PAYPAL_WEBHOOK_ID || !paypalEnabled()) return false;
+  const payload = await paypalRequest("/v1/notifications/verify-webhook-signature", {
+    method: "POST",
+    body: {
+      auth_algo: String(req.headers["paypal-auth-algo"] || ""),
+      cert_url: String(req.headers["paypal-cert-url"] || ""),
+      transmission_id: String(req.headers["paypal-transmission-id"] || ""),
+      transmission_sig: String(req.headers["paypal-transmission-sig"] || ""),
+      transmission_time: String(req.headers["paypal-transmission-time"] || ""),
+      webhook_id: PAYPAL_WEBHOOK_ID,
+      webhook_event: event,
+    },
+  });
+  return payload.verification_status === "SUCCESS";
+}
+
+function findWalletOrderForPayPalEvent(db, event = {}) {
+  const resource = event.resource || {};
+  const relatedOrderId = resource.supplementary_data?.related_ids?.order_id || "";
+  const captureId = String(event.event_type || "").startsWith("PAYMENT.CAPTURE.") ? resource.id : "";
+  const candidateIds = [
+    resource.custom_id,
+    resource.invoice_id,
+    relatedOrderId,
+    String(event.event_type || "").startsWith("CHECKOUT.ORDER.") ? resource.id : "",
+  ].filter(Boolean).map(String);
+  return (db.walletOrders || []).find((order) => {
+    if (captureId && order.paypalCaptureId === captureId) return true;
+    if (candidateIds.includes(order.id)) return true;
+    if (order.paypalOrderId && candidateIds.includes(order.paypalOrderId)) return true;
+    return false;
+  }) || null;
+}
+
+function applyPayPalWebhookToOrder(db, event, config) {
+  const type = String(event.event_type || "");
+  const resource = event.resource || {};
+  const order = findWalletOrderForPayPalEvent(db, event);
+  if (!order) return false;
+  order.updatedAt = new Date().toISOString();
+  if (type === "PAYMENT.CAPTURE.COMPLETED") {
+    const amount = Number(resource.amount?.value || 0);
+    const currency = String(resource.amount?.currency_code || order.currency || "").toUpperCase();
+    if (currency !== String(order.currency || PAYPAL_CURRENCY).toUpperCase() || Math.abs(amount - Number(order.baseAmount || 0)) > 0.009) {
+      order.status = "pending";
+      order.paypalStatus = resource.status || type;
+      order.note = "PayPal webhook amount mismatch. Manual review required.";
+      return true;
+    }
+    safeSettleWalletOrderPayment(db, order, config, {
+      paypalCaptureId: resource.id || order.paypalCaptureId,
+      paypalStatus: resource.status || "COMPLETED",
+      note: "Paid by PayPal webhook.",
+    });
+    return true;
+  }
+  if (type === "CHECKOUT.ORDER.COMPLETED") {
+    const capture = paypalCaptureFromOrder(resource);
+    const amount = Number(capture?.amount?.value || order.baseAmount || 0);
+    const currency = String(capture?.amount?.currency_code || order.currency || "").toUpperCase();
+    if (currency !== String(order.currency || PAYPAL_CURRENCY).toUpperCase() || Math.abs(amount - Number(order.baseAmount || 0)) > 0.009) {
+      order.status = "pending";
+      order.paypalStatus = resource.status || capture?.status || type;
+      order.note = "PayPal webhook amount mismatch. Manual review required.";
+      return true;
+    }
+    safeSettleWalletOrderPayment(db, order, config, {
+      paypalCaptureId: capture?.id || order.paypalCaptureId,
+      paypalPayerEmail: resource.payer?.email_address || order.paypalPayerEmail,
+      paypalStatus: resource.status || capture?.status || "COMPLETED",
+      note: "Paid by PayPal webhook.",
+    });
+    return true;
+  }
+  if (["PAYMENT.CAPTURE.DENIED", "CHECKOUT.ORDER.VOIDED"].includes(type) && order.status !== "paid") {
+    order.status = "cancelled";
+    order.paypalStatus = resource.status || type;
+    order.note = order.note || `PayPal event: ${type}`;
+    return true;
+  }
+  return false;
+}
+
+async function handlePayPalWebhook(req, res) {
+  let event;
+  try {
+    const raw = await readRawBody(req);
+    event = raw ? JSON.parse(raw) : {};
+  } catch {
+    return sendJson(res, 400, { ok: false, message: "Invalid PayPal webhook body." });
+  }
+  if (!PAYPAL_WEBHOOK_ID || !paypalEnabled()) {
+    return sendJson(res, 200, { ok: true, ignored: true, reason: "PayPal webhook is not configured." });
+  }
+  const verified = await verifyPayPalWebhookEvent(req, event);
+  if (!verified) return sendJson(res, 400, { ok: false, message: "PayPal webhook verification failed." });
+  const db = await readDb();
+  const config = await readAppConfig();
+  const changed = applyPayPalWebhookToOrder(db, event, config);
+  if (changed) await writeDb(db);
+  return sendJson(res, 200, { ok: true, handled: changed });
+}
+
 function pagingFromUrl(url, { defaultLimit = 12, maxLimit = 100 } = {}) {
   const page = Math.max(1, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1);
   const limit = Math.min(maxLimit, Math.max(1, Number.parseInt(url.searchParams.get("limit") || String(defaultLimit), 10) || defaultLimit));
@@ -6307,23 +6738,31 @@ function recordInDateRange(createdAt, fromDate, toDate) {
 }
 
 function publicTopupOrder(order = {}, wallet = {}) {
+  const paymentProvider = order.paymentProvider || (order.network === "PayPal" ? "paypal" : "manual");
   const cnyCentsPerUsdt = order.cnyCentsPerUsdt || walletCnyCentsPerUsdt(wallet);
+  const cnyCentsPerUnit = order.cnyCentsPerUnit || (paymentProvider === "paypal" ? paypalCnyCentsPerUnit(wallet) : cnyCentsPerUsdt);
   const creditAmount = order.creditAmount ?? (
     order.baseAmount
-      ? walletCreditsForUsdtAmount(order.baseAmount, { cnyCentsPerUsdt })
+      ? creditsAmount(Math.round(Number(order.baseAmount || 0) * cnyCentsPerUnit))
       : 0
   );
   return {
     id: order.id || "",
+    paymentProvider,
     amount: order.baseAmount ?? "",
     creditAmount: creditsAmount(creditAmount),
     cnyCentsPerUsdt,
+    cnyCentsPerUnit,
     payableAmount: order.payableAmount ?? "",
     payableAmountText: order.payableAmountText || String(order.payableAmount || order.baseAmount || ""),
-    asset: order.asset || "USDT",
+    asset: order.asset || order.currency || "USDT",
+    currency: order.currency || order.asset || "",
     network: order.network || "",
     address: order.address || "",
     status: order.status || "pending",
+    paypalOrderId: order.paypalOrderId || "",
+    paypalCaptureId: order.paypalCaptureId || "",
+    paypalStatus: order.paypalStatus || "",
     createdAt: order.createdAt || "",
     paidAt: order.paidAt || "",
     note: order.note || "",
@@ -6373,18 +6812,20 @@ async function handleListTopupRecords(req, res, url) {
       if (status && String(order.status || "").toLowerCase() !== status) return false;
       if (!recordInDateRange(order.createdAt, fromDate, toDate)) return false;
       if (!q) return true;
-      return [order.id, order.payableAmountText, order.asset, order.network, order.status, order.note]
+      return [order.id, order.payableAmountText, order.asset, order.network, order.status, order.note, order.paymentProvider, order.paypalOrderId]
         .some((value) => String(value || "").toLowerCase().includes(q));
     });
 
   if (exportCsv) {
     const rows = records.map((order) => ({
       id: order.id,
+      provider: order.paymentProvider,
       status: order.status,
       amount: order.amount,
       payableAmount: order.payableAmountText || order.payableAmount,
       asset: order.asset,
       network: order.network,
+      paypalOrderId: order.paypalOrderId,
       credits: order.creditAmount,
       createdAt: order.createdAt,
       paidAt: order.paidAt,
@@ -6392,11 +6833,13 @@ async function handleListTopupRecords(req, res, url) {
     }));
     return sendCsv(res, "topup-records.csv", csvRows([
       { key: "id", label: "Order ID" },
+      { key: "provider", label: "Provider" },
       { key: "status", label: "Status" },
       { key: "amount", label: "Amount" },
       { key: "payableAmount", label: "Payable Amount" },
       { key: "asset", label: "Asset" },
       { key: "network", label: "Network" },
+      { key: "paypalOrderId", label: "PayPal Order ID" },
       { key: "credits", label: "Credits" },
       { key: "createdAt", label: "Created At" },
       { key: "paidAt", label: "Paid At" },
@@ -8179,19 +8622,31 @@ function adminMyCharacterView(record, userMap) {
 function adminWalletOrderView(order, userMap) {
   if (!order) return null;
   const user = userMap?.get(order.userId);
+  const paymentProvider = order.paymentProvider || (order.network === "PayPal" ? "paypal" : "manual");
   return {
     id: order.id,
     userId: order.userId,
     username: user?.username || "",
+    paymentProvider,
     baseAmount: order.baseAmount,
-    creditAmount: order.creditAmount ?? walletCreditsForUsdtAmount(order.baseAmount, { cnyCentsPerUsdt: order.cnyCentsPerUsdt }),
+    creditAmount: order.creditAmount ?? creditsAmount(Math.round(Number(order.baseAmount || 0) * (
+      paymentProvider === "paypal"
+        ? (order.cnyCentsPerUnit || paypalCnyCentsPerUnit())
+        : (order.cnyCentsPerUsdt || DEFAULT_USDT_CNY_CENTS)
+    ))),
     cnyCentsPerUsdt: order.cnyCentsPerUsdt || "",
+    cnyCentsPerUnit: order.cnyCentsPerUnit || "",
     suffix: order.suffix,
     payableAmount: order.payableAmount,
     payableAmountText: order.payableAmountText,
     asset: order.asset,
+    currency: order.currency || order.asset || "",
     network: order.network,
     address: order.address,
+    paypalOrderId: order.paypalOrderId || "",
+    paypalCaptureId: order.paypalCaptureId || "",
+    paypalStatus: order.paypalStatus || "",
+    paypalPayerEmail: order.paypalPayerEmail || "",
     status: order.status || "pending",
     createdAt: order.createdAt,
     paidAt: order.paidAt || "",
@@ -8532,18 +8987,12 @@ async function handleAdminUpdateWalletOrder(req, res, orderId) {
   const body = await readJson(req);
   if (typeof body.status === "string" && ["pending", "paid", "cancelled"].includes(body.status)) {
     if (body.status === "paid" && order.status !== "paid") {
-      const user = (auth.db.users || []).find((u) => u.id === order.userId);
-      if (user) {
-        const config = await readAppConfig();
-        const creditDelta = creditsAmount(order.creditAmount ?? walletCreditsForUsdtAmount(order.baseAmount, config.wallet));
-        order.creditAmount = creditDelta;
-        order.cnyCentsPerUsdt = order.cnyCentsPerUsdt || walletCnyCentsPerUsdt(config.wallet);
-        user.credits = creditsAmount(Number(user.credits || 0) + creditDelta);
-        user.updatedAt = new Date().toISOString();
-      }
-      order.paidAt = new Date().toISOString();
+      const config = await readAppConfig();
+      settleWalletOrderPayment(auth.db, order, config, { note: "Marked paid by admin." });
+    } else {
+      order.status = body.status;
+      order.updatedAt = new Date().toISOString();
     }
-    order.status = body.status;
   }
   if (typeof body.note === "string") order.note = body.note.slice(0, 200);
   await writeDb(auth.db);
@@ -9243,6 +9692,23 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/auth/me") {
       return await handleMe(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/pay/paypal/config") {
+      return await handlePayPalConfig(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/pay/paypal/orders") {
+      return await handleCreatePayPalOrder(req, res);
+    }
+
+    const paypalCaptureMatch = url.pathname.match(/^\/api\/pay\/paypal\/orders\/([^/]+)\/capture$/);
+    if (req.method === "POST" && paypalCaptureMatch) {
+      return await handleCapturePayPalOrder(req, res, decodeURIComponent(paypalCaptureMatch[1]));
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/pay/paypal/webhook") {
+      return await handlePayPalWebhook(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/pay/orders") {

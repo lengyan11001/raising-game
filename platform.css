@@ -427,6 +427,28 @@ main { width: min(1200px, calc(100vw - 44px)); margin: 0 auto; }
   background: rgba(255,255,255,.72);
   padding: 10px 12px;
 }
+.paypal-checkout {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(160px, .8fr) minmax(220px, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid rgba(86, 107, 133, .18);
+}
+.paypal-checkout[hidden] { display: none; }
+.paypal-checkout span {
+  display: block;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.paypal-buttons {
+  min-height: 40px;
+  max-width: 360px;
+}
 .topup-order {
   grid-column: 1 / -1;
   display: grid;
@@ -1413,6 +1435,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   .hero-panel { justify-self: stretch; width: 100%; }
   .history-panel .history-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ledger-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .paypal-checkout { grid-template-columns: 1fr; }
   .topup-order { grid-template-columns: 1fr; }
   .token-card { align-items: stretch; flex-direction: column; }
   .access-tabs { grid-template-columns: repeat(2, 1fr); }
