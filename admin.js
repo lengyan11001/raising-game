@@ -40,6 +40,16 @@ const ROUTES = [
   { id: "wallet", title: "钱包订单", render: renderWallet },
   { id: "config", title: "系统配置", render: renderConfig },
 ];
+const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["scenes", "config"]);
+
+function isTenantAdminHost() {
+  return /(^|\.)cloudtoken\.ai$/i.test(window.location.hostname || "");
+}
+
+function visibleAdminRoutes() {
+  if (!isTenantAdminHost()) return ROUTES;
+  return ROUTES.filter((route) => !TENANT_HIDDEN_ADMIN_ROUTES.has(route.id));
+}
 
 const state = {
   token: localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY) || "",
@@ -294,6 +304,7 @@ function showApp() {
   els.loginView.hidden = true;
   els.appView.hidden = false;
   hideAppLoading();
+  applyAdminNavVisibility();
   if (state.user) {
     els.adminUserBadge.innerHTML = `<i data-lucide="user-round"></i>${escapeHtml(state.user.username)}`;
   }
@@ -308,9 +319,21 @@ function hideAppLoading() {
 }
 
 /* ============ routing ============ */
+function applyAdminNavVisibility() {
+  els.adminNav?.querySelectorAll("a[data-route]").forEach((a) => {
+    const hidden = isTenantAdminHost() && TENANT_HIDDEN_ADMIN_ROUTES.has(a.dataset.route);
+    a.hidden = hidden;
+    a.setAttribute("aria-hidden", hidden ? "true" : "false");
+  });
+}
+
 function routeFromHash() {
   const hash = window.location.hash.replace(/^#\//, "").trim();
-  const route = ROUTES.find((r) => r.id === hash) || ROUTES[0];
+  const routes = visibleAdminRoutes();
+  const route = routes.find((r) => r.id === hash) || routes[0] || ROUTES[0];
+  if (hash && route.id !== hash && isTenantAdminHost() && TENANT_HIDDEN_ADMIN_ROUTES.has(hash)) {
+    window.history.replaceState(null, "", `#/${route.id}`);
+  }
   const routeId = route.id;
   state.route = routeId;
   stopAdminAutoRefresh();
