@@ -136,6 +136,7 @@ const TOS = {
   bucket: process.env.TOS_BUCKET,
   publicDomain: process.env.TOS_PUBLIC_DOMAIN,
 };
+const DISABLE_TOS_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_TOS_STORAGE || ""));
 const SITE_STORAGE_SLUG = storagePathSegment(
   process.env.SITE_STORAGE_SLUG || process.env.TENANT_SLUG || defaultStorageSlug(),
   "raising-game",
@@ -626,6 +627,24 @@ function publicOriginFromRequest(req) {
   const localHost = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host);
   const protocol = forwardedProto || (localHost ? "http" : "https");
   return `${protocol}://${host}`.replace(/\/+$/, "");
+}
+
+function configuredPublicBaseUrl() {
+  return (PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+}
+
+function publicUrlForAssetPath(localUrl = "") {
+  const value = String(localUrl || "").trim();
+  if (!value) return "";
+  if (isPublicHttpUrl(value)) return value;
+  const baseUrl = configuredPublicBaseUrl();
+  if (!baseUrl) return "";
+  return `${baseUrl}/${value.replace(/^\/+/, "")}`;
+}
+
+function isLocalPublicAssetUrl(value = "") {
+  const baseUrl = configuredPublicBaseUrl();
+  return Boolean(baseUrl && String(value || "").startsWith(`${baseUrl}/assets/`));
 }
 
 function isTenantPublicOrigin(origin = "") {
@@ -2079,7 +2098,7 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     name: displayName || "Upload",
     mime,
     localUrl: `/assets/user-uploads/${user.id}/${storedFileName}`,
-    publicUrl: PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/assets/user-uploads/${user.id}/${storedFileName}` : "",
+    publicUrl: publicUrlForAssetPath(`/assets/user-uploads/${user.id}/${storedFileName}`),
     assetUri: "",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -2317,7 +2336,12 @@ async function uploadBufferToTos({ userId, assetId, bytes, mime, extension = "" 
 }
 
 function tosEnabled() {
+  if (DISABLE_TOS_STORAGE) return false;
   return Boolean(TOS.accessKey && TOS.secretKey && TOS.endpoint && TOS.region && TOS.bucket && TOS.publicDomain);
+}
+
+function localPublicAssetStorageEnabled() {
+  return DISABLE_TOS_STORAGE || !tosEnabled();
 }
 
 async function uploadStaticAssetToTos({ key, bytes, mime }) {
@@ -2760,12 +2784,16 @@ async function createHomeSyntheticReference(item) {
 
   const sourcePath = path.join(ROOT, sourceUrl.replace(/^\//, ""));
   const bytes = await fs.readFile(sourcePath);
-  const uploaded = await uploadBufferToTos({
-    userId: "admin",
-    assetId: `${item.id || "home-role"}-source`,
-    bytes,
-    mime: item.sourceImageMime || item.imageMime || imageMimeFromPath(sourcePath),
-  });
+  const localSourcePublicUrl = publicUrlForAssetPath(sourceUrl);
+  let uploaded = { publicUrl: localSourcePublicUrl, key: "" };
+  if (!uploaded.publicUrl) {
+    uploaded = await uploadBufferToTos({
+      userId: "admin",
+      assetId: `${item.id || "home-role"}-source`,
+      bytes,
+      mime: item.sourceImageMime || item.imageMime || imageMimeFromPath(sourcePath),
+    });
+  }
   const prompt = makeHomeSyntheticReferencePrompt(item);
   const model = process.env.HOME_REFERENCE_MODEL || process.env.OFFICIAL_PRESET_MODEL || DEFAULT_CONFIG.characterImage.editModel;
   const created = await apizRequest("/api/v3/tasks/create", {
@@ -2938,7 +2966,7 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
     error.statusCode = 404;
     throw error;
   }
-  if (item.referenceAssetUri) return config;
+  if (item.referenceAssetUri && (!localPublicAssetStorageEnabled() || isLocalPublicAssetUrl(item.publicImageUrl))) return config;
   // Prefer the synthetic image as the reference, fall back to the local image.
   const localUrl = item.syntheticReferenceLocalUrl || item.localImageUrl || item.posterUrl;
   if (!localUrl || /^https?:\/\//i.test(localUrl)) {
@@ -2949,12 +2977,16 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
 
   const localPath = path.join(ROOT, localUrl.replace(/^\//, ""));
   const bytes = await fs.readFile(localPath);
-  const uploaded = await uploadBufferToTos({
-    userId: "admin",
-    assetId: `${item.id || "home-video-reference"}-ref`,
-    bytes,
-    mime: item.imageMime || config.homeVideo?.imageMime || imageMimeFromPath(localPath),
-  });
+  const localPublicUrl = publicUrlForAssetPath(localUrl);
+  let uploaded = { publicUrl: localPublicUrl, key: "" };
+  if (!uploaded.publicUrl) {
+    uploaded = await uploadBufferToTos({
+      userId: "admin",
+      assetId: `${item.id || "home-video-reference"}-ref`,
+      bytes,
+      mime: item.imageMime || config.homeVideo?.imageMime || imageMimeFromPath(localPath),
+    });
+  }
   const created = await arkOpenApiAction("CreateAsset", {
     GroupId: ARK_OPENAPI.groupId,
     URL: uploaded.publicUrl,
@@ -3245,14 +3277,14 @@ async function resolveWan27Media({ db, user, body, requestParams, fallbackAsset 
 
 function publicUrlForLocalAsset(asset = {}) {
   if (isPublicHttpUrl(asset.publicUrl)) return asset.publicUrl;
-  if (PUBLIC_BASE_URL && asset.localUrl) return `${PUBLIC_BASE_URL}${asset.localUrl}`;
-  return "";
+  return publicUrlForAssetPath(asset.localUrl);
 }
 
 async function ensurePublicUrlForUserMediaAsset(db, userAsset) {
-  if (isPublicHttpUrl(userAsset.publicUrl)) return userAsset;
-  if (PUBLIC_BASE_URL && userAsset.localUrl) {
-    userAsset.publicUrl = `${PUBLIC_BASE_URL}${userAsset.localUrl}`;
+  if (isPublicHttpUrl(userAsset.publicUrl) && (!localPublicAssetStorageEnabled() || !userAsset.localUrl)) return userAsset;
+  const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
+  if (localPublicUrl) {
+    userAsset.publicUrl = localPublicUrl;
     userAsset.updatedAt = new Date().toISOString();
     db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
     await writeDb(db);
@@ -3282,7 +3314,15 @@ function normalizeSeedreamImageSize(value) {
 }
 
 async function ensurePublicUrlForUserAsset(db, userAsset) {
-  if (isPublicHttpUrl(userAsset.publicUrl)) return userAsset;
+  if (isPublicHttpUrl(userAsset.publicUrl) && (!localPublicAssetStorageEnabled() || !userAsset.localUrl)) return userAsset;
+  const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
+  if (localPublicUrl) {
+    userAsset.publicUrl = localPublicUrl;
+    userAsset.updatedAt = new Date().toISOString();
+    db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
+    await writeDb(db);
+    return userAsset;
+  }
 
   const localPath = path.join(ROOT, userAsset.localUrl.replace(/^\//, ""));
   const bytes = await fs.readFile(localPath);
@@ -3373,16 +3413,20 @@ function seedanceAssetCacheField(userAsset = {}) {
 async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   const assetType = seedanceAssetTypeForUserAsset(userAsset);
   const cacheField = seedanceAssetCacheField(userAsset);
-  if (userAsset[cacheField]) return userAsset;
+  if (userAsset[cacheField] && (!localPublicAssetStorageEnabled() || !userAsset.localUrl || isLocalPublicAssetUrl(userAsset.publicUrl))) return userAsset;
 
   const localPath = path.join(ROOT, userAsset.localUrl.replace(/^\//, ""));
   const bytes = await fs.readFile(localPath);
-  const uploaded = await uploadBufferToTos({
-    userId: userAsset.userId,
-    assetId: userAsset.id,
-    bytes,
-    mime: userAsset.mime || "image/png",
-  });
+  const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
+  let uploaded = { publicUrl: localPublicUrl, key: "" };
+  if (!uploaded.publicUrl) {
+    uploaded = await uploadBufferToTos({
+      userId: userAsset.userId,
+      assetId: userAsset.id,
+      bytes,
+      mime: userAsset.mime || "image/png",
+    });
+  }
   const created = await arkOpenApiAction("CreateAsset", {
     GroupId: ARK_OPENAPI.groupId,
     URL: uploaded.publicUrl,
@@ -7892,7 +7936,7 @@ function publicUserCharacter(character) {
 }
 
 async function ensureCharacterReferenceForRecord(record) {
-  if (record.referenceAssetUri) return record;
+  if (record.referenceAssetUri && (!localPublicAssetStorageEnabled() || isLocalPublicAssetUrl(record.publicImageUrl))) return record;
   const sourceUrl = record.sourceImageUrl || record.localImageUrl || record.posterUrl;
   if (!sourceUrl || /^https?:\/\//i.test(sourceUrl)) {
     const error = new Error("Character image must be uploaded locally first before creating the upstream asset.");
@@ -7904,12 +7948,16 @@ async function ensureCharacterReferenceForRecord(record) {
     requireValue("APIZ_API_KEY", APIZ_API_KEY);
     const sourcePath = path.join(ROOT, sourceUrl.replace(/^\//, ""));
     const sourceBytes = await fs.readFile(sourcePath);
-    const uploaded = await uploadBufferToTos({
-      userId: record.userId || "user",
-      assetId: `${record.id}-source`,
-      bytes: sourceBytes,
-      mime: record.sourceImageMime || record.imageMime || imageMimeFromPath(sourcePath),
-    });
+    const localSourcePublicUrl = publicUrlForAssetPath(sourceUrl);
+    let uploaded = { publicUrl: localSourcePublicUrl, key: "" };
+    if (!uploaded.publicUrl) {
+      uploaded = await uploadBufferToTos({
+        userId: record.userId || "user",
+        assetId: `${record.id}-source`,
+        bytes: sourceBytes,
+        mime: record.sourceImageMime || record.imageMime || imageMimeFromPath(sourcePath),
+      });
+    }
     const refPrompt = makeHomeSyntheticReferencePrompt(record);
     const model = process.env.HOME_REFERENCE_MODEL || process.env.OFFICIAL_PRESET_MODEL || DEFAULT_CONFIG.characterImage.editModel;
     const created = await apizRequest("/api/v3/tasks/create", {
@@ -7983,12 +8031,16 @@ async function ensureCharacterReferenceForRecord(record) {
   const localUrl = record.syntheticReferenceLocalUrl || record.localImageUrl || record.posterUrl;
   const localPath = path.join(ROOT, localUrl.replace(/^\//, ""));
   const refBytes = await fs.readFile(localPath);
-  const uploadedRef = await uploadBufferToTos({
-    userId: record.userId || "user",
-    assetId: `${record.id}-ref`,
-    bytes: refBytes,
-    mime: record.imageMime || imageMimeFromPath(localPath),
-  });
+  const localRefPublicUrl = publicUrlForAssetPath(localUrl);
+  let uploadedRef = { publicUrl: localRefPublicUrl, key: "" };
+  if (!uploadedRef.publicUrl) {
+    uploadedRef = await uploadBufferToTos({
+      userId: record.userId || "user",
+      assetId: `${record.id}-ref`,
+      bytes: refBytes,
+      mime: record.imageMime || imageMimeFromPath(localPath),
+    });
+  }
   const created = await arkOpenApiAction("CreateAsset", {
     GroupId: ARK_OPENAPI.groupId,
     URL: uploadedRef.publicUrl,
