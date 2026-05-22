@@ -1719,12 +1719,14 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   }
   .brand {
     grid-column: 1;
+    grid-row: 1;
     min-width: 0;
   }
   .brand-mark { width: 26px; height: 26px; }
   .brand strong { font-size: 1rem; }
   .head-actions {
     grid-column: 2;
+    grid-row: 1;
     display: flex;
     min-width: 0;
     justify-content: flex-end;
@@ -1742,6 +1744,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   }
   .top-tabs {
     grid-column: 1 / -1;
+    grid-row: 2;
     width: 100%;
     min-width: 0;
     display: grid;
