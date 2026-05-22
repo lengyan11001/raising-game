@@ -3412,11 +3412,6 @@ function renderAdvancedCases() {
       <img class="advanced-case-cover" src="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
       ${item.previewUrl || item.hoverPreviewUrl ? `<video class="advanced-case-hover-video" data-src="${escapeHtml(item.hoverPreviewUrl || item.previewUrl)}" poster="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
       ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
-      <div>
-        <span>${escapeHtml(item.category || t("advanced.cases"))} - ${escapeHtml(advancedCostLabel(advancedCaseDuration(item), advancedCaseProvider(item), item.params?.resolution, item.params?.ratio || item.params?.aspect_ratio))}</span>
-        <strong>${escapeHtml(item.title || t("advanced.defaultCase"))}</strong>
-        <p>${escapeHtml(item.description || item.prompt || "").slice(0, 96)}</p>
-      </div>
     </article>
   `).join("") : `<div class="job-note">${escapeHtml(t("advanced.noCases"))}</div>`;
   els.advancedCaseGrid.querySelectorAll("[data-case-index]").forEach((card) => {
