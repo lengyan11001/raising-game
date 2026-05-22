@@ -272,6 +272,7 @@ const DEFAULT_CONFIG = {
     asset: "USDT",
     network: "TRC20",
     address: "TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
+    qrUrl: "/assets/wallet/usdt-trc20-qr.png",
     suffixDigits: 6,
     /** Credits use RMB cents, matching upstream billing points. 1 USDT -> CNY cents. */
     cnyCentsPerUsdt: DEFAULT_USDT_CNY_CENTS,
@@ -688,6 +689,7 @@ function publicConfig(config, origin = "") {
       asset: config.wallet.asset,
       network: config.wallet.network,
       address: config.wallet.address,
+      qrUrl: config.wallet.qrUrl || "",
       suffixDigits: config.wallet.suffixDigits,
       cnyCentsPerUsdt: walletCnyCentsPerUsdt(config.wallet),
     },
@@ -7165,6 +7167,7 @@ function publicTopupOrder(order = {}, wallet = {}) {
     currency: order.currency || order.asset || "",
     network: order.network || "",
     address: order.address || "",
+    qrUrl: wallet.qrUrl || "",
     status: order.status || "pending",
     paypalOrderId: order.paypalOrderId || "",
     paypalCaptureId: order.paypalCaptureId || "",

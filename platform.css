@@ -463,6 +463,38 @@ main { width: min(1200px, calc(100vw - 44px)); margin: 0 auto; }
   min-height: 40px;
   max-width: 360px;
 }
+.topup-wallet-card {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(15,148,139,.22);
+  border-radius: 8px;
+  background: rgba(255,255,255,.82);
+}
+.topup-wallet-card[hidden] { display: none; }
+.topup-wallet-card img {
+  width: 108px;
+  height: 108px;
+  padding: 6px;
+  border: 1px solid rgba(17,29,53,.08);
+  border-radius: 8px;
+  background: #fff;
+  object-fit: contain;
+}
+.topup-wallet-card img[hidden] { display: none; }
+.topup-wallet-card code {
+  display: block;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(15,148,139,.18);
+  border-radius: 8px;
+  color: #0f574f;
+  background: rgba(248,251,249,.78);
+  font: .78rem/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
+  word-break: break-all;
+}
 .topup-usdt-actions {
   color: var(--muted);
 }
@@ -1452,6 +1484,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   .history-panel .history-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ledger-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .paypal-checkout { grid-template-columns: 1fr; }
+  .topup-wallet-card { grid-template-columns: 1fr; justify-items: start; }
   .topup-order { grid-template-columns: 1fr; }
   .token-card { align-items: stretch; flex-direction: column; }
   .access-tabs { grid-template-columns: repeat(2, 1fr); }

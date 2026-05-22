@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-59" />
+    <link rel="stylesheet" href="./platform.css?v=ai-60" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -40,7 +40,6 @@
         <button class="top-tab" data-tab="spending" data-i18n="nav.spending" type="button">Spending Records</button>
       </nav>
       <div class="head-actions">
-        <a class="ghost-link" href="/game" data-i18n="nav.game">Game</a>
         <button class="primary-pill" id="loginBtn" type="button">Login / Sign up</button>
       </div>
     </header>
@@ -367,6 +366,15 @@
               </div>
               <div class="paypal-buttons" id="paypalButtons"></div>
             </div>
+            <div class="topup-wallet-card" id="topupWalletCard" hidden>
+              <img id="topupWalletQr" alt="USDT TRC20 payment QR" loading="lazy" />
+              <div>
+                <span data-i18n="topup.usdtTitle">USDT backup</span>
+                <strong id="topupWalletNetwork">USDT · TRC20</strong>
+                <code id="topupWalletAddress"></code>
+                <small data-i18n="topup.usdtNote">Use TRC20 USDT if PayPal is unavailable.</small>
+              </div>
+            </div>
             <div class="topup-actions topup-usdt-actions">
               <div>
                 <span data-i18n="topup.usdtTitle">USDT backup</span>
@@ -418,6 +426,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-59"></script>
+    <script src="./platform.js?v=ai-60"></script>
 </body>
 </html>

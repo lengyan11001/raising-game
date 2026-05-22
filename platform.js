@@ -118,6 +118,10 @@ const els = {
   topupCredits: document.querySelector("#topupCredits"),
   topupRate: document.querySelector("#topupRate"),
   createTopupBtn: document.querySelector("#createTopupBtn"),
+  topupWalletCard: document.querySelector("#topupWalletCard"),
+  topupWalletQr: document.querySelector("#topupWalletQr"),
+  topupWalletNetwork: document.querySelector("#topupWalletNetwork"),
+  topupWalletAddress: document.querySelector("#topupWalletAddress"),
   paypalBox: document.querySelector("#paypalBox"),
   paypalButtons: document.querySelector("#paypalButtons"),
   paypalStatus: document.querySelector("#paypalStatus"),
@@ -3053,9 +3057,26 @@ function walletCreditsForAmount(amount) {
   return Math.max(0, Math.round(Number(amount || 0) * rate));
 }
 
+function renderTopupWalletCard(order = null) {
+  if (!els.topupWalletCard) return;
+  const wallet = state.wallet || {};
+  const address = order?.address || wallet.address || "";
+  const qrUrl = order?.qrUrl || wallet.qrUrl || "";
+  const asset = order?.asset || wallet.asset || "USDT";
+  const network = order?.network || wallet.network || "TRC20";
+  els.topupWalletCard.hidden = !address && !qrUrl;
+  if (els.topupWalletQr) {
+    els.topupWalletQr.hidden = !qrUrl;
+    if (qrUrl) els.topupWalletQr.src = qrUrl;
+  }
+  if (els.topupWalletNetwork) els.topupWalletNetwork.textContent = `${asset} · ${network}`;
+  if (els.topupWalletAddress) els.topupWalletAddress.textContent = address;
+}
+
 function renderTopupSummary() {
   if (!els.topupPanel) return;
   if (els.topupOrder && !els.topupOrder.hidden) return;
+  renderTopupWalletCard();
   const rawAmount = Number(els.topupAmount?.value || 0);
   const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : DEFAULT_TOPUP_AMOUNT;
   const credits = walletCreditsForAmount(amount);
@@ -3077,6 +3098,7 @@ function renderTopupOrder(order) {
   if (!els.topupOrder || !order) return;
   els.topupOrder.hidden = false;
   const isPayPal = order.paymentProvider === "paypal" || order.network === "PayPal";
+  renderTopupWalletCard(order);
   if (isPayPal) {
     els.topupOrder.innerHTML = `
       <div>
