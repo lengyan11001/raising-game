@@ -3421,6 +3421,7 @@ function renderAdvancedCases() {
       openAdvancedPreview(button.dataset.advancedPreviewIndex);
     });
   });
+  refreshIcons();
 }
 
 function fillAdvancedCase(item = {}) {
