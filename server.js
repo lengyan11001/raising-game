@@ -120,9 +120,9 @@ const WALLET_USDT_CONTRACTS = {
   solana: String(process.env.WALLET_SOLANA_USDT_MINT || "Es9vMFrzaCERmJfrF4H2FYD4Sz7PZsrwLQomDpRg4E6B").trim(),
 };
 const WALLET_EVM_RPC_URLS = {
-  ethereum: String(process.env.WALLET_ETHEREUM_RPC_URL || process.env.ETHEREUM_RPC_URL || "https://ethereum-rpc.publicnode.com").trim(),
-  bnb: String(process.env.WALLET_BNB_RPC_URL || process.env.BNB_RPC_URL || "https://bsc-dataseed.binance.org").trim(),
-  base: String(process.env.WALLET_BASE_RPC_URL || process.env.BASE_RPC_URL || "https://mainnet.base.org").trim(),
+  ethereum: String(process.env.WALLET_ETHEREUM_RPC_URL || process.env.ETHEREUM_RPC_URL || "https://ethereum-rpc.publicnode.com,https://eth.drpc.org").split(",").map((url) => url.trim()).filter(Boolean),
+  bnb: String(process.env.WALLET_BNB_RPC_URL || process.env.BNB_RPC_URL || "https://bsc-rpc.publicnode.com,https://bsc-dataseed.binance.org").split(",").map((url) => url.trim()).filter(Boolean),
+  base: String(process.env.WALLET_BASE_RPC_URL || process.env.BASE_RPC_URL || "https://mainnet.base.org,https://base-rpc.publicnode.com").split(",").map((url) => url.trim()).filter(Boolean),
 };
 const GENERATION_PRICE_MARKUP = 1.2;
 const ADVANCED_SEEDANCE_FPS = clampNumber(process.env.ADVANCED_SEEDANCE_FPS, 24, 1, 120);
@@ -2022,16 +2022,24 @@ async function scanFetchJson(url, { headers = {}, timeoutMs = 20000, method = "G
 }
 
 async function evmRpc(chain, method, params = []) {
-  const url = WALLET_EVM_RPC_URLS[chain];
-  if (!url) throw new Error(`No RPC configured for ${chain}.`);
-  const payload = await scanFetchJson(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: { jsonrpc: "2.0", id: `wallet-${Date.now()}`, method, params },
-    timeoutMs: 25000,
-  });
-  if (payload?.error) throw new Error(payload.error.message || `RPC ${method} failed`);
-  return payload?.result;
+  const urls = WALLET_EVM_RPC_URLS[chain] || [];
+  if (!urls.length) throw new Error(`No RPC configured for ${chain}.`);
+  let lastError = null;
+  for (const url of urls) {
+    try {
+      const payload = await scanFetchJson(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: { jsonrpc: "2.0", id: `wallet-${Date.now()}`, method, params },
+        timeoutMs: 15000,
+      });
+      if (payload?.error) throw new Error(payload.error.message || `RPC ${method} failed`);
+      return payload?.result;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error(`RPC ${method} failed for ${chain}`);
 }
 
 function evmTopicAddress(address = "") {
