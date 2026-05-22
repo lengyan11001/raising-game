@@ -84,7 +84,8 @@ const PAYPAL_CLIENT_SECRET = String(process.env.PAYPAL_CLIENT_SECRET || "").trim
 const PAYPAL_WEBHOOK_ID = String(process.env.PAYPAL_WEBHOOK_ID || "").trim();
 const PAYPAL_CURRENCY = String(process.env.PAYPAL_CURRENCY || "USD").trim().toUpperCase() || "USD";
 const PAYPAL_BRAND_NAME = String(process.env.PAYPAL_BRAND_NAME || "Vipeak AI").trim() || "Vipeak AI";
-const PAYPAL_MIN_AMOUNT = clampNumber(process.env.PAYPAL_MIN_AMOUNT, 1, 0.01, 100000);
+const MIN_TOPUP_AMOUNT = clampNumber(process.env.MIN_TOPUP_AMOUNT, 100, 1, 100000);
+const PAYPAL_MIN_AMOUNT = clampNumber(process.env.PAYPAL_MIN_AMOUNT, MIN_TOPUP_AMOUNT, 0.01, 100000);
 const PAYPAL_MAX_AMOUNT = clampNumber(process.env.PAYPAL_MAX_AMOUNT, 10000, PAYPAL_MIN_AMOUNT, 1000000);
 const PAYPAL_CNY_CENTS_PER_UNIT_ENV =
   process.env.PAYPAL_CNY_CENTS_PER_UNIT ||
@@ -6553,8 +6554,8 @@ async function handleCreatePaymentOrder(req, res) {
   const body = await readJson(req);
   const config = await readAppConfig();
   const amount = Number(body.amount || 0);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return sendJson(res, 400, { ok: false, message: "Top-up amount is invalid." });
+  if (!Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
+    return sendJson(res, 400, { ok: false, message: `Top-up amount must be at least ${MIN_TOPUP_AMOUNT}.` });
   }
 
   const suffixDigits = clampNumber(config.wallet.suffixDigits, 6, 3, 6);

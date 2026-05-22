@@ -18,6 +18,7 @@ const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
+const MIN_TOPUP_AMOUNT = 100;
 
 function normalizePlatformTab(value = "") {
   const normalized = String(value || "").trim().replace(/^#\/?/, "");
@@ -3034,7 +3035,8 @@ function walletCreditsForAmount(amount) {
 function renderTopupSummary() {
   if (!els.topupPanel) return;
   if (els.topupOrder && !els.topupOrder.hidden) return;
-  const amount = Number(els.topupAmount?.value || 0);
+  const rawAmount = Number(els.topupAmount?.value || 0);
+  const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : MIN_TOPUP_AMOUNT;
   const credits = walletCreditsForAmount(amount);
   const asset = state.wallet?.asset || "USDT";
   const network = state.wallet?.network || "TRC20";
@@ -3149,7 +3151,7 @@ async function renderPayPalCheckout() {
           throw new Error(t("topup.login"));
         }
         const amount = Number(els.topupAmount?.value || 0);
-        if (!Number.isFinite(amount) || amount <= 0) {
+        if (!Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
           if (els.paypalStatus) els.paypalStatus.textContent = t("topup.invalid");
           throw new Error(t("topup.invalid"));
         }
@@ -3192,7 +3194,7 @@ async function renderPayPalCheckout() {
 async function createTopupOrder() {
   if (!state.user) return openLogin();
   const amount = Number(els.topupAmount?.value || 0);
-  if (!Number.isFinite(amount) || amount <= 0) {
+  if (!Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
     if (els.topupRate) els.topupRate.textContent = t("topup.invalid");
     return;
   }
