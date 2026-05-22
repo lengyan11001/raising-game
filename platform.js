@@ -118,7 +118,9 @@ const els = {
   topupCredits: document.querySelector("#topupCredits"),
   topupRate: document.querySelector("#topupRate"),
   createTopupBtn: document.querySelector("#createTopupBtn"),
-  topupWalletCard: document.querySelector("#topupWalletCard"),
+  topupQrDialog: document.querySelector("#topupQrDialog"),
+  topupQrAmount: document.querySelector("#topupQrAmount"),
+  topupQrCopyBtn: document.querySelector("#topupQrCopyBtn"),
   topupWalletQr: document.querySelector("#topupWalletQr"),
   topupWalletNetwork: document.querySelector("#topupWalletNetwork"),
   topupWalletAddress: document.querySelector("#topupWalletAddress"),
@@ -267,11 +269,11 @@ const I18N = {
     "topup.dialogTitle": "Top up credits",
     "topup.createOrder": "Create USDT order",
     "topup.usdtTitle": "USDT backup",
-    "topup.usdtNote": "Use TRC20 USDT if PayPal is unavailable.",
     "topup.login": "Login to create a payment order.",
     "topup.rate": "{amount} {asset} via {network}. Credits use RMB cents.",
     "topup.payExactly": "Pay exactly",
   "topup.copyAddress": "Copy address",
+  "topup.showQr": "Show QR",
   "topup.addressCopied": "Address copied. Transfer the exact amount shown.",
   "topup.invalid": "Enter a valid USDT amount.",
   "topup.creating": "Creating payment order...",
@@ -545,11 +547,11 @@ const I18N = {
     "topup.dialogTitle": "Nạp credits",
     "topup.createOrder": "Tạo đơn USDT",
     "topup.usdtTitle": "USDT dự phòng",
-    "topup.usdtNote": "Dùng TRC20 USDT nếu PayPal không khả dụng.",
     "topup.login": "Đăng nhập để tạo đơn thanh toán.",
     "topup.rate": "{amount} {asset} qua {network}. Credits tính theo cent RMB.",
     "topup.payExactly": "Thanh toán chính xác",
   "topup.copyAddress": "Sao chép địa chỉ",
+  "topup.showQr": "Hiện QR",
   "topup.addressCopied": "Đã sao chép địa chỉ. Chuyển đúng số tiền hiển thị.",
   "topup.invalid": "Nhập số USDT hợp lệ.",
   "topup.creating": "Đang tạo đơn thanh toán...",
@@ -809,11 +811,11 @@ const I18N = {
     "topup.dialogTitle": "Credits をチャージ",
     "topup.createOrder": "USDT 注文作成",
     "topup.usdtTitle": "USDT 予備",
-    "topup.usdtNote": "PayPal が使えない場合は TRC20 USDT を利用してください。",
     "topup.login": "ログインして支払い注文を作成してください。",
     "topup.rate": "{amount} {asset} / {network}。Credits は RMB セントで計算されます。",
     "topup.payExactly": "正確に支払う",
   "topup.copyAddress": "アドレスをコピー",
+  "topup.showQr": "QR を表示",
   "topup.addressCopied": "アドレスをコピーしました。表示金額を正確に送金してください。",
   "topup.invalid": "有効な USDT 金額を入力してください。",
   "topup.creating": "支払い注文を作成中...",
@@ -1073,11 +1075,11 @@ const I18N = {
     "topup.dialogTitle": "Credits 충전",
     "topup.createOrder": "USDT 주문 생성",
     "topup.usdtTitle": "USDT 예비",
-    "topup.usdtNote": "PayPal을 사용할 수 없을 때 TRC20 USDT를 사용하세요.",
     "topup.login": "결제 주문을 만들려면 로그인하세요.",
     "topup.rate": "{amount} {asset}, {network}. Credits는 RMB 센트 기준입니다.",
     "topup.payExactly": "정확히 결제",
   "topup.copyAddress": "주소 복사",
+  "topup.showQr": "QR 보기",
   "topup.addressCopied": "주소를 복사했습니다. 표시된 정확한 금액을 전송하세요.",
   "topup.invalid": "올바른 USDT 금액을 입력하세요.",
   "topup.creating": "결제 주문 생성 중...",
@@ -1337,11 +1339,11 @@ const I18N = {
     "topup.dialogTitle": "Top up credits",
     "topup.createOrder": "Buat order USDT",
     "topup.usdtTitle": "Cadangan USDT",
-    "topup.usdtNote": "Gunakan TRC20 USDT jika PayPal tidak tersedia.",
     "topup.login": "Login untuk membuat order pembayaran.",
     "topup.rate": "{amount} {asset} via {network}. Credits memakai sen RMB.",
     "topup.payExactly": "Bayar tepat",
   "topup.copyAddress": "Salin alamat",
+  "topup.showQr": "Tampilkan QR",
   "topup.addressCopied": "Alamat disalin. Transfer jumlah yang ditampilkan.",
   "topup.invalid": "Masukkan jumlah USDT yang valid.",
   "topup.creating": "Membuat order pembayaran...",
@@ -3057,26 +3059,36 @@ function walletCreditsForAmount(amount) {
   return Math.max(0, Math.round(Number(amount || 0) * rate));
 }
 
-function renderTopupWalletCard(order = null) {
-  if (!els.topupWalletCard) return;
+function renderTopupQrDialog(order = null) {
+  if (!order || !els.topupQrDialog) return;
   const wallet = state.wallet || {};
   const address = order?.address || wallet.address || "";
   const qrUrl = order?.qrUrl || wallet.qrUrl || "";
   const asset = order?.asset || wallet.asset || "USDT";
   const network = order?.network || wallet.network || "TRC20";
-  els.topupWalletCard.hidden = !address && !qrUrl;
+  if (els.topupQrAmount) {
+    els.topupQrAmount.textContent = `${order.payableAmountText || order.payableAmount || order.baseAmount || ""} ${asset}`.trim();
+  }
   if (els.topupWalletQr) {
     els.topupWalletQr.hidden = !qrUrl;
     if (qrUrl) els.topupWalletQr.src = qrUrl;
   }
   if (els.topupWalletNetwork) els.topupWalletNetwork.textContent = `${asset} · ${network}`;
   if (els.topupWalletAddress) els.topupWalletAddress.textContent = address;
+  if (!els.topupQrDialog.open) els.topupQrDialog.showModal();
+  refreshIcons();
+}
+
+function copyTopupAddress(address = "") {
+  if (!address) return;
+  navigator.clipboard?.writeText(address).then(() => {
+    if (els.topupRate) els.topupRate.textContent = t("topup.addressCopied");
+  });
 }
 
 function renderTopupSummary() {
   if (!els.topupPanel) return;
   if (els.topupOrder && !els.topupOrder.hidden) return;
-  renderTopupWalletCard();
   const rawAmount = Number(els.topupAmount?.value || 0);
   const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : DEFAULT_TOPUP_AMOUNT;
   const credits = walletCreditsForAmount(amount);
@@ -3098,7 +3110,6 @@ function renderTopupOrder(order) {
   if (!els.topupOrder || !order) return;
   els.topupOrder.hidden = false;
   const isPayPal = order.paymentProvider === "paypal" || order.network === "PayPal";
-  renderTopupWalletCard(order);
   if (isPayPal) {
     els.topupOrder.innerHTML = `
       <div>
@@ -3118,14 +3129,14 @@ function renderTopupOrder(order) {
       <strong>${escapeHtml(order.payableAmountText || order.payableAmount || order.baseAmount)} ${escapeHtml(order.asset || "USDT")}</strong>
       <small>${escapeHtml(order.network || "")} · ${escapeHtml(t("cost.credits", { credits: order.creditAmount || 0 }))} · ${escapeHtml(order.status || "pending")}</small>
     </div>
-    <code>${escapeHtml(order.address || "")}</code>
+    <button class="ghost-button" type="button" data-show-qr><i data-lucide="qr-code"></i>${escapeHtml(t("topup.showQr"))}</button>
     <button class="ghost-button" type="button" data-copy-address><i data-lucide="copy"></i>${escapeHtml(t("topup.copyAddress"))}</button>
   `;
+  els.topupOrder.querySelector("[data-show-qr]")?.addEventListener("click", () => renderTopupQrDialog(order));
   els.topupOrder.querySelector("[data-copy-address]")?.addEventListener("click", () => {
-    navigator.clipboard?.writeText(order.address || "").then(() => {
-      if (els.topupRate) els.topupRate.textContent = t("topup.addressCopied");
-    });
+    copyTopupAddress(order.address || "");
   });
+  renderTopupQrDialog(order);
   if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits: order.creditAmount || 0 });
   refreshIcons();
 }

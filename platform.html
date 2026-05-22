@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-61" />
+    <link rel="stylesheet" href="./platform.css?v=ai-62" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -366,24 +366,33 @@
               </div>
               <div class="paypal-buttons" id="paypalButtons"></div>
             </div>
-            <div class="topup-wallet-card" id="topupWalletCard" hidden>
-              <img id="topupWalletQr" alt="USDT TRC20 payment QR" loading="lazy" />
-              <div>
-                <span data-i18n="topup.usdtTitle">USDT backup</span>
-                <strong id="topupWalletNetwork">USDT · TRC20</strong>
-                <code id="topupWalletAddress"></code>
-                <small data-i18n="topup.usdtNote">Use TRC20 USDT if PayPal is unavailable.</small>
-              </div>
-            </div>
             <div class="topup-actions topup-usdt-actions">
-              <div>
-                <span data-i18n="topup.usdtTitle">USDT backup</span>
-                <small data-i18n="topup.usdtNote">Use TRC20 USDT if PayPal is unavailable.</small>
-              </div>
               <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create USDT order</button>
             </div>
             <div class="topup-order" id="topupOrder" hidden></div>
           </section>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="topupQrDialog" class="modal topup-qr-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span data-i18n="topup.payExactly">Pay exactly</span>
+            <strong id="topupQrAmount">0 USDT</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <div class="topup-qr-panel">
+            <img id="topupWalletQr" alt="USDT TRC20 payment QR" loading="lazy" />
+            <div class="topup-qr-details">
+              <span id="topupWalletNetwork">USDT · TRC20</span>
+              <code id="topupWalletAddress"></code>
+              <button class="ghost-button" id="topupQrCopyBtn" type="button"><i data-lucide="copy"></i><span data-i18n="topup.copyAddress">Copy address</span></button>
+            </div>
+          </div>
         </div>
       </form>
     </dialog>
@@ -426,6 +435,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-61"></script>
+    <script src="./platform.js?v=ai-62"></script>
 </body>
 </html>
