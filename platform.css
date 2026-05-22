@@ -166,6 +166,25 @@ a { color: inherit; text-decoration: none; }
   width: 100%;
   min-width: 0;
 }
+.menu-balance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  padding: 9px 10px;
+  border: 1px solid rgba(15, 148, 139, .22);
+  border-radius: 8px;
+  color: #31445f;
+  background: rgba(15, 148, 139, .08);
+  font-weight: 800;
+}
+.menu-balance span {
+  color: var(--muted);
+  font-size: .82rem;
+  text-transform: uppercase;
+}
+.menu-balance strong { color: var(--cyan); }
 .menu-item {
   display: flex;
   align-items: center;

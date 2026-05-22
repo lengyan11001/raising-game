@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-67" />
+    <link rel="stylesheet" href="./platform.css?v=ai-68" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -25,24 +25,6 @@
         <button class="top-tab tenant-compact-only" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
         <button class="top-tab tenant-compact-only" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
       </nav>
-      <div class="head-actions tenant-compact-actions" id="compactHeadActions" hidden>
-        <label class="language-switch" aria-label="Language">
-          <i data-lucide="languages"></i>
-          <select id="compactLanguageSelect" aria-label="Language">
-            <option value="en">English</option>
-            <option value="vi">Vietnamese</option>
-            <option value="ja">Japanese</option>
-            <option value="ko">Korean</option>
-            <option value="id">Bahasa Indonesia</option>
-          </select>
-        </label>
-        <button class="topup-trigger" id="compactTopupTriggerBtn" type="button">
-          <i data-lucide="wallet"></i>
-          <span data-i18n="topup.compact">Top Up</span>
-          <strong id="compactTopupTriggerCredits" hidden></strong>
-        </button>
-        <button class="primary-pill" id="loginBtn" type="button">Login / Sign up</button>
-      </div>
       <div class="head-actions account-menu-wrap tenant-menu-only" id="accountMenuWrap">
         <button class="primary-pill account-menu-trigger" id="accountMenuBtn" type="button">
           <i data-lucide="user-round"></i>
@@ -60,6 +42,10 @@
               <option value="id">Bahasa Indonesia</option>
             </select>
           </label>
+          <div class="menu-balance" id="menuBalance" hidden>
+            <span data-i18n="account.credits">Credits</span>
+            <strong id="menuBalanceValue">0</strong>
+          </div>
           <button class="menu-item" id="topupTriggerBtn" type="button"><i data-lucide="wallet"></i><span data-i18n="topup.compact">Top Up</span><strong id="topupTriggerCredits" hidden></strong></button>
           <button class="menu-item" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
           <button class="menu-item" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
@@ -482,6 +468,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-67"></script>
+    <script src="./platform.js?v=ai-68"></script>
 </body>
 </html>

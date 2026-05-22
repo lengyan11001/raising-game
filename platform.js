@@ -134,10 +134,6 @@ const els = {
   topupDialog: document.querySelector("#topupDialog"),
   topupTriggerBtn: document.querySelector("#topupTriggerBtn"),
   topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
-  compactHeadActions: document.querySelector("#compactHeadActions"),
-  compactLanguageSelect: document.querySelector("#compactLanguageSelect"),
-  compactTopupTriggerBtn: document.querySelector("#compactTopupTriggerBtn"),
-  compactTopupTriggerCredits: document.querySelector("#compactTopupTriggerCredits"),
   topupPanel: document.querySelector("#topupPanel"),
   topupAmount: document.querySelector("#topupAmount"),
   topupCredits: document.querySelector("#topupCredits"),
@@ -186,11 +182,12 @@ const els = {
   legalDialog: document.querySelector("#legalDialog"),
   legalTitle: document.querySelector("#legalTitle"),
   legalBody: document.querySelector("#legalBody"),
-  loginBtn: document.querySelector("#loginBtn"),
   accountMenuWrap: document.querySelector("#accountMenuWrap"),
   accountMenuBtn: document.querySelector("#accountMenuBtn"),
   accountMenuLabel: document.querySelector("#accountMenuLabel"),
   accountMenu: document.querySelector("#accountMenu"),
+  menuBalance: document.querySelector("#menuBalance"),
+  menuBalanceValue: document.querySelector("#menuBalanceValue"),
   menuLoginBtn: document.querySelector("#menuLoginBtn"),
   menuCopyTokenBtn: document.querySelector("#menuCopyTokenBtn"),
   menuLogoutBtn: document.querySelector("#menuLogoutBtn"),
@@ -212,7 +209,7 @@ const els = {
 };
 
 function currentTopupCreditsEls() {
-  return [els.topupTriggerCredits, els.compactTopupTriggerCredits].filter(Boolean);
+  return [els.topupTriggerCredits].filter(Boolean);
 }
 
 const I18N = {
@@ -2333,7 +2330,6 @@ function setLocalizedContent(element, text) {
 function applyStaticTranslations() {
   document.documentElement.lang = state.lang;
   if (els.languageSelect) els.languageSelect.value = state.lang;
-  if (els.compactLanguageSelect) els.compactLanguageSelect.value = state.lang;
   document.querySelectorAll("[data-i18n]").forEach((element) => {
     setLocalizedContent(element, t(element.dataset.i18n, {}, element.textContent));
   });
@@ -2347,12 +2343,12 @@ function applyStaticTranslations() {
 
 function applyTenantFeatures() {
   const assetEnabled = tenantFeature("assetLibrary", true);
-  const accountMenuEnabled = tenantFeature("accountMenu", true);
+  const accountMenuEnabled = true;
   document.querySelectorAll(".tenant-menu-only").forEach((element) => {
     element.hidden = !accountMenuEnabled;
   });
   document.querySelectorAll(".tenant-compact-only").forEach((element) => {
-    element.hidden = accountMenuEnabled;
+    element.hidden = tenantFeature("accountMenu", true);
   });
   document.querySelectorAll(".tenant-old-tab").forEach((element) => {
     element.hidden = !assetEnabled;
@@ -2360,8 +2356,6 @@ function applyTenantFeatures() {
   document.querySelectorAll("[data-tab='assets']").forEach((element) => {
     element.hidden = !assetEnabled;
   });
-  if (els.compactHeadActions) els.compactHeadActions.hidden = accountMenuEnabled;
-  if (!accountMenuEnabled) closeAccountMenu();
 }
 
 function applyLanguage() {
@@ -2401,7 +2395,6 @@ function setUser(user, { refreshHistory = false } = {}) {
   const accountLabel = state.user
     ? `${state.user.username} - ${Number(state.user.credits || 0)} ${t("common.credits")}`
     : t("nav.login");
-  if (els.loginBtn) els.loginBtn.textContent = accountLabel;
   if (els.accountMenuLabel) els.accountMenuLabel.textContent = accountLabel;
   renderTokenDisplays();
   renderTopupSummary();
@@ -2462,6 +2455,7 @@ function renderTokenDisplays() {
   }
   if (els.accountName) els.accountName.textContent = state.user?.username || t("account.title");
   if (els.accountCredits) els.accountCredits.textContent = String(Number(state.user?.credits || 0));
+  if (els.menuBalanceValue) els.menuBalanceValue.textContent = String(Number(state.user?.credits || 0));
   if (els.accountRole) els.accountRole.textContent = state.user?.role || "user";
   if (els.accountToken) els.accountToken.textContent = currentTokenLabel(state.showAccountToken);
   if (els.toggleAccountTokenBtn) {
@@ -2474,13 +2468,19 @@ function renderTokenDisplays() {
 }
 
 function renderAccountMenu() {
-  if (!tenantFeature("accountMenu", true)) {
-    if (els.loginBtn) els.loginBtn.hidden = false;
-    return;
-  }
-  if (els.menuLoginBtn) els.menuLoginBtn.hidden = Boolean(state.user);
+  const loggedIn = Boolean(state.user);
+  if (els.menuBalance) els.menuBalance.hidden = !loggedIn;
+  if (els.topupTriggerBtn) els.topupTriggerBtn.hidden = !loggedIn;
+  document.querySelectorAll(".account-menu [data-tab]").forEach((button) => {
+    button.hidden = !loggedIn;
+  });
+  if (els.menuLoginBtn) els.menuLoginBtn.hidden = loggedIn;
   if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user?.apiToken;
-  if (els.menuLogoutBtn) els.menuLogoutBtn.disabled = !state.user;
+  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.hidden = !loggedIn;
+  if (els.menuLogoutBtn) {
+    els.menuLogoutBtn.hidden = !loggedIn;
+    els.menuLogoutBtn.disabled = !loggedIn;
+  }
 }
 
 function closeAccountMenu() {
@@ -4838,12 +4838,6 @@ els.topupTriggerBtn?.addEventListener("click", () => {
   renderPayPalCheckout();
   refreshIcons();
 });
-els.compactTopupTriggerBtn?.addEventListener("click", () => {
-  renderTopupSummary();
-  if (!els.topupDialog?.open) els.topupDialog?.showModal();
-  renderPayPalCheckout();
-  refreshIcons();
-});
 els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;
   els.previewVideo.pause();
@@ -4858,10 +4852,6 @@ els.advancedWanMediaMode?.addEventListener("change", updateAdvancedModelControls
 els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedResolution?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelControls);
-els.loginBtn?.addEventListener("click", () => {
-  if (state.user) openAccount();
-  else openLogin();
-});
 els.accountMenuBtn?.addEventListener("click", () => {
   toggleAccountMenu();
 });
@@ -4876,7 +4866,6 @@ els.toggleLoginMode?.addEventListener("click", () => {
 });
 els.loginSubmit?.addEventListener("click", submitLogin);
 els.languageSelect?.addEventListener("change", () => setLanguage(els.languageSelect.value));
-els.compactLanguageSelect?.addEventListener("change", () => setLanguage(els.compactLanguageSelect.value));
 els.copyAccessBtn?.addEventListener("click", async () => {
   await navigator.clipboard.writeText(fullAccessCopy());
   els.copyAccessBtn.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("common.copied"))}`;
