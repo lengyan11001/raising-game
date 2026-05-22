@@ -1725,13 +1725,35 @@ function makeApiToken() {
   return `sk-${crypto.randomBytes(32).toString("hex")}`;
 }
 
-function ensureUserApiToken(user) {
+function makeUniqueApiToken(db) {
+  const existing = new Set((db?.users || []).map((user) => String(user.apiToken || "")).filter(Boolean));
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const token = makeApiToken();
+    if (!existing.has(token)) return token;
+  }
+  return makeApiToken();
+}
+
+function ensureUserApiToken(user, db = null) {
   if (!user) return "";
   if (!user.apiToken) {
-    user.apiToken = makeApiToken();
+    user.apiToken = makeUniqueApiToken(db);
     user.updatedAt = new Date().toISOString();
   }
   return user.apiToken;
+}
+
+async function ensureAllUsersApiTokens() {
+  const db = await readDb();
+  let changed = false;
+  for (const user of db.users || []) {
+    if (!user.apiToken) {
+      ensureUserApiToken(user, db);
+      changed = true;
+    }
+  }
+  if (changed) await writeDb(db);
+  return changed;
 }
 
 function getBearerToken(req) {
@@ -7171,7 +7193,7 @@ async function handleRegister(req, res) {
     passwordHash: hashPassword(password),
     role: db.users.length === 0 ? "admin" : "user",
     credits: 0,
-    apiToken: makeApiToken(),
+    apiToken: makeUniqueApiToken(db),
     createdAt: now,
     updatedAt: now,
   };
@@ -7192,7 +7214,7 @@ async function handleLogin(req, res) {
     return sendJson(res, 401, { ok: false, message: "Wrong username or password." });
   }
 
-  ensureUserApiToken(user);
+  ensureUserApiToken(user, db);
   const token = crypto.randomBytes(32).toString("hex");
   db.sessions.push({ token, userId: user.id, createdAt: new Date().toISOString() });
   await writeDb(db);
@@ -7202,7 +7224,7 @@ async function handleLogin(req, res) {
 async function handleMe(req, res) {
   const auth = await getAuth(req);
   if (auth.user && !auth.user.apiToken) {
-    ensureUserApiToken(auth.user);
+    ensureUserApiToken(auth.user, auth.db);
     await writeDb(auth.db);
   }
   return sendJson(res, 200, { ok: true, user: userView(auth.user) });
@@ -9599,10 +9621,10 @@ async function handleAdminUpdateUser(req, res, userId) {
     changed = true;
   }
   if (body.regenerateApiToken === true) {
-    user.apiToken = makeApiToken();
+    user.apiToken = makeUniqueApiToken(auth.db);
     changed = true;
   } else if (!user.apiToken) {
-    ensureUserApiToken(user);
+    ensureUserApiToken(user, auth.db);
     changed = true;
   }
   if (changed) {
@@ -10893,6 +10915,10 @@ async function bootstrap() {
       defaultDb: DEFAULT_DB,
       defaultConfig: DEFAULT_CONFIG,
     });
+  }
+  const apiTokensMigrated = await ensureAllUsersApiTokens();
+  if (apiTokensMigrated) {
+    console.log("User API tokens migrated: yes");
   }
 
   server.listen(PORT, "127.0.0.1", () => {
