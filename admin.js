@@ -520,16 +520,10 @@ async function confirmAction(title, message, { danger = false, confirmText = "�
 
 /* ============ DASHBOARD ============ */
 async function renderDashboard() {
-  const [dashboard, config] = await Promise.all([
-    api("/api/admin/dashboard"),
-    loadConfig(),
-  ]);
+  const dashboard = await api("/api/admin/dashboard");
   if (!isActiveRoute("dashboard")) return;
   const s = dashboard.stats || {};
   const recent = dashboard.recentRecords || [];
-  const items = (config.homeVideo?.items) || [];
-  const activeId = dashboard.activeHomeItemId;
-  const activeItem = items.find((i) => i.id === activeId) || items[0];
 
   els.adminContent.innerHTML = `
     <section class="adm-page">
@@ -556,33 +550,12 @@ async function renderDashboard() {
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>当前主推角色</h3>
-          <a class="adm-btn adm-btn-ghost adm-btn-sm" href="#/characters"><i data-lucide="arrow-up-right"></i>去角色管理</a>
-        </header>
-        <div class="adm-card-body">
-          ${activeItem ? `
-            <div class="adm-grid adm-grid-2">
-              <div class="adm-char-poster" style="max-width:280px;">${videoOrPoster(activeItem)}</div>
-              <div class="adm-grid">
-                <div><span class="adm-muted">名字</span><br/><strong>${escapeHtml(activeItem.name || "—")}</strong></div>
-                <div><span class="adm-muted">短剧标题</span><br/><strong>${escapeHtml(activeItem.title || "—")}</strong></div>
-                <div><span class="adm-muted">状态</span> ${statusPill(activeItem.status)}</div>
-                <div><span class="adm-muted">任务 ID</span> <span class="adm-mono">${escapeHtml(activeItem.taskId || "—")}</span></div>
-                <div><span class="adm-muted">创建时间</span> ${escapeHtml(fmtDate(activeItem.createdAt))}</div>
-              </div>
-            </div>
-          ` : '<div class="adm-empty"><i data-lucide="image-off"></i><p>尚未配置首页角色</p></div>'}
-        </div>
-      </div>
-
-      <div class="adm-card">
-        <header class="adm-card-head">
           <h3>最近 5 条生成记录</h3>
-          <a class="adm-btn adm-btn-ghost adm-btn-sm" href="#/videos"><i data-lucide="arrow-up-right"></i>查看视频</a>
+          <a class="adm-btn adm-btn-ghost adm-btn-sm" href="#/records"><i data-lucide="arrow-up-right"></i>查看记录</a>
         </header>
         <div class="adm-card-body adm-table-wrap">
           ${recent.length ? `
-            <table class="adm-table">
+            <table class="adm-table adm-dashboard-table">
               <thead><tr><th>任务 ID</th><th>状态</th><th>本地视频</th><th>错误</th><th>时间</th></tr></thead>
               <tbody>
                 ${recent.map((r) => `
@@ -2074,7 +2047,7 @@ async function renderUsers() {
       </div>
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
-          <table class="adm-table">
+          <table class="adm-table adm-user-table">
             <thead><tr><th>账号</th><th>角色</th><th>积分</th><th>折扣</th><th>高级生成</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
@@ -2198,7 +2171,7 @@ async function renderWallet() {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           ${orders.length ? `
-            <table class="adm-table">
+            <table class="adm-table adm-wallet-table">
               <thead><tr><th>订单</th><th>用户</th><th>充值</th><th>到账金额</th><th>地址</th><th>状态</th><th>时间</th><th class="adm-text-right">操作</th></tr></thead>
               <tbody>
                 ${orders.map((o) => `
