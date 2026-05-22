@@ -581,6 +581,17 @@ function publicOriginFromRequest(req) {
   return `${protocol}://${host}`.replace(/\/+$/, "");
 }
 
+function isTenantPublicOrigin(origin = "") {
+  const value = String(origin || "").trim();
+  if (!value) return false;
+  try {
+    const url = new URL(value.includes("://") ? value : `https://${value}`);
+    return /(^|\.)cloudtoken\.ai$/i.test(url.hostname);
+  } catch {
+    return /(^|\.)cloudtoken\.ai(?::|\/|$)/i.test(value);
+  }
+}
+
 async function readJsonFile(filePath, fallback) {
   try {
     const data = await fs.readFile(filePath, "utf8");
@@ -682,6 +693,33 @@ function tenantScopedAccessCopy(copy = "", origin = "") {
 function publicConfig(config, origin = "") {
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const platform = normalizePlatformConfig(config.platform || {});
+  const tenantPublic = isTenantPublicOrigin(origin);
+  const publicPlatform = {
+    ...platform,
+    accessCopy: tenantScopedAccessCopy(platform.accessCopy, origin),
+  };
+  if (tenantPublic) {
+    publicPlatform.advanced = {
+      ...publicPlatform.advanced,
+      cases: (publicPlatform.advanced?.cases || []).map((item) => {
+        const { creditsPerSecond, pricing, ...safeItem } = item;
+        return safeItem;
+      }),
+    };
+  } else {
+    publicPlatform.advancedPricing = {
+      unit: "credits",
+      creditsPerCny: ADVANCED_CREDITS_PER_CNY,
+      seedanceCreditsPerSecondByResolution: {
+        "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND,
+        "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND,
+      },
+      wan27CreditsPerSecondByResolution: {
+        "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
+        "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
+      },
+    };
+  }
   return {
     defaultCompanionId: config.defaultCompanionId,
     prices: config.prices,
@@ -704,22 +742,7 @@ function publicConfig(config, origin = "") {
       activeItemId: homeVideo.activeItemId || "",
       items: homeVideo.items.map(publicHomeVideoItem),
     },
-    platform: {
-      ...platform,
-      accessCopy: tenantScopedAccessCopy(platform.accessCopy, origin),
-      advancedPricing: {
-        unit: "credits",
-        creditsPerCny: ADVANCED_CREDITS_PER_CNY,
-        seedanceCreditsPerSecondByResolution: {
-          "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND,
-          "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND,
-        },
-        wan27CreditsPerSecondByResolution: {
-          "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
-          "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
-        },
-      },
-    },
+    platform: publicPlatform,
     characterImage: config.characterImage,
     scenes: config.scenes
       .filter((scene) => scene.enabled !== false)
@@ -6300,6 +6323,19 @@ function docsPricingView(estimate = {}) {
   };
 }
 
+function tenantDocsPricingView(pricing = {}) {
+  return pricing && pricing.available === false
+    ? {
+      available: false,
+      credits: null,
+      message: pricing.message || "Pricing is unavailable.",
+    }
+    : {
+      available: true,
+      credits: creditsAmount(pricing.credits),
+    };
+}
+
 async function buildUserAdvancedEstimate(provider = "seedance", params = {}, user = null) {
   const rawPricing = advancedModelPricing(provider, {
     duration: params.duration ?? params.durationSeconds,
@@ -6313,6 +6349,7 @@ async function handleAdvancedEstimate(req, res) {
   const auth = await getAuth(req);
   const body = req.method === "POST" ? await readJson(req) : {};
   const url = new URL(req.url || "/", "http://localhost");
+  const tenantPublic = isTenantPublicOrigin(publicOriginFromRequest(req));
   const params = {
     duration: body.duration ?? url.searchParams.get("duration"),
     resolution: body.resolution ?? url.searchParams.get("resolution"),
@@ -6320,14 +6357,23 @@ async function handleAdvancedEstimate(req, res) {
   };
   const provider = normalizeAdvancedProvider(body.provider || url.searchParams.get("provider"));
   const pricing = await buildUserAdvancedEstimate(provider, params, auth.user);
+  const publicPricing = tenantPublic
+    ? {
+      provider: pricing.provider,
+      credits: pricing.credits,
+      duration: pricing.duration,
+      resolution: pricing.resolution,
+      ratio: pricing.ratio,
+    }
+    : pricing;
   return sendJson(res, 200, {
     ok: true,
     userPricing: pricingMultiplierView(auth.user || 1),
-    pricing,
+    pricing: publicPricing,
   });
 }
 
-async function buildTemplateModelDoc(template, origin, user = null) {
+async function buildTemplateModelDoc(template, origin, user = null, options = {}) {
   const configuredPrompt = typeof template.requestJson?.prompt === "string" ? template.requestJson.prompt : template.prompt;
   const imagePlaceholder = template.type === "image-to-video" ? `${origin}/example-reference.png` : "";
   const upstreamPayload = platformApizPayload({
@@ -6351,6 +6397,7 @@ async function buildTemplateModelDoc(template, origin, user = null) {
     estimate.durationSeconds ||
     0;
 
+  const pricing = docsPricingView(estimate);
   return {
     id: template.id,
     title: template.title,
@@ -6360,7 +6407,7 @@ async function buildTemplateModelDoc(template, origin, user = null) {
     model: upstreamPayload.model,
     requestModel: upstreamPayload.params?.model || upstreamPayload.model,
     durationSeconds,
-    pricing: docsPricingView(estimate),
+    pricing: options.tenantPublic ? tenantDocsPricingView(pricing) : pricing,
     coverUrl: template.coverUrl,
     previewUrl: template.previewUrl,
     prompt: configuredPrompt || "",
@@ -6389,7 +6436,7 @@ async function buildTemplateModelDoc(template, origin, user = null) {
   };
 }
 
-function buildAdvancedModelDoc(item, origin, user = null) {
+function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
   const durationSeconds = durationSecondsFromParams(params) || 5;
   const provider = normalizeAdvancedProvider(item.provider || params.provider);
@@ -6398,6 +6445,21 @@ function buildAdvancedModelDoc(item, origin, user = null) {
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
   }), user || 1);
+  const pricingView = {
+    available: true,
+    credits: pricing.credits,
+    baseCredits: pricing.baseCredits,
+    originalCredits: pricing.originalCredits ?? null,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+    markup: pricing.markup ?? 1,
+    source: pricing.source || "duration_rate",
+    durationSeconds,
+    creditsPerSecond: pricing.creditsPerSecond,
+    resolution: pricing.resolution || params.resolution || "",
+    ratio: pricing.ratio || params.ratio || params.aspect_ratio || "",
+    outputTokens: pricing.outputTokens || null,
+    yuanPerMillionTokens: pricing.yuanPerMillionTokens || null,
+  };
   return {
     id: item.id,
     title: item.title,
@@ -6405,21 +6467,7 @@ function buildAdvancedModelDoc(item, origin, user = null) {
     provider,
     model: pricing.model,
     description: item.description || "",
-    pricing: {
-      available: true,
-      credits: pricing.credits,
-      baseCredits: pricing.baseCredits,
-      originalCredits: pricing.originalCredits ?? null,
-      userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
-      markup: pricing.markup ?? 1,
-      source: pricing.source || "duration_rate",
-      durationSeconds,
-      creditsPerSecond: pricing.creditsPerSecond,
-      resolution: pricing.resolution || params.resolution || "",
-      ratio: pricing.ratio || params.ratio || params.aspect_ratio || "",
-      outputTokens: pricing.outputTokens || null,
-      yuanPerMillionTokens: pricing.yuanPerMillionTokens || null,
-    },
+    pricing: options.tenantPublic ? tenantDocsPricingView(pricingView) : pricingView,
     coverUrl: item.coverUrl,
     previewUrl: item.previewUrl,
     prompt: item.prompt || params.prompt || "",
@@ -6459,12 +6507,13 @@ function buildAdvancedModelDoc(item, origin, user = null) {
 async function buildModelDocs(req) {
   const auth = await getAuth(req);
   const origin = publicOriginFromRequest(req);
+  const tenantPublic = isTenantPublicOrigin(origin);
   const config = await readAppConfig();
   const platform = normalizePlatformConfig(config.platform || {});
-  const templates = await Promise.all(platform.templates.map((template) => buildTemplateModelDoc(template, origin, auth.user)));
+  const templates = await Promise.all(platform.templates.map((template) => buildTemplateModelDoc(template, origin, auth.user, { tenantPublic })));
   const advancedCases = (platform.advanced?.cases || [])
     .filter((item) => item.enabled !== false)
-    .map((item) => buildAdvancedModelDoc(item, origin, auth.user));
+    .map((item) => buildAdvancedModelDoc(item, origin, auth.user, { tenantPublic }));
 
   return {
     ok: true,
@@ -6472,7 +6521,10 @@ async function buildModelDocs(req) {
     baseUrl: origin,
     updatedAt: new Date().toISOString(),
     userPricing: pricingMultiplierView(auth.user || 1),
-    billing: {
+    billing: tenantPublic ? {
+      unit: "credits",
+      note: "Credits are deducted according to the selected model, resolution, duration, and your account pricing.",
+    } : {
       unit: "credits",
       note: "1 CNY equals 100 credits. Advanced generation is charged by public per-second rates: Seedance 720p 150 credits/s, Seedance 1080p 300 credits/s, Wan2.7 720p 100 credits/s, Wan2.7 1080p 250 credits/s.",
       galleryMarkup: GENERATION_PRICE_MARKUP,

@@ -2555,7 +2555,6 @@ function advancedCaseEditor(item = {}, index = 0) {
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(item.sort ?? index)}" /></div>
         <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:8px;align-items:center;"><input data-f="enabled" type="checkbox" ${item.enabled !== false ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端展示</span></label></div>
-        <div class="adm-form-row"><span>计费</span><input value="采购价 × 1.5：Seedance 按 Ark Token/分辨率；Wan2.7 720p 100/s，1080p 150/s" disabled /></div>
       </div>
       <div class="adm-grid adm-grid-2">
         <div class="adm-form-row"><span>样例视频链接（必填，http/https）</span><input data-f="sourceVideoUrl" value="${escapeHtml(videoInput)}" placeholder="https://.../case-preview.mp4" /></div>
