@@ -2743,7 +2743,9 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
     localVideoPath,
     localPosterUrl,
     localPosterPath,
-    posterUrl: cdnPosterUrl || localPosterUrl || record.posterUrl || "",
+    posterUrl: localPublicAssetStorageEnabled()
+      ? (localPosterUrl || cdnPosterUrl || record.posterUrl || "")
+      : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
     cdnVideoUrl,
     cdnPosterUrl,
     cdnError,
@@ -4085,6 +4087,9 @@ function generationRecordKind(record = {}) {
 }
 
 function generationRecordVideoUrl(record = {}) {
+  if (localPublicAssetStorageEnabled()) {
+    return String(record.localVideoUrl || record.videoUrl || record.cdnVideoUrl || record.remoteVideoUrl || "");
+  }
   return String(record.cdnVideoUrl || record.localVideoUrl || record.videoUrl || record.remoteVideoUrl || "");
 }
 
@@ -4113,7 +4118,7 @@ function publicGenerationRecord(record = {}) {
     referenceAssetUri: String(record.referenceAssetUri || ""),
     mediaMode: String(record.mediaMode || record.params?.mediaMode || ""),
     mediaAssets: Array.isArray(record.mediaAssets) ? record.mediaAssets : [],
-    posterUrl: String(record.posterUrl || ""),
+    posterUrl: String(localPublicAssetStorageEnabled() ? (record.localPosterUrl || record.posterUrl || record.cdnPosterUrl || "") : (record.posterUrl || "")),
     localPosterUrl: String(record.localPosterUrl || ""),
     cdnPosterUrl: String(record.cdnPosterUrl || ""),
     prompt: String(record.prompt || ""),
@@ -4259,10 +4264,14 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
     taskId: record.taskId,
     localVideoPath,
     localVideoUrl: record.localVideoUrl,
-    videoUrl: record.cdnVideoUrl || record.localVideoUrl || currentVideoUrl,
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (record.localVideoUrl || record.cdnVideoUrl || currentVideoUrl)
+      : (record.cdnVideoUrl || record.localVideoUrl || currentVideoUrl),
     localPosterPath,
     localPosterUrl,
-    posterUrl: cdnPosterUrl || localPosterUrl,
+    posterUrl: localPublicAssetStorageEnabled()
+      ? (localPosterUrl || cdnPosterUrl)
+      : (cdnPosterUrl || localPosterUrl),
     cdnVideoUrl,
     cdnPosterUrl,
     cdnError,
@@ -4303,12 +4312,16 @@ async function refreshGenerationRecordStatus(record = {}) {
         upstreamTaskId: task.taskId || queryTaskId,
         status: task.status || record.status || "unknown",
         remoteVideoUrl: task.videoUrl || record.remoteVideoUrl || "",
-        videoUrl: media.cdnVideoUrl || media.localVideoUrl || task.videoUrl || record.videoUrl || "",
+        videoUrl: localPublicAssetStorageEnabled()
+          ? (media.localVideoUrl || media.cdnVideoUrl || task.videoUrl || record.videoUrl || "")
+          : (media.cdnVideoUrl || media.localVideoUrl || task.videoUrl || record.videoUrl || ""),
         localVideoUrl: media.localVideoUrl || record.localVideoUrl || "",
         localVideoPath: media.localVideoPath || record.localVideoPath || "",
         localPosterUrl: media.localPosterUrl || record.localPosterUrl || "",
         localPosterPath: media.localPosterPath || record.localPosterPath || "",
-        posterUrl: media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || "",
+        posterUrl: localPublicAssetStorageEnabled()
+          ? (media.localPosterUrl || media.cdnPosterUrl || record.posterUrl || "")
+          : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
         cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
         cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
         cdnError: media.cdnError || record.cdnError || "",
@@ -4367,7 +4380,9 @@ async function refreshGenerationRecordStatus(record = {}) {
       localVideoPath,
       localPosterUrl,
       localPosterPath,
-      posterUrl: cdnPosterUrl || localPosterUrl || record.posterUrl || "",
+      posterUrl: localPublicAssetStorageEnabled()
+        ? (localPosterUrl || cdnPosterUrl || record.posterUrl || "")
+        : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
       cdnVideoUrl,
       cdnPosterUrl,
       cdnError,
@@ -4957,12 +4972,16 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
       if (media.localVideoUrl || media.cdnVideoUrl || media.localPosterUrl) {
         return upsertGenerationRecord({
           taskId: record.taskId,
-          videoUrl: media.cdnVideoUrl || media.localVideoUrl || record.videoUrl || resultUrl,
+          videoUrl: localPublicAssetStorageEnabled()
+            ? (media.localVideoUrl || media.cdnVideoUrl || record.videoUrl || resultUrl)
+            : (media.cdnVideoUrl || media.localVideoUrl || record.videoUrl || resultUrl),
           localVideoUrl: media.localVideoUrl || record.localVideoUrl || "",
           localVideoPath: media.localVideoPath || record.localVideoPath || "",
           localPosterUrl: media.localPosterUrl || record.localPosterUrl || "",
           localPosterPath: media.localPosterPath || record.localPosterPath || "",
-          posterUrl: media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || "",
+          posterUrl: localPublicAssetStorageEnabled()
+            ? (media.localPosterUrl || media.cdnPosterUrl || record.posterUrl || "")
+            : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
           cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
           cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
           cdnError: media.cdnError || record.cdnError || "",
@@ -4981,12 +5000,16 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
       : {};
     if (media.localVideoUrl || media.cdnVideoUrl || media.localPosterUrl || media.downloadError) {
       mediaUpdates = {
-        videoUrl: media.cdnVideoUrl || media.localVideoUrl || record.videoUrl || resultUrl,
+        videoUrl: localPublicAssetStorageEnabled()
+          ? (media.localVideoUrl || media.cdnVideoUrl || record.videoUrl || resultUrl)
+          : (media.cdnVideoUrl || media.localVideoUrl || record.videoUrl || resultUrl),
         localVideoUrl: media.localVideoUrl || record.localVideoUrl || "",
         localVideoPath: media.localVideoPath || record.localVideoPath || "",
         localPosterUrl: media.localPosterUrl || record.localPosterUrl || "",
         localPosterPath: media.localPosterPath || record.localPosterPath || "",
-        posterUrl: media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || "",
+        posterUrl: localPublicAssetStorageEnabled()
+          ? (media.localPosterUrl || media.cdnPosterUrl || record.posterUrl || "")
+          : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
         cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
         cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
         cdnError: media.cdnError || record.cdnError || "",
@@ -6961,12 +6984,16 @@ async function refreshApizGenerationRecord(record) {
     upstreamTaskId: gatewayTask?.taskId || apizTaskId(task) || queryTaskId,
     status,
     remoteVideoUrl: resultUrl || record.remoteVideoUrl || "",
-    videoUrl: media.cdnVideoUrl || media.localVideoUrl || resultUrl || record.videoUrl || "",
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (media.localVideoUrl || media.cdnVideoUrl || resultUrl || record.videoUrl || "")
+      : (media.cdnVideoUrl || media.localVideoUrl || resultUrl || record.videoUrl || ""),
     localVideoUrl: media.localVideoUrl || record.localVideoUrl || "",
     localVideoPath: media.localVideoPath || record.localVideoPath || "",
     localPosterUrl: media.localPosterUrl || record.localPosterUrl || "",
     localPosterPath: media.localPosterPath || record.localPosterPath || "",
-    posterUrl: media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || "",
+    posterUrl: localPublicAssetStorageEnabled()
+      ? (media.localPosterUrl || media.cdnPosterUrl || record.posterUrl || "")
+      : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
     cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
     cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
     cdnError: media.cdnError || record.cdnError || "",
