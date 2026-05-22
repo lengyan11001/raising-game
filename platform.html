@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-64" />
+    <link rel="stylesheet" href="./platform.css?v=ai-65" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -16,31 +16,37 @@
         <span class="brand-mark"></span>
         <strong id="brandName">Vipeak AI</strong>
       </a>
-      <label class="language-switch" aria-label="Language">
-        <i data-lucide="languages"></i>
-        <select id="languageSelect" aria-label="Language">
-          <option value="en">English</option>
-          <option value="vi">Tiếng Việt</option>
-          <option value="ja">日本語</option>
-          <option value="ko">한국어</option>
-          <option value="id">Bahasa Indonesia</option>
-        </select>
-      </label>
-      <button class="topup-trigger" id="topupTriggerBtn" type="button">
-        <i data-lucide="wallet"></i>
-        <span data-i18n="topup.compact">Top Up</span>
-        <strong id="topupTriggerCredits" hidden></strong>
-      </button>
       <nav class="top-tabs" aria-label="Main sections">
         <button class="top-tab is-active" data-tab="gallery" data-i18n="nav.gallery" type="button">Gallery</button>
         <button class="top-tab" data-tab="advanced" data-i18n="nav.advanced" type="button">Advanced</button>
+        <button class="top-tab" data-tab="assets" data-i18n="nav.assets" type="button">Asset Library</button>
         <button class="top-tab" data-tab="access" data-i18n="nav.access" type="button">API Access</button>
         <button class="top-tab" data-tab="history" data-i18n="nav.history" type="button">History</button>
-        <button class="top-tab" data-tab="topups" data-i18n="nav.topups" type="button">Top-up Records</button>
-        <button class="top-tab" data-tab="spending" data-i18n="nav.spending" type="button">Spending Records</button>
       </nav>
-      <div class="head-actions">
-        <button class="primary-pill" id="loginBtn" type="button">Login / Sign up</button>
+      <div class="head-actions account-menu-wrap">
+        <button class="primary-pill account-menu-trigger" id="accountMenuBtn" type="button">
+          <i data-lucide="user-round"></i>
+          <span id="accountMenuLabel">Login / Sign up</span>
+          <i data-lucide="chevron-down"></i>
+        </button>
+        <div class="account-menu" id="accountMenu" hidden>
+          <label class="language-switch" aria-label="Language">
+            <i data-lucide="languages"></i>
+            <select id="languageSelect" aria-label="Language">
+              <option value="en">English</option>
+              <option value="vi">Vietnamese</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+              <option value="id">Bahasa Indonesia</option>
+            </select>
+          </label>
+          <button class="menu-item" id="topupTriggerBtn" type="button"><i data-lucide="wallet"></i><span data-i18n="topup.compact">Top Up</span><strong id="topupTriggerCredits" hidden></strong></button>
+          <button class="menu-item" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
+          <button class="menu-item" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
+          <button class="menu-item" id="menuLoginBtn" data-i18n="nav.login" type="button">Login / Sign up</button>
+          <button class="menu-item" id="menuCopyTokenBtn" data-i18n="common.copyToken" type="button">Copy token</button>
+          <button class="menu-item" id="menuLogoutBtn" data-i18n="account.logout" type="button">Log out</button>
+        </div>
       </div>
     </header>
 
@@ -160,6 +166,27 @@
             <div class="advanced-case-grid" id="advancedCaseGrid"></div>
           </section>
         </div>
+      </section>
+
+      <section class="asset-panel" data-panel="assets" hidden>
+        <div class="section-head compact">
+          <div>
+            <p class="eyebrow" data-i18n="assets.eyebrow">Library</p>
+            <h2 data-i18n="assets.title">Asset Library</h2>
+            <p data-i18n="assets.subtitle">Search, upload and reuse your images and videos.</p>
+          </div>
+        </div>
+        <div class="asset-toolbar">
+          <label><span data-i18n="ledger.search">Search</span><input id="assetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" /></label>
+          <label><span data-i18n="assets.type">Type</span><select id="assetTypeFilter"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option></select></label>
+          <label class="asset-upload-control">
+            <input id="assetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*" multiple />
+            <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
+          </label>
+          <button class="ghost-button" id="refreshAssetsBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
+        </div>
+        <p class="job-note" id="assetNote"></p>
+        <div class="asset-grid" id="assetGrid"></div>
       </section>
 
       <section class="access-panel" data-panel="access" hidden>

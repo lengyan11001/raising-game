@@ -3,7 +3,7 @@
 const TOKEN_KEY = "raisingGameToken";
 const LANG_KEY = "raisingGameLanguage";
 const TAB_KEY = "raisingGamePlatformTab";
-const VALID_TABS = new Set(["gallery", "advanced", "access", "history", "topups", "spending"]);
+const VALID_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
@@ -44,6 +44,9 @@ const state = {
   advancedEstimateKey: "",
   advancedEstimateTimer: 0,
   activeTemplate: null,
+  userAssets: [],
+  assetSearch: "",
+  assetType: "",
   accessDocMode: "http",
   uploadDataUrl: "",
   advancedUploadDataUrl: "",
@@ -61,6 +64,7 @@ const state = {
   showAccountToken: false,
   topupRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [] },
   spendingRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [], types: [] },
+  assetSearchTimer: 0,
 };
 
 const els = {
@@ -110,6 +114,12 @@ const els = {
   spendingTable: document.querySelector("#spendingTable"),
   spendingPager: document.querySelector("#spendingPager"),
   exportSpendingBtn: document.querySelector("#exportSpendingBtn"),
+  assetSearch: document.querySelector("#assetSearch"),
+  assetTypeFilter: document.querySelector("#assetTypeFilter"),
+  assetUploadInput: document.querySelector("#assetUploadInput"),
+  refreshAssetsBtn: document.querySelector("#refreshAssetsBtn"),
+  assetNote: document.querySelector("#assetNote"),
+  assetGrid: document.querySelector("#assetGrid"),
   topupDialog: document.querySelector("#topupDialog"),
   topupTriggerBtn: document.querySelector("#topupTriggerBtn"),
   topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
@@ -161,6 +171,12 @@ const els = {
   legalTitle: document.querySelector("#legalTitle"),
   legalBody: document.querySelector("#legalBody"),
   loginBtn: document.querySelector("#loginBtn"),
+  accountMenuBtn: document.querySelector("#accountMenuBtn"),
+  accountMenuLabel: document.querySelector("#accountMenuLabel"),
+  accountMenu: document.querySelector("#accountMenu"),
+  menuLoginBtn: document.querySelector("#menuLoginBtn"),
+  menuCopyTokenBtn: document.querySelector("#menuCopyTokenBtn"),
+  menuLogoutBtn: document.querySelector("#menuLogoutBtn"),
   accountDialog: document.querySelector("#accountDialog"),
   accountName: document.querySelector("#accountName"),
   accountCredits: document.querySelector("#accountCredits"),
@@ -182,6 +198,7 @@ const I18N = {
   en: {
     "nav.gallery": "Gallery",
     "nav.advanced": "Advanced",
+    "nav.assets": "Assets",
     "nav.access": "API Access",
     "nav.history": "History",
     "nav.topups": "Top-ups",
@@ -221,6 +238,9 @@ const I18N = {
     "copy.advancedTitle": "Advanced Generate",
     "copy.advancedSubtitle": "Direct model controls for approved accounts.",
     "copy.advancedNotice": "Apply once. After approval, cases can fill the form automatically.",
+    "copy.assetsTitle": "Asset Library",
+    "copy.assetsSubtitle": "Manage images and videos for Seedance character references.",
+    "copy.assetsNotice": "Seedance references are reused after first preparation.",
     "copy.historyTitle": "Generation History",
     "copy.historySubtitle": "Review your generated videos, prompts, parameters and billing in one compact list.",
     "copy.historyNotice": "Only your own generation records are shown.",
@@ -234,6 +254,8 @@ const I18N = {
     "hero.access.badge": "HTTP API",
     "hero.advanced.eyebrow": "Advanced",
     "hero.advanced.badge": "Permission",
+    "hero.assets.eyebrow": "Library",
+    "hero.assets.badge": "Images + Videos",
     "hero.history.eyebrow": "History",
     "hero.history.badge": "Records",
     "hero.topups.eyebrow": "Billing",
@@ -343,6 +365,32 @@ const I18N = {
     "advanced.defaultCase": "Advanced case",
     "advanced.noCases": "No cases configured yet.",
     "advanced.imageTooLarge": "Image must be 8MB or smaller.",
+    "assets.eyebrow": "Library",
+    "assets.title": "Asset Library",
+    "assets.subtitle": "Search, upload and reuse your images and videos.",
+    "assets.type": "Type",
+    "assets.image": "Images",
+    "assets.video": "Videos",
+    "assets.upload": "Upload",
+    "assets.searchPlaceholder": "Name / ID",
+    "assets.loginRequired": "Login required",
+    "assets.loginDesc": "Sign in to view and upload assets.",
+    "assets.emptyTitle": "No assets yet.",
+    "assets.emptyDesc": "Upload images or videos to reuse in advanced generation.",
+    "assets.loading": "Loading assets...",
+    "assets.uploading": "Uploading assets...",
+    "assets.uploaded": "Uploaded {count} asset(s).",
+    "assets.uploadFailed": "Upload failed: {message}",
+    "assets.loadFailed": "Load failed: {message}",
+    "assets.delete": "Delete",
+    "assets.use": "Use",
+    "assets.extend": "Extend",
+    "assets.replace": "Replace",
+    "assets.seedanceReady": "Seedance ready",
+    "assets.seedancePending": "Seedance asset will be created on first use",
+    "assets.used": "Loaded into Advanced.",
+    "assets.replaced": "Replace prompt loaded.",
+    "assets.extended": "Extend prompt loaded.",
     "access.integration": "Integration",
     "access.title": "API Access",
     "access.subtitle": "Connect your product or workflow to the current production generation API.",
@@ -2272,6 +2320,8 @@ function applyLanguage() {
   renderTemplates();
   renderAccessGuides();
   renderAdvanced();
+  renderAssets();
+  renderAccountMenu();
   renderTopupSummary();
   renderTokenDisplays();
   renderLoginMode();
@@ -2281,6 +2331,7 @@ function applyLanguage() {
   if (state.tab === "history" && !historyLoading) loadHistory();
   if (state.tab === "topups") loadTopupRecords();
   if (state.tab === "spending") loadSpendingRecords();
+  if (state.tab === "assets") loadUserAssets();
   refreshIcons();
 }
 
@@ -2295,17 +2346,20 @@ function setUser(user, { refreshHistory = false } = {}) {
   const previousMultiplier = Number(state.user?.pricingMultiplier || 1);
   state.user = user || null;
   const nextMultiplier = Number(state.user?.pricingMultiplier || 1);
-  if (state.user) {
-    els.loginBtn.textContent = `${state.user.username} · ${Number(state.user.credits || 0)} ${t("common.credits")}`;
-  } else {
-    els.loginBtn.textContent = t("nav.login");
-  }
+  const accountLabel = state.user
+    ? `${state.user.username} - ${Number(state.user.credits || 0)} ${t("common.credits")}`
+    : t("nav.login");
+  if (els.loginBtn) els.loginBtn.textContent = accountLabel;
+  if (els.accountMenuLabel) els.accountMenuLabel.textContent = accountLabel;
   renderTokenDisplays();
   renderTopupSummary();
   renderAccessGuides();
   renderAdvanced();
+  renderAssets();
+  renderAccountMenu();
   if (state.tab === "topups") loadTopupRecords(1);
   if (state.tab === "spending") loadSpendingRecords(1);
+  if (state.tab === "assets") loadUserAssets();
   if (refreshHistory && state.tab === "history") loadHistory();
   if (previousMultiplier !== nextMultiplier) {
     state.advancedEstimate = null;
@@ -2366,6 +2420,26 @@ function renderTokenDisplays() {
   }
 }
 
+function renderAccountMenu() {
+  if (els.menuLoginBtn) els.menuLoginBtn.hidden = Boolean(state.user);
+  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user;
+  if (els.menuLogoutBtn) els.menuLogoutBtn.disabled = !state.user;
+}
+
+function closeAccountMenu() {
+  if (els.accountMenu) els.accountMenu.hidden = true;
+  document.querySelectorAll(".account-menu [data-tab]").forEach((button) => {
+    button.classList.remove("is-active");
+  });
+}
+
+function toggleAccountMenu() {
+  if (!els.accountMenu) return;
+  els.accountMenu.hidden = !els.accountMenu.hidden;
+  renderAccountMenu();
+  refreshIcons();
+}
+
 function generationVideoUrl(record) {
   return record?.cdnVideoUrl || record?.videoUrl || record?.localVideoUrl || record?.remoteVideoUrl || "";
 }
@@ -2375,13 +2449,15 @@ function generationPosterUrl(record) {
 }
 
 function mediaAssetPreviewUrl(asset = {}) {
-  return asset.imageUrl || asset.localUrl || asset.url || asset.sourceImageUrl || "";
+  return asset.imageUrl || asset.videoUrl || asset.localUrl || asset.url || asset.sourceImageUrl || "";
 }
 
 function mediaAssetLabel(asset = {}, index = 0) {
   const type = String(asset.type || asset.key || "").replace(/_/g, " ");
   if (asset.type === "first_frame" || asset.key === "firstFrame") return "First frame";
   if (asset.type === "last_frame" || asset.key === "lastFrame") return "Last frame";
+  if (asset.type === "reference_video") return "Video 1";
+  if (asset.type === "first_clip") return "First clip";
   if (asset.type === "reference_image") return `Reference ${index + 1}`;
   return type || `Image ${index + 1}`;
 }
@@ -2401,6 +2477,17 @@ function recordImageAssets(record = {}) {
   pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
   pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
   return images;
+}
+
+function recordVideoAssets(record = {}) {
+  return (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => ["reference_video", "first_clip"].includes(asset.type))
+    .map((asset, index) => ({
+      ...asset,
+      label: asset.label || (asset.type === "first_clip" ? "First clip" : `Video ${index + 1}`),
+      videoUrl: asset.videoUrl || asset.url || asset.localUrl || "",
+    }))
+    .filter((asset) => asset.videoUrl);
 }
 
 function generationRecordSignature(record = {}) {
@@ -2736,6 +2823,10 @@ function setTab(tab) {
     stopHistoryRefresh();
     historyRecordsSignature = "";
   }
+  if (nextTab !== "assets") {
+    window.clearTimeout(state.assetSearchTimer);
+    state.assetSearchTimer = 0;
+  }
   document.querySelectorAll("[data-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.panel !== nextTab;
   });
@@ -2746,6 +2837,11 @@ function setTab(tab) {
   if (nextTab === "history") loadHistory();
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();
+  if (nextTab === "assets") {
+    if (state.user) loadUserAssets();
+    else renderAssets([]);
+  }
+  closeAccountMenu();
 }
 
 function renderHero() {
@@ -2787,6 +2883,14 @@ function renderHero() {
     els.heroSubtitle.textContent = t("copy.spendingSubtitle");
     els.heroBadge.textContent = t("hero.spending.badge");
     els.heroNotice.textContent = t("copy.spendingNotice");
+    return;
+  }
+  if (state.tab === "assets") {
+    els.heroEyebrow.textContent = t("hero.assets.eyebrow");
+    els.heroTitle.textContent = t("copy.assetsTitle");
+    els.heroSubtitle.textContent = t("copy.assetsSubtitle");
+    els.heroBadge.textContent = t("hero.assets.badge");
+    els.heroNotice.textContent = t("copy.assetsNotice");
     return;
   }
   const platform = state.config?.platform || {};
@@ -3005,6 +3109,7 @@ function openHistoryDetail(index) {
   const videoUrl = generationVideoUrl(record);
   const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
   const images = recordImageAssets(record);
+  const videos = recordVideoAssets(record);
   els.historyDetailTitle.textContent = title || t("history.detailTitle");
   els.historyDetailBody.innerHTML = `
     <section class="history-detail-section">
@@ -3012,8 +3117,14 @@ function openHistoryDetail(index) {
         <strong>${escapeHtml(t("history.inputImages"))}</strong>
         <span>${escapeHtml(record.taskId || "")}</span>
       </header>
-      ${images.length ? `
+      ${images.length || videos.length ? `
         <div class="history-detail-images">
+          ${videos.map((asset) => `
+            <figure>
+              <video src="${escapeHtml(asset.videoUrl)}" muted playsinline preload="metadata" controls></video>
+              <figcaption>${escapeHtml(asset.label || "")}</figcaption>
+            </figure>
+          `).join("")}
           ${images.map((asset) => `
             <figure>
               <img src="${escapeHtml(mediaAssetPreviewUrl(asset))}" alt="" loading="lazy" />
@@ -3384,7 +3495,7 @@ function updateAdvancedModelControls() {
   renderAdvancedReferencePreviews();
   updateAdvancedReferenceSummary();
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
-  if (els.advancedNote && state.advancedUploadDataUrl) {
+  if (els.advancedNote && (state.advancedUploadDataUrl || state.advancedSeedanceVideoAssetId)) {
     if (provider === "seedance") {
       const count = selectedAdvancedReferenceImages().length;
       els.advancedNote.textContent = `${t("advanced.referenceSeedance", { mode: t("advanced.originalReference") })} ${t("advanced.seedanceReferenceCount", { count })}`;
@@ -3477,7 +3588,7 @@ async function submitAdvancedGenerate() {
   const preprocessReference = false;
   const mediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
   const referenceImages = selectedAdvancedReferenceImages();
-  if (provider === "seedance" && !referenceImages.length) {
+  if (provider === "seedance" && !referenceImages.length && !state.advancedSeedanceVideoAssetId) {
     els.advancedSubmitBtn.disabled = false;
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceReferenceHint");
     return;
@@ -3524,7 +3635,8 @@ async function submitAdvancedGenerate() {
         prompt,
         dataUrl: state.advancedUploadDataUrl,
         firstFrameDataUrl: state.advancedUploadDataUrl,
-        referenceImages: provider === "seedance" ? referenceImages : undefined,
+        referenceImages: provider === "seedance" ? referenceImages.map(seedanceImageRefPayload) : undefined,
+        referenceVideoAssetId: provider === "seedance" ? (state.advancedSeedanceVideoAssetId || "") : undefined,
         lastFrameDataUrl: state.advancedWanLastFrameDataUrl,
         drivingAudioUrl: els.advancedWanAudioUrl?.value.trim() || "",
         firstClipDataUrl: selectedWanClipData(mediaMode),
@@ -3604,6 +3716,68 @@ function readVideoDuration(file) {
   });
 }
 
+function isVideoAsset(asset = {}) {
+  return asset.kind === "video" || String(asset.mime || "").toLowerCase().startsWith("video/");
+}
+
+function isImageAsset(asset = {}) {
+  return asset.kind === "image" || String(asset.mime || "").toLowerCase().startsWith("image/");
+}
+
+function assetPreviewUrl(asset = {}) {
+  return asset.previewUrl || asset.localUrl || asset.publicUrl || "";
+}
+
+function advancedSeedanceImageRefsFromState() {
+  return selectedAdvancedReferenceImages("seedance").filter((item) => item && (item.dataUrl || item.assetId));
+}
+
+function seedanceImageRefPayload(item = {}) {
+  if (item.assetId) return { assetId: item.assetId, dataUrl: "", fileName: item.fileName || "", name: item.name || "" };
+  return { dataUrl: item.dataUrl || "", fileName: item.fileName || "", name: item.name || "" };
+}
+
+function useAssetInAdvanced(asset = {}, action = "use") {
+  if (!asset) return;
+  if (!state.user) return openLogin();
+  if (!userHasAdvancedAccess()) {
+    setTab("advanced");
+    renderAdvanced();
+    return;
+  }
+  if (els.advancedProvider) els.advancedProvider.value = "seedance";
+  state.activeAdvancedCaseId = "";
+  if (isImageAsset(asset)) {
+    const ref = {
+      assetId: asset.id,
+      dataUrl: assetPreviewUrl(asset),
+      fileName: asset.name || "",
+      name: asset.name || "",
+      fromLibrary: true,
+    };
+    const existing = action === "replace" ? advancedSeedanceImageRefsFromState().filter((item) => item.assetId !== asset.id) : [];
+    state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+    if (action === "extend" && els.advancedPrompt) els.advancedPrompt.value = "Extend [Image 1]";
+    if (action === "replace" && els.advancedPrompt) els.advancedPrompt.value = "Replace the lady in [Video 1] with the lady in [Image 1]";
+  }
+  if (isVideoAsset(asset)) {
+    state.advancedSeedanceVideoAssetId = asset.id;
+    state.advancedSeedanceVideoPreviewUrl = assetPreviewUrl(asset);
+    if (els.advancedPrompt) els.advancedPrompt.value = "Replace the lady in [Video 1] with the lady in [Image 1]";
+  }
+  setTab("advanced");
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  if (els.advancedNote) {
+    els.advancedNote.textContent = action === "extend"
+      ? t("assets.extended")
+      : action === "replace"
+        ? t("assets.replaced")
+        : t("assets.used");
+  }
+}
+
 function selectedWanClipData(mediaMode = "first_frame") {
   return wanModeNeedsClip(mediaMode) ? state.advancedWanClipDataUrl : "";
 }
@@ -3624,8 +3798,8 @@ function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
 function dedupeAdvancedReferenceImages(images = []) {
   const seen = new Set();
   return images.filter((item) => {
-    const key = `${item?.fileName || ""}::${item?.dataUrl || ""}`;
-    if (!item?.dataUrl || seen.has(key)) return false;
+    const key = item?.assetId ? `asset:${item.assetId}` : `${item?.fileName || ""}::${item?.dataUrl || ""}`;
+    if ((!item?.dataUrl && !item?.assetId) || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
@@ -3637,7 +3811,7 @@ function renderAdvancedReferencePreviews() {
   const images = selectedAdvancedReferenceImages();
   els.advancedUploadPreview.innerHTML = images.map((item, index) => `
     <figure>
-      <img src="${escapeHtml(item.dataUrl)}" alt="" />
+      <img src="${escapeHtml(item.dataUrl || item.previewUrl || "")}" alt="" />
       <figcaption>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : `${index + 1}`)}</figcaption>
     </figure>
   `).join("");
@@ -3652,6 +3826,16 @@ function renderAdvancedReferencePreviews() {
       els.advancedWanFirstFramePreview.classList.remove("is-visible");
     }
   }
+  const videoPreview = state.advancedSeedanceVideoPreviewUrl || "";
+  if (provider === "seedance" && videoPreview) {
+    els.advancedUploadPreview.insertAdjacentHTML("afterbegin", `
+      <figure>
+        <video src="${escapeHtml(videoPreview)}" muted playsinline preload="metadata"></video>
+        <figcaption>Video 1</figcaption>
+      </figure>
+    `);
+    els.advancedUploadBox?.classList.add("has-image");
+  }
 }
 
 function updateAdvancedReferenceSummary() {
@@ -3659,12 +3843,123 @@ function updateAdvancedReferenceSummary() {
   const provider = currentAdvancedProvider();
   const count = selectedAdvancedReferenceImages().length;
   if (provider === "seedance") {
+    const hasVideo = Boolean(state.advancedSeedanceVideoAssetId);
     els.advancedReferenceSummary.textContent = count
-      ? t("advanced.seedanceReferenceCount", { count })
-      : t("advanced.seedanceReferenceHint");
+      ? `${t("advanced.seedanceReferenceCount", { count })}${hasVideo ? " Video 1 selected." : ""}`
+      : hasVideo ? "Video 1 selected." : t("advanced.seedanceReferenceHint");
     return;
   }
   els.advancedReferenceSummary.textContent = count ? t("advanced.wanFirstFrameHint") : "";
+}
+
+function renderAssets(assets = state.userAssets || []) {
+  if (!els.assetGrid) return;
+  if (!state.user) {
+    els.assetGrid.innerHTML = `
+      <div class="history-empty-card">
+        <strong>${escapeHtml(t("assets.loginRequired"))}</strong>
+        <p>${escapeHtml(t("assets.loginDesc"))}</p>
+        <button class="generate-btn" type="button" data-login-assets>${escapeHtml(t("history.login"))}</button>
+      </div>
+    `;
+    els.assetGrid.querySelector("[data-login-assets]")?.addEventListener("click", openLogin);
+    return;
+  }
+  if (!assets.length) {
+    els.assetGrid.innerHTML = `<div class="history-empty-card"><strong>${escapeHtml(t("assets.emptyTitle"))}</strong><p>${escapeHtml(t("assets.emptyDesc"))}</p></div>`;
+    return;
+  }
+  els.assetGrid.innerHTML = assets.map((asset) => {
+    const url = assetPreviewUrl(asset);
+    const video = isVideoAsset(asset);
+    return `
+      <article class="asset-card">
+        <div class="asset-preview">
+          ${video
+            ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata" controls></video>`
+            : `<img src="${escapeHtml(url)}" alt="${escapeHtml(asset.name || "")}" loading="lazy" />`}
+        </div>
+        <div class="asset-info">
+          <strong>${escapeHtml(asset.name || asset.id)}</strong>
+          <span>${escapeHtml(video ? t("assets.video") : t("assets.image"))} · ${escapeHtml(asset.seedanceReady ? t("assets.seedanceReady") : t("assets.seedancePending"))}</span>
+        </div>
+        <div class="asset-actions">
+          ${!video ? `<button class="ghost-button" type="button" data-asset-use="${escapeHtml(asset.id)}">${escapeHtml(t("assets.use"))}</button>` : ""}
+          ${!video ? `<button class="ghost-button" type="button" data-asset-extend="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extend"))}</button>` : ""}
+          <button class="copy-btn" type="button" data-asset-replace="${escapeHtml(asset.id)}">${escapeHtml(t("assets.replace"))}</button>
+          <button class="ghost-button danger" type="button" data-asset-delete="${escapeHtml(asset.id)}">${escapeHtml(t("assets.delete"))}</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+  els.assetGrid.querySelectorAll("[data-asset-use]").forEach((button) => {
+    button.addEventListener("click", () => useAssetInAdvanced(state.userAssets.find((asset) => asset.id === button.dataset.assetUse), "use"));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-extend]").forEach((button) => {
+    button.addEventListener("click", () => useAssetInAdvanced(state.userAssets.find((asset) => asset.id === button.dataset.assetExtend), "extend"));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-replace]").forEach((button) => {
+    button.addEventListener("click", () => useAssetInAdvanced(state.userAssets.find((asset) => asset.id === button.dataset.assetReplace), "replace"));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-delete]").forEach((button) => {
+    button.addEventListener("click", () => deleteUserAsset(button.dataset.assetDelete || ""));
+  });
+  refreshIcons();
+}
+
+async function loadUserAssets() {
+  if (!els.assetGrid) return;
+  if (!state.user) {
+    renderAssets([]);
+    return;
+  }
+  const params = new URLSearchParams();
+  if (els.assetSearch?.value) params.set("q", els.assetSearch.value);
+  if (els.assetTypeFilter?.value) params.set("type", els.assetTypeFilter.value);
+  params.set("limit", "120");
+  if (els.assetNote) els.assetNote.textContent = t("assets.loading");
+  try {
+    const payload = await requestJson(`/api/user-assets?${params.toString()}`);
+    state.userAssets = payload.assets || [];
+    if (els.assetNote) els.assetNote.textContent = "";
+    renderAssets();
+  } catch (error) {
+    if (els.assetNote) els.assetNote.textContent = t("assets.loadFailed", { message: error.message || String(error) });
+  }
+}
+
+async function uploadUserAssets(files = []) {
+  if (!state.user) return openLogin();
+  const selected = Array.from(files || []);
+  if (!selected.length) return;
+  if (els.assetNote) els.assetNote.textContent = t("assets.uploading");
+  let uploaded = 0;
+  try {
+    for (const file of selected) {
+      const dataUrl = await readFileAsDataUrl(file);
+      await requestJson("/api/user-assets", {
+        method: "POST",
+        body: { dataUrl, name: file.name || "Upload", fileName: file.name || "" },
+      });
+      uploaded += 1;
+    }
+    if (els.assetNote) els.assetNote.textContent = t("assets.uploaded", { count: uploaded });
+    await loadUserAssets();
+  } catch (error) {
+    if (els.assetNote) els.assetNote.textContent = t("assets.uploadFailed", { message: error.message || String(error) });
+  } finally {
+    if (els.assetUploadInput) els.assetUploadInput.value = "";
+  }
+}
+
+async function deleteUserAsset(assetId = "") {
+  if (!assetId) return;
+  try {
+    await requestJson(`/api/user-assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
+    await loadUserAssets();
+  } catch (error) {
+    if (els.assetNote) els.assetNote.textContent = error.message || String(error);
+  }
 }
 
 async function submitTemplate() {
@@ -4175,10 +4470,12 @@ function logout() {
   state.showAccountToken = false;
   localStorage.removeItem(TOKEN_KEY);
   els.accountDialog?.close();
+  closeAccountMenu();
   setUser(null);
   if (state.tab === "history") renderHistory([]);
   if (state.tab === "topups") renderTopupRecords();
   if (state.tab === "spending") renderSpendingRecords();
+  if (state.tab === "assets") renderAssets([]);
 }
 
 function renderLoginMode() {
@@ -4210,6 +4507,7 @@ async function submitLogin() {
     if (state.tab === "history") loadHistory();
     if (state.tab === "topups") loadTopupRecords(1);
     if (state.tab === "spending") loadSpendingRecords(1);
+    if (state.tab === "assets") loadUserAssets();
   } catch (error) {
     els.loginMessage.textContent = error.message;
   }
@@ -4260,6 +4558,8 @@ async function bootstrap() {
   renderTemplates();
   renderAccessGuides();
   renderAdvanced();
+  renderAssets();
+  renderAccountMenu();
   renderTopupSummary();
   renderTokenDisplays();
   setTab(state.tab);
@@ -4304,6 +4604,8 @@ els.advancedImage?.addEventListener("change", async () => {
     })));
     state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ...addedImages]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
     state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+    state.advancedSeedanceVideoAssetId = "";
+    state.advancedSeedanceVideoPreviewUrl = "";
     els.advancedImage.value = "";
     if (files.length > selectedFiles.length && els.advancedNote) {
       els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: ADVANCED_SEEDANCE_REFERENCE_LIMIT });
@@ -4317,6 +4619,8 @@ els.advancedImage?.addEventListener("change", async () => {
     fileName: selectedFile.name || "",
   }];
   state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+  state.advancedSeedanceVideoAssetId = "";
+  state.advancedSeedanceVideoPreviewUrl = "";
   els.advancedImage.value = "";
   updateAdvancedModelControls();
 });
@@ -4375,6 +4679,13 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
 els.refreshHistoryBtn?.addEventListener("click", () => loadHistory({ refresh: true }));
+els.refreshAssetsBtn?.addEventListener("click", loadUserAssets);
+els.assetSearch?.addEventListener("input", () => {
+  window.clearTimeout(state.assetSearchTimer);
+  state.assetSearchTimer = window.setTimeout(loadUserAssets, 250);
+});
+els.assetTypeFilter?.addEventListener("change", loadUserAssets);
+els.assetUploadInput?.addEventListener("change", () => uploadUserAssets(els.assetUploadInput.files));
 els.topupFilters?.addEventListener("submit", (event) => {
   event.preventDefault();
   loadTopupRecords(1);
@@ -4393,6 +4704,7 @@ els.topupAmount?.addEventListener("input", () => {
 });
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
 els.topupTriggerBtn?.addEventListener("click", () => {
+  closeAccountMenu();
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   renderPayPalCheckout();
@@ -4415,6 +4727,14 @@ els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelC
 els.loginBtn?.addEventListener("click", () => {
   if (state.user) openAccount();
   else openLogin();
+});
+els.accountMenuBtn?.addEventListener("click", () => {
+  toggleAccountMenu();
+});
+document.addEventListener("click", (event) => {
+  if (!els.accountMenu || els.accountMenu.hidden) return;
+  if (els.accountMenu.contains(event.target) || els.accountMenuBtn?.contains(event.target)) return;
+  closeAccountMenu();
 });
 els.toggleLoginMode?.addEventListener("click", () => {
   state.loginMode = state.loginMode === "login" ? "register" : "login";
@@ -4445,6 +4765,15 @@ els.copyTokenBtn?.addEventListener("click", async () => {
     refreshIcons();
   }, 1600);
 });
+els.menuCopyTokenBtn?.addEventListener("click", async () => {
+  if (!state.token || !state.user) return openLogin();
+  await navigator.clipboard.writeText(state.token);
+  closeAccountMenu();
+});
+els.menuLoginBtn?.addEventListener("click", () => {
+  closeAccountMenu();
+  openLogin();
+});
 els.toggleAccountTokenBtn?.addEventListener("click", () => {
   state.showAccountToken = !state.showAccountToken;
   renderTokenDisplays();
@@ -4460,6 +4789,7 @@ els.copyAccountTokenBtn?.addEventListener("click", async () => {
   }, 1600);
 });
 els.logoutAccountBtn?.addEventListener("click", logout);
+els.menuLogoutBtn?.addEventListener("click", logout);
 
 applyLanguage();
 

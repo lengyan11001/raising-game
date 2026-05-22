@@ -2379,8 +2379,26 @@ function makeInteractiveSceneVideoPrompt(scene = {}, primaryName = "", partnerNa
   return [userPrompt || base, interaction].filter(Boolean).join(" ");
 }
 
-async function submitSeedanceVideoTask({ config, prompt, referenceAssetUri, extraReferenceAssetUris = [], body = {}, slug = "" }) {
+async function submitSeedanceVideoTask({
+  config,
+  prompt,
+  referenceAssetUri,
+  extraReferenceAssetUris = [],
+  referenceVideoAssetUri = "",
+  extraReferenceVideoAssetUris = [],
+  body = {},
+  slug = "",
+}) {
   const content = [{ type: "text", text: prompt }];
+  const videoUris = [referenceVideoAssetUri, ...extraReferenceVideoAssetUris]
+    .filter((uri, index, list) => uri && uri.startsWith("asset://") && list.indexOf(uri) === index);
+  videoUris.forEach((uri) => {
+    content.push({
+      type: "video_url",
+      video_url: { url: uri },
+      role: "reference_video",
+    });
+  });
   if (referenceAssetUri && referenceAssetUri.startsWith("asset://")) {
     content.push({
       type: "image_url",
@@ -2990,7 +3008,7 @@ function seedanceReferenceInputsFromBody(body = {}) {
   const filteredInputs = inputs.filter((item) => {
     if (!item) return false;
     if (typeof item === "string") return item.trim();
-    return item.dataUrl;
+    return item.dataUrl || item.assetId;
   });
   if (filteredInputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
@@ -3019,7 +3037,7 @@ function seedanceExtraReferenceInputsFromBody(body = {}) {
   ].filter((item) => {
     if (!item) return false;
     if (typeof item === "string") return item.trim();
-    return item.dataUrl;
+    return item.dataUrl || item.assetId;
   });
   if (inputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
@@ -3045,6 +3063,8 @@ function seedanceExtraReferenceAssetIdsFromBody(body = {}) {
 function seedanceReferenceAssetIdsFromBody(body = {}) {
   const assetIds = [
     body.userAssetId,
+    body.referenceImageAssetId,
+    body.imageAssetId,
     ...seedanceExtraReferenceAssetIdsFromBody(body),
   ].map((item) => String(item || "").trim()).filter(Boolean);
   if (assetIds.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
@@ -3053,6 +3073,16 @@ function seedanceReferenceAssetIdsFromBody(body = {}) {
     throw error;
   }
   return assetIds;
+}
+
+function seedanceReferenceVideoAssetIdsFromBody(body = {}) {
+  return [
+    body.referenceVideoAssetId,
+    body.videoAssetId,
+    body.firstClipAssetId,
+    ...arrayFromBody(body.referenceVideoAssetIds),
+    ...arrayFromBody(body.videoAssetIds),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
 }
 
 async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "Reference" } = {}) {
@@ -3073,6 +3103,14 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
         fileName: item.fileName || "",
         name: item.name || `${name} ${index + 1}`,
       }));
+    } else if (item.assetId) {
+      const asset = (db.userAssets || []).find((entry) => entry.id === String(item.assetId || "").trim() && entry.userId === user.id && !isSoftDeleted(entry));
+      if (!asset) {
+        const error = new Error("Reference image not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      assets.push(asset);
     }
   }
   return assets;
@@ -3265,8 +3303,20 @@ function extractAssetId(result) {
   return result.Id || result.AssetId || result.Asset?.Id || result.Asset?.AssetId || result.Item?.Id || "";
 }
 
+function seedanceAssetTypeForUserAsset(userAsset = {}) {
+  const mime = String(userAsset.mime || "").toLowerCase();
+  if (mime.startsWith("video/")) return "Video";
+  return "Image";
+}
+
+function seedanceAssetCacheField(userAsset = {}) {
+  return seedanceAssetTypeForUserAsset(userAsset) === "Video" ? "seedanceVideoAssetUri" : "assetUri";
+}
+
 async function ensureSeedanceAssetForUserAsset(db, userAsset) {
-  if (userAsset.assetUri) return userAsset;
+  const assetType = seedanceAssetTypeForUserAsset(userAsset);
+  const cacheField = seedanceAssetCacheField(userAsset);
+  if (userAsset[cacheField]) return userAsset;
 
   const localPath = path.join(ROOT, userAsset.localUrl.replace(/^\//, ""));
   const bytes = await fs.readFile(localPath);
@@ -3279,7 +3329,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   const created = await arkOpenApiAction("CreateAsset", {
     GroupId: ARK_OPENAPI.groupId,
     URL: uploaded.publicUrl,
-    AssetType: "Image",
+    AssetType: assetType,
     Moderation: { Strategy: "Skip" },
     Name: storageObjectName("user", userAsset.id),
     ProjectName: ARK_OPENAPI.projectName,
@@ -3291,11 +3341,17 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     throw error;
   }
 
-  userAsset.assetId = assetId;
-  userAsset.assetUri = `asset://${assetId}`;
+  if (assetType === "Video") {
+    userAsset.seedanceVideoAssetId = assetId;
+    userAsset.seedanceVideoAssetUri = `asset://${assetId}`;
+  } else {
+    userAsset.assetId = assetId;
+    userAsset.assetUri = `asset://${assetId}`;
+  }
   userAsset.publicUrl = uploaded.publicUrl;
   userAsset.tosKey = uploaded.key;
   userAsset.upstreamCreatedAt = new Date().toISOString();
+  userAsset.updatedAt = new Date().toISOString();
   await writeDb(db);
   return userAsset;
 }
@@ -3357,6 +3413,17 @@ async function prepareSeedanceReferenceAsset(db, userAsset, preprocess = false) 
       ? (prepared.syntheticReferenceLocalUrl || prepared.syntheticReferenceUrl || prepared.publicUrl || prepared.localUrl || "")
       : (prepared.publicUrl || prepared.localUrl || ""),
     sourceImageUrl: prepared.sourceImageUrl || prepared.localUrl || "",
+  };
+}
+
+async function prepareSeedanceVideoAsset(db, userAsset) {
+  if (!userAsset) return { asset: null, referenceAssetUri: "", videoUrl: "" };
+  validateWan27MediaKind(userAsset, "video", "Seedance reference video");
+  const prepared = await ensureSeedanceAssetForUserAsset(db, userAsset);
+  return {
+    asset: prepared,
+    referenceAssetUri: prepared.seedanceVideoAssetUri || "",
+    videoUrl: prepared.publicUrl || prepared.localUrl || "",
   };
 }
 
@@ -5565,6 +5632,7 @@ async function runAdvancedGenerationJob(job = {}) {
     cost,
     caseId,
     caseTitle,
+    referenceVideoAssetId = "",
   } = job;
   const runtime = advancedRuntimeForProvider(provider, requestParams);
   let userAsset = null;
@@ -5575,6 +5643,8 @@ async function runAdvancedGenerationJob(job = {}) {
   let syntheticReferenceUrl = "";
   let seedanceMediaAssets = [];
   let extraReferenceAssetUris = [];
+  let seedanceVideoAsset = null;
+  let referenceVideoAssetUri = "";
   let payload = null;
   let createResponse = null;
 
@@ -5603,6 +5673,14 @@ async function runAdvancedGenerationJob(job = {}) {
       error.statusCode = 404;
       throw error;
     }
+    if (referenceVideoAssetId) {
+      seedanceVideoAsset = (db.userAssets || []).find((asset) => asset.id === referenceVideoAssetId && asset.userId === userId && !isSoftDeleted(asset));
+      if (!seedanceVideoAsset) {
+        const error = new Error("Reference video not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+    }
 
     if (userAsset) {
       if (provider === "seedance") {
@@ -5624,10 +5702,29 @@ async function runAdvancedGenerationJob(job = {}) {
         sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
       }
     }
+    if (provider === "seedance" && seedanceVideoAsset) {
+      if (USE_GATEWAY_UPSTREAM) {
+        imageUrl = imageUrl || seedanceVideoAsset.localUrl || seedanceVideoAsset.publicUrl || "";
+      } else {
+        const preparedVideo = await prepareSeedanceVideoAsset(db, seedanceVideoAsset);
+        seedanceVideoAsset = preparedVideo.asset;
+        referenceVideoAssetUri = preparedVideo.referenceAssetUri;
+        imageUrl = imageUrl || preparedVideo.videoUrl;
+      }
+    }
     if (provider === "seedance") {
+      const videoMediaAsset = seedanceVideoAsset ? [{
+        type: "reference_video",
+        key: "video_1",
+        userAssetId: seedanceVideoAsset.id,
+        referenceAssetUri: referenceVideoAssetUri,
+        videoUrl: seedanceVideoAsset.localUrl || seedanceVideoAsset.publicUrl || imageUrl || "",
+        localUrl: seedanceVideoAsset.localUrl || "",
+        mime: seedanceVideoAsset.mime || "",
+      }] : [];
       const primaryMediaAsset = USE_GATEWAY_UPSTREAM && userAsset ? [{
         type: "reference_image",
-        key: "primary",
+        key: "image_1",
         userAssetId: userAsset.id,
         referenceAssetUri: "",
         imageUrl,
@@ -5636,7 +5733,7 @@ async function runAdvancedGenerationJob(job = {}) {
         mime: userAsset.mime || "",
       }] : referenceAssetUri ? [{
         type: "reference_image",
-        key: "primary",
+        key: "image_1",
         userAssetId: userAsset?.id || "",
         referenceAssetUri,
         imageUrl,
@@ -5674,7 +5771,7 @@ async function runAdvancedGenerationJob(job = {}) {
           mime: prepared.asset?.mime || "",
         });
       }
-      seedanceMediaAssets = [...primaryMediaAsset, ...extraMediaAssets];
+      seedanceMediaAssets = [...videoMediaAsset, ...primaryMediaAsset, ...extraMediaAssets];
     }
 
     let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || "first_frame";
@@ -5702,7 +5799,7 @@ async function runAdvancedGenerationJob(job = {}) {
       syntheticReferenceLocalUrl,
       syntheticReferenceUrl,
       referenceAssetUri,
-      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (extraReferenceAssetUris.length ? "multi_reference" : ""),
+      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (referenceVideoAssetUri ? "reference_video" : extraReferenceAssetUris.length ? "multi_reference" : ""),
       mediaAssets: provider === "wan27" ? resolvedWan27Media : seedanceMediaAssets,
       error: "",
     }, "advanced-reference-ready");
@@ -5739,7 +5836,9 @@ async function runAdvancedGenerationJob(job = {}) {
         const referenceImages = [];
         for (const item of seedanceMediaAssets) {
           const asset = item.userAssetId ? assetMap.get(item.userAssetId) : null;
-          if (asset) {
+          if (asset && item.type === "reference_video") {
+            gatewayBody.referenceVideoAssetId = asset.id;
+          } else if (asset) {
             referenceImages.push({
               dataUrl: await dataUrlForUserAsset(asset),
               fileName: asset.name || "",
@@ -5772,6 +5871,7 @@ async function runAdvancedGenerationJob(job = {}) {
         prompt,
         referenceAssetUri,
         extraReferenceAssetUris,
+        referenceVideoAssetUri,
         body: requestParams,
         slug: "advanced",
       });
@@ -5809,7 +5909,7 @@ async function runAdvancedGenerationJob(job = {}) {
       syntheticReferenceLocalUrl,
       syntheticReferenceUrl,
       referenceAssetUri,
-      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (extraReferenceAssetUris.length ? "multi_reference" : ""),
+      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (referenceVideoAssetUri ? "reference_video" : extraReferenceAssetUris.length ? "multi_reference" : ""),
       mediaAssets: provider === "wan27" ? resolvedWan27Media : seedanceMediaAssets,
       upstreamPayload: payload,
       ratio: payload?.ratio || requestParams.ratio || "",
@@ -5902,7 +6002,18 @@ async function handleAdvancedGenerate(req, res) {
   let userAsset = null;
   let extraUserAssets = [];
   let extraUserAssetIds = [];
+  let seedanceVideoAsset = null;
   if (provider !== "wan27") {
+    const referenceVideoAssetIds = seedanceReferenceVideoAssetIdsFromBody(body);
+    if (referenceVideoAssetIds.length) {
+      seedanceVideoAsset = auth.db.userAssets.find((asset) => asset.id === referenceVideoAssetIds[0] && asset.userId === auth.user.id && !isSoftDeleted(asset));
+      if (!seedanceVideoAsset) return sendJson(res, 404, { ok: false, message: "Reference video not found." });
+      try {
+        validateWan27MediaKind(seedanceVideoAsset, "video", "Seedance reference video");
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, message: error.message || "Seedance reference video must be a video." });
+      }
+    }
     const referenceInputs = seedanceReferenceInputsFromBody(body);
     const createdReferenceAssets = await createUserImageAssetsFromInputs(auth.db, auth.user, referenceInputs, {
       name: selectedCase?.title || "Advanced reference",
@@ -5914,6 +6025,11 @@ async function handleAdvancedGenerate(req, res) {
       if (referenceAssetIds.length) {
         const foundAssets = referenceAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
         if (foundAssets.some((asset) => !asset)) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
+        try {
+          foundAssets.forEach((asset) => validateWan27MediaKind(asset, "image", "Seedance reference image"));
+        } catch (error) {
+          return sendJson(res, 400, { ok: false, message: error.message || "Seedance reference image must be an image." });
+        }
         [userAsset, ...extraUserAssets] = foundAssets;
       }
     }
@@ -5922,6 +6038,11 @@ async function handleAdvancedGenerate(req, res) {
       if (seenSeedanceAssetIds.has(assetId) || extraUserAssets.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT - 1) continue;
       const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
       if (!asset) return sendJson(res, 404, { ok: false, message: "Extra reference image not found." });
+      try {
+        validateWan27MediaKind(asset, "image", "Extra reference image");
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, message: error.message || "Extra reference image must be an image." });
+      }
       extraUserAssets.push(asset);
       seenSeedanceAssetIds.add(asset.id);
     }
@@ -5958,13 +6079,22 @@ async function handleAdvancedGenerate(req, res) {
   const runtime = advancedRuntimeForProvider(provider, requestParams);
   const taskId = localGenerationTaskId("cgt");
   const primaryWanMedia = wan27Media.find((item) => item.type === "first_frame" || item.type === "first_clip") || wan27Media[0] || null;
-  const initialImageUrl = primaryWanMedia?.localUrl || primaryWanMedia?.url || userAsset?.localUrl || userAsset?.publicUrl || "";
+  const seedancePrimaryVisual = userAsset || seedanceVideoAsset || null;
+  const initialImageUrl = primaryWanMedia?.localUrl || primaryWanMedia?.url || seedancePrimaryVisual?.localUrl || seedancePrimaryVisual?.publicUrl || "";
   const initialSourceImageUrl = primaryWanMedia?.localUrl || userAsset?.sourceImageUrl || userAsset?.localUrl || "";
   const initialSeedanceMediaAssets = provider === "seedance"
     ? [
+        ...(seedanceVideoAsset ? [{
+          type: "reference_video",
+          key: "video_1",
+          userAssetId: seedanceVideoAsset.id,
+          videoUrl: seedanceVideoAsset.localUrl || seedanceVideoAsset.publicUrl || "",
+          localUrl: seedanceVideoAsset.localUrl || "",
+          mime: seedanceVideoAsset.mime || "",
+        }] : []),
         ...(userAsset ? [{
           type: "reference_image",
-          key: "primary",
+          key: "image_1",
           userAssetId: userAsset.id,
           imageUrl: userAsset.localUrl || userAsset.publicUrl || "",
           sourceImageUrl: userAsset.sourceImageUrl || userAsset.localUrl || "",
@@ -6004,8 +6134,9 @@ async function handleAdvancedGenerate(req, res) {
       pricingSource: pricing.source || "duration_rate",
       preprocessReference: requestParams.preprocessReference,
       userAssetId: userAsset?.id || "",
+      referenceVideoAssetId: seedanceVideoAsset?.id || "",
       extraUserAssetIds,
-      mediaMode: initialMediaMode,
+      mediaMode: provider === "seedance" && seedanceVideoAsset ? "reference_video" : initialMediaMode,
       mediaAssets: provider === "wan27"
         ? wan27Media.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", mediaKind: item.mediaKind || "" }))
         : initialSeedanceMediaAssets.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "" })),
@@ -6025,7 +6156,7 @@ async function handleAdvancedGenerate(req, res) {
     templateTitle: selectedCase?.title || "Advanced generation",
     userId: auth.user.id,
     userAssetId: userAsset?.id || "",
-    mediaMode: initialMediaMode,
+    mediaMode: provider === "seedance" && seedanceVideoAsset ? "reference_video" : initialMediaMode,
     mediaAssets: provider === "wan27" ? wan27Media : initialSeedanceMediaAssets,
     imageUrl: initialImageUrl,
     sourceImageUrl: initialSourceImageUrl,
@@ -6059,6 +6190,7 @@ async function handleAdvancedGenerate(req, res) {
     userId: auth.user.id,
     userAssetId: userAsset?.id || "",
     extraUserAssetIds,
+    referenceVideoAssetId: seedanceVideoAsset?.id || "",
     wan27MediaMode,
     wan27Media,
     provider,
@@ -6106,6 +6238,14 @@ async function handleAdminAdvancedGenerate(req, res) {
 function mediaAssetIdsByType(record = {}, type = "") {
   return (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
     .filter((asset) => asset && asset.type === type && asset.userAssetId)
+    .map((asset) => String(asset.userAssetId || "").trim())
+    .filter(Boolean);
+}
+
+function mediaAssetIdsByTypes(record = {}, types = []) {
+  const wanted = new Set(types);
+  return (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => asset && wanted.has(asset.type) && asset.userAssetId)
     .map((asset) => String(asset.userAssetId || "").trim())
     .filter(Boolean);
 }
@@ -6166,6 +6306,8 @@ function advancedRegenerateBody(record = {}) {
       body.userAssetId = uniqueIds[0];
       if (uniqueIds.length > 1) body.extraReferenceAssetIds = uniqueIds.slice(1);
     }
+    const referenceVideoIds = [...new Set(mediaAssetIdsByTypes(record, ["reference_video", "first_clip"]))];
+    if (referenceVideoIds.length) body.referenceVideoAssetId = referenceVideoIds[0];
   }
   return body;
 }
@@ -7602,41 +7744,53 @@ async function handleUploadUserAsset(req, res) {
   if (!auth) return;
 
   const body = await readJson(req);
-  const { mime, bytes } = decodeDataUrl(body.dataUrl);
-  if (bytes.byteLength > 8 * 1024 * 1024) {
-    return sendJson(res, 400, { ok: false, message: "Image must be 8MB or smaller." });
+  const { mime, bytes } = decodeWanMediaDataUrl(body.dataUrl || "");
+  if (!mime.startsWith("image/") && !mime.startsWith("video/")) {
+    return sendJson(res, 400, { ok: false, message: "Only image or video assets are supported." });
   }
-
-  const assetId = randomId("asset");
-  const fileName = `${assetId}${imageExtFromMime(mime)}`;
-  const dir = path.join(USER_UPLOAD_DIR, auth.user.id);
-  await fs.mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, fileName);
-  await fs.writeFile(filePath, bytes);
-
-  const userAsset = {
-    id: assetId,
-    userId: auth.user.id,
-    name: String(body.name || "Upload").slice(0, 60),
+  const maxBytes = mime.startsWith("image/") ? 8 * 1024 * 1024 : 30 * 1024 * 1024;
+  const userAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
+    bytes,
     mime,
-    localUrl: `/assets/user-uploads/${auth.user.id}/${fileName}`,
-    publicUrl: PUBLIC_BASE_URL ? `${PUBLIC_BASE_URL}/assets/user-uploads/${auth.user.id}/${fileName}` : "",
-    assetUri: "",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    deletedAt: "",
-  };
-  auth.db.userAssets.unshift(userAsset);
-  await writeDb(auth.db);
-  return sendJson(res, 200, { ok: true, asset: userAsset });
+    name: body.name || "Upload",
+    fileName: body.fileName || body.name || "",
+    maxBytes,
+  });
+  return sendJson(res, 200, { ok: true, asset: publicUserAsset(userAsset) });
 }
 
-async function handleListUserAssets(req, res) {
+function publicUserAsset(asset = {}) {
+  const kind = String(asset.mime || "").toLowerCase().startsWith("video/") ? "video" : "image";
+  return {
+    id: asset.id,
+    userId: asset.userId,
+    name: asset.name || "Upload",
+    kind,
+    mime: asset.mime || "",
+    localUrl: asset.localUrl || "",
+    publicUrl: asset.publicUrl || "",
+    previewUrl: asset.localUrl || asset.publicUrl || "",
+    seedanceReady: Boolean(kind === "video" ? asset.seedanceVideoAssetUri : asset.assetUri),
+    createdAt: asset.createdAt || "",
+    updatedAt: asset.updatedAt || "",
+    deletedAt: asset.deletedAt || "",
+  };
+}
+
+async function handleListUserAssets(req, res, url = null) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  const params = url?.searchParams || new URLSearchParams();
+  const q = String(params.get("q") || "").trim().toLowerCase();
+  const type = String(params.get("type") || "").trim().toLowerCase();
+  const limit = Math.floor(clampNumber(params.get("limit"), 80, 1, 200));
   const assets = auth.db.userAssets
     .filter((asset) => asset.userId === auth.user.id && !isSoftDeleted(asset))
-    .slice(0, 50);
+    .map(publicUserAsset)
+    .filter((asset) => !type || asset.kind === type)
+    .filter((asset) => !q || [asset.name, asset.id, asset.mime].some((value) => String(value || "").toLowerCase().includes(q)))
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
+    .slice(0, limit);
   return sendJson(res, 200, { ok: true, assets });
 }
 
@@ -10302,7 +10456,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/user-assets") {
-      return await handleListUserAssets(req, res);
+      return await handleListUserAssets(req, res, url);
     }
 
     const userAssetMatch = url.pathname.match(/^\/api\/user-assets\/([^/]+)$/);
