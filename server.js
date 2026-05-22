@@ -102,6 +102,8 @@ const WALLET_CHAIN_SCAN_ENABLED = !/^(0|false|no|off)$/i.test(String(process.env
 const WALLET_CHAIN_SCAN_INTERVAL_MS = Math.max(15000, Number(process.env.WALLET_CHAIN_SCAN_INTERVAL_MS || 60000) || 60000);
 const WALLET_CHAIN_SCAN_ORDER_TTL_HOURS = Math.max(1, Number(process.env.WALLET_CHAIN_SCAN_ORDER_TTL_HOURS || 72) || 72);
 const WALLET_CHAIN_SCAN_LOOKBACK_LIMIT = Math.max(20, Math.min(500, Number(process.env.WALLET_CHAIN_SCAN_LOOKBACK_LIMIT || 120) || 120));
+const WALLET_EVM_SCAN_BLOCK_LOOKBACK = Math.max(1000, Number(process.env.WALLET_EVM_SCAN_BLOCK_LOOKBACK || 140000) || 140000);
+const WALLET_EVM_SCAN_CHUNK_SIZE = Math.max(500, Math.min(10000, Number(process.env.WALLET_EVM_SCAN_CHUNK_SIZE || 5000) || 5000));
 const WALLET_EVM_CONFIRMATIONS = Math.max(1, Number(process.env.WALLET_EVM_CONFIRMATIONS || 12) || 12);
 const WALLET_SOLANA_CONFIRMATIONS = Math.max(1, Number(process.env.WALLET_SOLANA_CONFIRMATIONS || 32) || 32);
 const WALLET_TRON_CONFIRMATIONS = Math.max(1, Number(process.env.WALLET_TRON_CONFIRMATIONS || 1) || 1);
@@ -116,6 +118,11 @@ const WALLET_USDT_CONTRACTS = {
   base: String(process.env.WALLET_BASE_USDT_CONTRACT || "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2").trim(),
   tron: String(process.env.WALLET_TRON_USDT_CONTRACT || "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t").trim(),
   solana: String(process.env.WALLET_SOLANA_USDT_MINT || "Es9vMFrzaCERmJfrF4H2FYD4Sz7PZsrwLQomDpRg4E6B").trim(),
+};
+const WALLET_EVM_RPC_URLS = {
+  ethereum: String(process.env.WALLET_ETHEREUM_RPC_URL || process.env.ETHEREUM_RPC_URL || "https://ethereum-rpc.publicnode.com").trim(),
+  bnb: String(process.env.WALLET_BNB_RPC_URL || process.env.BNB_RPC_URL || "https://bsc-dataseed.binance.org").trim(),
+  base: String(process.env.WALLET_BASE_RPC_URL || process.env.BASE_RPC_URL || "https://mainnet.base.org").trim(),
 };
 const GENERATION_PRICE_MARKUP = 1.2;
 const ADVANCED_SEEDANCE_FPS = clampNumber(process.env.ADVANCED_SEEDANCE_FPS, 24, 1, 120);
@@ -2014,6 +2021,43 @@ async function scanFetchJson(url, { headers = {}, timeoutMs = 20000, method = "G
   return payload;
 }
 
+async function evmRpc(chain, method, params = []) {
+  const url = WALLET_EVM_RPC_URLS[chain];
+  if (!url) throw new Error(`No RPC configured for ${chain}.`);
+  const payload = await scanFetchJson(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: { jsonrpc: "2.0", id: `wallet-${Date.now()}`, method, params },
+    timeoutMs: 25000,
+  });
+  if (payload?.error) throw new Error(payload.error.message || `RPC ${method} failed`);
+  return payload?.result;
+}
+
+function evmTopicAddress(address = "") {
+  const hex = String(address || "").trim().replace(/^0x/i, "").toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(hex)) return "";
+  return `0x${hex.padStart(64, "0")}`;
+}
+
+function evmHex(value) {
+  const number = typeof value === "bigint" ? value : BigInt(Math.max(0, Number(value || 0)));
+  return `0x${number.toString(16)}`;
+}
+
+function evmHexToBigInt(hex = "0x0") {
+  try {
+    return BigInt(String(hex || "0x0"));
+  } catch {
+    return 0n;
+  }
+}
+
+function evmAddressFromTopic(topic = "") {
+  const hex = String(topic || "").replace(/^0x/i, "");
+  return hex.length >= 40 ? `0x${hex.slice(-40)}` : "";
+}
+
 function evmScanConfig(chain = "") {
   const makeV2Url = (chainId, contract) => (address) => `https://api.etherscan.io/v2/api?chainid=${encodeURIComponent(chainId)}&module=account&action=tokentx&contractaddress=${encodeURIComponent(contract)}&address=${encodeURIComponent(address)}&page=1&offset=${WALLET_CHAIN_SCAN_LOOKBACK_LIMIT}&sort=desc&apikey=${encodeURIComponent(ETHERSCAN_API_KEY)}`;
   if (chain === "bnb") {
@@ -2070,15 +2114,64 @@ function evmScanConfig(chain = "") {
   };
 }
 
+async function scanEvmUsdtTransfersByRpc(chain, address) {
+  const config = evmScanConfig(chain);
+  const currentBlockHex = await evmRpc(chain, "eth_blockNumber", []);
+  const currentBlock = Number(evmHexToBigInt(currentBlockHex));
+  if (!currentBlock) return [];
+  const fromBlock = Math.max(0, currentBlock - WALLET_EVM_SCAN_BLOCK_LOOKBACK);
+  const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+  const toTopic = evmTopicAddress(address);
+  if (!toTopic) return [];
+  const logs = [];
+  for (let start = fromBlock; start <= currentBlock; start += WALLET_EVM_SCAN_CHUNK_SIZE) {
+    const end = Math.min(currentBlock, start + WALLET_EVM_SCAN_CHUNK_SIZE - 1);
+    const chunk = await evmRpc(chain, "eth_getLogs", [{
+      fromBlock: evmHex(start),
+      toBlock: evmHex(end),
+      address: config.usdtContract,
+      topics: [transferTopic, null, toTopic],
+    }]);
+    if (Array.isArray(chunk)) logs.push(...chunk);
+    if (logs.length >= WALLET_CHAIN_SCAN_LOOKBACK_LIMIT) break;
+  }
+  return logs
+    .slice(-WALLET_CHAIN_SCAN_LOOKBACK_LIMIT)
+    .reverse()
+    .map((log) => {
+      const blockNumber = Number(evmHexToBigInt(log.blockNumber || "0x0"));
+      const value = evmHexToBigInt(log.data || "0x0");
+      return {
+        chain,
+        hash: String(log.transactionHash || ""),
+        to: evmAddressFromTopic(log.topics?.[2] || ""),
+        from: evmAddressFromTopic(log.topics?.[1] || ""),
+        amountUnits: normalizeTokenUnits(value, 6, 6),
+        amountText: tokenAmountFromUnits(value, 6),
+        decimals: 6,
+        confirmations: currentBlock && blockNumber ? Math.max(0, currentBlock - blockNumber + 1) : 0,
+        blockNumber,
+        timestamp: "",
+        source: `${chain}-rpc`,
+      };
+    });
+}
+
 async function scanEvmUsdtTransfers(chain, address) {
   const config = evmScanConfig(chain);
-  const payload = await scanFetchJson(config.publicTokenUrl(address));
+  let payload = null;
+  try {
+    payload = await scanFetchJson(config.publicTokenUrl(address));
+  } catch (error) {
+    return await scanEvmUsdtTransfersByRpc(chain, address);
+  }
   if (payload && payload.status === "0" && !Array.isArray(payload.result)) {
-    const error = new Error(payload.message || "EVM scan API returned no result.");
-    error.payload = payload;
-    throw error;
+    return await scanEvmUsdtTransfersByRpc(chain, address);
   }
   const result = Array.isArray(payload?.result) ? payload.result : [];
+  if (!result.length && !config.apiKey) {
+    return await scanEvmUsdtTransfersByRpc(chain, address);
+  }
   const currentBlock = Math.max(...result.map((tx) => Number(tx.blockNumber || 0)).filter(Boolean), 0);
   return result
     .filter((tx) => normalizeChainAddress(tx.to, chain) === normalizeChainAddress(address, chain))
