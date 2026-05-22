@@ -136,6 +136,53 @@ const TOS = {
   bucket: process.env.TOS_BUCKET,
   publicDomain: process.env.TOS_PUBLIC_DOMAIN,
 };
+const SITE_STORAGE_SLUG = storagePathSegment(
+  process.env.SITE_STORAGE_SLUG || process.env.TENANT_SLUG || defaultStorageSlug(),
+  "raising-game",
+);
+const TOS_KEY_PREFIX = storageKeyPrefix(
+  process.env.TOS_KEY_PREFIX || process.env.STORAGE_KEY_PREFIX || `seedance-assets/${SITE_STORAGE_SLUG}`,
+);
+
+function defaultStorageSlug() {
+  try {
+    const host = new URL(PUBLIC_BASE_URL || "https://raising-game.local").hostname;
+    if (/cloudtoken/i.test(host)) return "cloudtoken";
+  } catch {
+    // Keep the legacy namespace when the public URL is not configured yet.
+  }
+  return "raising-game";
+}
+
+function storagePathSegment(value = "", fallback = "asset") {
+  return String(value || fallback)
+    .trim()
+    .replace(/[^a-z0-9._-]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 128) || fallback;
+}
+
+function storageKeyPrefix(value = "") {
+  const prefix = String(value || "").trim().replace(/^\/+|\/+$/g, "");
+  return prefix
+    .split("/")
+    .map((part) => storagePathSegment(part, ""))
+    .filter(Boolean)
+    .join("/") || "seedance-assets/raising-game";
+}
+
+function tosStorageKey(...parts) {
+  const suffix = parts
+    .flat()
+    .map((part) => storagePathSegment(part, "asset"))
+    .filter(Boolean)
+    .join("/");
+  return [TOS_KEY_PREFIX, suffix].filter(Boolean).join("/");
+}
+
+function storageObjectName(kind = "asset", id = "item") {
+  return `${SITE_STORAGE_SLUG}-${storagePathSegment(kind)}-${storagePathSegment(id)}-${Date.now()}`;
+}
 
 const ARK_OPENAPI = {
   accessKey: process.env.BYTEPLUS_ACCESS_KEY_ID || process.env.VOLC_ACCESS_KEY_ID,
@@ -2193,7 +2240,8 @@ async function uploadBufferToTos({ userId, assetId, bytes, mime, extension = "" 
   requireValue("TOS_BUCKET", TOS.bucket);
   requireValue("TOS_PUBLIC_DOMAIN", TOS.publicDomain);
 
-  const key = `seedance-assets/raising-game/users/${userId}/${assetId}-${Date.now()}${extension || mediaExtFromMime(mime) || imageExtFromMime(mime)}`;
+  const fileName = `${storagePathSegment(assetId, "asset")}-${Date.now()}${extension || mediaExtFromMime(mime) || imageExtFromMime(mime)}`;
+  const key = tosStorageKey("users", userId, fileName);
   const auth = makeTosAuth({ method: "PUT", key, body: bytes, contentType: mime });
   const url = `https://${auth.host}${auth.canonicalUri}`;
   const response = await fetch(url, { method: "PUT", headers: auth.headers, body: bytes });
@@ -3233,7 +3281,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     URL: uploaded.publicUrl,
     AssetType: "Image",
     Moderation: { Strategy: "Skip" },
-    Name: `raising-game-user-${userAsset.id}-${Date.now()}`,
+    Name: storageObjectName("user", userAsset.id),
     ProjectName: ARK_OPENAPI.projectName,
   });
   const assetId = extractAssetId(created);
@@ -4211,7 +4259,7 @@ async function uploadGeneratedMediaToTos({ taskId, localVideoPath, localPosterPa
       const videoBytes = await fs.readFile(localVideoPath);
       const videoExt = path.extname(localVideoPath) || ".mp4";
       const videoUpload = await uploadStaticAssetToTos({
-        key: `seedance-assets/raising-game/generated/videos/${String(taskId || "video").replace(/[^a-z0-9_-]/gi, "_")}${videoExt}`,
+        key: tosStorageKey("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
         bytes: videoBytes,
         mime: videoMimeFromPath(localVideoPath),
       });
@@ -4220,7 +4268,7 @@ async function uploadGeneratedMediaToTos({ taskId, localVideoPath, localPosterPa
     if (localPosterPath) {
       const posterBytes = await fs.readFile(localPosterPath);
       const posterUpload = await uploadStaticAssetToTos({
-        key: `seedance-assets/raising-game/generated/posters/${String(taskId || "poster").replace(/[^a-z0-9_-]/gi, "_")}.jpg`,
+        key: tosStorageKey("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
         bytes: posterBytes,
         mime: "image/jpeg",
       });
@@ -4439,7 +4487,7 @@ async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } 
 
   if (tosEnabled()) {
     try {
-      const baseKey = `seedance-assets/raising-game/admin/advanced-cases/${safeId}/${Date.now()}`;
+      const baseKey = tosStorageKey("admin", "advanced-cases", safeId, Date.now());
       const videoUpload = await uploadStaticAssetToTos({
         key: `${baseKey}${videoExt}`,
         bytes: videoDownload.bytes,
@@ -4529,7 +4577,7 @@ async function ingestPlatformTemplateMedia({ videoUrl, coverUrl = "", templateId
 
   if (tosEnabled()) {
     try {
-      const baseKey = `seedance-assets/raising-game/admin/platform-templates/${safeId}/${stamp}`;
+      const baseKey = tosStorageKey("admin", "platform-templates", safeId, stamp);
       const videoUpload = await uploadStaticAssetToTos({
         key: `${baseKey}${videoExt}`,
         bytes: videoDownload.bytes,
@@ -7731,7 +7779,7 @@ async function ensureCharacterReferenceForRecord(record) {
     URL: uploadedRef.publicUrl,
     AssetType: "Image",
     Moderation: { Strategy: "Skip" },
-    Name: `raising-game-user-${record.id}-${Date.now()}`,
+    Name: storageObjectName("user", record.id),
     ProjectName: ARK_OPENAPI.projectName,
   });
   const assetId = extractAssetId(created);
