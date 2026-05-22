@@ -18,7 +18,8 @@ const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
-const MIN_TOPUP_AMOUNT = 100;
+const MIN_TOPUP_AMOUNT = 1;
+const DEFAULT_TOPUP_AMOUNT = 100;
 
 function normalizePlatformTab(value = "") {
   const normalized = String(value || "").trim().replace(/^#\/?/, "");
@@ -3036,7 +3037,7 @@ function renderTopupSummary() {
   if (!els.topupPanel) return;
   if (els.topupOrder && !els.topupOrder.hidden) return;
   const rawAmount = Number(els.topupAmount?.value || 0);
-  const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : MIN_TOPUP_AMOUNT;
+  const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : DEFAULT_TOPUP_AMOUNT;
   const credits = walletCreditsForAmount(amount);
   const asset = state.wallet?.asset || "USDT";
   const network = state.wallet?.network || "TRC20";
