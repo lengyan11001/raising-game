@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-55" />
+    <link rel="stylesheet" href="./platform.css?v=ai-56" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -349,14 +349,16 @@
         </header>
         <div class="modal-body">
           <section class="topup-strip topup-modal-panel" id="topupPanel">
-            <div>
-              <span data-i18n="topup.title">Top Up</span>
-              <strong id="topupCredits">0 credits</strong>
-              <small id="topupRate">Login to create a payment order.</small>
-            </div>
-            <div class="topup-actions">
-              <input id="topupAmount" type="number" min="1" step="1" value="10" aria-label="Top-up amount" />
-              <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create order</button>
+            <div class="topup-headline">
+              <div>
+                <span data-i18n="topup.title">Top Up</span>
+                <strong id="topupCredits">0 credits</strong>
+                <small id="topupRate">Login to create a payment order.</small>
+              </div>
+              <label class="topup-amount-field">
+                <span data-i18n="topup.amount">Amount</span>
+                <input id="topupAmount" type="number" min="1" step="1" value="10" aria-label="Top-up amount" />
+              </label>
             </div>
             <div class="paypal-checkout" id="paypalBox" hidden>
               <div>
@@ -364,6 +366,13 @@
                 <small id="paypalStatus" data-i18n="topup.paypalLoading">Loading PayPal...</small>
               </div>
               <div class="paypal-buttons" id="paypalButtons"></div>
+            </div>
+            <div class="topup-actions topup-usdt-actions">
+              <div>
+                <span data-i18n="topup.usdtTitle">USDT backup</span>
+                <small data-i18n="topup.usdtNote">Use TRC20 USDT if PayPal is unavailable.</small>
+              </div>
+              <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create USDT order</button>
             </div>
             <div class="topup-order" id="topupOrder" hidden></div>
           </section>
@@ -409,6 +418,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-55"></script>
+    <script src="./platform.js?v=ai-56"></script>
 </body>
 </html>

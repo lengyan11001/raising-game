@@ -391,14 +391,20 @@ main { width: min(1200px, calc(100vw - 44px)); margin: 0 auto; }
 .access-panel, .advanced-panel, .history-panel, .ledger-panel { margin: 0 auto 40px; }
 .topup-strip {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto;
-  gap: 14px;
-  align-items: center;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: stretch;
   margin: 0;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+.topup-headline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 12px;
+  align-items: end;
 }
 .topup-strip span,
 .topup-order span {
@@ -413,13 +419,20 @@ main { width: min(1200px, calc(100vw - 44px)); margin: 0 auto; }
 .topup-order strong { display: block; margin-top: 4px; color: var(--mint); font-size: 1.12rem; }
 .topup-strip small,
 .topup-order small { display: block; margin-top: 4px; color: var(--muted); }
+.topup-amount-field {
+  display: grid;
+  gap: 6px;
+}
 .topup-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(86, 107, 133, .14);
 }
-.topup-actions input {
-  width: 98px;
+.topup-amount-field input {
+  width: 100%;
   min-height: 40px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -428,13 +441,14 @@ main { width: min(1200px, calc(100vw - 44px)); margin: 0 auto; }
   padding: 10px 12px;
 }
 .paypal-checkout {
-  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(160px, .8fr) minmax(220px, 1fr);
+  grid-template-columns: minmax(160px, .72fr) minmax(220px, 1fr);
   gap: 12px;
   align-items: center;
-  padding-top: 12px;
-  border-top: 1px solid rgba(86, 107, 133, .18);
+  padding: 14px;
+  border: 1px solid rgba(0, 48, 135, .22);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(255,255,255,.86), rgba(226,241,255,.72));
 }
 .paypal-checkout[hidden] { display: none; }
 .paypal-checkout span {
@@ -449,8 +463,10 @@ main { width: min(1200px, calc(100vw - 44px)); margin: 0 auto; }
   min-height: 40px;
   max-width: 360px;
 }
+.topup-usdt-actions {
+  color: var(--muted);
+}
 .topup-order {
-  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: minmax(120px, .8fr) minmax(0, 1fr) auto;
   gap: 10px;
