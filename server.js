@@ -6799,6 +6799,9 @@ async function handleCreatePaymentOrder(req, res) {
   if (!Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
     return sendJson(res, 400, { ok: false, message: `Top-up amount must be at least ${MIN_TOPUP_AMOUNT}.` });
   }
+  if (!String(config.wallet?.address || "").trim()) {
+    return sendJson(res, 503, { ok: false, code: "WALLET_NOT_CONFIGURED", message: "USDT top-up is not configured." });
+  }
 
   const suffixDigits = clampNumber(config.wallet.suffixDigits, 6, 3, 6);
   const payment = makeUniquePaymentAmount(amount, suffixDigits);
