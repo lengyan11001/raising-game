@@ -127,7 +127,6 @@ const els = {
   paypalBox: document.querySelector("#paypalBox"),
   paypalButtons: document.querySelector("#paypalButtons"),
   paypalStatus: document.querySelector("#paypalStatus"),
-  topupOrder: document.querySelector("#topupOrder"),
   previewDialog: document.querySelector("#previewDialog"),
   previewTitle: document.querySelector("#previewTitle"),
   previewVideo: document.querySelector("#previewVideo"),
@@ -3075,6 +3074,10 @@ function renderTopupQrDialog(order = null) {
   }
   if (els.topupWalletNetwork) els.topupWalletNetwork.textContent = `${asset} · ${network}`;
   if (els.topupWalletAddress) els.topupWalletAddress.textContent = address;
+  if (els.topupQrCopyBtn) {
+    els.topupQrCopyBtn.onclick = () => copyTopupAddress(address);
+  }
+  if (els.topupDialog?.open) els.topupDialog.close();
   if (!els.topupQrDialog.open) els.topupQrDialog.showModal();
   refreshIcons();
 }
@@ -3088,7 +3091,6 @@ function copyTopupAddress(address = "") {
 
 function renderTopupSummary() {
   if (!els.topupPanel) return;
-  if (els.topupOrder && !els.topupOrder.hidden) return;
   const rawAmount = Number(els.topupAmount?.value || 0);
   const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : DEFAULT_TOPUP_AMOUNT;
   const credits = walletCreditsForAmount(amount);
@@ -3107,37 +3109,17 @@ function renderTopupSummary() {
 }
 
 function renderTopupOrder(order) {
-  if (!els.topupOrder || !order) return;
-  els.topupOrder.hidden = false;
+  if (!order) return;
   const isPayPal = order.paymentProvider === "paypal" || order.network === "PayPal";
+  if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits: order.creditAmount || 0 });
   if (isPayPal) {
-    els.topupOrder.innerHTML = `
-      <div>
-        <span>${escapeHtml(t("topup.paypalOrder"))}</span>
-        <strong>${escapeHtml(order.paypalOrderId || order.id || "")}</strong>
-        <small>${escapeHtml(t("topup.provider"))}: PayPal · ${escapeHtml(t("cost.credits", { credits: order.creditAmount || 0 }))} · ${escapeHtml(order.status || "pending")}</small>
-      </div>
-      <code>${escapeHtml(order.payableAmountText || order.payableAmount || order.amount || "")} ${escapeHtml(order.currency || order.asset || "USD")}</code>
-    `;
-    if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits: order.creditAmount || 0 });
+    if (els.topupRate) {
+      els.topupRate.textContent = `${t("topup.paypalOrder")}: ${order.paypalOrderId || order.id || ""}`;
+    }
     refreshIcons();
     return;
   }
-  els.topupOrder.innerHTML = `
-    <div>
-      <span>${escapeHtml(t("topup.payExactly"))}</span>
-      <strong>${escapeHtml(order.payableAmountText || order.payableAmount || order.baseAmount)} ${escapeHtml(order.asset || "USDT")}</strong>
-      <small>${escapeHtml(order.network || "")} · ${escapeHtml(t("cost.credits", { credits: order.creditAmount || 0 }))} · ${escapeHtml(order.status || "pending")}</small>
-    </div>
-    <button class="ghost-button" type="button" data-show-qr><i data-lucide="qr-code"></i>${escapeHtml(t("topup.showQr"))}</button>
-    <button class="ghost-button" type="button" data-copy-address><i data-lucide="copy"></i>${escapeHtml(t("topup.copyAddress"))}</button>
-  `;
-  els.topupOrder.querySelector("[data-show-qr]")?.addEventListener("click", () => renderTopupQrDialog(order));
-  els.topupOrder.querySelector("[data-copy-address]")?.addEventListener("click", () => {
-    copyTopupAddress(order.address || "");
-  });
   renderTopupQrDialog(order);
-  if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits: order.creditAmount || 0 });
   refreshIcons();
 }
 
@@ -4406,10 +4388,6 @@ document.querySelectorAll("[data-legal-doc]").forEach((button) => {
   button.addEventListener("click", () => openLegalDialog(button.dataset.legalDoc || "privacy"));
 });
 els.topupAmount?.addEventListener("input", () => {
-  if (els.topupOrder) {
-    els.topupOrder.hidden = true;
-    els.topupOrder.innerHTML = "";
-  }
   renderTopupSummary();
 });
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
