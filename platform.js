@@ -2393,7 +2393,7 @@ function setUser(user, { refreshHistory = false } = {}) {
   state.user = user || null;
   const nextMultiplier = Number(state.user?.pricingMultiplier || 1);
   const accountLabel = state.user
-    ? `${state.user.username} - ${Number(state.user.credits || 0)} ${t("common.credits")}`
+    ? state.user.username
     : t("nav.login");
   if (els.accountMenuLabel) els.accountMenuLabel.textContent = accountLabel;
   renderTokenDisplays();

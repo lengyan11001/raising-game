@@ -793,7 +793,7 @@ function publicConfig(config, origin = "") {
     tenantFeatures: {
       tenantPublic,
       assetLibrary: !tenantPublic,
-      accountMenu: !tenantPublic,
+      accountMenu: true,
     },
     wallet: {
       asset: config.wallet.asset,
