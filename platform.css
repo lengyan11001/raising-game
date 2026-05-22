@@ -516,6 +516,60 @@ main { width: min(1200px, calc(100vw - 44px)); margin: 0 auto; }
   min-height: 40px;
   max-width: 360px;
 }
+.topup-wallet-options {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(15,148,139,.18);
+  border-radius: 8px;
+  background: rgba(15,148,139,.05);
+}
+.topup-wallet-options:empty { display: none; }
+.topup-wallet-options-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: end;
+}
+.topup-wallet-options-head span {
+  color: var(--text);
+  font-size: .78rem;
+}
+.topup-wallet-options-head small {
+  color: var(--muted);
+  font-size: .76rem;
+}
+.topup-wallet-option-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.topup-wallet-option {
+  min-height: 58px;
+  padding: 10px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(255,255,255,.78);
+  text-align: left;
+  cursor: pointer;
+}
+.topup-wallet-option strong {
+  display: block;
+  color: var(--text);
+  font-size: .86rem;
+}
+.topup-wallet-option small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: .72rem;
+}
+.topup-wallet-option.is-active {
+  border-color: rgba(15,148,139,.58);
+  box-shadow: 0 0 0 3px rgba(15,148,139,.12);
+  background: rgba(235,252,249,.92);
+}
 .topup-qr-modal { width: min(520px, calc(100vw - 28px)); }
 .topup-qr-panel {
   display: grid;
@@ -1617,6 +1671,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   .history-panel .history-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ledger-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .paypal-checkout { grid-template-columns: 1fr; }
+  .topup-wallet-option-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topup-qr-panel { grid-template-columns: 1fr; justify-items: center; }
   .token-card { align-items: stretch; flex-direction: column; }
   .access-tabs { grid-template-columns: repeat(2, 1fr); }

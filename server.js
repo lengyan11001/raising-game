@@ -741,6 +741,7 @@ function publicConfig(config, origin = "") {
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const platform = normalizePlatformConfig(config.platform || {});
   const tenantPublic = isTenantPublicOrigin(origin);
+  const walletOptions = publicWalletOptions(config.wallet || {});
   const publicPlatform = {
     ...platform,
     accessCopy: tenantScopedAccessCopy(platform.accessCopy, origin),
@@ -775,6 +776,7 @@ function publicConfig(config, origin = "") {
       network: config.wallet.network,
       address: config.wallet.address,
       qrUrl: config.wallet.qrUrl || "",
+      options: walletOptions,
       suffixDigits: config.wallet.suffixDigits,
       cnyCentsPerUsdt: walletCnyCentsPerUsdt(config.wallet),
     },
@@ -1762,6 +1764,56 @@ function walletCnyCentsPerUsdt(wallet = {}) {
 
 function walletCreditsForUsdtAmount(amount, wallet = {}) {
   return creditsAmount(Math.round(Number(amount || 0) * walletCnyCentsPerUsdt(wallet)));
+}
+
+function normalizeWalletOption(option = {}, index = 0) {
+  const id = String(option.id || option.network || `wallet-${index + 1}`)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || `wallet-${index + 1}`;
+  return {
+    id,
+    label: String(option.label || option.network || id).trim(),
+    network: String(option.network || option.label || id).trim(),
+    asset: String(option.asset || "USDT").trim() || "USDT",
+    address: String(option.address || "").trim(),
+    qrUrl: String(option.qrUrl || "").trim(),
+  };
+}
+
+function walletOptions(wallet = {}) {
+  const configured = Array.isArray(wallet.options) ? wallet.options : [];
+  const options = configured
+    .map((option, index) => normalizeWalletOption(option, index))
+    .filter((option) => option.address);
+  if (options.length) return options;
+  const fallback = normalizeWalletOption({
+    id: wallet.network || "wallet",
+    label: wallet.network || "USDT",
+    network: wallet.network || "TRC20",
+    asset: wallet.asset || "USDT",
+    address: wallet.address || "",
+    qrUrl: wallet.qrUrl || "",
+  }, 0);
+  return fallback.address ? [fallback] : [];
+}
+
+function findWalletOption(wallet = {}, selectedId = "") {
+  const options = walletOptions(wallet);
+  const normalizedId = String(selectedId || "").trim().toLowerCase();
+  return options.find((option) => option.id === normalizedId || option.network.toLowerCase() === normalizedId) || options[0] || null;
+}
+
+function publicWalletOptions(wallet = {}) {
+  return walletOptions(wallet).map((option) => ({
+    id: option.id,
+    label: option.label,
+    network: option.network,
+    asset: option.asset,
+    address: option.address,
+    qrUrl: option.qrUrl,
+  }));
 }
 
 function paypalEnabled() {
@@ -7067,7 +7119,8 @@ async function handleCreatePaymentOrder(req, res) {
   if (!Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
     return sendJson(res, 400, { ok: false, message: `Top-up amount must be at least ${MIN_TOPUP_AMOUNT}.` });
   }
-  if (!String(config.wallet?.address || "").trim()) {
+  const walletOption = findWalletOption(config.wallet || {}, body.walletOptionId || body.walletNetwork || body.network);
+  if (!walletOption?.address) {
     return sendJson(res, 503, { ok: false, code: "WALLET_NOT_CONFIGURED", message: "USDT top-up is not configured." });
   }
 
@@ -7083,9 +7136,11 @@ async function handleCreatePaymentOrder(req, res) {
     suffix: payment.suffix,
     payableAmount: payment.payableAmount,
     payableAmountText: payment.payableAmountText,
-    asset: config.wallet.asset,
-    network: config.wallet.network,
-    address: config.wallet.address,
+    asset: walletOption.asset || config.wallet.asset,
+    network: walletOption.network,
+    walletOptionId: walletOption.id,
+    address: walletOption.address,
+    qrUrl: walletOption.qrUrl,
     status: "pending",
     createdAt: new Date().toISOString(),
   };
@@ -7407,9 +7462,10 @@ function publicTopupOrder(order = {}, wallet = {}) {
     payableAmountText: order.payableAmountText || String(order.payableAmount || order.baseAmount || ""),
     asset: order.asset || order.currency || "USDT",
     currency: order.currency || order.asset || "",
+    walletOptionId: order.walletOptionId || "",
     network: order.network || "",
     address: order.address || "",
-    qrUrl: wallet.qrUrl || "",
+    qrUrl: order.qrUrl || findWalletOption(wallet, order.walletOptionId || order.network)?.qrUrl || wallet.qrUrl || "",
     status: order.status || "pending",
     paypalOrderId: order.paypalOrderId || "",
     paypalCaptureId: order.paypalCaptureId || "",
@@ -9304,8 +9360,10 @@ function adminWalletOrderView(order, userMap) {
     payableAmountText: order.payableAmountText,
     asset: order.asset,
     currency: order.currency || order.asset || "",
+    walletOptionId: order.walletOptionId || "",
     network: order.network,
     address: order.address,
+    qrUrl: order.qrUrl || "",
     paypalOrderId: order.paypalOrderId || "",
     paypalCaptureId: order.paypalCaptureId || "",
     paypalStatus: order.paypalStatus || "",

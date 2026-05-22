@@ -55,6 +55,7 @@ const state = {
   advancedWanClipDataUrl: "",
   advancedWanClipFileName: "",
   wallet: null,
+  selectedWalletOptionId: "",
   paypalConfig: null,
   token: localStorage.getItem(TOKEN_KEY) || "",
   lang: localStorage.getItem(LANG_KEY) || "en",
@@ -127,6 +128,7 @@ const els = {
   topupAmount: document.querySelector("#topupAmount"),
   topupCredits: document.querySelector("#topupCredits"),
   topupRate: document.querySelector("#topupRate"),
+  topupWalletOptions: document.querySelector("#topupWalletOptions"),
   createTopupBtn: document.querySelector("#createTopupBtn"),
   topupQrDialog: document.querySelector("#topupQrDialog"),
   topupQrAmount: document.querySelector("#topupQrAmount"),
@@ -290,6 +292,8 @@ const I18N = {
     "topup.dialogTitle": "Top up credits",
     "topup.createOrder": "Create USDT order",
     "topup.usdtTitle": "USDT backup",
+    "topup.walletNetwork": "USDT network",
+    "topup.walletNetworkHint": "Choose the network you will transfer from.",
     "topup.login": "Login to create a payment order.",
     "topup.rate": "{amount} {asset} via {network}. Credits use RMB cents.",
     "topup.payExactly": "Pay exactly",
@@ -594,6 +598,8 @@ const I18N = {
     "topup.dialogTitle": "Nạp credits",
     "topup.createOrder": "Tạo đơn USDT",
     "topup.usdtTitle": "USDT dự phòng",
+    "topup.walletNetwork": "Mạng USDT",
+    "topup.walletNetworkHint": "Chọn mạng bạn sẽ chuyển tiền.",
     "topup.login": "Đăng nhập để tạo đơn thanh toán.",
     "topup.rate": "{amount} {asset} qua {network}. Credits tính theo cent RMB.",
     "topup.payExactly": "Thanh toán chính xác",
@@ -858,6 +864,8 @@ const I18N = {
     "topup.dialogTitle": "Credits をチャージ",
     "topup.createOrder": "USDT 注文作成",
     "topup.usdtTitle": "USDT 予備",
+    "topup.walletNetwork": "USDT ネットワーク",
+    "topup.walletNetworkHint": "送金に使うネットワークを選択してください。",
     "topup.login": "ログインして支払い注文を作成してください。",
     "topup.rate": "{amount} {asset} / {network}。Credits は RMB セントで計算されます。",
     "topup.payExactly": "正確に支払う",
@@ -1122,6 +1130,8 @@ const I18N = {
     "topup.dialogTitle": "Credits 충전",
     "topup.createOrder": "USDT 주문 생성",
     "topup.usdtTitle": "USDT 예비",
+    "topup.walletNetwork": "USDT 네트워크",
+    "topup.walletNetworkHint": "송금할 네트워크를 선택하세요.",
     "topup.login": "결제 주문을 만들려면 로그인하세요.",
     "topup.rate": "{amount} {asset}, {network}. Credits는 RMB 센트 기준입니다.",
     "topup.payExactly": "정확히 결제",
@@ -1386,6 +1396,8 @@ const I18N = {
     "topup.dialogTitle": "Top up credits",
     "topup.createOrder": "Buat order USDT",
     "topup.usdtTitle": "Cadangan USDT",
+    "topup.walletNetwork": "Jaringan USDT",
+    "topup.walletNetworkHint": "Pilih jaringan yang akan Anda pakai untuk transfer.",
     "topup.login": "Login untuk membuat order pembayaran.",
     "topup.rate": "{amount} {asset} via {network}. Credits memakai sen RMB.",
     "topup.payExactly": "Bayar tepat",
@@ -3169,13 +3181,78 @@ function walletCreditsForAmount(amount) {
   return Math.max(0, Math.round(Number(amount || 0) * rate));
 }
 
+function walletOptionList() {
+  const options = Array.isArray(state.wallet?.options) ? state.wallet.options.filter((option) => option?.address) : [];
+  if (options.length) return options;
+  if (state.wallet?.address) {
+    return [{
+      id: state.wallet.network || "wallet",
+      label: state.wallet.network || "USDT",
+      network: state.wallet.network || "TRC20",
+      asset: state.wallet.asset || "USDT",
+      address: state.wallet.address,
+      qrUrl: state.wallet.qrUrl || "",
+    }];
+  }
+  return [];
+}
+
+function selectedWalletOption() {
+  const options = walletOptionList();
+  const selectedId = String(state.selectedWalletOptionId || "").trim();
+  return options.find((option) => option.id === selectedId) || options[0] || null;
+}
+
+function ensureSelectedWalletOption() {
+  const options = walletOptionList();
+  if (!options.length) {
+    state.selectedWalletOptionId = "";
+    return null;
+  }
+  if (!options.some((option) => option.id === state.selectedWalletOptionId)) {
+    state.selectedWalletOptionId = options[0].id || "";
+  }
+  return selectedWalletOption();
+}
+
+function renderWalletOptions() {
+  if (!els.topupWalletOptions) return;
+  const options = walletOptionList();
+  const selected = ensureSelectedWalletOption();
+  if (options.length <= 1) {
+    els.topupWalletOptions.innerHTML = "";
+    return;
+  }
+  els.topupWalletOptions.innerHTML = `
+    <div class="topup-wallet-options-head">
+      <span>${escapeHtml(t("topup.walletNetwork"))}</span>
+      <small>${escapeHtml(t("topup.walletNetworkHint"))}</small>
+    </div>
+    <div class="topup-wallet-option-grid">
+      ${options.map((option) => `
+        <button class="topup-wallet-option ${option.id === selected?.id ? "is-active" : ""}" type="button" data-wallet-option="${escapeHtml(option.id)}">
+          <strong>${escapeHtml(option.label || option.network || option.asset || "USDT")}</strong>
+          <small>${escapeHtml(option.network || "")}</small>
+        </button>
+      `).join("")}
+    </div>
+  `;
+  els.topupWalletOptions.querySelectorAll("[data-wallet-option]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedWalletOptionId = button.dataset.walletOption || "";
+      renderTopupSummary();
+    });
+  });
+}
+
 function renderTopupQrDialog(order = null) {
   if (!order || !els.topupQrDialog) return;
   const wallet = state.wallet || {};
-  const address = order?.address || wallet.address || "";
-  const qrUrl = order?.qrUrl || wallet.qrUrl || "";
-  const asset = order?.asset || wallet.asset || "USDT";
-  const network = order?.network || wallet.network || "TRC20";
+  const selected = selectedWalletOption();
+  const address = order?.address || selected?.address || wallet.address || "";
+  const qrUrl = order?.qrUrl || selected?.qrUrl || wallet.qrUrl || "";
+  const asset = order?.asset || selected?.asset || wallet.asset || "USDT";
+  const network = order?.network || selected?.network || wallet.network || "TRC20";
   if (els.topupQrAmount) {
     els.topupQrAmount.textContent = `${order.payableAmountText || order.payableAmount || order.baseAmount || ""} ${asset}`.trim();
   }
@@ -3206,7 +3283,8 @@ function renderTopupSummary() {
   const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : DEFAULT_TOPUP_AMOUNT;
   const credits = walletCreditsForAmount(amount);
   const asset = state.wallet?.asset || "USDT";
-  const network = state.wallet?.network || "TRC20";
+  const selected = ensureSelectedWalletOption();
+  const network = selected?.network || state.wallet?.network || "TRC20";
   if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits });
   if (els.topupTriggerCredits) {
     els.topupTriggerCredits.hidden = !state.user;
@@ -3217,6 +3295,7 @@ function renderTopupSummary() {
       ? t("topup.rate", { amount: amount || 0, asset, network })
       : t("topup.login");
   }
+  renderWalletOptions();
 }
 
 function renderTopupOrder(order) {
@@ -3350,7 +3429,7 @@ async function createTopupOrder() {
   try {
     const payload = await requestJson("/api/pay/orders", {
       method: "POST",
-      body: { amount },
+      body: { amount, walletOptionId: selectedWalletOption()?.id || "" },
     });
     renderTopupOrder(payload.order);
     if (els.topupRate) els.topupRate.textContent = t("topup.created");
@@ -4549,6 +4628,7 @@ async function bootstrap() {
   const platform = payload.config?.platform || {};
   state.config = payload.config;
   state.wallet = payload.config?.wallet || null;
+  ensureSelectedWalletOption();
   state.templates = platform.templates || [];
   state.categories = platform.categories || [];
   state.advancedCases = platform.advanced?.cases || [];
