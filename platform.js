@@ -3,7 +3,7 @@
 const TOKEN_KEY = "raisingGameToken";
 const LANG_KEY = "raisingGameLanguage";
 const TAB_KEY = "raisingGamePlatformTab";
-const VALID_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending"]);
+const ALL_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
@@ -23,7 +23,7 @@ const DEFAULT_TOPUP_AMOUNT = 100;
 
 function normalizePlatformTab(value = "") {
   const normalized = String(value || "").trim().replace(/^#\/?/, "");
-  return VALID_TABS.has(normalized) ? normalized : "gallery";
+  return ALL_TABS.has(normalized) ? normalized : "gallery";
 }
 
 function initialPlatformTab() {
@@ -67,6 +67,16 @@ const state = {
   spendingRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [], types: [] },
   assetSearchTimer: 0,
 };
+
+function tenantFeature(name, fallback = true) {
+  const features = state.config?.tenantFeatures;
+  if (!features || features[name] === undefined) return fallback;
+  return Boolean(features[name]);
+}
+
+function isTabAllowed(tab) {
+  return tab !== "assets" || tenantFeature("assetLibrary", true);
+}
 
 const els = {
   brandName: document.querySelector("#brandName"),
@@ -124,6 +134,10 @@ const els = {
   topupDialog: document.querySelector("#topupDialog"),
   topupTriggerBtn: document.querySelector("#topupTriggerBtn"),
   topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
+  compactHeadActions: document.querySelector("#compactHeadActions"),
+  compactLanguageSelect: document.querySelector("#compactLanguageSelect"),
+  compactTopupTriggerBtn: document.querySelector("#compactTopupTriggerBtn"),
+  compactTopupTriggerCredits: document.querySelector("#compactTopupTriggerCredits"),
   topupPanel: document.querySelector("#topupPanel"),
   topupAmount: document.querySelector("#topupAmount"),
   topupCredits: document.querySelector("#topupCredits"),
@@ -173,6 +187,7 @@ const els = {
   legalTitle: document.querySelector("#legalTitle"),
   legalBody: document.querySelector("#legalBody"),
   loginBtn: document.querySelector("#loginBtn"),
+  accountMenuWrap: document.querySelector("#accountMenuWrap"),
   accountMenuBtn: document.querySelector("#accountMenuBtn"),
   accountMenuLabel: document.querySelector("#accountMenuLabel"),
   accountMenu: document.querySelector("#accountMenu"),
@@ -195,6 +210,10 @@ const els = {
   loginSubmit: document.querySelector("#loginSubmit"),
   loginMessage: document.querySelector("#loginMessage"),
 };
+
+function currentTopupCreditsEls() {
+  return [els.topupTriggerCredits, els.compactTopupTriggerCredits].filter(Boolean);
+}
 
 const I18N = {
   en: {
@@ -2314,6 +2333,7 @@ function setLocalizedContent(element, text) {
 function applyStaticTranslations() {
   document.documentElement.lang = state.lang;
   if (els.languageSelect) els.languageSelect.value = state.lang;
+  if (els.compactLanguageSelect) els.compactLanguageSelect.value = state.lang;
   document.querySelectorAll("[data-i18n]").forEach((element) => {
     setLocalizedContent(element, t(element.dataset.i18n, {}, element.textContent));
   });
@@ -2325,8 +2345,28 @@ function applyStaticTranslations() {
   });
 }
 
+function applyTenantFeatures() {
+  const assetEnabled = tenantFeature("assetLibrary", true);
+  const accountMenuEnabled = tenantFeature("accountMenu", true);
+  document.querySelectorAll(".tenant-menu-only").forEach((element) => {
+    element.hidden = !accountMenuEnabled;
+  });
+  document.querySelectorAll(".tenant-compact-only").forEach((element) => {
+    element.hidden = accountMenuEnabled;
+  });
+  document.querySelectorAll(".tenant-old-tab").forEach((element) => {
+    element.hidden = !assetEnabled;
+  });
+  document.querySelectorAll("[data-tab='assets']").forEach((element) => {
+    element.hidden = !assetEnabled;
+  });
+  if (els.compactHeadActions) els.compactHeadActions.hidden = accountMenuEnabled;
+  if (!accountMenuEnabled) closeAccountMenu();
+}
+
 function applyLanguage() {
   applyStaticTranslations();
+  applyTenantFeatures();
   renderHero();
   renderCategories();
   renderTemplates();
@@ -2433,6 +2473,10 @@ function renderTokenDisplays() {
 }
 
 function renderAccountMenu() {
+  if (!tenantFeature("accountMenu", true)) {
+    if (els.loginBtn) els.loginBtn.hidden = false;
+    return;
+  }
   if (els.menuLoginBtn) els.menuLoginBtn.hidden = Boolean(state.user);
   if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user;
   if (els.menuLogoutBtn) els.menuLogoutBtn.disabled = !state.user;
@@ -2823,7 +2867,8 @@ async function requestJson(url, options = {}) {
 }
 
 function setTab(tab) {
-  const nextTab = normalizePlatformTab(tab);
+  let nextTab = normalizePlatformTab(tab);
+  if (!isTabAllowed(nextTab)) nextTab = "gallery";
   state.tab = nextTab;
   localStorage.setItem(TAB_KEY, nextTab);
   const nextHash = nextTab === "gallery" ? "" : `#${nextTab}`;
@@ -3286,10 +3331,10 @@ function renderTopupSummary() {
   const selected = ensureSelectedWalletOption();
   const network = selected?.network || state.wallet?.network || "TRC20";
   if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits });
-  if (els.topupTriggerCredits) {
-    els.topupTriggerCredits.hidden = !state.user;
-    els.topupTriggerCredits.textContent = state.user ? formatCredits(Number(state.user.credits || 0)) : "";
-  }
+  currentTopupCreditsEls().forEach((element) => {
+    element.hidden = !state.user;
+    element.textContent = state.user ? formatCredits(Number(state.user.credits || 0)) : "";
+  });
   if (els.topupRate) {
     els.topupRate.textContent = state.user
       ? t("topup.rate", { amount: amount || 0, asset, network })
@@ -4633,6 +4678,8 @@ async function bootstrap() {
   state.categories = platform.categories || [];
   state.advancedCases = platform.advanced?.cases || [];
   els.brandName.textContent = platform.brand || "Vipeak AI";
+  applyTenantFeatures();
+  if (!isTabAllowed(state.tab)) state.tab = "gallery";
   renderHero();
   renderCategories();
   renderTemplates();
@@ -4790,6 +4837,12 @@ els.topupTriggerBtn?.addEventListener("click", () => {
   renderPayPalCheckout();
   refreshIcons();
 });
+els.compactTopupTriggerBtn?.addEventListener("click", () => {
+  renderTopupSummary();
+  if (!els.topupDialog?.open) els.topupDialog?.showModal();
+  renderPayPalCheckout();
+  refreshIcons();
+});
 els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;
   els.previewVideo.pause();
@@ -4822,6 +4875,7 @@ els.toggleLoginMode?.addEventListener("click", () => {
 });
 els.loginSubmit?.addEventListener("click", submitLogin);
 els.languageSelect?.addEventListener("change", () => setLanguage(els.languageSelect.value));
+els.compactLanguageSelect?.addEventListener("change", () => setLanguage(els.compactLanguageSelect.value));
 els.copyAccessBtn?.addEventListener("click", async () => {
   await navigator.clipboard.writeText(fullAccessCopy());
   els.copyAccessBtn.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("common.copied"))}`;

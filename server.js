@@ -771,6 +771,11 @@ function publicConfig(config, origin = "") {
   return {
     defaultCompanionId: config.defaultCompanionId,
     prices: config.prices,
+    tenantFeatures: {
+      tenantPublic,
+      assetLibrary: !tenantPublic,
+      accountMenu: !tenantPublic,
+    },
     wallet: {
       asset: config.wallet.asset,
       network: config.wallet.network,
