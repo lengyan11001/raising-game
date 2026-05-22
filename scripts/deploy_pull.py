@@ -18,11 +18,12 @@ import os
 import paramiko
 
 
-HOST = os.environ.get("FYSHARK_HOST", "101.47.76.188")
-USER = os.environ.get("FYSHARK_USER", "root")
-PASSWORD = os.environ.get("FYSHARK_SSH_PASSWORD", "")
-REMOTE_ROOT = "/opt/raising-game-demo"
-SERVICE = "raising-game-demo"
+HOST = os.environ.get("FYSHARK_HOST", os.environ.get("DEPLOY_HOST", "101.47.76.188"))
+USER = os.environ.get("FYSHARK_USER", os.environ.get("DEPLOY_USER", "root"))
+PASSWORD = os.environ.get("FYSHARK_SSH_PASSWORD", os.environ.get("DEPLOY_SSH_PASSWORD", ""))
+REMOTE_ROOT = os.environ.get("DEPLOY_REMOTE_ROOT", "/opt/raising-game-demo")
+SERVICE = os.environ.get("DEPLOY_SERVICE", "raising-game-demo")
+HEALTH_URL = os.environ.get("DEPLOY_HEALTH_URL", "https://123vips.com/api/health")
 
 
 def remote_run(client: paramiko.SSHClient, command: str, timeout: int = 120) -> tuple[int, str, str]:
@@ -35,6 +36,9 @@ def remote_run(client: paramiko.SSHClient, command: str, timeout: int = 120) -> 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pull latest GitHub code on the server and restart the app.")
     parser.add_argument("--branch", default="main")
+    parser.add_argument("--remote-root", default=REMOTE_ROOT)
+    parser.add_argument("--service", default=SERVICE)
+    parser.add_argument("--health-url", default=HEALTH_URL)
     parser.add_argument("--no-restart", action="store_true")
     args = parser.parse_args()
     if not PASSWORD:
@@ -42,16 +46,16 @@ def main() -> None:
 
     command = f"""
 set -euo pipefail
-cd {REMOTE_ROOT}
+cd {args.remote_root}
 git fetch origin {args.branch}
 git checkout {args.branch}
 git reset --hard origin/{args.branch}
-{"true" if args.no_restart else f"systemctl restart {SERVICE}"}
+{"true" if args.no_restart else f"systemctl restart {args.service}"}
 sleep 2
 git status --short
 git log -1 --oneline
-{"true" if args.no_restart else f"systemctl status {SERVICE} --no-pager -l | head -25"}
-curl -sS -o /tmp/raising-game-health -w 'http=%{{http_code}}\\n' https://123vips.com/api/health -m 10
+{"true" if args.no_restart else f"systemctl status {args.service} --no-pager -l | head -25"}
+curl -sS -o /tmp/raising-game-health -w 'http=%{{http_code}}\\n' {args.health_url} -m 10
 cat /tmp/raising-game-health 2>/dev/null || true
 echo
 """

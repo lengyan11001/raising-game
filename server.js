@@ -74,6 +74,11 @@ const MODEL_QUALITY =
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
+const UPSTREAM_MODE = String(process.env.UPSTREAM_MODE || "direct").trim().toLowerCase();
+const USE_GATEWAY_UPSTREAM = ["gateway", "proxy", "api"].includes(UPSTREAM_MODE);
+const UPSTREAM_BASE_URL = (process.env.UPSTREAM_BASE_URL || "https://123vips.com").replace(/\/+$/, "");
+const UPSTREAM_API_TOKEN = String(process.env.UPSTREAM_API_TOKEN || "").trim();
+const GATEWAY_PLATFORM_FALLBACK_CREDITS = Math.max(1, creditsAmount(process.env.GATEWAY_PLATFORM_FALLBACK_CREDITS || 1325));
 const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
@@ -730,6 +735,7 @@ function normalizePlatformTemplate(template = {}, index = 0) {
     badge: String(template.badge || "").trim().slice(0, 40),
     prompt: promptText,
     negativePrompt: typeof template.negativePrompt === "string" ? template.negativePrompt : "",
+    price: positiveCreditsOrNull(template.price ?? template.credits ?? template.estimatedCredits),
     params: legacyParams,
     requestJson,
     enabled: template.enabled !== false,
@@ -1358,6 +1364,16 @@ function costBreakdown(baseCredits, source = "") {
     credits,
     baseCredits: base,
     markup: GENERATION_PRICE_MARKUP,
+    source,
+  };
+}
+
+function fixedCreditsBreakdown(credits, source = "") {
+  const amount = creditsAmount(credits);
+  return {
+    credits: amount,
+    baseCredits: amount,
+    markup: 1,
     source,
   };
 }
@@ -2412,6 +2428,18 @@ function normalizeWan27MediaItem(item = {}) {
     throw error;
   }
   return { type, url };
+}
+
+async function dataUrlForUserAsset(asset = {}) {
+  if (!asset?.localUrl) return "";
+  const localPath = path.normalize(path.join(ROOT, String(asset.localUrl || "").replace(/^\//, "")));
+  if (!localPath.startsWith(ROOT)) {
+    const error = new Error("Asset path is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const bytes = await fs.readFile(localPath);
+  return `data:${asset.mime || "application/octet-stream"};base64,${bytes.toString("base64")}`;
 }
 
 function validateWan27MediaCombination(media = []) {
@@ -3717,6 +3745,9 @@ async function fetchApizModelListPricing(modelId = "") {
 }
 
 async function estimatePlatformPreDeductCredits(model, params = {}, template = {}) {
+  if (USE_GATEWAY_UPSTREAM) {
+    return fixedCreditsBreakdown(template.price || GATEWAY_PLATFORM_FALLBACK_CREDITS, "gateway_fixed");
+  }
   const pricing = await fetchApizModelPricing(model);
   const estimated = estimateCreditsFromApizPricing(pricing, params);
   if (estimated > 0 || pricingIsFreeFixed(pricing)) {
@@ -3986,11 +4017,42 @@ async function refreshGenerationRecordStatus(record = {}) {
     }
   }
   if (record.provider === "apiz") {
-    if (!APIZ_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+    if ((!APIZ_API_KEY && record.upstreamSource !== "gateway") || !shouldRefreshGenerationRecord(record)) return record;
     try {
       return await refreshApizGenerationRecord(record);
     } catch (error) {
       console.warn("[apiz-generation-record-refresh-failed]", record.taskId, error.message || error);
+      return record;
+    }
+  }
+  if (record.upstreamSource === "gateway") {
+    if (!shouldRefreshGenerationRecord(record)) return record;
+    try {
+      const queryTaskId = record.upstreamTaskId || record.taskId;
+      const task = await gatewayQueryTask(queryTaskId);
+      const media = isSucceededStatus(task.status) && task.videoUrl && !record.localVideoUrl
+        ? await maybeDownloadApizVideo(record, task.videoUrl)
+        : {};
+      return await upsertAndSettleGenerationRecord({
+        taskId: record.taskId,
+        upstreamTaskId: task.taskId || queryTaskId,
+        status: task.status || record.status || "unknown",
+        remoteVideoUrl: task.videoUrl || record.remoteVideoUrl || "",
+        videoUrl: media.cdnVideoUrl || media.localVideoUrl || task.videoUrl || record.videoUrl || "",
+        localVideoUrl: media.localVideoUrl || record.localVideoUrl || "",
+        localVideoPath: media.localVideoPath || record.localVideoPath || "",
+        localPosterUrl: media.localPosterUrl || record.localPosterUrl || "",
+        localPosterPath: media.localPosterPath || record.localPosterPath || "",
+        posterUrl: media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || "",
+        cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
+        cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
+        cdnError: media.cdnError || record.cdnError || "",
+        error: task.error || media.downloadError || record.error || "",
+        queryResponse: task.raw,
+        completedAt: isSucceededStatus(task.status) ? (record.completedAt || new Date().toISOString()) : record.completedAt || "",
+      }, "gateway-query");
+    } catch (error) {
+      console.warn("[gateway-generation-record-refresh-failed]", record.taskId, error.message || error);
       return record;
     }
   }
@@ -4532,6 +4594,68 @@ function collectOutputImageUrls(task) {
   return direct.length ? direct : collectImageUrls(output);
 }
 
+async function gatewayRequest(method, pathname, body = null) {
+  if (!UPSTREAM_API_TOKEN) {
+    const error = new Error("Gateway upstream token is not configured.");
+    error.statusCode = 503;
+    error.code = "GATEWAY_TOKEN_NOT_CONFIGURED";
+    throw error;
+  }
+  const response = await fetch(`${UPSTREAM_BASE_URL}${pathname}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${UPSTREAM_API_TOKEN}`,
+      accept: "application/json",
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { ok: false, message: text };
+  }
+  if (!response.ok || payload.ok === false || payload.code >= 400) {
+    const error = new Error(payload.message || payload.detail || `Gateway upstream request failed: ${response.status}`);
+    error.statusCode = response.status || 502;
+    error.code = payload.code || "GATEWAY_UPSTREAM_FAILED";
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function gatewayTaskFromPayload(payload = {}) {
+  const record = payload.record || payload.data?.record || {};
+  const task = payload.task || payload.data?.task || record || payload;
+  return {
+    taskId: record.taskId || task.taskId || payload.taskId || payload.data?.taskId || "",
+    upstreamTaskId: record.upstreamTaskId || task.upstreamTaskId || "",
+    status: record.status || task.status || "submitted",
+    videoUrl: record.videoUrl || task.videoUrl || findVideoUrl(payload) || "",
+    error: record.error || task.error || payload.error || "",
+    record,
+    raw: payload,
+  };
+}
+
+async function gatewaySubmitPlatformTask(body = {}) {
+  const payload = await gatewayRequest("POST", "/api/platform/generate", body);
+  return gatewayTaskFromPayload(payload);
+}
+
+async function gatewaySubmitAdvancedTask(body = {}) {
+  const payload = await gatewayRequest("POST", "/api/advanced/generate", body);
+  return gatewayTaskFromPayload(payload);
+}
+
+async function gatewayQueryTask(taskId) {
+  const payload = await gatewayRequest("GET", `/api/generation-records/${encodeURIComponent(taskId)}`);
+  return gatewayTaskFromPayload(payload);
+}
+
 function apizTaskId(task = {}) {
   return task.task_id || task.taskId || task.id || task.data?.task_id || task.data?.id || "";
 }
@@ -4971,8 +5095,28 @@ async function runPlatformGenerationJob(job = {}) {
       error: "",
     }, "platform-submitting");
 
-    const task = await apizRequest("/api/v3/tasks/create", upstreamPayload);
-    const upstreamTaskId = apizTaskId(task);
+    const gatewayBody = {
+      templateId,
+      prompt,
+      params: upstreamPayload?.params || {},
+    };
+    if (USE_GATEWAY_UPSTREAM && userAssetId) {
+      const db = await readDb();
+      const asset = (db.userAssets || []).find((entry) => entry.id === userAssetId && entry.userId === userId && !isSoftDeleted(entry));
+      if (!asset) {
+        const error = new Error("Reference image not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      gatewayBody.dataUrl = await dataUrlForUserAsset(asset);
+      gatewayBody.fileName = asset.name || "";
+    } else if (userAssetId) {
+      gatewayBody.userAssetId = userAssetId;
+    }
+    const task = USE_GATEWAY_UPSTREAM
+      ? await gatewaySubmitPlatformTask(gatewayBody)
+      : await apizRequest("/api/v3/tasks/create", upstreamPayload);
+    const upstreamTaskId = USE_GATEWAY_UPSTREAM ? task.taskId : apizTaskId(task);
     if (!upstreamTaskId) {
       const error = new Error(`Generation service did not return task id: ${JSON.stringify(task)}`);
       error.statusCode = 502;
@@ -4983,9 +5127,10 @@ async function runPlatformGenerationJob(job = {}) {
       taskId,
       upstreamTaskId,
       awaitingUpstreamTask: false,
-      status: apizStatus(task),
+      status: USE_GATEWAY_UPSTREAM ? task.status : apizStatus(task),
       model: upstreamPayload.model,
       provider: "apiz",
+      upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
       source: "platform-template",
       kind: platformRecordKind({ type: templateType }),
       templateId,
@@ -5013,13 +5158,23 @@ async function runPlatformGenerationJob(job = {}) {
       billingSettledAt: "",
       billingError: "",
       createResponse: task,
-      createReportedCredits: extractApizReportedCredits(task),
-      remoteVideoUrl: apizResultUrl(task),
+      createReportedCredits: USE_GATEWAY_UPSTREAM ? null : extractApizReportedCredits(task),
+      remoteVideoUrl: USE_GATEWAY_UPSTREAM ? task.videoUrl : apizResultUrl(task),
       localVideoUrl: "",
       error: "",
       submittedAt: new Date().toISOString(),
     });
-    await settleApizGenerationRecord(record, task, "create");
+    if (USE_GATEWAY_UPSTREAM) {
+      if (isSucceededStatus(record.status) || isFailedStatus(record.status)) {
+        await settleApizGenerationRecord(record, {
+          status: record.status,
+          videoUrl: task.videoUrl,
+          error: task.error,
+        }, "create");
+      }
+    } else {
+      await settleApizGenerationRecord(record, task, "create");
+    }
   } catch (error) {
     console.warn("[platform-generation-job-error]", taskId, error.message || error);
     try {
@@ -5346,13 +5501,18 @@ async function runAdvancedGenerationJob(job = {}) {
 
     if (userAsset) {
       if (provider === "seedance") {
-        const prepared = await prepareSeedanceReferenceAsset(db, userAsset, false);
-        userAsset = prepared.asset;
-        referenceAssetUri = prepared.referenceAssetUri;
-        imageUrl = prepared.imageUrl;
-        sourceImageUrl = prepared.sourceImageUrl;
-        syntheticReferenceLocalUrl = userAsset.syntheticReferenceLocalUrl || "";
-        syntheticReferenceUrl = userAsset.syntheticReferenceUrl || "";
+        if (USE_GATEWAY_UPSTREAM) {
+          imageUrl = userAsset.localUrl || userAsset.publicUrl || "";
+          sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
+        } else {
+          const prepared = await prepareSeedanceReferenceAsset(db, userAsset, false);
+          userAsset = prepared.asset;
+          referenceAssetUri = prepared.referenceAssetUri;
+          imageUrl = prepared.imageUrl;
+          sourceImageUrl = prepared.sourceImageUrl;
+          syntheticReferenceLocalUrl = userAsset.syntheticReferenceLocalUrl || "";
+          syntheticReferenceUrl = userAsset.syntheticReferenceUrl || "";
+        }
       } else {
         userAsset = await ensurePublicUrlForUserAsset(db, userAsset);
         imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
@@ -5360,7 +5520,16 @@ async function runAdvancedGenerationJob(job = {}) {
       }
     }
     if (provider === "seedance") {
-      const primaryMediaAsset = referenceAssetUri ? [{
+      const primaryMediaAsset = USE_GATEWAY_UPSTREAM && userAsset ? [{
+        type: "reference_image",
+        key: "primary",
+        userAssetId: userAsset.id,
+        referenceAssetUri: "",
+        imageUrl,
+        sourceImageUrl,
+        localUrl: userAsset.localUrl || "",
+        mime: userAsset.mime || "",
+      }] : referenceAssetUri ? [{
         type: "reference_image",
         key: "primary",
         userAssetId: userAsset?.id || "",
@@ -5372,6 +5541,20 @@ async function runAdvancedGenerationJob(job = {}) {
       }] : [];
       const extraMediaAssets = [];
       for (let index = 0; index < extraUserAssets.length; index += 1) {
+        if (USE_GATEWAY_UPSTREAM) {
+          const asset = extraUserAssets[index];
+          extraMediaAssets.push({
+            type: "reference_image",
+            key: `extra_${index + 1}`,
+            userAssetId: asset?.id || "",
+            referenceAssetUri: "",
+            imageUrl: asset?.localUrl || asset?.publicUrl || "",
+            sourceImageUrl: asset?.sourceImageUrl || asset?.localUrl || "",
+            localUrl: asset?.localUrl || "",
+            mime: asset?.mime || "",
+          });
+          continue;
+        }
         const prepared = await prepareSeedanceReferenceAsset(db, extraUserAssets[index], false);
         if (!prepared.referenceAssetUri || prepared.referenceAssetUri === referenceAssetUri || extraReferenceAssetUris.includes(prepared.referenceAssetUri)) continue;
         extraReferenceAssetUris.push(prepared.referenceAssetUri);
@@ -5421,7 +5604,50 @@ async function runAdvancedGenerationJob(job = {}) {
 
     const config = job.config || await readAppConfig();
     let task = null;
-    if (provider === "wan27") {
+    if (USE_GATEWAY_UPSTREAM) {
+      const gatewayBody = {
+        caseId,
+        provider,
+        prompt,
+        ratio: requestParams.ratio,
+        resolution: requestParams.resolution,
+        duration: requestParams.duration,
+        generateAudio: requestParams.generateAudio,
+        mediaMode: provider === "wan27" ? resolvedWan27MediaMode : undefined,
+        seed: requestParams.seed || undefined,
+      };
+      if (provider === "wan27") {
+        const dbForGateway = await readDb();
+        const assetMap = new Map((dbForGateway.userAssets || []).map((asset) => [asset.id, asset]));
+        for (const item of resolvedWan27Media) {
+          const asset = item.userAssetId ? assetMap.get(item.userAssetId) : null;
+          if (asset) {
+            gatewayBody[`${item.key}DataUrl`] = await dataUrlForUserAsset(asset);
+            gatewayBody[`${item.key}FileName`] = asset.name || "";
+          } else if (item.url) {
+            gatewayBody[`${item.key}Url`] = item.url;
+          }
+        }
+      } else {
+        const dbForGateway = await readDb();
+        const assetMap = new Map((dbForGateway.userAssets || []).map((asset) => [asset.id, asset]));
+        const referenceImages = [];
+        for (const item of seedanceMediaAssets) {
+          const asset = item.userAssetId ? assetMap.get(item.userAssetId) : null;
+          if (asset) {
+            referenceImages.push({
+              dataUrl: await dataUrlForUserAsset(asset),
+              fileName: asset.name || "",
+              name: asset.name || "Reference",
+            });
+          }
+        }
+        if (referenceImages.length) gatewayBody.referenceImages = referenceImages;
+      }
+      task = await gatewaySubmitAdvancedTask(gatewayBody);
+      payload = gatewayBody;
+      createResponse = task.raw;
+    } else if (provider === "wan27") {
       if (!resolvedWan27Media.length) {
         const error = new Error("Wan2.7 requires media input.");
         error.statusCode = 400;
@@ -5470,6 +5696,7 @@ async function runAdvancedGenerationJob(job = {}) {
       awaitingUpstreamTask: false,
       model: runtime.model,
       provider: runtime.providerName,
+      upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
       source: runtime.recordSource,
       kind: "advanced-video",
       imageUrl,
@@ -5530,10 +5757,13 @@ async function handleAdvancedGenerate(req, res) {
   const selectedCase = cases.find((item) => item.id === String(body.caseId || "").trim());
   const caseParams = selectedCase?.params && typeof selectedCase.params === "object" ? selectedCase.params : {};
   const provider = normalizeAdvancedProvider(body.provider || selectedCase?.provider || caseParams.provider || caseParams.modelProvider || caseParams.model_provider);
-  if (provider === "seedance" && !ARK_API_KEY) {
+  if (USE_GATEWAY_UPSTREAM && !UPSTREAM_API_TOKEN) {
+    return sendJson(res, 503, { ok: false, code: "GATEWAY_TOKEN_NOT_CONFIGURED", message: "Gateway upstream token is not configured." });
+  }
+  if (!USE_GATEWAY_UPSTREAM && provider === "seedance" && !ARK_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Seedance generation is not configured." });
   }
-  if (provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 generation is not configured." });
   }
   const prompt = String(body.prompt || selectedCase?.prompt || caseParams.prompt || "").trim();
@@ -6340,15 +6570,19 @@ async function handleModelsMarkdown(req, res) {
 async function refreshApizGenerationRecord(record) {
   if (record.provider !== "apiz") return record;
   const queryTaskId = record.upstreamTaskId || record.taskId;
-  const task = await apizRequest("/api/v3/tasks/query", { task_id: queryTaskId });
-  const resultUrl = apizResultUrl(task);
-  const media = isSucceededStatus(apizStatus(task)) && !record.localVideoUrl
+  const gatewayTask = record.upstreamSource === "gateway"
+    ? await gatewayQueryTask(queryTaskId)
+    : null;
+  const task = gatewayTask ? gatewayTask.raw : await apizRequest("/api/v3/tasks/query", { task_id: queryTaskId });
+  const status = gatewayTask ? gatewayTask.status : apizStatus(task);
+  const resultUrl = gatewayTask ? gatewayTask.videoUrl : apizResultUrl(task);
+  const media = isSucceededStatus(status) && !record.localVideoUrl
     ? await maybeDownloadApizVideo(record, resultUrl)
     : {};
   const nextRecord = await upsertGenerationRecord({
     taskId: record.taskId,
-    upstreamTaskId: apizTaskId(task) || queryTaskId,
-    status: apizStatus(task),
+    upstreamTaskId: gatewayTask?.taskId || apizTaskId(task) || queryTaskId,
+    status,
     remoteVideoUrl: resultUrl || record.remoteVideoUrl || "",
     videoUrl: media.cdnVideoUrl || media.localVideoUrl || resultUrl || record.videoUrl || "",
     localVideoUrl: media.localVideoUrl || record.localVideoUrl || "",
@@ -6359,7 +6593,7 @@ async function refreshApizGenerationRecord(record) {
     cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
     cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
     cdnError: media.cdnError || record.cdnError || "",
-    error: task.error?.message || task.error || task.message || media.downloadError || "",
+    error: gatewayTask?.error || task.error?.message || task.error || task.message || media.downloadError || "",
     queryResponse: task,
   });
   return settleApizGenerationRecord(nextRecord, task, "query");
@@ -9242,11 +9476,17 @@ async function handleGetGenerationRecord(req, res, taskId) {
   let nextRecord = record;
   if (needsSeedanceFailureRefund(record)) {
     nextRecord = await settleSeedanceGenerationRecord(record, "detail");
-  } else if (record.provider === "apiz" && APIZ_API_KEY && shouldRefreshGenerationRecord(record)) {
+  } else if (record.provider === "apiz" && (APIZ_API_KEY || record.upstreamSource === "gateway") && shouldRefreshGenerationRecord(record)) {
     try {
       nextRecord = await refreshApizGenerationRecord(record);
     } catch (error) {
       console.warn("[apiz-generation-record-refresh-failed]", taskId, error.message || error);
+    }
+  } else if (record.upstreamSource === "gateway" && shouldRefreshGenerationRecord(record)) {
+    try {
+      nextRecord = await refreshGenerationRecordStatus(record);
+    } catch (error) {
+      console.warn("[gateway-generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
   } else if (record.provider === "aliyun-wan27" && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(record)) {
     try {
@@ -9809,10 +10049,12 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/health") {
       return sendJson(res, 200, {
         ok: true,
-        arkConfigured: Boolean(ARK_API_KEY),
-        aliyunConfigured: Boolean(ALIYUN_DASHSCOPE_API_KEY),
-        generationConfigured: Boolean(APIZ_API_KEY),
-        baseUrl: ARK_BASE_URL,
+        upstreamMode: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
+        gatewayConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : false,
+        arkConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ARK_API_KEY),
+        aliyunConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ALIYUN_DASHSCOPE_API_KEY),
+        generationConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(APIZ_API_KEY),
+        baseUrl: USE_GATEWAY_UPSTREAM ? UPSTREAM_BASE_URL : ARK_BASE_URL,
         models: { fast: MODEL_FAST, quality: MODEL_QUALITY, wan27: ALIYUN_WAN27_MODEL },
       });
     }
@@ -10191,6 +10433,7 @@ async function bootstrap() {
 
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
+    console.log(`Upstream mode: ${USE_GATEWAY_UPSTREAM ? "gateway" : "direct"}`);
     console.log(`Ark configured: ${ARK_API_KEY ? "yes" : "no"}`);
     console.log(`Database configured: ${DATABASE_URL ? "yes" : "no"}`);
   });
