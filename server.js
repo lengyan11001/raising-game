@@ -1425,6 +1425,7 @@ function userView(user) {
     username: user.username,
     role: user.role || "user",
     credits: Number(user.credits || 0),
+    apiToken: String(user.apiToken || ""),
     pricingMultiplier: normalizeUserPricingMultiplier(user),
     advancedAccess: user.advancedAccess === true,
     advancedAccessLevel: user.advancedAccess === true ? "advanced" : "platform",
@@ -1720,6 +1721,19 @@ function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
 }
 
+function makeApiToken() {
+  return `sk-${crypto.randomBytes(32).toString("hex")}`;
+}
+
+function ensureUserApiToken(user) {
+  if (!user) return "";
+  if (!user.apiToken) {
+    user.apiToken = makeApiToken();
+    user.updatedAt = new Date().toISOString();
+  }
+  return user.apiToken;
+}
+
 function getBearerToken(req) {
   const auth = req.headers.authorization || "";
   const match = auth.match(/^Bearer\s+(.+)$/i);
@@ -1741,9 +1755,12 @@ async function getAuth(req) {
   if (!token) return { db: await readDb(), user: null, session: null };
   const db = await readDb();
   const session = db.sessions.find((item) => item.token === token);
-  if (!session) return { db, user: null, session: null };
-  const user = db.users.find((item) => item.id === session.userId) || null;
-  return { db, user, session };
+  if (session) {
+    const user = db.users.find((item) => item.id === session.userId) || null;
+    return { db, user, session };
+  }
+  const user = db.users.find((item) => item.apiToken === token) || null;
+  return { db, user, session: null };
 }
 
 async function requireUser(req, res) {
@@ -7154,6 +7171,7 @@ async function handleRegister(req, res) {
     passwordHash: hashPassword(password),
     role: db.users.length === 0 ? "admin" : "user",
     credits: 0,
+    apiToken: makeApiToken(),
     createdAt: now,
     updatedAt: now,
   };
@@ -7174,6 +7192,7 @@ async function handleLogin(req, res) {
     return sendJson(res, 401, { ok: false, message: "Wrong username or password." });
   }
 
+  ensureUserApiToken(user);
   const token = crypto.randomBytes(32).toString("hex");
   db.sessions.push({ token, userId: user.id, createdAt: new Date().toISOString() });
   await writeDb(db);
@@ -7182,6 +7201,10 @@ async function handleLogin(req, res) {
 
 async function handleMe(req, res) {
   const auth = await getAuth(req);
+  if (auth.user && !auth.user.apiToken) {
+    ensureUserApiToken(auth.user);
+    await writeDb(auth.db);
+  }
   return sendJson(res, 200, { ok: true, user: userView(auth.user) });
 }
 
@@ -9573,6 +9596,13 @@ async function handleAdminUpdateUser(req, res, userId) {
       return sendJson(res, 400, { ok: false, message: "价格折扣比例必须大于 0，且不超过 100。" });
     }
     user.pricingMultiplier = normalizeUserPricingMultiplier(nextMultiplier);
+    changed = true;
+  }
+  if (body.regenerateApiToken === true) {
+    user.apiToken = makeApiToken();
+    changed = true;
+  } else if (!user.apiToken) {
+    ensureUserApiToken(user);
     changed = true;
   }
   if (changed) {

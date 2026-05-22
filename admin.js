@@ -119,6 +119,13 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function maskMiddle(value = "") {
+  const text = String(value || "");
+  if (!text) return "—";
+  if (text.length <= 16) return `${text.slice(0, 4)}...${text.slice(-4)}`;
+  return `${text.slice(0, 10)}...${text.slice(-8)}`;
+}
+
 function fmtDate(value) {
   if (!value) return "—";
   const d = new Date(value);
@@ -2048,13 +2055,14 @@ async function renderUsers() {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-user-table">
-            <thead><tr><th>账号</th><th>角色</th><th>积分</th><th>折扣</th><th>高级生成</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
+            <thead><tr><th>账号</th><th>角色</th><th>积分</th><th>API Token</th><th>折扣</th><th>高级生成</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
                 <tr data-id="${escapeHtml(u.id)}">
                   <td><strong>${escapeHtml(u.username)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(u.id)}</span></td>
                   <td><span class="adm-pill ${u.role === "admin" ? "is-admin" : ""}">${escapeHtml(u.role)}</span></td>
                   <td><strong>${escapeHtml(u.credits)}</strong></td>
+                  <td><span class="adm-muted adm-mono">${escapeHtml(maskMiddle(u.apiToken || ""))}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.pricingMultiplier))}</span></td>
                   <td>${u.advancedAccess ? '<span class="adm-pill is-success">已开通</span>' : u.advancedAccessRequestedAt ? '<span class="adm-pill is-pending">待审核</span>' : '<span class="adm-muted">未申请</span>'}</td>
                   <td>${escapeHtml(u.customCharacters || 0)}</td>
@@ -2095,6 +2103,7 @@ function openEditUserDialog(id, users) {
     </select></div>
     <div class="adm-form-row"><span>积分（直接设定）</span><input id="editCredits" type="number" min="0" value="${escapeHtml(user.credits)}" /></div>
     <div class="adm-form-row"><span>积分增减（可选）</span><input id="editCreditsDelta" type="number" placeholder="例如 +50 或 -10" /></div>
+    <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
     <div class="adm-form-row"><span>价格折扣比例</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">1 = 原价，0.9 = 九折，1.1 = 加价 10%。用于高级生成和首页广场生成的展示与最终扣费。</small></div>
     <div class="adm-form-row"><span>高级生成权限</span><label class="adm-flex" style="gap:8px;align-items:center;"><input id="editAdvancedAccess" type="checkbox" ${user.advancedAccess ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">${user.advancedAccessRequestedAt ? `用户已申请：${fmtDate(user.advancedAccessRequestedAt)}` : "用户未申请，也可手动开通"}</span></label></div>
   `;

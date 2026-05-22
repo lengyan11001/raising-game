@@ -2429,13 +2429,14 @@ function maskToken(token = "") {
 }
 
 function currentTokenLabel(showFull = false) {
-  if (!state.token || !state.user) return t("access.tokenLogin");
-  return showFull ? state.token : maskToken(state.token);
+  const token = state.user?.apiToken || "";
+  if (!state.token || !state.user || !token) return t("access.tokenLogin");
+  return showFull ? token : maskToken(token);
 }
 
 function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
-  const token = state.token && state.user ? state.token : "<user-token>";
-  const tokenLabel = state.token && state.user ? (revealToken ? token : maskToken(token)) : "<user-token>";
+  const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
+  const tokenLabel = token !== "<user-token>" ? (revealToken ? token : maskToken(token)) : "<user-token>";
   return tenantScopedAccessText(copy || PUBLIC_COPY.accessCopy).replaceAll("<user-token>", tokenLabel);
 }
 
@@ -2457,7 +2458,7 @@ function renderTokenDisplays() {
     els.toggleAccessTokenBtn.disabled = !state.token || !state.user;
   }
   if (els.copyTokenBtn) {
-    els.copyTokenBtn.disabled = !state.token || !state.user;
+    els.copyTokenBtn.disabled = !state.token || !state.user?.apiToken;
   }
   if (els.accountName) els.accountName.textContent = state.user?.username || t("account.title");
   if (els.accountCredits) els.accountCredits.textContent = String(Number(state.user?.credits || 0));
@@ -2465,10 +2466,10 @@ function renderTokenDisplays() {
   if (els.accountToken) els.accountToken.textContent = currentTokenLabel(state.showAccountToken);
   if (els.toggleAccountTokenBtn) {
     els.toggleAccountTokenBtn.textContent = state.showAccountToken ? t("common.hide") : t("common.showFull");
-    els.toggleAccountTokenBtn.disabled = !state.token || !state.user;
+    els.toggleAccountTokenBtn.disabled = !state.token || !state.user?.apiToken;
   }
   if (els.copyAccountTokenBtn) {
-    els.copyAccountTokenBtn.disabled = !state.token || !state.user;
+    els.copyAccountTokenBtn.disabled = !state.token || !state.user?.apiToken;
   }
 }
 
@@ -2478,7 +2479,7 @@ function renderAccountMenu() {
     return;
   }
   if (els.menuLoginBtn) els.menuLoginBtn.hidden = Boolean(state.user);
-  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user;
+  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user?.apiToken;
   if (els.menuLogoutBtn) els.menuLogoutBtn.disabled = !state.user;
 }
 
@@ -4890,8 +4891,8 @@ els.toggleAccessTokenBtn?.addEventListener("click", () => {
   renderAccessGuides();
 });
 els.copyTokenBtn?.addEventListener("click", async () => {
-  if (!state.token || !state.user) return openLogin();
-  await navigator.clipboard.writeText(state.token);
+  if (!state.token || !state.user?.apiToken) return openLogin();
+  await navigator.clipboard.writeText(state.user.apiToken);
   els.copyTokenBtn.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("common.copiedToken"))}`;
   refreshIcons();
   setTimeout(() => {
@@ -4900,8 +4901,8 @@ els.copyTokenBtn?.addEventListener("click", async () => {
   }, 1600);
 });
 els.menuCopyTokenBtn?.addEventListener("click", async () => {
-  if (!state.token || !state.user) return openLogin();
-  await navigator.clipboard.writeText(state.token);
+  if (!state.token || !state.user?.apiToken) return openLogin();
+  await navigator.clipboard.writeText(state.user.apiToken);
   closeAccountMenu();
 });
 els.menuLoginBtn?.addEventListener("click", () => {
@@ -4913,8 +4914,8 @@ els.toggleAccountTokenBtn?.addEventListener("click", () => {
   renderTokenDisplays();
 });
 els.copyAccountTokenBtn?.addEventListener("click", async () => {
-  if (!state.token || !state.user) return openLogin();
-  await navigator.clipboard.writeText(state.token);
+  if (!state.token || !state.user?.apiToken) return openLogin();
+  await navigator.clipboard.writeText(state.user.apiToken);
   els.copyAccountTokenBtn.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("common.copied"))}`;
   refreshIcons();
   setTimeout(() => {
