@@ -2978,12 +2978,14 @@ function renderCategories() {
   });
 }
 
-function bindHoverPreviewCard({ card, video, cover, fallbackCover = DEFAULT_TEMPLATE_COVER } = {}) {
+function bindHoverPreviewCard({ card, video, cover, fallbackCover = DEFAULT_TEMPLATE_COVER, tapToPreview = false } = {}) {
   if (!card || !video) return;
   let active = false;
   let loadTimer = null;
   let retryTimer = null;
   let playbackToken = 0;
+  const isCoarsePointer = () => Boolean(window.matchMedia?.("(hover: none), (pointer: coarse)")?.matches);
+  const isInteractiveTarget = (target) => Boolean(target?.closest?.("button, a, input, textarea, select, label"));
   const showVideo = () => {
     if (!active || video.readyState < 2) return;
     card.classList.remove("is-loading-preview");
@@ -3021,7 +3023,7 @@ function bindHoverPreviewCard({ card, video, cover, fallbackCover = DEFAULT_TEMP
     } catch (error) {}
     card.classList.remove("is-loading-preview", "is-previewing");
   };
-  const start = () => {
+  const start = ({ immediate = false } = {}) => {
     if (activeHoverPreviewStop && activeHoverPreviewStop !== stop) {
       activeHoverPreviewStop();
     }
@@ -3032,7 +3034,11 @@ function bindHoverPreviewCard({ card, video, cover, fallbackCover = DEFAULT_TEMP
     card.classList.add("is-loading-preview");
     clearTimeout(loadTimer);
     clearTimeout(retryTimer);
-    loadTimer = window.setTimeout(() => requestPlay(token), 180);
+    if (immediate) {
+      requestPlay(token);
+    } else {
+      loadTimer = window.setTimeout(() => requestPlay(token), 180);
+    }
   };
   video.addEventListener("loadeddata", showVideo);
   video.addEventListener("canplay", showVideo);
@@ -3061,10 +3067,20 @@ function bindHoverPreviewCard({ card, video, cover, fallbackCover = DEFAULT_TEMP
       cover.src = fallbackCover;
     }
   });
-  card.addEventListener("pointerenter", start);
+  card.addEventListener("pointerenter", () => {
+    if (tapToPreview && isCoarsePointer()) return;
+    start();
+  });
   card.addEventListener("pointerleave", stop);
   card.addEventListener("focusin", start);
   card.addEventListener("focusout", stop);
+  if (tapToPreview) {
+    card.addEventListener("click", (event) => {
+      if (!isCoarsePointer() || isInteractiveTarget(event.target)) return;
+      event.preventDefault();
+      start({ immediate: true });
+    });
+  }
 }
 
 function renderTemplates() {
@@ -3111,6 +3127,7 @@ function renderTemplates() {
       video,
       cover,
       fallbackCover: DEFAULT_TEMPLATE_COVER,
+      tapToPreview: true,
     });
   });
   refreshIcons();
