@@ -655,7 +655,30 @@ async function ensureSceneEntriesPersisted(config) {
   return nextConfig;
 }
 
-function publicConfig(config) {
+function scopedApiUrl(origin, pathname = "/") {
+  const base = String(origin || "").replace(/\/+$/, "");
+  if (!base) return pathname;
+  const pathValue = String(pathname || "/");
+  const normalizedPath = pathValue.startsWith("/") ? pathValue : `/${pathValue}`;
+  return `${base}${normalizedPath}`;
+}
+
+function tenantScopedAccessCopy(copy = "", origin = "") {
+  const text = String(copy || "");
+  const base = String(origin || "").replace(/\/+$/, "");
+  if (!base) return text;
+  const legacyOriginPattern = new RegExp(["https?:\\/\\/(?:www\\.|api\\.)?", "123", "vips\\.com"].join(""), "gi");
+  return text
+    .replace(legacyOriginPattern, base)
+    .replace(/\b(POST|GET|PUT|PATCH|DELETE)\s+(\/api\/[^\s]+)/gi, (_match, method, pathname) => {
+      return `${String(method).toUpperCase()} ${scopedApiUrl(base, pathname)}`;
+    })
+    .replace(/(^|[\s(["'`])((?:\/api\/)[^\s"'`),.]+)/g, (_match, prefix, pathname) => {
+      return `${prefix}${scopedApiUrl(base, pathname)}`;
+    });
+}
+
+function publicConfig(config, origin = "") {
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const platform = normalizePlatformConfig(config.platform || {});
   return {
@@ -681,6 +704,7 @@ function publicConfig(config) {
     },
     platform: {
       ...platform,
+      accessCopy: tenantScopedAccessCopy(platform.accessCopy, origin),
       advancedPricing: {
         unit: "credits",
         creditsPerCny: ADVANCED_CREDITS_PER_CNY,
@@ -10065,7 +10089,7 @@ async function handleRequest(req, res) {
         arkConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ARK_API_KEY),
         aliyunConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ALIYUN_DASHSCOPE_API_KEY),
         generationConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(APIZ_API_KEY),
-        baseUrl: USE_GATEWAY_UPSTREAM ? UPSTREAM_BASE_URL : ARK_BASE_URL,
+        baseUrl: publicOriginFromRequest(req),
         models: { fast: MODEL_FAST, quality: MODEL_QUALITY, wan27: ALIYUN_WAN27_MODEL },
       });
     }
@@ -10074,7 +10098,7 @@ async function handleRequest(req, res) {
       let config = await readAppConfig();
       config = await ensureSceneEntriesPersisted(config);
       config = await refreshCompletedHomeVideoItems(config);
-      return sendJson(res, 200, { ok: true, config: publicConfig(config) });
+      return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req)) });
     }
 
     if (req.method === "GET" && url.pathname === "/api/models") {

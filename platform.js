@@ -1581,7 +1581,27 @@ const PUBLIC_COPY = {
 
 let ACCESS_GUIDES = [];
 
-const LIVE_HTTP_ACCESS_COPY = `POST https://123vips.com/api/platform/generate
+const rawApiOrigin = String(window.location?.origin || "").replace(/\/+$/, "");
+const API_ORIGIN = rawApiOrigin && rawApiOrigin !== "null" ? rawApiOrigin : "";
+const LEGACY_API_ORIGIN_RE = new RegExp(["https?:\\/\\/(?:www\\.|api\\.)?", "123", "vips\\.com"].join(""), "gi");
+
+function apiUrl(path = "/") {
+  const normalizedPath = String(path || "/").startsWith("/") ? String(path || "/") : `/${path}`;
+  return `${API_ORIGIN}${normalizedPath}`;
+}
+
+function tenantScopedAccessText(text = "") {
+  return String(text || "")
+    .replace(LEGACY_API_ORIGIN_RE, API_ORIGIN)
+    .replace(/\b(POST|GET|PUT|PATCH|DELETE)\s+(\/api\/[^\s]+)/gi, (_match, method, path) => {
+      return `${String(method).toUpperCase()} ${apiUrl(path)}`;
+    })
+    .replace(/(^|[\s(["'`])((?:\/api\/)[^\s"'`),.]+)/g, (_match, prefix, path) => {
+      return `${prefix}${apiUrl(path)}`;
+    });
+}
+
+const LIVE_HTTP_ACCESS_COPY = `POST ${apiUrl("/api/platform/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
@@ -1595,7 +1615,7 @@ Gallery template:
 }
 
 Advanced default Wan2.7:
-POST https://123vips.com/api/advanced/generate
+POST ${apiUrl("/api/advanced/generate")}
 {
   "provider": "wan27",
   "prompt": "your prompt",
@@ -1605,7 +1625,7 @@ POST https://123vips.com/api/advanced/generate
 }
 
 Advanced Seedance:
-POST https://123vips.com/api/advanced/generate
+POST ${apiUrl("/api/advanced/generate")}
 {
   "provider": "seedance",
   "prompt": "your prompt",
@@ -1634,7 +1654,7 @@ const advancedBody = {
   duration: 5
 };
 
-const res = await fetch("https://123vips.com/api/advanced/generate", {
+const res = await fetch("${apiUrl("/api/advanced/generate")}", {
   method: "POST",
   headers: {
     authorization: \`Bearer \${token}\`,
@@ -1667,7 +1687,7 @@ advanced_payload = {
 }
 
 resp = requests.post(
-    "https://123vips.com/api/advanced/generate",
+    "${apiUrl("/api/advanced/generate")}",
     headers={"Authorization": f"Bearer {token}"},
     json=advanced_payload,
     timeout=120,
@@ -1677,12 +1697,12 @@ print(resp.json())
 # Important: returned video URLs may expire after 24 hours.
 # Download and save successful videos promptly.`;
 
-const CLI_ACCESS_COPY = `curl -X POST "https://123vips.com/api/platform/generate" \\
+const CLI_ACCESS_COPY = `curl -X POST "${apiUrl("/api/platform/generate")}" \\
   -H "Authorization: Bearer <user-token>" \\
   -H "Content-Type: application/json" \\
   -d '{"templateId":"template-id","dataUrl":"data:image/png;base64,...","prompt":""}'
 
-curl -X POST "https://123vips.com/api/advanced/generate" \\
+curl -X POST "${apiUrl("/api/advanced/generate")}" \\
   -H "Authorization: Bearer <user-token>" \\
   -H "Content-Type: application/json" \\
   -d '{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}'
@@ -1693,29 +1713,29 @@ const AGENT_ACCESS_COPY = `Use this video API:
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
 
 Gallery templates:
-POST https://123vips.com/api/platform/generate
+POST ${apiUrl("/api/platform/generate")}
 Authorization: Bearer <user-token>
 Body:
 {"templateId":"template-id","dataUrl":"data:image/png;base64,...","prompt":""}
 
 Advanced direct generation:
-POST https://123vips.com/api/advanced/generate
+POST ${apiUrl("/api/advanced/generate")}
 Body:
 {"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}
 or:
 {"provider":"seedance","prompt":"your prompt","referenceImages":[{"dataUrl":"data:image/png;base64,...","fileName":"reference-1.png"},{"dataUrl":"data:image/png;base64,...","fileName":"reference-2.png"}],"resolution":"720p","duration":5}
 
 Check records:
-GET https://123vips.com/api/generation-records`;
+GET ${apiUrl("/api/generation-records")}`;
 
 const MCP_ACCESS_COPY = `MCP wrapper target:
-POST https://123vips.com/api/platform/generate
+POST ${apiUrl("/api/platform/generate")}
 Authorization: Bearer <user-token>
 Input:
 {"templateId":"string","dataUrl":"string","prompt":"string"}
 
 Advanced MCP wrapper target:
-POST https://123vips.com/api/advanced/generate
+POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
 {"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"dataUrl":"data:image/png;base64,...","fileName":"reference-1.png"}],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
@@ -2133,7 +2153,7 @@ function accessFieldTable(rows = []) {
     <div class="access-doc-table">
       ${rows.map(([name, desc]) => `
         <div class="access-doc-row">
-          <strong>${escapeHtml(name)}</strong>
+          <strong>${escapeHtml(tenantScopedAccessText(name))}</strong>
           <span>${escapeHtml(desc)}</span>
         </div>
       `).join("")}
@@ -2305,7 +2325,7 @@ function currentTokenLabel(showFull = false) {
 function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
   const token = state.token && state.user ? state.token : "<user-token>";
   const tokenLabel = state.token && state.user ? (revealToken ? token : maskToken(token)) : "<user-token>";
-  return String(copy || PUBLIC_COPY.accessCopy).replaceAll("<user-token>", tokenLabel);
+  return tenantScopedAccessText(copy || PUBLIC_COPY.accessCopy).replaceAll("<user-token>", tokenLabel);
 }
 
 function fullAccessCopy() {
@@ -3252,7 +3272,7 @@ function renderAccessGuides() {
         ].filter(Boolean))}
         <details class="access-doc-example" open>
           <summary>Example</summary>
-          <pre>${escapeHtml(doc.example)}</pre>
+          <pre>${escapeHtml(tenantScopedAccessText(doc.example))}</pre>
         </details>
       </article>
     `;
