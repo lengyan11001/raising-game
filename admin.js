@@ -2173,50 +2173,64 @@ async function renderWallet() {
     <section class="adm-page">
       <div class="adm-page-head">
         <div>
-          <h2>钱包订单</h2>
-          <p class="adm-muted">USDT 充值订单列表。把订单标记为「paid」会同步把对应金额加到用户积分。</p>
+          <h2>Wallet Orders</h2>
+          <p class="adm-muted">USDT top-up orders. Auto scan matches chain, address, exact amount, transaction hash and confirmations.</p>
         </div>
+        <button class="adm-btn adm-btn-primary" id="scanWalletOrdersBtn" type="button"><i data-lucide="radar"></i>Scan chain</button>
       </div>
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           ${orders.length ? `
             <table class="adm-table adm-wallet-table">
-              <thead><tr><th>订单</th><th>用户</th><th>充值</th><th>到账金额</th><th>地址</th><th>状态</th><th>时间</th><th class="adm-text-right">操作</th></tr></thead>
+              <thead><tr><th>Order</th><th>User</th><th>Top up</th><th>Pay exactly</th><th>Chain / Address</th><th>Transaction</th><th>Status</th><th>Time</th><th class="adm-text-right">Actions</th></tr></thead>
               <tbody>
                 ${orders.map((o) => `
                   <tr data-id="${escapeHtml(o.id)}">
                     <td class="adm-mono adm-truncate">${escapeHtml(o.id)}</td>
                     <td>${escapeHtml(o.username || o.userId)}</td>
-                    <td><strong>${escapeHtml(o.baseAmount)}</strong> ${escapeHtml(o.asset || "")}<br/><span class="adm-muted">${escapeHtml(o.paymentProvider || "manual")} · Credits: ${escapeHtml(o.creditAmount || 0)}</span></td>
+                    <td><strong>${escapeHtml(o.baseAmount)}</strong> ${escapeHtml(o.asset || "")}<br/><span class="adm-muted">${escapeHtml(o.paymentProvider || "manual")} &middot; Credits: ${escapeHtml(o.creditAmount || 0)}</span></td>
                     <td><strong>${escapeHtml(o.payableAmountText || "")}</strong></td>
-                    <td class="adm-mono adm-truncate">${escapeHtml(o.address || o.paypalOrderId || "—")}</td>
+                    <td class="adm-mono adm-truncate"><strong>${escapeHtml(o.network || o.chain || "-")}</strong><br/>${escapeHtml(o.address || o.paypalOrderId || "-")}</td>
+                    <td class="adm-mono adm-truncate">${o.transactionHash ? `${escapeHtml(o.transactionHash)}<br/><span class="adm-muted">${escapeHtml(o.confirmations || 0)} conf &middot; ${escapeHtml(o.scanSource || "")}</span>` : `<span class="adm-muted">Not matched</span>`}</td>
                     <td>${statusPill(o.status)}</td>
                     <td>${fmtDate(o.createdAt)}</td>
                     <td>
                       <div class="adm-row-actions">
-                        ${o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="mark-paid"><i data-lucide="check"></i>标为已到账</button>` : ""}
-                        ${o.status !== "cancelled" && o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="cancel-order"><i data-lucide="x"></i>取消</button>` : ""}
+                        ${o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="mark-paid"><i data-lucide="check"></i>Mark paid</button>` : ""}
+                        ${o.status !== "cancelled" && o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="cancel-order"><i data-lucide="x"></i>Cancel</button>` : ""}
                       </div>
                     </td>
                   </tr>`).join("")}
               </tbody>
             </table>
-          ` : `<div class="adm-empty"><i data-lucide="wallet"></i><p>暂无订单</p></div>`}
+          ` : `<div class="adm-empty"><i data-lucide="wallet"></i><p>No orders</p></div>`}
         </div>
       </div>
     </section>
   `;
   refreshIcons();
+  els.adminContent.querySelector("#scanWalletOrdersBtn")?.addEventListener("click", async () => {
+    const button = els.adminContent.querySelector("#scanWalletOrdersBtn");
+    button.disabled = true;
+    button.innerHTML = `<i data-lucide="loader-2"></i>Scanning`;
+    refreshIcons();
+    try {
+      const result = await api("/api/admin/wallet-orders/scan", { method: "POST" });
+      toast(`Scan done: matched ${result.matched || 0}, errors ${result.errors?.length || 0}`, result.errors?.length ? "warn" : "success");
+    } finally {
+      renderWallet();
+    }
+  });
   els.adminContent.querySelectorAll("tr[data-id]").forEach((tr) => {
     const id = tr.dataset.id;
     tr.querySelector('[data-act="mark-paid"]')?.addEventListener("click", async () => {
       await api(`/api/admin/wallet-orders/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: "paid" } });
-      toast("已标为到账，用户积分已增加。", "success");
+      toast("Marked paid and credits added.", "success");
       renderWallet();
     });
     tr.querySelector('[data-act="cancel-order"]')?.addEventListener("click", async () => {
       await api(`/api/admin/wallet-orders/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: "cancelled" } });
-      toast("订单已取消。", "success");
+      toast("Order cancelled.", "success");
       renderWallet();
     });
   });

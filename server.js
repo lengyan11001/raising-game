@@ -98,6 +98,25 @@ const PAYPAL_CNY_CENTS_PER_UNIT_ENV =
   process.env.USD_CNY_CENTS ||
   "";
 let paypalTokenCache = { accessToken: "", expiresAt: 0 };
+const WALLET_CHAIN_SCAN_ENABLED = !/^(0|false|no|off)$/i.test(String(process.env.WALLET_CHAIN_SCAN_ENABLED || "1"));
+const WALLET_CHAIN_SCAN_INTERVAL_MS = Math.max(15000, Number(process.env.WALLET_CHAIN_SCAN_INTERVAL_MS || 60000) || 60000);
+const WALLET_CHAIN_SCAN_ORDER_TTL_HOURS = Math.max(1, Number(process.env.WALLET_CHAIN_SCAN_ORDER_TTL_HOURS || 72) || 72);
+const WALLET_CHAIN_SCAN_LOOKBACK_LIMIT = Math.max(20, Math.min(500, Number(process.env.WALLET_CHAIN_SCAN_LOOKBACK_LIMIT || 120) || 120));
+const WALLET_EVM_CONFIRMATIONS = Math.max(1, Number(process.env.WALLET_EVM_CONFIRMATIONS || 12) || 12);
+const WALLET_SOLANA_CONFIRMATIONS = Math.max(1, Number(process.env.WALLET_SOLANA_CONFIRMATIONS || 32) || 32);
+const WALLET_TRON_CONFIRMATIONS = Math.max(1, Number(process.env.WALLET_TRON_CONFIRMATIONS || 1) || 1);
+const ETHERSCAN_API_KEY = String(process.env.ETHERSCAN_API_KEY || process.env.ETHERSCAN_V2_API_KEY || "").trim();
+const BSCSCAN_API_KEY = String(process.env.BSCSCAN_API_KEY || process.env.BSC_SCAN_API_KEY || "").trim();
+const BASESCAN_API_KEY = String(process.env.BASESCAN_API_KEY || process.env.BASE_SCAN_API_KEY || "").trim();
+const SOLANA_RPC_URL = String(process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com").trim();
+const TRONGRID_API_KEY = String(process.env.TRONGRID_API_KEY || process.env.TRON_GRID_API_KEY || "").trim();
+const WALLET_USDT_CONTRACTS = {
+  ethereum: String(process.env.WALLET_ETHEREUM_USDT_CONTRACT || "0xdAC17F958D2ee523a2206206994597C13D831ec7").trim(),
+  bnb: String(process.env.WALLET_BNB_USDT_CONTRACT || "0x55d398326f99059fF775485246999027B3197955").trim(),
+  base: String(process.env.WALLET_BASE_USDT_CONTRACT || "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2").trim(),
+  tron: String(process.env.WALLET_TRON_USDT_CONTRACT || "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t").trim(),
+  solana: String(process.env.WALLET_SOLANA_USDT_MINT || "Es9vMFrzaCERmJfrF4H2FYD4Sz7PZsrwLQomDpRg4E6B").trim(),
+};
 const GENERATION_PRICE_MARKUP = 1.2;
 const ADVANCED_SEEDANCE_FPS = clampNumber(process.env.ADVANCED_SEEDANCE_FPS, 24, 1, 120);
 const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS, 46, 0.0001, 100000);
@@ -1879,6 +1898,459 @@ function publicWalletOptions(wallet = {}) {
   }));
 }
 
+function normalizeWalletChain(network = "") {
+  const value = String(network || "").trim().toLowerCase();
+  if (!value) return "";
+  if (value.includes("bnb") || value.includes("bsc") || value.includes("binance")) return "bnb";
+  if (value.includes("sol")) return "solana";
+  if (value.includes("base")) return "base";
+  if (value.includes("eth") || value.includes("erc")) return "ethereum";
+  if (value.includes("tron") || value.includes("trc")) return "tron";
+  return value.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function normalizeChainAddress(address = "", chain = "") {
+  const value = String(address || "").trim();
+  return ["bnb", "base", "ethereum"].includes(chain) ? value.toLowerCase() : value;
+}
+
+function walletScanConfirmations(chain = "") {
+  if (chain === "solana") return WALLET_SOLANA_CONFIRMATIONS;
+  if (chain === "tron") return WALLET_TRON_CONFIRMATIONS;
+  return WALLET_EVM_CONFIRMATIONS;
+}
+
+function tokenUnitAmount(value, decimals = 6) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const negative = text.startsWith("-");
+  const clean = negative ? text.slice(1) : text;
+  const [wholeRaw, fractionRaw = ""] = clean.split(".");
+  const whole = wholeRaw.replace(/\D/g, "") || "0";
+  const fraction = fractionRaw.replace(/\D/g, "").padEnd(decimals, "0").slice(0, decimals);
+  try {
+    const units = BigInt(whole) * (10n ** BigInt(decimals)) + BigInt(fraction || "0");
+    return negative ? -units : units;
+  } catch {
+    return null;
+  }
+}
+
+function tokenAmountFromUnits(units, decimals = 6) {
+  let value;
+  try {
+    value = typeof units === "bigint" ? units : BigInt(String(units || "0"));
+  } catch {
+    value = 0n;
+  }
+  const negative = value < 0n;
+  if (negative) value = -value;
+  const base = 10n ** BigInt(decimals);
+  const whole = value / base;
+  const fraction = String(value % base).padStart(decimals, "0").replace(/0+$/, "");
+  return `${negative ? "-" : ""}${whole.toString()}${fraction ? `.${fraction}` : ""}`;
+}
+
+function normalizeTokenUnits(units, fromDecimals = 6, toDecimals = 6) {
+  let value;
+  try {
+    value = typeof units === "bigint" ? units : BigInt(String(units || "0"));
+  } catch {
+    value = 0n;
+  }
+  const from = Math.max(0, Number(fromDecimals || 0));
+  const to = Math.max(0, Number(toDecimals || 0));
+  if (from === to) return value;
+  if (from > to) return value / (10n ** BigInt(from - to));
+  return value * (10n ** BigInt(to - from));
+}
+
+function orderExpectedUnits(order = {}) {
+  return tokenUnitAmount(order.payableAmountText || order.payableAmount || order.baseAmount, 6);
+}
+
+function walletTransactionKey(chain = "", hash = "") {
+  return `${normalizeWalletChain(chain)}:${String(hash || "").trim().toLowerCase()}`;
+}
+
+function usedWalletTransactionKeys(db = {}) {
+  const keys = new Set();
+  (db.walletOrders || []).forEach((order) => {
+    const hash = order.transactionHash || order.txHash || order.hash || "";
+    if (hash) keys.add(walletTransactionKey(order.chain || order.network, hash));
+    if (Array.isArray(order.matchedTransactions)) {
+      order.matchedTransactions.forEach((tx) => {
+        if (tx?.hash) keys.add(walletTransactionKey(tx.chain || order.chain || order.network, tx.hash));
+      });
+    }
+  });
+  return keys;
+}
+
+function walletScanSupported(chain = "") {
+  return ["bnb", "base", "ethereum", "solana", "tron"].includes(normalizeWalletChain(chain));
+}
+
+async function scanFetchJson(url, { headers = {}, timeoutMs = 20000, method = "GET", body } = {}) {
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text.replace(/^\uFEFF/, "")) : null;
+  } catch {
+    payload = { raw: text };
+  }
+  if (!response.ok) {
+    const error = new Error(`Chain API request failed: ${response.status}`);
+    error.statusCode = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function evmScanConfig(chain = "") {
+  const makeV2Url = (chainId, contract) => (address) => `https://api.etherscan.io/v2/api?chainid=${encodeURIComponent(chainId)}&module=account&action=tokentx&contractaddress=${encodeURIComponent(contract)}&address=${encodeURIComponent(address)}&page=1&offset=${WALLET_CHAIN_SCAN_LOOKBACK_LIMIT}&sort=desc&apikey=${encodeURIComponent(ETHERSCAN_API_KEY)}`;
+  if (chain === "bnb") {
+    if (ETHERSCAN_API_KEY) {
+      return {
+        apiBase: "https://api.etherscan.io/v2/api",
+        apiKey: ETHERSCAN_API_KEY,
+        usdtContract: WALLET_USDT_CONTRACTS.bnb,
+        publicTokenUrl: makeV2Url("56", WALLET_USDT_CONTRACTS.bnb),
+        source: "etherscan-v2",
+      };
+    }
+    return {
+      apiBase: "https://api.bscscan.com/api",
+      apiKey: BSCSCAN_API_KEY,
+      usdtContract: WALLET_USDT_CONTRACTS.bnb,
+      publicTokenUrl: (address) => `https://api.bscscan.com/api?module=account&action=tokentx&contractaddress=${encodeURIComponent(WALLET_USDT_CONTRACTS.bnb)}&address=${encodeURIComponent(address)}&page=1&offset=${WALLET_CHAIN_SCAN_LOOKBACK_LIMIT}&sort=desc${BSCSCAN_API_KEY ? `&apikey=${encodeURIComponent(BSCSCAN_API_KEY)}` : ""}`,
+      source: BSCSCAN_API_KEY ? "bscscan" : "public-bscscan",
+    };
+  }
+  if (chain === "base") {
+    if (ETHERSCAN_API_KEY) {
+      return {
+        apiBase: "https://api.etherscan.io/v2/api",
+        apiKey: ETHERSCAN_API_KEY,
+        usdtContract: WALLET_USDT_CONTRACTS.base,
+        publicTokenUrl: makeV2Url("8453", WALLET_USDT_CONTRACTS.base),
+        source: "etherscan-v2",
+      };
+    }
+    return {
+      apiBase: "https://api.basescan.org/api",
+      apiKey: BASESCAN_API_KEY,
+      usdtContract: WALLET_USDT_CONTRACTS.base,
+      publicTokenUrl: (address) => `https://api.basescan.org/api?module=account&action=tokentx&contractaddress=${encodeURIComponent(WALLET_USDT_CONTRACTS.base)}&address=${encodeURIComponent(address)}&page=1&offset=${WALLET_CHAIN_SCAN_LOOKBACK_LIMIT}&sort=desc${BASESCAN_API_KEY ? `&apikey=${encodeURIComponent(BASESCAN_API_KEY)}` : ""}`,
+      source: BASESCAN_API_KEY ? "basescan" : "public-basescan",
+    };
+  }
+  if (ETHERSCAN_API_KEY) {
+    return {
+      apiBase: "https://api.etherscan.io/v2/api",
+      apiKey: ETHERSCAN_API_KEY,
+      usdtContract: WALLET_USDT_CONTRACTS.ethereum,
+      publicTokenUrl: makeV2Url("1", WALLET_USDT_CONTRACTS.ethereum),
+      source: "etherscan-v2",
+    };
+  }
+  return {
+    apiBase: "https://api.etherscan.io/api",
+    apiKey: ETHERSCAN_API_KEY,
+    usdtContract: WALLET_USDT_CONTRACTS.ethereum,
+    publicTokenUrl: (address) => `https://api.etherscan.io/api?module=account&action=tokentx&contractaddress=${encodeURIComponent(WALLET_USDT_CONTRACTS.ethereum)}&address=${encodeURIComponent(address)}&page=1&offset=${WALLET_CHAIN_SCAN_LOOKBACK_LIMIT}&sort=desc${ETHERSCAN_API_KEY ? `&apikey=${encodeURIComponent(ETHERSCAN_API_KEY)}` : ""}`,
+    source: "public-etherscan",
+  };
+}
+
+async function scanEvmUsdtTransfers(chain, address) {
+  const config = evmScanConfig(chain);
+  const payload = await scanFetchJson(config.publicTokenUrl(address));
+  if (payload && payload.status === "0" && !Array.isArray(payload.result)) {
+    const error = new Error(payload.message || "EVM scan API returned no result.");
+    error.payload = payload;
+    throw error;
+  }
+  const result = Array.isArray(payload?.result) ? payload.result : [];
+  const currentBlock = Math.max(...result.map((tx) => Number(tx.blockNumber || 0)).filter(Boolean), 0);
+  return result
+    .filter((tx) => normalizeChainAddress(tx.to, chain) === normalizeChainAddress(address, chain))
+    .filter((tx) => normalizeChainAddress(tx.contractAddress || tx.tokenContractAddress, chain) === normalizeChainAddress(config.usdtContract, chain))
+    .map((tx) => {
+      const blockNumber = Number(tx.blockNumber || 0);
+      const confirmations = Number(tx.confirmations || 0) || (currentBlock && blockNumber ? Math.max(0, currentBlock - blockNumber + 1) : 0);
+      const decimals = Number(tx.tokenDecimal || 6) || 6;
+      return {
+        chain,
+        hash: String(tx.hash || ""),
+        to: tx.to || "",
+        from: tx.from || "",
+        amountUnits: normalizeTokenUnits(tokenUnitAmount(tx.value || "0", 0) || 0n, decimals, 6),
+        amountText: tokenAmountFromUnits(tx.value || "0", decimals),
+        decimals,
+        confirmations,
+        blockNumber,
+        timestamp: tx.timeStamp ? new Date(Number(tx.timeStamp) * 1000).toISOString() : "",
+        source: config.source || (config.apiKey ? "scan-api" : "public-scan-api"),
+      };
+    });
+}
+
+async function solanaRpc(method, params = []) {
+  return await scanFetchJson(SOLANA_RPC_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: { jsonrpc: "2.0", id: `wallet-${Date.now()}`, method, params },
+    timeoutMs: 25000,
+  });
+}
+
+function solanaTokenBalanceUnits(balance = {}) {
+  const amount = balance?.uiTokenAmount?.amount ?? balance?.uiAmountString ?? "";
+  if (balance?.uiTokenAmount?.amount !== undefined) return tokenUnitAmount(amount, 0) || 0n;
+  return tokenUnitAmount(amount, 6) || 0n;
+}
+
+async function scanSolanaUsdtTransfers(address) {
+  const tokenAccountsPayload = await solanaRpc("getTokenAccountsByOwner", [
+    address,
+    { mint: WALLET_USDT_CONTRACTS.solana },
+    { encoding: "jsonParsed" },
+  ]).catch(() => null);
+  const tokenAccounts = Array.isArray(tokenAccountsPayload?.result?.value)
+    ? tokenAccountsPayload.result.value.map((item) => item.pubkey).filter(Boolean)
+    : [];
+  const scanAddresses = Array.from(new Set([address, ...tokenAccounts])).slice(0, 8);
+  const signatureMap = new Map();
+  for (const scanAddress of scanAddresses) {
+    const signaturesPayload = await solanaRpc("getSignaturesForAddress", [
+      scanAddress,
+      { limit: Math.min(WALLET_CHAIN_SCAN_LOOKBACK_LIMIT, 50) },
+    ]).catch(() => null);
+    const signatures = Array.isArray(signaturesPayload?.result) ? signaturesPayload.result : [];
+    signatures.forEach((sig) => {
+      if (sig?.signature && !signatureMap.has(sig.signature)) signatureMap.set(sig.signature, sig);
+    });
+  }
+  const signatures = Array.from(signatureMap.values());
+  const transfers = [];
+  const finalizedSlotPayload = await solanaRpc("getSlot", [{ commitment: "finalized" }]).catch(() => null);
+  const finalizedSlot = Number(finalizedSlotPayload?.result || 0);
+  for (const sig of signatures.slice(0, 30)) {
+    const hash = sig.signature;
+    if (!hash || sig.err) continue;
+    const txPayload = await solanaRpc("getTransaction", [
+      hash,
+      { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "finalized" },
+    ]).catch(() => null);
+    const tx = txPayload?.result;
+    if (!tx?.meta) continue;
+    const pre = Array.isArray(tx.meta.preTokenBalances) ? tx.meta.preTokenBalances : [];
+    const post = Array.isArray(tx.meta.postTokenBalances) ? tx.meta.postTokenBalances : [];
+    const candidates = post.filter((balance) => (
+      String(balance.mint || "") === WALLET_USDT_CONTRACTS.solana &&
+      String(balance.owner || "") === address
+    ));
+    for (const postBalance of candidates) {
+      const matchingPre = pre.find((balance) => (
+        balance.accountIndex === postBalance.accountIndex &&
+        String(balance.mint || "") === String(postBalance.mint || "")
+      ));
+      const delta = solanaTokenBalanceUnits(postBalance) - solanaTokenBalanceUnits(matchingPre || {});
+      if (delta <= 0n) continue;
+      transfers.push({
+        chain: "solana",
+        hash,
+        to: address,
+        from: "",
+        amountUnits: normalizeTokenUnits(delta, Number(postBalance.uiTokenAmount?.decimals || 6) || 6, 6),
+        amountText: tokenAmountFromUnits(delta, Number(postBalance.uiTokenAmount?.decimals || 6) || 6),
+        decimals: Number(postBalance.uiTokenAmount?.decimals || 6) || 6,
+        confirmations: finalizedSlot && tx.slot ? Math.max(0, finalizedSlot - Number(tx.slot) + 1) : WALLET_SOLANA_CONFIRMATIONS,
+        blockNumber: tx.slot || sig.slot || 0,
+        timestamp: tx.blockTime ? new Date(Number(tx.blockTime) * 1000).toISOString() : "",
+        source: "solana-rpc",
+      });
+    }
+  }
+  return transfers;
+}
+
+async function scanTronUsdtTransfers(address) {
+  const url = `https://api.trongrid.io/v1/accounts/${encodeURIComponent(address)}/transactions/trc20?only_confirmed=true&limit=${Math.min(WALLET_CHAIN_SCAN_LOOKBACK_LIMIT, 200)}&contract_address=${encodeURIComponent(WALLET_USDT_CONTRACTS.tron)}`;
+  const headers = TRONGRID_API_KEY ? { "TRON-PRO-API-KEY": TRONGRID_API_KEY } : {};
+  const payload = await scanFetchJson(url, { headers, timeoutMs: 25000 });
+  const rows = Array.isArray(payload?.data) ? payload.data : [];
+  return rows
+    .filter((tx) => String(tx.to || "") === address)
+    .map((tx) => ({
+      chain: "tron",
+      hash: String(tx.transaction_id || tx.hash || ""),
+      to: tx.to || "",
+      from: tx.from || "",
+      amountUnits: normalizeTokenUnits(tokenUnitAmount(tx.value || "0", 0) || 0n, Number(tx.token_info?.decimals || 6) || 6, 6),
+      amountText: tokenAmountFromUnits(tx.value || "0", Number(tx.token_info?.decimals || 6) || 6),
+      decimals: Number(tx.token_info?.decimals || 6) || 6,
+      confirmations: WALLET_TRON_CONFIRMATIONS,
+      blockNumber: Number(tx.block_number || 0),
+      timestamp: tx.block_timestamp ? new Date(Number(tx.block_timestamp)).toISOString() : "",
+      source: TRONGRID_API_KEY ? "trongrid" : "public-trongrid",
+    }));
+}
+
+async function scanWalletTransfers(chain, address) {
+  if (chain === "solana") return await scanSolanaUsdtTransfers(address);
+  if (chain === "tron") return await scanTronUsdtTransfers(address);
+  if (["bnb", "base", "ethereum"].includes(chain)) return await scanEvmUsdtTransfers(chain, address);
+  return [];
+}
+
+function pendingWalletOrdersForScan(db = {}) {
+  const minCreatedAt = Date.now() - WALLET_CHAIN_SCAN_ORDER_TTL_HOURS * 60 * 60 * 1000;
+  return (db.walletOrders || [])
+    .filter((order) => (order.status || "pending") === "pending")
+    .filter((order) => !order.paymentProvider || order.paymentProvider === "manual")
+    .filter((order) => order.address && order.payableAmountText)
+    .filter((order) => walletScanSupported(order.chain || order.network))
+    .filter((order) => {
+      const time = new Date(order.createdAt || 0).getTime();
+      return !Number.isFinite(time) || !time || time >= minCreatedAt;
+    });
+}
+
+function sameWalletAddress(a = "", b = "", chain = "") {
+  return normalizeChainAddress(a, chain) === normalizeChainAddress(b, chain);
+}
+
+function walletTransferMatchesOrder(order = {}, tx = {}, usedKeys = new Set()) {
+  const chain = normalizeWalletChain(order.chain || order.network);
+  if (!chain || tx.chain !== chain) return false;
+  if (!tx.hash || usedKeys.has(walletTransactionKey(chain, tx.hash))) return false;
+  if (!sameWalletAddress(tx.to, order.address, chain)) return false;
+  const expected = orderExpectedUnits(order);
+  if (expected === null || tx.amountUnits === undefined || tx.amountUnits === null) return false;
+  let amount;
+  try {
+    amount = typeof tx.amountUnits === "bigint" ? tx.amountUnits : BigInt(String(tx.amountUnits || "0"));
+  } catch {
+    return false;
+  }
+  if (amount !== expected) return false;
+  if (Number(tx.confirmations || 0) < walletScanConfirmations(chain)) return false;
+  const createdAt = new Date(order.createdAt || "").getTime();
+  const txTime = new Date(tx.timestamp || "").getTime();
+  if (Number.isFinite(createdAt) && Number.isFinite(txTime) && txTime + 5 * 60 * 1000 < createdAt) return false;
+  return true;
+}
+
+function walletScanGroups(orders = []) {
+  const groups = new Map();
+  orders.forEach((order) => {
+    const chain = normalizeWalletChain(order.chain || order.network);
+    const address = normalizeChainAddress(order.address || "", chain);
+    if (!chain || !address) return;
+    const key = `${chain}:${address}`;
+    if (!groups.has(key)) groups.set(key, { chain, address: order.address, orders: [] });
+    groups.get(key).orders.push(order);
+  });
+  return Array.from(groups.values());
+}
+
+async function scanAndSettleWalletOrders({ limit = 100, force = false } = {}) {
+  const startedAt = new Date().toISOString();
+  if (!WALLET_CHAIN_SCAN_ENABLED && !force) {
+    return { ok: true, enabled: false, scanned: 0, matched: 0, errors: [], startedAt, finishedAt: new Date().toISOString() };
+  }
+  const db = await readDb();
+  const config = await readAppConfig();
+  const pending = pendingWalletOrdersForScan(db).slice(0, limit);
+  const usedKeys = usedWalletTransactionKeys(db);
+  const errors = [];
+  let scanned = 0;
+  let matched = 0;
+  for (const group of walletScanGroups(pending)) {
+    let transfers = [];
+    try {
+      transfers = await scanWalletTransfers(group.chain, group.address);
+      scanned += 1;
+    } catch (error) {
+      errors.push({
+        chain: group.chain,
+        address: group.address,
+        message: error.message || "Scan failed",
+        detail: error.payload?.message || error.payload?.result || "",
+      });
+      continue;
+    }
+    for (const order of group.orders) {
+      if ((order.status || "pending") !== "pending") continue;
+      const tx = transfers.find((item) => walletTransferMatchesOrder(order, item, usedKeys));
+      if (!tx) continue;
+      const key = walletTransactionKey(tx.chain, tx.hash);
+      const result = settleWalletOrderPayment(db, order, config, {
+        note: `Auto matched on ${tx.chain}.`,
+        chain: tx.chain,
+        transactionHash: tx.hash,
+        confirmations: tx.confirmations,
+        blockNumber: tx.blockNumber,
+        fromAddress: tx.from,
+        matchedAmountText: tx.amountText,
+        matchedAt: new Date().toISOString(),
+        scanSource: tx.source,
+      });
+      if (result.settled) {
+        usedKeys.add(key);
+        matched += 1;
+      }
+    }
+  }
+  if (matched) await writeDb(db);
+  return {
+    ok: true,
+    enabled: WALLET_CHAIN_SCAN_ENABLED,
+    scanned,
+    pending: pending.length,
+    matched,
+    errors,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+  };
+}
+
+let walletScanRunning = false;
+let walletScanTimer = null;
+
+async function runWalletScanTick(reason = "timer") {
+  if (walletScanRunning) return;
+  walletScanRunning = true;
+  try {
+    const result = await scanAndSettleWalletOrders({ limit: 100 });
+    if (result.matched || result.errors?.length) {
+      console.log("[wallet-scan]", { reason, matched: result.matched, scanned: result.scanned, errors: result.errors?.length || 0 });
+    }
+  } catch (error) {
+    console.error("[wallet-scan] failed", error.message || error);
+  } finally {
+    walletScanRunning = false;
+  }
+}
+
+function startWalletScanScheduler() {
+  if (!WALLET_CHAIN_SCAN_ENABLED || walletScanTimer) return;
+  walletScanTimer = setInterval(() => {
+    runWalletScanTick("timer");
+  }, WALLET_CHAIN_SCAN_INTERVAL_MS);
+  walletScanTimer.unref?.();
+  setTimeout(() => runWalletScanTick("startup"), 10000).unref?.();
+}
+
 function paypalEnabled() {
   return Boolean(PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
 }
@@ -2001,6 +2473,30 @@ function settleWalletOrderPayment(db, order, config, meta = {}) {
   if (meta.paypalCaptureId) order.paypalCaptureId = meta.paypalCaptureId;
   if (meta.paypalPayerEmail) order.paypalPayerEmail = meta.paypalPayerEmail;
   if (meta.paypalStatus) order.paypalStatus = meta.paypalStatus;
+  if (meta.transactionHash) order.transactionHash = meta.transactionHash;
+  if (meta.chain) order.chain = meta.chain;
+  if (meta.transactionHash) order.matched = true;
+  if (meta.confirmations !== undefined) order.confirmations = Number(meta.confirmations || 0);
+  if (meta.blockNumber !== undefined) order.blockNumber = Number(meta.blockNumber || 0);
+  if (meta.fromAddress) order.fromAddress = meta.fromAddress;
+  if (meta.matchedAmountText) order.matchedAmountText = meta.matchedAmountText;
+  if (meta.matchedAt) order.matchedAt = meta.matchedAt;
+  if (meta.scanSource) order.scanSource = meta.scanSource;
+  if (meta.transactionHash) {
+    order.matchedTransactions = Array.isArray(order.matchedTransactions) ? order.matchedTransactions : [];
+    if (!order.matchedTransactions.some((tx) => walletTransactionKey(tx.chain || order.chain || order.network, tx.hash) === walletTransactionKey(meta.chain || order.chain || order.network, meta.transactionHash))) {
+      order.matchedTransactions.unshift({
+        chain: meta.chain || order.chain || order.network || "",
+        hash: meta.transactionHash,
+        amount: meta.matchedAmountText || order.payableAmountText || "",
+        confirmations: Number(meta.confirmations || 0),
+        blockNumber: Number(meta.blockNumber || 0),
+        from: meta.fromAddress || "",
+        source: meta.scanSource || "",
+        matchedAt: meta.matchedAt || now,
+      });
+    }
+  }
   const user = changeUserCredits(db, order.userId, creditDelta, "wallet_topup", {
     orderId: order.id,
     amount: order.baseAmount,
@@ -2009,6 +2505,8 @@ function settleWalletOrderPayment(db, order, config, meta = {}) {
     provider: order.paymentProvider || "manual",
     paypalOrderId: order.paypalOrderId || "",
     paypalCaptureId: order.paypalCaptureId || "",
+    transactionHash: order.transactionHash || "",
+    chain: order.chain || order.network || "",
   });
   order.status = "paid";
   order.paidAt = order.paidAt || now;
@@ -7259,6 +7757,7 @@ async function handleCreatePaymentOrder(req, res) {
     payableAmountText: payment.payableAmountText,
     asset: walletOption.asset || config.wallet.asset,
     network: walletOption.network,
+    chain: normalizeWalletChain(walletOption.network),
     walletOptionId: walletOption.id,
     address: walletOption.address,
     qrUrl: walletOption.qrUrl,
@@ -7346,6 +7845,7 @@ async function handleCreatePayPalOrder(req, res) {
     payableAmountText: amountValue,
     asset: PAYPAL_CURRENCY,
     network: "PayPal",
+    chain: "paypal",
     address: "",
     status: "pending",
     paypalOrderId: paypalOrder.id || "",
@@ -7585,9 +8085,17 @@ function publicTopupOrder(order = {}, wallet = {}) {
     currency: order.currency || order.asset || "",
     walletOptionId: order.walletOptionId || "",
     network: order.network || "",
+    chain: order.chain || normalizeWalletChain(order.network || ""),
     address: order.address || "",
     qrUrl: order.qrUrl || findWalletOption(wallet, order.walletOptionId || order.network)?.qrUrl || wallet.qrUrl || "",
     status: order.status || "pending",
+    transactionHash: order.transactionHash || order.txHash || "",
+    confirmations: Number(order.confirmations || 0),
+    blockNumber: order.blockNumber || "",
+    matchedAt: order.matchedAt || "",
+    matchedAmountText: order.matchedAmountText || "",
+    scanSource: order.scanSource || "",
+    matched: Boolean(order.matched || order.transactionHash || order.txHash),
     paypalOrderId: order.paypalOrderId || "",
     paypalCaptureId: order.paypalCaptureId || "",
     paypalStatus: order.paypalStatus || "",
@@ -9491,8 +9999,18 @@ function adminWalletOrderView(order, userMap) {
     currency: order.currency || order.asset || "",
     walletOptionId: order.walletOptionId || "",
     network: order.network,
+    chain: order.chain || normalizeWalletChain(order.network || ""),
     address: order.address,
     qrUrl: order.qrUrl || "",
+    transactionHash: order.transactionHash || order.txHash || "",
+    confirmations: Number(order.confirmations || 0),
+    blockNumber: order.blockNumber || "",
+    fromAddress: order.fromAddress || "",
+    matchedAt: order.matchedAt || "",
+    matchedAmountText: order.matchedAmountText || "",
+    scanSource: order.scanSource || "",
+    matched: Boolean(order.matched || order.transactionHash || order.txHash),
+    matchedTransactions: Array.isArray(order.matchedTransactions) ? order.matchedTransactions : [],
     paypalOrderId: order.paypalOrderId || "",
     paypalCaptureId: order.paypalCaptureId || "",
     paypalStatus: order.paypalStatus || "",
@@ -9867,6 +10385,13 @@ async function handleAdminUpdateWalletOrder(req, res, orderId) {
   if (typeof body.note === "string") order.note = body.note.slice(0, 200);
   await writeDb(auth.db);
   return sendJson(res, 200, { ok: true, order });
+}
+
+async function handleAdminScanWalletOrders(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const result = await scanAndSettleWalletOrders({ force: true, limit: 200 });
+  return sendJson(res, 200, result);
 }
 
 async function handleAdminListUserAssets(req, res) {
@@ -10797,6 +11322,10 @@ async function handleRequest(req, res) {
       return await handleAdminListWalletOrders(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/admin/wallet-orders/scan") {
+      return await handleAdminScanWalletOrders(req, res);
+    }
+
     const adminOrderMatch = url.pathname.match(/^\/api\/admin\/wallet-orders\/([^/]+)$/);
     if (req.method === "PATCH" && adminOrderMatch) {
       return await handleAdminUpdateWalletOrder(req, res, adminOrderMatch[1]);
@@ -10920,6 +11449,7 @@ async function bootstrap() {
   if (apiTokensMigrated) {
     console.log("User API tokens migrated: yes");
   }
+  startWalletScanScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
