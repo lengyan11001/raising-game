@@ -5302,14 +5302,22 @@ async function handlePlatformGenerate(req, res) {
         fileName: body.fileName,
         name: template.title || "Template upload",
       });
-      userAsset.publicUrl = "";
-      userAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
-      imageUrl = userAsset.publicUrl;
+      if (USE_GATEWAY_UPSTREAM) {
+        imageUrl = userAsset.localUrl || "";
+      } else {
+        userAsset.publicUrl = "";
+        userAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
+        imageUrl = userAsset.publicUrl;
+      }
     } else if (body.userAssetId) {
       userAsset = auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
       if (!userAsset) return sendJson(res, 404, { ok: false, message: "上传图片不存在。" });
-      userAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
-      imageUrl = userAsset.publicUrl;
+      if (USE_GATEWAY_UPSTREAM) {
+        imageUrl = userAsset.localUrl || userAsset.publicUrl || "";
+      } else {
+        userAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
+        imageUrl = userAsset.publicUrl;
+      }
     }
     if (!imageUrl) return sendJson(res, 400, { ok: false, message: "这个模板需要先上传一张图片。" });
   }
