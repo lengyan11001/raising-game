@@ -1296,6 +1296,7 @@ function userView(user) {
     username: user.username,
     role: user.role || "user",
     credits: Number(user.credits || 0),
+    pricingMultiplier: normalizeUserPricingMultiplier(user),
     advancedAccess: user.advancedAccess === true,
     advancedAccessLevel: user.advancedAccess === true ? "advanced" : "platform",
     advancedAccessRequestedAt: user.advancedAccessRequestedAt || "",
@@ -1307,6 +1308,42 @@ function creditsAmount(value, fallback = 0) {
   const next = Number(value);
   if (!Number.isFinite(next)) return Math.max(0, Math.round(Number(fallback || 0) * 10000) / 10000);
   return Math.max(0, Math.round(next * 10000) / 10000);
+}
+
+function normalizeUserPricingMultiplier(userOrValue = 1) {
+  const raw = userOrValue && typeof userOrValue === "object"
+    ? (userOrValue.pricingMultiplier ?? userOrValue.priceMultiplier ?? userOrValue.discountMultiplier ?? userOrValue.discount)
+    : userOrValue;
+  const next = Number(raw);
+  if (!Number.isFinite(next) || next <= 0) return 1;
+  return Math.round(Math.max(0.01, Math.min(100, next)) * 10000) / 10000;
+}
+
+function applyUserPricingMultiplierToCredits(credits, userOrValue = 1) {
+  const multiplier = normalizeUserPricingMultiplier(userOrValue);
+  return creditsAmount(Number(credits || 0) * multiplier);
+}
+
+function pricingMultiplierView(userOrValue = 1) {
+  return {
+    multiplier: normalizeUserPricingMultiplier(userOrValue),
+  };
+}
+
+function applyUserPricingToEstimate(estimate = {}, userOrValue = 1) {
+  const multiplier = normalizeUserPricingMultiplier(userOrValue);
+  const originalCredits = creditsAmount(estimate.credits || 0);
+  const originalBaseCredits = estimate.baseCredits === undefined || estimate.baseCredits === null
+    ? originalCredits
+    : creditsAmount(estimate.baseCredits || 0);
+  return {
+    ...estimate,
+    credits: applyUserPricingMultiplierToCredits(originalCredits, multiplier),
+    baseCredits: originalBaseCredits,
+    originalCredits,
+    userPricingMultiplier: multiplier,
+    pricingMultiplier: multiplier,
+  };
 }
 
 function sellingCredits(value) {
@@ -4570,17 +4607,23 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
 
   const db = await readDb();
   let finalCredits = 0;
+  let originalFinalCredits = 0;
   let delta = 0;
   let billingStatus = "settled";
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  const pricingMultiplier = normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? (db.users || []).find((user) => user.id === record.userId));
 
   if (isFailedStatus(status)) {
     finalCredits = 0;
+    originalFinalCredits = 0;
     delta = preDeducted;
     billingStatus = "refunded";
   } else {
     const reported = extractApizReportedCredits(task) ?? (record.createReportedCredits === undefined ? null : creditsAmount(record.createReportedCredits));
-    finalCredits = reported === null ? preDeducted : sellingCredits(reported);
+    originalFinalCredits = reported === null
+      ? creditsAmount(record.originalPreDeductedCredits ?? record.pricingEstimate?.originalCredits ?? preDeducted)
+      : sellingCredits(reported);
+    finalCredits = reported === null ? preDeducted : applyUserPricingMultiplierToCredits(originalFinalCredits, pricingMultiplier);
     delta = preDeducted - finalCredits;
   }
 
@@ -4591,6 +4634,8 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
         reason,
         preDeducted,
         finalCredits,
+        originalFinalCredits,
+        pricingMultiplier,
       });
       await writeDb(db);
     } else if (delta < 0) {
@@ -4599,6 +4644,8 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
         reason,
         preDeducted,
         finalCredits,
+        originalFinalCredits,
+        pricingMultiplier,
       });
       await writeDb(db);
     }
@@ -4608,6 +4655,8 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
       return upsertGenerationRecord({
         taskId: record.taskId,
         finalCredits,
+        originalFinalCredits,
+        userPricingMultiplier: pricingMultiplier,
         billingStatus,
         billingError: error.message || "Not enough credits for final settlement.",
       });
@@ -4619,6 +4668,8 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
     taskId: record.taskId,
     ...mediaUpdates,
     finalCredits,
+    originalFinalCredits,
+    userPricingMultiplier: pricingMultiplier,
     billingStatus,
     billingSettledAt: new Date().toISOString(),
     billingError: "",
@@ -4695,12 +4746,16 @@ function seedanceFinalCreditsFromUsage(record = {}) {
     : ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS));
   const markup = Number(pricing.markup || ADVANCED_GENERATION_MARKUP) || ADVANCED_GENERATION_MARKUP;
   const baseCredits = creditsAmount((completionTokens * yuanPerMillionTokens * 100) / 1000000);
+  const originalCredits = creditsAmount(Math.round(baseCredits * markup));
+  const pricingMultiplier = normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? pricing.userPricingMultiplier ?? 1);
   return {
     completionTokens,
     yuanPerMillionTokens,
     baseCredits,
     markup,
-    credits: creditsAmount(Math.round(baseCredits * markup)),
+    originalCredits,
+    pricingMultiplier,
+    credits: applyUserPricingMultiplierToCredits(originalCredits, pricingMultiplier),
   };
 }
 
@@ -4728,6 +4783,8 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           preDeducted,
           baseCredits: usage.baseCredits,
           finalCredits,
+          originalFinalCredits: usage.originalCredits,
+          pricingMultiplier: usage.pricingMultiplier,
           markup: usage.markup,
           completionTokens: usage.completionTokens,
         });
@@ -4740,6 +4797,8 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           preDeducted,
           baseCredits: usage.baseCredits,
           finalCredits,
+          originalFinalCredits: usage.originalCredits,
+          pricingMultiplier: usage.pricingMultiplier,
           markup: usage.markup,
           completionTokens: usage.completionTokens,
         });
@@ -4751,6 +4810,8 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
         return upsertGenerationRecord({
           taskId: record.taskId,
           finalCredits,
+          originalFinalCredits: usage.originalCredits,
+          userPricingMultiplier: usage.pricingMultiplier,
           billingStatus,
           billingError: error.message || "Not enough credits for final settlement.",
           usageCompletionTokens: usage.completionTokens,
@@ -4762,6 +4823,8 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
     return upsertGenerationRecord({
       taskId: record.taskId,
       finalCredits,
+      originalFinalCredits: usage.originalCredits,
+      userPricingMultiplier: usage.pricingMultiplier,
       billingStatus,
       billingSettledAt: new Date().toISOString(),
       billingError: "",
@@ -4786,12 +4849,16 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
         reason,
         preDeducted,
         finalCredits: 0,
+        originalFinalCredits: 0,
+        pricingMultiplier: normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? 1),
       });
       await writeDb(db);
     }
     return upsertGenerationRecord({
       taskId: record.taskId,
       finalCredits: 0,
+      originalFinalCredits: 0,
+      userPricingMultiplier: normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? 1),
       billingStatus: "refunded",
       billingSettledAt: new Date().toISOString(),
       billingError: "",
@@ -4861,6 +4928,9 @@ function publicBilling(record = {}) {
   return {
     preDeducted: creditsAmount(record.preDeductedCredits || 0),
     final: record.finalCredits === undefined || record.finalCredits === null ? null : creditsAmount(record.finalCredits || 0),
+    originalPreDeducted: record.originalPreDeductedCredits === undefined || record.originalPreDeductedCredits === null ? null : creditsAmount(record.originalPreDeductedCredits || 0),
+    originalFinal: record.originalFinalCredits === undefined || record.originalFinalCredits === null ? null : creditsAmount(record.originalFinalCredits || 0),
+    pricingMultiplier: normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? 1),
     settled: Boolean(record.billingSettledAt),
     status: record.billingStatus || "",
   };
@@ -4927,10 +4997,14 @@ async function runPlatformGenerationJob(job = {}) {
       params: upstreamPayload.params,
       upstreamPayload,
       preDeductedCredits,
+      originalPreDeductedCredits: pricingEstimate.originalCredits ?? preDeductedCredits,
+      userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? 1,
       pricingEstimate: {
         source: pricingEstimate.source,
         pricing: pricingEstimate.pricing || null,
         baseCredits: pricingEstimate.baseCredits ?? null,
+        originalCredits: pricingEstimate.originalCredits ?? null,
+        userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? 1,
         markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
       },
       finalCredits: null,
@@ -4964,9 +5038,13 @@ async function runPlatformGenerationJob(job = {}) {
           source: pricingEstimate.source,
           pricing: pricingEstimate.pricing || null,
           baseCredits: pricingEstimate.baseCredits ?? null,
+          originalCredits: pricingEstimate.originalCredits ?? null,
+          userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? 1,
           markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
         },
         preDeductedCredits,
+        originalPreDeductedCredits: pricingEstimate.originalCredits ?? preDeductedCredits,
+        userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? 1,
       }, "platform-failed");
     } catch (updateError) {
       console.error("[platform-generation-fail-update-error]", taskId, updateError.message || updateError);
@@ -5090,7 +5168,8 @@ async function handlePlatformGenerate(req, res) {
     imageUrl,
     overrides: body.params,
   });
-  const pricingEstimate = await estimatePlatformPreDeductCredits(upstreamPayload.model, upstreamPayload.params, template);
+  const rawPricingEstimate = await estimatePlatformPreDeductCredits(upstreamPayload.model, upstreamPayload.params, template);
+  const pricingEstimate = applyUserPricingToEstimate(rawPricingEstimate, auth.user);
   const preDeductedCredits = pricingEstimate.credits;
   if (auth.user.credits < preDeductedCredits) {
     return sendJson(res, 402, insufficientCreditsPayload(preDeductedCredits, auth.user.credits));
@@ -5115,10 +5194,14 @@ async function handlePlatformGenerate(req, res) {
     params: upstreamPayload.params,
     upstreamPayload,
     preDeductedCredits,
+    originalPreDeductedCredits: pricingEstimate.originalCredits,
+    userPricingMultiplier: pricingEstimate.userPricingMultiplier,
     pricingEstimate: {
       source: pricingEstimate.source,
       pricing: pricingEstimate.pricing || null,
       baseCredits: pricingEstimate.baseCredits ?? null,
+      originalCredits: pricingEstimate.originalCredits ?? null,
+      userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? 1,
       markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
     },
     finalCredits: null,
@@ -5138,6 +5221,8 @@ async function handlePlatformGenerate(req, res) {
       templateId: template.id,
       templateTitle: template.title,
       pricingSource: pricingEstimate.source,
+      originalCost: pricingEstimate.originalCredits,
+      pricingMultiplier: pricingEstimate.userPricingMultiplier,
       taskId,
     });
     await writeDb(auth.db);
@@ -5373,6 +5458,8 @@ async function runAdvancedGenerationJob(job = {}) {
     const submittedAt = new Date().toISOString();
     const fixedBilling = {
       finalCredits: cost,
+      originalFinalCredits: pricing?.originalCredits ?? cost,
+      userPricingMultiplier: pricing?.userPricingMultiplier ?? 1,
       billingStatus: cost > 0 ? "settled" : "free",
       billingSettledAt: cost > 0 ? submittedAt : "",
     };
@@ -5417,6 +5504,8 @@ async function runAdvancedGenerationJob(job = {}) {
         kind: "advanced-video",
         pricingEstimate: pricing,
         preDeductedCredits: cost,
+        originalPreDeductedCredits: pricing?.originalCredits ?? cost,
+        userPricingMultiplier: pricing?.userPricingMultiplier ?? 1,
         templateId: caseId || "",
         templateTitle: caseTitle || "Advanced generation",
       }, "advanced-failed");
@@ -5467,7 +5556,8 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.preprocessReference = false;
   requestParams.seed = body.seed ?? caseParams.seed ?? "";
   if (provider === "wan27") requestParams.model = ALIYUN_WAN27_MODEL;
-  const pricing = advancedModelPricing(provider, requestParams);
+  const rawPricing = advancedModelPricing(provider, requestParams);
+  const pricing = applyUserPricingToEstimate(rawPricing, auth.user);
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -5568,6 +5658,8 @@ async function handleAdvancedGenerate(req, res) {
       duration: requestParams.duration,
       creditsPerSecond: pricing.creditsPerSecond,
       baseCredits: pricing.baseCredits,
+      originalCost: pricing.originalCredits,
+      pricingMultiplier: pricing.userPricingMultiplier,
       markup: pricing.markup,
       resolution: pricing.resolution || requestParams.resolution,
       ratio: pricing.ratio || requestParams.ratio,
@@ -5616,7 +5708,10 @@ async function handleAdvancedGenerate(req, res) {
     localVideoUrl: "",
     error: "",
     preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits,
     finalCredits: cost,
+    originalFinalCredits: pricing.originalCredits,
+    userPricingMultiplier: pricing.userPricingMultiplier,
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: cost > 0 ? new Date().toISOString() : "",
     pricingEstimate: pricing,
@@ -5804,7 +5899,7 @@ async function handleAdminIngestPlatformTemplateMedia(req, res) {
   }
 }
 
-async function makePlatformEstimate(template, overrides = {}) {
+async function makePlatformEstimate(template, overrides = {}, user = null) {
   const prompt =
     typeof overrides.prompt === "string" && overrides.prompt.trim()
       ? overrides.prompt
@@ -5815,12 +5910,15 @@ async function makePlatformEstimate(template, overrides = {}) {
     imageUrl: "",
     overrides: overrides.params,
   });
-  const pricingEstimate = await estimatePlatformPreDeductCredits(upstreamPayload.model, upstreamPayload.params, template);
+  const rawPricingEstimate = await estimatePlatformPreDeductCredits(upstreamPayload.model, upstreamPayload.params, template);
+  const pricingEstimate = user ? applyUserPricingToEstimate(rawPricingEstimate, user) : rawPricingEstimate;
   const durationSeconds = durationSecondsFromParams(upstreamPayload.params) || apizPricingNumber(pricingEstimate.pricing?._default_duration_seconds) || 0;
   return {
     templateId: template.id,
     credits: creditsAmount(pricingEstimate.credits),
     baseCredits: creditsAmount(pricingEstimate.baseCredits ?? pricingEstimate.credits),
+    originalCredits: pricingEstimate.originalCredits === undefined || pricingEstimate.originalCredits === null ? null : creditsAmount(pricingEstimate.originalCredits),
+    userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? normalizeUserPricingMultiplier(user || 1),
     markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
     source: pricingEstimate.source,
     model: upstreamPayload.model,
@@ -5831,6 +5929,7 @@ async function makePlatformEstimate(template, overrides = {}) {
 }
 
 async function handlePlatformEstimates(req, res, url) {
+  const auth = await getAuth(req);
   const config = await readAppConfig();
   const requestedTemplateId = String(url.searchParams.get("templateId") || "").trim();
   const platform = normalizePlatformConfig(config.platform || {});
@@ -5844,7 +5943,7 @@ async function handlePlatformEstimates(req, res, url) {
 
   const estimates = await Promise.all(templates.map(async (template) => {
     try {
-      return await makePlatformEstimate(template);
+      return await makePlatformEstimate(template, {}, auth.user);
     } catch (error) {
       return {
         templateId: template.id,
@@ -5857,7 +5956,11 @@ async function handlePlatformEstimates(req, res, url) {
     }
   }));
 
-  return sendJson(res, 200, { ok: true, estimates });
+  return sendJson(res, 200, {
+    ok: true,
+    userPricing: pricingMultiplierView(auth.user || 1),
+    estimates,
+  });
 }
 
 function docsJsonBlock(value) {
@@ -5924,13 +6027,42 @@ function docsPricingView(estimate = {}) {
     available: true,
     credits: creditsAmount(estimate.credits),
     baseCredits: creditsAmount(estimate.baseCredits ?? estimate.credits),
+    originalCredits: estimate.originalCredits === undefined || estimate.originalCredits === null ? null : creditsAmount(estimate.originalCredits),
+    userPricingMultiplier: estimate.userPricingMultiplier ?? 1,
     markup: estimate.markup ?? GENERATION_PRICE_MARKUP,
     source: estimate.source || "model_pricing",
     durationSeconds: estimate.durationSeconds || 0,
   };
 }
 
-async function buildTemplateModelDoc(template, origin) {
+async function buildUserAdvancedEstimate(provider = "seedance", params = {}, user = null) {
+  const rawPricing = advancedModelPricing(provider, {
+    duration: params.duration ?? params.durationSeconds,
+    resolution: params.resolution,
+    ratio: params.ratio || params.aspect_ratio,
+  });
+  return applyUserPricingToEstimate(rawPricing, user || 1);
+}
+
+async function handleAdvancedEstimate(req, res) {
+  const auth = await getAuth(req);
+  const body = req.method === "POST" ? await readJson(req) : {};
+  const url = new URL(req.url || "/", "http://localhost");
+  const params = {
+    duration: body.duration ?? url.searchParams.get("duration"),
+    resolution: body.resolution ?? url.searchParams.get("resolution"),
+    ratio: body.ratio ?? body.aspect_ratio ?? url.searchParams.get("ratio") ?? url.searchParams.get("aspect_ratio"),
+  };
+  const provider = normalizeAdvancedProvider(body.provider || url.searchParams.get("provider"));
+  const pricing = await buildUserAdvancedEstimate(provider, params, auth.user);
+  return sendJson(res, 200, {
+    ok: true,
+    userPricing: pricingMultiplierView(auth.user || 1),
+    pricing,
+  });
+}
+
+async function buildTemplateModelDoc(template, origin, user = null) {
   const configuredPrompt = typeof template.requestJson?.prompt === "string" ? template.requestJson.prompt : template.prompt;
   const imagePlaceholder = template.type === "image-to-video" ? `${origin}/example-reference.png` : "";
   const upstreamPayload = platformApizPayload({
@@ -5940,7 +6072,7 @@ async function buildTemplateModelDoc(template, origin) {
   });
   let estimate;
   try {
-    estimate = await makePlatformEstimate(template);
+    estimate = await makePlatformEstimate(template, {}, user);
   } catch (error) {
     estimate = {
       available: false,
@@ -5992,15 +6124,15 @@ async function buildTemplateModelDoc(template, origin) {
   };
 }
 
-function buildAdvancedModelDoc(item, origin) {
+function buildAdvancedModelDoc(item, origin, user = null) {
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
   const durationSeconds = durationSecondsFromParams(params) || 5;
   const provider = normalizeAdvancedProvider(item.provider || params.provider);
-  const pricing = advancedModelPricing(provider, {
+  const pricing = applyUserPricingToEstimate(advancedModelPricing(provider, {
     duration: durationSeconds,
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
-  });
+  }), user || 1);
   return {
     id: item.id,
     title: item.title,
@@ -6012,6 +6144,8 @@ function buildAdvancedModelDoc(item, origin) {
       available: true,
       credits: pricing.credits,
       baseCredits: pricing.baseCredits,
+      originalCredits: pricing.originalCredits ?? null,
+      userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
       markup: pricing.markup ?? 1,
       source: pricing.source || "duration_rate",
       durationSeconds,
@@ -6058,19 +6192,21 @@ function buildAdvancedModelDoc(item, origin) {
 }
 
 async function buildModelDocs(req) {
+  const auth = await getAuth(req);
   const origin = publicOriginFromRequest(req);
   const config = await readAppConfig();
   const platform = normalizePlatformConfig(config.platform || {});
-  const templates = await Promise.all(platform.templates.map((template) => buildTemplateModelDoc(template, origin)));
+  const templates = await Promise.all(platform.templates.map((template) => buildTemplateModelDoc(template, origin, auth.user)));
   const advancedCases = (platform.advanced?.cases || [])
     .filter((item) => item.enabled !== false)
-    .map((item) => buildAdvancedModelDoc(item, origin));
+    .map((item) => buildAdvancedModelDoc(item, origin, auth.user));
 
   return {
     ok: true,
     title: `${platform.brand || "Vipeak AI"} Model Guide`,
     baseUrl: origin,
     updatedAt: new Date().toISOString(),
+    userPricing: pricingMultiplierView(auth.user || 1),
     billing: {
       unit: "credits",
       note: "1 CNY equals 100 credits. Advanced generation is charged by public per-second rates: Seedance 720p 150 credits/s, Seedance 1080p 300 credits/s, Wan2.7 720p 100 credits/s, Wan2.7 1080p 250 credits/s.",
@@ -8757,6 +8893,19 @@ async function handleAdminUpdateUser(req, res, userId) {
     if (body.advancedAccess) user.advancedAccessReviewedAt = new Date().toISOString();
     changed = true;
   }
+  if (
+    Object.prototype.hasOwnProperty.call(body, "pricingMultiplier") ||
+    Object.prototype.hasOwnProperty.call(body, "priceMultiplier") ||
+    Object.prototype.hasOwnProperty.call(body, "discount")
+  ) {
+    const rawMultiplier = body.pricingMultiplier ?? body.priceMultiplier ?? body.discount;
+    const nextMultiplier = Number(rawMultiplier);
+    if (!Number.isFinite(nextMultiplier) || nextMultiplier <= 0 || nextMultiplier > 100) {
+      return sendJson(res, 400, { ok: false, message: "价格折扣比例必须大于 0，且不超过 100。" });
+    }
+    user.pricingMultiplier = normalizeUserPricingMultiplier(nextMultiplier);
+    changed = true;
+  }
   if (changed) {
     user.updatedAt = new Date().toISOString();
     await writeDb(auth.db);
@@ -9676,6 +9825,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/models") {
       return await handleModelsJson(req, res);
+    }
+
+    if ((req.method === "GET" || req.method === "POST") && url.pathname === "/api/advanced/estimate") {
+      return await handleAdvancedEstimate(req, res);
     }
 
     if (req.method === "GET" && (url.pathname === "/docs/models.md" || url.pathname === "/models.md")) {

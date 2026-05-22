@@ -38,6 +38,9 @@ const state = {
   category: "all",
   advancedCases: [],
   activeAdvancedCaseId: "",
+  advancedEstimate: null,
+  advancedEstimateKey: "",
+  advancedEstimateTimer: 0,
   activeTemplate: null,
   accessDocMode: "http",
   uploadDataUrl: "",
@@ -2262,7 +2265,9 @@ function setLanguage(lang) {
 }
 
 function setUser(user, { refreshHistory = false } = {}) {
+  const previousMultiplier = Number(state.user?.pricingMultiplier || 1);
   state.user = user || null;
+  const nextMultiplier = Number(state.user?.pricingMultiplier || 1);
   if (state.user) {
     els.loginBtn.textContent = `${state.user.username} · ${Number(state.user.credits || 0)} ${t("common.credits")}`;
   } else {
@@ -2275,6 +2280,12 @@ function setUser(user, { refreshHistory = false } = {}) {
   if (state.tab === "topups") loadTopupRecords(1);
   if (state.tab === "spending") loadSpendingRecords(1);
   if (refreshHistory && state.tab === "history") loadHistory();
+  if (previousMultiplier !== nextMultiplier) {
+    state.advancedEstimate = null;
+    state.advancedEstimateKey = "";
+    loadPlatformEstimates();
+    updateAdvancedButtonCost();
+  }
 }
 
 function maskToken(token = "") {
@@ -2420,6 +2431,18 @@ function formatCredits(value) {
   return Number.isInteger(next) ? String(next) : next.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 
+function creditsAmount(value) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return 0;
+  return Math.max(0, Math.round(next * 10000) / 10000);
+}
+
+function userPricingMultiplier() {
+  const next = Number(state.user?.pricingMultiplier || 1);
+  if (!Number.isFinite(next) || next <= 0) return 1;
+  return Math.max(0.01, Math.min(100, next));
+}
+
 function formatDurationSeconds(value) {
   const next = Number(value);
   if (!Number.isFinite(next) || next <= 0) return "";
@@ -2517,19 +2540,23 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   const rawSeconds = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawSeconds) ? Math.min(bounds.max, Math.max(bounds.min, rawSeconds)) : bounds.fallback;
   const configPricing = state.config?.platform?.advancedPricing || {};
+  const multiplier = userPricingMultiplier();
   if (normalizedProvider === "wan27") {
     const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
     const byResolution = configPricing.wan27CreditsPerSecondByResolution || {};
     const fallbackPerSecond = normalizedResolution === "1080p" ? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND : ADVANCED_WAN27_720P_CREDITS_PER_SECOND;
     const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
+    const originalCredits = creditsAmount(seconds * perSecond);
     return {
       provider: "wan27",
       duration: seconds,
       resolution: normalizedResolution,
       creditsPerSecond: perSecond,
-      baseCredits: Math.max(0, seconds * perSecond),
-      credits: Math.max(0, Math.round(seconds * perSecond)),
+      baseCredits: originalCredits,
+      originalCredits,
+      credits: creditsAmount(originalCredits * multiplier),
       markup: 1,
+      userPricingMultiplier: multiplier,
     };
   }
   const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
@@ -2537,19 +2564,26 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   const byResolution = configPricing.seedanceCreditsPerSecondByResolution || {};
   const fallbackPerSecond = normalizedResolution === "1080p" ? ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND;
   const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
+  const originalCredits = creditsAmount(seconds * perSecond);
   return {
     provider: "seedance",
     duration: seconds,
     resolution: normalizedResolution,
     ratio: normalizedRatio,
     creditsPerSecond: perSecond,
-    baseCredits: Math.max(0, seconds * perSecond),
-    credits: Math.max(0, Math.round(seconds * perSecond)),
+    baseCredits: originalCredits,
+    originalCredits,
+    credits: creditsAmount(originalCredits * multiplier),
     markup: 1,
+    userPricingMultiplier: multiplier,
   };
 }
 
 function advancedCostForDuration(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
+  const key = advancedEstimateKey(duration, provider, resolution, ratio);
+  if (state.advancedEstimate && state.advancedEstimateKey === key) {
+    return state.advancedEstimate.credits;
+  }
   return advancedPricing(duration, provider, resolution, ratio).credits;
 }
 
@@ -2588,9 +2622,46 @@ function wanModeNeedsClip(mode) {
 }
 
 function advancedCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
-  const pricing = advancedPricing(duration, provider, resolution, ratio);
-  const suffix = ` - ${pricing.resolution}`;
+  const key = advancedEstimateKey(duration, provider, resolution, ratio);
+  const pricing = state.advancedEstimate && state.advancedEstimateKey === key
+    ? state.advancedEstimate
+    : advancedPricing(duration, provider, resolution, ratio);
+  const suffix = ` - ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)}`;
   return `${t("cost.creditsDuration", { credits: formatCredits(pricing.credits), duration: formatDurationSeconds(pricing.duration) })}${suffix}`;
+}
+
+function advancedEstimateKey(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  const bounds = advancedDurationBounds(normalizedProvider);
+  const rawDuration = Number(duration || bounds.fallback);
+  const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
+  return [
+    normalizedProvider,
+    normalizeAdvancedResolution(resolution, normalizedProvider),
+    normalizeVideoRatio(ratio),
+    seconds,
+    Number(state.user?.pricingMultiplier || 1),
+  ].join("|");
+}
+
+function requestAdvancedEstimate(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
+  const key = advancedEstimateKey(duration, provider, resolution, ratio);
+  if (!state.user || state.advancedEstimateKey === key) return;
+  window.clearTimeout(state.advancedEstimateTimer);
+  state.advancedEstimateTimer = window.setTimeout(async () => {
+    try {
+      const payload = await requestJson("/api/advanced/estimate", {
+        method: "POST",
+        body: { provider, duration, resolution, ratio },
+      });
+      state.advancedEstimate = payload.pricing || null;
+      state.advancedEstimateKey = key;
+      updateAdvancedButtonCost();
+      renderAdvancedCases();
+    } catch (error) {
+      console.warn("advanced estimate failed", error);
+    }
+  }, 180);
 }
 
 function updateAdvancedButtonCost() {
@@ -2598,6 +2669,7 @@ function updateAdvancedButtonCost() {
   const rawDuration = Number(els.advancedDuration?.value || 5);
   const bounds = advancedDurationBounds(currentAdvancedProvider());
   const duration = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
+  requestAdvancedEstimate(duration, currentAdvancedProvider(), currentAdvancedResolution(), currentAdvancedRatio());
   els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(duration, currentAdvancedProvider(), currentAdvancedResolution(), currentAdvancedRatio()) }))}`;
   refreshIcons();
 }

@@ -23,6 +23,11 @@ const WAN27_MEDIA_MODES = [
   ["first_clip_last_frame", "视频续写 + 尾帧"],
 ];
 
+function pricingMultiplierText(value) {
+  const next = Number(value || 1);
+  return Number.isFinite(next) ? String(Math.round(next * 10000) / 10000) : "1";
+}
+
 const ROUTES = [
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
   { id: "platform", title: "首页广场", render: renderPlatform },
@@ -2047,13 +2052,14 @@ async function renderUsers() {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table">
-            <thead><tr><th>账号</th><th>角色</th><th>积分</th><th>高级生成</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
+            <thead><tr><th>账号</th><th>角色</th><th>积分</th><th>折扣</th><th>高级生成</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
                 <tr data-id="${escapeHtml(u.id)}">
                   <td><strong>${escapeHtml(u.username)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(u.id)}</span></td>
                   <td><span class="adm-pill ${u.role === "admin" ? "is-admin" : ""}">${escapeHtml(u.role)}</span></td>
                   <td><strong>${escapeHtml(u.credits)}</strong></td>
+                  <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.pricingMultiplier))}</span></td>
                   <td>${u.advancedAccess ? '<span class="adm-pill is-success">已开通</span>' : u.advancedAccessRequestedAt ? '<span class="adm-pill is-pending">待审核</span>' : '<span class="adm-muted">未申请</span>'}</td>
                   <td>${escapeHtml(u.customCharacters || 0)}</td>
                   <td>${escapeHtml(u.walletOrders || 0)}</td>
@@ -2093,6 +2099,7 @@ function openEditUserDialog(id, users) {
     </select></div>
     <div class="adm-form-row"><span>积分（直接设定）</span><input id="editCredits" type="number" min="0" value="${escapeHtml(user.credits)}" /></div>
     <div class="adm-form-row"><span>积分增减（可选）</span><input id="editCreditsDelta" type="number" placeholder="例如 +50 或 -10" /></div>
+    <div class="adm-form-row"><span>价格折扣比例</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">1 = 原价，0.9 = 九折，1.1 = 加价 10%。用于高级生成和首页广场生成的展示与最终扣费。</small></div>
     <div class="adm-form-row"><span>高级生成权限</span><label class="adm-flex" style="gap:8px;align-items:center;"><input id="editAdvancedAccess" type="checkbox" ${user.advancedAccess ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">${user.advancedAccessRequestedAt ? `用户已申请：${fmtDate(user.advancedAccessRequestedAt)}` : "用户未申请，也可手动开通"}</span></label></div>
   `;
   openDialog({
@@ -2103,9 +2110,15 @@ function openEditUserDialog(id, users) {
       const role = tpl.querySelector("#editRole").value;
       const credits = Number(tpl.querySelector("#editCredits").value);
       const delta = Number(tpl.querySelector("#editCreditsDelta").value);
+      const pricingMultiplier = Number(tpl.querySelector("#editPricingMultiplier").value);
+      if (!Number.isFinite(pricingMultiplier) || pricingMultiplier <= 0 || pricingMultiplier > 100) {
+        toast("价格折扣比例必须大于 0，且不超过 100。", "error");
+        return false;
+      }
       const body = { role };
       if (Number.isFinite(delta) && delta !== 0) body.creditsDelta = delta;
       else if (Number.isFinite(credits)) body.credits = credits;
+      body.pricingMultiplier = pricingMultiplier;
       body.advancedAccess = Boolean(tpl.querySelector("#editAdvancedAccess")?.checked);
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
       toast("已更新。", "success");
