@@ -40,7 +40,7 @@ const ROUTES = [
   { id: "wallet", title: "钱包订单", render: renderWallet },
   { id: "config", title: "系统配置", render: renderConfig },
 ];
-const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["scenes", "config"]);
+const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "config"]);
 
 function isTenantAdminHost() {
   return /(^|\.)cloudtoken\.ai$/i.test(window.location.hostname || "");
