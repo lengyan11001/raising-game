@@ -514,6 +514,25 @@ const DEFAULT_CONFIG = {
   ],
 };
 
+const OLD_SITE_TRON_WALLET_OPTION = {
+  id: "tron",
+  label: "Tron",
+  network: "TRC20 / Tron",
+  asset: "USDT",
+  address: "TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
+  qrUrl: "/assets/wallet/usdt-trc20-qr.png",
+  explorerUrl: "https://tronscan.org/#/address/TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
+};
+
+const CLOUDTOKEN_TRON_WALLET_OPTION = {
+  id: "trc20",
+  label: "TRC20",
+  network: "TRC20",
+  asset: "USDT",
+  address: "TFLCCcZoNyavF5nGFYHKHitWLZ88888888",
+  qrUrl: "/assets/wallet/cloudtoken-usdt-trc20-qr.png",
+};
+
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
@@ -668,6 +687,10 @@ function publicUrlForAssetPath(localUrl = "") {
   return `${baseUrl}/${value.replace(/^\/+/, "")}`;
 }
 
+function requestTenantOptions(req) {
+  return { tenantPublic: isTenantPublicOrigin(publicOriginFromRequest(req)) };
+}
+
 function isLocalPublicAssetUrl(value = "") {
   const baseUrl = configuredPublicBaseUrl();
   return Boolean(baseUrl && String(value || "").startsWith(`${baseUrl}/assets/`));
@@ -786,7 +809,8 @@ function publicConfig(config, origin = "") {
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const platform = normalizePlatformConfig(config.platform || {});
   const tenantPublic = isTenantPublicOrigin(origin);
-  const walletOptions = publicWalletOptions(config.wallet || {});
+  const walletOptions = publicWalletOptions(config.wallet || {}, { tenantPublic });
+  const publicWalletDefault = walletOptions[0] || {};
   const publicPlatform = {
     ...platform,
     accessCopy: tenantScopedAccessCopy(platform.accessCopy, origin),
@@ -822,10 +846,11 @@ function publicConfig(config, origin = "") {
       accountMenu: true,
     },
     wallet: {
-      asset: config.wallet.asset,
-      network: config.wallet.network,
-      address: config.wallet.address,
-      qrUrl: config.wallet.qrUrl || "",
+      asset: publicWalletDefault.asset || config.wallet.asset,
+      network: publicWalletDefault.network || config.wallet.network,
+      address: publicWalletDefault.address || config.wallet.address,
+      qrUrl: publicWalletDefault.qrUrl || config.wallet.qrUrl || "",
+      explorerUrl: publicWalletDefault.explorerUrl || config.wallet.explorerUrl || "",
       options: walletOptions,
       suffixDigits: config.wallet.suffixDigits,
       cnyCentsPerUsdt: walletCnyCentsPerUsdt(config.wallet),
@@ -1868,15 +1893,28 @@ function normalizeWalletOption(option = {}, index = 0) {
     asset: String(option.asset || "USDT").trim() || "USDT",
     address: String(option.address || "").trim(),
     qrUrl: String(option.qrUrl || "").trim(),
+    explorerUrl: String(option.explorerUrl || option.explorer || "").trim(),
   };
 }
 
-function walletOptions(wallet = {}) {
+function walletOptions(wallet = {}, options = {}) {
   const configured = Array.isArray(wallet.options) ? wallet.options : [];
-  const options = configured
+  let list = configured
     .map((option, index) => normalizeWalletOption(option, index))
     .filter((option) => option.address);
-  if (options.length) return options;
+  if (options.tenantPublic) {
+    const tenantTron = normalizeWalletOption(CLOUDTOKEN_TRON_WALLET_OPTION, 0);
+    const configuredTenantOptions = list.filter((option) => option.address !== OLD_SITE_TRON_WALLET_OPTION.address);
+    return configuredTenantOptions.length ? configuredTenantOptions : [tenantTron];
+  }
+  const oldSiteTron = normalizeWalletOption(OLD_SITE_TRON_WALLET_OPTION, list.length);
+  const hasOldSiteTron = list.some((option) => (
+    option.id === oldSiteTron.id ||
+    option.address === oldSiteTron.address ||
+    (normalizeWalletChain(option.network) === "tron" && option.address === oldSiteTron.address)
+  ));
+  if (oldSiteTron.address && !hasOldSiteTron) list = [...list, oldSiteTron];
+  if (list.length) return list;
   const fallback = normalizeWalletOption({
     id: wallet.network || "wallet",
     label: wallet.network || "USDT",
@@ -1884,24 +1922,26 @@ function walletOptions(wallet = {}) {
     asset: wallet.asset || "USDT",
     address: wallet.address || "",
     qrUrl: wallet.qrUrl || "",
+    explorerUrl: wallet.explorerUrl || "",
   }, 0);
   return fallback.address ? [fallback] : [];
 }
 
-function findWalletOption(wallet = {}, selectedId = "") {
-  const options = walletOptions(wallet);
+function findWalletOption(wallet = {}, selectedId = "", options = {}) {
+  const walletOptionItems = walletOptions(wallet, options);
   const normalizedId = String(selectedId || "").trim().toLowerCase();
-  return options.find((option) => option.id === normalizedId || option.network.toLowerCase() === normalizedId) || options[0] || null;
+  return walletOptionItems.find((option) => option.id === normalizedId || option.network.toLowerCase() === normalizedId) || walletOptionItems[0] || null;
 }
 
-function publicWalletOptions(wallet = {}) {
-  return walletOptions(wallet).map((option) => ({
+function publicWalletOptions(wallet = {}, options = {}) {
+  return walletOptions(wallet, options).map((option) => ({
     id: option.id,
     label: option.label,
     network: option.network,
     asset: option.asset,
     address: option.address,
     qrUrl: option.qrUrl,
+    explorerUrl: option.explorerUrl,
   }));
 }
 
@@ -3098,6 +3138,26 @@ function makeInteractiveSceneVideoPrompt(scene = {}, primaryName = "", partnerNa
   return [userPrompt || base, interaction].filter(Boolean).join(" ");
 }
 
+function seedanceReferencePromptHint({
+  prompt = "",
+  referenceAssetUri = "",
+  extraReferenceAssetUris = [],
+  referenceVideoAssetUri = "",
+  extraReferenceVideoAssetUris = [],
+} = {}) {
+  if (!/\[(?:image|video)\s+\d+\]/i.test(String(prompt || ""))) return "";
+  const videoUris = [referenceVideoAssetUri, ...extraReferenceVideoAssetUris]
+    .filter((uri, index, list) => uri && uri.startsWith("asset://") && list.indexOf(uri) === index);
+  const imageUris = [referenceAssetUri, ...extraReferenceAssetUris]
+    .filter((uri, index, list) => uri && uri.startsWith("asset://") && list.indexOf(uri) === index);
+  const labels = [
+    ...videoUris.map((_uri, index) => `[Video ${index + 1}] = the ${index === 0 ? "first" : `#${index + 1}`} attached reference video`),
+    ...imageUris.map((_uri, index) => `[Image ${index + 1}] = the ${index === 0 ? "first" : `#${index + 1}`} attached reference image`),
+  ];
+  if (!labels.length) return "";
+  return `Reference binding: ${labels.join("; ")}. Follow these labels exactly when the prompt mentions them.`;
+}
+
 async function submitSeedanceVideoTask({
   config,
   prompt,
@@ -3108,7 +3168,14 @@ async function submitSeedanceVideoTask({
   body = {},
   slug = "",
 }) {
-  const content = [{ type: "text", text: prompt }];
+  const referenceHint = seedanceReferencePromptHint({
+    prompt,
+    referenceAssetUri,
+    extraReferenceAssetUris,
+    referenceVideoAssetUri,
+    extraReferenceVideoAssetUris,
+  });
+  const content = [{ type: "text", text: [prompt, referenceHint].filter(Boolean).join("\n\n") }];
   const videoUris = [referenceVideoAssetUri, ...extraReferenceVideoAssetUris]
     .filter((uri, index, list) => uri && uri.startsWith("asset://") && list.indexOf(uri) === index);
   videoUris.forEach((uri) => {
@@ -7839,7 +7906,7 @@ async function handleCreatePaymentOrder(req, res) {
   if (!Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
     return sendJson(res, 400, { ok: false, message: `Top-up amount must be at least ${MIN_TOPUP_AMOUNT}.` });
   }
-  const walletOption = findWalletOption(config.wallet || {}, body.walletOptionId || body.walletNetwork || body.network);
+  const walletOption = findWalletOption(config.wallet || {}, body.walletOptionId || body.walletNetwork || body.network, requestTenantOptions(req));
   if (!walletOption?.address) {
     return sendJson(res, 503, { ok: false, code: "WALLET_NOT_CONFIGURED", message: "USDT top-up is not configured." });
   }
@@ -7862,6 +7929,7 @@ async function handleCreatePaymentOrder(req, res) {
     walletOptionId: walletOption.id,
     address: walletOption.address,
     qrUrl: walletOption.qrUrl,
+    explorerUrl: walletOption.explorerUrl || "",
     status: "pending",
     createdAt: new Date().toISOString(),
   };
@@ -7886,6 +7954,7 @@ async function handleCreatePayPalOrder(req, res) {
   if (!auth) return;
   const body = await readJson(req);
   const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
   const rawAmount = Number(body.amount || 0);
   if (!Number.isFinite(rawAmount) || rawAmount < PAYPAL_MIN_AMOUNT || rawAmount > PAYPAL_MAX_AMOUNT) {
     return sendJson(res, 400, {
@@ -7961,7 +8030,7 @@ async function handleCreatePayPalOrder(req, res) {
     ok: true,
     paypalOrderId: order.paypalOrderId,
     approvalUrl: order.approvalUrl,
-    order: publicTopupOrder(order, config.wallet),
+    order: publicTopupOrder(order, config.wallet, tenantOptions),
   });
 }
 
@@ -7969,6 +8038,7 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
   const order = (auth.db.walletOrders || []).find((entry) => (
     entry.userId === auth.user.id &&
     entry.paymentProvider === "paypal" &&
@@ -7977,7 +8047,7 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
   if (!order) return sendJson(res, 404, { ok: false, message: "PayPal order not found." });
 
   if (order.status === "paid") {
-    return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet), user: userView(auth.user) });
+    return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet, tenantOptions), user: userView(auth.user) });
   }
 
   let capturePayload;
@@ -8009,7 +8079,7 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
       ok: false,
       code: "PAYPAL_NOT_COMPLETED",
       message: "PayPal payment is not completed yet.",
-      order: publicTopupOrder(order, config.wallet),
+      order: publicTopupOrder(order, config.wallet, tenantOptions),
     });
   }
 
@@ -8023,7 +8093,7 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
       ok: false,
       code: "PAYPAL_AMOUNT_MISMATCH",
       message: "PayPal payment amount does not match the top-up order.",
-      order: publicTopupOrder(order, config.wallet),
+      order: publicTopupOrder(order, config.wallet, tenantOptions),
     });
   }
 
@@ -8033,7 +8103,7 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
     paypalStatus: order.paypalStatus,
   });
   await writeDb(auth.db);
-  return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet), user: userView(user) });
+  return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet, tenantOptions), user: userView(user) });
 }
 
 async function verifyPayPalWebhookEvent(req, event) {
@@ -8164,7 +8234,7 @@ function recordInDateRange(createdAt, fromDate, toDate) {
   return true;
 }
 
-function publicTopupOrder(order = {}, wallet = {}) {
+function publicTopupOrder(order = {}, wallet = {}, options = {}) {
   const paymentProvider = order.paymentProvider || (order.network === "PayPal" ? "paypal" : "manual");
   const cnyCentsPerUsdt = order.cnyCentsPerUsdt || walletCnyCentsPerUsdt(wallet);
   const cnyCentsPerUnit = order.cnyCentsPerUnit || (paymentProvider === "paypal" ? paypalCnyCentsPerUnit(wallet) : cnyCentsPerUsdt);
@@ -8173,6 +8243,7 @@ function publicTopupOrder(order = {}, wallet = {}) {
       ? creditsAmount(Math.round(Number(order.baseAmount || 0) * cnyCentsPerUnit))
       : 0
   );
+  const walletOption = findWalletOption(wallet, order.walletOptionId || order.network, options);
   return {
     id: order.id || "",
     paymentProvider,
@@ -8188,7 +8259,8 @@ function publicTopupOrder(order = {}, wallet = {}) {
     network: order.network || "",
     chain: order.chain || normalizeWalletChain(order.network || ""),
     address: order.address || "",
-    qrUrl: order.qrUrl || findWalletOption(wallet, order.walletOptionId || order.network)?.qrUrl || wallet.qrUrl || "",
+    qrUrl: order.qrUrl || walletOption?.qrUrl || wallet.qrUrl || "",
+    explorerUrl: order.explorerUrl || walletOption?.explorerUrl || "",
     status: order.status || "pending",
     transactionHash: order.transactionHash || order.txHash || "",
     confirmations: Number(order.confirmations || 0),
@@ -8240,11 +8312,12 @@ async function handleListTopupRecords(req, res, url) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
   const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 12, maxLimit: 200 });
   const { q, status, fromDate, toDate, exportCsv } = billingQueryFilters(url);
   const records = (auth.db.walletOrders || [])
     .filter((order) => order.userId === auth.user.id)
-    .map((order) => publicTopupOrder(order, config.wallet))
+    .map((order) => publicTopupOrder(order, config.wallet, tenantOptions))
     .filter((order) => {
       if (status && String(order.status || "").toLowerCase() !== status) return false;
       if (!recordInDateRange(order.createdAt, fromDate, toDate)) return false;

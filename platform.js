@@ -3255,6 +3255,7 @@ function walletOptionList() {
       asset: state.wallet.asset || "USDT",
       address: state.wallet.address,
       qrUrl: state.wallet.qrUrl || "",
+      explorerUrl: state.wallet.explorerUrl || "",
     }];
   }
   return [];
@@ -3314,6 +3315,7 @@ function renderTopupQrDialog(order = null) {
   const selected = selectedWalletOption();
   const address = order?.address || selected?.address || wallet.address || "";
   const qrUrl = order?.qrUrl || selected?.qrUrl || wallet.qrUrl || "";
+  const explorerUrl = order?.explorerUrl || selected?.explorerUrl || wallet.explorerUrl || "";
   const asset = order?.asset || selected?.asset || wallet.asset || "USDT";
   const network = order?.network || selected?.network || wallet.network || "TRC20";
   if (els.topupQrAmount) {
@@ -3327,6 +3329,11 @@ function renderTopupQrDialog(order = null) {
   if (els.topupWalletAddress) els.topupWalletAddress.textContent = address;
   if (els.topupQrCopyBtn) {
     els.topupQrCopyBtn.onclick = () => copyTopupAddress(address);
+  }
+  const explorerLink = document.querySelector("#topupWalletExplorer");
+  if (explorerLink) {
+    explorerLink.hidden = !explorerUrl;
+    explorerLink.href = explorerUrl || "#";
   }
   if (els.topupDialog?.open) els.topupDialog.close();
   if (!els.topupQrDialog.open) els.topupQrDialog.showModal();
@@ -3954,7 +3961,7 @@ function renderAdvancedReferencePreviews() {
   els.advancedUploadPreview.innerHTML = images.map((item, index) => `
     <figure>
       <img src="${escapeHtml(item.dataUrl || item.previewUrl || "")}" alt="" />
-      <figcaption>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : `${index + 1}`)}</figcaption>
+      <figcaption>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : tenantFeature("assetLibrary", true) ? `Image ${index + 1}` : `${index + 1}`)}</figcaption>
     </figure>
   `).join("");
   els.advancedUploadBox?.classList.toggle("has-image", images.length > 0);
