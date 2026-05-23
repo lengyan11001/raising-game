@@ -3138,44 +3138,14 @@ function makeInteractiveSceneVideoPrompt(scene = {}, primaryName = "", partnerNa
   return [userPrompt || base, interaction].filter(Boolean).join(" ");
 }
 
-function seedanceReferencePromptHint({
+function seedanceContentFromReferences({
   prompt = "",
   referenceAssetUri = "",
   extraReferenceAssetUris = [],
   referenceVideoAssetUri = "",
   extraReferenceVideoAssetUris = [],
 } = {}) {
-  if (!/\[(?:image|video)\s+\d+\]/i.test(String(prompt || ""))) return "";
-  const videoUris = [referenceVideoAssetUri, ...extraReferenceVideoAssetUris]
-    .filter((uri, index, list) => uri && uri.startsWith("asset://") && list.indexOf(uri) === index);
-  const imageUris = [referenceAssetUri, ...extraReferenceAssetUris]
-    .filter((uri, index, list) => uri && uri.startsWith("asset://") && list.indexOf(uri) === index);
-  const labels = [
-    ...videoUris.map((_uri, index) => `[Video ${index + 1}] = the ${index === 0 ? "first" : `#${index + 1}`} attached reference video`),
-    ...imageUris.map((_uri, index) => `[Image ${index + 1}] = the ${index === 0 ? "first" : `#${index + 1}`} attached reference image`),
-  ];
-  if (!labels.length) return "";
-  return `Reference binding: ${labels.join("; ")}. Follow these labels exactly when the prompt mentions them.`;
-}
-
-async function submitSeedanceVideoTask({
-  config,
-  prompt,
-  referenceAssetUri,
-  extraReferenceAssetUris = [],
-  referenceVideoAssetUri = "",
-  extraReferenceVideoAssetUris = [],
-  body = {},
-  slug = "",
-}) {
-  const referenceHint = seedanceReferencePromptHint({
-    prompt,
-    referenceAssetUri,
-    extraReferenceAssetUris,
-    referenceVideoAssetUri,
-    extraReferenceVideoAssetUris,
-  });
-  const content = [{ type: "text", text: [prompt, referenceHint].filter(Boolean).join("\n\n") }];
+  const content = [{ type: "text", text: String(prompt || "") }];
   const videoUris = [referenceVideoAssetUri, ...extraReferenceVideoAssetUris]
     .filter((uri, index, list) => uri && uri.startsWith("asset://") && list.indexOf(uri) === index);
   videoUris.forEach((uri) => {
@@ -3201,6 +3171,26 @@ async function submitSeedanceVideoTask({
         role: "reference_image",
       });
     });
+  return content;
+}
+
+async function submitSeedanceVideoTask({
+  config,
+  prompt,
+  referenceAssetUri,
+  extraReferenceAssetUris = [],
+  referenceVideoAssetUri = "",
+  extraReferenceVideoAssetUris = [],
+  body = {},
+  slug = "",
+}) {
+  const content = seedanceContentFromReferences({
+    prompt,
+    referenceAssetUri,
+    extraReferenceAssetUris,
+    referenceVideoAssetUri,
+    extraReferenceVideoAssetUris,
+  });
 
   const payload = {
     model: MODEL_QUALITY,
