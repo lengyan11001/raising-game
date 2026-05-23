@@ -8354,6 +8354,7 @@ async function handleListTopupRecords(req, res, url) {
     page,
     limit,
     totalPages: Math.max(1, Math.ceil(records.length / limit)),
+    user: userView(auth.user),
   });
 }
 

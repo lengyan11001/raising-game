@@ -20,6 +20,7 @@ const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
+const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
 
 function normalizePlatformTab(value = "") {
   const normalized = String(value || "").trim().replace(/^#\/?/, "");
@@ -66,6 +67,8 @@ const state = {
   topupRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [] },
   spendingRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [], types: [] },
   assetSearchTimer: 0,
+  topupRefreshTimer: 0,
+  topupRefreshInFlight: false,
 };
 
 function tenantFeature(name, fallback = true) {
@@ -2412,6 +2415,7 @@ function setUser(user, { refreshHistory = false } = {}) {
     loadPlatformEstimates();
     updateAdvancedButtonCost();
   }
+  syncTopupAutoRefresh();
 }
 
 function maskToken(token = "") {
@@ -2885,6 +2889,7 @@ function setTab(tab) {
     window.clearTimeout(state.assetSearchTimer);
     state.assetSearchTimer = 0;
   }
+  syncTopupAutoRefresh();
   document.querySelectorAll("[data-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.panel !== nextTab;
   });
@@ -3337,6 +3342,7 @@ function renderTopupQrDialog(order = null) {
   }
   if (els.topupDialog?.open) els.topupDialog.close();
   if (!els.topupQrDialog.open) els.topupQrDialog.showModal();
+  syncTopupAutoRefresh();
   refreshIcons();
 }
 
@@ -4525,6 +4531,7 @@ async function loadTopupRecords(page = state.topupRecords.page || 1) {
   els.topupTable.innerHTML = `<div class="job-note">${escapeHtml(t("ledger.loading"))}</div>`;
   try {
     const payload = await requestJson(`/api/billing/topups?${ledgerParams("topups", page).toString()}`);
+    if (payload.user) setUser(payload.user);
     state.topupRecords = {
       ...state.topupRecords,
       records: payload.records || [],
@@ -4538,6 +4545,48 @@ async function loadTopupRecords(page = state.topupRecords.page || 1) {
     els.topupTable.innerHTML = `<div class="job-note">${escapeHtml(t("ledger.loadFailed", { message: error.message || String(error) }))}</div>`;
   }
   refreshIcons();
+}
+
+function shouldAutoRefreshTopups() {
+  return Boolean(
+    state.user &&
+    !document.hidden &&
+    (state.tab === "topups" || els.topupQrDialog?.open)
+  );
+}
+
+async function refreshTopupsQuietly() {
+  if (!shouldAutoRefreshTopups() || state.topupRefreshInFlight) return;
+  state.topupRefreshInFlight = true;
+  try {
+    const page = state.tab === "topups" ? (state.topupRecords.page || 1) : 1;
+    const payload = await requestJson(`/api/billing/topups?${ledgerParams("topups", page).toString()}`);
+    if (payload.user) setUser(payload.user);
+    state.topupRecords = {
+      ...state.topupRecords,
+      records: payload.records || [],
+      page: payload.page || page,
+      limit: payload.limit || state.topupRecords.limit,
+      total: payload.total || 0,
+      totalPages: payload.totalPages || 1,
+    };
+    if (state.tab === "topups") renderTopupRecords();
+    refreshIcons();
+  } catch {
+    // Keep the current table visible; the next interval can recover.
+  } finally {
+    state.topupRefreshInFlight = false;
+  }
+}
+
+function syncTopupAutoRefresh() {
+  const active = shouldAutoRefreshTopups();
+  if (active && !state.topupRefreshTimer) {
+    state.topupRefreshTimer = window.setInterval(refreshTopupsQuietly, TOPUP_RECORDS_AUTO_REFRESH_MS);
+  } else if (!active && state.topupRefreshTimer) {
+    window.clearInterval(state.topupRefreshTimer);
+    state.topupRefreshTimer = 0;
+  }
 }
 
 async function loadSpendingRecords(page = state.spendingRecords.page || 1) {
@@ -4625,6 +4674,7 @@ function logout() {
   if (state.tab === "topups") renderTopupRecords();
   if (state.tab === "spending") renderSpendingRecords();
   if (state.tab === "assets") renderAssets([]);
+  syncTopupAutoRefresh();
 }
 
 function renderLoginMode() {
@@ -4860,8 +4910,10 @@ els.topupTriggerBtn?.addEventListener("click", () => {
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   renderPayPalCheckout();
+  syncTopupAutoRefresh();
   refreshIcons();
 });
+els.topupQrDialog?.addEventListener("close", syncTopupAutoRefresh);
 els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;
   els.previewVideo.pause();
@@ -4884,6 +4936,7 @@ document.addEventListener("click", (event) => {
   if (els.accountMenu.contains(event.target) || els.accountMenuBtn?.contains(event.target)) return;
   closeAccountMenu();
 });
+document.addEventListener("visibilitychange", syncTopupAutoRefresh);
 els.toggleLoginMode?.addEventListener("click", () => {
   state.loginMode = state.loginMode === "login" ? "register" : "login";
   renderLoginMode();
