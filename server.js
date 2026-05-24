@@ -4915,6 +4915,7 @@ function generationRecordMatchesQuery(record = {}, query = "") {
 }
 
 function shouldRefreshGenerationRecord(record = {}) {
+  if (needsApizFailureRefund(record)) return true;
   if (needsSeedanceFailureRefund(record)) return true;
   if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
@@ -5004,6 +5005,9 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
 }
 
 async function refreshGenerationRecordStatus(record = {}) {
+  if (needsApizFailureRefund(record)) {
+    return settleApizGenerationRecord(record, { status: record.status || "failed", error: record.error || "" }, "refresh");
+  }
   if (needsSeedanceFailureRefund(record)) {
     return settleSeedanceGenerationRecord(record, "refresh");
   }
@@ -5843,6 +5847,17 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
   });
 }
 
+function needsApizFailureRefund(record = {}) {
+  if (String(record.provider || "").toLowerCase() !== "apiz") return false;
+  if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
+  if (String(record.billingStatus || "").toLowerCase() === "refunded") return false;
+  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  const finalCredits = record.finalCredits === undefined || record.finalCredits === null
+    ? preDeducted
+    : creditsAmount(record.finalCredits || 0);
+  return preDeducted > 0 && finalCredits > 0;
+}
+
 function needsSeedanceFailureRefund(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
   if (!["seedance", "aliyun-wan27"].includes(provider)) return false;
@@ -6220,7 +6235,7 @@ async function runPlatformGenerationJob(job = {}) {
   } catch (error) {
     console.warn("[platform-generation-job-error]", taskId, error.message || error);
     try {
-      await updateGenerationRecord(taskId, {
+      const failedRecord = await updateGenerationRecord(taskId, {
         status: "failed",
         awaitingUpstreamTask: false,
         error: error.message || "Generation submission failed.",
@@ -6244,10 +6259,32 @@ async function runPlatformGenerationJob(job = {}) {
         originalPreDeductedCredits: pricingEstimate.originalCredits ?? preDeductedCredits,
         userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? 1,
       }, "platform-failed");
+      if (failedRecord) {
+        await settleApizGenerationRecord(failedRecord, {
+          status: "failed",
+          error: error.message || "Generation submission failed.",
+        }, "platform-submit-failed");
+      }
     } catch (updateError) {
       console.error("[platform-generation-fail-update-error]", taskId, updateError.message || updateError);
     }
   }
+}
+
+function platformModelRejectsResolution(model = "", params = {}, type = "image-to-video") {
+  const resolvedModel = resolvePlatformModelId(model, type);
+  const compact = `${resolvedModel} ${params.model || ""}`.toLowerCase().replace(/[\s_/-]+/g, "");
+  if (paramsHaveVideoInput(params)) return false;
+  return compact.includes("arkseedance2.0") || compact.includes("dreaminaseedance") || compact.includes("seedance2.0fast");
+}
+
+function sanitizePlatformPayloadParamsForModel(model = "", params = {}, type = "image-to-video") {
+  if (!params || typeof params !== "object" || Array.isArray(params)) return params;
+  const next = { ...params };
+  if (next.resolution && platformModelRejectsResolution(model, next, type)) {
+    delete next.resolution;
+  }
+  return next;
 }
 
 function platformImageFieldKeys(payload = {}) {
@@ -6318,7 +6355,8 @@ function platformApizPayload({ template, prompt, imageUrl, overrides = {} }) {
     params.resolution = "720p";
   }
   if (template.negativePrompt && !params.negative_prompt) params.negative_prompt = template.negativePrompt;
-  const replacedParams = replacePlatformPayloadImages(params, imageUrl);
+  const safeParams = sanitizePlatformPayloadParamsForModel(model, params, template.type);
+  const replacedParams = replacePlatformPayloadImages(safeParams, imageUrl);
   return {
     model,
     params: replacedParams,
@@ -10642,10 +10680,10 @@ async function handleAdminListGenerationRecords(req, res, url) {
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
   let records = await readGenerationRecords();
   const refreshRequested = generationListRefreshRequested(url);
-  const refundable = records.filter(needsSeedanceFailureRefund).slice(0, 100);
+  const refundable = records.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 100);
   const statusRefreshable = refreshRequested
     ? records
-      .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecordFromList(record))
+      .filter((record) => !needsApizFailureRefund(record) && !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecordFromList(record))
       .filter((record) => !query || generationRecordMatchesQuery(record, query))
       .slice(0, 12)
     : [];
@@ -10681,10 +10719,10 @@ async function handleListGenerationRecords(req, res, url) {
     .slice(0, limit);
 
   const refreshRequested = generationListRefreshRequested(url);
-  const refundable = ownRecords.filter(needsSeedanceFailureRefund).slice(0, 50);
+  const refundable = ownRecords.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 50);
   const statusRefreshable = refreshRequested
     ? ownRecords
-      .filter((record) => !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecordFromList(record))
+      .filter((record) => !needsApizFailureRefund(record) && !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecordFromList(record))
       .slice(0, 8)
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
@@ -10713,7 +10751,9 @@ async function handleGetGenerationRecord(req, res, taskId) {
   if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
 
   let nextRecord = record;
-  if (needsSeedanceFailureRefund(record)) {
+  if (needsApizFailureRefund(record)) {
+    nextRecord = await settleApizGenerationRecord(record, { status: record.status || "failed", error: record.error || "" }, "detail");
+  } else if (needsSeedanceFailureRefund(record)) {
     nextRecord = await settleSeedanceGenerationRecord(record, "detail");
   } else if (record.provider === "apiz" && (APIZ_API_KEY || record.upstreamSource === "gateway") && shouldRefreshGenerationRecord(record)) {
     try {
