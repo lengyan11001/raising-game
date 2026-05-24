@@ -7,8 +7,8 @@ This script intentionally does not upload files. The release flow is:
 1. Commit locally.
 2. Push to GitHub.
 3. SSH to the server.
-4. Run scripts/server_pull_deploy.sh, which fetches origin/main and restarts
-   the systemd service.
+4. Run scripts/server_pull_deploy.sh, which fetches the selected production
+   branch and restarts the systemd service.
 """
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ PASSWORD = os.environ.get("FYSHARK_SSH_PASSWORD", os.environ.get("DEPLOY_SSH_PAS
 REMOTE_ROOT = os.environ.get("DEPLOY_REMOTE_ROOT", "/opt/raising-game-demo")
 SERVICE = os.environ.get("DEPLOY_SERVICE", "raising-game-demo")
 HEALTH_URL = os.environ.get("DEPLOY_HEALTH_URL", "https://123vips.com/api/health")
+BRANCH = os.environ.get("DEPLOY_BRANCH")
 
 
 def remote_run(client: paramiko.SSHClient, command: str, timeout: int = 120) -> tuple[int, str, str]:
@@ -35,7 +36,12 @@ def remote_run(client: paramiko.SSHClient, command: str, timeout: int = 120) -> 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pull latest GitHub code on the server and restart the app.")
-    parser.add_argument("--branch", default="main")
+    parser.add_argument(
+        "--branch",
+        default=BRANCH,
+        required=BRANCH is None,
+        help="Production branch to deploy, e.g. old-site or cloudtoken. Do not use main for production.",
+    )
     parser.add_argument("--remote-root", default=REMOTE_ROOT)
     parser.add_argument("--service", default=SERVICE)
     parser.add_argument("--health-url", default=HEALTH_URL)
@@ -43,6 +49,10 @@ def main() -> None:
     args = parser.parse_args()
     if not PASSWORD:
         raise SystemExit("FYSHARK_SSH_PASSWORD is required.")
+    if not args.branch:
+        raise SystemExit("--branch is required. Use old-site for 123vips.com or cloudtoken for cloudtoken.ai.")
+    if args.branch == "main" and os.environ.get("DEPLOY_ALLOW_MAIN") != "1":
+        raise SystemExit("Refusing to deploy main. Use --branch old-site or --branch cloudtoken.")
 
     command = f"""
 set -euo pipefail
