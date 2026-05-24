@@ -1487,8 +1487,8 @@ function userView(user) {
 
 function creditsAmount(value, fallback = 0) {
   const next = Number(value);
-  if (!Number.isFinite(next)) return Math.max(0, Math.round(Number(fallback || 0) * 10000) / 10000);
-  return Math.max(0, Math.round(next * 10000) / 10000);
+  if (!Number.isFinite(next)) return Math.max(0, Math.round(Number(fallback || 0) * 1000000) / 1000000);
+  return Math.max(0, Math.round(next * 1000000) / 1000000);
 }
 
 function normalizeUserPricingMultiplier(userOrValue = 1) {
@@ -10332,10 +10332,10 @@ async function handleAdminUpdateUser(req, res, userId) {
   const body = await readJson(req);
   let changed = false;
   if (typeof body.credits === "number" && Number.isFinite(body.credits)) {
-    user.credits = Math.max(0, Math.round(body.credits));
+    user.credits = creditsAmount(body.credits);
     changed = true;
   } else if (typeof body.creditsDelta === "number" && Number.isFinite(body.creditsDelta)) {
-    user.credits = Math.max(0, Math.round(Number(user.credits || 0) + body.creditsDelta));
+    user.credits = creditsAmount(Number(user.credits || 0) + body.creditsDelta);
     changed = true;
   }
   if (typeof body.role === "string" && ["admin", "user"].includes(body.role)) {

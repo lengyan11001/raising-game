@@ -28,6 +28,12 @@ function pricingMultiplierText(value) {
   return Number.isFinite(next) ? String(Math.round(next * 10000) / 10000) : "1";
 }
 
+function normalizeCreditInput(value) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return null;
+  return Math.round(next * 1000000) / 1000000;
+}
+
 const ROUTES = [
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
   { id: "platform", title: "首页广场", render: renderPlatform },
@@ -1059,7 +1065,7 @@ function openAddCreditsFromCharacterDialog(id, characters) {
   const tpl = document.createElement("div");
   tpl.innerHTML = `
     <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(account)}" disabled /></div>
-    <div class="adm-form-row"><span>增加积分</span><input id="addCreditsAmount" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 100" /></div>
+    <div class="adm-form-row"><span>增加积分</span><input id="addCreditsAmount" type="number" min="0.000001" step="0.000001" inputmode="decimal" placeholder="例如 100" /></div>
     <p class="adm-muted">会直接增加到该账号余额，不生成充值订单。</p>
   `;
 
@@ -1073,9 +1079,9 @@ function openAddCreditsFromCharacterDialog(id, characters) {
         toast("请输入大于 0 的积分。", "error");
         return false;
       }
-      const creditsDelta = Math.round(amount);
+      const creditsDelta = normalizeCreditInput(amount);
       if (creditsDelta <= 0) {
-        toast("积分必须至少增加 1。", "error");
+        toast("积分必须大于 0，最多支持 6 位小数。", "error");
         return false;
       }
       await api(`/api/admin/users/${encodeURIComponent(character.userId)}`, {
@@ -2101,8 +2107,8 @@ function openEditUserDialog(id, users) {
       <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
       <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
     </select></div>
-    <div class="adm-form-row"><span>积分（直接设定）</span><input id="editCredits" type="number" min="0" value="${escapeHtml(user.credits)}" /></div>
-    <div class="adm-form-row"><span>积分增减（可选）</span><input id="editCreditsDelta" type="number" placeholder="例如 +50 或 -10" /></div>
+    <div class="adm-form-row"><span>积分（直接设定）</span><input id="editCredits" type="number" min="0" step="0.000001" inputmode="decimal" value="${escapeHtml(user.credits)}" /></div>
+    <div class="adm-form-row"><span>积分增减（可选）</span><input id="editCreditsDelta" type="number" step="0.000001" inputmode="decimal" placeholder="例如 +50 或 -10" /></div>
     <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
     <div class="adm-form-row"><span>价格折扣比例</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">1 = 原价，0.9 = 九折，1.1 = 加价 10%。用于高级生成和首页广场生成的展示与最终扣费。</small></div>
     <div class="adm-form-row"><span>高级生成权限</span><label class="adm-flex" style="gap:8px;align-items:center;"><input id="editAdvancedAccess" type="checkbox" ${user.advancedAccess ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">${user.advancedAccessRequestedAt ? `用户已申请：${fmtDate(user.advancedAccessRequestedAt)}` : "用户未申请，也可手动开通"}</span></label></div>
@@ -2113,16 +2119,18 @@ function openEditUserDialog(id, users) {
     confirmText: "保存",
     onConfirm: async () => {
       const role = tpl.querySelector("#editRole").value;
-      const credits = Number(tpl.querySelector("#editCredits").value);
-      const delta = Number(tpl.querySelector("#editCreditsDelta").value);
+      const creditsInput = tpl.querySelector("#editCredits").value;
+      const deltaInput = tpl.querySelector("#editCreditsDelta").value;
+      const credits = normalizeCreditInput(creditsInput);
+      const delta = normalizeCreditInput(deltaInput);
       const pricingMultiplier = Number(tpl.querySelector("#editPricingMultiplier").value);
       if (!Number.isFinite(pricingMultiplier) || pricingMultiplier <= 0 || pricingMultiplier > 100) {
         toast("价格折扣比例必须大于 0，且不超过 100。", "error");
         return false;
       }
       const body = { role };
-      if (Number.isFinite(delta) && delta !== 0) body.creditsDelta = delta;
-      else if (Number.isFinite(credits)) body.credits = credits;
+      if (deltaInput.trim() && delta !== null && delta !== 0) body.creditsDelta = delta;
+      else if (creditsInput.trim() && credits !== null) body.credits = credits;
       body.pricingMultiplier = pricingMultiplier;
       body.advancedAccess = Boolean(tpl.querySelector("#editAdvancedAccess")?.checked);
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
