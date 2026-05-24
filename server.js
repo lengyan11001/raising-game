@@ -687,6 +687,14 @@ function publicUrlForAssetPath(localUrl = "") {
   return `${baseUrl}/${value.replace(/^\/+/, "")}`;
 }
 
+function absoluteUrlFromBase(value = "", baseUrl = "") {
+  const text = String(value || "").trim();
+  if (!text || isPublicHttpUrl(text)) return text;
+  const base = String(baseUrl || "").trim().replace(/\/+$/, "");
+  if (!base || !text.startsWith("/")) return text;
+  return `${base}${text}`;
+}
+
 function requestTenantOptions(req) {
   return { tenantPublic: isTenantPublicOrigin(publicOriginFromRequest(req)) };
 }
@@ -7709,7 +7717,7 @@ async function refreshApizGenerationRecord(record) {
     : null;
   const task = gatewayTask ? gatewayTask.raw : await apizRequest("/api/v3/tasks/query", { task_id: queryTaskId });
   const status = gatewayTask ? gatewayTask.status : apizStatus(task);
-  const resultUrl = gatewayTask ? gatewayTask.videoUrl : apizResultUrl(task);
+  const resultUrl = gatewayTask ? absoluteUrlFromBase(gatewayTask.videoUrl, UPSTREAM_BASE_URL) : apizResultUrl(task);
   const media = isSucceededStatus(status) && !record.localVideoUrl
     ? await maybeDownloadApizVideo(record, resultUrl)
     : {};
@@ -7734,7 +7742,7 @@ async function refreshApizGenerationRecord(record) {
     error: gatewayTask?.error || task.error?.message || task.error || task.message || media.downloadError || "",
     queryResponse: task,
   });
-  return settleApizGenerationRecord(nextRecord, task, "query");
+  return settleApizGenerationRecord(nextRecord, gatewayTask ? { ...task, status, videoUrl: resultUrl, error: gatewayTask.error } : task, "query");
 }
 
 function isCompletedStatus(status) {
