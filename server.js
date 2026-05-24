@@ -7265,8 +7265,9 @@ async function makePlatformEstimate(template, overrides = {}, user = null) {
 
 async function handlePlatformEstimates(req, res, url) {
   const auth = await getAuth(req);
+  const body = req.method === "POST" ? await readJson(req) : {};
   const config = await readAppConfig();
-  const requestedTemplateId = String(url.searchParams.get("templateId") || "").trim();
+  const requestedTemplateId = String(url.searchParams.get("templateId") || body.templateId || "").trim();
   const platform = normalizePlatformConfig(config.platform || {});
   const templates = requestedTemplateId
     ? platform.templates.filter((template) => template.id === requestedTemplateId)
@@ -7278,7 +7279,7 @@ async function handlePlatformEstimates(req, res, url) {
 
   const estimates = await Promise.all(templates.map(async (template) => {
     try {
-      return await makePlatformEstimate(template, {}, auth.user);
+      return await makePlatformEstimate(template, requestedTemplateId === template.id ? body : {}, auth.user);
     } catch (error) {
       return {
         templateId: template.id,
@@ -11375,7 +11376,7 @@ async function handleRequest(req, res) {
       return await handleAdminAdvancedGenerate(req, res);
     }
 
-    if (req.method === "GET" && url.pathname === "/api/platform/estimates") {
+    if ((req.method === "GET" || req.method === "POST") && url.pathname === "/api/platform/estimates") {
       return await handlePlatformEstimates(req, res, url);
     }
 
