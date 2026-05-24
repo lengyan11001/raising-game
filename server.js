@@ -1552,6 +1552,36 @@ function fixedCreditsBreakdown(credits, source = "") {
   };
 }
 
+function gatewayPricedBreakdown(estimate = {}, source = "gateway_estimate") {
+  const rawCredits = estimate.credits ?? estimate.cost ?? estimate.price;
+  const numericCredits = Number(rawCredits);
+  if (rawCredits === undefined || rawCredits === null || !Number.isFinite(numericCredits) || numericCredits < 0) {
+    const error = new Error("Gateway pricing is unavailable.");
+    error.statusCode = 502;
+    error.code = "GATEWAY_PRICING_UNAVAILABLE";
+    throw error;
+  }
+  const upstreamCredits = creditsAmount(numericCredits);
+  return {
+    credits: upstreamCredits,
+    baseCredits: upstreamCredits,
+    markup: 1,
+    source,
+    upstreamCredits,
+    upstreamBaseCredits: estimate.baseCredits === undefined || estimate.baseCredits === null ? null : creditsAmount(estimate.baseCredits),
+    upstreamOriginalCredits: estimate.originalCredits === undefined || estimate.originalCredits === null ? null : creditsAmount(estimate.originalCredits),
+    upstreamPricingMultiplier: estimate.userPricingMultiplier ?? estimate.pricingMultiplier ?? null,
+    provider: estimate.provider || "",
+    model: estimate.model || estimate.requestModel || "",
+    requestModel: estimate.requestModel || estimate.model || "",
+    duration: estimate.duration ?? estimate.durationSeconds ?? null,
+    durationSeconds: estimate.durationSeconds ?? estimate.duration ?? null,
+    resolution: estimate.resolution || "",
+    ratio: estimate.ratio || "",
+    pricing: estimate.pricing || null,
+  };
+}
+
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
@@ -4708,7 +4738,7 @@ async function fetchApizModelListPricing(modelId = "") {
 
 async function estimatePlatformPreDeductCredits(model, params = {}, template = {}) {
   if (USE_GATEWAY_UPSTREAM) {
-    return fixedCreditsBreakdown(template.price || GATEWAY_PLATFORM_FALLBACK_CREDITS, "gateway_fixed");
+    return await gatewayPlatformEstimate(template.id, { templateId: template.id, params });
   }
   const pricing = await fetchApizModelPricing(model);
   const estimated = estimateCreditsFromApizPricing(pricing, params);
@@ -5624,6 +5654,35 @@ async function gatewaySubmitPlatformTask(body = {}) {
 async function gatewaySubmitAdvancedTask(body = {}) {
   const payload = await gatewayRequest("POST", "/api/advanced/generate", body);
   return gatewayTaskFromPayload(payload);
+}
+
+async function gatewayPlatformEstimate(templateId = "", body = {}) {
+  const payload = await gatewayRequest("POST", `/api/platform/estimates?templateId=${encodeURIComponent(templateId)}`, body);
+  const estimate = (payload.estimates || []).find((item) => item?.templateId === templateId) || payload.estimate || payload.pricing || null;
+  if (!estimate) {
+    const error = new Error("Gateway platform estimate did not return pricing.");
+    error.statusCode = 502;
+    error.code = "GATEWAY_PLATFORM_PRICING_UNAVAILABLE";
+    throw error;
+  }
+  return gatewayPricedBreakdown(estimate, "gateway_platform_estimate");
+}
+
+async function gatewayAdvancedEstimate(provider = "seedance", params = {}) {
+  const payload = await gatewayRequest("POST", "/api/advanced/estimate", {
+    provider,
+    duration: params.duration ?? params.durationSeconds,
+    resolution: params.resolution,
+    ratio: params.ratio || params.aspect_ratio,
+  });
+  const estimate = payload.pricing || payload.estimate || null;
+  if (!estimate) {
+    const error = new Error("Gateway advanced estimate did not return pricing.");
+    error.statusCode = 502;
+    error.code = "GATEWAY_ADVANCED_PRICING_UNAVAILABLE";
+    throw error;
+  }
+  return gatewayPricedBreakdown(estimate, "gateway_advanced_estimate");
 }
 
 async function gatewayQueryTask(taskId) {
@@ -6811,7 +6870,7 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.preprocessReference = false;
   requestParams.seed = body.seed ?? caseParams.seed ?? "";
   if (provider === "wan27") requestParams.model = ALIYUN_WAN27_MODEL;
-  const rawPricing = advancedModelPricing(provider, requestParams);
+  const rawPricing = await buildUserAdvancedEstimate(provider, requestParams, 1);
   const pricing = applyUserPricingToEstimate(rawPricing, auth.user);
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
@@ -7227,8 +7286,9 @@ async function makePlatformEstimate(template, overrides = {}, user = null) {
 
 async function handlePlatformEstimates(req, res, url) {
   const auth = await getAuth(req);
+  const body = req.method === "POST" ? await readJson(req) : {};
   const config = await readAppConfig();
-  const requestedTemplateId = String(url.searchParams.get("templateId") || "").trim();
+  const requestedTemplateId = String(url.searchParams.get("templateId") || body.templateId || "").trim();
   const platform = normalizePlatformConfig(config.platform || {});
   const templates = requestedTemplateId
     ? platform.templates.filter((template) => template.id === requestedTemplateId)
@@ -7240,7 +7300,7 @@ async function handlePlatformEstimates(req, res, url) {
 
   const estimates = await Promise.all(templates.map(async (template) => {
     try {
-      return await makePlatformEstimate(template, {}, auth.user);
+      return await makePlatformEstimate(template, requestedTemplateId === template.id ? body : {}, auth.user);
     } catch (error) {
       return {
         templateId: template.id,
@@ -7346,11 +7406,14 @@ function tenantDocsPricingView(pricing = {}) {
 }
 
 async function buildUserAdvancedEstimate(provider = "seedance", params = {}, user = null) {
-  const rawPricing = advancedModelPricing(provider, {
+  const estimateParams = {
     duration: params.duration ?? params.durationSeconds,
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
-  });
+  };
+  const rawPricing = USE_GATEWAY_UPSTREAM
+    ? await gatewayAdvancedEstimate(provider, estimateParams)
+    : advancedModelPricing(provider, estimateParams);
   return applyUserPricingToEstimate(rawPricing, user || 1);
 }
 
@@ -7445,15 +7508,15 @@ async function buildTemplateModelDoc(template, origin, user = null, options = {}
   };
 }
 
-function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
+async function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
   const durationSeconds = durationSecondsFromParams(params) || 5;
   const provider = normalizeAdvancedProvider(item.provider || params.provider);
-  const pricing = applyUserPricingToEstimate(advancedModelPricing(provider, {
+  const pricing = await buildUserAdvancedEstimate(provider, {
     duration: durationSeconds,
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
-  }), user || 1);
+  }, user || 1);
   const pricingView = {
     available: true,
     credits: pricing.credits,
@@ -7522,7 +7585,7 @@ async function buildModelDocs(req) {
   const templates = await Promise.all(platform.templates.map((template) => buildTemplateModelDoc(template, origin, auth.user, { tenantPublic })));
   const advancedCases = (platform.advanced?.cases || [])
     .filter((item) => item.enabled !== false)
-    .map((item) => buildAdvancedModelDoc(item, origin, auth.user, { tenantPublic }));
+  const advancedCaseDocs = await Promise.all(advancedCases.map((item) => buildAdvancedModelDoc(item, origin, auth.user, { tenantPublic })));
 
   return {
     ok: true,
@@ -7560,7 +7623,7 @@ async function buildModelDocs(req) {
     advanced: {
       requiresApproval: true,
       telegram: String(platform.advanced?.telegram || ""),
-      cases: advancedCases,
+      cases: advancedCaseDocs,
     },
   };
 }
@@ -11335,7 +11398,7 @@ async function handleRequest(req, res) {
       return await handleAdminAdvancedGenerate(req, res);
     }
 
-    if (req.method === "GET" && url.pathname === "/api/platform/estimates") {
+    if ((req.method === "GET" || req.method === "POST") && url.pathname === "/api/platform/estimates") {
       return await handlePlatformEstimates(req, res, url);
     }
 

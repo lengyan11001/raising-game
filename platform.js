@@ -2603,13 +2603,13 @@ function billingLabel(billing = {}) {
 function formatCredits(value) {
   const next = Number(value);
   if (!Number.isFinite(next)) return "";
-  return Number.isInteger(next) ? String(next) : next.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  return Number.isInteger(next) ? String(next) : next.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function creditsAmount(value) {
   const next = Number(value);
   if (!Number.isFinite(next)) return 0;
-  return Math.max(0, Math.round(next * 10000) / 10000);
+  return Math.max(0, Math.round(next * 1000000) / 1000000);
 }
 
 function userPricingMultiplier() {
