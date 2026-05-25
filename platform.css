@@ -357,7 +357,7 @@ main {
 
 .template-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 .template-card {
@@ -446,6 +446,7 @@ main {
   backdrop-filter: blur(8px);
   z-index: 4;
   pointer-events: auto;
+  transition: opacity .16s ease;
 }
 .preview-play::before {
   content: "";
@@ -469,6 +470,11 @@ main {
   width: 38px;
   height: 38px;
   z-index: 2;
+}
+.template-card.is-previewing .preview-play,
+.advanced-case-card.is-previewing .advanced-preview-play {
+  opacity: 0;
+  pointer-events: none;
 }
 .use-template {
   width: 100%;

@@ -3239,6 +3239,7 @@ function advancedCaseInputVideo(item = {}) {
 }
 
 function advancedCaseInputVideoPoster(item = {}) {
+  const inputVideoUrl = advancedCaseInputVideo(item);
   const candidates = [
     item.inputVideoPosterUrl,
     item.sourceVideoPosterUrl,
@@ -3248,8 +3249,9 @@ function advancedCaseInputVideoPoster(item = {}) {
     item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.imageUrl,
     item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.thumbnailUrl,
     item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.localPosterUrl,
+    generatedPosterFromVideoUrl(inputVideoUrl),
   ];
-  return candidates.map((value) => String(value || "").trim()).find(Boolean) || item.coverUrl || item.sourceCoverUrl || DEFAULT_TEMPLATE_COVER;
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || item.sourceCoverUrl || item.localCoverUrl || item.coverUrl || item.inputImageUrl || item.sourceImageUrl || DEFAULT_TEMPLATE_COVER;
 }
 
 function advancedCaseOutputVideo(item = {}) {
@@ -3299,9 +3301,7 @@ function openAdvancedRowPreview(caseId, kind = "output") {
 function advancedCaseStageTile({ className = "", imageUrl = "", videoUrl = "", label = "", isVideo = false, caseId = "", previewKind = "" } = {}) {
   const playable = Boolean(isVideo && previewKind && videoUrl);
   const poster = imageUrl || DEFAULT_TEMPLATE_COVER;
-  const media = isVideo && videoUrl
-    ? `<video class="advanced-case-stage-video" src="${escapeHtml(videoUrl)}" poster="${escapeHtml(poster)}" muted playsinline preload="metadata" disablepictureinpicture></video>`
-    : `<img src="${escapeHtml(poster)}" alt="" loading="lazy" />`;
+  const media = `<img src="${escapeHtml(poster)}" alt="" loading="lazy" />`;
   return `
     <div class="advanced-case-row-media ${className} ${isVideo ? "is-video" : "is-image"}">
       ${media}
