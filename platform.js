@@ -1690,6 +1690,13 @@ const ASSET_WORKFLOW_COPY = {
     "assets.frameTitle": "Extract current frame",
     "assets.pickImage": "Choose image",
     "assets.uploadImage": "Upload image",
+    "assets.replaceImage": "Replacement image",
+    "assets.imageSource": "Image source",
+    "assets.sourceAssets": "Asset library",
+    "assets.sourceUpload": "Upload new",
+    "assets.pickAssetImage": "Asset library image",
+    "assets.uploadReplaceImage": "Upload new image",
+    "assets.uploadOverridesAsset": "Only the active source is sent.",
     "assets.frameHint": "Drag the video progress, then save the current frame into Assets.",
     "assets.selectImageRequired": "Please choose or upload an image.",
     "assets.generating": "Submitting generation...",
@@ -2357,8 +2364,10 @@ function renderSimplePager(holder, data, onPage) {
   });
 }
 
-function showInlineDialog({ title = "", body = "", confirmText = "", onOpen, onConfirm } = {}) {
+function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass = "", onOpen, onConfirm } = {}) {
   if (!els.inlineDialog || !els.inlineDialogForm || !els.inlineDialogBody) return Promise.resolve("close");
+  els.inlineDialog.classList.remove("is-media-action");
+  if (dialogClass) els.inlineDialog.classList.add(dialogClass);
   els.inlineDialogTitle.textContent = title || "";
   els.inlineDialogBody.innerHTML = body || "";
   if (els.inlineDialogConfirm) {
@@ -2372,6 +2381,7 @@ function showInlineDialog({ title = "", body = "", confirmText = "", onOpen, onC
       els.inlineDialogClose?.removeEventListener("click", closeHandler);
       els.inlineDialogCancel?.removeEventListener("click", closeHandler);
       els.inlineDialog.removeEventListener("close", dialogCloseHandler);
+      els.inlineDialog.classList.remove("is-media-action");
     };
     const closeHandler = () => els.inlineDialog.close("close");
     const dialogCloseHandler = () => {
@@ -4286,15 +4296,23 @@ function assetGenerateDialogBody({ mode = "extend", imageAssetId = "" } = {}) {
   return `
     <div class="asset-generate-form">
       ${isReplace ? `
-        <label class="field"><span>${escapeHtml(t("assets.pickImage"))}</span><select id="assetGenerateImageAsset">${imageAssetOptions(imageAssetId)}</select></label>
-        <label class="field file-picker-field">
-          <span>${escapeHtml(t("assets.uploadImage"))}</span>
+        <div class="asset-replace-source">
+          <span>${escapeHtml(t("assets.imageSource"))}</span>
+          <div class="asset-source-toggle" role="radiogroup" aria-label="${escapeHtml(t("assets.imageSource"))}">
+            <label><input type="radio" name="assetReplaceImageSource" value="asset" checked />${escapeHtml(t("assets.sourceAssets"))}</label>
+            <label><input type="radio" name="assetReplaceImageSource" value="upload" />${escapeHtml(t("assets.sourceUpload"))}</label>
+          </div>
+        </div>
+        <label class="field asset-replace-asset-field" data-replace-source-field="asset"><span>${escapeHtml(t("assets.pickAssetImage"))}</span><select id="assetGenerateImageAsset">${imageAssetOptions(imageAssetId)}</select></label>
+        <label class="field file-picker-field asset-replace-upload-field" data-replace-source-field="upload" hidden>
+          <span>${escapeHtml(t("assets.uploadReplaceImage"))}</span>
           <span class="file-picker-control">
             <input id="assetGenerateImageUpload" type="file" accept="image/*" />
             <span class="file-picker-button"><i data-lucide="image-up"></i>${escapeHtml(t("file.chooseImage"))}</span>
             <span class="file-picker-name" data-file-name-for="assetGenerateImageUpload">${escapeHtml(t("file.none"))}</span>
           </span>
         </label>
+        <p class="job-note asset-source-note">${escapeHtml(t("assets.uploadOverridesAsset"))}</p>
       ` : ""}
       <label class="field"><span>${escapeHtml(t("field.prompt"))}</span><textarea id="assetGeneratePrompt" rows="4">${escapeHtml(prompt)}</textarea></label>
       <div class="asset-generate-grid">
@@ -4325,6 +4343,16 @@ function bindAssetGenerateCost(root) {
   const durationInput = root.querySelector("#assetGenerateDuration");
   const resolutionInput = root.querySelector("#assetGenerateResolution");
   const cost = root.querySelector("#assetGenerateCost");
+  const syncReplaceSource = () => {
+    const source = root.querySelector("input[name='assetReplaceImageSource']:checked")?.value || "asset";
+    root.querySelectorAll("[data-replace-source-field]").forEach((field) => {
+      field.hidden = field.dataset.replaceSourceField !== source;
+    });
+  };
+  root.querySelectorAll("input[name='assetReplaceImageSource']").forEach((input) => {
+    input.addEventListener("change", syncReplaceSource);
+  });
+  syncReplaceSource();
   root.querySelectorAll("input[type='file']").forEach((input) => {
     updateFilePickerLabel(input);
     input.addEventListener("change", () => updateFilePickerLabel(input));
@@ -4349,6 +4377,18 @@ async function readOptionalImageUpload(root) {
   if (!file) return null;
   if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) throw new Error(t("advanced.referenceImageTooLarge"));
   return { dataUrl: await readFileAsDataUrl(file), fileName: file.name || "", name: file.name || "" };
+}
+
+async function selectedReplaceImageReference(root) {
+  const source = root.querySelector("input[name='assetReplaceImageSource']:checked")?.value || "asset";
+  if (source === "upload") {
+    const uploadRef = await readOptionalImageUpload(root);
+    if (!uploadRef) throw new Error(t("assets.selectImageRequired"));
+    return uploadRef;
+  }
+  const selectedImageAssetId = root.querySelector("#assetGenerateImageAsset")?.value || "";
+  if (!selectedImageAssetId) throw new Error(t("assets.selectImageRequired"));
+  return { assetId: selectedImageAssetId };
 }
 
 async function openAssetExtendDialog(asset = {}) {
@@ -4429,14 +4469,13 @@ async function openAssetReplaceDialog(videoAsset = {}) {
     title: t("assets.replaceTitle"),
     body: assetGenerateDialogBody({ mode: "replace", imageAssetId: firstImage?.id || "" }),
     confirmText: t("common.generate"),
+    dialogClass: "is-media-action",
     onOpen: bindAssetGenerateCost,
     onConfirm: async (root) => {
       const duration = Number(root.querySelector("#assetGenerateDuration")?.value || 5);
       const resolution = root.querySelector("#assetGenerateResolution")?.value || "720p";
       const prompt = root.querySelector("#assetGeneratePrompt")?.value.trim() || "Replace the lady in [Video 1] with the lady in [Image 1]";
-      const uploadRef = await readOptionalImageUpload(root);
-      const selectedImageAssetId = root.querySelector("#assetGenerateImageAsset")?.value || "";
-      if (!uploadRef && !selectedImageAssetId) throw new Error(t("assets.selectImageRequired"));
+      const imageReference = await selectedReplaceImageReference(root);
       root.querySelector("#assetGenerateStatus").textContent = t("assets.generating");
       const payload = await requestJson("/api/advanced/generate", {
         method: "POST",
@@ -4444,7 +4483,7 @@ async function openAssetReplaceDialog(videoAsset = {}) {
           provider: "seedance",
           prompt,
           referenceVideoAssetId: videoAsset.id,
-          referenceImages: uploadRef ? [uploadRef] : [{ assetId: selectedImageAssetId }],
+          referenceImages: [imageReference],
           ratio: "16:9",
           resolution,
           duration,
@@ -4475,6 +4514,7 @@ async function openAssetFrameDialog(asset = {}) {
   if (!url) return;
   await showInlineDialog({
     title: t("assets.frameTitle"),
+    dialogClass: "is-media-action",
     body: `
       <div class="asset-frame-form">
         <video id="assetFrameVideo" src="${escapeHtml(url)}" controls playsinline preload="metadata"></video>
