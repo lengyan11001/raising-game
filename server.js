@@ -8,8 +8,14 @@ const { URL } = require("node:url");
 const {
   dbEnabled,
   migrateFileDataToDb,
+  migrateGenerationRecordsKvToTable,
   getKv,
   setKv,
+  getGenerationRecordsFromDb,
+  getGenerationRecordFromDb,
+  upsertGenerationRecordInDb,
+  replaceGenerationRecordsInDb,
+  patchGenerationRecordsInDb,
 } = require("./db");
 
 const ROOT = __dirname;
@@ -4758,15 +4764,26 @@ async function estimatePlatformPreDeductCredits(model, params = {}, template = {
 }
 
 async function readGenerationRecords() {
+  if (dbEnabled()) {
+    const records = await getGenerationRecordsFromDb({ limit: 500, includeDeleted: true });
+    return Array.isArray(records) ? records : [];
+  }
   const records = await getKv("generation_records", []);
   return Array.isArray(records) ? records : [];
 }
 
 async function writeGenerationRecords(records) {
+  if (dbEnabled()) {
+    await replaceGenerationRecordsInDb(records);
+    return;
+  }
   await setKv("generation_records", records);
 }
 
 async function upsertGenerationRecord(nextRecord) {
+  if (dbEnabled()) {
+    return upsertGenerationRecordInDb(nextRecord);
+  }
   const records = await readGenerationRecords();
   const index = records.findIndex((record) => record.taskId === nextRecord.taskId);
   const now = new Date().toISOString();
@@ -4800,8 +4817,50 @@ async function updateGenerationRecord(taskId, updates = {}, reason = "update") {
 }
 
 async function getGenerationRecord(taskId) {
+  if (dbEnabled()) {
+    return getGenerationRecordFromDb(taskId);
+  }
   const records = await readGenerationRecords();
   return records.find((record) => record.taskId === taskId) || null;
+}
+
+async function listGenerationRecordsForUser(userId, limit = 60) {
+  if (dbEnabled()) {
+    const records = await getGenerationRecordsFromDb({
+      userId,
+      limit,
+      includeDeleted: false,
+    });
+    return Array.isArray(records) ? records : [];
+  }
+  const records = await readGenerationRecords();
+  return records
+    .filter((record) => record.userId === userId && isUserVisibleGenerationRecord(record))
+    .slice(0, limit);
+}
+
+async function softDeleteGenerationRecordsByCompanion(companionId, { userId = "" } = {}) {
+  if (!companionId) return [];
+  const nowIso = new Date().toISOString();
+  if (dbEnabled()) {
+    return patchGenerationRecordsInDb({
+      companionId,
+      userId,
+      notDeleted: true,
+    }, {
+      deletedAt: nowIso,
+    });
+  }
+  const records = await readGenerationRecords();
+  let changedRecords = false;
+  const nextRecords = records.map((entry) => {
+    if (entry.companionId !== companionId || entry.deletedAt) return entry;
+    if (userId && entry.userId !== userId) return entry;
+    changedRecords = true;
+    return { ...entry, deletedAt: nowIso, updatedAt: nowIso };
+  });
+  if (changedRecords) await writeGenerationRecords(nextRecords);
+  return changedRecords ? nextRecords : [];
 }
 
 function isUserVisibleGenerationRecord(record) {
@@ -7210,9 +7269,10 @@ function advancedRegenerateBody(record = {}) {
 async function handleRegenerateGenerationRecord(req, res, taskId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const records = await readGenerationRecords();
-  const record = records.find((entry) => entry.taskId === taskId && entry.userId === auth.user.id && isUserVisibleGenerationRecord(entry));
-  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  const record = await getGenerationRecord(taskId);
+  if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
+    return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  }
 
   const source = String(record.source || "").toLowerCase();
   const kind = String(record.kind || "").toLowerCase();
@@ -9185,16 +9245,8 @@ async function handleDeleteMyCharacter(req, res, characterId) {
   record.deletedAt = nowIso;
   record.updatedAt = nowIso;
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
-
-  const records = await readGenerationRecords();
-  let changedRecords = false;
-  const nextRecords = records.map((entry) => {
-    if (entry.companionId !== record.id || entry.userId !== auth.user.id || entry.deletedAt) return entry;
-    changedRecords = true;
-    return { ...entry, deletedAt: nowIso, updatedAt: nowIso };
-  });
   await writeDb(auth.db);
-  if (changedRecords) await writeGenerationRecords(nextRecords);
+  await softDeleteGenerationRecordsByCompanion(record.id, { userId: auth.user.id });
   return sendJson(res, 200, { ok: true, character: publicUserCharacter(record) });
 }
 
@@ -10578,16 +10630,8 @@ async function handleAdminDeleteMyCharacter(req, res, characterId) {
   record.deletedAt = nowIso;
   record.updatedAt = nowIso;
   auth.db.userCharacters = (auth.db.userCharacters || []).map((c) => (c.id === characterId ? record : c));
-
-  const records = await readGenerationRecords();
-  let changedRecords = false;
-  const nextRecords = records.map((entry) => {
-    if (entry.companionId !== record.id || entry.deletedAt) return entry;
-    changedRecords = true;
-    return { ...entry, deletedAt: nowIso, updatedAt: nowIso };
-  });
   await writeDb(auth.db);
-  if (changedRecords) await writeGenerationRecords(nextRecords);
+  await softDeleteGenerationRecordsByCompanion(record.id);
   return sendJson(res, 200, { ok: true });
 }
 
@@ -10628,13 +10672,7 @@ async function handleAdminDeleteHomeItem(req, res, itemId) {
   config.homeVideo = syncHomeVideoActiveFields(config.homeVideo);
   await writeAppConfig(config);
   if (deleted) {
-    const records = await readGenerationRecords();
-    const nextRecords = records.map((entry) => (
-      entry.companionId === itemId && !entry.deletedAt
-        ? { ...entry, deletedAt: nowIso, updatedAt: nowIso }
-        : entry
-    ));
-    await writeGenerationRecords(nextRecords);
+    await softDeleteGenerationRecordsByCompanion(itemId);
   }
   return sendJson(res, 200, { ok: true, homeVideo: config.homeVideo });
 }
@@ -10812,10 +10850,7 @@ async function handleListGenerationRecords(req, res, url) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 60)));
-  const records = await readGenerationRecords();
-  const ownRecords = records
-    .filter((record) => record.userId === auth.user.id && isUserVisibleGenerationRecord(record))
-    .slice(0, limit);
+  const ownRecords = await listGenerationRecordsForUser(auth.user.id, limit);
 
   const refreshRequested = generationListRefreshRequested(url);
   const refundable = ownRecords.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 50);
@@ -10845,9 +10880,10 @@ async function handleListGenerationRecords(req, res, url) {
 async function handleGetGenerationRecord(req, res, taskId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const records = await readGenerationRecords();
-  const record = records.find((entry) => entry.taskId === taskId && entry.userId === auth.user.id && isUserVisibleGenerationRecord(entry));
-  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  const record = await getGenerationRecord(taskId);
+  if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
+    return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  }
 
   let nextRecord = record;
   if (needsApizFailureRefund(record)) {
@@ -11819,6 +11855,10 @@ async function bootstrap() {
       defaultDb: DEFAULT_DB,
       defaultConfig: DEFAULT_CONFIG,
     });
+    const generationRecordMigration = await migrateGenerationRecordsKvToTable();
+    if (generationRecordMigration?.migrated) {
+      console.log(`Generation records migrated to table: ${generationRecordMigration.migrated}`);
+    }
   }
   const apiTokensMigrated = await ensureAllUsersApiTokens();
   if (apiTokensMigrated) {
