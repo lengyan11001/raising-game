@@ -4282,6 +4282,7 @@ async function ensureAssetImageChoices() {
 
 function assetGenerateDialogBody({ mode = "extend", imageAssetId = "" } = {}) {
   const isReplace = mode === "replace";
+  const prompt = isReplace ? "Replace the lady in [Video 1] with the lady in [Image 1]" : "Extend [Image 1]";
   return `
     <div class="asset-generate-form">
       ${isReplace ? `
@@ -4295,7 +4296,21 @@ function assetGenerateDialogBody({ mode = "extend", imageAssetId = "" } = {}) {
           </span>
         </label>
       ` : ""}
-      <label class="field"><span>${escapeHtml(t("field.prompt"))}</span><textarea id="assetGeneratePrompt" rows="4">${escapeHtml(isReplace ? "Replace the lady in [Video 1] with the lady in [Image 1]" : "Extend [Image 1]")}</textarea></label>
+      <label class="field"><span>${escapeHtml(t("field.prompt"))}</span><textarea id="assetGeneratePrompt" rows="4">${escapeHtml(prompt)}</textarea></label>
+      <div class="asset-generate-grid">
+        <label class="field"><span>${escapeHtml(t("field.duration"))}</span><input id="assetGenerateDuration" type="number" min="5" max="15" value="5" /></label>
+        <label class="field"><span>${escapeHtml(t("field.resolution"))}</span><select id="assetGenerateResolution"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+      </div>
+      <p class="job-note" id="assetGenerateCost"></p>
+      <p class="job-note" id="assetGenerateStatus"></p>
+    </div>
+  `;
+}
+
+function assetVideoExtendDialogBody() {
+  return `
+    <div class="asset-generate-form">
+      <label class="field"><span>${escapeHtml(t("field.prompt"))}</span><textarea id="assetGeneratePrompt" rows="4">${escapeHtml("Extend [Video 1] smoothly with the same subject, scene, motion, lighting and cinematic style.")}</textarea></label>
       <div class="asset-generate-grid">
         <label class="field"><span>${escapeHtml(t("field.duration"))}</span><input id="assetGenerateDuration" type="number" min="5" max="15" value="5" /></label>
         <label class="field"><span>${escapeHtml(t("field.resolution"))}</span><select id="assetGenerateResolution"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
@@ -4339,6 +4354,7 @@ async function readOptionalImageUpload(root) {
 async function openAssetExtendDialog(asset = {}) {
   if (!asset?.id) return;
   if (!state.user) return openLogin();
+  if (isVideoAsset(asset)) return openAssetVideoExtendDialog(asset);
   const result = await showInlineDialog({
     title: t("assets.extendTitle"),
     body: assetGenerateDialogBody({ mode: "extend" }),
@@ -4355,6 +4371,40 @@ async function openAssetExtendDialog(asset = {}) {
           provider: "seedance",
           prompt,
           referenceImages: [{ assetId: asset.id, name: asset.name || "" }],
+          ratio: "16:9",
+          resolution,
+          duration,
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      root.querySelector("#assetGenerateStatus").textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
+    },
+  });
+  if (result === "confirm") {
+    setTab("history");
+    scheduleHistoryRefresh({ delayMs: 8000, force: true });
+  }
+}
+
+async function openAssetVideoExtendDialog(videoAsset = {}) {
+  if (!videoAsset?.id) return;
+  if (!state.user) return openLogin();
+  const result = await showInlineDialog({
+    title: t("assets.extendTitle"),
+    body: assetVideoExtendDialogBody(),
+    confirmText: t("common.generate"),
+    onOpen: bindAssetGenerateCost,
+    onConfirm: async (root) => {
+      const duration = Number(root.querySelector("#assetGenerateDuration")?.value || 5);
+      const resolution = root.querySelector("#assetGenerateResolution")?.value || "720p";
+      const prompt = root.querySelector("#assetGeneratePrompt")?.value.trim() || "Extend [Video 1] smoothly.";
+      root.querySelector("#assetGenerateStatus").textContent = t("assets.generating");
+      const payload = await requestJson("/api/advanced/generate", {
+        method: "POST",
+        body: {
+          provider: "seedance",
+          prompt,
+          referenceVideoAssetId: videoAsset.id,
           ratio: "16:9",
           resolution,
           duration,
@@ -4785,6 +4835,9 @@ function renderHistory(records = []) {
               <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
                 <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
               </button>
+              <button class="history-download history-extend" type="button" data-history-extend="${escapeHtml(taskId)}">
+                <i data-lucide="stretch-horizontal"></i>${escapeHtml(t("assets.extend"))}
+              </button>
               <button class="history-download history-replace" type="button" data-history-replace="${escapeHtml(taskId)}">
                 <i data-lucide="replace"></i>${escapeHtml(t("assets.replace"))}
               </button>
@@ -4823,6 +4876,9 @@ function renderHistory(records = []) {
   });
   els.historyList.querySelectorAll("[data-history-replace]").forEach((button) => {
     button.addEventListener("click", () => openHistoryRecordAssetAction(button.dataset.historyReplace || "", "replace", button));
+  });
+  els.historyList.querySelectorAll("[data-history-extend]").forEach((button) => {
+    button.addEventListener("click", () => openHistoryRecordAssetAction(button.dataset.historyExtend || "", "extend", button));
   });
   els.historyList.querySelectorAll("[data-history-frame]").forEach((button) => {
     button.addEventListener("click", () => openHistoryRecordAssetAction(button.dataset.historyFrame || "", "frame", button));
@@ -4937,6 +4993,7 @@ async function openHistoryRecordAssetAction(taskId, action = "replace", button =
   });
   if (!videoAsset) return;
   if (action === "frame") return openAssetFrameDialog(videoAsset);
+  if (action === "extend") return openAssetVideoExtendDialog(videoAsset);
   if (action === "replace") return openAssetReplaceDialog(videoAsset);
 }
 

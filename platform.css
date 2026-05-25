@@ -1788,7 +1788,8 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 .history-params { color: #0f766e; }
 .history-add-asset,
 .history-replace,
-.history-frame {
+.history-frame,
+.history-extend {
   color: #0d574f;
   border-color: rgba(15,148,139,.28);
 }
