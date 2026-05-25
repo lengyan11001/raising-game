@@ -21,6 +21,12 @@ const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
+const ADVANCED_CASE_TABS = [
+  { id: "hot", labelKey: "advanced.caseTab.hot" },
+  { id: "extend", labelKey: "advanced.caseTab.extend" },
+  { id: "replace", labelKey: "advanced.caseTab.replace" },
+];
+const ADVANCED_CASE_PAGE_SIZE = { hot: 9, extend: 3, replace: 3 };
 
 function normalizePlatformTab(value = "") {
   const normalized = String(value || "").trim().replace(/^#\/?/, "");
@@ -41,6 +47,8 @@ const state = {
   category: "all",
   advancedCases: [],
   activeAdvancedCaseId: "",
+  activeAdvancedCaseTab: "hot",
+  advancedCasePages: { hot: 1, extend: 1, replace: 1 },
   advancedEstimate: null,
   advancedEstimateKey: "",
   advancedEstimateTimer: 0,
@@ -382,6 +390,17 @@ const I18N = {
     "advanced.loadedCase": "Loaded case: {title} - {cost}",
     "advanced.defaultCase": "Advanced case",
     "advanced.noCases": "No cases configured yet.",
+    "advanced.usePrompt": "Use prompt",
+    "advanced.casePromptHint": "Upload one image to create a matching video.",
+    "advanced.casePromptLoaded": "{model} prompt loaded. Upload one image and generate a matching video.",
+    "advanced.casePromptFallback": "Create a matching video based on the uploaded image.",
+    "advanced.caseInputVideo": "Input video",
+    "advanced.caseInputImage": "Input image",
+    "advanced.caseImage": "Image",
+    "advanced.caseResultVideo": "Result video",
+    "advanced.caseTab.hot": "Hot",
+    "advanced.caseTab.extend": "Extend",
+    "advanced.caseTab.replace": "Replace",
     "advanced.imageTooLarge": "Image must be 8MB or smaller.",
     "assets.eyebrow": "Library",
     "assets.title": "Asset Library",
@@ -2637,6 +2656,13 @@ function templateGenerateLabel(templateId) {
   return t("template.generate", { cost: templateCostLabel(templateId) });
 }
 
+function templateActionLabel(template = {}) {
+  if (template.action === "advanced" || template.targetTab === "advanced") {
+    return template.buttonLabel || "Advanced";
+  }
+  return templateGenerateLabel(template.id);
+}
+
 function updateSubmitButtonCost() {
   if (!els.submitTemplateBtn) return;
   const templateId = state.activeTemplate?.id || "";
@@ -3038,7 +3064,7 @@ function renderTemplates() {
       <img class="template-cover" src="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(localizedTemplateTitle(template))}" loading="lazy" />
       ${template.previewUrl || template.hoverPreviewUrl ? `<video class="template-hover-video" data-src="${escapeHtml(template.hoverPreviewUrl || template.previewUrl)}" poster="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
       <div class="template-meta">
-        <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
+        <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateActionLabel(template))}</button>
       </div>
     </article>
   `).join("") : `<div class="job-note">${escapeHtml(t("gallery.noTemplates"))}</div>`;
@@ -3173,7 +3199,200 @@ function openPreview(templateId) {
 function openAdvancedPreview(index) {
   const cases = state.advancedCases.filter((item) => item.enabled !== false);
   const item = cases[Number(index || 0)];
-  playPreview({ title: item?.title, previewUrl: item?.previewUrl, ratio: previewRatioFromItem(item) });
+  playPreview({ title: item?.title, previewUrl: advancedCaseOutputVideo(item), ratio: previewRatioFromItem(item) });
+}
+
+function advancedCaseById(id = "") {
+  const target = String(id || "").trim();
+  return state.advancedCases.find((item) => String(item.id || "") === target) || null;
+}
+
+function advancedCaseInputImage(item = {}) {
+  const candidates = [
+    item.inputImageUrl,
+    item.sourceImageUrl,
+    item.referenceImageUrl,
+    item.referenceUrl,
+    item.imageUrl,
+    item.params?.inputImageUrl,
+    item.params?.sourceImageUrl,
+    item.params?.referenceImageUrl,
+    item.mediaAssets?.find?.((asset) => asset && !["reference_video", "first_clip", "driving_audio"].includes(asset.type))?.imageUrl,
+    item.mediaAssets?.find?.((asset) => asset && !["reference_video", "first_clip", "driving_audio"].includes(asset.type))?.localUrl,
+    item.sourceCoverUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || item.coverUrl || DEFAULT_TEMPLATE_COVER;
+}
+
+function advancedCaseInputVideo(item = {}) {
+  const candidates = [
+    item.inputVideoUrl,
+    item.params?.inputVideoUrl,
+    item.params?.sourceVideoUrl,
+    item.params?.firstClipUrl,
+    item.params?.first_clip_url,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.videoUrl,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.url,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.localUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || "";
+}
+
+function advancedCaseInputVideoPoster(item = {}) {
+  const candidates = [
+    item.inputVideoPosterUrl,
+    item.sourceVideoPosterUrl,
+    item.params?.inputVideoPosterUrl,
+    item.params?.sourceVideoPosterUrl,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.posterUrl,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.imageUrl,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.thumbnailUrl,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.localPosterUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || item.coverUrl || item.sourceCoverUrl || DEFAULT_TEMPLATE_COVER;
+}
+
+function advancedCaseOutputVideo(item = {}) {
+  const candidates = [
+    item.previewUrl,
+    item.localVideoUrl,
+    item.cdnVideoUrl,
+    item.hoverPreviewUrl,
+    item.sourceVideoUrl,
+    item.mediaSourceVideoUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || "";
+}
+
+function generatedPosterFromVideoUrl(videoUrl = "") {
+  const raw = String(videoUrl || "").trim();
+  const match = raw.match(/^(.*\/assets\/generated\/)videos\/([^/?#]+)\.(?:mp4|webm|mov|m4v)([?#].*)?$/i);
+  if (!match) return "";
+  return `${match[1]}posters/${match[2]}.jpg`;
+}
+
+function advancedCaseOutputPoster(item = {}) {
+  const candidates = [
+    item.outputPosterUrl,
+    item.resultPosterUrl,
+    item.posterUrl,
+    generatedPosterFromVideoUrl(item.sourceVideoUrl),
+    generatedPosterFromVideoUrl(item.mediaSourceVideoUrl),
+    generatedPosterFromVideoUrl(item.localVideoUrl),
+    generatedPosterFromVideoUrl(item.previewUrl),
+    item.localCoverUrl,
+    item.coverUrl,
+    item.cdnCoverUrl,
+    item.sourceCoverUrl,
+    item.mediaSourceCoverUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || DEFAULT_TEMPLATE_COVER;
+}
+
+function openAdvancedRowPreview(caseId, kind = "output") {
+  const item = advancedCaseById(caseId);
+  if (!item) return;
+  const previewUrl = kind === "input" ? advancedCaseInputVideo(item) : advancedCaseOutputVideo(item);
+  playPreview({ title: item.title || t("advanced.defaultCase"), previewUrl, ratio: previewRatioFromItem(item) });
+}
+
+function advancedCaseStageTile({ className = "", imageUrl = "", videoUrl = "", label = "", isVideo = false, caseId = "", previewKind = "" } = {}) {
+  const playable = Boolean(isVideo && previewKind && videoUrl);
+  const poster = imageUrl || DEFAULT_TEMPLATE_COVER;
+  const media = isVideo && videoUrl
+    ? `<video class="advanced-case-stage-video" src="${escapeHtml(videoUrl)}" poster="${escapeHtml(poster)}" muted playsinline preload="metadata" disablepictureinpicture></video>`
+    : `<img src="${escapeHtml(poster)}" alt="" loading="lazy" />`;
+  return `
+    <div class="advanced-case-row-media ${className} ${isVideo ? "is-video" : "is-image"}">
+      ${media}
+      <span class="advanced-case-stage-label">${escapeHtml(label)}</span>
+      ${isVideo ? `<span class="advanced-case-video-mark"><i data-lucide="play"></i></span>` : ""}
+      ${playable ? `<button class="advanced-case-stage-hit" data-advanced-row-preview-id="${escapeHtml(caseId)}" data-advanced-row-preview-kind="${escapeHtml(previewKind)}" type="button" aria-label="${escapeHtml(t("common.preview"))}"></button>` : ""}
+    </div>
+  `;
+}
+
+function advancedCasePromptText(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  return String(item.prompt || params.prompt || t("advanced.casePromptFallback")).trim();
+}
+
+function fillAdvancedCasePrompt(item = {}) {
+  if (!item) return;
+  const prompt = advancedCasePromptText(item);
+  const provider = advancedCaseProvider(item);
+  if (els.advancedProvider) {
+    els.advancedProvider.value = provider;
+    updateAdvancedModelControls();
+  }
+  if (els.advancedPrompt) {
+    els.advancedPrompt.value = prompt;
+    els.advancedPrompt.focus?.();
+  }
+  state.activeAdvancedCaseId = "";
+  updateAdvancedButtonCost();
+  if (els.advancedNote) els.advancedNote.textContent = t("advanced.casePromptLoaded", { model: provider === "wan27" ? "Wan2.7" : "Seedance" });
+}
+
+function renderAdvancedCaseCard({ item, index }) {
+  return `
+    <article class="advanced-case-card" data-case-index="${index}">
+      <img class="advanced-case-cover" src="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
+      ${item.previewUrl || item.hoverPreviewUrl ? `<video class="advanced-case-hover-video" data-src="${escapeHtml(item.hoverPreviewUrl || item.previewUrl)}" poster="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
+      ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
+    </article>
+  `;
+}
+
+function renderAdvancedCaseRow({ item, index }) {
+  const caseId = String(item.id || "");
+  const inputImage = advancedCaseInputImage(item);
+  const inputVideo = advancedCaseInputVideo(item);
+  const inputVideoPoster = advancedCaseInputVideoPoster(item);
+  const outputVideo = advancedCaseOutputVideo(item);
+  const outputPoster = advancedCaseOutputPoster(item);
+  const tab = normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab);
+  const showReplaceVideoSlot = tab === "replace" && (inputVideo || inputVideoPoster);
+  return `
+    <article class="advanced-case-row" data-case-index="${index}" data-case-id="${escapeHtml(caseId)}">
+      <div class="advanced-case-row-input ${tab === "replace" ? "is-replace" : ""}">
+        ${showReplaceVideoSlot ? `
+          ${advancedCaseStageTile({ className: "advanced-case-row-source-video", imageUrl: inputVideoPoster, videoUrl: inputVideo, label: t("advanced.caseInputVideo"), isVideo: true, caseId, previewKind: inputVideo ? "input" : "" })}
+        ` : ""}
+        ${advancedCaseStageTile({ className: "advanced-case-row-image", imageUrl: inputImage, label: tab === "replace" ? t("advanced.caseImage") : t("advanced.caseInputImage"), isVideo: false, caseId })}
+      </div>
+      <div class="advanced-case-row-arrow"><i data-lucide="arrow-right"></i></div>
+      ${advancedCaseStageTile({ className: "advanced-case-row-video", imageUrl: outputPoster, videoUrl: outputVideo, label: t("advanced.caseResultVideo"), isVideo: true, caseId, previewKind: outputVideo ? "output" : "" })}
+      <div class="advanced-case-row-action">
+        <button class="ghost-button advanced-case-use-prompt" data-advanced-fill-prompt-id="${escapeHtml(caseId)}" type="button"><i data-lucide="text-cursor-input"></i>${escapeHtml(t("advanced.usePrompt"))}</button>
+        <p class="advanced-case-row-hint">${escapeHtml(t("advanced.casePromptHint"))}</p>
+      </div>
+    </article>
+  `;
+}
+
+function renderAdvancedCasePager(tab, page, totalPages) {
+  if (totalPages <= 1) return "";
+  return `
+    <div class="advanced-case-pager">
+      <button class="ghost-button" type="button" data-case-page="${page - 1}" ${page <= 1 ? "disabled" : ""}><i data-lucide="chevron-left"></i></button>
+      <span>${page} / ${totalPages}</span>
+      <button class="ghost-button" type="button" data-case-page="${page + 1}" ${page >= totalPages ? "disabled" : ""}><i data-lucide="chevron-right"></i></button>
+    </div>
+  `;
+}
+
+function normalizeAdvancedCaseTab(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw.includes("extend")) return "extend";
+  if (raw.includes("replace")) return "replace";
+  if (raw === "hot" || raw.includes("热门") || raw.includes("popular")) return "hot";
+  return "hot";
+}
+
+function advancedCaseTabLabel(tab = "hot") {
+  const item = ADVANCED_CASE_TABS.find((entry) => entry.id === tab) || ADVANCED_CASE_TABS[0];
+  return t(item.labelKey, {}, item.id);
 }
 
 let paypalConfigPromise = null;
@@ -3602,19 +3821,66 @@ function renderAdvancedCases() {
   activeHoverPreviewStop?.();
   activeHoverPreviewStop = null;
   const cases = state.advancedCases.filter((item) => item.enabled !== false);
-  els.advancedCaseGrid.innerHTML = cases.length ? cases.map((item, index) => `
-    <article class="advanced-case-card" data-case-index="${index}">
-      <img class="advanced-case-cover" src="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
-      ${item.previewUrl || item.hoverPreviewUrl ? `<video class="advanced-case-hover-video" data-src="${escapeHtml(item.hoverPreviewUrl || item.previewUrl)}" poster="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
-      ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
-    </article>
-  `).join("") : `<div class="job-note">${escapeHtml(t("advanced.noCases"))}</div>`;
+  state.activeAdvancedCaseTab = normalizeAdvancedCaseTab(state.activeAdvancedCaseTab);
+  const activeTab = state.activeAdvancedCaseTab;
+  const visibleCases = cases
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === activeTab);
+  const pageSize = ADVANCED_CASE_PAGE_SIZE[activeTab] || 9;
+  const totalPages = Math.max(1, Math.ceil(visibleCases.length / pageSize));
+  const currentPage = Math.min(totalPages, Math.max(1, Number(state.advancedCasePages?.[activeTab] || 1)));
+  state.advancedCasePages = { ...state.advancedCasePages, [activeTab]: currentPage };
+  const pageCases = visibleCases.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const tabs = `
+    <div class="advanced-case-tabs" role="tablist" aria-label="${escapeHtml(t("advanced.cases"))}">
+      ${ADVANCED_CASE_TABS.map((tab) => {
+        const count = cases.filter((item) => normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === tab.id).length;
+        return `<button class="advanced-case-tab ${tab.id === activeTab ? "is-active" : ""}" data-case-tab="${escapeHtml(tab.id)}" type="button" role="tab" aria-selected="${tab.id === activeTab ? "true" : "false"}">${escapeHtml(advancedCaseTabLabel(tab.id))}<span>${count}</span></button>`;
+      }).join("")}
+    </div>
+  `;
+  const caseMarkup = pageCases.length
+    ? pageCases.map((entry) => (activeTab === "hot" ? renderAdvancedCaseCard(entry) : renderAdvancedCaseRow(entry))).join("")
+    : `<div class="job-note advanced-case-empty">${escapeHtml(t("advanced.noCases"))}</div>`;
+  els.advancedCaseGrid.classList.toggle("is-case-list", activeTab !== "hot");
+  els.advancedCaseGrid.innerHTML = `${tabs}${caseMarkup}${renderAdvancedCasePager(activeTab, currentPage, totalPages)}`;
+  els.advancedCaseGrid.querySelectorAll("[data-case-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeAdvancedCaseTab = normalizeAdvancedCaseTab(button.dataset.caseTab);
+      state.advancedCasePages = { ...state.advancedCasePages, [state.activeAdvancedCaseTab]: state.advancedCasePages?.[state.activeAdvancedCaseTab] || 1 };
+      renderAdvancedCases();
+    });
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-case-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.advancedCasePages = {
+        ...state.advancedCasePages,
+        [activeTab]: Math.min(totalPages, Math.max(1, Number(button.dataset.casePage || 1))),
+      };
+      renderAdvancedCases();
+    });
+  });
   els.advancedCaseGrid.querySelectorAll("[data-case-index]").forEach((card) => {
-    card.addEventListener("click", () => fillAdvancedCase(cases[Number(card.dataset.caseIndex || 0)]));
+    if (!card.classList.contains("advanced-case-row")) {
+      card.addEventListener("click", () => fillAdvancedCase(cases[Number(card.dataset.caseIndex || 0)]));
+    }
+    const isCaseRow = card.classList.contains("advanced-case-row");
     bindHoverPreviewCard({
       card,
-      video: card.querySelector(".advanced-case-hover-video"),
-      cover: card.querySelector(".advanced-case-cover"),
+      video: isCaseRow ? null : card.querySelector(".advanced-case-hover-video"),
+      cover: isCaseRow ? null : card.querySelector(".advanced-case-cover"),
+    });
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-advanced-fill-prompt-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      fillAdvancedCasePrompt(advancedCaseById(button.dataset.advancedFillPromptId));
+    });
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-advanced-row-preview-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openAdvancedRowPreview(button.dataset.advancedRowPreviewId, button.dataset.advancedRowPreviewKind || "output");
     });
   });
   els.advancedCaseGrid.querySelectorAll("[data-advanced-preview-index]").forEach((button) => {
@@ -3764,6 +4030,14 @@ async function submitAdvancedGenerate() {
 function openTemplate(templateId) {
   const template = state.templates.find((item) => item.id === templateId);
   if (!template) return;
+  if (template.action === "advanced" || template.targetTab === "advanced") {
+    setTab("advanced");
+    if (template.advancedCaseId) {
+      const matched = state.advancedCases.find((item) => item.id === template.advancedCaseId);
+      if (matched) fillAdvancedCase(matched);
+    }
+    return;
+  }
   state.activeTemplate = template;
   state.uploadDataUrl = "";
   els.modalType.textContent = template.type === "image-to-video" ? t("modal.imageToVideo") : t("modal.textToVideo");

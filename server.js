@@ -925,6 +925,8 @@ function normalizePlatformTemplate(template = {}, index = 0) {
   const type = String(template.type || "image-to-video").trim();
   const safeType = type === "text-to-video" ? "text-to-video" : "image-to-video";
   const id = String(template.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId;
+  const action = String(template.action || "").trim().toLowerCase();
+  const targetTab = String(template.targetTab || template.openTab || "").trim().toLowerCase();
   const legacyParams = template.params && typeof template.params === "object" && !Array.isArray(template.params) ? template.params : {};
   const requestJson = template.requestJson && typeof template.requestJson === "object" && !Array.isArray(template.requestJson)
     ? template.requestJson
@@ -954,9 +956,21 @@ function normalizePlatformTemplate(template = {}, index = 0) {
     price: positiveCreditsOrNull(template.price ?? template.credits ?? template.estimatedCredits),
     params: legacyParams,
     requestJson,
+    action: action === "advanced" ? "advanced" : "",
+    targetTab: targetTab === "advanced" ? "advanced" : "",
+    advancedCaseId: String(template.advancedCaseId || template.caseId || "").trim(),
+    buttonLabel: String(template.buttonLabel || "").trim().slice(0, 40),
     enabled: template.enabled !== false,
     sort: Number.isFinite(Number(template.sort)) ? Number(template.sort) : index,
   };
+}
+
+function normalizeAdvancedCaseCategory(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw.includes("extend")) return "extend";
+  if (raw.includes("replace")) return "replace";
+  if (raw === "hot" || raw.includes("popular")) return "hot";
+  return "hot";
 }
 
 function normalizeAdvancedCase(item = {}, index = 0, advancedPricing = DEFAULT_ADVANCED_PRICING) {
@@ -976,7 +990,7 @@ function normalizeAdvancedCase(item = {}, index = 0, advancedPricing = DEFAULT_A
   return {
     id: String(item.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId,
     title: String(item.title || "Advanced case").trim().slice(0, 80) || "Advanced case",
-    category: String(item.category || "advanced").trim().slice(0, 40) || "advanced",
+    category: normalizeAdvancedCaseCategory(item.category || item.caseCategory || item.tab),
     provider,
     price: estimatedCredits,
     creditsPerSecond: pricing.creditsPerSecond,
@@ -985,6 +999,12 @@ function normalizeAdvancedCase(item = {}, index = 0, advancedPricing = DEFAULT_A
     coverUrl: String(item.coverUrl || "").trim(),
     previewUrl: String(item.previewUrl || "").trim(),
     hoverPreviewUrl: String(item.hoverPreviewUrl || "").trim(),
+    outputPosterUrl: String(item.outputPosterUrl || "").trim(),
+    resultPosterUrl: String(item.resultPosterUrl || item.outputPosterUrl || "").trim(),
+    inputImageUrl: String(item.inputImageUrl || item.sourceImageUrl || item.referenceImageUrl || item.imageUrl || "").trim(),
+    inputVideoUrl: String(item.inputVideoUrl || "").trim(),
+    inputVideoPosterUrl: String(item.inputVideoPosterUrl || "").trim(),
+    sourceImageUrl: String(item.sourceImageUrl || item.inputImageUrl || "").trim(),
     sourceVideoUrl: String(item.sourceVideoUrl || "").trim(),
     sourceCoverUrl: String(item.sourceCoverUrl || "").trim(),
     mediaSourceVideoUrl: String(item.mediaSourceVideoUrl || item.sourceVideoUrl || "").trim(),
@@ -7332,6 +7352,82 @@ async function handleAdminIngestPlatformTemplateMedia(req, res) {
   }
 }
 
+function platformTemplateFromGenerationRecord(record = {}, media = {}, index = 0) {
+  const taskId = String(record.taskId || Date.now()).replace(/[^a-z0-9_-]/gi, "-").slice(0, 48);
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "Gallery video";
+  const prompt = record.finalPrompt || record.prompt || title;
+  const ratio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
+  const duration = record.duration || record.params?.duration || 5;
+  const resolution = record.resolution || record.params?.resolution || "720p";
+  return normalizePlatformTemplate({
+    id: `gallery-record-${taskId}`,
+    title: String(title || "Gallery video").slice(0, 80),
+    category: "featured",
+    type: "text-to-video",
+    badge: "Advanced",
+    previewUrl: media.previewUrl || record.localVideoUrl || record.videoUrl || record.remoteVideoUrl || "",
+    coverUrl: media.coverUrl || record.localPosterUrl || record.posterUrl || record.imageUrl || "",
+    hoverPreviewUrl: media.previewUrl || "",
+    model: "advanced-link",
+    prompt,
+    requestJson: {
+      model: "advanced-link",
+      prompt,
+      ratio,
+      duration,
+      resolution,
+    },
+    action: "advanced",
+    targetTab: "advanced",
+    buttonLabel: "Advanced",
+    enabled: true,
+    sort: index,
+  }, index);
+}
+
+async function handleAdminPromoteRecordToPlatform(req, res, taskId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const records = await readGenerationRecords();
+  const record = records.find((entry) => entry.taskId === taskId);
+  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  const sourceVideoUrl = generationRecordVideoUrl(record);
+  if (!sourceVideoUrl) return sendJson(res, 400, { ok: false, message: "This record has no video result." });
+
+  const config = await readAppConfig();
+  const platform = config.platform || {};
+  const templates = Array.isArray(platform.templates) ? platform.templates : [];
+  const templateId = `gallery-record-${String(record.taskId || Date.now()).replace(/[^a-z0-9_-]/gi, "-").slice(0, 48)}`;
+  let media = {
+    previewUrl: sourceVideoUrl,
+    coverUrl: record.localPosterUrl || record.posterUrl || record.imageUrl || "",
+  };
+  try {
+    media = await ingestPlatformTemplateMedia({
+      videoUrl: absolutePublicUrl(sourceVideoUrl),
+      coverUrl: media.coverUrl ? absolutePublicUrl(media.coverUrl) : "",
+      templateId,
+    });
+  } catch (error) {
+    console.warn("[promote-platform-media-failed]", taskId, error.message || error);
+  }
+  const nextTemplate = platformTemplateFromGenerationRecord(record, media, templates.length);
+  const nextTemplates = [
+    ...templates.filter((item) => item.id !== nextTemplate.id),
+    nextTemplate,
+  ];
+  const nextConfig = {
+    ...config,
+    platform: {
+      ...platform,
+      templates: nextTemplates,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  await writeAppConfig(nextConfig);
+  return sendJson(res, 200, { ok: true, template: nextTemplate, config: nextConfig });
+}
+
 async function makePlatformEstimate(template, overrides = {}, user = null) {
   const prompt =
     typeof overrides.prompt === "string" && overrides.prompt.trim()
@@ -11748,6 +11844,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/generation-records") {
       return await handleAdminListGenerationRecords(req, res, url);
+    }
+    const adminPromotePlatformMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)\/promote-platform$/);
+    if (adminPromotePlatformMatch && req.method === "POST") {
+      return await handleAdminPromoteRecordToPlatform(req, res, decodeURIComponent(adminPromotePlatformMatch[1]));
     }
 
     if (req.method === "POST" && url.pathname === "/api/my/characters/draft") {
