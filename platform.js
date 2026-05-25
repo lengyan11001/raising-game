@@ -84,11 +84,6 @@ function isTabAllowed(tab) {
 const els = {
   brandName: document.querySelector("#brandName"),
   languageSelect: document.querySelector("#languageSelect"),
-  heroTitle: document.querySelector("#heroTitle"),
-  heroEyebrow: document.querySelector("#heroEyebrow"),
-  heroSubtitle: document.querySelector("#heroSubtitle"),
-  heroBadge: document.querySelector("#heroBadge"),
-  heroNotice: document.querySelector("#heroNotice"),
   categoryRow: document.querySelector("#categoryRow"),
   templateGrid: document.querySelector("#templateGrid"),
   templateDialog: document.querySelector("#templateDialog"),
@@ -2364,7 +2359,6 @@ function applyTenantFeatures() {
 function applyLanguage() {
   applyStaticTranslations();
   applyTenantFeatures();
-  renderHero();
   renderCategories();
   renderTemplates();
   renderAccessGuides();
@@ -2603,13 +2597,13 @@ function billingLabel(billing = {}) {
 function formatCredits(value) {
   const next = Number(value);
   if (!Number.isFinite(next)) return "";
-  return Number.isInteger(next) ? String(next) : next.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+  return Number.isInteger(next) ? String(next) : next.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function creditsAmount(value) {
   const next = Number(value);
   if (!Number.isFinite(next)) return 0;
-  return Math.max(0, Math.round(next * 1000000) / 1000000);
+  return Math.max(0, Math.round(next * 10000) / 10000);
 }
 
 function userPricingMultiplier() {
@@ -2896,7 +2890,6 @@ function setTab(tab) {
   document.querySelectorAll("[data-tab]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.tab === nextTab);
   });
-  renderHero();
   if (nextTab === "history") loadHistory();
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();
@@ -2905,63 +2898,6 @@ function setTab(tab) {
     else renderAssets([]);
   }
   closeAccountMenu();
-}
-
-function renderHero() {
-  if (state.tab === "access") {
-    els.heroEyebrow.textContent = t("hero.access.eyebrow");
-    els.heroTitle.textContent = t("copy.accessTitle");
-    els.heroSubtitle.textContent = t("copy.accessSubtitle");
-    els.heroBadge.textContent = t("hero.access.badge");
-    els.heroNotice.textContent = t("copy.accessNotice");
-    return;
-  }
-  if (state.tab === "advanced") {
-    els.heroEyebrow.textContent = t("hero.advanced.eyebrow");
-    els.heroTitle.textContent = t("copy.advancedTitle");
-    els.heroSubtitle.textContent = t("copy.advancedSubtitle");
-    els.heroBadge.textContent = t("hero.advanced.badge");
-    els.heroNotice.textContent = t("copy.advancedNotice");
-    return;
-  }
-  if (state.tab === "history") {
-    els.heroEyebrow.textContent = t("hero.history.eyebrow");
-    els.heroTitle.textContent = t("copy.historyTitle");
-    els.heroSubtitle.textContent = t("copy.historySubtitle");
-    els.heroBadge.textContent = t("hero.history.badge");
-    els.heroNotice.textContent = t("copy.historyNotice");
-    return;
-  }
-  if (state.tab === "topups") {
-    els.heroEyebrow.textContent = t("hero.topups.eyebrow");
-    els.heroTitle.textContent = t("copy.topupsTitle");
-    els.heroSubtitle.textContent = t("copy.topupsSubtitle");
-    els.heroBadge.textContent = t("hero.topups.badge");
-    els.heroNotice.textContent = t("copy.topupsNotice");
-    return;
-  }
-  if (state.tab === "spending") {
-    els.heroEyebrow.textContent = t("hero.spending.eyebrow");
-    els.heroTitle.textContent = t("copy.spendingTitle");
-    els.heroSubtitle.textContent = t("copy.spendingSubtitle");
-    els.heroBadge.textContent = t("hero.spending.badge");
-    els.heroNotice.textContent = t("copy.spendingNotice");
-    return;
-  }
-  if (state.tab === "assets") {
-    els.heroEyebrow.textContent = t("hero.assets.eyebrow");
-    els.heroTitle.textContent = t("copy.assetsTitle");
-    els.heroSubtitle.textContent = t("copy.assetsSubtitle");
-    els.heroBadge.textContent = t("hero.assets.badge");
-    els.heroNotice.textContent = t("copy.assetsNotice");
-    return;
-  }
-  const platform = state.config?.platform || {};
-  els.heroEyebrow.textContent = t("hero.gallery.eyebrow");
-  els.heroTitle.textContent = localizedPublicCopy(platform.heroTitle, "galleryTitle");
-  els.heroSubtitle.textContent = localizedPublicCopy(platform.heroSubtitle, "gallerySubtitle");
-  els.heroBadge.textContent = t("hero.gallery.badge");
-  els.heroNotice.textContent = withExpiryNotice(localizedPublicCopy(platform.notice, "galleryNotice"));
 }
 
 function setCategory(category) {
@@ -4189,7 +4125,7 @@ function renderHistory(records = []) {
               ${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(statusLabel(record.status))}</span>`}
               <i data-lucide="play"></i>
             </button>
-            <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} controls muted playsinline preload="metadata" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
+            <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} controls playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
           ` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
         <div class="history-card-actions">
@@ -4216,7 +4152,6 @@ function renderHistory(records = []) {
       if (!video.src) video.src = video.dataset.src || "";
       video.hidden = false;
       button.hidden = true;
-      video.muted = true;
       video.play?.().catch(() => {});
     };
     button.addEventListener("mouseenter", showVideo, { once: true });
@@ -4756,7 +4691,6 @@ async function bootstrap() {
   els.brandName.textContent = platform.brand || "Vipeak AI";
   applyTenantFeatures();
   if (!isTabAllowed(state.tab)) state.tab = "gallery";
-  renderHero();
   renderCategories();
   renderTemplates();
   renderAccessGuides();

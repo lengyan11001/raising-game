@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-72" />
+    <link rel="stylesheet" href="./platform.css?v=ai-91" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
     <div class="aurora aurora-a"></div>
     <div class="aurora aurora-b"></div>
 
-    <header class="site-head">
+    <aside class="side-rail" aria-label="Workspace navigation">
       <a class="brand" href="/">
         <span class="brand-mark"></span>
         <strong id="brandName">Vipeak AI</strong>
@@ -25,6 +25,9 @@
         <button class="top-tab tenant-compact-only" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
         <button class="top-tab tenant-compact-only" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
       </nav>
+    </aside>
+
+    <header class="site-head">
       <div class="head-actions account-menu-wrap tenant-menu-only" id="accountMenuWrap">
         <button class="primary-pill account-menu-trigger" id="accountMenuBtn" type="button">
           <i data-lucide="user-round"></i>
@@ -57,27 +60,8 @@
     </header>
 
     <main>
-      <section class="hero">
-        <div>
-          <p class="eyebrow" id="heroEyebrow">Gallery</p>
-          <h1 id="heroTitle">Create AI videos</h1>
-          <p id="heroSubtitle">Choose a template, upload an image or enter text, and create a new video.</p>
-        </div>
-        <div class="hero-panel">
-          <span id="heroBadge">Templates</span>
-          <strong id="heroNotice">Generated results are saved in your history.</strong>
-        </div>
-      </section>
-
       <section class="workspace" data-panel="gallery">
         <section class="gallery-panel">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow" data-i18n="hero.gallery.eyebrow">Gallery</p>
-              <h2 data-i18n="gallery.title">AI Templates</h2>
-              <p data-i18n="gallery.subtitle">Choose a template, upload material, and generate a new result.</p>
-            </div>
-          </div>
           <div class="category-row" id="categoryRow"></div>
           <div class="template-grid" id="templateGrid"></div>
         </section>
@@ -175,13 +159,6 @@
       </section>
 
       <section class="asset-panel" data-panel="assets" hidden>
-        <div class="section-head compact">
-          <div>
-            <p class="eyebrow" data-i18n="assets.eyebrow">Library</p>
-            <h2 data-i18n="assets.title">Asset Library</h2>
-            <p data-i18n="assets.subtitle">Search, upload and reuse your images and videos.</p>
-          </div>
-        </div>
         <div class="asset-toolbar">
           <label><span data-i18n="ledger.search">Search</span><input id="assetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" /></label>
           <label><span data-i18n="assets.type">Type</span><select id="assetTypeFilter"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option></select></label>
@@ -196,11 +173,6 @@
       </section>
 
       <section class="access-panel" data-panel="access" hidden>
-        <div class="section-head centered">
-          <p class="eyebrow" data-i18n="access.integration">Integration</p>
-          <h2 data-i18n="access.title">API Access</h2>
-          <p data-i18n="access.subtitle">Connect your product or workflow to the current production generation API.</p>
-        </div>
         <div class="access-tabs" id="accessTabs"></div>
         <div class="token-card" id="accessTokenCard">
           <div>
@@ -230,24 +202,14 @@
       </section>
 
       <section class="history-panel" data-panel="history" hidden>
-        <div class="section-head compact">
-          <div>
-            <p class="eyebrow" data-i18n="history.eyebrow">History</p>
-            <h2 data-i18n="history.title">Generation Records</h2>
-            <p data-i18n="history.subtitle">Compact list of your generated videos, prompts and parameters.</p>
-          </div>
+        <div class="panel-actions">
           <button class="ghost-button" id="refreshHistoryBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
         </div>
         <div class="history-list compact-history" id="historyList"></div>
       </section>
 
       <section class="ledger-panel" data-panel="topups" hidden>
-        <div class="section-head compact">
-          <div>
-            <p class="eyebrow" data-i18n="topups.eyebrow">Billing</p>
-            <h2 data-i18n="topups.title">Top-up Records</h2>
-            <p data-i18n="topups.subtitle">Search and export your USDT top-up orders.</p>
-          </div>
+        <div class="panel-actions">
           <button class="ghost-button" id="exportTopupsBtn" data-i18n="ledger.export" type="button"><i data-lucide="download"></i>Export</button>
         </div>
         <form class="ledger-toolbar" id="topupFilters">
@@ -262,12 +224,7 @@
       </section>
 
       <section class="ledger-panel" data-panel="spending" hidden>
-        <div class="section-head compact">
-          <div>
-            <p class="eyebrow" data-i18n="spending.eyebrow">Billing</p>
-            <h2 data-i18n="spending.title">Spending Records</h2>
-            <p data-i18n="spending.subtitle">Search and export your credit consumption records.</p>
-          </div>
+        <div class="panel-actions">
           <button class="ghost-button" id="exportSpendingBtn" data-i18n="ledger.export" type="button"><i data-lucide="download"></i>Export</button>
         </div>
         <form class="ledger-toolbar" id="spendingFilters">
@@ -469,6 +426,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-92"></script>
+    <script src="./platform.js?v=ai-91"></script>
 </body>
 </html>
