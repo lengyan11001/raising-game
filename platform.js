@@ -4189,7 +4189,7 @@ function renderHistory(records = []) {
               ${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(statusLabel(record.status))}</span>`}
               <i data-lucide="play"></i>
             </button>
-            <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} controls playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
+            <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} controls muted playsinline preload="metadata" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
           ` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
         <div class="history-card-actions">
@@ -4216,6 +4216,7 @@ function renderHistory(records = []) {
       if (!video.src) video.src = video.dataset.src || "";
       video.hidden = false;
       button.hidden = true;
+      video.muted = true;
       video.play?.().catch(() => {});
     };
     button.addEventListener("mouseenter", showVideo, { once: true });
