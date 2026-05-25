@@ -4792,29 +4792,42 @@ async function readGenerationRecords() {
   return Array.isArray(records) ? records : [];
 }
 
+let generationRecordsWriteQueue = Promise.resolve();
+
+async function withGenerationRecordsLock(action) {
+  const run = generationRecordsWriteQueue.then(action, action);
+  generationRecordsWriteQueue = run.catch(() => {});
+  return run;
+}
+
 async function writeGenerationRecords(records) {
-  await setKv("generation_records", records);
+  return withGenerationRecordsLock(async () => {
+    await setKv("generation_records", records);
+    return records;
+  });
 }
 
 async function upsertGenerationRecord(nextRecord) {
-  const records = await readGenerationRecords();
-  const index = records.findIndex((record) => record.taskId === nextRecord.taskId);
-  const now = new Date().toISOString();
-  const record = {
-    ...(index >= 0 ? records[index] : { createdAt: now }),
-    ...nextRecord,
-    deletedAt: nextRecord.deletedAt ?? (index >= 0 ? records[index].deletedAt || "" : ""),
-    updatedAt: now,
-  };
+  return withGenerationRecordsLock(async () => {
+    const records = await readGenerationRecords();
+    const index = records.findIndex((record) => record.taskId === nextRecord.taskId);
+    const now = new Date().toISOString();
+    const record = {
+      ...(index >= 0 ? records[index] : { createdAt: now }),
+      ...nextRecord,
+      deletedAt: nextRecord.deletedAt ?? (index >= 0 ? records[index].deletedAt || "" : ""),
+      updatedAt: now,
+    };
 
-  if (index >= 0) {
-    records[index] = record;
-  } else {
-    records.unshift(record);
-  }
+    if (index >= 0) {
+      records[index] = record;
+    } else {
+      records.unshift(record);
+    }
 
-  await writeGenerationRecords(records.slice(0, 500));
-  return record;
+    await setKv("generation_records", records.slice(0, 500));
+    return record;
+  });
 }
 
 async function upsertAndSettleGenerationRecord(nextRecord, reason = "query") {
@@ -10963,13 +10976,15 @@ async function handleAdminListGenerationRecords(req, res, url) {
     : [];
   const refreshable = uniqueGenerationRecords([...refundable, ...mediaBackfill, ...statusRefreshable]);
   if (refreshable.length) {
-    const refreshedByTask = new Map(
-      (await Promise.all(refreshable.map((record) => (
+    const refreshed = [];
+    for (const record of refreshable) {
+      refreshed.push(await (
         needsGenerationRecordMediaBackfill(record)
           ? backfillGenerationRecordMedia(record, "admin-list")
           : refreshGenerationRecordStatus(record)
-      )))).map((record) => [record.taskId, record]),
-    );
+      ));
+    }
+    const refreshedByTask = new Map(refreshed.map((record) => [record.taskId, record]));
     records = records.map((record) => refreshedByTask.get(record.taskId) || record);
   }
   const enriched = records.map((record) => adminGenerationRecordView(record, userMap));
@@ -11006,13 +11021,15 @@ async function handleListGenerationRecords(req, res, url) {
     : [];
   const refreshable = uniqueGenerationRecords([...refundable, ...mediaBackfill, ...statusRefreshable]);
   if (refreshable.length) {
-    const refreshedByTask = new Map(
-      (await Promise.all(refreshable.map((record) => (
+    const refreshed = [];
+    for (const record of refreshable) {
+      refreshed.push(await (
         needsGenerationRecordMediaBackfill(record)
           ? backfillGenerationRecordMedia(record, "user-list")
           : refreshGenerationRecordStatus(record)
-      )))).map((record) => [record.taskId, record]),
-    );
+      ));
+    }
+    const refreshedByTask = new Map(refreshed.map((record) => [record.taskId, record]));
     ownRecords.forEach((record, index) => {
       if (refreshedByTask.has(record.taskId)) ownRecords[index] = refreshedByTask.get(record.taskId);
     });
