@@ -5671,14 +5671,26 @@ async function gatewayRequest(method, pathname, body = null) {
   return payload;
 }
 
+function gatewayMediaUrl(value = "") {
+  return absoluteUrlFromBase(value, UPSTREAM_BASE_URL);
+}
+
 function gatewayTaskFromPayload(payload = {}) {
   const record = payload.record || payload.data?.record || {};
   const task = payload.task || payload.data?.task || record || payload;
+  const videoUrl = gatewayMediaUrl(
+    record.videoUrl ||
+    record.remoteVideoUrl ||
+    task.videoUrl ||
+    task.remoteVideoUrl ||
+    findVideoUrl(payload) ||
+    "",
+  );
   return {
     taskId: record.taskId || task.taskId || payload.taskId || payload.data?.taskId || "",
     upstreamTaskId: record.upstreamTaskId || task.upstreamTaskId || "",
     status: record.status || task.status || "submitted",
-    videoUrl: record.videoUrl || task.videoUrl || findVideoUrl(payload) || "",
+    videoUrl,
     error: record.error || task.error || payload.error || "",
     record,
     raw: payload,
@@ -7801,7 +7813,7 @@ async function refreshApizGenerationRecord(record) {
     : null;
   const task = gatewayTask ? gatewayTask.raw : await apizRequest("/api/v3/tasks/query", { task_id: queryTaskId });
   const status = gatewayTask ? gatewayTask.status : apizStatus(task);
-  const resultUrl = gatewayTask ? absoluteUrlFromBase(gatewayTask.videoUrl, UPSTREAM_BASE_URL) : apizResultUrl(task);
+  const resultUrl = gatewayTask ? gatewayTask.videoUrl : apizResultUrl(task);
   const media = isSucceededStatus(status) && !record.localVideoUrl
     ? await maybeDownloadApizVideo(record, resultUrl)
     : {};
