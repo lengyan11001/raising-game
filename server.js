@@ -8934,15 +8934,23 @@ async function handleListUserAssets(req, res, url = null) {
   const params = url?.searchParams || new URLSearchParams();
   const q = String(params.get("q") || "").trim().toLowerCase();
   const type = String(params.get("type") || "").trim().toLowerCase();
-  const limit = Math.floor(clampNumber(params.get("limit"), 80, 1, 200));
-  const assets = auth.db.userAssets
+  const { page, limit, offset } = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 8, maxLimit: 50 });
+  const filtered = auth.db.userAssets
     .filter((asset) => asset.userId === auth.user.id && !isSoftDeleted(asset))
     .map(publicUserAsset)
     .filter((asset) => !type || asset.kind === type)
     .filter((asset) => !q || [asset.name, asset.id, asset.mime].some((value) => String(value || "").toLowerCase().includes(q)))
-    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
-    .slice(0, limit);
-  return sendJson(res, 200, { ok: true, assets });
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+  const total = filtered.length;
+  const assets = filtered.slice(offset, offset + limit);
+  return sendJson(res, 200, {
+    ok: true,
+    assets,
+    page,
+    limit,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  });
 }
 
 async function handleDeleteUserAsset(req, res, assetId) {
@@ -11016,8 +11024,9 @@ async function handleAdminListGenerationRecords(req, res, url) {
 async function handleListGenerationRecords(req, res, url) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 60)));
-  const ownRecords = await listGenerationRecordsForUser(auth.user.id, limit);
+  const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 8, maxLimit: 50 });
+  const allOwnRecords = await listGenerationRecordsForUser(auth.user.id, Math.max(500, offset + limit));
+  const ownRecords = allOwnRecords.slice(offset, offset + limit);
 
   const refreshRequested = generationListRefreshRequested(url);
   const refundable = ownRecords.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 50);
@@ -11039,7 +11048,10 @@ async function handleListGenerationRecords(req, res, url) {
   return sendJson(res, 200, {
     ok: true,
     records: ownRecords.map(publicGenerationRecord),
-    total: ownRecords.length,
+    page,
+    limit,
+    total: allOwnRecords.length,
+    totalPages: Math.max(1, Math.ceil(allOwnRecords.length / limit)),
     user: userView((await readDb()).users.find((user) => user.id === auth.user.id) || auth.user),
   });
 }

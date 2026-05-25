@@ -165,11 +165,13 @@
           <label class="asset-upload-control">
             <input id="assetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*" multiple />
             <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
+            <small class="file-picker-name" data-file-name-for="assetUploadInput" data-i18n="file.none">No file selected</small>
           </label>
           <button class="ghost-button" id="refreshAssetsBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
         </div>
         <p class="job-note" id="assetNote"></p>
         <div class="asset-grid" id="assetGrid"></div>
+        <div class="ledger-pager asset-pager" id="assetPager"></div>
       </section>
 
       <section class="access-panel" data-panel="access" hidden>
@@ -206,6 +208,7 @@
           <button class="ghost-button" id="refreshHistoryBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
         </div>
         <div class="history-list compact-history" id="historyList"></div>
+        <div class="ledger-pager history-pager" id="historyPager"></div>
       </section>
 
       <section class="ledger-panel" data-panel="topups" hidden>
@@ -413,6 +416,28 @@
       </form>
     </dialog>
 
+    <dialog id="inlineDialog" class="modal inline-modal">
+      <form method="dialog" id="inlineDialogForm">
+        <header>
+          <div>
+            <span id="inlineDialogKicker">Assets</span>
+            <strong id="inlineDialogTitle">Action</strong>
+          </div>
+          <button class="icon-btn" type="button" id="inlineDialogClose" aria-label="Close" data-i18n-aria="common.close" formnovalidate>
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+        <div class="modal-body" id="inlineDialogBody"></div>
+        <div class="modal-actions inline-actions">
+          <button class="ghost-button" type="button" id="inlineDialogCancel" data-i18n="common.close" formnovalidate>Close</button>
+          <button class="generate-btn" type="submit" id="inlineDialogConfirm" value="confirm">
+            <i data-lucide="sparkles"></i>
+            Generate
+          </button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="legalDialog" class="modal legal-modal">
       <form method="dialog">
         <header>
@@ -426,6 +451,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-95"></script>
+    <script src="./platform.js?v=ai-96"></script>
 </body>
 </html>

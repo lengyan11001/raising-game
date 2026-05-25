@@ -1424,7 +1424,7 @@ select option:checked {
   font-size: .82rem;
 }
 .asset-upload-control input { display: none; }
-.asset-upload-control span {
+.asset-upload-control > span {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1438,6 +1438,16 @@ select option:checked {
   font-weight: 900;
 }
 .asset-upload-control svg { width: 16px; height: 16px; }
+.asset-upload-control .file-picker-name {
+  display: block;
+  min-height: 16px;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: .74rem;
+}
 .asset-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1493,6 +1503,77 @@ select option:checked {
   padding: 7px 8px;
   border-radius: 8px;
   font-size: .78rem;
+}
+.asset-pager,
+.history-pager { margin-top: 14px; }
+.inline-modal {
+  width: min(620px, calc(100vw - 28px));
+}
+.inline-actions {
+  justify-content: flex-end;
+  padding: 0 22px 22px;
+}
+.asset-generate-form,
+.asset-frame-form {
+  display: grid;
+  gap: 14px;
+}
+.asset-generate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.file-picker-field {
+  min-width: 0;
+}
+.file-picker-control {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+.file-picker-control input[type=file] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.file-picker-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 1px solid rgba(15,148,139,.36);
+  border-radius: 8px;
+  padding: 9px 13px;
+  color: #0d574f;
+  background: rgba(15,148,139,.08);
+  font-weight: 900;
+  white-space: nowrap;
+}
+.file-picker-button svg {
+  width: 16px;
+  height: 16px;
+}
+.file-picker-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: .82rem;
+  line-height: 1.35;
+}
+.asset-frame-form video {
+  width: 100%;
+  max-height: 56vh;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #05070d;
+  object-fit: contain;
 }
 .ghost-button.danger {
   color: #b42318;
@@ -1661,20 +1742,19 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 }
 .history-card-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 7px;
 }
 .history-record-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
   gap: 6px;
-  flex-wrap: wrap;
   min-height: 30px;
-  overflow: hidden;
+  overflow: visible;
 }
 .history-record-actions-empty {
-  visibility: hidden;
+  display: none;
 }
 .history-download {
   display: inline-flex;
@@ -1706,6 +1786,20 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   border-color: rgba(15,23,42,.16);
 }
 .history-params { color: #0f766e; }
+.history-add-asset,
+.history-replace,
+.history-frame {
+  color: #0d574f;
+  border-color: rgba(15,148,139,.28);
+}
+.history-action-note {
+  grid-column: 1 / -1;
+  padding: 8px 10px;
+  border: 1px solid rgba(180,35,24,.22);
+  border-radius: 8px;
+  color: #b42318;
+  background: rgba(254,242,242,.88);
+}
 .history-empty-card {
   grid-column: 1 / -1;
   padding: 24px;
@@ -1908,6 +2002,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   .access-doc-grid { grid-template-columns: 1fr; }
   .site-head { gap: 10px; padding-inline: 18px; }
   .brand { min-width: auto; }
+  .asset-generate-grid { grid-template-columns: 1fr; }
   .language-switch { min-width: 132px; }
 }
 @media (max-width: 720px) {
