@@ -1603,6 +1603,9 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   position: relative;
   display: grid;
   place-items: center;
+  min-height: 168px;
+  aspect-ratio: auto;
+  max-height: none;
   padding: 0;
   border: 0;
   overflow: hidden;
@@ -1610,8 +1613,10 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   cursor: pointer;
 }
 .history-poster img {
-  width: 100%;
-  height: 100%;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 260px;
   object-fit: contain;
 }
 .history-poster i {
