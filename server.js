@@ -8839,6 +8839,77 @@ async function handleUploadUserAsset(req, res) {
   return sendJson(res, 200, { ok: true, asset: publicUserAsset(userAsset) });
 }
 
+function generationRecordAssetName(record = {}) {
+  const base = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || record.taskId || "Generated video";
+  return String(base || "Generated video").trim().slice(0, 60) || "Generated video";
+}
+
+async function bytesForGenerationRecordVideo(record = {}) {
+  const localUrl = record.localVideoUrl || "";
+  if (localUrl && !/^https?:\/\//i.test(localUrl)) {
+    const localPath = path.normalize(path.join(ROOT, localUrl.replace(/^\//, "")));
+    const assetsRoot = path.normalize(path.join(ROOT, "assets"));
+    if (!localPath.startsWith(assetsRoot)) {
+      const error = new Error("Generation video path is not allowed.");
+      error.statusCode = 403;
+      throw error;
+    }
+    return {
+      bytes: await fs.readFile(localPath),
+      mime: videoMimeFromPath(localPath),
+      fileName: path.basename(localPath),
+    };
+  }
+  const videoUrl = generationRecordVideoUrl(record);
+  if (!videoUrl) {
+    const error = new Error("Generation record has no video result.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!/^https?:\/\//i.test(videoUrl)) {
+    const localPath = path.normalize(path.join(ROOT, videoUrl.replace(/^\//, "")));
+    const assetsRoot = path.normalize(path.join(ROOT, "assets"));
+    if (!localPath.startsWith(assetsRoot)) {
+      const error = new Error("Generation video path is not allowed.");
+      error.statusCode = 403;
+      throw error;
+    }
+    return {
+      bytes: await fs.readFile(localPath),
+      mime: videoMimeFromPath(localPath),
+      fileName: path.basename(localPath),
+    };
+  }
+  const downloaded = await downloadRemoteFileToBuffer(videoUrl, {
+    label: "generation video",
+    maxBytes: 30 * 1024 * 1024,
+  });
+  return {
+    bytes: downloaded.bytes,
+    mime: downloaded.mime && downloaded.mime.startsWith("video/") ? downloaded.mime : videoMimeFromPath(videoUrl),
+    fileName: path.basename(new URL(videoUrl).pathname) || `${record.taskId || "generated"}.mp4`,
+  };
+}
+
+async function handleAddGenerationRecordToAssets(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const records = await readGenerationRecords();
+  const record = records.find((entry) => entry.taskId === taskId && entry.userId === auth.user.id && isUserVisibleGenerationRecord(entry));
+  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  if (!isSucceededStatus(record.status)) return sendJson(res, 400, { ok: false, message: "Generation is not completed yet." });
+  const video = await bytesForGenerationRecordVideo(record);
+  const fileName = video.fileName || `${taskId}.mp4`;
+  const asset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
+    bytes: video.bytes,
+    mime: video.mime && video.mime.startsWith("video/") ? video.mime : "video/mp4",
+    name: generationRecordAssetName(record),
+    fileName,
+    maxBytes: 30 * 1024 * 1024,
+  });
+  return sendJson(res, 200, { ok: true, asset: publicUserAsset(asset) });
+}
+
 function publicUserAsset(asset = {}) {
   const kind = String(asset.mime || "").toLowerCase().startsWith("video/") ? "video" : "image";
   return {
@@ -11652,6 +11723,11 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/user-assets") {
       return await handleUploadUserAsset(req, res);
+    }
+
+    const addGenerationRecordAssetMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/add-asset$/);
+    if (req.method === "POST" && addGenerationRecordAssetMatch) {
+      return await handleAddGenerationRecordToAssets(req, res, decodeURIComponent(addGenerationRecordAssetMatch[1]));
     }
 
     if (req.method === "POST" && url.pathname === "/api/platform/generate") {

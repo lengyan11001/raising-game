@@ -473,6 +473,9 @@ const I18N = {
     "history.regenerate": "Regenerate",
     "history.regenerating": "Regenerating...",
     "history.regenerateSubmitted": "Submitted",
+    "history.addAsset": "Add asset",
+    "history.addingAsset": "Adding...",
+    "history.assetAdded": "Added",
     "history.detailTitle": "Generation detail",
     "history.inputImages": "Input images",
     "history.parameters": "Parameters",
@@ -4403,10 +4406,15 @@ function renderHistory(records = []) {
           ` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
         <div class="history-card-actions">
-          <div class="history-record-actions${taskId ? "" : " history-record-actions-empty"}">
+          <div class="history-record-actions${taskId || videoUrl ? "" : " history-record-actions-empty"}">
             ${taskId ? `
               <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
                 <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
+              </button>
+            ` : ""}
+            ${taskId && videoUrl ? `
+              <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
+                <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
               </button>
             ` : ""}
           </div>
@@ -4434,6 +4442,9 @@ function renderHistory(records = []) {
   });
   els.historyList.querySelectorAll("[data-history-regenerate]").forEach((button) => {
     button.addEventListener("click", () => regenerateHistoryRecord(button.dataset.historyRegenerate || "", button));
+  });
+  els.historyList.querySelectorAll("[data-history-add-asset]").forEach((button) => {
+    button.addEventListener("click", () => addHistoryRecordToAssets(button.dataset.historyAddAsset || "", button));
   });
   els.historyList.querySelectorAll("[data-history-detail]").forEach((button) => {
     button.addEventListener("click", () => openHistoryDetail(button.dataset.historyDetail || 0));
@@ -4468,6 +4479,38 @@ async function regenerateHistoryRecord(taskId, button) {
     button.innerHTML = originalHtml;
     refreshIcons();
   }, 1800);
+}
+
+async function addHistoryRecordToAssets(taskId, button) {
+  if (!taskId || !button) return;
+  const originalHtml = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.addingAsset"))}`;
+  refreshIcons();
+  try {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/add-asset`, { method: "POST" });
+    if (payload.asset) {
+      state.userAssets = [payload.asset, ...(state.userAssets || []).filter((asset) => asset.id !== payload.asset.id)];
+    }
+    button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.assetAdded"))}`;
+    refreshIcons();
+    window.setTimeout(() => {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }, 1800);
+  } catch (error) {
+    button.disabled = false;
+    button.innerHTML = originalHtml;
+    if (els.historyList) {
+      const note = document.createElement("div");
+      note.className = "job-note history-action-note";
+      note.textContent = error.message || String(error);
+      els.historyList.prepend(note);
+      window.setTimeout(() => note.remove(), 5000);
+    }
+    refreshIcons();
+  }
 }
 
 function isPendingGenerationRecord(record = {}) {
