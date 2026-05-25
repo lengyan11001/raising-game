@@ -125,7 +125,10 @@ async function migrateGenerationRecordsKvToTable() {
   if (!dbEnabled()) return { migrated: 0, skipped: true };
   await ensureSchema();
   const existing = await generationRecordsTableCount();
-  const records = await getKv("generation_records", []);
+  let records = await getKv("generation_records", []);
+  if (!Array.isArray(records) || !records.length) {
+    records = await readJsonFile(GENERATION_RECORDS_PATH, []);
+  }
   if (!Array.isArray(records) || !records.length) return { migrated: 0, existing };
   let migrated = 0;
   for (const record of records) {
