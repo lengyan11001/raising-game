@@ -1727,7 +1727,7 @@ function advancedCaseFromRecord(record = {}, index = 0) {
   return {
     id: `advanced-record-${String(record.taskId || Date.now()).replace(/[^a-z0-9_-]/gi, "-").slice(0, 48)}`,
     title: String(title || "Advanced generation").slice(0, 80),
-    category: "advanced",
+    category: "hot",
     provider,
     price: advancedCaseCredits({ provider, params }),
     coverUrl: "",
@@ -1748,34 +1748,38 @@ async function promoteRecordToAdvancedCase(record = {}, button = null) {
     toast("该记录没有可用视频，不能设置到 Advanced 广场。", "error");
     return;
   }
-  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "Advanced generation";
-  const ok = await confirmAction(
-    "设置到 Advanced 广场",
-    `确认把「${title}」加入前台 Advanced 案例？保存时会把视频下载到本地/OSS，并自动生成封面。`,
-    { confirmText: "加入 Advanced" },
-  );
-  if (!ok) return;
   const originalHtml = button?.innerHTML || "";
-  if (button) {
-    button.disabled = true;
-    button.innerHTML = '<i data-lucide="loader-circle"></i>Saving';
-    refreshIcons();
-  }
   try {
     const config = await loadConfig(true);
     const platform = config.platform || {};
     const advanced = defaultAdvancedConfig(platform);
-    let nextCase = advancedCaseFromRecord(record, advanced.cases.length);
-    nextCase = await ingestAdvancedCaseMediaForSave(nextCase);
-    const nextAdvanced = {
-      ...advanced,
-      cases: [...advanced.cases.filter((item) => item.id !== nextCase.id), nextCase],
-    };
-    const payload = await api("/api/admin/config", {
-      method: "PUT",
-      body: { config: { ...config, platform: { ...platform, advanced: nextAdvanced } } },
+    const draft = advancedCaseFromRecord(record, advanced.cases.length);
+    const result = await openDialog({
+      title: "设置到 Advanced 广场",
+      body: advancedCaseEditor(draft, advanced.cases.length),
+      confirmText: "加入 Advanced",
+      cancelText: "取消",
+      onConfirm: async () => {
+        if (button) {
+          button.disabled = true;
+          button.innerHTML = '<i data-lucide="loader-circle"></i>Saving';
+          refreshIcons();
+        }
+        const editor = els.dialogBody.querySelector("[data-advanced-index]");
+        let nextCase = collectAdvancedCaseFromCard(editor, draft);
+        nextCase = await ingestAdvancedCaseMediaForSave(nextCase);
+        const nextAdvanced = {
+          ...advanced,
+          cases: [...advanced.cases.filter((item) => item.id !== nextCase.id), nextCase],
+        };
+        const payload = await api("/api/admin/config", {
+          method: "PUT",
+          body: { config: { ...config, platform: { ...platform, advanced: nextAdvanced } } },
+        });
+        state.config = payload.config;
+      },
     });
-    state.config = payload.config;
+    if (result !== "confirm") return;
     toast("已加入 Advanced 广场。", "success");
   } catch (error) {
     toast(error.message || "加入 Advanced 失败。", "error");
@@ -2362,6 +2366,12 @@ const FIXED_PLATFORM_CATEGORIES = [
   { id: "t2v", name: "文生视频" },
 ];
 
+const ADVANCED_CASE_CATEGORIES = [
+  { id: "hot", name: "Hot" },
+  { id: "extend", name: "Extend" },
+  { id: "replace", name: "Replace" },
+];
+
 function defaultAdvancedConfig(platform = {}) {
   const advanced = platform.advanced && typeof platform.advanced === "object" ? platform.advanced : {};
   return {
@@ -2383,6 +2393,17 @@ function platformTemplateRequestJson(template = {}) {
 function platformCategoryOptions(categories = [], selected = "") {
   return categories.map((category) => `
     <option value="${escapeHtml(category.id)}" ${category.id === selected ? "selected" : ""}>${escapeHtml(category.name || category.id)}</option>
+  `).join("");
+}
+
+function advancedCaseCategoryOptions(selected = "") {
+  const normalized = String(selected || "").trim().toLowerCase() || "hot";
+  const categories = [...ADVANCED_CASE_CATEGORIES];
+  if (normalized && !categories.some((category) => category.id === normalized)) {
+    categories.push({ id: normalized, name: selected });
+  }
+  return categories.map((category) => `
+    <option value="${escapeHtml(category.id)}" ${category.id === normalized ? "selected" : ""}>${escapeHtml(category.name || category.id)}</option>
   `).join("");
 }
 
@@ -2659,7 +2680,7 @@ function advancedCaseEditor(item = {}, index = 0) {
     <div class="platform-template-editor" data-advanced-index="${index}">
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>标题</span><input data-f="title" value="${escapeHtml(item.title || "")}" /></div>
-        <div class="adm-form-row"><span>分类</span><input data-f="category" value="${escapeHtml(item.category || "portrait")}" /></div>
+        <div class="adm-form-row"><span>分类</span><select data-f="category">${advancedCaseCategoryOptions(item.category || "hot")}</select></div>
         <div class="adm-form-row"><span>模型</span><select data-f="provider"><option value="seedance" ${provider === "seedance" ? "selected" : ""}>Seedance</option><option value="wan27" ${provider === "wan27" ? "selected" : ""}>Wan2.7</option></select></div>
       </div>
       <div class="adm-grid adm-grid-3">
@@ -2711,7 +2732,7 @@ function collectAdvancedCaseFromCard(card, existing = {}) {
   return {
     ...existing,
     title: get("title")?.value.trim() || existing.title || "Advanced Case",
-    category: get("category")?.value.trim() || "portrait",
+    category: get("category")?.value.trim() || "hot",
     provider,
     mediaMode: provider === "wan27" ? params.mediaMode : "",
     price: advancedCaseCredits({ params, provider }),
