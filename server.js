@@ -4954,7 +4954,7 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (needsSeedanceFailureRefund(record)) return true;
   if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
-  if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) return true;
+  if (needsGenerationRecordMediaOptimization(record)) return true;
   const status = String(record.status || "").toLowerCase();
   if (isFailedStatus(status)) return false;
   if (isSucceededStatus(status)) {
@@ -4983,9 +4983,84 @@ function generationRecordTime(record = {}) {
 
 function shouldRefreshGenerationRecordFromList(record = {}) {
   if (!shouldRefreshGenerationRecord(record)) return false;
-  if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) return true;
+  if (needsGenerationRecordMediaOptimization(record)) return true;
   const time = generationRecordTime(record);
   return !time || Date.now() - time <= GENERATION_LIST_REFRESH_MAX_AGE_MS;
+}
+
+function needsGenerationRecordMediaOptimization(record = {}) {
+  return Boolean(record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl)));
+}
+
+function needsGenerationRecordMediaBackfill(record = {}) {
+  if (needsGenerationRecordMediaOptimization(record)) return true;
+  if (!isSucceededStatus(record.status) || record.localVideoUrl) return false;
+  return Boolean(record.remoteVideoUrl || record.videoUrl || record.cdnVideoUrl);
+}
+
+async function backfillGenerationRecordMedia(record = {}, reason = "media-backfill") {
+  if (!record?.taskId) return record;
+  if (needsGenerationRecordMediaOptimization(record)) return ensureGenerationRecordMediaOptimized(record);
+  if (!isSucceededStatus(record.status) || record.localVideoUrl) return record;
+  const localAssetVideoUrl = [record.videoUrl, record.remoteVideoUrl, record.cdnVideoUrl]
+    .map((value) => String(value || "").trim())
+    .find((value) => value.startsWith("/assets/"));
+  if (localAssetVideoUrl) {
+    const localVideoPath = path.join(ROOT, localAssetVideoUrl.replace(/^\//, ""));
+    try {
+      await fs.access(localVideoPath);
+      const patched = await upsertGenerationRecord({
+        taskId: record.taskId,
+        localVideoUrl: localAssetVideoUrl,
+        localVideoPath,
+        videoUrl: localPublicAssetStorageEnabled() ? localAssetVideoUrl : (record.cdnVideoUrl || localAssetVideoUrl),
+        lastMediaBackfillReason: `${reason}-local`,
+      });
+      return ensureGenerationRecordMediaOptimized(patched);
+    } catch {
+      // Fall through and try the upstream URL.
+    }
+  }
+  const remoteVideoUrl = absoluteUrlFromBase(record.remoteVideoUrl || record.videoUrl || record.cdnVideoUrl || "", UPSTREAM_BASE_URL);
+  if (!isLikelyVideoUrl(remoteVideoUrl)) return record;
+  try {
+    const media = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      remoteVideoUrl,
+      videoUrl: localPublicAssetStorageEnabled()
+        ? (media.localVideoUrl || media.cdnVideoUrl || record.videoUrl || remoteVideoUrl)
+        : (media.cdnVideoUrl || media.localVideoUrl || record.videoUrl || remoteVideoUrl),
+      localVideoUrl: media.localVideoUrl || record.localVideoUrl || "",
+      localVideoPath: media.localVideoPath || record.localVideoPath || "",
+      localPosterUrl: media.localPosterUrl || record.localPosterUrl || "",
+      localPosterPath: media.localPosterPath || record.localPosterPath || "",
+      posterUrl: localPublicAssetStorageEnabled()
+        ? (media.localPosterUrl || media.cdnPosterUrl || record.posterUrl || "")
+        : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
+      cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
+      cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
+      cdnError: media.cdnError || record.cdnError || "",
+      error: media.downloadError || record.error || "",
+      lastMediaBackfillReason: reason,
+    });
+  } catch (error) {
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      error: error.message || record.error || "Failed to download generated video.",
+      lastMediaBackfillReason: `${reason}-failed`,
+    });
+  }
+}
+
+function uniqueGenerationRecords(records = []) {
+  const seen = new Set();
+  return records.filter((record) => {
+    const taskId = String(record?.taskId || "");
+    if (!taskId || seen.has(taskId)) return false;
+    seen.add(taskId);
+    return true;
+  });
 }
 
 async function ensureGenerationRecordMediaOptimized(record = {}) {
@@ -5046,7 +5121,7 @@ async function refreshGenerationRecordStatus(record = {}) {
   if (needsSeedanceFailureRefund(record)) {
     return settleSeedanceGenerationRecord(record, "refresh");
   }
-  if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) {
+  if (needsGenerationRecordMediaOptimization(record)) {
     try {
       return await ensureGenerationRecordMediaOptimized(record);
     } catch (error) {
@@ -6270,11 +6345,14 @@ async function runPlatformGenerationJob(job = {}) {
     });
     if (USE_GATEWAY_UPSTREAM) {
       if (isSucceededStatus(record.status) || isFailedStatus(record.status)) {
-        await settleApizGenerationRecord(record, {
+        const settledRecord = await settleApizGenerationRecord(record, {
           status: record.status,
           videoUrl: task.videoUrl,
           error: task.error,
         }, "create");
+        if (needsGenerationRecordMediaOptimization(settledRecord)) {
+          await ensureGenerationRecordMediaOptimized(settledRecord);
+        }
       }
     } else {
       await settleApizGenerationRecord(record, task, "create");
@@ -6851,6 +6929,20 @@ async function runAdvancedGenerationJob(job = {}) {
     }
 
     const submittedAt = new Date().toISOString();
+    let media = {};
+    let mediaError = "";
+    if (isSucceededStatus(task.status) && task.videoUrl) {
+      media = await maybeDownloadApizVideo({
+        taskId,
+        localVideoUrl: "",
+        localVideoPath: "",
+        localPosterUrl: "",
+        localPosterPath: "",
+        cdnVideoUrl: "",
+        cdnPosterUrl: "",
+      }, task.videoUrl);
+      mediaError = media.downloadError || "";
+    }
     const fixedBilling = {
       finalCredits: cost,
       originalFinalCredits: pricing?.originalCredits ?? cost,
@@ -6880,7 +6972,20 @@ async function runAdvancedGenerationJob(job = {}) {
       duration: payload?.duration || payload?.parameters?.duration || requestParams.duration,
       quality: runtime.quality,
       remoteVideoUrl: task.videoUrl || "",
-      error: "",
+      videoUrl: localPublicAssetStorageEnabled()
+        ? (media.localVideoUrl || media.cdnVideoUrl || task.videoUrl || "")
+        : (media.cdnVideoUrl || media.localVideoUrl || task.videoUrl || ""),
+      localVideoUrl: media.localVideoUrl || "",
+      localVideoPath: media.localVideoPath || "",
+      localPosterUrl: media.localPosterUrl || "",
+      localPosterPath: media.localPosterPath || "",
+      posterUrl: localPublicAssetStorageEnabled()
+        ? (media.localPosterUrl || media.cdnPosterUrl || "")
+        : (media.cdnPosterUrl || media.localPosterUrl || ""),
+      cdnVideoUrl: media.cdnVideoUrl || "",
+      cdnPosterUrl: media.cdnPosterUrl || "",
+      cdnError: media.cdnError || "",
+      error: mediaError,
       createResponse,
       submittedAt,
       ...fixedBilling,
@@ -10849,16 +10954,21 @@ async function handleAdminListGenerationRecords(req, res, url) {
   let records = await readGenerationRecords();
   const refreshRequested = generationListRefreshRequested(url);
   const refundable = records.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 100);
+  const mediaBackfill = records.filter(needsGenerationRecordMediaBackfill).slice(0, 20);
   const statusRefreshable = refreshRequested
     ? records
       .filter((record) => !needsApizFailureRefund(record) && !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecordFromList(record))
       .filter((record) => !query || generationRecordMatchesQuery(record, query))
       .slice(0, 12)
     : [];
-  const refreshable = [...refundable, ...statusRefreshable];
+  const refreshable = uniqueGenerationRecords([...refundable, ...mediaBackfill, ...statusRefreshable]);
   if (refreshable.length) {
     const refreshedByTask = new Map(
-      (await Promise.all(refreshable.map(refreshGenerationRecordStatus))).map((record) => [record.taskId, record]),
+      (await Promise.all(refreshable.map((record) => (
+        needsGenerationRecordMediaBackfill(record)
+          ? backfillGenerationRecordMedia(record, "admin-list")
+          : refreshGenerationRecordStatus(record)
+      )))).map((record) => [record.taskId, record]),
     );
     records = records.map((record) => refreshedByTask.get(record.taskId) || record);
   }
@@ -10888,15 +10998,20 @@ async function handleListGenerationRecords(req, res, url) {
 
   const refreshRequested = generationListRefreshRequested(url);
   const refundable = ownRecords.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 50);
+  const mediaBackfill = ownRecords.filter(needsGenerationRecordMediaBackfill).slice(0, 8);
   const statusRefreshable = refreshRequested
     ? ownRecords
       .filter((record) => !needsApizFailureRefund(record) && !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecordFromList(record))
       .slice(0, 8)
     : [];
-  const refreshable = [...refundable, ...statusRefreshable];
+  const refreshable = uniqueGenerationRecords([...refundable, ...mediaBackfill, ...statusRefreshable]);
   if (refreshable.length) {
     const refreshedByTask = new Map(
-      (await Promise.all(refreshable.map(refreshGenerationRecordStatus))).map((record) => [record.taskId, record]),
+      (await Promise.all(refreshable.map((record) => (
+        needsGenerationRecordMediaBackfill(record)
+          ? backfillGenerationRecordMedia(record, "user-list")
+          : refreshGenerationRecordStatus(record)
+      )))).map((record) => [record.taskId, record]),
     );
     ownRecords.forEach((record, index) => {
       if (refreshedByTask.has(record.taskId)) ownRecords[index] = refreshedByTask.get(record.taskId);
@@ -10923,6 +11038,12 @@ async function handleGetGenerationRecord(req, res, taskId) {
     nextRecord = await settleApizGenerationRecord(record, { status: record.status || "failed", error: record.error || "" }, "detail");
   } else if (needsSeedanceFailureRefund(record)) {
     nextRecord = await settleSeedanceGenerationRecord(record, "detail");
+  } else if (needsGenerationRecordMediaBackfill(record)) {
+    try {
+      nextRecord = await backfillGenerationRecordMedia(record, "detail");
+    } catch (error) {
+      console.warn("[generation-record-detail-media-optimize-failed]", taskId, error.message || error);
+    }
   } else if (record.provider === "apiz" && (APIZ_API_KEY || record.upstreamSource === "gateway") && shouldRefreshGenerationRecord(record)) {
     try {
       nextRecord = await refreshApizGenerationRecord(record);
@@ -10948,6 +11069,11 @@ async function handleGetGenerationRecord(req, res, taskId) {
       const task = normalizeTask(raw);
       let localVideoUrl = record.localVideoUrl || "";
       let localVideoPath = record.localVideoPath || "";
+      let localPosterUrl = record.localPosterUrl || "";
+      let localPosterPath = record.localPosterPath || "";
+      let cdnVideoUrl = record.cdnVideoUrl || "";
+      let cdnPosterUrl = record.cdnPosterUrl || "";
+      let cdnError = record.cdnError || "";
       let downloadError = "";
       const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
       if (isSucceededStatus(task.status) && remoteVideoUrl) {
@@ -10955,6 +11081,11 @@ async function handleGetGenerationRecord(req, res, taskId) {
           const localVideo = await downloadGeneratedVideo(taskId, remoteVideoUrl);
           localVideoUrl = localVideo.localVideoUrl;
           localVideoPath = localVideo.localVideoPath;
+          localPosterUrl = localVideo.localPosterUrl || localPosterUrl;
+          localPosterPath = localVideo.localPosterPath || localPosterPath;
+          cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
+          cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+          cdnError = localVideo.cdnError || cdnError;
         } catch (error) {
           downloadError = error.message || "Failed to download generated video.";
         }
@@ -10966,6 +11097,14 @@ async function handleGetGenerationRecord(req, res, taskId) {
         remoteVideoUrl,
         localVideoUrl,
         localVideoPath,
+        localPosterUrl,
+        localPosterPath,
+        posterUrl: localPublicAssetStorageEnabled()
+          ? (localPosterUrl || cdnPosterUrl || record.posterUrl || "")
+          : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
+        cdnVideoUrl,
+        cdnPosterUrl,
+        cdnError,
         error: task.error || downloadError || "",
         queryResponse: raw,
       }, "detail");
