@@ -9,6 +9,7 @@ const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
+const ADVANCED_CREDITS_PER_CNY = 100;
 const ADVANCED_GENERATION_MARKUP = 1.5;
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
@@ -44,6 +45,7 @@ const ROUTES = [
   { id: "scenes", title: "场景管理", render: renderScenes },
   { id: "users", title: "用户管理", render: renderUsers },
   { id: "wallet", title: "钱包订单", render: renderWallet },
+  { id: "pricing", title: "价格配置", render: renderPricing },
   { id: "config", title: "系统配置", render: renderConfig },
 ];
 const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "config"]);
@@ -2241,6 +2243,123 @@ async function renderWallet() {
       toast("Order cancelled.", "success");
       renderWallet();
     });
+  });
+}
+
+/* ============ PRICING ============ */
+function fmtPrice(value, digits = 4) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return "-";
+  return String(Math.round(next * 10 ** digits) / 10 ** digits);
+}
+
+function pricingRowsToConfig(rows = [], creditsPerCny = ADVANCED_CREDITS_PER_CNY) {
+  const pricing = {
+    unit: "credits",
+    creditsPerCny: Number(creditsPerCny) || ADVANCED_CREDITS_PER_CNY,
+    seedanceCreditsPerSecondByResolution: { "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND },
+    wan27CreditsPerSecondByResolution: { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
+  };
+  rows.forEach((row) => {
+    const provider = String(row.provider || "").toLowerCase();
+    const resolution = row.resolution === "1080p" ? "1080p" : "720p";
+    const yuan = Number(row.saleYuanPerSecond);
+    if (!Number.isFinite(yuan) || yuan < 0) return;
+    const credits = Math.round(yuan * pricing.creditsPerCny * 10000) / 10000;
+    if (provider === "wan27") pricing.wan27CreditsPerSecondByResolution[resolution] = credits;
+    else pricing.seedanceCreditsPerSecondByResolution[resolution] = credits;
+  });
+  return pricing;
+}
+
+async function renderPricing() {
+  const payload = await api("/api/admin/pricing");
+  if (!isActiveRoute("pricing")) return;
+  const pricing = payload.pricing || {};
+  const rows = pricing.rows || [];
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>价格配置</h2>
+          <p class="adm-muted">配置 Advanced 对外价格，采购价只展示用于核对。保存后估价和扣费马上使用新价格。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="reloadPricingBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+          <button class="adm-btn adm-btn-primary" id="savePricingBtn" type="button"><i data-lucide="save"></i>保存</button>
+        </div>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-head">
+          <div>
+            <h3>Advanced 价格</h3>
+            <p class="adm-muted">计费单位：${escapeHtml(String(pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY))} credits = 1 CNY，采购来源：${escapeHtml(pricing.upstreamMode || "direct")}</p>
+          </div>
+        </div>
+        <div class="adm-table-wrap">
+          <table class="adm-table adm-pricing-table">
+            <thead>
+              <tr>
+                <th>模型</th>
+                <th>分辨率</th>
+                <th>采购价</th>
+                <th>对外价（元/秒）</th>
+                <th>Credits/秒</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => `
+                <tr data-provider="${escapeHtml(row.provider)}" data-resolution="${escapeHtml(row.resolution)}">
+                  <td><strong>${escapeHtml(row.providerLabel || row.provider)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.provider)}</small></td>
+                  <td>${escapeHtml(row.resolution)}</td>
+                  <td>
+                    <strong>${row.purchaseYuanPerSecond === null || row.purchaseYuanPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseYuanPerSecond)} 元/秒`}</strong>
+                    <br/><small class="adm-muted">${row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} credits/s`} · ${escapeHtml(row.purchaseSource || "")}</small>
+                  </td>
+                  <td><input class="adm-price-input" data-f="saleYuanPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleYuanPerSecond))}" /></td>
+                  <td class="adm-mono" data-price-credits>${escapeHtml(fmtPrice(row.saleCreditsPerSecond))}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  `;
+  refreshIcons();
+
+  const updateCredits = () => {
+    els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
+      const input = tr.querySelector('[data-f="saleYuanPerSecond"]');
+      const target = tr.querySelector("[data-price-credits]");
+      const yuan = Number(input?.value || 0);
+      target.textContent = Number.isFinite(yuan) && yuan >= 0
+        ? fmtPrice(yuan * Number(pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY))
+        : "-";
+    });
+  };
+
+  els.adminContent.querySelectorAll('[data-f="saleYuanPerSecond"]').forEach((input) => {
+    input.addEventListener("input", updateCredits);
+  });
+  byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
+  byId("savePricingBtn")?.addEventListener("click", async () => {
+    try {
+      const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map((tr) => ({
+        provider: tr.dataset.provider,
+        resolution: tr.dataset.resolution,
+        saleYuanPerSecond: Number(tr.querySelector('[data-f="saleYuanPerSecond"]')?.value || 0),
+      }));
+      const payload = await api("/api/admin/pricing", {
+        method: "PUT",
+        body: { advancedPricing: pricingRowsToConfig(nextRows, pricing.creditsPerCny) },
+      });
+      state.config = payload.config || null;
+      toast("价格已保存。", "success");
+      renderPricing();
+    } catch (err) {
+      toast(err.message, "error");
+    }
   });
 }
 

@@ -133,6 +133,18 @@ const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
+const DEFAULT_ADVANCED_PRICING = {
+  unit: "credits",
+  creditsPerCny: ADVANCED_CREDITS_PER_CNY,
+  seedanceCreditsPerSecondByResolution: {
+    "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND,
+    "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND,
+  },
+  wan27CreditsPerSecondByResolution: {
+    "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
+    "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
+  },
+};
 const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_MARKUP, 1.5, 1, 100);
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_REFERENCE_LIMIT || process.env.ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT, 6, 1, 12));
 const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 80, 1, 200) * 1024 * 1024);
@@ -365,6 +377,7 @@ const DEFAULT_CONFIG = {
     notice: "Generated results are saved in history. Video links may expire after 24 hours, so download and save them in time.",
     accessCopy:
       "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>\n\nImportant: returned video URLs may expire after 24 hours. Download and save successful videos promptly.",
+    advancedPricing: DEFAULT_ADVANCED_PRICING,
     categories: [
       { id: "featured", name: "精选模板" },
       { id: "i2v", name: "图生视频" },
@@ -813,6 +826,34 @@ function tenantScopedAccessCopy(copy = "", origin = "") {
     });
 }
 
+function pricingNumber(value, fallback = 0, min = 0) {
+  const next = Number(value);
+  if (!Number.isFinite(next) || next < min) return Math.max(min, Math.round(Number(fallback || 0) * 10000) / 10000);
+  return Math.round(next * 10000) / 10000;
+}
+
+function normalizeAdvancedPricing(pricing = {}) {
+  const source = pricing && typeof pricing === "object" && !Array.isArray(pricing) ? pricing : {};
+  const seedance = source.seedanceCreditsPerSecondByResolution && typeof source.seedanceCreditsPerSecondByResolution === "object"
+    ? source.seedanceCreditsPerSecondByResolution
+    : {};
+  const wan27 = source.wan27CreditsPerSecondByResolution && typeof source.wan27CreditsPerSecondByResolution === "object"
+    ? source.wan27CreditsPerSecondByResolution
+    : {};
+  return {
+    unit: "credits",
+    creditsPerCny: pricingNumber(source.creditsPerCny, DEFAULT_ADVANCED_PRICING.creditsPerCny, 0.0001),
+    seedanceCreditsPerSecondByResolution: {
+      "720p": pricingNumber(seedance["720p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"]),
+      "1080p": pricingNumber(seedance["1080p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["1080p"]),
+    },
+    wan27CreditsPerSecondByResolution: {
+      "720p": pricingNumber(wan27["720p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"]),
+      "1080p": pricingNumber(wan27["1080p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["1080p"]),
+    },
+  };
+}
+
 function publicConfig(config, origin = "") {
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const platform = normalizePlatformConfig(config.platform || {});
@@ -831,20 +872,8 @@ function publicConfig(config, origin = "") {
         return safeItem;
       }),
     };
-  } else {
-    publicPlatform.advancedPricing = {
-      unit: "credits",
-      creditsPerCny: ADVANCED_CREDITS_PER_CNY,
-      seedanceCreditsPerSecondByResolution: {
-        "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND,
-        "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND,
-      },
-      wan27CreditsPerSecondByResolution: {
-        "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
-        "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
-      },
-    };
   }
+  publicPlatform.advancedPricing = normalizeAdvancedPricing(publicPlatform.advancedPricing);
   return {
     defaultCompanionId: config.defaultCompanionId,
     prices: config.prices,
@@ -924,7 +953,7 @@ function normalizePlatformTemplate(template = {}, index = 0) {
   };
 }
 
-function normalizeAdvancedCase(item = {}, index = 0) {
+function normalizeAdvancedCase(item = {}, index = 0, advancedPricing = DEFAULT_ADVANCED_PRICING) {
   const fallbackId = `advanced-case-${index + 1}`;
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
   const provider = normalizeAdvancedProvider(item.provider || params.provider || params.modelProvider || params.model_provider);
@@ -934,6 +963,7 @@ function normalizeAdvancedCase(item = {}, index = 0) {
     duration,
     resolution: item.resolution || params.resolution,
     ratio: item.ratio || params.ratio || params.aspect_ratio,
+    advancedPricing,
   });
   const estimatedCredits = pricing.credits;
   const mediaMode = provider === "wan27" ? normalizeWan27MediaMode(item.mediaMode || params.mediaMode) : "";
@@ -966,7 +996,7 @@ function normalizeAdvancedCase(item = {}, index = 0) {
   };
 }
 
-function normalizePlatformAdvancedConfig(advanced = {}) {
+function normalizePlatformAdvancedConfig(advanced = {}, advancedPricing = DEFAULT_ADVANCED_PRICING) {
   const fallback = DEFAULT_CONFIG.platform?.advanced || {};
   const cases = Array.isArray(advanced.cases) ? advanced.cases : fallback.cases || [];
   return {
@@ -974,7 +1004,7 @@ function normalizePlatformAdvancedConfig(advanced = {}) {
     ...advanced,
     telegram: String(advanced.telegram || fallback.telegram || "").trim(),
     cases: cases
-      .map(normalizeAdvancedCase)
+      .map((item, index) => normalizeAdvancedCase(item, index, advancedPricing))
       .sort((a, b) => a.sort - b.sort),
   };
 }
@@ -1046,6 +1076,7 @@ function normalizePlatformConfig(platform = {}) {
   const fallback = DEFAULT_CONFIG.platform || {};
   const categories = Array.isArray(platform.categories) ? platform.categories : fallback.categories || [];
   const templates = Array.isArray(platform.templates) ? platform.templates : fallback.templates || [];
+  const advancedPricing = normalizeAdvancedPricing(platform.advancedPricing || fallback.advancedPricing || DEFAULT_ADVANCED_PRICING);
   return {
     ...fallback,
     ...platform,
@@ -1054,7 +1085,8 @@ function normalizePlatformConfig(platform = {}) {
     heroSubtitle: cleanPlatformHeroCopy(platform.heroSubtitle, fallback.heroSubtitle || ""),
     notice: cleanPlatformHeroCopy(platform.notice, fallback.notice || ""),
     accessCopy: cleanPlatformPublicCopy(platform.accessCopy, fallback.accessCopy || ""),
-    advanced: normalizePlatformAdvancedConfig(platform.advanced || fallback.advanced || {}),
+    advancedPricing,
+    advanced: normalizePlatformAdvancedConfig(platform.advanced || fallback.advanced || {}, advancedPricing),
     categories: categories
       .map((category, index) => ({
         id: String(category.id || `cat-${index + 1}`).trim().replace(/[^a-z0-9_-]/gi, "-") || `cat-${index + 1}`,
@@ -1659,19 +1691,14 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const bounds = advancedDurationBounds(normalizedProvider);
   const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, bounds.min, bounds.max);
+  const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
   const priceTable = normalizedProvider === "wan27"
-    ? {
-        "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
-        "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
-      }
-    : {
-        "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND,
-        "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND,
-      };
+    ? advancedPricing.wan27CreditsPerSecondByResolution
+    : advancedPricing.seedanceCreditsPerSecondByResolution;
   if (normalizedProvider === "wan27") {
     const resolution = normalizeWan27Resolution(options.resolution);
     const publicResolution = normalizeAdvancedResolution(resolution);
-    const creditsPerSecond = priceTable[publicResolution] || ADVANCED_WAN27_720P_CREDITS_PER_SECOND;
+    const creditsPerSecond = priceTable[publicResolution] || DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"];
     const credits = creditsAmount(duration * creditsPerSecond);
     return {
       provider: "wan27",
@@ -1689,7 +1716,7 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   }
   const resolution = normalizeAdvancedResolution(options.resolution);
   const ratio = normalizeVideoRatio(options.ratio || options.aspect_ratio || "16:9");
-  const creditsPerSecond = priceTable[resolution] || ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND;
+  const creditsPerSecond = priceTable[resolution] || DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"];
   const credits = creditsAmount(duration * creditsPerSecond);
   return {
     provider: "seedance",
@@ -7452,14 +7479,14 @@ function tenantDocsPricingView(pricing = {}) {
 }
 
 async function buildUserAdvancedEstimate(provider = "seedance", params = {}, user = null) {
+  const config = await readAppConfig();
   const estimateParams = {
     duration: params.duration ?? params.durationSeconds,
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
+    advancedPricing: config.platform?.advancedPricing,
   };
-  const rawPricing = USE_GATEWAY_UPSTREAM
-    ? await gatewayAdvancedEstimate(provider, estimateParams)
-    : advancedModelPricing(provider, estimateParams);
+  const rawPricing = advancedModelPricing(provider, estimateParams);
   return applyUserPricingToEstimate(rawPricing, user || 1);
 }
 
@@ -7562,6 +7589,7 @@ async function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     duration: durationSeconds,
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
+    advancedPricing: options.advancedPricing,
   }, user || 1);
   const pricingView = {
     available: true,
@@ -7631,7 +7659,7 @@ async function buildModelDocs(req) {
   const templates = await Promise.all(platform.templates.map((template) => buildTemplateModelDoc(template, origin, auth.user, { tenantPublic })));
   const advancedCases = (platform.advanced?.cases || [])
     .filter((item) => item.enabled !== false)
-  const advancedCaseDocs = await Promise.all(advancedCases.map((item) => buildAdvancedModelDoc(item, origin, auth.user, { tenantPublic })));
+  const advancedCaseDocs = await Promise.all(advancedCases.map((item) => buildAdvancedModelDoc(item, origin, auth.user, { tenantPublic, advancedPricing: platform.advancedPricing })));
 
   return {
     ok: true,
@@ -7644,17 +7672,11 @@ async function buildModelDocs(req) {
       note: "Credits are deducted according to the selected model, resolution, duration, and your account pricing.",
     } : {
       unit: "credits",
-      note: "1 CNY equals 100 credits. Advanced generation is charged by public per-second rates: Seedance 720p 150 credits/s, Seedance 1080p 300 credits/s, Wan2.7 720p 100 credits/s, Wan2.7 1080p 250 credits/s.",
+      note: `1 CNY equals ${platform.advancedPricing.creditsPerCny} credits. Advanced generation is charged by the configured per-second public rates.`,
       galleryMarkup: GENERATION_PRICE_MARKUP,
-      advancedCreditsPerCny: ADVANCED_CREDITS_PER_CNY,
-      advancedSeedanceCreditsPerSecondByResolution: {
-        "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND,
-        "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND,
-      },
-      advancedWan27CreditsPerSecondByResolution: {
-        "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
-        "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
-      },
+      advancedCreditsPerCny: platform.advancedPricing.creditsPerCny,
+      advancedSeedanceCreditsPerSecondByResolution: platform.advancedPricing.seedanceCreditsPerSecondByResolution,
+      advancedWan27CreditsPerSecondByResolution: platform.advancedPricing.wan27CreditsPerSecondByResolution,
     },
     endpoints: {
       docsMarkdown: `${origin}/docs/models.md`,
@@ -9485,6 +9507,132 @@ async function handleAdminGetConfig(req, res) {
   if (!auth) return;
   const config = await readAppConfig();
   return sendJson(res, 200, { ok: true, config });
+}
+
+const ADVANCED_PRICING_ROWS = [
+  { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance", resolution: "720p" },
+  { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance", resolution: "1080p" },
+  { key: "wan27-720p", provider: "wan27", providerLabel: "Wan2.7", resolution: "720p" },
+  { key: "wan27-1080p", provider: "wan27", providerLabel: "Wan2.7", resolution: "1080p" },
+];
+
+function yuanPerSecondFromCredits(creditsPerSecond, creditsPerCny) {
+  if (creditsPerSecond === null || creditsPerSecond === undefined) return null;
+  return pricingNumber(Number(creditsPerSecond || 0) / Number(creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0);
+}
+
+function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provider = "seedance", resolution = "720p") {
+  const normalized = normalizeAdvancedPricing(pricing);
+  const table = normalizeAdvancedProvider(provider) === "wan27"
+    ? normalized.wan27CreditsPerSecondByResolution
+    : normalized.seedanceCreditsPerSecondByResolution;
+  return pricingNumber(table[normalizeAdvancedResolution(resolution)], 0);
+}
+
+async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p") {
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  const publicResolution = normalizeAdvancedResolution(resolution);
+  const duration = 5;
+  if (USE_GATEWAY_UPSTREAM && typeof gatewayAdvancedEstimate === "function") {
+    try {
+      const estimate = await gatewayAdvancedEstimate(normalizedProvider, {
+        duration,
+        resolution: publicResolution,
+        ratio: "16:9",
+      });
+      return {
+        creditsPerSecond: pricingNumber(Number(estimate.credits || 0) / Number(estimate.duration || duration), 0),
+        source: "gateway_upstream",
+      };
+    } catch (error) {
+      return {
+        creditsPerSecond: null,
+        source: "gateway_unavailable",
+        message: error.message || String(error),
+      };
+    }
+  }
+  if (normalizedProvider === "seedance") {
+    const tokenPricing = seedanceTokenPricing({ duration, resolution: publicResolution, ratio: "16:9" });
+    return {
+      creditsPerSecond: pricingNumber(tokenPricing.baseCredits / tokenPricing.duration, 0),
+      source: "seedance_token_estimate",
+    };
+  }
+  return {
+    creditsPerSecond: DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution[publicResolution],
+    source: "wan27_configured_upstream_rate",
+  };
+}
+
+async function adminAdvancedPricingView(config = {}) {
+  const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
+  const rows = await Promise.all(ADVANCED_PRICING_ROWS.map(async (row) => {
+    const saleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution);
+    const purchase = await advancedPurchaseCreditsPerSecond(row.provider, row.resolution);
+    return {
+      ...row,
+      purchaseCreditsPerSecond: purchase.creditsPerSecond,
+      purchaseYuanPerSecond: yuanPerSecondFromCredits(purchase.creditsPerSecond, pricing.creditsPerCny),
+      purchaseSource: purchase.source,
+      purchaseMessage: purchase.message || "",
+      saleCreditsPerSecond,
+      saleYuanPerSecond: yuanPerSecondFromCredits(saleCreditsPerSecond, pricing.creditsPerCny),
+    };
+  }));
+  return {
+    unit: "credits",
+    creditsPerCny: pricing.creditsPerCny,
+    upstreamMode: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
+    pricing,
+    rows,
+  };
+}
+
+function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PRICING) {
+  const base = normalizeAdvancedPricing(body.advancedPricing || body.pricing || currentPricing);
+  if (!Array.isArray(body.rows)) return base;
+  const next = normalizeAdvancedPricing(base);
+  for (const row of body.rows) {
+    const provider = normalizeAdvancedProvider(row.provider);
+    const resolution = normalizeAdvancedResolution(row.resolution);
+    const rawCredits = row.saleCreditsPerSecond !== undefined
+      ? Number(row.saleCreditsPerSecond)
+      : Number(row.saleYuanPerSecond) * next.creditsPerCny;
+    if (!Number.isFinite(rawCredits) || rawCredits < 0) continue;
+    const credits = pricingNumber(rawCredits, 0);
+    if (provider === "wan27") {
+      next.wan27CreditsPerSecondByResolution[resolution] = credits;
+    } else {
+      next.seedanceCreditsPerSecondByResolution[resolution] = credits;
+    }
+  }
+  return normalizeAdvancedPricing(next);
+}
+
+async function handleAdminGetPricing(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  return sendJson(res, 200, { ok: true, pricing: await adminAdvancedPricingView(config) });
+}
+
+async function handleAdminSavePricing(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const current = await readAppConfig();
+  const nextPricing = advancedPricingFromBody(body, current.platform?.advancedPricing);
+  const next = {
+    ...current,
+    platform: normalizePlatformConfig({
+      ...(current.platform || {}),
+      advancedPricing: nextPricing,
+    }),
+    updatedAt: new Date().toISOString(),
+  };
+  await writeAppConfig(next);
+  return sendJson(res, 200, { ok: true, config: next, pricing: await adminAdvancedPricingView(next) });
 }
 
 async function handleAdminSaveConfig(req, res) {
@@ -11483,6 +11631,14 @@ async function handleRequest(req, res) {
 
     if (req.method === "PUT" && url.pathname === "/api/admin/config") {
       return await handleAdminSaveConfig(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/pricing") {
+      return await handleAdminGetPricing(req, res);
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/admin/pricing") {
+      return await handleAdminSavePricing(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/overview") {
