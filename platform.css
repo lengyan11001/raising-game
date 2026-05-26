@@ -1512,6 +1512,9 @@ select option:checked {
 .inline-modal.is-media-action {
   width: min(560px, calc(100vw - 28px));
 }
+.inline-modal.is-frame-action {
+  width: min(920px, calc(100vw - 28px));
+}
 .inline-actions {
   justify-content: flex-end;
   padding: 0 22px 22px;
@@ -1607,10 +1610,11 @@ select option:checked {
   line-height: 1.35;
 }
 .asset-frame-form video {
-  width: min(100%, 360px);
-  max-height: 300px;
+  width: min(100%, calc(72vh * var(--asset-frame-ratio-value, 1.7778)));
+  max-width: 100%;
+  max-height: 72vh;
   justify-self: center;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: var(--asset-frame-ratio, 16 / 9);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #05070d;

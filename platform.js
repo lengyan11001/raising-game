@@ -2366,8 +2366,11 @@ function renderSimplePager(holder, data, onPage) {
 
 function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass = "", onOpen, onConfirm } = {}) {
   if (!els.inlineDialog || !els.inlineDialogForm || !els.inlineDialogBody) return Promise.resolve("close");
-  els.inlineDialog.classList.remove("is-media-action");
-  if (dialogClass) els.inlineDialog.classList.add(dialogClass);
+  els.inlineDialog.classList.remove("is-media-action", "is-frame-action");
+  String(dialogClass || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .forEach((className) => els.inlineDialog.classList.add(className));
   els.inlineDialogTitle.textContent = title || "";
   els.inlineDialogBody.innerHTML = body || "";
   if (els.inlineDialogConfirm) {
@@ -2381,7 +2384,7 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
       els.inlineDialogClose?.removeEventListener("click", closeHandler);
       els.inlineDialogCancel?.removeEventListener("click", closeHandler);
       els.inlineDialog.removeEventListener("close", dialogCloseHandler);
-      els.inlineDialog.classList.remove("is-media-action");
+      els.inlineDialog.classList.remove("is-media-action", "is-frame-action");
     };
     const closeHandler = () => els.inlineDialog.close("close");
     const dialogCloseHandler = () => {
@@ -4514,7 +4517,7 @@ async function openAssetFrameDialog(asset = {}) {
   if (!url) return;
   await showInlineDialog({
     title: t("assets.frameTitle"),
-    dialogClass: "is-media-action",
+    dialogClass: "is-media-action is-frame-action",
     body: `
       <div class="asset-frame-form">
         <video id="assetFrameVideo" src="${escapeHtml(url)}" controls playsinline preload="metadata"></video>
@@ -4523,6 +4526,17 @@ async function openAssetFrameDialog(asset = {}) {
       </div>
     `,
     confirmText: t("assets.selectFrame"),
+    onOpen: (root) => {
+      const video = root.querySelector("#assetFrameVideo");
+      const syncRatio = () => {
+        if (!video?.videoWidth || !video.videoHeight) return;
+        const ratio = video.videoWidth / video.videoHeight;
+        video.style.setProperty("--asset-frame-ratio", `${video.videoWidth} / ${video.videoHeight}`);
+        video.style.setProperty("--asset-frame-ratio-value", String(ratio));
+      };
+      video?.addEventListener("loadedmetadata", syncRatio);
+      if (video?.readyState >= 1) syncRatio();
+    },
     onConfirm: async (root) => {
       const video = root.querySelector("#assetFrameVideo");
       const dataUrl = captureFrameFromVideo(video);
