@@ -2737,8 +2737,12 @@ function generationVideoUrl(record) {
   return record?.cdnVideoUrl || record?.videoUrl || record?.localVideoUrl || record?.remoteVideoUrl || "";
 }
 
+function generationImageResultUrl(record) {
+  return record?.cdnImageUrl || record?.imageResultUrl || record?.localImageUrl || record?.remoteImageUrl || "";
+}
+
 function generationPosterUrl(record) {
-  return record?.cdnPosterUrl || record?.posterUrl || record?.localPosterUrl || recordImageAssets(record)[0]?.imageUrl || "";
+  return record?.cdnPosterUrl || record?.posterUrl || record?.localPosterUrl || generationImageResultUrl(record) || recordImageAssets(record)[0]?.imageUrl || "";
 }
 
 function mediaAssetPreviewUrl(asset = {}) {
@@ -2794,6 +2798,7 @@ function generationRecordSignature(record = {}) {
     record.ratio,
     record.resolution,
     record.duration,
+    generationImageResultUrl(record),
     JSON.stringify(record.mediaAssets || []),
     billing.status,
     billing.final,
@@ -4483,6 +4488,7 @@ function bindAssetModifyCost(root) {
 async function openAssetModifyDialog(asset = {}) {
   if (!asset?.id || !isImageAsset(asset)) return;
   if (!state.user) return openLogin();
+  let shouldRefreshHistory = false;
   const result = await showInlineDialog({
     title: t("assets.modifyTitle"),
     body: assetModifyDialogBody(asset),
@@ -4494,23 +4500,37 @@ async function openAssetModifyDialog(asset = {}) {
       if (!prompt) throw new Error(t("advanced.promptRequired"));
       const status = root.querySelector("#assetModifyStatus");
       if (status) status.textContent = t("assets.generating");
-      const payload = await requestJson(`/api/user-assets/${encodeURIComponent(asset.id)}/modify`, {
-        method: "POST",
-        body: {
-          prompt,
-          ratio: root.querySelector("#assetModifyRatio")?.value || "9:16",
-          resolution: root.querySelector("#assetModifyResolution")?.value || "2K",
-        },
-      });
+      let payload;
+      try {
+        payload = await requestJson(`/api/user-assets/${encodeURIComponent(asset.id)}/modify`, {
+          method: "POST",
+          body: {
+            prompt,
+            ratio: root.querySelector("#assetModifyRatio")?.value || "9:16",
+            resolution: root.querySelector("#assetModifyResolution")?.value || "2K",
+          },
+        });
+      } catch (error) {
+        shouldRefreshHistory = true;
+        window.setTimeout(() => loadHistory({ silent: true }), 300);
+        throw error;
+      }
+      shouldRefreshHistory = true;
       if (payload.user) setUser(payload.user);
       if (payload.asset) {
         state.userAssets = [payload.asset, ...(state.userAssets || []).filter((item) => item.id !== payload.asset.id)];
+      }
+      if (payload.record) {
+        state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
       }
       if (status) status.textContent = t("assets.modified");
     },
   });
   if (result === "confirm") {
     await loadUserAssets(1);
+    await loadHistory({ silent: true });
+  } else if (shouldRefreshHistory) {
+    await loadHistory({ silent: true });
   }
 }
 
@@ -4986,6 +5006,7 @@ function renderHistory(records = []) {
   state.historyRecords = sortedRecords;
   els.historyList.innerHTML = `${expiryNotice}${sortedRecords.map((record, index) => {
     const videoUrl = generationVideoUrl(record);
+    const imageResultUrl = generationImageResultUrl(record);
     const taskId = record.taskId || "";
     const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
     const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio;
@@ -5000,7 +5021,7 @@ function renderHistory(records = []) {
               <i data-lucide="play"></i>
             </button>
             <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} controls playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
-          ` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
+          ` : imageResultUrl ? `<img src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
         <div class="history-card-actions">
           <div class="history-record-actions${taskId || videoUrl ? "" : " history-record-actions-empty"}">
@@ -5177,6 +5198,7 @@ async function openHistoryRecordAssetAction(taskId, action = "replace", button =
 
 function isPendingGenerationRecord(record = {}) {
   if (generationVideoUrl(record)) return false;
+  if (generationImageResultUrl(record)) return false;
   return !["failed", "error", "cancelled", "canceled"].includes(String(record.status || "").toLowerCase());
 }
 

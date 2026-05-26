@@ -5050,6 +5050,13 @@ function generationRecordVideoUrl(record = {}) {
   return String(record.cdnVideoUrl || record.localVideoUrl || record.videoUrl || record.remoteVideoUrl || "");
 }
 
+function generationRecordImageUrl(record = {}) {
+  if (localPublicAssetStorageEnabled()) {
+    return String(record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || record.imageUrl || "");
+  }
+  return String(record.cdnImageUrl || record.localImageUrl || record.imageResultUrl || record.remoteImageUrl || record.imageUrl || "");
+}
+
 function publicGenerationRecord(record = {}) {
   return {
     taskId: String(record.taskId || ""),
@@ -5091,6 +5098,10 @@ function publicGenerationRecord(record = {}) {
     localVideoUrl: String(record.localVideoUrl || ""),
     cdnVideoUrl: String(record.cdnVideoUrl || ""),
     remoteVideoUrl: String(record.remoteVideoUrl || ""),
+    imageResultUrl: generationRecordImageUrl(record),
+    localImageUrl: String(record.localImageUrl || ""),
+    cdnImageUrl: String(record.cdnImageUrl || ""),
+    remoteImageUrl: String(record.remoteImageUrl || ""),
     error: String(record.error || ""),
     cdnError: String(record.cdnError || ""),
     billing: publicBilling(record),
@@ -5365,6 +5376,16 @@ function isSucceededStatus(status) {
 
 function isFailedStatus(status) {
   return ["failed", "error", "cancelled", "canceled"].includes(String(status || "").toLowerCase());
+}
+
+function normalizeErrorPayload(error = {}) {
+  const payload = error?.payload && typeof error.payload === "object" ? error.payload : null;
+  return {
+    message: error?.message || payload?.message || payload?.output?.message || "",
+    code: error?.code || payload?.code || payload?.error?.code || "",
+    statusCode: error?.statusCode || 0,
+    payload,
+  };
 }
 
 function delay(ms) {
@@ -9088,6 +9109,17 @@ function wan27ImageModifyPricing(config = {}, user = null) {
   return user ? applyUserPricingToEstimate(raw, user) : raw;
 }
 
+async function updateAssetImageModifyRecord(taskId, updates = {}, reason = "asset-image-modify") {
+  return upsertGenerationRecord({
+    taskId,
+    source: "asset-image-modify",
+    kind: "asset-image",
+    provider: "aliyun-wan27-image",
+    ...updates,
+    lastUpdateReason: reason,
+  });
+}
+
 async function handleModifyUserAssetImage(req, res, assetId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -9114,11 +9146,52 @@ async function handleModifyUserAssetImage(req, res, assetId) {
   }
 
   const taskId = localGenerationTaskId("img");
+  const model = pricingConfig.model || WAN27_IMAGE_PRO_MODEL;
+  const assetPreviewUrl = asset.localUrl || asset.publicUrl || "";
+  const initialRecord = {
+    taskId,
+    status: "submitting",
+    model,
+    source: "asset-image-modify",
+    kind: "asset-image",
+    provider: "aliyun-wan27-image",
+    userId: auth.user.id,
+    userAssetId: asset.id,
+    imageUrl: assetPreviewUrl,
+    sourceImageUrl: assetPreviewUrl,
+    prompt,
+    finalPrompt: prompt,
+    params: {
+      provider: "wan27-image",
+      model,
+      ratio,
+      resolution,
+      action: "modify",
+    },
+    ratio,
+    resolution,
+    preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
+    finalCredits: null,
+    originalFinalCredits: null,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+    billingStatus: cost > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
+    pricingEstimate: pricing,
+    awaitingUpstreamTask: true,
+    upstreamPayload: null,
+    createResponse: null,
+    queryResponse: null,
+    remoteImageUrl: "",
+    localImageUrl: "",
+    error: "",
+  };
+  await updateAssetImageModifyRecord(taskId, initialRecord, "asset-image-modify-create");
   if (cost > 0) {
     changeUserCredits(auth.db, auth.user.id, -cost, "asset_image_modify", {
       taskId,
       assetId,
-      model: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
+      model,
       ratio,
       resolution,
       baseCredits: pricing.baseCredits,
@@ -9133,17 +9206,32 @@ async function handleModifyUserAssetImage(req, res, assetId) {
 
   try {
     const publicAsset = await ensurePublicUrlForUserMediaAsset(auth.db, asset);
+    await updateAssetImageModifyRecord(taskId, {
+      imageUrl: publicAsset.localUrl || publicAsset.publicUrl || assetPreviewUrl,
+      sourceImageUrl: publicAsset.localUrl || publicAsset.publicUrl || assetPreviewUrl,
+      status: "running",
+    }, "asset-image-modify-reference-ready");
     const submitted = await submitWan27ImageModify({
       imageUrl: publicAsset.publicUrl,
       prompt,
       ratio,
       resolution,
-      model: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
+      model,
     });
     const imageUrl = submitted.task.imageUrls[0];
+    await updateAssetImageModifyRecord(taskId, {
+      upstreamTaskId: submitted.task.taskId || "",
+      awaitingUpstreamTask: false,
+      status: imageUrl ? (submitted.task.status || "succeeded") : "failed",
+      upstreamPayload: submitted.payload,
+      createResponse: submitted.raw,
+      remoteImageUrl: imageUrl || "",
+      error: imageUrl ? "" : (submitted.task.error || "Wan2.7 image modify returned no image."),
+    }, "asset-image-modify-submit");
     if (!imageUrl) {
       const error = new Error(submitted.task.error || "Wan2.7 image modify returned no image.");
       error.statusCode = 502;
+      error.payload = submitted.raw;
       throw error;
     }
     const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "modified image", maxBytes: 20 * 1024 * 1024 });
@@ -9157,7 +9245,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     });
     newAsset.sourceAssetId = asset.id;
     newAsset.modifyPrompt = prompt;
-    newAsset.modifyModel = pricingConfig.model || WAN27_IMAGE_PRO_MODEL;
+    newAsset.modifyModel = model;
     newAsset.modifyTaskId = submitted.task.taskId || taskId;
     newAsset.modifyParams = { ratio, resolution };
     newAsset.modifyPricing = {
@@ -9171,19 +9259,37 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     newAsset.updatedAt = new Date().toISOString();
     auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
     await writeDb(auth.db);
+    const publicNewAsset = publicUserAsset(newAsset);
+    await updateAssetImageModifyRecord(taskId, {
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      imageResultUrl: publicNewAsset.previewUrl,
+      localImageUrl: publicNewAsset.localUrl,
+      cdnImageUrl: publicNewAsset.publicUrl && publicNewAsset.publicUrl !== publicNewAsset.localUrl ? publicNewAsset.publicUrl : "",
+      remoteImageUrl: imageUrl,
+      resultAssetId: newAsset.id,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits ?? cost,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: new Date().toISOString(),
+      error: "",
+    }, "asset-image-modify-succeeded");
     const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
     return sendJson(res, 200, {
       ok: true,
       taskId,
       upstreamTaskId: submitted.task.taskId || "",
-      asset: publicUserAsset(newAsset),
+      asset: publicNewAsset,
       sourceAsset: publicUserAsset(asset),
       user: userView(latestUser),
       pricing,
       cost,
-      params: { ratio, resolution, model: pricingConfig.model || WAN27_IMAGE_PRO_MODEL },
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
+      params: { ratio, resolution, model },
     });
   } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    console.warn("[asset-image-modify-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
     if (cost > 0) {
       try {
         const db = await readDb();
@@ -9197,10 +9303,25 @@ async function handleModifyUserAssetImage(req, res, assetId) {
         console.error("[asset-image-modify-refund-failed]", refundError.message || refundError);
       }
     }
+    await updateAssetImageModifyRecord(taskId, {
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || "Wan2.7 image modify failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    }, "asset-image-modify-failed");
     return sendJson(res, error.statusCode || 502, {
       ok: false,
       message: error.message || "Wan2.7 image modify failed.",
       code: error.code || "",
+      taskId,
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
       payload: error.payload || null,
     });
   }
