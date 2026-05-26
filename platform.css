@@ -457,6 +457,10 @@ main { width: min(1200px, calc(100vw - 44px)); margin: 0 auto; }
   height: 38px;
   z-index: 2;
 }
+.advanced-case-card.is-previewing .advanced-preview-play {
+  opacity: 0;
+  pointer-events: none;
+}
 .use-template {
   width: 100%;
   border: 0;
