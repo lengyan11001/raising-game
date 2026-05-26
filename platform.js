@@ -88,6 +88,11 @@ const state = {
   assetSearchTimer: 0,
   topupRefreshTimer: 0,
   topupRefreshInFlight: false,
+  apiSubtokens: [],
+  apiSubtokensLoading: false,
+  apiSubtokensLoaded: false,
+  apiSubtokenMessage: "",
+  createdApiSubtoken: null,
 };
 
 function tenantFeature(name, fallback = true) {
@@ -120,6 +125,7 @@ const els = {
   accessGuideDesc: document.querySelector("#accessGuideDesc"),
   accessCopy: document.querySelector("#accessCopy"),
   copyAccessBtn: document.querySelector("#copyAccessBtn"),
+  accessSubtokens: document.querySelector("#accessSubtokens"),
   accessTokenDisplay: document.querySelector("#accessTokenDisplay"),
   accessTokenHint: document.querySelector("#accessTokenHint"),
   toggleAccessTokenBtn: document.querySelector("#toggleAccessTokenBtn"),
@@ -465,6 +471,37 @@ const I18N = {
     "access.modelDocs": "Model docs",
     "access.modelsJson": "Models JSON",
     "access.copySnippet": "Copy snippet",
+    "access.subtokensTitle": "Sub tokens",
+    "access.subtokensDesc": "Create limited child tokens for scripts or downstream accounts. They share your parent balance and stop when the parent balance is insufficient.",
+    "access.subtokensLogin": "Login to manage sub tokens.",
+    "access.subtokenName": "Name",
+    "access.subtokenNamePlaceholder": "Client or project name",
+    "access.subtokenQuotaType": "Limit type",
+    "access.subtokenAmount": "Credits",
+    "access.subtokenCount": "Requests",
+    "access.subtokenQuota": "Quota",
+    "access.subtokenQuotaPlaceholder": "1000",
+    "access.subtokenExpires": "Expires",
+    "access.subtokenNoExpiry": "No expiry",
+    "access.createSubtoken": "Create sub token",
+    "access.subtokenCreated": "Sub token created. Copy it now; existing tokens are masked later.",
+    "access.subtokenCreateFailed": "Create failed: {message}",
+    "access.subtokenLoadFailed": "Load failed: {message}",
+    "access.subtokenEmpty": "No sub tokens yet.",
+    "access.subtokenRemaining": "Remaining",
+    "access.subtokenUsed": "Used",
+    "access.subtokenStatus": "Status",
+    "access.subtokenLastUsed": "Last used",
+    "access.subtokenNever": "Never",
+    "access.subtokenRevoke": "Revoke",
+    "access.subtokenRevoked": "Revoked",
+    "access.subtokenExpired": "Expired",
+    "access.subtokenActive": "Active",
+    "access.subtokenCopied": "Sub token copied",
+    "access.subtokenCopyNew": "Copy new token",
+    "access.subtokenCopiedShort": "Copied",
+    "access.subtokenMasked": "Masked",
+    "access.subtokenRevokeFailed": "Revoke failed: {message}",
     "guide.http.title": "HTTP API",
     "guide.http.subtitle": "Direct endpoint",
     "guide.http.desc": "Production endpoint. Submit generation jobs and query records/results.",
@@ -2605,6 +2642,7 @@ function applyLanguage() {
   renderAccountMenu();
   renderTopupSummary();
   renderTokenDisplays();
+  renderApiSubtokens();
   renderLoginMode();
   if (els.legalDialog?.open) renderLegalDialog(els.legalDialog.dataset.doc || "privacy");
   updateSubmitButtonCost();
@@ -2613,6 +2651,7 @@ function applyLanguage() {
   if (state.tab === "topups") loadTopupRecords();
   if (state.tab === "spending") loadSpendingRecords();
   if (state.tab === "assets") loadUserAssets();
+  if (state.tab === "access") loadApiSubtokens();
   refreshIcons();
 }
 
@@ -2634,12 +2673,14 @@ function setUser(user, { refreshHistory = false } = {}) {
   renderTokenDisplays();
   renderTopupSummary();
   renderAccessGuides();
+  renderApiSubtokens();
   renderAdvanced();
   renderAssets();
   renderAccountMenu();
   if (state.tab === "topups") loadTopupRecords(1);
   if (state.tab === "spending") loadSpendingRecords(1);
   if (state.tab === "assets") loadUserAssets();
+  if (state.tab === "access") loadApiSubtokens({ force: true });
   if (refreshHistory && state.tab === "history") loadHistory();
   if (previousMultiplier !== nextMultiplier) {
     state.advancedEstimate = null;
@@ -2671,6 +2712,194 @@ function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
 
 function fullAccessCopy() {
   return hydrateAccessCopy(activeAccessGuide.copy, { revealToken: true });
+}
+
+function apiSubtokenStatusLabel(token = {}) {
+  const status = String(token.status || "").toLowerCase();
+  if (status === "revoked") return t("access.subtokenRevoked");
+  if (status === "expired") return t("access.subtokenExpired");
+  return t("access.subtokenActive");
+}
+
+function apiSubtokenQuotaLabel(token = {}) {
+  const quotaType = String(token.quotaType || "") === "count" ? "count" : "amount";
+  const unit = quotaType === "count" ? t("access.subtokenCount") : t("common.credits");
+  return `${formatCredits(token.remaining)} / ${formatCredits(token.quotaLimit)} ${unit}`;
+}
+
+function apiSubtokenUsedLabel(token = {}) {
+  if (String(token.quotaType || "") === "count") {
+    return `${formatCredits(token.usedCount || 0)} ${t("access.subtokenCount")}`;
+  }
+  return `${formatCredits(token.usedAmount || 0)} ${t("common.credits")}`;
+}
+
+function renderApiSubtokens() {
+  if (!els.accessSubtokens) return;
+  if (!state.user) {
+    els.accessSubtokens.innerHTML = `
+      <article class="access-doc-card access-subtoken-card">
+        <div class="access-doc-head">
+          <div>
+            <span class="copy-kicker"><i data-lucide="key-round"></i>${escapeHtml(t("access.subtokensTitle"))}</span>
+            <p>${escapeHtml(t("access.subtokensLogin"))}</p>
+          </div>
+        </div>
+      </article>
+    `;
+    refreshIcons();
+    return;
+  }
+
+  const created = state.createdApiSubtoken;
+  const rows = (state.apiSubtokens || []).map((token) => `
+    <article class="subtoken-row ${token.active ? "" : "is-disabled"}">
+      <div class="subtoken-main">
+        <strong>${escapeHtml(token.name || token.id)}</strong>
+        <code>${escapeHtml(token.tokenPreview || maskToken(token.token || ""))}</code>
+      </div>
+      <div class="subtoken-metrics">
+        <span><small>${escapeHtml(t("access.subtokenRemaining"))}</small><b>${escapeHtml(apiSubtokenQuotaLabel(token))}</b></span>
+        <span><small>${escapeHtml(t("access.subtokenUsed"))}</small><b>${escapeHtml(apiSubtokenUsedLabel(token))}</b></span>
+        <span><small>${escapeHtml(t("access.subtokenStatus"))}</small><b>${escapeHtml(apiSubtokenStatusLabel(token))}</b></span>
+        <span><small>${escapeHtml(t("access.subtokenLastUsed"))}</small><b>${escapeHtml(token.lastUsedAt ? formatDateTime(token.lastUsedAt) : t("access.subtokenNever"))}</b></span>
+      </div>
+      <div class="subtoken-actions">
+        <button class="ghost-button" type="button" disabled><i data-lucide="lock-keyhole"></i>${escapeHtml(t("access.subtokenMasked"))}</button>
+        <button class="ghost-button danger-link" type="button" data-revoke-subtoken="${escapeHtml(token.id)}" ${token.active ? "" : "disabled"}><i data-lucide="ban"></i>${escapeHtml(t("access.subtokenRevoke"))}</button>
+      </div>
+    </article>
+  `).join("");
+
+  els.accessSubtokens.innerHTML = `
+    <article class="access-doc-card access-subtoken-card">
+      <div class="access-doc-head subtoken-head">
+        <div>
+          <span class="copy-kicker"><i data-lucide="key-round"></i>${escapeHtml(t("access.subtokensTitle"))}</span>
+          <p>${escapeHtml(t("access.subtokensDesc"))}</p>
+        </div>
+        <button class="ghost-button" type="button" id="refreshSubtokensBtn" ${state.apiSubtokensLoading ? "disabled" : ""}><i data-lucide="refresh-cw"></i>${escapeHtml(t("history.refresh"))}</button>
+      </div>
+      <form class="subtoken-create" id="subtokenCreateForm">
+        <label class="field"><span>${escapeHtml(t("access.subtokenName"))}</span><input id="subtokenName" type="text" maxlength="80" placeholder="${escapeHtml(t("access.subtokenNamePlaceholder"))}" required /></label>
+        <label class="field"><span>${escapeHtml(t("access.subtokenQuotaType"))}</span><select id="subtokenQuotaType"><option value="amount">${escapeHtml(t("access.subtokenAmount"))}</option><option value="count">${escapeHtml(t("access.subtokenCount"))}</option></select></label>
+        <label class="field"><span>${escapeHtml(t("access.subtokenQuota"))}</span><input id="subtokenQuotaLimit" type="number" min="0.000001" step="0.000001" placeholder="${escapeHtml(t("access.subtokenQuotaPlaceholder"))}" required /></label>
+        <label class="field"><span>${escapeHtml(t("access.subtokenExpires"))}</span><input id="subtokenExpiresAt" type="datetime-local" /></label>
+        <button class="copy-btn" type="submit" ${state.apiSubtokensLoading ? "disabled" : ""}><i data-lucide="plus"></i>${escapeHtml(t("access.createSubtoken"))}</button>
+      </form>
+      ${created?.token ? `
+        <div class="subtoken-created">
+          <div>
+            <strong>${escapeHtml(t("access.subtokenCreated"))}</strong>
+            <code>${escapeHtml(created.token)}</code>
+          </div>
+          <button class="copy-btn" type="button" data-copy-created-subtoken="${escapeHtml(created.token)}"><i data-lucide="copy"></i>${escapeHtml(t("access.subtokenCopyNew"))}</button>
+        </div>
+      ` : ""}
+      ${state.apiSubtokenMessage ? `<p class="job-note subtoken-message">${escapeHtml(state.apiSubtokenMessage)}</p>` : ""}
+      <div class="subtoken-list">
+        ${state.apiSubtokensLoading ? `<div class="job-note">${escapeHtml(t("assets.loading"))}</div>` : (rows || `<div class="job-note">${escapeHtml(t("access.subtokenEmpty"))}</div>`)}
+      </div>
+    </article>
+  `;
+
+  els.accessSubtokens.querySelector("#refreshSubtokensBtn")?.addEventListener("click", () => loadApiSubtokens({ force: true }));
+  els.accessSubtokens.querySelector("#subtokenCreateForm")?.addEventListener("submit", submitApiSubtokenCreate);
+  els.accessSubtokens.querySelectorAll("[data-copy-created-subtoken]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const token = button.dataset.copyCreatedSubtoken || "";
+      if (!token) return;
+      await navigator.clipboard.writeText(token);
+      button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("access.subtokenCopiedShort"))}`;
+      refreshIcons();
+      window.setTimeout(() => renderApiSubtokens(), 1400);
+    });
+  });
+  els.accessSubtokens.querySelectorAll("[data-revoke-subtoken]").forEach((button) => {
+    button.addEventListener("click", () => revokeApiSubtoken(button.dataset.revokeSubtoken || "", button));
+  });
+  refreshIcons();
+}
+
+async function loadApiSubtokens({ force = false } = {}) {
+  if (!state.user || !els.accessSubtokens) {
+    state.apiSubtokens = [];
+    state.apiSubtokensLoaded = false;
+    renderApiSubtokens();
+    return;
+  }
+  if (state.apiSubtokensLoading || (state.apiSubtokensLoaded && !force)) {
+    renderApiSubtokens();
+    return;
+  }
+  state.apiSubtokensLoading = true;
+  state.apiSubtokenMessage = "";
+  renderApiSubtokens();
+  try {
+    const payload = await requestJson("/api/access/subtokens");
+    state.apiSubtokens = payload.subtokens || [];
+    state.apiSubtokensLoaded = true;
+  } catch (error) {
+    state.apiSubtokenMessage = t("access.subtokenLoadFailed", { message: error.message || String(error) });
+  } finally {
+    state.apiSubtokensLoading = false;
+    renderApiSubtokens();
+  }
+}
+
+async function submitApiSubtokenCreate(event) {
+  event.preventDefault();
+  if (!state.user) return openLogin();
+  const root = els.accessSubtokens;
+  const name = root?.querySelector("#subtokenName")?.value.trim() || "";
+  const quotaType = root?.querySelector("#subtokenQuotaType")?.value || "amount";
+  const quotaLimit = Number(root?.querySelector("#subtokenQuotaLimit")?.value || 0);
+  const expiresInput = root?.querySelector("#subtokenExpiresAt")?.value || "";
+  const expiresAt = expiresInput ? new Date(expiresInput).toISOString() : "";
+  if (!name || !Number.isFinite(quotaLimit) || quotaLimit <= 0) return;
+  state.apiSubtokensLoading = true;
+  state.apiSubtokenMessage = "";
+  renderApiSubtokens();
+  try {
+    const payload = await requestJson("/api/access/subtokens", {
+      method: "POST",
+      body: { name, quotaType, quotaLimit, expiresAt },
+    });
+    state.createdApiSubtoken = payload.subtoken || null;
+    state.apiSubtokens = payload.subtoken
+      ? [payload.subtoken, ...(state.apiSubtokens || []).filter((token) => token.id !== payload.subtoken.id)]
+      : state.apiSubtokens;
+    state.apiSubtokensLoaded = true;
+    state.apiSubtokenMessage = "";
+  } catch (error) {
+    state.apiSubtokenMessage = t("access.subtokenCreateFailed", { message: error.message || String(error) });
+  } finally {
+    state.apiSubtokensLoading = false;
+    renderApiSubtokens();
+  }
+}
+
+async function revokeApiSubtoken(tokenId, button = null) {
+  if (!tokenId) return;
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("access.subtokenRevoke"))}`;
+    refreshIcons();
+  }
+  try {
+    const payload = await requestJson(`/api/access/subtokens/${encodeURIComponent(tokenId)}`, { method: "DELETE" });
+    state.apiSubtokens = (state.apiSubtokens || []).map((token) => token.id === tokenId ? (payload.subtoken || token) : token);
+    state.apiSubtokenMessage = "";
+  } catch (error) {
+    state.apiSubtokenMessage = t("access.subtokenRevokeFailed", { message: error.message || String(error) });
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+    }
+    renderApiSubtokens();
+  }
 }
 
 function renderTokenDisplays() {
@@ -3155,6 +3384,7 @@ function setTab(tab) {
     if (state.user) loadUserAssets();
     else renderAssets([]);
   }
+  if (nextTab === "access") loadApiSubtokens();
   closeAccountMenu();
 }
 
@@ -5608,6 +5838,10 @@ function logout() {
   state.user = null;
   state.showAccessToken = false;
   state.showAccountToken = false;
+  state.apiSubtokens = [];
+  state.apiSubtokensLoaded = false;
+  state.apiSubtokenMessage = "";
+  state.createdApiSubtoken = null;
   localStorage.removeItem(TOKEN_KEY);
   els.accountDialog?.close();
   closeAccountMenu();
@@ -5616,6 +5850,7 @@ function logout() {
   if (state.tab === "topups") renderTopupRecords();
   if (state.tab === "spending") renderSpendingRecords();
   if (state.tab === "assets") renderAssets([]);
+  if (state.tab === "access") renderApiSubtokens();
   syncTopupAutoRefresh();
 }
 
@@ -5645,6 +5880,7 @@ async function submitLogin() {
     localStorage.setItem(TOKEN_KEY, payload.token);
     els.loginDialog.close();
     if (state.tab === "access") renderAccessGuides();
+    if (state.tab === "access") loadApiSubtokens({ force: true });
     if (state.tab === "history") loadHistory();
     if (state.tab === "topups") loadTopupRecords(1);
     if (state.tab === "spending") loadSpendingRecords(1);

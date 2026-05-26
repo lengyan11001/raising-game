@@ -863,6 +863,92 @@ main {
   white-space: pre-wrap;
   word-break: break-word;
 }
+.access-subtokens { margin-top: 18px; }
+.access-subtoken-card { display: grid; gap: 16px; }
+.subtoken-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.subtoken-create {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(130px, .75fr) minmax(130px, .75fr) minmax(190px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(248,251,249,.82);
+}
+.subtoken-create .copy-btn { min-height: 42px; white-space: nowrap; }
+.subtoken-created {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(15,148,139,.24);
+  border-radius: 8px;
+  background: rgba(15,148,139,.08);
+}
+.subtoken-created strong { display: block; margin-bottom: 8px; }
+.subtoken-created code,
+.subtoken-main code {
+  display: block;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(15,148,139,.16);
+  border-radius: 8px;
+  background: #fff;
+  color: #0d463f;
+  font-size: .84rem;
+  word-break: break-all;
+}
+.subtoken-list { display: grid; gap: 10px; }
+.subtoken-row {
+  display: grid;
+  grid-template-columns: minmax(180px, .9fr) minmax(260px, 1.4fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255,255,255,.74);
+}
+.subtoken-row.is-disabled { opacity: .68; }
+.subtoken-main strong {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--text);
+}
+.subtoken-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.subtoken-metrics span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.subtoken-metrics small {
+  color: var(--muted);
+  font-size: .75rem;
+}
+.subtoken-metrics b {
+  color: var(--text);
+  font-size: .86rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.subtoken-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.subtoken-message { color: #b45309; }
 
 .permission-card {
   display: grid;
@@ -1647,6 +1733,12 @@ select option:checked {
   .wan-mode-field { width: 100%; }
   .wan-media-grid { grid-template-columns: 1fr; }
   .wan-first-frame { grid-column: auto; }
+  .subtoken-create,
+  .subtoken-row,
+  .subtoken-created { grid-template-columns: 1fr; }
+  .subtoken-head { display: grid; }
+  .subtoken-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .subtoken-actions { justify-content: flex-start; }
 }
 .field { display: grid; gap: 8px; color: var(--muted); min-width: 0; }
 .field > span {

@@ -80,6 +80,49 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS app_generation_records_user_created_idx
       ON app_generation_records ((payload->>'userId'), created_at DESC);
   `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_api_subtokens (
+      id TEXT PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      parent_user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      quota_type TEXT NOT NULL CHECK (quota_type IN ('amount', 'count')),
+      quota_limit NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      used_amount NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      used_count INTEGER NOT NULL DEFAULT 0,
+      expires_at TIMESTAMPTZ,
+      revoked_at TIMESTAMPTZ,
+      last_used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_api_subtoken_usage (
+      id BIGSERIAL PRIMARY KEY,
+      token_id TEXT NOT NULL REFERENCES app_api_subtokens(id) ON DELETE CASCADE,
+      event_key TEXT NOT NULL,
+      parent_user_id TEXT NOT NULL,
+      delta_amount NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      delta_count INTEGER NOT NULL DEFAULT 0,
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (token_id, event_key)
+    );
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_api_subtokens_parent_created_idx
+      ON app_api_subtokens (parent_user_id, created_at DESC);
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_api_subtokens_created_idx
+      ON app_api_subtokens (created_at DESC);
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_api_subtoken_usage_token_created_idx
+      ON app_api_subtoken_usage (token_id, created_at DESC);
+  `);
 }
 
 function generationRecordCreatedAt(record = {}) {
@@ -298,6 +341,379 @@ async function patchGenerationRecordsInDb(predicate, updates) {
   return rows.map((row) => row.payload);
 }
 
+async function listApiSubtokensFromDb(parentUserId = "") {
+  if (!dbEnabled()) {
+    const records = await getKv("api_subtokens", []);
+    return (Array.isArray(records) ? records : [])
+      .map(normalizeApiSubtokenRecord)
+      .filter((record) => !parentUserId || record.parentUserId === String(parentUserId))
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  }
+  await ensureSchema();
+  const params = [];
+  let where = "";
+  if (parentUserId) {
+    params.push(String(parentUserId));
+    where = `WHERE parent_user_id = $1`;
+  }
+  const { rows } = await query(`
+    SELECT *
+    FROM app_api_subtokens
+    ${where}
+    ORDER BY created_at DESC
+  `, params);
+  return rows.map((row) => normalizeApiSubtokenRecord(row));
+}
+
+async function getApiSubtokenFromDbByToken(token = "") {
+  const clean = String(token || "").trim();
+  if (!clean) return null;
+  if (!dbEnabled()) {
+    const records = await getKv("api_subtokens", []);
+    const found = (Array.isArray(records) ? records : []).find((record) => String(record.token || "") === clean);
+    return found ? normalizeApiSubtokenRecord(found) : null;
+  }
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_api_subtokens WHERE token = $1`, [clean]);
+  return rows[0] ? normalizeApiSubtokenRecord(rows[0]) : null;
+}
+
+async function getApiSubtokenFromDbById(id = "", parentUserId = "") {
+  const clean = String(id || "").trim();
+  if (!clean) return null;
+  if (!dbEnabled()) {
+    const records = await getKv("api_subtokens", []);
+    const found = (Array.isArray(records) ? records : []).find((record) => (
+      String(record.id || "") === clean &&
+      (!parentUserId || String(record.parentUserId || record.parent_user_id || "") === String(parentUserId))
+    ));
+    return found ? normalizeApiSubtokenRecord(found) : null;
+  }
+  await ensureSchema();
+  const params = [clean];
+  let where = `WHERE id = $1`;
+  if (parentUserId) {
+    params.push(String(parentUserId));
+    where += ` AND parent_user_id = $2`;
+  }
+  const { rows } = await query(`SELECT * FROM app_api_subtokens ${where}`, params);
+  return rows[0] ? normalizeApiSubtokenRecord(rows[0]) : null;
+}
+
+async function createApiSubtokenInDb(record) {
+  const next = normalizeApiSubtokenRecord(record);
+  if (!next.id || !next.token || !next.parentUserId) {
+    throw new Error("Invalid subtoken record");
+  }
+  if (!dbEnabled()) {
+    const records = await getKv("api_subtokens", []);
+    const list = Array.isArray(records) ? records : [];
+    list.unshift(next);
+    await setKv("api_subtokens", list);
+    return next;
+  }
+  await ensureSchema();
+  const { rows } = await query(`
+    INSERT INTO app_api_subtokens (
+      id, token, parent_user_id, name, quota_type, quota_limit,
+      used_amount, used_count, expires_at, revoked_at, last_used_at,
+      created_at, updated_at
+    )
+    VALUES (
+      $1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::int,
+      NULLIF($9, '')::timestamptz, NULLIF($10, '')::timestamptz, NULLIF($11, '')::timestamptz,
+      NULLIF($12, '')::timestamptz, NULLIF($13, '')::timestamptz
+    )
+    RETURNING *
+  `, [
+    next.id,
+    next.token,
+    next.parentUserId,
+    next.name,
+    next.quotaType,
+    next.quotaLimit,
+    next.usedAmount,
+    next.usedCount,
+    next.expiresAt,
+    next.revokedAt,
+    next.lastUsedAt,
+    next.createdAt,
+    next.updatedAt,
+  ]);
+  return normalizeApiSubtokenRecord(rows[0]);
+}
+
+async function updateApiSubtokenInDb(id, parentUserId, updates = {}) {
+  const cleanId = String(id || "").trim();
+  if (!cleanId) return null;
+  if (!dbEnabled()) {
+    const records = await getKv("api_subtokens", []);
+    const list = Array.isArray(records) ? records : [];
+    const index = list.findIndex((record) => (
+      String(record.id || "") === cleanId &&
+      (!parentUserId || String(record.parentUserId || record.parent_user_id || "") === String(parentUserId))
+    ));
+    if (index < 0) return null;
+    const current = normalizeApiSubtokenRecord(list[index]);
+    const merged = normalizeApiSubtokenRecord({
+      ...current,
+      ...updates,
+      id: current.id,
+      token: current.token,
+      parentUserId: current.parentUserId,
+      createdAt: current.createdAt,
+      usedAmount: updates.usedAmount ?? current.usedAmount,
+      usedCount: updates.usedCount ?? current.usedCount,
+    });
+    list[index] = merged;
+    await setKv("api_subtokens", list);
+    return merged;
+  }
+  await ensureSchema();
+  const sets = [];
+  const params = [cleanId];
+  if (parentUserId) params.push(String(parentUserId));
+  const push = (column, value) => {
+    params.push(value);
+    sets.push(`${column} = $${params.length}`);
+  };
+  if (Object.prototype.hasOwnProperty.call(updates, "name")) push("name", String(updates.name || "").trim());
+  if (Object.prototype.hasOwnProperty.call(updates, "quotaType")) push("quota_type", normalizeApiSubtokenQuotaType(updates.quotaType));
+  if (Object.prototype.hasOwnProperty.call(updates, "quotaLimit")) push("quota_limit", roundCredits(updates.quotaLimit));
+  if (Object.prototype.hasOwnProperty.call(updates, "usedAmount")) push("used_amount", roundCredits(updates.usedAmount));
+  if (Object.prototype.hasOwnProperty.call(updates, "usedCount")) push("used_count", Math.max(0, Math.round(Number(updates.usedCount || 0) || 0)));
+  if (Object.prototype.hasOwnProperty.call(updates, "expiresAt")) push("expires_at", updates.expiresAt ? toIsoString(updates.expiresAt) : null);
+  if (Object.prototype.hasOwnProperty.call(updates, "revokedAt")) push("revoked_at", updates.revokedAt ? toIsoString(updates.revokedAt) : null);
+  if (Object.prototype.hasOwnProperty.call(updates, "lastUsedAt")) push("last_used_at", updates.lastUsedAt ? toIsoString(updates.lastUsedAt) : null);
+  if (!sets.length) return await getApiSubtokenFromDbById(cleanId, parentUserId);
+  const where = parentUserId ? `WHERE id = $1 AND parent_user_id = $2` : `WHERE id = $1`;
+  const { rows } = await query(`
+    UPDATE app_api_subtokens
+    SET ${sets.join(", ")},
+        updated_at = NOW()
+    ${where}
+    RETURNING *
+  `, params);
+  return rows[0] ? normalizeApiSubtokenRecord(rows[0]) : null;
+}
+
+async function revokeApiSubtokenInDb(id, parentUserId, revokedAt = new Date().toISOString()) {
+  return await updateApiSubtokenInDb(id, parentUserId, { revokedAt });
+}
+
+async function recordApiSubtokenUsageInDb({
+  tokenId = "",
+  parentUserId = "",
+  eventKey = "",
+  deltaAmount = 0,
+  deltaCount = 0,
+  meta = {},
+} = {}) {
+  const cleanTokenId = String(tokenId || "").trim();
+  const cleanEventKey = String(eventKey || "").trim();
+  if (!cleanTokenId || !cleanEventKey) return null;
+  const amountDelta = roundCredits(deltaAmount);
+  const countDelta = Math.trunc(Number(deltaCount || 0) || 0);
+  if (!dbEnabled()) {
+    const subtokens = await getKv("api_subtokens", []);
+    const usage = await getKv("api_subtoken_usage", []);
+    const list = Array.isArray(subtokens) ? subtokens : [];
+    const tokenIndex = list.findIndex((record) => (
+      String(record.id || "") === cleanTokenId &&
+      (!parentUserId || String(record.parentUserId || record.parent_user_id || "") === String(parentUserId))
+    ));
+    if (tokenIndex < 0) return null;
+    const current = normalizeApiSubtokenRecord(list[tokenIndex]);
+    const existing = Array.isArray(usage) ? usage.find((entry) => (
+      String(entry.tokenId || entry.token_id || "") === cleanTokenId &&
+      String(entry.eventKey || entry.event_key || "") === cleanEventKey
+    )) : null;
+    if (existing) return { token: current, inserted: false };
+    const nextAmount = Math.max(0, roundCredits(current.usedAmount + amountDelta));
+    const nextCount = Math.max(0, Math.round(current.usedCount + countDelta));
+    if (current.quotaType === "amount" && nextAmount - current.quotaLimit > 0.000001) {
+      const error = new Error("Subtoken quota exceeded.");
+      error.statusCode = 402;
+      error.code = "SUBTOKEN_QUOTA_EXCEEDED";
+      throw error;
+    }
+    if (current.quotaType === "count" && nextCount - current.quotaLimit > 0.000001) {
+      const error = new Error("Subtoken quota exceeded.");
+      error.statusCode = 402;
+      error.code = "SUBTOKEN_QUOTA_EXCEEDED";
+      throw error;
+    }
+    const now = new Date().toISOString();
+    usage.unshift({
+      id: `usage-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      tokenId: current.id,
+      eventKey: cleanEventKey,
+      parentUserId: current.parentUserId,
+      deltaAmount: amountDelta,
+      deltaCount: countDelta,
+      meta,
+      createdAt: now,
+      updatedAt: now,
+    });
+    list[tokenIndex] = normalizeApiSubtokenRecord({
+      ...current,
+      usedAmount: nextAmount,
+      usedCount: nextCount,
+      lastUsedAt: now,
+      updatedAt: now,
+    });
+    await setKv("api_subtoken_usage", usage.slice(0, 5000));
+    await setKv("api_subtokens", list);
+    return { token: list[tokenIndex], inserted: true };
+  }
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows: tokenRows } = await client.query(
+      `SELECT * FROM app_api_subtokens WHERE id = $1${parentUserId ? " AND parent_user_id = $2" : ""} FOR UPDATE`,
+      parentUserId ? [cleanTokenId, String(parentUserId)] : [cleanTokenId],
+    );
+    const tokenRow = tokenRows[0];
+    if (!tokenRow) {
+      const error = new Error("Subtoken not found.");
+      error.statusCode = 404;
+      error.code = "SUBTOKEN_NOT_FOUND";
+      throw error;
+    }
+    const token = normalizeApiSubtokenRecord(tokenRow);
+    const { rows: existingRows } = await client.query(
+      `SELECT 1 FROM app_api_subtoken_usage WHERE token_id = $1 AND event_key = $2`,
+      [token.id, cleanEventKey],
+    );
+    if (existingRows.length) {
+      await client.query("COMMIT");
+      return { token, inserted: false };
+    }
+    const nextAmount = Math.max(0, roundCredits(Number(token.usedAmount || 0) + amountDelta));
+    const nextCount = Math.max(0, Math.round(Number(token.usedCount || 0) + countDelta));
+    if (token.quotaType === "amount" && nextAmount - Number(token.quotaLimit || 0) > 0.000001) {
+      const error = new Error("Subtoken quota exceeded.");
+      error.statusCode = 402;
+      error.code = "SUBTOKEN_QUOTA_EXCEEDED";
+      throw error;
+    }
+    if (token.quotaType === "count" && nextCount - Number(token.quotaLimit || 0) > 0.000001) {
+      const error = new Error("Subtoken quota exceeded.");
+      error.statusCode = 402;
+      error.code = "SUBTOKEN_QUOTA_EXCEEDED";
+      throw error;
+    }
+    await client.query(
+      `
+        INSERT INTO app_api_subtoken_usage (
+          token_id, event_key, parent_user_id, delta_amount, delta_count, meta, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4::numeric, $5::int, $6::jsonb, NOW(), NOW())
+      `,
+      [token.id, cleanEventKey, token.parentUserId || String(parentUserId || ""), amountDelta, countDelta, JSON.stringify(meta || {})],
+    );
+    const { rows: updatedRows } = await client.query(
+      `
+        UPDATE app_api_subtokens
+        SET used_amount = $2::numeric,
+            used_count = $3::int,
+            last_used_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [token.id, nextAmount, nextCount],
+    );
+    await client.query("COMMIT");
+    return { token: normalizeApiSubtokenRecord(updatedRows[0] || tokenRow), inserted: true };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+function toIsoString(value) {
+  if (!value) return "";
+  if (value instanceof Date) return value.toISOString();
+  const parsed = Date.parse(value);
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  return String(value).trim();
+}
+
+function roundCredits(value, digits = 6) {
+  const scale = 10 ** Math.max(0, Math.min(8, Math.floor(Number(digits) || 6)));
+  const next = Number(value);
+  if (!Number.isFinite(next)) return 0;
+  return Math.round(next * scale) / scale;
+}
+
+function normalizeApiSubtokenQuotaType(value = "") {
+  return String(value || "").trim().toLowerCase() === "count" ? "count" : "amount";
+}
+
+function maskApiSubtokenToken(token = "") {
+  const value = String(token || "");
+  if (!value) return "";
+  if (value.length <= 12) return `${value.slice(0, 3)}...${value.slice(-3)}`;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function normalizeApiSubtokenRecord(record = {}) {
+  const quotaType = normalizeApiSubtokenQuotaType(record.quotaType ?? record.quota_type);
+  const quotaLimit = roundCredits(record.quotaLimit ?? record.quota_limit ?? 0);
+  const usedAmount = roundCredits(record.usedAmount ?? record.used_amount ?? 0);
+  const usedCount = Math.max(0, Math.round(Number(record.usedCount ?? record.used_count ?? 0) || 0));
+  const expiresAt = toIsoString(record.expiresAt ?? record.expires_at ?? "");
+  const revokedAt = toIsoString(record.revokedAt ?? record.revoked_at ?? "");
+  const lastUsedAt = toIsoString(record.lastUsedAt ?? record.last_used_at ?? "");
+  const createdAt = toIsoString(record.createdAt ?? record.created_at ?? "");
+  const updatedAt = toIsoString(record.updatedAt ?? record.updated_at ?? "");
+  const token = String(record.token ?? "").trim();
+  const expired = expiresAt && Date.parse(expiresAt) <= Date.now();
+  const status = revokedAt ? "revoked" : (expired ? "expired" : "active");
+  const remaining = quotaType === "count"
+    ? Math.max(0, roundCredits(quotaLimit - usedCount, 6))
+    : Math.max(0, roundCredits(quotaLimit - usedAmount, 6));
+  return {
+    id: String(record.id ?? "").trim(),
+    token,
+    tokenPreview: maskApiSubtokenToken(token),
+    parentUserId: String(record.parentUserId ?? record.parent_user_id ?? "").trim(),
+    name: String(record.name ?? "").trim(),
+    quotaType,
+    quotaLimit,
+    usedAmount,
+    usedCount,
+    quotaUsed: quotaType === "count" ? usedCount : usedAmount,
+    remaining,
+    expiresAt,
+    revokedAt,
+    lastUsedAt,
+    createdAt,
+    updatedAt,
+    status,
+    active: !revokedAt && !expired,
+  };
+}
+
+function normalizeApiSubtokenUsageRecord(record = {}) {
+  return {
+    id: Number(record.id ?? 0),
+    tokenId: String(record.tokenId ?? record.token_id ?? "").trim(),
+    eventKey: String(record.eventKey ?? record.event_key ?? "").trim(),
+    parentUserId: String(record.parentUserId ?? record.parent_user_id ?? "").trim(),
+    deltaAmount: roundCredits(record.deltaAmount ?? record.delta_amount ?? 0),
+    deltaCount: Math.trunc(Number(record.deltaCount ?? record.delta_count ?? 0) || 0),
+    meta: record.meta && typeof record.meta === "object" ? record.meta : {},
+    createdAt: toIsoString(record.createdAt ?? record.created_at ?? ""),
+    updatedAt: toIsoString(record.updatedAt ?? record.updated_at ?? ""),
+  };
+}
+
 async function writeJsonFile(filePath, payload) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`);
@@ -341,6 +757,14 @@ module.exports = {
   dbEnabled,
   ensureSchema,
   query,
+  normalizeApiSubtokenRecord,
+  listApiSubtokensFromDb,
+  getApiSubtokenFromDbByToken,
+  getApiSubtokenFromDbById,
+  createApiSubtokenInDb,
+  updateApiSubtokenInDb,
+  revokeApiSubtokenInDb,
+  recordApiSubtokenUsageInDb,
   getKv,
   setKv,
   migrateFileDataToDb,

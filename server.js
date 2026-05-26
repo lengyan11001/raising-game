@@ -1,5 +1,6 @@
 const http = require("node:http");
 const crypto = require("node:crypto");
+const { AsyncLocalStorage } = require("node:async_hooks");
 const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -11,6 +12,13 @@ const {
   migrateGenerationRecordsKvToTable,
   getKv,
   setKv,
+  listApiSubtokensFromDb,
+  getApiSubtokenFromDbByToken,
+  getApiSubtokenFromDbById,
+  createApiSubtokenInDb,
+  updateApiSubtokenInDb,
+  revokeApiSubtokenInDb,
+  recordApiSubtokenUsageInDb,
   getGenerationRecordsFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
@@ -254,6 +262,7 @@ const ARK_OPENAPI = {
 };
 
 const demoTasks = new Map();
+const requestContext = new AsyncLocalStorage();
 
 const mimeTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -280,6 +289,7 @@ const DEFAULT_DB = {
   userCharacters: [],
   userUnlocks: [],
   adminHomeItems: [],
+  apiSubtokens: [],
 };
 
 const FULL_BODY_LEG_DIRECTIVE = [
@@ -774,6 +784,7 @@ async function readDb() {
     userCharacters: Array.isArray(db.userCharacters) ? db.userCharacters : [],
     userUnlocks: Array.isArray(db.userUnlocks) ? db.userUnlocks : [],
     adminHomeItems: Array.isArray(db.adminHomeItems) ? db.adminHomeItems : [],
+    apiSubtokens: Array.isArray(db.apiSubtokens) ? db.apiSubtokens : [],
   };
 }
 
@@ -1597,10 +1608,48 @@ function userView(user) {
   };
 }
 
+function apiSubtokenView(record = {}, { includeToken = false } = {}) {
+  const normalized = typeof record === "object" && record && record.id ? record : null;
+  if (!normalized) return null;
+  const quotaType = String(record.quotaType || "").trim().toLowerCase() === "count" ? "count" : "amount";
+  const quotaLimit = roundCredits(record.quotaLimit || 0, 6);
+  const usedAmount = roundCredits(record.usedAmount || 0, 6);
+  const usedCount = Math.max(0, Math.round(Number(record.usedCount || 0) || 0));
+  const remaining = quotaType === "count"
+    ? Math.max(0, roundCredits(quotaLimit - usedCount, 6))
+    : Math.max(0, roundCredits(quotaLimit - usedAmount, 6));
+  return {
+    id: String(record.id || ""),
+    token: includeToken ? String(record.token || "") : "",
+    tokenPreview: String(record.tokenPreview || ""),
+    parentUserId: String(record.parentUserId || ""),
+    name: String(record.name || ""),
+    quotaType,
+    quotaLimit,
+    usedAmount,
+    usedCount,
+    remaining,
+    expiresAt: String(record.expiresAt || ""),
+    revokedAt: String(record.revokedAt || ""),
+    lastUsedAt: String(record.lastUsedAt || ""),
+    createdAt: String(record.createdAt || ""),
+    updatedAt: String(record.updatedAt || ""),
+    status: String(record.status || ""),
+    active: record.active === true,
+  };
+}
+
 function creditsAmount(value, fallback = 0) {
   const next = Number(value);
   if (!Number.isFinite(next)) return Math.max(0, Math.round(Number(fallback || 0) * 10000) / 10000);
   return Math.max(0, Math.round(next * 10000) / 10000);
+}
+
+function roundCredits(value, digits = 6) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return 0;
+  const scale = 10 ** Math.max(0, Math.min(8, Math.floor(Number(digits) || 6)));
+  return Math.round(next * scale) / scale;
 }
 
 function normalizeUserPricingMultiplier(userOrValue = 1) {
@@ -1866,6 +1915,167 @@ function appendCreditLedger(db, user, delta, type, meta = {}) {
   return record;
 }
 
+function currentAuthContext() {
+  return requestContext.getStore()?.auth || null;
+}
+
+function tokenContextFromRecord(record = {}) {
+  if (!record?.apiTokenId) return null;
+  return {
+    id: String(record.apiTokenId || ""),
+    name: String(record.apiTokenName || ""),
+    quotaType: String(record.apiTokenType || "") === "count" ? "count" : "amount",
+    parentUserId: String(record.userId || ""),
+  };
+}
+
+function attachAuthContextToMeta(meta = {}, auth = currentAuthContext()) {
+  if (!auth?.tokenRecord?.id) return meta;
+  return {
+    ...meta,
+    apiTokenId: auth.tokenRecord.id,
+    apiTokenName: auth.tokenRecord.name || "",
+    apiTokenType: auth.tokenRecord.quotaType || "",
+    apiTokenSource: auth.tokenSource || "subtoken",
+  };
+}
+
+function subtokenCostAmount(cost = 0) {
+  return roundCredits(cost, 6);
+}
+
+function subtokenUsageEventKey(prefix = "spend", taskId = "", type = "") {
+  const base = String(taskId || "").trim() || randomId("usage");
+  return `${prefix}:${String(type || "credits").trim()}:${base}`;
+}
+
+function subtokenFailurePayload(cost = 0, remaining = 0, extra = {}) {
+  return {
+    ok: false,
+    code: "SUBTOKEN_QUOTA_EXCEEDED",
+    message: `Sub token quota is not enough. This request needs ${formatServerCredits(cost)}; remaining ${formatServerCredits(remaining)}.`,
+    cost: roundCredits(cost, 6),
+    remaining: roundCredits(remaining, 6),
+    ...extra,
+  };
+}
+
+function formatServerCredits(value) {
+  const next = roundCredits(value, 6);
+  return Number.isInteger(next) ? String(next) : next.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function assertSubtokenCanSpend(auth, cost = 0) {
+  const amount = subtokenCostAmount(cost);
+  if (!auth?.tokenRecord?.id || amount <= 0) return;
+  const token = auth.tokenRecord;
+  if (!token.active) {
+    const error = new Error(token.status === "expired" ? "Sub token expired." : "Sub token revoked.");
+    error.statusCode = 401;
+    error.code = token.status === "expired" ? "SUBTOKEN_EXPIRED" : "SUBTOKEN_REVOKED";
+    throw error;
+  }
+  if (token.quotaType === "amount" && amount - Number(token.remaining || 0) > 0.000001) {
+    const error = new Error("Sub token quota is not enough.");
+    error.statusCode = 402;
+    error.code = "SUBTOKEN_QUOTA_EXCEEDED";
+    error.payload = subtokenFailurePayload(amount, token.remaining, { quotaType: token.quotaType });
+    throw error;
+  }
+  if (token.quotaType === "count" && Number(token.remaining || 0) < 1) {
+    const error = new Error("Sub token count quota is not enough.");
+    error.statusCode = 402;
+    error.code = "SUBTOKEN_QUOTA_EXCEEDED";
+    error.payload = subtokenFailurePayload(1, token.remaining, { quotaType: token.quotaType });
+    throw error;
+  }
+}
+
+async function recordSubtokenSpend(auth, { taskId = "", type = "spend", amount = 0, meta = {} } = {}) {
+  if (!auth?.tokenRecord?.id) return null;
+  const token = auth.tokenRecord;
+  const cost = subtokenCostAmount(amount);
+  const deltaAmount = token.quotaType === "amount" ? cost : 0;
+  const deltaCount = token.quotaType === "count" ? 1 : 0;
+  if (deltaAmount <= 0 && deltaCount <= 0) return null;
+  const usage = await recordApiSubtokenUsageInDb({
+    tokenId: token.id,
+    parentUserId: auth.user?.id || token.parentUserId,
+    eventKey: subtokenUsageEventKey("charge", taskId || meta.taskId, type),
+    deltaAmount,
+    deltaCount,
+    meta: {
+      ...meta,
+      type,
+      taskId: taskId || meta.taskId || "",
+      amount: cost,
+    },
+  });
+  if (usage?.token) {
+    auth.tokenRecord = usage.token;
+    const store = requestContext.getStore();
+    if (store) store.auth = auth;
+  }
+  return usage;
+}
+
+async function recordSubtokenAdjustment(authOrRecord, { taskId = "", type = "adjust", amount = 0, meta = {} } = {}) {
+  const token = authOrRecord?.tokenRecord || (authOrRecord?.apiTokenId ? tokenContextFromRecord(authOrRecord) : authOrRecord);
+  if (!token?.id) return null;
+  const signedAmount = Number(amount || 0);
+  const adjustmentType = String(type || meta.adjustmentType || "").toLowerCase();
+  const adjustmentAmount = token.quotaType === "amount" ? subtokenCostAmount(signedAmount) : 0;
+  let adjustmentCount = 0;
+  if (token.quotaType === "count") {
+    if (adjustmentType.includes("refund") && signedAmount < 0) adjustmentCount = -1;
+    else if (adjustmentType.includes("refund") && signedAmount > 0) adjustmentCount = 1;
+    else adjustmentCount = 0;
+  }
+  if (adjustmentAmount === 0 && adjustmentCount === 0) return null;
+  return await recordApiSubtokenUsageInDb({
+    tokenId: token.id,
+    parentUserId: token.parentUserId,
+    eventKey: subtokenUsageEventKey("adjust", taskId || meta.taskId, type),
+    deltaAmount: adjustmentAmount,
+    deltaCount: adjustmentCount,
+    meta: {
+      ...meta,
+      type,
+      taskId: taskId || meta.taskId || "",
+      amount: signedAmount,
+    },
+  });
+}
+
+async function consumeSubtokenForRequest(auth, { taskId = "", cost = 0, type = "spend", meta = {} } = {}) {
+  const amount = subtokenCostAmount(cost);
+  if (!auth?.tokenRecord?.id || amount <= 0) return;
+  assertSubtokenCanSpend(auth, amount);
+  await recordSubtokenSpend(auth, { taskId, type, amount, meta });
+}
+
+async function chargeUserWithSubtoken(auth, { cost = 0, type = "spend", taskId = "", meta = {} } = {}) {
+  const amount = creditsAmount(cost);
+  if (amount <= 0) return null;
+  changeUserCredits(auth.db, auth.user.id, -amount, type, meta);
+  try {
+    await consumeSubtokenForRequest(auth, {
+      taskId,
+      cost: amount,
+      type,
+      meta,
+    });
+  } catch (error) {
+    changeUserCredits(auth.db, auth.user.id, amount, `${type}_subtoken_refund`, {
+      ...meta,
+      taskId,
+      reason: error.message || "Sub token charge failed.",
+    });
+    throw error;
+  }
+  return auth.user;
+}
+
 function changeUserCredits(db, userId, delta, type, meta = {}) {
   const user = (db.users || []).find((entry) => entry.id === userId);
   if (!user) {
@@ -1890,7 +2100,7 @@ function changeUserCredits(db, userId, delta, type, meta = {}) {
   }
   user.credits = creditsAmount(rawNext);
   user.updatedAt = new Date().toISOString();
-  appendCreditLedger(db, user, amount, type, meta);
+  appendCreditLedger(db, user, amount, type, attachAuthContextToMeta(meta));
   return user;
 }
 
@@ -1936,6 +2146,28 @@ function makeUniqueApiToken(db) {
   return makeApiToken();
 }
 
+function makeSubtokenValue() {
+  return `sk-${crypto.randomBytes(40).toString("hex")}`;
+}
+
+async function makeUniqueSubtokenToken(db, parentUserId = "") {
+  const existing = new Set([
+    ...(db?.users || []).map((user) => String(user.apiToken || "")).filter(Boolean),
+  ]);
+  const subtokens = Array.isArray(db?.apiSubtokens) ? db.apiSubtokens : [];
+  for (const record of subtokens) {
+    const token = String(record?.token || "").trim();
+    if (token) existing.add(token);
+  }
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const token = makeSubtokenValue();
+    if (existing.has(token)) continue;
+    const dbMatch = await getApiSubtokenFromDbByToken(token);
+    if (!dbMatch) return token;
+  }
+  return makeSubtokenValue();
+}
+
 function ensureUserApiToken(user, db = null) {
   if (!user) return "";
   if (!user.apiToken) {
@@ -1958,6 +2190,26 @@ async function ensureAllUsersApiTokens() {
   return changed;
 }
 
+function authUserContext(user = null, token = "", tokenSource = "", tokenRecord = null) {
+  return {
+    token: String(token || ""),
+    tokenSource: String(tokenSource || ""),
+    tokenRecord: tokenRecord || null,
+    tokenId: String(tokenRecord?.id || ""),
+    tokenName: String(tokenRecord?.name || ""),
+    tokenType: String(tokenRecord?.quotaType || ""),
+    tokenPreview: String(tokenRecord?.tokenPreview || ""),
+    isSubtoken: tokenSource === "subtoken",
+    isApiToken: tokenSource === "api_token",
+    isSession: tokenSource === "session",
+    user,
+  };
+}
+
+function currentIso() {
+  return new Date().toISOString();
+}
+
 function getBearerToken(req) {
   const auth = req.headers.authorization || "";
   const match = auth.match(/^Bearer\s+(.+)$/i);
@@ -1976,21 +2228,59 @@ function withJsonBody(req, body = {}) {
 
 async function getAuth(req) {
   const token = getBearerToken(req);
-  if (!token) return { db: await readDb(), user: null, session: null };
+  if (!token) return { db: await readDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
   const db = await readDb();
   const session = db.sessions.find((item) => item.token === token);
   if (session) {
     const user = db.users.find((item) => item.id === session.userId) || null;
-    return { db, user, session };
+    const auth = { db, user, session, ...authUserContext(user, token, "session", null) };
+    const store = requestContext.getStore();
+    if (store) store.auth = auth;
+    return auth;
   }
   const user = db.users.find((item) => item.apiToken === token) || null;
-  return { db, user, session: null };
+  if (user) {
+    const auth = { db, user, session: null, ...authUserContext(user, token, "api_token", null) };
+    const store = requestContext.getStore();
+    if (store) store.auth = auth;
+    return auth;
+  }
+  const subtoken = await getApiSubtokenFromDbByToken(token);
+  if (subtoken) {
+    const parent = db.users.find((item) => item.id === subtoken.parentUserId) || null;
+    if (parent) {
+      const auth = {
+        db,
+        user: parent,
+        session: null,
+        ...authUserContext(parent, token, "subtoken", subtoken),
+      };
+      const store = requestContext.getStore();
+      if (store) store.auth = auth;
+      return auth;
+    }
+  }
+  return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null };
 }
 
 async function requireUser(req, res) {
   const auth = await getAuth(req);
   if (!auth.user) {
     sendJson(res, 401, { ok: false, code: "LOGIN_REQUIRED", message: "Please sign in to continue." });
+    return null;
+  }
+  return auth;
+}
+
+async function requirePrimaryTokenOwner(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return null;
+  if (auth.tokenSource === "subtoken") {
+    sendJson(res, 403, {
+      ok: false,
+      code: "SUBTOKEN_MANAGEMENT_FORBIDDEN",
+      message: "Please use the parent account token or session to manage sub tokens.",
+    });
     return null;
   }
   return auth;
@@ -5108,6 +5398,9 @@ function publicGenerationRecord(record = {}) {
     createdAt: String(record.createdAt || ""),
     updatedAt: String(record.updatedAt || ""),
     awaitingUpstreamTask: record.awaitingUpstreamTask === true,
+    apiTokenId: String(record.apiTokenId || ""),
+    apiTokenName: String(record.apiTokenName || ""),
+    apiTokenType: String(record.apiTokenType || ""),
   };
 }
 
@@ -6033,6 +6326,12 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
         originalFinalCredits,
         pricingMultiplier,
       });
+      await recordSubtokenAdjustment(record, {
+        taskId: record.taskId,
+        type: "generation_refund",
+        amount: -delta,
+        meta: { reason, preDeducted, finalCredits, originalFinalCredits, pricingMultiplier },
+      });
       await writeDb(db);
     } else if (delta < 0) {
       changeUserCredits(db, record.userId, delta, "generation_settle", {
@@ -6043,10 +6342,16 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
         originalFinalCredits,
         pricingMultiplier,
       });
+      await recordSubtokenAdjustment(record, {
+        taskId: record.taskId,
+        type: "generation_settle",
+        amount: Math.abs(delta),
+        meta: { reason, preDeducted, finalCredits, originalFinalCredits, pricingMultiplier },
+      });
       await writeDb(db);
     }
   } catch (error) {
-    if (error.code === "INSUFFICIENT_CREDITS") {
+    if (error.code === "INSUFFICIENT_CREDITS" || error.code === "SUBTOKEN_QUOTA_EXCEEDED") {
       billingStatus = "settle_pending_insufficient";
       return upsertGenerationRecord({
         taskId: record.taskId,
@@ -6054,7 +6359,7 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
         originalFinalCredits,
         userPricingMultiplier: pricingMultiplier,
         billingStatus,
-        billingError: error.message || "Not enough credits for final settlement.",
+        billingError: error.message || "Not enough credits or sub token quota for final settlement.",
       });
     }
     throw error;
@@ -6195,6 +6500,18 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           markup: usage.markup,
           completionTokens: usage.completionTokens,
         });
+        await recordSubtokenAdjustment(record, {
+          taskId: record.taskId,
+          type: "generation_refund",
+          amount: -delta,
+          meta: {
+            provider: record.provider || "seedance",
+            reason,
+            preDeducted,
+            finalCredits,
+            originalFinalCredits: usage.originalCredits,
+          },
+        });
         await writeDb(db);
       } else if (delta < 0) {
         changeUserCredits(db, record.userId, delta, "generation_settle", {
@@ -6209,10 +6526,22 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           markup: usage.markup,
           completionTokens: usage.completionTokens,
         });
+        await recordSubtokenAdjustment(record, {
+          taskId: record.taskId,
+          type: "generation_settle",
+          amount: Math.abs(delta),
+          meta: {
+            provider: record.provider || "seedance",
+            reason,
+            preDeducted,
+            finalCredits,
+            originalFinalCredits: usage.originalCredits,
+          },
+        });
         await writeDb(db);
       }
     } catch (error) {
-      if (error.code === "INSUFFICIENT_CREDITS") {
+      if (error.code === "INSUFFICIENT_CREDITS" || error.code === "SUBTOKEN_QUOTA_EXCEEDED") {
         billingStatus = "settle_pending_insufficient";
         return upsertGenerationRecord({
           taskId: record.taskId,
@@ -6220,7 +6549,7 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           originalFinalCredits: usage.originalCredits,
           userPricingMultiplier: usage.pricingMultiplier,
           billingStatus,
-          billingError: error.message || "Not enough credits for final settlement.",
+          billingError: error.message || "Not enough credits or sub token quota for final settlement.",
           usageCompletionTokens: usage.completionTokens,
           usageBaseCredits: usage.baseCredits,
         });
@@ -6258,6 +6587,12 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
         finalCredits: 0,
         originalFinalCredits: 0,
         pricingMultiplier: normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? 1),
+      });
+      await recordSubtokenAdjustment(record, {
+        taskId: record.taskId,
+        type: "generation_refund",
+        amount: -preDeducted,
+        meta: { provider: record.provider || "seedance", reason, preDeducted },
       });
       await writeDb(db);
     }
@@ -6643,6 +6978,11 @@ async function handlePlatformGenerate(req, res) {
   if (auth.user.credits < preDeductedCredits) {
     return sendJson(res, 402, insufficientCreditsPayload(preDeductedCredits, auth.user.credits));
   }
+  try {
+    assertSubtokenCanSpend(auth, preDeductedCredits);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
 
   const taskId = localGenerationTaskId("cgt");
 
@@ -6682,17 +7022,26 @@ async function handlePlatformGenerate(req, res) {
     remoteVideoUrl: "",
     localVideoUrl: "",
     error: "",
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
   });
 
   if (preDeductedCredits > 0) {
-    changeUserCredits(auth.db, auth.user.id, -preDeductedCredits, "generation_pre_deduct", {
-      source: "platform-template",
-      templateId: template.id,
-      templateTitle: template.title,
-      pricingSource: pricingEstimate.source,
-      originalCost: pricingEstimate.originalCredits,
-      pricingMultiplier: pricingEstimate.userPricingMultiplier,
+    await chargeUserWithSubtoken(auth, {
+      cost: preDeductedCredits,
+      type: "generation_pre_deduct",
       taskId,
+      meta: {
+        source: "platform-template",
+        templateId: template.id,
+        templateTitle: template.title,
+        pricingSource: pricingEstimate.source,
+        originalCost: pricingEstimate.originalCredits,
+        pricingMultiplier: pricingEstimate.userPricingMultiplier,
+        taskId,
+      },
     });
     await writeDb(auth.db);
   }
@@ -7259,32 +7608,37 @@ async function handleAdvancedGenerate(req, res) {
   const initialMediaMode = provider === "wan27" ? wan27MediaMode : (extraUserAssetIds.length ? "multi_reference" : "");
 
   if (cost > 0) {
-    changeUserCredits(auth.db, auth.user.id, -cost, "advanced_generation", {
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "advanced_generation",
       taskId,
-      provider: runtime.providerName,
-      model: runtime.model,
-      caseId: selectedCase?.id || "",
-      caseTitle: selectedCase?.title || "",
-      duration: requestParams.duration,
-      creditsPerSecond: pricing.creditsPerSecond,
-      baseCredits: pricing.baseCredits,
-      originalCost: pricing.originalCredits,
-      pricingMultiplier: pricing.userPricingMultiplier,
-      markup: pricing.markup,
-      resolution: pricing.resolution || requestParams.resolution,
-      ratio: pricing.ratio || requestParams.ratio,
-      outputTokens: pricing.outputTokens || null,
-      yuanPerMillionTokens: pricing.yuanPerMillionTokens || null,
-      pricingSource: pricing.source || "duration_rate",
-      preprocessReference: requestParams.preprocessReference,
-      userAssetId: userAsset?.id || "",
-      referenceVideoAssetId: seedanceVideoAsset?.id || "",
-      extraUserAssetIds,
-      mediaMode: provider === "seedance" && seedanceVideoAsset ? "reference_video" : initialMediaMode,
-      mediaAssets: provider === "wan27"
-        ? wan27Media.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", mediaKind: item.mediaKind || "" }))
-        : initialSeedanceMediaAssets.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "" })),
-      referenceAssetUri: "",
+      meta: {
+        taskId,
+        provider: runtime.providerName,
+        model: runtime.model,
+        caseId: selectedCase?.id || "",
+        caseTitle: selectedCase?.title || "",
+        duration: requestParams.duration,
+        creditsPerSecond: pricing.creditsPerSecond,
+        baseCredits: pricing.baseCredits,
+        originalCost: pricing.originalCredits,
+        pricingMultiplier: pricing.userPricingMultiplier,
+        markup: pricing.markup,
+        resolution: pricing.resolution || requestParams.resolution,
+        ratio: pricing.ratio || requestParams.ratio,
+        outputTokens: pricing.outputTokens || null,
+        yuanPerMillionTokens: pricing.yuanPerMillionTokens || null,
+        pricingSource: pricing.source || "duration_rate",
+        preprocessReference: requestParams.preprocessReference,
+        userAssetId: userAsset?.id || "",
+        referenceVideoAssetId: seedanceVideoAsset?.id || "",
+        extraUserAssetIds,
+        mediaMode: provider === "seedance" && seedanceVideoAsset ? "reference_video" : initialMediaMode,
+        mediaAssets: provider === "wan27"
+          ? wan27Media.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", mediaKind: item.mediaKind || "" }))
+          : initialSeedanceMediaAssets.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "" })),
+        referenceAssetUri: "",
+      },
     });
     await writeDb(auth.db);
   }
@@ -7328,6 +7682,10 @@ async function handleAdvancedGenerate(req, res) {
     pricingEstimate: pricing,
     createResponse: null,
     awaitingUpstreamTask: true,
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
   });
   startAdvancedGenerationJob({
     taskId,
@@ -8283,7 +8641,106 @@ async function handleMe(req, res) {
     ensureUserApiToken(auth.user, auth.db);
     await writeDb(auth.db);
   }
-  return sendJson(res, 200, { ok: true, user: userView(auth.user) });
+  const user = userView(auth.user);
+  if (user && auth.tokenSource) {
+    user.accessTokenSource = auth.tokenSource;
+    user.accessTokenId = auth.tokenRecord?.id || "";
+    user.accessTokenName = auth.tokenRecord?.name || "";
+    user.accessTokenType = auth.tokenRecord?.quotaType || "";
+    user.accessTokenPreview = auth.tokenRecord?.tokenPreview || "";
+  }
+  return sendJson(res, 200, { ok: true, user });
+}
+
+async function handleListApiSubtokens(req, res) {
+  const auth = await requirePrimaryTokenOwner(req, res);
+  if (!auth) return;
+  const subtokens = await listApiSubtokensFromDb(auth.user.id);
+  return sendJson(res, 200, {
+    ok: true,
+    subtokens: subtokens.map(apiSubtokenView).filter(Boolean),
+  });
+}
+
+async function handleCreateApiSubtoken(req, res) {
+  const auth = await requirePrimaryTokenOwner(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const name = String(body.name || "").trim().slice(0, 80);
+  if (!name) return sendJson(res, 400, { ok: false, message: "Sub token name is required." });
+  const quotaType = String(body.quotaType || body.quota_type || "amount").trim().toLowerCase() === "count" ? "count" : "amount";
+  const quotaLimitRaw = Number(body.quotaLimit ?? body.quota_limit ?? body.limit ?? 0);
+  if (!Number.isFinite(quotaLimitRaw) || quotaLimitRaw <= 0) {
+    return sendJson(res, 400, { ok: false, message: "Quota must be greater than 0." });
+  }
+  const expiresAtRaw = String(body.expiresAt || body.expires_at || "").trim();
+  let expiresAt = "";
+  if (expiresAtRaw) {
+    const parsed = Date.parse(expiresAtRaw);
+    if (!Number.isFinite(parsed)) {
+      return sendJson(res, 400, { ok: false, message: "Invalid expiration time." });
+    }
+    expiresAt = new Date(parsed).toISOString();
+  }
+  const token = await makeUniqueSubtokenToken(auth.db, auth.user.id);
+  const now = currentIso();
+  const record = await createApiSubtokenInDb({
+    id: randomId("sat"),
+    token,
+    parentUserId: auth.user.id,
+    name,
+    quotaType,
+    quotaLimit: quotaType === "count" ? Math.max(1, Math.round(quotaLimitRaw)) : roundCredits(quotaLimitRaw, 6),
+    usedAmount: 0,
+    usedCount: 0,
+    expiresAt,
+    revokedAt: "",
+    lastUsedAt: "",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return sendJson(res, 200, {
+    ok: true,
+    subtoken: apiSubtokenView(record, { includeToken: true }),
+  });
+}
+
+async function handleUpdateApiSubtoken(req, res, tokenId) {
+  const auth = await requirePrimaryTokenOwner(req, res);
+  if (!auth) return;
+  const current = await getApiSubtokenFromDbById(tokenId, auth.user.id);
+  if (!current) return sendJson(res, 404, { ok: false, message: "Sub token not found." });
+  const body = await readJson(req);
+  const next = {};
+  if (typeof body.name === "string") next.name = body.name.trim().slice(0, 80);
+  if (Object.prototype.hasOwnProperty.call(body, "quotaLimit") || Object.prototype.hasOwnProperty.call(body, "quota_limit")) {
+    const raw = Number(body.quotaLimit ?? body.quota_limit);
+    if (!Number.isFinite(raw) || raw <= 0) {
+      return sendJson(res, 400, { ok: false, message: "Quota must be greater than 0." });
+    }
+    next.quotaLimit = current.quotaType === "count" ? Math.max(1, Math.round(raw)) : roundCredits(raw, 6);
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "expiresAt") || Object.prototype.hasOwnProperty.call(body, "expires_at")) {
+    const expiresAtRaw = String(body.expiresAt ?? body.expires_at ?? "").trim();
+    if (!expiresAtRaw) {
+      next.expiresAt = "";
+    } else {
+      const parsed = Date.parse(expiresAtRaw);
+      if (!Number.isFinite(parsed)) return sendJson(res, 400, { ok: false, message: "Invalid expiration time." });
+      next.expiresAt = new Date(parsed).toISOString();
+    }
+  }
+  const updated = await updateApiSubtokenInDb(tokenId, auth.user.id, next);
+  return sendJson(res, 200, { ok: true, subtoken: apiSubtokenView(updated) });
+}
+
+async function handleRevokeApiSubtoken(req, res, tokenId) {
+  const auth = await requirePrimaryTokenOwner(req, res);
+  if (!auth) return;
+  const current = await getApiSubtokenFromDbById(tokenId, auth.user.id);
+  if (!current) return sendJson(res, 404, { ok: false, message: "Sub token not found." });
+  const revoked = await revokeApiSubtokenInDb(tokenId, auth.user.id, currentIso());
+  return sendJson(res, 200, { ok: true, subtoken: apiSubtokenView(revoked) });
 }
 
 async function handleCreatePaymentOrder(req, res) {
@@ -8827,8 +9284,16 @@ async function handleSpendCredits(req, res) {
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
-  changeUserCredits(auth.db, auth.user.id, -cost, "spend", {
-    label: String(body.label || ""),
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+  await chargeUserWithSubtoken(auth, {
+    cost,
+    type: "spend",
+    taskId: randomId("spend"),
+    meta: { label: String(body.label || "") },
   });
   await writeDb(auth.db);
   return sendJson(res, 200, { ok: true, user: userView(auth.user), cost, label: String(body.label || "") });
@@ -8878,11 +9343,16 @@ async function handleUnlockVideo(req, res) {
     if (auth.user.credits < cost) {
       return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
     }
-    changeUserCredits(auth.db, auth.user.id, -cost, "unlock_video", {
-      itemId: item.id,
-      sceneId: video.sceneId,
-      sceneEntryId: unlockSceneEntryId,
-      videoKey: match.key,
+    try {
+      assertSubtokenCanSpend(auth, cost);
+    } catch (error) {
+      return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+    }
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "unlock_video",
+      taskId: `${item.id}:${video.sceneId}:${unlockSceneEntryId}`,
+      meta: { itemId: item.id, sceneId: video.sceneId, sceneEntryId: unlockSceneEntryId, videoKey: match.key },
     });
     unlock = {
       id: randomId("unlock"),
@@ -9144,6 +9614,11 @@ async function handleModifyUserAssetImage(req, res, assetId) {
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
 
   const taskId = localGenerationTaskId("img");
   const model = pricingConfig.model || WAN27_IMAGE_PRO_MODEL;
@@ -9185,21 +9660,30 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     remoteImageUrl: "",
     localImageUrl: "",
     error: "",
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
   };
   await updateAssetImageModifyRecord(taskId, initialRecord, "asset-image-modify-create");
   if (cost > 0) {
-    changeUserCredits(auth.db, auth.user.id, -cost, "asset_image_modify", {
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "asset_image_modify",
       taskId,
-      assetId,
-      model,
-      ratio,
-      resolution,
-      baseCredits: pricing.baseCredits,
-      originalCost: pricing.originalCredits,
-      pricingMultiplier: pricing.userPricingMultiplier,
-      purchaseCnyPerImage: pricing.purchaseCnyPerImage,
-      saleCnyPerImage: pricing.saleCnyPerImage,
-      pricingSource: pricing.source,
+      meta: {
+        taskId,
+        assetId,
+        model,
+        ratio,
+        resolution,
+        baseCredits: pricing.baseCredits,
+        originalCost: pricing.originalCredits,
+        pricingMultiplier: pricing.userPricingMultiplier,
+        purchaseCnyPerImage: pricing.purchaseCnyPerImage,
+        saleCnyPerImage: pricing.saleCnyPerImage,
+        pricingSource: pricing.source,
+      },
     });
     await writeDb(auth.db);
   }
@@ -9297,6 +9781,12 @@ async function handleModifyUserAssetImage(req, res, assetId) {
           taskId,
           assetId,
           error: error.message || "Wan2.7 image modify failed.",
+        });
+        await recordSubtokenAdjustment(auth, {
+          taskId,
+          type: "asset_image_modify_refund",
+          amount: -cost,
+          meta: { assetId, error: error.message || "Wan2.7 image modify failed." },
         });
         await writeDb(db);
       } catch (refundError) {
@@ -9526,10 +10016,11 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     slug: `user-character-${prepared.id}`,
   });
 
-  changeUserCredits(auth.db, auth.user.id, -cost, "user_character_main_video", {
+  await chargeUserWithSubtoken(auth, {
+    cost,
+    type: "user_character_main_video",
     taskId: task.taskId,
-    characterId: prepared.id,
-    duration: payload.duration,
+    meta: { characterId: prepared.id, duration: payload.duration },
   });
   await writeDb(auth.db);
 
@@ -9573,6 +10064,10 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
     createResponse: task,
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
   }, "create");
 
   return { task, payload };
@@ -9652,6 +10147,11 @@ async function handleCreateMyCharacter(req, res) {
   const cost = clampNumber(body.cost, Number(config.prices.customCharacter || 30), 0, 9999);
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
   }
 
   const characterId = randomId("mychar");
@@ -9747,6 +10247,11 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
   const cost = clampNumber(body.cost, Number(config.prices.customCharacter || 30), 0, 9999);
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
   }
 
   if (st === "reference_failed") {
@@ -9897,6 +10402,11 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
 
   const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
   const prompt = makeSceneVideoPrompt(sceneConfig, userPrompt);
@@ -9916,12 +10426,11 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     throw error;
   }
 
-  changeUserCredits(auth.db, auth.user.id, -cost, "user_character_scene_video", {
+  await chargeUserWithSubtoken(auth, {
+    cost,
+    type: "user_character_scene_video",
     taskId: task.taskId,
-    characterId,
-    sceneId: sceneConfig.id,
-    sceneEntryId: sceneEntry.id,
-    duration: payload.duration,
+    meta: { characterId, sceneId: sceneConfig.id, sceneEntryId: sceneEntry.id, duration: payload.duration },
   });
 
   const nowIso = new Date().toISOString();
@@ -9987,6 +10496,10 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
     createResponse: task,
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
   }, "create");
 
   return sendJson(res, 200, {
@@ -11866,10 +12379,11 @@ async function handleCreateSceneVideo(req, res) {
     });
   }
 
-  changeUserCredits(auth.db, auth.user.id, -cost, "user_scene_video", {
-    sceneId: body.sceneId || "",
-    sceneEntryId: sceneEntry.id,
-    companionId: resolvedCompanionId || body.companionId || "",
+  await chargeUserWithSubtoken(auth, {
+    cost,
+    type: "user_scene_video",
+    taskId: randomId("scene"),
+    meta: { sceneId: body.sceneId || "", sceneEntryId: sceneEntry.id, companionId: resolvedCompanionId || body.companionId || "" },
   });
   await writeDb(auth.db);
 
@@ -11882,6 +12396,12 @@ async function handleCreateSceneVideo(req, res) {
       sceneId: body.sceneId || "",
       sceneEntryId: sceneEntry.id,
       reason: error.message || "submit failed",
+    });
+    await recordSubtokenAdjustment(auth, {
+      taskId: randomId("scene-refund"),
+      type: "user_scene_video_submit_refund",
+      amount: -cost,
+      meta: { sceneId: body.sceneId || "", sceneEntryId: sceneEntry.id, reason: error.message || "submit failed" },
     });
     await writeDb(auth.db);
     throw error;
@@ -11921,6 +12441,10 @@ async function handleCreateSceneVideo(req, res) {
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
     createResponse: task,
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
   }, "create");
 
   return sendJson(res, 200, {
@@ -12106,6 +12630,22 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/auth/me") {
       return await handleMe(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/access/subtokens") {
+      return await handleListApiSubtokens(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/access/subtokens") {
+      return await handleCreateApiSubtoken(req, res);
+    }
+
+    const accessSubtokenMatch = url.pathname.match(/^\/api\/access\/subtokens\/([^/]+)$/);
+    if (req.method === "PATCH" && accessSubtokenMatch) {
+      return await handleUpdateApiSubtoken(req, res, decodeURIComponent(accessSubtokenMatch[1]));
+    }
+    if (req.method === "DELETE" && accessSubtokenMatch) {
+      return await handleRevokeApiSubtoken(req, res, decodeURIComponent(accessSubtokenMatch[1]));
     }
 
     if (req.method === "GET" && url.pathname === "/api/pay/paypal/config") {
