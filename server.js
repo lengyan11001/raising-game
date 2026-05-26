@@ -139,6 +139,10 @@ const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
+const WAN27_IMAGE_PRO_MODEL = process.env.ALIYUN_WAN27_IMAGE_PRO_MODEL || "wan2.7-image-pro";
+const WAN27_IMAGE_PRO_PURCHASE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_PURCHASE_CNY, 0.562065, 0, 6);
+const WAN27_IMAGE_PRO_MARKUP = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_MARKUP, 1.5, 1);
+const WAN27_IMAGE_PRO_SALE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_SALE_CNY, WAN27_IMAGE_PRO_PURCHASE_CNY * WAN27_IMAGE_PRO_MARKUP, 0, 6);
 const DEFAULT_ADVANCED_PRICING = {
   unit: "credits",
   creditsPerCny: ADVANCED_CREDITS_PER_CNY,
@@ -149,6 +153,15 @@ const DEFAULT_ADVANCED_PRICING = {
   wan27CreditsPerSecondByResolution: {
     "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
+  },
+  wan27ImagePro: {
+    model: WAN27_IMAGE_PRO_MODEL,
+    purchaseCnyPerImage: WAN27_IMAGE_PRO_PURCHASE_CNY,
+    saleCnyPerImage: WAN27_IMAGE_PRO_SALE_CNY,
+    resolutions: ["1K", "2K"],
+    ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"],
+    defaultResolution: "2K",
+    defaultRatio: "9:16",
   },
 };
 const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_MARKUP, 1.5, 1, 100);
@@ -832,10 +845,11 @@ function tenantScopedAccessCopy(copy = "", origin = "") {
     });
 }
 
-function pricingNumber(value, fallback = 0, min = 0) {
+function pricingNumber(value, fallback = 0, min = 0, digits = 4) {
+  const scale = 10 ** Math.max(0, Math.min(8, Math.floor(Number(digits) || 4)));
   const next = Number(value);
-  if (!Number.isFinite(next) || next < min) return Math.max(min, Math.round(Number(fallback || 0) * 10000) / 10000);
-  return Math.round(next * 10000) / 10000;
+  if (!Number.isFinite(next) || next < min) return Math.max(min, Math.round(Number(fallback || 0) * scale) / scale);
+  return Math.round(next * scale) / scale;
 }
 
 function normalizeAdvancedPricing(pricing = {}) {
@@ -846,6 +860,17 @@ function normalizeAdvancedPricing(pricing = {}) {
   const wan27 = source.wan27CreditsPerSecondByResolution && typeof source.wan27CreditsPerSecondByResolution === "object"
     ? source.wan27CreditsPerSecondByResolution
     : {};
+  const rawWan27ImageSource = source.wan27ImagePro && typeof source.wan27ImagePro === "object" && !Array.isArray(source.wan27ImagePro)
+    ? source.wan27ImagePro
+    : {};
+  const wan27ImageSource = { ...rawWan27ImageSource };
+  if (Number(wan27ImageSource.saleCnyPerImage) === 0.8432 && !rawWan27ImageSource.userConfigured) {
+    wan27ImageSource.saleCnyPerImage = WAN27_IMAGE_PRO_SALE_CNY;
+  }
+  if (Number(wan27ImageSource.purchaseCnyPerImage) === 0.5621 && !rawWan27ImageSource.userConfigured) {
+    wan27ImageSource.purchaseCnyPerImage = WAN27_IMAGE_PRO_PURCHASE_CNY;
+  }
+  const wan27ImageDefault = DEFAULT_ADVANCED_PRICING.wan27ImagePro || {};
   return {
     unit: "credits",
     creditsPerCny: pricingNumber(source.creditsPerCny, DEFAULT_ADVANCED_PRICING.creditsPerCny, 0.0001),
@@ -856,6 +881,17 @@ function normalizeAdvancedPricing(pricing = {}) {
     wan27CreditsPerSecondByResolution: {
       "720p": pricingNumber(wan27["720p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"]),
       "1080p": pricingNumber(wan27["1080p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["1080p"]),
+    },
+    wan27ImagePro: {
+      ...wan27ImageDefault,
+      ...wan27ImageSource,
+      model: String(wan27ImageSource.model || wan27ImageDefault.model || WAN27_IMAGE_PRO_MODEL),
+      purchaseCnyPerImage: pricingNumber(wan27ImageSource.purchaseCnyPerImage, wan27ImageDefault.purchaseCnyPerImage ?? WAN27_IMAGE_PRO_PURCHASE_CNY, 0, 6),
+      saleCnyPerImage: pricingNumber(wan27ImageSource.saleCnyPerImage, wan27ImageDefault.saleCnyPerImage ?? WAN27_IMAGE_PRO_SALE_CNY, 0, 6),
+      resolutions: Array.isArray(wan27ImageSource.resolutions) && wan27ImageSource.resolutions.length ? wan27ImageSource.resolutions : wan27ImageDefault.resolutions,
+      ratios: Array.isArray(wan27ImageSource.ratios) && wan27ImageSource.ratios.length ? wan27ImageSource.ratios : wan27ImageDefault.ratios,
+      defaultResolution: String(wan27ImageSource.defaultResolution || wan27ImageDefault.defaultResolution || "2K"),
+      defaultRatio: String(wan27ImageSource.defaultRatio || wan27ImageDefault.defaultRatio || "9:16"),
     },
   };
 }
@@ -880,6 +916,7 @@ function publicConfig(config, origin = "") {
     };
   }
   publicPlatform.advancedPricing = normalizeAdvancedPricing(publicPlatform.advancedPricing);
+  const assetImageModifyPricing = publicPlatform.advancedPricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
   return {
     defaultCompanionId: config.defaultCompanionId,
     prices: config.prices,
@@ -887,6 +924,15 @@ function publicConfig(config, origin = "") {
       tenantPublic,
       assetLibrary: !tenantPublic,
       accountMenu: true,
+    },
+    assetImageModify: {
+      model: assetImageModifyPricing.model || WAN27_IMAGE_PRO_MODEL,
+      costCredits: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) * Number(publicPlatform.advancedPricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6),
+      saleCnyPerImage: assetImageModifyPricing.saleCnyPerImage,
+      resolutions: assetImageModifyPricing.resolutions || ["1K", "2K"],
+      ratios: assetImageModifyPricing.ratios || ["1:1", "3:4", "4:3", "9:16", "16:9"],
+      defaultResolution: assetImageModifyPricing.defaultResolution || "2K",
+      defaultRatio: assetImageModifyPricing.defaultRatio || "9:16",
     },
     wallet: {
       asset: publicWalletDefault.asset || config.wallet.asset,
@@ -1618,6 +1664,18 @@ function fixedCreditsBreakdown(credits, source = "") {
   };
 }
 
+function fixedCnyPricingEstimate(cny, source = "", details = {}, creditsPerCny = ADVANCED_CREDITS_PER_CNY) {
+  const baseCredits = creditsAmount(Number(cny || 0) * Number(creditsPerCny || ADVANCED_CREDITS_PER_CNY));
+  return {
+    ...fixedCreditsBreakdown(baseCredits, source ? `${source}_sale_price` : "fixed_sale_price"),
+    baseCredits,
+    originalCredits: baseCredits,
+    userPricingMultiplier: 1,
+    pricingMultiplier: 1,
+    ...details,
+  };
+}
+
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
@@ -1637,6 +1695,38 @@ function normalizeVideoRatio(value = "") {
     return `${width}:${height}`;
   }
   return "16:9";
+}
+
+function normalizeWan27ImageRatio(value = "") {
+  const ratio = normalizeVideoRatio(value);
+  return new Set(["1:1", "3:4", "4:3", "9:16", "16:9"]).has(ratio) ? ratio : "9:16";
+}
+
+function normalizeWan27ImageResolution(value = "") {
+  const normalized = String(value || "").trim().toUpperCase();
+  return normalized === "1K" ? "1K" : "2K";
+}
+
+function wan27ImageSize(resolution = "2K", ratio = "9:16") {
+  const tier = normalizeWan27ImageResolution(resolution);
+  const normalizedRatio = normalizeWan27ImageRatio(ratio);
+  const sizes = {
+    "1K": {
+      "1:1": "1024*1024",
+      "3:4": "768*1024",
+      "4:3": "1024*768",
+      "9:16": "720*1280",
+      "16:9": "1280*720",
+    },
+    "2K": {
+      "1:1": "2048*2048",
+      "3:4": "1536*2048",
+      "4:3": "2048*1536",
+      "9:16": "1440*2560",
+      "16:9": "2560*1440",
+    },
+  };
+  return sizes[tier]?.[normalizedRatio] || tier;
 }
 
 function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
@@ -3458,6 +3548,64 @@ async function submitWan27VideoTask({ prompt, imageUrl = "", media = [], body = 
     asyncTask: true,
   });
   return { task: normalizeWan27Task(raw), payload, raw };
+}
+
+function normalizeWan27ImageTask(raw = {}) {
+  const output = raw.output || raw.data?.output || raw.data || raw;
+  const imageUrls = collectOutputImageUrls(raw);
+  return {
+    taskId: output.task_id || output.taskId || raw.task_id || raw.taskId || raw.request_id || raw.requestId || "",
+    status: output.task_status || output.status || raw.task_status || raw.status || (imageUrls.length ? "completed" : "pending"),
+    imageUrls,
+    error: output.message || output.error_message || output.error?.message || raw.message || raw.error_message || raw.error?.message || "",
+  };
+}
+
+async function resolveWan27ImageResult(raw = {}, { timeoutMs = 10 * 60 * 1000, pollIntervalMs = 3000 } = {}) {
+  let task = normalizeWan27ImageTask(raw);
+  if ((task.imageUrls.length && isCompletedStatus(task.status)) || (task.imageUrls.length && !task.taskId)) return task;
+  if (isFailedStatus(task.status)) return task;
+  if (!task.taskId) return task;
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await delay(pollIntervalMs);
+    const queried = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(task.taskId)}`, {
+      method: "GET",
+    });
+    task = normalizeWan27ImageTask(queried);
+    if (task.imageUrls.length && isCompletedStatus(task.status)) return task;
+    if (isFailedStatus(task.status)) return task;
+  }
+  return task;
+}
+
+async function submitWan27ImageModify({ imageUrl, prompt, ratio = "9:16", resolution = "2K", model = WAN27_IMAGE_PRO_MODEL } = {}) {
+  const payload = {
+    model: model || WAN27_IMAGE_PRO_MODEL,
+    input: {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { image: imageUrl },
+            { text: prompt },
+          ],
+        },
+      ],
+    },
+    parameters: {
+      size: wan27ImageSize(resolution, ratio),
+      n: 1,
+      watermark: false,
+    },
+  };
+  const raw = await aliyunDashscopeRequest("/api/v1/services/aigc/image-generation/generation", {
+    method: "POST",
+    body: payload,
+    asyncTask: true,
+  });
+  return { task: await resolveWan27ImageResult(raw), payload, raw };
 }
 
 async function refreshWan27GenerationRecord(record = {}, { download = false, reason = "query" } = {}) {
@@ -5680,6 +5828,7 @@ function collectOutputImageUrls(task) {
   const output = task?.output || task?.result || task?.data?.output || {};
   const direct = [
     ...(Array.isArray(output.images) ? output.images.map((image) => image?.url || image?.image_url) : []),
+    ...(Array.isArray(output.results) ? output.results.map((image) => image?.url || image?.image_url || image?.image) : []),
     output.url,
     output.image_url,
     output.image?.url,
@@ -8928,6 +9077,135 @@ function publicUserAsset(asset = {}) {
   };
 }
 
+function wan27ImageModifyPricing(config = {}, user = null) {
+  const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
+  const imagePricing = pricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
+  const raw = fixedCnyPricingEstimate(imagePricing.saleCnyPerImage, "wan27_image_modify", {
+    purchaseCnyPerImage: imagePricing.purchaseCnyPerImage,
+    saleCnyPerImage: imagePricing.saleCnyPerImage,
+    model: imagePricing.model || WAN27_IMAGE_PRO_MODEL,
+  }, pricing.creditsPerCny);
+  return user ? applyUserPricingToEstimate(raw, user) : raw;
+}
+
+async function handleModifyUserAssetImage(req, res, assetId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!ALIYUN_DASHSCOPE_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
+  }
+  const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
+  if (!asset) return sendJson(res, 404, { ok: false, message: "Asset not found." });
+  if (!String(asset.mime || "").toLowerCase().startsWith("image/")) {
+    return sendJson(res, 400, { ok: false, message: "Only image assets can be modified." });
+  }
+
+  const body = await readJson(req);
+  const prompt = String(body.prompt || "").trim();
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  const config = await readAppConfig();
+  const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
+  const ratio = normalizeWan27ImageRatio(body.ratio || pricingConfig.defaultRatio);
+  const resolution = normalizeWan27ImageResolution(body.resolution || pricingConfig.defaultResolution);
+  const pricing = wan27ImageModifyPricing(config, auth.user);
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+
+  const taskId = localGenerationTaskId("img");
+  if (cost > 0) {
+    changeUserCredits(auth.db, auth.user.id, -cost, "asset_image_modify", {
+      taskId,
+      assetId,
+      model: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
+      ratio,
+      resolution,
+      baseCredits: pricing.baseCredits,
+      originalCost: pricing.originalCredits,
+      pricingMultiplier: pricing.userPricingMultiplier,
+      purchaseCnyPerImage: pricing.purchaseCnyPerImage,
+      saleCnyPerImage: pricing.saleCnyPerImage,
+      pricingSource: pricing.source,
+    });
+    await writeDb(auth.db);
+  }
+
+  try {
+    const publicAsset = await ensurePublicUrlForUserMediaAsset(auth.db, asset);
+    const submitted = await submitWan27ImageModify({
+      imageUrl: publicAsset.publicUrl,
+      prompt,
+      ratio,
+      resolution,
+      model: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
+    });
+    const imageUrl = submitted.task.imageUrls[0];
+    if (!imageUrl) {
+      const error = new Error(submitted.task.error || "Wan2.7 image modify returned no image.");
+      error.statusCode = 502;
+      throw error;
+    }
+    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "modified image", maxBytes: 20 * 1024 * 1024 });
+    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+    const newAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
+      bytes: downloaded.bytes,
+      mime,
+      name: `${asset.name || "image"} modify`,
+      fileName: `${taskId}${imageExtFromMime(mime)}`,
+      maxBytes: 20 * 1024 * 1024,
+    });
+    newAsset.sourceAssetId = asset.id;
+    newAsset.modifyPrompt = prompt;
+    newAsset.modifyModel = pricingConfig.model || WAN27_IMAGE_PRO_MODEL;
+    newAsset.modifyTaskId = submitted.task.taskId || taskId;
+    newAsset.modifyParams = { ratio, resolution };
+    newAsset.modifyPricing = {
+      source: pricing.source,
+      baseCredits: pricing.baseCredits ?? null,
+      originalCredits: pricing.originalCredits ?? null,
+      userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+      purchaseCnyPerImage: pricing.purchaseCnyPerImage,
+      saleCnyPerImage: pricing.saleCnyPerImage,
+    };
+    newAsset.updatedAt = new Date().toISOString();
+    auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
+    await writeDb(auth.db);
+    const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    return sendJson(res, 200, {
+      ok: true,
+      taskId,
+      upstreamTaskId: submitted.task.taskId || "",
+      asset: publicUserAsset(newAsset),
+      sourceAsset: publicUserAsset(asset),
+      user: userView(latestUser),
+      pricing,
+      cost,
+      params: { ratio, resolution, model: pricingConfig.model || WAN27_IMAGE_PRO_MODEL },
+    });
+  } catch (error) {
+    if (cost > 0) {
+      try {
+        const db = await readDb();
+        changeUserCredits(db, auth.user.id, cost, "asset_image_modify_refund", {
+          taskId,
+          assetId,
+          error: error.message || "Wan2.7 image modify failed.",
+        });
+        await writeDb(db);
+      } catch (refundError) {
+        console.error("[asset-image-modify-refund-failed]", refundError.message || refundError);
+      }
+    }
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      message: error.message || "Wan2.7 image modify failed.",
+      code: error.code || "",
+      payload: error.payload || null,
+    });
+  }
+}
+
 async function handleListUserAssets(req, res, url = null) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -9699,6 +9977,11 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
   return pricingNumber(table[normalizeAdvancedResolution(resolution)], 0);
 }
 
+function advancedSaleImageCredits(pricing = DEFAULT_ADVANCED_PRICING) {
+  const normalized = normalizeAdvancedPricing(pricing);
+  return pricingNumber(Number(normalized.wan27ImagePro.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6);
+}
+
 async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const publicResolution = normalizeAdvancedResolution(resolution);
@@ -9750,6 +10033,19 @@ async function adminAdvancedPricingView(config = {}) {
       saleYuanPerSecond: yuanPerSecondFromCredits(saleCreditsPerSecond, pricing.creditsPerCny),
     };
   }));
+  rows.push({
+    provider: "wan27-image",
+    providerLabel: "Wan2.7 Image Pro",
+    resolution: "image",
+    unit: "image",
+    purchaseCreditsPerSecond: pricingNumber(pricing.wan27ImagePro.purchaseCnyPerImage * pricing.creditsPerCny, 0),
+    purchaseYuanPerSecond: pricing.wan27ImagePro.purchaseCnyPerImage,
+    purchaseSource: "aliyun_model_pricing",
+    purchaseMessage: "Official unit price per generated image. Failed calls are not charged upstream.",
+    saleCreditsPerSecond: advancedSaleImageCredits(pricing),
+    saleYuanPerSecond: pricing.wan27ImagePro.saleCnyPerImage,
+    model: pricing.wan27ImagePro.model,
+  });
   return {
     unit: "credits",
     creditsPerCny: pricing.creditsPerCny,
@@ -9766,6 +10062,14 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
   for (const row of body.rows) {
     const provider = normalizeAdvancedProvider(row.provider);
     const resolution = normalizeAdvancedResolution(row.resolution);
+    if (String(row.provider || "").toLowerCase() === "wan27-image") {
+      const rawSale = row.saleYuanPerSecond !== undefined
+        ? Number(row.saleYuanPerSecond)
+        : Number(row.saleCnyPerImage);
+      if (Number.isFinite(rawSale) && rawSale >= 0) next.wan27ImagePro.saleCnyPerImage = pricingNumber(rawSale, next.wan27ImagePro.saleCnyPerImage, 0, 6);
+      next.wan27ImagePro.userConfigured = true;
+      continue;
+    }
     const rawCredits = row.saleCreditsPerSecond !== undefined
       ? Number(row.saleCreditsPerSecond)
       : Number(row.saleYuanPerSecond) * next.creditsPerCny;
@@ -11763,6 +12067,11 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/user-assets") {
       return await handleListUserAssets(req, res, url);
+    }
+
+    const userAssetModifyMatch = url.pathname.match(/^\/api\/user-assets\/([^/]+)\/modify$/);
+    if (req.method === "POST" && userAssetModifyMatch) {
+      return await handleModifyUserAssetImage(req, res, userAssetModifyMatch[1]);
     }
 
     const userAssetMatch = url.pathname.match(/^\/api\/user-assets\/([^/]+)$/);

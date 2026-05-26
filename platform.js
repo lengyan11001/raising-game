@@ -18,6 +18,7 @@ const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
+const DEFAULT_ASSET_IMAGE_MODIFY_CREDITS = 84.3098;
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
@@ -440,6 +441,12 @@ const I18N = {
     "assets.loadFailed": "Load failed: {message}",
     "assets.delete": "Delete",
     "assets.use": "Use",
+    "assets.modify": "Modify",
+    "assets.modifyTitle": "Modify image",
+    "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
+    "assets.modifyHint": "Uses Wan2.7 Image Pro. The edited result is saved as a new asset.",
+    "assets.modified": "Modified image saved to assets.",
+    "assets.generating": "Generating...",
     "assets.extend": "Extend",
     "assets.replace": "Replace",
     "assets.seedanceReady": "Seedance ready",
@@ -1704,6 +1711,11 @@ const ASSET_WORKFLOW_COPY = {
     "assets.frameSaved": "Frame saved to Assets.",
     "assets.selectFrame": "Save frame",
     "assets.noImageAssets": "No image assets yet.",
+    "assets.modify": "Modify",
+    "assets.modifyTitle": "Modify image",
+    "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
+    "assets.modifyHint": "Uses Wan2.7 Image Pro. The edited result is saved as a new asset.",
+    "assets.modified": "Modified image saved to Assets.",
     "file.choose": "Choose file",
     "file.chooseImage": "Choose image",
     "file.chooseVideo": "Choose video",
@@ -1711,6 +1723,11 @@ const ASSET_WORKFLOW_COPY = {
     "file.multipleSelected": "{count} files selected",
   },
   vi: {
+    "assets.modify": "Sua anh",
+    "assets.modifyTitle": "Sua anh",
+    "assets.modifyPromptPlaceholder": "Mo ta phan can chinh va giu nhan vat nhat quan...",
+    "assets.modifyHint": "Dung Wan2.7 Image Pro. Ket qua se luu thanh tai nguyen moi.",
+    "assets.modified": "Anh da sua da duoc luu.",
     "file.choose": "Chon tep",
     "file.chooseImage": "Chon anh",
     "file.chooseVideo": "Chon video",
@@ -1721,6 +1738,11 @@ const ASSET_WORKFLOW_COPY = {
     "history.assetAdded": "Added",
   },
   ja: {
+    "assets.modify": "Modify",
+    "assets.modifyTitle": "Modify image",
+    "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
+    "assets.modifyHint": "Uses Wan2.7 Image Pro. The edited result is saved as a new asset.",
+    "assets.modified": "Modified image saved to Assets.",
     "file.choose": "File",
     "file.chooseImage": "Image",
     "file.chooseVideo": "Video",
@@ -1731,6 +1753,11 @@ const ASSET_WORKFLOW_COPY = {
     "history.assetAdded": "Added",
   },
   ko: {
+    "assets.modify": "Modify",
+    "assets.modifyTitle": "Modify image",
+    "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
+    "assets.modifyHint": "Uses Wan2.7 Image Pro. The edited result is saved as a new asset.",
+    "assets.modified": "Modified image saved to Assets.",
     "file.choose": "File",
     "file.chooseImage": "Image",
     "file.chooseVideo": "Video",
@@ -1741,6 +1768,11 @@ const ASSET_WORKFLOW_COPY = {
     "history.assetAdded": "Added",
   },
   id: {
+    "assets.modify": "Ubah gambar",
+    "assets.modifyTitle": "Ubah gambar",
+    "assets.modifyPromptPlaceholder": "Jelaskan perubahan sambil menjaga subjek tetap konsisten...",
+    "assets.modifyHint": "Menggunakan Wan2.7 Image Pro. Hasil disimpan sebagai aset baru.",
+    "assets.modified": "Gambar hasil ubahan disimpan ke aset.",
     "file.choose": "Pilih file",
     "file.chooseImage": "Pilih gambar",
     "file.chooseVideo": "Pilih video",
@@ -1754,6 +1786,16 @@ const ASSET_WORKFLOW_COPY = {
 Object.entries(ASSET_WORKFLOW_COPY).forEach(([lang, copy]) => {
   if (I18N[lang]) Object.assign(I18N[lang], copy);
 });
+
+if (I18N.zh) {
+  Object.assign(I18N.zh, {
+    "assets.modify": "改图",
+    "assets.modifyTitle": "改图",
+    "assets.modifyPromptPlaceholder": "输入要修改的内容，尽量说明保留主体一致...",
+    "assets.modifyHint": "使用 Wan2.7 Image Pro，生成结果会作为新图片存入素材库。",
+    "assets.modified": "改图已生成并存入素材库。",
+  });
+}
 
 const PUBLIC_COPY = {
   galleryTitle: "Create AI videos",
@@ -3000,6 +3042,14 @@ function advancedCostLabel(duration, provider = "seedance", resolution = "720p",
     : advancedPricing(duration, provider, resolution, ratio);
   const suffix = ` - ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)}`;
   return `${t("cost.creditsDuration", { credits: formatCredits(pricing.credits), duration: formatDurationSeconds(pricing.duration) })}${suffix}`;
+}
+
+function assetImageModifyCostCredits() {
+  return Number(state.config?.assetImageModify?.costCredits ?? DEFAULT_ASSET_IMAGE_MODIFY_CREDITS);
+}
+
+function assetImageModifyCostLabel() {
+  return t("cost.credits", { credits: formatCredits(assetImageModifyCostCredits()) });
 }
 
 function advancedEstimateKey(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
@@ -4394,6 +4444,76 @@ async function selectedReplaceImageReference(root) {
   return { assetId: selectedImageAssetId };
 }
 
+function assetModifyDialogBody(asset = {}) {
+  const options = state.config?.assetImageModify || {};
+  const ratios = Array.isArray(options.ratios) && options.ratios.length ? options.ratios : ["1:1", "3:4", "4:3", "9:16", "16:9"];
+  const defaultRatio = options.defaultRatio || "9:16";
+  const resolutions = Array.isArray(options.resolutions) && options.resolutions.length ? options.resolutions : ["1K", "2K"];
+  const defaultResolution = options.defaultResolution || "2K";
+  return `
+    <div class="asset-generate-form asset-modify-form">
+      <div class="asset-modify-preview">
+        <img src="${escapeHtml(assetPreviewUrl(asset))}" alt="${escapeHtml(asset.name || "")}" />
+      </div>
+      <label class="field"><span>${escapeHtml(t("field.prompt"))}</span><textarea id="assetModifyPrompt" rows="4" placeholder="${escapeHtml(t("assets.modifyPromptPlaceholder"))}"></textarea></label>
+      <label class="field"><span>${escapeHtml(t("field.ratio"))}</span><select id="assetModifyRatio">${ratios.map((ratio) => `<option value="${escapeHtml(ratio)}" ${ratio === defaultRatio ? "selected" : ""}>${escapeHtml(ratio)}</option>`).join("")}</select></label>
+      <label class="field"><span>${escapeHtml(t("field.resolution"))}</span><select id="assetModifyResolution">${resolutions.map((resolution) => `<option value="${escapeHtml(resolution)}" ${resolution === defaultResolution ? "selected" : ""}>${escapeHtml(resolution)}</option>`).join("")}</select></label>
+      <p class="job-note">${escapeHtml(t("assets.modifyHint"))}</p>
+      <p class="job-note" id="assetModifyCost"></p>
+      <p class="job-note" id="assetModifyStatus"></p>
+    </div>
+  `;
+}
+
+function bindAssetModifyCost(root) {
+  const cost = root.querySelector("#assetModifyCost");
+  const update = () => {
+    const label = assetImageModifyCostLabel();
+    if (cost) cost.textContent = label;
+    if (els.inlineDialogConfirm) {
+      els.inlineDialogConfirm.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("template.generate", { cost: label }))}`;
+      refreshIcons();
+    }
+  };
+  root.querySelector("#assetModifyRatio")?.addEventListener("change", update);
+  root.querySelector("#assetModifyResolution")?.addEventListener("change", update);
+  update();
+}
+
+async function openAssetModifyDialog(asset = {}) {
+  if (!asset?.id || !isImageAsset(asset)) return;
+  if (!state.user) return openLogin();
+  const result = await showInlineDialog({
+    title: t("assets.modifyTitle"),
+    body: assetModifyDialogBody(asset),
+    confirmText: t("common.generate"),
+    dialogClass: "is-media-action",
+    onOpen: bindAssetModifyCost,
+    onConfirm: async (root) => {
+      const prompt = root.querySelector("#assetModifyPrompt")?.value.trim() || "";
+      if (!prompt) throw new Error(t("advanced.promptRequired"));
+      const status = root.querySelector("#assetModifyStatus");
+      if (status) status.textContent = t("assets.generating");
+      const payload = await requestJson(`/api/user-assets/${encodeURIComponent(asset.id)}/modify`, {
+        method: "POST",
+        body: {
+          prompt,
+          ratio: root.querySelector("#assetModifyRatio")?.value || "9:16",
+          resolution: root.querySelector("#assetModifyResolution")?.value || "2K",
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      if (payload.asset) {
+        state.userAssets = [payload.asset, ...(state.userAssets || []).filter((item) => item.id !== payload.asset.id)];
+      }
+      if (status) status.textContent = t("assets.modified");
+    },
+  });
+  if (result === "confirm") {
+    await loadUserAssets(1);
+  }
+}
+
 async function openAssetExtendDialog(asset = {}) {
   if (!asset?.id) return;
   if (!state.user) return openLogin();
@@ -4705,6 +4825,7 @@ function renderAssets(assets = state.userAssets || []) {
         </div>
         <div class="asset-actions">
           ${!video ? `<button class="ghost-button" type="button" data-asset-use="${escapeHtml(asset.id)}">${escapeHtml(t("assets.use"))}</button>` : ""}
+          ${!video ? `<button class="copy-btn" type="button" data-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
           ${!video ? `<button class="ghost-button" type="button" data-asset-extend="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extend"))}</button>` : ""}
           ${video ? `<button class="copy-btn" type="button" data-asset-replace="${escapeHtml(asset.id)}">${escapeHtml(t("assets.replace"))}</button>` : ""}
           ${video ? `<button class="ghost-button" type="button" data-asset-frame="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extractFrame"))}</button>` : ""}
@@ -4715,6 +4836,9 @@ function renderAssets(assets = state.userAssets || []) {
   }).join("");
   els.assetGrid.querySelectorAll("[data-asset-use]").forEach((button) => {
     button.addEventListener("click", () => useAssetInAdvanced(state.userAssets.find((asset) => asset.id === button.dataset.assetUse), "use"));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-modify]").forEach((button) => {
+    button.addEventListener("click", () => openAssetModifyDialog(state.userAssets.find((asset) => asset.id === button.dataset.assetModify)));
   });
   els.assetGrid.querySelectorAll("[data-asset-extend]").forEach((button) => {
     button.addEventListener("click", () => openAssetExtendDialog(state.userAssets.find((asset) => asset.id === button.dataset.assetExtend)));

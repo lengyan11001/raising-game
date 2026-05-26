@@ -2422,7 +2422,7 @@ async function renderWallet() {
 }
 
 /* ============ PRICING ============ */
-function fmtPrice(value, digits = 4) {
+function fmtPrice(value, digits = 6) {
   const next = Number(value);
   if (!Number.isFinite(next)) return "-";
   return String(Math.round(next * 10 ** digits) / 10 ** digits);

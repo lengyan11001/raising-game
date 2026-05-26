@@ -1524,6 +1524,21 @@ select option:checked {
   display: grid;
   gap: 14px;
 }
+.asset-modify-preview {
+  width: min(100%, 220px);
+  justify-self: center;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(248,250,252,.86);
+}
+.asset-modify-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
 .asset-replace-source {
   display: grid;
   gap: 8px;
