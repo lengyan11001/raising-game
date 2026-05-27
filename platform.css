@@ -2289,6 +2289,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 }
 .history-media video,
 .history-poster,
+.history-result-image,
 .history-placeholder {
   width: 100%;
   aspect-ratio: var(--video-ratio, 16 / 9);
@@ -2298,6 +2299,10 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   border-radius: 8px;
   background: #e4ece9;
   object-fit: contain;
+}
+.history-result-image {
+  display: block;
+  overflow: hidden;
 }
 .history-poster {
   position: relative;
