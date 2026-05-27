@@ -35,6 +35,12 @@ body {
   overflow-x: hidden;
 }
 
+@media (min-width: 1440px) {
+  body {
+    padding-left: 248px;
+  }
+}
+
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
 a { color: inherit; text-decoration: none; }
@@ -64,6 +70,11 @@ a { color: inherit; text-decoration: none; }
   background: rgba(247, 252, 248, 0.88);
   backdrop-filter: blur(22px);
   box-shadow: 12px 0 36px rgba(16, 31, 44, 0.06);
+}
+@media (min-width: 1440px) {
+  .side-rail {
+    width: 248px;
+  }
 }
 .site-head {
   position: sticky;
@@ -270,7 +281,7 @@ main {
   width: 100%;
   margin: 0;
   min-height: calc(100vh - 64px);
-  padding: 6px 34px 32px;
+  padding: 6px 38px 32px;
 }
 .site-foot {
   width: min(1440px, calc(100vw - 44px));
@@ -413,20 +424,20 @@ main {
 .template-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
+  gap: 16px;
 }
 .gallery-advanced-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
 }
 .gallery-advanced-grid.is-case-list {
   grid-template-columns: 1fr;
 }
 .character-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
 }
 .character-card {
   display: grid;
@@ -484,8 +495,8 @@ main {
 }
 .character-card-meta {
   display: grid;
-  gap: 7px;
-  padding: 12px;
+  gap: 8px;
+  padding: 14px;
 }
 .character-card-meta span {
   color: var(--cyan);
@@ -513,9 +524,9 @@ main {
 }
 .character-card-actions .ghost-button,
 .character-card-actions .primary-button {
-  min-height: 36px;
-  padding: 7px 9px;
-  font-size: .8rem;
+  min-height: 38px;
+  padding: 8px 9px;
+  font-size: .82rem;
 }
 .character-card-actions svg,
 .character-detail svg,
@@ -1546,13 +1557,13 @@ select option:checked {
   z-index: 2;
   display: grid;
   gap: 5px;
-  padding: 52px 12px 12px;
+  padding: 62px 14px 14px;
   color: #ffffff;
   background: linear-gradient(180deg, transparent, rgba(5, 7, 13, .3) 18%, rgba(5, 7, 13, .86));
 }
 .advanced-case-card-meta span {
   color: rgba(255,255,255,.72);
-  font-size: .72rem;
+  font-size: .76rem;
   font-weight: 800;
   line-height: 1.2;
 }
@@ -1561,7 +1572,7 @@ select option:checked {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: .95rem;
+  font-size: 1.05rem;
 }
 .advanced-case-row {
   display: grid;
@@ -2518,6 +2529,9 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 
 @media (max-width: 1080px) {
   .gallery-panel { width: 100%; }
+  .gallery-advanced-grid,
+  .character-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .gallery-advanced-grid.is-case-list { grid-template-columns: 1fr; }
   .copy-card, .advanced-workspace, .topup-strip { grid-template-columns: 1fr; }
   .advanced-form-card { position: static; }
   .asset-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
