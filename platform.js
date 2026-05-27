@@ -3599,7 +3599,7 @@ function renderGalleryCharacters() {
   els.templateGrid.innerHTML = characters.length
     ? characters.map(renderGalleryCharacterCard).join("")
     : `<div class="job-note">${escapeHtml(t("gallery.character.empty"))}</div>`;
-  bindGalleryCharacterHover();
+  bindGalleryImageFallbacks();
   els.templateGrid.querySelectorAll("[data-character-use]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -3631,8 +3631,8 @@ function renderGalleryCharacterCard(item = {}) {
   return `
     <article class="character-card" data-character-id="${escapeHtml(item.id || "")}">
       <div class="character-card-media">
-        <img src="${escapeHtml(poster)}" alt="${escapeHtml(item.name || "")}" loading="lazy" />
-        ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" poster="${escapeHtml(poster)}" muted loop playsinline preload="metadata"></video>` : ""}
+        <img src="${escapeHtml(poster)}" alt="${escapeHtml(item.name || "")}" loading="lazy" data-cover-fallback="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" />
+        ${videoUrl ? `<span class="character-card-video-mark"><i data-lucide="play"></i></span>` : ""}
       </div>
       <div class="character-card-meta">
         <span>${escapeHtml(status)} / ${videoCount} ${escapeHtml(videoCount === 1 ? "video" : "videos")}</span>
@@ -3645,16 +3645,6 @@ function renderGalleryCharacterCard(item = {}) {
       </div>
     </article>
   `;
-}
-
-function bindGalleryCharacterHover(root = els.templateGrid) {
-  root.querySelectorAll(".character-card").forEach((card) => {
-    bindHoverPreviewCard({
-      card,
-      video: card.querySelector("video"),
-      cover: card.querySelector("img"),
-    });
-  });
 }
 
 function openGalleryCharacter(characterId = "") {
@@ -3755,11 +3745,17 @@ function characterMainVideoUrl(item = {}) {
   return candidates.map((value) => String(value || "").trim()).find(Boolean) || "";
 }
 
-function uniqueCharacterVideos(entries = []) {
+function sceneIdFromVideoKey(videoKey = "") {
+  return String(videoKey || "").split("__")[0] || "";
+}
+
+function uniqueCharacterVideos(entries = [], { dedupeByUrl = true } = {}) {
   const seen = new Set();
-  return entries.filter((entry) => {
+  return entries.map((entry) => entry || {}).filter((entry, index) => {
     if (!entry || (!entry.videoUrl && !entry.taskId && !entry.posterUrl)) return false;
-    const key = [entry.videoUrl, entry.sceneId, entry.sceneEntryId, entry.taskId, entry.title].join("|");
+    const key = dedupeByUrl
+      ? [entry.videoUrl, entry.sceneId, entry.sceneEntryId, entry.taskId, entry.title, index].join("|")
+      : [entry.sceneId || index, entry.sceneEntryId || "default", entry.taskId || entry.videoUrl || index, entry.title || ""].join("|");
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -3788,17 +3784,31 @@ function characterRoleVideos(item = {}) {
 }
 
 function characterSceneVideos(item = {}) {
-  return uniqueCharacterVideos([
-    ...Object.values(item.homeSceneVideos || {}),
-    ...Object.values(item.sceneVideos || {}),
-  ]);
+  const entries = [
+    ...Object.entries(item.homeSceneVideos || {}).map(([key, entry]) => ({
+      ...(entry || {}),
+      kind: "scene",
+      sceneId: entry?.sceneId || sceneIdFromVideoKey(key),
+      title: entry?.title || entry?.sceneEntryName || entry?.sceneName || key,
+    })),
+    ...Object.entries(item.sceneVideos || {}).map(([key, entry]) => ({
+      ...(entry || {}),
+      kind: "scene",
+      sceneId: entry?.sceneId || sceneIdFromVideoKey(key),
+      title: entry?.title || entry?.sceneEntryName || entry?.sceneName || key,
+    })),
+  ];
+  return uniqueCharacterVideos(entries, { dedupeByUrl: false });
 }
 
 function characterUnlockVideos(item = {}) {
-  return uniqueCharacterVideos(Object.values(item.unlockVideos || {}).map((entry) => ({
-    ...entry,
+  return uniqueCharacterVideos(Object.entries(item.unlockVideos || {}).map(([key, entry]) => ({
+    ...(entry || {}),
+    kind: "scene",
+    sceneId: entry?.sceneId || sceneIdFromVideoKey(key),
+    title: entry?.title || entry?.sceneEntryName || entry?.sceneName || key,
     locked: true,
-  })));
+  })), { dedupeByUrl: false });
 }
 
 function characterVideoTitle(video = {}, fallback = "") {
@@ -3819,7 +3829,7 @@ function renderGalleryCharacterDetail(item = {}) {
     <section class="character-detail-hero">
       <button class="ghost-button character-back" data-character-back type="button"><i data-lucide="chevron-left"></i>${escapeHtml(t("gallery.character.back"))}</button>
       <div class="character-detail-profile">
-        <img src="${escapeHtml(poster)}" alt="${escapeHtml(item.name || "")}" loading="lazy" />
+        <img src="${escapeHtml(poster)}" alt="${escapeHtml(item.name || "")}" loading="lazy" data-cover-fallback="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" />
         <div>
           <span>${escapeHtml(item.referenceState === "ready" ? "Ready" : item.status || item.referenceState || "Draft")}</span>
           <h3>${escapeHtml(item.name || "Character")}</h3>
@@ -3846,6 +3856,7 @@ function renderGalleryCharacterDetail(item = {}) {
   els.templateGrid.querySelectorAll("[data-character-unlock]").forEach((button) => {
     button.addEventListener("click", () => unlockGallerySceneVideo(item.id || "", button.dataset.characterUnlock, button.dataset.characterSceneEntry || "default"));
   });
+  bindGalleryImageFallbacks();
   refreshIcons();
 }
 
@@ -3888,11 +3899,11 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
   return `
     <article class="character-video-card ${locked && !unlocked ? "is-locked" : ""}">
       <button class="character-video-media" ${mediaAction || "disabled"} type="button">
-        <img src="${escapeHtml(poster)}" alt="${escapeHtml(title)}" loading="lazy" />
+        <img src="${escapeHtml(poster)}" alt="${escapeHtml(title)}" loading="lazy" data-cover-fallback="${escapeHtml(characterPosterUrl(character))}" />
         <span class="character-video-play"><i data-lucide="${locked && !unlocked ? "lock" : "play"}"></i></span>
       </button>
       <div class="character-video-info">
-        <span>${escapeHtml(locked ? (unlocked ? t("gallery.character.unlocked") : t("gallery.character.locked")) : t("gallery.character.roleVideos"))}</span>
+        <span>${escapeHtml(locked ? (unlocked ? t("gallery.character.unlocked") : t("gallery.character.locked")) : video.kind === "scene" ? t("gallery.character.sceneVideos") : t("gallery.character.roleVideos"))}</span>
         <strong>${escapeHtml(title)}</strong>
         <p>${escapeHtml(meta || video.status || "")}</p>
         ${action}
@@ -3913,6 +3924,17 @@ function playCharacterVideo(video = {}, title = "") {
   const url = video.videoUrl || "";
   if (!url) return;
   playPreview({ title, previewUrl: url, ratio: video.ratio || "9:16" });
+}
+
+function bindGalleryImageFallbacks(root = els.templateGrid) {
+  root?.querySelectorAll?.("img[data-cover-fallback]")?.forEach((img) => {
+    const fallback = img.dataset.coverFallback || DEFAULT_TEMPLATE_COVER;
+    const applyFallback = () => {
+      if (fallback && img.getAttribute("src") !== fallback) img.src = fallback;
+    };
+    img.addEventListener("error", applyFallback, { once: true });
+    if (img.complete && img.naturalWidth === 0) applyFallback();
+  });
 }
 
 function bindGalleryCaseActions() {

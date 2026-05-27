@@ -452,6 +452,23 @@ main {
   object-fit: cover;
   display: block;
 }
+.character-card-video-mark {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgba(0,0,0,.5);
+  backdrop-filter: blur(8px);
+}
+.character-card-video-mark svg {
+  width: 15px;
+  height: 15px;
+}
 .character-card-media video {
   opacity: 0;
   pointer-events: none;
