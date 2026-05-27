@@ -420,9 +420,9 @@ const I18N = {
     "advanced.randomSeed": "Random seed",
     "advanced.cases": "Video Cases",
     "advanced.caseTitle": "Choose a video case",
-    "advanced.approvalRequired": "APPROVAL REQUIRED",
-    "advanced.inviteOnly": "Advanced generation is invite-only.",
-    "advanced.loginFirst": "Login first, then submit an access request.",
+    "advanced.approvalRequired": "LOGIN REQUIRED",
+    "advanced.inviteOnly": "Login to continue",
+    "advanced.loginFirst": "Advanced generation is available to every signed-in user.",
     "advanced.requestTitle": "Apply for advanced generation",
     "advanced.requestSubmittedTitle": "Request submitted",
     "advanced.requestDesc": "Direct model controls require manual approval.",
@@ -763,9 +763,9 @@ const I18N = {
     "advanced.randomSeed": "Seed ngẫu nhiên",
     "advanced.cases": "Case",
     "advanced.caseTitle": "Bắt đầu từ case",
-    "advanced.approvalRequired": "CẦN PHÊ DUYỆT",
-    "advanced.inviteOnly": "Tạo nâng cao chỉ dành cho tài khoản được mời.",
-    "advanced.loginFirst": "Đăng nhập trước, rồi gửi yêu cầu quyền.",
+    "advanced.approvalRequired": "CẦN ĐĂNG NHẬP",
+    "advanced.inviteOnly": "Đăng nhập để tiếp tục",
+    "advanced.loginFirst": "Tạo nâng cao khả dụng cho mọi người dùng đã đăng nhập.",
     "advanced.requestTitle": "Đăng ký tạo nâng cao",
     "advanced.requestSubmittedTitle": "Đã gửi yêu cầu",
     "advanced.requestDesc": "Điều khiển mô hình trực tiếp cần phê duyệt thủ công.",
@@ -1029,9 +1029,9 @@ const I18N = {
     "advanced.randomSeed": "ランダムシード",
     "advanced.cases": "ケース",
     "advanced.caseTitle": "ケースから開始",
-    "advanced.approvalRequired": "承認が必要",
-    "advanced.inviteOnly": "高度生成は招待制です。",
-    "advanced.loginFirst": "先にログインし、アクセス申請を送信してください。",
+    "advanced.approvalRequired": "ログインが必要",
+    "advanced.inviteOnly": "ログインして続行",
+    "advanced.loginFirst": "高度生成はログイン済みのすべてのユーザーが利用できます。",
     "advanced.requestTitle": "高度生成を申請",
     "advanced.requestSubmittedTitle": "申請済み",
     "advanced.requestDesc": "直接モデル制御には手動承認が必要です。",
@@ -1295,9 +1295,9 @@ const I18N = {
     "advanced.randomSeed": "랜덤 시드",
     "advanced.cases": "케이스",
     "advanced.caseTitle": "케이스에서 시작",
-    "advanced.approvalRequired": "승인 필요",
-    "advanced.inviteOnly": "고급 생성은 초대제로 운영됩니다.",
-    "advanced.loginFirst": "먼저 로그인한 뒤 접근 요청을 제출하세요.",
+    "advanced.approvalRequired": "로그인 필요",
+    "advanced.inviteOnly": "로그인 후 계속",
+    "advanced.loginFirst": "고급 생성은 로그인한 모든 사용자가 이용할 수 있습니다.",
     "advanced.requestTitle": "고급 생성 신청",
     "advanced.requestSubmittedTitle": "요청 제출됨",
     "advanced.requestDesc": "직접 모델 제어에는 수동 승인이 필요합니다.",
@@ -1561,9 +1561,9 @@ const I18N = {
     "advanced.randomSeed": "Seed acak",
     "advanced.cases": "Case",
     "advanced.caseTitle": "Mulai Dari Case",
-    "advanced.approvalRequired": "PERLU PERSETUJUAN",
-    "advanced.inviteOnly": "Pembuatan lanjutan hanya untuk undangan.",
-    "advanced.loginFirst": "Login dulu, lalu ajukan akses.",
+    "advanced.approvalRequired": "LOGIN DIPERLUKAN",
+    "advanced.inviteOnly": "Login untuk melanjutkan",
+    "advanced.loginFirst": "Pembuatan lanjutan tersedia untuk semua pengguna yang sudah login.",
     "advanced.requestTitle": "Ajukan pembuatan lanjutan",
     "advanced.requestSubmittedTitle": "Permintaan dikirim",
     "advanced.requestDesc": "Kontrol model langsung perlu persetujuan manual.",
@@ -4848,7 +4848,7 @@ function renderAccessGuides() {
 }
 
 function userHasAdvancedAccess() {
-  return state.user?.role === "admin" || state.user?.advancedAccess === true;
+  return Boolean(state.user);
 }
 
 function renderAdvanced() {
@@ -4864,26 +4864,6 @@ function renderAdvanced() {
       </div>
     `;
     document.querySelector("#advancedLoginBtn")?.addEventListener("click", openLogin);
-    renderAdvancedCases();
-    updateAdvancedModelControls();
-    updateAdvancedButtonCost();
-    refreshIcons();
-    return;
-  }
-  if (!userHasAdvancedAccess()) {
-    const requested = Boolean(state.user.advancedAccessRequestedAt);
-    const telegram = state.config?.platform?.advanced?.telegram || "";
-    els.advancedWorkspace.hidden = false;
-    els.advancedGate.innerHTML = `
-      <div class="permission-card permission-card-inline">
-        <span class="copy-kicker"><i data-lucide="shield-check"></i>${escapeHtml(t("advanced.approvalRequired"))}</span>
-        <h2>${escapeHtml(requested ? t("advanced.requestSubmittedTitle") : t("advanced.requestTitle"))}</h2>
-        <p>${escapeHtml(requested ? t("advanced.requestSubmittedDesc") : t("advanced.requestDesc"))}</p>
-        ${telegram ? `<a class="ghost-button" href="${escapeHtml(telegram)}" target="_blank" rel="noopener">${escapeHtml(t("advanced.contactSupport"))}</a>` : ""}
-        <button class="generate-btn" id="requestAdvancedBtn" type="button" ${requested ? "disabled" : ""}>${escapeHtml(requested ? t("advanced.waitingApproval") : t("advanced.applyAccess"))}</button>
-      </div>
-    `;
-    document.querySelector("#requestAdvancedBtn")?.addEventListener("click", requestAdvancedAccess);
     renderAdvancedCases();
     updateAdvancedModelControls();
     updateAdvancedButtonCost();
@@ -5059,7 +5039,6 @@ async function requestAdvancedAccess() {
 
 async function submitAdvancedGenerate() {
   if (!state.user) return openLogin();
-  if (!userHasAdvancedAccess()) return renderAdvanced();
   const prompt = els.advancedPrompt?.value.trim() || "";
   if (!prompt) {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.promptRequired");
@@ -5592,11 +5571,6 @@ async function openAssetFrameDialog(asset = {}) {
 function useAssetInAdvanced(asset = {}, action = "use") {
   if (!asset) return;
   if (!state.user) return openLogin();
-  if (!userHasAdvancedAccess()) {
-    setTab("advanced");
-    renderAdvanced();
-    return;
-  }
   if (els.advancedProvider) els.advancedProvider.value = "seedance";
   state.activeAdvancedCaseId = "";
   if (isImageAsset(asset)) {

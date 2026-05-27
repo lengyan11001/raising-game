@@ -7085,11 +7085,10 @@ async function handlePlatformGenerate(req, res) {
 async function handleAdvancedAccessRequest(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!auth.user.advancedAccessRequestedAt) {
-    auth.user.advancedAccessRequestedAt = new Date().toISOString();
-    auth.user.updatedAt = new Date().toISOString();
-    await writeDb(auth.db);
-  }
+  auth.user.advancedAccess = true;
+  auth.user.advancedAccessReviewedAt = auth.user.advancedAccessReviewedAt || new Date().toISOString();
+  auth.user.updatedAt = new Date().toISOString();
+  await writeDb(auth.db);
   return sendJson(res, 200, { ok: true, user: userView(auth.user) });
 }
 
@@ -7452,9 +7451,6 @@ async function runAdvancedGenerationJob(job = {}) {
 async function handleAdvancedGenerate(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (auth.user.role !== "admin" && auth.user.advancedAccess !== true) {
-    return sendJson(res, 403, { ok: false, code: "ADVANCED_ACCESS_REQUIRED", message: "Advanced generation requires approval." });
-  }
 
   const body = await readJson(req);
   const config = await readAppConfig();
@@ -8256,7 +8252,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     previewUrl: item.previewUrl,
     prompt: item.prompt || params.prompt || "",
     params,
-    requiresApproval: true,
+    requiresApproval: false,
     endpoint: {
       method: "POST",
       url: `${origin}/api/advanced/generate`,
@@ -8323,11 +8319,10 @@ async function buildModelDocs(req) {
       advancedGenerate: `${origin}/api/advanced/generate`,
       generationRecords: `${origin}/api/generation-records`,
       generationRecordDetail: `${origin}/api/generation-records/<taskId>`,
-      advancedAccessRequest: `${origin}/api/advanced/request-access`,
     },
     templates,
     advanced: {
-      requiresApproval: true,
+      requiresApproval: false,
       telegram: String(platform.advanced?.telegram || ""),
       cases: advancedCases,
     },
@@ -8359,7 +8354,7 @@ function advancedDocMarkdown(item) {
     `- caseId: \`${item.id}\``,
     `- provider: \`${item.provider || "seedance"}\``,
     item.model ? `- model: \`${item.model}\`` : "",
-    "- access: approval required",
+    "- access: signed-in users",
     `- estimated cost: ${item.pricing.credits} credits`,
   ].filter(Boolean);
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
@@ -8396,8 +8391,8 @@ function buildModelDocsMarkdown(docs) {
     "1. Read `/api/models` or this Markdown file to choose a template.",
     "2. For image-to-video templates, send `templateId` and `dataUrl` to `/api/platform/generate`.",
     "3. For text-to-video templates, send `templateId` and an optional `prompt` to `/api/platform/generate`.",
-    "4. For approved advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"`.",
-    "5. For approved advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional `seed`, and duration.",
+    "4. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"`.",
+    "5. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional `seed`, and duration.",
     "6. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
     "",
     "## Billing",
@@ -8414,7 +8409,7 @@ function buildModelDocsMarkdown(docs) {
     "",
     "## Advanced Generate",
     "",
-    "Advanced generation requires approval. Request access with `POST /api/advanced/request-access`, then call `/api/advanced/generate`.",
+    "Advanced generation is available to every signed-in user. Call `/api/advanced/generate` directly.",
     docs.advanced.telegram ? `\nSupport: ${docs.advanced.telegram}\n` : "",
     advancedSections,
     "",
