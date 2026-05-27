@@ -366,6 +366,11 @@ const I18N = {
     "characters.modifyTitle": "Modify character",
     "characters.modifyPlaceholder": "Describe what to change while preserving this character...",
     "characters.takeOffPrompt": "Take off all clothes.",
+    "characters.takeOffConfirm": "Confirm to generate a modified image. The result will be saved to assets and history.",
+    "characters.takeOffRunning": "Generating image... Keep this dialog open to see the result.",
+    "characters.takeOffDone": "Image generated.",
+    "characters.takeOffSaved": "Saved to assets and history.",
+    "characters.takeOffDoneButton": "Done",
     "characters.useReady": "{name} selected.",
     "characters.modifyDone": "Modified image saved to assets.",
     "category.featured": "Featured",
@@ -2506,7 +2511,7 @@ function renderSimplePager(holder, data, onPage) {
   });
 }
 
-function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass = "", onOpen, onConfirm } = {}) {
+function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass = "", keepOpenOnConfirm = false, onOpen, onConfirm } = {}) {
   if (!els.inlineDialog || !els.inlineDialogForm || !els.inlineDialogBody) return Promise.resolve("close");
   els.inlineDialog.classList.remove("is-media-action", "is-frame-action");
   String(dialogClass || "")
@@ -2516,6 +2521,8 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
   els.inlineDialogTitle.textContent = title || "";
   els.inlineDialogBody.innerHTML = body || "";
   if (els.inlineDialogConfirm) {
+    els.inlineDialogConfirm.type = "submit";
+    els.inlineDialogConfirm.onclick = null;
     els.inlineDialogConfirm.disabled = false;
     els.inlineDialogConfirm.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(confirmText || t("common.generate"))}`;
   }
@@ -2538,6 +2545,10 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
       try {
         if (els.inlineDialogConfirm) els.inlineDialogConfirm.disabled = true;
         if (typeof onConfirm === "function") await onConfirm(els.inlineDialogBody);
+        if (keepOpenOnConfirm) {
+          if (els.inlineDialogConfirm) els.inlineDialogConfirm.disabled = true;
+          return;
+        }
         cleanup();
         els.inlineDialog.close("confirm");
         resolve("confirm");
@@ -3708,22 +3719,9 @@ function renderGalleryCharacters(root = els.templateGrid) {
     });
   });
   root.querySelectorAll("[data-character-takeoff]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
+    button.addEventListener("click", (event) => {
       event.stopPropagation();
-      const originalHtml = button.innerHTML;
-      button.disabled = true;
-      button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("characters.takeOff"))}`;
-      refreshIcons();
-      try {
-        await modifySystemCharacter(button.dataset.characterTakeoff, { mode: "take_off" });
-        if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.modifyDone");
-      } catch (error) {
-        if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.createFailed", { message: error.message || String(error) });
-      } finally {
-        button.disabled = false;
-        button.innerHTML = originalHtml;
-        refreshIcons();
-      }
+      openSystemCharacterTakeOffDialog(button.dataset.characterTakeoff);
     });
   });
   root.querySelectorAll("[data-character-modify]").forEach((button) => {
@@ -3837,6 +3835,75 @@ async function modifySystemCharacter(characterId = "", { mode = "modify", prompt
   await loadUserAssets(1).catch(() => {});
   await loadHistory({ silent: true }).catch(() => {});
   return payload;
+}
+
+function characterResultImageUrl(payload = {}) {
+  return payload.asset?.previewUrl || payload.asset?.localUrl || payload.asset?.publicUrl || payload.record?.imageResultUrl || generationImageResultUrl(payload.record || {}) || "";
+}
+
+async function openSystemCharacterTakeOffDialog(characterId = "") {
+  const character = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
+  if (!character) return;
+  if (!state.user) return openLogin();
+  const poster = characterPosterUrl(character) || DEFAULT_TEMPLATE_COVER;
+  await showInlineDialog({
+    title: t("characters.takeOff"),
+    body: `
+      <div class="asset-generate-form character-action-form">
+        <div class="asset-modify-preview character-action-preview">
+          <img src="${escapeHtml(poster)}" alt="${escapeHtml(character.name || "")}" />
+        </div>
+        <p class="job-note">${escapeHtml(assetImageModifyCostLabel())}</p>
+        <p class="job-note" id="characterTakeoffStatus">${escapeHtml(t("characters.takeOffConfirm"))}</p>
+        <div class="character-action-result" id="characterTakeoffResult" hidden></div>
+      </div>
+    `,
+    confirmText: t("characters.takeOff"),
+    dialogClass: "is-media-action",
+    keepOpenOnConfirm: true,
+    onOpen: () => {
+      if (els.inlineDialogConfirm) {
+        els.inlineDialogConfirm.innerHTML = `<i data-lucide="shirt"></i>${escapeHtml(t("template.generate", { cost: assetImageModifyCostLabel() }))}`;
+        refreshIcons();
+      }
+    },
+    onConfirm: async (root) => {
+      const status = root.querySelector("#characterTakeoffStatus");
+      const result = root.querySelector("#characterTakeoffResult");
+      if (status) status.textContent = t("characters.takeOffRunning");
+      if (result) {
+        result.hidden = true;
+        result.innerHTML = "";
+      }
+      try {
+        const payload = await modifySystemCharacter(characterId, { mode: "take_off" });
+        const imageUrl = characterResultImageUrl(payload);
+        if (status) status.textContent = t("characters.takeOffDone");
+        if (result) {
+          result.hidden = false;
+          result.innerHTML = imageUrl
+            ? `<img src="${escapeHtml(imageUrl)}" alt="" /><p class="job-note">${escapeHtml(t("characters.takeOffSaved"))}</p>`
+            : `<p class="job-note">${escapeHtml(t("characters.modifyDone"))}</p>`;
+        }
+        if (els.inlineDialogConfirm) {
+          els.inlineDialogConfirm.type = "button";
+          els.inlineDialogConfirm.disabled = false;
+          els.inlineDialogConfirm.onclick = () => els.inlineDialog?.close("confirm");
+          els.inlineDialogConfirm.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("characters.takeOffDoneButton"))}`;
+        }
+        if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.modifyDone");
+        refreshIcons();
+      } catch (error) {
+        if (status) status.textContent = t("characters.createFailed", { message: error.message || String(error) });
+        if (els.inlineDialogConfirm) {
+          els.inlineDialogConfirm.disabled = false;
+          els.inlineDialogConfirm.innerHTML = `<i data-lucide="shirt"></i>${escapeHtml(t("characters.takeOff"))}`;
+          refreshIcons();
+        }
+        throw error;
+      }
+    },
+  });
 }
 
 async function openSystemCharacterModifyDialog(characterId = "") {

@@ -2052,6 +2052,24 @@ select option:checked {
   object-fit: contain;
   display: block;
 }
+.character-action-preview {
+  width: min(100%, 260px);
+  aspect-ratio: 3 / 4;
+}
+.character-action-result {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+.character-action-result img {
+  display: block;
+  width: min(100%, 320px);
+  max-height: 52vh;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(248,250,252,.86);
+  object-fit: contain;
+}
 .asset-replace-source {
   display: grid;
   gap: 8px;
