@@ -181,6 +181,8 @@ const ALIYUN_DASHSCOPE_API_KEY =
   process.env.DASHSCOPE_API_KEY ||
   process.env.BAILIAN_API_KEY ||
   "";
+const ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER = process.env.ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ||
+  '{"input":"disable", "output":"disable"}';
 const ALIYUN_WAN27_MODEL = process.env.ALIYUN_WAN27_MODEL || "wan2.7-i2v-2026-04-25";
 const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
   "auto_2K",
@@ -3740,6 +3742,7 @@ async function aliyunDashscopeRequest(pathname, { method = "POST", body = null, 
       authorization: `Bearer ${ALIYUN_DASHSCOPE_API_KEY}`,
       accept: "application/json",
       ...(body ? { "content-type": "application/json" } : {}),
+      ...(body && ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ? { "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER } : {}),
       ...(asyncTask ? { "X-DashScope-Async": "enable" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
