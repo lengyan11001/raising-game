@@ -22,6 +22,8 @@ const DEFAULT_ASSET_IMAGE_MODIFY_CREDITS = 84.3098;
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
+const DEFAULT_PLATFORM_TAB = "gallery";
+const DEFAULT_GALLERY_MODE = "hot";
 const ADVANCED_CASE_TABS = [
   { id: "hot", labelKey: "advanced.caseTab.hot" },
   { id: "extend", labelKey: "advanced.caseTab.extend" },
@@ -31,7 +33,7 @@ const ADVANCED_CASE_PAGE_SIZE = { hot: 9, extend: 3, replace: 3 };
 
 function normalizePlatformTab(value = "") {
   const normalized = String(value || "").trim().replace(/^#\/?/, "");
-  return ALL_TABS.has(normalized) ? normalized : "gallery";
+  return ALL_TABS.has(normalized) ? normalized : DEFAULT_PLATFORM_TAB;
 }
 
 function initialPlatformTab() {
@@ -45,7 +47,9 @@ const state = {
   categories: [],
   estimates: {},
   tab: initialPlatformTab(),
+  galleryMode: DEFAULT_GALLERY_MODE,
   category: "all",
+  homeCharacters: [],
   advancedCases: [],
   activeAdvancedCaseId: "",
   activeAdvancedCaseTab: "hot",
@@ -109,6 +113,7 @@ const els = {
   brandName: document.querySelector("#brandName"),
   languageSelect: document.querySelector("#languageSelect"),
   categoryRow: document.querySelector("#categoryRow"),
+  galleryModeTabs: document.querySelector("#galleryModeTabs"),
   templateGrid: document.querySelector("#templateGrid"),
   templateDialog: document.querySelector("#templateDialog"),
   modalType: document.querySelector("#modalType"),
@@ -246,8 +251,8 @@ function currentTopupCreditsEls() {
 
 const I18N = {
   en: {
-    "nav.gallery": "Gallery",
-    "nav.advanced": "Advanced",
+    "nav.gallery": "Explore",
+    "nav.advanced": "Create",
     "nav.assets": "Assets",
     "nav.access": "API Access",
     "nav.history": "History",
@@ -313,9 +318,14 @@ const I18N = {
     "hero.spending.eyebrow": "Billing",
     "hero.spending.badge": "Credits",
     "hero.gallery.badge": "Templates",
-    "gallery.title": "AI Templates",
-    "gallery.subtitle": "Choose a template, upload material, and generate a new result.",
-    "gallery.noTemplates": "No templates available yet.",
+    "gallery.title": "Video Cases",
+    "gallery.subtitle": "Start from a proven advanced case or choose a maintained character.",
+    "gallery.noTemplates": "No cases available yet.",
+    "gallery.mode.cases": "Cases",
+    "gallery.mode.characters": "Characters",
+    "gallery.character.empty": "No characters in the admin library yet.",
+    "gallery.character.use": "Use character",
+    "gallery.character.viewCases": "View cases",
     "category.featured": "Featured",
     "category.i2v": "Image to Video",
     "category.t2v": "Text to Video",
@@ -361,9 +371,9 @@ const I18N = {
   "topup.paypalCancelled": "PayPal payment cancelled.",
   "topup.paypalOrder": "PayPal order",
   "topup.provider": "Provider",
-    "advanced.models": "Advanced Models",
-    "advanced.title": "Advanced Generate",
-    "advanced.subtitle": "Use Seedance or Wan2.7 parameters after approval.",
+    "advanced.models": "Create Character Video",
+    "advanced.title": "Create from image or story",
+    "advanced.subtitle": "Upload a character image, choose a model, and start from a proven video case.",
     "advanced.promptPlaceholder": "Describe the video you want...",
     "advanced.uploadReference": "Upload reference image(s)",
     "advanced.wanMode": "Wan2.7 input",
@@ -390,8 +400,8 @@ const I18N = {
     "advanced.referenceImageTooLarge": "Each reference image must be 8MB or smaller.",
     "advanced.referenceImageTooMany": "Seedance supports up to {count} reference images.",
     "advanced.randomSeed": "Random seed",
-    "advanced.cases": "Cases",
-    "advanced.caseTitle": "Start From A Case",
+    "advanced.cases": "Video Cases",
+    "advanced.caseTitle": "Choose a video case",
     "advanced.approvalRequired": "APPROVAL REQUIRED",
     "advanced.inviteOnly": "Advanced generation is invite-only.",
     "advanced.loginFirst": "Login first, then submit an access request.",
@@ -417,8 +427,8 @@ const I18N = {
     "advanced.defaultCase": "Advanced case",
     "advanced.noCases": "No cases configured yet.",
     "advanced.usePrompt": "Use prompt",
-    "advanced.casePromptHint": "Upload one image to create a matching video.",
-    "advanced.casePromptLoaded": "{model} prompt loaded. Upload one image and generate a matching video.",
+    "advanced.casePromptHint": "One image is enough to create the same style video.",
+    "advanced.casePromptLoaded": "{model} case loaded. Upload one image and generate the same style video.",
     "advanced.casePromptFallback": "Create a matching video based on the uploaded image.",
     "advanced.caseInputVideo": "Input video",
     "advanced.caseInputImage": "Input image",
@@ -3354,10 +3364,10 @@ async function requestJson(url, options = {}) {
 
 function setTab(tab) {
   let nextTab = normalizePlatformTab(tab);
-  if (!isTabAllowed(nextTab)) nextTab = "gallery";
+  if (!isTabAllowed(nextTab)) nextTab = DEFAULT_PLATFORM_TAB;
   state.tab = nextTab;
   localStorage.setItem(TAB_KEY, nextTab);
-  const nextHash = nextTab === "gallery" ? "" : `#${nextTab}`;
+  const nextHash = nextTab === DEFAULT_PLATFORM_TAB ? "" : `#${nextTab}`;
   if (window.location.hash !== nextHash) {
     const nextUrl = `${window.location.pathname}${window.location.search}${nextHash}`;
     window.history.replaceState(null, "", nextUrl);
@@ -3394,7 +3404,13 @@ function setCategory(category) {
   renderTemplates();
 }
 
+function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
+  state.galleryMode = mode === "characters" ? "characters" : normalizeAdvancedCaseTab(mode || DEFAULT_GALLERY_MODE);
+  renderTemplates();
+}
+
 function renderCategories() {
+  if (!els.categoryRow) return;
   const visibleCategories = state.categories.filter((category) => !isHiddenCategory(category));
   const chips = [{ id: "all", name: t("common.all") }, ...visibleCategories];
   els.categoryRow.innerHTML = chips.map((category) => `
@@ -3515,6 +3531,159 @@ function bindHoverPreviewCard({ card, video, cover, fallbackCover = DEFAULT_TEMP
 function renderTemplates() {
   activeHoverPreviewStop?.();
   activeHoverPreviewStop = null;
+  renderGalleryModeTabs();
+  if (state.galleryMode === "characters") {
+    renderGalleryCharacters();
+    return;
+  }
+  renderGalleryCases();
+}
+
+function renderGalleryCases() {
+  const cases = state.advancedCases.filter((item) => item.enabled !== false);
+  const activeTab = normalizeAdvancedCaseTab(state.galleryMode);
+  const pageSize = ADVANCED_CASE_PAGE_SIZE[activeTab] || 9;
+  const entries = cases
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === activeTab)
+    .slice(0, pageSize);
+  els.templateGrid.className = `template-grid gallery-advanced-grid ${activeTab === "hot" ? "" : "is-case-list"}`;
+  els.templateGrid.innerHTML = entries.length
+    ? entries.map((entry) => (activeTab === "hot" ? renderAdvancedCaseCard(entry) : renderAdvancedCaseRow(entry))).join("")
+    : `<div class="job-note">${escapeHtml(t("gallery.noTemplates"))}</div>`;
+  bindGalleryCaseActions();
+  refreshIcons();
+}
+
+function renderGalleryCharacters() {
+  const characters = state.homeCharacters.filter((item) => item && !item.deletedAt);
+  els.templateGrid.className = "template-grid character-grid";
+  els.templateGrid.innerHTML = characters.length
+    ? characters.map(renderGalleryCharacterCard).join("")
+    : `<div class="job-note">${escapeHtml(t("gallery.character.empty"))}</div>`;
+  els.templateGrid.querySelectorAll("[data-character-use]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      useHomeCharacter(button.dataset.characterUse);
+    });
+  });
+  els.templateGrid.querySelectorAll("[data-character-cases]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setGalleryMode("hot");
+    });
+  });
+  refreshIcons();
+}
+
+function renderGalleryCharacterCard(item = {}) {
+  const videoUrl = item.videoUrl || "";
+  const poster = item.posterUrl || DEFAULT_TEMPLATE_COVER;
+  const sceneCount = Object.keys(item.homeSceneVideos || {}).length + Object.keys(item.sceneVideos || {}).length;
+  const status = item.referenceState === "ready" ? "Ready" : item.status || item.referenceState || "Draft";
+  return `
+    <article class="character-card" data-character-id="${escapeHtml(item.id || "")}">
+      <div class="character-card-media">
+        <img src="${escapeHtml(poster)}" alt="${escapeHtml(item.name || "")}" loading="lazy" />
+        ${videoUrl ? `<video src="${escapeHtml(videoUrl)}" poster="${escapeHtml(poster)}" muted loop playsinline preload="metadata"></video>` : ""}
+      </div>
+      <div class="character-card-meta">
+        <span>${escapeHtml(status)} / ${sceneCount} videos</span>
+        <strong>${escapeHtml(item.name || "Character")}</strong>
+        <p>${escapeHtml(item.title || "")}</p>
+        <div class="character-card-actions">
+          <button class="ghost-button" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.use"))}</button>
+          <button class="ghost-button" data-character-cases="${escapeHtml(item.id || "")}" type="button"><i data-lucide="clapperboard"></i>${escapeHtml(t("gallery.character.viewCases"))}</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function bindGalleryCaseActions() {
+  els.templateGrid.querySelectorAll("[data-case-index]").forEach((card) => {
+    if (!card.classList.contains("advanced-case-row")) {
+      card.addEventListener("click", () => {
+        const item = advancedCaseById(card.dataset.caseId) || state.advancedCases.filter((entry) => entry.enabled !== false)[Number(card.dataset.caseIndex || 0)];
+        fillAdvancedCase(item);
+      });
+    }
+    const isCaseRow = card.classList.contains("advanced-case-row");
+    bindHoverPreviewCard({
+      card,
+      video: isCaseRow ? null : card.querySelector(".advanced-case-hover-video"),
+      cover: isCaseRow ? null : card.querySelector(".advanced-case-cover"),
+    });
+  });
+  els.templateGrid.querySelectorAll("[data-advanced-fill-prompt-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      fillAdvancedCasePrompt(advancedCaseById(button.dataset.advancedFillPromptId));
+    });
+  });
+  els.templateGrid.querySelectorAll("[data-advanced-row-preview-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openAdvancedRowPreview(button.dataset.advancedRowPreviewId, button.dataset.advancedRowPreviewKind || "output");
+    });
+  });
+  els.templateGrid.querySelectorAll("[data-advanced-preview-index]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openAdvancedPreview(button.dataset.advancedPreviewIndex);
+    });
+  });
+}
+
+async function useHomeCharacter(characterId = "") {
+  const item = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
+  if (!item) return;
+  const imageUrl = item.posterUrl || "";
+  let dataUrl = "";
+  try {
+    dataUrl = await imageUrlToDataUrl(imageUrl);
+  } catch (error) {
+    dataUrl = "";
+  }
+  if (els.advancedProvider) els.advancedProvider.value = "seedance";
+  state.activeAdvancedCaseId = "";
+  state.advancedSeedanceVideoAssetId = "";
+  state.advancedSeedanceVideoPreviewUrl = "";
+  state.advancedReferenceImages = dataUrl ? [{
+    dataUrl,
+    previewUrl: imageUrl,
+    fileName: item.name || "Character",
+  }] : [];
+  state.advancedUploadDataUrl = dataUrl;
+  if (els.advancedPrompt && !els.advancedPrompt.value.trim()) {
+    els.advancedPrompt.value = `Use Image 1 as the main character reference. Create a cinematic video featuring ${item.name || "the character"}.`;
+  }
+  setTab("advanced");
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  if (els.advancedNote) {
+    els.advancedNote.textContent = dataUrl
+      ? `${item.name || "Character"} selected. Choose a case or generate directly.`
+      : `Failed to load ${item.name || "character"} image.`;
+  }
+}
+
+async function imageUrlToDataUrl(url = "") {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("data:")) return raw;
+  const response = await fetch(raw);
+  if (!response.ok) throw new Error(`Failed to load character image: ${response.status}`);
+  const blob = await response.blob();
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Failed to read character image."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function renderLegacyTemplates() {
   const list = state.templates.filter((template) => {
     if (isHiddenCategory({ id: template.category, name: template.category })) return false;
     if (state.category !== "all" && template.category !== state.category) return false;
@@ -3716,6 +3885,26 @@ function advancedCaseInputVideoPoster(item = {}) {
   return candidates.map((value) => String(value || "").trim()).find(Boolean) || item.sourceCoverUrl || item.localCoverUrl || item.coverUrl || item.inputImageUrl || item.sourceImageUrl || DEFAULT_TEMPLATE_COVER;
 }
 
+function renderGalleryModeTabs() {
+  if (!els.galleryModeTabs) return;
+  const modes = [
+    ...ADVANCED_CASE_TABS.map((tab) => ({
+      id: tab.id,
+      label: advancedCaseTabLabel(tab.id),
+      count: state.advancedCases.filter((item) => item.enabled !== false && normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === tab.id).length,
+    })),
+    { id: "characters", label: t("gallery.mode.characters"), count: state.homeCharacters.length },
+  ];
+  els.galleryModeTabs.innerHTML = modes.map((mode) => `
+    <button class="gallery-mode-tab ${state.galleryMode === mode.id ? "is-active" : ""}" data-gallery-mode="${escapeHtml(mode.id)}" type="button">
+      ${escapeHtml(mode.label)}<span>${escapeHtml(String(mode.count))}</span>
+    </button>
+  `).join("");
+  els.galleryModeTabs.querySelectorAll("[data-gallery-mode]").forEach((button) => {
+    button.addEventListener("click", () => setGalleryMode(button.dataset.galleryMode));
+  });
+}
+
 function advancedCaseOutputVideo(item = {}) {
   const candidates = [
     item.previewUrl,
@@ -3797,17 +3986,30 @@ function fillAdvancedCasePrompt(item = {}) {
 }
 
 function renderAdvancedCaseCard({ item, index }) {
+  const title = item.title || t("advanced.defaultCase");
+  const provider = advancedCaseProvider(item);
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  const modelName = provider === "wan27" ? "Wan2.7" : "Seedance";
+  const duration = advancedCaseDuration(item);
+  const resolution = normalizeAdvancedResolution(params.resolution || item.resolution || "720p", provider);
+  const cover = advancedCaseOutputPoster(item) || item.coverUrl || DEFAULT_TEMPLATE_COVER;
+  const preview = advancedCaseOutputVideo(item) || item.previewUrl || item.hoverPreviewUrl || "";
   return `
-    <article class="advanced-case-card" data-case-index="${index}">
-      <img class="advanced-case-cover" src="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
-      ${item.previewUrl || item.hoverPreviewUrl ? `<video class="advanced-case-hover-video" data-src="${escapeHtml(item.hoverPreviewUrl || item.previewUrl)}" poster="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
-      ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
+    <article class="advanced-case-card" data-case-index="${index}" data-case-id="${escapeHtml(item.id || "")}">
+      <img class="advanced-case-cover" src="${escapeHtml(cover)}" alt="${escapeHtml(title)}" loading="lazy" />
+      ${preview ? `<video class="advanced-case-hover-video" data-src="${escapeHtml(preview)}" poster="${escapeHtml(cover)}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
+      ${preview ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
+      <div class="advanced-case-card-meta">
+        <span>${escapeHtml(modelName)} / ${escapeHtml(resolution)} / ${escapeHtml(t("cost.seconds", { value: duration }))}</span>
+        <strong>${escapeHtml(title)}</strong>
+      </div>
     </article>
   `;
 }
 
 function renderAdvancedCaseRow({ item, index }) {
   const caseId = String(item.id || "");
+  const title = item.title || t("advanced.defaultCase");
   const inputImage = advancedCaseInputImage(item);
   const inputVideo = advancedCaseInputVideo(item);
   const inputVideoPoster = advancedCaseInputVideoPoster(item);
@@ -3826,6 +4028,7 @@ function renderAdvancedCaseRow({ item, index }) {
       <div class="advanced-case-row-arrow"><i data-lucide="arrow-right"></i></div>
       ${advancedCaseStageTile({ className: "advanced-case-row-video", imageUrl: outputPoster, videoUrl: outputVideo, label: t("advanced.caseResultVideo"), isVideo: true, caseId, previewKind: outputVideo ? "output" : "" })}
       <div class="advanced-case-row-action">
+        <strong>${escapeHtml(title)}</strong>
         <button class="ghost-button advanced-case-use-prompt" data-advanced-fill-prompt-id="${escapeHtml(caseId)}" type="button"><i data-lucide="text-cursor-input"></i>${escapeHtml(t("advanced.usePrompt"))}</button>
         <p class="advanced-case-row-hint">${escapeHtml(t("advanced.casePromptHint"))}</p>
       </div>
@@ -4192,9 +4395,9 @@ function userHasAdvancedAccess() {
 function renderAdvanced() {
   if (!els.advancedGate || !els.advancedWorkspace) return;
   if (!state.user) {
-    els.advancedWorkspace.hidden = true;
+    els.advancedWorkspace.hidden = false;
     els.advancedGate.innerHTML = `
-      <div class="permission-card">
+      <div class="permission-card permission-card-inline">
         <span class="copy-kicker"><i data-lucide="lock-keyhole"></i>${escapeHtml(t("advanced.approvalRequired"))}</span>
         <h2>${escapeHtml(t("advanced.inviteOnly"))}</h2>
         <p>${escapeHtml(t("advanced.loginFirst"))}</p>
@@ -4202,15 +4405,18 @@ function renderAdvanced() {
       </div>
     `;
     document.querySelector("#advancedLoginBtn")?.addEventListener("click", openLogin);
+    renderAdvancedCases();
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
     refreshIcons();
     return;
   }
   if (!userHasAdvancedAccess()) {
     const requested = Boolean(state.user.advancedAccessRequestedAt);
     const telegram = state.config?.platform?.advanced?.telegram || "";
-    els.advancedWorkspace.hidden = true;
+    els.advancedWorkspace.hidden = false;
     els.advancedGate.innerHTML = `
-      <div class="permission-card">
+      <div class="permission-card permission-card-inline">
         <span class="copy-kicker"><i data-lucide="shield-check"></i>${escapeHtml(t("advanced.approvalRequired"))}</span>
         <h2>${escapeHtml(requested ? t("advanced.requestSubmittedTitle") : t("advanced.requestTitle"))}</h2>
         <p>${escapeHtml(requested ? t("advanced.requestSubmittedDesc") : t("advanced.requestDesc"))}</p>
@@ -4219,6 +4425,9 @@ function renderAdvanced() {
       </div>
     `;
     document.querySelector("#requestAdvancedBtn")?.addEventListener("click", requestAdvancedAccess);
+    renderAdvancedCases();
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
     refreshIcons();
     return;
   }
@@ -5930,9 +6139,10 @@ async function bootstrap() {
   state.templates = platform.templates || [];
   state.categories = platform.categories || [];
   state.advancedCases = platform.advanced?.cases || [];
+  state.homeCharacters = payload.config?.homeVideo?.items || [];
   els.brandName.textContent = platform.brand || "Vipeak AI";
   applyTenantFeatures();
-  if (!isTabAllowed(state.tab)) state.tab = "gallery";
+  if (!isTabAllowed(state.tab)) state.tab = DEFAULT_PLATFORM_TAB;
   renderCategories();
   renderTemplates();
   renderAccessGuides();
