@@ -3732,6 +3732,10 @@ function isGenericCharacterPoster(url = "") {
   return !value || value.includes("/assets/admin/home/default-hero.") || value.includes("/assets/placeholders/") || value === DEFAULT_TEMPLATE_COVER.toLowerCase();
 }
 
+function isVideoMediaUrl(url = "") {
+  return /\.(?:mp4|webm|mov|m4v)(?:[?#].*)?$/i.test(String(url || "").trim());
+}
+
 function adminHomeCoverFromVideoUrl(videoUrl = "") {
   const raw = String(videoUrl || "").split("?")[0].trim();
   const match = raw.match(/\/assets\/generated\/videos\/([^/?#]+)\.(?:mp4|webm|mov|m4v)$/i);
@@ -3757,10 +3761,10 @@ function characterPosterUrl(item = {}) {
     item.imageUrl,
     item.coverUrl,
     item.thumbnailUrl,
+    ...videoPosterCandidates(mainVideo),
     item.homeSceneVideos && Object.values(item.homeSceneVideos).find(Boolean)?.posterUrl,
     item.sceneVideos && Object.values(item.sceneVideos).find(Boolean)?.posterUrl,
     item.unlockVideos && Object.values(item.unlockVideos).find(Boolean)?.posterUrl,
-    ...videoPosterCandidates(mainVideo),
   ];
   return uniqueTruthy(candidates).find((value) => !isGenericCharacterPoster(value)) || (mainVideo ? "" : DEFAULT_TEMPLATE_COVER);
 }
@@ -3849,13 +3853,17 @@ function characterVideoTitle(video = {}, fallback = "") {
 function characterVideoPoster(video = {}, character = {}) {
   const videoUrl = video.videoUrl || video.localVideoUrl || video.remoteVideoUrl || "";
   const candidates = [
-    video.posterUrl,
+    video.outputPosterUrl,
+    video.resultPosterUrl,
     video.localPosterUrl,
     video.coverUrl,
+    video.thumbnailUrl,
     ...videoPosterCandidates(videoUrl),
-    characterPosterUrl(character),
   ];
-  return uniqueTruthy(candidates).find((value) => !isGenericCharacterPoster(value)) || (videoUrl ? "" : DEFAULT_TEMPLATE_COVER);
+  const poster = uniqueTruthy(candidates).find((value) => !isGenericCharacterPoster(value));
+  if (poster) return poster;
+  if (videoUrl) return "";
+  return uniqueTruthy([video.posterUrl, characterPosterUrl(character), DEFAULT_TEMPLATE_COVER]).find(Boolean) || DEFAULT_TEMPLATE_COVER;
 }
 
 function renderSmartCoverMedia({ className = "", posterUrl = "", videoUrl = "", fallbackUrl = DEFAULT_TEMPLATE_COVER, alt = "" } = {}) {
@@ -3978,6 +3986,55 @@ function playCharacterVideo(video = {}, title = "") {
   playPreview({ title, previewUrl: url, ratio: video.ratio || "9:16" });
 }
 
+function bindGalleryCoverVideo(video) {
+  if (!video || video.dataset.coverBound) return;
+  video.dataset.coverBound = "1";
+  const fallback = video.dataset.videoCoverFallback || DEFAULT_TEMPLATE_COVER;
+  const captureFrame = () => {
+    if (video.dataset.coverReady || !video.videoWidth || !video.videoHeight) return;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext("2d");
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      video.poster = canvas.toDataURL("image/jpeg", 0.84);
+      video.dataset.coverReady = "1";
+    } catch (error) {}
+  };
+  video.addEventListener("loadedmetadata", () => {
+    try {
+      video.currentTime = Math.min(0.2, Math.max(0, Number(video.duration || 0) / 10 || 0.2));
+    } catch (error) {}
+  }, { once: true });
+  video.addEventListener("loadeddata", captureFrame, { once: true });
+  video.addEventListener("seeked", captureFrame, { once: true });
+  video.addEventListener("error", () => {
+    const img = document.createElement("img");
+    img.className = video.className;
+    img.src = fallback || DEFAULT_TEMPLATE_COVER;
+    img.alt = video.getAttribute("aria-label") || "";
+    img.loading = "lazy";
+    video.replaceWith(img);
+  }, { once: true });
+  video.load();
+}
+
+function replaceImageWithCoverVideo(img, videoUrl = "", fallback = DEFAULT_TEMPLATE_COVER) {
+  if (!img || !videoUrl) return false;
+  const video = document.createElement("video");
+  video.className = img.className;
+  video.src = videoUrl;
+  video.setAttribute("aria-label", img.alt || "");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "metadata";
+  video.dataset.videoCoverFallback = fallback || DEFAULT_TEMPLATE_COVER;
+  img.replaceWith(video);
+  bindGalleryCoverVideo(video);
+  return true;
+}
+
 function bindGalleryImageFallbacks(root = els.templateGrid) {
   root?.querySelectorAll?.("img[data-cover-fallback]")?.forEach((img) => {
     const fallback = img.dataset.coverFallback || DEFAULT_TEMPLATE_COVER;
@@ -3985,10 +4042,11 @@ function bindGalleryImageFallbacks(root = els.templateGrid) {
     const applyFallback = () => {
       const current = img.getAttribute("src") || "";
       if (fallback && current !== fallback) {
-        img.src = fallback;
-        if (fallback.match(/\.(?:mp4|webm|mov|m4v)(?:[?#].*)?$/i)) {
-          img.dataset.coverFallback = finalFallback;
+        if (isVideoMediaUrl(fallback)) {
+          replaceImageWithCoverVideo(img, fallback, finalFallback);
+          return;
         }
+        img.src = fallback;
       } else if (finalFallback && current !== finalFallback) {
         img.src = finalFallback;
       }
@@ -3996,35 +4054,7 @@ function bindGalleryImageFallbacks(root = els.templateGrid) {
     img.addEventListener("error", applyFallback);
     if (img.complete && img.naturalWidth === 0) applyFallback();
   });
-  root?.querySelectorAll?.("video[data-video-cover-fallback]")?.forEach((video) => {
-    const fallback = video.dataset.videoCoverFallback || DEFAULT_TEMPLATE_COVER;
-    const captureFrame = () => {
-      if (video.dataset.coverReady || !video.videoWidth || !video.videoHeight) return;
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const context = canvas.getContext("2d");
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        video.poster = canvas.toDataURL("image/jpeg", 0.84);
-        video.dataset.coverReady = "1";
-      } catch (error) {}
-    };
-    video.addEventListener("loadeddata", captureFrame, { once: true });
-    video.addEventListener("seeked", captureFrame, { once: true });
-    video.addEventListener("error", () => {
-      const img = document.createElement("img");
-      img.className = video.className;
-      img.src = fallback;
-      img.alt = video.getAttribute("aria-label") || "";
-      img.loading = "lazy";
-      video.replaceWith(img);
-    }, { once: true });
-    try {
-      video.currentTime = Math.min(0.2, Math.max(0, Number(video.duration || 0) / 10 || 0.2));
-    } catch (error) {}
-    video.load();
-  });
+  root?.querySelectorAll?.("video[data-video-cover-fallback]")?.forEach(bindGalleryCoverVideo);
 }
 
 function bindGalleryCaseActions() {
