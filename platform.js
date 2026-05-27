@@ -3927,7 +3927,7 @@ async function openSystemCharacterTakeOffDialog(characterId = "") {
   const character = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
   if (!character) return;
   if (!state.user) return openLogin();
-  const poster = characterPosterUrl(character) || DEFAULT_TEMPLATE_COVER;
+  const poster = characterReferenceImageUrl(character) || DEFAULT_TEMPLATE_COVER;
   await showInlineDialog({
     title: t("characters.takeOff"),
     body: `
@@ -4128,21 +4128,41 @@ function videoPosterCandidates(videoUrl = "") {
 
 function characterPosterUrl(item = {}) {
   const mainVideo = characterMainVideoUrl(item);
-  const candidates = [
-    item.posterUrl,
-    item.localImageUrl,
+  const imageCandidates = [
     item.sourceImageUrl,
+    item.localImageUrl,
+    item.posterUrl,
     item.syntheticReferenceLocalUrl,
     item.publicImageUrl,
     item.imageUrl,
     item.coverUrl,
     item.thumbnailUrl,
+  ];
+  const imagePoster = uniqueTruthy(imageCandidates).find((value) => !isVideoMediaUrl(value) && !isGenericCharacterPoster(value));
+  if (imagePoster) return imagePoster;
+  const fallbackImage = uniqueTruthy(imageCandidates).find((value) => !isVideoMediaUrl(value));
+  if (fallbackImage) return fallbackImage;
+  const candidates = [
     ...videoPosterCandidates(mainVideo),
     item.homeSceneVideos && Object.values(item.homeSceneVideos).find(Boolean)?.posterUrl,
     item.sceneVideos && Object.values(item.sceneVideos).find(Boolean)?.posterUrl,
     item.unlockVideos && Object.values(item.unlockVideos).find(Boolean)?.posterUrl,
   ];
   return uniqueTruthy(candidates).find((value) => !isGenericCharacterPoster(value)) || (mainVideo ? "" : DEFAULT_TEMPLATE_COVER);
+}
+
+function characterReferenceImageUrl(item = {}) {
+  const candidates = [
+    item.sourceImageUrl,
+    item.localImageUrl,
+    item.posterUrl,
+    item.syntheticReferenceLocalUrl,
+    item.publicImageUrl,
+    item.imageUrl,
+    item.coverUrl,
+    item.thumbnailUrl,
+  ];
+  return uniqueTruthy(candidates).find((value) => !isVideoMediaUrl(value)) || characterPosterUrl(item) || DEFAULT_TEMPLATE_COVER;
 }
 
 function characterMainVideoUrl(item = {}) {
@@ -4473,7 +4493,7 @@ function bindGalleryCaseActions() {
 async function useHomeCharacter(characterId = "") {
   const item = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
   if (!item) return;
-  const imageUrl = characterPosterUrl(item);
+  const imageUrl = characterReferenceImageUrl(item);
   let dataUrl = "";
   try {
     dataUrl = await imageUrlToDataUrl(imageUrl);

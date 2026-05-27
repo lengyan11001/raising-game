@@ -9692,10 +9692,10 @@ async function localAssetUrlExists(value = "") {
 
 async function systemCharacterImageUrl(item = {}) {
   const candidates = [
-    item.posterUrl,
-    item.localImageUrl,
-    item.syntheticReferenceLocalUrl,
     item.sourceImageUrl,
+    item.localImageUrl,
+    item.posterUrl,
+    item.syntheticReferenceLocalUrl,
     item.publicImageUrl,
     item.imageUrl,
     item.coverUrl,
