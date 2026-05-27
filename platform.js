@@ -3,7 +3,7 @@
 const TOKEN_KEY = "raisingGameToken";
 const LANG_KEY = "raisingGameLanguage";
 const TAB_KEY = "raisingGamePlatformTab";
-const ALL_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending"]);
+const ALL_TABS = new Set(["gallery", "characters", "advanced", "assets", "access", "history", "topups", "spending"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
@@ -120,6 +120,11 @@ const els = {
   categoryRow: document.querySelector("#categoryRow"),
   galleryModeTabs: document.querySelector("#galleryModeTabs"),
   templateGrid: document.querySelector("#templateGrid"),
+  characterGrid: document.querySelector("#characterGrid"),
+  characterCreatePrompt: document.querySelector("#characterCreatePrompt"),
+  characterCreateBtn: document.querySelector("#characterCreateBtn"),
+  characterCreateCost: document.querySelector("#characterCreateCost"),
+  characterCreateStatus: document.querySelector("#characterCreateStatus"),
   templateDialog: document.querySelector("#templateDialog"),
   modalType: document.querySelector("#modalType"),
   modalTitle: document.querySelector("#modalTitle"),
@@ -257,6 +262,7 @@ function currentTopupCreditsEls() {
 const I18N = {
   en: {
     "nav.gallery": "Explore",
+    "nav.characters": "Characters",
     "nav.advanced": "Create",
     "nav.assets": "Assets",
     "nav.access": "API Access",
@@ -344,6 +350,24 @@ const I18N = {
     "gallery.character.unlocking": "Unlocking...",
     "gallery.character.unlockFailed": "Unlock failed: {message}",
     "gallery.character.unlockReady": "Scene unlocked.",
+    "characters.eyebrow": "Characters",
+    "characters.title": "System Characters",
+    "characters.subtitle": "Use a maintained character or generate your own role image.",
+    "characters.createEyebrow": "Wan2.7 Image Pro",
+    "characters.createTitle": "Create character",
+    "characters.createPlaceholder": "Describe the character's age, face, body, hairstyle, outfit and style...",
+    "characters.createButton": "Create character",
+    "characters.createLogin": "Login to create characters.",
+    "characters.creating": "Creating character...",
+    "characters.created": "Character saved to assets.",
+    "characters.createFailed": "Create failed: {message}",
+    "characters.takeOff": "Take off",
+    "characters.modify": "Modify",
+    "characters.modifyTitle": "Modify character",
+    "characters.modifyPlaceholder": "Describe what to change while preserving this character...",
+    "characters.takeOffPrompt": "Take off all clothes.",
+    "characters.useReady": "{name} selected.",
+    "characters.modifyDone": "Modified image saved to assets.",
     "category.featured": "Featured",
     "category.i2v": "Image to Video",
     "category.t2v": "Text to Video",
@@ -2675,6 +2699,8 @@ function applyLanguage() {
   applyTenantFeatures();
   renderCategories();
   renderTemplates();
+  renderGalleryCharacters(els.characterGrid);
+  bindCharacterCreator();
   renderAccessGuides();
   renderAdvanced();
   renderAssets();
@@ -2726,7 +2752,7 @@ function setUser(user, { refreshHistory = false } = {}) {
   if (state.tab === "spending") loadSpendingRecords(1);
   if (state.tab === "assets") loadUserAssets();
   if (state.tab === "access") loadApiSubtokens({ force: true });
-  if (state.tab === "gallery" && state.galleryMode === "characters" && state.activeGalleryCharacterId) loadGalleryUnlocks();
+  if (state.tab === "characters" && state.activeGalleryCharacterId) loadGalleryUnlocks();
   if (refreshHistory && state.tab === "history") loadHistory();
   if (previousMultiplier !== nextMultiplier) {
     state.advancedEstimate = null;
@@ -3492,7 +3518,11 @@ function setTab(tab) {
     if (state.user) loadUserAssets();
     else renderAssets([]);
   }
-  if (nextTab === "gallery" && state.galleryMode === "characters" && state.activeGalleryCharacterId) loadGalleryUnlocks();
+  if (nextTab === "characters") {
+    renderGalleryCharacters(els.characterGrid);
+    bindCharacterCreator();
+    loadGalleryUnlocks();
+  }
   if (nextTab === "access") loadApiSubtokens();
   closeAccountMenu();
 }
@@ -3504,8 +3534,7 @@ function setCategory(category) {
 }
 
 function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
-  state.galleryMode = mode === "characters" ? "characters" : normalizeAdvancedCaseTab(mode || DEFAULT_GALLERY_MODE);
-  if (state.galleryMode !== "characters") state.activeGalleryCharacterId = "";
+  state.galleryMode = normalizeAdvancedCaseTab(mode || DEFAULT_GALLERY_MODE);
   renderTemplates();
 }
 
@@ -3631,10 +3660,6 @@ function renderTemplates() {
   activeHoverPreviewStop?.();
   activeHoverPreviewStop = null;
   renderGalleryModeTabs();
-  if (state.galleryMode === "characters") {
-    renderGalleryCharacters();
-    return;
-  }
   renderGalleryCases();
 }
 
@@ -3654,34 +3679,59 @@ function renderGalleryCases() {
   refreshIcons();
 }
 
-function renderGalleryCharacters() {
+function renderGalleryCharacters(root = els.templateGrid) {
+  if (!root) return;
   const characters = state.homeCharacters.filter((item) => item && !item.deletedAt);
   const activeCharacter = state.activeGalleryCharacterId
     ? characters.find((item) => String(item.id || "") === String(state.activeGalleryCharacterId || ""))
     : null;
   if (activeCharacter) {
-    renderGalleryCharacterDetail(activeCharacter);
+    renderGalleryCharacterDetail(activeCharacter, root);
     return;
   }
   state.activeGalleryCharacterId = "";
-  els.templateGrid.className = "template-grid character-grid";
-  els.templateGrid.innerHTML = characters.length
+  root.className = "template-grid character-grid character-grid-main";
+  root.innerHTML = characters.length
     ? characters.map(renderGalleryCharacterCard).join("")
     : `<div class="job-note">${escapeHtml(t("gallery.character.empty"))}</div>`;
-  bindGalleryImageFallbacks();
-  els.templateGrid.querySelectorAll("[data-character-use]").forEach((button) => {
+  bindGalleryImageFallbacks(root);
+  root.querySelectorAll("[data-character-use]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       useHomeCharacter(button.dataset.characterUse);
     });
   });
-  els.templateGrid.querySelectorAll("[data-character-cases]").forEach((button) => {
+  root.querySelectorAll("[data-character-cases]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       openGalleryCharacter(button.dataset.characterCases);
     });
   });
-  els.templateGrid.querySelectorAll("[data-character-id]").forEach((card) => {
+  root.querySelectorAll("[data-character-takeoff]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const originalHtml = button.innerHTML;
+      button.disabled = true;
+      button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("characters.takeOff"))}`;
+      refreshIcons();
+      try {
+        await modifySystemCharacter(button.dataset.characterTakeoff, { mode: "take_off" });
+      } catch (error) {
+        if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.createFailed", { message: error.message || String(error) });
+      } finally {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+        refreshIcons();
+      }
+    });
+  });
+  root.querySelectorAll("[data-character-modify]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openSystemCharacterModifyDialog(button.dataset.characterModify);
+    });
+  });
+  root.querySelectorAll("[data-character-id]").forEach((card) => {
     card.addEventListener("click", (event) => {
       if (isInteractiveTarget(event.target)) return;
       openGalleryCharacter(card.dataset.characterId);
@@ -3710,6 +3760,8 @@ function renderGalleryCharacterCard(item = {}) {
         <p>${escapeHtml(item.title || "")}</p>
         <div class="character-card-actions">
           <button class="ghost-button" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.use"))}</button>
+          <button class="ghost-button" data-character-takeoff="${escapeHtml(item.id || "")}" type="button"><i data-lucide="shirt"></i>${escapeHtml(t("characters.takeOff"))}</button>
+          <button class="copy-btn" data-character-modify="${escapeHtml(item.id || "")}" type="button"><i data-lucide="wand-sparkles"></i>${escapeHtml(t("characters.modify"))}</button>
           <button class="primary-button compact" data-character-cases="${escapeHtml(item.id || "")}" type="button"><i data-lucide="clapperboard"></i>${escapeHtml(t("gallery.character.viewCases"))}</button>
         </div>
       </div>
@@ -3717,12 +3769,107 @@ function renderGalleryCharacterCard(item = {}) {
   `;
 }
 
+function bindCharacterCreator() {
+  if (!els.characterCreateBtn) return;
+  if (els.characterCreateCost) els.characterCreateCost.textContent = assetImageModifyCostLabel();
+}
+
+async function createCharacterFromPrompt() {
+  if (!state.user) return openLogin();
+  const prompt = els.characterCreatePrompt?.value.trim() || "";
+  if (!prompt) {
+    if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("advanced.promptRequired");
+    return;
+  }
+  const button = els.characterCreateBtn;
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("characters.creating"))}`;
+    refreshIcons();
+  }
+  if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.creating");
+  try {
+    const payload = await requestJson("/api/characters/generate", {
+      method: "POST",
+      body: { prompt },
+    });
+    if (payload.user) setUser(payload.user);
+    if (payload.asset) {
+      state.userAssets = [payload.asset, ...(state.userAssets || []).filter((item) => item.id !== payload.asset.id)];
+    }
+    if (payload.record) {
+      state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
+    }
+    if (els.characterCreatePrompt) els.characterCreatePrompt.value = "";
+    if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.created");
+    await loadUserAssets(1).catch(() => {});
+    await loadHistory({ silent: true }).catch(() => {});
+  } catch (error) {
+    if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.createFailed", { message: error.message || String(error) });
+    window.setTimeout(() => loadHistory({ silent: true }), 300);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }
+  }
+}
+
+async function modifySystemCharacter(characterId = "", { mode = "modify", prompt = "" } = {}) {
+  if (!state.user) return openLogin();
+  const body = mode === "take_off"
+    ? { mode: "take_off", prompt: prompt || t("characters.takeOffPrompt") }
+    : { mode: "modify", prompt };
+  const payload = await requestJson(`/api/characters/${encodeURIComponent(characterId)}/modify`, {
+    method: "POST",
+    body,
+  });
+  if (payload.user) setUser(payload.user);
+  if (payload.asset) {
+    state.userAssets = [payload.asset, ...(state.userAssets || []).filter((item) => item.id !== payload.asset.id)];
+  }
+  if (payload.record) {
+    state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
+  }
+  await loadUserAssets(1).catch(() => {});
+  await loadHistory({ silent: true }).catch(() => {});
+  return payload;
+}
+
+async function openSystemCharacterModifyDialog(characterId = "") {
+  const character = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
+  if (!character) return;
+  if (!state.user) return openLogin();
+  await showInlineDialog({
+    title: t("characters.modifyTitle"),
+    body: `
+      <div class="asset-generate-form">
+        <label class="field"><span>${escapeHtml(t("field.prompt"))}</span><textarea id="characterModifyPrompt" rows="5" placeholder="${escapeHtml(t("characters.modifyPlaceholder"))}"></textarea></label>
+        <p class="job-note">${escapeHtml(assetImageModifyCostLabel())}</p>
+        <p class="job-note" id="characterModifyStatus"></p>
+      </div>
+    `,
+    confirmText: t("characters.modify"),
+    dialogClass: "is-media-action",
+    onConfirm: async (root) => {
+      const prompt = root.querySelector("#characterModifyPrompt")?.value.trim() || "";
+      if (!prompt) throw new Error(t("advanced.promptRequired"));
+      const status = root.querySelector("#characterModifyStatus");
+      if (status) status.textContent = t("assets.generating");
+      await modifySystemCharacter(characterId, { mode: "modify", prompt });
+      if (status) status.textContent = t("characters.modifyDone");
+    },
+  });
+}
+
 function openGalleryCharacter(characterId = "") {
   const item = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
   if (!item) return;
-  state.galleryMode = "characters";
   state.activeGalleryCharacterId = item.id || "";
-  renderTemplates();
+  if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+  else renderTemplates();
   loadGalleryUnlocks();
 }
 
@@ -3731,7 +3878,10 @@ async function loadGalleryUnlocks() {
     state.galleryUnlocks = [];
     state.galleryUnlocksLoaded = false;
     state.galleryUnlockMessage = "";
-    if (state.tab === "gallery" && state.galleryMode === "characters" && state.activeGalleryCharacterId) renderTemplates();
+    if (state.activeGalleryCharacterId && (state.tab === "gallery" || state.tab === "characters")) {
+      if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+      else renderTemplates();
+    }
     return;
   }
   try {
@@ -3739,11 +3889,17 @@ async function loadGalleryUnlocks() {
     state.galleryUnlocks = payload.unlocks || [];
     state.galleryUnlocksLoaded = true;
     state.galleryUnlockMessage = "";
-    if (state.tab === "gallery" && state.galleryMode === "characters" && state.activeGalleryCharacterId) renderTemplates();
+    if (state.activeGalleryCharacterId && (state.tab === "gallery" || state.tab === "characters")) {
+      if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+      else renderTemplates();
+    }
   } catch (error) {
     state.galleryUnlockMessage = error.message || "";
     state.galleryUnlocksLoaded = false;
-    if (state.tab === "gallery" && state.galleryMode === "characters" && state.activeGalleryCharacterId) renderTemplates();
+    if (state.activeGalleryCharacterId && (state.tab === "gallery" || state.tab === "characters")) {
+      if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+      else renderTemplates();
+    }
   }
 }
 
@@ -3948,13 +4104,14 @@ function renderSmartCoverMedia({ className = "", posterUrl = "", videoUrl = "", 
   return `<img class="${escapeHtml(className)}" src="${escapeHtml(fallback)}" alt="${escapeHtml(alt)}" loading="lazy" />`;
 }
 
-function renderGalleryCharacterDetail(item = {}) {
+function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
   const roleVideos = characterRoleVideos(item);
   const sceneVideos = characterSceneVideos(item);
   const unlockVideos = characterUnlockVideos(item);
   const poster = characterPosterUrl(item);
-  els.templateGrid.className = "template-grid character-detail";
-  els.templateGrid.innerHTML = `
+  if (!root) return;
+  root.className = "template-grid character-detail";
+  root.innerHTML = `
     <section class="character-detail-hero">
       <button class="ghost-button character-back" data-character-back type="button"><i data-lucide="chevron-left"></i>${escapeHtml(t("gallery.character.back"))}</button>
       <div class="character-detail-profile">
@@ -3971,21 +4128,22 @@ function renderGalleryCharacterDetail(item = {}) {
     ${renderCharacterVideoSection(t("gallery.character.roleVideos"), roleVideos, item)}
     ${renderCharacterVideoSection(t("gallery.character.sceneVideos"), [...sceneVideos, ...unlockVideos], item)}
   `;
-  els.templateGrid.querySelector("[data-character-back]")?.addEventListener("click", () => {
+  root.querySelector("[data-character-back]")?.addEventListener("click", () => {
     state.activeGalleryCharacterId = "";
-    renderTemplates();
+    if (state.tab === "characters") renderGalleryCharacters(root);
+    else renderTemplates();
   });
-  els.templateGrid.querySelector("[data-character-use]")?.addEventListener("click", () => useHomeCharacter(item.id || ""));
-  els.templateGrid.querySelectorAll("[data-character-play]").forEach((button) => {
+  root.querySelector("[data-character-use]")?.addEventListener("click", () => useHomeCharacter(item.id || ""));
+  root.querySelectorAll("[data-character-play]").forEach((button) => {
     button.addEventListener("click", () => {
       const video = findGalleryCharacterVideo(item, button.dataset.characterPlay, button.dataset.characterSceneEntry);
       if (video) playCharacterVideo(video, characterVideoTitle(video, item.name));
     });
   });
-  els.templateGrid.querySelectorAll("[data-character-unlock]").forEach((button) => {
+  root.querySelectorAll("[data-character-unlock]").forEach((button) => {
     button.addEventListener("click", () => unlockGallerySceneVideo(item.id || "", button.dataset.characterUnlock, button.dataset.characterSceneEntry || "default"));
   });
-  bindGalleryImageFallbacks();
+  bindGalleryImageFallbacks(root);
   refreshIcons();
 }
 
@@ -4413,15 +4571,13 @@ function advancedCaseInputVideoPoster(item = {}) {
 
 function renderGalleryModeTabs() {
   if (!els.galleryModeTabs) return;
-  const activeMode = state.galleryMode === "characters" || state.activeGalleryCharacterId ? "characters" : state.galleryMode;
-  const visibleCharacters = state.homeCharacters.filter((item) => item && !item.deletedAt);
+  const activeMode = state.galleryMode;
   const modes = [
     ...ADVANCED_CASE_TABS.map((tab) => ({
       id: tab.id,
       label: advancedCaseTabLabel(tab.id),
       count: state.advancedCases.filter((item) => item.enabled !== false && normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === tab.id).length,
     })),
-    { id: "characters", label: t("gallery.mode.characters"), count: visibleCharacters.length },
   ];
   els.galleryModeTabs.innerHTML = modes.map((mode) => `
     <button class="gallery-mode-tab ${activeMode === mode.id ? "is-active" : ""}" data-gallery-mode="${escapeHtml(mode.id)}" type="button">
@@ -6771,6 +6927,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
 els.refreshHistoryBtn?.addEventListener("click", () => loadHistory({ refresh: true }));
 els.refreshAssetsBtn?.addEventListener("click", () => loadUserAssets(state.userAssetsPage || 1));
+els.characterCreateBtn?.addEventListener("click", createCharacterFromPrompt);
 els.assetSearch?.addEventListener("input", () => {
   window.clearTimeout(state.assetSearchTimer);
   state.assetSearchTimer = window.setTimeout(() => loadUserAssets(1), 250);

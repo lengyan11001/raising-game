@@ -3912,6 +3912,33 @@ async function submitWan27ImageModify({ imageUrl, prompt, ratio = "9:16", resolu
   return { task: await resolveWan27ImageResult(raw), payload, raw };
 }
 
+async function submitWan27ImageTextGenerate({ prompt, ratio = "9:16", resolution = "2K", model = WAN27_IMAGE_PRO_MODEL } = {}) {
+  const payload = {
+    model: model || WAN27_IMAGE_PRO_MODEL,
+    input: {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { text: prompt },
+          ],
+        },
+      ],
+    },
+    parameters: {
+      size: wan27ImageSize(resolution, ratio),
+      n: 1,
+      watermark: false,
+    },
+  };
+  const raw = await aliyunDashscopeRequest("/api/v1/services/aigc/image-generation/generation", {
+    method: "POST",
+    body: payload,
+    asyncTask: true,
+  });
+  return { task: await resolveWan27ImageResult(raw), payload, raw };
+}
+
 async function refreshWan27GenerationRecord(record = {}, { download = false, reason = "query" } = {}) {
   const queryTaskId = record.upstreamTaskId || record.taskId;
   if (!queryTaskId) return record;
@@ -9611,12 +9638,384 @@ function wan27ImageModifyPricing(config = {}, user = null) {
   return user ? applyUserPricingToEstimate(raw, user) : raw;
 }
 
+function composeWan27CharacterPrompt(userPrompt = "", { mode = "create" } = {}) {
+  const core = String(userPrompt || "").trim();
+  const base = [
+    "Create one realistic full-body adult character portrait.",
+    "The character must be clearly over 21 years old, natural human anatomy, consistent face identity, cinematic fashion photography, clean background, full body visible from head to shoes.",
+    "High detail skin texture, natural lighting, professional camera, no text, no watermark, no logo.",
+  ].join(" ");
+  const suffix = "Avoid minors, childlike features, distorted face, deformed hands, extra fingers, extra limbs, cropped body, blurry image, low resolution, text, watermark, logo.";
+  if (mode === "take_off") {
+    return `${base} Use the reference character identity. Modify the image so the character has taken off all clothing while keeping the same face, pose direction, body proportions and realistic photographic style. ${core ? `User detail: ${core}` : ""} ${suffix}`.trim();
+  }
+  if (mode === "modify") {
+    return `${base} Use the reference character identity. Apply this modification while preserving the same person: ${core}. ${suffix}`.trim();
+  }
+  return `${base} Character description: ${core}. ${suffix}`.trim();
+}
+
+function systemCharacterImageUrl(item = {}) {
+  return characterPosterUrl(item) || item.localImageUrl || item.publicImageUrl || item.imageUrl || item.coverUrl || "";
+}
+
+async function handleGenerateUserCharacterImage(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!ALIYUN_DASHSCOPE_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
+  }
+  const body = await readJson(req);
+  const userPrompt = String(body.prompt || "").trim();
+  if (!userPrompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+
+  const config = await readAppConfig();
+  const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
+  const ratio = normalizeWan27ImageRatio(body.ratio || pricingConfig.defaultRatio || "9:16");
+  const resolution = normalizeWan27ImageResolution(body.resolution || pricingConfig.defaultResolution || "2K");
+  const pricing = wan27ImageModifyPricing(config, auth.user);
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+
+  const taskId = localGenerationTaskId("char");
+  const model = pricingConfig.model || WAN27_IMAGE_PRO_MODEL;
+  const prompt = composeWan27CharacterPrompt(userPrompt, { mode: "create" });
+  const initialRecord = {
+    taskId,
+    status: "submitting",
+    model,
+    source: "character-image-generate",
+    kind: "character-image",
+    provider: "aliyun-wan27-image",
+    userId: auth.user.id,
+    prompt: userPrompt,
+    finalPrompt: prompt,
+    params: { provider: "wan27-image", model, ratio, resolution, action: "character_create" },
+    ratio,
+    resolution,
+    preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
+    finalCredits: null,
+    originalFinalCredits: null,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+    billingStatus: cost > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
+    pricingEstimate: pricing,
+    awaitingUpstreamTask: true,
+    upstreamPayload: null,
+    createResponse: null,
+    remoteImageUrl: "",
+    localImageUrl: "",
+    error: "",
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
+  };
+  await updateAssetImageModifyRecord(taskId, initialRecord, "character-image-create");
+  if (cost > 0) {
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "character_image_generate",
+      taskId,
+      meta: { taskId, model, ratio, resolution, baseCredits: pricing.baseCredits, originalCost: pricing.originalCredits, pricingMultiplier: pricing.userPricingMultiplier },
+    });
+    await writeDb(auth.db);
+  }
+
+  try {
+    const submitted = await submitWan27ImageTextGenerate({ prompt, ratio, resolution, model });
+    const imageUrl = submitted.task.imageUrls[0];
+    await updateAssetImageModifyRecord(taskId, {
+      upstreamTaskId: submitted.task.taskId || "",
+      awaitingUpstreamTask: false,
+      status: imageUrl ? (submitted.task.status || "succeeded") : "failed",
+      upstreamPayload: submitted.payload,
+      createResponse: submitted.raw,
+      remoteImageUrl: imageUrl || "",
+      error: imageUrl ? "" : (submitted.task.error || "Wan2.7 character image returned no image."),
+    }, "character-image-submit");
+    if (!imageUrl) {
+      const error = new Error(submitted.task.error || "Wan2.7 character image returned no image.");
+      error.statusCode = 502;
+      error.payload = submitted.raw;
+      throw error;
+    }
+    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "character image", maxBytes: 20 * 1024 * 1024 });
+    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+    const newAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
+      bytes: downloaded.bytes,
+      mime,
+      name: "AI character",
+      fileName: `${taskId}${imageExtFromMime(mime)}`,
+      maxBytes: 20 * 1024 * 1024,
+    });
+    newAsset.characterPrompt = userPrompt;
+    newAsset.characterFinalPrompt = prompt;
+    newAsset.characterModel = model;
+    newAsset.characterTaskId = submitted.task.taskId || taskId;
+    newAsset.characterParams = { ratio, resolution, action: "create" };
+    newAsset.updatedAt = new Date().toISOString();
+    auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
+    await writeDb(auth.db);
+    const publicNewAsset = publicUserAsset(newAsset);
+    await updateAssetImageModifyRecord(taskId, {
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      imageResultUrl: publicNewAsset.previewUrl,
+      localImageUrl: publicNewAsset.localUrl,
+      cdnImageUrl: publicNewAsset.publicUrl && publicNewAsset.publicUrl !== publicNewAsset.localUrl ? publicNewAsset.publicUrl : "",
+      remoteImageUrl: imageUrl,
+      resultAssetId: newAsset.id,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits ?? cost,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: new Date().toISOString(),
+      error: "",
+    }, "character-image-succeeded");
+    const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    return sendJson(res, 200, {
+      ok: true,
+      taskId,
+      upstreamTaskId: submitted.task.taskId || "",
+      asset: publicNewAsset,
+      user: userView(latestUser),
+      pricing,
+      cost,
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
+      params: { ratio, resolution, model },
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    console.warn("[character-image-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
+    if (cost > 0) {
+      try {
+        const db = await readDb();
+        changeUserCredits(db, auth.user.id, cost, "character_image_generate_refund", { taskId, error: error.message || "Wan2.7 character image failed." });
+        await recordSubtokenAdjustment(auth, { taskId, type: "character_image_generate_refund", amount: -cost, meta: { error: error.message || "Wan2.7 character image failed." } });
+        await writeDb(db);
+      } catch (refundError) {
+        console.error("[character-image-refund-failed]", refundError.message || refundError);
+      }
+    }
+    await updateAssetImageModifyRecord(taskId, {
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || "Wan2.7 character image failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    }, "character-image-failed");
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      message: error.message || "Wan2.7 character image failed.",
+      code: error.code || "",
+      taskId,
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
+      payload: error.payload || null,
+    });
+  }
+}
+
+async function handleModifySystemCharacterImage(req, res, characterId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!ALIYUN_DASHSCOPE_API_KEY) return sendJson(res, 503, { ok: false, message: "DashScope API key is not configured." });
+  const config = await readAppConfig();
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const character = findHomeVideoItem(config.homeVideo, characterId);
+  if (!character || isSoftDeleted(character)) return sendJson(res, 404, { ok: false, message: "Character not found." });
+  const imageUrl = systemCharacterImageUrl(character);
+  if (!imageUrl) return sendJson(res, 400, { ok: false, message: "Character has no image." });
+
+  const body = await readJson(req);
+  const mode = String(body.mode || "modify").trim().toLowerCase();
+  const userPrompt = String(body.prompt || "").trim();
+  const prompt = composeWan27CharacterPrompt(mode === "take_off" ? (userPrompt || "Take off all clothes.") : userPrompt, {
+    mode: mode === "take_off" ? "take_off" : "modify",
+  });
+  if (mode !== "take_off" && !userPrompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+
+  const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
+  const ratio = normalizeWan27ImageRatio(body.ratio || pricingConfig.defaultRatio || "9:16");
+  const resolution = normalizeWan27ImageResolution(body.resolution || pricingConfig.defaultResolution || "2K");
+  const pricing = wan27ImageModifyPricing(config, auth.user);
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+
+  const taskId = localGenerationTaskId("char");
+  const model = pricingConfig.model || WAN27_IMAGE_PRO_MODEL;
+  const initialRecord = {
+    taskId,
+    status: "submitting",
+    model,
+    source: "character-image-modify",
+    kind: "character-image",
+    provider: "aliyun-wan27-image",
+    userId: auth.user.id,
+    characterId: character.id || "",
+    characterName: character.name || "",
+    imageUrl,
+    sourceImageUrl: imageUrl,
+    prompt: userPrompt || "Take off all clothes.",
+    finalPrompt: prompt,
+    params: { provider: "wan27-image", model, ratio, resolution, action: mode === "take_off" ? "take_off" : "character_modify" },
+    ratio,
+    resolution,
+    preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
+    finalCredits: null,
+    originalFinalCredits: null,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+    billingStatus: cost > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
+    pricingEstimate: pricing,
+    awaitingUpstreamTask: true,
+    upstreamPayload: null,
+    createResponse: null,
+    remoteImageUrl: "",
+    localImageUrl: "",
+    error: "",
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
+  };
+  await updateAssetImageModifyRecord(taskId, initialRecord, "character-image-modify-create");
+  if (cost > 0) {
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "character_image_modify",
+      taskId,
+      meta: { taskId, characterId: character.id || "", model, ratio, resolution, action: initialRecord.params.action },
+    });
+    await writeDb(auth.db);
+  }
+
+  try {
+    const publicSourceUrl = /^https?:\/\//i.test(imageUrl) ? imageUrl : publicUrlForAssetPath(imageUrl);
+    const submitted = await submitWan27ImageModify({ imageUrl: publicSourceUrl, prompt, ratio, resolution, model });
+    const resultUrl = submitted.task.imageUrls[0];
+    await updateAssetImageModifyRecord(taskId, {
+      upstreamTaskId: submitted.task.taskId || "",
+      awaitingUpstreamTask: false,
+      status: resultUrl ? (submitted.task.status || "succeeded") : "failed",
+      upstreamPayload: submitted.payload,
+      createResponse: submitted.raw,
+      remoteImageUrl: resultUrl || "",
+      error: resultUrl ? "" : (submitted.task.error || "Wan2.7 character modify returned no image."),
+    }, "character-image-modify-submit");
+    if (!resultUrl) {
+      const error = new Error(submitted.task.error || "Wan2.7 character modify returned no image.");
+      error.statusCode = 502;
+      error.payload = submitted.raw;
+      throw error;
+    }
+    const downloaded = await downloadRemoteFileToBuffer(resultUrl, { label: "character modified image", maxBytes: 20 * 1024 * 1024 });
+    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+    const newAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
+      bytes: downloaded.bytes,
+      mime,
+      name: `${character.name || "character"} ${mode === "take_off" ? "take off" : "modify"}`,
+      fileName: `${taskId}${imageExtFromMime(mime)}`,
+      maxBytes: 20 * 1024 * 1024,
+    });
+    newAsset.sourceCharacterId = character.id || "";
+    newAsset.characterPrompt = userPrompt || "Take off all clothes.";
+    newAsset.characterFinalPrompt = prompt;
+    newAsset.characterModel = model;
+    newAsset.characterTaskId = submitted.task.taskId || taskId;
+    newAsset.characterParams = { ratio, resolution, action: initialRecord.params.action };
+    newAsset.updatedAt = new Date().toISOString();
+    auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
+    await writeDb(auth.db);
+    const publicNewAsset = publicUserAsset(newAsset);
+    await updateAssetImageModifyRecord(taskId, {
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      imageResultUrl: publicNewAsset.previewUrl,
+      localImageUrl: publicNewAsset.localUrl,
+      cdnImageUrl: publicNewAsset.publicUrl && publicNewAsset.publicUrl !== publicNewAsset.localUrl ? publicNewAsset.publicUrl : "",
+      remoteImageUrl: resultUrl,
+      resultAssetId: newAsset.id,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits ?? cost,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: new Date().toISOString(),
+      error: "",
+    }, "character-image-modify-succeeded");
+    const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    return sendJson(res, 200, {
+      ok: true,
+      taskId,
+      upstreamTaskId: submitted.task.taskId || "",
+      asset: publicNewAsset,
+      sourceCharacter: { id: character.id || "", name: character.name || "", imageUrl },
+      user: userView(latestUser),
+      pricing,
+      cost,
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
+      params: { ratio, resolution, model, mode },
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    console.warn("[character-image-modify-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
+    if (cost > 0) {
+      try {
+        const db = await readDb();
+        changeUserCredits(db, auth.user.id, cost, "character_image_modify_refund", { taskId, characterId: character.id || "", error: error.message || "Wan2.7 character modify failed." });
+        await recordSubtokenAdjustment(auth, { taskId, type: "character_image_modify_refund", amount: -cost, meta: { characterId: character.id || "", error: error.message || "Wan2.7 character modify failed." } });
+        await writeDb(db);
+      } catch (refundError) {
+        console.error("[character-image-modify-refund-failed]", refundError.message || refundError);
+      }
+    }
+    await updateAssetImageModifyRecord(taskId, {
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || "Wan2.7 character modify failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    }, "character-image-modify-failed");
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      message: error.message || "Wan2.7 character modify failed.",
+      code: error.code || "",
+      taskId,
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
+      payload: error.payload || null,
+    });
+  }
+}
+
 async function updateAssetImageModifyRecord(taskId, updates = {}, reason = "asset-image-modify") {
+  const existing = await getGenerationRecord(taskId).catch(() => null);
   return upsertGenerationRecord({
     taskId,
-    source: "asset-image-modify",
-    kind: "asset-image",
-    provider: "aliyun-wan27-image",
+    source: existing?.source || "asset-image-modify",
+    kind: existing?.kind || "asset-image",
+    provider: existing?.provider || "aliyun-wan27-image",
     ...updates,
     lastUpdateReason: reason,
   });
@@ -12732,6 +13131,15 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/user-assets") {
       return await handleUploadUserAsset(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/characters/generate") {
+      return await handleGenerateUserCharacterImage(req, res);
+    }
+
+    const characterModifyMatch = url.pathname.match(/^\/api\/characters\/([^/]+)\/modify$/);
+    if (req.method === "POST" && characterModifyMatch) {
+      return await handleModifySystemCharacterImage(req, res, decodeURIComponent(characterModifyMatch[1]));
     }
 
     const addGenerationRecordAssetMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/add-asset$/);

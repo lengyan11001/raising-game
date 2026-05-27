@@ -329,7 +329,7 @@ main {
 }
 .workspace { display: block; }
 
-.gallery-panel, .access-panel, .advanced-panel, .history-panel, .ledger-panel, .asset-panel {
+.gallery-panel, .characters-panel, .access-panel, .advanced-panel, .history-panel, .ledger-panel, .asset-panel {
   min-height: 0;
   border: 0;
   border-radius: 0;
@@ -338,6 +338,31 @@ main {
   box-shadow: none;
 }
 .gallery-panel { width: 100%; }
+.characters-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 18px;
+  align-items: start;
+}
+.character-create-card {
+  position: sticky;
+  top: 82px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255,255,255,.78);
+  box-shadow: var(--soft-shadow);
+}
+.character-create-card h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.character-create-card textarea {
+  min-height: 156px;
+  resize: vertical;
+}
 .history-panel { width: 100%; }
 .history-panel .section-head.compact {
   display: grid;
@@ -439,6 +464,9 @@ main {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 16px;
 }
+.character-grid-main {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
 .character-card {
   display: grid;
   overflow: hidden;
@@ -523,10 +551,14 @@ main {
   gap: 8px;
 }
 .character-card-actions .ghost-button,
-.character-card-actions .primary-button {
+.character-card-actions .primary-button,
+.character-card-actions .copy-btn {
   min-height: 38px;
   padding: 8px 9px;
   font-size: .82rem;
+}
+.character-card-actions .primary-button {
+  grid-column: 1 / -1;
 }
 .character-card-actions svg,
 .character-detail svg,
@@ -2571,6 +2603,9 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 
 @media (max-width: 1080px) {
   .gallery-panel { width: 100%; }
+  .characters-layout { grid-template-columns: 1fr; }
+  .character-create-card { position: static; }
+  .character-grid-main { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .gallery-advanced-grid,
   .character-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .gallery-advanced-grid.is-case-list { grid-template-columns: 1fr; }
@@ -2671,7 +2706,8 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   .access-doc-grid { grid-template-columns: 1fr; }
   .template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gallery-advanced-grid,
-  .character-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .character-grid,
+  .character-grid-main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gallery-advanced-grid.is-case-list { grid-template-columns: 1fr; }
   .character-detail-profile { grid-template-columns: 86px minmax(0, 1fr); }
   .character-detail-profile img,
@@ -2741,7 +2777,8 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 @media (max-width: 460px) {
   .template-grid { grid-template-columns: 1fr; }
   .gallery-advanced-grid,
-  .character-grid { grid-template-columns: 1fr; }
+  .character-grid,
+  .character-grid-main { grid-template-columns: 1fr; }
   .subtoken-actions { grid-template-columns: 1fr; }
   .character-detail-profile { grid-template-columns: 1fr; }
   .character-detail-profile img,

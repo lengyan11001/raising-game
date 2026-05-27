@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-110" />
+    <link rel="stylesheet" href="./platform.css?v=ai-111" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -18,6 +18,7 @@
       </a>
       <nav class="top-tabs" aria-label="Main sections">
         <button class="top-tab is-active" data-tab="gallery" data-i18n="nav.gallery" type="button">Gallery</button>
+        <button class="top-tab" data-tab="characters" data-i18n="nav.characters" type="button">Characters</button>
         <button class="top-tab" data-tab="advanced" data-i18n="nav.advanced" type="button">Advanced</button>
         <button class="top-tab tenant-old-tab" data-tab="assets" data-i18n="nav.assets" type="button">Asset Library</button>
         <button class="top-tab" data-tab="access" data-i18n="nav.access" type="button">API Access</button>
@@ -65,6 +66,32 @@
           <div class="gallery-mode-tabs" id="galleryModeTabs"></div>
           <div class="template-grid" id="templateGrid"></div>
         </section>
+      </section>
+
+      <section class="characters-panel" data-panel="characters" hidden>
+        <div class="characters-layout">
+          <section>
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow" data-i18n="characters.eyebrow">Characters</p>
+                <h2 data-i18n="characters.title">System Characters</h2>
+                <p data-i18n="characters.subtitle">Use a maintained character or generate your own role image.</p>
+              </div>
+            </div>
+            <div class="template-grid character-grid character-grid-main" id="characterGrid"></div>
+          </section>
+          <aside class="character-create-card">
+            <span class="copy-kicker"><i data-lucide="sparkles"></i><span data-i18n="characters.createEyebrow">Wan2.7 Image Pro</span></span>
+            <h3 data-i18n="characters.createTitle">Create character</h3>
+            <label class="field">
+              <span data-i18n="field.prompt">Prompt</span>
+              <textarea id="characterCreatePrompt" rows="7" data-i18n-placeholder="characters.createPlaceholder" placeholder="Describe the character you want..."></textarea>
+            </label>
+            <p class="job-note" id="characterCreateCost"></p>
+            <button class="generate-btn" id="characterCreateBtn" type="button"><i data-lucide="wand-sparkles"></i><span data-i18n="characters.createButton">Create character</span></button>
+            <p class="job-note" id="characterCreateStatus"></p>
+          </aside>
+        </div>
       </section>
 
       <section class="advanced-panel" data-panel="advanced" hidden>
@@ -452,6 +479,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-110"></script>
+    <script src="./platform.js?v=ai-111"></script>
 </body>
 </html>
