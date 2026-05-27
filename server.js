@@ -9655,8 +9655,30 @@ function composeWan27CharacterPrompt(userPrompt = "", { mode = "create" } = {}) 
   return `${base} Character description: ${core}. ${suffix}`.trim();
 }
 
+function firstPosterFromVideoMap(map = {}) {
+  if (!map || typeof map !== "object") return "";
+  for (const entry of Object.values(map)) {
+    const poster = String(entry?.posterUrl || entry?.localPosterUrl || entry?.coverUrl || "").trim();
+    if (poster) return poster;
+  }
+  return "";
+}
+
 function systemCharacterImageUrl(item = {}) {
-  return characterPosterUrl(item) || item.localImageUrl || item.publicImageUrl || item.imageUrl || item.coverUrl || "";
+  const candidates = [
+    item.posterUrl,
+    item.localImageUrl,
+    item.syntheticReferenceLocalUrl,
+    item.sourceImageUrl,
+    item.publicImageUrl,
+    item.imageUrl,
+    item.coverUrl,
+    item.thumbnailUrl,
+    firstPosterFromVideoMap(item.homeSceneVideos),
+    firstPosterFromVideoMap(item.sceneVideos),
+    firstPosterFromVideoMap(item.unlockVideos),
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || "";
 }
 
 async function handleGenerateUserCharacterImage(req, res) {

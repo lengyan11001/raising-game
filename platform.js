@@ -3716,6 +3716,7 @@ function renderGalleryCharacters(root = els.templateGrid) {
       refreshIcons();
       try {
         await modifySystemCharacter(button.dataset.characterTakeoff, { mode: "take_off" });
+        if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.modifyDone");
       } catch (error) {
         if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.createFailed", { message: error.message || String(error) });
       } finally {
