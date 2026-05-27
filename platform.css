@@ -1220,7 +1220,7 @@ main {
 .subtoken-list { display: grid; gap: 10px; }
 .subtoken-row {
   display: grid;
-  grid-template-columns: minmax(180px, .9fr) minmax(260px, 1.4fr) auto;
+  grid-template-columns: minmax(180px, .9fr) minmax(260px, 1.35fr) minmax(220px, .9fr) auto;
   gap: 12px;
   align-items: center;
   padding: 14px;
@@ -1253,6 +1253,23 @@ main {
   font-size: .86rem;
   font-weight: 800;
   overflow-wrap: anywhere;
+}
+.subtoken-edit {
+  display: grid;
+  grid-template-columns: minmax(90px, .7fr) minmax(150px, 1fr);
+  gap: 8px;
+}
+.subtoken-edit .field {
+  gap: 6px;
+}
+.subtoken-edit input {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255,255,255,.86);
+  color: var(--text);
 }
 .subtoken-actions {
   display: flex;
@@ -2096,6 +2113,7 @@ select option:checked {
   .subtoken-created { grid-template-columns: 1fr; }
   .subtoken-head { display: grid; }
   .subtoken-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .subtoken-edit { grid-template-columns: 1fr; }
   .subtoken-actions { justify-content: flex-start; }
 }
 .field { display: grid; gap: 8px; color: var(--muted); min-width: 0; }

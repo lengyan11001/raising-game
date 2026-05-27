@@ -8726,6 +8726,29 @@ async function handleUpdateApiSubtoken(req, res, tokenId) {
     }
     next.quotaLimit = current.quotaType === "count" ? Math.max(1, Math.round(raw)) : roundCredits(raw, 6);
   }
+  const hasRemaining =
+    Object.prototype.hasOwnProperty.call(body, "remaining") ||
+    Object.prototype.hasOwnProperty.call(body, "remainingAmount") ||
+    Object.prototype.hasOwnProperty.call(body, "remaining_amount") ||
+    Object.prototype.hasOwnProperty.call(body, "remainingCount") ||
+    Object.prototype.hasOwnProperty.call(body, "remaining_count");
+  if (hasRemaining) {
+    const rawRemaining = current.quotaType === "count"
+      ? Number(body.remainingCount ?? body.remaining_count ?? body.remaining)
+      : Number(body.remainingAmount ?? body.remaining_amount ?? body.remaining);
+    if (!Number.isFinite(rawRemaining) || rawRemaining < 0) {
+      return sendJson(res, 400, { ok: false, message: "Remaining quota must be 0 or greater." });
+    }
+    const used = current.quotaType === "count"
+      ? Math.max(0, Math.round(Number(current.usedCount || 0) || 0))
+      : roundCredits(current.usedAmount || 0, 6);
+    const remaining = current.quotaType === "count"
+      ? Math.max(0, Math.round(rawRemaining))
+      : roundCredits(rawRemaining, 6);
+    next.quotaLimit = current.quotaType === "count"
+      ? used + remaining
+      : roundCredits(used + remaining, 6);
+  }
   if (Object.prototype.hasOwnProperty.call(body, "expiresAt") || Object.prototype.hasOwnProperty.call(body, "expires_at")) {
     const expiresAtRaw = String(body.expiresAt ?? body.expires_at ?? "").trim();
     if (!expiresAtRaw) {

@@ -529,6 +529,13 @@ const I18N = {
     "access.subtokenCopyNew": "Copy new token",
     "access.subtokenCopiedShort": "Copied",
     "access.subtokenMasked": "Masked",
+    "access.subtokenEdit": "Edit",
+    "access.subtokenSave": "Save",
+    "access.subtokenCancel": "Cancel",
+    "access.subtokenRemainingEdit": "Set remaining",
+    "access.subtokenRemainingAmountEdit": "Remaining credits",
+    "access.subtokenRemainingCountEdit": "Remaining requests",
+    "access.subtokenUpdateFailed": "Update failed: {message}",
     "access.subtokenRevokeFailed": "Revoke failed: {message}",
     "guide.http.title": "HTTP API",
     "guide.http.subtitle": "Direct endpoint",
@@ -2773,6 +2780,24 @@ function apiSubtokenUsedLabel(token = {}) {
   return `${formatCredits(token.usedAmount || 0)} ${t("common.credits")}`;
 }
 
+function apiSubtokenRemainingStep(token = {}) {
+  return String(token.quotaType || "") === "count" ? "1" : "0.000001";
+}
+
+function apiSubtokenRemainingEditLabel(token = {}) {
+  return String(token.quotaType || "") === "count"
+    ? t("access.subtokenRemainingCountEdit")
+    : t("access.subtokenRemainingAmountEdit");
+}
+
+function apiSubtokenExpiresInputValue(value = "") {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
 function renderApiSubtokens() {
   if (!els.accessSubtokens) return;
   if (!state.user) {
@@ -2803,8 +2828,13 @@ function renderApiSubtokens() {
         <span><small>${escapeHtml(t("access.subtokenStatus"))}</small><b>${escapeHtml(apiSubtokenStatusLabel(token))}</b></span>
         <span><small>${escapeHtml(t("access.subtokenLastUsed"))}</small><b>${escapeHtml(token.lastUsedAt ? formatDateTime(token.lastUsedAt) : t("access.subtokenNever"))}</b></span>
       </div>
+      <form class="subtoken-edit" id="subtoken-edit-${escapeHtml(token.id)}" data-edit-subtoken="${escapeHtml(token.id)}">
+        <label class="field"><span>${escapeHtml(apiSubtokenRemainingEditLabel(token))}</span><input name="remaining" type="number" min="0" step="${escapeHtml(apiSubtokenRemainingStep(token))}" value="${escapeHtml(formatCredits(token.remaining || 0))}" ${token.revokedAt ? "disabled" : ""} /></label>
+        <label class="field"><span>${escapeHtml(t("access.subtokenExpires"))}</span><input name="expiresAt" type="datetime-local" value="${escapeHtml(apiSubtokenExpiresInputValue(token.expiresAt))}" ${token.revokedAt ? "disabled" : ""} /></label>
+      </form>
       <div class="subtoken-actions">
         <button class="ghost-button" type="button" disabled><i data-lucide="lock-keyhole"></i>${escapeHtml(t("access.subtokenMasked"))}</button>
+        <button class="ghost-button" type="submit" form="subtoken-edit-${escapeHtml(token.id)}" data-save-subtoken="${escapeHtml(token.id)}" ${token.revokedAt ? "disabled" : ""}><i data-lucide="save"></i>${escapeHtml(t("access.subtokenSave"))}</button>
         <button class="ghost-button danger-link" type="button" data-revoke-subtoken="${escapeHtml(token.id)}" ${token.active ? "" : "disabled"}><i data-lucide="ban"></i>${escapeHtml(t("access.subtokenRevoke"))}</button>
       </div>
     </article>
@@ -2856,6 +2886,9 @@ function renderApiSubtokens() {
   });
   els.accessSubtokens.querySelectorAll("[data-revoke-subtoken]").forEach((button) => {
     button.addEventListener("click", () => revokeApiSubtoken(button.dataset.revokeSubtoken || "", button));
+  });
+  els.accessSubtokens.querySelectorAll("[data-edit-subtoken]").forEach((form) => {
+    form.addEventListener("submit", submitApiSubtokenUpdate);
   });
   refreshIcons();
 }
@@ -2932,6 +2965,42 @@ async function revokeApiSubtoken(tokenId, button = null) {
     state.apiSubtokenMessage = "";
   } catch (error) {
     state.apiSubtokenMessage = t("access.subtokenRevokeFailed", { message: error.message || String(error) });
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+    }
+    renderApiSubtokens();
+  }
+}
+
+async function submitApiSubtokenUpdate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const tokenId = form?.dataset?.editSubtoken || "";
+  if (!tokenId) return;
+  const remainingInput = form.querySelector("[name='remaining']");
+  const expiresInput = form.querySelector("[name='expiresAt']");
+  const remaining = Number(remainingInput?.value || 0);
+  if (!Number.isFinite(remaining) || remaining < 0) return;
+  const expiresAt = expiresInput?.value ? new Date(expiresInput.value).toISOString() : "";
+  const button = Array.from(els.accessSubtokens?.querySelectorAll("[data-save-subtoken]") || [])
+    .find((item) => item.dataset.saveSubtoken === tokenId);
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("access.subtokenSave"))}`;
+    refreshIcons();
+  }
+  try {
+    const payload = await requestJson(`/api/access/subtokens/${encodeURIComponent(tokenId)}`, {
+      method: "PATCH",
+      body: { remaining, expiresAt },
+    });
+    state.apiSubtokens = (state.apiSubtokens || []).map((token) => token.id === tokenId ? (payload.subtoken || token) : token);
+    state.apiSubtokenMessage = "";
+  } catch (error) {
+    state.apiSubtokenMessage = t("access.subtokenUpdateFailed", { message: error.message || String(error) });
   } finally {
     if (button) {
       button.disabled = false;
