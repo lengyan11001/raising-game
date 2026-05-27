@@ -3624,6 +3624,7 @@ function renderGalleryCharacters() {
 function renderGalleryCharacterCard(item = {}) {
   const videoUrl = characterMainVideoUrl(item);
   const poster = characterPosterUrl(item);
+  const fallbackPoster = DEFAULT_TEMPLATE_COVER;
   const roleCount = characterRoleVideos(item).length;
   const sceneCount = characterSceneVideos(item).length + characterUnlockVideos(item).length;
   const status = item.referenceState === "ready" ? "Ready" : item.status || item.referenceState || "Draft";
@@ -3631,7 +3632,7 @@ function renderGalleryCharacterCard(item = {}) {
   return `
     <article class="character-card" data-character-id="${escapeHtml(item.id || "")}">
       <div class="character-card-media">
-        <img src="${escapeHtml(poster)}" alt="${escapeHtml(item.name || "")}" loading="lazy" data-cover-fallback="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" />
+        ${renderSmartCoverMedia({ className: "character-cover-media", posterUrl: poster, videoUrl, alt: item.name || "", fallbackUrl: fallbackPoster })}
         ${videoUrl ? `<span class="character-card-video-mark"><i data-lucide="play"></i></span>` : ""}
       </div>
       <div class="character-card-meta">
@@ -3717,7 +3718,36 @@ async function unlockGallerySceneVideo(characterId = "", sceneId = "", sceneEntr
   }
 }
 
+function uniqueTruthy(values = []) {
+  const seen = new Set();
+  return values.map((value) => String(value || "").trim()).filter((value) => {
+    if (!value || seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+}
+
+function isGenericCharacterPoster(url = "") {
+  const value = String(url || "").toLowerCase();
+  return !value || value.includes("/assets/admin/home/default-hero.") || value.includes("/assets/placeholders/") || value === DEFAULT_TEMPLATE_COVER.toLowerCase();
+}
+
+function adminHomeCoverFromVideoUrl(videoUrl = "") {
+  const raw = String(videoUrl || "").split("?")[0].trim();
+  const match = raw.match(/\/assets\/generated\/videos\/([^/?#]+)\.(?:mp4|webm|mov|m4v)$/i);
+  if (!match) return "";
+  return `/assets/admin/home/cover-${match[1]}.jpg`;
+}
+
+function videoPosterCandidates(videoUrl = "") {
+  return uniqueTruthy([
+    adminHomeCoverFromVideoUrl(videoUrl),
+    generatedPosterFromVideoUrl(videoUrl),
+  ]);
+}
+
 function characterPosterUrl(item = {}) {
+  const mainVideo = characterMainVideoUrl(item);
   const candidates = [
     item.posterUrl,
     item.localImageUrl,
@@ -3730,8 +3760,9 @@ function characterPosterUrl(item = {}) {
     item.homeSceneVideos && Object.values(item.homeSceneVideos).find(Boolean)?.posterUrl,
     item.sceneVideos && Object.values(item.sceneVideos).find(Boolean)?.posterUrl,
     item.unlockVideos && Object.values(item.unlockVideos).find(Boolean)?.posterUrl,
+    ...videoPosterCandidates(mainVideo),
   ];
-  return candidates.map((value) => String(value || "").trim()).find(Boolean) || DEFAULT_TEMPLATE_COVER;
+  return uniqueTruthy(candidates).find((value) => !isGenericCharacterPoster(value)) || (mainVideo ? "" : DEFAULT_TEMPLATE_COVER);
 }
 
 function characterMainVideoUrl(item = {}) {
@@ -3816,7 +3847,28 @@ function characterVideoTitle(video = {}, fallback = "") {
 }
 
 function characterVideoPoster(video = {}, character = {}) {
-  return video.posterUrl || generatedPosterFromVideoUrl(video.videoUrl || "") || characterPosterUrl(character);
+  const videoUrl = video.videoUrl || video.localVideoUrl || video.remoteVideoUrl || "";
+  const candidates = [
+    video.posterUrl,
+    video.localPosterUrl,
+    video.coverUrl,
+    ...videoPosterCandidates(videoUrl),
+    characterPosterUrl(character),
+  ];
+  return uniqueTruthy(candidates).find((value) => !isGenericCharacterPoster(value)) || (videoUrl ? "" : DEFAULT_TEMPLATE_COVER);
+}
+
+function renderSmartCoverMedia({ className = "", posterUrl = "", videoUrl = "", fallbackUrl = DEFAULT_TEMPLATE_COVER, alt = "" } = {}) {
+  const poster = String(posterUrl || "").trim();
+  const video = String(videoUrl || "").trim();
+  const fallback = String(fallbackUrl || DEFAULT_TEMPLATE_COVER).trim();
+  if (poster) {
+    return `<img class="${escapeHtml(className)}" src="${escapeHtml(poster)}" alt="${escapeHtml(alt)}" loading="lazy" data-cover-fallback="${escapeHtml(video || fallback)}" data-cover-final-fallback="${escapeHtml(fallback)}" />`;
+  }
+  if (video) {
+    return `<video class="${escapeHtml(className)}" src="${escapeHtml(video)}" aria-label="${escapeHtml(alt)}" muted playsinline preload="metadata" data-video-cover-fallback="${escapeHtml(fallback)}"></video>`;
+  }
+  return `<img class="${escapeHtml(className)}" src="${escapeHtml(fallback)}" alt="${escapeHtml(alt)}" loading="lazy" />`;
 }
 
 function renderGalleryCharacterDetail(item = {}) {
@@ -3829,7 +3881,7 @@ function renderGalleryCharacterDetail(item = {}) {
     <section class="character-detail-hero">
       <button class="ghost-button character-back" data-character-back type="button"><i data-lucide="chevron-left"></i>${escapeHtml(t("gallery.character.back"))}</button>
       <div class="character-detail-profile">
-        <img src="${escapeHtml(poster)}" alt="${escapeHtml(item.name || "")}" loading="lazy" data-cover-fallback="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" />
+        ${renderSmartCoverMedia({ className: "character-detail-cover-media", posterUrl: poster, videoUrl: characterMainVideoUrl(item), alt: item.name || "", fallbackUrl: DEFAULT_TEMPLATE_COVER })}
         <div>
           <span>${escapeHtml(item.referenceState === "ready" ? "Ready" : item.status || item.referenceState || "Draft")}</span>
           <h3>${escapeHtml(item.name || "Character")}</h3>
@@ -3899,7 +3951,7 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
   return `
     <article class="character-video-card ${locked && !unlocked ? "is-locked" : ""}">
       <button class="character-video-media" ${mediaAction || "disabled"} type="button">
-        <img src="${escapeHtml(poster)}" alt="${escapeHtml(title)}" loading="lazy" data-cover-fallback="${escapeHtml(characterPosterUrl(character))}" />
+        ${renderSmartCoverMedia({ className: "character-video-cover-media", posterUrl: poster, videoUrl: video.videoUrl || video.localVideoUrl || video.remoteVideoUrl || "", alt: title, fallbackUrl: characterPosterUrl(character) || DEFAULT_TEMPLATE_COVER })}
         <span class="character-video-play"><i data-lucide="${locked && !unlocked ? "lock" : "play"}"></i></span>
       </button>
       <div class="character-video-info">
@@ -3929,11 +3981,49 @@ function playCharacterVideo(video = {}, title = "") {
 function bindGalleryImageFallbacks(root = els.templateGrid) {
   root?.querySelectorAll?.("img[data-cover-fallback]")?.forEach((img) => {
     const fallback = img.dataset.coverFallback || DEFAULT_TEMPLATE_COVER;
+    const finalFallback = img.dataset.coverFinalFallback || DEFAULT_TEMPLATE_COVER;
     const applyFallback = () => {
-      if (fallback && img.getAttribute("src") !== fallback) img.src = fallback;
+      const current = img.getAttribute("src") || "";
+      if (fallback && current !== fallback) {
+        img.src = fallback;
+        if (fallback.match(/\.(?:mp4|webm|mov|m4v)(?:[?#].*)?$/i)) {
+          img.dataset.coverFallback = finalFallback;
+        }
+      } else if (finalFallback && current !== finalFallback) {
+        img.src = finalFallback;
+      }
     };
-    img.addEventListener("error", applyFallback, { once: true });
+    img.addEventListener("error", applyFallback);
     if (img.complete && img.naturalWidth === 0) applyFallback();
+  });
+  root?.querySelectorAll?.("video[data-video-cover-fallback]")?.forEach((video) => {
+    const fallback = video.dataset.videoCoverFallback || DEFAULT_TEMPLATE_COVER;
+    const captureFrame = () => {
+      if (video.dataset.coverReady || !video.videoWidth || !video.videoHeight) return;
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const context = canvas.getContext("2d");
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        video.poster = canvas.toDataURL("image/jpeg", 0.84);
+        video.dataset.coverReady = "1";
+      } catch (error) {}
+    };
+    video.addEventListener("loadeddata", captureFrame, { once: true });
+    video.addEventListener("seeked", captureFrame, { once: true });
+    video.addEventListener("error", () => {
+      const img = document.createElement("img");
+      img.className = video.className;
+      img.src = fallback;
+      img.alt = video.getAttribute("aria-label") || "";
+      img.loading = "lazy";
+      video.replaceWith(img);
+    }, { once: true });
+    try {
+      video.currentTime = Math.min(0.2, Math.max(0, Number(video.duration || 0) / 10 || 0.2));
+    } catch (error) {}
+    video.load();
   });
 }
 
