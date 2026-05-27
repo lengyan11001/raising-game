@@ -9611,6 +9611,7 @@ async function handleAddGenerationRecordToAssets(req, res, taskId) {
 
 function publicUserAsset(asset = {}) {
   const kind = String(asset.mime || "").toLowerCase().startsWith("video/") ? "video" : "image";
+  const isCharacterAsset = Boolean(asset.characterPrompt || asset.characterFinalPrompt || asset.characterModel || asset.characterTaskId);
   return {
     id: asset.id,
     userId: asset.userId,
@@ -9621,6 +9622,9 @@ function publicUserAsset(asset = {}) {
     publicUrl: asset.publicUrl || "",
     previewUrl: asset.localUrl || asset.publicUrl || "",
     seedanceReady: Boolean(kind === "video" ? asset.seedanceVideoAssetUri : asset.assetUri),
+    isCharacterAsset,
+    characterPrompt: asset.characterPrompt || "",
+    characterTaskId: asset.characterTaskId || "",
     createdAt: asset.createdAt || "",
     updatedAt: asset.updatedAt || "",
     deletedAt: asset.deletedAt || "",
@@ -10213,6 +10217,12 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     newAsset.modifyModel = model;
     newAsset.modifyTaskId = submitted.task.taskId || taskId;
     newAsset.modifyParams = { ratio, resolution };
+    if (asset.characterPrompt || asset.characterFinalPrompt || asset.characterTaskId) {
+      newAsset.characterPrompt = prompt;
+      newAsset.characterFinalPrompt = prompt;
+      newAsset.characterModel = model;
+      newAsset.characterTaskId = submitted.task.taskId || taskId;
+    }
     newAsset.modifyPricing = {
       source: pricing.source,
       baseCredits: pricing.baseCredits ?? null,

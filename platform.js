@@ -48,6 +48,7 @@ const state = {
   estimates: {},
   tab: initialPlatformTab(),
   galleryMode: DEFAULT_GALLERY_MODE,
+  characterSource: "system",
   category: "all",
   homeCharacters: [],
   activeGalleryCharacterId: "",
@@ -121,6 +122,7 @@ const els = {
   galleryModeTabs: document.querySelector("#galleryModeTabs"),
   templateGrid: document.querySelector("#templateGrid"),
   characterGrid: document.querySelector("#characterGrid"),
+  characterSourceTabs: document.querySelector("#characterSourceTabs"),
   characterCreatePrompt: document.querySelector("#characterCreatePrompt"),
   characterCreateBtn: document.querySelector("#characterCreateBtn"),
   characterCreateCost: document.querySelector("#characterCreateCost"),
@@ -305,8 +307,8 @@ const I18N = {
     "copy.advancedSubtitle": "Direct model controls for approved accounts.",
     "copy.advancedNotice": "Apply once. After approval, cases can fill the form automatically.",
     "copy.assetsTitle": "Asset Library",
-    "copy.assetsSubtitle": "Manage images and videos for Seedance character references.",
-    "copy.assetsNotice": "Seedance references are reused after first preparation.",
+    "copy.assetsSubtitle": "Manage images and videos for character references.",
+    "copy.assetsNotice": "References are reused after first preparation.",
     "copy.historyTitle": "Generation History",
     "copy.historySubtitle": "Review your generated videos, prompts, parameters and billing in one compact list.",
     "copy.historyNotice": "Only your own generation records are shown.",
@@ -351,9 +353,12 @@ const I18N = {
     "gallery.character.unlockFailed": "Unlock failed: {message}",
     "gallery.character.unlockReady": "Scene unlocked.",
     "characters.eyebrow": "Characters",
-    "characters.title": "System Characters",
+    "characters.title": "Characters",
     "characters.subtitle": "Use a maintained character or generate your own role image.",
-    "characters.createEyebrow": "Wan2.7 Image Pro",
+    "characters.systemTab": "System Characters",
+    "characters.customTab": "Custom Characters",
+    "characters.customEmpty": "No custom characters yet. Create one from the panel on the right.",
+    "characters.createEyebrow": "Create Image",
     "characters.createTitle": "Create character",
     "characters.createPlaceholder": "Describe the character's age, face, body, hairstyle, outfit and style...",
     "characters.createButton": "Create character",
@@ -475,7 +480,7 @@ const I18N = {
     "advanced.noCases": "No cases configured yet.",
     "advanced.usePrompt": "Use prompt",
     "advanced.casePromptHint": "One image is enough to create the same style video.",
-    "advanced.casePromptLoaded": "{model} case loaded. Upload one image and generate the same style video.",
+    "advanced.casePromptLoaded": "Case loaded. Upload one image and generate the same style video.",
     "advanced.casePromptFallback": "Create a matching video based on the uploaded image.",
     "advanced.caseInputVideo": "Input video",
     "advanced.caseInputImage": "Input image",
@@ -507,7 +512,7 @@ const I18N = {
     "assets.modify": "Modify",
     "assets.modifyTitle": "Modify image",
     "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
-    "assets.modifyHint": "Uses Wan2.7 Image Pro. The edited result is saved as a new asset.",
+    "assets.modifyHint": "The edited result is saved as a new asset.",
     "assets.modified": "Modified image saved to assets.",
     "assets.generating": "Generating...",
     "assets.extend": "Extend",
@@ -1815,7 +1820,7 @@ const ASSET_WORKFLOW_COPY = {
     "assets.modify": "Modify",
     "assets.modifyTitle": "Modify image",
     "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
-    "assets.modifyHint": "Uses Wan2.7 Image Pro. The edited result is saved as a new asset.",
+    "assets.modifyHint": "The edited result is saved as a new asset.",
     "assets.modified": "Modified image saved to Assets.",
     "file.choose": "Choose file",
     "file.chooseImage": "Choose image",
@@ -1827,7 +1832,7 @@ const ASSET_WORKFLOW_COPY = {
     "assets.modify": "Sua anh",
     "assets.modifyTitle": "Sua anh",
     "assets.modifyPromptPlaceholder": "Mo ta phan can chinh va giu nhan vat nhat quan...",
-    "assets.modifyHint": "Dung Wan2.7 Image Pro. Ket qua se luu thanh tai nguyen moi.",
+    "assets.modifyHint": "Ket qua se luu thanh tai nguyen moi.",
     "assets.modified": "Anh da sua da duoc luu.",
     "file.choose": "Chon tep",
     "file.chooseImage": "Chon anh",
@@ -1842,7 +1847,7 @@ const ASSET_WORKFLOW_COPY = {
     "assets.modify": "Modify",
     "assets.modifyTitle": "Modify image",
     "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
-    "assets.modifyHint": "Uses Wan2.7 Image Pro. The edited result is saved as a new asset.",
+    "assets.modifyHint": "The edited result is saved as a new asset.",
     "assets.modified": "Modified image saved to Assets.",
     "file.choose": "File",
     "file.chooseImage": "Image",
@@ -1857,7 +1862,7 @@ const ASSET_WORKFLOW_COPY = {
     "assets.modify": "Modify",
     "assets.modifyTitle": "Modify image",
     "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
-    "assets.modifyHint": "Uses Wan2.7 Image Pro. The edited result is saved as a new asset.",
+    "assets.modifyHint": "The edited result is saved as a new asset.",
     "assets.modified": "Modified image saved to Assets.",
     "file.choose": "File",
     "file.chooseImage": "Image",
@@ -1872,7 +1877,7 @@ const ASSET_WORKFLOW_COPY = {
     "assets.modify": "Ubah gambar",
     "assets.modifyTitle": "Ubah gambar",
     "assets.modifyPromptPlaceholder": "Jelaskan perubahan sambil menjaga subjek tetap konsisten...",
-    "assets.modifyHint": "Menggunakan Wan2.7 Image Pro. Hasil disimpan sebagai aset baru.",
+    "assets.modifyHint": "Hasil disimpan sebagai aset baru.",
     "assets.modified": "Gambar hasil ubahan disimpan ke aset.",
     "file.choose": "Pilih file",
     "file.chooseImage": "Pilih gambar",
@@ -1893,7 +1898,7 @@ if (I18N.zh) {
     "assets.modify": "改图",
     "assets.modifyTitle": "改图",
     "assets.modifyPromptPlaceholder": "输入要修改的内容，尽量说明保留主体一致...",
-    "assets.modifyHint": "使用 Wan2.7 Image Pro，生成结果会作为新图片存入素材库。",
+    "assets.modifyHint": "生成结果会作为新图片存入素材库。",
     "assets.modified": "改图已生成并存入素材库。",
   });
 }
@@ -2710,11 +2715,11 @@ function applyLanguage() {
   applyTenantFeatures();
   renderCategories();
   renderTemplates();
-  renderGalleryCharacters(els.characterGrid);
   bindCharacterCreator();
   renderAccessGuides();
   renderAdvanced();
   renderAssets();
+  renderGalleryCharacters(els.characterGrid);
   renderAccountMenu();
   renderTopupSummary();
   renderTokenDisplays();
@@ -2763,7 +2768,10 @@ function setUser(user, { refreshHistory = false } = {}) {
   if (state.tab === "spending") loadSpendingRecords(1);
   if (state.tab === "assets") loadUserAssets();
   if (state.tab === "access") loadApiSubtokens({ force: true });
-  if (state.tab === "characters" && state.activeGalleryCharacterId) loadGalleryUnlocks();
+  if (state.tab === "characters") {
+    loadUserAssets(state.userAssetsPage || 1).catch(() => {});
+    if (state.activeGalleryCharacterId) loadGalleryUnlocks();
+  }
   if (refreshHistory && state.tab === "history") loadHistory();
   if (previousMultiplier !== nextMultiplier) {
     state.advancedEstimate = null;
@@ -3117,6 +3125,13 @@ function generationImageResultUrl(record) {
 
 function generationPosterUrl(record) {
   return record?.cdnPosterUrl || record?.posterUrl || record?.localPosterUrl || generationImageResultUrl(record) || recordImageAssets(record)[0]?.imageUrl || "";
+}
+
+function stripModelParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value || null;
+  const next = { ...value };
+  ["model", "provider", "modelProvider", "model_provider"].forEach((key) => delete next[key]);
+  return next;
 }
 
 function mediaAssetPreviewUrl(asset = {}) {
@@ -3533,6 +3548,7 @@ function setTab(tab) {
     renderGalleryCharacters(els.characterGrid);
     bindCharacterCreator();
     loadGalleryUnlocks();
+    if (state.user) loadUserAssets(state.userAssetsPage || 1).catch(() => {});
   }
   if (nextTab === "access") loadApiSubtokens();
   closeAccountMenu();
@@ -3692,7 +3708,9 @@ function renderGalleryCases() {
 
 function renderGalleryCharacters(root = els.templateGrid) {
   if (!root) return;
-  const characters = state.homeCharacters.filter((item) => item && !item.deletedAt);
+  renderCharacterSourceTabs();
+  const source = state.characterSource === "custom" ? "custom" : "system";
+  const characters = source === "custom" ? customCharacterItems() : state.homeCharacters.filter((item) => item && !item.deletedAt);
   const activeCharacter = state.activeGalleryCharacterId
     ? characters.find((item) => String(item.id || "") === String(state.activeGalleryCharacterId || ""))
     : null;
@@ -3704,7 +3722,7 @@ function renderGalleryCharacters(root = els.templateGrid) {
   root.className = "template-grid character-grid character-grid-main";
   root.innerHTML = characters.length
     ? characters.map(renderGalleryCharacterCard).join("")
-    : `<div class="job-note">${escapeHtml(t("gallery.character.empty"))}</div>`;
+    : `<div class="job-note">${escapeHtml(source === "custom" ? t("characters.customEmpty") : t("gallery.character.empty"))}</div>`;
   bindGalleryImageFallbacks(root);
   root.querySelectorAll("[data-character-use]").forEach((button) => {
     button.addEventListener("click", (event) => {
@@ -3739,6 +3757,46 @@ function renderGalleryCharacters(root = els.templateGrid) {
   refreshIcons();
 }
 
+function customCharacterItems() {
+  return (state.userAssets || [])
+    .filter((asset) => asset?.kind === "image" && (asset.isCharacterAsset || String(asset.name || "").toLowerCase().includes("character")))
+    .map((asset) => ({
+      id: `custom:${asset.id}`,
+      assetId: asset.id,
+      name: asset.name || "Custom character",
+      title: asset.characterPrompt || "",
+      posterUrl: asset.previewUrl || asset.localUrl || asset.publicUrl || "",
+      localImageUrl: asset.localUrl || asset.previewUrl || asset.publicUrl || "",
+      publicImageUrl: asset.publicUrl || "",
+      sourceImageUrl: asset.previewUrl || asset.localUrl || asset.publicUrl || "",
+      status: "Ready",
+      referenceState: "ready",
+      custom: true,
+      createdAt: asset.createdAt || "",
+    }));
+}
+
+function renderCharacterSourceTabs() {
+  if (!els.characterSourceTabs) return;
+  const tabs = [
+    { id: "system", label: t("characters.systemTab"), count: state.homeCharacters.filter((item) => item && !item.deletedAt).length },
+    { id: "custom", label: t("characters.customTab"), count: customCharacterItems().length },
+  ];
+  els.characterSourceTabs.innerHTML = tabs.map((tab) => `
+    <button class="gallery-mode-tab ${state.characterSource === tab.id ? "is-active" : ""}" data-character-source="${escapeHtml(tab.id)}" type="button">
+      ${escapeHtml(tab.label)}<span>${escapeHtml(String(tab.count))}</span>
+    </button>
+  `).join("");
+  els.characterSourceTabs.querySelectorAll("[data-character-source]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.characterSource = button.dataset.characterSource === "custom" ? "custom" : "system";
+      state.activeGalleryCharacterId = "";
+      renderGalleryCharacters(els.characterGrid);
+      if (state.characterSource === "custom" && state.user) loadUserAssets(state.userAssetsPage || 1).catch(() => {});
+    });
+  });
+}
+
 function renderGalleryCharacterCard(item = {}) {
   const videoUrl = characterMainVideoUrl(item);
   const poster = characterPosterUrl(item);
@@ -3747,6 +3805,7 @@ function renderGalleryCharacterCard(item = {}) {
   const sceneCount = characterSceneVideos(item).length + characterUnlockVideos(item).length;
   const status = item.referenceState === "ready" ? "Ready" : item.status || item.referenceState || "Draft";
   const videoCount = roleCount + sceneCount;
+  const custom = item.custom === true;
   return `
     <article class="character-card" data-character-id="${escapeHtml(item.id || "")}">
       <div class="character-card-media">
@@ -3754,14 +3813,14 @@ function renderGalleryCharacterCard(item = {}) {
         ${videoUrl ? `<span class="character-card-video-mark"><i data-lucide="play"></i></span>` : ""}
       </div>
       <div class="character-card-meta">
-        <span>${escapeHtml(status)} / ${videoCount} ${escapeHtml(videoCount === 1 ? "video" : "videos")}</span>
+        <span>${escapeHtml(custom ? t("characters.customTab") : `${status} / ${videoCount} ${videoCount === 1 ? "video" : "videos"}`)}</span>
         <strong>${escapeHtml(item.name || "Character")}</strong>
         <p>${escapeHtml(item.title || "")}</p>
         <div class="character-card-actions">
           <button class="ghost-button" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.use"))}</button>
           <button class="ghost-button" data-character-takeoff="${escapeHtml(item.id || "")}" type="button"><i data-lucide="shirt"></i>${escapeHtml(t("characters.takeOff"))}</button>
           <button class="copy-btn" data-character-modify="${escapeHtml(item.id || "")}" type="button"><i data-lucide="wand-sparkles"></i>${escapeHtml(t("characters.modify"))}</button>
-          <button class="primary-button compact" data-character-cases="${escapeHtml(item.id || "")}" type="button"><i data-lucide="clapperboard"></i>${escapeHtml(t("gallery.character.viewCases"))}</button>
+          ${custom ? "" : `<button class="primary-button compact" data-character-cases="${escapeHtml(item.id || "")}" type="button"><i data-lucide="clapperboard"></i>${escapeHtml(t("gallery.character.viewCases"))}</button>`}
         </div>
       </div>
     </article>
@@ -3803,6 +3862,9 @@ async function createCharacterFromPrompt() {
     if (els.characterCreatePrompt) els.characterCreatePrompt.value = "";
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.created");
     await loadUserAssets(1).catch(() => {});
+    state.characterSource = "custom";
+    state.activeGalleryCharacterId = "";
+    renderGalleryCharacters(els.characterGrid);
     await loadHistory({ silent: true }).catch(() => {});
   } catch (error) {
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.createFailed", { message: error.message || String(error) });
@@ -3818,6 +3880,26 @@ async function createCharacterFromPrompt() {
 
 async function modifySystemCharacter(characterId = "", { mode = "modify", prompt = "" } = {}) {
   if (!state.user) return openLogin();
+  if (String(characterId || "").startsWith("custom:")) {
+    const assetId = String(characterId || "").slice("custom:".length);
+    const promptText = mode === "take_off" ? (prompt || t("characters.takeOffPrompt")) : prompt;
+    if (!promptText) throw new Error(t("advanced.promptRequired"));
+    const payload = await requestJson(`/api/user-assets/${encodeURIComponent(assetId)}/modify`, {
+      method: "POST",
+      body: { prompt: promptText },
+    });
+    if (payload.user) setUser(payload.user);
+    if (payload.asset) {
+      payload.asset.isCharacterAsset = true;
+      state.userAssets = [payload.asset, ...(state.userAssets || []).filter((item) => item.id !== payload.asset.id)];
+    }
+    if (payload.record) {
+      state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
+    }
+    await loadUserAssets(1).catch(() => {});
+    await loadHistory({ silent: true }).catch(() => {});
+    return payload;
+  }
   const body = mode === "take_off"
     ? { mode: "take_off", prompt: prompt || t("characters.takeOffPrompt") }
     : { mode: "modify", prompt };
@@ -3851,7 +3933,7 @@ async function openSystemCharacterTakeOffDialog(characterId = "") {
     body: `
       <div class="asset-generate-form character-action-form">
         <div class="asset-modify-preview character-action-preview">
-          <img src="${escapeHtml(poster)}" alt="${escapeHtml(character.name || "")}" />
+          <img src="${escapeHtml(poster)}" alt="${escapeHtml(character.name || "")}" data-cover-fallback="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" />
         </div>
         <p class="job-note">${escapeHtml(assetImageModifyCostLabel())}</p>
         <p class="job-note" id="characterTakeoffStatus">${escapeHtml(t("characters.takeOffConfirm"))}</p>
@@ -3862,6 +3944,7 @@ async function openSystemCharacterTakeOffDialog(characterId = "") {
     dialogClass: "is-media-action",
     keepOpenOnConfirm: true,
     onOpen: () => {
+      bindGalleryImageFallbacks(els.inlineDialogBody);
       if (els.inlineDialogConfirm) {
         els.inlineDialogConfirm.innerHTML = `<i data-lucide="shirt"></i>${escapeHtml(t("template.generate", { cost: assetImageModifyCostLabel() }))}`;
         refreshIcons();
@@ -4048,8 +4131,8 @@ function characterPosterUrl(item = {}) {
   const candidates = [
     item.posterUrl,
     item.localImageUrl,
-    item.syntheticReferenceLocalUrl,
     item.sourceImageUrl,
+    item.syntheticReferenceLocalUrl,
     item.publicImageUrl,
     item.imageUrl,
     item.coverUrl,
@@ -4239,7 +4322,7 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
   const loading = state.galleryUnlockLoadingKey === galleryUnlockKey(character.id || "", sceneId, sceneEntryId);
   const canPlay = !locked && hasVideo;
   const title = characterVideoTitle(video, locked ? t("gallery.character.sceneVideos") : t("gallery.character.roleVideos"));
-  const meta = [video.sceneName, video.resolution, video.duration ? `${video.duration}s` : "", video.provider].filter(Boolean).join(" / ");
+  const meta = [video.sceneName, video.resolution, video.duration ? `${video.duration}s` : ""].filter(Boolean).join(" / ");
   const price = formatCredits(video.price || 0);
   const action = canPlay
     ? `<button class="ghost-button" data-character-play="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"><i data-lucide="play"></i>${escapeHtml(t("gallery.character.play"))}</button>`
@@ -4354,12 +4437,11 @@ function bindGalleryImageFallbacks(root = els.templateGrid) {
 
 function bindGalleryCaseActions() {
   els.templateGrid.querySelectorAll("[data-case-index]").forEach((card) => {
-    if (!card.classList.contains("advanced-case-row")) {
-      card.addEventListener("click", () => {
-        const item = advancedCaseById(card.dataset.caseId) || state.advancedCases.filter((entry) => entry.enabled !== false)[Number(card.dataset.caseIndex || 0)];
-        fillAdvancedCase(item);
-      });
-    }
+    card.addEventListener("click", () => {
+      const item = advancedCaseById(card.dataset.caseId) || state.advancedCases.filter((entry) => entry.enabled !== false)[Number(card.dataset.caseIndex || 0)];
+      fillAdvancedCase(item);
+      setTab("advanced");
+    });
     const isCaseRow = card.classList.contains("advanced-case-row");
     bindHoverPreviewCard({
       card,
@@ -4371,6 +4453,7 @@ function bindGalleryCaseActions() {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       fillAdvancedCasePrompt(advancedCaseById(button.dataset.advancedFillPromptId));
+      setTab("advanced");
     });
   });
   els.templateGrid.querySelectorAll("[data-advanced-row-preview-id]").forEach((button) => {
@@ -4509,11 +4592,9 @@ function historyDetailPayload(record = {}) {
   return {
     taskId: record.taskId || "",
     status: statusLabel(record.status),
-    provider: record.provider || "",
-    model: record.model || "",
     source: record.source || "",
     prompt: record.finalPrompt || record.prompt || "",
-    params: record.params || null,
+    params: stripModelParams(record.params || null),
     ratio: record.ratio || record.params?.ratio || record.params?.aspect_ratio || "",
     resolution: record.resolution || record.params?.resolution || "",
     duration: record.duration || "",
@@ -4734,14 +4815,13 @@ function fillAdvancedCasePrompt(item = {}) {
   }
   state.activeAdvancedCaseId = "";
   updateAdvancedButtonCost();
-  if (els.advancedNote) els.advancedNote.textContent = t("advanced.casePromptLoaded", { model: provider === "wan27" ? "Wan2.7" : "Seedance" });
+  if (els.advancedNote) els.advancedNote.textContent = t("advanced.casePromptLoaded");
 }
 
 function renderAdvancedCaseCard({ item, index }) {
   const title = item.title || t("advanced.defaultCase");
   const provider = advancedCaseProvider(item);
   const params = item.params && typeof item.params === "object" ? item.params : {};
-  const modelName = provider === "wan27" ? "Wan2.7" : "Seedance";
   const duration = advancedCaseDuration(item);
   const resolution = normalizeAdvancedResolution(params.resolution || item.resolution || "720p", provider);
   const cover = advancedCaseOutputPoster(item) || item.coverUrl || DEFAULT_TEMPLATE_COVER;
@@ -4752,7 +4832,7 @@ function renderAdvancedCaseCard({ item, index }) {
       ${preview ? `<video class="advanced-case-hover-video" data-src="${escapeHtml(preview)}" poster="${escapeHtml(cover)}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
       ${preview ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
       <div class="advanced-case-card-meta">
-        <span>${escapeHtml(modelName)} / ${escapeHtml(resolution)} / ${escapeHtml(t("cost.seconds", { value: duration }))}</span>
+        <span>${escapeHtml(resolution)} / ${escapeHtml(t("cost.seconds", { value: duration }))}</span>
         <strong>${escapeHtml(title)}</strong>
       </div>
     </article>
@@ -6006,7 +6086,7 @@ function renderAssets(assets = state.userAssets || []) {
         </div>
         <div class="asset-info">
           <strong>${escapeHtml(asset.name || asset.id)}</strong>
-          <span>${escapeHtml(video ? t("assets.video") : t("assets.image"))} · ${escapeHtml(asset.seedanceReady ? t("assets.seedanceReady") : t("assets.seedancePending"))}</span>
+          <span>${escapeHtml(video ? t("assets.video") : t("assets.image"))}</span>
         </div>
         <div class="asset-actions">
           ${!video ? `<button class="ghost-button" type="button" data-asset-use="${escapeHtml(asset.id)}">${escapeHtml(t("assets.use"))}</button>` : ""}
@@ -6066,6 +6146,7 @@ async function loadUserAssets(page = state.userAssetsPage || 1) {
     state.userAssetsTotalPages = payload.totalPages || 1;
     if (els.assetNote) els.assetNote.textContent = "";
     renderAssets();
+    if (state.tab === "characters" && state.characterSource === "custom") renderGalleryCharacters(els.characterGrid);
   } catch (error) {
     if (els.assetNote) els.assetNote.textContent = t("assets.loadFailed", { message: error.message || String(error) });
   }
@@ -6617,7 +6698,7 @@ function renderSpendingRecords() {
           <tr>
             <td data-label="${escapeHtml(t("ledger.createdAt"))}">${escapeHtml(formatDateTime(entry.createdAt))}</td>
             <td data-label="${escapeHtml(t("ledger.type"))}"><span class="ledger-badge">${escapeHtml(entry.type || "")}</span></td>
-            <td data-label="${escapeHtml(t("ledger.title"))}"><strong>${escapeHtml(entry.title || entry.type || "")}</strong><small>${[entry.provider, entry.resolution, entry.duration ? `${entry.duration}s` : ""].filter(Boolean).join(" / ")}</small></td>
+            <td data-label="${escapeHtml(t("ledger.title"))}"><strong>${escapeHtml(entry.title || entry.type || "")}</strong><small>${[entry.resolution, entry.duration ? `${entry.duration}s` : ""].filter(Boolean).join(" / ")}</small></td>
             <td data-label="${escapeHtml(t("ledger.credits"))}" class="ledger-negative">-${escapeHtml(formatCredits(entry.amount))}</td>
             <td data-label="${escapeHtml(t("ledger.balanceAfter"))}">${escapeHtml(formatCredits(entry.balanceAfter))}</td>
             <td data-label="${escapeHtml(t("ledger.taskId"))}"><code>${escapeHtml(entry.taskId || entry.id || "")}</code></td>
