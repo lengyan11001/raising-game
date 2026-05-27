@@ -27,6 +27,7 @@ const {
 } = require("./db");
 
 const ROOT = __dirname;
+const CHARACTER_TAKE_OFF_PROMPT = "脱光图片中人物所有衣服";
 
 function loadLocalEnv(filePath) {
   if (!fsSync.existsSync(filePath)) return;
@@ -9666,7 +9667,7 @@ function composeWan27CharacterPrompt(userPrompt = "", { mode = "create" } = {}) 
   ].join(" ");
   const suffix = "Avoid minors, childlike features, distorted face, deformed hands, extra fingers, extra limbs, cropped body, blurry image, low resolution, text, watermark, logo.";
   if (mode === "take_off") {
-    return `${base} Use the reference character identity. Modify the image so the character has taken off all clothing while keeping the same face, pose direction, body proportions and realistic photographic style. ${core ? `User detail: ${core}` : ""} ${suffix}`.trim();
+    return CHARACTER_TAKE_OFF_PROMPT;
   }
   if (mode === "modify") {
     return `${base} Use the reference character identity. Apply this modification while preserving the same person: ${core}. ${suffix}`.trim();
@@ -9910,7 +9911,8 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
   const body = await readJson(req);
   const mode = String(body.mode || "modify").trim().toLowerCase();
   const userPrompt = String(body.prompt || "").trim();
-  const prompt = composeWan27CharacterPrompt(mode === "take_off" ? (userPrompt || "Take off all clothes.") : userPrompt, {
+  const displayPrompt = mode === "take_off" ? CHARACTER_TAKE_OFF_PROMPT : userPrompt;
+  const prompt = composeWan27CharacterPrompt(displayPrompt, {
     mode: mode === "take_off" ? "take_off" : "modify",
   });
   if (mode !== "take_off" && !userPrompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
@@ -9941,7 +9943,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
     characterName: character.name || "",
     imageUrl,
     sourceImageUrl: imageUrl,
-    prompt: userPrompt || "Take off all clothes.",
+    prompt: displayPrompt,
     finalPrompt: prompt,
     params: { provider: "wan27-image", model, ratio, resolution, action: mode === "take_off" ? "take_off" : "character_modify" },
     ratio,
@@ -10005,7 +10007,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
       maxBytes: 20 * 1024 * 1024,
     });
     newAsset.sourceCharacterId = character.id || "";
-    newAsset.characterPrompt = userPrompt || "Take off all clothes.";
+    newAsset.characterPrompt = displayPrompt;
     newAsset.characterFinalPrompt = prompt;
     newAsset.characterModel = model;
     newAsset.characterTaskId = submitted.task.taskId || taskId;

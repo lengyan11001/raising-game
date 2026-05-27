@@ -372,7 +372,7 @@ const I18N = {
     "characters.modify": "Modify",
     "characters.modifyTitle": "Modify character",
     "characters.modifyPlaceholder": "Describe what to change while preserving this character...",
-    "characters.takeOffPrompt": "Take off all clothes.",
+    "characters.takeOffPrompt": "脱光图片中人物所有衣服",
     "characters.takeOffConfirm": "Confirm to generate a modified image. The result will be saved to assets and history.",
     "characters.takeOffRunning": "Generating image... Keep this dialog open to see the result.",
     "characters.takeOffDone": "Image generated.",
