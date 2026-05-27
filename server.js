@@ -9664,7 +9664,29 @@ function firstPosterFromVideoMap(map = {}) {
   return "";
 }
 
-function systemCharacterImageUrl(item = {}) {
+async function localAssetUrlExists(value = "") {
+  let publicPath = normalizePublicAssetPath(value);
+  if (!publicPath && isPublicHttpUrl(value)) {
+    try {
+      const parsed = new URL(value);
+      const base = configuredPublicBaseUrl() || "https://123vips.com";
+      const baseHost = new URL(base).host;
+      if (parsed.host === baseHost) publicPath = normalizePublicAssetPath(parsed.pathname);
+    } catch {}
+  }
+  if (!publicPath || !publicPath.startsWith("/assets/")) return false;
+  const filePath = path.normalize(path.join(ROOT, publicPath.replace(/^\/+/, "")));
+  const assetsRoot = path.normalize(path.join(ROOT, "assets"));
+  if (!filePath.startsWith(assetsRoot)) return false;
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function systemCharacterImageUrl(item = {}) {
   const candidates = [
     item.posterUrl,
     item.localImageUrl,
@@ -9678,7 +9700,13 @@ function systemCharacterImageUrl(item = {}) {
     firstPosterFromVideoMap(item.sceneVideos),
     firstPosterFromVideoMap(item.unlockVideos),
   ];
-  return candidates.map((value) => String(value || "").trim()).find(Boolean) || "";
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (!value) continue;
+    if (await localAssetUrlExists(value)) return value;
+    if (isPublicHttpUrl(value) && !isLocalPublicAssetUrl(value)) return value;
+  }
+  return "";
 }
 
 async function handleGenerateUserCharacterImage(req, res) {
@@ -9857,7 +9885,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
   config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const character = findHomeVideoItem(config.homeVideo, characterId);
   if (!character || isSoftDeleted(character)) return sendJson(res, 404, { ok: false, message: "Character not found." });
-  const imageUrl = systemCharacterImageUrl(character);
+  const imageUrl = await systemCharacterImageUrl(character);
   if (!imageUrl) return sendJson(res, 400, { ok: false, message: "Character has no image." });
 
   const body = await readJson(req);
