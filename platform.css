@@ -2429,6 +2429,11 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   color: #0d574f;
   border-color: rgba(15,148,139,.28);
 }
+.history-delete {
+  color: #b42318;
+  border-color: rgba(180,35,24,.22);
+  background: rgba(254,242,242,.78);
+}
 .history-action-note {
   grid-column: 1 / -1;
   padding: 8px 10px;

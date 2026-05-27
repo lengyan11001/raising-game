@@ -5362,6 +5362,21 @@ async function softDeleteGenerationRecordsByCompanion(companionId, { userId = ""
   return changedRecords ? nextRecords : [];
 }
 
+async function softDeleteGenerationRecordForUser(taskId, userId) {
+  const id = String(taskId || "").trim();
+  const ownerId = String(userId || "").trim();
+  if (!id || !ownerId) return null;
+  const record = await getGenerationRecord(id);
+  if (!record || record.userId !== ownerId || !isUserVisibleGenerationRecord(record)) return null;
+  const nowIso = new Date().toISOString();
+  return upsertGenerationRecord({
+    ...record,
+    taskId: id,
+    deletedAt: nowIso,
+    updatedAt: nowIso,
+  });
+}
+
 function isUserVisibleGenerationRecord(record) {
   return Boolean(record && record.taskId && !record.deletedAt);
 }
@@ -12556,6 +12571,16 @@ async function handleGetGenerationRecord(req, res, taskId) {
   });
 }
 
+async function handleDeleteGenerationRecord(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const record = await softDeleteGenerationRecordForUser(taskId, auth.user.id);
+  if (!record) {
+    return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  }
+  return sendJson(res, 200, { ok: true, record: publicGenerationRecord(record) });
+}
+
 async function handleCreateCharacterImageLegacy(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -13460,6 +13485,9 @@ async function handleRequest(req, res) {
     const generationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)$/);
     if (req.method === "GET" && generationRecordMatch) {
       return await handleGetGenerationRecord(req, res, decodeURIComponent(generationRecordMatch[1]));
+    }
+    if (req.method === "DELETE" && generationRecordMatch) {
+      return await handleDeleteGenerationRecord(req, res, decodeURIComponent(generationRecordMatch[1]));
     }
     const regenerateGenerationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/regenerate$/);
     if (req.method === "POST" && regenerateGenerationRecordMatch) {

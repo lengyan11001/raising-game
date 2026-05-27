@@ -285,6 +285,8 @@ const I18N = {
     "common.all": "All",
     "common.credits": "credits",
     "common.fullscreen": "Fullscreen",
+    "common.delete": "Delete",
+    "common.deleting": "Deleting...",
     "footer.note": "Responsible AI video generation for creative workflows.",
     "legal.kicker": "Legal",
     "legal.privacy": "Privacy Policy",
@@ -378,6 +380,8 @@ const I18N = {
     "characters.takeOffDoneButton": "Done",
     "characters.useReady": "{name} selected.",
     "characters.modifyDone": "Modified image saved to assets.",
+    "characters.delete": "Delete",
+    "characters.deleteFailed": "Delete failed: {message}",
     "category.featured": "Featured",
     "category.i2v": "Image to Video",
     "category.t2v": "Text to Video",
@@ -608,6 +612,9 @@ const I18N = {
     "history.addAsset": "Add asset",
     "history.addingAsset": "Adding...",
     "history.assetAdded": "Added",
+    "history.delete": "Delete",
+    "history.deleting": "Deleting...",
+    "history.deleteFailed": "Delete failed: {message}",
     "history.detailTitle": "Generation detail",
     "history.inputImages": "Input images",
     "history.parameters": "Parameters",
@@ -3748,6 +3755,12 @@ function renderGalleryCharacters(root = els.templateGrid) {
       openSystemCharacterModifyDialog(button.dataset.characterModify);
     });
   });
+  root.querySelectorAll("[data-character-delete]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteCustomCharacter(button.dataset.characterDelete || "", button);
+    });
+  });
   root.querySelectorAll("[data-character-id]").forEach((card) => {
     card.addEventListener("click", (event) => {
       if (isInteractiveTarget(event.target)) return;
@@ -3820,11 +3833,37 @@ function renderGalleryCharacterCard(item = {}) {
           <button class="ghost-button" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.use"))}</button>
           <button class="ghost-button" data-character-takeoff="${escapeHtml(item.id || "")}" type="button"><i data-lucide="shirt"></i>${escapeHtml(t("characters.takeOff"))}</button>
           <button class="copy-btn" data-character-modify="${escapeHtml(item.id || "")}" type="button"><i data-lucide="wand-sparkles"></i>${escapeHtml(t("characters.modify"))}</button>
+          ${custom ? `<button class="ghost-button danger" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>` : ""}
           ${custom ? "" : `<button class="primary-button compact" data-character-cases="${escapeHtml(item.id || "")}" type="button"><i data-lucide="clapperboard"></i>${escapeHtml(t("gallery.character.viewCases"))}</button>`}
         </div>
       </div>
     </article>
   `;
+}
+
+async function deleteCustomCharacter(characterId = "", button = null) {
+  const assetId = String(characterId || "").startsWith("custom:") ? String(characterId).slice("custom:".length) : "";
+  if (!assetId) return;
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("common.deleting"))}`;
+    refreshIcons();
+  }
+  try {
+    await requestJson(`/api/user-assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
+    state.userAssets = (state.userAssets || []).filter((asset) => asset.id !== assetId);
+    state.userAssetsTotal = Math.max(0, Number(state.userAssetsTotal || 0) - 1);
+    renderGalleryCharacters(els.characterGrid);
+    if (state.tab === "assets") await loadUserAssets(state.userAssetsPage || 1);
+  } catch (error) {
+    if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.deleteFailed", { message: error.message || String(error) });
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }
+  }
 }
 
 function bindCharacterCreator() {
@@ -4292,6 +4331,7 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
           <h3>${escapeHtml(item.name || "Character")}</h3>
           <p>${escapeHtml(item.title || "")}</p>
           <button class="primary-button compact" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.useThis"))}</button>
+          ${item.custom ? `<button class="ghost-button danger compact" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>` : ""}
         </div>
       </div>
       ${state.galleryUnlockMessage ? `<div class="job-note">${escapeHtml(state.galleryUnlockMessage)}</div>` : ""}
@@ -4305,6 +4345,10 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
     else renderTemplates();
   });
   root.querySelector("[data-character-use]")?.addEventListener("click", () => useHomeCharacter(item.id || ""));
+  root.querySelector("[data-character-delete]")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    deleteCustomCharacter(item.id || "", event.currentTarget);
+  });
   root.querySelectorAll("[data-character-play]").forEach((button) => {
     button.addEventListener("click", () => {
       const video = findGalleryCharacterVideo(item, button.dataset.characterPlay, button.dataset.characterSceneEntry);
@@ -6314,6 +6358,11 @@ function renderHistory(records = []) {
           <button class="history-download history-params" type="button" data-history-detail="${index}">
             <i data-lucide="sliders-horizontal"></i>${escapeHtml(t("history.viewParameters"))}
           </button>
+          ${taskId ? `
+            <button class="history-download history-delete" type="button" data-history-delete="${escapeHtml(taskId)}">
+              <i data-lucide="trash-2"></i>${escapeHtml(t("history.delete"))}
+            </button>
+          ` : ""}
         </div>
       </article>
     `;
@@ -6350,6 +6399,9 @@ function renderHistory(records = []) {
   });
   els.historyList.querySelectorAll("[data-history-detail]").forEach((button) => {
     button.addEventListener("click", () => openHistoryDetail(button.dataset.historyDetail || 0));
+  });
+  els.historyList.querySelectorAll("[data-history-delete]").forEach((button) => {
+    button.addEventListener("click", () => deleteHistoryRecord(button.dataset.historyDelete || "", button));
   });
   renderSimplePager(els.historyPager, {
     page: state.historyRecordsPage,
@@ -6460,6 +6512,36 @@ async function openHistoryRecordAssetAction(taskId, action = "replace", button =
   if (action === "frame") return openAssetFrameDialog(videoAsset);
   if (action === "extend") return openAssetVideoExtendDialog(videoAsset);
   if (action === "replace") return openAssetReplaceDialog(videoAsset);
+}
+
+async function deleteHistoryRecord(taskId = "", button = null) {
+  if (!taskId) return;
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.deleting"))}`;
+    refreshIcons();
+  }
+  try {
+    await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+    state.historyRecords = (state.historyRecords || []).filter((record) => String(record.taskId || "") !== String(taskId));
+    state.historyRecordsTotal = Math.max(0, Number(state.historyRecordsTotal || 0) - 1);
+    historyRecordsSignature = "";
+    await loadHistory({ silent: true, page: state.historyRecordsPage || 1 });
+  } catch (error) {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }
+    if (els.historyList) {
+      const note = document.createElement("div");
+      note.className = "job-note history-action-note";
+      note.textContent = t("history.deleteFailed", { message: error.message || String(error) });
+      els.historyList.prepend(note);
+      window.setTimeout(() => note.remove(), 5000);
+    }
+  }
 }
 
 function isPendingGenerationRecord(record = {}) {
