@@ -4982,40 +4982,43 @@ function seedanceReferenceVideoInputCountFromBody(body = {}) {
 }
 
 function seedanceVideoInputSecondsFromBody(body = {}, { fallbackSeconds = 0 } = {}) {
-  const explicitTotal = seedanceExplicitVideoInputSecondsFromBody(body);
-  if (explicitTotal > 0) return explicitTotal;
   const videoItems = seedanceReferenceVideoUrlItemsFromBody(body);
   const itemDurations = videoItems.map(seedanceVideoInputDurationFromItem);
-  const knownSeconds = itemDurations.reduce((sum, seconds) => sum + seconds, 0);
+  const floorSeconds = durationSecondsFromValue(fallbackSeconds);
+  const knownSeconds = itemDurations.reduce((sum, seconds) => {
+    const value = durationSecondsFromValue(seconds);
+    return value > 0 ? sum + Math.max(value, floorSeconds) : sum;
+  }, 0);
   const unknownCount = itemDurations.filter((seconds) => !seconds).length;
   if (knownSeconds > 0 || unknownCount > 0) {
-    return durationSecondsFromValue(knownSeconds + unknownCount * Number(fallbackSeconds || 0));
+    return durationSecondsFromValue(knownSeconds + unknownCount * floorSeconds);
   }
-  const inputCount = seedanceReferenceVideoInputCountFromBody(body);
-  return inputCount > 0 ? durationSecondsFromValue(Number(fallbackSeconds || 0) * inputCount) : 0;
+  return 0;
 }
 
 function seedanceVideoInputSecondsFromAssets(assets = [], { fallbackSeconds = 0, expectedCount = null } = {}) {
   const list = (assets || []).filter(Boolean);
+  const floorSeconds = durationSecondsFromValue(fallbackSeconds);
   const knownSeconds = list.reduce((sum, asset) => {
-    return sum + durationSecondsFromValue(firstPresent(asset?.durationSeconds, asset?.duration));
+    const seconds = durationSecondsFromValue(firstPresent(asset?.durationSeconds, asset?.duration));
+    return seconds > 0 ? sum + Math.max(seconds, floorSeconds) : sum;
   }, 0);
   const knownCount = list.filter((asset) => durationSecondsFromValue(firstPresent(asset?.durationSeconds, asset?.duration)) > 0).length;
   const totalCount = expectedCount === null || expectedCount === undefined ? list.length : Math.max(0, Number(expectedCount || 0));
   const unknownCount = Math.max(0, totalCount - knownCount);
-  return durationSecondsFromValue(knownSeconds + unknownCount * Number(fallbackSeconds || 0));
+  return durationSecondsFromValue(knownSeconds + unknownCount * floorSeconds);
 }
 
 function seedanceVideoInputSecondsForPricing(body = {}, { requestParams = {}, assets = [], assetIds = [] } = {}) {
   const explicitTotal = seedanceExplicitVideoInputSecondsFromBody(body);
-  if (explicitTotal > 0) return explicitTotal;
   const fallbackSeconds = durationSecondsFromValue(requestParams.duration, advancedDurationBounds("seedance").fallback);
   const assetSeconds = seedanceVideoInputSecondsFromAssets(assets, {
     fallbackSeconds,
     expectedCount: Math.max(arrayFromBody(assetIds).filter(Boolean).length, (assets || []).filter(Boolean).length),
   });
   const urlSeconds = seedanceVideoInputSecondsFromBody(body, { fallbackSeconds });
-  return durationSecondsFromValue(assetSeconds + urlSeconds);
+  const minimumSeconds = durationSecondsFromValue(assetSeconds + urlSeconds);
+  return durationSecondsFromValue(Math.max(explicitTotal, minimumSeconds));
 }
 
 function seedanceReferenceAudioAssetIdsFromBody(body = {}) {
@@ -9302,11 +9305,15 @@ function tenantDocsPricingView(pricing = {}) {
 
 async function buildUserAdvancedEstimate(provider = "seedance", params = {}, user = null) {
   const config = await readAppConfig();
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  const inputVideoSeconds = normalizedProvider === "seedance"
+    ? seedanceVideoInputSecondsForPricing(params, { requestParams: params })
+    : firstPresent(params.inputVideoSeconds, params.videoInputSeconds, params.referenceVideoDurationSeconds, params.referenceVideoSeconds);
   const rawPricing = advancedModelPricing(provider, {
     duration: params.duration ?? params.durationSeconds,
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
-    inputVideoSeconds: params.inputVideoSeconds ?? params.videoInputSeconds ?? params.referenceVideoDurationSeconds ?? params.referenceVideoSeconds,
+    inputVideoSeconds,
     advancedPricing: config.platform?.advancedPricing,
   });
   return applyUserPricingToEstimate(rawPricing, user || 1);
@@ -9333,7 +9340,6 @@ async function handleAdvancedEstimate(req, res) {
     body.referenceVideoSeconds,
     url.searchParams.get("inputVideoSeconds"),
     url.searchParams.get("referenceVideoDurationSeconds"),
-    provider === "seedance" ? seedanceVideoInputSecondsForPricing(params, { requestParams: params }) : 0,
   );
   const pricing = await buildUserAdvancedEstimate(provider, params, auth.user);
   const publicPricing = tenantPublic
