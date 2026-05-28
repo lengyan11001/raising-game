@@ -1981,8 +1981,8 @@ POST ${apiUrl("/api/advanced/generate")}
   "provider": "seedance",
   "prompt": "your prompt",
   "referenceImages": [
-    {"dataUrl": "data:image/png;base64,...", "fileName": "reference-1.png"},
-    {"dataUrl": "data:image/png;base64,...", "fileName": "reference-2.png"}
+    {"url": "https://example.com/image1.png", "fileName": "image1.png"},
+    {"url": "https://example.com/image2.png", "fileName": "image2.png"}
   ],
   "resolution": "720p",
   "duration": 5
@@ -2000,7 +2000,7 @@ const advancedBody = {
   prompt: "your prompt",
   dataUrl: "data:image/png;base64,...",
   // Seedance only: send one or more reference images in the same field.
-  referenceImages: [{ dataUrl: "data:image/png;base64,...", fileName: "reference-1.png" }],
+  referenceImages: [{ url: "https://example.com/image1.png", fileName: "image1.png" }],
   resolution: "720p",
   duration: 5
 };
@@ -2032,7 +2032,7 @@ advanced_payload = {
     "prompt": "your prompt",
     "dataUrl": "data:image/png;base64,...",
     # Seedance only: send one or more reference images in the same field.
-    "referenceImages": [{"dataUrl": "data:image/png;base64,...", "fileName": "reference-1.png"}],
+    "referenceImages": [{"url": "https://example.com/image1.png", "fileName": "image1.png"}],
     "resolution": "720p",
     "duration": 5,
 }
@@ -2074,7 +2074,7 @@ POST ${apiUrl("/api/advanced/generate")}
 Body:
 {"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}
 or:
-{"provider":"seedance","prompt":"your prompt","referenceImages":[{"dataUrl":"data:image/png;base64,...","fileName":"reference-1.png"},{"dataUrl":"data:image/png;base64,...","fileName":"reference-2.png"}],"resolution":"720p","duration":5}
+{"provider":"seedance","prompt":"your prompt","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"},{"url":"https://example.com/image2.png","fileName":"image2.png"}],"resolution":"720p","duration":5}
 
 Check records:
 GET ${apiUrl("/api/generation-records")}`;
@@ -2089,7 +2089,7 @@ Advanced MCP wrapper target:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
-{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"dataUrl":"data:image/png;base64,...","fileName":"reference-1.png"}],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
+{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
 
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
@@ -2101,7 +2101,7 @@ Content-Type: application/json
   "provider": "seedance",
   "prompt": "Describe the video. Dialogue can be quoted in the prompt.",
   "referenceImages": [
-    {"dataUrl": "data:image/png;base64,...", "fileName": "image1.png"}
+    {"url": "https://example.com/image1.png", "fileName": "image1.png"}
   ],
   "params": {
     "model": "dreamina-seedance-2-0-fast-260128",
@@ -2204,7 +2204,7 @@ Content-Type: application/json
       ["provider", "wan27 or seedance."],
       ["prompt", "Required prompt."],
       ["dataUrl", "Wan2.7 first-frame image. Optional for Seedance."],
-      ["referenceImages", "Seedance only. Array of base64 image objects in the same field."],
+      ["referenceImages", "Seedance only. Array of reference image objects in the same field. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId."],
       ["userAssetId", "Existing uploaded asset id for a reference image."],
       ["extraReferenceAssetIds", "Seedance compatibility field for additional asset ids."],
       ["ratio", "9:16, 16:9, or 1:1."],
@@ -2234,7 +2234,7 @@ Content-Type: application/json
       { name: "generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
       { name: "image_url", type: "string", required: "No", description: "First-frame image URL or asset:// URI for image-to-video. Prefer referenceImages/userAssetId when calling our API.", default: "-" },
       { name: "end_image_url", type: "string", required: "No", description: "Last-frame image URL or asset:// URI. Also provide image_url when using first/last-frame mode.", default: "-" },
-      { name: "reference_images", type: "array", required: "No", description: "Reference image URL or asset:// URI array. Our referenceImages array accepts dataUrl or assetId and converts it before upstream submit.", default: "-" },
+      { name: "reference_images", type: "array", required: "No", description: "Reference image URL or asset:// URI array. Our referenceImages array accepts url/imageUrl, dataUrl, or assetId and converts it before upstream submit.", default: "-" },
       { name: "reference_videos", type: "array", required: "No", description: "Reference video URL or asset:// URI array. Our referenceVideoAssetId/videoAssetId handles library videos.", default: "-" },
       { name: "reference_audios", type: "array", required: "No", description: "Reference audio URL or asset:// URI array. Forward via params when upstream allows it.", default: "-" },
       { name: "web_search", type: "boolean", required: "No", description: "Enable web search enhancement where supported by upstream text-to-video.", default: "false" },

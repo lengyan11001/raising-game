@@ -3190,7 +3190,14 @@ function imageMimeFromPath(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".png") return "image/png";
   if (ext === ".webp") return "image/webp";
+  if (ext === ".bmp") return "image/bmp";
   return "image/jpeg";
+}
+
+function imageMimeFromKnownPath(filePath) {
+  const ext = path.extname(String(filePath || "").split("?")[0]).toLowerCase();
+  if (![".jpg", ".jpeg", ".png", ".webp", ".bmp"].includes(ext)) return "";
+  return imageMimeFromPath(filePath);
 }
 
 function videoExtFromMime(mime = "", fallbackPath = "") {
@@ -4472,7 +4479,7 @@ function seedanceReferenceInputsFromBody(body = {}) {
   const filteredInputs = inputs.filter((item) => {
     if (!item) return false;
     if (typeof item === "string") return item.trim();
-    return item.dataUrl || item.assetId;
+    return item.dataUrl || item.assetId || item.url || item.imageUrl;
   });
   if (filteredInputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
@@ -4501,7 +4508,7 @@ function seedanceExtraReferenceInputsFromBody(body = {}) {
   ].filter((item) => {
     if (!item) return false;
     if (typeof item === "string") return item.trim();
-    return item.dataUrl || item.assetId;
+    return item.dataUrl || item.assetId || item.url || item.imageUrl;
   });
   if (inputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
@@ -4566,6 +4573,32 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
         dataUrl: item.dataUrl,
         fileName: item.fileName || "",
         name: item.name || `${name} ${index + 1}`,
+      }));
+    } else if (item.url || item.imageUrl) {
+      const imageUrl = String(item.url || item.imageUrl || "").trim();
+      if (!isPublicHttpUrl(imageUrl)) {
+        const error = new Error("Reference image URL must be a public http(s) URL.");
+        error.statusCode = 400;
+        throw error;
+      }
+      const downloaded = await downloadRemoteFileToBuffer(imageUrl, {
+        label: `reference image ${index + 1}`,
+        maxBytes: 8 * 1024 * 1024,
+        timeoutMs: 120000,
+      });
+      const pathname = new URL(imageUrl).pathname;
+      const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : imageMimeFromKnownPath(pathname);
+      if (!String(mime || "").startsWith("image/") || !["image/jpeg", "image/png", "image/webp", "image/bmp"].includes(mime)) {
+        const error = new Error("Reference image URL must point to an image file.");
+        error.statusCode = 400;
+        throw error;
+      }
+      assets.push(await createUserMediaAssetFromBytes(db, user, {
+        bytes: downloaded.bytes,
+        mime,
+        fileName: item.fileName || path.basename(pathname) || "",
+        name: item.name || `${name} ${index + 1}`,
+        maxBytes: 8 * 1024 * 1024,
       }));
     } else if (item.assetId) {
       const asset = (db.userAssets || []).find((entry) => entry.id === String(item.assetId || "").trim() && entry.userId === user.id && !isSoftDeleted(entry));
@@ -8301,8 +8334,8 @@ function docsAdvancedExampleBody(item = {}) {
   };
   if (provider === "seedance") {
     body.referenceImages = [
-      { dataUrl: "data:image/png;base64,...", fileName: "reference-1.png" },
-      { dataUrl: "data:image/png;base64,...", fileName: "reference-2.png" },
+      { url: "https://example.com/image1.png", fileName: "image1.png" },
+      { url: "https://example.com/image2.png", fileName: "image2.png" },
     ];
   }
   return body;
@@ -8494,9 +8527,9 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "provider", type: "string", required: false, description: "`wan27` or `seedance`. Defaults to the saved case provider, or Wan2.7 when no case/provider is supplied." },
       { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
       { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded reference image as a base64 data URL. Required for Wan2.7 first-frame generation; optional for Seedance." },
-      { name: "referenceImages", type: "array", required: false, description: "Seedance only. One or more reference images as data URLs in the same field." },
-      { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. Use instead of dataUrl." },
-      { name: "extraReferenceDataUrls", type: "array", required: false, description: "Seedance compatibility field. Prefer referenceImages for new integrations." },
+      { name: "referenceImages", type: "array", required: false, description: "Seedance only. One or more reference images in the same field. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId." },
+      { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. Use instead of dataUrl/url." },
+      { name: "extraReferenceDataUrls", type: "array", required: false, description: "Seedance compatibility field. Prefer referenceImages for new integrations; referenceImages now supports URL items." },
       { name: "extraReferenceAssetIds", type: "array", required: false, description: "Seedance only. Optional existing uploaded asset ids for additional references." },
       { name: "ratio", type: "string", required: false, description: "Video ratio, for example 9:16, 16:9, or 1:1." },
       { name: "resolution", type: "string", required: false, description: "720p or 1080p." },
@@ -8603,7 +8636,7 @@ function advancedDocMarkdown(item) {
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
-  lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `referenceImages` for one or more images in the same field, or `userAssetId` / `extraReferenceAssetIds` for existing uploaded assets.");
+  lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `referenceImages` for one or more images in the same field; each item may contain `url`/`imageUrl` + `fileName`, `dataUrl` + `fileName`, or `assetId`.");
   lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
