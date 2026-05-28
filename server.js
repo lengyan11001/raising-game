@@ -27,7 +27,7 @@ const {
 } = require("./db");
 
 const ROOT = __dirname;
-const CHARACTER_TAKE_OFF_PROMPT = "脱光图片中人物所有衣服";
+const CHARACTER_TAKE_OFF_PROMPT = "脱掉所有衣服，保持裸体，不要出现肉色衣服";
 
 function loadLocalEnv(filePath) {
   if (!fsSync.existsSync(filePath)) return;
@@ -9660,19 +9660,10 @@ function wan27ImageModifyPricing(config = {}, user = null) {
 
 function composeWan27CharacterPrompt(userPrompt = "", { mode = "create" } = {}) {
   const core = String(userPrompt || "").trim();
-  const base = [
-    "Create one realistic full-body adult character portrait.",
-    "The character must be clearly over 21 years old, natural human anatomy, consistent face identity, cinematic fashion photography, clean background, full body visible from head to shoes.",
-    "High detail skin texture, natural lighting, professional camera, no text, no watermark, no logo.",
-  ].join(" ");
-  const suffix = "Avoid minors, childlike features, distorted face, deformed hands, extra fingers, extra limbs, cropped body, blurry image, low resolution, text, watermark, logo.";
   if (mode === "take_off") {
     return CHARACTER_TAKE_OFF_PROMPT;
   }
-  if (mode === "modify") {
-    return `${base} Use the reference character identity. Apply this modification while preserving the same person: ${core}. ${suffix}`.trim();
-  }
-  return `${base} Character description: ${core}. ${suffix}`.trim();
+  return core;
 }
 
 function firstPosterFromVideoMap(map = {}) {
