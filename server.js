@@ -4832,7 +4832,9 @@ function seedanceReferenceAssetUrisFromBody(body = {}) {
     ...arrayFromBody(body.referenceImages).map((item) => (
       typeof item === "string"
         ? (item.trim().startsWith("asset://") ? item : "")
-        : String(item?.assetUri || item?.referenceAssetUri || item?.seedanceAssetUri || "")
+        : (item?.assetId || item?.userAssetId || item?.imageAssetId
+          ? ""
+          : String(item?.assetUri || item?.referenceAssetUri || item?.seedanceAssetUri || ""))
     )),
   ].map((item) => String(item || "").trim()).filter(Boolean);
   const inputs = [...explicitInputs, ...referenceImageInputs];
