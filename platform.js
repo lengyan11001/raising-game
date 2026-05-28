@@ -2834,7 +2834,7 @@ function markdownTable(rows = []) {
     ? { name: row[0], type: "-", required: "No", description: row[1], default: "-" }
     : row));
   const lines = [
-    "| 参数名 | 类型 | 必填 | 说明 | 默认值 |",
+    "| Parameter | Type | Required | Description | Default |",
     "| --- | --- | --- | --- | --- |",
     ...paramRows.map((row) => `| ${markdownCell(row.name)} | ${markdownCell(row.type || "-")} | ${markdownCell(row.required || "No")} | ${markdownCell(row.description || "")} | ${markdownCell(row.default || "-")} |`),
   ];
@@ -3107,6 +3107,38 @@ function fullAccessCopy() {
   return hydrateAccessCopy(activeAccessGuide.copy, { revealToken: true });
 }
 
+function allParameterDocsMarkdown({ revealToken = false } = {}) {
+  const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
+  const markdown = ACCESS_PARAM_GUIDES
+    .map((guide) => accessDocMarkdown(accessDoc(guide)))
+    .join("\n\n---\n\n");
+  return revealToken ? markdown.replaceAll("<user-token>", token) : markdown;
+}
+
+function tokenAccessPackageMarkdown() {
+  const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
+  const baseUrl = API_ORIGIN || window.location.origin || "";
+  const docsUrl = PARAM_DOC_MARKDOWN_URL || apiUrl("/docs/models.md");
+  return [
+    "# Vipeak AI API Access Package",
+    "",
+    `Base URL: ${baseUrl}`,
+    `API Token: ${token}`,
+    `Full parameter docs: ${docsUrl}`,
+    "",
+    "## Quick Start",
+    "",
+    "```http",
+    hydrateAccessCopy(LIVE_HTTP_ACCESS_COPY, { revealToken: true }).trim(),
+    "```",
+    "",
+    "## Detailed Parameters",
+    "",
+    allParameterDocsMarkdown({ revealToken: true }).trim(),
+    "",
+  ].join("\n");
+}
+
 function apiSubtokenStatusLabel(token = {}) {
   const status = String(token.status || "").toLowerCase();
   if (status === "revoked") return t("access.subtokenRevoked");
@@ -3372,6 +3404,7 @@ function renderTokenDisplays() {
   }
   if (els.copyTokenBtn) {
     els.copyTokenBtn.disabled = !state.token || !state.user?.apiToken;
+    els.copyTokenBtn.innerHTML = `<i data-lucide="key-round"></i>Copy token + docs`;
   }
   if (els.accountName) els.accountName.textContent = state.user?.username || t("account.title");
   if (els.accountCredits) els.accountCredits.textContent = String(Number(state.user?.credits || 0));
@@ -7579,11 +7612,11 @@ els.toggleAccessTokenBtn?.addEventListener("click", () => {
 });
 els.copyTokenBtn?.addEventListener("click", async () => {
   if (!state.token || !state.user?.apiToken) return openLogin();
-  await navigator.clipboard.writeText(state.user.apiToken);
-  els.copyTokenBtn.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("common.copiedToken"))}`;
+  await navigator.clipboard.writeText(tokenAccessPackageMarkdown());
+  els.copyTokenBtn.innerHTML = `<i data-lucide="check"></i>Copied token + docs`;
   refreshIcons();
   setTimeout(() => {
-    els.copyTokenBtn.innerHTML = `<i data-lucide="key-round"></i>${escapeHtml(t("common.copyToken"))}`;
+    renderTokenDisplays();
     refreshIcons();
   }, 1600);
 });
