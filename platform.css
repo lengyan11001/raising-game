@@ -1201,6 +1201,50 @@ main {
   font-size: .88rem;
   line-height: 1.5;
 }
+.access-param-table {
+  gap: 0;
+  overflow-x: auto;
+  border: 1px solid rgba(15,148,139,.12);
+  border-radius: 8px;
+  background: #fff;
+}
+.access-param-row {
+  display: grid;
+  grid-template-columns: minmax(132px, 1fr) 92px 88px minmax(260px, 2fr) minmax(112px, 1fr);
+  min-width: 860px;
+  border-top: 1px solid rgba(15,148,139,.1);
+}
+.access-param-row:first-child { border-top: 0; }
+.access-param-row > * {
+  min-width: 0;
+  padding: 10px 12px;
+  border-left: 1px solid rgba(15,148,139,.08);
+  color: #34435a;
+  font-size: .84rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.access-param-row > *:first-child { border-left: 0; }
+.access-param-row strong {
+  color: #0f948b;
+  font-size: .82rem;
+  letter-spacing: .01em;
+}
+.access-param-row code {
+  color: #075e76;
+  background: rgba(15,148,139,.07);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+.access-param-head {
+  background: rgba(15,148,139,.07);
+}
+.access-param-head strong {
+  color: #24324a;
+  font-size: .78rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
 .access-doc-example {
   margin-top: 16px;
 }

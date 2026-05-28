@@ -1760,6 +1760,46 @@ function normalizeVideoRatio(value = "") {
   return "16:9";
 }
 
+function plainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function firstPresent(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return undefined;
+}
+
+function boolFromRequest(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
+function requestParamsFromBody(body = {}) {
+  return plainObject(body.params);
+}
+
+function mergedRequestForMedia(body = {}, caseParams = {}) {
+  return {
+    ...caseParams,
+    ...requestParamsFromBody(body),
+    ...body,
+  };
+}
+
+function pickRequestFields(source = {}, fields = []) {
+  const picked = {};
+  fields.forEach((field) => {
+    if (source[field] !== undefined && source[field] !== null && source[field] !== "") picked[field] = source[field];
+  });
+  return picked;
+}
+
 function normalizeWan27ImageRatio(value = "") {
   const ratio = normalizeVideoRatio(value);
   return new Set(["1:1", "3:4", "4:3", "9:16", "16:9"]).has(ratio) ? ratio : "9:16";
@@ -1852,7 +1892,7 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     return {
       provider: "wan27",
       providerLabel: "Wan2.7",
-      model: ALIYUN_WAN27_MODEL,
+      model: options.model || ALIYUN_WAN27_MODEL,
       duration,
       resolution,
       publicResolution,
@@ -1870,7 +1910,7 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   return {
     provider: "seedance",
     providerLabel: "Seedance",
-    model: MODEL_QUALITY,
+    model: options.model || MODEL_QUALITY,
     duration,
     ratio,
     resolution,
@@ -3625,8 +3665,51 @@ function seedanceContentFromReferences({
         image_url: { url: uri },
         role: "reference_image",
       });
-    });
+  });
   return content;
+}
+
+const SEEDANCE_TOP_LEVEL_PASSTHROUGH_FIELDS = [
+  "model",
+  "ratio",
+  "resolution",
+  "duration",
+  "generate_audio",
+  "web_search",
+  "seed",
+  "watermark",
+  "fps",
+  "camera_fixed",
+  "content",
+  "image_url",
+  "end_image_url",
+  "reference_images",
+  "reference_videos",
+  "reference_audios",
+];
+
+function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body = {} } = {}) {
+  const source = { ...requestParamsFromBody(body), ...body };
+  const payload = pickRequestFields(source, SEEDANCE_TOP_LEVEL_PASSTHROUGH_FIELDS);
+  const requestedContent = Array.isArray(source.content) ? source.content : null;
+  const fallbackContent = Array.isArray(content) ? content : [];
+  payload.model = String(firstPresent(source.model, MODEL_QUALITY));
+  payload.content = requestedContent || fallbackContent;
+  payload.generate_audio = boolFromRequest(
+    firstPresent(source.generate_audio, source.generateAudio),
+    config.video?.generateAudio === true,
+  );
+  payload.ratio = String(firstPresent(source.ratio, source.aspect_ratio, config.video?.ratio, "9:16"));
+  payload.resolution = normalizeAdvancedResolution(firstPresent(source.resolution, config.video?.resolution, "720p"));
+  payload.duration = clampNumber(
+    firstPresent(source.duration, source.durationSeconds),
+    config.video?.duration || advancedDurationBounds("seedance").fallback,
+    advancedDurationBounds("seedance").min,
+    advancedDurationBounds("seedance").max,
+  );
+  payload.watermark = boolFromRequest(source.watermark, false);
+  if (!payload.content.length) payload.content = [{ type: "text", text: String(prompt || "") }];
+  return payload;
 }
 
 async function submitSeedanceVideoTask({
@@ -3647,15 +3730,7 @@ async function submitSeedanceVideoTask({
     extraReferenceVideoAssetUris,
   });
 
-  const payload = {
-    model: MODEL_QUALITY,
-    content,
-    generate_audio: body.generateAudio === true || config.video.generateAudio === true,
-    ratio: body.ratio || config.video.ratio || "9:16",
-    resolution: body.resolution || config.video.resolution || "720p",
-    duration: clampNumber(body.duration, config.video.duration || 15, 5, 15),
-    watermark: false,
-  };
+  const payload = seedancePayloadFromBody({ config, prompt, content, body });
 
   console.log(`[seedance-submit-${slug || "video"}]`, JSON.stringify(payload, null, 2));
   let raw;
@@ -3807,32 +3882,37 @@ function validateWan27MediaCombination(media = []) {
 }
 
 async function submitWan27VideoTask({ prompt, imageUrl = "", media = [], body = {} }) {
+  const source = { ...requestParamsFromBody(body), ...body };
   const normalizedMedia = Array.isArray(media) && media.length
     ? media.map(normalizeWan27MediaItem)
     : [normalizeWan27MediaItem({ type: "first_frame", url: imageUrl })];
   validateWan27MediaCombination(normalizedMedia);
   const wanBounds = advancedDurationBounds("wan27");
-  const duration = clampNumber(body.duration, wanBounds.fallback, wanBounds.min, wanBounds.max);
-  const seed = optionalWan27Seed(body.seed);
+  const parameterExtras = plainObject(source.parameters);
+  const inputExtras = plainObject(source.input);
+  const duration = clampNumber(firstPresent(parameterExtras.duration, source.duration, source.durationSeconds), wanBounds.fallback, wanBounds.min, wanBounds.max);
+  const seed = optionalWan27Seed(firstPresent(parameterExtras.seed, source.seed));
   const parameters = {
-    resolution: normalizeWan27Resolution(body.resolution),
+    ...parameterExtras,
+    resolution: normalizeWan27Resolution(firstPresent(parameterExtras.resolution, source.resolution)),
     duration,
-    prompt_extend: body.promptExtend === true,
-    watermark: false,
+    prompt_extend: boolFromRequest(firstPresent(parameterExtras.prompt_extend, source.prompt_extend, source.promptExtend), false),
+    watermark: boolFromRequest(firstPresent(parameterExtras.watermark, source.watermark), false),
   };
   if (seed !== null) parameters.seed = seed;
 
   const payload = {
-    model: body.model || ALIYUN_WAN27_MODEL,
+    model: String(firstPresent(source.model, ALIYUN_WAN27_MODEL)),
     input: {
+      ...inputExtras,
       prompt,
       media: normalizedMedia,
     },
     parameters,
   };
-  if (body.promptExtendText) {
+  if (source.promptExtendText || source.prompt_extend_text || parameterExtras.prompt_extend_text) {
     payload.parameters.prompt_extend = true;
-    payload.parameters.prompt_extend_text = String(body.promptExtendText);
+    payload.parameters.prompt_extend_text = String(firstPresent(parameterExtras.prompt_extend_text, source.prompt_extend_text, source.promptExtendText));
   }
   console.log("[wan27-submit-advanced]", JSON.stringify({
     model: payload.model,
@@ -3885,10 +3965,53 @@ async function resolveWan27ImageResult(raw = {}, { timeoutMs = 10 * 60 * 1000, p
   return task;
 }
 
-async function submitWan27ImageModify({ imageUrl, prompt, ratio = "9:16", resolution = "2K", model = WAN27_IMAGE_PRO_MODEL } = {}) {
+function wan27ImageRequestOptions(body = {}, { defaultModel = WAN27_IMAGE_PRO_MODEL, defaultRatio = "9:16", defaultResolution = "2K" } = {}) {
+  const source = { ...requestParamsFromBody(body), ...body };
+  const ratio = normalizeWan27ImageRatio(firstPresent(source.ratio, source.aspect_ratio, defaultRatio));
+  const resolution = normalizeWan27ImageResolution(firstPresent(source.resolution, defaultResolution));
+  const parameters = {
+    ...plainObject(source.parameters),
+    ...plainObject(source.parameter),
+  };
+  if (firstPresent(source.size, parameters.size) !== undefined) parameters.size = String(firstPresent(source.size, parameters.size));
+  else parameters.size = wan27ImageSize(resolution, ratio);
+  parameters.n = Number(firstPresent(parameters.n, source.n, 1)) || 1;
+  parameters.watermark = boolFromRequest(firstPresent(parameters.watermark, source.watermark), false);
+  return {
+    model: String(firstPresent(source.model, defaultModel, WAN27_IMAGE_PRO_MODEL)),
+    ratio,
+    resolution,
+    input: plainObject(source.input),
+    parameters,
+  };
+}
+
+function exposedWan27ImageParams(imageOptions = {}) {
+  const parameters = { ...plainObject(imageOptions.parameters) };
+  const size = parameters.size;
+  delete parameters.size;
+  return {
+    ratio: imageOptions.ratio,
+    resolution: imageOptions.resolution,
+    model: imageOptions.model,
+    ...(size ? { size } : {}),
+    ...(Object.keys(parameters).length ? { parameters } : {}),
+  };
+}
+
+async function submitWan27ImageModify({
+  imageUrl,
+  prompt,
+  ratio = "9:16",
+  resolution = "2K",
+  model = WAN27_IMAGE_PRO_MODEL,
+  input = {},
+  parameters = {},
+} = {}) {
   const payload = {
     model: model || WAN27_IMAGE_PRO_MODEL,
     input: {
+      ...plainObject(input),
       messages: [
         {
           role: "user",
@@ -3900,11 +4023,14 @@ async function submitWan27ImageModify({ imageUrl, prompt, ratio = "9:16", resolu
       ],
     },
     parameters: {
-      size: wan27ImageSize(resolution, ratio),
-      n: 1,
-      watermark: false,
+      ...plainObject(parameters),
+      size: firstPresent(parameters.size, wan27ImageSize(resolution, ratio)),
+      n: firstPresent(parameters.n, 1),
+      watermark: firstPresent(parameters.watermark, false),
     },
   };
+  payload.parameters.n = Number(firstPresent(parameters.n, payload.parameters.n, 1)) || 1;
+  payload.parameters.watermark = boolFromRequest(firstPresent(parameters.watermark, payload.parameters.watermark), false);
   const raw = await aliyunDashscopeRequest("/api/v1/services/aigc/image-generation/generation", {
     method: "POST",
     body: payload,
@@ -3913,10 +4039,18 @@ async function submitWan27ImageModify({ imageUrl, prompt, ratio = "9:16", resolu
   return { task: await resolveWan27ImageResult(raw), payload, raw };
 }
 
-async function submitWan27ImageTextGenerate({ prompt, ratio = "9:16", resolution = "2K", model = WAN27_IMAGE_PRO_MODEL } = {}) {
+async function submitWan27ImageTextGenerate({
+  prompt,
+  ratio = "9:16",
+  resolution = "2K",
+  model = WAN27_IMAGE_PRO_MODEL,
+  input = {},
+  parameters = {},
+} = {}) {
   const payload = {
     model: model || WAN27_IMAGE_PRO_MODEL,
     input: {
+      ...plainObject(input),
       messages: [
         {
           role: "user",
@@ -3927,11 +4061,14 @@ async function submitWan27ImageTextGenerate({ prompt, ratio = "9:16", resolution
       ],
     },
     parameters: {
-      size: wan27ImageSize(resolution, ratio),
-      n: 1,
-      watermark: false,
+      ...plainObject(parameters),
+      size: firstPresent(parameters.size, wan27ImageSize(resolution, ratio)),
+      n: firstPresent(parameters.n, 1),
+      watermark: firstPresent(parameters.watermark, false),
     },
   };
+  payload.parameters.n = Number(firstPresent(parameters.n, payload.parameters.n, 1)) || 1;
+  payload.parameters.watermark = boolFromRequest(firstPresent(parameters.watermark, payload.parameters.watermark), false);
   const raw = await aliyunDashscopeRequest("/api/v1/services/aigc/image-generation/generation", {
     method: "POST",
     body: payload,
@@ -7143,14 +7280,14 @@ function advancedRuntimeForProvider(provider, requestParams = {}) {
     return {
       providerName: "aliyun-wan27",
       recordSource: "advanced-wan27",
-      model: ALIYUN_WAN27_MODEL,
+      model: requestParams.model || ALIYUN_WAN27_MODEL,
       quality: normalizeWan27Resolution(requestParams.resolution),
     };
   }
   return {
     providerName: "seedance",
     recordSource: "advanced-seedance",
-    model: MODEL_QUALITY,
+    model: requestParams.model || MODEL_QUALITY,
     quality: "high",
   };
 }
@@ -7354,6 +7491,7 @@ async function runAdvancedGenerationJob(job = {}) {
     let task = null;
     if (USE_GATEWAY_UPSTREAM) {
       const gatewayBody = {
+        ...bodyParams,
         caseId,
         provider,
         prompt,
@@ -7361,6 +7499,9 @@ async function runAdvancedGenerationJob(job = {}) {
         resolution: requestParams.resolution,
         duration: requestParams.duration,
         generateAudio: requestParams.generateAudio,
+        model: requestParams.model,
+        parameters: Object.keys(plainObject(requestParams.parameters)).length ? requestParams.parameters : undefined,
+        input: Object.keys(plainObject(requestParams.input)).length ? requestParams.input : undefined,
         mediaMode: provider === "wan27" ? resolvedWan27MediaMode : undefined,
         seed: requestParams.seed || undefined,
       };
@@ -7502,9 +7643,18 @@ async function handleAdvancedGenerate(req, res) {
   const config = await readAppConfig();
   const advanced = config.platform?.advanced || {};
   const cases = Array.isArray(advanced.cases) ? advanced.cases : [];
-  const selectedCase = cases.find((item) => item.id === String(body.caseId || "").trim());
+  const bodyParams = requestParamsFromBody(body);
+  const selectedCase = cases.find((item) => item.id === String(firstPresent(body.caseId, bodyParams.caseId, "")).trim());
   const caseParams = selectedCase?.params && typeof selectedCase.params === "object" ? selectedCase.params : {};
-  const provider = normalizeAdvancedProvider(body.provider || selectedCase?.provider || caseParams.provider || caseParams.modelProvider || caseParams.model_provider);
+  const mergedBody = mergedRequestForMedia(body, caseParams);
+  const provider = normalizeAdvancedProvider(firstPresent(
+    body.provider,
+    bodyParams.provider,
+    selectedCase?.provider,
+    caseParams.provider,
+    caseParams.modelProvider,
+    caseParams.model_provider,
+  ));
   if (USE_GATEWAY_UPSTREAM && !UPSTREAM_API_TOKEN) {
     return sendJson(res, 503, { ok: false, code: "GATEWAY_TOKEN_NOT_CONFIGURED", message: "Gateway upstream token is not configured." });
   }
@@ -7514,27 +7664,36 @@ async function handleAdvancedGenerate(req, res) {
   if (!USE_GATEWAY_UPSTREAM && provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 generation is not configured." });
   }
-  const prompt = String(body.prompt || selectedCase?.prompt || caseParams.prompt || "").trim();
+  const prompt = String(firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  const durationBounds = advancedDurationBounds(provider);
+  const mergedProviderParameters = {
+    ...plainObject(caseParams.parameters),
+    ...plainObject(bodyParams.parameters),
+    ...plainObject(body.parameters),
+  };
 
   const requestParams = {
     ...caseParams,
+    ...bodyParams,
     provider,
-    ratio: body.ratio || caseParams.ratio || caseParams.aspect_ratio || config.video.ratio || "9:16",
-    resolution: body.resolution || caseParams.resolution || config.video.resolution || "720p",
+    ratio: firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, config.video.ratio, "9:16"),
+    resolution: firstPresent(body.resolution, bodyParams.resolution, mergedProviderParameters.resolution, caseParams.resolution, config.video.resolution, "720p"),
     duration: clampNumber(
-      body.duration ?? caseParams.duration,
-      config.video.duration || advancedDurationBounds(provider).fallback,
-      advancedDurationBounds(provider).min,
-      advancedDurationBounds(provider).max,
+      firstPresent(body.duration, body.durationSeconds, bodyParams.duration, bodyParams.durationSeconds, mergedProviderParameters.duration, caseParams.duration),
+      config.video.duration || durationBounds.fallback,
+      durationBounds.min,
+      durationBounds.max,
     ),
-    generateAudio: body.generateAudio !== false,
+    generateAudio: boolFromRequest(firstPresent(body.generateAudio, body.generate_audio, bodyParams.generateAudio, bodyParams.generate_audio, caseParams.generateAudio, caseParams.generate_audio), true),
   };
   requestParams.ratio = normalizeVideoRatio(requestParams.ratio);
   requestParams.resolution = provider === "wan27" ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
   requestParams.preprocessReference = false;
-  requestParams.seed = body.seed ?? caseParams.seed ?? "";
-  if (provider === "wan27") requestParams.model = ALIYUN_WAN27_MODEL;
+  requestParams.seed = firstPresent(body.seed, bodyParams.seed, mergedProviderParameters.seed, caseParams.seed, "");
+  requestParams.model = String(firstPresent(body.model, bodyParams.model, caseParams.model, provider === "wan27" ? ALIYUN_WAN27_MODEL : MODEL_QUALITY));
+  requestParams.input = plainObject(firstPresent(body.input, bodyParams.input, caseParams.input, {}));
+  requestParams.parameters = mergedProviderParameters;
   const rawPricing = advancedModelPricing(provider, {
     ...requestParams,
     advancedPricing: config.platform?.advancedPricing,
@@ -7550,7 +7709,7 @@ async function handleAdvancedGenerate(req, res) {
   let extraUserAssetIds = [];
   let seedanceVideoAsset = null;
   if (provider !== "wan27") {
-    const referenceVideoAssetIds = seedanceReferenceVideoAssetIdsFromBody(body);
+    const referenceVideoAssetIds = seedanceReferenceVideoAssetIdsFromBody(mergedBody);
     if (referenceVideoAssetIds.length) {
       seedanceVideoAsset = auth.db.userAssets.find((asset) => asset.id === referenceVideoAssetIds[0] && asset.userId === auth.user.id && !isSoftDeleted(asset));
       if (!seedanceVideoAsset) return sendJson(res, 404, { ok: false, message: "Reference video not found." });
@@ -7560,14 +7719,14 @@ async function handleAdvancedGenerate(req, res) {
         return sendJson(res, 400, { ok: false, message: error.message || "Seedance reference video must be a video." });
       }
     }
-    const referenceInputs = seedanceReferenceInputsFromBody(body);
+    const referenceInputs = seedanceReferenceInputsFromBody(mergedBody);
     const createdReferenceAssets = await createUserImageAssetsFromInputs(auth.db, auth.user, referenceInputs, {
       name: selectedCase?.title || "Advanced reference",
     });
     if (createdReferenceAssets.length) {
       [userAsset, ...extraUserAssets] = createdReferenceAssets;
     } else {
-      const referenceAssetIds = seedanceReferenceAssetIdsFromBody(body);
+      const referenceAssetIds = seedanceReferenceAssetIdsFromBody(mergedBody);
       if (referenceAssetIds.length) {
         const foundAssets = referenceAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
         if (foundAssets.some((asset) => !asset)) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
@@ -7580,7 +7739,7 @@ async function handleAdvancedGenerate(req, res) {
       }
     }
     const seenSeedanceAssetIds = new Set([userAsset?.id].filter(Boolean));
-    for (const assetId of seedanceExtraReferenceAssetIdsFromBody(body)) {
+    for (const assetId of seedanceExtraReferenceAssetIdsFromBody(mergedBody)) {
       if (seenSeedanceAssetIds.has(assetId) || extraUserAssets.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT - 1) continue;
       const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
       if (!asset) return sendJson(res, 404, { ok: false, message: "Extra reference image not found." });
@@ -7595,15 +7754,15 @@ async function handleAdvancedGenerate(req, res) {
     extraUserAssets = extraUserAssets.slice(0, Math.max(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT - 1));
     extraUserAssetIds = extraUserAssets.map((asset) => asset.id);
   } else {
-    const firstFrameDataUrl = body.firstFrameDataUrl || body.first_frame_data_url || body.dataUrl;
+    const firstFrameDataUrl = firstPresent(body.firstFrameDataUrl, body.first_frame_data_url, body.dataUrl, bodyParams.firstFrameDataUrl, bodyParams.first_frame_data_url, bodyParams.dataUrl);
     if (firstFrameDataUrl) {
       userAsset = await createUserWanMediaAssetFromDataUrl(auth.db, auth.user, {
         dataUrl: firstFrameDataUrl,
-        fileName: body.firstFrameFileName || body.fileName,
+        fileName: firstPresent(body.firstFrameFileName, body.fileName, bodyParams.firstFrameFileName, bodyParams.fileName, ""),
         name: selectedCase?.title || "Advanced reference",
       });
-    } else if (body.userAssetId || body.firstFrameAssetId) {
-      const firstAssetId = body.firstFrameAssetId || body.userAssetId;
+    } else if (firstPresent(body.userAssetId, body.firstFrameAssetId, bodyParams.userAssetId, bodyParams.firstFrameAssetId)) {
+      const firstAssetId = firstPresent(body.firstFrameAssetId, body.userAssetId, bodyParams.firstFrameAssetId, bodyParams.userAssetId);
       userAsset = auth.db.userAssets.find((asset) => asset.id === firstAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
       if (!userAsset) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
     }
@@ -7611,11 +7770,20 @@ async function handleAdvancedGenerate(req, res) {
   let wan27MediaMode = "";
   let wan27Media = [];
   if (provider === "wan27") {
-    requestParams.mediaMode = normalizeWan27MediaMode(body.mediaMode || body.wanMode || body.wanMediaMode || caseParams.mediaMode || "first_frame");
+    requestParams.mediaMode = normalizeWan27MediaMode(firstPresent(
+      body.mediaMode,
+      body.wanMode,
+      body.wanMediaMode,
+      bodyParams.mediaMode,
+      bodyParams.wanMode,
+      bodyParams.wanMediaMode,
+      caseParams.mediaMode,
+      "first_frame",
+    ));
     const resolved = await resolveWan27Media({
       db: auth.db,
       user: auth.user,
-      body: { ...caseParams, ...body },
+      body: mergedBody,
       requestParams,
       fallbackAsset: userAsset,
     });
@@ -8115,6 +8283,21 @@ function docsAdvancedExampleBody(item = {}) {
     duration: durationSecondsFromParams(params) || 5,
     seed: provider === "wan27" ? optionalWan27Seed(params.seed) ?? undefined : undefined,
     generateAudio: params.generateAudio !== false,
+    params: provider === "wan27"
+      ? {
+        model: params.model || ALIYUN_WAN27_MODEL,
+        input: {},
+        parameters: {
+          prompt_extend: false,
+          watermark: false,
+          ...(params.seed !== undefined && params.seed !== null && params.seed !== "" ? { seed: params.seed } : {}),
+        },
+      }
+      : {
+        model: params.model || MODEL_QUALITY,
+        generate_audio: params.generateAudio !== false,
+        web_search: false,
+      },
   };
   if (provider === "seedance") {
     body.referenceImages = [
@@ -8265,7 +8448,9 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
   const params = item.params && typeof item.params === "object" && !Array.isArray(item.params) ? item.params : {};
   const durationSeconds = durationSecondsFromParams(params) || 5;
   const provider = normalizeAdvancedProvider(item.provider || params.provider);
+  const docModel = params.model || (provider === "wan27" ? ALIYUN_WAN27_MODEL : MODEL_QUALITY);
   const pricing = applyUserPricingToEstimate(advancedModelPricing(provider, {
+    model: docModel,
     duration: durationSeconds,
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
@@ -8291,7 +8476,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     title: item.title,
     category: item.category,
     provider,
-    model: pricing.model,
+    model: docModel || pricing.model,
     description: item.description || "",
     pricing: options.tenantPublic ? tenantDocsPricingView(pricingView) : pricingView,
     coverUrl: item.coverUrl,
@@ -8317,6 +8502,14 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "resolution", type: "string", required: false, description: "720p or 1080p." },
       { name: "duration", type: "number", required: false, description: "Duration in seconds. Seedance is clamped to 5-15; Wan2.7 is clamped to 2-15." },
       { name: "seed", type: "number", required: false, description: "Wan2.7 random seed." },
+      { name: "params", type: "object", required: false, description: "Provider pass-through object. Seedance forwards model/content/reference_* fields; Wan2.7 forwards model plus input/parameters." },
+      { name: "params.model", type: "string", required: false, description: "Override the upstream model id when the provider supports it." },
+      { name: "params.input", type: "object", required: false, description: "Wan2.7 only. Extra DashScope input fields; prompt/media are still set by this API." },
+      { name: "params.parameters", type: "object", required: false, description: "Wan2.7 and Wan2.7 image. Extra DashScope parameters merged into the upstream payload." },
+      { name: "params.generate_audio", type: "boolean", required: false, description: "Seedance only. Generate synchronized voice/effects/background music." },
+      { name: "params.reference_images", type: "array", required: false, description: "Seedance only. Raw upstream reference image URLs or asset:// URIs for advanced callers." },
+      { name: "params.reference_videos", type: "array", required: false, description: "Seedance only. Raw upstream reference video URLs or asset:// URIs for advanced callers." },
+      { name: "params.web_search", type: "boolean", required: false, description: "Seedance only. Enable upstream web-search enhancement where available." },
     ],
     exampleRequest: {
       method: "POST",
@@ -8357,12 +8550,16 @@ async function buildModelDocs(req) {
       advancedCreditsPerCny: platform.advancedPricing.creditsPerCny,
       advancedSeedanceCreditsPerSecondByResolution: platform.advancedPricing.seedanceCreditsPerSecondByResolution,
       advancedWan27CreditsPerSecondByResolution: platform.advancedPricing.wan27CreditsPerSecondByResolution,
+      wan27ImagePro: platform.advancedPricing.wan27ImagePro,
     },
     endpoints: {
       docsMarkdown: `${origin}/docs/models.md`,
       modelsJson: `${origin}/api/models`,
       platformGenerate: `${origin}/api/platform/generate`,
       advancedGenerate: `${origin}/api/advanced/generate`,
+      wan27ImageTextToImage: `${origin}/api/characters/generate`,
+      wan27ImageEditAsset: `${origin}/api/user-assets/<assetId>/modify`,
+      wan27ImageEditSystemCharacter: `${origin}/api/characters/<characterId>/modify`,
       generationRecords: `${origin}/api/generation-records`,
       generationRecordDetail: `${origin}/api/generation-records/<taskId>`,
     },
@@ -8407,6 +8604,7 @@ function advancedDocMarkdown(item) {
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `referenceImages` for one or more images in the same field, or `userAssetId` / `extraReferenceAssetIds` for existing uploaded assets.");
+  lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -9732,8 +9930,12 @@ async function handleGenerateUserCharacterImage(req, res) {
 
   const config = await readAppConfig();
   const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
-  const ratio = normalizeWan27ImageRatio(body.ratio || pricingConfig.defaultRatio || "9:16");
-  const resolution = normalizeWan27ImageResolution(body.resolution || pricingConfig.defaultResolution || "2K");
+  const imageOptions = wan27ImageRequestOptions(body, {
+    defaultModel: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
+    defaultRatio: pricingConfig.defaultRatio || "9:16",
+    defaultResolution: pricingConfig.defaultResolution || "2K",
+  });
+  const { ratio, resolution, model } = imageOptions;
   const pricing = wan27ImageModifyPricing(config, auth.user);
   const cost = pricing.credits;
   if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -9744,7 +9946,6 @@ async function handleGenerateUserCharacterImage(req, res) {
   }
 
   const taskId = localGenerationTaskId("char");
-  const model = pricingConfig.model || WAN27_IMAGE_PRO_MODEL;
   const prompt = composeWan27CharacterPrompt(userPrompt, { mode: "create" });
   const initialRecord = {
     taskId,
@@ -9756,7 +9957,7 @@ async function handleGenerateUserCharacterImage(req, res) {
     userId: auth.user.id,
     prompt: userPrompt,
     finalPrompt: prompt,
-    params: { provider: "wan27-image", model, ratio, resolution, action: "character_create" },
+    params: { provider: "wan27-image", action: "character_create", ...exposedWan27ImageParams(imageOptions) },
     ratio,
     resolution,
     preDeductedCredits: cost,
@@ -9790,7 +9991,14 @@ async function handleGenerateUserCharacterImage(req, res) {
   }
 
   try {
-    const submitted = await submitWan27ImageTextGenerate({ prompt, ratio, resolution, model });
+    const submitted = await submitWan27ImageTextGenerate({
+      prompt,
+      ratio,
+      resolution,
+      model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+    });
     const imageUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
@@ -9820,7 +10028,7 @@ async function handleGenerateUserCharacterImage(req, res) {
     newAsset.characterFinalPrompt = prompt;
     newAsset.characterModel = model;
     newAsset.characterTaskId = submitted.task.taskId || taskId;
-    newAsset.characterParams = { ratio, resolution, action: "create" };
+    newAsset.characterParams = { action: "create", ...exposedWan27ImageParams(imageOptions) };
     newAsset.updatedAt = new Date().toISOString();
     auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
     await writeDb(auth.db);
@@ -9849,7 +10057,7 @@ async function handleGenerateUserCharacterImage(req, res) {
       pricing,
       cost,
       record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
-      params: { ratio, resolution, model },
+      params: exposedWan27ImageParams(imageOptions),
     });
   } catch (error) {
     const errorInfo = normalizeErrorPayload(error);
@@ -9909,8 +10117,12 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
   if (mode !== "take_off" && !userPrompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
 
   const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
-  const ratio = normalizeWan27ImageRatio(body.ratio || pricingConfig.defaultRatio || "9:16");
-  const resolution = normalizeWan27ImageResolution(body.resolution || pricingConfig.defaultResolution || "2K");
+  const imageOptions = wan27ImageRequestOptions(body, {
+    defaultModel: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
+    defaultRatio: pricingConfig.defaultRatio || "9:16",
+    defaultResolution: pricingConfig.defaultResolution || "2K",
+  });
+  const { ratio, resolution, model } = imageOptions;
   const pricing = wan27ImageModifyPricing(config, auth.user);
   const cost = pricing.credits;
   if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -9921,7 +10133,6 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
   }
 
   const taskId = localGenerationTaskId("char");
-  const model = pricingConfig.model || WAN27_IMAGE_PRO_MODEL;
   const initialRecord = {
     taskId,
     status: "submitting",
@@ -9936,7 +10147,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
     sourceImageUrl: imageUrl,
     prompt: displayPrompt,
     finalPrompt: prompt,
-    params: { provider: "wan27-image", model, ratio, resolution, action: mode === "take_off" ? "take_off" : "character_modify" },
+    params: { provider: "wan27-image", action: mode === "take_off" ? "take_off" : "character_modify", ...exposedWan27ImageParams(imageOptions) },
     ratio,
     resolution,
     preDeductedCredits: cost,
@@ -9971,7 +10182,15 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
 
   try {
     const publicSourceUrl = /^https?:\/\//i.test(imageUrl) ? imageUrl : publicUrlForAssetPath(imageUrl);
-    const submitted = await submitWan27ImageModify({ imageUrl: publicSourceUrl, prompt, ratio, resolution, model });
+    const submitted = await submitWan27ImageModify({
+      imageUrl: publicSourceUrl,
+      prompt,
+      ratio,
+      resolution,
+      model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+    });
     const resultUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
@@ -10002,7 +10221,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
     newAsset.characterFinalPrompt = prompt;
     newAsset.characterModel = model;
     newAsset.characterTaskId = submitted.task.taskId || taskId;
-    newAsset.characterParams = { ratio, resolution, action: initialRecord.params.action };
+    newAsset.characterParams = { action: initialRecord.params.action, ...exposedWan27ImageParams(imageOptions) };
     newAsset.updatedAt = new Date().toISOString();
     auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
     await writeDb(auth.db);
@@ -10032,7 +10251,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
       pricing,
       cost,
       record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
-      params: { ratio, resolution, model, mode },
+      params: { mode, ...exposedWan27ImageParams(imageOptions) },
     });
   } catch (error) {
     const errorInfo = normalizeErrorPayload(error);
@@ -10100,8 +10319,12 @@ async function handleModifyUserAssetImage(req, res, assetId) {
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   const config = await readAppConfig();
   const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
-  const ratio = normalizeWan27ImageRatio(body.ratio || pricingConfig.defaultRatio);
-  const resolution = normalizeWan27ImageResolution(body.resolution || pricingConfig.defaultResolution);
+  const imageOptions = wan27ImageRequestOptions(body, {
+    defaultModel: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
+    defaultRatio: pricingConfig.defaultRatio || "9:16",
+    defaultResolution: pricingConfig.defaultResolution || "2K",
+  });
+  const { ratio, resolution, model } = imageOptions;
   const pricing = wan27ImageModifyPricing(config, auth.user);
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
@@ -10114,7 +10337,6 @@ async function handleModifyUserAssetImage(req, res, assetId) {
   }
 
   const taskId = localGenerationTaskId("img");
-  const model = pricingConfig.model || WAN27_IMAGE_PRO_MODEL;
   const assetPreviewUrl = asset.localUrl || asset.publicUrl || "";
   const initialRecord = {
     taskId,
@@ -10131,10 +10353,8 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     finalPrompt: prompt,
     params: {
       provider: "wan27-image",
-      model,
-      ratio,
-      resolution,
       action: "modify",
+      ...exposedWan27ImageParams(imageOptions),
     },
     ratio,
     resolution,
@@ -10189,11 +10409,13 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       status: "running",
     }, "asset-image-modify-reference-ready");
     const submitted = await submitWan27ImageModify({
-      imageUrl: publicAsset.publicUrl,
+      imageUrl: publicAsset.publicUrl || publicUrlForLocalAsset(publicAsset),
       prompt,
       ratio,
       resolution,
       model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
     });
     const imageUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
@@ -10224,7 +10446,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     newAsset.modifyPrompt = prompt;
     newAsset.modifyModel = model;
     newAsset.modifyTaskId = submitted.task.taskId || taskId;
-    newAsset.modifyParams = { ratio, resolution };
+    newAsset.modifyParams = exposedWan27ImageParams(imageOptions);
     if (asset.characterPrompt || asset.characterFinalPrompt || asset.characterTaskId) {
       newAsset.characterPrompt = prompt;
       newAsset.characterFinalPrompt = prompt;
@@ -10268,7 +10490,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       pricing,
       cost,
       record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
-      params: { ratio, resolution, model },
+      params: exposedWan27ImageParams(imageOptions),
     });
   } catch (error) {
     const errorInfo = normalizeErrorPayload(error);

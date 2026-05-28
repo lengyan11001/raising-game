@@ -2090,6 +2090,75 @@ Input:
 
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
+const SEEDANCE_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "provider": "seedance",
+  "prompt": "Describe the video. Dialogue can be quoted in the prompt.",
+  "referenceImages": [
+    {"dataUrl": "data:image/png;base64,...", "fileName": "image1.png"}
+  ],
+  "params": {
+    "model": "dreamina-seedance-2-0-fast-260128",
+    "ratio": "9:16",
+    "resolution": "720p",
+    "duration": 5,
+    "generate_audio": true,
+    "web_search": false
+  }
+}`;
+
+const WAN27_VIDEO_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "provider": "wan27",
+  "prompt": "Describe the video motion and camera.",
+  "dataUrl": "data:image/png;base64,...",
+  "params": {
+    "model": "wan2.7-i2v-2026-04-25",
+    "ratio": "9:16",
+    "resolution": "1080p",
+    "duration": 5,
+    "mediaMode": "first_frame",
+    "parameters": {
+      "prompt_extend": false,
+      "seed": 123456,
+      "watermark": false
+    }
+  }
+}`;
+
+const WAN27_IMAGE_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/characters/generate")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+Text-to-image:
+{
+  "prompt": "Create one realistic adult character portrait...",
+  "ratio": "9:16",
+  "resolution": "2K",
+  "params": {
+    "model": "wan2.7-image-pro",
+    "parameters": {"n": 1, "watermark": false}
+  }
+}
+
+Image edit:
+POST ${apiUrl("/api/user-assets/<assetId>/modify")}
+{
+  "prompt": "Only change what the user asks for.",
+  "ratio": "9:16",
+  "resolution": "2K",
+  "params": {
+    "model": "wan2.7-image-pro",
+    "parameters": {"n": 1, "watermark": false}
+  }
+}`;
+
 const ACCESS_DOCS = {
   platform: {
     title: "Template Generation",
@@ -2122,7 +2191,7 @@ Content-Type: application/json
   },
   advanced: {
     title: "Advanced Generation",
-    summary: "Approved accounts can call Seedance or Wan2.7 directly. Seedance supports multiple reference images in one field.",
+    summary: "Token callers can use Seedance or Wan2.7 directly. Put upstream-only options in params; supported fields are passed through to the provider payload.",
     request: [
       ["Authorization", "Bearer <user-token>"],
       ["Content-Type", "application/json"],
@@ -2137,6 +2206,7 @@ Content-Type: application/json
       ["resolution", "720p or 1080p."],
       ["duration", "Seconds. Clamped by provider."],
       ["seed", "Optional Wan2.7 seed."],
+      ["params", "Optional provider parameter object. Top-level business fields still control billing and media handling."],
     ],
     response: [
       ["ok", "true when the request is accepted."],
@@ -2146,6 +2216,85 @@ Content-Type: application/json
       ["user", "Updated user snapshot, including current credits."],
     ],
     example: LIVE_HTTP_ACCESS_COPY,
+  },
+  seedanceParams: {
+    title: "Seedance Video Parameters",
+    summary: "Use /api/advanced/generate with provider=seedance. Our API prepares uploaded references, then forwards these Seedance fields in the upstream task payload.",
+    request: [
+      { name: "model", type: "string", required: "No", description: "Seedance model id. Use dreamina-seedance-2-0-fast-260128 for fast/default, or dreamina-seedance-2-0-260128 for standard/higher quality.", default: "dreamina-seedance-2-0-260128" },
+      { name: "prompt", type: "string", required: "Yes", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
+      { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. Supports common values like 9:16, 16:9, 1:1. adaptive can be forwarded in params if upstream enables it.", default: "9:16" },
+      { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported billing values are 720p and 1080p.", default: "720p" },
+      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs are limited to 5-15 seconds here.", default: "5" },
+      { name: "generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
+      { name: "image_url", type: "string", required: "No", description: "First-frame image URL or asset:// URI for image-to-video. Prefer referenceImages/userAssetId when calling our API.", default: "-" },
+      { name: "end_image_url", type: "string", required: "No", description: "Last-frame image URL or asset:// URI. Also provide image_url when using first/last-frame mode.", default: "-" },
+      { name: "reference_images", type: "array", required: "No", description: "Reference image URL or asset:// URI array. Our referenceImages array accepts dataUrl or assetId and converts it before upstream submit.", default: "-" },
+      { name: "reference_videos", type: "array", required: "No", description: "Reference video URL or asset:// URI array. Our referenceVideoAssetId/videoAssetId handles library videos.", default: "-" },
+      { name: "reference_audios", type: "array", required: "No", description: "Reference audio URL or asset:// URI array. Forward via params when upstream allows it.", default: "-" },
+      { name: "web_search", type: "boolean", required: "No", description: "Enable web search enhancement where supported by upstream text-to-video.", default: "false" },
+      { name: "content", type: "array", required: "No", description: "Advanced raw Ark content array. If supplied, it overrides the content we build from prompt and references.", default: "-" },
+      { name: "params", type: "object", required: "No", description: "Pass-through object for upstream fields. Top-level prompt/provider/media fields are still understood by our API.", default: "{}" },
+    ],
+    response: [
+      { name: "ok", type: "boolean", required: "Yes", description: "true when the request is accepted.", default: "-" },
+      { name: "taskId", type: "string", required: "Yes", description: "Local generation task id.", default: "-" },
+      { name: "record.params", type: "object", required: "No", description: "Normalized parameters used for billing and upstream submit.", default: "-" },
+      { name: "record.upstreamPayload", type: "object", required: "No", description: "Submitted Seedance payload after the background job starts.", default: "-" },
+    ],
+    example: SEEDANCE_PARAM_ACCESS_COPY,
+  },
+  wan27VideoParams: {
+    title: "Wan2.7 Video Parameters",
+    summary: "Use /api/advanced/generate with provider=wan27. Media slots are handled by our API; extra DashScope input/parameters are forwarded.",
+    request: [
+      { name: "model", type: "string", required: "No", description: "Wan2.7 video model id.", default: "wan2.7-i2v-2026-04-25" },
+      { name: "prompt", type: "string", required: "Yes", description: "Video prompt.", default: "-" },
+      { name: "dataUrl", type: "string", required: "Usually", description: "Base64 first-frame image. You can also use userAssetId or firstFrameAssetId.", default: "-" },
+      { name: "mediaMode", type: "string", required: "No", description: "first_frame, first_last_frame, first_frame_audio, first_last_frame_audio, first_clip, or first_clip_last_frame.", default: "first_frame" },
+      { name: "firstFrameUrl", type: "string", required: "No", description: "Public URL for the first frame if not using dataUrl/userAssetId.", default: "-" },
+      { name: "lastFrameUrl", type: "string", required: "No", description: "Public URL for the last frame when mediaMode uses a last frame.", default: "-" },
+      { name: "firstClipUrl", type: "string", required: "No", description: "Public video URL when mediaMode starts from a clip.", default: "-" },
+      { name: "drivingAudioUrl", type: "string", required: "No", description: "Public audio URL when mediaMode uses driving audio.", default: "-" },
+      { name: "resolution", type: "string", required: "No", description: "720p or 1080p. We forward as 720P/1080P to DashScope.", default: "720p" },
+      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Wan2.7 jobs are limited to 2-15 seconds here.", default: "5" },
+      { name: "seed", type: "integer", required: "No", description: "Optional reproducibility seed, 0 to 2147483647.", default: "-" },
+      { name: "parameters.prompt_extend", type: "boolean", required: "No", description: "Enable upstream prompt extension.", default: "false" },
+      { name: "parameters.watermark", type: "boolean", required: "No", description: "Whether to request an upstream watermark.", default: "false" },
+      { name: "input", type: "object", required: "No", description: "Extra DashScope input fields. prompt/media are set by our API.", default: "{}" },
+      { name: "parameters", type: "object", required: "No", description: "Extra DashScope parameters are merged before submit.", default: "{}" },
+      { name: "params", type: "object", required: "No", description: "Pass-through wrapper for model/input/parameters and known fields.", default: "{}" },
+    ],
+    response: [
+      { name: "ok", type: "boolean", required: "Yes", description: "true when the request is accepted.", default: "-" },
+      { name: "taskId", type: "string", required: "Yes", description: "Local generation task id.", default: "-" },
+      { name: "record.mediaAssets", type: "array", required: "No", description: "Resolved media slots sent to Wan2.7.", default: "-" },
+      { name: "record.upstreamPayload", type: "object", required: "No", description: "Submitted DashScope payload after the background job starts.", default: "-" },
+    ],
+    example: WAN27_VIDEO_PARAM_ACCESS_COPY,
+  },
+  wan27ImageParams: {
+    title: "Wan2.7 Image Parameters",
+    summary: "Use /api/characters/generate for text-to-image, /api/user-assets/<assetId>/modify for asset image editing, or /api/characters/<characterId>/modify for system character editing.",
+    request: [
+      { name: "model", type: "string", required: "No", description: "Image generation/editing model id.", default: "wan2.7-image-pro" },
+      { name: "prompt", type: "string", required: "Yes", description: "Prompt sent to upstream exactly as provided by the caller, except take-off uses the fixed take-off prompt.", default: "-" },
+      { name: "ratio", type: "string", required: "No", description: "Output ratio: 1:1, 3:4, 4:3, 9:16, 16:9.", default: "9:16" },
+      { name: "resolution", type: "string", required: "No", description: "1K or 2K. Used to derive the default size.", default: "2K" },
+      { name: "size", type: "string", required: "No", description: "Direct upstream image size, for example 1440*2560. Overrides ratio/resolution size mapping.", default: "by ratio/resolution" },
+      { name: "parameters.n", type: "integer", required: "No", description: "Number of images requested from upstream.", default: "1" },
+      { name: "parameters.watermark", type: "boolean", required: "No", description: "Whether to request an upstream watermark.", default: "false" },
+      { name: "input", type: "object", required: "No", description: "Extra DashScope input fields. messages are built by our API from image/prompt.", default: "{}" },
+      { name: "parameters", type: "object", required: "No", description: "Extra DashScope generation parameters are merged before submit.", default: "{}" },
+      { name: "params", type: "object", required: "No", description: "Pass-through wrapper for model/size/input/parameters and known fields.", default: "{}" },
+    ],
+    response: [
+      { name: "ok", type: "boolean", required: "Yes", description: "true when generation/editing succeeds.", default: "-" },
+      { name: "taskId", type: "string", required: "Yes", description: "Local image generation task id.", default: "-" },
+      { name: "asset", type: "object", required: "Yes", description: "Saved image asset created from the result.", default: "-" },
+      { name: "record.upstreamPayload", type: "object", required: "No", description: "Submitted DashScope payload saved in history/admin records.", default: "-" },
+    ],
+    example: WAN27_IMAGE_PARAM_ACCESS_COPY,
   },
   records: {
     title: "Records",
@@ -2207,6 +2356,30 @@ ACCESS_GUIDES = [
     subtitle: "Direct endpoint",
     desc: "Production endpoint. Submit generation jobs and query records/results.",
     copy: LIVE_HTTP_ACCESS_COPY,
+  },
+  {
+    id: "seedance-params",
+    docs: "seedanceParams",
+    title: "Seedance Params",
+    subtitle: "Video",
+    desc: "Parameter table for Seedance video generation through /api/advanced/generate.",
+    copy: SEEDANCE_PARAM_ACCESS_COPY,
+  },
+  {
+    id: "wan27-video-params",
+    docs: "wan27VideoParams",
+    title: "Wan2.7 Video",
+    subtitle: "Params",
+    desc: "Parameter table for Wan2.7 video generation through /api/advanced/generate.",
+    copy: WAN27_VIDEO_PARAM_ACCESS_COPY,
+  },
+  {
+    id: "wan27-image-params",
+    docs: "wan27ImageParams",
+    title: "Wan2.7 Image",
+    subtitle: "Params",
+    desc: "Parameter table for Wan2.7 image generation and image editing.",
+    copy: WAN27_IMAGE_PARAM_ACCESS_COPY,
   },
   {
     id: "typescript",
@@ -2589,6 +2762,34 @@ function accessDoc(guide = activeAccessGuide) {
 
 function accessFieldTable(rows = []) {
   if (!rows.length) return "";
+  const hasParamRows = rows.some((row) => row && typeof row === "object" && !Array.isArray(row));
+  if (hasParamRows) {
+    return `
+      <div class="access-doc-table access-param-table">
+        <div class="access-param-row access-param-head">
+          <strong>Parameter</strong>
+          <strong>Type</strong>
+          <strong>Required</strong>
+          <strong>Description</strong>
+          <strong>Default</strong>
+        </div>
+        ${rows.map((row) => {
+          const item = Array.isArray(row)
+            ? { name: row[0], type: "", required: "", description: row[1], default: "" }
+            : row;
+          return `
+            <div class="access-param-row">
+              <strong>${escapeHtml(tenantScopedAccessText(item.name || ""))}</strong>
+              <span><code>${escapeHtml(item.type || "-")}</code></span>
+              <span>${escapeHtml(item.required || "No")}</span>
+              <span>${escapeHtml(item.description || "")}</span>
+              <span>${escapeHtml(item.default || "-")}</span>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
   return `
     <div class="access-doc-table">
       ${rows.map(([name, desc]) => `
@@ -5264,7 +5465,10 @@ function renderAccessGuides() {
         </div>
         ${accessQuickList([
           doc === ACCESS_DOCS.platform ? "One token, one template id, and one image for image-to-video templates." : "",
-          doc === ACCESS_DOCS.advanced ? "Seedance uses referenceImages; Wan2.7 uses dataUrl as the first frame." : "",
+          doc === ACCESS_DOCS.advanced ? "Seedance uses referenceImages; Wan2.7 uses dataUrl as the first frame; extra upstream fields belong in params." : "",
+          doc === ACCESS_DOCS.seedanceParams ? "Fields inside params are forwarded to Seedance; uploaded dataUrl references are prepared by our API before submit." : "",
+          doc === ACCESS_DOCS.wan27VideoParams ? "Fields inside params.parameters merge into DashScope parameters; fields inside params.input merge into DashScope input." : "",
+          doc === ACCESS_DOCS.wan27ImageParams ? "Image results are saved as assets and history/admin records include the upstream payload." : "",
           doc === ACCESS_DOCS.records ? "Use refresh=1 on list views when you want pending tasks to refresh." : "",
         ].filter(Boolean))}
         <details class="access-doc-example" open>
