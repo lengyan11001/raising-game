@@ -9341,6 +9341,7 @@ function advancedDocMarkdown(item) {
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "Seedance modes: set `seedanceMode` to `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`. For first-frame modes use `imageUrl`/`firstFrameUrl`/`imageAssetId`/`firstFrameAssetId`; for first+last use `endImageUrl`/`lastFrameUrl`/`endImageAssetId`/`lastFrameAssetId`. Reference-image mode uses `referenceImages` (up to 9), reference-video/edit/extend uses `referenceVideoAssetId`, `referenceVideoAssetIds`, `referenceVideos`, or `referenceVideoUrls` (up to 3), and multimodal audio references use `referenceAudios`, `referenceAudioUrls`, `referenceAudioAssetId`, or `referenceAudioAssetIds` (up to 3). In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
+  lines.push("", "Seedance character upload: upload the role image to `/api/user-assets` with `url`/`imageUrl` or `dataUrl`, then pass the returned `asset.id` as `referenceImages[0].assetId`. In the prompt, write `Image 1` to refer to that character. For multiple characters, the order in `referenceImages` maps to `Image 1`, `Image 2`, and so on.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance friendly fields are prepared into upstream `image_url`, `end_image_url`, `content`, or `reference_*` fields as needed.");
   lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `image_url`, `end_image_url`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
@@ -9374,9 +9375,40 @@ function buildModelDocsMarkdown(docs) {
     "2. For image-to-video templates, send `templateId` and `dataUrl` to `/api/platform/generate`.",
     "3. For text-to-video templates, send `templateId` and an optional `prompt` to `/api/platform/generate`.",
     "4. Optional: upload a character/reference image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
-    "5. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"` and optional `seedanceMode` (`text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`).",
-    "6. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional `seed`, and duration.",
-    "7. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
+    "5. Seedance character upload: POST `/api/user-assets` with the character image, then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<asset.id>\"}]`. In the prompt, refer to that character as `Image 1`.",
+    "6. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"` and optional `seedanceMode` (`text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`).",
+    "7. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional `seed`, and duration.",
+    "8. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
+    "",
+    "## Seedance Character Upload Example",
+    "",
+    markdownCodeBlock("http", [
+      "POST /api/user-assets",
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      "{",
+      '  "url": "https://example.com/character-image1.png",',
+      '  "fileName": "image1.png",',
+      '  "name": "image1"',
+      "}",
+      "",
+      "POST /api/advanced/generate",
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      "{",
+      '  "provider": "seedance",',
+      '  "seedanceMode": "reference_images",',
+      '  "prompt": "Use Image 1 as the main character. Keep the same face, hairstyle, body shape, and outfit. Create a cinematic 5 second shot.",',
+      '  "referenceImages": [',
+      '    {"assetId": "asset-id-from-upload", "fileName": "image1.png"}',
+      "  ],",
+      '  "ratio": "9:16",',
+      '  "resolution": "720p",',
+      '  "duration": 5',
+      "}",
+    ].join("\n")),
     "",
     "## Billing",
     "",
