@@ -136,6 +136,7 @@ const els = {
   templatePrompt: document.querySelector("#templatePrompt"),
   submitTemplateBtn: document.querySelector("#submitTemplateBtn"),
   jobNote: document.querySelector("#jobNote"),
+  accessModeTabs: document.querySelector("#accessModeTabs"),
   accessTabs: document.querySelector("#accessTabs"),
   accessDocs: document.querySelector("#accessDocs"),
   accessGuideTitle: document.querySelector("#accessGuideTitle"),
@@ -1928,6 +1929,8 @@ const PUBLIC_COPY = {
 };
 
 let ACCESS_GUIDES = [];
+let ACCESS_INTEGRATION_GUIDES = [];
+let ACCESS_PARAM_GUIDES = [];
 
 const rawApiOrigin = String(window.location?.origin || "").replace(/\/+$/, "");
 const API_ORIGIN = rawApiOrigin && rawApiOrigin !== "null" ? rawApiOrigin : "";
@@ -2159,6 +2162,8 @@ POST ${apiUrl("/api/user-assets/<assetId>/modify")}
   }
 }`;
 
+const PARAM_DOC_MARKDOWN_URL = apiUrl("/docs/models.md");
+
 const ACCESS_DOCS = {
   platform: {
     title: "Template Generation",
@@ -2349,37 +2354,13 @@ PUBLIC_COPY.historyTitle = "Generation History";
 PUBLIC_COPY.historySubtitle = "Review your generated videos, prompts, parameters and billing in one compact list.";
 PUBLIC_COPY.historyNotice = "Only your own records are shown. Video links may expire after 24 hours; download/save successful results in time.";
 
-ACCESS_GUIDES = [
+ACCESS_INTEGRATION_GUIDES = [
   {
     id: "http",
     title: "HTTP API",
     subtitle: "Direct endpoint",
     desc: "Production endpoint. Submit generation jobs and query records/results.",
     copy: LIVE_HTTP_ACCESS_COPY,
-  },
-  {
-    id: "seedance-params",
-    docs: "seedanceParams",
-    title: "Seedance Params",
-    subtitle: "Video",
-    desc: "Parameter table for Seedance video generation through /api/advanced/generate.",
-    copy: SEEDANCE_PARAM_ACCESS_COPY,
-  },
-  {
-    id: "wan27-video-params",
-    docs: "wan27VideoParams",
-    title: "Wan2.7 Video",
-    subtitle: "Params",
-    desc: "Parameter table for Wan2.7 video generation through /api/advanced/generate.",
-    copy: WAN27_VIDEO_PARAM_ACCESS_COPY,
-  },
-  {
-    id: "wan27-image-params",
-    docs: "wan27ImageParams",
-    title: "Wan2.7 Image",
-    subtitle: "Params",
-    desc: "Parameter table for Wan2.7 image generation and image editing.",
-    copy: WAN27_IMAGE_PARAM_ACCESS_COPY,
   },
   {
     id: "typescript",
@@ -2417,6 +2398,35 @@ ACCESS_GUIDES = [
     copy: MCP_ACCESS_COPY,
   },
 ];
+
+ACCESS_PARAM_GUIDES = [
+  {
+    id: "seedance-params",
+    docs: "seedanceParams",
+    title: "Seedance Params",
+    subtitle: "Video",
+    desc: "Parameter table for Seedance video generation through /api/advanced/generate.",
+    copy: SEEDANCE_PARAM_ACCESS_COPY,
+  },
+  {
+    id: "wan27-video-params",
+    docs: "wan27VideoParams",
+    title: "Wan2.7 Video",
+    subtitle: "Params",
+    desc: "Parameter table for Wan2.7 video generation through /api/advanced/generate.",
+    copy: WAN27_VIDEO_PARAM_ACCESS_COPY,
+  },
+  {
+    id: "wan27-image-params",
+    docs: "wan27ImageParams",
+    title: "Wan2.7 Image",
+    subtitle: "Params",
+    desc: "Parameter table for Wan2.7 image generation and image editing.",
+    copy: WAN27_IMAGE_PARAM_ACCESS_COPY,
+  },
+];
+
+ACCESS_GUIDES = [...ACCESS_INTEGRATION_GUIDES, ...ACCESS_PARAM_GUIDES];
 
 const LEGAL_UPDATED_AT = "2026-05-15";
 const LEGAL_DOCS = {
@@ -2617,7 +2627,8 @@ const LEGAL_DOCS = {
   },
 };
 
-let activeAccessGuide = ACCESS_GUIDES[0];
+let activeAccessMode = "integration";
+let activeAccessGuide = ACCESS_INTEGRATION_GUIDES[0];
 let activeHoverPreviewStop = null;
 let historyLoading = false;
 let historyRefreshTimer = null;
@@ -2760,6 +2771,16 @@ function accessDoc(guide = activeAccessGuide) {
   return ACCESS_DOCS[guide.docs || guide.id] || ACCESS_DOCS.platform;
 }
 
+function accessGuidesForMode(mode = activeAccessMode) {
+  return mode === "params" ? ACCESS_PARAM_GUIDES : ACCESS_INTEGRATION_GUIDES;
+}
+
+function ensureActiveAccessGuide() {
+  const guides = accessGuidesForMode();
+  if (!guides.includes(activeAccessGuide)) activeAccessGuide = guides[0] || ACCESS_GUIDES[0];
+  return guides;
+}
+
 function accessFieldTable(rows = []) {
   if (!rows.length) return "";
   const hasParamRows = rows.some((row) => row && typeof row === "object" && !Array.isArray(row));
@@ -2805,6 +2826,79 @@ function accessFieldTable(rows = []) {
 function accessQuickList(items = []) {
   if (!items.length) return "";
   return `<ul class="access-doc-quick">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
+function markdownTable(rows = []) {
+  if (!rows.length) return "";
+  const paramRows = rows.map((row) => (Array.isArray(row)
+    ? { name: row[0], type: "-", required: "No", description: row[1], default: "-" }
+    : row));
+  const lines = [
+    "| 参数名 | 类型 | 必填 | 说明 | 默认值 |",
+    "| --- | --- | --- | --- | --- |",
+    ...paramRows.map((row) => `| ${markdownCell(row.name)} | ${markdownCell(row.type || "-")} | ${markdownCell(row.required || "No")} | ${markdownCell(row.description || "")} | ${markdownCell(row.default || "-")} |`),
+  ];
+  return lines.join("\n");
+}
+
+function markdownCell(value = "") {
+  return String(tenantScopedAccessText(value || ""))
+    .replace(/\|/g, "\\|")
+    .replace(/\r?\n/g, " ")
+    .trim();
+}
+
+function accessDocMarkdown(doc = accessDoc(activeAccessGuide)) {
+  return [
+    `# ${doc.title}`,
+    "",
+    doc.summary || "",
+    "",
+    "## Request",
+    "",
+    markdownTable(doc.request),
+    "",
+    "## Response",
+    "",
+    markdownTable(doc.response),
+    "",
+    "## Example",
+    "",
+    "```http",
+    tenantScopedAccessText(doc.example || "").trim(),
+    "```",
+    "",
+  ].join("\n");
+}
+
+function downloadTextFile(filename = "api-doc.md", text = "") {
+  const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function copyAccessMarkdown(button = null, doc = accessDoc(activeAccessGuide)) {
+  const markdown = accessDocMarkdown(doc);
+  await navigator.clipboard.writeText(markdown);
+  if (!button) return;
+  const original = button.innerHTML;
+  button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("common.copied"))}`;
+  refreshIcons();
+  setTimeout(() => {
+    button.innerHTML = original;
+    refreshIcons();
+  }, 1200);
+}
+
+function downloadAccessMarkdown(doc = accessDoc(activeAccessGuide)) {
+  const slug = String(activeAccessGuide?.id || "api-doc").replace(/[^a-z0-9-]+/gi, "-").toLowerCase();
+  downloadTextFile(`${slug}.md`, accessDocMarkdown(doc));
 }
 
 function legalDoc(type) {
@@ -5434,7 +5528,13 @@ async function createTopupOrder() {
 }
 
 function renderAccessGuides() {
-  els.accessTabs.innerHTML = ACCESS_GUIDES.map((guide) => `
+  const guides = ensureActiveAccessGuide();
+  if (els.accessModeTabs) {
+    els.accessModeTabs.querySelectorAll("[data-access-mode]").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.accessMode === activeAccessMode);
+    });
+  }
+  els.accessTabs.innerHTML = guides.map((guide) => `
     <button class="access-tab ${activeAccessGuide.id === guide.id ? "is-active" : ""}" data-access-guide="${escapeHtml(guide.id)}" type="button">
       <strong>${escapeHtml(guideText(guide, "title"))}</strong>
       <span>${escapeHtml(guideText(guide, "subtitle"))}</span>
@@ -5452,6 +5552,13 @@ function renderAccessGuides() {
             <span class="copy-kicker"><i data-lucide="book-open-text"></i>${escapeHtml(doc.title)}</span>
             <p>${escapeHtml(doc.summary)}</p>
           </div>
+          ${activeAccessMode === "params" ? `
+            <div class="access-doc-actions">
+              <button class="ghost-button" type="button" data-access-copy-markdown><i data-lucide="copy"></i>Copy Markdown</button>
+              <button class="ghost-button" type="button" data-access-download-markdown><i data-lucide="download"></i>Download .md</button>
+              <a class="ghost-button" href="${escapeHtml(PARAM_DOC_MARKDOWN_URL)}" target="_blank" rel="noreferrer"><i data-lucide="file-text"></i>Full docs</a>
+            </div>
+          ` : ""}
         </div>
         <div class="access-doc-grid">
           <section>
@@ -5479,13 +5586,23 @@ function renderAccessGuides() {
     `;
   }
   renderTokenDisplays();
-  els.accessTabs.querySelectorAll("[data-access-guide]").forEach((button) => {
+  els.accessModeTabs?.querySelectorAll("[data-access-mode]").forEach((button) => {
     button.addEventListener("click", () => {
-      activeAccessGuide = ACCESS_GUIDES.find((guide) => guide.id === button.dataset.accessGuide) || ACCESS_GUIDES[0];
+      activeAccessMode = button.dataset.accessMode === "params" ? "params" : "integration";
+      activeAccessGuide = accessGuidesForMode(activeAccessMode)[0] || ACCESS_GUIDES[0];
       renderAccessGuides();
       refreshIcons();
     });
   });
+  els.accessTabs.querySelectorAll("[data-access-guide]").forEach((button) => {
+    button.addEventListener("click", () => {
+      activeAccessGuide = guides.find((guide) => guide.id === button.dataset.accessGuide) || guides[0];
+      renderAccessGuides();
+      refreshIcons();
+    });
+  });
+  els.accessDocs?.querySelector("[data-access-copy-markdown]")?.addEventListener("click", (event) => copyAccessMarkdown(event.currentTarget, doc));
+  els.accessDocs?.querySelector("[data-access-download-markdown]")?.addEventListener("click", () => downloadAccessMarkdown(doc));
 }
 
 function userHasAdvancedAccess() {

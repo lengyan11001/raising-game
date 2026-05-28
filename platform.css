@@ -1018,11 +1018,33 @@ main {
   border-radius: 8px;
   background: rgba(255,255,255,.68);
 }
+.access-mode-tabs {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(130px, 1fr));
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255,255,255,.64);
+}
+.access-mode-tab {
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #24324a;
+  font-weight: 900;
+}
+.access-mode-tab.is-active {
+  border-color: rgba(15,148,139,.42);
+  background: rgba(15,148,139,.1);
+  color: var(--cyan);
+}
 .access-tabs {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
-  margin: 28px 0 18px;
+  margin: 18px 0;
 }
 .access-tab {
   text-align: left;
@@ -1142,10 +1164,32 @@ main {
   border-radius: 8px;
   background: rgba(255,255,255,.72);
 }
+.access-doc-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
 .access-doc-head p {
   margin: 10px 0 0;
   color: #34435a;
   line-height: 1.65;
+}
+.access-doc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.access-doc-actions .ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 9px 12px;
+  white-space: nowrap;
+  text-decoration: none;
 }
 .access-doc-grid {
   display: grid;
@@ -2693,6 +2737,8 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   .token-card { align-items: stretch; flex-direction: column; }
   .access-tabs { grid-template-columns: repeat(2, 1fr); }
   .access-doc-grid { grid-template-columns: 1fr; }
+  .access-doc-head { display: grid; }
+  .access-doc-actions { justify-content: flex-start; }
   .site-head { gap: 10px; padding-inline: 18px; }
   .brand { min-width: auto; }
   .asset-generate-grid { grid-template-columns: 1fr; }
@@ -2762,6 +2808,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
     scrollbar-width: none;
   }
   .top-tabs::-webkit-scrollbar { display: none; }
+  .access-mode-tabs { width: 100%; }
   .top-tab {
     flex: 0 0 auto;
     min-height: 38px;
