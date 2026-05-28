@@ -184,6 +184,7 @@ const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADV
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT, 3, 1, 3));
 const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT, 3, 1, 3));
 const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 80, 1, 200) * 1024 * 1024);
+const VIDEO_DURATION_PROBE_TIMEOUT_MS = Math.max(3000, Number(process.env.VIDEO_DURATION_PROBE_TIMEOUT_MS || 10000) || 10000);
 const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_DASHSCOPE_API_KEY =
   process.env.ALIYUN_DASHSCOPE_API_KEY ||
@@ -3454,6 +3455,26 @@ function execFileQuiet(command, args, options = {}) {
   });
 }
 
+async function probeVideoDurationSeconds(videoUrl = "") {
+  const url = String(videoUrl || "").trim();
+  if (!url || !isPublicHttpUrl(url)) return 0;
+  try {
+    const result = await execFileJson("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "json",
+      url,
+    ], { timeout: VIDEO_DURATION_PROBE_TIMEOUT_MS });
+    return durationSecondsFromValue(result?.format?.duration);
+  } catch (error) {
+    console.warn("[video-duration-probe-failed]", url, error.message || error);
+    return 0;
+  }
+}
+
 function findSceneConfig(config, sceneId) {
   return config.scenes.find((scene) => scene.id === sceneId) || config.scenes[0] || DEFAULT_CONFIG.scenes[0];
 }
@@ -5019,6 +5040,47 @@ function seedanceVideoInputSecondsForPricing(body = {}, { requestParams = {}, as
   const urlSeconds = seedanceVideoInputSecondsFromBody(body, { fallbackSeconds });
   const minimumSeconds = durationSecondsFromValue(assetSeconds + urlSeconds);
   return durationSecondsFromValue(Math.max(explicitTotal, minimumSeconds));
+}
+
+async function seedanceVideoInputSecondsForPricingWithProbe(body = {}, { requestParams = {}, assets = [], assetIds = [] } = {}) {
+  const fallbackSeconds = durationSecondsFromValue(requestParams.duration, advancedDurationBounds("seedance").fallback);
+  const videoItems = seedanceReferenceVideoUrlItemsFromBody(body);
+  const explicitTotal = seedanceExplicitVideoInputSecondsFromBody(body);
+  if (!videoItems.length) {
+    return seedanceVideoInputSecondsForPricing(body, { requestParams, assets, assetIds });
+  }
+  const probedItems = [];
+  for (const item of videoItems) {
+    if (item && typeof item === "object" && seedanceVideoInputDurationFromItem(item) > 0) {
+      probedItems.push(item);
+      continue;
+    }
+    const url = typeof item === "string"
+      ? item.trim()
+      : String(item?.url || item?.videoUrl || item?.video_url || item?.assetUri || "").trim();
+    const probedSeconds = await probeVideoDurationSeconds(url);
+    probedItems.push(item && typeof item === "object"
+      ? { ...item, durationSeconds: probedSeconds || undefined }
+      : { url, durationSeconds: probedSeconds || undefined });
+  }
+  const probedMinimumSeconds = seedanceVideoInputSecondsForPricing({
+    ...body,
+    inputVideoSeconds: undefined,
+    inputVideoDurationSeconds: undefined,
+    inputVideoDuration: undefined,
+    referenceVideoSeconds: undefined,
+    referenceVideoDurationSeconds: undefined,
+    referenceVideoDuration: undefined,
+    videoInputSeconds: undefined,
+    videoDurationSeconds: undefined,
+    videoDuration: undefined,
+    sourceVideoDurationSeconds: undefined,
+    referenceVideos: probedItems,
+    referenceVideoUrls: [],
+    videoUrls: [],
+    reference_videos: [],
+  }, { requestParams: { ...requestParams, duration: fallbackSeconds }, assets, assetIds });
+  return durationSecondsFromValue(Math.max(explicitTotal, probedMinimumSeconds));
 }
 
 function seedanceReferenceAudioAssetIdsFromBody(body = {}) {
@@ -8661,7 +8723,7 @@ async function handleAdvancedGenerate(req, res) {
     wan27Media = resolved.media;
   }
   if (provider === "seedance") {
-    requestParams.inputVideoSeconds = seedanceVideoInputSecondsForPricing(mergedBody, {
+    requestParams.inputVideoSeconds = await seedanceVideoInputSecondsForPricingWithProbe(mergedBody, {
       requestParams,
       assets: seedanceVideoAssets,
       assetIds: referenceVideoAssetIds,
@@ -9307,7 +9369,7 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
   const config = await readAppConfig();
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const inputVideoSeconds = normalizedProvider === "seedance"
-    ? seedanceVideoInputSecondsForPricing(params, { requestParams: params })
+    ? await seedanceVideoInputSecondsForPricingWithProbe(params, { requestParams: params })
     : firstPresent(params.inputVideoSeconds, params.videoInputSeconds, params.referenceVideoDurationSeconds, params.referenceVideoSeconds);
   const rawPricing = advancedModelPricing(provider, {
     duration: params.duration ?? params.durationSeconds,
