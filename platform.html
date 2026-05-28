@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-123" />
+    <link rel="stylesheet" href="./platform.css?v=ai-124" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -116,6 +116,33 @@
               <span data-i18n="advanced.uploadReference"><i data-lucide="image-up"></i>Upload reference image(s)</span>
             </label>
             <p class="job-note advanced-reference-summary" id="advancedReferenceSummary"></p>
+            <div class="wan-media-panel advanced-seedance-option" id="advancedSeedanceMediaPanel" hidden>
+              <div class="wan-media-panel-head">
+                <div>
+                  <p class="wan-media-kicker">Seedance</p>
+                  <h3 data-i18n="advanced.seedanceMode">Seedance input</h3>
+                </div>
+                <label class="field wan-mode-field">
+                  <select id="advancedSeedanceMediaMode">
+                    <option value="text_to_video" data-i18n="advanced.seedanceModeText">Text only</option>
+                    <option value="first_frame" data-i18n="advanced.seedanceModeFirst">First frame image</option>
+                    <option value="first_last_frame" data-i18n="advanced.seedanceModeFirstLast">First + last image</option>
+                    <option value="reference_images" data-i18n="advanced.seedanceModeReference">Reference images</option>
+                    <option value="reference_video" data-i18n="advanced.seedanceModeVideo">Reference video</option>
+                  </select>
+                </label>
+              </div>
+              <div class="wan-media-grid">
+                <label class="field seedance-extra seedance-last-frame">
+                  <span data-i18n="advanced.lastFrame">Last frame image</span>
+                  <div class="wan-frame-upload">
+                    <input id="advancedSeedanceLastFrame" type="file" accept="image/*" />
+                    <img class="wan-frame-preview" id="advancedSeedanceLastFramePreview" alt="Seedance last frame preview" />
+                    <span><i data-lucide="image-up"></i><span data-i18n="advanced.lastFrame">Last frame image</span></span>
+                  </div>
+                </label>
+              </div>
+            </div>
             <div class="wan-media-panel advanced-wan-option" id="advancedWanMediaPanel" hidden>
               <div class="wan-media-panel-head">
                 <div>
@@ -482,6 +509,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-123"></script>
+    <script src="./platform.js?v=ai-124"></script>
 </body>
 </html>

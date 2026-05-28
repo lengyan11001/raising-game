@@ -14,7 +14,7 @@ const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
 const ADVANCED_GENERATION_MARKUP = 1.5;
 const DEFAULT_ADVANCED_PROVIDER = "wan27";
-const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
+const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 9;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
@@ -30,6 +30,32 @@ const ADVANCED_CASE_TABS = [
   { id: "replace", labelKey: "advanced.caseTab.replace" },
 ];
 const ADVANCED_CASE_PAGE_SIZE = { hot: 9, extend: 3, replace: 3 };
+
+function normalizeSeedanceMediaMode(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["text", "t2v", "text_video", "text_to_video"].includes(normalized)) return "text_to_video";
+  if (["image", "i2v", "first", "first_image", "first_frame", "image_to_video"].includes(normalized)) return "first_frame";
+  if (["first_last", "first_last_frame", "first_and_last", "start_end", "last_frame"].includes(normalized)) return "first_last_frame";
+  if (["reference", "references", "reference_images", "multi_reference"].includes(normalized)) return "reference_images";
+  if (["reference_video", "video_reference", "video"].includes(normalized)) return "reference_video";
+  return "text_to_video";
+}
+
+function seedanceModeNeedsFirstFrame(mode = "") {
+  return ["first_frame", "first_last_frame"].includes(normalizeSeedanceMediaMode(mode));
+}
+
+function seedanceModeNeedsLastFrame(mode = "") {
+  return normalizeSeedanceMediaMode(mode) === "first_last_frame";
+}
+
+function seedanceModeNeedsReferenceImages(mode = "") {
+  return normalizeSeedanceMediaMode(mode) === "reference_images";
+}
+
+function seedanceModeNeedsReferenceVideo(mode = "") {
+  return normalizeSeedanceMediaMode(mode) === "reference_video";
+}
 
 function normalizePlatformTab(value = "") {
   const normalized = String(value || "").trim().replace(/^#\/?/, "");
@@ -76,6 +102,7 @@ const state = {
   uploadDataUrl: "",
   advancedUploadDataUrl: "",
   advancedReferenceImages: [],
+  advancedSeedanceLastFrameDataUrl: "",
   advancedWanLastFrameDataUrl: "",
   advancedWanClipDataUrl: "",
   advancedWanClipFileName: "",
@@ -216,6 +243,9 @@ const els = {
   advancedResolution: document.querySelector("#advancedResolution"),
   advancedDuration: document.querySelector("#advancedDuration"),
   advancedPreprocessReference: document.querySelector("#advancedPreprocessReference"),
+  advancedSeedanceMediaMode: document.querySelector("#advancedSeedanceMediaMode"),
+  advancedSeedanceLastFrame: document.querySelector("#advancedSeedanceLastFrame"),
+  advancedSeedanceLastFramePreview: document.querySelector("#advancedSeedanceLastFramePreview"),
   advancedWanSeed: document.querySelector("#advancedWanSeed"),
   advancedWanMediaMode: document.querySelector("#advancedWanMediaMode"),
   advancedWanLastFrame: document.querySelector("#advancedWanLastFrame"),
@@ -449,6 +479,15 @@ const I18N = {
     "advanced.clipTooLarge": "Source video must be 30MB or smaller.",
     "advanced.clipTooLong": "Source video must be 5 seconds or shorter.",
     "advanced.seedanceHandling": "Seedance image handling",
+    "advanced.seedanceMode": "Seedance input",
+    "advanced.seedanceModeText": "Text only",
+    "advanced.seedanceModeFirst": "First frame image",
+    "advanced.seedanceModeFirstLast": "First + last image",
+    "advanced.seedanceModeReference": "Reference images",
+    "advanced.seedanceModeVideo": "Reference video",
+    "advanced.seedanceFirstRequired": "First frame image is required for this Seedance mode.",
+    "advanced.seedanceLastRequired": "Last frame image is required for this Seedance mode.",
+    "advanced.seedanceVideoRequired": "Reference video is required for this Seedance mode.",
     "advanced.prepareReference": "Prepare safe reference",
     "advanced.originalImage": "Use original image",
     "advanced.seedanceReferenceHint": "Seedance will use all selected images as references.",
@@ -802,6 +841,15 @@ const I18N = {
     "advanced.uploadReference": "Tải ảnh tham chiếu",
     "advanced.firstFrame": "Khung đầu",
     "advanced.seedanceHandling": "Xử lý ảnh Seedance",
+    "advanced.seedanceMode": "Seedance input",
+    "advanced.seedanceModeText": "Text only",
+    "advanced.seedanceModeFirst": "First frame image",
+    "advanced.seedanceModeFirstLast": "First + last image",
+    "advanced.seedanceModeReference": "Reference images",
+    "advanced.seedanceModeVideo": "Reference video",
+    "advanced.seedanceFirstRequired": "First frame image is required for this Seedance mode.",
+    "advanced.seedanceLastRequired": "Last frame image is required for this Seedance mode.",
+    "advanced.seedanceVideoRequired": "Reference video is required for this Seedance mode.",
     "advanced.prepareReference": "Chuẩn bị ảnh an toàn",
     "advanced.originalImage": "Dùng ảnh gốc",
     "advanced.seedanceReferenceHint": "Seedance sẽ dùng tất cả ảnh đã chọn làm tham chiếu.",
@@ -1068,6 +1116,15 @@ const I18N = {
     "advanced.uploadReference": "参照画像をアップロード",
     "advanced.firstFrame": "最初のフレーム",
     "advanced.seedanceHandling": "Seedance 画像処理",
+    "advanced.seedanceMode": "Seedance input",
+    "advanced.seedanceModeText": "Text only",
+    "advanced.seedanceModeFirst": "First frame image",
+    "advanced.seedanceModeFirstLast": "First + last image",
+    "advanced.seedanceModeReference": "Reference images",
+    "advanced.seedanceModeVideo": "Reference video",
+    "advanced.seedanceFirstRequired": "First frame image is required for this Seedance mode.",
+    "advanced.seedanceLastRequired": "Last frame image is required for this Seedance mode.",
+    "advanced.seedanceVideoRequired": "Reference video is required for this Seedance mode.",
     "advanced.prepareReference": "安全な参照を準備",
     "advanced.originalImage": "元画像を使用",
     "advanced.seedanceReferenceHint": "Seedance は選択したすべての画像を参照に使用します。",
@@ -1334,6 +1391,15 @@ const I18N = {
     "advanced.uploadReference": "참조 이미지 업로드",
     "advanced.firstFrame": "첫 프레임",
     "advanced.seedanceHandling": "Seedance 이미지 처리",
+    "advanced.seedanceMode": "Seedance input",
+    "advanced.seedanceModeText": "Text only",
+    "advanced.seedanceModeFirst": "First frame image",
+    "advanced.seedanceModeFirstLast": "First + last image",
+    "advanced.seedanceModeReference": "Reference images",
+    "advanced.seedanceModeVideo": "Reference video",
+    "advanced.seedanceFirstRequired": "First frame image is required for this Seedance mode.",
+    "advanced.seedanceLastRequired": "Last frame image is required for this Seedance mode.",
+    "advanced.seedanceVideoRequired": "Reference video is required for this Seedance mode.",
     "advanced.prepareReference": "안전 참조 준비",
     "advanced.originalImage": "원본 이미지 사용",
     "advanced.seedanceReferenceHint": "Seedance는 선택한 모든 이미지를 참조로 사용합니다.",
@@ -1600,6 +1666,15 @@ const I18N = {
     "advanced.uploadReference": "Unggah gambar referensi",
     "advanced.firstFrame": "Frame pertama",
     "advanced.seedanceHandling": "Penanganan gambar Seedance",
+    "advanced.seedanceMode": "Seedance input",
+    "advanced.seedanceModeText": "Text only",
+    "advanced.seedanceModeFirst": "First frame image",
+    "advanced.seedanceModeFirstLast": "First + last image",
+    "advanced.seedanceModeReference": "Reference images",
+    "advanced.seedanceModeVideo": "Reference video",
+    "advanced.seedanceFirstRequired": "First frame image is required for this Seedance mode.",
+    "advanced.seedanceLastRequired": "Last frame image is required for this Seedance mode.",
+    "advanced.seedanceVideoRequired": "Reference video is required for this Seedance mode.",
     "advanced.prepareReference": "Siapkan referensi aman",
     "advanced.originalImage": "Gunakan gambar asli",
     "advanced.seedanceReferenceHint": "Seedance akan memakai semua gambar yang dipilih sebagai referensi.",
@@ -2145,6 +2220,38 @@ const SEEDANCE_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
+Text to video:
+{
+  "provider": "seedance",
+  "seedanceMode": "text_to_video",
+  "prompt": "Describe the video. Dialogue can be quoted in the prompt.",
+  "resolution": "720p",
+  "duration": 5,
+  "params": {"generate_audio": true}
+}
+
+First-frame image to video:
+{
+  "provider": "seedance",
+  "seedanceMode": "first_frame",
+  "prompt": "Animate Image 1 into a cinematic shot.",
+  "imageUrl": "https://example.com/first-frame.png",
+  "resolution": "720p",
+  "duration": 5
+}
+
+First + last frame:
+{
+  "provider": "seedance",
+  "seedanceMode": "first_last_frame",
+  "prompt": "Move smoothly from the first frame to the last frame.",
+  "imageUrl": "https://example.com/first-frame.png",
+  "endImageUrl": "https://example.com/last-frame.png",
+  "resolution": "720p",
+  "duration": 5
+}
+
+Reference images:
 {
   "provider": "seedance",
   "prompt": "Describe the video. Dialogue can be quoted in the prompt.",
@@ -2159,6 +2266,19 @@ Content-Type: application/json
     "generate_audio": true,
     "web_search": false
   }
+}
+
+Edit or extend with video/audio references:
+{
+  "provider": "seedance",
+  "seedanceMode": "reference_video",
+  "prompt": "Use Video 1 as the action reference, Image 1 as the character reference, and Audio 1 as the music reference.",
+  "referenceVideoAssetIds": ["uploaded-video-asset-id"],
+  "referenceImages": [{"assetId": "uploaded-image-asset-id"}],
+  "referenceAudios": ["https://example.com/music.mp3"],
+  "resolution": "720p",
+  "duration": 8,
+  "params": {"generate_audio": true}
 }`;
 
 const WAN27_VIDEO_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
@@ -2279,15 +2399,25 @@ Content-Type: application/json
       ["caseId", "Optional advanced case id."],
       ["provider", "wan27 or seedance."],
       ["prompt", "Required prompt."],
-      ["dataUrl", "Wan2.7 first-frame image. Optional for Seedance."],
-      ["referenceImages", "Seedance only. Array of reference image objects in the same field. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId."],
-      ["userAssetId", "Existing uploaded asset id for a reference image."],
+      ["seedanceMode", "Seedance only. text_to_video, first_frame, first_last_frame, reference_images, or reference_video."],
+      ["dataUrl", "Wan2.7 first-frame image. For Seedance first_frame, this is accepted when seedanceMode is first_frame/first_last_frame."],
+      ["imageUrl / firstFrameUrl", "Seedance first-frame public URL. Alias of top-level image_url handling."],
+      ["imageAssetId / firstFrameAssetId", "Seedance first-frame asset id returned by /api/user-assets."],
+      ["endImageUrl / lastFrameUrl", "Seedance last-frame public URL for first_last_frame."],
+      ["endImageAssetId / lastFrameAssetId", "Seedance last-frame asset id for first_last_frame."],
+      ["referenceImages", "Seedance reference_images mode. Array items can use url/imageUrl + fileName, dataUrl + fileName, or assetId."],
+      ["referenceVideoAssetId", "Seedance reference_video mode. Existing uploaded video asset id."],
+      ["referenceVideoAssetIds", "Seedance multimodal/edit/extend. Up to 3 existing uploaded video asset ids."],
+      ["referenceAudios / referenceAudioUrls", "Seedance multimodal audio reference URLs. Up to 3 public URLs."],
+      ["userAssetId", "Existing uploaded asset id. For Seedance first_frame it is the first frame; otherwise it is a reference image."],
       ["extraReferenceAssetIds", "Seedance compatibility field for additional asset ids."],
       ["ratio", "9:16, 16:9, or 1:1."],
       ["resolution", "720p or 1080p."],
       ["duration", "Seconds. Clamped by provider."],
       ["seed", "Optional Wan2.7 seed."],
       ["params", "Optional provider parameter object. Top-level business fields still control billing and media handling."],
+      ["params.image_url / params.end_image_url", "Seedance raw upstream first/last-frame URL or asset:// URI. Friendly fields are prepared automatically."],
+      ["params.reference_images / params.reference_videos / params.reference_audios", "Seedance raw upstream reference arrays. These are forwarded when supplied."],
     ],
     response: [
       ["ok", "true when the request is accepted."],
@@ -2308,11 +2438,16 @@ Content-Type: application/json
       { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported billing values are 720p and 1080p.", default: "720p" },
       { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs are limited to 5-15 seconds here.", default: "5" },
       { name: "generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
-      { name: "image_url", type: "string", required: "No", description: "First-frame image URL or asset:// URI for image-to-video. Prefer referenceImages/userAssetId when calling our API.", default: "-" },
-      { name: "end_image_url", type: "string", required: "No", description: "Last-frame image URL or asset:// URI. Also provide image_url when using first/last-frame mode.", default: "-" },
+      { name: "seedanceMode", type: "string", required: "No", description: "Friendly mode selector: text_to_video, first_frame, first_last_frame, reference_images, or reference_video.", default: "auto" },
+      { name: "imageUrl / firstFrameUrl / imageAssetId / firstFrameAssetId", type: "string", required: "Mode dependent", description: "Our API prepares this as upstream image_url for Seedance image-to-video.", default: "-" },
+      { name: "endImageUrl / lastFrameUrl / endImageAssetId / lastFrameAssetId", type: "string", required: "Mode dependent", description: "Our API prepares this as upstream end_image_url for first/last-frame mode.", default: "-" },
+      { name: "image_url", type: "string", required: "No", description: "Raw upstream first-frame URL or asset:// URI. Public URLs are also accepted through imageUrl/firstFrameUrl.", default: "-" },
+      { name: "end_image_url", type: "string", required: "No", description: "Raw upstream last-frame URL or asset:// URI. Also provide image_url when using first/last-frame mode.", default: "-" },
       { name: "reference_images", type: "array", required: "No", description: "Reference image URL or asset:// URI array. Our referenceImages array accepts url/imageUrl, dataUrl, or assetId and converts it before upstream submit.", default: "-" },
       { name: "reference_videos", type: "array", required: "No", description: "Reference video URL or asset:// URI array. Our referenceVideoAssetId/videoAssetId handles library videos.", default: "-" },
       { name: "reference_audios", type: "array", required: "No", description: "Reference audio URL or asset:// URI array. Forward via params when upstream allows it.", default: "-" },
+      { name: "referenceVideoAssetIds", type: "array", required: "No", description: "Our friendly field for up to 3 uploaded video assets. The API prepares them into reference_video content.", default: "-" },
+      { name: "referenceAudios / referenceAudioUrls", type: "array", required: "No", description: "Our friendly field for up to 3 public audio URLs. The API sends them as reference_audio content.", default: "-" },
       { name: "web_search", type: "boolean", required: "No", description: "Enable web search enhancement where supported by upstream text-to-video.", default: "false" },
       { name: "content", type: "array", required: "No", description: "Advanced raw Ark content array. If supplied, it overrides the content we build from prompt and references.", default: "-" },
       { name: "params", type: "object", required: "No", description: "Pass-through object for upstream fields. Top-level prompt/provider/media fields are still understood by our API.", default: "{}" },
@@ -4961,6 +5096,7 @@ async function useHomeCharacter(characterId = "") {
     dataUrl = "";
   }
   if (els.advancedProvider) els.advancedProvider.value = "seedance";
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
   state.activeAdvancedCaseId = "";
   state.advancedSeedanceVideoAssetId = "";
   state.advancedSeedanceVideoPreviewUrl = "";
@@ -5760,6 +5896,7 @@ function renderAdvanced() {
 function updateAdvancedModelControls() {
   const provider = currentAdvancedProvider();
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
+  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const bounds = advancedDurationBounds(provider);
   if (els.advancedDuration) {
     els.advancedDuration.min = String(bounds.min);
@@ -5783,13 +5920,18 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".wan-clip").forEach((item) => {
     item.hidden = provider !== "wan27" || !wanModeNeedsClip(wanMode);
   });
+  document.querySelectorAll(".seedance-last-frame").forEach((item) => {
+    item.hidden = provider !== "seedance" || !seedanceModeNeedsLastFrame(seedanceMode);
+  });
   if (els.advancedUploadBox) {
-    els.advancedUploadBox.hidden = provider === "wan27" && !wanModeNeedsFirstFrame(wanMode);
+    els.advancedUploadBox.hidden = (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
+      (provider === "seedance" && seedanceMode === "text_to_video");
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     const label = els.advancedUploadBox.querySelector("span");
     if (label) {
-      label.innerHTML = `<i data-lucide="image-up"></i>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : t("advanced.uploadReference"))}`;
+      const seedanceLabel = seedanceModeNeedsFirstFrame(seedanceMode) ? t("advanced.firstFrame") : t("advanced.uploadReference");
+      label.innerHTML = `<i data-lucide="image-up"></i>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel)}`;
     }
   }
   renderAdvancedReferencePreviews();
@@ -5894,6 +6036,7 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || "";
   if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = normalizeWanMediaMode(params.mediaMode || item.mediaMode || "first_frame");
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = normalizeSeedanceMediaMode(params.seedanceMode || params.mediaMode || item.mediaMode || (provider === "seedance" ? "reference_images" : "text_to_video"));
   if (els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = params.drivingAudioUrl || params.driving_audio_url || "";
   if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = params.firstClipUrl || params.first_clip_url || "";
   updateAdvancedModelControls();
@@ -5933,10 +6076,26 @@ async function submitAdvancedGenerate() {
   const resolution = currentAdvancedResolution();
   const preprocessReference = false;
   const mediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
+  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const referenceImages = selectedAdvancedReferenceImages();
-  if (provider === "seedance" && !referenceImages.length && !state.advancedSeedanceVideoAssetId) {
+  if (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !referenceImages.length) {
+    els.advancedSubmitBtn.disabled = false;
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
+    return;
+  }
+  if (provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameDataUrl) {
+    els.advancedSubmitBtn.disabled = false;
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceLastRequired");
+    return;
+  }
+  if (provider === "seedance" && seedanceModeNeedsReferenceImages(seedanceMode) && !referenceImages.length) {
     els.advancedSubmitBtn.disabled = false;
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceReferenceHint");
+    return;
+  }
+  if (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode) && !state.advancedSeedanceVideoAssetId) {
+    els.advancedSubmitBtn.disabled = false;
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceVideoRequired");
     return;
   }
   if (provider === "wan27") {
@@ -5979,9 +6138,11 @@ async function submitAdvancedGenerate() {
         caseId: state.activeAdvancedCaseId,
         provider,
         prompt,
-        dataUrl: state.advancedUploadDataUrl,
-        firstFrameDataUrl: state.advancedUploadDataUrl,
-        referenceImages: provider === "seedance" ? referenceImages.map(seedanceImageRefPayload) : undefined,
+        dataUrl: provider === "wan27" ? state.advancedUploadDataUrl : undefined,
+        seedanceMode: provider === "seedance" ? seedanceMode : undefined,
+        firstFrameDataUrl: provider === "wan27" || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode)) ? state.advancedUploadDataUrl : undefined,
+        endImageDataUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? state.advancedSeedanceLastFrameDataUrl : undefined,
+        referenceImages: provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? referenceImages.map(seedanceImageRefPayload) : undefined,
         referenceVideoAssetId: provider === "seedance" ? (state.advancedSeedanceVideoAssetId || "") : undefined,
         lastFrameDataUrl: state.advancedWanLastFrameDataUrl,
         drivingAudioUrl: els.advancedWanAudioUrl?.value.trim() || "",
@@ -6087,8 +6248,9 @@ function advancedSeedanceImageRefsFromState() {
 }
 
 function seedanceImageRefPayload(item = {}) {
-  if (item.assetId) return { assetId: item.assetId, dataUrl: "", fileName: item.fileName || "", name: item.name || "" };
-  return { dataUrl: item.dataUrl || "", fileName: item.fileName || "", name: item.name || "" };
+  if (item.assetId) return { assetId: item.assetId, dataUrl: "", url: "", fileName: item.fileName || "", name: item.name || "" };
+  if (item.url || item.imageUrl) return { url: item.url || item.imageUrl, dataUrl: "", fileName: item.fileName || "", name: item.name || "" };
+  return { dataUrl: item.dataUrl || "", url: "", fileName: item.fileName || "", name: item.name || "" };
 }
 
 function imageAssetOptions(selectedId = "") {
@@ -6454,6 +6616,7 @@ function useAssetInAdvanced(asset = {}, action = "use") {
   if (els.advancedProvider) els.advancedProvider.value = "seedance";
   state.activeAdvancedCaseId = "";
   if (isImageAsset(asset)) {
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = action === "extend" ? "first_frame" : "reference_images";
     const ref = {
       assetId: asset.id,
       dataUrl: assetPreviewUrl(asset),
@@ -6464,12 +6627,17 @@ function useAssetInAdvanced(asset = {}, action = "use") {
     const existing = action === "replace" ? advancedSeedanceImageRefsFromState().filter((item) => item.assetId !== asset.id) : [];
     state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
     state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+    state.advancedSeedanceVideoAssetId = "";
+    state.advancedSeedanceVideoPreviewUrl = "";
     if (action === "extend" && els.advancedPrompt) els.advancedPrompt.value = "Extend [Image 1]";
     if (action === "replace" && els.advancedPrompt) els.advancedPrompt.value = "Replace the lady in [Video 1] with the lady in [Image 1]";
   }
   if (isVideoAsset(asset)) {
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
     state.advancedSeedanceVideoAssetId = asset.id;
     state.advancedSeedanceVideoPreviewUrl = assetPreviewUrl(asset);
+    state.advancedReferenceImages = [];
+    state.advancedUploadDataUrl = "";
     if (els.advancedPrompt) els.advancedPrompt.value = "Replace the lady in [Video 1] with the lady in [Image 1]";
   }
   setTab("advanced");
@@ -6498,7 +6666,10 @@ function selectedWanClipUrl(mediaMode = "first_frame") {
 
 function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   const images = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
-  return normalizeAdvancedProvider(provider) === "seedance" ? images : images.slice(0, 1);
+  if (normalizeAdvancedProvider(provider) !== "seedance") return images.slice(0, 1);
+  const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+  if (seedanceModeNeedsFirstFrame(mode)) return images.slice(0, 1);
+  return images;
 }
 
 function dedupeAdvancedReferenceImages(images = []) {
@@ -6542,6 +6713,15 @@ function renderAdvancedReferencePreviews() {
     `);
     els.advancedUploadBox?.classList.add("has-image");
   }
+  if (els.advancedSeedanceLastFramePreview) {
+    if (provider === "seedance" && state.advancedSeedanceLastFrameDataUrl) {
+      els.advancedSeedanceLastFramePreview.src = state.advancedSeedanceLastFrameDataUrl;
+      els.advancedSeedanceLastFramePreview.classList.add("is-visible");
+    } else {
+      els.advancedSeedanceLastFramePreview.removeAttribute("src");
+      els.advancedSeedanceLastFramePreview.classList.remove("is-visible");
+    }
+  }
 }
 
 function updateAdvancedReferenceSummary() {
@@ -6549,6 +6729,21 @@ function updateAdvancedReferenceSummary() {
   const provider = currentAdvancedProvider();
   const count = selectedAdvancedReferenceImages().length;
   if (provider === "seedance") {
+    const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+    if (mode === "text_to_video") {
+      els.advancedReferenceSummary.textContent = "";
+      return;
+    }
+    if (mode === "first_frame") {
+      els.advancedReferenceSummary.textContent = count ? t("advanced.seedanceModeFirst") : t("advanced.seedanceFirstRequired");
+      return;
+    }
+    if (mode === "first_last_frame") {
+      els.advancedReferenceSummary.textContent = count
+        ? `${t("advanced.seedanceModeFirstLast")}${state.advancedSeedanceLastFrameDataUrl ? "" : ` - ${t("advanced.seedanceLastRequired")}`}`
+        : t("advanced.seedanceFirstRequired");
+      return;
+    }
     const hasVideo = Boolean(state.advancedSeedanceVideoAssetId);
     els.advancedReferenceSummary.textContent = count
       ? `${t("advanced.seedanceReferenceCount", { count })}${hasVideo ? " Video 1 selected." : ""}`
@@ -7531,10 +7726,12 @@ els.advancedImage?.addEventListener("change", async () => {
   }
   if (provider === "seedance") {
     const existing = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
-    const roomLeft = Math.max(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT - existing.length);
+    const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+    const limit = seedanceModeNeedsFirstFrame(seedanceMode) ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+    const roomLeft = Math.max(0, limit - existing.length);
     if (!roomLeft) {
       els.advancedImage.value = "";
-      if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: ADVANCED_SEEDANCE_REFERENCE_LIMIT });
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: limit });
       updateAdvancedModelControls();
       return;
     }
@@ -7543,13 +7740,13 @@ els.advancedImage?.addEventListener("change", async () => {
       dataUrl: await readFileAsDataUrl(file),
       fileName: file.name || "",
     })));
-    state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ...addedImages]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ...addedImages]).slice(0, limit);
     state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
     state.advancedSeedanceVideoAssetId = "";
     state.advancedSeedanceVideoPreviewUrl = "";
     els.advancedImage.value = "";
     if (files.length > selectedFiles.length && els.advancedNote) {
-      els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: ADVANCED_SEEDANCE_REFERENCE_LIMIT });
+      els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: limit });
     }
     updateAdvancedModelControls();
     return;
@@ -7563,6 +7760,19 @@ els.advancedImage?.addEventListener("change", async () => {
   state.advancedSeedanceVideoAssetId = "";
   state.advancedSeedanceVideoPreviewUrl = "";
   els.advancedImage.value = "";
+  updateAdvancedModelControls();
+});
+els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
+  const file = els.advancedSeedanceLastFrame.files?.[0];
+  if (!file) return;
+  if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) {
+    els.advancedSeedanceLastFrame.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
+    updateAdvancedModelControls();
+    return;
+  }
+  state.advancedSeedanceLastFrameDataUrl = await readFileAsDataUrl(file);
+  els.advancedSeedanceLastFrame.value = "";
   updateAdvancedModelControls();
 });
 els.advancedWanLastFrame?.addEventListener("change", async () => {
@@ -7668,6 +7878,7 @@ els.advancedSubmitBtn?.addEventListener("click", submitAdvancedGenerate);
 els.advancedDuration?.addEventListener("input", updateAdvancedButtonCost);
 els.advancedProvider?.addEventListener("change", updateAdvancedModelControls);
 els.advancedWanMediaMode?.addEventListener("change", updateAdvancedModelControls);
+els.advancedSeedanceMediaMode?.addEventListener("change", updateAdvancedModelControls);
 els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedResolution?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelControls);

@@ -174,7 +174,9 @@ const DEFAULT_ADVANCED_PRICING = {
   },
 };
 const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_MARKUP, 1.5, 1, 100);
-const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_REFERENCE_LIMIT || process.env.ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT, 6, 1, 12));
+const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_REFERENCE_LIMIT || process.env.ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT, 9, 1, 9));
+const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT, 3, 1, 3));
+const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT, 3, 1, 3));
 const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 80, 1, 200) * 1024 * 1024);
 const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_DASHSCOPE_API_KEY =
@@ -3695,17 +3697,54 @@ function seedanceContentFromReferences({
   prompt = "",
   referenceAssetUri = "",
   extraReferenceAssetUris = [],
+  firstFrameAssetUri = "",
+  lastFrameAssetUri = "",
   referenceVideoAssetUri = "",
   extraReferenceVideoAssetUris = [],
+  referenceAudioAssetUris = [],
+  body = {},
 } = {}) {
   const content = [{ type: "text", text: String(prompt || "") }];
+  if (firstFrameAssetUri) {
+    content.push({
+      type: "image_url",
+      image_url: { url: firstFrameAssetUri },
+      role: "first_frame",
+    });
+  }
+  if (lastFrameAssetUri) {
+    content.push({
+      type: "image_url",
+      image_url: { url: lastFrameAssetUri },
+      role: "last_frame",
+    });
+  }
   const videoUris = [referenceVideoAssetUri, ...extraReferenceVideoAssetUris]
     .filter((uri, index, list) => uri && uri.startsWith("asset://") && list.indexOf(uri) === index);
+  const rawReferenceVideos = arrayFromBody(body?.reference_videos)
+    .map((item) => (typeof item === "string" ? item : String(item?.url || item?.video_url || item?.assetUri || "")))
+    .filter(Boolean);
+  rawReferenceVideos.forEach((uri) => {
+    if (!videoUris.includes(uri) && videoUris.length < ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) videoUris.push(uri);
+  });
   videoUris.forEach((uri) => {
     content.push({
       type: "video_url",
       video_url: { url: uri },
       role: "reference_video",
+    });
+  });
+  const rawReferenceAudios = [
+    ...arrayFromBody(referenceAudioAssetUris),
+    ...arrayFromBody(body?.reference_audios).map((item) => (typeof item === "string" ? item : String(item?.url || item?.audio_url || item?.assetUri || ""))),
+  ]
+    .filter((uri, index, list) => uri && typeof uri === "string" && list.indexOf(uri) === index)
+    .slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
+  rawReferenceAudios.forEach((uri) => {
+    content.push({
+      type: "audio_url",
+      audio_url: { url: uri },
+      role: "reference_audio",
     });
   });
   if (referenceAssetUri && referenceAssetUri.startsWith("asset://")) {
@@ -3739,8 +3778,6 @@ const SEEDANCE_TOP_LEVEL_PASSTHROUGH_FIELDS = [
   "fps",
   "camera_fixed",
   "content",
-  "image_url",
-  "end_image_url",
   "reference_images",
   "reference_videos",
   "reference_audios",
@@ -3766,6 +3803,21 @@ function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body 
     advancedDurationBounds("seedance").max,
   );
   payload.watermark = boolFromRequest(source.watermark, false);
+  if (Array.isArray(payload.reference_images) && payload.reference_images.length) {
+    payload.reference_images = payload.reference_images.map((item) => (
+      typeof item === "string" ? item : String(item?.url || item?.image_url || item?.assetUri || item || "")
+    )).filter(Boolean);
+  }
+  if (Array.isArray(payload.reference_videos) && payload.reference_videos.length) {
+    payload.reference_videos = payload.reference_videos.map((item) => (
+      typeof item === "string" ? item : String(item?.url || item?.video_url || item?.assetUri || item || "")
+    )).filter(Boolean);
+  }
+  if (Array.isArray(payload.reference_audios) && payload.reference_audios.length) {
+    payload.reference_audios = payload.reference_audios.map((item) => (
+      typeof item === "string" ? item : String(item?.url || item?.audio_url || item?.assetUri || item || "")
+    )).filter(Boolean);
+  }
   if (!payload.content.length) payload.content = [{ type: "text", text: String(prompt || "") }];
   return payload;
 }
@@ -3775,8 +3827,11 @@ async function submitSeedanceVideoTask({
   prompt,
   referenceAssetUri,
   extraReferenceAssetUris = [],
+  firstFrameAssetUri = "",
+  lastFrameAssetUri = "",
   referenceVideoAssetUri = "",
   extraReferenceVideoAssetUris = [],
+  referenceAudioAssetUris = [],
   body = {},
   slug = "",
 }) {
@@ -3784,8 +3839,12 @@ async function submitSeedanceVideoTask({
     prompt,
     referenceAssetUri,
     extraReferenceAssetUris,
+    firstFrameAssetUri,
+    lastFrameAssetUri,
     referenceVideoAssetUri,
     extraReferenceVideoAssetUris,
+    referenceAudioAssetUris,
+    body,
   });
 
   const payload = seedancePayloadFromBody({ config, prompt, content, body });
@@ -4522,7 +4581,132 @@ function arrayFromBody(value) {
   return Array.isArray(value) ? value : [value];
 }
 
-function seedanceReferenceInputsFromBody(body = {}) {
+const SEEDANCE_MEDIA_MODES = new Set([
+  "text_to_video",
+  "first_frame",
+  "first_last_frame",
+  "reference_images",
+  "reference_video",
+]);
+
+function normalizeSeedanceMode(value = "", body = {}) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["text", "txt", "t2v", "text_video", "text_to_video"].includes(raw)) return "text_to_video";
+  if (["image", "i2v", "image_to_video", "first", "first_image", "first_frame", "image_url", "single_image"].includes(raw)) return "first_frame";
+  if (["first_last", "first_last_frame", "first_and_last", "start_end", "start_end_frame", "image_to_video_end", "end_image", "last_frame"].includes(raw)) return "first_last_frame";
+  if (["reference", "references", "reference_image", "reference_images", "multi_reference", "multi_images"].includes(raw)) return "reference_images";
+  if (["reference_video", "video_reference", "video"].includes(raw)) return "reference_video";
+  if (SEEDANCE_MEDIA_MODES.has(raw)) return raw;
+
+  const merged = body || {};
+  if (firstPresent(
+    merged.endImageUrl,
+    merged.end_image_url,
+    merged.lastFrameUrl,
+    merged.last_frame_url,
+    merged.endImageDataUrl,
+    merged.lastFrameDataUrl,
+    merged.endImageAssetId,
+    merged.lastFrameAssetId,
+  )) return "first_last_frame";
+  if (firstPresent(
+    merged.image_url,
+    merged.imageUrl,
+    merged.firstFrameUrl,
+    merged.first_frame_url,
+    merged.imageDataUrl,
+    merged.firstFrameDataUrl,
+    merged.imageAssetId,
+    merged.firstFrameAssetId,
+  )) return "first_frame";
+  if (seedanceReferenceVideoAssetIdsFromBody(merged).length || Array.isArray(merged.reference_videos)) return "reference_video";
+  if (
+    arrayFromBody(merged.referenceImages).length ||
+    arrayFromBody(merged.referenceImageDataUrls).length ||
+    firstPresent(merged.reference_images, merged.userAssetId, merged.referenceImageAssetId)
+  ) return "reference_images";
+  return "text_to_video";
+}
+
+function seedanceModeNeedsFirstFrame(mode) {
+  return ["first_frame", "first_last_frame"].includes(normalizeSeedanceMode(mode));
+}
+
+function seedanceModeNeedsEndFrame(mode) {
+  return normalizeSeedanceMode(mode) === "first_last_frame";
+}
+
+function seedanceFirstFrameInputFromBody(body = {}, { includeDataUrlFallback = false, includeUserAssetId = false } = {}) {
+  const assetId = String(firstPresent(body.firstFrameAssetId, body.first_frame_asset_id, body.imageAssetId, body.image_asset_id, includeUserAssetId ? body.userAssetId : "") || "").trim();
+  if (assetId) return { assetId, name: "Seedance first frame" };
+  const dataUrl = String(firstPresent(
+    body.firstFrameDataUrl,
+    body.first_frame_data_url,
+    body.imageDataUrl,
+    body.image_data_url,
+    includeDataUrlFallback ? body.dataUrl : "",
+  ) || "");
+  if (dataUrl) {
+    return {
+      dataUrl,
+      fileName: firstPresent(body.firstFrameFileName, body.imageFileName, body.fileName, ""),
+      name: "Seedance first frame",
+    };
+  }
+  const url = String(firstPresent(
+    body.firstFrameUrl,
+    body.first_frame_url,
+    body.imageUrl,
+    body.image_url_public,
+    isPublicHttpUrl(body.image_url) ? body.image_url : "",
+  ) || "").trim();
+  if (url) {
+    return {
+      url,
+      fileName: firstPresent(body.firstFrameFileName, body.imageFileName, body.fileName, ""),
+      name: "Seedance first frame",
+    };
+  }
+  return null;
+}
+
+function seedanceEndFrameInputFromBody(body = {}) {
+  const assetId = String(firstPresent(body.endImageAssetId, body.end_image_asset_id, body.lastFrameAssetId, body.last_frame_asset_id) || "").trim();
+  if (assetId) return { assetId, name: "Seedance end frame" };
+  const dataUrl = String(firstPresent(body.endImageDataUrl, body.end_image_data_url, body.lastFrameDataUrl, body.last_frame_data_url) || "");
+  if (dataUrl) {
+    return {
+      dataUrl,
+      fileName: firstPresent(body.endImageFileName, body.lastFrameFileName, body.fileName, ""),
+      name: "Seedance end frame",
+    };
+  }
+  const url = String(firstPresent(
+    body.endImageUrl,
+    body.end_image_public_url,
+    body.lastFrameUrl,
+    body.last_frame_url,
+    isPublicHttpUrl(body.end_image_url) ? body.end_image_url : "",
+  ) || "").trim();
+  if (url) {
+    return {
+      url,
+      fileName: firstPresent(body.endImageFileName, body.lastFrameFileName, body.fileName, ""),
+      name: "Seedance end frame",
+    };
+  }
+  return null;
+}
+
+async function createSingleSeedanceImageAssetFromInput(db, user, input, { name = "Seedance frame" } = {}) {
+  if (!input) return null;
+  const assets = await createUserImageAssetsFromInputs(db, user, [{ ...input, name: input.name || name }], { name });
+  const asset = assets[0] || null;
+  if (asset) validateWan27MediaKind(asset, "image", name);
+  return asset;
+}
+
+function seedanceReferenceInputsFromBody(body = {}, { includeDataUrlFallback = true } = {}) {
   const inputs = [
     ...arrayFromBody(body.referenceImages),
     ...arrayFromBody(body.referenceImageDataUrls),
@@ -4539,7 +4723,7 @@ function seedanceReferenceInputsFromBody(body = {}) {
   }
   if (filteredInputs.length) return filteredInputs;
   const fallbackInputs = [
-    body.dataUrl ? { dataUrl: body.dataUrl, fileName: body.fileName || "", name: "Advanced reference 1" } : null,
+    includeDataUrlFallback && body.dataUrl ? { dataUrl: body.dataUrl, fileName: body.fileName || "", name: "Advanced reference 1" } : null,
     ...seedanceExtraReferenceInputsFromBody(body),
   ].filter(Boolean);
   if (fallbackInputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
@@ -4582,11 +4766,11 @@ function seedanceExtraReferenceAssetIdsFromBody(body = {}) {
   return assetIds;
 }
 
-function seedanceReferenceAssetIdsFromBody(body = {}) {
+function seedanceReferenceAssetIdsFromBody(body = {}, { includeUserAssetId = true, includeImageAssetId = true } = {}) {
   const assetIds = [
-    body.userAssetId,
+    includeUserAssetId ? body.userAssetId : "",
     body.referenceImageAssetId,
-    body.imageAssetId,
+    includeImageAssetId ? body.imageAssetId : "",
     ...seedanceExtraReferenceAssetIdsFromBody(body),
   ].map((item) => String(item || "").trim()).filter(Boolean);
   if (assetIds.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
@@ -4598,13 +4782,40 @@ function seedanceReferenceAssetIdsFromBody(body = {}) {
 }
 
 function seedanceReferenceVideoAssetIdsFromBody(body = {}) {
-  return [
+  const ids = [
     body.referenceVideoAssetId,
     body.videoAssetId,
     body.firstClipAssetId,
     ...arrayFromBody(body.referenceVideoAssetIds),
     ...arrayFromBody(body.videoAssetIds),
   ].map((item) => String(item || "").trim()).filter(Boolean);
+  if (ids.length > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
+    const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} reference videos.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return ids;
+}
+
+function seedanceReferenceAudioInputsFromBody(body = {}) {
+  const inputs = [
+    ...arrayFromBody(body.referenceAudios),
+    ...arrayFromBody(body.referenceAudioUrls),
+    ...arrayFromBody(body.reference_audios),
+  ].filter((item) => {
+    if (!item) return false;
+    if (typeof item === "string") return item.trim();
+    return item.url || item.audioUrl || item.audio_url || item.assetUri;
+  });
+  if (inputs.length > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
+    const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} reference audios.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return inputs.map((item) => {
+    if (typeof item === "string") return item.trim();
+    return String(item.url || item.audioUrl || item.audio_url || item.assetUri || "").trim();
+  }).filter(Boolean);
 }
 
 async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "Reference" } = {}) {
@@ -7393,6 +7604,9 @@ async function runAdvancedGenerationJob(job = {}) {
     provider,
     prompt,
     requestParams,
+    seedanceMode = "",
+    seedanceFirstFrameAssetId = "",
+    seedanceEndFrameAssetId = "",
     wan27MediaMode,
     wan27Media,
     pricing,
@@ -7400,7 +7614,10 @@ async function runAdvancedGenerationJob(job = {}) {
     caseId,
     caseTitle,
     referenceVideoAssetId = "",
+    referenceVideoAssetIds = [],
+    referenceAudioAssetUris = [],
   } = job;
+  const bodyParams = requestParams && typeof requestParams === "object" ? requestParamsFromBody(requestParams) : {};
   const runtime = advancedRuntimeForProvider(provider, requestParams);
   let userAsset = null;
   let referenceAssetUri = "";
@@ -7411,7 +7628,13 @@ async function runAdvancedGenerationJob(job = {}) {
   let seedanceMediaAssets = [];
   let extraReferenceAssetUris = [];
   let seedanceVideoAsset = null;
+  let extraSeedanceVideoAssets = [];
+  let seedanceFirstFrameAsset = null;
+  let seedanceEndFrameAsset = null;
+  let seedanceImageUrl = "";
+  let seedanceEndImageUrl = "";
   let referenceVideoAssetUri = "";
+  let extraReferenceVideoAssetUris = [];
   let payload = null;
   let createResponse = null;
 
@@ -7447,6 +7670,42 @@ async function runAdvancedGenerationJob(job = {}) {
         error.statusCode = 404;
         throw error;
       }
+      validateWan27MediaKind(seedanceVideoAsset, "video", "Seedance reference video");
+    }
+    const requestedVideoIds = Array.isArray(referenceVideoAssetIds)
+      ? referenceVideoAssetIds.map((id) => String(id || "").trim()).filter(Boolean).slice(0, ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT)
+      : [];
+    const seenRequestedVideoIds = new Set([referenceVideoAssetId].filter(Boolean));
+    extraSeedanceVideoAssets = requestedVideoIds
+      .filter((assetId) => {
+        if (!assetId || seenRequestedVideoIds.has(assetId)) return false;
+        seenRequestedVideoIds.add(assetId);
+        return true;
+      })
+      .map((assetId) => (db.userAssets || []).find((asset) => asset.id === assetId && asset.userId === userId && !isSoftDeleted(asset)));
+    if (extraSeedanceVideoAssets.some((asset) => !asset)) {
+      const error = new Error("Extra reference video not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    extraSeedanceVideoAssets.forEach((asset) => validateWan27MediaKind(asset, "video", "Extra Seedance reference video"));
+    if (seedanceFirstFrameAssetId) {
+      seedanceFirstFrameAsset = (db.userAssets || []).find((asset) => asset.id === seedanceFirstFrameAssetId && asset.userId === userId && !isSoftDeleted(asset));
+      if (!seedanceFirstFrameAsset) {
+        const error = new Error("Seedance first-frame image not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      validateWan27MediaKind(seedanceFirstFrameAsset, "image", "Seedance first-frame image");
+    }
+    if (seedanceEndFrameAssetId) {
+      seedanceEndFrameAsset = (db.userAssets || []).find((asset) => asset.id === seedanceEndFrameAssetId && asset.userId === userId && !isSoftDeleted(asset));
+      if (!seedanceEndFrameAsset) {
+        const error = new Error("Seedance end-frame image not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+      validateWan27MediaKind(seedanceEndFrameAsset, "image", "Seedance end-frame image");
     }
 
     if (userAsset) {
@@ -7479,16 +7738,74 @@ async function runAdvancedGenerationJob(job = {}) {
         imageUrl = imageUrl || preparedVideo.videoUrl;
       }
     }
+    const extraReferenceVideoUriQueue = [];
+    if (provider === "seedance" && extraSeedanceVideoAssets.length && !USE_GATEWAY_UPSTREAM) {
+      for (const asset of extraSeedanceVideoAssets) {
+        const preparedVideo = await prepareSeedanceVideoAsset(db, asset);
+        if (preparedVideo.referenceAssetUri && preparedVideo.referenceAssetUri !== referenceVideoAssetUri && !extraReferenceVideoAssetUris.includes(preparedVideo.referenceAssetUri)) {
+          extraReferenceVideoAssetUris.push(preparedVideo.referenceAssetUri);
+          extraReferenceVideoUriQueue.push(preparedVideo.referenceAssetUri);
+        }
+      }
+    }
+    if (provider === "seedance" && seedanceFirstFrameAsset) {
+      if (USE_GATEWAY_UPSTREAM) {
+        imageUrl = imageUrl || seedanceFirstFrameAsset.localUrl || seedanceFirstFrameAsset.publicUrl || "";
+        sourceImageUrl = sourceImageUrl || seedanceFirstFrameAsset.sourceImageUrl || seedanceFirstFrameAsset.localUrl || "";
+      } else {
+        const preparedFrame = await prepareSeedanceReferenceAsset(db, seedanceFirstFrameAsset, false);
+        seedanceFirstFrameAsset = preparedFrame.asset;
+        seedanceImageUrl = preparedFrame.referenceAssetUri;
+        imageUrl = imageUrl || preparedFrame.imageUrl;
+        sourceImageUrl = sourceImageUrl || preparedFrame.sourceImageUrl;
+      }
+    }
+    if (provider === "seedance" && seedanceEndFrameAsset) {
+      if (!USE_GATEWAY_UPSTREAM) {
+        const preparedEndFrame = await prepareSeedanceReferenceAsset(db, seedanceEndFrameAsset, false);
+        seedanceEndFrameAsset = preparedEndFrame.asset;
+        seedanceEndImageUrl = preparedEndFrame.referenceAssetUri;
+      }
+    }
     if (provider === "seedance") {
-      const videoMediaAsset = seedanceVideoAsset ? [{
-        type: "reference_video",
-        key: "video_1",
-        userAssetId: seedanceVideoAsset.id,
-        referenceAssetUri: referenceVideoAssetUri,
-        videoUrl: seedanceVideoAsset.localUrl || seedanceVideoAsset.publicUrl || imageUrl || "",
-        localUrl: seedanceVideoAsset.localUrl || "",
-        mime: seedanceVideoAsset.mime || "",
-      }] : [];
+      const frameMediaAssets = [
+        ...(seedanceFirstFrameAsset ? [{
+          type: "image_url",
+          key: "image_url",
+          userAssetId: seedanceFirstFrameAsset.id,
+          referenceAssetUri: seedanceImageUrl,
+          imageUrl: seedanceFirstFrameAsset.localUrl || seedanceFirstFrameAsset.publicUrl || imageUrl || "",
+          sourceImageUrl: seedanceFirstFrameAsset.sourceImageUrl || seedanceFirstFrameAsset.localUrl || "",
+          localUrl: seedanceFirstFrameAsset.localUrl || "",
+          mime: seedanceFirstFrameAsset.mime || "",
+        }] : []),
+        ...(seedanceEndFrameAsset ? [{
+          type: "end_image_url",
+          key: "end_image_url",
+          userAssetId: seedanceEndFrameAsset.id,
+          referenceAssetUri: seedanceEndImageUrl,
+          imageUrl: seedanceEndFrameAsset.localUrl || seedanceEndFrameAsset.publicUrl || "",
+          sourceImageUrl: seedanceEndFrameAsset.sourceImageUrl || seedanceEndFrameAsset.localUrl || "",
+          localUrl: seedanceEndFrameAsset.localUrl || "",
+          mime: seedanceEndFrameAsset.mime || "",
+        }] : []),
+      ];
+      const videoMediaAsset = [seedanceVideoAsset, ...extraSeedanceVideoAssets].filter(Boolean)
+        .slice(0, ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT)
+        .map((asset, index) => ({
+          type: "reference_video",
+          key: `video_${index + 1}`,
+          userAssetId: asset.id,
+          referenceAssetUri: asset.id === seedanceVideoAsset?.id ? referenceVideoAssetUri : extraReferenceVideoUriQueue.shift() || "",
+          videoUrl: asset.localUrl || asset.publicUrl || imageUrl || "",
+          localUrl: asset.localUrl || "",
+          mime: asset.mime || "",
+        }));
+      const audioMediaAssets = referenceAudioAssetUris.map((uri, index) => ({
+        type: "reference_audio",
+        key: `audio_${index + 1}`,
+        audioUrl: uri,
+      }));
       const primaryMediaAsset = USE_GATEWAY_UPSTREAM && userAsset ? [{
         type: "reference_image",
         key: "image_1",
@@ -7538,7 +7855,7 @@ async function runAdvancedGenerationJob(job = {}) {
           mime: prepared.asset?.mime || "",
         });
       }
-      seedanceMediaAssets = [...videoMediaAsset, ...primaryMediaAsset, ...extraMediaAssets];
+      seedanceMediaAssets = [...frameMediaAssets, ...videoMediaAsset, ...audioMediaAssets, ...primaryMediaAsset, ...extraMediaAssets];
     }
 
     let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || "first_frame";
@@ -7566,7 +7883,7 @@ async function runAdvancedGenerationJob(job = {}) {
       syntheticReferenceLocalUrl,
       syntheticReferenceUrl,
       referenceAssetUri,
-      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (referenceVideoAssetUri ? "reference_video" : extraReferenceAssetUris.length ? "multi_reference" : ""),
+      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (seedanceMode || (referenceVideoAssetUri ? "reference_video" : extraReferenceAssetUris.length ? "multi_reference" : "text_to_video")),
       mediaAssets: provider === "wan27" ? resolvedWan27Media : seedanceMediaAssets,
       error: "",
     }, "advanced-reference-ready");
@@ -7586,7 +7903,8 @@ async function runAdvancedGenerationJob(job = {}) {
         model: requestParams.model,
         parameters: Object.keys(plainObject(requestParams.parameters)).length ? requestParams.parameters : undefined,
         input: Object.keys(plainObject(requestParams.input)).length ? requestParams.input : undefined,
-        mediaMode: provider === "wan27" ? resolvedWan27MediaMode : undefined,
+        mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (seedanceMode || undefined),
+        seedanceMode: provider === "seedance" ? (seedanceMode || undefined) : undefined,
         seed: requestParams.seed || undefined,
       };
       if (provider === "wan27") {
@@ -7605,10 +7923,17 @@ async function runAdvancedGenerationJob(job = {}) {
         const dbForGateway = await readDb();
         const assetMap = new Map((dbForGateway.userAssets || []).map((asset) => [asset.id, asset]));
         const referenceImages = [];
+        const gatewayVideoIds = [];
         for (const item of seedanceMediaAssets) {
           const asset = item.userAssetId ? assetMap.get(item.userAssetId) : null;
           if (asset && item.type === "reference_video") {
-            gatewayBody.referenceVideoAssetId = asset.id;
+            gatewayVideoIds.push(asset.id);
+          } else if (asset && item.type === "image_url") {
+            gatewayBody.firstFrameDataUrl = await dataUrlForUserAsset(asset);
+            gatewayBody.seedanceMode = seedanceMode || "first_frame";
+          } else if (asset && item.type === "end_image_url") {
+            gatewayBody.endImageDataUrl = await dataUrlForUserAsset(asset);
+            gatewayBody.seedanceMode = "first_last_frame";
           } else if (asset) {
             referenceImages.push({
               dataUrl: await dataUrlForUserAsset(asset),
@@ -7617,6 +7942,11 @@ async function runAdvancedGenerationJob(job = {}) {
             });
           }
         }
+        if (gatewayVideoIds.length) {
+          gatewayBody.referenceVideoAssetId = gatewayVideoIds[0];
+          gatewayBody.referenceVideoAssetIds = gatewayVideoIds;
+        }
+        if (referenceAudioAssetUris.length) gatewayBody.referenceAudios = referenceAudioAssetUris;
         if (referenceImages.length) gatewayBody.referenceImages = referenceImages;
       }
       task = await gatewaySubmitAdvancedTask(gatewayBody);
@@ -7642,8 +7972,14 @@ async function runAdvancedGenerationJob(job = {}) {
         prompt,
         referenceAssetUri,
         extraReferenceAssetUris,
+        firstFrameAssetUri: seedanceImageUrl || requestParams.image_url || "",
+        lastFrameAssetUri: seedanceEndImageUrl || requestParams.end_image_url || "",
         referenceVideoAssetUri,
-        body: requestParams,
+        extraReferenceVideoAssetUris,
+        referenceAudioAssetUris,
+        body: {
+          ...requestParams,
+        },
         slug: "advanced",
       });
       task = submitted.task;
@@ -7680,7 +8016,7 @@ async function runAdvancedGenerationJob(job = {}) {
       syntheticReferenceLocalUrl,
       syntheticReferenceUrl,
       referenceAssetUri,
-      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (referenceVideoAssetUri ? "reference_video" : extraReferenceAssetUris.length ? "multi_reference" : ""),
+      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (seedanceMode || (referenceVideoAssetUri ? "reference_video" : extraReferenceAssetUris.length ? "multi_reference" : "text_to_video")),
       mediaAssets: provider === "wan27" ? resolvedWan27Media : seedanceMediaAssets,
       upstreamPayload: payload,
       ratio: payload?.ratio || requestParams.ratio || "",
@@ -7778,6 +8114,23 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.model = String(firstPresent(body.model, bodyParams.model, caseParams.model, provider === "wan27" ? ALIYUN_WAN27_MODEL : MODEL_QUALITY));
   requestParams.input = plainObject(firstPresent(body.input, bodyParams.input, caseParams.input, {}));
   requestParams.parameters = mergedProviderParameters;
+  if (provider === "seedance") {
+    [
+      "image_url",
+      "end_image_url",
+      "reference_images",
+      "reference_videos",
+      "reference_audios",
+      "content",
+      "web_search",
+      "watermark",
+      "fps",
+      "camera_fixed",
+    ].forEach((field) => {
+      const value = firstPresent(body[field], bodyParams[field], caseParams[field]);
+      if (value !== undefined) requestParams[field] = value;
+    });
+  }
   const rawPricing = advancedModelPricing(provider, {
     ...requestParams,
     advancedPricing: config.platform?.advancedPricing,
@@ -7792,8 +8145,41 @@ async function handleAdvancedGenerate(req, res) {
   let extraUserAssets = [];
   let extraUserAssetIds = [];
   let seedanceVideoAsset = null;
+  let seedanceVideoAssets = [];
+  let referenceVideoAssetIds = [];
+  let referenceAudioAssetUris = [];
+  let seedanceMode = "";
+  let seedanceFirstFrameAsset = null;
+  let seedanceEndFrameAsset = null;
   if (provider !== "wan27") {
-    const referenceVideoAssetIds = seedanceReferenceVideoAssetIdsFromBody(mergedBody);
+    seedanceMode = normalizeSeedanceMode(firstPresent(body.seedanceMode, body.mediaMode, bodyParams.seedanceMode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.mediaMode), mergedBody);
+    requestParams.seedanceMode = seedanceMode;
+    const firstFrameInput = seedanceFirstFrameInputFromBody(mergedBody, {
+      includeDataUrlFallback: seedanceModeNeedsFirstFrame(seedanceMode),
+      includeUserAssetId: seedanceModeNeedsFirstFrame(seedanceMode),
+    });
+    const endFrameInput = seedanceEndFrameInputFromBody(mergedBody);
+    if (seedanceModeNeedsFirstFrame(seedanceMode)) {
+      seedanceFirstFrameAsset = await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, firstFrameInput, { name: "Seedance first frame" });
+      const rawFirstFrameUrl = String(firstPresent(mergedBody.image_url, mergedBody.firstFrameRawUrl, "") || "").trim();
+      if (!seedanceFirstFrameAsset && !rawFirstFrameUrl) {
+        return sendJson(res, 400, { ok: false, message: "Seedance image-to-video requires imageUrl, firstFrameUrl, imageAssetId, firstFrameAssetId, or dataUrl." });
+      }
+    }
+    if (seedanceModeNeedsEndFrame(seedanceMode)) {
+      seedanceEndFrameAsset = await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, endFrameInput, { name: "Seedance end frame" });
+      const rawEndFrameUrl = String(firstPresent(mergedBody.end_image_url, mergedBody.endImageRawUrl, "") || "").trim();
+      if (!seedanceEndFrameAsset && !rawEndFrameUrl) {
+        return sendJson(res, 400, { ok: false, message: "Seedance first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl." });
+      }
+    } else if (endFrameInput) {
+      seedanceEndFrameAsset = await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, endFrameInput, { name: "Seedance end frame" });
+      if (seedanceEndFrameAsset) {
+        seedanceMode = "first_last_frame";
+        requestParams.seedanceMode = seedanceMode;
+      }
+    }
+    referenceVideoAssetIds = seedanceReferenceVideoAssetIdsFromBody(mergedBody);
     if (referenceVideoAssetIds.length) {
       seedanceVideoAsset = auth.db.userAssets.find((asset) => asset.id === referenceVideoAssetIds[0] && asset.userId === auth.user.id && !isSoftDeleted(asset));
       if (!seedanceVideoAsset) return sendJson(res, 404, { ok: false, message: "Reference video not found." });
@@ -7802,15 +8188,30 @@ async function handleAdvancedGenerate(req, res) {
       } catch (error) {
         return sendJson(res, 400, { ok: false, message: error.message || "Seedance reference video must be a video." });
       }
+      seedanceVideoAssets = referenceVideoAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
+      if (seedanceVideoAssets.some((asset) => !asset)) return sendJson(res, 404, { ok: false, message: "Reference video not found." });
+      try {
+        seedanceVideoAssets.forEach((asset) => validateWan27MediaKind(asset, "video", "Seedance reference video"));
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, message: error.message || "Seedance reference video must be a video." });
+      }
     }
-    const referenceInputs = seedanceReferenceInputsFromBody(mergedBody);
+    try {
+      referenceAudioAssetUris = seedanceReferenceAudioInputsFromBody(mergedBody);
+    } catch (error) {
+      return sendJson(res, error.statusCode || 400, { ok: false, message: error.message || "Seedance reference audio is invalid." });
+    }
+    const referenceInputs = seedanceReferenceInputsFromBody(mergedBody, { includeDataUrlFallback: !seedanceModeNeedsFirstFrame(seedanceMode) });
     const createdReferenceAssets = await createUserImageAssetsFromInputs(auth.db, auth.user, referenceInputs, {
       name: selectedCase?.title || "Advanced reference",
     });
     if (createdReferenceAssets.length) {
       [userAsset, ...extraUserAssets] = createdReferenceAssets;
     } else {
-      const referenceAssetIds = seedanceReferenceAssetIdsFromBody(mergedBody);
+      const referenceAssetIds = seedanceReferenceAssetIdsFromBody(mergedBody, {
+        includeUserAssetId: !seedanceModeNeedsFirstFrame(seedanceMode),
+        includeImageAssetId: !seedanceModeNeedsFirstFrame(seedanceMode),
+      });
       if (referenceAssetIds.length) {
         const foundAssets = referenceAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
         if (foundAssets.some((asset) => !asset)) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
@@ -7822,7 +8223,12 @@ async function handleAdvancedGenerate(req, res) {
         [userAsset, ...extraUserAssets] = foundAssets;
       }
     }
-    const seenSeedanceAssetIds = new Set([userAsset?.id].filter(Boolean));
+    const seenSeedanceAssetIds = new Set([
+      userAsset?.id,
+      seedanceFirstFrameAsset?.id,
+      seedanceEndFrameAsset?.id,
+      ...extraUserAssets.map((asset) => asset?.id || ""),
+    ].filter(Boolean));
     for (const assetId of seedanceExtraReferenceAssetIdsFromBody(mergedBody)) {
       if (seenSeedanceAssetIds.has(assetId) || extraUserAssets.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT - 1) continue;
       const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
@@ -7877,19 +8283,42 @@ async function handleAdvancedGenerate(req, res) {
   const runtime = advancedRuntimeForProvider(provider, requestParams);
   const taskId = localGenerationTaskId("cgt");
   const primaryWanMedia = wan27Media.find((item) => item.type === "first_frame" || item.type === "first_clip") || wan27Media[0] || null;
-  const seedancePrimaryVisual = userAsset || seedanceVideoAsset || null;
+  const seedancePrimaryVisual = seedanceFirstFrameAsset || userAsset || seedanceVideoAsset || null;
   const initialImageUrl = primaryWanMedia?.localUrl || primaryWanMedia?.url || seedancePrimaryVisual?.localUrl || seedancePrimaryVisual?.publicUrl || "";
-  const initialSourceImageUrl = primaryWanMedia?.localUrl || userAsset?.sourceImageUrl || userAsset?.localUrl || "";
+  const initialSourceImageUrl = primaryWanMedia?.localUrl || seedanceFirstFrameAsset?.sourceImageUrl || seedanceFirstFrameAsset?.localUrl || userAsset?.sourceImageUrl || userAsset?.localUrl || "";
   const initialSeedanceMediaAssets = provider === "seedance"
     ? [
-        ...(seedanceVideoAsset ? [{
-          type: "reference_video",
-          key: "video_1",
-          userAssetId: seedanceVideoAsset.id,
-          videoUrl: seedanceVideoAsset.localUrl || seedanceVideoAsset.publicUrl || "",
-          localUrl: seedanceVideoAsset.localUrl || "",
-          mime: seedanceVideoAsset.mime || "",
+        ...(seedanceFirstFrameAsset ? [{
+          type: "image_url",
+          key: "image_url",
+          userAssetId: seedanceFirstFrameAsset.id,
+          imageUrl: seedanceFirstFrameAsset.localUrl || seedanceFirstFrameAsset.publicUrl || "",
+          sourceImageUrl: seedanceFirstFrameAsset.sourceImageUrl || seedanceFirstFrameAsset.localUrl || "",
+          localUrl: seedanceFirstFrameAsset.localUrl || "",
+          mime: seedanceFirstFrameAsset.mime || "",
         }] : []),
+        ...(seedanceEndFrameAsset ? [{
+          type: "end_image_url",
+          key: "end_image_url",
+          userAssetId: seedanceEndFrameAsset.id,
+          imageUrl: seedanceEndFrameAsset.localUrl || seedanceEndFrameAsset.publicUrl || "",
+          sourceImageUrl: seedanceEndFrameAsset.sourceImageUrl || seedanceEndFrameAsset.localUrl || "",
+          localUrl: seedanceEndFrameAsset.localUrl || "",
+          mime: seedanceEndFrameAsset.mime || "",
+        }] : []),
+        ...seedanceVideoAssets.map((asset, index) => ({
+          type: "reference_video",
+          key: `video_${index + 1}`,
+          userAssetId: asset.id,
+          videoUrl: asset.localUrl || asset.publicUrl || "",
+          localUrl: asset.localUrl || "",
+          mime: asset.mime || "",
+        })),
+        ...referenceAudioAssetUris.map((uri, index) => ({
+          type: "reference_audio",
+          key: `audio_${index + 1}`,
+          audioUrl: uri,
+        })),
         ...(userAsset ? [{
           type: "reference_image",
           key: "image_1",
@@ -7910,7 +8339,7 @@ async function handleAdvancedGenerate(req, res) {
         })),
       ]
     : [];
-  const initialMediaMode = provider === "wan27" ? wan27MediaMode : (extraUserAssetIds.length ? "multi_reference" : "");
+  const initialMediaMode = provider === "wan27" ? wan27MediaMode : seedanceMode;
 
   if (cost > 0) {
     await chargeUserWithSubtoken(auth, {
@@ -7936,9 +8365,13 @@ async function handleAdvancedGenerate(req, res) {
         pricingSource: pricing.source || "duration_rate",
         preprocessReference: requestParams.preprocessReference,
         userAssetId: userAsset?.id || "",
+        seedanceFirstFrameAssetId: seedanceFirstFrameAsset?.id || "",
+        seedanceEndFrameAssetId: seedanceEndFrameAsset?.id || "",
         referenceVideoAssetId: seedanceVideoAsset?.id || "",
+        referenceVideoAssetIds,
+        referenceAudioAssetUris,
         extraUserAssetIds,
-        mediaMode: provider === "seedance" && seedanceVideoAsset ? "reference_video" : initialMediaMode,
+        mediaMode: provider === "seedance" ? initialMediaMode : wan27MediaMode,
         mediaAssets: provider === "wan27"
           ? wan27Media.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", mediaKind: item.mediaKind || "" }))
           : initialSeedanceMediaAssets.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "" })),
@@ -7959,7 +8392,7 @@ async function handleAdvancedGenerate(req, res) {
     templateTitle: selectedCase?.title || "Advanced generation",
     userId: auth.user.id,
     userAssetId: userAsset?.id || "",
-    mediaMode: provider === "seedance" && seedanceVideoAsset ? "reference_video" : initialMediaMode,
+    mediaMode: provider === "seedance" ? initialMediaMode : wan27MediaMode,
     mediaAssets: provider === "wan27" ? wan27Media : initialSeedanceMediaAssets,
     imageUrl: initialImageUrl,
     sourceImageUrl: initialSourceImageUrl,
@@ -7998,6 +8431,11 @@ async function handleAdvancedGenerate(req, res) {
     userAssetId: userAsset?.id || "",
     extraUserAssetIds,
     referenceVideoAssetId: seedanceVideoAsset?.id || "",
+    referenceVideoAssetIds,
+    referenceAudioAssetUris,
+    seedanceMode,
+    seedanceFirstFrameAssetId: seedanceFirstFrameAsset?.id || "",
+    seedanceEndFrameAssetId: seedanceEndFrameAsset?.id || "",
     wan27MediaMode,
     wan27Media,
     provider,
@@ -8577,9 +9015,17 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "caseId", type: "string", required: false, description: "Advanced case id. Omit only when sending all parameters manually." },
       { name: "provider", type: "string", required: false, description: "`wan27` or `seedance`. Defaults to the saved case provider, or Wan2.7 when no case/provider is supplied." },
       { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
-      { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded reference image as a base64 data URL. Required for Wan2.7 first-frame generation; optional for Seedance." },
-      { name: "referenceImages", type: "array", required: false, description: "Seedance only. One or more reference images in the same field. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId." },
-      { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. Use instead of dataUrl/url." },
+      { name: "seedanceMode", type: "string", required: false, description: "Seedance only. text_to_video, first_frame, first_last_frame, reference_images, or reference_video." },
+      { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded base64 image. Required for Wan2.7 first-frame generation; accepted as Seedance first frame when seedanceMode is first_frame/first_last_frame." },
+      { name: "imageUrl / firstFrameUrl", type: "string", required: false, description: "Seedance first-frame public URL. The server downloads it, uploads it to Ark assets, and sends upstream image_url." },
+      { name: "imageAssetId / firstFrameAssetId", type: "string", required: false, description: "Seedance first-frame asset id returned by /api/user-assets." },
+      { name: "endImageUrl / lastFrameUrl", type: "string", required: false, description: "Seedance last-frame public URL for first_last_frame. The server prepares it as upstream end_image_url." },
+      { name: "endImageAssetId / lastFrameAssetId", type: "string", required: false, description: "Seedance last-frame asset id for first_last_frame." },
+      { name: "referenceImages", type: "array", required: false, description: "Seedance reference_images mode. One or more images in the same field. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId." },
+      { name: "referenceVideoAssetId", type: "string", required: false, description: "Seedance reference_video mode. Existing uploaded video asset id." },
+      { name: "referenceVideoAssetIds", type: "array", required: false, description: "Seedance multimodal/edit/extend. Up to 3 existing uploaded video asset ids." },
+      { name: "referenceAudios / referenceAudioUrls", type: "array", required: false, description: "Seedance multimodal reference audio public URLs. Up to 3 URLs; text+audio without image/video is not supported upstream." },
+      { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. For Seedance first_frame it is the first frame; otherwise it is a reference image." },
       { name: "extraReferenceDataUrls", type: "array", required: false, description: "Seedance compatibility field. Prefer referenceImages for new integrations; referenceImages now supports URL items." },
       { name: "extraReferenceAssetIds", type: "array", required: false, description: "Seedance only. Optional existing uploaded asset ids for additional references." },
       { name: "ratio", type: "string", required: false, description: "Video ratio, for example 9:16, 16:9, or 1:1." },
@@ -8591,8 +9037,11 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "params.input", type: "object", required: false, description: "Wan2.7 only. Extra DashScope input fields; prompt/media are still set by this API." },
       { name: "params.parameters", type: "object", required: false, description: "Wan2.7 and Wan2.7 image. Extra DashScope parameters merged into the upstream payload." },
       { name: "params.generate_audio", type: "boolean", required: false, description: "Seedance only. Generate synchronized voice/effects/background music." },
+      { name: "params.image_url", type: "string", required: false, description: "Seedance raw upstream first-frame URL or asset:// URI. Friendly imageUrl/firstFrameUrl is preferred." },
+      { name: "params.end_image_url", type: "string", required: false, description: "Seedance raw upstream last-frame URL or asset:// URI. Friendly endImageUrl/lastFrameUrl is preferred." },
       { name: "params.reference_images", type: "array", required: false, description: "Seedance only. Raw upstream reference image URLs or asset:// URIs for advanced callers." },
       { name: "params.reference_videos", type: "array", required: false, description: "Seedance only. Raw upstream reference video URLs or asset:// URIs for advanced callers." },
+      { name: "params.reference_audios", type: "array", required: false, description: "Seedance only. Raw upstream reference audio URLs or asset:// URIs for advanced callers." },
       { name: "params.web_search", type: "boolean", required: false, description: "Seedance only. Enable upstream web-search enhancement where available." },
     ],
     exampleRequest: {
@@ -8688,8 +9137,9 @@ function advancedDocMarkdown(item) {
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
-  lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `referenceImages` for one or more images in the same field; each item may contain `url`/`imageUrl` + `fileName`, `dataUrl` + `fileName`, or `assetId`.");
-  lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`.");
+  lines.push("", "Seedance modes: set `seedanceMode` to `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`. For first-frame modes use `imageUrl`/`firstFrameUrl`/`imageAssetId`/`firstFrameAssetId`; for first+last use `endImageUrl`/`lastFrameUrl`/`endImageAssetId`/`lastFrameAssetId`. Reference-image mode uses `referenceImages` (up to 9), reference-video/edit/extend uses `referenceVideoAssetId` or `referenceVideoAssetIds` (up to 3), and multimodal audio references use `referenceAudios` / `referenceAudioUrls` (up to 3).");
+  lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance friendly fields are prepared into upstream `image_url`, `end_image_url`, `content`, or `reference_*` fields as needed.");
+  lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `image_url`, `end_image_url`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -8721,7 +9171,7 @@ function buildModelDocsMarkdown(docs) {
     "2. For image-to-video templates, send `templateId` and `dataUrl` to `/api/platform/generate`.",
     "3. For text-to-video templates, send `templateId` and an optional `prompt` to `/api/platform/generate`.",
     "4. Optional: upload a character/reference image with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`, then reuse `asset.id`.",
-    "5. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"`.",
+    "5. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"` and optional `seedanceMode` (`text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`).",
     "6. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional `seed`, and duration.",
     "7. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
     "",
