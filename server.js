@@ -3218,6 +3218,12 @@ function videoMimeFromPath(filePath = "") {
   return "video/mp4";
 }
 
+function videoMimeFromKnownPath(filePath = "") {
+  const ext = path.extname(String(filePath || "").split("?")[0]).toLowerCase();
+  if (![".mp4", ".webm", ".mov", ".m4v"].includes(ext)) return "";
+  return videoMimeFromPath(filePath);
+}
+
 function audioExtFromMime(mime = "", fallbackPath = "") {
   const cleanMime = String(mime || "").split(";")[0].trim().toLowerCase();
   if (cleanMime === "audio/mpeg" || cleanMime === "audio/mp3") return ".mp3";
@@ -3309,6 +3315,51 @@ async function createUserWanMediaAssetFromDataUrl(db, user, { dataUrl, name = "W
     name,
     fileName,
     maxBytes: isImage ? 20 * 1024 * 1024 : 30 * 1024 * 1024,
+  });
+}
+
+async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload", fileName = "" } = {}) {
+  const mediaUrl = String(url || "").trim();
+  if (!isPublicHttpUrl(mediaUrl)) {
+    const error = new Error("Asset URL must be a public http(s) URL.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const fallbackName = path.basename(new URL(mediaUrl).pathname) || "";
+  const downloaded = await downloadRemoteFileToBuffer(mediaUrl, {
+    label: "asset",
+    maxBytes: 30 * 1024 * 1024,
+    timeoutMs: 120000,
+  });
+  const pathname = new URL(mediaUrl).pathname;
+  const responseMime = String(downloaded.mime || "").replace("image/jpg", "image/jpeg");
+  const mime = responseMime.startsWith("image/")
+    ? responseMime
+    : responseMime.startsWith("video/")
+      ? responseMime
+      : imageMimeFromKnownPath(pathname) || videoMimeFromKnownPath(pathname);
+  if (!mime || (!mime.startsWith("image/") && !mime.startsWith("video/"))) {
+    const error = new Error("Asset URL must point to an image or video file.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (mime.startsWith("image/") && !["image/jpeg", "image/png", "image/webp", "image/bmp"].includes(mime)) {
+    const error = new Error("Asset image URL must point to a JPG, PNG, WebP, or BMP file.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (mime.startsWith("video/") && !["video/mp4", "video/webm", "video/quicktime", "video/x-m4v"].includes(mime)) {
+    const error = new Error("Asset video URL must point to an MP4, WebM, MOV, or M4V file.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const maxBytes = mime.startsWith("image/") ? 8 * 1024 * 1024 : 30 * 1024 * 1024;
+  return createUserMediaAssetFromBytes(db, user, {
+    bytes: downloaded.bytes,
+    mime,
+    name,
+    fileName: fileName || fallbackName,
+    maxBytes,
   });
 }
 
@@ -8590,6 +8641,7 @@ async function buildModelDocs(req) {
       modelsJson: `${origin}/api/models`,
       platformGenerate: `${origin}/api/platform/generate`,
       advancedGenerate: `${origin}/api/advanced/generate`,
+      userAssets: `${origin}/api/user-assets`,
       wan27ImageTextToImage: `${origin}/api/characters/generate`,
       wan27ImageEditAsset: `${origin}/api/user-assets/<assetId>/modify`,
       wan27ImageEditSystemCharacter: `${origin}/api/characters/<characterId>/modify`,
@@ -8668,9 +8720,10 @@ function buildModelDocsMarkdown(docs) {
     "1. Read `/api/models` or this Markdown file to choose a template.",
     "2. For image-to-video templates, send `templateId` and `dataUrl` to `/api/platform/generate`.",
     "3. For text-to-video templates, send `templateId` and an optional `prompt` to `/api/platform/generate`.",
-    "4. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"`.",
-    "5. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional `seed`, and duration.",
-    "6. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
+    "4. Optional: upload a character/reference image with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`, then reuse `asset.id`.",
+    "5. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"`.",
+    "6. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional `seed`, and duration.",
+    "7. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
     "",
     "## Billing",
     "",
@@ -9770,6 +9823,16 @@ async function handleUploadUserAsset(req, res) {
   if (!auth) return;
 
   const body = await readJson(req);
+  const publicUrl = String(body.url || body.imageUrl || "").trim();
+  if (publicUrl) {
+    const userAsset = await createUserMediaAssetFromPublicUrl(auth.db, auth.user, {
+      url: publicUrl,
+      name: body.name || body.fileName || "Upload",
+      fileName: body.fileName || body.name || "",
+    });
+    return sendJson(res, 200, { ok: true, asset: publicUserAsset(userAsset) });
+  }
+
   const { mime, bytes } = decodeWanMediaDataUrl(body.dataUrl || "");
   if (!mime.startsWith("image/") && !mime.startsWith("video/")) {
     return sendJson(res, 400, { ok: false, message: "Only image or video assets are supported." });

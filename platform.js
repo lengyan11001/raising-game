@@ -1975,6 +1975,14 @@ POST ${apiUrl("/api/advanced/generate")}
   "duration": 5
 }
 
+Upload character/reference image:
+POST ${apiUrl("/api/user-assets")}
+{
+  "url": "https://example.com/image1.png",
+  "fileName": "image1.png",
+  "name": "image1"
+}
+
 Advanced Seedance:
 POST ${apiUrl("/api/advanced/generate")}
 {
@@ -1995,12 +2003,25 @@ const galleryBody = {
   prompt: ""
 };
 
+const uploaded = await fetch("${apiUrl("/api/user-assets")}", {
+  method: "POST",
+  headers: {
+    authorization: \`Bearer \${token}\`,
+    "content-type": "application/json"
+  },
+  body: JSON.stringify({
+    url: "https://example.com/image1.png",
+    fileName: "image1.png",
+    name: "image1"
+  })
+}).then((res) => res.json());
+
 const advancedBody = {
-  provider: "wan27", // "seedance" or "wan27"
+  provider: "seedance", // "seedance" or "wan27"
   prompt: "your prompt",
-  dataUrl: "data:image/png;base64,...",
+  dataUrl: "data:image/png;base64,...", // Wan2.7 only
   // Seedance only: send one or more reference images in the same field.
-  referenceImages: [{ url: "https://example.com/image1.png", fileName: "image1.png" }],
+  referenceImages: [{ assetId: uploaded.asset.id, fileName: "image1.png" }],
   resolution: "720p",
   duration: 5
 };
@@ -2027,12 +2048,23 @@ gallery_payload = {
     "prompt": "",
 }
 
+uploaded = requests.post(
+    "${apiUrl("/api/user-assets")}",
+    headers={"Authorization": f"Bearer {token}"},
+    json={
+        "url": "https://example.com/image1.png",
+        "fileName": "image1.png",
+        "name": "image1",
+    },
+    timeout=120,
+).json()
+
 advanced_payload = {
-    "provider": "wan27",  # or "seedance"
+    "provider": "seedance",  # or "wan27"
     "prompt": "your prompt",
-    "dataUrl": "data:image/png;base64,...",
+    "dataUrl": "data:image/png;base64,...",  # Wan2.7 only
     # Seedance only: send one or more reference images in the same field.
-    "referenceImages": [{"url": "https://example.com/image1.png", "fileName": "image1.png"}],
+    "referenceImages": [{"assetId": uploaded["asset"]["id"], "fileName": "image1.png"}],
     "resolution": "720p",
     "duration": 5,
 }
@@ -2058,6 +2090,11 @@ curl -X POST "${apiUrl("/api/advanced/generate")}" \\
   -H "Content-Type: application/json" \\
   -d '{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}'
 
+curl -X POST "${apiUrl("/api/user-assets")}" \\
+  -H "Authorization: Bearer <user-token>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}'
+
 # Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
 const AGENT_ACCESS_COPY = `Use this video API:
@@ -2076,6 +2113,11 @@ Body:
 or:
 {"provider":"seedance","prompt":"your prompt","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"},{"url":"https://example.com/image2.png","fileName":"image2.png"}],"resolution":"720p","duration":5}
 
+Optional upload first:
+POST ${apiUrl("/api/user-assets")}
+Body:
+{"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}
+
 Check records:
 GET ${apiUrl("/api/generation-records")}`;
 
@@ -2090,6 +2132,12 @@ POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
 {"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
+
+Asset upload target:
+POST ${apiUrl("/api/user-assets")}
+Authorization: Bearer <user-token>
+Input:
+{"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}
 
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
@@ -2192,6 +2240,34 @@ Content-Type: application/json
   "templateId": "template-id",
   "prompt": "...",
   "dataUrl": "data:image/png;base64,..."
+}`,
+  },
+  assets: {
+    title: "Asset Upload",
+    summary: "Upload a character or reference image/video to the current user's asset library, then reuse the returned asset.id in Seedance referenceImages.",
+    request: [
+      ["Authorization", "Bearer <user-token>"],
+      ["Content-Type", "application/json"],
+      ["url", "Optional public image/video URL. Use this when the caller already has a reachable file URL."],
+      ["imageUrl", "Alias of url."],
+      ["dataUrl", "Optional base64 data URL. Use this when uploading bytes directly."],
+      ["fileName", "Optional original file name, for example image1.png."],
+      ["name", "Optional display name in the user's asset library."],
+    ],
+    response: [
+      ["ok", "true when the upload succeeds."],
+      ["asset.id", "Use this id as referenceImages[].assetId."],
+      ["asset.kind", "image or video."],
+      ["asset.previewUrl", "Local preview URL."],
+    ],
+    example: `POST /api/user-assets
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "url": "https://example.com/image1.png",
+  "fileName": "image1.png",
+  "name": "image1"
 }`,
   },
   advanced: {
@@ -2382,6 +2458,18 @@ ACCESS_INTEGRATION_GUIDES = [
     subtitle: "curl",
     desc: "Direct curl commands for submitting and checking generation jobs.",
     copy: CLI_ACCESS_COPY,
+  },
+  {
+    id: "assets",
+    docs: "assets",
+    title: "Assets",
+    subtitle: "Upload",
+    desc: "Upload character/reference images and reuse returned asset ids.",
+    copy: `POST ${apiUrl("/api/user-assets")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}`,
   },
   {
     id: "agent",
@@ -5605,6 +5693,7 @@ function renderAccessGuides() {
         </div>
         ${accessQuickList([
           doc === ACCESS_DOCS.platform ? "One token, one template id, and one image for image-to-video templates." : "",
+          doc === ACCESS_DOCS.assets ? "Upload once, then pass asset.id as referenceImages[].assetId for Seedance." : "",
           doc === ACCESS_DOCS.advanced ? "Seedance uses referenceImages; Wan2.7 uses dataUrl as the first frame; extra upstream fields belong in params." : "",
           doc === ACCESS_DOCS.seedanceParams ? "Fields inside params are forwarded to Seedance; uploaded dataUrl references are prepared by our API before submit." : "",
           doc === ACCESS_DOCS.wan27VideoParams ? "Fields inside params.parameters merge into DashScope parameters; fields inside params.input merge into DashScope input." : "",
