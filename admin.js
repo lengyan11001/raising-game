@@ -67,6 +67,7 @@ let adminHistoryPollTimer = null;
 let adminRecordPollTimer = null;
 let adminHistorySignature = "";
 let adminRecordSignature = "";
+const ADMIN_GENERATION_POLL_MS = 12000;
 
 const els = {
   loginView: byId("loginView"),
@@ -384,12 +385,16 @@ function statusPill(status) {
 }
 
 function isTerminalGenerationStatus(status) {
-  return ["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled"]
+  return ["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled", "reference_failed", "rejected", "refunded", "deleted", "hidden"]
     .includes(String(status || "").toLowerCase().trim());
 }
 
 function shouldPollGenerationRecord(record = {}) {
   return Boolean(record.taskId) && !isTerminalGenerationStatus(record.status);
+}
+
+function hasPollableGenerationRecords(records = []) {
+  return Array.isArray(records) && records.some(shouldPollGenerationRecord);
 }
 
 function recordPreviewUrl(record = {}) {
@@ -438,12 +443,28 @@ function stopAdminAutoRefresh() {
   adminRecordSignature = "";
 }
 
-function scheduleAdminHistoryPoll() {
+function scheduleAdminHistoryPoll(records = []) {
   stopAdminHistoryPoll();
+  if (!hasPollableGenerationRecords(records)) return;
+  if (!activeRoutePane("videoPaneBody", "videos")) return;
+  if ((sessionStorage.getItem("admTabVideos") || "scene") !== "history") return;
+  adminHistoryPollTimer = window.setTimeout(() => {
+    adminHistoryPollTimer = null;
+    if (!activeRoutePane("videoPaneBody", "videos")) return;
+    if ((sessionStorage.getItem("admTabVideos") || "scene") !== "history") return;
+    renderHistory({ silent: true, refresh: true }).catch((err) => renderRouteError("videos", err));
+  }, ADMIN_GENERATION_POLL_MS);
 }
 
-function scheduleAdminRecordPoll() {
+function scheduleAdminRecordPoll(records = [], load) {
   stopAdminRecordPoll();
+  if (!hasPollableGenerationRecords(records) || typeof load !== "function") return;
+  if (!activeRoutePane("recordTablePane", "records")) return;
+  adminRecordPollTimer = window.setTimeout(() => {
+    adminRecordPollTimer = null;
+    if (!activeRoutePane("recordTablePane", "records")) return;
+    load({ silent: true, refresh: true }).catch((err) => renderRouteError("records", err));
+  }, ADMIN_GENERATION_POLL_MS);
 }
 
 function videoOrPoster(item) {

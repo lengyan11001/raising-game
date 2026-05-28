@@ -7403,7 +7403,8 @@ async function deleteHistoryRecord(taskId = "", button = null) {
 function isPendingGenerationRecord(record = {}) {
   if (generationVideoUrl(record)) return false;
   if (generationImageResultUrl(record)) return false;
-  return !["failed", "error", "cancelled", "canceled"].includes(String(record.status || "").toLowerCase());
+  return !["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled", "reference_failed", "rejected", "refunded", "deleted", "hidden"]
+    .includes(String(record.status || "").toLowerCase().trim());
 }
 
 function generationRecordTime(record = {}) {
@@ -7474,7 +7475,7 @@ function scheduleHistoryRefresh({ delayMs = 15000, force = false } = {}) {
   if (state.tab !== "history" || !state.user) return;
   historyRefreshTimer = window.setTimeout(() => {
     historyRefreshTimer = null;
-    if (state.tab === "history") loadHistory({ silent: true });
+    if (state.tab === "history") loadHistory({ silent: true, refresh: true });
   }, delayMs);
 }
 
@@ -7486,7 +7487,10 @@ async function loadHistory({ silent = false, refresh = false, page = state.histo
     renderHistory([]);
     return;
   }
-  if (historyLoading || historyRefreshInFlight) return;
+  if (historyLoading || historyRefreshInFlight) {
+    scheduleHistoryRefresh({ delayMs: 5000, force: true });
+    return;
+  }
   historyLoading = true;
   historyRefreshInFlight = true;
   const previousScrollTop = els.historyList.scrollTop || 0;
