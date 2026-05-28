@@ -10,6 +10,8 @@ const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
 const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
 const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 100;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 200;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
 const ADVANCED_GENERATION_MARKUP = 1.5;
@@ -2087,7 +2089,8 @@ POST ${apiUrl("/api/user-assets")}
 {
   "videoUrl": "https://example.com/video1.mp4",
   "fileName": "video1.mp4",
-  "name": "video1"
+  "name": "video1",
+  "durationSeconds": 6
 }
 {
   "audioUrl": "https://example.com/audio1.mp3",
@@ -2104,6 +2107,7 @@ POST ${apiUrl("/api/advanced/generate")}
     {"assetId": "reference.assetId from character upload", "fileName": "image1.png"}
   ],
   "referenceVideoUrls": ["https://example.com/video1.mp4"],
+  "inputVideoSeconds": 6,
   "referenceAudioUrls": ["https://example.com/audio1.mp3"],
   "resolution": "720p",
   "duration": 5
@@ -2177,6 +2181,7 @@ const advancedBody = {
   prompt: "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot.",
   referenceImages: [{ assetId: character.reference.assetId, fileName: "image1.png" }],
   referenceVideoUrls: ["https://example.com/video1.mp4"],
+  inputVideoSeconds: 6,
   referenceAudioUrls: ["https://example.com/audio1.mp3"],
   resolution: "720p",
   duration: 5
@@ -2215,6 +2220,7 @@ advanced_payload = {
     "prompt": "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot.",
     "referenceImages": [{"assetId": character["reference"]["assetId"], "fileName": "image1.png"}],
     "referenceVideoUrls": ["https://example.com/video1.mp4"],
+    "inputVideoSeconds": 6,
     "referenceAudioUrls": ["https://example.com/audio1.mp3"],
     "resolution": "720p",
     "duration": 5,
@@ -2249,7 +2255,7 @@ curl -X POST "${apiUrl("/api/seedance/characters/upload")}" \\
 curl -X POST "${apiUrl("/api/advanced/generate")}" \\
   -H "Authorization: Bearer <user-token>" \\
   -H "Content-Type: application/json" \\
-  -d '{"provider":"seedance","seedanceMode":"reference_images","prompt":"Use Image 1 as the main character. Keep the same identity and create a cinematic shot.","referenceImages":[{"assetId":"reference.assetId from upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":8}'
+  -d '{"provider":"seedance","seedanceMode":"reference_images","prompt":"Use Image 1 as the main character. Keep the same identity and create a cinematic shot.","referenceImages":[{"assetId":"reference.assetId from upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"inputVideoSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":8}'
 
 # Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
@@ -2267,7 +2273,7 @@ POST ${apiUrl("/api/advanced/generate")}
 Body:
 {"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}
 or:
-{"provider":"seedance","seedanceMode":"reference_images","prompt":"Use Image 1 as the character, Video 1 as the motion reference, and Audio 1 as the music reference.","referenceImages":[{"assetId":"reference.assetId from /api/seedance/characters/upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":5}
+{"provider":"seedance","seedanceMode":"reference_images","prompt":"Use Image 1 as the character, Video 1 as the motion reference, and Audio 1 as the music reference.","referenceImages":[{"assetId":"reference.assetId from /api/seedance/characters/upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"inputVideoSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":5}
 
 Seedance character upload first:
 POST ${apiUrl("/api/seedance/characters/upload")}
@@ -2287,7 +2293,7 @@ Advanced MCP wrapper target:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
-{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"assetId":"reference.assetId from /api/seedance/characters/upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
+{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"assetId":"reference.assetId from /api/seedance/characters/upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"inputVideoSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
 
 Seedance character upload target:
 POST ${apiUrl("/api/seedance/characters/upload")}
@@ -2361,6 +2367,7 @@ Edit or extend with video/audio references:
   "prompt": "Use Video 1 as the action reference, Image 1 as the character reference, and Audio 1 as the music reference.",
   "referenceVideoAssetIds": ["uploaded-video-asset-id"],
   "referenceVideoUrls": ["https://example.com/video2.mp4"],
+  "inputVideoSeconds": 6,
   "referenceImages": [{"assetId": "uploaded-image-asset-id"}],
   "referenceAudios": ["https://example.com/music.mp3"],
   "referenceAudioAssetIds": ["uploaded-audio-asset-id"],
@@ -2461,6 +2468,7 @@ Content-Type: application/json
       ["videoUrl", "Alias of url for video upload."],
       ["audioUrl", "Alias of url for audio upload."],
       ["dataUrl", "Optional base64 data URL. Use this when uploading bytes directly."],
+      ["durationSeconds", "Optional duration for uploaded video/audio assets. Used for Seedance video-input pre-deduction."],
       ["fileName", "Optional original file name, for example image1.png."],
       ["name", "Optional display name in the user's asset library."],
     ],
@@ -2502,6 +2510,7 @@ Content-Type: application/json
       ["referenceVideoAssetId", "Seedance reference_video mode. Existing uploaded video asset id."],
       ["referenceVideoAssetIds", "Seedance multimodal/edit/extend. Up to 3 existing uploaded video asset ids."],
       ["referenceVideos / referenceVideoUrls", "Seedance multimodal/edit/extend. Up to 3 public video URLs."],
+      ["inputVideoSeconds / referenceVideoDurationSeconds", "Seedance billing field. Total input video seconds for reference-video/edit/extend. If omitted while video input exists, output duration is used as fallback."],
       ["referenceAudios / referenceAudioUrls", "Seedance multimodal audio reference URLs. Up to 3 public URLs."],
       ["referenceAudioAssetId / referenceAudioAssetIds", "Seedance multimodal audio references from /api/user-assets. Up to 3 audio assets."],
       ["Prompt labels", "Refer to materials as Image 1, Video 1, Audio 1 in prompt text. Do not put raw asset ids in prompt text."],
@@ -2549,6 +2558,7 @@ Content-Type: application/json
       { name: "reference_audios", type: "array", required: "No", description: "Reference audio URL or asset:// URI array. Forward via params when upstream allows it.", default: "-" },
       { name: "referenceVideoAssetIds", type: "array", required: "No", description: "Our friendly field for up to 3 uploaded video assets. The API prepares them into reference_video content.", default: "-" },
       { name: "referenceVideos / referenceVideoUrls", type: "array", required: "No", description: "Our friendly field for up to 3 public video URLs. The API sends them as reference_video content.", default: "-" },
+      { name: "inputVideoSeconds / referenceVideoDurationSeconds", type: "number", required: "No", description: "Total input video duration for billing. Used before upstream submission to check balance and pre-deduct the Seedance video-input branch.", default: "0" },
       { name: "referenceAudios / referenceAudioUrls", type: "array", required: "No", description: "Our friendly field for up to 3 public audio URLs. The API sends them as reference_audio content.", default: "-" },
       { name: "referenceAudioAssetId / referenceAudioAssetIds", type: "string|array", required: "No", description: "Our friendly field for up to 3 uploaded audio assets. The API sends them as reference_audio content.", default: "-" },
       { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
@@ -4006,7 +4016,32 @@ function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
   return { width, height };
 }
 
-function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
+function positiveDurationSeconds(value, fallback = 0) {
+  const next = Number(value);
+  if (!Number.isFinite(next) || next <= 0) return Math.max(0, Number(fallback || 0) || 0);
+  return Math.round(next * 10000) / 10000;
+}
+
+function selectedSeedanceVideoAsset() {
+  const id = state.advancedSeedanceVideoAssetId || "";
+  if (!id) return null;
+  return (state.userAssets || []).find((asset) => asset.id === id)
+    || (state.assetVideoChoices || []).find((asset) => asset.id === id)
+    || null;
+}
+
+function currentSeedanceVideoInputSeconds(duration = 5, provider = currentAdvancedProvider()) {
+  if (normalizeAdvancedProvider(provider) !== "seedance") return 0;
+  const videoUrlCount = splitUrlList(els.advancedSeedanceVideoUrls?.value || "").length;
+  const hasVideoUrl = videoUrlCount > 0;
+  const selectedAsset = selectedSeedanceVideoAsset();
+  if (!selectedAsset && !hasVideoUrl && !seedanceModeNeedsReferenceVideo(els.advancedSeedanceMediaMode?.value || "")) return 0;
+  const assetSeconds = positiveDurationSeconds(selectedAsset?.durationSeconds || selectedAsset?.duration);
+  const fallbackSeconds = positiveDurationSeconds(duration, 5);
+  return assetSeconds + (hasVideoUrl ? fallbackSeconds * videoUrlCount : 0) || fallbackSeconds;
+}
+
+function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawSeconds = Number(duration || bounds.fallback);
@@ -4036,13 +4071,23 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   const byResolution = configPricing.seedanceCreditsPerSecondByResolution || {};
   const fallbackPerSecond = normalizedResolution === "1080p" ? ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND;
   const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
-  const originalCredits = creditsAmount(seconds * perSecond);
+  const videoInputSeconds = positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0);
+  const videoInputByResolution = configPricing.seedanceVideoInputCreditsPerSecondByResolution || {};
+  const fallbackVideoInputPerSecond = normalizedResolution === "1080p" ? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND;
+  const videoInputCreditsPerSecond = Number(videoInputByResolution[normalizedResolution] || fallbackVideoInputPerSecond) || fallbackVideoInputPerSecond;
+  const outputCredits = creditsAmount(seconds * perSecond);
+  const videoInputCredits = creditsAmount(videoInputSeconds * videoInputCreditsPerSecond);
+  const originalCredits = creditsAmount(outputCredits + videoInputCredits);
   return {
     provider: "seedance",
     duration: seconds,
     resolution: normalizedResolution,
     ratio: normalizedRatio,
     creditsPerSecond: perSecond,
+    outputCredits,
+    videoInputSeconds,
+    videoInputCreditsPerSecond,
+    videoInputCredits,
     baseCredits: originalCredits,
     originalCredits,
     credits: creditsAmount(originalCredits * multiplier),
@@ -4051,12 +4096,12 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   };
 }
 
-function advancedCostForDuration(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
-  const key = advancedEstimateKey(duration, provider, resolution, ratio);
+function advancedCostForDuration(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
+  const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
   if (state.advancedEstimate && state.advancedEstimateKey === key) {
     return state.advancedEstimate.credits;
   }
-  return advancedPricing(duration, provider, resolution, ratio).credits;
+  return advancedPricing(duration, provider, resolution, ratio, options).credits;
 }
 
 function currentAdvancedProvider() {
@@ -4093,13 +4138,16 @@ function wanModeNeedsClip(mode) {
   return ["first_clip", "first_clip_last_frame"].includes(normalizeWanMediaMode(mode));
 }
 
-function advancedCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
-  const key = advancedEstimateKey(duration, provider, resolution, ratio);
+function advancedCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
+  const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
   const pricing = state.advancedEstimate && state.advancedEstimateKey === key
     ? state.advancedEstimate
-    : advancedPricing(duration, provider, resolution, ratio);
+    : advancedPricing(duration, provider, resolution, ratio, options);
   const suffix = ` - ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)}`;
-  return `${t("cost.creditsDuration", { credits: formatCredits(pricing.credits), duration: formatDurationSeconds(pricing.duration) })}${suffix}`;
+  const inputSuffix = Number(pricing.videoInputSeconds || 0) > 0
+    ? ` + input ${formatDurationSeconds(pricing.videoInputSeconds)}`
+    : "";
+  return `${t("cost.creditsDuration", { credits: formatCredits(pricing.credits), duration: formatDurationSeconds(pricing.duration) })}${inputSuffix}${suffix}`;
 }
 
 function assetImageModifyCostCredits() {
@@ -4110,29 +4158,31 @@ function assetImageModifyCostLabel() {
   return t("cost.credits", { credits: formatCredits(assetImageModifyCostCredits()) });
 }
 
-function advancedEstimateKey(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
+function advancedEstimateKey(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawDuration = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
+  const inputVideoSeconds = normalizedProvider === "seedance" ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0) : 0;
   return [
     normalizedProvider,
     normalizeAdvancedResolution(resolution, normalizedProvider),
     normalizeVideoRatio(ratio),
     seconds,
+    inputVideoSeconds,
     Number(state.user?.pricingMultiplier || 1),
   ].join("|");
 }
 
-function requestAdvancedEstimate(duration, provider = "seedance", resolution = "720p", ratio = "16:9") {
-  const key = advancedEstimateKey(duration, provider, resolution, ratio);
+function requestAdvancedEstimate(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
+  const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
   if (!state.user || state.advancedEstimateKey === key) return;
   window.clearTimeout(state.advancedEstimateTimer);
   state.advancedEstimateTimer = window.setTimeout(async () => {
     try {
       const payload = await requestJson("/api/advanced/estimate", {
         method: "POST",
-        body: { provider, duration, resolution, ratio },
+        body: { provider, duration, resolution, ratio, inputVideoSeconds: positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0) },
       });
       state.advancedEstimate = payload.pricing || null;
       state.advancedEstimateKey = key;
@@ -4149,8 +4199,10 @@ function updateAdvancedButtonCost() {
   const rawDuration = Number(els.advancedDuration?.value || 5);
   const bounds = advancedDurationBounds(currentAdvancedProvider());
   const duration = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
-  requestAdvancedEstimate(duration, currentAdvancedProvider(), currentAdvancedResolution(), currentAdvancedRatio());
-  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(duration, currentAdvancedProvider(), currentAdvancedResolution(), currentAdvancedRatio()) }))}`;
+  const provider = currentAdvancedProvider();
+  const options = { inputVideoSeconds: currentSeedanceVideoInputSeconds(duration, provider) };
+  requestAdvancedEstimate(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options);
+  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;
   refreshIcons();
 }
 
@@ -6197,6 +6249,7 @@ async function submitAdvancedGenerate() {
   const referenceImages = selectedAdvancedReferenceImages();
   const seedanceVideoUrls = splitUrlList(els.advancedSeedanceVideoUrls?.value || "");
   const seedanceAudioUrls = splitUrlList(els.advancedSeedanceAudioUrls?.value || "");
+  const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0;
   if (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !referenceImages.length) {
     els.advancedSubmitBtn.disabled = false;
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
@@ -6247,7 +6300,7 @@ async function submitAdvancedGenerate() {
   if (els.advancedNote) {
     els.advancedNote.textContent = t("advanced.submitting", {
       note: provider === "seedance" ? `${referenceNote} - ${t("advanced.seedanceReferenceCount", { count: referenceImages.length })}` : referenceNote,
-      cost: advancedCostLabel(duration, provider, resolution, currentAdvancedRatio()),
+      cost: advancedCostLabel(duration, provider, resolution, currentAdvancedRatio(), { inputVideoSeconds }),
     });
   }
   try {
@@ -6264,6 +6317,8 @@ async function submitAdvancedGenerate() {
         referenceImages: provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? referenceImages.map(seedanceImageRefPayload) : undefined,
         referenceVideoAssetId: provider === "seedance" ? (state.advancedSeedanceVideoAssetId || "") : undefined,
         referenceVideoUrls: provider === "seedance" ? seedanceVideoUrls : undefined,
+        inputVideoSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
+        referenceVideoDurationSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
         referenceAudioUrls: provider === "seedance" ? seedanceAudioUrls : undefined,
         lastFrameDataUrl: state.advancedWanLastFrameDataUrl,
         drivingAudioUrl: els.advancedWanAudioUrl?.value.trim() || "",
@@ -6281,7 +6336,7 @@ async function submitAdvancedGenerate() {
       },
     });
     if (payload.user) setUser(payload.user);
-    const charged = payload.cost ?? advancedCostForDuration(duration, provider, resolution, currentAdvancedRatio());
+    const charged = payload.cost ?? advancedCostForDuration(duration, provider, resolution, currentAdvancedRatio(), { inputVideoSeconds });
     if (els.advancedNote) {
       els.advancedNote.textContent = t("advanced.jobSubmitted", {
         taskId: payload.taskId || payload.task?.taskId || "",
@@ -6460,7 +6515,7 @@ function assetVideoExtendDialogBody() {
   `;
 }
 
-function bindAssetGenerateCost(root) {
+function bindAssetGenerateCost(root, options = {}) {
   const durationInput = root.querySelector("#assetGenerateDuration");
   const resolutionInput = root.querySelector("#assetGenerateResolution");
   const cost = root.querySelector("#assetGenerateCost");
@@ -6481,7 +6536,10 @@ function bindAssetGenerateCost(root) {
   const update = () => {
     const duration = Number(durationInput?.value || 5);
     const resolution = resolutionInput?.value || "720p";
-    const label = advancedCostLabel(duration, "seedance", resolution, "16:9");
+    const inputVideoSeconds = typeof options.inputVideoSeconds === "function"
+      ? positiveDurationSeconds(options.inputVideoSeconds(duration, resolution), 0)
+      : positiveDurationSeconds(options.inputVideoSeconds, 0);
+    const label = advancedCostLabel(duration, "seedance", resolution, "16:9", { inputVideoSeconds });
     if (cost) cost.textContent = label;
     if (els.inlineDialogConfirm) {
       els.inlineDialogConfirm.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: label }))}`;
@@ -6635,14 +6693,16 @@ async function openAssetExtendDialog(asset = {}) {
 async function openAssetVideoExtendDialog(videoAsset = {}) {
   if (!videoAsset?.id) return;
   if (!state.user) return openLogin();
+  const inputSecondsForAsset = (duration) => positiveDurationSeconds(videoAsset.durationSeconds || videoAsset.duration, duration || 5);
   const result = await showInlineDialog({
     title: t("assets.extendTitle"),
     body: assetVideoExtendDialogBody(),
     confirmText: t("common.generate"),
-    onOpen: bindAssetGenerateCost,
+    onOpen: (root) => bindAssetGenerateCost(root, { inputVideoSeconds: inputSecondsForAsset }),
     onConfirm: async (root) => {
       const duration = Number(root.querySelector("#assetGenerateDuration")?.value || 5);
       const resolution = root.querySelector("#assetGenerateResolution")?.value || "720p";
+      const inputVideoSeconds = inputSecondsForAsset(duration);
       const prompt = root.querySelector("#assetGeneratePrompt")?.value.trim() || "Extend [Video 1] smoothly.";
       root.querySelector("#assetGenerateStatus").textContent = t("assets.generating");
       const payload = await requestJson("/api/advanced/generate", {
@@ -6651,6 +6711,8 @@ async function openAssetVideoExtendDialog(videoAsset = {}) {
           provider: "seedance",
           prompt,
           referenceVideoAssetId: videoAsset.id,
+          inputVideoSeconds,
+          referenceVideoDurationSeconds: inputVideoSeconds,
           ratio: "16:9",
           resolution,
           duration,
@@ -6669,6 +6731,7 @@ async function openAssetVideoExtendDialog(videoAsset = {}) {
 async function openAssetReplaceDialog(videoAsset = {}) {
   if (!videoAsset?.id) return;
   if (!state.user) return openLogin();
+  const inputSecondsForAsset = (duration) => positiveDurationSeconds(videoAsset.durationSeconds || videoAsset.duration, duration || 5);
   const choices = await ensureAssetImageChoices().catch(() => (state.userAssets || []).filter(isImageAsset));
   const firstImage = choices.find(isImageAsset);
   const result = await showInlineDialog({
@@ -6676,10 +6739,11 @@ async function openAssetReplaceDialog(videoAsset = {}) {
     body: assetGenerateDialogBody({ mode: "replace", imageAssetId: firstImage?.id || "" }),
     confirmText: t("common.generate"),
     dialogClass: "is-media-action",
-    onOpen: bindAssetGenerateCost,
+    onOpen: (root) => bindAssetGenerateCost(root, { inputVideoSeconds: inputSecondsForAsset }),
     onConfirm: async (root) => {
       const duration = Number(root.querySelector("#assetGenerateDuration")?.value || 5);
       const resolution = root.querySelector("#assetGenerateResolution")?.value || "720p";
+      const inputVideoSeconds = inputSecondsForAsset(duration);
       const prompt = root.querySelector("#assetGeneratePrompt")?.value.trim() || "Replace the lady in [Video 1] with the lady in [Image 1]";
       const imageReference = await selectedReplaceImageReference(root);
       root.querySelector("#assetGenerateStatus").textContent = t("assets.generating");
@@ -6690,6 +6754,8 @@ async function openAssetReplaceDialog(videoAsset = {}) {
           prompt,
           referenceVideoAssetId: videoAsset.id,
           referenceImages: [imageReference],
+          inputVideoSeconds,
+          referenceVideoDurationSeconds: inputVideoSeconds,
           ratio: "16:9",
           resolution,
           duration,
@@ -7012,9 +7078,12 @@ async function uploadUserAssets(files = []) {
   try {
     for (const file of selected) {
       const dataUrl = await readFileAsDataUrl(file);
+      const durationSeconds = file.type.startsWith("video/") || file.type.startsWith("audio/")
+        ? await readVideoDuration(file).catch(() => 0)
+        : 0;
       await requestJson("/api/user-assets", {
         method: "POST",
-        body: { dataUrl, name: file.name || "Upload", fileName: file.name || "" },
+        body: { dataUrl, name: file.name || "Upload", fileName: file.name || "", durationSeconds },
       });
       uploaded += 1;
     }
@@ -7924,7 +7993,10 @@ els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
   els.advancedSeedanceLastFrame.value = "";
   updateAdvancedModelControls();
 });
-els.advancedSeedanceVideoUrls?.addEventListener("input", updateAdvancedReferenceSummary);
+els.advancedSeedanceVideoUrls?.addEventListener("input", () => {
+  updateAdvancedReferenceSummary();
+  updateAdvancedButtonCost();
+});
 els.advancedSeedanceAudioUrls?.addEventListener("input", updateAdvancedReferenceSummary);
 els.advancedWanLastFrame?.addEventListener("change", async () => {
   const file = els.advancedWanLastFrame.files?.[0];
