@@ -128,7 +128,7 @@
                     <option value="first_frame" data-i18n="advanced.seedanceModeFirst">First frame image</option>
                     <option value="first_last_frame" data-i18n="advanced.seedanceModeFirstLast">First + last image</option>
                     <option value="reference_images" data-i18n="advanced.seedanceModeReference">Reference images</option>
-                    <option value="reference_video" data-i18n="advanced.seedanceModeVideo">Reference video</option>
+                    <option value="reference_video" data-i18n="advanced.seedanceModeVideo">Reference video/audio</option>
                   </select>
                 </label>
               </div>
@@ -140,6 +140,14 @@
                     <img class="wan-frame-preview" id="advancedSeedanceLastFramePreview" alt="Seedance last frame preview" />
                     <span><i data-lucide="image-up"></i><span data-i18n="advanced.lastFrame">Last frame image</span></span>
                   </div>
+                </label>
+                <label class="field seedance-extra seedance-video-url seedance-video-field">
+                  <span data-i18n="advanced.seedanceVideoUrls">Reference video URLs</span>
+                  <input id="advancedSeedanceVideoUrls" type="text" placeholder="https://example.com/video1.mp4, https://example.com/video2.mp4" />
+                </label>
+                <label class="field seedance-extra seedance-audio-url seedance-video-field">
+                  <span data-i18n="advanced.seedanceAudioUrls">Reference audio URLs</span>
+                  <input id="advancedSeedanceAudioUrls" type="text" placeholder="https://example.com/audio1.mp3" />
                 </label>
               </div>
             </div>
@@ -216,9 +224,9 @@
       <section class="asset-panel" data-panel="assets" hidden>
         <div class="asset-toolbar">
           <label><span data-i18n="ledger.search">Search</span><input id="assetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" /></label>
-          <label><span data-i18n="assets.type">Type</span><select id="assetTypeFilter"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option></select></label>
+          <label><span data-i18n="assets.type">Type</span><select id="assetTypeFilter"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option></select></label>
           <label class="asset-upload-control">
-            <input id="assetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*" multiple />
+            <input id="assetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*" multiple />
             <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
             <small class="file-picker-name" data-file-name-for="assetUploadInput" data-i18n="file.none">No file selected</small>
           </label>
@@ -509,6 +517,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-124"></script>
+    <script src="./platform.js?v=ai-125"></script>
 </body>
 </html>

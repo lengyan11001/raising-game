@@ -2078,6 +2078,27 @@ select option:checked {
   object-fit: contain;
   display: block;
 }
+.asset-preview.is-audio {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+}
+.audio-asset-preview {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  color: var(--muted);
+  text-align: center;
+}
+.audio-asset-preview svg {
+  width: 30px;
+  height: 30px;
+  margin: 0 auto;
+  color: var(--mint);
+}
+.audio-asset-preview audio {
+  width: 100%;
+}
 .asset-info {
   display: grid;
   gap: 4px;

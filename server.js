@@ -3226,14 +3226,31 @@ function videoMimeFromKnownPath(filePath = "") {
   return videoMimeFromPath(filePath);
 }
 
+function audioMimeFromPath(filePath = "") {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".wav") return "audio/wav";
+  if (ext === ".m4a" || ext === ".mp4") return "audio/mp4";
+  if (ext === ".aac") return "audio/aac";
+  if (ext === ".ogg") return "audio/ogg";
+  if (ext === ".webm") return "audio/webm";
+  return "audio/mpeg";
+}
+
+function audioMimeFromKnownPath(filePath = "") {
+  const ext = path.extname(String(filePath || "").split("?")[0]).toLowerCase();
+  if (![".mp3", ".wav", ".m4a", ".aac", ".ogg", ".webm"].includes(ext)) return "";
+  return audioMimeFromPath(filePath);
+}
+
 function audioExtFromMime(mime = "", fallbackPath = "") {
   const cleanMime = String(mime || "").split(";")[0].trim().toLowerCase();
   if (cleanMime === "audio/mpeg" || cleanMime === "audio/mp3") return ".mp3";
   if (cleanMime === "audio/wav" || cleanMime === "audio/x-wav") return ".wav";
   if (cleanMime === "audio/mp4" || cleanMime === "audio/aac") return ".m4a";
+  if (cleanMime === "audio/webm") return ".webm";
   if (cleanMime === "audio/ogg") return ".ogg";
   const ext = path.extname(String(fallbackPath || "").split("?")[0]).toLowerCase();
-  if ([".mp3", ".wav", ".m4a", ".aac", ".ogg"].includes(ext)) return ext;
+  if ([".mp3", ".wav", ".m4a", ".aac", ".ogg", ".webm"].includes(ext)) return ext;
   return ".mp3";
 }
 
@@ -3249,7 +3266,7 @@ function mediaExtFromMime(mime = "", fallbackPath = "") {
 }
 
 function decodeWanMediaDataUrl(dataUrl = "") {
-  const match = String(dataUrl || "").match(/^data:((?:image\/(?:png|jpeg|jpg|webp|bmp))|(?:audio\/(?:mpeg|mp3|wav|x-wav|mp4|aac|ogg))|(?:video\/(?:mp4|webm|quicktime|x-m4v)));base64,([a-z0-9+/=]+)$/i);
+  const match = String(dataUrl || "").match(/^data:((?:image\/(?:png|jpeg|jpg|webp|bmp))|(?:audio\/(?:mpeg|mp3|wav|x-wav|mp4|aac|ogg|webm))|(?:video\/(?:mp4|webm|quicktime|x-m4v)));base64,([a-z0-9+/=]+)$/i);
   if (!match) {
     const error = new Error("Only image, audio, or video data URLs are supported.");
     error.statusCode = 400;
@@ -3339,9 +3356,11 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
     ? responseMime
     : responseMime.startsWith("video/")
       ? responseMime
-      : imageMimeFromKnownPath(pathname) || videoMimeFromKnownPath(pathname);
-  if (!mime || (!mime.startsWith("image/") && !mime.startsWith("video/"))) {
-    const error = new Error("Asset URL must point to an image or video file.");
+      : responseMime.startsWith("audio/")
+        ? responseMime.replace("audio/mp3", "audio/mpeg")
+        : imageMimeFromKnownPath(pathname) || videoMimeFromKnownPath(pathname) || audioMimeFromKnownPath(pathname);
+  if (!mime || (!mime.startsWith("image/") && !mime.startsWith("video/") && !mime.startsWith("audio/"))) {
+    const error = new Error("Asset URL must point to an image, video, or audio file.");
     error.statusCode = 400;
     throw error;
   }
@@ -3352,6 +3371,11 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
   }
   if (mime.startsWith("video/") && !["video/mp4", "video/webm", "video/quicktime", "video/x-m4v"].includes(mime)) {
     const error = new Error("Asset video URL must point to an MP4, WebM, MOV, or M4V file.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (mime.startsWith("audio/") && !["audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/aac", "audio/ogg", "audio/webm"].includes(mime)) {
+    const error = new Error("Asset audio URL must point to an MP3, WAV, M4A, AAC, OGG, or WebM audio file.");
     error.statusCode = 400;
     throw error;
   }
@@ -3720,9 +3744,9 @@ function seedanceContentFromReferences({
     });
   }
   const videoUris = [referenceVideoAssetUri, ...extraReferenceVideoAssetUris]
-    .filter((uri, index, list) => uri && uri.startsWith("asset://") && list.indexOf(uri) === index);
+    .filter((uri, index, list) => uri && list.indexOf(uri) === index);
   const rawReferenceVideos = arrayFromBody(body?.reference_videos)
-    .map((item) => (typeof item === "string" ? item : String(item?.url || item?.video_url || item?.assetUri || "")))
+    .map((item) => (typeof item === "string" ? item : String(item?.url || item?.videoUrl || item?.video_url || item?.assetUri || "")))
     .filter(Boolean);
   rawReferenceVideos.forEach((uri) => {
     if (!videoUris.includes(uri) && videoUris.length < ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) videoUris.push(uri);
@@ -3736,7 +3760,8 @@ function seedanceContentFromReferences({
   });
   const rawReferenceAudios = [
     ...arrayFromBody(referenceAudioAssetUris),
-    ...arrayFromBody(body?.reference_audios).map((item) => (typeof item === "string" ? item : String(item?.url || item?.audio_url || item?.assetUri || ""))),
+    ...arrayFromBody(body?.reference_audios)
+      .map((item) => (typeof item === "string" ? item : String(item?.url || item?.audioUrl || item?.audio_url || item?.assetUri || ""))),
   ]
     .filter((uri, index, list) => uri && typeof uri === "string" && list.indexOf(uri) === index)
     .slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
@@ -3810,15 +3835,15 @@ function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body 
   }
   if (Array.isArray(payload.reference_videos) && payload.reference_videos.length) {
     payload.reference_videos = payload.reference_videos.map((item) => (
-      typeof item === "string" ? item : String(item?.url || item?.video_url || item?.assetUri || item || "")
+      typeof item === "string" ? item : String(item?.url || item?.videoUrl || item?.video_url || item?.assetUri || item || "")
     )).filter(Boolean);
   }
   if (Array.isArray(payload.reference_audios) && payload.reference_audios.length) {
     payload.reference_audios = payload.reference_audios.map((item) => (
-      typeof item === "string" ? item : String(item?.url || item?.audio_url || item?.assetUri || item || "")
+      typeof item === "string" ? item : String(item?.url || item?.audioUrl || item?.audio_url || item?.assetUri || item || "")
     )).filter(Boolean);
   }
-  if (!payload.content.length) payload.content = [{ type: "text", text: String(prompt || "") }];
+  if (!Array.isArray(payload.content) || !payload.content.length) payload.content = [{ type: "text", text: String(prompt || "") }];
   return payload;
 }
 
@@ -4619,7 +4644,11 @@ function normalizeSeedanceMode(value = "", body = {}) {
     merged.imageAssetId,
     merged.firstFrameAssetId,
   )) return "first_frame";
-  if (seedanceReferenceVideoAssetIdsFromBody(merged).length || Array.isArray(merged.reference_videos)) return "reference_video";
+  if (
+    seedanceReferenceVideoAssetIdsFromBody(merged).length ||
+    seedanceReferenceVideoUrlInputsFromBody(merged).length ||
+    Array.isArray(merged.reference_videos)
+  ) return "reference_video";
   if (
     arrayFromBody(merged.referenceImages).length ||
     arrayFromBody(merged.referenceImageDataUrls).length ||
@@ -4797,11 +4826,47 @@ function seedanceReferenceVideoAssetIdsFromBody(body = {}) {
   return ids;
 }
 
+function seedanceReferenceVideoUrlInputsFromBody(body = {}) {
+  const inputs = [
+    ...arrayFromBody(body.referenceVideos),
+    ...arrayFromBody(body.referenceVideoUrls),
+    ...arrayFromBody(body.videoUrls),
+  ].filter((item) => {
+    if (!item) return false;
+    if (typeof item === "string") return item.trim();
+    return item.url || item.videoUrl || item.video_url || item.assetUri;
+  });
+  if (inputs.length > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
+    const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} reference videos.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return inputs.map((item) => {
+    if (typeof item === "string") return item.trim();
+    return String(item.url || item.videoUrl || item.video_url || item.assetUri || "").trim();
+  }).filter(Boolean);
+}
+
+function seedanceReferenceAudioAssetIdsFromBody(body = {}) {
+  const ids = [
+    body.referenceAudioAssetId,
+    body.audioAssetId,
+    body.drivingAudioAssetId,
+    ...arrayFromBody(body.referenceAudioAssetIds),
+    ...arrayFromBody(body.audioAssetIds),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  if (ids.length > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
+    const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} reference audios.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return ids;
+}
+
 function seedanceReferenceAudioInputsFromBody(body = {}) {
   const inputs = [
     ...arrayFromBody(body.referenceAudios),
     ...arrayFromBody(body.referenceAudioUrls),
-    ...arrayFromBody(body.reference_audios),
   ].filter((item) => {
     if (!item) return false;
     if (typeof item === "string") return item.trim();
@@ -5073,11 +5138,15 @@ function extractAssetId(result) {
 function seedanceAssetTypeForUserAsset(userAsset = {}) {
   const mime = String(userAsset.mime || "").toLowerCase();
   if (mime.startsWith("video/")) return "Video";
+  if (mime.startsWith("audio/")) return "Audio";
   return "Image";
 }
 
 function seedanceAssetCacheField(userAsset = {}) {
-  return seedanceAssetTypeForUserAsset(userAsset) === "Video" ? "seedanceVideoAssetUri" : "assetUri";
+  const assetType = seedanceAssetTypeForUserAsset(userAsset);
+  if (assetType === "Video") return "seedanceVideoAssetUri";
+  if (assetType === "Audio") return "seedanceAudioAssetUri";
+  return "assetUri";
 }
 
 async function ensureSeedanceAssetForUserAsset(db, userAsset) {
@@ -5115,6 +5184,9 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   if (assetType === "Video") {
     userAsset.seedanceVideoAssetId = assetId;
     userAsset.seedanceVideoAssetUri = `asset://${assetId}`;
+  } else if (assetType === "Audio") {
+    userAsset.seedanceAudioAssetId = assetId;
+    userAsset.seedanceAudioAssetUri = `asset://${assetId}`;
   } else {
     userAsset.assetId = assetId;
     userAsset.assetUri = `asset://${assetId}`;
@@ -5196,6 +5268,26 @@ async function prepareSeedanceVideoAsset(db, userAsset) {
     referenceAssetUri: prepared.seedanceVideoAssetUri || "",
     videoUrl: prepared.publicUrl || prepared.localUrl || "",
   };
+}
+
+async function prepareSeedanceAudioAsset(db, userAsset) {
+  if (!userAsset) return { asset: null, referenceAssetUri: "", audioUrl: "" };
+  validateWan27MediaKind(userAsset, "audio", "Seedance reference audio");
+  try {
+    const prepared = await ensureSeedanceAssetForUserAsset(db, userAsset);
+    return {
+      asset: prepared,
+      referenceAssetUri: prepared.seedanceAudioAssetUri || "",
+      audioUrl: prepared.publicUrl || prepared.localUrl || "",
+    };
+  } catch (error) {
+    const prepared = await ensurePublicUrlForUserMediaAsset(db, userAsset);
+    return {
+      asset: prepared,
+      referenceAssetUri: publicUrlForLocalAsset(prepared),
+      audioUrl: publicUrlForLocalAsset(prepared),
+    };
+  }
 }
 
 async function apizRequest(pathname, body) {
@@ -7615,7 +7707,9 @@ async function runAdvancedGenerationJob(job = {}) {
     caseTitle,
     referenceVideoAssetId = "",
     referenceVideoAssetIds = [],
+    referenceVideoAssetUris = [],
     referenceAudioAssetUris = [],
+    referenceAudioAssetIds = [],
   } = job;
   const bodyParams = requestParams && typeof requestParams === "object" ? requestParamsFromBody(requestParams) : {};
   const runtime = advancedRuntimeForProvider(provider, requestParams);
@@ -7629,12 +7723,14 @@ async function runAdvancedGenerationJob(job = {}) {
   let extraReferenceAssetUris = [];
   let seedanceVideoAsset = null;
   let extraSeedanceVideoAssets = [];
+  let seedanceAudioAssets = [];
   let seedanceFirstFrameAsset = null;
   let seedanceEndFrameAsset = null;
   let seedanceImageUrl = "";
   let seedanceEndImageUrl = "";
   let referenceVideoAssetUri = "";
   let extraReferenceVideoAssetUris = [];
+  let resolvedReferenceAudioAssetUris = [];
   let payload = null;
   let createResponse = null;
 
@@ -7689,6 +7785,17 @@ async function runAdvancedGenerationJob(job = {}) {
       throw error;
     }
     extraSeedanceVideoAssets.forEach((asset) => validateWan27MediaKind(asset, "video", "Extra Seedance reference video"));
+    const requestedAudioIds = Array.isArray(referenceAudioAssetIds)
+      ? referenceAudioAssetIds.map((id) => String(id || "").trim()).filter(Boolean).slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT)
+      : [];
+    seedanceAudioAssets = requestedAudioIds
+      .map((assetId) => (db.userAssets || []).find((asset) => asset.id === assetId && asset.userId === userId && !isSoftDeleted(asset)));
+    if (seedanceAudioAssets.some((asset) => !asset)) {
+      const error = new Error("Reference audio not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    seedanceAudioAssets.forEach((asset) => validateWan27MediaKind(asset, "audio", "Seedance reference audio"));
     if (seedanceFirstFrameAssetId) {
       seedanceFirstFrameAsset = (db.userAssets || []).find((asset) => asset.id === seedanceFirstFrameAssetId && asset.userId === userId && !isSoftDeleted(asset));
       if (!seedanceFirstFrameAsset) {
@@ -7748,6 +7855,31 @@ async function runAdvancedGenerationJob(job = {}) {
         }
       }
     }
+    const audioReferenceUriByAssetId = new Map();
+    if (provider === "seedance") {
+      resolvedReferenceAudioAssetUris = referenceAudioAssetUris
+        .map((uri) => String(uri || "").trim())
+        .filter(Boolean);
+      if (seedanceAudioAssets.length && !USE_GATEWAY_UPSTREAM) {
+        for (const asset of seedanceAudioAssets) {
+          const preparedAudio = await prepareSeedanceAudioAsset(db, asset);
+          const uri = preparedAudio.referenceAssetUri || preparedAudio.audioUrl || "";
+          if (uri && !resolvedReferenceAudioAssetUris.includes(uri)) {
+            resolvedReferenceAudioAssetUris.push(uri);
+            audioReferenceUriByAssetId.set(asset.id, uri);
+          }
+        }
+      } else if (seedanceAudioAssets.length) {
+        for (const asset of seedanceAudioAssets) {
+          const uri = asset.localUrl || asset.publicUrl || "";
+          if (uri && !resolvedReferenceAudioAssetUris.includes(uri)) {
+            resolvedReferenceAudioAssetUris.push(uri);
+            audioReferenceUriByAssetId.set(asset.id, uri);
+          }
+        }
+      }
+      resolvedReferenceAudioAssetUris = resolvedReferenceAudioAssetUris.slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
+    }
     if (provider === "seedance" && seedanceFirstFrameAsset) {
       if (USE_GATEWAY_UPSTREAM) {
         imageUrl = imageUrl || seedanceFirstFrameAsset.localUrl || seedanceFirstFrameAsset.publicUrl || "";
@@ -7801,11 +7933,26 @@ async function runAdvancedGenerationJob(job = {}) {
           localUrl: asset.localUrl || "",
           mime: asset.mime || "",
         }));
-      const audioMediaAssets = referenceAudioAssetUris.map((uri, index) => ({
+      const publicVideoMediaAsset = referenceVideoAssetUris.map((uri, index) => ({
+        type: "reference_video",
+        key: `video_url_${index + 1}`,
+        videoUrl: uri,
+      }));
+      const publicAudioMediaAssets = referenceAudioAssetUris.map((uri, index) => ({
         type: "reference_audio",
-        key: `audio_${index + 1}`,
+        key: `audio_url_${index + 1}`,
         audioUrl: uri,
       }));
+      const assetAudioMediaAssets = seedanceAudioAssets.map((asset, index) => ({
+        type: "reference_audio",
+        key: `audio_asset_${index + 1}`,
+        userAssetId: asset.id,
+        referenceAssetUri: audioReferenceUriByAssetId.get(asset.id) || "",
+        audioUrl: audioReferenceUriByAssetId.get(asset.id) || asset.publicUrl || asset.localUrl || "",
+        localUrl: asset.localUrl || "",
+        mime: asset.mime || "",
+      }));
+      const audioMediaAssets = [...publicAudioMediaAssets, ...assetAudioMediaAssets].slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
       const primaryMediaAsset = USE_GATEWAY_UPSTREAM && userAsset ? [{
         type: "reference_image",
         key: "image_1",
@@ -7855,7 +8002,7 @@ async function runAdvancedGenerationJob(job = {}) {
           mime: prepared.asset?.mime || "",
         });
       }
-      seedanceMediaAssets = [...frameMediaAssets, ...videoMediaAsset, ...audioMediaAssets, ...primaryMediaAsset, ...extraMediaAssets];
+      seedanceMediaAssets = [...frameMediaAssets, ...videoMediaAsset, ...publicVideoMediaAsset, ...audioMediaAssets, ...primaryMediaAsset, ...extraMediaAssets];
     }
 
     let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || "first_frame";
@@ -7946,7 +8093,8 @@ async function runAdvancedGenerationJob(job = {}) {
           gatewayBody.referenceVideoAssetId = gatewayVideoIds[0];
           gatewayBody.referenceVideoAssetIds = gatewayVideoIds;
         }
-        if (referenceAudioAssetUris.length) gatewayBody.referenceAudios = referenceAudioAssetUris;
+        if (referenceVideoAssetUris.length) gatewayBody.referenceVideoUrls = referenceVideoAssetUris;
+        if (resolvedReferenceAudioAssetUris.length) gatewayBody.referenceAudios = resolvedReferenceAudioAssetUris;
         if (referenceImages.length) gatewayBody.referenceImages = referenceImages;
       }
       task = await gatewaySubmitAdvancedTask(gatewayBody);
@@ -7975,8 +8123,8 @@ async function runAdvancedGenerationJob(job = {}) {
         firstFrameAssetUri: seedanceImageUrl || requestParams.image_url || "",
         lastFrameAssetUri: seedanceEndImageUrl || requestParams.end_image_url || "",
         referenceVideoAssetUri,
-        extraReferenceVideoAssetUris,
-        referenceAudioAssetUris,
+        extraReferenceVideoAssetUris: [...extraReferenceVideoAssetUris, ...referenceVideoAssetUris],
+        referenceAudioAssetUris: resolvedReferenceAudioAssetUris,
         body: {
           ...requestParams,
         },
@@ -8119,8 +8267,6 @@ async function handleAdvancedGenerate(req, res) {
       "image_url",
       "end_image_url",
       "reference_images",
-      "reference_videos",
-      "reference_audios",
       "content",
       "web_search",
       "watermark",
@@ -8146,8 +8292,11 @@ async function handleAdvancedGenerate(req, res) {
   let extraUserAssetIds = [];
   let seedanceVideoAsset = null;
   let seedanceVideoAssets = [];
+  let seedanceAudioAssets = [];
   let referenceVideoAssetIds = [];
+  let referenceVideoAssetUris = [];
   let referenceAudioAssetUris = [];
+  let referenceAudioAssetIds = [];
   let seedanceMode = "";
   let seedanceFirstFrameAsset = null;
   let seedanceEndFrameAsset = null;
@@ -8197,9 +8346,32 @@ async function handleAdvancedGenerate(req, res) {
       }
     }
     try {
+      referenceVideoAssetUris = seedanceReferenceVideoUrlInputsFromBody(mergedBody);
+      if (referenceVideoAssetUris.length) requestParams.reference_videos = referenceVideoAssetUris;
+    } catch (error) {
+      return sendJson(res, error.statusCode || 400, { ok: false, message: error.message || "Seedance reference video is invalid." });
+    }
+    try {
       referenceAudioAssetUris = seedanceReferenceAudioInputsFromBody(mergedBody);
+      referenceAudioAssetIds = seedanceReferenceAudioAssetIdsFromBody(mergedBody);
     } catch (error) {
       return sendJson(res, error.statusCode || 400, { ok: false, message: error.message || "Seedance reference audio is invalid." });
+    }
+    if (referenceAudioAssetIds.length) {
+      seedanceAudioAssets = referenceAudioAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
+      if (seedanceAudioAssets.some((asset) => !asset)) return sendJson(res, 404, { ok: false, message: "Reference audio not found." });
+      try {
+        seedanceAudioAssets.forEach((asset) => validateWan27MediaKind(asset, "audio", "Seedance reference audio"));
+      } catch (error) {
+        return sendJson(res, 400, { ok: false, message: error.message || "Seedance reference audio must be audio." });
+      }
+    }
+    if (referenceAudioAssetUris.length) {
+      requestParams.reference_audios = referenceAudioAssetUris;
+    }
+    if (referenceVideoAssetIds.length || referenceVideoAssetUris.length) {
+      seedanceMode = "reference_video";
+      requestParams.seedanceMode = seedanceMode;
     }
     const referenceInputs = seedanceReferenceInputsFromBody(mergedBody, { includeDataUrlFallback: !seedanceModeNeedsFirstFrame(seedanceMode) });
     const createdReferenceAssets = await createUserImageAssetsFromInputs(auth.db, auth.user, referenceInputs, {
@@ -8319,6 +8491,14 @@ async function handleAdvancedGenerate(req, res) {
           key: `audio_${index + 1}`,
           audioUrl: uri,
         })),
+        ...seedanceAudioAssets.map((asset, index) => ({
+          type: "reference_audio",
+          key: `audio_asset_${index + 1}`,
+          userAssetId: asset.id,
+          audioUrl: asset.localUrl || asset.publicUrl || "",
+          localUrl: asset.localUrl || "",
+          mime: asset.mime || "",
+        })),
         ...(userAsset ? [{
           type: "reference_image",
           key: "image_1",
@@ -8369,12 +8549,14 @@ async function handleAdvancedGenerate(req, res) {
         seedanceEndFrameAssetId: seedanceEndFrameAsset?.id || "",
         referenceVideoAssetId: seedanceVideoAsset?.id || "",
         referenceVideoAssetIds,
+        referenceVideoAssetUris,
         referenceAudioAssetUris,
+        referenceAudioAssetIds,
         extraUserAssetIds,
         mediaMode: provider === "seedance" ? initialMediaMode : wan27MediaMode,
         mediaAssets: provider === "wan27"
           ? wan27Media.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", mediaKind: item.mediaKind || "" }))
-          : initialSeedanceMediaAssets.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "" })),
+          : initialSeedanceMediaAssets.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", audioUrl: item.audioUrl || "", videoUrl: item.videoUrl || "" })),
         referenceAssetUri: "",
       },
     });
@@ -8432,7 +8614,9 @@ async function handleAdvancedGenerate(req, res) {
     extraUserAssetIds,
     referenceVideoAssetId: seedanceVideoAsset?.id || "",
     referenceVideoAssetIds,
+    referenceVideoAssetUris,
     referenceAudioAssetUris,
+    referenceAudioAssetIds,
     seedanceMode,
     seedanceFirstFrameAssetId: seedanceFirstFrameAsset?.id || "",
     seedanceEndFrameAssetId: seedanceEndFrameAsset?.id || "",
@@ -8497,7 +8681,7 @@ function mediaAssetIdsByTypes(record = {}, types = []) {
 
 function mediaAssetUrlByType(record = {}, type = "") {
   const asset = (Array.isArray(record.mediaAssets) ? record.mediaAssets : []).find((item) => item && item.type === type);
-  return String(asset?.url || asset?.imageUrl || asset?.localUrl || "").trim();
+  return String(asset?.url || asset?.imageUrl || asset?.videoUrl || asset?.audioUrl || asset?.localUrl || "").trim();
 }
 
 function platformRegenerateBody(record = {}) {
@@ -8553,6 +8737,18 @@ function advancedRegenerateBody(record = {}) {
     }
     const referenceVideoIds = [...new Set(mediaAssetIdsByTypes(record, ["reference_video", "first_clip"]))];
     if (referenceVideoIds.length) body.referenceVideoAssetId = referenceVideoIds[0];
+    const referenceVideoUrls = (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+      .filter((asset) => asset?.type === "reference_video" && !asset.userAssetId)
+      .map((asset) => String(asset.videoUrl || asset.url || "").trim())
+      .filter(Boolean);
+    if (referenceVideoUrls.length) body.referenceVideoUrls = referenceVideoUrls.slice(0, ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT);
+    const referenceAudioIds = [...new Set(mediaAssetIdsByType(record, "reference_audio"))];
+    if (referenceAudioIds.length) body.referenceAudioAssetIds = referenceAudioIds.slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
+    const referenceAudioUrls = (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+      .filter((asset) => asset?.type === "reference_audio" && !asset.userAssetId)
+      .map((asset) => String(asset.audioUrl || asset.url || "").trim())
+      .filter(Boolean);
+    if (referenceAudioUrls.length) body.referenceAudioUrls = referenceAudioUrls.slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
   }
   return body;
 }
@@ -8826,6 +9022,10 @@ function docsAdvancedExampleBody(item = {}) {
       { url: "https://example.com/image1.png", fileName: "image1.png" },
       { url: "https://example.com/image2.png", fileName: "image2.png" },
     ];
+    if (normalizeSeedanceMode(params.seedanceMode || params.mediaMode || item.mediaMode) === "reference_video") {
+      body.referenceVideoUrls = ["https://example.com/video1.mp4"];
+      body.referenceAudioUrls = ["https://example.com/audio1.mp3"];
+    }
   }
   return body;
 }
@@ -9022,9 +9222,12 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "endImageUrl / lastFrameUrl", type: "string", required: false, description: "Seedance last-frame public URL for first_last_frame. The server prepares it as upstream end_image_url." },
       { name: "endImageAssetId / lastFrameAssetId", type: "string", required: false, description: "Seedance last-frame asset id for first_last_frame." },
       { name: "referenceImages", type: "array", required: false, description: "Seedance reference_images mode. One or more images in the same field. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId." },
+      { name: "referenceVideos / referenceVideoUrls", type: "array", required: false, description: "Seedance reference_video/edit/extend public video URLs. Up to 3 URLs." },
       { name: "referenceVideoAssetId", type: "string", required: false, description: "Seedance reference_video mode. Existing uploaded video asset id." },
       { name: "referenceVideoAssetIds", type: "array", required: false, description: "Seedance multimodal/edit/extend. Up to 3 existing uploaded video asset ids." },
       { name: "referenceAudios / referenceAudioUrls", type: "array", required: false, description: "Seedance multimodal reference audio public URLs. Up to 3 URLs; text+audio without image/video is not supported upstream." },
+      { name: "referenceAudioAssetId / referenceAudioAssetIds", type: "string|array", required: false, description: "Seedance multimodal audio references from /api/user-assets. Up to 3 audio assets." },
+      { name: "prompt asset labels", type: "string", required: false, description: "When referencing materials in prompt text, use Image 1, Video 1, or Audio 1. Do not write raw asset ids in the prompt." },
       { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. For Seedance first_frame it is the first frame; otherwise it is a reference image." },
       { name: "extraReferenceDataUrls", type: "array", required: false, description: "Seedance compatibility field. Prefer referenceImages for new integrations; referenceImages now supports URL items." },
       { name: "extraReferenceAssetIds", type: "array", required: false, description: "Seedance only. Optional existing uploaded asset ids for additional references." },
@@ -9137,7 +9340,7 @@ function advancedDocMarkdown(item) {
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
-  lines.push("", "Seedance modes: set `seedanceMode` to `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`. For first-frame modes use `imageUrl`/`firstFrameUrl`/`imageAssetId`/`firstFrameAssetId`; for first+last use `endImageUrl`/`lastFrameUrl`/`endImageAssetId`/`lastFrameAssetId`. Reference-image mode uses `referenceImages` (up to 9), reference-video/edit/extend uses `referenceVideoAssetId` or `referenceVideoAssetIds` (up to 3), and multimodal audio references use `referenceAudios` / `referenceAudioUrls` (up to 3).");
+  lines.push("", "Seedance modes: set `seedanceMode` to `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`. For first-frame modes use `imageUrl`/`firstFrameUrl`/`imageAssetId`/`firstFrameAssetId`; for first+last use `endImageUrl`/`lastFrameUrl`/`endImageAssetId`/`lastFrameAssetId`. Reference-image mode uses `referenceImages` (up to 9), reference-video/edit/extend uses `referenceVideoAssetId`, `referenceVideoAssetIds`, `referenceVideos`, or `referenceVideoUrls` (up to 3), and multimodal audio references use `referenceAudios`, `referenceAudioUrls`, `referenceAudioAssetId`, or `referenceAudioAssetIds` (up to 3). In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance friendly fields are prepared into upstream `image_url`, `end_image_url`, `content`, or `reference_*` fields as needed.");
   lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `image_url`, `end_image_url`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
@@ -9170,7 +9373,7 @@ function buildModelDocsMarkdown(docs) {
     "1. Read `/api/models` or this Markdown file to choose a template.",
     "2. For image-to-video templates, send `templateId` and `dataUrl` to `/api/platform/generate`.",
     "3. For text-to-video templates, send `templateId` and an optional `prompt` to `/api/platform/generate`.",
-    "4. Optional: upload a character/reference image with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`, then reuse `asset.id`.",
+    "4. Optional: upload a character/reference image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
     "5. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"` and optional `seedanceMode` (`text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`).",
     "6. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional `seed`, and duration.",
     "7. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
@@ -10273,7 +10476,7 @@ async function handleUploadUserAsset(req, res) {
   if (!auth) return;
 
   const body = await readJson(req);
-  const publicUrl = String(body.url || body.imageUrl || "").trim();
+  const publicUrl = String(body.url || body.imageUrl || body.videoUrl || body.audioUrl || "").trim();
   if (publicUrl) {
     const userAsset = await createUserMediaAssetFromPublicUrl(auth.db, auth.user, {
       url: publicUrl,
@@ -10284,8 +10487,8 @@ async function handleUploadUserAsset(req, res) {
   }
 
   const { mime, bytes } = decodeWanMediaDataUrl(body.dataUrl || "");
-  if (!mime.startsWith("image/") && !mime.startsWith("video/")) {
-    return sendJson(res, 400, { ok: false, message: "Only image or video assets are supported." });
+  if (!mime.startsWith("image/") && !mime.startsWith("video/") && !mime.startsWith("audio/")) {
+    return sendJson(res, 400, { ok: false, message: "Only image, video, or audio assets are supported." });
   }
   const maxBytes = mime.startsWith("image/") ? 8 * 1024 * 1024 : 30 * 1024 * 1024;
   const userAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
@@ -10370,7 +10573,8 @@ async function handleAddGenerationRecordToAssets(req, res, taskId) {
 }
 
 function publicUserAsset(asset = {}) {
-  const kind = String(asset.mime || "").toLowerCase().startsWith("video/") ? "video" : "image";
+  const mime = String(asset.mime || "").toLowerCase();
+  const kind = mime.startsWith("video/") ? "video" : mime.startsWith("audio/") ? "audio" : "image";
   const isCharacterAsset = Boolean(asset.characterPrompt || asset.characterFinalPrompt || asset.characterModel || asset.characterTaskId);
   return {
     id: asset.id,
@@ -10381,7 +10585,7 @@ function publicUserAsset(asset = {}) {
     localUrl: asset.localUrl || "",
     publicUrl: asset.publicUrl || "",
     previewUrl: asset.localUrl || asset.publicUrl || "",
-    seedanceReady: Boolean(kind === "video" ? asset.seedanceVideoAssetUri : asset.assetUri),
+    seedanceReady: Boolean(kind === "video" ? asset.seedanceVideoAssetUri : kind === "audio" ? asset.seedanceAudioAssetUri || asset.publicUrl : asset.assetUri),
     isCharacterAsset,
     characterPrompt: asset.characterPrompt || "",
     characterTaskId: asset.characterTaskId || "",

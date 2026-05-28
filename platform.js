@@ -246,6 +246,8 @@ const els = {
   advancedSeedanceMediaMode: document.querySelector("#advancedSeedanceMediaMode"),
   advancedSeedanceLastFrame: document.querySelector("#advancedSeedanceLastFrame"),
   advancedSeedanceLastFramePreview: document.querySelector("#advancedSeedanceLastFramePreview"),
+  advancedSeedanceVideoUrls: document.querySelector("#advancedSeedanceVideoUrls"),
+  advancedSeedanceAudioUrls: document.querySelector("#advancedSeedanceAudioUrls"),
   advancedWanSeed: document.querySelector("#advancedWanSeed"),
   advancedWanMediaMode: document.querySelector("#advancedWanMediaMode"),
   advancedWanLastFrame: document.querySelector("#advancedWanLastFrame"),
@@ -484,7 +486,9 @@ const I18N = {
     "advanced.seedanceModeFirst": "First frame image",
     "advanced.seedanceModeFirstLast": "First + last image",
     "advanced.seedanceModeReference": "Reference images",
-    "advanced.seedanceModeVideo": "Reference video",
+    "advanced.seedanceModeVideo": "Reference video/audio",
+    "advanced.seedanceVideoUrls": "Reference video URLs",
+    "advanced.seedanceAudioUrls": "Reference audio URLs",
     "advanced.seedanceFirstRequired": "First frame image is required for this Seedance mode.",
     "advanced.seedanceLastRequired": "Last frame image is required for this Seedance mode.",
     "advanced.seedanceVideoRequired": "Reference video is required for this Seedance mode.",
@@ -540,6 +544,7 @@ const I18N = {
     "assets.type": "Type",
     "assets.image": "Images",
     "assets.video": "Videos",
+    "assets.audio": "Audio",
     "assets.upload": "Upload",
     "assets.searchPlaceholder": "Name / ID",
     "assets.loginRequired": "Login required",
@@ -846,7 +851,9 @@ const I18N = {
     "advanced.seedanceModeFirst": "First frame image",
     "advanced.seedanceModeFirstLast": "First + last image",
     "advanced.seedanceModeReference": "Reference images",
-    "advanced.seedanceModeVideo": "Reference video",
+    "advanced.seedanceModeVideo": "Reference video/audio",
+    "advanced.seedanceVideoUrls": "Reference video URLs",
+    "advanced.seedanceAudioUrls": "Reference audio URLs",
     "advanced.seedanceFirstRequired": "First frame image is required for this Seedance mode.",
     "advanced.seedanceLastRequired": "Last frame image is required for this Seedance mode.",
     "advanced.seedanceVideoRequired": "Reference video is required for this Seedance mode.",
@@ -1121,7 +1128,9 @@ const I18N = {
     "advanced.seedanceModeFirst": "First frame image",
     "advanced.seedanceModeFirstLast": "First + last image",
     "advanced.seedanceModeReference": "Reference images",
-    "advanced.seedanceModeVideo": "Reference video",
+    "advanced.seedanceModeVideo": "Reference video/audio",
+    "advanced.seedanceVideoUrls": "Reference video URLs",
+    "advanced.seedanceAudioUrls": "Reference audio URLs",
     "advanced.seedanceFirstRequired": "First frame image is required for this Seedance mode.",
     "advanced.seedanceLastRequired": "Last frame image is required for this Seedance mode.",
     "advanced.seedanceVideoRequired": "Reference video is required for this Seedance mode.",
@@ -1396,7 +1405,9 @@ const I18N = {
     "advanced.seedanceModeFirst": "First frame image",
     "advanced.seedanceModeFirstLast": "First + last image",
     "advanced.seedanceModeReference": "Reference images",
-    "advanced.seedanceModeVideo": "Reference video",
+    "advanced.seedanceModeVideo": "Reference video/audio",
+    "advanced.seedanceVideoUrls": "Reference video URLs",
+    "advanced.seedanceAudioUrls": "Reference audio URLs",
     "advanced.seedanceFirstRequired": "First frame image is required for this Seedance mode.",
     "advanced.seedanceLastRequired": "Last frame image is required for this Seedance mode.",
     "advanced.seedanceVideoRequired": "Reference video is required for this Seedance mode.",
@@ -1671,7 +1682,9 @@ const I18N = {
     "advanced.seedanceModeFirst": "First frame image",
     "advanced.seedanceModeFirstLast": "First + last image",
     "advanced.seedanceModeReference": "Reference images",
-    "advanced.seedanceModeVideo": "Reference video",
+    "advanced.seedanceModeVideo": "Reference video/audio",
+    "advanced.seedanceVideoUrls": "Reference video URLs",
+    "advanced.seedanceAudioUrls": "Reference audio URLs",
     "advanced.seedanceFirstRequired": "First frame image is required for this Seedance mode.",
     "advanced.seedanceLastRequired": "Last frame image is required for this Seedance mode.",
     "advanced.seedanceVideoRequired": "Reference video is required for this Seedance mode.",
@@ -1975,6 +1988,15 @@ const ASSET_WORKFLOW_COPY = {
 Object.entries(ASSET_WORKFLOW_COPY).forEach(([lang, copy]) => {
   if (I18N[lang]) Object.assign(I18N[lang], copy);
 });
+["vi", "ja", "ko", "id", "zh"].forEach((lang) => {
+  if (!I18N[lang]) return;
+  Object.assign(I18N[lang], {
+    "assets.audio": "Audio",
+    "advanced.seedanceModeVideo": "Reference video/audio",
+    "advanced.seedanceVideoUrls": "Reference video URLs",
+    "advanced.seedanceAudioUrls": "Reference audio URLs",
+  });
+});
 
 if (I18N.zh) {
   Object.assign(I18N.zh, {
@@ -2058,15 +2080,29 @@ POST ${apiUrl("/api/user-assets")}
   "name": "image1"
 }
 
+Upload video/audio references the same way:
+{
+  "videoUrl": "https://example.com/video1.mp4",
+  "fileName": "video1.mp4",
+  "name": "video1"
+}
+{
+  "audioUrl": "https://example.com/audio1.mp3",
+  "fileName": "audio1.mp3",
+  "name": "audio1"
+}
+
 Advanced Seedance:
 POST ${apiUrl("/api/advanced/generate")}
 {
   "provider": "seedance",
-  "prompt": "your prompt",
+  "prompt": "Use Image 1 as the character reference. Use Video 1 as motion reference if provided. Use Audio 1 as music reference if provided.",
   "referenceImages": [
     {"url": "https://example.com/image1.png", "fileName": "image1.png"},
     {"url": "https://example.com/image2.png", "fileName": "image2.png"}
   ],
+  "referenceVideoUrls": ["https://example.com/video1.mp4"],
+  "referenceAudioUrls": ["https://example.com/audio1.mp3"],
   "resolution": "720p",
   "duration": 5
 }`;
@@ -2093,10 +2129,13 @@ const uploaded = await fetch("${apiUrl("/api/user-assets")}", {
 
 const advancedBody = {
   provider: "seedance", // "seedance" or "wan27"
-  prompt: "your prompt",
+  prompt: "Use Image 1 as the character reference. Use Video 1 as motion reference if provided. Use Audio 1 as music reference if provided.",
   dataUrl: "data:image/png;base64,...", // Wan2.7 only
   // Seedance only: send one or more reference images in the same field.
   referenceImages: [{ assetId: uploaded.asset.id, fileName: "image1.png" }],
+  // Seedance edit/extend can also use video/audio references.
+  referenceVideoUrls: ["https://example.com/video1.mp4"],
+  referenceAudioUrls: ["https://example.com/audio1.mp3"],
   resolution: "720p",
   duration: 5
 };
@@ -2136,10 +2175,12 @@ uploaded = requests.post(
 
 advanced_payload = {
     "provider": "seedance",  # or "wan27"
-    "prompt": "your prompt",
+    "prompt": "Use Image 1 as the character reference. Use Video 1 as motion reference if provided. Use Audio 1 as music reference if provided.",
     "dataUrl": "data:image/png;base64,...",  # Wan2.7 only
     # Seedance only: send one or more reference images in the same field.
     "referenceImages": [{"assetId": uploaded["asset"]["id"], "fileName": "image1.png"}],
+    "referenceVideoUrls": ["https://example.com/video1.mp4"],
+    "referenceAudioUrls": ["https://example.com/audio1.mp3"],
     "resolution": "720p",
     "duration": 5,
 }
@@ -2170,6 +2211,11 @@ curl -X POST "${apiUrl("/api/user-assets")}" \\
   -H "Content-Type: application/json" \\
   -d '{"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}'
 
+curl -X POST "${apiUrl("/api/advanced/generate")}" \\
+  -H "Authorization: Bearer <user-token>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"provider":"seedance","seedanceMode":"reference_video","prompt":"Use Image 1 as the character reference, Video 1 as the motion reference, and Audio 1 as the music reference.","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":8}'
+
 # Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
 const AGENT_ACCESS_COPY = `Use this video API:
@@ -2186,7 +2232,7 @@ POST ${apiUrl("/api/advanced/generate")}
 Body:
 {"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}
 or:
-{"provider":"seedance","prompt":"your prompt","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"},{"url":"https://example.com/image2.png","fileName":"image2.png"}],"resolution":"720p","duration":5}
+{"provider":"seedance","prompt":"Use Image 1 as the character, Video 1 as the motion reference, and Audio 1 as the music reference.","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":5}
 
 Optional upload first:
 POST ${apiUrl("/api/user-assets")}
@@ -2206,7 +2252,7 @@ Advanced MCP wrapper target:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
-{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
+{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
 
 Asset upload target:
 POST ${apiUrl("/api/user-assets")}
@@ -2219,6 +2265,8 @@ Important: returned video URLs may expire after 24 hours. Download and save succ
 const SEEDANCE_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
+
+Prompt reference rule: describe uploaded materials as Image 1, Video 1, Audio 1. Do not put raw asset ids in the prompt text.
 
 Text to video:
 {
@@ -2274,8 +2322,10 @@ Edit or extend with video/audio references:
   "seedanceMode": "reference_video",
   "prompt": "Use Video 1 as the action reference, Image 1 as the character reference, and Audio 1 as the music reference.",
   "referenceVideoAssetIds": ["uploaded-video-asset-id"],
+  "referenceVideoUrls": ["https://example.com/video2.mp4"],
   "referenceImages": [{"assetId": "uploaded-image-asset-id"}],
   "referenceAudios": ["https://example.com/music.mp3"],
+  "referenceAudioAssetIds": ["uploaded-audio-asset-id"],
   "resolution": "720p",
   "duration": 8,
   "params": {"generate_audio": true}
@@ -2364,20 +2414,22 @@ Content-Type: application/json
   },
   assets: {
     title: "Asset Upload",
-    summary: "Upload a character or reference image/video to the current user's asset library, then reuse the returned asset.id in Seedance referenceImages.",
+    summary: "Upload a character or reference image/video/audio to the current user's asset library, then reuse the returned asset.id in Seedance referenceImages, referenceVideoAssetIds, or referenceAudioAssetIds.",
     request: [
       ["Authorization", "Bearer <user-token>"],
       ["Content-Type", "application/json"],
-      ["url", "Optional public image/video URL. Use this when the caller already has a reachable file URL."],
+      ["url", "Optional public image/video/audio URL. Use this when the caller already has a reachable file URL."],
       ["imageUrl", "Alias of url."],
+      ["videoUrl", "Alias of url for video upload."],
+      ["audioUrl", "Alias of url for audio upload."],
       ["dataUrl", "Optional base64 data URL. Use this when uploading bytes directly."],
       ["fileName", "Optional original file name, for example image1.png."],
       ["name", "Optional display name in the user's asset library."],
     ],
     response: [
       ["ok", "true when the upload succeeds."],
-      ["asset.id", "Use this id as referenceImages[].assetId."],
-      ["asset.kind", "image or video."],
+      ["asset.id", "Use this id as referenceImages[].assetId, referenceVideoAssetIds[], or referenceAudioAssetIds[]."],
+      ["asset.kind", "image, video, or audio."],
       ["asset.previewUrl", "Local preview URL."],
     ],
     example: `POST /api/user-assets
@@ -2408,7 +2460,10 @@ Content-Type: application/json
       ["referenceImages", "Seedance reference_images mode. Array items can use url/imageUrl + fileName, dataUrl + fileName, or assetId."],
       ["referenceVideoAssetId", "Seedance reference_video mode. Existing uploaded video asset id."],
       ["referenceVideoAssetIds", "Seedance multimodal/edit/extend. Up to 3 existing uploaded video asset ids."],
+      ["referenceVideos / referenceVideoUrls", "Seedance multimodal/edit/extend. Up to 3 public video URLs."],
       ["referenceAudios / referenceAudioUrls", "Seedance multimodal audio reference URLs. Up to 3 public URLs."],
+      ["referenceAudioAssetId / referenceAudioAssetIds", "Seedance multimodal audio references from /api/user-assets. Up to 3 audio assets."],
+      ["Prompt labels", "Refer to materials as Image 1, Video 1, Audio 1 in prompt text. Do not put raw asset ids in prompt text."],
       ["userAssetId", "Existing uploaded asset id. For Seedance first_frame it is the first frame; otherwise it is a reference image."],
       ["extraReferenceAssetIds", "Seedance compatibility field for additional asset ids."],
       ["ratio", "9:16, 16:9, or 1:1."],
@@ -2447,7 +2502,10 @@ Content-Type: application/json
       { name: "reference_videos", type: "array", required: "No", description: "Reference video URL or asset:// URI array. Our referenceVideoAssetId/videoAssetId handles library videos.", default: "-" },
       { name: "reference_audios", type: "array", required: "No", description: "Reference audio URL or asset:// URI array. Forward via params when upstream allows it.", default: "-" },
       { name: "referenceVideoAssetIds", type: "array", required: "No", description: "Our friendly field for up to 3 uploaded video assets. The API prepares them into reference_video content.", default: "-" },
+      { name: "referenceVideos / referenceVideoUrls", type: "array", required: "No", description: "Our friendly field for up to 3 public video URLs. The API sends them as reference_video content.", default: "-" },
       { name: "referenceAudios / referenceAudioUrls", type: "array", required: "No", description: "Our friendly field for up to 3 public audio URLs. The API sends them as reference_audio content.", default: "-" },
+      { name: "referenceAudioAssetId / referenceAudioAssetIds", type: "string|array", required: "No", description: "Our friendly field for up to 3 uploaded audio assets. The API sends them as reference_audio content.", default: "-" },
+      { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
       { name: "web_search", type: "boolean", required: "No", description: "Enable web search enhancement where supported by upstream text-to-video.", default: "false" },
       { name: "content", type: "array", required: "No", description: "Advanced raw Ark content array. If supplied, it overrides the content we build from prompt and references.", default: "-" },
       { name: "params", type: "object", required: "No", description: "Pass-through object for upstream fields. Top-level prompt/provider/media fields are still understood by our API.", default: "{}" },
@@ -2599,12 +2657,14 @@ ACCESS_INTEGRATION_GUIDES = [
     docs: "assets",
     title: "Assets",
     subtitle: "Upload",
-    desc: "Upload character/reference images and reuse returned asset ids.",
+    desc: "Upload character/reference images, videos, or audio and reuse returned asset ids.",
     copy: `POST ${apiUrl("/api/user-assets")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
-{"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}`,
+{"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}
+{"videoUrl":"https://example.com/video1.mp4","fileName":"video1.mp4","name":"video1"}
+{"audioUrl":"https://example.com/audio1.mp3","fileName":"audio1.mp3","name":"audio1"}`,
   },
   {
     id: "agent",
@@ -5923,6 +5983,9 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".seedance-last-frame").forEach((item) => {
     item.hidden = provider !== "seedance" || !seedanceModeNeedsLastFrame(seedanceMode);
   });
+  document.querySelectorAll(".seedance-video-field").forEach((item) => {
+    item.hidden = provider !== "seedance" || !seedanceModeNeedsReferenceVideo(seedanceMode);
+  });
   if (els.advancedUploadBox) {
     els.advancedUploadBox.hidden = (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
       (provider === "seedance" && seedanceMode === "text_to_video");
@@ -6039,6 +6102,14 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = normalizeSeedanceMediaMode(params.seedanceMode || params.mediaMode || item.mediaMode || (provider === "seedance" ? "reference_images" : "text_to_video"));
   if (els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = params.drivingAudioUrl || params.driving_audio_url || "";
   if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = params.firstClipUrl || params.first_clip_url || "";
+  if (els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = [
+    ...splitUrlList(params.referenceVideoUrls || params.referenceVideos || ""),
+    ...arrayFrom(params.reference_videos).map((item) => (typeof item === "string" ? item : item?.url || item?.videoUrl || item?.video_url || item?.assetUri || "")).filter(Boolean),
+  ].join(", ");
+  if (els.advancedSeedanceAudioUrls) els.advancedSeedanceAudioUrls.value = [
+    ...splitUrlList(params.referenceAudioUrls || params.referenceAudios || ""),
+    ...arrayFrom(params.reference_audios).map((item) => (typeof item === "string" ? item : item?.url || item?.audioUrl || item?.audio_url || item?.assetUri || "")).filter(Boolean),
+  ].join(", ");
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
   if (els.advancedNote) {
@@ -6078,6 +6149,8 @@ async function submitAdvancedGenerate() {
   const mediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const referenceImages = selectedAdvancedReferenceImages();
+  const seedanceVideoUrls = splitUrlList(els.advancedSeedanceVideoUrls?.value || "");
+  const seedanceAudioUrls = splitUrlList(els.advancedSeedanceAudioUrls?.value || "");
   if (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !referenceImages.length) {
     els.advancedSubmitBtn.disabled = false;
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
@@ -6093,7 +6166,7 @@ async function submitAdvancedGenerate() {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceReferenceHint");
     return;
   }
-  if (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode) && !state.advancedSeedanceVideoAssetId) {
+  if (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode) && !state.advancedSeedanceVideoAssetId && !seedanceVideoUrls.length) {
     els.advancedSubmitBtn.disabled = false;
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceVideoRequired");
     return;
@@ -6144,6 +6217,8 @@ async function submitAdvancedGenerate() {
         endImageDataUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? state.advancedSeedanceLastFrameDataUrl : undefined,
         referenceImages: provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? referenceImages.map(seedanceImageRefPayload) : undefined,
         referenceVideoAssetId: provider === "seedance" ? (state.advancedSeedanceVideoAssetId || "") : undefined,
+        referenceVideoUrls: provider === "seedance" ? seedanceVideoUrls : undefined,
+        referenceAudioUrls: provider === "seedance" ? seedanceAudioUrls : undefined,
         lastFrameDataUrl: state.advancedWanLastFrameDataUrl,
         drivingAudioUrl: els.advancedWanAudioUrl?.value.trim() || "",
         firstClipDataUrl: selectedWanClipData(mediaMode),
@@ -6239,6 +6314,10 @@ function isImageAsset(asset = {}) {
   return asset.kind === "image" || String(asset.mime || "").toLowerCase().startsWith("image/");
 }
 
+function isAudioAsset(asset = {}) {
+  return asset.kind === "audio" || String(asset.mime || "").toLowerCase().startsWith("audio/");
+}
+
 function assetPreviewUrl(asset = {}) {
   return asset.previewUrl || asset.localUrl || asset.publicUrl || "";
 }
@@ -6253,6 +6332,18 @@ function seedanceImageRefPayload(item = {}) {
   return { dataUrl: item.dataUrl || "", url: "", fileName: item.fileName || "", name: item.name || "" };
 }
 
+function splitUrlList(value = "") {
+  return String(value || "")
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function arrayFrom(value) {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
 function imageAssetOptions(selectedId = "") {
   const images = (state.assetImageChoices?.length ? state.assetImageChoices : state.userAssets || []).filter(isImageAsset);
   return images.length
@@ -6265,6 +6356,13 @@ async function ensureAssetImageChoices() {
   const payload = await requestJson("/api/user-assets?type=image&page=1&limit=50");
   state.assetImageChoices = payload.assets || [];
   return state.assetImageChoices;
+}
+
+async function ensureAssetAudioChoices() {
+  if (!state.user) return [];
+  const payload = await requestJson("/api/user-assets?type=audio&page=1&limit=50");
+  state.assetAudioChoices = payload.assets || [];
+  return state.assetAudioChoices;
 }
 
 function assetGenerateDialogBody({ mode = "extend", imageAssetId = "" } = {}) {
@@ -6744,10 +6842,11 @@ function updateAdvancedReferenceSummary() {
         : t("advanced.seedanceFirstRequired");
       return;
     }
-    const hasVideo = Boolean(state.advancedSeedanceVideoAssetId);
+    const hasVideo = Boolean(state.advancedSeedanceVideoAssetId) || splitUrlList(els.advancedSeedanceVideoUrls?.value || "").length > 0;
+    const hasAudio = splitUrlList(els.advancedSeedanceAudioUrls?.value || "").length > 0;
     els.advancedReferenceSummary.textContent = count
-      ? `${t("advanced.seedanceReferenceCount", { count })}${hasVideo ? " Video 1 selected." : ""}`
-      : hasVideo ? "Video 1 selected." : t("advanced.seedanceReferenceHint");
+      ? `${t("advanced.seedanceReferenceCount", { count })}${hasVideo ? " Video selected." : ""}${hasAudio ? " Audio selected." : ""}`
+      : hasVideo ? `Video selected.${hasAudio ? " Audio selected." : ""}` : hasAudio ? "Audio selected." : t("advanced.seedanceReferenceHint");
     return;
   }
   els.advancedReferenceSummary.textContent = count ? t("advanced.wanFirstFrameHint") : "";
@@ -6779,21 +6878,25 @@ function renderAssets(assets = state.userAssets || []) {
   els.assetGrid.innerHTML = assets.map((asset) => {
     const url = assetPreviewUrl(asset);
     const video = isVideoAsset(asset);
+    const audio = isAudioAsset(asset);
+    const typeLabel = video ? t("assets.video") : audio ? t("assets.audio") : t("assets.image");
     return `
       <article class="asset-card">
-        <div class="asset-preview">
+        <div class="asset-preview ${audio ? "is-audio" : ""}">
           ${video
             ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata" controls></video>`
-            : `<img src="${escapeHtml(url)}" alt="${escapeHtml(asset.name || "")}" loading="lazy" />`}
+            : audio
+              ? `<div class="audio-asset-preview"><i data-lucide="audio-lines"></i><audio src="${escapeHtml(url)}" controls preload="metadata"></audio></div>`
+              : `<img src="${escapeHtml(url)}" alt="${escapeHtml(asset.name || "")}" loading="lazy" />`}
         </div>
         <div class="asset-info">
           <strong>${escapeHtml(asset.name || asset.id)}</strong>
-          <span>${escapeHtml(video ? t("assets.video") : t("assets.image"))}</span>
+          <span>${escapeHtml(typeLabel)}</span>
         </div>
         <div class="asset-actions">
-          ${!video ? `<button class="ghost-button" type="button" data-asset-use="${escapeHtml(asset.id)}">${escapeHtml(t("assets.use"))}</button>` : ""}
-          ${!video ? `<button class="copy-btn" type="button" data-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
-          ${!video ? `<button class="ghost-button" type="button" data-asset-extend="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extend"))}</button>` : ""}
+          ${!video && !audio ? `<button class="ghost-button" type="button" data-asset-use="${escapeHtml(asset.id)}">${escapeHtml(t("assets.use"))}</button>` : ""}
+          ${!video && !audio ? `<button class="copy-btn" type="button" data-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
+          ${!video && !audio ? `<button class="ghost-button" type="button" data-asset-extend="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extend"))}</button>` : ""}
           ${video ? `<button class="copy-btn" type="button" data-asset-replace="${escapeHtml(asset.id)}">${escapeHtml(t("assets.replace"))}</button>` : ""}
           ${video ? `<button class="ghost-button" type="button" data-asset-frame="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extractFrame"))}</button>` : ""}
           <button class="ghost-button danger" type="button" data-asset-delete="${escapeHtml(asset.id)}">${escapeHtml(t("assets.delete"))}</button>
@@ -7775,6 +7878,8 @@ els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
   els.advancedSeedanceLastFrame.value = "";
   updateAdvancedModelControls();
 });
+els.advancedSeedanceVideoUrls?.addEventListener("input", updateAdvancedReferenceSummary);
+els.advancedSeedanceAudioUrls?.addEventListener("input", updateAdvancedReferenceSummary);
 els.advancedWanLastFrame?.addEventListener("change", async () => {
   const file = els.advancedWanLastFrame.files?.[0];
   if (!file) return;
