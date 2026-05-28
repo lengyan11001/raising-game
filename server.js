@@ -4652,7 +4652,12 @@ function normalizeSeedanceMode(value = "", body = {}) {
   if (
     arrayFromBody(merged.referenceImages).length ||
     arrayFromBody(merged.referenceImageDataUrls).length ||
-    firstPresent(merged.reference_images, merged.userAssetId, merged.referenceImageAssetId)
+    arrayFromBody(merged.referenceImageAssetUris).length ||
+    arrayFromBody(merged.seedanceReferenceAssetUris).length ||
+    arrayFromBody(merged.referenceImages).some((item) => (
+      typeof item === "object" && item && (item.assetUri || item.referenceAssetUri || item.seedanceAssetUri)
+    )) ||
+    firstPresent(merged.reference_images, merged.seedanceReferenceAssetUri, merged.seedanceCharacterAssetUri, merged.userAssetId, merged.referenceImageAssetId)
   ) return "reference_images";
   return "text_to_video";
 }
@@ -4742,7 +4747,10 @@ function seedanceReferenceInputsFromBody(body = {}, { includeDataUrlFallback = t
   ];
   const filteredInputs = inputs.filter((item) => {
     if (!item) return false;
-    if (typeof item === "string") return item.trim();
+    if (typeof item === "string") {
+      const text = item.trim();
+      return text && !text.startsWith("asset://");
+    }
     return item.dataUrl || item.assetId || item.url || item.imageUrl;
   });
   if (filteredInputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
@@ -4771,7 +4779,10 @@ function seedanceExtraReferenceInputsFromBody(body = {}) {
     ...arrayFromBody(body.referenceDataUrls),
   ].filter((item) => {
     if (!item) return false;
-    if (typeof item === "string") return item.trim();
+    if (typeof item === "string") {
+      const text = item.trim();
+      return text && !text.startsWith("asset://");
+    }
     return item.dataUrl || item.assetId || item.url || item.imageUrl;
   });
   if (inputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
@@ -4808,6 +4819,36 @@ function seedanceReferenceAssetIdsFromBody(body = {}, { includeUserAssetId = tru
     throw error;
   }
   return assetIds;
+}
+
+function seedanceReferenceAssetUrisFromBody(body = {}) {
+  const explicitInputs = [
+    body.seedanceCharacterAssetUri,
+    body.seedanceReferenceAssetUri,
+    ...arrayFromBody(body.seedanceReferenceAssetUris),
+    ...arrayFromBody(body.referenceImageAssetUris),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  const referenceImageInputs = [
+    ...arrayFromBody(body.referenceImages).map((item) => (
+      typeof item === "string"
+        ? (item.trim().startsWith("asset://") ? item : "")
+        : String(item?.assetUri || item?.referenceAssetUri || item?.seedanceAssetUri || "")
+    )),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  const inputs = [...explicitInputs, ...referenceImageInputs];
+  const invalid = inputs.find((uri) => !uri.startsWith("asset://"));
+  if (invalid) {
+    const error = new Error("Seedance reference assetUri must start with asset://.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const unique = [...new Set(inputs)];
+  if (unique.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+    const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return unique;
 }
 
 function seedanceReferenceVideoAssetIdsFromBody(body = {}) {
@@ -4889,10 +4930,23 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
     const item = inputs[index];
     if (!item) continue;
     if (typeof item === "string") {
-      assets.push(await createUserAssetFromDataUrl(db, user, {
-        dataUrl: item,
-        name: `${name} ${index + 1}`,
-      }));
+      const text = item.trim();
+      if (!text || text.startsWith("asset://")) continue;
+      if (isPublicHttpUrl(text)) {
+        const pathname = new URL(text).pathname;
+        const asset = await createUserMediaAssetFromPublicUrl(db, user, {
+          url: text,
+          fileName: path.basename(pathname) || "",
+          name: `${name} ${index + 1}`,
+        });
+        validateWan27MediaKind(asset, "image", `${name} ${index + 1}`);
+        assets.push(asset);
+      } else {
+        assets.push(await createUserAssetFromDataUrl(db, user, {
+          dataUrl: text,
+          name: `${name} ${index + 1}`,
+        }));
+      }
       continue;
     }
     if (item.dataUrl) {
@@ -7710,6 +7764,7 @@ async function runAdvancedGenerationJob(job = {}) {
     referenceVideoAssetUris = [],
     referenceAudioAssetUris = [],
     referenceAudioAssetIds = [],
+    referenceImageAssetUris = [],
   } = job;
   const bodyParams = requestParams && typeof requestParams === "object" ? requestParamsFromBody(requestParams) : {};
   const runtime = advancedRuntimeForProvider(provider, requestParams);
@@ -7731,6 +7786,9 @@ async function runAdvancedGenerationJob(job = {}) {
   let referenceVideoAssetUri = "";
   let extraReferenceVideoAssetUris = [];
   let resolvedReferenceAudioAssetUris = [];
+  const directReferenceAssetUris = Array.isArray(referenceImageAssetUris)
+    ? [...new Set(referenceImageAssetUris.map((uri) => String(uri || "").trim()).filter((uri) => uri.startsWith("asset://")))]
+    : [];
   let payload = null;
   let createResponse = null;
 
@@ -7834,6 +7892,18 @@ async function runAdvancedGenerationJob(job = {}) {
         imageUrl = userAsset.publicUrl || userAsset.localUrl || "";
         sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
       }
+    }
+    if (provider === "seedance" && directReferenceAssetUris.length) {
+      const directQueue = directReferenceAssetUris
+        .filter((uri) => uri && uri !== referenceAssetUri)
+        .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+      if (!referenceAssetUri && directQueue.length) {
+        referenceAssetUri = directQueue.shift();
+      }
+      directQueue.forEach((uri) => {
+        if (uri !== referenceAssetUri && !extraReferenceAssetUris.includes(uri)) extraReferenceAssetUris.push(uri);
+      });
+      extraReferenceAssetUris = extraReferenceAssetUris.slice(0, Math.max(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT - 1));
     }
     if (provider === "seedance" && seedanceVideoAsset) {
       if (USE_GATEWAY_UPSTREAM) {
@@ -7953,6 +8023,14 @@ async function runAdvancedGenerationJob(job = {}) {
         mime: asset.mime || "",
       }));
       const audioMediaAssets = [...publicAudioMediaAssets, ...assetAudioMediaAssets].slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
+      const directReferenceMediaAssets = extraReferenceAssetUris
+        .filter((uri) => directReferenceAssetUris.includes(uri))
+        .map((uri, index) => ({
+          type: "reference_image",
+          key: `seedance_asset_${index + 1}`,
+          referenceAssetUri: uri,
+          imageUrl: uri,
+        }));
       const primaryMediaAsset = USE_GATEWAY_UPSTREAM && userAsset ? [{
         type: "reference_image",
         key: "image_1",
@@ -8002,7 +8080,7 @@ async function runAdvancedGenerationJob(job = {}) {
           mime: prepared.asset?.mime || "",
         });
       }
-      seedanceMediaAssets = [...frameMediaAssets, ...videoMediaAsset, ...publicVideoMediaAsset, ...audioMediaAssets, ...primaryMediaAsset, ...extraMediaAssets];
+      seedanceMediaAssets = [...frameMediaAssets, ...videoMediaAsset, ...publicVideoMediaAsset, ...audioMediaAssets, ...primaryMediaAsset, ...extraMediaAssets, ...directReferenceMediaAssets];
     }
 
     let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || "first_frame";
@@ -8297,6 +8375,7 @@ async function handleAdvancedGenerate(req, res) {
   let referenceVideoAssetUris = [];
   let referenceAudioAssetUris = [];
   let referenceAudioAssetIds = [];
+  let referenceImageAssetUris = [];
   let seedanceMode = "";
   let seedanceFirstFrameAsset = null;
   let seedanceEndFrameAsset = null;
@@ -8344,6 +8423,12 @@ async function handleAdvancedGenerate(req, res) {
       } catch (error) {
         return sendJson(res, 400, { ok: false, message: error.message || "Seedance reference video must be a video." });
       }
+    }
+    try {
+      referenceImageAssetUris = seedanceReferenceAssetUrisFromBody(mergedBody);
+      if (referenceImageAssetUris.length) requestParams.referenceImageAssetUris = referenceImageAssetUris;
+    } catch (error) {
+      return sendJson(res, error.statusCode || 400, { ok: false, message: error.message || "Seedance reference image assetUri is invalid." });
     }
     try {
       referenceVideoAssetUris = seedanceReferenceVideoUrlInputsFromBody(mergedBody);
@@ -8552,6 +8637,7 @@ async function handleAdvancedGenerate(req, res) {
         referenceVideoAssetUris,
         referenceAudioAssetUris,
         referenceAudioAssetIds,
+        referenceImageAssetUris,
         extraUserAssetIds,
         mediaMode: provider === "seedance" ? initialMediaMode : wan27MediaMode,
         mediaAssets: provider === "wan27"
@@ -8617,6 +8703,7 @@ async function handleAdvancedGenerate(req, res) {
     referenceVideoAssetUris,
     referenceAudioAssetUris,
     referenceAudioAssetIds,
+    referenceImageAssetUris,
     seedanceMode,
     seedanceFirstFrameAssetId: seedanceFirstFrameAsset?.id || "",
     seedanceEndFrameAssetId: seedanceEndFrameAsset?.id || "",
@@ -9222,6 +9309,9 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "endImageUrl / lastFrameUrl", type: "string", required: false, description: "Seedance last-frame public URL for first_last_frame. The server prepares it as upstream end_image_url." },
       { name: "endImageAssetId / lastFrameAssetId", type: "string", required: false, description: "Seedance last-frame asset id for first_last_frame." },
       { name: "referenceImages", type: "array", required: false, description: "Seedance reference_images mode. One or more images in the same field. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId." },
+      { name: "referenceImages[].assetUri", type: "string", required: false, description: "Seedance-ready asset:// URI returned by /api/seedance/characters/upload. Use assetId when possible; assetUri is accepted for upstream pass-through." },
+      { name: "seedanceReferenceAssetUri / seedanceCharacterAssetUri", type: "string", required: false, description: "Seedance-ready asset:// URI returned by /api/seedance/characters/upload." },
+      { name: "referenceImageAssetUris / seedanceReferenceAssetUris", type: "array", required: false, description: "Seedance-ready asset:// URI array returned by /api/seedance/characters/upload." },
       { name: "referenceVideos / referenceVideoUrls", type: "array", required: false, description: "Seedance reference_video/edit/extend public video URLs. Up to 3 URLs." },
       { name: "referenceVideoAssetId", type: "string", required: false, description: "Seedance reference_video mode. Existing uploaded video asset id." },
       { name: "referenceVideoAssetIds", type: "array", required: false, description: "Seedance multimodal/edit/extend. Up to 3 existing uploaded video asset ids." },
@@ -9294,6 +9384,7 @@ async function buildModelDocs(req) {
       platformGenerate: `${origin}/api/platform/generate`,
       advancedGenerate: `${origin}/api/advanced/generate`,
       userAssets: `${origin}/api/user-assets`,
+      seedanceCharacterUpload: `${origin}/api/seedance/characters/upload`,
       wan27ImageTextToImage: `${origin}/api/characters/generate`,
       wan27ImageEditAsset: `${origin}/api/user-assets/<assetId>/modify`,
       wan27ImageEditSystemCharacter: `${origin}/api/characters/<characterId>/modify`,
@@ -9341,7 +9432,7 @@ function advancedDocMarkdown(item) {
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "Seedance modes: set `seedanceMode` to `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`. For first-frame modes use `imageUrl`/`firstFrameUrl`/`imageAssetId`/`firstFrameAssetId`; for first+last use `endImageUrl`/`lastFrameUrl`/`endImageAssetId`/`lastFrameAssetId`. Reference-image mode uses `referenceImages` (up to 9), reference-video/edit/extend uses `referenceVideoAssetId`, `referenceVideoAssetIds`, `referenceVideos`, or `referenceVideoUrls` (up to 3), and multimodal audio references use `referenceAudios`, `referenceAudioUrls`, `referenceAudioAssetId`, or `referenceAudioAssetIds` (up to 3). In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
-  lines.push("", "Seedance character upload: upload the role image to `/api/user-assets` with `url`/`imageUrl` or `dataUrl`, then pass the returned `asset.id` as `referenceImages[0].assetId`. In the prompt, write `Image 1` to refer to that character. For multiple characters, the order in `referenceImages` maps to `Image 1`, `Image 2`, and so on.");
+  lines.push("", "Seedance character upload: call `/api/seedance/characters/upload` with `url`/`imageUrl`, `dataUrl`, or an existing `assetId`. The response returns `reference.assetId`, `reference.assetUri`, and a ready `referenceImages` item. Then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<reference.assetId>\",\"fileName\":\"image1.png\"}]`. In the prompt, write `Image 1` to refer to that character. For multiple characters, the order in `referenceImages` maps to `Image 1`, `Image 2`, and so on.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance friendly fields are prepared into upstream `image_url`, `end_image_url`, `content`, or `reference_*` fields as needed.");
   lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `image_url`, `end_image_url`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
@@ -9374,16 +9465,18 @@ function buildModelDocsMarkdown(docs) {
     "1. Read `/api/models` or this Markdown file to choose a template.",
     "2. For image-to-video templates, send `templateId` and `dataUrl` to `/api/platform/generate`.",
     "3. For text-to-video templates, send `templateId` and an optional `prompt` to `/api/platform/generate`.",
-    "4. Optional: upload a character/reference image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
-    "5. Seedance character upload: POST `/api/user-assets` with the character image, then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<asset.id>\"}]`. In the prompt, refer to that character as `Image 1`.",
+    "4. Optional: upload a reusable image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
+    "5. Seedance character upload: POST `/api/seedance/characters/upload` with the character image, then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<reference.assetId>\"}]`. In the prompt, refer to that character as `Image 1`.",
     "6. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"` and optional `seedanceMode` (`text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`).",
     "7. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional `seed`, and duration.",
     "8. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
     "",
     "## Seedance Character Upload Example",
     "",
+    "This is the Seedance-specific role-image preparation flow. It is not the generic asset upload flow.",
+    "",
     markdownCodeBlock("http", [
-      "POST /api/user-assets",
+      "POST /api/seedance/characters/upload",
       "Authorization: Bearer <user-token>",
       "Content-Type: application/json",
       "",
@@ -9391,6 +9484,13 @@ function buildModelDocsMarkdown(docs) {
       '  "url": "https://example.com/character-image1.png",',
       '  "fileName": "image1.png",',
       '  "name": "image1"',
+      "}",
+      "",
+      "Response:",
+      "{",
+      '  "ok": true,',
+      '  "reference": {"assetId": "asset-id-from-upload", "assetUri": "asset://seedance-asset-id", "fileName": "image1.png", "imageLabel": "Image 1"},',
+      '  "referenceImages": [{"assetId": "asset-id-from-upload", "fileName": "image1.png"}]',
       "}",
       "",
       "POST /api/advanced/generate",
@@ -10533,6 +10633,97 @@ async function handleUploadUserAsset(req, res) {
   return sendJson(res, 200, { ok: true, asset: publicUserAsset(userAsset) });
 }
 
+async function handleUploadSeedanceCharacter(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!USE_GATEWAY_UPSTREAM) {
+    try {
+      requireValue("ARK_API_KEY", ARK_API_KEY);
+      requireValue("BYTEPLUS_ACCESS_KEY_ID or VOLC_ACCESS_KEY_ID", ARK_OPENAPI.accessKey);
+      requireValue("BYTEPLUS_SECRET_ACCESS_KEY or VOLC_ACCESS_KEY_SECRET", ARK_OPENAPI.secretKey);
+    } catch (error) {
+      return sendJson(res, error.statusCode || 503, {
+        ok: false,
+        code: "SEEDANCE_ASSET_UPLOAD_NOT_CONFIGURED",
+        message: "Seedance character upload is not configured.",
+      });
+    }
+  }
+
+  const body = await readJson(req);
+  let userAsset = null;
+  const assetId = String(firstPresent(body.assetId, body.userAssetId, body.imageAssetId, "") || "").trim();
+  if (assetId) {
+    userAsset = (auth.db.userAssets || []).find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
+    if (!userAsset) return sendJson(res, 404, { ok: false, message: "Seedance character image not found." });
+  } else {
+    const publicUrl = String(firstPresent(body.url, body.imageUrl, body.characterImageUrl, "") || "").trim();
+    if (publicUrl) {
+      userAsset = await createUserMediaAssetFromPublicUrl(auth.db, auth.user, {
+        url: publicUrl,
+        name: body.name || body.fileName || "Seedance character image1",
+        fileName: body.fileName || body.name || "image1.png",
+      });
+    } else if (body.dataUrl) {
+      const { mime, bytes } = decodeWanMediaDataUrl(body.dataUrl);
+      if (!mime.startsWith("image/")) {
+        return sendJson(res, 400, { ok: false, message: "Seedance character upload only accepts image dataUrl." });
+      }
+      userAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
+        bytes,
+        mime,
+        name: body.name || "Seedance character image1",
+        fileName: body.fileName || body.name || "image1.png",
+        maxBytes: 8 * 1024 * 1024,
+      });
+    }
+  }
+
+  if (!userAsset) {
+    return sendJson(res, 400, { ok: false, message: "Provide url, imageUrl, dataUrl, or assetId for the Seedance character image." });
+  }
+  try {
+    validateWan27MediaKind(userAsset, "image", "Seedance character image");
+  } catch (error) {
+    return sendJson(res, 400, { ok: false, message: error.message || "Seedance character image must be an image." });
+  }
+
+  let prepared = { asset: userAsset, referenceAssetUri: userAsset.assetUri || "", imageUrl: userAsset.publicUrl || userAsset.localUrl || "" };
+  if (!USE_GATEWAY_UPSTREAM) {
+    prepared = await prepareSeedanceReferenceAsset(auth.db, userAsset, false);
+  }
+  const finalAsset = prepared.asset || userAsset;
+  const fileName = String(body.fileName || finalAsset.name || "image1.png").trim() || "image1.png";
+  const reference = {
+    assetId: finalAsset.id,
+    assetUri: prepared.referenceAssetUri || finalAsset.assetUri || "",
+    fileName,
+    name: String(body.name || finalAsset.name || "image1").trim() || "image1",
+    imageLabel: "Image 1",
+  };
+  return sendJson(res, 200, {
+    ok: true,
+    asset: publicUserAsset(finalAsset),
+    reference,
+    referenceImages: [{
+      assetId: reference.assetId,
+      assetUri: reference.assetUri,
+      fileName: reference.fileName,
+      name: reference.name,
+    }],
+    generateRequest: {
+      provider: "seedance",
+      seedanceMode: "reference_images",
+      prompt: "Use Image 1 as the main character. Keep the same identity and generate a cinematic shot.",
+      referenceImages: [{ assetId: reference.assetId, fileName: reference.fileName }],
+      ratio: "9:16",
+      resolution: "720p",
+      duration: 5,
+      params: { generate_audio: true },
+    },
+  });
+}
+
 function generationRecordAssetName(record = {}) {
   const base = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || record.taskId || "Generated video";
   return String(base || "Generated video").trim().slice(0, 60) || "Generated video";
@@ -10617,6 +10808,8 @@ function publicUserAsset(asset = {}) {
     localUrl: asset.localUrl || "",
     publicUrl: asset.publicUrl || "",
     previewUrl: asset.localUrl || asset.publicUrl || "",
+    assetUri: kind === "image" ? asset.assetUri || "" : "",
+    seedanceAssetUri: kind === "video" ? asset.seedanceVideoAssetUri || "" : kind === "audio" ? asset.seedanceAudioAssetUri || "" : asset.assetUri || "",
     seedanceReady: Boolean(kind === "video" ? asset.seedanceVideoAssetUri : kind === "audio" ? asset.seedanceAudioAssetUri || asset.publicUrl : asset.assetUri),
     isCharacterAsset,
     characterPrompt: asset.characterPrompt || "",
@@ -14213,6 +14406,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/user-assets") {
       return await handleUploadUserAsset(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/seedance/characters/upload") {
+      return await handleUploadSeedanceCharacter(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/characters/generate") {

@@ -2072,15 +2072,18 @@ POST ${apiUrl("/api/advanced/generate")}
   "duration": 5
 }
 
-Upload character/reference image:
-POST ${apiUrl("/api/user-assets")}
+Seedance character image flow:
+POST ${apiUrl("/api/seedance/characters/upload")}
 {
-  "url": "https://example.com/image1.png",
+  "url": "https://example.com/character-image1.png",
   "fileName": "image1.png",
   "name": "image1"
 }
 
-Upload video/audio references the same way:
+Use the returned reference.assetId in /api/advanced/generate. Direct public URL items are also accepted for simple reference images.
+
+Upload video/audio references through the asset library:
+POST ${apiUrl("/api/user-assets")}
 {
   "videoUrl": "https://example.com/video1.mp4",
   "fileName": "video1.mp4",
@@ -2098,8 +2101,7 @@ POST ${apiUrl("/api/advanced/generate")}
   "provider": "seedance",
   "prompt": "Use Image 1 as the character reference. Use Video 1 as motion reference if provided. Use Audio 1 as music reference if provided.",
   "referenceImages": [
-    {"url": "https://example.com/image1.png", "fileName": "image1.png"},
-    {"url": "https://example.com/image2.png", "fileName": "image2.png"}
+    {"assetId": "reference.assetId from character upload", "fileName": "image1.png"}
   ],
   "referenceVideoUrls": ["https://example.com/video1.mp4"],
   "referenceAudioUrls": ["https://example.com/audio1.mp3"],
@@ -2107,10 +2109,11 @@ POST ${apiUrl("/api/advanced/generate")}
   "duration": 5
 }`;
 
-const SEEDANCE_CHARACTER_UPLOAD_COPY = `Seedance character image upload and use:
+const SEEDANCE_CHARACTER_UPLOAD_COPY = `Complete Seedance character image upload and video generation flow:
+Use this block as the one-copy Seedance role workflow.
 
-1) Upload the character image:
-POST ${apiUrl("/api/user-assets")}
+1) Prepare the character image for Seedance:
+POST ${apiUrl("/api/seedance/characters/upload")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
@@ -2120,14 +2123,19 @@ Content-Type: application/json
   "name": "image1"
 }
 
-You may also send base64:
+You may also send base64, or reuse an existing uploaded image asset:
 {
   "dataUrl": "data:image/png;base64,...",
   "fileName": "image1.png",
   "name": "image1"
 }
+{
+  "assetId": "existing-image-asset-id",
+  "fileName": "image1.png",
+  "name": "image1"
+}
 
-The response returns asset.id.
+The response returns reference.assetId, reference.assetUri, and a ready referenceImages item.
 
 2) Use it in Seedance:
 POST ${apiUrl("/api/advanced/generate")}
@@ -2139,7 +2147,7 @@ Content-Type: application/json
   "seedanceMode": "reference_images",
   "prompt": "Use Image 1 as the main character. Keep the same face, hairstyle, body shape, and outfit. Create a 5 second cinematic shot.",
   "referenceImages": [
-    {"assetId": "asset-id-from-upload", "fileName": "image1.png"}
+    {"assetId": "reference.assetId from step 1", "fileName": "image1.png"}
   ],
   "ratio": "9:16",
   "resolution": "720p",
@@ -2150,32 +2158,24 @@ Content-Type: application/json
 Prompt rule: uploaded character images are referenced as Image 1, Image 2, etc. Do not put raw asset ids in the prompt. Multiple characters can be sent in order inside referenceImages, then referenced as Image 1 / Image 2.`;
 
 const TYPE_SCRIPT_ACCESS_COPY = `const token = "<user-token>";
-const galleryBody = {
-  templateId: "template-id",
-  dataUrl: "data:image/png;base64,...",
-  prompt: ""
-};
-
-const uploaded = await fetch("${apiUrl("/api/user-assets")}", {
+const character = await fetch("${apiUrl("/api/seedance/characters/upload")}", {
   method: "POST",
   headers: {
     authorization: \`Bearer \${token}\`,
     "content-type": "application/json"
   },
   body: JSON.stringify({
-    url: "https://example.com/image1.png",
+    url: "https://example.com/character-image1.png",
     fileName: "image1.png",
     name: "image1"
   })
 }).then((res) => res.json());
 
 const advancedBody = {
-  provider: "seedance", // "seedance" or "wan27"
-  prompt: "Use Image 1 as the character reference. Use Video 1 as motion reference if provided. Use Audio 1 as music reference if provided.",
-  dataUrl: "data:image/png;base64,...", // Wan2.7 only
-  // Seedance only: send one or more reference images in the same field.
-  referenceImages: [{ assetId: uploaded.asset.id, fileName: "image1.png" }],
-  // Seedance edit/extend can also use video/audio references.
+  provider: "seedance",
+  seedanceMode: "reference_images",
+  prompt: "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot.",
+  referenceImages: [{ assetId: character.reference.assetId, fileName: "image1.png" }],
   referenceVideoUrls: ["https://example.com/video1.mp4"],
   referenceAudioUrls: ["https://example.com/audio1.mp3"],
   resolution: "720p",
@@ -2198,17 +2198,11 @@ console.log(await res.json());
 const PYTHON_ACCESS_COPY = `import requests
 
 token = "<user-token>"
-gallery_payload = {
-    "templateId": "template-id",
-    "dataUrl": "data:image/png;base64,...",
-    "prompt": "",
-}
-
-uploaded = requests.post(
-    "${apiUrl("/api/user-assets")}",
+character = requests.post(
+    "${apiUrl("/api/seedance/characters/upload")}",
     headers={"Authorization": f"Bearer {token}"},
     json={
-        "url": "https://example.com/image1.png",
+        "url": "https://example.com/character-image1.png",
         "fileName": "image1.png",
         "name": "image1",
     },
@@ -2216,11 +2210,10 @@ uploaded = requests.post(
 ).json()
 
 advanced_payload = {
-    "provider": "seedance",  # or "wan27"
-    "prompt": "Use Image 1 as the character reference. Use Video 1 as motion reference if provided. Use Audio 1 as music reference if provided.",
-    "dataUrl": "data:image/png;base64,...",  # Wan2.7 only
-    # Seedance only: send one or more reference images in the same field.
-    "referenceImages": [{"assetId": uploaded["asset"]["id"], "fileName": "image1.png"}],
+    "provider": "seedance",
+    "seedanceMode": "reference_images",
+    "prompt": "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot.",
+    "referenceImages": [{"assetId": character["reference"]["assetId"], "fileName": "image1.png"}],
     "referenceVideoUrls": ["https://example.com/video1.mp4"],
     "referenceAudioUrls": ["https://example.com/audio1.mp3"],
     "resolution": "720p",
@@ -2248,15 +2241,15 @@ curl -X POST "${apiUrl("/api/advanced/generate")}" \\
   -H "Content-Type: application/json" \\
   -d '{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}'
 
-curl -X POST "${apiUrl("/api/user-assets")}" \\
+curl -X POST "${apiUrl("/api/seedance/characters/upload")}" \\
   -H "Authorization: Bearer <user-token>" \\
   -H "Content-Type: application/json" \\
-  -d '{"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}'
+  -d '{"url":"https://example.com/character-image1.png","fileName":"image1.png","name":"image1"}'
 
 curl -X POST "${apiUrl("/api/advanced/generate")}" \\
   -H "Authorization: Bearer <user-token>" \\
   -H "Content-Type: application/json" \\
-  -d '{"provider":"seedance","seedanceMode":"reference_video","prompt":"Use Image 1 as the character reference, Video 1 as the motion reference, and Audio 1 as the music reference.","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":8}'
+  -d '{"provider":"seedance","seedanceMode":"reference_images","prompt":"Use Image 1 as the main character. Keep the same identity and create a cinematic shot.","referenceImages":[{"assetId":"reference.assetId from upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":8}'
 
 # Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
@@ -2274,12 +2267,12 @@ POST ${apiUrl("/api/advanced/generate")}
 Body:
 {"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}
 or:
-{"provider":"seedance","prompt":"Use Image 1 as the character, Video 1 as the motion reference, and Audio 1 as the music reference.","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":5}
+{"provider":"seedance","seedanceMode":"reference_images","prompt":"Use Image 1 as the character, Video 1 as the motion reference, and Audio 1 as the music reference.","referenceImages":[{"assetId":"reference.assetId from /api/seedance/characters/upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":5}
 
-Optional upload first:
-POST ${apiUrl("/api/user-assets")}
+Seedance character upload first:
+POST ${apiUrl("/api/seedance/characters/upload")}
 Body:
-{"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}
+{"url":"https://example.com/character-image1.png","fileName":"image1.png","name":"image1"}
 
 Check records:
 GET ${apiUrl("/api/generation-records")}`;
@@ -2294,30 +2287,24 @@ Advanced MCP wrapper target:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
-{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
+{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"assetId":"reference.assetId from /api/seedance/characters/upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
 
-Asset upload target:
-POST ${apiUrl("/api/user-assets")}
+Seedance character upload target:
+POST ${apiUrl("/api/seedance/characters/upload")}
 Authorization: Bearer <user-token>
 Input:
-{"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}
+{"url":"https://example.com/character-image1.png","fileName":"image1.png","name":"image1"}
 
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
 
-const SEEDANCE_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
+const SEEDANCE_PARAM_ACCESS_COPY = `${SEEDANCE_CHARACTER_UPLOAD_COPY}
+
+Direct Seedance generation endpoint:
+POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 Prompt reference rule: describe uploaded materials as Image 1, Video 1, Audio 1. Do not put raw asset ids in the prompt text.
-
-Character image flow:
-POST ${apiUrl("/api/user-assets")}
-{
-  "url": "https://example.com/character-image1.png",
-  "fileName": "image1.png",
-  "name": "image1"
-}
-Then send returned asset.id as referenceImages[0].assetId and write "Image 1" in the prompt.
 
 Text to video:
 {
@@ -2465,7 +2452,7 @@ Content-Type: application/json
   },
   assets: {
     title: "Asset Upload",
-    summary: "Upload a character or reference image/video/audio to the current user's asset library. For Seedance character consistency, upload the character image first, then pass the returned asset.id in referenceImages[].assetId and refer to it as Image 1 in the prompt.",
+    summary: "Upload a reusable image, video, or audio file to the current user's asset library. Seedance-specific character preparation is documented inside Seedance Params.",
     request: [
       ["Authorization", "Bearer <user-token>"],
       ["Content-Type", "application/json"],
@@ -2479,7 +2466,7 @@ Content-Type: application/json
     ],
     response: [
       ["ok", "true when the upload succeeds."],
-      ["asset.id", "Use this id as referenceImages[].assetId, referenceVideoAssetIds[], or referenceAudioAssetIds[]."],
+      ["asset.id", "Use this id as userAssetId, referenceVideoAssetIds[], referenceAudioAssetIds[], or other asset fields."],
       ["asset.kind", "image, video, or audio."],
       ["asset.previewUrl", "Local preview URL."],
     ],
@@ -2491,41 +2478,7 @@ Content-Type: application/json
   "url": "https://example.com/image1.png",
   "fileName": "image1.png",
   "name": "image1"
-}
-
-Seedance character use:
-POST /api/advanced/generate
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "provider": "seedance",
-  "seedanceMode": "reference_images",
-  "prompt": "Use Image 1 as the main character. Keep the same face and outfit while she walks through a cinematic city street.",
-  "referenceImages": [
-    {"assetId": "asset-id-from-upload", "fileName": "image1.png"}
-  ],
-  "ratio": "9:16",
-  "resolution": "720p",
-  "duration": 5
 }`,
-  },
-  seedanceCharacter: {
-    title: "Seedance Character Upload",
-    summary: "Upload a character image, reuse the returned asset id in Seedance referenceImages, and reference that image as Image 1 in prompt text.",
-    request: [
-      ["Step 1", "POST /api/user-assets with url/imageUrl or dataUrl. The response returns asset.id."],
-      ["Step 2", "POST /api/advanced/generate with provider=seedance and referenceImages containing {assetId}."],
-      ["Prompt", "Write Image 1, Image 2, etc. in the prompt to point to uploaded character images. Do not write raw asset ids in the prompt."],
-      ["Multiple characters", "Send referenceImages in order; the first item is Image 1, the second item is Image 2."],
-      ["Public URL option", "If you do not want to upload first, referenceImages items can also use url/imageUrl + fileName directly."],
-    ],
-    response: [
-      ["upload.asset.id", "The id to use in referenceImages[].assetId."],
-      ["generate.taskId", "Local generation task id."],
-      ["generate.record", "Generation record with billing and upstream payload after submit."],
-    ],
-    example: SEEDANCE_CHARACTER_UPLOAD_COPY,
   },
   advanced: {
     title: "Advanced Generation",
@@ -2543,6 +2496,9 @@ Content-Type: application/json
       ["endImageUrl / lastFrameUrl", "Seedance last-frame public URL for first_last_frame."],
       ["endImageAssetId / lastFrameAssetId", "Seedance last-frame asset id for first_last_frame."],
       ["referenceImages", "Seedance reference_images mode. Array items can use url/imageUrl + fileName, dataUrl + fileName, or assetId."],
+      ["referenceImages[].assetUri", "Seedance-ready asset:// URI returned by /api/seedance/characters/upload. assetId is preferred, assetUri is accepted."],
+      ["seedanceReferenceAssetUri / seedanceCharacterAssetUri", "Seedance-ready asset:// URI returned by /api/seedance/characters/upload."],
+      ["referenceImageAssetUris / seedanceReferenceAssetUris", "Array of Seedance-ready asset:// URIs returned by /api/seedance/characters/upload."],
       ["referenceVideoAssetId", "Seedance reference_video mode. Existing uploaded video asset id."],
       ["referenceVideoAssetIds", "Seedance multimodal/edit/extend. Up to 3 existing uploaded video asset ids."],
       ["referenceVideos / referenceVideoUrls", "Seedance multimodal/edit/extend. Up to 3 public video URLs."],
@@ -2572,6 +2528,7 @@ Content-Type: application/json
     title: "Seedance Video Parameters",
     summary: "Use /api/advanced/generate with provider=seedance. Our API prepares uploaded references, then forwards these Seedance fields in the upstream task payload.",
     request: [
+      { name: "/api/seedance/characters/upload", type: "endpoint", required: "No", description: "One-step Seedance character preparation endpoint. Send url/imageUrl, dataUrl, or assetId; response.reference.assetId can go straight into referenceImages[].assetId.", default: "-" },
       { name: "model", type: "string", required: "No", description: "Seedance model id. Use dreamina-seedance-2-0-fast-260128 for fast/default, or dreamina-seedance-2-0-260128 for standard/higher quality.", default: "dreamina-seedance-2-0-260128" },
       { name: "prompt", type: "string", required: "Yes", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
       { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. Supports common values like 9:16, 16:9, 1:1. adaptive can be forwarded in params if upstream enables it.", default: "9:16" },
@@ -2583,7 +2540,11 @@ Content-Type: application/json
       { name: "endImageUrl / lastFrameUrl / endImageAssetId / lastFrameAssetId", type: "string", required: "Mode dependent", description: "Our API prepares this as upstream end_image_url for first/last-frame mode.", default: "-" },
       { name: "image_url", type: "string", required: "No", description: "Raw upstream first-frame URL or asset:// URI. Public URLs are also accepted through imageUrl/firstFrameUrl.", default: "-" },
       { name: "end_image_url", type: "string", required: "No", description: "Raw upstream last-frame URL or asset:// URI. Also provide image_url when using first/last-frame mode.", default: "-" },
-      { name: "reference_images", type: "array", required: "No", description: "Reference image URL or asset:// URI array. Our referenceImages array accepts url/imageUrl, dataUrl, or assetId and converts it before upstream submit.", default: "-" },
+      { name: "reference_images", type: "array", required: "No", description: "Reference image URL or asset:// URI array. Our referenceImages array accepts url/imageUrl, dataUrl, assetId, or assetUri and converts it before upstream submit.", default: "-" },
+      { name: "referenceImages[].assetId", type: "string", required: "No", description: "Asset id returned by /api/seedance/characters/upload or /api/user-assets. This is the preferred way to pass a prepared character image.", default: "-" },
+      { name: "referenceImages[].assetUri", type: "string", required: "No", description: "Seedance-ready asset:// URI returned by /api/seedance/characters/upload. Use this only when you need raw upstream asset URI pass-through.", default: "-" },
+      { name: "seedanceReferenceAssetUri / seedanceCharacterAssetUri", type: "string", required: "No", description: "Single Seedance-ready asset:// URI returned by /api/seedance/characters/upload.", default: "-" },
+      { name: "referenceImageAssetUris / seedanceReferenceAssetUris", type: "array", required: "No", description: "Multiple Seedance-ready asset:// URIs returned by /api/seedance/characters/upload.", default: "-" },
       { name: "reference_videos", type: "array", required: "No", description: "Reference video URL or asset:// URI array. Our referenceVideoAssetId/videoAssetId handles library videos.", default: "-" },
       { name: "reference_audios", type: "array", required: "No", description: "Reference audio URL or asset:// URI array. Forward via params when upstream allows it.", default: "-" },
       { name: "referenceVideoAssetIds", type: "array", required: "No", description: "Our friendly field for up to 3 uploaded video assets. The API prepares them into reference_video content.", default: "-" },
@@ -2742,7 +2703,7 @@ ACCESS_INTEGRATION_GUIDES = [
     docs: "assets",
     title: "Assets",
     subtitle: "Upload",
-    desc: "Upload character/reference images, videos, or audio and reuse returned asset ids.",
+    desc: "Upload reusable images, videos, or audio and reuse returned asset ids.",
     copy: `POST ${apiUrl("/api/user-assets")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
@@ -2750,14 +2711,6 @@ Content-Type: application/json
 {"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}
 {"videoUrl":"https://example.com/video1.mp4","fileName":"video1.mp4","name":"video1"}
 {"audioUrl":"https://example.com/audio1.mp3","fileName":"audio1.mp3","name":"audio1"}`,
-  },
-  {
-    id: "seedance-character",
-    docs: "seedanceCharacter",
-    title: "Seedance Character",
-    subtitle: "Upload + use",
-    desc: "Upload a role image, then use asset.id in referenceImages and refer to it as Image 1.",
-    copy: SEEDANCE_CHARACTER_UPLOAD_COPY,
   },
   {
     id: "agent",
@@ -3506,12 +3459,6 @@ function tokenAccessPackageMarkdown() {
     "",
     "```http",
     hydrateAccessCopy(LIVE_HTTP_ACCESS_COPY, { revealToken: true }).trim(),
-    "```",
-    "",
-    "## Seedance Character Upload",
-    "",
-    "```http",
-    hydrateAccessCopy(SEEDANCE_CHARACTER_UPLOAD_COPY, { revealToken: true }).trim(),
     "```",
     "",
     "## Detailed Parameters",
@@ -5988,10 +5935,9 @@ function renderAccessGuides() {
         </div>
         ${accessQuickList([
           doc === ACCESS_DOCS.platform ? "One token, one template id, and one image for image-to-video templates." : "",
-          doc === ACCESS_DOCS.assets ? "Upload once, then pass asset.id as referenceImages[].assetId for Seedance." : "",
-          doc === ACCESS_DOCS.seedanceCharacter ? "For Seedance role consistency, upload the character image and refer to it as Image 1 in the prompt." : "",
+          doc === ACCESS_DOCS.assets ? "Upload once, then pass asset.id into the matching image/video/audio field." : "",
           doc === ACCESS_DOCS.advanced ? "Seedance uses referenceImages; Wan2.7 uses dataUrl as the first frame; extra upstream fields belong in params." : "",
-          doc === ACCESS_DOCS.seedanceParams ? "Fields inside params are forwarded to Seedance; uploaded dataUrl references are prepared by our API before submit." : "",
+          doc === ACCESS_DOCS.seedanceParams ? "Start with /api/seedance/characters/upload, then send returned reference.assetId into /api/advanced/generate. Fields inside params are forwarded to Seedance." : "",
           doc === ACCESS_DOCS.wan27VideoParams ? "Fields inside params.parameters merge into DashScope parameters; fields inside params.input merge into DashScope input." : "",
           doc === ACCESS_DOCS.wan27ImageParams ? "Image results are saved as assets and history/admin records include the upstream payload." : "",
           doc === ACCESS_DOCS.records ? "Use refresh=1 on list views when you want pending tasks to refresh." : "",
