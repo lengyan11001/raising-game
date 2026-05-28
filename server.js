@@ -275,6 +275,39 @@ const ARK_OPENAPI = {
 
 const demoTasks = new Map();
 const requestContext = new AsyncLocalStorage();
+let appStateWriteLock = Promise.resolve();
+
+function isAppStateWriteRequest(method = "", pathname = "") {
+  const verb = String(method || "").toUpperCase();
+  return String(pathname || "").startsWith("/api/") && ["POST", "PUT", "PATCH", "DELETE"].includes(verb);
+}
+
+async function withAppStateWriteLock(fn) {
+  let store = requestContext.getStore();
+  if (!store) {
+    return requestContext.run({ auth: null, appStateWriteLocked: false }, () => withAppStateWriteLock(fn));
+  }
+  if (store?.appStateWriteLocked) return await fn();
+  const previous = appStateWriteLock;
+  let release;
+  appStateWriteLock = new Promise((resolve) => {
+    release = resolve;
+  });
+  await previous.catch(() => {});
+  try {
+    if (store) {
+      store.appStateWriteLocked = true;
+      try {
+        return await fn();
+      } finally {
+        store.appStateWriteLocked = false;
+      }
+    }
+    return await fn();
+  } finally {
+    release();
+  }
+}
 
 const mimeTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -805,7 +838,7 @@ function isSoftDeleted(record) {
 }
 
 async function writeDb(db) {
-  await setKv("app_db", db);
+  return withAppStateWriteLock(() => setKv("app_db", db));
 }
 
 async function readAppConfig() {
@@ -828,7 +861,7 @@ async function readAppConfig() {
 }
 
 async function writeAppConfig(config) {
-  await setKv("app_config", config);
+  return withAppStateWriteLock(() => setKv("app_config", config));
 }
 
 async function ensureSceneEntriesPersisted(config) {
@@ -2998,7 +3031,7 @@ async function runWalletScanTick(reason = "timer") {
   if (walletScanRunning) return;
   walletScanRunning = true;
   try {
-    const result = await scanAndSettleWalletOrders({ limit: 100 });
+    const result = await withAppStateWriteLock(() => scanAndSettleWalletOrders({ limit: 100 }));
     if (result.matched || result.errors?.length) {
       console.log("[wallet-scan]", { reason, matched: result.matched, scanned: result.scanned, errors: result.errors?.length || 0 });
     }
@@ -6046,35 +6079,39 @@ async function readGenerationRecords() {
 }
 
 async function writeGenerationRecords(records) {
-  if (dbEnabled()) {
-    await replaceGenerationRecordsInDb(records);
-    return;
-  }
-  await setKv("generation_records", records);
+  return withAppStateWriteLock(async () => {
+    if (dbEnabled()) {
+      await replaceGenerationRecordsInDb(records);
+      return;
+    }
+    await setKv("generation_records", records);
+  });
 }
 
 async function upsertGenerationRecord(nextRecord) {
   if (dbEnabled()) {
     return upsertGenerationRecordInDb(nextRecord);
   }
-  const records = await readGenerationRecords();
-  const index = records.findIndex((record) => record.taskId === nextRecord.taskId);
-  const now = new Date().toISOString();
-  const record = {
-    ...(index >= 0 ? records[index] : { createdAt: now }),
-    ...nextRecord,
-    deletedAt: nextRecord.deletedAt ?? (index >= 0 ? records[index].deletedAt || "" : ""),
-    updatedAt: now,
-  };
+  return withAppStateWriteLock(async () => {
+    const records = await readGenerationRecords();
+    const index = records.findIndex((record) => record.taskId === nextRecord.taskId);
+    const now = new Date().toISOString();
+    const record = {
+      ...(index >= 0 ? records[index] : { createdAt: now }),
+      ...nextRecord,
+      deletedAt: nextRecord.deletedAt ?? (index >= 0 ? records[index].deletedAt || "" : ""),
+      updatedAt: now,
+    };
 
-  if (index >= 0) {
-    records[index] = record;
-  } else {
-    records.unshift(record);
-  }
+    if (index >= 0) {
+      records[index] = record;
+    } else {
+      records.unshift(record);
+    }
 
-  await writeGenerationRecords(records.slice(0, 500));
-  return record;
+    await writeGenerationRecords(records.slice(0, 500));
+    return record;
+  });
 }
 
 async function upsertAndSettleGenerationRecord(nextRecord, reason = "query") {
@@ -14972,7 +15009,25 @@ async function handleRequest(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  handleRequest(req, res);
+  requestContext.run({ auth: null, appStateWriteLocked: false }, () => {
+    const run = () => handleRequest(req, res);
+    const url = new URL(req.url, `http://${req.headers.host || "127.0.0.1"}`);
+    const task = isAppStateWriteRequest(req.method, url.pathname)
+      ? withAppStateWriteLock(run)
+      : run();
+    Promise.resolve(task).catch((error) => {
+      console.error("[request-failed]", error.message || error);
+      if (!res.headersSent) {
+        sendJson(res, error.statusCode || 500, {
+          ok: false,
+          code: error.code || "SERVER_ERROR",
+          message: error.message || "Server error",
+        });
+      } else {
+        res.destroy(error);
+      }
+    });
+  });
 });
 server.keepAliveTimeout = Number(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS || 65000);
 server.headersTimeout = Number(process.env.HTTP_HEADERS_TIMEOUT_MS || 70000);
