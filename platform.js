@@ -423,20 +423,20 @@ const I18N = {
     "characters.createButton": "Create character",
     "characters.createLogin": "Login to create characters.",
     "characters.creating": "Creating character...",
-    "characters.created": "Character saved to assets.",
+    "characters.created": "Character image saved to history. Use Add asset in history to add it to assets.",
     "characters.createFailed": "Create failed: {message}",
     "characters.takeOff": "Take off",
     "characters.modify": "Modify",
     "characters.modifyTitle": "Modify character",
     "characters.modifyPlaceholder": "Describe what to change while preserving this character...",
     "characters.takeOffPrompt": "脱掉所有衣服，保持裸体，不要出现肉色衣服",
-    "characters.takeOffConfirm": "Confirm to generate a modified image. The result will be saved to assets and history.",
+    "characters.takeOffConfirm": "Confirm to generate a modified image. The result will be saved to history.",
     "characters.takeOffRunning": "Generating image... Keep this dialog open to see the result.",
     "characters.takeOffDone": "Image generated.",
-    "characters.takeOffSaved": "Saved to assets and history.",
+    "characters.takeOffSaved": "Saved to history. Use Add asset in history to add it to assets.",
     "characters.takeOffDoneButton": "Done",
     "characters.useReady": "{name} selected.",
-    "characters.modifyDone": "Modified image saved to assets.",
+    "characters.modifyDone": "Modified image saved to history.",
     "characters.delete": "Delete",
     "characters.deleteFailed": "Delete failed: {message}",
     "category.featured": "Featured",
@@ -600,8 +600,8 @@ const I18N = {
     "assets.modify": "Modify",
     "assets.modifyTitle": "Modify image",
     "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
-    "assets.modifyHint": "The edited result is saved as a new asset.",
-    "assets.modified": "Modified image saved to assets.",
+    "assets.modifyHint": "The edited result is saved to history first.",
+    "assets.modified": "Modified image saved to history.",
     "assets.generating": "Generating...",
     "assets.extend": "Extend",
     "assets.replace": "Replace",
@@ -1955,8 +1955,8 @@ const ASSET_WORKFLOW_COPY = {
     "assets.modify": "Modify",
     "assets.modifyTitle": "Modify image",
     "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
-    "assets.modifyHint": "The edited result is saved as a new asset.",
-    "assets.modified": "Modified image saved to Assets.",
+    "assets.modifyHint": "The edited result is saved to history first.",
+    "assets.modified": "Modified image saved to history.",
     "file.choose": "Choose file",
     "file.chooseImage": "Choose image",
     "file.chooseVideo": "Choose video",
@@ -1967,8 +1967,8 @@ const ASSET_WORKFLOW_COPY = {
     "assets.modify": "Sua anh",
     "assets.modifyTitle": "Sua anh",
     "assets.modifyPromptPlaceholder": "Mo ta phan can chinh va giu nhan vat nhat quan...",
-    "assets.modifyHint": "Ket qua se luu thanh tai nguyen moi.",
-    "assets.modified": "Anh da sua da duoc luu.",
+    "assets.modifyHint": "The edited result is saved to history first.",
+    "assets.modified": "Modified image saved to history.",
     "file.choose": "Chon tep",
     "file.chooseImage": "Chon anh",
     "file.chooseVideo": "Chon video",
@@ -1982,8 +1982,8 @@ const ASSET_WORKFLOW_COPY = {
     "assets.modify": "Modify",
     "assets.modifyTitle": "Modify image",
     "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
-    "assets.modifyHint": "The edited result is saved as a new asset.",
-    "assets.modified": "Modified image saved to Assets.",
+    "assets.modifyHint": "The edited result is saved to history first.",
+    "assets.modified": "Modified image saved to history.",
     "file.choose": "File",
     "file.chooseImage": "Image",
     "file.chooseVideo": "Video",
@@ -1997,8 +1997,8 @@ const ASSET_WORKFLOW_COPY = {
     "assets.modify": "Modify",
     "assets.modifyTitle": "Modify image",
     "assets.modifyPromptPlaceholder": "Describe what to change while keeping the subject consistent...",
-    "assets.modifyHint": "The edited result is saved as a new asset.",
-    "assets.modified": "Modified image saved to Assets.",
+    "assets.modifyHint": "The edited result is saved to history first.",
+    "assets.modified": "Modified image saved to history.",
     "file.choose": "File",
     "file.chooseImage": "Image",
     "file.chooseVideo": "Video",
@@ -2012,8 +2012,8 @@ const ASSET_WORKFLOW_COPY = {
     "assets.modify": "Ubah gambar",
     "assets.modifyTitle": "Ubah gambar",
     "assets.modifyPromptPlaceholder": "Jelaskan perubahan sambil menjaga subjek tetap konsisten...",
-    "assets.modifyHint": "Hasil disimpan sebagai aset baru.",
-    "assets.modified": "Gambar hasil ubahan disimpan ke aset.",
+    "assets.modifyHint": "The edited result is saved to history first.",
+    "assets.modified": "Modified image saved to history.",
     "file.choose": "Pilih file",
     "file.chooseImage": "Pilih gambar",
     "file.chooseVideo": "Pilih video",
@@ -2042,8 +2042,8 @@ if (I18N.zh) {
     "assets.modify": "改图",
     "assets.modifyTitle": "改图",
     "assets.modifyPromptPlaceholder": "输入要修改的内容，尽量说明保留主体一致...",
-    "assets.modifyHint": "生成结果会作为新图片存入素材库。",
-    "assets.modified": "改图已生成并存入素材库。",
+    "assets.modifyHint": "生成结果先进入历史记录。",
+    "assets.modified": "改图已生成并存入历史。需要进素材库时，在 History 里点 Add asset。",
   });
 }
 
@@ -2677,7 +2677,7 @@ Content-Type: application/json
     response: [
       { name: "ok", type: "boolean", required: "Yes", description: "true when generation/editing succeeds.", default: "-" },
       { name: "taskId", type: "string", required: "Yes", description: "Local image generation task id.", default: "-" },
-      { name: "asset", type: "object", required: "Yes", description: "Saved image asset created from the result.", default: "-" },
+      { name: "imageUrl / record.imageResultUrl", type: "string", required: "Yes", description: "Generated image URL saved in history. It is not added to assets until the user calls Add asset from history.", default: "-" },
       { name: "record.upstreamPayload", type: "object", required: "No", description: "Submitted DashScope payload saved in history/admin records.", default: "-" },
     ],
     example: WAN27_IMAGE_PARAM_ACCESS_COPY,
@@ -4708,18 +4708,11 @@ async function createCharacterFromPrompt() {
       body: { prompt },
     });
     if (payload.user) setUser(payload.user);
-    if (payload.asset) {
-      state.userAssets = [payload.asset, ...(state.userAssets || []).filter((item) => item.id !== payload.asset.id)];
-    }
     if (payload.record) {
       state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
     }
     if (els.characterCreatePrompt) els.characterCreatePrompt.value = "";
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.created");
-    await loadUserAssets(1).catch(() => {});
-    state.characterSource = "custom";
-    state.activeGalleryCharacterId = "";
-    renderGalleryCharacters(els.characterGrid);
     await loadHistory({ silent: true }).catch(() => {});
   } catch (error) {
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.createFailed", { message: error.message || String(error) });
@@ -4744,14 +4737,9 @@ async function modifySystemCharacter(characterId = "", { mode = "modify", prompt
       body: { prompt: promptText },
     });
     if (payload.user) setUser(payload.user);
-    if (payload.asset) {
-      payload.asset.isCharacterAsset = true;
-      state.userAssets = [payload.asset, ...(state.userAssets || []).filter((item) => item.id !== payload.asset.id)];
-    }
     if (payload.record) {
       state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
     }
-    await loadUserAssets(1).catch(() => {});
     await loadHistory({ silent: true }).catch(() => {});
     return payload;
   }
@@ -4763,13 +4751,9 @@ async function modifySystemCharacter(characterId = "", { mode = "modify", prompt
     body,
   });
   if (payload.user) setUser(payload.user);
-  if (payload.asset) {
-    state.userAssets = [payload.asset, ...(state.userAssets || []).filter((item) => item.id !== payload.asset.id)];
-  }
   if (payload.record) {
     state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
   }
-  await loadUserAssets(1).catch(() => {});
   await loadHistory({ silent: true }).catch(() => {});
   return payload;
 }
@@ -4864,8 +4848,15 @@ async function openSystemCharacterModifyDialog(characterId = "") {
       if (!prompt) throw new Error(t("advanced.promptRequired"));
       const status = root.querySelector("#characterModifyStatus");
       if (status) status.textContent = t("assets.generating");
-      await modifySystemCharacter(characterId, { mode: "modify", prompt });
-      if (status) status.textContent = t("characters.modifyDone");
+      const payload = await modifySystemCharacter(characterId, { mode: "modify", prompt });
+      const imageUrl = characterResultImageUrl(payload);
+      if (status) status.textContent = t("assets.modified");
+      if (imageUrl) {
+        const result = document.createElement("div");
+        result.className = "character-action-result";
+        result.innerHTML = `<img src="${escapeHtml(imageUrl)}" alt="" />`;
+        root.querySelector(".asset-generate-form")?.append(result);
+      }
     },
   });
 }
@@ -6098,7 +6089,7 @@ function renderAccessGuides() {
           doc === ACCESS_DOCS.advanced ? "Seedance uses referenceImages; Wan2.7 uses dataUrl as the first frame; extra upstream fields belong in params." : "",
           doc === ACCESS_DOCS.seedanceParams ? "Start with /api/seedance/characters/upload, then send returned reference.assetId into /api/advanced/generate. Documented params are forwarded to Seedance; upstream decides whether each one takes effect." : "",
           doc === ACCESS_DOCS.wan27VideoParams ? "Fields inside params.parameters merge into DashScope parameters; fields inside params.input merge into DashScope input." : "",
-          doc === ACCESS_DOCS.wan27ImageParams ? "Image results are saved as assets and history/admin records include the upstream payload." : "",
+          doc === ACCESS_DOCS.wan27ImageParams ? "Image results are saved to history first; call Add asset from history to place a result in assets. Admin records include the upstream payload." : "",
           doc === ACCESS_DOCS.records ? "Use refresh=1 on list views when you want pending tasks to refresh." : "",
         ].filter(Boolean))}
         <details class="access-doc-example" open>
@@ -6767,10 +6758,6 @@ async function submitAdvancedGenerate() {
         },
       });
       if (payload.user) setUser(payload.user);
-      if (payload.asset) {
-        state.userAssets = [payload.asset, ...(state.userAssets || []).filter((item) => item.id !== payload.asset.id)];
-        state.advancedAssets = [payload.asset, ...(state.advancedAssets || []).filter((item) => item.id !== payload.asset.id)];
-      }
       if (payload.record) {
         state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
       }
@@ -6780,7 +6767,6 @@ async function submitAdvancedGenerate() {
           credits: formatCredits(payload.cost ?? assetImageModifyCostCredits()),
         });
       }
-      await loadAdvancedAssets(1).catch(() => {});
       setTab("history");
       await loadHistory({ silent: true }).catch(() => {});
     } catch (error) {
@@ -7196,9 +7182,6 @@ async function openAssetModifyDialog(asset = {}) {
       }
       shouldRefreshHistory = true;
       if (payload.user) setUser(payload.user);
-      if (payload.asset) {
-        state.userAssets = [payload.asset, ...(state.userAssets || []).filter((item) => item.id !== payload.asset.id)];
-      }
       if (payload.record) {
         state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
       }
@@ -7206,7 +7189,6 @@ async function openAssetModifyDialog(asset = {}) {
     },
   });
   if (result === "confirm") {
-    await loadUserAssets(1);
     await loadHistory({ silent: true });
   } else if (shouldRefreshHistory) {
     await loadHistory({ silent: true });
@@ -7840,10 +7822,12 @@ function renderHistory(records = []) {
                 <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
               </button>
             ` : ""}
-            ${taskId && videoUrl ? `
+            ${taskId && (videoUrl || imageResultUrl) ? `
               <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
                 <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
               </button>
+            ` : ""}
+            ${taskId && videoUrl ? `
               <button class="history-download history-extend" type="button" data-history-extend="${escapeHtml(taskId)}">
                 <i data-lucide="stretch-horizontal"></i>${escapeHtml(t("assets.extend"))}
               </button>

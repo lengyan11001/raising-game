@@ -88,6 +88,7 @@ const ADMIN_ADVANCED_CASE_DIR = path.join(ROOT, "assets", "admin", "advanced-cas
 const ADMIN_PLATFORM_TEMPLATE_DIR = path.join(ROOT, "assets", "admin", "platform-templates");
 const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
 const GENERATED_POSTER_DIR = path.join(ROOT, "assets", "generated", "posters");
+const GENERATED_IMAGE_DIR = path.join(ROOT, "assets", "generated", "images");
 const GENERATED_CHARACTER_DIR = path.join(ROOT, "assets", "generated", "characters", "apiz");
 const GENERATED_PANORAMA_DIR = path.join(ROOT, "assets", "generated", "panoramas");
 const ARK_BASE_URL = process.env.ARK_BASE_URL || "https://ark.ap-southeast.bytepluses.com/api/v3";
@@ -6351,7 +6352,7 @@ function generationRecordImageUrl(record = {}) {
   if (localPublicAssetStorageEnabled()) {
     return String(record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || record.imageUrl || "");
   }
-  return String(record.cdnImageUrl || record.localImageUrl || record.imageResultUrl || record.remoteImageUrl || record.imageUrl || "");
+  return String(record.cdnImageUrl || record.imageResultUrl || record.localImageUrl || record.remoteImageUrl || record.imageUrl || "");
 }
 
 function generationRecordProviderImageUrl(record = {}) {
@@ -6866,6 +6867,38 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
     ...poster,
     ...cdn,
   };
+}
+
+function imageFileName(taskId, mime = "image/png") {
+  return `${String(taskId || randomId("img")).replace(/[^a-z0-9_-]/gi, "_")}${imageExtFromMime(mime)}`;
+}
+
+async function saveGeneratedImageFile(taskId, bytes, mime = "image/png") {
+  const imageMime = String(mime || "").startsWith("image/") ? mime : "image/png";
+  await fs.mkdir(GENERATED_IMAGE_DIR, { recursive: true });
+  const fileName = imageFileName(taskId, imageMime);
+  const localImagePath = path.join(GENERATED_IMAGE_DIR, fileName);
+  const localImageUrl = `/assets/generated/images/${fileName}`;
+  await fs.writeFile(localImagePath, bytes);
+  const result = {
+    localImagePath,
+    localImageUrl,
+    cdnImageUrl: "",
+    cdnError: "",
+  };
+  if (tosEnabled()) {
+    try {
+      const upload = await uploadStaticAssetToTos({
+        key: tosStorageKey("generated", "images", fileName),
+        bytes,
+        mime: imageMime,
+      });
+      result.cdnImageUrl = upload.publicUrl || "";
+    } catch (error) {
+      result.cdnError = error.message || "CDN upload failed";
+    }
+  }
+  return result;
 }
 
 function requireHttpUrl(value = "", label = "URL") {
@@ -9791,7 +9824,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "params.model", type: "string", required: false, description: "Override the upstream model id when the provider supports it." },
       { name: "params.input", type: "object", required: false, description: "Wan2.7 only. Extra DashScope input fields; prompt/media are still set by this API." },
       { name: "params.parameters", type: "object", required: false, description: "Wan2.7 and Wan2.7 image. Extra DashScope parameters merged into the upstream payload." },
-      { name: "Wan2.7 image edit", type: "endpoint", required: false, description: "Use /api/wan27/image-edit with imageAssetIds containing 0-9 images. The image order maps to Image 1, Image 2, etc. Results are saved to assets/history/admin records." },
+      { name: "Wan2.7 image edit", type: "endpoint", required: false, description: "Use /api/wan27/image-edit with imageAssetIds containing 0-9 images. The image order maps to Image 1, Image 2, etc. Results are saved to history/admin records first; add to assets from history when needed." },
       { name: "params.generate_audio", type: "boolean", required: false, description: "Seedance only. Generate synchronized voice/effects/background music." },
       { name: "params.image_url", type: "string", required: false, description: "Seedance raw upstream first-frame URL or asset:// URI. Friendly imageUrl/firstFrameUrl is preferred." },
       { name: "params.end_image_url", type: "string", required: false, description: "Seedance raw upstream last-frame URL or asset:// URI. Friendly endImageUrl/lastFrameUrl is preferred." },
@@ -9900,7 +9933,7 @@ function advancedDocMarkdown(item) {
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "Seedance modes: set `seedanceMode` to `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`. For first-frame modes use `imageUrl`/`firstFrameUrl`/`imageAssetId`/`firstFrameAssetId`; for first+last use `endImageUrl`/`lastFrameUrl`/`endImageAssetId`/`lastFrameAssetId`. Reference-image mode uses `referenceImages` (up to 9), reference-video/edit/extend uses `referenceVideoAssetId`, `referenceVideoAssetIds`, `referenceVideos`, or `referenceVideoUrls` (up to 3), and multimodal audio references use `referenceAudios`, `referenceAudioUrls`, `referenceAudioAssetId`, or `referenceAudioAssetIds` (up to 3). For any Seedance video input, pass `inputVideoSeconds` or `referenceVideoDurationSeconds` so the pre-deducted cost includes the input-video billing branch; if omitted, the output duration is used as fallback. In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
   lines.push("", "Seedance character upload: call `/api/seedance/characters/upload` with `url`/`imageUrl`, `dataUrl`, or an existing `assetId`. The response returns `reference.assetId`, `reference.assetUri`, and a ready `referenceImages` item. Then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<reference.assetId>\",\"fileName\":\"image1.png\"}]`. In the prompt, write `Image 1` to refer to that character. For multiple characters, the order in `referenceImages` maps to `Image 1`, `Image 2`, and so on.");
-  lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 image assets. The order maps to Image 1, Image 2, and so on in the prompt; with no images it works as text-to-image through the same endpoint. Results are saved as assets and generation history.");
+  lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 image assets. The order maps to Image 1, Image 2, and so on in the prompt; with no images it works as text-to-image through the same endpoint. Results are saved to generation history first. Use the history Add asset action when the result should enter the asset library.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance friendly fields are prepared into upstream `image_url`, `end_image_url`, `content`, or `reference_*` fields as needed.");
   lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `image_url`, `end_image_url`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`/`webSearch`, `watermark`, `seed`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`. These fields are passed through for upstream compatibility; upstream decides whether each one takes effect.");
   lines.push("", "Task query: when called with an API token, `record.videoUrl` and `record.downloadUrl` return only the upstream provider download URL. Seedance/BytePlus can return a Volcengine temporary URL, while APIZ can return an Aliyun URL. Our saved copies are internal site playback/backup data and are not returned to downstream API callers.");
@@ -11315,6 +11348,57 @@ async function bytesForGenerationRecordVideo(record = {}) {
   };
 }
 
+async function bytesForGenerationRecordImage(record = {}) {
+  const localUrl = record.localImageUrl || record.imageResultUrl || "";
+  if (localUrl && !/^https?:\/\//i.test(localUrl)) {
+    const localPath = path.normalize(path.join(ROOT, localUrl.replace(/^\//, "")));
+    const assetsRoot = path.normalize(path.join(ROOT, "assets"));
+    if (!localPath.startsWith(assetsRoot)) {
+      const error = new Error("Generation image path is not allowed.");
+      error.statusCode = 403;
+      throw error;
+    }
+    return {
+      bytes: await fs.readFile(localPath),
+      mime: imageMimeFromPath(localPath),
+      fileName: path.basename(localPath),
+    };
+  }
+  const imageUrl = generationRecordImageUrl(record);
+  if (!imageUrl) {
+    const error = new Error("Generation record has no image result.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!/^https?:\/\//i.test(imageUrl)) {
+    const localPath = path.normalize(path.join(ROOT, imageUrl.replace(/^\//, "")));
+    const assetsRoot = path.normalize(path.join(ROOT, "assets"));
+    if (!localPath.startsWith(assetsRoot)) {
+      const error = new Error("Generation image path is not allowed.");
+      error.statusCode = 403;
+      throw error;
+    }
+    return {
+      bytes: await fs.readFile(localPath),
+      mime: imageMimeFromPath(localPath),
+      fileName: path.basename(localPath),
+    };
+  }
+  const downloaded = await downloadRemoteFileToBuffer(imageUrl, {
+    label: "generation image",
+    maxBytes: 20 * 1024 * 1024,
+  });
+  const pathname = new URL(imageUrl).pathname;
+  const mime = downloaded.mime && downloaded.mime.startsWith("image/")
+    ? downloaded.mime
+    : imageMimeFromKnownPath(pathname) || "image/png";
+  return {
+    bytes: downloaded.bytes,
+    mime,
+    fileName: path.basename(pathname) || `${record.taskId || "generated"}${imageExtFromMime(mime)}`,
+  };
+}
+
 async function handleAddGenerationRecordToAssets(req, res, taskId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -11322,15 +11406,47 @@ async function handleAddGenerationRecordToAssets(req, res, taskId) {
   const record = records.find((entry) => entry.taskId === taskId && entry.userId === auth.user.id && isUserVisibleGenerationRecord(entry));
   if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
   if (!isSucceededStatus(record.status)) return sendJson(res, 400, { ok: false, message: "Generation is not completed yet." });
-  const video = await bytesForGenerationRecordVideo(record);
-  const fileName = video.fileName || `${taskId}.mp4`;
+  const existingAssetId = String(record.resultAssetId || "").trim();
+  if (existingAssetId) {
+    const existingAsset = (auth.db.userAssets || []).find((entry) => entry.id === existingAssetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
+    if (existingAsset) return sendJson(res, 200, { ok: true, asset: publicUserAsset(existingAsset), alreadyAdded: true });
+  }
+  const isImageRecord = Boolean(generationRecordImageUrl(record)) && !generationRecordVideoUrl(record);
+  const media = isImageRecord ? await bytesForGenerationRecordImage(record) : await bytesForGenerationRecordVideo(record);
+  const fileName = media.fileName || (isImageRecord ? `${taskId}${imageExtFromMime(media.mime)}` : `${taskId}.mp4`);
   const asset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
-    bytes: video.bytes,
-    mime: video.mime && video.mime.startsWith("video/") ? video.mime : "video/mp4",
+    bytes: media.bytes,
+    mime: isImageRecord
+      ? (media.mime && media.mime.startsWith("image/") ? media.mime : "image/png")
+      : (media.mime && media.mime.startsWith("video/") ? media.mime : "video/mp4"),
     name: generationRecordAssetName(record),
     fileName,
     maxBytes: 30 * 1024 * 1024,
   });
+  if (isImageRecord) {
+    if (String(record.kind || "").includes("character") || String(record.source || "").includes("character")) {
+      asset.sourceCharacterId = record.characterId || "";
+      asset.characterPrompt = record.prompt || "";
+      asset.characterFinalPrompt = record.finalPrompt || record.prompt || "";
+      asset.characterModel = record.model || "";
+      asset.characterTaskId = record.upstreamTaskId || record.taskId || "";
+      asset.characterParams = record.params || null;
+    }
+    if (record.userAssetId) asset.sourceAssetId = record.userAssetId;
+    if (Array.isArray(record.userAssetIds)) asset.sourceAssetIds = record.userAssetIds;
+    if (record.prompt) asset.modifyPrompt = record.prompt;
+    if (record.model) asset.modifyModel = record.model;
+    if (record.upstreamTaskId || record.taskId) asset.modifyTaskId = record.upstreamTaskId || record.taskId;
+    if (record.params) asset.modifyParams = record.params;
+    asset.updatedAt = new Date().toISOString();
+    auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+    if (dbEnabled()) await upsertUserAssetInDb(asset);
+    else await writeDb(auth.db);
+  }
+  await updateGenerationRecord(taskId, {
+    resultAssetId: asset.id,
+    assetAddedAt: new Date().toISOString(),
+  }, "history-add-asset");
   return sendJson(res, 200, { ok: true, asset: publicUserAsset(asset) });
 }
 
@@ -11532,31 +11648,16 @@ async function handleGenerateUserCharacterImage(req, res) {
     }
     const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "character image", maxBytes: 20 * 1024 * 1024 });
     const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const newAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
-      bytes: downloaded.bytes,
-      mime,
-      name: "AI character",
-      fileName: `${taskId}${imageExtFromMime(mime)}`,
-      maxBytes: 20 * 1024 * 1024,
-    });
-    newAsset.characterPrompt = userPrompt;
-    newAsset.characterFinalPrompt = prompt;
-    newAsset.characterModel = model;
-    newAsset.characterTaskId = submitted.task.taskId || taskId;
-    newAsset.characterParams = { action: "create", ...exposedWan27ImageParams(imageOptions) };
-    newAsset.updatedAt = new Date().toISOString();
-    auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
-    if (dbEnabled()) await upsertUserAssetInDb(newAsset);
-    else await writeDb(auth.db);
-    const publicNewAsset = publicUserAsset(newAsset);
+    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
-      imageResultUrl: publicNewAsset.previewUrl,
-      localImageUrl: publicNewAsset.localUrl,
-      cdnImageUrl: publicNewAsset.publicUrl && publicNewAsset.publicUrl !== publicNewAsset.localUrl ? publicNewAsset.publicUrl : "",
+      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      localImageUrl: savedImage.localImageUrl,
+      localImagePath: savedImage.localImagePath,
+      cdnImageUrl: savedImage.cdnImageUrl,
+      cdnError: savedImage.cdnError,
       remoteImageUrl: imageUrl,
-      resultAssetId: newAsset.id,
       finalCredits: cost,
       originalFinalCredits: pricing.originalCredits ?? cost,
       billingStatus: cost > 0 ? "settled" : "free",
@@ -11564,15 +11665,16 @@ async function handleGenerateUserCharacterImage(req, res) {
       error: "",
     }, "character-image-succeeded");
     const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth));
     return sendJson(res, 200, {
       ok: true,
       taskId,
       upstreamTaskId: submitted.task.taskId || "",
-      asset: publicNewAsset,
+      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
       user: userView(latestUser),
       pricing,
       cost,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
+      record: publicRecord,
       params: exposedWan27ImageParams(imageOptions),
     });
   } catch (error) {
@@ -11725,32 +11827,16 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
     }
     const downloaded = await downloadRemoteFileToBuffer(resultUrl, { label: "character modified image", maxBytes: 20 * 1024 * 1024 });
     const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const newAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
-      bytes: downloaded.bytes,
-      mime,
-      name: `${character.name || "character"} ${mode === "take_off" ? "take off" : "modify"}`,
-      fileName: `${taskId}${imageExtFromMime(mime)}`,
-      maxBytes: 20 * 1024 * 1024,
-    });
-    newAsset.sourceCharacterId = character.id || "";
-    newAsset.characterPrompt = displayPrompt;
-    newAsset.characterFinalPrompt = prompt;
-    newAsset.characterModel = model;
-    newAsset.characterTaskId = submitted.task.taskId || taskId;
-    newAsset.characterParams = { action: initialRecord.params.action, ...exposedWan27ImageParams(imageOptions) };
-    newAsset.updatedAt = new Date().toISOString();
-    auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
-    if (dbEnabled()) await upsertUserAssetInDb(newAsset);
-    else await writeDb(auth.db);
-    const publicNewAsset = publicUserAsset(newAsset);
+    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
-      imageResultUrl: publicNewAsset.previewUrl,
-      localImageUrl: publicNewAsset.localUrl,
-      cdnImageUrl: publicNewAsset.publicUrl && publicNewAsset.publicUrl !== publicNewAsset.localUrl ? publicNewAsset.publicUrl : "",
+      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      localImageUrl: savedImage.localImageUrl,
+      localImagePath: savedImage.localImagePath,
+      cdnImageUrl: savedImage.cdnImageUrl,
+      cdnError: savedImage.cdnError,
       remoteImageUrl: resultUrl,
-      resultAssetId: newAsset.id,
       finalCredits: cost,
       originalFinalCredits: pricing.originalCredits ?? cost,
       billingStatus: cost > 0 ? "settled" : "free",
@@ -11758,16 +11844,17 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
       error: "",
     }, "character-image-modify-succeeded");
     const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth));
     return sendJson(res, 200, {
       ok: true,
       taskId,
       upstreamTaskId: submitted.task.taskId || "",
-      asset: publicNewAsset,
+      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
       sourceCharacter: { id: character.id || "", name: character.name || "", imageUrl },
       user: userView(latestUser),
       pricing,
       cost,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
+      record: publicRecord,
       params: { mode, ...exposedWan27ImageParams(imageOptions) },
     });
   } catch (error) {
@@ -11992,43 +12079,16 @@ async function handleWan27ImageEdit(req, res) {
     }
     const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "edited image", maxBytes: 20 * 1024 * 1024 });
     const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const newAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
-      bytes: downloaded.bytes,
-      mime,
-      name: sourceAssets[0]?.name ? `${sourceAssets[0].name} edit` : "Wan2.7 image edit",
-      fileName: `${taskId}${imageExtFromMime(mime)}`,
-      maxBytes: 20 * 1024 * 1024,
-    });
-    newAsset.sourceAssetId = sourceAssets[0]?.id || "";
-    newAsset.sourceAssetIds = sourceAssets.map((asset) => asset.id);
-    newAsset.modifyPrompt = prompt;
-    newAsset.modifyModel = model;
-    newAsset.modifyTaskId = submitted.task.taskId || taskId;
-    newAsset.modifyParams = {
-      ...exposedWan27ImageParams(imageOptions),
-      imageCount: sourceAssets.length,
-    };
-    newAsset.modifyPricing = {
-      source: pricing.source,
-      baseCredits: pricing.baseCredits ?? null,
-      originalCredits: pricing.originalCredits ?? null,
-      userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
-      purchaseCnyPerImage: pricing.purchaseCnyPerImage,
-      saleCnyPerImage: pricing.saleCnyPerImage,
-    };
-    newAsset.updatedAt = new Date().toISOString();
-    auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
-    if (dbEnabled()) await upsertUserAssetInDb(newAsset);
-    else await writeDb(auth.db);
-    const publicNewAsset = publicUserAsset(newAsset);
+    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
-      imageResultUrl: publicNewAsset.previewUrl,
-      localImageUrl: publicNewAsset.localUrl,
-      cdnImageUrl: publicNewAsset.publicUrl && publicNewAsset.publicUrl !== publicNewAsset.localUrl ? publicNewAsset.publicUrl : "",
+      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      localImageUrl: savedImage.localImageUrl,
+      localImagePath: savedImage.localImagePath,
+      cdnImageUrl: savedImage.cdnImageUrl,
+      cdnError: savedImage.cdnError,
       remoteImageUrl: imageUrl,
-      resultAssetId: newAsset.id,
       finalCredits: cost,
       originalFinalCredits: pricing.originalCredits ?? cost,
       billingStatus: cost > 0 ? "settled" : "free",
@@ -12036,17 +12096,18 @@ async function handleWan27ImageEdit(req, res) {
       error: "",
     }, "wan27-image-edit-succeeded");
     const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth));
     return sendJson(res, 200, {
       ok: true,
       taskId,
       upstreamTaskId: submitted.task.taskId || "",
-      asset: publicNewAsset,
+      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
       sourceAssets: sourceAssets.map(publicUserAsset),
       sourceAsset: sourceAssets[0] ? publicUserAsset(sourceAssets[0]) : null,
       user: userView(latestUser),
       pricing,
       cost,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
+      record: publicRecord,
       params: {
         ...exposedWan27ImageParams(imageOptions),
         imageCount: sourceAssets.length,
@@ -12231,45 +12292,16 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     }
     const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "modified image", maxBytes: 20 * 1024 * 1024 });
     const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const newAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
-      bytes: downloaded.bytes,
-      mime,
-      name: `${asset.name || "image"} modify`,
-      fileName: `${taskId}${imageExtFromMime(mime)}`,
-      maxBytes: 20 * 1024 * 1024,
-    });
-    newAsset.sourceAssetId = asset.id;
-    newAsset.modifyPrompt = prompt;
-    newAsset.modifyModel = model;
-    newAsset.modifyTaskId = submitted.task.taskId || taskId;
-    newAsset.modifyParams = exposedWan27ImageParams(imageOptions);
-    if (asset.characterPrompt || asset.characterFinalPrompt || asset.characterTaskId) {
-      newAsset.characterPrompt = prompt;
-      newAsset.characterFinalPrompt = prompt;
-      newAsset.characterModel = model;
-      newAsset.characterTaskId = submitted.task.taskId || taskId;
-    }
-    newAsset.modifyPricing = {
-      source: pricing.source,
-      baseCredits: pricing.baseCredits ?? null,
-      originalCredits: pricing.originalCredits ?? null,
-      userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
-      purchaseCnyPerImage: pricing.purchaseCnyPerImage,
-      saleCnyPerImage: pricing.saleCnyPerImage,
-    };
-    newAsset.updatedAt = new Date().toISOString();
-    auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
-    if (dbEnabled()) await upsertUserAssetInDb(newAsset);
-    else await writeDb(auth.db);
-    const publicNewAsset = publicUserAsset(newAsset);
+    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
       awaitingUpstreamTask: false,
-      imageResultUrl: publicNewAsset.previewUrl,
-      localImageUrl: publicNewAsset.localUrl,
-      cdnImageUrl: publicNewAsset.publicUrl && publicNewAsset.publicUrl !== publicNewAsset.localUrl ? publicNewAsset.publicUrl : "",
+      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      localImageUrl: savedImage.localImageUrl,
+      localImagePath: savedImage.localImagePath,
+      cdnImageUrl: savedImage.cdnImageUrl,
+      cdnError: savedImage.cdnError,
       remoteImageUrl: imageUrl,
-      resultAssetId: newAsset.id,
       finalCredits: cost,
       originalFinalCredits: pricing.originalCredits ?? cost,
       billingStatus: cost > 0 ? "settled" : "free",
@@ -12277,16 +12309,17 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       error: "",
     }, "asset-image-modify-succeeded");
     const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth));
     return sendJson(res, 200, {
       ok: true,
       taskId,
       upstreamTaskId: submitted.task.taskId || "",
-      asset: publicNewAsset,
+      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
       sourceAsset: publicUserAsset(asset),
       user: userView(latestUser),
       pricing,
       cost,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
+      record: publicRecord,
       params: exposedWan27ImageParams(imageOptions),
     });
   } catch (error) {
