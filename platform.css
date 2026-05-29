@@ -1460,6 +1460,123 @@ main {
   min-height: auto;
   background: rgba(255,255,255,.54);
 }
+.advanced-asset-panel {
+  gap: 14px;
+}
+.advanced-asset-toolbar {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 138px auto auto;
+  gap: 10px;
+  align-items: end;
+}
+.advanced-asset-toolbar label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+.advanced-asset-toolbar input[type="search"] {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: rgba(255,255,255,.72);
+  outline: none;
+}
+.advanced-asset-upload-control {
+  align-self: stretch;
+}
+.advanced-asset-targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.advanced-asset-targets > span {
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.advanced-asset-target {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 11px;
+  color: var(--muted);
+  background: rgba(255,255,255,.72);
+  font-weight: 800;
+}
+.advanced-asset-target.is-active {
+  color: #ffffff;
+  border-color: #111827;
+  background: #111827;
+}
+.advanced-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.advanced-asset-card {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(255,255,255,.76);
+  box-shadow: var(--soft-shadow);
+}
+.advanced-asset-preview {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  background: #07101f;
+}
+.advanced-asset-preview img,
+.advanced-asset-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.advanced-asset-preview.is-audio {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(15,148,139,.14), rgba(17,24,39,.08));
+}
+.advanced-asset-preview.is-audio .audio-asset-preview {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+.advanced-asset-meta {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.advanced-asset-meta strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .92rem;
+}
+.advanced-asset-meta span {
+  color: var(--cyan);
+  font-size: .74rem;
+  font-weight: 900;
+}
+.advanced-asset-card .copy-btn {
+  min-height: 36px;
+  padding: 8px 10px;
+}
+.advanced-asset-pager {
+  margin-top: 0;
+}
 .advanced-fields {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2748,6 +2865,8 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   .gallery-advanced-grid.is-case-list { grid-template-columns: 1fr; }
   .copy-card, .advanced-workspace, .topup-strip { grid-template-columns: 1fr; }
   .advanced-form-card { position: static; }
+  .advanced-asset-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .advanced-asset-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .asset-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .asset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .history-panel .history-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -2863,6 +2982,8 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   .advanced-case-row-video { height: 82px; }
   .advanced-case-row-video { width: 100%; }
   .advanced-case-row-action { grid-column: 1 / -1; }
+  .advanced-asset-toolbar { grid-template-columns: 1fr; }
+  .advanced-asset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ledger-toolbar { grid-template-columns: 1fr; }
   .asset-toolbar { grid-template-columns: 1fr; }
   .asset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2925,5 +3046,6 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   .character-detail-profile video,
   .character-detail-cover-media { width: 100%; max-width: 160px; }
   .history-panel .history-list { grid-template-columns: 1fr; }
+  .advanced-asset-grid { grid-template-columns: 1fr; }
   .asset-grid { grid-template-columns: 1fr; }
 }
