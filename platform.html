@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-127" />
+    <link rel="stylesheet" href="./platform.css?v=ai-128" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -198,10 +198,10 @@
               </div>
             </div>
             <div class="advanced-fields">
-              <label class="field"><span data-i18n="field.model">Model</span><select id="advancedProvider"><option value="wan27" selected>Wan2.7</option><option value="seedance">Seedance</option></select></label>
+              <label class="field"><span data-i18n="field.model">Model</span><select id="advancedProvider"><option value="wan27" selected>Wan2.7</option><option value="seedance">Seedance</option><option value="wan27-image-edit">Wan2.7 Image Edit</option></select></label>
               <label class="field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
               <label class="field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
-              <label class="field"><span data-i18n="field.duration">Duration</span><input id="advancedDuration" type="number" min="2" max="15" value="5" /></label>
+              <label class="field advanced-duration-field"><span data-i18n="field.duration">Duration</span><input id="advancedDuration" type="number" min="2" max="15" value="5" /></label>
               <input id="advancedPreprocessReference" type="hidden" value="no" />
               <label class="field advanced-wan-option" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="0" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
             </div>
@@ -532,6 +532,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-127"></script>
+    <script src="./platform.js?v=ai-128"></script>
 </body>
 </html>

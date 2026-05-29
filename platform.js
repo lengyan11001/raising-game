@@ -4021,6 +4021,7 @@ function advancedCaseDuration(item = {}) {
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return DEFAULT_ADVANCED_PROVIDER;
+  if (["wan27imageedit", "wan2.7imageedit", "wanimageedit", "imageedit", "wan27image"].includes(normalized)) return "wan27-image-edit";
   return normalized === "wan27" || normalized === "wan2.7" || normalized === "wan" ? "wan27" : "seedance";
 }
 
@@ -4031,12 +4032,15 @@ function advancedCaseProvider(item = {}) {
 
 function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
+  if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan27") return raw === "1080p" ? "1080p" : "720p";
   return raw === "1080p" ? "1080p" : "720p";
 }
 
 function advancedDurationBounds(provider = "seedance") {
-  return normalizeAdvancedProvider(provider) === "wan27"
+  const normalized = normalizeAdvancedProvider(provider);
+  if (normalized === "wan27-image-edit") return { min: 1, max: 1, fallback: 1 };
+  return normalized === "wan27"
     ? { min: 2, max: 15, fallback: 5 }
     : { min: 5, max: 15, fallback: 5 };
 }
@@ -4098,6 +4102,20 @@ function currentSeedanceVideoInputSeconds(duration = 5, provider = currentAdvanc
 
 function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "wan27-image-edit") {
+    const credits = assetImageModifyCostCredits();
+    return {
+      provider: "wan27-image-edit",
+      duration: 1,
+      resolution: normalizeAdvancedResolution(resolution, normalizedProvider),
+      ratio: normalizeVideoRatio(ratio),
+      baseCredits: credits,
+      originalCredits: credits,
+      credits,
+      markup: 1,
+      userPricingMultiplier: userPricingMultiplier(),
+    };
+  }
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawSeconds = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawSeconds) ? Math.min(bounds.max, Math.max(bounds.min, rawSeconds)) : bounds.fallback;
@@ -4194,6 +4212,9 @@ function wanModeNeedsClip(mode) {
 }
 
 function advancedCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
+  if (normalizeAdvancedProvider(provider) === "wan27-image-edit") {
+    return `${assetImageModifyCostLabel()} - ${normalizeAdvancedResolution(resolution, provider)}`;
+  }
   const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
   const pricing = state.advancedEstimate && state.advancedEstimateKey === key
     ? state.advancedEstimate
@@ -4215,6 +4236,14 @@ function assetImageModifyCostLabel() {
 
 function advancedEstimateKey(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "wan27-image-edit") {
+    return [
+      normalizedProvider,
+      normalizeAdvancedResolution(resolution, normalizedProvider),
+      normalizeVideoRatio(ratio),
+      Number(state.user?.pricingMultiplier || 1),
+    ].join("|");
+  }
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawDuration = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
@@ -4230,6 +4259,7 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
 }
 
 function requestAdvancedEstimate(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
+  if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return;
   const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
   if (!state.user || state.advancedEstimateKey === key) return;
   window.clearTimeout(state.advancedEstimateTimer);
@@ -4255,6 +4285,11 @@ function updateAdvancedButtonCost() {
   const bounds = advancedDurationBounds(currentAdvancedProvider());
   const duration = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
   const provider = currentAdvancedProvider();
+  if (provider === "wan27-image-edit") {
+    els.advancedSubmitBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(1, provider, currentAdvancedResolution(), currentAdvancedRatio()) }))}`;
+    refreshIcons();
+    return;
+  }
   const options = { inputVideoSeconds: currentSeedanceVideoInputSeconds(duration, provider) };
   requestAdvancedEstimate(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options);
   els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;
@@ -6116,7 +6151,9 @@ function advancedAssetTargetItems() {
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const targets = [];
-  if (provider === "wan27") {
+  if (provider === "wan27-image-edit") {
+    targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+  } else if (provider === "wan27") {
     if (wanModeNeedsFirstFrame(wanMode)) targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
     if (wanModeNeedsClip(wanMode)) targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
     if (wanModeNeedsLastFrame(wanMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
@@ -6137,6 +6174,38 @@ function advancedAssetTargetItems() {
 function activeAdvancedAssetTarget() {
   const targets = advancedAssetTargetItems();
   return targets.find((target) => target.id === state.advancedAssetTarget) || targets[0];
+}
+
+function selectedAdvancedImageAsset() {
+  const id = state.advancedFirstFrameAssetId || "";
+  if (!id) return null;
+  return (state.advancedAssets || []).find((asset) => asset.id === id)
+    || (state.userAssets || []).find((asset) => asset.id === id)
+    || null;
+}
+
+async function ensureAdvancedImageEditAsset() {
+  const existing = selectedAdvancedImageAsset();
+  if (existing?.id && isImageAsset(existing)) return existing;
+  const reference = (state.advancedReferenceImages || [])[0] || {};
+  const dataUrl = reference.dataUrl || state.advancedUploadDataUrl || "";
+  if (!dataUrl || !dataUrl.startsWith("data:")) return null;
+  const payload = await requestJson("/api/user-assets", {
+    method: "POST",
+    body: {
+      dataUrl,
+      name: reference.name || reference.fileName || "Image edit source",
+      fileName: reference.fileName || reference.name || "image.png",
+    },
+  });
+  if (payload.asset) {
+    state.advancedFirstFrameAssetId = payload.asset.id;
+    state.advancedAssets = [payload.asset, ...(state.advancedAssets || []).filter((asset) => asset.id !== payload.asset.id)];
+    state.userAssets = [payload.asset, ...(state.userAssets || []).filter((asset) => asset.id !== payload.asset.id)];
+    renderAdvancedAssets();
+    return payload.asset;
+  }
+  return null;
 }
 
 function setAdvancedAssetTarget(target = "primary") {
@@ -6214,12 +6283,18 @@ function renderAdvancedAssets(assets) {
           <strong>${escapeHtml(asset.name || asset.id)}</strong>
           <span>${escapeHtml(typeLabel)}</span>
         </div>
-        <button class="copy-btn" type="button" data-advanced-asset-add="${escapeHtml(asset.id)}"><i data-lucide="plus"></i>${escapeHtml(t("advanced.assetAdd"))}</button>
+        <div class="advanced-asset-actions">
+          <button class="copy-btn" type="button" data-advanced-asset-add="${escapeHtml(asset.id)}"><i data-lucide="plus"></i>${escapeHtml(t("advanced.assetAdd"))}</button>
+          ${!video && !audio ? `<button class="ghost-button" type="button" data-advanced-asset-modify="${escapeHtml(asset.id)}"><i data-lucide="wand-sparkles"></i>${escapeHtml(t("assets.modify"))}</button>` : ""}
+        </div>
       </article>
     `;
   }).join("");
   els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-add]").forEach((button) => {
     button.addEventListener("click", () => addAssetToAdvancedTarget(button.dataset.advancedAssetAdd || ""));
+  });
+  els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-modify]").forEach((button) => {
+    button.addEventListener("click", () => useAssetInAdvanced(list.find((asset) => asset.id === button.dataset.advancedAssetModify), "modify"));
   });
   renderSimplePager(els.advancedAssetPager, {
     page: state.advancedAssetPage,
@@ -6406,15 +6481,36 @@ function updateAdvancedModelControls() {
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const bounds = advancedDurationBounds(provider);
+  const isImageEdit = provider === "wan27-image-edit";
   if (els.advancedDuration) {
     els.advancedDuration.min = String(bounds.min);
     els.advancedDuration.max = String(bounds.max);
+    els.advancedDuration.value = isImageEdit ? "1" : String(Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration.value || bounds.fallback))));
+  }
+  if (els.advancedResolution) {
+    const imageEditOptions = ["1K", "2K"];
+    const videoOptions = ["720p", "1080p"];
+    const options = isImageEdit ? imageEditOptions : videoOptions;
+    const current = normalizeAdvancedResolution(els.advancedResolution.value, provider);
+    els.advancedResolution.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
+    if (!options.includes(current)) els.advancedResolution.value = options[0];
+  }
+  if (els.advancedRatio) {
+    const imageRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
+    const videoRatios = ["9:16", "16:9", "1:1"];
+    const options = isImageEdit ? imageRatios : videoRatios;
+    const current = normalizeVideoRatio(els.advancedRatio.value || "9:16");
+    els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
+    if (!options.includes(current)) els.advancedRatio.value = isImageEdit ? "9:16" : "9:16";
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
     item.hidden = provider !== "wan27";
   });
   document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
     item.hidden = provider !== "seedance";
+  });
+  document.querySelectorAll(".advanced-duration-field").forEach((item) => {
+    item.hidden = isImageEdit;
   });
   document.querySelectorAll(".wan-first-frame").forEach((item) => {
     item.hidden = provider !== "wan27" || !wanModeNeedsFirstFrame(wanMode);
@@ -6443,7 +6539,7 @@ function updateAdvancedModelControls() {
     const label = els.advancedUploadBox.querySelector("span");
     if (label) {
       const seedanceLabel = seedanceModeNeedsFirstFrame(seedanceMode) ? t("advanced.firstFrame") : t("advanced.uploadReference");
-      label.innerHTML = `<i data-lucide="image-up"></i>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel)}`;
+      label.innerHTML = `<i data-lucide="image-up"></i>${escapeHtml(provider === "wan27" || isImageEdit ? t("advanced.firstFrame") : seedanceLabel)}`;
     }
   }
   renderAdvancedReferencePreviews();
@@ -6453,6 +6549,8 @@ function updateAdvancedModelControls() {
     if (provider === "seedance") {
       const count = selectedAdvancedReferenceImages().length;
       els.advancedNote.textContent = `${t("advanced.referenceSeedance", { mode: t("advanced.originalReference") })} ${t("advanced.seedanceReferenceCount", { count })}`;
+    } else if (isImageEdit) {
+      els.advancedNote.textContent = "Wan2.7 Image Edit ready.";
     } else {
       els.advancedNote.textContent = t("advanced.referenceWan");
     }
@@ -6596,6 +6694,52 @@ async function submitAdvancedGenerate() {
   if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
   els.advancedSubmitBtn.disabled = true;
   const provider = currentAdvancedProvider();
+  if (provider === "wan27-image-edit") {
+    try {
+      const asset = await ensureAdvancedImageEditAsset();
+      if (!asset?.id) {
+        if (els.advancedNote) els.advancedNote.textContent = "Image is required.";
+        return;
+      }
+      if (els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.submitting", {
+          note: "Wan2.7 Image Edit",
+          cost: advancedCostLabel(1, provider, currentAdvancedResolution(), currentAdvancedRatio()),
+        });
+      }
+      const payload = await requestJson(`/api/user-assets/${encodeURIComponent(asset.id)}/modify`, {
+        method: "POST",
+        body: {
+          prompt,
+          ratio: currentAdvancedRatio(),
+          resolution: currentAdvancedResolution(),
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      if (payload.asset) {
+        state.userAssets = [payload.asset, ...(state.userAssets || []).filter((item) => item.id !== payload.asset.id)];
+        state.advancedAssets = [payload.asset, ...(state.advancedAssets || []).filter((item) => item.id !== payload.asset.id)];
+      }
+      if (payload.record) {
+        state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
+      }
+      if (els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.jobSubmitted", {
+          taskId: payload.taskId || payload.record?.taskId || "",
+          credits: formatCredits(payload.cost ?? assetImageModifyCostCredits()),
+        });
+      }
+      await loadAdvancedAssets(1).catch(() => {});
+      setTab("history");
+      await loadHistory({ silent: true }).catch(() => {});
+    } catch (error) {
+      if (els.advancedNote) els.advancedNote.textContent = error.message;
+    } finally {
+      els.advancedSubmitBtn.disabled = false;
+      updateAdvancedButtonCost();
+    }
+    return;
+  }
   const bounds = advancedDurationBounds(provider);
   const duration = Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration?.value || bounds.fallback)));
   const resolution = currentAdvancedResolution();
@@ -7186,7 +7330,7 @@ async function openAssetFrameDialog(asset = {}) {
 function useAssetInAdvanced(asset = {}, action = "use") {
   if (!asset) return;
   if (!state.user) return openLogin();
-  if (els.advancedProvider) els.advancedProvider.value = "seedance";
+  if (els.advancedProvider) els.advancedProvider.value = action === "modify" ? "wan27-image-edit" : "seedance";
   state.activeAdvancedCaseId = "";
   if (isImageAsset(asset)) {
     state.advancedFirstFrameAssetId = asset.id;
@@ -7205,6 +7349,7 @@ function useAssetInAdvanced(asset = {}, action = "use") {
     state.advancedSeedanceVideoPreviewUrl = "";
     if (action === "extend" && els.advancedPrompt) els.advancedPrompt.value = "Extend [Image 1]";
     if (action === "replace" && els.advancedPrompt) els.advancedPrompt.value = "Replace the lady in [Video 1] with the lady in [Image 1]";
+    if (action === "modify" && els.advancedPrompt) els.advancedPrompt.value = "";
   }
   if (isVideoAsset(asset)) {
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
@@ -7222,7 +7367,9 @@ function useAssetInAdvanced(asset = {}, action = "use") {
       ? t("assets.extended")
       : action === "replace"
         ? t("assets.replaced")
-        : t("assets.used");
+        : action === "modify"
+          ? t("assets.modify")
+          : t("assets.used");
   }
 }
 
@@ -7269,7 +7416,7 @@ function renderAdvancedReferencePreviews() {
   els.advancedUploadBox?.classList.toggle("has-image", images.length > 0);
   if (els.advancedWanFirstFramePreview) {
     const firstFrame = images[0]?.dataUrl || state.advancedUploadDataUrl || "";
-    if (provider === "wan27" && firstFrame) {
+    if ((provider === "wan27" || provider === "wan27-image-edit") && firstFrame) {
       els.advancedWanFirstFramePreview.src = firstFrame;
       els.advancedWanFirstFramePreview.classList.add("is-visible");
     } else {
