@@ -133,7 +133,7 @@ const state = {
   advancedAssetSearchTimer: 0,
   advancedAssetTarget: "primary",
   advancedAssetPage: 1,
-  advancedAssetLimit: 8,
+  advancedAssetLimit: 12,
   advancedAssetTotal: 0,
   advancedAssetTotalPages: 1,
   advancedAssetsLoaded: false,
@@ -6235,6 +6235,13 @@ async function loadAdvancedAssets(page = state.advancedAssetPage || 1) {
     renderAdvancedAssets([]);
     return;
   }
+  if (state.userAssets?.length && !els.advancedAssetSearch?.value && !els.advancedAssetTypeFilter?.value) {
+    state.advancedAssets = state.userAssets;
+    state.advancedAssetsLoaded = true;
+    state.advancedAssetTotal = state.userAssetsTotal || state.userAssets.length;
+    state.advancedAssetTotalPages = state.userAssetsTotalPages || 1;
+    renderAdvancedAssets(state.userAssets);
+  }
   const params = new URLSearchParams();
   if (els.advancedAssetSearch?.value) params.set("q", els.advancedAssetSearch.value);
   if (els.advancedAssetTypeFilter?.value) params.set("type", els.advancedAssetTypeFilter.value);
@@ -6244,6 +6251,11 @@ async function loadAdvancedAssets(page = state.advancedAssetPage || 1) {
   try {
     const payload = await requestJson(`/api/user-assets?${params.toString()}`);
     state.advancedAssets = payload.assets || [];
+    state.userAssets = payload.assets || [];
+    state.userAssetsPage = payload.page || page;
+    state.userAssetsLimit = payload.limit || state.userAssetsLimit || 8;
+    state.userAssetsTotal = payload.total || 0;
+    state.userAssetsTotalPages = payload.totalPages || 1;
     state.advancedAssetsLoaded = true;
     state.advancedAssetPage = payload.page || page;
     state.advancedAssetLimit = payload.limit || state.advancedAssetLimit || 8;
