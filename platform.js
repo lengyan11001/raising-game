@@ -2293,7 +2293,7 @@ Advanced MCP wrapper target:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
-{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"assetId":"reference.assetId from /api/seedance/characters/upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"inputVideoSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p|1080p","duration":5,"seed":123456 optional}
+{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"assetId":"reference.assetId from /api/seedance/characters/upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"inputVideoSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p|1080p","duration":5,"params":{"web_search":false,"watermark":false,"seed":123456}}
 
 Seedance character upload target:
 POST ${apiUrl("/api/seedance/characters/upload")}
@@ -2356,7 +2356,9 @@ Reference images:
     "resolution": "720p",
     "duration": 5,
     "generate_audio": true,
-    "web_search": false
+    "web_search": false,
+    "watermark": false,
+    "seed": 123456
   }
 }
 
@@ -2490,7 +2492,7 @@ Content-Type: application/json
   },
   advanced: {
     title: "Advanced Generation",
-    summary: "Token callers can use Seedance or Wan2.7 directly. Put upstream-only options in params; supported fields are passed through to the provider payload.",
+    summary: "Token callers can use Seedance or Wan2.7 directly. Put upstream-only options in params; documented provider fields are passed through and the upstream decides whether they take effect.",
     request: [
       ["Authorization", "Bearer <user-token>"],
       ["Content-Type", "application/json"],
@@ -2519,10 +2521,13 @@ Content-Type: application/json
       ["ratio", "9:16, 16:9, or 1:1."],
       ["resolution", "720p or 1080p."],
       ["duration", "Seconds. Clamped by provider."],
-      ["seed", "Optional Wan2.7 seed."],
+      ["seed", "Provider pass-through random seed. Forwarded when supplied; upstream decides whether it takes effect."],
       ["params", "Optional provider parameter object. Top-level business fields still control billing and media handling."],
       ["params.image_url / params.end_image_url", "Seedance raw upstream first/last-frame URL or asset:// URI. Friendly fields are prepared automatically."],
       ["params.reference_images / params.reference_videos / params.reference_audios", "Seedance raw upstream reference arrays. These are forwarded when supplied."],
+      ["params.web_search / params.webSearch", "Seedance pass-through web-search flag where upstream supports it."],
+      ["params.watermark", "Seedance pass-through watermark flag where upstream supports it."],
+      ["params.seed", "Seedance pass-through random seed where upstream supports it."],
     ],
     response: [
       ["ok", "true when the request is accepted."],
@@ -2562,7 +2567,9 @@ Content-Type: application/json
       { name: "referenceAudios / referenceAudioUrls", type: "array", required: "No", description: "Our friendly field for up to 3 public audio URLs. The API sends them as reference_audio content.", default: "-" },
       { name: "referenceAudioAssetId / referenceAudioAssetIds", type: "string|array", required: "No", description: "Our friendly field for up to 3 uploaded audio assets. The API sends them as reference_audio content.", default: "-" },
       { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
-      { name: "web_search", type: "boolean", required: "No", description: "Enable web search enhancement where supported by upstream text-to-video.", default: "false" },
+      { name: "web_search / webSearch", type: "boolean", required: "No", description: "Pass-through web search enhancement flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
+      { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
+      { name: "seed", type: "integer", required: "No", description: "Pass-through random seed. The API forwards it; upstream decides whether it takes effect.", default: "-" },
       { name: "content", type: "array", required: "No", description: "Advanced raw Ark content array. If supplied, it overrides the content we build from prompt and references.", default: "-" },
       { name: "params", type: "object", required: "No", description: "Pass-through object for upstream fields. Top-level prompt/provider/media fields are still understood by our API.", default: "{}" },
     ],
@@ -5989,7 +5996,7 @@ function renderAccessGuides() {
           doc === ACCESS_DOCS.platform ? "One token, one template id, and one image for image-to-video templates." : "",
           doc === ACCESS_DOCS.assets ? "Upload once, then pass asset.id into the matching image/video/audio field." : "",
           doc === ACCESS_DOCS.advanced ? "Seedance uses referenceImages; Wan2.7 uses dataUrl as the first frame; extra upstream fields belong in params." : "",
-          doc === ACCESS_DOCS.seedanceParams ? "Start with /api/seedance/characters/upload, then send returned reference.assetId into /api/advanced/generate. Fields inside params are forwarded to Seedance." : "",
+          doc === ACCESS_DOCS.seedanceParams ? "Start with /api/seedance/characters/upload, then send returned reference.assetId into /api/advanced/generate. Documented params are forwarded to Seedance; upstream decides whether each one takes effect." : "",
           doc === ACCESS_DOCS.wan27VideoParams ? "Fields inside params.parameters merge into DashScope parameters; fields inside params.input merge into DashScope input." : "",
           doc === ACCESS_DOCS.wan27ImageParams ? "Image results are saved as assets and history/admin records include the upstream payload." : "",
           doc === ACCESS_DOCS.records ? "Use refresh=1 on list views when you want pending tasks to refresh." : "",

@@ -3998,6 +3998,7 @@ const SEEDANCE_TOP_LEVEL_PASSTHROUGH_FIELDS = [
 
 function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body = {} } = {}) {
   const source = { ...requestParamsFromBody(body), ...body };
+  const parameterExtras = plainObject(source.parameters);
   const payload = pickRequestFields(source, SEEDANCE_TOP_LEVEL_PASSTHROUGH_FIELDS);
   const requestedContent = Array.isArray(source.content) ? source.content : null;
   const fallbackContent = Array.isArray(content) ? content : [];
@@ -4015,7 +4016,11 @@ function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body 
     advancedDurationBounds("seedance").min,
     advancedDurationBounds("seedance").max,
   );
-  payload.watermark = boolFromRequest(source.watermark, false);
+  const seedValue = firstPresent(source.seed, parameterExtras.seed);
+  if (seedValue !== undefined) payload.seed = seedValue;
+  const webSearchValue = firstPresent(source.web_search, source.webSearch, parameterExtras.web_search, parameterExtras.webSearch);
+  if (webSearchValue !== undefined) payload.web_search = boolFromRequest(webSearchValue, false);
+  payload.watermark = boolFromRequest(firstPresent(source.watermark, parameterExtras.watermark), false);
   if (Array.isArray(payload.reference_images) && payload.reference_images.length) {
     payload.reference_images = payload.reference_images.map((item) => (
       typeof item === "string" ? item : String(item?.url || item?.image_url || item?.assetUri || item || "")
@@ -8471,8 +8476,14 @@ async function runAdvancedGenerationJob(job = {}) {
         input: Object.keys(plainObject(requestParams.input)).length ? requestParams.input : undefined,
         mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (seedanceMode || undefined),
         seedanceMode: provider === "seedance" ? (seedanceMode || undefined) : undefined,
-        seed: requestParams.seed || undefined,
+        seed: requestParams.seed === undefined || requestParams.seed === "" ? undefined : requestParams.seed,
       };
+      if (provider === "seedance") {
+        const webSearchValue = firstPresent(requestParams.web_search, requestParams.webSearch, requestParams.parameters?.web_search, requestParams.parameters?.webSearch);
+        const watermarkValue = firstPresent(requestParams.watermark, requestParams.parameters?.watermark);
+        if (webSearchValue !== undefined) gatewayBody.web_search = boolFromRequest(webSearchValue, false);
+        if (watermarkValue !== undefined) gatewayBody.watermark = boolFromRequest(watermarkValue, false);
+      }
       if (provider === "wan27") {
         const dbForGateway = await readDb();
         const assetMap = new Map((dbForGateway.userAssets || []).map((asset) => [asset.id, asset]));
@@ -8688,7 +8699,9 @@ async function handleAdvancedGenerate(req, res) {
       "reference_images",
       "content",
       "web_search",
+      "webSearch",
       "watermark",
+      "seed",
       "fps",
       "camera_fixed",
     ].forEach((field) => {
@@ -9462,6 +9475,8 @@ function docsAdvancedExampleBody(item = {}) {
         model: params.model || MODEL_QUALITY,
         generate_audio: params.generateAudio !== false,
         web_search: false,
+        watermark: false,
+        seed: params.seed || 123456,
       },
   };
   if (provider === "seedance") {
@@ -9701,7 +9716,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "ratio", type: "string", required: false, description: "Video ratio, for example 9:16, 16:9, or 1:1." },
       { name: "resolution", type: "string", required: false, description: "720p or 1080p." },
       { name: "duration", type: "number", required: false, description: "Duration in seconds. Seedance is clamped to 5-15; Wan2.7 is clamped to 2-15." },
-      { name: "seed", type: "number", required: false, description: "Wan2.7 random seed." },
+      { name: "seed", type: "number", required: false, description: "Provider pass-through random seed. The API forwards it when supplied; upstream decides whether it takes effect." },
       { name: "params", type: "object", required: false, description: "Provider pass-through object. Seedance forwards model/content/reference_* fields; Wan2.7 forwards model plus input/parameters." },
       { name: "params.model", type: "string", required: false, description: "Override the upstream model id when the provider supports it." },
       { name: "params.input", type: "object", required: false, description: "Wan2.7 only. Extra DashScope input fields; prompt/media are still set by this API." },
@@ -9712,7 +9727,9 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "params.reference_images", type: "array", required: false, description: "Seedance only. Raw upstream reference image URLs or asset:// URIs for advanced callers." },
       { name: "params.reference_videos", type: "array", required: false, description: "Seedance only. Raw upstream reference video URLs or asset:// URIs for advanced callers." },
       { name: "params.reference_audios", type: "array", required: false, description: "Seedance only. Raw upstream reference audio URLs or asset:// URIs for advanced callers." },
-      { name: "params.web_search", type: "boolean", required: false, description: "Seedance only. Enable upstream web-search enhancement where available." },
+      { name: "params.web_search / params.webSearch", type: "boolean", required: false, description: "Seedance pass-through. Enable upstream web-search enhancement where available; upstream decides whether it takes effect." },
+      { name: "params.watermark", type: "boolean", required: false, description: "Seedance pass-through watermark flag. Upstream decides whether it takes effect." },
+      { name: "params.seed", type: "number", required: false, description: "Seedance pass-through random seed. Upstream decides whether it takes effect." },
     ],
     exampleRequest: {
       method: "POST",
@@ -9811,7 +9828,7 @@ function advancedDocMarkdown(item) {
   lines.push("", "Seedance modes: set `seedanceMode` to `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`. For first-frame modes use `imageUrl`/`firstFrameUrl`/`imageAssetId`/`firstFrameAssetId`; for first+last use `endImageUrl`/`lastFrameUrl`/`endImageAssetId`/`lastFrameAssetId`. Reference-image mode uses `referenceImages` (up to 9), reference-video/edit/extend uses `referenceVideoAssetId`, `referenceVideoAssetIds`, `referenceVideos`, or `referenceVideoUrls` (up to 3), and multimodal audio references use `referenceAudios`, `referenceAudioUrls`, `referenceAudioAssetId`, or `referenceAudioAssetIds` (up to 3). For any Seedance video input, pass `inputVideoSeconds` or `referenceVideoDurationSeconds` so the pre-deducted cost includes the input-video billing branch; if omitted, the output duration is used as fallback. In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
   lines.push("", "Seedance character upload: call `/api/seedance/characters/upload` with `url`/`imageUrl`, `dataUrl`, or an existing `assetId`. The response returns `reference.assetId`, `reference.assetUri`, and a ready `referenceImages` item. Then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<reference.assetId>\",\"fileName\":\"image1.png\"}]`. In the prompt, write `Image 1` to refer to that character. For multiple characters, the order in `referenceImages` maps to `Image 1`, `Image 2`, and so on.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance friendly fields are prepared into upstream `image_url`, `end_image_url`, `content`, or `reference_*` fields as needed.");
-  lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `image_url`, `end_image_url`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`.");
+  lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `image_url`, `end_image_url`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`/`webSearch`, `watermark`, `seed`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`. These fields are passed through for upstream compatibility; upstream decides whether each one takes effect.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -9845,7 +9862,7 @@ function buildModelDocsMarkdown(docs) {
     "4. Optional: upload a reusable image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
     "5. Seedance character upload: POST `/api/seedance/characters/upload` with the character image, then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<reference.assetId>\"}]`. In the prompt, refer to that character as `Image 1`.",
     "6. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"` and optional `seedanceMode` (`text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`). When a request includes reference videos, include `inputVideoSeconds` or `referenceVideoDurationSeconds` so billing can pre-deduct the video-input branch before upstream submission.",
-    "7. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional `seed`, and duration.",
+    "7. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional pass-through parameters, and duration.",
     "8. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
     "",
     "## Seedance Character Upload Example",
