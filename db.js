@@ -242,6 +242,7 @@ async function ensureSchema() {
     ALTER TABLE app_user_unlocks
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
@@ -1678,7 +1679,55 @@ async function migrateFileDataToDb({ defaultDb, defaultConfig }) {
   const appDb = await getKv("app_db", defaultDb || {});
   if (Array.isArray(appDb.users) && appDb.users.length && (counts.users || 0) === 0) {
     await replaceAppDbTables(appDb, { replaceAll: true });
+  } else if (shouldBackfillAppDbTables(appDb, counts)) {
+    const currentDb = await readAppDbFromTables(defaultDb || {}) || {};
+    await replaceAppDbTables(mergeAppDbRecords(appDb, currentDb), { replaceAll: true });
   }
+}
+
+function shouldBackfillAppDbTables(appDb = {}, counts = {}) {
+  const checks = [
+    ["users", "users"],
+    ["sessions", "sessions"],
+    ["walletOrders", "wallet_orders"],
+    ["creditLedger", "credit_ledger"],
+    ["userAssets", "user_assets"],
+    ["userCharacters", "user_characters"],
+    ["userUnlocks", "user_unlocks"],
+    ["adminHomeItems", "admin_home_items"],
+  ];
+  return checks.some(([sourceKey, countKey]) => {
+    const sourceCount = Array.isArray(appDb[sourceKey]) ? appDb[sourceKey].length : 0;
+    return sourceCount > 0 && (counts[countKey] || 0) < sourceCount;
+  });
+}
+
+function mergeRecordArrays(sourceRecords = [], currentRecords = [], idKey = "id") {
+  const merged = new Map();
+  for (const record of Array.isArray(sourceRecords) ? sourceRecords : []) {
+    const id = String(record?.[idKey] || "").trim();
+    if (id) merged.set(id, record);
+  }
+  for (const record of Array.isArray(currentRecords) ? currentRecords : []) {
+    const id = String(record?.[idKey] || "").trim();
+    if (id) merged.set(id, record);
+  }
+  return Array.from(merged.values());
+}
+
+function mergeAppDbRecords(sourceDb = {}, currentDb = {}) {
+  return {
+    ...sourceDb,
+    users: mergeRecordArrays(sourceDb.users, currentDb.users),
+    sessions: mergeRecordArrays(sourceDb.sessions, currentDb.sessions, "token"),
+    walletOrders: mergeRecordArrays(sourceDb.walletOrders, currentDb.walletOrders),
+    creditLedger: mergeRecordArrays(sourceDb.creditLedger, currentDb.creditLedger),
+    userAssets: mergeRecordArrays(sourceDb.userAssets, currentDb.userAssets),
+    userCharacters: mergeRecordArrays(sourceDb.userCharacters, currentDb.userCharacters),
+    userUnlocks: mergeRecordArrays(sourceDb.userUnlocks, currentDb.userUnlocks),
+    adminHomeItems: mergeRecordArrays(sourceDb.adminHomeItems, currentDb.adminHomeItems),
+    apiSubtokens: mergeRecordArrays(sourceDb.apiSubtokens, currentDb.apiSubtokens),
+  };
 }
 
 module.exports = {
