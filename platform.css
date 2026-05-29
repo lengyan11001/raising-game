@@ -2100,6 +2100,9 @@ select option:checked {
 .advanced-upload-box.is-seedance {
   min-height: 154px;
 }
+.advanced-upload-box.is-image-edit {
+  min-height: 184px;
+}
 .advanced-upload-previews {
   position: absolute;
   inset: 8px;
@@ -2126,6 +2129,13 @@ select option:checked {
 }
 .advanced-upload-box.is-wan .advanced-upload-previews figure {
   min-height: 104px;
+}
+.advanced-upload-box.is-image-edit .advanced-upload-previews {
+  grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+  justify-content: start;
+}
+.advanced-upload-box.is-image-edit .advanced-upload-previews figure {
+  min-height: 96px;
 }
 .advanced-upload-previews img {
   width: 100%;

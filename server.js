@@ -4336,6 +4336,7 @@ function exposedWan27ImageParams(imageOptions = {}) {
 
 async function submitWan27ImageModify({
   imageUrl,
+  imageUrls,
   prompt,
   ratio = "9:16",
   resolution = "2K",
@@ -4343,6 +4344,18 @@ async function submitWan27ImageModify({
   input = {},
   parameters = {},
 } = {}) {
+  const orderedImages = arrayFromBody(imageUrls).map((item) => String(item || "").trim()).filter(Boolean);
+  if (!orderedImages.length && imageUrl) orderedImages.push(String(imageUrl || "").trim());
+  if (orderedImages.length > 9) {
+    const error = new Error("Wan2.7 image supports at most 9 input images.");
+    error.statusCode = 400;
+    error.code = "TOO_MANY_IMAGES";
+    throw error;
+  }
+  const content = [
+    ...orderedImages.map((url) => ({ image: url })),
+    { text: prompt },
+  ];
   const payload = {
     model: model || WAN27_IMAGE_PRO_MODEL,
     input: {
@@ -4350,10 +4363,7 @@ async function submitWan27ImageModify({
       messages: [
         {
           role: "user",
-          content: [
-            { image: imageUrl },
-            { text: prompt },
-          ],
+          content,
         },
       ],
     },
@@ -9781,6 +9791,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "params.model", type: "string", required: false, description: "Override the upstream model id when the provider supports it." },
       { name: "params.input", type: "object", required: false, description: "Wan2.7 only. Extra DashScope input fields; prompt/media are still set by this API." },
       { name: "params.parameters", type: "object", required: false, description: "Wan2.7 and Wan2.7 image. Extra DashScope parameters merged into the upstream payload." },
+      { name: "Wan2.7 image edit", type: "endpoint", required: false, description: "Use /api/wan27/image-edit with imageAssetIds containing 0-9 images. The image order maps to Image 1, Image 2, etc. Results are saved to assets/history/admin records." },
       { name: "params.generate_audio", type: "boolean", required: false, description: "Seedance only. Generate synchronized voice/effects/background music." },
       { name: "params.image_url", type: "string", required: false, description: "Seedance raw upstream first-frame URL or asset:// URI. Friendly imageUrl/firstFrameUrl is preferred." },
       { name: "params.end_image_url", type: "string", required: false, description: "Seedance raw upstream last-frame URL or asset:// URI. Friendly endImageUrl/lastFrameUrl is preferred." },
@@ -9841,6 +9852,7 @@ async function buildModelDocs(req) {
       userAssets: `${origin}/api/user-assets`,
       seedanceCharacterUpload: `${origin}/api/seedance/characters/upload`,
       wan27ImageTextToImage: `${origin}/api/characters/generate`,
+      wan27ImageEdit: `${origin}/api/wan27/image-edit`,
       wan27ImageEditAsset: `${origin}/api/user-assets/<assetId>/modify`,
       wan27ImageEditSystemCharacter: `${origin}/api/characters/<characterId>/modify`,
       generationRecords: `${origin}/api/generation-records`,
@@ -9888,6 +9900,7 @@ function advancedDocMarkdown(item) {
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "Seedance modes: set `seedanceMode` to `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`. For first-frame modes use `imageUrl`/`firstFrameUrl`/`imageAssetId`/`firstFrameAssetId`; for first+last use `endImageUrl`/`lastFrameUrl`/`endImageAssetId`/`lastFrameAssetId`. Reference-image mode uses `referenceImages` (up to 9), reference-video/edit/extend uses `referenceVideoAssetId`, `referenceVideoAssetIds`, `referenceVideos`, or `referenceVideoUrls` (up to 3), and multimodal audio references use `referenceAudios`, `referenceAudioUrls`, `referenceAudioAssetId`, or `referenceAudioAssetIds` (up to 3). For any Seedance video input, pass `inputVideoSeconds` or `referenceVideoDurationSeconds` so the pre-deducted cost includes the input-video billing branch; if omitted, the output duration is used as fallback. In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
   lines.push("", "Seedance character upload: call `/api/seedance/characters/upload` with `url`/`imageUrl`, `dataUrl`, or an existing `assetId`. The response returns `reference.assetId`, `reference.assetUri`, and a ready `referenceImages` item. Then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<reference.assetId>\",\"fileName\":\"image1.png\"}]`. In the prompt, write `Image 1` to refer to that character. For multiple characters, the order in `referenceImages` maps to `Image 1`, `Image 2`, and so on.");
+  lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 image assets. The order maps to Image 1, Image 2, and so on in the prompt; with no images it works as text-to-image through the same endpoint. Results are saved as assets and generation history.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance friendly fields are prepared into upstream `image_url`, `end_image_url`, `content`, or `reference_*` fields as needed.");
   lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `image_url`, `end_image_url`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`/`webSearch`, `watermark`, `seed`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`. These fields are passed through for upstream compatibility; upstream decides whether each one takes effect.");
   lines.push("", "Task query: when called with an API token, `record.videoUrl` and `record.downloadUrl` return only the upstream provider download URL. Seedance/BytePlus can return a Volcengine temporary URL, while APIZ can return an Aliyun URL. Our saved copies are internal site playback/backup data and are not returned to downstream API callers.");
@@ -9916,6 +9929,27 @@ function buildModelDocsMarkdown(docs) {
     "",
     markdownCodeBlock("http", "Authorization: Bearer <user-token>"),
     "",
+    "## Wan2.7 Image Edit",
+    "",
+    "Use `/api/wan27/image-edit` for Wan2.7 image text generation, single-image editing, or multi-image fusion/reference editing. Pass `imageAssetIds` with 0 to 9 uploaded image assets; the array order maps to Image 1, Image 2, and so on in the prompt. Results are saved into Assets, History, and admin generation records.",
+    "",
+    markdownCodeBlock("http", [
+      "POST /api/wan27/image-edit",
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      "{",
+      '  "prompt": "Use Image 1 as the person and Image 2 as the outfit reference. Create a realistic full-body portrait.",',
+      '  "imageAssetIds": ["asset-image-1", "asset-image-2"],',
+      '  "ratio": "9:16",',
+      '  "resolution": "2K",',
+      '  "params": {',
+      '    "model": "wan2.7-image-pro",',
+      '    "parameters": {"n": 1, "watermark": false}',
+      "  }",
+      "}",
+    ].join("\n")),
+    "",
     "## Quick Start",
     "",
     "1. Read `/api/models` or this Markdown file to choose a template.",
@@ -9925,8 +9959,9 @@ function buildModelDocsMarkdown(docs) {
     "5. Seedance character upload: POST `/api/seedance/characters/upload` with the character image, then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<reference.assetId>\"}]`. In the prompt, refer to that character as `Image 1`.",
     "6. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"` and optional `seedanceMode` (`text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`). When a request includes reference videos, include `inputVideoSeconds` or `referenceVideoDurationSeconds` so billing can pre-deduct the video-input branch before upstream submission.",
     "7. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional pass-through parameters, and duration.",
-    "8. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
-    "9. Task query returns only upstream download URLs in `record.videoUrl`/`record.downloadUrl` for API-token callers. Our saved copy is kept internally for site playback/backup.",
+    "8. For Wan2.7 image generation/editing, call `/api/characters/generate` for text-to-image or `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 images. The array order maps to Image 1, Image 2, and so on in the prompt.",
+    "9. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
+    "10. Task query returns only upstream download URLs in `record.videoUrl`/`record.downloadUrl` for API-token callers. Our saved copy is kept internally for site playback/backup.",
     "",
     "## Seedance Character Upload Example",
     "",
@@ -11782,6 +11817,285 @@ async function updateAssetImageModifyRecord(taskId, updates = {}, reason = "asse
     ...updates,
     lastUpdateReason: reason,
   });
+}
+
+function imageEditAssetIdsFromBody(body = {}) {
+  const ids = [];
+  for (const key of ["imageAssetIds", "image_asset_ids", "assetIds", "asset_ids", "userAssetIds", "user_asset_ids"]) {
+    if (body[key] !== undefined && body[key] !== null && body[key] !== "") ids.push(...arrayFromBody(body[key]));
+  }
+  for (const key of ["imageAssetId", "image_asset_id", "assetId", "asset_id", "userAssetId", "user_asset_id"]) {
+    if (body[key] !== undefined && body[key] !== null && body[key] !== "") ids.push(...arrayFromBody(body[key]));
+  }
+  return ids.map((value) => String(value || "").trim()).filter(Boolean);
+}
+
+async function handleWan27ImageEdit(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!ALIYUN_DASHSCOPE_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
+  }
+
+  const body = await readJson(req);
+  const prompt = String(body.prompt || "").trim();
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  const bodyParams = requestParamsFromBody(body);
+  const mergedBody = { ...bodyParams, ...body };
+  const assetIds = imageEditAssetIdsFromBody(mergedBody);
+  if (assetIds.length > 9) {
+    return sendJson(res, 400, { ok: false, code: "TOO_MANY_IMAGES", message: "Wan2.7 image edit supports 0 to 9 input images." });
+  }
+
+  const sourceAssets = [];
+  for (const assetId of assetIds) {
+    const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
+    if (!asset) return sendJson(res, 404, { ok: false, message: `Asset not found: ${assetId}` });
+    if (!String(asset.mime || "").toLowerCase().startsWith("image/")) {
+      return sendJson(res, 400, { ok: false, message: "Wan2.7 image edit only accepts image assets." });
+    }
+    sourceAssets.push(asset);
+  }
+
+  const config = await readAppConfig();
+  const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
+  const imageOptions = wan27ImageRequestOptions(mergedBody, {
+    defaultModel: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
+    defaultRatio: pricingConfig.defaultRatio || "9:16",
+    defaultResolution: pricingConfig.defaultResolution || "2K",
+  });
+  const { ratio, resolution, model } = imageOptions;
+  const pricing = wan27ImageModifyPricing(config, auth.user);
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+
+  const taskId = localGenerationTaskId("img");
+  const previewUrls = sourceAssets.map((asset) => asset.localUrl || asset.publicUrl || "");
+  const initialRecord = {
+    taskId,
+    status: "submitting",
+    model,
+    source: "asset-image-modify",
+    kind: "asset-image",
+    provider: "aliyun-wan27-image",
+    userId: auth.user.id,
+    userAssetIds: sourceAssets.map((asset) => asset.id),
+    userAssetId: sourceAssets[0]?.id || "",
+    imageUrl: previewUrls[0] || "",
+    imageUrls: previewUrls,
+    sourceImageUrl: previewUrls[0] || "",
+    sourceImageUrls: previewUrls,
+    prompt,
+    finalPrompt: prompt,
+    params: {
+      provider: "wan27-image",
+      action: sourceAssets.length ? "image_edit" : "text_to_image",
+      imageCount: sourceAssets.length,
+      ...exposedWan27ImageParams(imageOptions),
+    },
+    ratio,
+    resolution,
+    preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
+    finalCredits: null,
+    originalFinalCredits: null,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+    billingStatus: cost > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
+    pricingEstimate: pricing,
+    awaitingUpstreamTask: true,
+    upstreamPayload: null,
+    createResponse: null,
+    queryResponse: null,
+    remoteImageUrl: "",
+    localImageUrl: "",
+    error: "",
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
+  };
+  await updateAssetImageModifyRecord(taskId, initialRecord, "wan27-image-edit-create");
+  if (cost > 0) {
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "asset_image_modify",
+      taskId,
+      meta: {
+        taskId,
+        assetIds: sourceAssets.map((asset) => asset.id),
+        model,
+        ratio,
+        resolution,
+        imageCount: sourceAssets.length,
+        baseCredits: pricing.baseCredits,
+        originalCost: pricing.originalCredits,
+        pricingMultiplier: pricing.userPricingMultiplier,
+        purchaseCnyPerImage: pricing.purchaseCnyPerImage,
+        saleCnyPerImage: pricing.saleCnyPerImage,
+        pricingSource: pricing.source,
+      },
+    });
+    if (!dbEnabled()) await writeDb(auth.db);
+  }
+
+  try {
+    const preparedAssets = [];
+    for (const asset of sourceAssets) {
+      preparedAssets.push(await ensurePublicUrlForUserMediaAsset(auth.db, asset));
+    }
+    const publicImageUrls = preparedAssets.map((asset) => asset.publicUrl || publicUrlForLocalAsset(asset)).filter(Boolean);
+    if (publicImageUrls.length !== sourceAssets.length) {
+      const error = new Error("Failed to prepare all source images for Wan2.7 image edit.");
+      error.statusCode = 502;
+      throw error;
+    }
+    const referenceUrls = preparedAssets.map((asset) => asset.localUrl || asset.publicUrl || "");
+    await updateAssetImageModifyRecord(taskId, {
+      imageUrl: referenceUrls[0] || "",
+      imageUrls: referenceUrls,
+      sourceImageUrl: referenceUrls[0] || "",
+      sourceImageUrls: referenceUrls,
+      status: "running",
+    }, "wan27-image-edit-references-ready");
+    const submitted = await submitWan27ImageModify({
+      imageUrls: publicImageUrls,
+      prompt,
+      ratio,
+      resolution,
+      model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+    });
+    const imageUrl = submitted.task.imageUrls[0];
+    await updateAssetImageModifyRecord(taskId, {
+      upstreamTaskId: submitted.task.taskId || "",
+      awaitingUpstreamTask: false,
+      status: imageUrl ? (submitted.task.status || "succeeded") : "failed",
+      upstreamPayload: submitted.payload,
+      createResponse: submitted.raw,
+      remoteImageUrl: imageUrl || "",
+      error: imageUrl ? "" : (submitted.task.error || "Wan2.7 image edit returned no image."),
+    }, "wan27-image-edit-submit");
+    if (!imageUrl) {
+      const error = new Error(submitted.task.error || "Wan2.7 image edit returned no image.");
+      error.statusCode = 502;
+      error.payload = submitted.raw;
+      throw error;
+    }
+    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "edited image", maxBytes: 20 * 1024 * 1024 });
+    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+    const newAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
+      bytes: downloaded.bytes,
+      mime,
+      name: sourceAssets[0]?.name ? `${sourceAssets[0].name} edit` : "Wan2.7 image edit",
+      fileName: `${taskId}${imageExtFromMime(mime)}`,
+      maxBytes: 20 * 1024 * 1024,
+    });
+    newAsset.sourceAssetId = sourceAssets[0]?.id || "";
+    newAsset.sourceAssetIds = sourceAssets.map((asset) => asset.id);
+    newAsset.modifyPrompt = prompt;
+    newAsset.modifyModel = model;
+    newAsset.modifyTaskId = submitted.task.taskId || taskId;
+    newAsset.modifyParams = {
+      ...exposedWan27ImageParams(imageOptions),
+      imageCount: sourceAssets.length,
+    };
+    newAsset.modifyPricing = {
+      source: pricing.source,
+      baseCredits: pricing.baseCredits ?? null,
+      originalCredits: pricing.originalCredits ?? null,
+      userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+      purchaseCnyPerImage: pricing.purchaseCnyPerImage,
+      saleCnyPerImage: pricing.saleCnyPerImage,
+    };
+    newAsset.updatedAt = new Date().toISOString();
+    auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
+    if (dbEnabled()) await upsertUserAssetInDb(newAsset);
+    else await writeDb(auth.db);
+    const publicNewAsset = publicUserAsset(newAsset);
+    await updateAssetImageModifyRecord(taskId, {
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      imageResultUrl: publicNewAsset.previewUrl,
+      localImageUrl: publicNewAsset.localUrl,
+      cdnImageUrl: publicNewAsset.publicUrl && publicNewAsset.publicUrl !== publicNewAsset.localUrl ? publicNewAsset.publicUrl : "",
+      remoteImageUrl: imageUrl,
+      resultAssetId: newAsset.id,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits ?? cost,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: new Date().toISOString(),
+      error: "",
+    }, "wan27-image-edit-succeeded");
+    const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    return sendJson(res, 200, {
+      ok: true,
+      taskId,
+      upstreamTaskId: submitted.task.taskId || "",
+      asset: publicNewAsset,
+      sourceAssets: sourceAssets.map(publicUserAsset),
+      sourceAsset: sourceAssets[0] ? publicUserAsset(sourceAssets[0]) : null,
+      user: userView(latestUser),
+      pricing,
+      cost,
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
+      params: {
+        ...exposedWan27ImageParams(imageOptions),
+        imageCount: sourceAssets.length,
+      },
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    console.warn("[wan27-image-edit-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
+    if (cost > 0) {
+      try {
+        const db = await readDb();
+        await changeUserCredits(db, auth.user.id, cost, "asset_image_modify_refund", {
+          taskId,
+          assetIds: sourceAssets.map((asset) => asset.id),
+          error: error.message || "Wan2.7 image edit failed.",
+        });
+        await recordSubtokenAdjustment(auth, {
+          taskId,
+          type: "asset_image_modify_refund",
+          amount: -cost,
+          meta: { assetIds: sourceAssets.map((asset) => asset.id), error: error.message || "Wan2.7 image edit failed." },
+        });
+        if (!dbEnabled()) await writeDb(db);
+      } catch (refundError) {
+        console.error("[wan27-image-edit-refund-failed]", refundError.message || refundError);
+      }
+    }
+    await updateAssetImageModifyRecord(taskId, {
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || "Wan2.7 image edit failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    }, "wan27-image-edit-failed");
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      message: error.message || "Wan2.7 image edit failed.",
+      code: error.code || "",
+      taskId,
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
+      payload: error.payload || null,
+    });
+  }
 }
 
 async function handleModifyUserAssetImage(req, res, assetId) {
@@ -15003,6 +15317,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/user-assets") {
       return await handleListUserAssets(req, res, url);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/wan27/image-edit") {
+      return await handleWan27ImageEdit(req, res);
     }
 
     const userAssetModifyMatch = url.pathname.match(/^\/api\/user-assets\/([^/]+)\/modify$/);

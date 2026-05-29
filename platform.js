@@ -532,6 +532,7 @@ const I18N = {
     "advanced.assetTargets": "Targets",
     "advanced.assetTargetPrimary": "First frame",
     "advanced.assetTargetSourceImage": "Source image",
+    "advanced.assetTargetSourceImages": "Source images",
     "advanced.assetTargetReferenceImages": "Reference images",
     "advanced.assetTargetLastFrame": "Last frame",
     "advanced.assetTargetVideo": "Reference video / source clip",
@@ -2440,11 +2441,11 @@ Content-Type: application/json
   }
 }`;
 
-const WAN27_IMAGE_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/characters/generate")}
+const WAN27_IMAGE_PARAM_ACCESS_COPY = `Text-to-image:
+POST ${apiUrl("/api/characters/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
-Text-to-image:
 {
   "prompt": "Create one realistic adult character portrait...",
   "ratio": "9:16",
@@ -2455,17 +2456,23 @@ Text-to-image:
   }
 }
 
-Image edit:
-POST ${apiUrl("/api/user-assets/<assetId>/modify")}
+Image edit / multi-image edit:
+POST ${apiUrl("/api/wan27/image-edit")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
 {
-  "prompt": "Only change what the user asks for.",
+  "prompt": "Blend Image 1 and Image 2 into one realistic cinematic portrait.",
+  "imageAssetIds": ["asset-image-1", "asset-image-2"],
   "ratio": "9:16",
   "resolution": "2K",
   "params": {
     "model": "wan2.7-image-pro",
     "parameters": {"n": 1, "watermark": false}
   }
-}`;
+}
+
+Wan2.7 image edit accepts 0-9 source images. The order of imageAssetIds maps to Image 1, Image 2, ... in the prompt. Use an empty imageAssetIds array for text-to-image through the edit endpoint. The older single-asset endpoint /api/user-assets/<assetId>/modify remains supported for one image.`;
 
 const PARAM_DOC_MARKDOWN_URL = apiUrl("/docs/models.md");
 
@@ -2652,10 +2659,12 @@ Content-Type: application/json
   },
   wan27ImageParams: {
     title: "Wan2.7 Image Parameters",
-    summary: "Use /api/characters/generate for text-to-image, /api/user-assets/<assetId>/modify for asset image editing, or /api/characters/<characterId>/modify for system character editing.",
+    summary: "Use /api/characters/generate for text-to-image, /api/wan27/image-edit for 0-9 image text/edit/fusion requests, /api/user-assets/<assetId>/modify for the older single-asset edit path, or /api/characters/<characterId>/modify for system character editing.",
     request: [
       { name: "model", type: "string", required: "No", description: "Image generation/editing model id.", default: "wan2.7-image-pro" },
       { name: "prompt", type: "string", required: "Yes", description: "Prompt sent to upstream exactly as provided by the caller, except take-off uses the fixed take-off prompt.", default: "-" },
+      { name: "imageAssetIds", type: "array", required: "No", description: "Wan2.7 image edit source images from /api/user-assets. Supports 0-9 images. Array order maps to Image 1, Image 2, etc.", default: "[]" },
+      { name: "imageAssetId / assetId / userAssetId", type: "string", required: "No", description: "Single-image alias accepted by /api/wan27/image-edit and the legacy /api/user-assets/<assetId>/modify path.", default: "-" },
       { name: "ratio", type: "string", required: "No", description: "Output ratio: 1:1, 3:4, 4:3, 9:16, 16:9.", default: "9:16" },
       { name: "resolution", type: "string", required: "No", description: "1K or 2K. Used to derive the default size.", default: "2K" },
       { name: "size", type: "string", required: "No", description: "Direct upstream image size, for example 1440*2560. Overrides ratio/resolution size mapping.", default: "by ratio/resolution" },
@@ -6155,7 +6164,7 @@ function advancedAssetTargetItems() {
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const targets = [];
   if (provider === "wan27-image-edit") {
-    targets.push({ id: "sourceImage", label: t("advanced.assetTargetSourceImage"), type: "image" });
+    targets.push({ id: "sourceImages", label: t("advanced.assetTargetSourceImages"), type: "image" });
   } else if (provider === "wan27") {
     if (wanModeNeedsFirstFrame(wanMode)) targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
     if (wanModeNeedsClip(wanMode)) targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
@@ -6193,29 +6202,50 @@ function selectedAdvancedImageAsset() {
     || null;
 }
 
-async function ensureAdvancedImageEditAsset() {
-  const existing = selectedAdvancedImageAsset();
-  if (existing?.id && isImageAsset(existing)) return existing;
-  const reference = (state.advancedReferenceImages || [])[0] || {};
-  const dataUrl = reference.dataUrl || state.advancedUploadDataUrl || "";
-  if (!dataUrl || !dataUrl.startsWith("data:")) return null;
-  const payload = await requestJson("/api/user-assets", {
-    method: "POST",
-    body: {
-      dataUrl,
-      name: reference.name || reference.fileName || "Image edit source",
-      fileName: reference.fileName || reference.name || "image.png",
-    },
-  });
-  if (payload.asset) {
-    state.advancedSourceImageAssetId = payload.asset.id;
-    state.advancedFirstFrameAssetId = payload.asset.id;
-    state.advancedAssets = [payload.asset, ...(state.advancedAssets || []).filter((asset) => asset.id !== payload.asset.id)];
-    state.userAssets = [payload.asset, ...(state.userAssets || []).filter((asset) => asset.id !== payload.asset.id)];
-    renderAdvancedAssets();
-    return payload.asset;
+async function ensureAdvancedImageEditAssets() {
+  const references = selectedAdvancedReferenceImages("wan27-image-edit").slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  if (!references.length) return [];
+  const resolved = [];
+  const nextRefs = [];
+  for (const reference of references) {
+    let asset = reference.assetId
+      ? ((state.advancedAssets || []).find((item) => item.id === reference.assetId)
+        || (state.userAssets || []).find((item) => item.id === reference.assetId)
+        || null)
+      : null;
+    if (!asset?.id && reference.dataUrl?.startsWith("data:")) {
+      const payload = await requestJson("/api/user-assets", {
+        method: "POST",
+        body: {
+          dataUrl: reference.dataUrl,
+          name: reference.name || reference.fileName || "Image edit source",
+          fileName: reference.fileName || reference.name || "image.png",
+        },
+      });
+      asset = payload.asset || null;
+      if (asset?.id) {
+        state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+        state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+      }
+    }
+    if (asset?.id && isImageAsset(asset)) {
+      resolved.push(asset);
+      nextRefs.push({
+        assetId: asset.id,
+        dataUrl: assetPreviewUrl(asset),
+        fileName: asset.name || reference.fileName || "",
+        name: asset.name || reference.name || "",
+        fromLibrary: true,
+      });
+    }
   }
-  return null;
+  state.advancedReferenceImages = nextRefs.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  state.advancedSourceImageAssetId = state.advancedReferenceImages[0]?.assetId || "";
+  state.advancedFirstFrameAssetId = "";
+  state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+  renderAdvancedAssets();
+  renderAdvancedReferencePreviews();
+  return resolved;
 }
 
 function setAdvancedAssetTarget(target = "primary") {
@@ -6414,9 +6444,9 @@ function addAssetToAdvancedTarget(assetId = "") {
   const provider = currentAdvancedProvider();
   const url = assetPreviewUrl(asset);
   state.activeAdvancedCaseId = "";
-  if (target.id === "primary" || target.id === "sourceImage" || target.id === "referenceImages") {
+  if (target.id === "primary" || target.id === "sourceImage" || target.id === "sourceImages" || target.id === "referenceImages") {
     if (!isImageAsset(asset)) return;
-    if (target.id === "sourceImage") state.advancedSourceImageAssetId = asset.id;
+    if (target.id === "sourceImage" || target.id === "sourceImages") state.advancedSourceImageAssetId = asset.id;
     else state.advancedFirstFrameAssetId = asset.id;
     state.advancedUploadDataUrl = url;
     if (provider === "seedance") {
@@ -6434,7 +6464,11 @@ function addAssetToAdvancedTarget(assetId = "") {
       state.advancedSeedanceVideoPreviewUrl = "";
       state.advancedAudioAssetId = "";
     } else if (provider === "wan27-image-edit") {
-      state.advancedReferenceImages = [{ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true }];
+      const ref = { assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true };
+      state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+      state.advancedSourceImageAssetId = state.advancedReferenceImages[0]?.assetId || "";
+      state.advancedFirstFrameAssetId = "";
+      state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || url;
     } else {
       state.advancedReferenceImages = [{ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true }];
     }
@@ -6552,10 +6586,12 @@ function updateAdvancedModelControls() {
       (provider === "seedance" && seedanceMode === "text_to_video");
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
+    els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
     const label = els.advancedUploadBox.querySelector("span");
     if (label) {
       const seedanceLabel = seedanceModeNeedsFirstFrame(seedanceMode) ? t("advanced.firstFrame") : t("advanced.uploadReference");
-      label.innerHTML = `<i data-lucide="image-up"></i>${escapeHtml(provider === "wan27" || isImageEdit ? t("advanced.firstFrame") : seedanceLabel)}`;
+      const imageEditLabel = t("advanced.assetTargetSourceImages");
+      label.innerHTML = `<i data-lucide="image-up"></i>${escapeHtml(isImageEdit ? imageEditLabel : provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel)}`;
     }
   }
   renderAdvancedReferencePreviews();
@@ -6566,7 +6602,8 @@ function updateAdvancedModelControls() {
       const count = selectedAdvancedReferenceImages().length;
       els.advancedNote.textContent = `${t("advanced.referenceSeedance", { mode: t("advanced.originalReference") })} ${t("advanced.seedanceReferenceCount", { count })}`;
     } else if (isImageEdit) {
-      els.advancedNote.textContent = "Wan2.7 Image Edit ready.";
+      const count = selectedAdvancedReferenceImages("wan27-image-edit").length;
+      els.advancedNote.textContent = count ? `Wan2.7 Image Edit ready. ${count} image(s) selected.` : "Wan2.7 Image Edit ready.";
     } else {
       els.advancedNote.textContent = t("advanced.referenceWan");
     }
@@ -6713,21 +6750,18 @@ async function submitAdvancedGenerate() {
   const provider = currentAdvancedProvider();
   if (provider === "wan27-image-edit") {
     try {
-      const asset = await ensureAdvancedImageEditAsset();
-      if (!asset?.id) {
-        if (els.advancedNote) els.advancedNote.textContent = "Image is required.";
-        return;
-      }
+      const assets = await ensureAdvancedImageEditAssets();
       if (els.advancedNote) {
         els.advancedNote.textContent = t("advanced.submitting", {
           note: "Wan2.7 Image Edit",
           cost: advancedCostLabel(1, provider, currentAdvancedResolution(), currentAdvancedRatio()),
         });
       }
-      const payload = await requestJson(`/api/user-assets/${encodeURIComponent(asset.id)}/modify`, {
+      const payload = await requestJson("/api/wan27/image-edit", {
         method: "POST",
         body: {
           prompt,
+          imageAssetIds: assets.map((asset) => asset.id),
           ratio: currentAdvancedRatio(),
           resolution: currentAdvancedResolution(),
         },
@@ -7350,8 +7384,13 @@ function useAssetInAdvanced(asset = {}, action = "use") {
   if (els.advancedProvider) els.advancedProvider.value = action === "modify" ? "wan27-image-edit" : "seedance";
   state.activeAdvancedCaseId = "";
   if (isImageAsset(asset)) {
-    if (action === "modify") state.advancedSourceImageAssetId = asset.id;
-    state.advancedFirstFrameAssetId = asset.id;
+    if (action === "modify") {
+      state.advancedSourceImageAssetId = asset.id;
+      state.advancedFirstFrameAssetId = "";
+    } else {
+      state.advancedFirstFrameAssetId = asset.id;
+      state.advancedSourceImageAssetId = "";
+    }
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = action === "extend" ? "first_frame" : "reference_images";
     const ref = {
       assetId: asset.id,
@@ -7405,7 +7444,9 @@ function selectedWanClipUrl(mediaMode = "first_frame") {
 
 function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   const images = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
-  if (normalizeAdvancedProvider(provider) !== "seedance") return images.slice(0, 1);
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "wan27-image-edit") return images.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  if (normalizedProvider !== "seedance") return images.slice(0, 1);
   const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   if (seedanceModeNeedsFirstFrame(mode)) return images.slice(0, 1);
   return images;
@@ -7428,7 +7469,7 @@ function renderAdvancedReferencePreviews() {
   els.advancedUploadPreview.innerHTML = images.map((item, index) => `
     <figure>
       <img src="${escapeHtml(item.dataUrl || item.previewUrl || "")}" alt="" />
-      <figcaption>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : provider === "wan27-image-edit" ? t("advanced.assetTargetSourceImage") : tenantFeature("assetLibrary", true) ? `Image ${index + 1}` : `${index + 1}`)}</figcaption>
+      <figcaption>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : provider === "wan27-image-edit" ? `Image ${index + 1}` : tenantFeature("assetLibrary", true) ? `Image ${index + 1}` : `${index + 1}`)}</figcaption>
     </figure>
   `).join("");
   els.advancedUploadBox?.classList.toggle("has-image", images.length > 0);
@@ -7467,6 +7508,10 @@ function updateAdvancedReferenceSummary() {
   if (!els.advancedReferenceSummary) return;
   const provider = currentAdvancedProvider();
   const count = selectedAdvancedReferenceImages().length;
+  if (provider === "wan27-image-edit") {
+    els.advancedReferenceSummary.textContent = count ? `${count} source image(s) selected. Wan2.7 accepts 0-9 images in order.` : "Wan2.7 accepts 0-9 source images. Leave empty for text-to-image.";
+    return;
+  }
   if (provider === "seedance") {
     const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
     if (mode === "text_to_video") {
@@ -8475,10 +8520,10 @@ els.advancedImage?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
-  if (provider === "seedance") {
+  if (provider === "seedance" || provider === "wan27-image-edit") {
     const existing = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
     const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
-    const limit = seedanceModeNeedsFirstFrame(seedanceMode) ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+    const limit = provider === "wan27-image-edit" ? ADVANCED_SEEDANCE_REFERENCE_LIMIT : seedanceModeNeedsFirstFrame(seedanceMode) ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
     const roomLeft = Math.max(0, limit - existing.length);
     if (!roomLeft) {
       els.advancedImage.value = "";
@@ -8494,6 +8539,7 @@ els.advancedImage?.addEventListener("change", async () => {
     state.advancedSourceImageAssetId = "";
     state.advancedFirstFrameAssetId = "";
     state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ...addedImages]).slice(0, limit);
+    if (provider === "wan27-image-edit") state.advancedSourceImageAssetId = state.advancedReferenceImages[0]?.assetId || "";
     state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
     state.advancedSeedanceVideoAssetId = "";
     state.advancedSeedanceVideoPreviewUrl = "";
@@ -8669,7 +8715,7 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
 els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedResolution?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelControls);
-els.advancedUploadBox?.addEventListener("click", () => setAdvancedAssetTarget("primary"));
+els.advancedUploadBox?.addEventListener("click", () => setAdvancedAssetTarget(currentAdvancedProvider() === "wan27-image-edit" ? "sourceImages" : "primary"));
 els.advancedSeedanceLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
 els.advancedWanLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
 els.advancedWanClipFile?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("video"));
