@@ -6313,11 +6313,28 @@ function generationRecordKind(record = {}) {
   return "scene-video";
 }
 
-function generationRecordVideoUrl(record = {}) {
+function generationRecordProviderVideoUrl(record = {}) {
+  return String(
+    record.remoteVideoUrl ||
+    record.providerVideoUrl ||
+    record.upstreamVideoUrl ||
+    findVideoUrl(record.queryResponse) ||
+    findVideoUrl(record.createResponse) ||
+    "",
+  ).trim();
+}
+
+function generationRecordStoredVideoUrl(record = {}) {
   if (localPublicAssetStorageEnabled()) {
     return String(record.localVideoUrl || record.videoUrl || record.cdnVideoUrl || record.remoteVideoUrl || "");
   }
   return String(record.cdnVideoUrl || record.localVideoUrl || record.videoUrl || record.remoteVideoUrl || "");
+}
+
+function generationRecordVideoUrl(record = {}, options = {}) {
+  const providerUrl = generationRecordProviderVideoUrl(record);
+  const storedUrl = generationRecordStoredVideoUrl(record);
+  return options.preferProviderVideoUrl ? (providerUrl || storedUrl) : (storedUrl || providerUrl);
 }
 
 function generationRecordImageUrl(record = {}) {
@@ -6327,7 +6344,9 @@ function generationRecordImageUrl(record = {}) {
   return String(record.cdnImageUrl || record.localImageUrl || record.imageResultUrl || record.remoteImageUrl || record.imageUrl || "");
 }
 
-function publicGenerationRecord(record = {}) {
+function publicGenerationRecord(record = {}, options = {}) {
+  const providerVideoUrl = generationRecordProviderVideoUrl(record);
+  const publicVideoUrl = generationRecordVideoUrl(record, options);
   return {
     taskId: String(record.taskId || ""),
     upstreamTaskId: String(record.upstreamTaskId || ""),
@@ -6364,7 +6383,10 @@ function publicGenerationRecord(record = {}) {
     resolution: String(record.resolution || ""),
     duration: record.duration || "",
     quality: String(record.quality || ""),
-    videoUrl: generationRecordVideoUrl(record),
+    videoUrl: publicVideoUrl,
+    downloadUrl: providerVideoUrl || publicVideoUrl,
+    providerVideoUrl,
+    upstreamVideoUrl: providerVideoUrl,
     localVideoUrl: String(record.localVideoUrl || ""),
     cdnVideoUrl: String(record.cdnVideoUrl || ""),
     remoteVideoUrl: String(record.remoteVideoUrl || ""),
@@ -9730,6 +9752,8 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "params.web_search / params.webSearch", type: "boolean", required: false, description: "Seedance pass-through. Enable upstream web-search enhancement where available; upstream decides whether it takes effect." },
       { name: "params.watermark", type: "boolean", required: false, description: "Seedance pass-through watermark flag. Upstream decides whether it takes effect." },
       { name: "params.seed", type: "number", required: false, description: "Seedance pass-through random seed. Upstream decides whether it takes effect." },
+      { name: "record.videoUrl / record.downloadUrl", type: "string", required: false, description: "Task query returns the upstream provider video URL first. For Seedance this may be a BytePlus/Volcengine temporary URL; for xskill/APIZ it may be an Aliyun URL. Local copies are kept separately." },
+      { name: "record.localVideoUrl / record.cdnVideoUrl", type: "string", required: false, description: "Our stored copy for site playback and backup. Do not treat this as the upstream provider response." },
     ],
     exampleRequest: {
       method: "POST",
@@ -9829,6 +9853,7 @@ function advancedDocMarkdown(item) {
   lines.push("", "Seedance character upload: call `/api/seedance/characters/upload` with `url`/`imageUrl`, `dataUrl`, or an existing `assetId`. The response returns `reference.assetId`, `reference.assetUri`, and a ready `referenceImages` item. Then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<reference.assetId>\",\"fileName\":\"image1.png\"}]`. In the prompt, write `Image 1` to refer to that character. For multiple characters, the order in `referenceImages` maps to `Image 1`, `Image 2`, and so on.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance friendly fields are prepared into upstream `image_url`, `end_image_url`, `content`, or `reference_*` fields as needed.");
   lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `image_url`, `end_image_url`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`/`webSearch`, `watermark`, `seed`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`. These fields are passed through for upstream compatibility; upstream decides whether each one takes effect.");
+  lines.push("", "Task query: `record.videoUrl` and `record.downloadUrl` prefer the upstream provider download URL. Seedance/BytePlus can return a Volcengine temporary URL, while xskill/APIZ can return an Aliyun URL. `record.localVideoUrl` and `record.cdnVideoUrl` are only our saved copy for playback/backup.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -9864,6 +9889,7 @@ function buildModelDocsMarkdown(docs) {
     "6. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"` and optional `seedanceMode` (`text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`). When a request includes reference videos, include `inputVideoSeconds` or `referenceVideoDurationSeconds` so billing can pre-deduct the video-input branch before upstream submission.",
     "7. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional pass-through parameters, and duration.",
     "8. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
+    "9. Task query returns upstream download URLs first in `record.videoUrl`/`record.downloadUrl`; our saved copy is exposed separately as `record.localVideoUrl`/`record.cdnVideoUrl`.",
     "",
     "## Seedance Character Upload Example",
     "",
@@ -14172,7 +14198,7 @@ async function handleListGenerationRecords(req, res, url) {
 
   return sendJson(res, 200, {
     ok: true,
-    records: ownRecords.map(publicGenerationRecord),
+    records: ownRecords.map((record) => publicGenerationRecord(record, { preferProviderVideoUrl: true })),
     page,
     limit,
     total: allOwnRecords.length,
@@ -14247,7 +14273,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
 
   return sendJson(res, 200, {
     ok: true,
-    record: publicGenerationRecord(nextRecord),
+    record: publicGenerationRecord(nextRecord, { preferProviderVideoUrl: true }),
     user: userView((await readDb()).users.find((user) => user.id === auth.user.id) || auth.user),
   });
 }
