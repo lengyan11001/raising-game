@@ -8106,7 +8106,7 @@ async function handlePlatformGenerate(req, res) {
     ok: true,
     task: { taskId, status: record.status },
     taskId,
-    record: publicGenerationRecord(record),
+    record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)),
     user: userView(latestUser),
   });
 }
@@ -9157,7 +9157,7 @@ async function handleAdvancedGenerate(req, res) {
     ok: true,
     task: { taskId, status: record.status },
     taskId,
-    record: publicGenerationRecord(record),
+    record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)),
     user: userView(latestUser),
     referenceAsset: userAsset ? {
       userAssetId: userAsset.id,
@@ -11537,7 +11537,7 @@ async function handleGenerateUserCharacterImage(req, res) {
       user: userView(latestUser),
       pricing,
       cost,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
       params: exposedWan27ImageParams(imageOptions),
     });
   } catch (error) {
@@ -11571,7 +11571,7 @@ async function handleGenerateUserCharacterImage(req, res) {
       message: error.message || "Wan2.7 character image failed.",
       code: error.code || "",
       taskId,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
       payload: error.payload || null,
     });
   }
@@ -11732,7 +11732,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
       user: userView(latestUser),
       pricing,
       cost,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
       params: { mode, ...exposedWan27ImageParams(imageOptions) },
     });
   } catch (error) {
@@ -11766,7 +11766,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
       message: error.message || "Wan2.7 character modify failed.",
       code: error.code || "",
       taskId,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
       payload: error.payload || null,
     });
   }
@@ -11972,7 +11972,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       user: userView(latestUser),
       pricing,
       cost,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
       params: exposedWan27ImageParams(imageOptions),
     });
   } catch (error) {
@@ -12015,7 +12015,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       message: error.message || "Wan2.7 image modify failed.",
       code: error.code || "",
       taskId,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }),
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
       payload: error.payload || null,
     });
   }
@@ -14322,7 +14322,7 @@ async function handleDeleteGenerationRecord(req, res, taskId) {
   if (!record) {
     return sendJson(res, 404, { ok: false, message: "Generation record not found." });
   }
-  return sendJson(res, 200, { ok: true, record: publicGenerationRecord(record) });
+  return sendJson(res, 200, { ok: true, record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)) });
 }
 
 async function handleCreateCharacterImageLegacy(req, res) {
