@@ -1710,7 +1710,7 @@ function mergeRecordArrays(sourceRecords = [], currentRecords = [], idKey = "id"
   }
   for (const record of Array.isArray(currentRecords) ? currentRecords : []) {
     const id = String(record?.[idKey] || "").trim();
-    if (id) merged.set(id, record);
+    if (id && !merged.has(id)) merged.set(id, record);
   }
   return Array.from(merged.values());
 }
