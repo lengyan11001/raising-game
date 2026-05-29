@@ -84,6 +84,7 @@ async function ensureSchema() {
   `);
   await query(`
     ALTER TABLE app_users
+      ADD COLUMN IF NOT EXISTS username TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS api_token TEXT,
       ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user',
       ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '',
@@ -94,7 +95,13 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
+  await query(`
+    UPDATE app_users
+    SET username = COALESCE(NULLIF(username, ''), NULLIF(payload->>'username', ''), id)
+    WHERE username = '';
+  `);
   await query(`CREATE INDEX IF NOT EXISTS app_users_created_idx ON app_users (created_at DESC);`);
+  await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_uidx ON app_users (username) WHERE deleted_at IS NULL;`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_api_token_uidx ON app_users (api_token) WHERE api_token IS NOT NULL AND api_token <> '';`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_sessions (
