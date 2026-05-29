@@ -104,6 +104,7 @@ const state = {
   accessDocMode: "http",
   uploadDataUrl: "",
   advancedUploadDataUrl: "",
+  advancedSourceImageAssetId: "",
   advancedFirstFrameAssetId: "",
   advancedReferenceImages: [],
   advancedSeedanceLastFrameDataUrl: "",
@@ -529,7 +530,9 @@ const I18N = {
     "advanced.assetTitle": "Add from assets",
     "advanced.assetSubtitle": "Choose a target below, or click a media box on the left, then add an asset here.",
     "advanced.assetTargets": "Targets",
-    "advanced.assetTargetPrimary": "Main image / first frame",
+    "advanced.assetTargetPrimary": "First frame",
+    "advanced.assetTargetSourceImage": "Source image",
+    "advanced.assetTargetReferenceImages": "Reference images",
     "advanced.assetTargetLastFrame": "Last frame",
     "advanced.assetTargetVideo": "Reference video / source clip",
     "advanced.assetTargetAudio": "Reference audio",
@@ -6152,14 +6155,16 @@ function advancedAssetTargetItems() {
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const targets = [];
   if (provider === "wan27-image-edit") {
-    targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+    targets.push({ id: "sourceImage", label: t("advanced.assetTargetSourceImage"), type: "image" });
   } else if (provider === "wan27") {
     if (wanModeNeedsFirstFrame(wanMode)) targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
     if (wanModeNeedsClip(wanMode)) targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
     if (wanModeNeedsLastFrame(wanMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
     if (wanModeNeedsAudio(wanMode)) targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
   } else {
-    if (seedanceMode !== "text_to_video" && !seedanceModeNeedsReferenceVideo(seedanceMode)) {
+    if (seedanceModeNeedsReferenceImages(seedanceMode)) {
+      targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
+    } else if (seedanceMode !== "text_to_video" && !seedanceModeNeedsReferenceVideo(seedanceMode)) {
       targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
     }
     if (seedanceModeNeedsLastFrame(seedanceMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
@@ -6176,8 +6181,12 @@ function activeAdvancedAssetTarget() {
   return targets.find((target) => target.id === state.advancedAssetTarget) || targets[0];
 }
 
+function advancedSourceImageAssetId() {
+  return state.advancedSourceImageAssetId || state.advancedFirstFrameAssetId || "";
+}
+
 function selectedAdvancedImageAsset() {
-  const id = state.advancedFirstFrameAssetId || "";
+  const id = advancedSourceImageAssetId();
   if (!id) return null;
   return (state.advancedAssets || []).find((asset) => asset.id === id)
     || (state.userAssets || []).find((asset) => asset.id === id)
@@ -6199,6 +6208,7 @@ async function ensureAdvancedImageEditAsset() {
     },
   });
   if (payload.asset) {
+    state.advancedSourceImageAssetId = payload.asset.id;
     state.advancedFirstFrameAssetId = payload.asset.id;
     state.advancedAssets = [payload.asset, ...(state.advancedAssets || []).filter((asset) => asset.id !== payload.asset.id)];
     state.userAssets = [payload.asset, ...(state.userAssets || []).filter((asset) => asset.id !== payload.asset.id)];
@@ -6404,15 +6414,18 @@ function addAssetToAdvancedTarget(assetId = "") {
   const provider = currentAdvancedProvider();
   const url = assetPreviewUrl(asset);
   state.activeAdvancedCaseId = "";
-  if (target.id === "primary") {
+  if (target.id === "primary" || target.id === "sourceImage" || target.id === "referenceImages") {
     if (!isImageAsset(asset)) return;
-    state.advancedFirstFrameAssetId = asset.id;
+    if (target.id === "sourceImage") state.advancedSourceImageAssetId = asset.id;
+    else state.advancedFirstFrameAssetId = asset.id;
     state.advancedUploadDataUrl = url;
     if (provider === "seedance") {
       const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
-      if (seedanceMode === "text_to_video" && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
+      if ((target.id === "referenceImages" || seedanceMode === "text_to_video") && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
       const ref = { assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true };
-      if (seedanceModeNeedsFirstFrame(seedanceMode)) {
+      if (target.id === "referenceImages") {
+        state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+      } else if (seedanceModeNeedsFirstFrame(seedanceMode)) {
         state.advancedReferenceImages = [ref];
       } else {
         state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
@@ -6420,6 +6433,8 @@ function addAssetToAdvancedTarget(assetId = "") {
       state.advancedSeedanceVideoAssetId = "";
       state.advancedSeedanceVideoPreviewUrl = "";
       state.advancedAudioAssetId = "";
+    } else if (provider === "wan27-image-edit") {
+      state.advancedReferenceImages = [{ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true }];
     } else {
       state.advancedReferenceImages = [{ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true }];
     }
@@ -6449,6 +6464,7 @@ function addAssetToAdvancedTarget(assetId = "") {
       state.advancedReferenceImages = [];
       state.advancedUploadDataUrl = "";
       state.advancedFirstFrameAssetId = "";
+      state.advancedSourceImageAssetId = "";
     } else {
       if (els.advancedWanMediaMode && !wanModeNeedsClip(els.advancedWanMediaMode.value)) els.advancedWanMediaMode.value = "first_clip";
       state.advancedWanClipAssetId = asset.id;
@@ -6645,6 +6661,7 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || "";
+  state.advancedSourceImageAssetId = "";
   state.advancedFirstFrameAssetId = "";
   state.advancedSeedanceLastFrameAssetId = "";
   state.advancedWanLastFrameAssetId = "";
@@ -7333,6 +7350,7 @@ function useAssetInAdvanced(asset = {}, action = "use") {
   if (els.advancedProvider) els.advancedProvider.value = action === "modify" ? "wan27-image-edit" : "seedance";
   state.activeAdvancedCaseId = "";
   if (isImageAsset(asset)) {
+    if (action === "modify") state.advancedSourceImageAssetId = asset.id;
     state.advancedFirstFrameAssetId = asset.id;
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = action === "extend" ? "first_frame" : "reference_images";
     const ref = {
@@ -7342,7 +7360,7 @@ function useAssetInAdvanced(asset = {}, action = "use") {
       name: asset.name || "",
       fromLibrary: true,
     };
-    const existing = action === "replace" ? advancedSeedanceImageRefsFromState().filter((item) => item.assetId !== asset.id) : [];
+    const existing = action === "replace" || action === "modify" ? advancedSeedanceImageRefsFromState().filter((item) => item.assetId !== asset.id) : [];
     state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
     state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
     state.advancedSeedanceVideoAssetId = "";
@@ -7410,7 +7428,7 @@ function renderAdvancedReferencePreviews() {
   els.advancedUploadPreview.innerHTML = images.map((item, index) => `
     <figure>
       <img src="${escapeHtml(item.dataUrl || item.previewUrl || "")}" alt="" />
-      <figcaption>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : tenantFeature("assetLibrary", true) ? `Image ${index + 1}` : `${index + 1}`)}</figcaption>
+      <figcaption>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : provider === "wan27-image-edit" ? t("advanced.assetTargetSourceImage") : tenantFeature("assetLibrary", true) ? `Image ${index + 1}` : `${index + 1}`)}</figcaption>
     </figure>
   `).join("");
   els.advancedUploadBox?.classList.toggle("has-image", images.length > 0);
@@ -8473,6 +8491,7 @@ els.advancedImage?.addEventListener("change", async () => {
       dataUrl: await readFileAsDataUrl(file),
       fileName: file.name || "",
     })));
+    state.advancedSourceImageAssetId = "";
     state.advancedFirstFrameAssetId = "";
     state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ...addedImages]).slice(0, limit);
     state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
@@ -8487,6 +8506,7 @@ els.advancedImage?.addEventListener("change", async () => {
     return;
   }
   const selectedFile = files[0];
+  state.advancedSourceImageAssetId = "";
   state.advancedFirstFrameAssetId = "";
   state.advancedReferenceImages = [{
     dataUrl: await readFileAsDataUrl(selectedFile),
