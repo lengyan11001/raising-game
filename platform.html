@@ -103,7 +103,6 @@
               <div>
                 <p class="eyebrow" data-i18n="advanced.models">Advanced Models</p>
                 <h2 data-i18n="advanced.title">Advanced Generate</h2>
-                <p data-i18n="advanced.subtitle">Upload or select assets, choose a model, and create a new video.</p>
               </div>
             </div>
             <label class="field">
@@ -210,22 +209,22 @@
             <p class="job-note" id="advancedNote"></p>
           </section>
           <section class="advanced-case-panel advanced-asset-panel">
-            <div class="section-head compact">
+            <div class="section-head compact advanced-asset-head">
               <div>
                 <p class="eyebrow" data-i18n="advanced.assets">Assets</p>
                 <h2 data-i18n="advanced.assetTitle">Add from assets</h2>
-                <p data-i18n="advanced.assetSubtitle">Choose a target below, or click a media box on the left, then add an asset here.</p>
+              </div>
+              <div class="advanced-asset-head-actions">
+                <label class="asset-upload-control advanced-asset-upload-control">
+                  <input id="advancedAssetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*" multiple />
+                  <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
+                </label>
+                <button class="ghost-button" id="refreshAdvancedAssetsBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
               </div>
             </div>
             <div class="advanced-asset-toolbar">
-              <label><span data-i18n="ledger.search">Search</span><input id="advancedAssetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" /></label>
-              <label><span data-i18n="assets.type">Type</span><select id="advancedAssetTypeFilter"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option></select></label>
-              <label class="asset-upload-control advanced-asset-upload-control">
-                <input id="advancedAssetUploadInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*" multiple />
-                <span><i data-lucide="upload"></i><span data-i18n="assets.upload">Upload</span></span>
-                <small class="file-picker-name" data-file-name-for="advancedAssetUploadInput" data-i18n="file.none">No file selected</small>
-              </label>
-              <button class="ghost-button" id="refreshAdvancedAssetsBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
+              <input id="advancedAssetSearch" type="search" placeholder="Name / ID" data-i18n-placeholder="assets.searchPlaceholder" aria-label="Search assets" />
+              <select id="advancedAssetTypeFilter" aria-label="Asset type"><option value="" data-i18n="common.all">All</option><option value="image" data-i18n="assets.image">Images</option><option value="video" data-i18n="assets.video">Videos</option><option value="audio" data-i18n="assets.audio">Audio</option></select>
             </div>
             <div class="advanced-asset-targets" id="advancedAssetTargets"></div>
             <p class="job-note" id="advancedAssetNote"></p>

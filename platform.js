@@ -136,6 +136,7 @@ const state = {
   advancedAssetLimit: 8,
   advancedAssetTotal: 0,
   advancedAssetTotalPages: 1,
+  advancedAssetsLoaded: false,
   advancedAudioAssetId: "",
   topupRefreshTimer: 0,
   topupRefreshInFlight: false,
@@ -3439,6 +3440,11 @@ function setUser(user, { refreshHistory = false } = {}) {
     state.galleryUnlocks = [];
     state.galleryUnlocksLoaded = false;
     state.galleryUnlockMessage = "";
+    state.advancedAssets = [];
+    state.advancedAssetsLoaded = false;
+    state.advancedAssetPage = 1;
+    state.advancedAssetTotal = 0;
+    state.advancedAssetTotalPages = 1;
   }
   const accountLabel = state.user
     ? state.user.username
@@ -6157,15 +6163,17 @@ function renderAdvancedAssetTargets() {
   });
 }
 
-function renderAdvancedAssets(assets = state.advancedAssets || state.userAssets || []) {
+function renderAdvancedAssets(assets) {
   if (!els.advancedAssetGrid) return;
   renderAdvancedAssetTargets();
+  const list = Array.isArray(assets)
+    ? assets
+    : (state.advancedAssetsLoaded ? state.advancedAssets : state.userAssets) || [];
   if (!state.user) {
     if (els.advancedAssetPager) els.advancedAssetPager.innerHTML = "";
     els.advancedAssetGrid.innerHTML = `
-      <div class="history-empty-card">
+      <div class="advanced-asset-empty">
         <strong>${escapeHtml(t("assets.loginRequired"))}</strong>
-        <p>${escapeHtml(t("assets.loginDesc"))}</p>
         <button class="generate-btn" type="button" data-login-advanced-assets>${escapeHtml(t("history.login"))}</button>
       </div>
     `;
@@ -6173,8 +6181,9 @@ function renderAdvancedAssets(assets = state.advancedAssets || state.userAssets 
     refreshIcons();
     return;
   }
-  if (!assets.length) {
-    els.advancedAssetGrid.innerHTML = `<div class="history-empty-card"><strong>${escapeHtml(t("assets.emptyTitle"))}</strong><p>${escapeHtml(t("assets.emptyDesc"))}</p></div>`;
+  if (!list.length) {
+    const emptyText = state.advancedAssetsLoaded ? t("assets.emptyTitle") : t("assets.loading");
+    els.advancedAssetGrid.innerHTML = `<div class="advanced-asset-empty"><strong>${escapeHtml(emptyText)}</strong></div>`;
     if (state.advancedAssetTotal > 0) {
       renderSimplePager(els.advancedAssetPager, {
         page: state.advancedAssetPage,
@@ -6187,7 +6196,7 @@ function renderAdvancedAssets(assets = state.advancedAssets || state.userAssets 
     refreshIcons();
     return;
   }
-  els.advancedAssetGrid.innerHTML = assets.map((asset) => {
+  els.advancedAssetGrid.innerHTML = list.map((asset) => {
     const url = assetPreviewUrl(asset);
     const video = isVideoAsset(asset);
     const audio = isAudioAsset(asset);
@@ -6235,6 +6244,7 @@ async function loadAdvancedAssets(page = state.advancedAssetPage || 1) {
   try {
     const payload = await requestJson(`/api/user-assets?${params.toString()}`);
     state.advancedAssets = payload.assets || [];
+    state.advancedAssetsLoaded = true;
     state.advancedAssetPage = payload.page || page;
     state.advancedAssetLimit = payload.limit || state.advancedAssetLimit || 8;
     state.advancedAssetTotal = payload.total || 0;
@@ -6242,7 +6252,9 @@ async function loadAdvancedAssets(page = state.advancedAssetPage || 1) {
     if (els.advancedAssetNote) els.advancedAssetNote.textContent = "";
     renderAdvancedAssets();
   } catch (error) {
+    state.advancedAssetsLoaded = true;
     if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("assets.loadFailed", { message: error.message || String(error) });
+    els.advancedAssetGrid.innerHTML = `<div class="advanced-asset-empty"><strong>${escapeHtml(t("assets.loadFailed", { message: error.message || String(error) }))}</strong></div>`;
   }
 }
 
