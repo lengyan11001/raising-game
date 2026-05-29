@@ -2124,6 +2124,52 @@ select option:checked {
   border-radius: 8px;
   background: rgba(255,255,255,.65);
 }
+.advanced-preview-remove {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255,255,255,.68);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(7,16,31,.78);
+  box-shadow: 0 8px 18px rgba(7,16,31,.18);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
+}
+.advanced-preview-remove:hover {
+  background: rgba(220,38,38,.9);
+}
+.wan-frame-remove {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  z-index: 4;
+  display: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(255,255,255,.68);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(7,16,31,.78);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
+}
+.wan-frame-upload.has-image .wan-frame-remove {
+  display: grid;
+}
+.wan-frame-remove:hover {
+  background: rgba(220,38,38,.9);
+}
 .advanced-upload-box.is-wan .advanced-upload-previews {
   grid-template-columns: minmax(120px, 180px);
   justify-content: center;

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-132" />
+    <link rel="stylesheet" href="./platform.css?v=ai-134" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -138,6 +138,7 @@
                     <input id="advancedSeedanceLastFrame" type="file" accept="image/*" />
                     <img class="wan-frame-preview" id="advancedSeedanceLastFramePreview" alt="Seedance last frame preview" />
                     <span><i data-lucide="image-up"></i><span data-i18n="advanced.lastFrame">Last frame image</span></span>
+                    <button class="wan-frame-remove" type="button" data-remove-advanced-slot="seedanceLastFrame" aria-label="Remove">&times;</button>
                   </div>
                 </label>
                 <label class="field seedance-extra seedance-video-url seedance-video-field">
@@ -180,6 +181,7 @@
                     <input id="advancedWanLastFrame" type="file" accept="image/*" />
                     <img class="wan-frame-preview" id="advancedWanLastFramePreview" alt="Wan2.7 last frame preview" />
                     <span><i data-lucide="image-up"></i><span data-i18n="advanced.lastFrame">Last frame image</span></span>
+                    <button class="wan-frame-remove" type="button" data-remove-advanced-slot="wanLastFrame" aria-label="Remove">&times;</button>
                   </div>
                 </label>
                 <label class="field wan-extra wan-audio">
@@ -192,6 +194,7 @@
                     <input id="advancedWanClipFile" type="file" accept="video/mp4,video/webm,video/quicktime,video/*" />
                     <video class="wan-frame-preview" id="advancedWanClipPreview" muted playsinline preload="metadata"></video>
                     <span><i data-lucide="upload"></i><span data-i18n="advanced.clipUpload">Source video file</span></span>
+                    <button class="wan-frame-remove" type="button" data-remove-advanced-slot="wanClip" aria-label="Remove">&times;</button>
                   </div>
                   <input id="advancedWanClipUrl" type="url" placeholder="https://.../clip.mp4" />
                 </label>
@@ -532,6 +535,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-132"></script>
+    <script src="./platform.js?v=ai-134"></script>
 </body>
 </html>

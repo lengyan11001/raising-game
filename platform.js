@@ -7462,16 +7462,80 @@ function dedupeAdvancedReferenceImages(images = []) {
   });
 }
 
+function removeAdvancedReferenceImage(index = -1) {
+  const images = Array.isArray(state.advancedReferenceImages) ? [...state.advancedReferenceImages] : [];
+  if (index < 0 || index >= images.length) return;
+  images.splice(index, 1);
+  const provider = currentAdvancedProvider();
+  state.advancedReferenceImages = images;
+  state.advancedUploadDataUrl = images[0]?.dataUrl || "";
+  if (provider === "wan27-image-edit") {
+    state.advancedFirstFrameAssetId = "";
+    state.advancedSourceImageAssetId = images[0]?.assetId || "";
+  } else {
+    state.advancedFirstFrameAssetId = images[0]?.assetId || "";
+    state.advancedSourceImageAssetId = "";
+  }
+  if (!images.length && els.advancedImage) els.advancedImage.value = "";
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+function removeAdvancedSeedanceVideoReference() {
+  state.advancedSeedanceVideoAssetId = "";
+  state.advancedSeedanceVideoPreviewUrl = "";
+  if (els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = "";
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+function removeAdvancedMediaSlot(slot = "") {
+  if (slot === "seedanceLastFrame") {
+    state.advancedSeedanceLastFrameAssetId = "";
+    state.advancedSeedanceLastFrameDataUrl = "";
+    if (els.advancedSeedanceLastFrame) els.advancedSeedanceLastFrame.value = "";
+    els.advancedSeedanceLastFramePreview?.removeAttribute("src");
+    els.advancedSeedanceLastFramePreview?.classList.remove("is-visible");
+    els.advancedSeedanceLastFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  } else if (slot === "wanLastFrame") {
+    state.advancedWanLastFrameAssetId = "";
+    state.advancedWanLastFrameDataUrl = "";
+    if (els.advancedWanLastFrame) els.advancedWanLastFrame.value = "";
+    els.advancedWanLastFramePreview?.removeAttribute("src");
+    els.advancedWanLastFramePreview?.classList.remove("is-visible");
+    els.advancedWanLastFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  } else if (slot === "wanClip") {
+    state.advancedWanClipAssetId = "";
+    state.advancedWanClipDataUrl = "";
+    state.advancedWanClipFileName = "";
+    if (els.advancedWanClipFile) els.advancedWanClipFile.value = "";
+    if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = "";
+    els.advancedWanClipPreview?.removeAttribute("src");
+    els.advancedWanClipPreview?.classList.remove("is-visible");
+    els.advancedWanClipFile?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  }
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
 function renderAdvancedReferencePreviews() {
   if (!els.advancedUploadPreview) return;
   const provider = currentAdvancedProvider();
   const images = selectedAdvancedReferenceImages();
   els.advancedUploadPreview.innerHTML = images.map((item, index) => `
     <figure>
+      <button class="advanced-preview-remove" type="button" data-remove-advanced-ref="${index}" aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>
       <img src="${escapeHtml(item.dataUrl || item.previewUrl || "")}" alt="" />
       <figcaption>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : provider === "wan27-image-edit" ? `Image ${index + 1}` : tenantFeature("assetLibrary", true) ? `Image ${index + 1}` : `${index + 1}`)}</figcaption>
     </figure>
   `).join("");
+  els.advancedUploadPreview.querySelectorAll("[data-remove-advanced-ref]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeAdvancedReferenceImage(Number(button.dataset.removeAdvancedRef));
+    });
+  });
   els.advancedUploadBox?.classList.toggle("has-image", images.length > 0);
   if (els.advancedWanFirstFramePreview) {
     const firstFrame = images[0]?.dataUrl || state.advancedUploadDataUrl || "";
@@ -7487,10 +7551,16 @@ function renderAdvancedReferencePreviews() {
   if (provider === "seedance" && videoPreview) {
     els.advancedUploadPreview.insertAdjacentHTML("afterbegin", `
       <figure>
+        <button class="advanced-preview-remove" type="button" data-remove-seedance-video aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>
         <video src="${escapeHtml(videoPreview)}" muted playsinline preload="metadata"></video>
         <figcaption>Video 1</figcaption>
       </figure>
     `);
+    els.advancedUploadPreview.querySelector("[data-remove-seedance-video]")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeAdvancedSeedanceVideoReference();
+    });
     els.advancedUploadBox?.classList.add("has-image");
   }
   if (els.advancedSeedanceLastFramePreview) {
@@ -8709,13 +8779,24 @@ els.advancedWanMediaMode?.addEventListener("change", () => {
   updateAdvancedModelControls();
 });
 els.advancedSeedanceMediaMode?.addEventListener("change", () => {
-  state.advancedAssetTarget = "primary";
+  state.advancedAssetTarget = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "") === "reference_images" ? "referenceImages" : "primary";
   updateAdvancedModelControls();
 });
 els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedResolution?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelControls);
-els.advancedUploadBox?.addEventListener("click", () => setAdvancedAssetTarget(currentAdvancedProvider() === "wan27-image-edit" ? "sourceImages" : "primary"));
+els.advancedUploadBox?.addEventListener("click", () => {
+  const provider = currentAdvancedProvider();
+  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
+  setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : provider === "seedance" && seedanceMode === "reference_images" ? "referenceImages" : "primary");
+});
+document.querySelectorAll("[data-remove-advanced-slot]").forEach((button) => {
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    removeAdvancedMediaSlot(button.dataset.removeAdvancedSlot || "");
+  });
+});
 els.advancedSeedanceLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
 els.advancedWanLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
 els.advancedWanClipFile?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("video"));
