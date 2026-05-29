@@ -52,6 +52,14 @@ async function query(text, params = []) {
 
 async function ensureSchema() {
   if (!dbEnabled()) return;
+  const createUniqueIndex = async (sql) => {
+    try {
+      await query(sql);
+    } catch (error) {
+      if (String(error.code || "") !== "23505") throw error;
+      console.warn("[db-schema] skipped unique index because existing duplicate rows need cleanup:", error.constraint || error.message);
+    }
+  };
   await query(`
     CREATE TABLE IF NOT EXISTS app_kv (
       key TEXT PRIMARY KEY,
@@ -59,6 +67,195 @@ async function ensureSchema() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      api_token TEXT UNIQUE,
+      role TEXT NOT NULL DEFAULT 'user',
+      password_hash TEXT NOT NULL DEFAULT '',
+      credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      pricing_multiplier NUMERIC(12, 6) NOT NULL DEFAULT 1,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_users
+      ADD COLUMN IF NOT EXISTS api_token TEXT,
+      ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user',
+      ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS pricing_multiplier NUMERIC(12, 6) NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_users_created_idx ON app_users (created_at DESC);`);
+  await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_api_token_uidx ON app_users (api_token) WHERE api_token IS NOT NULL AND api_token <> '';`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_sessions
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_sessions_user_idx ON app_sessions (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_wallet_orders (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      chain TEXT NOT NULL DEFAULT '',
+      transaction_hash TEXT NOT NULL DEFAULT '',
+      paypal_order_id TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_wallet_orders
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS chain TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS transaction_hash TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS paypal_order_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_wallet_orders_user_created_idx ON app_wallet_orders (user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_wallet_orders_status_idx ON app_wallet_orders (status, created_at DESC);`);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_wallet_orders_chain_tx_uidx
+      ON app_wallet_orders (chain, transaction_hash)
+      WHERE transaction_hash <> '';
+  `);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_wallet_orders_paypal_uidx
+      ON app_wallet_orders (paypal_order_id)
+      WHERE paypal_order_id <> '';
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_credit_ledger (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      delta NUMERIC(24, 6) NOT NULL,
+      balance_after NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      type TEXT NOT NULL DEFAULT '',
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_credit_ledger
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS delta NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS balance_after NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_credit_ledger_user_created_idx ON app_credit_ledger (user_id, created_at DESC);`);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_credit_ledger_order_event_uidx
+      ON app_credit_ledger (type, (meta->>'orderId'))
+      WHERE COALESCE(meta->>'orderId', '') <> '';
+  `);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_credit_ledger_task_event_uidx
+      ON app_credit_ledger (type, (meta->>'taskId'))
+      WHERE COALESCE(meta->>'taskId', '') <> '';
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_user_assets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      mime TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_user_assets
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS mime TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_user_assets_user_created_idx ON app_user_assets (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_user_characters (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_user_characters
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_user_characters_user_created_idx ON app_user_characters (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_user_unlocks (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_user_unlocks
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_user_unlocks_user_created_idx ON app_user_unlocks (user_id, created_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_admin_home_items (
+      id TEXT PRIMARY KEY,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_admin_home_items
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_admin_home_items_created_idx ON app_admin_home_items (created_at DESC);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_generation_records (
       task_id TEXT PRIMARY KEY,
@@ -135,6 +332,98 @@ function generationRecordUpdatedAt(record = {}) {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
 }
 
+function payloadCreatedAt(record = {}) {
+  const parsed = Date.parse(record.createdAt || "");
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date().toISOString();
+}
+
+function payloadUpdatedAt(record = {}) {
+  const parsed = Date.parse(record.updatedAt || record.createdAt || "");
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : payloadCreatedAt(record);
+}
+
+function deletedAtOrNull(record = {}) {
+  const value = record.deletedAt || record.deleted_at || "";
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function creditNumber(value, fallback = 0) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return fallback;
+  return Math.round(next * 1000000) / 1000000;
+}
+
+function rowPayload(row = {}) {
+  return row.payload && typeof row.payload === "object" ? row.payload : {};
+}
+
+function userFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    username: String(row.username || payload.username || ""),
+    apiToken: String(row.api_token || payload.apiToken || ""),
+    role: String(row.role || payload.role || "user"),
+    passwordHash: String(row.password_hash || payload.passwordHash || ""),
+    credits: creditNumber(row.credits ?? payload.credits ?? 0),
+    pricingMultiplier: creditNumber(row.pricing_multiplier ?? payload.pricingMultiplier ?? 1, 1),
+    deletedAt: row.deleted_at ? new Date(row.deleted_at).toISOString() : (payload.deletedAt || ""),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
+  };
+}
+
+function recordFromPayloadRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    userId: String(row.user_id || payload.userId || ""),
+    deletedAt: row.deleted_at ? new Date(row.deleted_at).toISOString() : (payload.deletedAt || ""),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
+  };
+}
+
+function walletOrderFromRow(row = {}) {
+  const payload = recordFromPayloadRow(row);
+  return {
+    ...payload,
+    status: String(row.status || payload.status || "pending"),
+    chain: String(row.chain || payload.chain || payload.network || ""),
+    transactionHash: String(row.transaction_hash || payload.transactionHash || payload.txHash || ""),
+    paypalOrderId: String(row.paypal_order_id || payload.paypalOrderId || ""),
+  };
+}
+
+function sessionFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    token: String(row.token || payload.token || ""),
+    userId: String(row.user_id || payload.userId || ""),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
+  };
+}
+
+function ledgerFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    userId: String(row.user_id || payload.userId || ""),
+    delta: creditNumber(row.delta ?? payload.delta ?? 0),
+    balanceAfter: creditNumber(row.balance_after ?? payload.balanceAfter ?? 0),
+    type: String(row.type || payload.type || ""),
+    meta: row.meta && typeof row.meta === "object" ? row.meta : (payload.meta || {}),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+  };
+}
+
 async function getKv(key, fallback) {
   if (!dbEnabled()) return readJsonFile(filePathForKey(key), fallback);
   await ensureSchema();
@@ -155,6 +444,633 @@ async function setKv(key, value) {
     `,
     [key, JSON.stringify(value)],
   );
+}
+
+async function tableCounts() {
+  if (!dbEnabled()) return {};
+  await ensureSchema();
+  const { rows } = await query(`
+    SELECT 'users' AS name, COUNT(*)::int AS count FROM app_users
+    UNION ALL SELECT 'sessions', COUNT(*)::int FROM app_sessions
+    UNION ALL SELECT 'wallet_orders', COUNT(*)::int FROM app_wallet_orders
+    UNION ALL SELECT 'credit_ledger', COUNT(*)::int FROM app_credit_ledger
+    UNION ALL SELECT 'user_assets', COUNT(*)::int FROM app_user_assets
+    UNION ALL SELECT 'user_characters', COUNT(*)::int FROM app_user_characters
+    UNION ALL SELECT 'user_unlocks', COUNT(*)::int FROM app_user_unlocks
+    UNION ALL SELECT 'admin_home_items', COUNT(*)::int FROM app_admin_home_items
+  `);
+  return Object.fromEntries(rows.map((row) => [row.name, row.count]));
+}
+
+async function readAppDbFromTables(defaultDb = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const [
+    users,
+    sessions,
+    walletOrders,
+    creditLedger,
+    userAssets,
+    userCharacters,
+    userUnlocks,
+    adminHomeItems,
+  ] = await Promise.all([
+    query(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`),
+    query(`SELECT * FROM app_sessions ORDER BY created_at ASC`),
+    query(`SELECT * FROM app_wallet_orders ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_credit_ledger ORDER BY created_at DESC LIMIT 1000`),
+    query(`SELECT * FROM app_user_assets ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_user_characters ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_admin_home_items ORDER BY created_at DESC`),
+  ]);
+  return {
+    users: users.rows.map(userFromRow),
+    sessions: sessions.rows.map(sessionFromRow),
+    walletOrders: walletOrders.rows.map(walletOrderFromRow),
+    creditLedger: creditLedger.rows.map(ledgerFromRow),
+    userAssets: userAssets.rows.map(recordFromPayloadRow),
+    userCharacters: userCharacters.rows.map(recordFromPayloadRow),
+    userUnlocks: userUnlocks.rows.map(recordFromPayloadRow),
+    adminHomeItems: adminHomeItems.rows.map(recordFromPayloadRow),
+    apiSubtokens: Array.isArray(defaultDb.apiSubtokens) ? defaultDb.apiSubtokens : [],
+  };
+}
+
+async function replaceAppDbTables(db = {}, options = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (options.replaceAll === true) {
+      await client.query("DELETE FROM app_admin_home_items");
+      await client.query("DELETE FROM app_user_unlocks");
+      await client.query("DELETE FROM app_user_characters");
+      await client.query("DELETE FROM app_user_assets");
+      await client.query("DELETE FROM app_credit_ledger");
+      await client.query("DELETE FROM app_wallet_orders");
+      await client.query("DELETE FROM app_sessions");
+      await client.query("DELETE FROM app_users");
+    }
+
+    for (const user of Array.isArray(db.users) ? db.users : []) {
+      await client.query(
+        `
+          INSERT INTO app_users(id, username, api_token, role, password_hash, credits, pricing_multiplier, payload, deleted_at, created_at, updated_at)
+          VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::numeric, $7::numeric, $8::jsonb, $9::timestamptz, $10::timestamptz, $11::timestamptz)
+          ON CONFLICT (id) DO UPDATE SET
+            username = EXCLUDED.username,
+            api_token = EXCLUDED.api_token,
+            role = EXCLUDED.role,
+            password_hash = EXCLUDED.password_hash,
+            pricing_multiplier = EXCLUDED.pricing_multiplier,
+            payload = EXCLUDED.payload,
+            deleted_at = EXCLUDED.deleted_at,
+            updated_at = EXCLUDED.updated_at
+        `,
+        [
+          String(user.id || ""),
+          String(user.username || ""),
+          String(user.apiToken || ""),
+          String(user.role || "user"),
+          String(user.passwordHash || ""),
+          creditNumber(user.credits || 0),
+          creditNumber(user.pricingMultiplier ?? user.priceMultiplier ?? user.discount ?? 1, 1),
+          JSON.stringify(user),
+          deletedAtOrNull(user),
+          payloadCreatedAt(user),
+          payloadUpdatedAt(user),
+        ],
+      );
+    }
+    for (const session of Array.isArray(db.sessions) ? db.sessions : []) {
+      await client.query(
+        `
+          INSERT INTO app_sessions(token, user_id, payload, created_at, updated_at)
+          VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz)
+          ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at
+        `,
+        [String(session.token || ""), String(session.userId || ""), JSON.stringify(session), payloadCreatedAt(session), payloadUpdatedAt(session)],
+      );
+    }
+    for (const order of Array.isArray(db.walletOrders) ? db.walletOrders : []) {
+      await client.query(
+        `
+          INSERT INTO app_wallet_orders(id, user_id, status, chain, transaction_hash, paypal_order_id, payload, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz)
+          ON CONFLICT (id) DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            status = EXCLUDED.status,
+            chain = EXCLUDED.chain,
+            transaction_hash = EXCLUDED.transaction_hash,
+            paypal_order_id = EXCLUDED.paypal_order_id,
+            payload = EXCLUDED.payload,
+            updated_at = EXCLUDED.updated_at
+          WHERE app_wallet_orders.status <> 'paid' OR EXCLUDED.status = 'paid'
+        `,
+        [
+          String(order.id || ""),
+          String(order.userId || ""),
+          String(order.status || "pending"),
+          String(order.chain || order.network || ""),
+          String(order.transactionHash || order.txHash || ""),
+          String(order.paypalOrderId || ""),
+          JSON.stringify(order),
+          payloadCreatedAt(order),
+          payloadUpdatedAt(order),
+        ],
+      );
+    }
+    for (const entry of Array.isArray(db.creditLedger) ? db.creditLedger : []) {
+      await client.query(
+        `
+          INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
+          VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
+          ON CONFLICT DO NOTHING
+        `,
+        [
+          String(entry.id || ""),
+          String(entry.userId || ""),
+          creditNumber(entry.delta || 0),
+          creditNumber(entry.balanceAfter || 0),
+          String(entry.type || ""),
+          JSON.stringify(entry.meta || {}),
+          JSON.stringify(entry),
+          payloadCreatedAt(entry),
+        ],
+      );
+    }
+    const insertPayloadTable = async (table, record) => {
+      await client.query(
+        `
+          INSERT INTO ${table}(id, user_id, payload, deleted_at, created_at, updated_at)
+          VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, $6::timestamptz)
+          ON CONFLICT (id) DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            payload = EXCLUDED.payload,
+            deleted_at = EXCLUDED.deleted_at,
+            updated_at = EXCLUDED.updated_at
+        `,
+        [String(record.id || ""), String(record.userId || ""), JSON.stringify(record), deletedAtOrNull(record), payloadCreatedAt(record), payloadUpdatedAt(record)],
+      );
+    };
+    for (const record of Array.isArray(db.userAssets) ? db.userAssets : []) await insertPayloadTable("app_user_assets", record);
+    for (const record of Array.isArray(db.userCharacters) ? db.userCharacters : []) await insertPayloadTable("app_user_characters", record);
+    for (const record of Array.isArray(db.userUnlocks) ? db.userUnlocks : []) await insertPayloadTable("app_user_unlocks", record);
+    for (const record of Array.isArray(db.adminHomeItems) ? db.adminHomeItems : []) {
+      await client.query(
+        `
+          INSERT INTO app_admin_home_items(id, payload, deleted_at, created_at, updated_at)
+          VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz, $5::timestamptz)
+          ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, deleted_at = EXCLUDED.deleted_at, updated_at = EXCLUDED.updated_at
+        `,
+        [String(record.id || ""), JSON.stringify(record), deletedAtOrNull(record), payloadCreatedAt(record), payloadUpdatedAt(record)],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+  return db;
+}
+
+async function deleteUserSessionsInDb(userId = "", exceptToken = "") {
+  if (!dbEnabled()) return { rowCount: 0 };
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { rowCount: 0 };
+  await ensureSchema();
+  return await query(
+    `
+      DELETE FROM app_sessions
+      WHERE user_id = $1
+        AND ($2 = '' OR token <> $2)
+    `,
+    [cleanUserId, String(exceptToken || "")],
+  );
+}
+
+async function deleteUserWalletOrdersInDb(userId = "") {
+  if (!dbEnabled()) return { rowCount: 0 };
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return { rowCount: 0 };
+  await ensureSchema();
+  return await query(`DELETE FROM app_wallet_orders WHERE user_id = $1`, [cleanUserId]);
+}
+
+async function createWalletOrderInDb(order = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(order.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...order };
+  const result = await query(
+    `
+      INSERT INTO app_wallet_orders(id, user_id, status, chain, transaction_hash, paypal_order_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz)
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    `,
+    [
+      id,
+      String(order.userId || ""),
+      String(order.status || "pending"),
+      String(order.chain || order.network || ""),
+      String(order.transactionHash || order.txHash || ""),
+      String(order.paypalOrderId || ""),
+      JSON.stringify(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return result.rows.length ? order : null;
+}
+
+async function createManualWalletOrderInDb({ order = {}, suffixDigits = 6, maxAttempts = 25 } = {}) {
+  if (!dbEnabled()) return order;
+  let lastOrder = order;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const suffixNumber = Math.floor(Math.random() * (10 ** suffixDigits - 1)) + 1;
+    const suffix = String(suffixNumber).padStart(suffixDigits, "0");
+    const baseAmount = Math.max(1, Math.round(Number(order.baseAmount || 0)));
+    const payableAmountText = `${baseAmount}.${suffix}`;
+    const next = {
+      ...order,
+      baseAmount,
+      suffix,
+      payableAmount: Number(payableAmountText),
+      payableAmountText,
+    };
+    try {
+      const created = await createWalletOrderInDb(next);
+      if (created) return created;
+      lastOrder = next;
+    } catch (error) {
+      if (String(error.code || "") !== "23505") throw error;
+      lastOrder = next;
+    }
+  }
+  const error = new Error("Unable to allocate a unique wallet payment amount.");
+  error.statusCode = 409;
+  error.lastOrder = lastOrder;
+  throw error;
+}
+
+async function getUserByUsernameInDb(username = "") {
+  if (!dbEnabled()) return null;
+  const cleanUsername = String(username || "").trim().toLowerCase();
+  if (!cleanUsername) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_users WHERE username = $1 AND deleted_at IS NULL`, [cleanUsername]);
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+async function getUserByIdInDb(userId = "") {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_users WHERE id = $1 AND deleted_at IS NULL`, [cleanUserId]);
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+async function createSessionInDb(session = {}) {
+  if (!dbEnabled()) return null;
+  const token = String(session.token || "").trim();
+  if (!token) return null;
+  await ensureSchema();
+  const payload = { ...session };
+  await query(
+    `
+      INSERT INTO app_sessions(token, user_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz)
+      ON CONFLICT (token) DO NOTHING
+    `,
+    [token, String(session.userId || ""), JSON.stringify(payload), payloadCreatedAt(payload), payloadUpdatedAt(payload)],
+  );
+  return session;
+}
+
+async function getSessionByTokenInDb(token = "") {
+  if (!dbEnabled()) return null;
+  const cleanToken = String(token || "").trim();
+  if (!cleanToken) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_sessions WHERE token = $1`, [cleanToken]);
+  return rows[0] ? sessionFromRow(rows[0]) : null;
+}
+
+async function getWalletOrderByIdInDb(orderId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(orderId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_wallet_orders WHERE id = $1`, [id]);
+  return rows[0] ? walletOrderFromRow(rows[0]) : null;
+}
+
+async function getWalletOrderByPaypalIdInDb(paypalOrderId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(paypalOrderId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_wallet_orders WHERE paypal_order_id = $1`, [id]);
+  return rows[0] ? walletOrderFromRow(rows[0]) : null;
+}
+
+async function updateWalletOrderInDb(order = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(order.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...order };
+  await query(
+    `
+      INSERT INTO app_wallet_orders(id, user_id, status, chain, transaction_hash, paypal_order_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        status = EXCLUDED.status,
+        chain = EXCLUDED.chain,
+        transaction_hash = EXCLUDED.transaction_hash,
+        paypal_order_id = EXCLUDED.paypal_order_id,
+        payload = EXCLUDED.payload,
+        updated_at = EXCLUDED.updated_at
+      WHERE app_wallet_orders.status <> 'paid' OR EXCLUDED.status = 'paid'
+    `,
+    [
+      id,
+      String(order.userId || ""),
+      String(order.status || "pending"),
+      String(order.chain || order.network || ""),
+      String(order.transactionHash || order.txHash || ""),
+      String(order.paypalOrderId || ""),
+      JSON.stringify(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return order;
+}
+
+async function updateUserInDb(user = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(user.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...user };
+  await query(
+    `
+      INSERT INTO app_users(id, username, api_token, role, password_hash, credits, pricing_multiplier, payload, deleted_at, created_at, updated_at)
+      VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::numeric, $7::numeric, $8::jsonb, $9::timestamptz, $10::timestamptz, $11::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        username = EXCLUDED.username,
+        api_token = EXCLUDED.api_token,
+        role = EXCLUDED.role,
+        password_hash = EXCLUDED.password_hash,
+        credits = EXCLUDED.credits,
+        pricing_multiplier = EXCLUDED.pricing_multiplier,
+        payload = EXCLUDED.payload,
+        deleted_at = EXCLUDED.deleted_at,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      String(user.username || ""),
+      String(user.apiToken || ""),
+      String(user.role || "user"),
+      String(user.passwordHash || ""),
+      creditNumber(user.credits || 0),
+      creditNumber(user.pricingMultiplier ?? user.priceMultiplier ?? user.discount ?? 1, 1),
+      JSON.stringify(payload),
+      deletedAtOrNull(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return user;
+}
+
+async function upsertUserAssetInDb(asset = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(asset.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...asset };
+  await query(
+    `
+      INSERT INTO app_user_assets(id, user_id, mime, payload, deleted_at, created_at, updated_at)
+      VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz, $7::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        mime = EXCLUDED.mime,
+        payload = EXCLUDED.payload,
+        deleted_at = EXCLUDED.deleted_at,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      String(asset.userId || ""),
+      String(asset.mime || ""),
+      JSON.stringify(payload),
+      deletedAtOrNull(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return asset;
+}
+
+async function upsertUserCharacterInDb(character = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(character.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...character };
+  await query(
+    `
+      INSERT INTO app_user_characters(id, user_id, payload, deleted_at, created_at, updated_at)
+      VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, $6::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        payload = EXCLUDED.payload,
+        deleted_at = EXCLUDED.deleted_at,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      String(character.userId || ""),
+      JSON.stringify(payload),
+      deletedAtOrNull(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return character;
+}
+
+async function upsertUserUnlockInDb(unlock = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(unlock.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...unlock };
+  await query(
+    `
+      INSERT INTO app_user_unlocks(id, user_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        payload = EXCLUDED.payload,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      String(unlock.userId || ""),
+      JSON.stringify(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return unlock;
+}
+
+async function findUserUnlockInDb({ userId = "", itemId = "", sceneId = "", sceneEntryId = "default" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanItemId = String(itemId || "").trim();
+  const cleanSceneId = String(sceneId || "").trim();
+  const cleanSceneEntryId = String(sceneEntryId || "default").trim() || "default";
+  if (!cleanUserId || !cleanItemId || !cleanSceneId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_user_unlocks
+      WHERE user_id = $1
+        AND payload->>'itemId' = $2
+        AND payload->>'sceneId' = $3
+        AND COALESCE(NULLIF(payload->>'sceneEntryId', ''), 'default') = $4
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [cleanUserId, cleanItemId, cleanSceneId, cleanSceneEntryId],
+  );
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function applyCreditDeltaInDb({ id = "", userId = "", delta = 0, type = "", meta = {}, payload = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanType = String(type || "").trim();
+  const cleanId = String(id || "").trim();
+  const eventOrderId = String(meta?.orderId || "").trim();
+  const eventTaskId = String(meta?.taskId || "").trim();
+  const amount = creditNumber(delta || 0);
+  if (!cleanUserId || !cleanId || !cleanType || amount === 0) return null;
+  await ensureSchema();
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const findExistingLedger = async () => client.query(
+      `
+        SELECT payload, user_id
+        FROM app_credit_ledger
+        WHERE id = $1
+           OR (
+             type = $2
+             AND (
+               ($3 <> '' AND meta->>'orderId' = $3)
+               OR ($4 <> '' AND meta->>'taskId' = $4)
+             )
+           )
+        LIMIT 1
+      `,
+      [cleanId, cleanType, eventOrderId, eventTaskId],
+    );
+    const userById = async (id) => {
+      const targetId = String(id || cleanUserId || "").trim();
+      const { rows } = await client.query(`SELECT * FROM app_users WHERE id = $1`, [targetId]);
+      return rows[0] ? userFromRow(rows[0]) : null;
+    };
+    const existing = await findExistingLedger();
+    if (existing.rows.length) {
+      const existingUserId = existing.rows[0].user_id || cleanUserId;
+      const existingUser = await userById(existingUserId);
+      await client.query("COMMIT");
+      return { user: existingUser, ledger: existing.rows[0].payload, inserted: false };
+    }
+    const userRows = await client.query(`SELECT * FROM app_users WHERE id = $1 FOR UPDATE`, [cleanUserId]);
+    const row = userRows.rows[0];
+    if (!row) {
+      const error = new Error("User not found for billing.");
+      error.statusCode = 404;
+      throw error;
+    }
+    const existingAfterLock = await findExistingLedger();
+    if (existingAfterLock.rows.length) {
+      await client.query("COMMIT");
+      const existingUser = await userById(existingAfterLock.rows[0].user_id || cleanUserId);
+      return { user: existingUser || userFromRow(row), ledger: existingAfterLock.rows[0].payload, inserted: false };
+    }
+    const current = creditNumber(row.credits || 0);
+    const nextCredits = creditNumber(current + amount);
+    if (nextCredits < -0.000001) {
+      const error = new Error(`Not enough credits. This generation needs ${creditNumber(-amount)} credits; your balance is ${current}. Please top up and try again.`);
+      error.statusCode = 402;
+      error.code = "INSUFFICIENT_CREDITS";
+      error.credits = current;
+      error.cost = creditNumber(-amount);
+      throw error;
+    }
+    const now = new Date().toISOString();
+    const ledger = {
+      ...payload,
+      id: cleanId,
+      userId: cleanUserId,
+      delta: amount,
+      balanceAfter: nextCredits,
+      type: cleanType,
+      meta,
+      createdAt: payload.createdAt || now,
+    };
+    await client.query(
+      `
+        UPDATE app_users
+        SET credits = $2::numeric,
+            payload = payload || jsonb_build_object('credits', $2::numeric, 'updatedAt', $3::text),
+            updated_at = $3::timestamptz
+        WHERE id = $1
+      `,
+      [cleanUserId, nextCredits, now],
+    );
+    const inserted = await client.query(
+      `
+        INSERT INTO app_credit_ledger(id, user_id, delta, balance_after, type, meta, payload, created_at)
+        VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6::jsonb, $7::jsonb, $8::timestamptz)
+        ON CONFLICT DO NOTHING
+        RETURNING id
+      `,
+      [cleanId, cleanUserId, amount, nextCredits, cleanType, JSON.stringify(meta || {}), JSON.stringify(ledger), ledger.createdAt],
+    );
+    if (!inserted.rows.length) {
+      await client.query("ROLLBACK");
+      return await applyCreditDeltaInDb({ id: cleanId, userId: cleanUserId, delta: amount, type: cleanType, meta, payload });
+    }
+    const updatedRows = await client.query(`SELECT * FROM app_users WHERE id = $1`, [cleanUserId]);
+    await client.query("COMMIT");
+    return { user: userFromRow(updatedRows.rows[0]), ledger, inserted: true };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function generationRecordsTableCount() {
@@ -751,12 +1667,36 @@ async function migrateFileDataToDb({ defaultDb, defaultConfig }) {
       await setKv(key, fallback);
     }
   }
+  const counts = await tableCounts();
+  const appDb = await getKv("app_db", defaultDb || {});
+  if (Array.isArray(appDb.users) && appDb.users.length && (counts.users || 0) === 0) {
+    await replaceAppDbTables(appDb, { replaceAll: true });
+  }
 }
 
 module.exports = {
   dbEnabled,
   ensureSchema,
   query,
+  readAppDbFromTables,
+  replaceAppDbTables,
+  applyCreditDeltaInDb,
+  deleteUserSessionsInDb,
+  deleteUserWalletOrdersInDb,
+  createWalletOrderInDb,
+  createManualWalletOrderInDb,
+  getUserByUsernameInDb,
+  getUserByIdInDb,
+  createSessionInDb,
+  getSessionByTokenInDb,
+  getWalletOrderByIdInDb,
+  getWalletOrderByPaypalIdInDb,
+  updateWalletOrderInDb,
+  updateUserInDb,
+  upsertUserAssetInDb,
+  upsertUserCharacterInDb,
+  upsertUserUnlockInDb,
+  findUserUnlockInDb,
   normalizeApiSubtokenRecord,
   listApiSubtokensFromDb,
   getApiSubtokenFromDbByToken,

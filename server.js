@@ -10,6 +10,25 @@ const {
   dbEnabled,
   migrateFileDataToDb,
   migrateGenerationRecordsKvToTable,
+  readAppDbFromTables,
+  replaceAppDbTables,
+  applyCreditDeltaInDb,
+  deleteUserSessionsInDb,
+  deleteUserWalletOrdersInDb,
+  createWalletOrderInDb,
+  createManualWalletOrderInDb,
+  getUserByUsernameInDb,
+  getUserByIdInDb,
+  createSessionInDb,
+  getSessionByTokenInDb,
+  getWalletOrderByIdInDb,
+  getWalletOrderByPaypalIdInDb,
+  updateWalletOrderInDb,
+  updateUserInDb,
+  upsertUserAssetInDb,
+  upsertUserCharacterInDb,
+  upsertUserUnlockInDb,
+  findUserUnlockInDb,
   getKv,
   setKv,
   listApiSubtokensFromDb,
@@ -275,12 +294,7 @@ const ARK_OPENAPI = {
 
 const demoTasks = new Map();
 const requestContext = new AsyncLocalStorage();
-let appStateWriteLock = Promise.resolve();
-
-function isAppStateWriteRequest(method = "", pathname = "") {
-  const verb = String(method || "").toUpperCase();
-  return String(pathname || "").startsWith("/api/") && ["POST", "PUT", "PATCH", "DELETE"].includes(verb);
-}
+let legacyAppStateWriteLock = Promise.resolve();
 
 async function withAppStateWriteLock(fn) {
   let store = requestContext.getStore();
@@ -288,24 +302,29 @@ async function withAppStateWriteLock(fn) {
     return requestContext.run({ auth: null, appStateWriteLocked: false }, () => withAppStateWriteLock(fn));
   }
   if (store?.appStateWriteLocked) return await fn();
-  const previous = appStateWriteLock;
-  let release;
-  appStateWriteLock = new Promise((resolve) => {
-    release = resolve;
-  });
-  await previous.catch(() => {});
-  try {
-    if (store) {
+  if (!dbEnabled()) {
+    const previous = legacyAppStateWriteLock;
+    let release;
+    legacyAppStateWriteLock = new Promise((resolve) => {
+      release = resolve;
+    });
+    await previous.catch(() => {});
+    try {
       store.appStateWriteLocked = true;
       try {
         return await fn();
       } finally {
         store.appStateWriteLocked = false;
       }
+    } finally {
+      release();
     }
+  }
+  store.appStateWriteLocked = true;
+  try {
     return await fn();
   } finally {
-    release();
+    store.appStateWriteLocked = false;
   }
 }
 
@@ -819,7 +838,9 @@ async function writeJsonFile(filePath, payload) {
 }
 
 async function readDb() {
-  const db = await getKv("app_db", DEFAULT_DB);
+  const db = dbEnabled()
+    ? (await readAppDbFromTables(DEFAULT_DB) || DEFAULT_DB)
+    : await getKv("app_db", DEFAULT_DB);
   return {
     users: Array.isArray(db.users) ? db.users : [],
     sessions: Array.isArray(db.sessions) ? db.sessions : [],
@@ -838,7 +859,9 @@ function isSoftDeleted(record) {
 }
 
 async function writeDb(db) {
-  return withAppStateWriteLock(() => setKv("app_db", db));
+  return withAppStateWriteLock(() => (
+    dbEnabled() ? replaceAppDbTables(db) : setKv("app_db", db)
+  ));
 }
 
 async function readAppConfig() {
@@ -2013,21 +2036,52 @@ function insufficientCreditsPayload(cost, credits, extra = {}) {
   };
 }
 
-function appendCreditLedger(db, user, delta, type, meta = {}) {
+function stableLedgerId(type = "", meta = {}) {
+  const cleanType = String(type || "ledger").trim() || "ledger";
+  const stableKey = String(
+    meta?.orderId ||
+    meta?.taskId ||
+    meta?.unlockId ||
+    meta?.transactionHash ||
+    meta?.paypalOrderId ||
+    "",
+  ).trim();
+  if (!stableKey) return randomId("ledger");
+  const digest = crypto.createHash("sha256").update(`${cleanType}:${stableKey}`).digest("hex").slice(0, 24);
+  return `ledger-${digest}`;
+}
+
+async function appendCreditLedger(db, user, delta, type, meta = {}) {
   if (!db || !user) return null;
   const amount = Math.round(Number(delta || 0) * 10000) / 10000;
   if (!Number.isFinite(amount) || amount === 0) return null;
   db.creditLedger = Array.isArray(db.creditLedger) ? db.creditLedger : [];
+  const normalizedMeta = attachAuthContextToMeta(meta);
   const record = {
-    id: randomId("ledger"),
+    id: stableLedgerId(type, normalizedMeta),
     userId: user.id,
     username: user.username || "",
     delta: amount,
     balanceAfter: creditsAmount(user.credits),
     type,
-    meta,
+    meta: normalizedMeta,
     createdAt: new Date().toISOString(),
   };
+  if (dbEnabled()) {
+    const applied = await applyCreditDeltaInDb({
+      id: record.id,
+      userId: user.id,
+      delta: amount,
+      type,
+      meta: normalizedMeta,
+      payload: record,
+    });
+    if (applied?.user) {
+      Object.assign(user, applied.user);
+      record.balanceAfter = creditsAmount(applied.user.credits);
+    }
+    if (applied?.ledger) Object.assign(record, applied.ledger);
+  }
   db.creditLedger.unshift(record);
   db.creditLedger = db.creditLedger.slice(0, 1000);
   return record;
@@ -2175,7 +2229,7 @@ async function consumeSubtokenForRequest(auth, { taskId = "", cost = 0, type = "
 async function chargeUserWithSubtoken(auth, { cost = 0, type = "spend", taskId = "", meta = {} } = {}) {
   const amount = creditsAmount(cost);
   if (amount <= 0) return null;
-  changeUserCredits(auth.db, auth.user.id, -amount, type, meta);
+  await changeUserCredits(auth.db, auth.user.id, -amount, type, meta);
   try {
     await consumeSubtokenForRequest(auth, {
       taskId,
@@ -2184,7 +2238,7 @@ async function chargeUserWithSubtoken(auth, { cost = 0, type = "spend", taskId =
       meta,
     });
   } catch (error) {
-    changeUserCredits(auth.db, auth.user.id, amount, `${type}_subtoken_refund`, {
+    await changeUserCredits(auth.db, auth.user.id, amount, `${type}_subtoken_refund`, {
       ...meta,
       taskId,
       reason: error.message || "Sub token charge failed.",
@@ -2194,7 +2248,7 @@ async function chargeUserWithSubtoken(auth, { cost = 0, type = "spend", taskId =
   return auth.user;
 }
 
-function changeUserCredits(db, userId, delta, type, meta = {}) {
+async function changeUserCredits(db, userId, delta, type, meta = {}) {
   const user = (db.users || []).find((entry) => entry.id === userId);
   if (!user) {
     const error = new Error("User not found for billing.");
@@ -2207,6 +2261,10 @@ function changeUserCredits(db, userId, delta, type, meta = {}) {
     error.statusCode = 400;
     throw error;
   }
+  if (dbEnabled()) {
+    await appendCreditLedger(db, user, amount, type, meta);
+    return user;
+  }
   const rawNext = Number(user.credits || 0) + amount;
   if (rawNext < -0.0001) {
     const error = new Error(insufficientCreditsMessage(-amount, user.credits));
@@ -2218,7 +2276,7 @@ function changeUserCredits(db, userId, delta, type, meta = {}) {
   }
   user.credits = creditsAmount(rawNext);
   user.updatedAt = new Date().toISOString();
-  appendCreditLedger(db, user, amount, type, attachAuthContextToMeta(meta));
+  await appendCreditLedger(db, user, amount, type, meta);
   return user;
 }
 
@@ -2301,10 +2359,11 @@ async function ensureAllUsersApiTokens() {
   for (const user of db.users || []) {
     if (!user.apiToken) {
       ensureUserApiToken(user, db);
+      if (dbEnabled()) await updateUserInDb(user);
       changed = true;
     }
   }
-  if (changed) await writeDb(db);
+  if (changed && !dbEnabled()) await writeDb(db);
   return changed;
 }
 
@@ -2347,6 +2406,40 @@ function withJsonBody(req, body = {}) {
 async function getAuth(req) {
   const token = getBearerToken(req);
   if (!token) return { db: await readDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
+  if (dbEnabled()) {
+    const db = await readDb();
+    const session = await getSessionByTokenInDb(token);
+    if (session) {
+      const user = await getUserByIdInDb(session.userId);
+      const auth = { db, user, session, ...authUserContext(user, token, "session", null) };
+      const store = requestContext.getStore();
+      if (store) store.auth = auth;
+      return auth;
+    }
+    const user = db.users.find((item) => item.apiToken === token) || null;
+    if (user) {
+      const auth = { db, user, session: null, ...authUserContext(user, token, "api_token", null) };
+      const store = requestContext.getStore();
+      if (store) store.auth = auth;
+      return auth;
+    }
+    const subtoken = await getApiSubtokenFromDbByToken(token);
+    if (subtoken) {
+      const parent = await getUserByIdInDb(subtoken.parentUserId);
+      if (parent) {
+        const auth = {
+          db,
+          user: parent,
+          session: null,
+          ...authUserContext(parent, token, "subtoken", subtoken),
+        };
+        const store = requestContext.getStore();
+        if (store) store.auth = auth;
+        return auth;
+      }
+    }
+    return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null };
+  }
   const db = await readDb();
   const session = db.sessions.find((item) => item.token === token);
   if (session) {
@@ -2994,7 +3087,7 @@ async function scanAndSettleWalletOrders({ limit = 100, force = false } = {}) {
       const tx = transfers.find((item) => walletTransferMatchesOrder(order, item, usedKeys));
       if (!tx) continue;
       const key = walletTransactionKey(tx.chain, tx.hash);
-      const result = settleWalletOrderPayment(db, order, config, {
+      const result = await settleWalletOrderPayment(db, order, config, {
         note: `Auto matched on ${tx.chain}.`,
         chain: tx.chain,
         transactionHash: tx.hash,
@@ -3011,7 +3104,15 @@ async function scanAndSettleWalletOrders({ limit = 100, force = false } = {}) {
       }
     }
   }
-  if (matched) await writeDb(db);
+  if (matched) {
+    if (dbEnabled()) {
+      for (const order of pending) {
+        if (order.status === "paid") await updateWalletOrderInDb(order);
+      }
+    } else {
+      await writeDb(db);
+    }
+  }
   return {
     ok: true,
     enabled: WALLET_CHAIN_SCAN_ENABLED,
@@ -3153,7 +3254,7 @@ function paypalCaptureFromOrder(payload = {}) {
   return null;
 }
 
-function settleWalletOrderPayment(db, order, config, meta = {}) {
+async function settleWalletOrderPayment(db, order, config, meta = {}) {
   if (!order) {
     const error = new Error("Payment order not found.");
     error.statusCode = 404;
@@ -3197,7 +3298,7 @@ function settleWalletOrderPayment(db, order, config, meta = {}) {
       });
     }
   }
-  const user = changeUserCredits(db, order.userId, creditDelta, "wallet_topup", {
+  const user = await changeUserCredits(db, order.userId, creditDelta, "wallet_topup", {
     orderId: order.id,
     amount: order.baseAmount,
     asset: order.asset,
@@ -3215,9 +3316,9 @@ function settleWalletOrderPayment(db, order, config, meta = {}) {
   return { settled: true, user };
 }
 
-function safeSettleWalletOrderPayment(db, order, config, meta = {}) {
+async function safeSettleWalletOrderPayment(db, order, config, meta = {}) {
   try {
-    return settleWalletOrderPayment(db, order, config, meta);
+    return await settleWalletOrderPayment(db, order, config, meta);
   } catch (error) {
     order.status = order.status === "paid" ? "pending" : (order.status || "pending");
     order.note = error.message || "Failed to settle payment.";
@@ -3375,7 +3476,8 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     deletedAt: "",
   };
   db.userAssets.unshift(userAsset);
-  await writeDb(db);
+  if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+  else await writeDb(db);
   return userAsset;
 }
 
@@ -5304,7 +5406,8 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset) {
     userAsset.publicUrl = localPublicUrl;
     userAsset.updatedAt = new Date().toISOString();
     db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
-    await writeDb(db);
+    if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+    else await writeDb(db);
     return userAsset;
   }
 
@@ -5322,7 +5425,8 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset) {
   userAsset.publicUploadedAt = new Date().toISOString();
   userAsset.updatedAt = new Date().toISOString();
   db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
-  await writeDb(db);
+  if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+  else await writeDb(db);
   return userAsset;
 }
 
@@ -5337,7 +5441,8 @@ async function ensurePublicUrlForUserAsset(db, userAsset) {
     userAsset.publicUrl = localPublicUrl;
     userAsset.updatedAt = new Date().toISOString();
     db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
-    await writeDb(db);
+    if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+    else await writeDb(db);
     return userAsset;
   }
 
@@ -5353,7 +5458,8 @@ async function ensurePublicUrlForUserAsset(db, userAsset) {
   userAsset.publicUrl = uploaded.publicUrl;
   userAsset.publicTosKey = uploaded.key;
   userAsset.publicUploadedAt = new Date().toISOString();
-  await writeDb(db);
+  if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+  else await writeDb(db);
   return userAsset;
 }
 
@@ -5477,7 +5583,8 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   userAsset.tosKey = uploaded.key;
   userAsset.upstreamCreatedAt = new Date().toISOString();
   userAsset.updatedAt = new Date().toISOString();
-  await writeDb(db);
+  if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+  else await writeDb(db);
   return userAsset;
 }
 
@@ -5521,7 +5628,8 @@ async function ensureSyntheticReferenceForUserAsset(db, userAsset) {
   };
 
   db.userAssets = (db.userAssets || []).map((asset) => (asset.id === next.id ? next : asset));
-  await writeDb(db);
+  if (dbEnabled()) await upsertUserAssetInDb(next);
+  else await writeDb(db);
   return next;
 }
 
@@ -7185,7 +7293,7 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
 
   try {
     if (delta > 0) {
-      changeUserCredits(db, record.userId, delta, "generation_refund", {
+      await changeUserCredits(db, record.userId, delta, "generation_refund", {
         taskId: record.taskId,
         reason,
         preDeducted,
@@ -7199,9 +7307,9 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
         amount: -delta,
         meta: { reason, preDeducted, finalCredits, originalFinalCredits, pricingMultiplier },
       });
-      await writeDb(db);
+      if (!dbEnabled()) await writeDb(db);
     } else if (delta < 0) {
-      changeUserCredits(db, record.userId, delta, "generation_settle", {
+      await changeUserCredits(db, record.userId, delta, "generation_settle", {
         taskId: record.taskId,
         reason,
         preDeducted,
@@ -7215,7 +7323,7 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
         amount: Math.abs(delta),
         meta: { reason, preDeducted, finalCredits, originalFinalCredits, pricingMultiplier },
       });
-      await writeDb(db);
+      if (!dbEnabled()) await writeDb(db);
     }
   } catch (error) {
     if (error.code === "INSUFFICIENT_CREDITS" || error.code === "SUBTOKEN_QUOTA_EXCEEDED") {
@@ -7355,7 +7463,7 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
     const db = await readDb();
     try {
       if (delta > 0) {
-        changeUserCredits(db, record.userId, delta, "generation_refund", {
+        await changeUserCredits(db, record.userId, delta, "generation_refund", {
           taskId: record.taskId,
           provider: record.provider || "seedance",
           reason,
@@ -7379,9 +7487,9 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
             originalFinalCredits: usage.originalCredits,
           },
         });
-        await writeDb(db);
+        if (!dbEnabled()) await writeDb(db);
       } else if (delta < 0) {
-        changeUserCredits(db, record.userId, delta, "generation_settle", {
+        await changeUserCredits(db, record.userId, delta, "generation_settle", {
           taskId: record.taskId,
           provider: record.provider || "seedance",
           reason,
@@ -7405,7 +7513,7 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
             originalFinalCredits: usage.originalCredits,
           },
         });
-        await writeDb(db);
+        if (!dbEnabled()) await writeDb(db);
       }
     } catch (error) {
       if (error.code === "INSUFFICIENT_CREDITS" || error.code === "SUBTOKEN_QUOTA_EXCEEDED") {
@@ -7446,7 +7554,7 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
 
   try {
     if (!alreadyRefunded) {
-      changeUserCredits(db, record.userId, preDeducted, "generation_refund", {
+      await changeUserCredits(db, record.userId, preDeducted, "generation_refund", {
         taskId: record.taskId,
         provider: record.provider || "seedance",
         reason,
@@ -7461,7 +7569,7 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
         amount: -preDeducted,
         meta: { provider: record.provider || "seedance", reason, preDeducted },
       });
-      await writeDb(db);
+      if (!dbEnabled()) await writeDb(db);
     }
     return upsertGenerationRecord({
       taskId: record.taskId,
@@ -7910,7 +8018,7 @@ async function handlePlatformGenerate(req, res) {
         taskId,
       },
     });
-    await writeDb(auth.db);
+    if (!dbEnabled()) await writeDb(auth.db);
   }
 
   startPlatformGenerationJob({
@@ -7944,7 +8052,8 @@ async function handleAdvancedAccessRequest(req, res) {
   auth.user.advancedAccess = true;
   auth.user.advancedAccessReviewedAt = auth.user.advancedAccessReviewedAt || new Date().toISOString();
   auth.user.updatedAt = new Date().toISOString();
-  await writeDb(auth.db);
+  if (dbEnabled()) await updateUserInDb(auth.user);
+  else await writeDb(auth.db);
   return sendJson(res, 200, { ok: true, user: userView(auth.user) });
 }
 
@@ -8897,7 +9006,7 @@ async function handleAdvancedGenerate(req, res) {
         referenceAssetUri: "",
       },
     });
-    await writeDb(auth.db);
+    if (!dbEnabled()) await writeDb(auth.db);
   }
 
   const record = await upsertGenerationRecord({
@@ -9985,7 +10094,8 @@ async function handleRegister(req, res) {
   }
 
   const db = await readDb();
-  if (db.users.some((user) => user.username === username)) {
+  const existingUser = await getUserByUsernameInDb(username);
+  if (existingUser || db.users.some((user) => user.username === username)) {
     return sendJson(res, 409, { ok: false, message: "Username already exists — please sign in." });
   }
 
@@ -10001,9 +10111,15 @@ async function handleRegister(req, res) {
     updatedAt: now,
   };
   const token = crypto.randomBytes(32).toString("hex");
+  const session = { token, userId: user.id, createdAt: now };
   db.users.push(user);
-  db.sessions.push({ token, userId: user.id, createdAt: now });
-  await writeDb(db);
+  db.sessions.push(session);
+  if (dbEnabled()) {
+    await updateUserInDb(user);
+    await createSessionInDb(session);
+  } else {
+    await writeDb(db);
+  }
   return sendJson(res, 200, { ok: true, token, user: userView(user) });
 }
 
@@ -10012,15 +10128,21 @@ async function handleLogin(req, res) {
   const username = String(body.username || "").trim().toLowerCase();
   const password = String(body.password || "");
   const db = await readDb();
-  const user = db.users.find((item) => item.username === username);
+  const user = await getUserByUsernameInDb(username) || db.users.find((item) => item.username === username);
   if (!user || !verifyPassword(password, user.passwordHash)) {
     return sendJson(res, 401, { ok: false, message: "Wrong username or password." });
   }
 
   ensureUserApiToken(user, db);
   const token = crypto.randomBytes(32).toString("hex");
-  db.sessions.push({ token, userId: user.id, createdAt: new Date().toISOString() });
-  await writeDb(db);
+  const session = { token, userId: user.id, createdAt: new Date().toISOString() };
+  db.sessions.push(session);
+  if (dbEnabled()) {
+    await updateUserInDb(user);
+    await createSessionInDb(session);
+  } else {
+    await writeDb(db);
+  }
   return sendJson(res, 200, { ok: true, token, user: userView(user) });
 }
 
@@ -10028,7 +10150,8 @@ async function handleMe(req, res) {
   const auth = await getAuth(req);
   if (auth.user && !auth.user.apiToken) {
     ensureUserApiToken(auth.user, auth.db);
-    await writeDb(auth.db);
+    if (dbEnabled()) await updateUserInDb(auth.user);
+    else await writeDb(auth.db);
   }
   const user = userView(auth.user);
   if (user && auth.tokenSource) {
@@ -10172,11 +10295,17 @@ async function handleCreatePaymentOrder(req, res) {
 
   const suffixDigits = clampNumber(config.wallet.suffixDigits, 6, 3, 6);
   const payment = makeUniquePaymentAmount(amount, suffixDigits);
-  const creditAmount = walletCreditsForUsdtAmount(payment.amount, config.wallet);
-  const order = {
+  const baseAmount = Math.max(1, Math.round(Number(amount || 0)));
+  const creditAmount = walletCreditsForUsdtAmount(baseAmount, config.wallet);
+  if (!dbEnabled()) {
+    payment.amount = baseAmount;
+    payment.payableAmountText = `${baseAmount}.${payment.suffix}`;
+    payment.payableAmount = Number(payment.payableAmountText);
+  }
+  let order = {
     id: randomId("order"),
     userId: auth.user.id,
-    baseAmount: payment.amount,
+    baseAmount,
     creditAmount,
     cnyCentsPerUsdt: walletCnyCentsPerUsdt(config.wallet),
     suffix: payment.suffix,
@@ -10193,7 +10322,12 @@ async function handleCreatePaymentOrder(req, res) {
     createdAt: new Date().toISOString(),
   };
   auth.db.walletOrders.unshift(order);
-  await writeDb(auth.db);
+  if (dbEnabled()) {
+    order = await createManualWalletOrderInDb({ order, suffixDigits });
+    auth.db.walletOrders[0] = order;
+  } else {
+    await writeDb(auth.db);
+  }
   return sendJson(res, 200, { ok: true, order });
 }
 
@@ -10284,7 +10418,11 @@ async function handleCreatePayPalOrder(req, res) {
     updatedAt: new Date().toISOString(),
   };
   auth.db.walletOrders.unshift(order);
-  await writeDb(auth.db);
+  if (dbEnabled()) {
+    await createWalletOrderInDb(order);
+  } else {
+    await writeDb(auth.db);
+  }
   return sendJson(res, 200, {
     ok: true,
     paypalOrderId: order.paypalOrderId,
@@ -10298,7 +10436,7 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
   if (!auth) return;
   const config = await readAppConfig();
   const tenantOptions = requestTenantOptions(req);
-  const order = (auth.db.walletOrders || []).find((entry) => (
+  const order = await getWalletOrderByPaypalIdInDb(paypalOrderId) || (auth.db.walletOrders || []).find((entry) => (
     entry.userId === auth.user.id &&
     entry.paymentProvider === "paypal" &&
     entry.paypalOrderId === paypalOrderId
@@ -10333,7 +10471,8 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
   const completed = String(capturePayload.status || "").toUpperCase() === "COMPLETED" ||
     String(capture?.status || "").toUpperCase() === "COMPLETED";
   if (!completed) {
-    await writeDb(auth.db);
+    await updateWalletOrderInDb(order);
+    if (!dbEnabled()) await writeDb(auth.db);
     return sendJson(res, 409, {
       ok: false,
       code: "PAYPAL_NOT_COMPLETED",
@@ -10347,7 +10486,8 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
   if (capturedCurrency !== PAYPAL_CURRENCY || Math.abs(capturedAmount - Number(order.baseAmount || 0)) > 0.009) {
     order.status = "pending";
     order.note = "PayPal capture amount mismatch. Manual review required.";
-    await writeDb(auth.db);
+    await updateWalletOrderInDb(order);
+    if (!dbEnabled()) await writeDb(auth.db);
     return sendJson(res, 409, {
       ok: false,
       code: "PAYPAL_AMOUNT_MISMATCH",
@@ -10356,12 +10496,13 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
     });
   }
 
-  const { user } = settleWalletOrderPayment(auth.db, order, config, {
+  const { user } = await settleWalletOrderPayment(auth.db, order, config, {
     paypalCaptureId: order.paypalCaptureId,
     paypalPayerEmail: order.paypalPayerEmail,
     paypalStatus: order.paypalStatus,
   });
-  await writeDb(auth.db);
+  await updateWalletOrderInDb(order);
+  if (!dbEnabled()) await writeDb(auth.db);
   return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet, tenantOptions), user: userView(user) });
 }
 
@@ -10400,7 +10541,7 @@ function findWalletOrderForPayPalEvent(db, event = {}) {
   }) || null;
 }
 
-function applyPayPalWebhookToOrder(db, event, config) {
+async function applyPayPalWebhookToOrder(db, event, config) {
   const type = String(event.event_type || "");
   const resource = event.resource || {};
   const order = findWalletOrderForPayPalEvent(db, event);
@@ -10415,7 +10556,7 @@ function applyPayPalWebhookToOrder(db, event, config) {
       order.note = "PayPal webhook amount mismatch. Manual review required.";
       return true;
     }
-    safeSettleWalletOrderPayment(db, order, config, {
+    await safeSettleWalletOrderPayment(db, order, config, {
       paypalCaptureId: resource.id || order.paypalCaptureId,
       paypalStatus: resource.status || "COMPLETED",
       note: "Paid by PayPal webhook.",
@@ -10432,7 +10573,7 @@ function applyPayPalWebhookToOrder(db, event, config) {
       order.note = "PayPal webhook amount mismatch. Manual review required.";
       return true;
     }
-    safeSettleWalletOrderPayment(db, order, config, {
+    await safeSettleWalletOrderPayment(db, order, config, {
       paypalCaptureId: capture?.id || order.paypalCaptureId,
       paypalPayerEmail: resource.payer?.email_address || order.paypalPayerEmail,
       paypalStatus: resource.status || capture?.status || "COMPLETED",
@@ -10464,8 +10605,15 @@ async function handlePayPalWebhook(req, res) {
   if (!verified) return sendJson(res, 400, { ok: false, message: "PayPal webhook verification failed." });
   const db = await readDb();
   const config = await readAppConfig();
-  const changed = applyPayPalWebhookToOrder(db, event, config);
-  if (changed) await writeDb(db);
+  const changed = await applyPayPalWebhookToOrder(db, event, config);
+  if (changed) {
+    if (dbEnabled()) {
+      const order = findWalletOrderForPayPalEvent(db, event);
+      if (order) await updateWalletOrderInDb(order);
+    } else {
+      await writeDb(db);
+    }
+  }
   return sendJson(res, 200, { ok: true, handled: changed });
 }
 
@@ -10707,7 +10855,7 @@ async function handleSpendCredits(req, res) {
     taskId: randomId("spend"),
     meta: { label: String(body.label || "") },
   });
-  await writeDb(auth.db);
+  if (!dbEnabled()) await writeDb(auth.db);
   return sendJson(res, 200, { ok: true, user: userView(auth.user), cost, label: String(body.label || "") });
 }
 
@@ -10782,7 +10930,8 @@ async function handleUnlockVideo(req, res) {
     };
     auth.db.userUnlocks.unshift(unlock);
     charged = cost > 0;
-    await writeDb(auth.db);
+    if (dbEnabled()) await upsertUserUnlockInDb(unlock);
+    else await writeDb(auth.db);
   }
 
   const unlocks = (auth.db.userUnlocks || [])
@@ -10852,7 +11001,12 @@ async function handleStreamUnlockVideo(req, res, token) {
   const db = await readDb();
   const user = db.users.find((entry) => entry.id === payload.userId && !isSoftDeleted(entry));
   if (!user) return sendJson(res, 401, { ok: false, message: "Please sign in to continue." });
-  const unlock = findUserUnlock(db, user.id, payload.itemId, payload.sceneId, payload.sceneEntryId || "default");
+  const unlock = await findUserUnlockInDb({
+    userId: user.id,
+    itemId: payload.itemId,
+    sceneId: payload.sceneId,
+    sceneEntryId: payload.sceneEntryId || "default",
+  }) || findUserUnlock(db, user.id, payload.itemId, payload.sceneId, payload.sceneEntryId || "default");
   if (!unlock) return sendJson(res, 403, { ok: false, message: "Unlock required." });
 
   let config = await readAppConfig();
@@ -11233,7 +11387,7 @@ async function handleGenerateUserCharacterImage(req, res) {
       taskId,
       meta: { taskId, model, ratio, resolution, baseCredits: pricing.baseCredits, originalCost: pricing.originalCredits, pricingMultiplier: pricing.userPricingMultiplier },
     });
-    await writeDb(auth.db);
+    if (!dbEnabled()) await writeDb(auth.db);
   }
 
   try {
@@ -11277,7 +11431,8 @@ async function handleGenerateUserCharacterImage(req, res) {
     newAsset.characterParams = { action: "create", ...exposedWan27ImageParams(imageOptions) };
     newAsset.updatedAt = new Date().toISOString();
     auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
-    await writeDb(auth.db);
+    if (dbEnabled()) await upsertUserAssetInDb(newAsset);
+    else await writeDb(auth.db);
     const publicNewAsset = publicUserAsset(newAsset);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
@@ -11311,9 +11466,9 @@ async function handleGenerateUserCharacterImage(req, res) {
     if (cost > 0) {
       try {
         const db = await readDb();
-        changeUserCredits(db, auth.user.id, cost, "character_image_generate_refund", { taskId, error: error.message || "Wan2.7 character image failed." });
+        await changeUserCredits(db, auth.user.id, cost, "character_image_generate_refund", { taskId, error: error.message || "Wan2.7 character image failed." });
         await recordSubtokenAdjustment(auth, { taskId, type: "character_image_generate_refund", amount: -cost, meta: { error: error.message || "Wan2.7 character image failed." } });
-        await writeDb(db);
+        if (!dbEnabled()) await writeDb(db);
       } catch (refundError) {
         console.error("[character-image-refund-failed]", refundError.message || refundError);
       }
@@ -11423,7 +11578,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
       taskId,
       meta: { taskId, characterId: character.id || "", model, ratio, resolution, action: initialRecord.params.action },
     });
-    await writeDb(auth.db);
+    if (!dbEnabled()) await writeDb(auth.db);
   }
 
   try {
@@ -11470,7 +11625,8 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
     newAsset.characterParams = { action: initialRecord.params.action, ...exposedWan27ImageParams(imageOptions) };
     newAsset.updatedAt = new Date().toISOString();
     auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
-    await writeDb(auth.db);
+    if (dbEnabled()) await upsertUserAssetInDb(newAsset);
+    else await writeDb(auth.db);
     const publicNewAsset = publicUserAsset(newAsset);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
@@ -11505,9 +11661,9 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
     if (cost > 0) {
       try {
         const db = await readDb();
-        changeUserCredits(db, auth.user.id, cost, "character_image_modify_refund", { taskId, characterId: character.id || "", error: error.message || "Wan2.7 character modify failed." });
+        await changeUserCredits(db, auth.user.id, cost, "character_image_modify_refund", { taskId, characterId: character.id || "", error: error.message || "Wan2.7 character modify failed." });
         await recordSubtokenAdjustment(auth, { taskId, type: "character_image_modify_refund", amount: -cost, meta: { characterId: character.id || "", error: error.message || "Wan2.7 character modify failed." } });
-        await writeDb(db);
+        if (!dbEnabled()) await writeDb(db);
       } catch (refundError) {
         console.error("[character-image-modify-refund-failed]", refundError.message || refundError);
       }
@@ -11644,7 +11800,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
         pricingSource: pricing.source,
       },
     });
-    await writeDb(auth.db);
+    if (!dbEnabled()) await writeDb(auth.db);
   }
 
   try {
@@ -11709,7 +11865,8 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     };
     newAsset.updatedAt = new Date().toISOString();
     auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === newAsset.id ? newAsset : entry));
-    await writeDb(auth.db);
+    if (dbEnabled()) await upsertUserAssetInDb(newAsset);
+    else await writeDb(auth.db);
     const publicNewAsset = publicUserAsset(newAsset);
     await updateAssetImageModifyRecord(taskId, {
       status: "succeeded",
@@ -11744,7 +11901,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     if (cost > 0) {
       try {
         const db = await readDb();
-        changeUserCredits(db, auth.user.id, cost, "asset_image_modify_refund", {
+        await changeUserCredits(db, auth.user.id, cost, "asset_image_modify_refund", {
           taskId,
           assetId,
           error: error.message || "Wan2.7 image modify failed.",
@@ -11755,7 +11912,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
           amount: -cost,
           meta: { assetId, error: error.message || "Wan2.7 image modify failed." },
         });
-        await writeDb(db);
+        if (!dbEnabled()) await writeDb(db);
       } catch (refundError) {
         console.error("[asset-image-modify-refund-failed]", refundError.message || refundError);
       }
@@ -11820,7 +11977,8 @@ async function handleDeleteUserAsset(req, res, assetId) {
   asset.deletedAt = nowIso;
   asset.updatedAt = nowIso;
   auth.db.userAssets = auth.db.userAssets.map((entry) => (entry.id === asset.id ? asset : entry));
-  await writeDb(auth.db);
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(auth.db);
   return sendJson(res, 200, { ok: true, asset });
 }
 
@@ -11989,7 +12147,7 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     taskId: task.taskId,
     meta: { characterId: prepared.id, duration: payload.duration },
   });
-  await writeDb(auth.db);
+  if (!dbEnabled()) await writeDb(auth.db);
 
   prepared.taskId = task.taskId;
   prepared.status = task.status;
@@ -12000,7 +12158,8 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
   prepared.finalPrompt = prompt;
   prepared.updatedAt = new Date().toISOString();
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === prepared.id ? { ...entry, ...prepared } : entry));
-  await writeDb(auth.db);
+  if (dbEnabled()) await upsertUserCharacterInDb(prepared);
+  else await writeDb(auth.db);
 
   await upsertAndSettleGenerationRecord({
     taskId: task.taskId,
@@ -12089,7 +12248,8 @@ async function handleSaveMyCharacterDraft(req, res) {
   };
 
   auth.db.userCharacters.unshift(record);
-  await writeDb(auth.db);
+  if (dbEnabled()) await upsertUserCharacterInDb(record);
+  else await writeDb(auth.db);
 
   return sendJson(res, 200, { ok: true, character: publicUserCharacter(record) });
 }
@@ -12156,7 +12316,8 @@ async function handleCreateMyCharacter(req, res) {
   };
 
   auth.db.userCharacters.unshift(record);
-  await writeDb(auth.db);
+  if (dbEnabled()) await upsertUserCharacterInDb(record);
+  else await writeDb(auth.db);
 
   let prepared;
   try {
@@ -12165,7 +12326,8 @@ async function handleCreateMyCharacter(req, res) {
     record.status = "reference_failed";
     record.error = error.message || "Failed to create upstream asset.";
     auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
-    await writeDb(auth.db);
+    if (dbEnabled()) await upsertUserCharacterInDb(record);
+    else await writeDb(auth.db);
     throw error;
   }
 
@@ -12236,7 +12398,8 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     }
     record.status = "draft";
     auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
-    await writeDb(auth.db);
+    if (dbEnabled()) await upsertUserCharacterInDb(record);
+    else await writeDb(auth.db);
   }
 
   let prepared;
@@ -12246,7 +12409,8 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     record.status = "reference_failed";
     record.error = error.message || "Failed to create upstream asset.";
     auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
-    await writeDb(auth.db);
+    if (dbEnabled()) await upsertUserCharacterInDb(record);
+    else await writeDb(auth.db);
     throw error;
   }
 
@@ -12291,7 +12455,8 @@ async function handleDeleteMyCharacter(req, res, characterId) {
   record.deletedAt = nowIso;
   record.updatedAt = nowIso;
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
-  await writeDb(auth.db);
+  if (dbEnabled()) await upsertUserCharacterInDb(record);
+  else await writeDb(auth.db);
   await softDeleteGenerationRecordsByCompanion(record.id, { userId: auth.user.id });
   return sendJson(res, 200, { ok: true, character: publicUserCharacter(record) });
 }
@@ -12326,7 +12491,8 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
   record.error = task.error || downloadError || "";
   record.updatedAt = new Date().toISOString();
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
-  await writeDb(auth.db);
+  if (dbEnabled()) await upsertUserCharacterInDb(record);
+  else await writeDb(auth.db);
 
   await upsertAndSettleGenerationRecord({
     taskId: record.taskId,
@@ -12430,7 +12596,8 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
   record.updatedAt = nowIso;
 
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
-  await writeDb(auth.db);
+  if (dbEnabled()) await upsertUserCharacterInDb(record);
+  else await writeDb(auth.db);
 
   await upsertAndSettleGenerationRecord({
     taskId: task.taskId,
@@ -12536,7 +12703,8 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
   record.sceneVideos = sceneVideos;
   record.updatedAt = nowIso;
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
-  await writeDb(auth.db);
+  if (dbEnabled()) await upsertUserCharacterInDb(record);
+  else await writeDb(auth.db);
 
   await upsertAndSettleGenerationRecord({
     taskId: task.taskId || taskId,
@@ -13618,10 +13786,10 @@ async function handleAdminUpdateUser(req, res, userId) {
   const body = await readJson(req);
   let changed = false;
   if (typeof body.credits === "number" && Number.isFinite(body.credits)) {
-    user.credits = Math.max(0, Math.round(body.credits));
+    user.credits = roundCredits(Math.max(0, Number(body.credits)), 6);
     changed = true;
   } else if (typeof body.creditsDelta === "number" && Number.isFinite(body.creditsDelta)) {
-    user.credits = Math.max(0, Math.round(Number(user.credits || 0) + body.creditsDelta));
+    user.credits = roundCredits(Math.max(0, Number(user.credits || 0) + Number(body.creditsDelta || 0)), 6);
     changed = true;
   }
   if (typeof body.role === "string" && ["admin", "user"].includes(body.role)) {
@@ -13661,7 +13829,8 @@ async function handleAdminUpdateUser(req, res, userId) {
   }
   if (changed) {
     user.updatedAt = new Date().toISOString();
-    await writeDb(auth.db);
+    if (dbEnabled()) await updateUserInDb(user);
+    else await writeDb(auth.db);
   }
   return sendJson(res, 200, { ok: true, user: userView(user) });
 }
@@ -13679,7 +13848,9 @@ async function handleAdminResetPassword(req, res, userId) {
   user.passwordHash = hashPassword(password);
   user.updatedAt = new Date().toISOString();
   auth.db.sessions = (auth.db.sessions || []).filter((s) => s.userId !== userId || s.token === auth.session.token);
-  await writeDb(auth.db);
+  if (dbEnabled()) await updateUserInDb(user);
+  else await writeDb(auth.db);
+  await deleteUserSessionsInDb(userId, auth.session?.token || "");
   return sendJson(res, 200, { ok: true, user: userView(user) });
 }
 
@@ -13698,12 +13869,25 @@ async function handleAdminDeleteUser(req, res, userId) {
     }
   }
   const nowIso = new Date().toISOString();
-  auth.db.users = (auth.db.users || []).filter((u) => u.id !== userId);
+  const assetsToDelete = (auth.db.userAssets || []).filter((a) => a.userId === userId);
+  const charactersToDelete = (auth.db.userCharacters || []).filter((c) => c.userId === userId);
+  user.deletedAt = user.deletedAt || nowIso;
+  user.updatedAt = nowIso;
+  auth.db.users = (auth.db.users || []).map((u) => (u.id === userId ? user : u));
   auth.db.sessions = (auth.db.sessions || []).filter((s) => s.userId !== userId);
   auth.db.walletOrders = (auth.db.walletOrders || []).filter((o) => o.userId !== userId);
   auth.db.userAssets = (auth.db.userAssets || []).map((a) => (a.userId === userId ? { ...a, deletedAt: a.deletedAt || nowIso, updatedAt: nowIso } : a));
   auth.db.userCharacters = (auth.db.userCharacters || []).map((c) => (c.userId === userId ? { ...c, deletedAt: c.deletedAt || nowIso, updatedAt: nowIso } : c));
-  await writeDb(auth.db);
+  if (dbEnabled()) await updateUserInDb(user);
+  else await writeDb(auth.db);
+  if (dbEnabled()) {
+    await Promise.all([
+      ...assetsToDelete.map((asset) => upsertUserAssetInDb({ ...asset, deletedAt: asset.deletedAt || nowIso, updatedAt: nowIso })),
+      ...charactersToDelete.map((character) => upsertUserCharacterInDb({ ...character, deletedAt: character.deletedAt || nowIso, updatedAt: nowIso })),
+    ]);
+  }
+  await deleteUserSessionsInDb(userId);
+  await deleteUserWalletOrdersInDb(userId);
   return sendJson(res, 200, { ok: true });
 }
 
@@ -13727,7 +13911,8 @@ async function handleAdminDeleteMyCharacter(req, res, characterId) {
   record.deletedAt = nowIso;
   record.updatedAt = nowIso;
   auth.db.userCharacters = (auth.db.userCharacters || []).map((c) => (c.id === characterId ? record : c));
-  await writeDb(auth.db);
+  if (dbEnabled()) await upsertUserCharacterInDb(record);
+  else await writeDb(auth.db);
   await softDeleteGenerationRecordsByCompanion(record.id);
   return sendJson(res, 200, { ok: true });
 }
@@ -13876,14 +14061,15 @@ async function handleAdminUpdateWalletOrder(req, res, orderId) {
   if (typeof body.status === "string" && ["pending", "paid", "cancelled"].includes(body.status)) {
     if (body.status === "paid" && order.status !== "paid") {
       const config = await readAppConfig();
-      settleWalletOrderPayment(auth.db, order, config, { note: "Marked paid by admin." });
+      await settleWalletOrderPayment(auth.db, order, config, { note: "Marked paid by admin." });
     } else {
       order.status = body.status;
       order.updatedAt = new Date().toISOString();
     }
   }
   if (typeof body.note === "string") order.note = body.note.slice(0, 200);
-  await writeDb(auth.db);
+  await updateWalletOrderInDb(order);
+  if (!dbEnabled()) await writeDb(auth.db);
   return sendJson(res, 200, { ok: true, order });
 }
 
@@ -14289,7 +14475,8 @@ async function handleCreateSceneVideo(req, res) {
             });
           }
           auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === prepared.id ? prepared : entry));
-          await writeDb(auth.db);
+          if (dbEnabled()) await upsertUserCharacterInDb(prepared);
+          else await writeDb(auth.db);
           referenceAssetUri = prepared.referenceAssetUri;
           resolvedCompanionName = prepared.name || resolvedCompanionName;
         } catch (error) {
@@ -14331,7 +14518,8 @@ async function handleCreateSceneVideo(req, res) {
         });
       }
       auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === preparedPartner.id ? preparedPartner : entry));
-      await writeDb(auth.db);
+      if (dbEnabled()) await upsertUserCharacterInDb(preparedPartner);
+      else await writeDb(auth.db);
       partnerCharacterName = preparedPartner.name || "Partner";
       partnerReferenceAssetUri = preparedPartner.referenceAssetUri || "";
     } catch (error) {
@@ -14379,14 +14567,14 @@ async function handleCreateSceneVideo(req, res) {
     taskId: randomId("scene"),
     meta: { sceneId: body.sceneId || "", sceneEntryId: sceneEntry.id, companionId: resolvedCompanionId || body.companionId || "" },
   });
-  await writeDb(auth.db);
+  if (!dbEnabled()) await writeDb(auth.db);
 
   console.log("[seedance-submit-payload]", JSON.stringify(payload, null, 2));
   let raw;
   try {
     raw = await arkRequest("POST", "/contents/generations/tasks", payload);
   } catch (error) {
-    changeUserCredits(auth.db, auth.user.id, cost, "user_scene_video_submit_refund", {
+    await changeUserCredits(auth.db, auth.user.id, cost, "user_scene_video_submit_refund", {
       sceneId: body.sceneId || "",
       sceneEntryId: sceneEntry.id,
       reason: error.message || "submit failed",
@@ -14397,7 +14585,7 @@ async function handleCreateSceneVideo(req, res) {
       amount: -cost,
       meta: { sceneId: body.sceneId || "", sceneEntryId: sceneEntry.id, reason: error.message || "submit failed" },
     });
-    await writeDb(auth.db);
+    if (!dbEnabled()) await writeDb(auth.db);
     throw error;
   }
   const task = normalizeTask(raw);
@@ -15010,12 +15198,7 @@ async function handleRequest(req, res) {
 
 const server = http.createServer((req, res) => {
   requestContext.run({ auth: null, appStateWriteLocked: false }, () => {
-    const run = () => handleRequest(req, res);
-    const url = new URL(req.url, `http://${req.headers.host || "127.0.0.1"}`);
-    const task = isAppStateWriteRequest(req.method, url.pathname)
-      ? withAppStateWriteLock(run)
-      : run();
-    Promise.resolve(task).catch((error) => {
+    Promise.resolve(handleRequest(req, res)).catch((error) => {
       console.error("[request-failed]", error.message || error);
       if (!res.headersSent) {
         sendJson(res, error.statusCode || 500, {
