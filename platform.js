@@ -2056,6 +2056,7 @@ Authorization: Bearer <user-token>
 Content-Type: application/json
 
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
+Task queries made with API tokens or sub tokens return only the upstream provider URL in record.videoUrl and record.downloadUrl. Local/CDN backup URLs are kept internally for site playback and are not returned downstream.
 
 Gallery template:
 {
@@ -2257,10 +2258,12 @@ curl -X POST "${apiUrl("/api/advanced/generate")}" \\
   -H "Content-Type: application/json" \\
   -d '{"provider":"seedance","seedanceMode":"reference_images","prompt":"Use Image 1 as the main character. Keep the same identity and create a cinematic shot.","referenceImages":[{"assetId":"reference.assetId from upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"inputVideoSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":8}'
 
-# Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
+# Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
+# Task queries with API tokens or sub tokens return only upstream provider URLs in record.videoUrl and record.downloadUrl. Local/CDN backup URLs are internal.`;
 
 const AGENT_ACCESS_COPY = `Use this video API:
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
+Task queries with API tokens or sub tokens return only upstream provider URLs in record.videoUrl and record.downloadUrl. Local/CDN backup URLs are internal and are not returned downstream.
 
 Gallery templates:
 POST ${apiUrl("/api/platform/generate")}
@@ -2301,7 +2304,8 @@ Authorization: Bearer <user-token>
 Input:
 {"url":"https://example.com/character-image1.png","fileName":"image1.png","name":"image1"}
 
-Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.`;
+Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
+Task queries with API tokens or sub tokens return only upstream provider URLs in record.videoUrl and record.downloadUrl. Local/CDN backup URLs are internal.`;
 
 const SEEDANCE_PARAM_ACCESS_COPY = `${SEEDANCE_CHARACTER_UPLOAD_COPY}
 
@@ -2635,7 +2639,7 @@ Content-Type: application/json
   },
   records: {
     title: "Records",
-    summary: "Query generation history for the current user, then fetch a single task for a fresher status or final video URL.",
+    summary: "Query generation history for the current user, then fetch a single task for a fresher status or final video URL. API-token and sub-token callers receive upstream provider URLs only; local/CDN backup URLs are not returned downstream.",
     request: [
       ["Authorization", "Bearer <user-token>"],
       ["GET /api/generation-records?limit=60", "List current user records. Optional refresh=1 to refresh pending tasks."],
@@ -2647,6 +2651,8 @@ Content-Type: application/json
       ["total", "Total record count for the user."],
       ["user", "Updated user snapshot."],
       ["record", "Single record when calling the detail endpoint."],
+      ["record.videoUrl / record.downloadUrl", "Upstream provider URL only for API-token and sub-token callers. This may be a BytePlus/Volcengine temporary URL for Seedance or an Aliyun URL for APIZ/Wan2.7."],
+      ["local/CDN backup URLs", "Kept internally for site playback and backup; not returned to downstream API-token callers."],
     ],
     example: `GET /api/generation-records?limit=60
 Authorization: Bearer <user-token>
@@ -2665,7 +2671,7 @@ Authorization: Bearer <user-token>`,
       ["MCP", "HTTP wrapper input format."],
     ],
     response: [
-      ["Video URL", "Returned video URLs may expire after 24 hours."],
+      ["Video URL", "API-token task queries return upstream provider URLs only; returned URLs may expire after 24 hours."],
       ["History", "Use /api/generation-records or /api/generation-records/<taskId> to check progress."],
     ],
     example: LIVE_HTTP_ACCESS_COPY,
