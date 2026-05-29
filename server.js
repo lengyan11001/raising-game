@@ -9964,7 +9964,7 @@ function buildModelDocsMarkdown(docs) {
     "",
     "## Wan2.7 Image Edit",
     "",
-    "Use `/api/wan27/image-edit` for Wan2.7 image text generation, single-image editing, or multi-image fusion/reference editing. Pass `imageAssetIds` with 0 to 9 uploaded image assets; the array order maps to Image 1, Image 2, and so on in the prompt. Results are saved into Assets, History, and admin generation records.",
+    "Use `/api/wan27/image-edit` for Wan2.7 image text generation, single-image editing, or multi-image fusion/reference editing. Pass `imageAssetIds` with 0 to 9 uploaded image assets; the array order maps to Image 1, Image 2, and so on in the prompt. Results are saved to History and admin generation records first; use History -> Add asset when the result should enter Assets.",
     "",
     markdownCodeBlock("http", [
       "POST /api/wan27/image-edit",
