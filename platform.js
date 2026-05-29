@@ -6324,8 +6324,8 @@ function renderAdvancedAssets(assets) {
           <span>${escapeHtml(typeLabel)}</span>
         </div>
         <div class="advanced-asset-actions">
-          <button class="copy-btn" type="button" data-advanced-asset-add="${escapeHtml(asset.id)}"><i data-lucide="plus"></i>${escapeHtml(t("advanced.assetAdd"))}</button>
-          ${!video && !audio ? `<button class="ghost-button" type="button" data-advanced-asset-modify="${escapeHtml(asset.id)}"><i data-lucide="wand-sparkles"></i>${escapeHtml(t("assets.modify"))}</button>` : ""}
+          <button class="copy-btn" type="button" data-advanced-asset-add="${escapeHtml(asset.id)}">${escapeHtml(t("advanced.assetAdd"))}</button>
+          ${!video && !audio ? `<button class="ghost-button" type="button" data-advanced-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
         </div>
       </article>
     `;
