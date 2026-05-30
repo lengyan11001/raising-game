@@ -2229,6 +2229,10 @@ function subtokenFailurePayload(cost = 0, remaining = 0, extra = {}) {
   };
 }
 
+function upstreamResourceMissing(error = {}) {
+  return /resource .*not found|is not found|not found/i.test(String(error?.message || error || ""));
+}
+
 function formatServerCredits(value) {
   const next = roundCredits(value, 6);
   return Number.isInteger(next) ? String(next) : next.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
@@ -7223,6 +7227,16 @@ async function refreshGenerationRecordStatus(record = {}) {
       return await refreshWan27GenerationRecord(record, { download: true, reason: "query" });
     } catch (error) {
       console.warn("[wan27-generation-record-refresh-failed]", record.taskId, error.message || error);
+      if (upstreamResourceMissing(error)) {
+        return await upsertAndSettleGenerationRecord({
+          taskId: record.taskId,
+          status: "failed",
+          error: error.message || "Upstream task resource not found.",
+          queryResponse: error.payload || record.queryResponse || null,
+          finalCredits: 0,
+          originalFinalCredits: 0,
+        }, "wan27-missing-resource");
+      }
       return record;
     }
   }
@@ -7274,6 +7288,16 @@ async function refreshGenerationRecordStatus(record = {}) {
     }, "query");
   } catch (error) {
     console.warn("[generation-record-refresh-failed]", record.taskId, error.message || error);
+    if (upstreamResourceMissing(error)) {
+      return await upsertAndSettleGenerationRecord({
+        taskId: record.taskId,
+        status: "failed",
+        error: error.message || "Upstream task resource not found.",
+        queryResponse: error.payload || record.queryResponse || null,
+        finalCredits: 0,
+        originalFinalCredits: 0,
+      }, "missing-resource");
+    }
     if (needsSeedanceFailureRefund(record) || (seedanceUsesTokenPricing(record) && isSucceededStatus(record.status) && !record.billingSettledAt)) {
       return settleSeedanceGenerationRecord(record, "refresh-fallback");
     }
