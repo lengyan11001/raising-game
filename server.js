@@ -4089,6 +4089,369 @@ async function submitSeedanceVideoTask({
   return { task: normalizeTask(raw), payload, raw };
 }
 
+function cloneJson(value) {
+  if (value === undefined) return undefined;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function mediaUrlFromOfficialItem(item = {}, key = "image_url") {
+  const value = item?.[key];
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return String(value.url || value.uri || value.assetUri || "").trim();
+  }
+  return "";
+}
+
+function setOfficialMediaUrl(item = {}, key = "image_url", url = "") {
+  const current = item?.[key];
+  if (current && typeof current === "object" && !Array.isArray(current)) {
+    return { ...item, [key]: { ...current, url } };
+  }
+  return { ...item, [key]: { url } };
+}
+
+function officialSeedancePrompt(payload = {}) {
+  if (typeof payload.prompt === "string" && payload.prompt.trim()) return payload.prompt.trim();
+  const content = Array.isArray(payload.content) ? payload.content : [];
+  return content
+    .map((item) => (typeof item === "string" ? item : String(item?.text || "")))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function officialSeedanceVideoInputsForPricing(payload = {}) {
+  const content = Array.isArray(payload.content) ? payload.content : [];
+  const videos = content
+    .filter((item) => item && typeof item === "object" && item.type === "video_url")
+    .map((item) => ({
+      url: mediaUrlFromOfficialItem(item, "video_url"),
+      durationSeconds: firstPresent(
+        item.durationSeconds,
+        item.duration,
+        item.videoDurationSeconds,
+        item.inputVideoSeconds,
+        item.video_url?.durationSeconds,
+        item.video_url?.duration,
+      ),
+    }))
+    .filter((item) => item.url);
+  return {
+    ...payload,
+    reference_videos: [
+      ...arrayFromBody(payload.reference_videos),
+      ...arrayFromBody(payload.referenceVideos),
+      ...videos,
+    ],
+  };
+}
+
+async function prepareOfficialSeedanceImageUrl(db, user, url = "", name = "Seedance reference image") {
+  const text = String(url || "").trim();
+  if (!text || text.startsWith("asset://")) return text;
+  let userAsset = null;
+  if (/^data:image\//i.test(text)) {
+    const { mime, bytes } = decodeWanMediaDataUrl(text);
+    userAsset = await createUserMediaAssetFromBytes(db, user, {
+      bytes,
+      mime,
+      name,
+      fileName: `${String(name || "image").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 40) || "image"}.png`,
+      maxBytes: 8 * 1024 * 1024,
+    });
+  } else if (isPublicHttpUrl(text)) {
+    userAsset = await createUserMediaAssetFromPublicUrl(db, user, {
+      url: text,
+      name,
+      fileName: `${String(name || "image").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 40) || "image"}.png`,
+    });
+  }
+  if (!userAsset) return text;
+  const prepared = await prepareSeedanceReferenceAsset(db, userAsset, false);
+  return prepared.referenceAssetUri || prepared.asset?.assetUri || text;
+}
+
+async function prepareOfficialSeedancePayloadForArk(db, user, body = {}) {
+  const payload = cloneJson(body) || {};
+  payload.model = String(payload.model || MODEL_QUALITY);
+  if (payload.webSearch !== undefined && payload.web_search === undefined) payload.web_search = payload.webSearch;
+  if (!Array.isArray(payload.content) || !payload.content.length) {
+    const prompt = officialSeedancePrompt(payload);
+    payload.content = prompt ? [{ type: "text", text: prompt }] : [];
+  }
+
+  if (typeof payload.image_url === "string") {
+    payload.image_url = await prepareOfficialSeedanceImageUrl(db, user, payload.image_url, "Seedance first frame");
+  }
+  if (typeof payload.end_image_url === "string") {
+    payload.end_image_url = await prepareOfficialSeedanceImageUrl(db, user, payload.end_image_url, "Seedance last frame");
+  }
+  if (Array.isArray(payload.reference_images)) {
+    const preparedImages = [];
+    for (let index = 0; index < payload.reference_images.length; index += 1) {
+      const item = payload.reference_images[index];
+      const url = typeof item === "string" ? item : String(item?.url || item?.image_url || item?.assetUri || "");
+      const preparedUrl = await prepareOfficialSeedanceImageUrl(db, user, url, `Seedance reference image ${index + 1}`);
+      if (preparedUrl) preparedImages.push(preparedUrl);
+    }
+    payload.reference_images = preparedImages;
+  }
+  if (Array.isArray(payload.content)) {
+    const preparedContent = [];
+    for (let index = 0; index < payload.content.length; index += 1) {
+      const item = payload.content[index];
+      if (!item || typeof item !== "object" || Array.isArray(item) || item.type !== "image_url") {
+        preparedContent.push(item);
+        continue;
+      }
+      const url = mediaUrlFromOfficialItem(item, "image_url");
+      const preparedUrl = await prepareOfficialSeedanceImageUrl(db, user, url, `Seedance content image ${index + 1}`);
+      preparedContent.push(preparedUrl ? setOfficialMediaUrl(item, "image_url", preparedUrl) : item);
+    }
+    payload.content = preparedContent;
+  }
+  return payload;
+}
+
+function officialSeedanceResponseFromRecord(record = {}) {
+  const videoUrl = generationRecordProviderVideoUrl(record);
+  const status = record.status || "unknown";
+  const usage = record.usageCompletionTokens
+    ? { completion_tokens: record.usageCompletionTokens, total_tokens: record.usageCompletionTokens }
+    : undefined;
+  return {
+    id: record.upstreamTaskId || record.taskId || "",
+    task_id: record.upstreamTaskId || record.taskId || "",
+    status,
+    model: record.model || MODEL_QUALITY,
+    content: videoUrl ? { video_url: videoUrl } : undefined,
+    usage,
+    error: record.error ? { message: record.error } : undefined,
+    created_at: record.createdAt || "",
+    updated_at: record.updatedAt || "",
+  };
+}
+
+async function findOwnGenerationRecordByTaskId(auth, taskId = "") {
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  const direct = await getGenerationRecord(id);
+  if (direct && direct.userId === auth.user.id && !isSoftDeleted(direct)) return direct;
+  const records = await listGenerationRecordsForUser(auth.user.id, 1000);
+  return records.find((record) => record.upstreamTaskId === id && !isSoftDeleted(record)) || null;
+}
+
+async function handleVolcengineCreateGenerationTask(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (USE_GATEWAY_UPSTREAM) {
+    return sendJson(res, 503, { error: { code: "GATEWAY_MODE_NOT_SUPPORTED", message: "Volcengine-compatible API requires direct Ark upstream mode." } });
+  }
+  if (!ARK_API_KEY) {
+    return sendJson(res, 503, { error: { code: "MISSING_ARK_API_KEY", message: "Seedance generation is not configured." } });
+  }
+
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const payload = await prepareOfficialSeedancePayloadForArk(auth.db, auth.user, body);
+  const prompt = officialSeedancePrompt(payload);
+  if (!prompt) {
+    return sendJson(res, 400, { error: { code: "MISSING_PROMPT", message: "content text or prompt is required." } });
+  }
+
+  const pricingBody = officialSeedanceVideoInputsForPricing(payload);
+  const requestParams = {
+    ...payload,
+    provider: "seedance",
+    duration: clampNumber(payload.duration, config.video.duration || advancedDurationBounds("seedance").fallback, advancedDurationBounds("seedance").min, advancedDurationBounds("seedance").max),
+    resolution: normalizeAdvancedResolution(payload.resolution || config.video.resolution || "720p"),
+    ratio: normalizeVideoRatio(payload.ratio || payload.aspect_ratio || config.video.ratio || "16:9"),
+  };
+  requestParams.inputVideoSeconds = await seedanceVideoInputSecondsForPricingWithProbe(pricingBody, { requestParams });
+  const rawPricing = advancedModelPricing("seedance", {
+    ...requestParams,
+    model: payload.model,
+    advancedPricing: config.platform?.advancedPricing,
+  });
+  const pricing = applyUserPricingToEstimate(rawPricing, auth.user);
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, { error: { code: "INSUFFICIENT_CREDITS", message: insufficientCreditsMessage(cost, auth.user.credits) }, cost, credits: creditsAmount(auth.user.credits) });
+  }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, {
+      error: { code: error.code || "SUBTOKEN_QUOTA_EXCEEDED", message: error.message || "Sub token quota is not enough." },
+      ...(error.payload || {}),
+    });
+  }
+
+  const fallbackTaskId = localGenerationTaskId("ark");
+  if (cost > 0) {
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "volcengine_generation",
+      taskId: fallbackTaskId,
+      meta: {
+        taskId: fallbackTaskId,
+        provider: "seedance",
+        model: payload.model,
+        duration: requestParams.duration,
+        resolution: requestParams.resolution,
+        ratio: requestParams.ratio,
+        inputVideoSeconds: requestParams.inputVideoSeconds || 0,
+        originalCost: pricing.originalCredits,
+        pricingMultiplier: pricing.userPricingMultiplier,
+        pricingSource: pricing.source || "duration_rate",
+      },
+    });
+    if (!dbEnabled()) await writeDb(auth.db);
+  }
+
+  try {
+    let raw;
+    let lastSubmitError = "";
+    for (let attempt = 0; attempt < 18; attempt += 1) {
+      try {
+        raw = await arkRequest("POST", "/contents/generations/tasks", payload);
+        break;
+      } catch (error) {
+        lastSubmitError = error.message || String(error);
+        if (!/asset is still processing|not available yet/i.test(lastSubmitError)) throw error;
+        await delay(10000);
+      }
+    }
+    if (!raw) {
+      const error = new Error(lastSubmitError || "Upstream asset still processing, Seedance submit failed.");
+      error.statusCode = 502;
+      throw error;
+    }
+    const task = normalizeTask(raw);
+    const taskId = fallbackTaskId;
+    await upsertGenerationRecord({
+      taskId,
+      upstreamTaskId: task.taskId || "",
+      status: task.status || "submitted",
+      model: payload.model || MODEL_QUALITY,
+      provider: "seedance",
+      upstreamSource: "direct",
+      source: "volcengine-compatible",
+      kind: "advanced-video",
+      userId: auth.user.id,
+      prompt,
+      finalPrompt: prompt,
+      params: requestParams,
+      upstreamPayload: payload,
+      ratio: requestParams.ratio || payload.ratio || "",
+      resolution: requestParams.resolution || payload.resolution || "",
+      duration: requestParams.duration || payload.duration || "",
+      remoteVideoUrl: task.videoUrl || "",
+      preDeductedCredits: cost,
+      originalPreDeductedCredits: pricing.originalCredits,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits,
+      userPricingMultiplier: pricing.userPricingMultiplier,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: cost > 0 ? new Date().toISOString() : "",
+      pricingEstimate: pricing,
+      createResponse: raw,
+      awaitingUpstreamTask: false,
+      apiTokenId: auth.tokenRecord?.id || "",
+      apiTokenName: auth.tokenRecord?.name || "",
+      apiTokenType: auth.tokenRecord?.quotaType || "",
+      apiTokenSource: auth.tokenSource || "",
+    });
+    return sendJson(res, 200, raw);
+  } catch (error) {
+    await upsertGenerationRecord({
+      taskId: fallbackTaskId,
+      status: "failed",
+      model: payload.model || MODEL_QUALITY,
+      provider: "seedance",
+      upstreamSource: "direct",
+      source: "volcengine-compatible",
+      kind: "advanced-video",
+      userId: auth.user.id,
+      prompt,
+      finalPrompt: prompt,
+      params: requestParams,
+      upstreamPayload: payload,
+      ratio: requestParams.ratio || payload.ratio || "",
+      resolution: requestParams.resolution || payload.resolution || "",
+      duration: requestParams.duration || payload.duration || "",
+      error: error.message || "Upstream submit failed.",
+      preDeductedCredits: cost,
+      originalPreDeductedCredits: pricing.originalCredits,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      userPricingMultiplier: pricing.userPricingMultiplier,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      billingError: "",
+      pricingEstimate: pricing,
+      createResponse: error.payload || null,
+      awaitingUpstreamTask: false,
+      apiTokenId: auth.tokenRecord?.id || "",
+      apiTokenName: auth.tokenRecord?.name || "",
+      apiTokenType: auth.tokenRecord?.quotaType || "",
+      apiTokenSource: auth.tokenSource || "",
+    });
+    if (cost > 0) {
+      await changeUserCredits(auth.db, auth.user.id, cost, "volcengine_generation_submit_refund", {
+        taskId: fallbackTaskId,
+        provider: "seedance",
+        reason: error.message || "submit failed",
+      });
+      await recordSubtokenAdjustment(auth, {
+        taskId: fallbackTaskId,
+        type: "volcengine_generation_submit_refund",
+        amount: -cost,
+        meta: { provider: "seedance", reason: error.message || "submit failed" },
+      });
+      if (!dbEnabled()) await writeDb(auth.db);
+    }
+    return sendJson(res, error.statusCode || 502, {
+      error: {
+        code: error.code || "UPSTREAM_SUBMIT_FAILED",
+        message: error.message || "Upstream submit failed.",
+      },
+      detail: error.payload?.error?.message || error.payload?.message || "",
+    });
+  }
+}
+
+async function handleVolcengineGetGenerationTask(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const record = await findOwnGenerationRecordByTaskId(auth, taskId);
+  if (!record) {
+    return sendJson(res, 404, { error: { code: "TASK_NOT_FOUND", message: "Generation task not found." } });
+  }
+  const upstreamTaskId = record.upstreamTaskId || record.taskId;
+  let raw = record.queryResponse || record.createResponse || officialSeedanceResponseFromRecord(record);
+  if (ARK_API_KEY && shouldRefreshGenerationRecord(record)) {
+    try {
+      raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(upstreamTaskId)}`);
+      const task = normalizeTask(raw);
+      await upsertAndSettleGenerationRecord({
+        taskId: record.taskId,
+        upstreamTaskId: task.taskId || upstreamTaskId,
+        status: task.status || record.status || "unknown",
+        remoteVideoUrl: task.videoUrl || record.remoteVideoUrl || "",
+        error: task.error || "",
+        queryResponse: raw,
+      }, "volcengine-query");
+    } catch (error) {
+      raw = record.queryResponse || record.createResponse || officialSeedanceResponseFromRecord(record);
+    }
+  } else if (needsSeedanceFailureRefund(record) || (seedanceUsesTokenPricing(record) && isSucceededStatus(record.status) && !record.billingSettledAt)) {
+    await settleSeedanceGenerationRecord(record, "volcengine-query");
+  }
+  return sendJson(res, 200, raw);
+}
+
 function normalizeWan27Resolution(value = "") {
   const normalized = String(value || "").trim().toUpperCase();
   if (normalized === "1080P") return "1080P";
@@ -9882,6 +10245,8 @@ async function buildModelDocs(req) {
       modelsJson: `${origin}/api/models`,
       platformGenerate: `${origin}/api/platform/generate`,
       advancedGenerate: `${origin}/api/advanced/generate`,
+      volcengineCompatibleGenerate: `${origin}/api/v3/contents/generations/tasks`,
+      volcengineCompatibleTask: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
       userAssets: `${origin}/api/user-assets`,
       seedanceCharacterUpload: `${origin}/api/seedance/characters/upload`,
       wan27ImageTextToImage: `${origin}/api/characters/generate`,
@@ -9931,14 +10296,54 @@ function advancedDocMarkdown(item) {
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
-  lines.push("", "Seedance modes: set `seedanceMode` to `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`. For first-frame modes use `imageUrl`/`firstFrameUrl`/`imageAssetId`/`firstFrameAssetId`; for first+last use `endImageUrl`/`lastFrameUrl`/`endImageAssetId`/`lastFrameAssetId`. Reference-image mode uses `referenceImages` (up to 9), reference-video/edit/extend uses `referenceVideoAssetId`, `referenceVideoAssetIds`, `referenceVideos`, or `referenceVideoUrls` (up to 3), and multimodal audio references use `referenceAudios`, `referenceAudioUrls`, `referenceAudioAssetId`, or `referenceAudioAssetIds` (up to 3). For any Seedance video input, pass `inputVideoSeconds` or `referenceVideoDurationSeconds` so the pre-deducted cost includes the input-video billing branch; if omitted, the output duration is used as fallback. In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
-  lines.push("", "Seedance character upload: call `/api/seedance/characters/upload` with `url`/`imageUrl`, `dataUrl`, or an existing `assetId`. The response returns `reference.assetId`, `reference.assetUri`, and a ready `referenceImages` item. Then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<reference.assetId>\",\"fileName\":\"image1.png\"}]`. In the prompt, write `Image 1` to refer to that character. For multiple characters, the order in `referenceImages` maps to `Image 1`, `Image 2`, and so on.");
+  lines.push("", "New Seedance integrations should use `/api/v3/contents/generations/tasks` with the Volcengine-style `content[]` body. The legacy `/api/advanced/generate` path remains available for the site UI and older internal flows.");
+  lines.push("", "Seedance character upload: optionally call `/api/seedance/characters/upload` with `url`/`imageUrl`, `dataUrl`, or an existing `assetId`. The response returns `reference.assetUri`; put that value into `content[].image_url.url` with role `reference_image`. In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
   lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 image assets. The order maps to Image 1, Image 2, and so on in the prompt; with no images it works as text-to-image through the same endpoint. Results are saved to generation history first. Use the history Add asset action when the result should enter the asset library.");
-  lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance friendly fields are prepared into upstream `image_url`, `end_image_url`, `content`, or `reference_*` fields as needed.");
+  lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `content[]` image/video/audio objects; public/base64 image URLs are prepared into Ark assets before submit.");
   lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `image_url`, `end_image_url`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`/`webSearch`, `watermark`, `seed`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`. These fields are passed through for upstream compatibility; upstream decides whether each one takes effect.");
-  lines.push("", "Task query: when called with an API token, `record.videoUrl` and `record.downloadUrl` return only the upstream provider download URL. Seedance/BytePlus can return a Volcengine temporary URL, while APIZ can return an Aliyun URL. Our saved copies are internal site playback/backup data and are not returned to downstream API callers.");
+  lines.push("", "Task query: use `/api/v3/contents/generations/tasks/<taskId>` for Seedance-compatible task responses. The legacy record endpoints remain available for site history.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
+}
+
+function seedanceOfficialExampleMarkdown(docs) {
+  const endpoint = docs.endpoints.volcengineCompatibleGenerate || `${docs.baseUrl}/api/v3/contents/generations/tasks`;
+  const detailEndpoint = docs.endpoints.volcengineCompatibleTask || `${docs.baseUrl}/api/v3/contents/generations/tasks/<taskId>`;
+  const request = {
+    model: "dreamina-seedance-2-0-260128",
+    content: [
+      { type: "text", text: "Use Image 1 as the character reference. Generate a cinematic 5 second shot, no subtitles, no watermark." },
+      { type: "image_url", image_url: { url: "asset://seedance-uploaded-character-or-public-url" }, role: "reference_image" },
+    ],
+    ratio: "9:16",
+    resolution: "720p",
+    duration: 5,
+    generate_audio: true,
+    watermark: false,
+  };
+  return [
+    "## Seedance / Volcengine-Compatible API",
+    "",
+    "Use this section for new integrations. The request body follows the Volcengine Ark Seedance task shape; vip123 still handles authentication, pre-deduction, history, and refunds internally.",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${endpoint.replace(docs.baseUrl, "")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(request, null, 2),
+    ].join("\n")),
+    "",
+    "Query the task with the same Volcengine-style path. The response is the upstream task response when available, including provider output URLs and `usage` fields returned by the provider.",
+    "",
+    markdownCodeBlock("http", [
+      `GET ${detailEndpoint.replace(docs.baseUrl, "")}`,
+      "Authorization: Bearer <user-token>",
+    ].join("\n")),
+    "",
+    "Supported media inputs in `content`: `text`, `image_url`, `video_url`, and `audio_url`. Use `role` values such as `first_frame`, `last_frame`, `reference_image`, `reference_video`, and `reference_audio` to match Seedance modes. Public image URLs and base64 image data URLs are accepted for image inputs and are prepared into Ark assets before submission; `asset://` URLs pass through directly.",
+    "",
+  ].join("\n");
 }
 
 function buildModelDocsMarkdown(docs) {
@@ -9989,12 +10394,12 @@ function buildModelDocsMarkdown(docs) {
     "2. For image-to-video templates, send `templateId` and `dataUrl` to `/api/platform/generate`.",
     "3. For text-to-video templates, send `templateId` and an optional `prompt` to `/api/platform/generate`.",
     "4. Optional: upload a reusable image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
-    "5. Seedance character upload: POST `/api/seedance/characters/upload` with the character image, then call `/api/advanced/generate` with `provider: \"seedance\"`, `seedanceMode: \"reference_images\"`, and `referenceImages: [{\"assetId\":\"<reference.assetId>\"}]`. In the prompt, refer to that character as `Image 1`.",
-    "6. For advanced Seedance generation, call `/api/advanced/generate` with `provider: \"seedance\"` and optional `seedanceMode` (`text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`). When a request includes reference videos, include `inputVideoSeconds` or `referenceVideoDurationSeconds` so billing can pre-deduct the video-input branch before upstream submission.",
+    "5. For Seedance generation, call `/api/v3/contents/generations/tasks` with a Volcengine-style `content[]` body.",
+    "6. Optional Seedance character upload: POST `/api/seedance/characters/upload` with the character image, then put returned `reference.assetUri` into `content[].image_url.url`.",
     "7. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional pass-through parameters, and duration.",
     "8. For Wan2.7 image generation/editing, call `/api/characters/generate` for text-to-image or `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 images. The array order maps to Image 1, Image 2, and so on in the prompt.",
-    "9. Query `/api/generation-records` or `/api/generation-records/<taskId>` for progress and results.",
-    "10. Task query returns only upstream download URLs in `record.videoUrl`/`record.downloadUrl` for API-token callers. Our saved copy is kept internally for site playback/backup.",
+    "9. Query Seedance tasks with `/api/v3/contents/generations/tasks/<taskId>`. Legacy history remains at `/api/generation-records`.",
+    "10. Seedance-compatible task query returns the upstream task payload when available. Our saved copy is kept internally for site playback/backup.",
     "",
     "## Seedance Character Upload Example",
     "",
@@ -10014,24 +10419,24 @@ function buildModelDocsMarkdown(docs) {
       "Response:",
       "{",
       '  "ok": true,',
-      '  "reference": {"assetId": "asset-id-from-upload", "assetUri": "asset://seedance-asset-id", "fileName": "image1.png", "imageLabel": "Image 1"},',
-      '  "referenceImages": [{"assetId": "asset-id-from-upload", "fileName": "image1.png"}]',
+      '  "reference": {"assetId": "asset-id-from-upload", "assetUri": "asset://seedance-asset-id", "fileName": "image1.png", "imageLabel": "Image 1"}',
       "}",
       "",
-      "POST /api/advanced/generate",
+      "POST /api/v3/contents/generations/tasks",
       "Authorization: Bearer <user-token>",
       "Content-Type: application/json",
       "",
       "{",
-      '  "provider": "seedance",',
-      '  "seedanceMode": "reference_images",',
-      '  "prompt": "Use Image 1 as the main character. Keep the same face, hairstyle, body shape, and outfit. Create a cinematic 5 second shot.",',
-      '  "referenceImages": [',
-      '    {"assetId": "asset-id-from-upload", "fileName": "image1.png"}',
+      '  "model": "dreamina-seedance-2-0-260128",',
+      '  "content": [',
+      '    {"type": "text", "text": "Use Image 1 as the main character. Keep the same face, hairstyle, body shape, and outfit. Create a cinematic 5 second shot."},',
+      '    {"type": "image_url", "image_url": {"url": "asset://seedance-asset-id"}, "role": "reference_image"}',
       "  ],",
       '  "ratio": "9:16",',
       '  "resolution": "720p",',
-      '  "duration": 5',
+      '  "duration": 5,',
+      '  "generate_audio": true,',
+      '  "watermark": false',
       "}",
     ].join("\n")),
     "",
@@ -10043,13 +10448,14 @@ function buildModelDocsMarkdown(docs) {
     "",
     markdownCodeBlock("json", docs.endpoints),
     "",
+    seedanceOfficialExampleMarkdown(docs),
     "## Template Gallery Models",
     "",
     templateSections,
     "",
     "## Advanced Generate",
     "",
-    "Advanced generation is available to every signed-in user. Call `/api/advanced/generate` directly.",
+    "Legacy advanced generation is still available for the site UI and Wan2.7 flows. New Seedance integrations should use `/api/v3/contents/generations/tasks` above.",
     docs.advanced.telegram ? `\nSupport: ${docs.advanced.telegram}\n` : "",
     advancedSections,
     "",
@@ -15215,6 +15621,14 @@ async function handleRequest(req, res) {
       config = await ensureSceneEntriesPersisted(config);
       config = await refreshCompletedHomeVideoItems(config);
       return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req)) });
+    }
+
+    const volcengineTaskMatch = url.pathname.match(/^\/(?:(?:api\/v3|v3)\/)?contents\/generations\/tasks\/([^/]+)\/?$/);
+    if (req.method === "POST" && /^\/(?:(?:api\/v3|v3)\/)?contents\/generations\/tasks\/?$/.test(url.pathname)) {
+      return await handleVolcengineCreateGenerationTask(req, res);
+    }
+    if (req.method === "GET" && volcengineTaskMatch) {
+      return await handleVolcengineGetGenerationTask(req, res, decodeURIComponent(volcengineTaskMatch[1]));
     }
 
     if (req.method === "GET" && url.pathname === "/api/models") {

@@ -2088,152 +2088,117 @@ function tenantScopedAccessText(text = "") {
     });
 }
 
-const LIVE_HTTP_ACCESS_COPY = `POST ${apiUrl("/api/platform/generate")}
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
-Task queries made with API tokens or sub tokens return only the upstream provider URL in record.videoUrl and record.downloadUrl. Local/CDN backup URLs are kept internally for site playback and are not returned downstream.
-
-Gallery template:
-{
-  "templateId": "template-id",
-  "dataUrl": "data:image/png;base64,...",
-  "prompt": ""
-}
-
-Advanced default Wan2.7:
-POST ${apiUrl("/api/advanced/generate")}
-{
-  "provider": "wan27",
-  "prompt": "your prompt",
-  "dataUrl": "data:image/png;base64,...",
-  "resolution": "1080p",
-  "duration": 5
-}
-
-Seedance character image flow:
-POST ${apiUrl("/api/seedance/characters/upload")}
-{
-  "url": "https://example.com/character-image1.png",
-  "fileName": "image1.png",
-  "name": "image1"
-}
-
-Use the returned reference.assetId in /api/advanced/generate. Direct public URL items are also accepted for simple reference images.
-
-Upload video/audio references through the asset library:
-POST ${apiUrl("/api/user-assets")}
-{
-  "videoUrl": "https://example.com/video1.mp4",
-  "fileName": "video1.mp4",
-  "name": "video1",
-  "durationSeconds": 6
-}
-{
-  "audioUrl": "https://example.com/audio1.mp3",
-  "fileName": "audio1.mp3",
-  "name": "audio1"
-}
-
-Advanced Seedance:
-POST ${apiUrl("/api/advanced/generate")}
-{
-  "provider": "seedance",
-  "prompt": "Use Image 1 as the character reference. Use Video 1 as motion reference if provided. Use Audio 1 as music reference if provided.",
-  "referenceImages": [
-    {"assetId": "reference.assetId from character upload", "fileName": "image1.png"}
-  ],
-  "referenceVideoUrls": ["https://example.com/video1.mp4"],
-  "inputVideoSeconds": 6,
-  "referenceAudioUrls": ["https://example.com/audio1.mp3"],
-  "resolution": "720p",
-  "duration": 5
-}`;
-
-const SEEDANCE_CHARACTER_UPLOAD_COPY = `Complete Seedance character image upload and video generation flow:
-Use this block as the one-copy Seedance role workflow.
-
-1) Prepare the character image for Seedance:
-POST ${apiUrl("/api/seedance/characters/upload")}
+const VOLCENGINE_SEEDANCE_ACCESS_COPY = `POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "url": "https://example.com/character-image1.png",
-  "fileName": "image1.png",
-  "name": "image1"
-}
-
-You may also send base64, or reuse an existing uploaded image asset:
-{
-  "dataUrl": "data:image/png;base64,...",
-  "fileName": "image1.png",
-  "name": "image1"
-}
-{
-  "assetId": "existing-image-asset-id",
-  "fileName": "image1.png",
-  "name": "image1"
-}
-
-The response returns reference.assetId, reference.assetUri, and a ready referenceImages item.
-
-2) Use it in Seedance:
-POST ${apiUrl("/api/advanced/generate")}
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "provider": "seedance",
-  "seedanceMode": "reference_images",
-  "prompt": "Use Image 1 as the main character. Keep the same face, hairstyle, body shape, and outfit. Create a 5 second cinematic shot.",
-  "referenceImages": [
-    {"assetId": "reference.assetId from step 1", "fileName": "image1.png"}
+  "model": "dreamina-seedance-2-0-260128",
+  "content": [
+    {"type": "text", "text": "Use Image 1 as the character reference. Generate a cinematic 5 second shot, no subtitles, no watermark."},
+    {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"}
   ],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5,
-  "params": {"generate_audio": true}
+  "generate_audio": true,
+  "watermark": false
 }
 
-Prompt rule: uploaded character images are referenced as Image 1, Image 2, etc. Do not put raw asset ids in the prompt. Multiple characters can be sent in order inside referenceImages, then referenced as Image 1 / Image 2.`;
+GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}
+Authorization: Bearer <user-token>
+
+The response is the upstream Volcengine/Ark task response when available. vip123 handles auth, balance pre-deduction, history, and refund internally. Public image URLs or base64 image data URLs in image_url content are prepared into Ark assets before submit; asset:// URLs pass through directly.`;
+
+const LIVE_HTTP_ACCESS_COPY = `${VOLCENGINE_SEEDANCE_ACCESS_COPY}
+
+Legacy gallery template:
+POST ${apiUrl("/api/platform/generate")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "dataUrl": "data:image/png;base64,...",
+  "prompt": ""
+}
+
+Asset upload for reusable files:
+POST ${apiUrl("/api/user-assets")}
+{
+  "url": "https://example.com/image1.png",
+  "fileName": "image1.png",
+  "name": "image1"
+}`;
+
+const SEEDANCE_CHARACTER_UPLOAD_COPY = `Seedance role workflow, Volcengine-compatible:
+
+1) Optional: prepare a character image as a Seedance asset.
+POST ${apiUrl("/api/seedance/characters/upload")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "url": "https://example.com/character-image1.png",
+  "fileName": "image1.png",
+  "name": "image1"
+}
+
+The response returns reference.assetUri, for example asset://....
+
+2) Submit with the Volcengine-compatible task endpoint:
+POST ${apiUrl("/api/v3/contents/generations/tasks")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "model": "dreamina-seedance-2-0-260128",
+  "content": [
+    {"type": "text", "text": "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot."},
+    {"type": "image_url", "image_url": {"url": "asset://reference.assetUri-from-step-1"}, "role": "reference_image"}
+  ],
+  "ratio": "9:16",
+  "resolution": "720p",
+  "duration": 5,
+  "generate_audio": true,
+  "watermark": false
+}
+
+You may also send a public image URL or base64 data URL directly in content[].image_url.url:
+{
+  "type": "image_url",
+  "image_url": {"url": "data:image/png;base64,..."},
+  "role": "first_frame"
+}
+Prompt rule: uploaded character images are referenced as Image 1, Image 2, etc. Do not put raw asset ids in the prompt text.`;
 
 const TYPE_SCRIPT_ACCESS_COPY = `const token = "<user-token>";
-const character = await fetch("${apiUrl("/api/seedance/characters/upload")}", {
-  method: "POST",
-  headers: {
-    authorization: \`Bearer \${token}\`,
-    "content-type": "application/json"
-  },
-  body: JSON.stringify({
-    url: "https://example.com/character-image1.png",
-    fileName: "image1.png",
-    name: "image1"
-  })
-}).then((res) => res.json());
-
-const advancedBody = {
-  provider: "seedance",
-  seedanceMode: "reference_images",
-  prompt: "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot.",
-  referenceImages: [{ assetId: character.reference.assetId, fileName: "image1.png" }],
-  referenceVideoUrls: ["https://example.com/video1.mp4"],
-  inputVideoSeconds: 6,
-  referenceAudioUrls: ["https://example.com/audio1.mp3"],
+const body = {
+  model: "dreamina-seedance-2-0-260128",
+  content: [
+    { type: "text", text: "Use Image 1 as the character reference. Generate a cinematic 5 second shot." },
+    { type: "image_url", image_url: { url: "https://example.com/image1.png" }, role: "reference_image" }
+  ],
+  ratio: "9:16",
   resolution: "720p",
-  duration: 5
+  duration: 5,
+  generate_audio: true,
+  watermark: false
 };
 
-const res = await fetch("${apiUrl("/api/advanced/generate")}", {
+const created = await fetch("${apiUrl("/api/v3/contents/generations/tasks")}", {
   method: "POST",
   headers: {
     authorization: \`Bearer \${token}\`,
     "content-type": "application/json"
   },
-  body: JSON.stringify(advancedBody)
-});
-console.log(await res.json());
+  body: JSON.stringify(body)
+}).then((res) => res.json());
+
+const taskId = created.id || created.task_id || created.data?.id || created.data?.task_id;
+const task = await fetch("${apiUrl("/api/v3/contents/generations/tasks")}/" + encodeURIComponent(taskId), {
+  headers: { authorization: \`Bearer \${token}\` }
+}).then((res) => res.json());
+console.log(task);
 
 // Important: returned video URLs may expire after 24 hours.
 // Download and save successful videos promptly.`;
@@ -2241,62 +2206,46 @@ console.log(await res.json());
 const PYTHON_ACCESS_COPY = `import requests
 
 token = "<user-token>"
-character = requests.post(
-    "${apiUrl("/api/seedance/characters/upload")}",
-    headers={"Authorization": f"Bearer {token}"},
-    json={
-        "url": "https://example.com/character-image1.png",
-        "fileName": "image1.png",
-        "name": "image1",
-    },
-    timeout=120,
-).json()
-
-advanced_payload = {
-    "provider": "seedance",
-    "seedanceMode": "reference_images",
-    "prompt": "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot.",
-    "referenceImages": [{"assetId": character["reference"]["assetId"], "fileName": "image1.png"}],
-    "referenceVideoUrls": ["https://example.com/video1.mp4"],
-    "inputVideoSeconds": 6,
-    "referenceAudioUrls": ["https://example.com/audio1.mp3"],
+payload = {
+    "model": "dreamina-seedance-2-0-260128",
+    "content": [
+        {"type": "text", "text": "Use Image 1 as the character reference. Generate a cinematic 5 second shot."},
+        {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"},
+    ],
+    "ratio": "9:16",
     "resolution": "720p",
     "duration": 5,
+    "generate_audio": True,
+    "watermark": False,
 }
 
-resp = requests.post(
-    "${apiUrl("/api/advanced/generate")}",
+created = requests.post(
+    "${apiUrl("/api/v3/contents/generations/tasks")}",
     headers={"Authorization": f"Bearer {token}"},
-    json=advanced_payload,
+    json=payload,
     timeout=120,
-)
-print(resp.json())
+).json()
+task_id = created.get("id") or created.get("task_id") or created.get("data", {}).get("id") or created.get("data", {}).get("task_id")
+task = requests.get(
+    f"${apiUrl("/api/v3/contents/generations/tasks")}/{task_id}",
+    headers={"Authorization": f"Bearer {token}"},
+    timeout=120,
+).json()
+print(task)
 
 # Important: returned video URLs may expire after 24 hours.
 # Download and save successful videos promptly.`;
 
-const CLI_ACCESS_COPY = `curl -X POST "${apiUrl("/api/platform/generate")}" \\
+const CLI_ACCESS_COPY = `curl -X POST "${apiUrl("/api/v3/contents/generations/tasks")}" \\
   -H "Authorization: Bearer <user-token>" \\
   -H "Content-Type: application/json" \\
-  -d '{"templateId":"template-id","dataUrl":"data:image/png;base64,...","prompt":""}'
+  -d '{"model":"dreamina-seedance-2-0-260128","content":[{"type":"text","text":"Use Image 1 as the character reference. Generate a cinematic 5 second shot."},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"}],"ratio":"9:16","resolution":"720p","duration":5,"generate_audio":true,"watermark":false}'
 
-curl -X POST "${apiUrl("/api/advanced/generate")}" \\
-  -H "Authorization: Bearer <user-token>" \\
-  -H "Content-Type: application/json" \\
-  -d '{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}'
-
-curl -X POST "${apiUrl("/api/seedance/characters/upload")}" \\
-  -H "Authorization: Bearer <user-token>" \\
-  -H "Content-Type: application/json" \\
-  -d '{"url":"https://example.com/character-image1.png","fileName":"image1.png","name":"image1"}'
-
-curl -X POST "${apiUrl("/api/advanced/generate")}" \\
-  -H "Authorization: Bearer <user-token>" \\
-  -H "Content-Type: application/json" \\
-  -d '{"provider":"seedance","seedanceMode":"reference_images","prompt":"Use Image 1 as the main character. Keep the same identity and create a cinematic shot.","referenceImages":[{"assetId":"reference.assetId from upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"inputVideoSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":8}'
+curl -X GET "${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}" \\
+  -H "Authorization: Bearer <user-token>"
 
 # Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
-# Task queries with API tokens or sub tokens return only upstream provider URLs in record.videoUrl and record.downloadUrl. Local/CDN backup URLs are internal.`;
+# vip123 records the task internally, but this endpoint returns the Volcengine/Ark task response when available.`;
 
 const AGENT_ACCESS_COPY = `Use this video API:
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
@@ -2308,20 +2257,13 @@ Authorization: Bearer <user-token>
 Body:
 {"templateId":"template-id","dataUrl":"data:image/png;base64,...","prompt":""}
 
-Advanced direct generation:
-POST ${apiUrl("/api/advanced/generate")}
+Seedance direct generation, Volcengine-compatible:
+POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Body:
-{"provider":"wan27","prompt":"your prompt","dataUrl":"data:image/png;base64,...","resolution":"1080p","duration":5}
-or:
-{"provider":"seedance","seedanceMode":"reference_images","prompt":"Use Image 1 as the character, Video 1 as the motion reference, and Audio 1 as the music reference.","referenceImages":[{"assetId":"reference.assetId from /api/seedance/characters/upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"inputVideoSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p","duration":5}
-
-Seedance character upload first:
-POST ${apiUrl("/api/seedance/characters/upload")}
-Body:
-{"url":"https://example.com/character-image1.png","fileName":"image1.png","name":"image1"}
+{"model":"dreamina-seedance-2-0-260128","content":[{"type":"text","text":"Use Image 1 as the character, Video 1 as motion reference, and Audio 1 as music reference."},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"},{"type":"video_url","video_url":{"url":"https://example.com/video1.mp4","durationSeconds":6},"role":"reference_video"},{"type":"audio_url","audio_url":{"url":"https://example.com/audio1.mp3"},"role":"reference_audio"}],"ratio":"9:16","resolution":"720p","duration":5,"generate_audio":true}
 
 Check records:
-GET ${apiUrl("/api/generation-records")}`;
+GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}`;
 
 const MCP_ACCESS_COPY = `MCP wrapper target:
 POST ${apiUrl("/api/platform/generate")}
@@ -2329,11 +2271,11 @@ Authorization: Bearer <user-token>
 Input:
 {"templateId":"string","dataUrl":"string","prompt":"string"}
 
-Advanced MCP wrapper target:
-POST ${apiUrl("/api/advanced/generate")}
+Seedance MCP wrapper target:
+POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Authorization: Bearer <user-token>
 Input:
-{"provider":"wan27|seedance","prompt":"string","dataUrl":"data:image/png;base64,...","referenceImages":[{"assetId":"reference.assetId from /api/seedance/characters/upload","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"inputVideoSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"resolution":"720p|1080p","duration":5,"params":{"web_search":false,"watermark":false,"seed":123456}}
+{"model":"dreamina-seedance-2-0-260128","content":[{"type":"text","text":"string"},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"}],"ratio":"9:16","resolution":"720p|1080p","duration":5,"generate_audio":true,"watermark":false,"seed":123456}
 
 Seedance character upload target:
 POST ${apiUrl("/api/seedance/characters/upload")}
@@ -2341,13 +2283,13 @@ Authorization: Bearer <user-token>
 Input:
 {"url":"https://example.com/character-image1.png","fileName":"image1.png","name":"image1"}
 
-Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
-Task queries with API tokens or sub tokens return only upstream provider URLs in record.videoUrl and record.downloadUrl. Local/CDN backup URLs are internal.`;
+Task query:
+GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}`;
 
 const SEEDANCE_PARAM_ACCESS_COPY = `${SEEDANCE_CHARACTER_UPLOAD_COPY}
 
-Direct Seedance generation endpoint:
-POST ${apiUrl("/api/advanced/generate")}
+Direct Seedance generation endpoint, Volcengine-compatible:
+POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
@@ -2355,68 +2297,68 @@ Prompt reference rule: describe uploaded materials as Image 1, Video 1, Audio 1.
 
 Text to video:
 {
-  "provider": "seedance",
-  "seedanceMode": "text_to_video",
-  "prompt": "Describe the video. Dialogue can be quoted in the prompt.",
+  "model": "dreamina-seedance-2-0-260128",
+  "content": [{"type": "text", "text": "Describe the video. Dialogue can be quoted in the prompt."}],
+  "ratio": "9:16",
   "resolution": "720p",
   "duration": 5,
-  "params": {"generate_audio": true}
+  "generate_audio": true
 }
 
 First-frame image to video:
 {
-  "provider": "seedance",
-  "seedanceMode": "first_frame",
-  "prompt": "Animate Image 1 into a cinematic shot.",
-  "imageUrl": "https://example.com/first-frame.png",
+  "model": "dreamina-seedance-2-0-260128",
+  "content": [
+    {"type": "text", "text": "Animate Image 1 into a cinematic shot."},
+    {"type": "image_url", "image_url": {"url": "https://example.com/first-frame.png"}, "role": "first_frame"}
+  ],
+  "ratio": "9:16",
   "resolution": "720p",
   "duration": 5
 }
 
 First + last frame:
 {
-  "provider": "seedance",
-  "seedanceMode": "first_last_frame",
-  "prompt": "Move smoothly from the first frame to the last frame.",
-  "imageUrl": "https://example.com/first-frame.png",
-  "endImageUrl": "https://example.com/last-frame.png",
+  "model": "dreamina-seedance-2-0-260128",
+  "content": [
+    {"type": "text", "text": "Move smoothly from the first frame to the last frame."},
+    {"type": "image_url", "image_url": {"url": "https://example.com/first-frame.png"}, "role": "first_frame"},
+    {"type": "image_url", "image_url": {"url": "https://example.com/last-frame.png"}, "role": "last_frame"}
+  ],
+  "ratio": "9:16",
   "resolution": "720p",
   "duration": 5
 }
 
 Reference images:
 {
-  "provider": "seedance",
-  "prompt": "Describe the video. Dialogue can be quoted in the prompt.",
-  "referenceImages": [
-    {"url": "https://example.com/image1.png", "fileName": "image1.png"}
+  "model": "dreamina-seedance-2-0-260128",
+  "content": [
+    {"type": "text", "text": "Use Image 1 as the character reference and generate a cinematic shot."},
+    {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"}
   ],
-  "params": {
-    "model": "dreamina-seedance-2-0-fast-260128",
-    "ratio": "9:16",
-    "resolution": "720p",
-    "duration": 5,
-    "generate_audio": true,
-    "web_search": false,
-    "watermark": false,
-    "seed": 123456
-  }
+  "ratio": "9:16",
+  "resolution": "720p",
+  "duration": 5,
+  "generate_audio": true,
+  "web_search": false,
+  "watermark": false,
+  "seed": 123456
 }
 
 Edit or extend with video/audio references:
 {
-  "provider": "seedance",
-  "seedanceMode": "reference_video",
-  "prompt": "Use Video 1 as the action reference, Image 1 as the character reference, and Audio 1 as the music reference.",
-  "referenceVideoAssetIds": ["uploaded-video-asset-id"],
-  "referenceVideoUrls": ["https://example.com/video2.mp4"],
-  "inputVideoSeconds": 6,
-  "referenceImages": [{"assetId": "uploaded-image-asset-id"}],
-  "referenceAudios": ["https://example.com/music.mp3"],
-  "referenceAudioAssetIds": ["uploaded-audio-asset-id"],
+  "model": "dreamina-seedance-2-0-260128",
+  "content": [
+    {"type": "text", "text": "Use Video 1 as the action reference, Image 1 as the character reference, and Audio 1 as the music reference."},
+    {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"},
+    {"type": "video_url", "video_url": {"url": "https://example.com/video2.mp4", "durationSeconds": 6}, "role": "reference_video"},
+    {"type": "audio_url", "audio_url": {"url": "https://example.com/music.mp3"}, "role": "reference_audio"}
+  ],
+  "ratio": "9:16",
   "resolution": "720p",
   "duration": 8,
-  "params": {"generate_audio": true}
+  "generate_audio": true
 }`;
 
 const WAN27_VIDEO_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
@@ -2538,93 +2480,63 @@ Content-Type: application/json
 }`,
   },
   advanced: {
-    title: "Advanced Generation",
-    summary: "Token callers can use Seedance or Wan2.7 directly. Put upstream-only options in params; documented provider fields are passed through and the upstream decides whether they take effect.",
+    title: "Seedance Generation",
+    summary: "New integrations should use the Volcengine-compatible Seedance task endpoint. vip123 keeps authentication, balance pre-deduction, task history, and refund handling internally.",
     request: [
       ["Authorization", "Bearer <user-token>"],
       ["Content-Type", "application/json"],
-      ["caseId", "Optional advanced case id."],
-      ["provider", "wan27 or seedance."],
-      ["prompt", "Required prompt."],
-      ["seedanceMode", "Seedance only. text_to_video, first_frame, first_last_frame, reference_images, or reference_video."],
-      ["dataUrl", "Wan2.7 first-frame image. For Seedance first_frame, this is accepted when seedanceMode is first_frame/first_last_frame."],
-      ["imageUrl / firstFrameUrl", "Seedance first-frame public URL. Alias of top-level image_url handling."],
-      ["imageAssetId / firstFrameAssetId", "Seedance first-frame asset id returned by /api/user-assets."],
-      ["endImageUrl / lastFrameUrl", "Seedance last-frame public URL for first_last_frame."],
-      ["endImageAssetId / lastFrameAssetId", "Seedance last-frame asset id for first_last_frame."],
-      ["referenceImages", "Seedance reference_images mode. Array items can use url/imageUrl + fileName, dataUrl + fileName, or assetId."],
-      ["referenceImages[].assetUri", "Seedance-ready asset:// URI returned by /api/seedance/characters/upload. assetId is preferred, assetUri is accepted."],
-      ["seedanceReferenceAssetUri / seedanceCharacterAssetUri", "Seedance-ready asset:// URI returned by /api/seedance/characters/upload."],
-      ["referenceImageAssetUris / seedanceReferenceAssetUris", "Array of Seedance-ready asset:// URIs returned by /api/seedance/characters/upload."],
-      ["referenceVideoAssetId", "Seedance reference_video mode. Existing uploaded video asset id."],
-      ["referenceVideoAssetIds", "Seedance multimodal/edit/extend. Up to 3 existing uploaded video asset ids."],
-      ["referenceVideos / referenceVideoUrls", "Seedance multimodal/edit/extend. Up to 3 public video URLs."],
-      ["inputVideoSeconds / referenceVideoDurationSeconds", "Seedance billing field. Total input video seconds for reference-video/edit/extend. If omitted while video input exists, output duration is used as fallback."],
-      ["referenceAudios / referenceAudioUrls", "Seedance multimodal audio reference URLs. Up to 3 public URLs."],
-      ["referenceAudioAssetId / referenceAudioAssetIds", "Seedance multimodal audio references from /api/user-assets. Up to 3 audio assets."],
-      ["Prompt labels", "Refer to materials as Image 1, Video 1, Audio 1 in prompt text. Do not put raw asset ids in prompt text."],
-      ["userAssetId", "Existing uploaded asset id. For Seedance first_frame it is the first frame; otherwise it is a reference image."],
-      ["extraReferenceAssetIds", "Seedance compatibility field for additional asset ids."],
+      ["POST /api/v3/contents/generations/tasks", "Create a Seedance task with a Volcengine-style body."],
+      ["GET /api/v3/contents/generations/tasks/<taskId>", "Query a Seedance task with a Volcengine-style path."],
+      ["model", "Seedance model id, for example dreamina-seedance-2-0-260128."],
+      ["content", "Array of text/image_url/video_url/audio_url items. Use role values like first_frame, last_frame, reference_image, reference_video, reference_audio."],
+      ["content[].image_url.url", "Public URL, base64 data URL, or asset:// URI. Public/base64 images are prepared into Ark assets before submit."],
+      ["content[].video_url.url", "Public video URL or asset:// URI. Include durationSeconds when known so pre-deduction can include input-video cost."],
+      ["content[].audio_url.url", "Public audio URL or asset:// URI."],
       ["ratio", "9:16, 16:9, or 1:1."],
       ["resolution", "720p or 1080p."],
-      ["duration", "Seconds. Clamped by provider."],
-      ["seed", "Provider pass-through random seed. Forwarded when supplied; upstream decides whether it takes effect."],
-      ["params", "Optional provider parameter object. Top-level business fields still control billing and media handling."],
-      ["params.image_url / params.end_image_url", "Seedance raw upstream first/last-frame URL or asset:// URI. Friendly fields are prepared automatically."],
-      ["params.reference_images / params.reference_videos / params.reference_audios", "Seedance raw upstream reference arrays. These are forwarded when supplied."],
-      ["params.web_search / params.webSearch", "Seedance pass-through web-search flag where upstream supports it."],
-      ["params.watermark", "Seedance pass-through watermark flag where upstream supports it."],
-      ["params.seed", "Seedance pass-through random seed where upstream supports it."],
+      ["duration", "Seconds. Clamped to the supported Seedance range before billing."],
+      ["generate_audio", "Forwarded to upstream."],
+      ["web_search / webSearch", "Forwarded to upstream when supplied."],
+      ["watermark", "Forwarded to upstream when supplied."],
+      ["seed", "Forwarded to upstream when supplied; upstream decides whether it takes effect."],
     ],
     response: [
-      ["ok", "true when the request is accepted."],
-      ["taskId", "Local generation task id."],
-      ["task.status", "Usually preparing or submitting right after submission."],
-      ["record", "Public generation record with provider/model/billing."],
-      ["user", "Updated user snapshot, including current credits."],
+      ["id / task_id", "Upstream Seedance task id when upstream returns one."],
+      ["status", "Upstream task status."],
+      ["content / output", "Upstream output payload, including video URL when ready."],
+      ["usage", "Upstream token usage when the provider returns it."],
+      ["error", "Upstream-style error object when the task fails."],
     ],
     example: LIVE_HTTP_ACCESS_COPY,
   },
   seedanceParams: {
     title: "Seedance Video Parameters",
-    summary: "Use /api/advanced/generate with provider=seedance. Our API prepares uploaded references, then forwards these Seedance fields in the upstream task payload.",
+    summary: "Use /api/v3/contents/generations/tasks. The body follows the Volcengine/Ark Seedance task shape; vip123 prepares public/base64 images into Ark assets and handles billing.",
     request: [
-      { name: "/api/seedance/characters/upload", type: "endpoint", required: "No", description: "One-step Seedance character preparation endpoint. Send url/imageUrl, dataUrl, or assetId; response.reference.assetId can go straight into referenceImages[].assetId.", default: "-" },
+      { name: "/api/seedance/characters/upload", type: "endpoint", required: "No", description: "Optional helper endpoint. Send url/imageUrl, dataUrl, or assetId; response.reference.assetUri can be used as content[].image_url.url.", default: "-" },
       { name: "model", type: "string", required: "No", description: "Seedance model id. Use dreamina-seedance-2-0-fast-260128 for fast/default, or dreamina-seedance-2-0-260128 for standard/higher quality.", default: "dreamina-seedance-2-0-260128" },
-      { name: "prompt", type: "string", required: "Yes", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
+      { name: "content", type: "array", required: "Yes", description: "Volcengine-style multimodal content array. Include one text item and optional image_url/video_url/audio_url items.", default: "-" },
+      { name: "content[].type", type: "string", required: "Yes", description: "text, image_url, video_url, or audio_url.", default: "-" },
+      { name: "content[].text", type: "string", required: "For text", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
+      { name: "content[].image_url.url", type: "string", required: "For image", description: "Public URL, base64 data URL, or asset:// URI. Public/base64 images are prepared into Ark assets before submit.", default: "-" },
+      { name: "content[].video_url.url", type: "string", required: "For video", description: "Public video URL or asset:// URI.", default: "-" },
+      { name: "content[].video_url.durationSeconds", type: "number", required: "No", description: "Input video duration used for pre-deduction. If omitted, the server probes the URL when possible, then falls back conservatively.", default: "-" },
+      { name: "content[].audio_url.url", type: "string", required: "For audio", description: "Public audio URL or asset:// URI.", default: "-" },
+      { name: "content[].role", type: "string", required: "No", description: "first_frame, last_frame, reference_image, reference_video, or reference_audio.", default: "-" },
       { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. Supports common values like 9:16, 16:9, 1:1. adaptive can be forwarded in params if upstream enables it.", default: "9:16" },
       { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported billing values are 720p and 1080p.", default: "720p" },
       { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs are limited to 5-15 seconds here.", default: "5" },
       { name: "generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
-      { name: "seedanceMode", type: "string", required: "No", description: "Friendly mode selector: text_to_video, first_frame, first_last_frame, reference_images, or reference_video.", default: "auto" },
-      { name: "imageUrl / firstFrameUrl / imageAssetId / firstFrameAssetId", type: "string", required: "Mode dependent", description: "Our API prepares this as upstream image_url for Seedance image-to-video.", default: "-" },
-      { name: "endImageUrl / lastFrameUrl / endImageAssetId / lastFrameAssetId", type: "string", required: "Mode dependent", description: "Our API prepares this as upstream end_image_url for first/last-frame mode.", default: "-" },
-      { name: "image_url", type: "string", required: "No", description: "Raw upstream first-frame URL or asset:// URI. Public URLs are also accepted through imageUrl/firstFrameUrl.", default: "-" },
-      { name: "end_image_url", type: "string", required: "No", description: "Raw upstream last-frame URL or asset:// URI. Also provide image_url when using first/last-frame mode.", default: "-" },
-      { name: "reference_images", type: "array", required: "No", description: "Reference image URL or asset:// URI array. Our referenceImages array accepts url/imageUrl, dataUrl, assetId, or assetUri and converts it before upstream submit.", default: "-" },
-      { name: "referenceImages[].assetId", type: "string", required: "No", description: "Asset id returned by /api/seedance/characters/upload or /api/user-assets. This is the preferred way to pass a prepared character image.", default: "-" },
-      { name: "referenceImages[].assetUri", type: "string", required: "No", description: "Seedance-ready asset:// URI returned by /api/seedance/characters/upload. Use this only when you need raw upstream asset URI pass-through.", default: "-" },
-      { name: "seedanceReferenceAssetUri / seedanceCharacterAssetUri", type: "string", required: "No", description: "Single Seedance-ready asset:// URI returned by /api/seedance/characters/upload.", default: "-" },
-      { name: "referenceImageAssetUris / seedanceReferenceAssetUris", type: "array", required: "No", description: "Multiple Seedance-ready asset:// URIs returned by /api/seedance/characters/upload.", default: "-" },
-      { name: "reference_videos", type: "array", required: "No", description: "Reference video URL or asset:// URI array. Our referenceVideoAssetId/videoAssetId handles library videos.", default: "-" },
-      { name: "reference_audios", type: "array", required: "No", description: "Reference audio URL or asset:// URI array. Forward via params when upstream allows it.", default: "-" },
-      { name: "referenceVideoAssetIds", type: "array", required: "No", description: "Our friendly field for up to 3 uploaded video assets. The API prepares them into reference_video content.", default: "-" },
-      { name: "referenceVideos / referenceVideoUrls", type: "array", required: "No", description: "Our friendly field for up to 3 public video URLs. The API sends them as reference_video content.", default: "-" },
-      { name: "inputVideoSeconds / referenceVideoDurationSeconds", type: "number", required: "No", description: "Total input video duration for billing. Used before upstream submission to check balance and pre-deduct the Seedance video-input branch.", default: "0" },
-      { name: "referenceAudios / referenceAudioUrls", type: "array", required: "No", description: "Our friendly field for up to 3 public audio URLs. The API sends them as reference_audio content.", default: "-" },
-      { name: "referenceAudioAssetId / referenceAudioAssetIds", type: "string|array", required: "No", description: "Our friendly field for up to 3 uploaded audio assets. The API sends them as reference_audio content.", default: "-" },
       { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
       { name: "web_search / webSearch", type: "boolean", required: "No", description: "Pass-through web search enhancement flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
       { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
       { name: "seed", type: "integer", required: "No", description: "Pass-through random seed. The API forwards it; upstream decides whether it takes effect.", default: "-" },
-      { name: "content", type: "array", required: "No", description: "Advanced raw Ark content array. If supplied, it overrides the content we build from prompt and references.", default: "-" },
-      { name: "params", type: "object", required: "No", description: "Pass-through object for upstream fields. Top-level prompt/provider/media fields are still understood by our API.", default: "{}" },
     ],
     response: [
-      { name: "ok", type: "boolean", required: "Yes", description: "true when the request is accepted.", default: "-" },
-      { name: "taskId", type: "string", required: "Yes", description: "Local generation task id.", default: "-" },
-      { name: "record.params", type: "object", required: "No", description: "Normalized parameters used for billing and upstream submit.", default: "-" },
-      { name: "record.upstreamPayload", type: "object", required: "No", description: "Submitted Seedance payload after the background job starts.", default: "-" },
+      { name: "id / task_id", type: "string", required: "Yes", description: "Upstream Seedance task id when upstream returns one.", default: "-" },
+      { name: "status", type: "string", required: "Yes", description: "Upstream task status.", default: "-" },
+      { name: "content / output", type: "object", required: "No", description: "Upstream result payload with video URL when ready.", default: "-" },
+      { name: "usage", type: "object", required: "No", description: "Upstream token usage when the provider returns it.", default: "-" },
     ],
     example: SEEDANCE_PARAM_ACCESS_COPY,
   },
@@ -2802,7 +2714,7 @@ ACCESS_PARAM_GUIDES = [
     docs: "seedanceParams",
     title: "Seedance Params",
     subtitle: "Video",
-    desc: "Parameter table for Seedance video generation through /api/advanced/generate.",
+    desc: "Parameter table for Seedance video generation through the Volcengine-compatible task endpoint.",
     copy: SEEDANCE_PARAM_ACCESS_COPY,
   },
   {
@@ -6086,8 +5998,8 @@ function renderAccessGuides() {
         ${accessQuickList([
           doc === ACCESS_DOCS.platform ? "One token, one template id, and one image for image-to-video templates." : "",
           doc === ACCESS_DOCS.assets ? "Upload once, then pass asset.id into the matching image/video/audio field." : "",
-          doc === ACCESS_DOCS.advanced ? "Seedance uses referenceImages; Wan2.7 uses dataUrl as the first frame; extra upstream fields belong in params." : "",
-          doc === ACCESS_DOCS.seedanceParams ? "Start with /api/seedance/characters/upload, then send returned reference.assetId into /api/advanced/generate. Documented params are forwarded to Seedance; upstream decides whether each one takes effect." : "",
+          doc === ACCESS_DOCS.advanced ? "Seedance now uses the Volcengine-compatible content[] task body. Public/base64 images are prepared into Ark assets automatically." : "",
+          doc === ACCESS_DOCS.seedanceParams ? "Start directly with /api/v3/contents/generations/tasks. Optionally call /api/seedance/characters/upload first and put returned reference.assetUri into content[].image_url.url." : "",
           doc === ACCESS_DOCS.wan27VideoParams ? "Fields inside params.parameters merge into DashScope parameters; fields inside params.input merge into DashScope input." : "",
           doc === ACCESS_DOCS.wan27ImageParams ? "Image results are saved to history first; call Add asset from history to place a result in assets. Admin records include the upstream payload." : "",
           doc === ACCESS_DOCS.records ? "Use refresh=1 on list views when you want pending tasks to refresh." : "",
