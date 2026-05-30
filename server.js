@@ -178,10 +178,12 @@ const DEFAULT_ADVANCED_PRICING = {
   unit: "credits",
   creditsPerCny: ADVANCED_CREDITS_PER_CNY,
   seedanceCreditsPerSecondByResolution: {
+    "480p": Math.ceil(ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND * 0.5),
     "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND,
   },
   seedanceVideoInputCreditsPerSecondByResolution: {
+    "480p": Math.ceil(ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND * 0.5),
     "720p": ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND,
   },
@@ -958,10 +960,12 @@ function normalizeAdvancedPricing(pricing = {}) {
     unit: "credits",
     creditsPerCny: pricingNumber(source.creditsPerCny, DEFAULT_ADVANCED_PRICING.creditsPerCny, 0.0001),
     seedanceCreditsPerSecondByResolution: {
+      "480p": pricingNumber(seedance["480p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]),
       "720p": pricingNumber(seedance["720p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"]),
       "1080p": pricingNumber(seedance["1080p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["1080p"]),
     },
     seedanceVideoInputCreditsPerSecondByResolution: {
+      "480p": pricingNumber(seedanceVideoInput["480p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["480p"]),
       "720p": pricingNumber(seedanceVideoInput["720p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["720p"]),
       "1080p": pricingNumber(seedanceVideoInput["1080p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["1080p"]),
     },
@@ -1821,6 +1825,7 @@ function normalizeAdvancedProvider(value = "") {
 
 function normalizeAdvancedResolution(value = "") {
   const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "480p") return "480p";
   return normalized === "1080p" ? "1080p" : "720p";
 }
 
@@ -1871,6 +1876,96 @@ function pickRequestFields(source = {}, fields = []) {
     if (source[field] !== undefined && source[field] !== null && source[field] !== "") picked[field] = source[field];
   });
   return picked;
+}
+
+function copyIfPresent(target = {}, source = {}, fromKey = "", toKey = fromKey) {
+  if (source[fromKey] !== undefined && source[fromKey] !== null && source[fromKey] !== "") target[toKey] = source[fromKey];
+}
+
+function nestedMediaUrl(value) {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const key of ["url", "uri", "assetUri", "imageUrl", "videoUrl", "audioUrl", "image_url", "video_url", "audio_url"]) {
+      const found = nestedMediaUrl(value[key]);
+      if (found) return found;
+    }
+  }
+  return "";
+}
+
+function normalizeSeedanceContentItem(item = {}) {
+  if (typeof item === "string") return { type: "text", text: item };
+  if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+  const type = String(item.type || (item.text !== undefined ? "text" : "")).trim();
+  if (type === "text") return { ...item, type, text: String(item.text || "") };
+  if (type === "image_url") {
+    const url = nestedMediaUrl(item.image_url) || nestedMediaUrl(item.imageUrl) || nestedMediaUrl(item.url) || nestedMediaUrl(item);
+    const imageUrl = item.image_url && typeof item.image_url === "object" && !Array.isArray(item.image_url)
+      ? { ...item.image_url, url }
+      : { url };
+    return { ...item, image_url: imageUrl, imageUrl: undefined, url: undefined };
+  }
+  if (type === "video_url") {
+    const url = nestedMediaUrl(item.video_url) || nestedMediaUrl(item.videoUrl) || nestedMediaUrl(item.url) || nestedMediaUrl(item);
+    const source = item.video_url && typeof item.video_url === "object" && !Array.isArray(item.video_url)
+      ? item.video_url
+      : {};
+    const videoUrl = { ...source, url };
+    const duration = firstPresent(item.durationSeconds, item.duration, source.durationSeconds, source.duration);
+    if (duration !== undefined) videoUrl.durationSeconds = duration;
+    return { ...item, video_url: videoUrl, videoUrl: undefined, url: undefined };
+  }
+  if (type === "audio_url") {
+    const url = nestedMediaUrl(item.audio_url) || nestedMediaUrl(item.audioUrl) || nestedMediaUrl(item.url) || nestedMediaUrl(item);
+    const audioUrl = item.audio_url && typeof item.audio_url === "object" && !Array.isArray(item.audio_url)
+      ? { ...item.audio_url, url }
+      : { url };
+    return { ...item, audio_url: audioUrl, audioUrl: undefined, url: undefined };
+  }
+  return item;
+}
+
+function pushSeedanceContentMedia(content = [], type = "image_url", url = "", role = "", extras = {}) {
+  const value = String(url || "").trim();
+  if (!value) return;
+  const exists = content.some((item) => {
+    if (!item || item.type !== type) return false;
+    const key = type === "video_url" ? "video_url" : type === "audio_url" ? "audio_url" : "image_url";
+    return nestedMediaUrl(item[key]) === value && String(item.role || "") === String(role || "");
+  });
+  if (exists) return;
+  const key = type === "video_url" ? "video_url" : type === "audio_url" ? "audio_url" : "image_url";
+  const media = { url: value };
+  if (extras.durationSeconds !== undefined) media.durationSeconds = extras.durationSeconds;
+  content.push({ type, [key]: media, ...(role ? { role } : {}) });
+}
+
+function stripSeedanceCompatibilityAliases(payload = {}) {
+  [
+    "prompt",
+    "params",
+    "image_url",
+    "end_image_url",
+    "reference_images",
+    "reference_videos",
+    "reference_audios",
+    "imageUrl",
+    "firstFrameUrl",
+    "first_frame_url",
+    "lastFrameUrl",
+    "last_frame_url",
+    "endImageUrl",
+    "referenceImages",
+    "referenceVideos",
+    "referenceAudios",
+    "generateAudio",
+    "webSearch",
+    "durationSeconds",
+    "aspect_ratio",
+  ].forEach((key) => {
+    delete payload[key];
+  });
+  return payload;
 }
 
 function normalizeWan27ImageRatio(value = "") {
@@ -1952,7 +2047,8 @@ function advancedDurationBounds(provider = "seedance") {
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const bounds = advancedDurationBounds(normalizedProvider);
-  const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, bounds.min, bounds.max);
+  const minDuration = normalizedProvider === "seedance" && options.allowFourSecondSeedance === true ? 4 : bounds.min;
+  const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, minDuration, bounds.max);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
   const priceTable = normalizedProvider === "wan27"
     ? advancedPricing.wan27CreditsPerSecondByResolution
@@ -4115,7 +4211,12 @@ function officialSeedancePrompt(payload = {}) {
   if (typeof payload.prompt === "string" && payload.prompt.trim()) return payload.prompt.trim();
   const content = Array.isArray(payload.content) ? payload.content : [];
   return content
-    .map((item) => (typeof item === "string" ? item : String(item?.text || "")))
+    .map((item) => {
+      if (typeof item === "string") return item;
+      if (!item || typeof item !== "object") return "";
+      if (item.type === "text" || item.text !== undefined) return String(item.text || "");
+      return "";
+    })
     .filter(Boolean)
     .join("\n")
     .trim();
@@ -4172,13 +4273,62 @@ async function prepareOfficialSeedanceImageUrl(db, user, url = "", name = "Seeda
   return prepared.referenceAssetUri || prepared.asset?.assetUri || text;
 }
 
-async function prepareOfficialSeedancePayloadForArk(db, user, body = {}) {
-  const payload = cloneJson(body) || {};
+async function prepareOfficialSeedancePayloadForArk(db, user, body = {}, { prepareImages = true } = {}) {
+  const source = { ...plainObject(body.params), ...cloneJson(body) };
+  delete source.params;
+  const payload = cloneJson(source) || {};
   payload.model = String(payload.model || MODEL_QUALITY);
-  if (payload.webSearch !== undefined && payload.web_search === undefined) payload.web_search = payload.webSearch;
+  copyIfPresent(payload, source, "aspect_ratio", "ratio");
+  copyIfPresent(payload, source, "durationSeconds", "duration");
+  copyIfPresent(payload, source, "generateAudio", "generate_audio");
+  copyIfPresent(payload, source, "webSearch", "web_search");
+  copyIfPresent(payload, source, "firstFrameUrl", "image_url");
+  copyIfPresent(payload, source, "first_frame_url", "image_url");
+  copyIfPresent(payload, source, "imageUrl", "image_url");
+  copyIfPresent(payload, source, "lastFrameUrl", "end_image_url");
+  copyIfPresent(payload, source, "last_frame_url", "end_image_url");
+  copyIfPresent(payload, source, "endImageUrl", "end_image_url");
+  if (payload.draft !== undefined) payload.draft = boolFromRequest(payload.draft, false);
+  if (payload.generate_audio !== undefined) payload.generate_audio = boolFromRequest(payload.generate_audio, false);
+  if (payload.web_search !== undefined) payload.web_search = boolFromRequest(payload.web_search, false);
+  if (payload.watermark !== undefined) payload.watermark = boolFromRequest(payload.watermark, false);
+  if (payload.camera_fixed !== undefined) payload.camera_fixed = boolFromRequest(payload.camera_fixed, false);
   if (!Array.isArray(payload.content) || !payload.content.length) {
     const prompt = officialSeedancePrompt(payload);
     payload.content = prompt ? [{ type: "text", text: prompt }] : [];
+  }
+  payload.content = payload.content.map(normalizeSeedanceContentItem);
+
+  pushSeedanceContentMedia(payload.content, "image_url", payload.image_url, "first_frame");
+  pushSeedanceContentMedia(payload.content, "image_url", payload.end_image_url, "last_frame");
+  [
+    ...arrayFromBody(payload.reference_images),
+    ...arrayFromBody(source.referenceImages),
+  ].forEach((item) => {
+    const url = nestedMediaUrl(item);
+    pushSeedanceContentMedia(payload.content, "image_url", url, "reference_image");
+  });
+  [
+    ...arrayFromBody(payload.reference_videos),
+    ...arrayFromBody(source.referenceVideos),
+  ].forEach((item) => {
+    const url = nestedMediaUrl(item);
+    const durationSeconds = typeof item === "object" && item ? firstPresent(item.durationSeconds, item.duration, item.video_url?.durationSeconds, item.video_url?.duration) : undefined;
+    pushSeedanceContentMedia(payload.content, "video_url", url, "reference_video", { durationSeconds });
+  });
+  [
+    ...arrayFromBody(payload.reference_audios),
+    ...arrayFromBody(source.referenceAudios),
+  ].forEach((item) => {
+    const url = nestedMediaUrl(item);
+    pushSeedanceContentMedia(payload.content, "audio_url", url, "reference_audio");
+  });
+  if (!prepareImages) {
+    payload.content = payload.content.map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+      return Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined));
+    });
+    return payload;
   }
 
   if (typeof payload.image_url === "string") {
@@ -4211,7 +4361,47 @@ async function prepareOfficialSeedancePayloadForArk(db, user, body = {}) {
     }
     payload.content = preparedContent;
   }
+  payload.content = payload.content.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    return Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined));
+  });
+  stripSeedanceCompatibilityAliases(payload);
   return payload;
+}
+
+function validateOfficialSeedancePayloadBeforeCharge(payload = {}) {
+  const errors = [];
+  const resolution = String(payload.resolution || "720p").trim().toLowerCase();
+  if (!["480p", "720p", "1080p"].includes(resolution)) errors.push("resolution must be 480p, 720p, or 1080p.");
+  const duration = Number(payload.duration ?? advancedDurationBounds("seedance").fallback);
+  if (!Number.isFinite(duration) || !Number.isInteger(duration) || duration < 4 || duration > 15) {
+    errors.push("duration must be an integer from 4 to 15 seconds.");
+  }
+  const model = String(payload.model || "").toLowerCase();
+  if (model.includes("fast") && resolution === "1080p") errors.push("dreamina-seedance-2-0-fast does not support 1080p.");
+  const content = Array.isArray(payload.content) ? payload.content : [];
+  const unsupportedContent = content.find((item) => item && typeof item === "object" && item.type && !["text", "image_url", "video_url", "audio_url"].includes(String(item.type)));
+  if (unsupportedContent) errors.push(`unsupported content type: ${unsupportedContent.type}.`);
+  const imageCount = content.filter((item) => item && item.type === "image_url").length;
+  const videoCount = content.filter((item) => item && item.type === "video_url").length;
+  const audioCount = content.filter((item) => item && item.type === "audio_url").length;
+  if (imageCount > ADVANCED_SEEDANCE_REFERENCE_LIMIT) errors.push(`Seedance supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs.`);
+  if (videoCount > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) errors.push(`Seedance supports at most ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} video inputs.`);
+  if (audioCount > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) errors.push(`Seedance supports at most ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audio inputs.`);
+  const missingMedia = content.find((item) => {
+    if (!item || typeof item !== "object") return false;
+    if (item.type === "image_url") return !mediaUrlFromOfficialItem(item, "image_url");
+    if (item.type === "video_url") return !mediaUrlFromOfficialItem(item, "video_url");
+    if (item.type === "audio_url") return !mediaUrlFromOfficialItem(item, "audio_url");
+    return false;
+  });
+  if (missingMedia) errors.push(`${missingMedia.type || "media"} content requires a url.`);
+  if (errors.length) {
+    const error = new Error(errors.join(" "));
+    error.statusCode = 400;
+    error.code = "INVALID_SEEDANCE_REQUEST";
+    throw error;
+  }
 }
 
 function officialSeedanceResponseFromRecord(record = {}) {
@@ -4254,25 +4444,38 @@ async function handleVolcengineCreateGenerationTask(req, res) {
 
   const body = await readJson(req);
   const config = await readAppConfig();
-  const payload = await prepareOfficialSeedancePayloadForArk(auth.db, auth.user, body);
+  const payloadForValidation = await prepareOfficialSeedancePayloadForArk(auth.db, auth.user, body, { prepareImages: false });
+  let payload = payloadForValidation;
   const prompt = officialSeedancePrompt(payload);
   if (!prompt) {
     return sendJson(res, 400, { error: { code: "MISSING_PROMPT", message: "content text or prompt is required." } });
   }
+  try {
+    validateOfficialSeedancePayloadBeforeCharge(payloadForValidation);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, {
+      error: { code: error.code || "INVALID_SEEDANCE_REQUEST", message: error.message || "Seedance request is invalid." },
+    });
+  }
 
-  const pricingBody = officialSeedanceVideoInputsForPricing(payload);
+  const pricingBody = officialSeedanceVideoInputsForPricing(payloadForValidation);
   const requestParams = {
-    ...payload,
+    ...payloadForValidation,
     provider: "seedance",
-    duration: clampNumber(payload.duration, config.video.duration || advancedDurationBounds("seedance").fallback, advancedDurationBounds("seedance").min, advancedDurationBounds("seedance").max),
-    resolution: normalizeAdvancedResolution(payload.resolution || config.video.resolution || "720p"),
-    ratio: normalizeVideoRatio(payload.ratio || payload.aspect_ratio || config.video.ratio || "16:9"),
+    duration: clampNumber(payloadForValidation.duration, advancedDurationBounds("seedance").fallback, 4, advancedDurationBounds("seedance").max),
+    resolution: String(payloadForValidation.resolution || "720p").toLowerCase() === "1080p"
+      ? "1080p"
+      : String(payloadForValidation.resolution || "720p").toLowerCase() === "480p"
+      ? "480p"
+      : "720p",
+    ratio: normalizeVideoRatio(payloadForValidation.ratio || payloadForValidation.aspect_ratio || "9:16"),
   };
   requestParams.inputVideoSeconds = await seedanceVideoInputSecondsForPricingWithProbe(pricingBody, { requestParams });
   const rawPricing = advancedModelPricing("seedance", {
     ...requestParams,
-    model: payload.model,
+    model: payloadForValidation.model,
     advancedPricing: config.platform?.advancedPricing,
+    allowFourSecondSeedance: true,
   });
   const pricing = applyUserPricingToEstimate(rawPricing, auth.user);
   const cost = pricing.credits;
@@ -4297,7 +4500,7 @@ async function handleVolcengineCreateGenerationTask(req, res) {
       meta: {
         taskId: fallbackTaskId,
         provider: "seedance",
-        model: payload.model,
+        model: payloadForValidation.model,
         duration: requestParams.duration,
         resolution: requestParams.resolution,
         ratio: requestParams.ratio,
@@ -4311,6 +4514,7 @@ async function handleVolcengineCreateGenerationTask(req, res) {
   }
 
   try {
+    payload = await prepareOfficialSeedancePayloadForArk(auth.db, auth.user, body, { prepareImages: true });
     let raw;
     let lastSubmitError = "";
     for (let attempt = 0; attempt < 18; attempt += 1) {
@@ -10004,6 +10208,7 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
     ratio: params.ratio || params.aspect_ratio,
     inputVideoSeconds,
     advancedPricing: config.platform?.advancedPricing,
+    allowFourSecondSeedance: params.allowFourSecondSeedance === true,
   });
   return applyUserPricingToEstimate(rawPricing, user || 1);
 }
@@ -10030,6 +10235,7 @@ async function handleAdvancedEstimate(req, res) {
     url.searchParams.get("inputVideoSeconds"),
     url.searchParams.get("referenceVideoDurationSeconds"),
   );
+  params.allowFourSecondSeedance = body.allowFourSecondSeedance === true || url.searchParams.get("allowFourSecondSeedance") === "true";
   const pricing = await buildUserAdvancedEstimate(provider, params, auth.user);
   const publicPricing = tenantPublic
     ? {
@@ -10300,8 +10506,9 @@ function advancedDocMarkdown(item) {
   lines.push("", "Seedance character upload: optionally call `/api/seedance/characters/upload` with `url`/`imageUrl`, `dataUrl`, or an existing `assetId`. The response returns `reference.assetUri`; put that value into `content[].image_url.url` with role `reference_image`. In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
   lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 image assets. The order maps to Image 1, Image 2, and so on in the prompt; with no images it works as text-to-image through the same endpoint. Results are saved to generation history first. Use the history Add asset action when the result should enter the asset library.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `content[]` image/video/audio objects; public/base64 image URLs are prepared into Ark assets before submit.");
-  lines.push("", "Provider passthrough: put upstream-only fields in `params`. Seedance forwards fields such as `model`, `image_url`, `end_image_url`, `generate_audio`, `reference_images`, `reference_videos`, `reference_audios`, `web_search`/`webSearch`, `watermark`, `seed`, and raw `content`. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`. These fields are passed through for upstream compatibility; upstream decides whether each one takes effect.");
-  lines.push("", "Task query: use `/api/v3/contents/generations/tasks/<taskId>` for Seedance-compatible task responses. The legacy record endpoints remain available for site history.");
+  lines.push("", "Provider passthrough: Seedance accepts a Volcengine-style root body and also accepts upstream-only aliases in `params`. Fields such as `model`, `content`, `image_url`, `end_image_url`, `generate_audio`/`generateAudio`, `reference_images`/`referenceImages`, `reference_videos`/`referenceVideos`, `reference_audios`/`referenceAudios`, `web_search`/`webSearch`, `watermark`, `seed`, `fps`, `camera_fixed`, `draft`, and `service_tier` are forwarded or normalized into the Ark request. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`. Upstream decides whether each provider-specific field takes effect.");
+  lines.push("", "Billing: Seedance-compatible calls are pre-deducted before upstream submission. Failed submissions and failed tasks are refunded. Duration must be a 4-15 second integer; fast 1080p is rejected before charging.");
+  lines.push("", "Task query: use `/api/v3/contents/generations/tasks/<taskId>` for Seedance-compatible task responses. The response keeps the upstream video URL when available; the legacy record endpoints remain available for site history.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -10341,7 +10548,9 @@ function seedanceOfficialExampleMarkdown(docs) {
       "Authorization: Bearer <user-token>",
     ].join("\n")),
     "",
-    "Supported media inputs in `content`: `text`, `image_url`, `video_url`, and `audio_url`. Use `role` values such as `first_frame`, `last_frame`, `reference_image`, `reference_video`, and `reference_audio` to match Seedance modes. Public image URLs and base64 image data URLs are accepted for image inputs and are prepared into Ark assets before submission; `asset://` URLs pass through directly.",
+    "Supported media inputs in `content`: `text`, `image_url`, `video_url`, and `audio_url`. Use `role` values such as `first_frame`, `last_frame`, `reference_image`, `reference_video`, and `reference_audio` to match Seedance modes. Public image URLs and base64 image data URLs are accepted for image inputs and are prepared into Ark assets before submission; `asset://` URLs pass through directly. Include `content[].video_url.durationSeconds` when known; otherwise the server probes the URL and falls back conservatively for pre-deduction.",
+    "",
+    "Billing guardrails: `duration` must be an integer from 4 to 15 seconds. `resolution` may be `480p`, `720p`, or `1080p`; the fast model does not accept `1080p`, so vip123 rejects that combination before charging.",
     "",
   ].join("\n");
 }
@@ -13560,8 +13769,10 @@ async function handleAdminGetConfig(req, res) {
 }
 
 const ADVANCED_PRICING_ROWS = [
+  { key: "seedance-480p", provider: "seedance", providerLabel: "Seedance", resolution: "480p", rateKind: "output", unit: "output_second" },
   { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance", resolution: "1080p", rateKind: "output", unit: "output_second" },
+  { key: "seedance-video-input-480p", provider: "seedance", providerLabel: "Seedance video input", resolution: "480p", rateKind: "video_input", unit: "input_second" },
   { key: "seedance-video-input-720p", provider: "seedance", providerLabel: "Seedance 视频输入", resolution: "720p", rateKind: "video_input", unit: "input_second" },
   { key: "seedance-video-input-1080p", provider: "seedance", providerLabel: "Seedance 视频输入", resolution: "1080p", rateKind: "video_input", unit: "input_second" },
   { key: "wan27-720p", provider: "wan27", providerLabel: "Wan2.7", resolution: "720p", rateKind: "output", unit: "output_second" },
@@ -13699,6 +13910,16 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     } else {
       next.seedanceCreditsPerSecondByResolution[resolution] = credits;
     }
+  }
+  const hasSeedance480Row = body.rows.some((row) => String(row?.key || "") === "seedance-480p" || (normalizeAdvancedProvider(row?.provider) === "seedance" && normalizeAdvancedResolution(row?.resolution) === "480p" && String(row?.rateKind || row?.unit || "").toLowerCase() !== "video_input"));
+  const hasSeedanceVideo480Row = body.rows.some((row) => String(row?.key || "") === "seedance-video-input-480p" || (normalizeAdvancedProvider(row?.provider) === "seedance" && normalizeAdvancedResolution(row?.resolution) === "480p" && (String(row?.rateKind || row?.unit || "").toLowerCase() === "video_input" || String(row?.key || "").includes("video-input"))));
+  const seedance720 = next.seedanceCreditsPerSecondByResolution["720p"];
+  const seedanceVideo720 = next.seedanceVideoInputCreditsPerSecondByResolution["720p"];
+  if (!hasSeedance480Row) {
+    next.seedanceCreditsPerSecondByResolution["480p"] = pricingNumber(seedance720 * 0.5, DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]);
+  }
+  if (!hasSeedanceVideo480Row) {
+    next.seedanceVideoInputCreditsPerSecondByResolution["480p"] = pricingNumber(seedanceVideo720 * 0.5, DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["480p"]);
   }
   return normalizeAdvancedPricing(next);
 }

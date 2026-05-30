@@ -8,8 +8,10 @@ const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
 const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
+const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 75;
 const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND = 50;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 200;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
@@ -2275,7 +2277,7 @@ Seedance MCP wrapper target:
 POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Authorization: Bearer <user-token>
 Input:
-{"model":"dreamina-seedance-2-0-260128","content":[{"type":"text","text":"string"},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"}],"ratio":"9:16","resolution":"720p|1080p","duration":5,"generate_audio":true,"watermark":false,"seed":123456}
+{"model":"dreamina-seedance-2-0-260128","content":[{"type":"text","text":"string"},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"}],"ratio":"9:16","resolution":"480p|720p|1080p","duration":5,"generate_audio":true,"watermark":false,"seed":123456}
 
 Seedance character upload target:
 POST ${apiUrl("/api/seedance/characters/upload")}
@@ -2493,8 +2495,8 @@ Content-Type: application/json
       ["content[].video_url.url", "Public video URL or asset:// URI. Include durationSeconds when known so pre-deduction can include input-video cost."],
       ["content[].audio_url.url", "Public audio URL or asset:// URI."],
       ["ratio", "9:16, 16:9, or 1:1."],
-      ["resolution", "720p or 1080p."],
-      ["duration", "Seconds. Clamped to the supported Seedance range before billing."],
+      ["resolution", "480p, 720p, or 1080p. Fast model does not support 1080p."],
+      ["duration", "Integer seconds from 4 to 15. Invalid values are rejected before billing."],
       ["generate_audio", "Forwarded to upstream."],
       ["web_search / webSearch", "Forwarded to upstream when supplied."],
       ["watermark", "Forwarded to upstream when supplied."],
@@ -2524,13 +2526,14 @@ Content-Type: application/json
       { name: "content[].audio_url.url", type: "string", required: "For audio", description: "Public audio URL or asset:// URI.", default: "-" },
       { name: "content[].role", type: "string", required: "No", description: "first_frame, last_frame, reference_image, reference_video, or reference_audio.", default: "-" },
       { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. Supports common values like 9:16, 16:9, 1:1. adaptive can be forwarded in params if upstream enables it.", default: "9:16" },
-      { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported billing values are 720p and 1080p.", default: "720p" },
-      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs are limited to 5-15 seconds here.", default: "5" },
+      { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported values are 480p, 720p, and 1080p. Fast model 1080p is rejected before billing.", default: "720p" },
+      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs are limited to integer 4-15 seconds here.", default: "5" },
       { name: "generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
       { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
       { name: "web_search / webSearch", type: "boolean", required: "No", description: "Pass-through web search enhancement flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
       { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
       { name: "seed", type: "integer", required: "No", description: "Pass-through random seed. The API forwards it; upstream decides whether it takes effect.", default: "-" },
+      { name: "draft / service_tier / fps / camera_fixed", type: "mixed", required: "No", description: "Provider-specific pass-through fields. vip123 forwards or normalizes them; upstream decides whether each one takes effect.", default: "-" },
     ],
     response: [
       { name: "id / task_id", type: "string", required: "Yes", description: "Upstream Seedance task id when upstream returns one.", default: "-" },
@@ -3958,6 +3961,7 @@ function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
   if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan27") return raw === "1080p" ? "1080p" : "720p";
+  if (raw === "480p") return "480p";
   return raw === "1080p" ? "1080p" : "720p";
 }
 
@@ -3966,7 +3970,7 @@ function advancedDurationBounds(provider = "seedance") {
   if (normalized === "wan27-image-edit") return { min: 1, max: 1, fallback: 1 };
   return normalized === "wan27"
     ? { min: 2, max: 15, fallback: 5 }
-    : { min: 5, max: 15, fallback: 5 };
+    : { min: 4, max: 15, fallback: 5 };
 }
 
 function normalizeVideoRatio(value = "") {
@@ -4042,7 +4046,8 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   }
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawSeconds = Number(duration || bounds.fallback);
-  const seconds = Number.isFinite(rawSeconds) ? Math.min(bounds.max, Math.max(bounds.min, rawSeconds)) : bounds.fallback;
+  const minSeconds = normalizedProvider === "seedance" && options.allowFourSecondSeedance === true ? 4 : bounds.min;
+  const seconds = Number.isFinite(rawSeconds) ? Math.min(bounds.max, Math.max(minSeconds, rawSeconds)) : bounds.fallback;
   const configPricing = state.config?.platform?.advancedPricing || {};
   const multiplier = userPricingMultiplier();
   if (normalizedProvider === "wan27") {
@@ -4066,11 +4071,19 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
   const normalizedRatio = normalizeVideoRatio(ratio);
   const byResolution = configPricing.seedanceCreditsPerSecondByResolution || {};
-  const fallbackPerSecond = normalizedResolution === "1080p" ? ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND;
+  const fallbackPerSecond = normalizedResolution === "1080p"
+    ? ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND
+    : normalizedResolution === "480p"
+    ? ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND
+    : ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND;
   const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
   const videoInputSeconds = positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0);
   const videoInputByResolution = configPricing.seedanceVideoInputCreditsPerSecondByResolution || {};
-  const fallbackVideoInputPerSecond = normalizedResolution === "1080p" ? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND : ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND;
+  const fallbackVideoInputPerSecond = normalizedResolution === "1080p"
+    ? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND
+    : normalizedResolution === "480p"
+    ? ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND
+    : ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND;
   const videoInputCreditsPerSecond = Number(videoInputByResolution[normalizedResolution] || fallbackVideoInputPerSecond) || fallbackVideoInputPerSecond;
   const outputCredits = creditsAmount(seconds * perSecond);
   const videoInputCredits = creditsAmount(videoInputSeconds * videoInputCreditsPerSecond);
@@ -4170,7 +4183,8 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
   }
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawDuration = Number(duration || bounds.fallback);
-  const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
+  const minSeconds = normalizedProvider === "seedance" && options.allowFourSecondSeedance === true ? 4 : bounds.min;
+  const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(minSeconds, rawDuration)) : bounds.fallback;
   const inputVideoSeconds = normalizedProvider === "seedance" ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0) : 0;
   return [
     normalizedProvider,
@@ -4191,7 +4205,7 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
     try {
       const payload = await requestJson("/api/advanced/estimate", {
         method: "POST",
-        body: { provider, duration, resolution, ratio, inputVideoSeconds: positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0) },
+        body: { provider, duration, resolution, ratio, inputVideoSeconds: positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0), allowFourSecondSeedance: options.allowFourSecondSeedance === true },
       });
       state.advancedEstimate = payload.pricing || null;
       state.advancedEstimateKey = key;
