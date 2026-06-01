@@ -1213,9 +1213,9 @@ function resolvePlatformRequestModel(model, platformModel, type = "image-to-vide
   const resolvedPlatformModel = resolvePlatformModelId(platformModel || raw, type);
 
   if (resolvedPlatformModel === "ark/seedance-2.0") {
-    return compact.includes("fast") || /^ep-\d+-[a-z0-9]+$/i.test(raw)
-      ? "seedance_2.0_fast"
-      : "seedance_2.0";
+    if (/^ep-\d+-[a-z0-9]+$/i.test(raw)) return raw;
+    if (compact.includes("fast")) return MODEL_FAST;
+    return MODEL_QUALITY;
   }
   if (resolvedPlatformModel === "st-ai/super-seed2") {
     return compact.includes("fast") ? "seedance_2.0_fast" : "seedance_2.0";

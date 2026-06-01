@@ -2794,7 +2794,7 @@ function defaultPlatformTemplate(categories = [], index = 0) {
     enabled: true,
     sort: index,
     requestJson: {
-      model: "seedance_2.0_fast",
+      model: "dreamina-seedance-2-0-fast-260128",
       prompt: "女孩跳舞",
       functionMode: "omni_reference",
       ratio: "16:9",
