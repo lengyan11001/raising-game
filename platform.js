@@ -3770,7 +3770,7 @@ function toggleAccountMenu() {
 }
 
 function generationVideoUrl(record) {
-  return record?.cdnVideoUrl || record?.videoUrl || record?.localVideoUrl || record?.remoteVideoUrl || "";
+  return record?.cdnVideoUrl || record?.localVideoUrl || record?.videoUrl || record?.remoteVideoUrl || "";
 }
 
 function generationImageResultUrl(record) {
