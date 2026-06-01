@@ -2097,7 +2097,7 @@ Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "model": "dreamina-seedance-2-0-260128",
+  "model": "dreamina-seedance-2-0-fast-260128",
   "content": [
     {"type": "text", "text": "Use Image 1 as the character reference. Generate a cinematic 5 second shot, no subtitles, no watermark."},
     {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"}
@@ -2112,7 +2112,9 @@ Content-Type: application/json
 GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}
 Authorization: Bearer <user-token>
 
-The response is the upstream Volcengine/Ark task response when available. vip123 handles auth, balance pre-deduction, history, and refund internally. Public image URLs or base64 image data URLs in image_url content are prepared into Ark assets before submit; asset:// URLs pass through directly.`;
+The response is the upstream Volcengine/Ark task response when available. vip123 handles auth, balance pre-deduction, history, and refund internally. Public image URLs or base64 image data URLs in image_url content are prepared into Ark assets before submit; asset:// URLs pass through directly.
+
+Tip: use "dreamina-seedance-2-0-260128" for Standard, or "dreamina-seedance-2-0-fast-260128" for Fast. Fast is priced 20% lower in vip123 and does not support 1080p.`;
 
 const LIVE_HTTP_ACCESS_COPY = `${VOLCENGINE_SEEDANCE_ACCESS_COPY}
 
@@ -2279,7 +2281,7 @@ Seedance MCP wrapper target:
 POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Authorization: Bearer <user-token>
 Input:
-{"model":"dreamina-seedance-2-0-260128","content":[{"type":"text","text":"string"},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"}],"ratio":"9:16","resolution":"480p|720p|1080p","duration":5,"generate_audio":true,"watermark":false,"seed":123456}
+{"model":"dreamina-seedance-2-0-fast-260128","content":[{"type":"text","text":"string"},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"}],"ratio":"9:16","resolution":"480p|720p","duration":5,"generate_audio":true,"watermark":false,"seed":123456}
 
 Seedance character upload target:
 POST ${apiUrl("/api/seedance/characters/upload")}
@@ -2296,6 +2298,10 @@ Direct Seedance generation endpoint, Volcengine-compatible:
 POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
+
+Model tiers:
+- Standard: "dreamina-seedance-2-0-260128"
+- Fast: "dreamina-seedance-2-0-fast-260128" (20% cheaper in vip123, no 1080p)
 
 Prompt reference rule: describe uploaded materials as Image 1, Video 1, Audio 1. Do not put raw asset ids in the prompt text.
 
@@ -2518,7 +2524,7 @@ Content-Type: application/json
     summary: "Use /api/v3/contents/generations/tasks. The body follows the Volcengine/Ark Seedance task shape; vip123 prepares public/base64 images into Ark assets and handles billing.",
     request: [
       { name: "/api/seedance/characters/upload", type: "endpoint", required: "No", description: "Optional helper endpoint. Send url/imageUrl, dataUrl, or assetId; response.reference.assetUri can be used as content[].image_url.url.", default: "-" },
-      { name: "model", type: "string", required: "No", description: "Seedance model id. Use dreamina-seedance-2-0-fast-260128 for fast/default, or dreamina-seedance-2-0-260128 for standard/higher quality.", default: "dreamina-seedance-2-0-260128" },
+      { name: "model", type: "string", required: "No", description: "Seedance model id. Use dreamina-seedance-2-0-260128 for Standard, or dreamina-seedance-2-0-fast-260128 for Fast. Fast is priced 20% lower in vip123.", default: "dreamina-seedance-2-0-260128" },
       { name: "content", type: "array", required: "Yes", description: "Volcengine-style multimodal content array. Include one text item and optional image_url/video_url/audio_url items.", default: "-" },
       { name: "content[].type", type: "string", required: "Yes", description: "text, image_url, video_url, or audio_url.", default: "-" },
       { name: "content[].text", type: "string", required: "For text", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
@@ -2530,6 +2536,7 @@ Content-Type: application/json
       { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. Supports common values like 9:16, 16:9, 1:1. adaptive can be forwarded in params if upstream enables it.", default: "9:16" },
       { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported values are 480p, 720p, and 1080p. Fast model 1080p is rejected before billing.", default: "720p" },
       { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs are limited to integer 4-15 seconds here.", default: "5" },
+      { name: "pricing note", type: "string", required: "No", description: "Standard uses the normal vip123 Seedance rate. Fast uses the same parameters but is billed at 80% of the Standard rate.", default: "-" },
       { name: "generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
       { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
       { name: "web_search / webSearch", type: "boolean", required: "No", description: "Pass-through web search enhancement flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
