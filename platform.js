@@ -7738,7 +7738,7 @@ function renderHistory(records = []) {
               ${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(statusLabel(record.status))}</span>`}
               <i data-lucide="play"></i>
             </button>
-            <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} controls playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
+            <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
           ` : imageResultUrl ? `<img class="history-result-image" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
         <div class="history-card-actions">
@@ -7784,6 +7784,9 @@ function renderHistory(records = []) {
       const video = els.historyList.querySelector(`[data-history-video="${escapedKey}"]`);
       if (!video) return;
       if (!video.src) video.src = video.dataset.src || "";
+      video.muted = true;
+      video.loop = true;
+      video.controls = false;
       video.hidden = false;
       button.hidden = true;
       video.play?.().catch(() => {});
