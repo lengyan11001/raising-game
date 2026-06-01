@@ -3448,12 +3448,29 @@ function tokenAccessPackageMarkdown() {
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
   const baseUrl = API_ORIGIN || window.location.origin || "";
   const docsUrl = PARAM_DOC_MARKDOWN_URL || apiUrl("/docs/models.md");
+  const modelsJsonUrl = apiUrl("/api/models");
+  const recordsUrl = apiUrl("/api/generation-records");
   return [
     "# Vipeak AI API Access Package",
     "",
     `Base URL: ${baseUrl}`,
     `API Token: ${token}`,
     `Full parameter docs: ${docsUrl}`,
+    `Models JSON: ${modelsJsonUrl}`,
+    `Records API: ${recordsUrl}`,
+    "",
+    "This package includes the production token plus the core docs a client needs to integrate without extra clarification.",
+    "",
+    "## Supported Endpoints",
+    "",
+    `- Seedance direct: ${apiUrl("/api/v3/contents/generations/tasks")}`,
+    `- Seedance task query: ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}`,
+    `- Legacy advanced generate: ${apiUrl("/api/advanced/generate")}`,
+    `- Wan2.7 image edit: ${apiUrl("/api/wan27/image-edit")}`,
+    `- Asset upload: ${apiUrl("/api/user-assets")}`,
+    `- Records list/detail: ${recordsUrl} and ${apiUrl("/api/generation-records/<taskId>")}`,
+    "",
+    "Preferred path: use the Volcengine-compatible Seedance endpoint first. Keep `/api/advanced/generate` for old-site advanced workflows, Wan2.7, or legacy clients that already depend on that body shape.",
     "",
     "## Quick Start",
     "",
