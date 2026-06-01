@@ -2461,13 +2461,13 @@ function pricingRowsToConfig(rows = [], creditsPerCny = ADVANCED_CREDITS_PER_CNY
   const pricing = {
     unit: "credits",
     creditsPerCny: Number(creditsPerCny) || ADVANCED_CREDITS_PER_CNY,
-    seedanceCreditsPerSecondByResolution: { "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND },
-    seedanceVideoInputCreditsPerSecondByResolution: { "720p": ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND },
+    seedanceCreditsPerSecondByResolution: { "480p": Math.round(ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND * 0.5), "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND },
+    seedanceVideoInputCreditsPerSecondByResolution: { "480p": Math.round(ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND * 0.5), "720p": ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND },
     wan27CreditsPerSecondByResolution: { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
   };
   rows.forEach((row) => {
     const provider = String(row.provider || "").toLowerCase();
-    const resolution = row.resolution === "1080p" ? "1080p" : "720p";
+    const resolution = row.resolution === "1080p" ? "1080p" : row.resolution === "480p" ? "480p" : "720p";
     const rateKind = String(row.rateKind || row.unit || "").toLowerCase() === "video_input" || String(row.key || "").includes("video-input")
       ? "video_input"
       : "output";
@@ -3064,12 +3064,19 @@ function advancedGenerateForm(item = {}) {
 
 function bindAdvancedGenerateForm(dialogBody) {
   const providerSelect = dialogBody.querySelector('[data-g="provider"]');
+  const resolutionSelect = dialogBody.querySelector('[data-g="resolution"]');
   const sections = Array.from(dialogBody.querySelectorAll("[data-provider-section]"));
   const sync = () => {
     const provider = providerSelect?.value || "wan27";
     sections.forEach((section) => {
       section.hidden = section.dataset.providerSection !== provider;
     });
+    if (resolutionSelect) {
+      const options = provider === "seedance" ? ["480p", "720p", "1080p"] : ["720p", "1080p"];
+      const current = normalizeAdvancedResolution(resolutionSelect.value, provider);
+      resolutionSelect.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
+      resolutionSelect.value = options.includes(current) ? current : options[0];
+    }
   };
   providerSelect?.addEventListener("change", sync);
   sync();
