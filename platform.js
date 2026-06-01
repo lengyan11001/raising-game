@@ -2114,7 +2114,7 @@ Authorization: Bearer <user-token>
 
 The response is the upstream Volcengine/Ark task response when available. vip123 handles auth, balance pre-deduction, history, and refund internally. Public image URLs or base64 image data URLs in image_url content are prepared into Ark assets before submit; asset:// URLs pass through directly.
 
-Tip: use "dreamina-seedance-2-0-260128" for Standard, or "dreamina-seedance-2-0-fast-260128" for Fast. Fast is priced 20% lower in vip123 and does not support 1080p.`;
+Tip: use "dreamina-seedance-2-0-260128" for Standard, or "dreamina-seedance-2-0-fast-260128" for Fast. Fast does not support 1080p.`;
 
 const LIVE_HTTP_ACCESS_COPY = `${VOLCENGINE_SEEDANCE_ACCESS_COPY}
 
@@ -2301,7 +2301,7 @@ Content-Type: application/json
 
 Model tiers:
 - Standard: "dreamina-seedance-2-0-260128"
-- Fast: "dreamina-seedance-2-0-fast-260128" (20% cheaper in vip123, no 1080p)
+- Fast: "dreamina-seedance-2-0-fast-260128" (no 1080p)
 
 Prompt reference rule: describe uploaded materials as Image 1, Video 1, Audio 1. Do not put raw asset ids in the prompt text.
 
@@ -2524,7 +2524,7 @@ Content-Type: application/json
     summary: "Use /api/v3/contents/generations/tasks. The body follows the Volcengine/Ark Seedance task shape; vip123 prepares public/base64 images into Ark assets and handles billing.",
     request: [
       { name: "/api/seedance/characters/upload", type: "endpoint", required: "No", description: "Optional helper endpoint. Send url/imageUrl, dataUrl, or assetId; response.reference.assetUri can be used as content[].image_url.url.", default: "-" },
-      { name: "model", type: "string", required: "No", description: "Seedance model id. Allowed values: dreamina-seedance-2-0-260128 (Standard), dreamina-seedance-2-0-fast-260128 (Fast), ep-20260429142513-zg667 (old-site Standard endpoint), ep-20260429142538-fkm9d (old-site Fast endpoint). Fast is priced 20% lower in vip123.", default: "dreamina-seedance-2-0-260128" },
+      { name: "model", type: "string", required: "No", description: "Seedance model id. Allowed values: dreamina-seedance-2-0-260128 (Standard), dreamina-seedance-2-0-fast-260128 (Fast), ep-20260429142513-zg667 (old-site Standard endpoint), ep-20260429142538-fkm9d (old-site Fast endpoint).", default: "dreamina-seedance-2-0-260128" },
       { name: "content", type: "array", required: "Yes", description: "Volcengine-style multimodal content array. Include one text item and optional image_url/video_url/audio_url items.", default: "-" },
       { name: "content[].type", type: "string", required: "Yes", description: "text, image_url, video_url, or audio_url.", default: "-" },
       { name: "content[].text", type: "string", required: "For text", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
@@ -2536,14 +2536,13 @@ Content-Type: application/json
       { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. UI-safe values: 9:16, 16:9, 1:1. Other official upstream ratio strings can still be forwarded by direct callers.", default: "9:16" },
       { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported values are 480p, 720p, and 1080p. Fast model 1080p is rejected before billing.", default: "720p" },
       { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs are limited to integer 4-15 seconds here.", default: "5" },
-      { name: "pricing note", type: "string", required: "No", description: "Standard uses the normal vip123 Seedance rate. Fast uses the same parameters but is billed at 80% of the Standard rate.", default: "-" },
       { name: "generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
       { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
       { name: "web_search / webSearch", type: "boolean", required: "No", description: "Pass-through web search enhancement flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
       { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
       { name: "seed", type: "integer", required: "No", description: "Pass-through random seed. The API forwards it; upstream decides whether it takes effect.", default: "-" },
       { name: "draft / service_tier / fps / camera_fixed", type: "mixed", required: "No", description: "Provider-specific pass-through fields. vip123 forwards or normalizes them; upstream decides whether each one takes effect.", default: "-" },
-      { name: "legacy /api/advanced/generate seedanceTier", type: "string", required: "No", description: "Only for the legacy advanced endpoint. Allowed values: standard, fast. Fast uses 80% of the Standard vip123 rate and does not support 1080p.", default: "standard" },
+      { name: "legacy /api/advanced/generate seedanceTier", type: "string", required: "No", description: "Only for the legacy advanced endpoint. Allowed values: standard, fast. Fast does not support 1080p.", default: "standard" },
     ],
     response: [
       { name: "id / task_id", type: "string", required: "Yes", description: "Upstream Seedance task id when upstream returns one.", default: "-" },

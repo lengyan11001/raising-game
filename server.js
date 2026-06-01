@@ -10554,7 +10554,7 @@ function advancedDocMarkdown(item) {
   lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 image assets. The order maps to Image 1, Image 2, and so on in the prompt; with no images it works as text-to-image through the same endpoint. Results are saved to generation history first. Use the history Add asset action when the result should enter the asset library.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `content[]` image/video/audio objects; public/base64 image URLs are prepared into Ark assets before submit.");
   lines.push("", "Provider passthrough: Seedance accepts a Volcengine-style root body and also accepts upstream-only aliases in `params`. Fields such as `model`, `content`, `image_url`, `end_image_url`, `generate_audio`/`generateAudio`, `reference_images`/`referenceImages`, `reference_videos`/`referenceVideos`, `reference_audios`/`referenceAudios`, `web_search`/`webSearch`, `watermark`, `seed`, `fps`, `camera_fixed`, `draft`, and `service_tier` are forwarded or normalized into the Ark request. Use `dreamina-seedance-2-0-260128` for Standard, or `dreamina-seedance-2-0-fast-260128` for Fast. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`. Upstream decides whether each provider-specific field takes effect.");
-  lines.push("", "Billing: Seedance-compatible calls are pre-deducted before upstream submission. Failed submissions and failed tasks are refunded. Duration must be a 4-15 second integer; Fast is billed at 80% of the Standard Seedance rate; fast 1080p is rejected before charging.");
+  lines.push("", "Billing: Seedance-compatible calls are pre-deducted before upstream submission. Failed submissions and failed tasks are refunded. Duration must be a 4-15 second integer; fast 1080p is rejected before charging.");
   lines.push("", "Task query: use `/api/v3/contents/generations/tasks/<taskId>` for Seedance-compatible task responses. The response keeps the upstream video URL when available; the legacy record endpoints remain available for site history.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
@@ -10592,7 +10592,6 @@ function seedanceOfficialExampleMarkdown(docs) {
     "- `duration`: integer `4` to `15`",
     "- `ratio`: UI-safe values `9:16`, `16:9`, `1:1`; direct callers may forward other upstream ratio strings",
     "- Fast does not support `1080p`",
-    "- Fast is billed at 80% of the Standard vip123 Seedance rate",
     "",
     markdownCodeBlock("http", [
       `POST ${endpoint.replace(docs.baseUrl, "")}`,
