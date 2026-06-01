@@ -14,6 +14,7 @@ const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND = 50;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 200;
+const ADVANCED_SEEDANCE_FAST_DISCOUNT = 0.8;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
 const ADVANCED_GENERATION_MARKUP = 1.5;
@@ -257,6 +258,7 @@ const els = {
   advancedUploadBox: document.querySelector("#advancedUploadBox"),
   advancedUploadPreview: document.querySelector("#advancedUploadPreview"),
   advancedProvider: document.querySelector("#advancedProvider"),
+  advancedSeedanceTier: document.querySelector("#advancedSeedanceTier"),
   advancedRatio: document.querySelector("#advancedRatio"),
   advancedResolution: document.querySelector("#advancedResolution"),
   advancedDuration: document.querySelector("#advancedDuration"),
@@ -4085,11 +4087,15 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     ? ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND
     : ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND;
   const videoInputCreditsPerSecond = Number(videoInputByResolution[normalizedResolution] || fallbackVideoInputPerSecond) || fallbackVideoInputPerSecond;
-  const outputCredits = creditsAmount(seconds * perSecond);
-  const videoInputCredits = creditsAmount(videoInputSeconds * videoInputCreditsPerSecond);
+  const seedanceTier = String(options.seedanceTier || "").trim().toLowerCase() === "fast" ? "fast" : "standard";
+  const seedanceDiscount = seedanceTier === "fast" ? ADVANCED_SEEDANCE_FAST_DISCOUNT : 1;
+  const outputCredits = creditsAmount(seconds * perSecond * seedanceDiscount);
+  const videoInputCredits = creditsAmount(videoInputSeconds * videoInputCreditsPerSecond * seedanceDiscount);
   const originalCredits = creditsAmount(outputCredits + videoInputCredits);
   return {
     provider: "seedance",
+    seedanceTier,
+    seedanceDiscount,
     duration: seconds,
     resolution: normalizedResolution,
     ratio: normalizedRatio,
@@ -4116,6 +4122,10 @@ function advancedCostForDuration(duration, provider = "seedance", resolution = "
 
 function currentAdvancedProvider() {
   return normalizeAdvancedProvider(els.advancedProvider?.value);
+}
+
+function currentSeedanceTier() {
+  return (String(els.advancedSeedanceTier?.value || "").trim().toLowerCase() === "fast") ? "fast" : "standard";
 }
 
 function currentAdvancedResolution() {
@@ -4188,6 +4198,7 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
   const inputVideoSeconds = normalizedProvider === "seedance" ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0) : 0;
   return [
     normalizedProvider,
+    normalizedProvider === "seedance" ? (String(options.seedanceTier || "").trim().toLowerCase() === "fast" ? "fast" : "standard") : "",
     normalizeAdvancedResolution(resolution, normalizedProvider),
     normalizeVideoRatio(ratio),
     seconds,
@@ -4205,7 +4216,15 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
     try {
       const payload = await requestJson("/api/advanced/estimate", {
         method: "POST",
-        body: { provider, duration, resolution, ratio, inputVideoSeconds: positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0), allowFourSecondSeedance: options.allowFourSecondSeedance === true },
+        body: {
+          provider,
+          duration,
+          resolution,
+          ratio,
+          inputVideoSeconds: positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0),
+          allowFourSecondSeedance: options.allowFourSecondSeedance === true,
+          seedanceTier: options.seedanceTier,
+        },
       });
       state.advancedEstimate = payload.pricing || null;
       state.advancedEstimateKey = key;
@@ -4223,12 +4242,13 @@ function updateAdvancedButtonCost() {
   const bounds = advancedDurationBounds(currentAdvancedProvider());
   const duration = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
   const provider = currentAdvancedProvider();
+  const seedanceTier = currentSeedanceTier();
   if (provider === "wan27-image-edit") {
     els.advancedSubmitBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(1, provider, currentAdvancedResolution(), currentAdvancedRatio()) }))}`;
     refreshIcons();
     return;
   }
-  const options = { inputVideoSeconds: currentSeedanceVideoInputSeconds(duration, provider) };
+  const options = { inputVideoSeconds: currentSeedanceVideoInputSeconds(duration, provider), seedanceTier };
   requestAdvancedEstimate(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options);
   els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;
   refreshIcons();
@@ -6462,6 +6482,14 @@ function updateAdvancedModelControls() {
     els.advancedResolution.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedResolution.value = options[0];
   }
+  if (els.advancedSeedanceTier) {
+    const active = provider === "seedance";
+    els.advancedSeedanceTier.closest(".field")?.toggleAttribute("hidden", !active);
+    if (!active) els.advancedSeedanceTier.value = "standard";
+    if (active && currentAdvancedResolution() === "1080p" && currentSeedanceTier() === "fast") {
+      els.advancedSeedanceTier.value = "standard";
+    }
+  }
   if (els.advancedRatio) {
     const imageRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
     const videoRatios = ["9:16", "16:9", "1:1"];
@@ -6665,6 +6693,7 @@ async function submitAdvancedGenerate() {
   if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
   els.advancedSubmitBtn.disabled = true;
   const provider = currentAdvancedProvider();
+  const seedanceTier = currentSeedanceTier();
   if (provider === "wan27-image-edit") {
     try {
       const assets = await ensureAdvancedImageEditAssets();
@@ -6733,6 +6762,11 @@ async function submitAdvancedGenerate() {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceVideoRequired");
     return;
   }
+  if (provider === "seedance" && seedanceTier === "fast" && resolution === "1080p") {
+    els.advancedSubmitBtn.disabled = false;
+    if (els.advancedNote) els.advancedNote.textContent = "Seedance Fast does not support 1080p.";
+    return;
+  }
   if (provider === "wan27") {
     if (wanModeNeedsFirstFrame(mediaMode) && !state.advancedUploadDataUrl && !state.advancedFirstFrameAssetId) {
       els.advancedSubmitBtn.disabled = false;
@@ -6763,7 +6797,7 @@ async function submitAdvancedGenerate() {
   if (els.advancedNote) {
     els.advancedNote.textContent = t("advanced.submitting", {
       note: provider === "seedance" ? `${referenceNote} - ${t("advanced.seedanceReferenceCount", { count: referenceImages.length })}` : referenceNote,
-      cost: advancedCostLabel(duration, provider, resolution, currentAdvancedRatio(), { inputVideoSeconds }),
+      cost: advancedCostLabel(duration, provider, resolution, currentAdvancedRatio(), { inputVideoSeconds, seedanceTier }),
     });
   }
   try {
@@ -6772,6 +6806,7 @@ async function submitAdvancedGenerate() {
       body: {
         caseId: state.activeAdvancedCaseId,
         provider,
+        seedanceTier: provider === "seedance" ? seedanceTier : undefined,
         prompt,
         dataUrl: provider === "wan27" && !state.advancedFirstFrameAssetId ? state.advancedUploadDataUrl : undefined,
         seedanceMode: provider === "seedance" ? seedanceMode : undefined,
@@ -6806,7 +6841,7 @@ async function submitAdvancedGenerate() {
       },
     });
     if (payload.user) setUser(payload.user);
-    const charged = payload.cost ?? advancedCostForDuration(duration, provider, resolution, currentAdvancedRatio(), { inputVideoSeconds });
+    const charged = payload.cost ?? advancedCostForDuration(duration, provider, resolution, currentAdvancedRatio(), { inputVideoSeconds, seedanceTier });
     if (els.advancedNote) {
       els.advancedNote.textContent = t("advanced.jobSubmitted", {
         taskId: payload.taskId || payload.task?.taskId || "",
@@ -8685,6 +8720,9 @@ els.advancedSubmitBtn?.addEventListener("click", submitAdvancedGenerate);
 els.advancedDuration?.addEventListener("input", updateAdvancedButtonCost);
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
+  updateAdvancedModelControls();
+});
+els.advancedSeedanceTier?.addEventListener("change", () => {
   updateAdvancedModelControls();
 });
 els.advancedWanMediaMode?.addEventListener("change", () => {

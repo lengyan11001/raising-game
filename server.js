@@ -168,6 +168,7 @@ const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 200;
+const ADVANCED_SEEDANCE_FAST_DISCOUNT = clampNumber(process.env.ADVANCED_SEEDANCE_FAST_DISCOUNT, 0.8, 0.01, 1);
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
 const WAN27_IMAGE_PRO_MODEL = process.env.ALIYUN_WAN27_IMAGE_PRO_MODEL || "wan2.7-image-pro";
@@ -1823,6 +1824,10 @@ function normalizeAdvancedProvider(value = "") {
   return "seedance";
 }
 
+function normalizeSeedanceTier(value = "") {
+  return String(value || "").trim().toLowerCase() === "fast" ? "fast" : "standard";
+}
+
 function normalizeAdvancedResolution(value = "") {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "480p") return "480p";
@@ -2074,6 +2079,8 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   }
   const resolution = normalizeAdvancedResolution(options.resolution);
   const ratio = normalizeVideoRatio(options.ratio || options.aspect_ratio || "16:9");
+  const seedanceTier = normalizeSeedanceTier(options.seedanceTier);
+  const tierDiscount = seedanceTier === "fast" ? ADVANCED_SEEDANCE_FAST_DISCOUNT : 1;
   const creditsPerSecond = priceTable[resolution] || DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"];
   const videoInputSeconds = durationSecondsFromValue(firstPresent(
     options.videoInputSeconds,
@@ -2083,13 +2090,15 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   ));
   const videoInputTable = advancedPricing.seedanceVideoInputCreditsPerSecondByResolution || {};
   const videoInputCreditsPerSecond = videoInputTable[resolution] || DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["720p"];
-  const outputCredits = creditsAmount(duration * creditsPerSecond);
-  const videoInputCredits = creditsAmount(videoInputSeconds * videoInputCreditsPerSecond);
+  const outputCredits = creditsAmount(duration * creditsPerSecond * tierDiscount);
+  const videoInputCredits = creditsAmount(videoInputSeconds * videoInputCreditsPerSecond * tierDiscount);
   const credits = creditsAmount(outputCredits + videoInputCredits);
   return {
     provider: "seedance",
     providerLabel: "Seedance",
-    model: options.model || MODEL_QUALITY,
+    model: options.model || (seedanceTier === "fast" ? MODEL_FAST : MODEL_QUALITY),
+    seedanceTier,
+    tierDiscount,
     duration,
     ratio,
     resolution,
@@ -9369,6 +9378,7 @@ async function handleAdvancedGenerate(req, res) {
     ...caseParams,
     ...bodyParams,
     provider,
+    seedanceTier: normalizeSeedanceTier(firstPresent(body.seedanceTier, bodyParams.seedanceTier, caseParams.seedanceTier)),
     ratio: firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, config.video.ratio, "9:16"),
     resolution: firstPresent(body.resolution, bodyParams.resolution, mergedProviderParameters.resolution, caseParams.resolution, config.video.resolution, "720p"),
     duration: clampNumber(
@@ -9383,9 +9393,21 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.resolution = provider === "wan27" ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
   requestParams.preprocessReference = false;
   requestParams.seed = firstPresent(body.seed, bodyParams.seed, mergedProviderParameters.seed, caseParams.seed, "");
-  requestParams.model = String(firstPresent(body.model, bodyParams.model, caseParams.model, provider === "wan27" ? ALIYUN_WAN27_MODEL : MODEL_QUALITY));
+  requestParams.model = String(firstPresent(
+    body.model,
+    bodyParams.model,
+    caseParams.model,
+    provider === "wan27"
+      ? ALIYUN_WAN27_MODEL
+      : requestParams.seedanceTier === "fast"
+      ? MODEL_FAST
+      : MODEL_QUALITY,
+  ));
   requestParams.input = plainObject(firstPresent(body.input, bodyParams.input, caseParams.input, {}));
   requestParams.parameters = mergedProviderParameters;
+  if (provider === "seedance" && requestParams.seedanceTier === "fast" && requestParams.resolution === "1080p") {
+    return sendJson(res, 400, { ok: false, code: "INVALID_SEEDANCE_FAST_RESOLUTION", message: "Seedance Fast does not support 1080p." });
+  }
   if (provider === "seedance") {
     [
       "image_url",
@@ -10231,6 +10253,7 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
     inputVideoSeconds,
+    seedanceTier: params.seedanceTier,
     advancedPricing: config.platform?.advancedPricing,
     allowFourSecondSeedance: params.allowFourSecondSeedance === true,
   });
