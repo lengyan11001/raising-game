@@ -2798,6 +2798,14 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   background: #05070d;
   object-fit: contain;
 }
+.preview-modal img {
+  width: min(100%, calc(76vh * var(--video-ratio-value, 1.7778)));
+  max-width: 100%;
+  max-height: 76vh;
+  border-radius: 8px;
+  background: #05070d;
+  object-fit: contain;
+}
 .history-detail-modal {
   width: min(920px, calc(100vw - 24px));
 }

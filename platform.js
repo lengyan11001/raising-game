@@ -240,6 +240,7 @@ const els = {
   paypalStatus: document.querySelector("#paypalStatus"),
   previewDialog: document.querySelector("#previewDialog"),
   previewTitle: document.querySelector("#previewTitle"),
+  previewImage: document.querySelector("#previewImage"),
   previewVideo: document.querySelector("#previewVideo"),
   historyDetailDialog: document.querySelector("#historyDetailDialog"),
   historyDetailTitle: document.querySelector("#historyDetailTitle"),
@@ -5420,14 +5421,30 @@ function previewRatioFromItem(item = {}) {
 }
 
 function playPreview({ title = "", previewUrl = "", ratio = "16:9" } = {}) {
-  if (!previewUrl || !els.previewDialog || !els.previewVideo) return;
+  if (!previewUrl || !els.previewDialog || !els.previewVideo || !els.previewImage) return;
   els.previewTitle.textContent = title || t("common.preview");
+  els.previewImage.hidden = true;
+  els.previewImage.removeAttribute("src");
   els.previewVideo.pause();
   els.previewVideo.setAttribute("style", ratioStyle(ratio));
   els.previewVideo.src = previewUrl;
+  els.previewVideo.hidden = false;
   els.previewVideo.load();
   if (!els.previewDialog.open) els.previewDialog.showModal();
   window.setTimeout(() => els.previewVideo.play().catch(() => {}), 80);
+}
+
+function previewImage({ title = "", imageUrl = "" } = {}) {
+  if (!imageUrl || !els.previewDialog || !els.previewVideo || !els.previewImage) return;
+  els.previewTitle.textContent = title || t("common.preview");
+  els.previewVideo.pause();
+  els.previewVideo.hidden = true;
+  els.previewVideo.removeAttribute("src");
+  els.previewVideo.removeAttribute("style");
+  els.previewVideo.load();
+  els.previewImage.src = imageUrl;
+  els.previewImage.hidden = false;
+  if (!els.previewDialog.open) els.previewDialog.showModal();
 }
 
 function historyDetailPayload(record = {}) {
@@ -7605,7 +7622,7 @@ function renderAssets(assets = state.userAssets || []) {
     const typeLabel = video ? t("assets.video") : audio ? t("assets.audio") : t("assets.image");
     return `
       <article class="asset-card">
-        <div class="asset-preview ${audio ? "is-audio" : ""}">
+        <div class="asset-preview ${audio ? "is-audio" : ""}" ${!audio ? `data-asset-preview="${escapeHtml(asset.id)}"` : ""}>
           ${video
             ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata" controls></video>`
             : audio
@@ -7644,6 +7661,19 @@ function renderAssets(assets = state.userAssets || []) {
   });
   els.assetGrid.querySelectorAll("[data-asset-delete]").forEach((button) => {
     button.addEventListener("click", () => deleteUserAsset(button.dataset.assetDelete || ""));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-preview]").forEach((node) => {
+    node.addEventListener("click", (event) => {
+      if (event.target.closest("button, audio, video")) return;
+      const asset = state.userAssets.find((item) => item.id === node.dataset.assetPreview);
+      if (!asset) return;
+      const previewUrl = assetPreviewUrl(asset);
+      if (isVideoAsset(asset)) {
+        playPreview({ title: asset.name || asset.id, previewUrl, ratio: "16:9" });
+      } else if (!isAudioAsset(asset)) {
+        previewImage({ title: asset.name || asset.id, imageUrl: previewUrl });
+      }
+    });
   });
   renderSimplePager(els.assetPager, {
     page: state.userAssetsPage,
@@ -7850,9 +7880,23 @@ function renderHistory(records = []) {
       button.hidden = true;
       video.play?.().catch(() => {});
     };
+    const openModalPreview = () => {
+      const key = button.dataset.historyLoadVideo || "";
+      const escapedKey = window.CSS?.escape ? CSS.escape(key) : key.replace(/["\\]/g, "\\$&");
+      const video = els.historyList.querySelector(`[data-history-video="${escapedKey}"]`);
+      const previewUrl = video?.dataset?.src || video?.src || "";
+      const index = Number(button.closest(".history-item")?.querySelector("[data-history-detail]")?.dataset.historyDetail || -1);
+      const record = Number.isInteger(index) && index >= 0 ? sortedRecords[index] : null;
+      if (!previewUrl) return;
+      playPreview({
+        title: record?.templateTitle || record?.sceneName || record?.taskId || t("common.preview"),
+        previewUrl,
+        ratio: record?.ratio || record?.params?.ratio || record?.params?.aspect_ratio || "16:9",
+      });
+    };
     button.addEventListener("mouseenter", showVideo, { once: true });
     button.addEventListener("focus", showVideo, { once: true });
-    button.addEventListener("click", showVideo);
+    button.addEventListener("click", openModalPreview);
   });
   els.historyList.querySelectorAll("[data-history-regenerate]").forEach((button) => {
     button.addEventListener("click", () => regenerateHistoryRecord(button.dataset.historyRegenerate || "", button));
