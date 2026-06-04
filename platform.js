@@ -6290,7 +6290,7 @@ function renderAdvancedAssets(assets) {
     const typeLabel = video ? t("assets.video") : audio ? t("assets.audio") : t("assets.image");
     return `
       <article class="advanced-asset-card">
-        <div class="advanced-asset-preview ${audio ? "is-audio" : ""}">
+        <div class="advanced-asset-preview ${audio ? "is-audio" : ""}" ${!audio ? `data-advanced-asset-preview="${escapeHtml(asset.id)}"` : ""}>
           ${video
             ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video><span class="advanced-case-video-mark"><i data-lucide="play"></i></span>`
             : audio
@@ -6313,6 +6313,19 @@ function renderAdvancedAssets(assets) {
   });
   els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-modify]").forEach((button) => {
     button.addEventListener("click", () => useAssetInAdvanced(list.find((asset) => asset.id === button.dataset.advancedAssetModify), "modify"));
+  });
+  els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-preview]").forEach((node) => {
+    node.addEventListener("click", (event) => {
+      if (event.target.closest("button, audio, video")) return;
+      const asset = list.find((item) => item.id === node.dataset.advancedAssetPreview);
+      if (!asset) return;
+      const previewUrl = assetPreviewUrl(asset);
+      if (isVideoAsset(asset)) {
+        playPreview({ title: asset.name || asset.id, previewUrl, ratio: "16:9" });
+      } else if (!isAudioAsset(asset)) {
+        previewImage({ title: asset.name || asset.id, imageUrl: previewUrl });
+      }
+    });
   });
   renderSimplePager(els.advancedAssetPager, {
     page: state.advancedAssetPage,
@@ -7897,6 +7910,17 @@ function renderHistory(records = []) {
     button.addEventListener("mouseenter", showVideo, { once: true });
     button.addEventListener("focus", showVideo, { once: true });
     button.addEventListener("click", openModalPreview);
+  });
+  els.historyList.querySelectorAll(".history-result-image").forEach((image, index) => {
+    image.addEventListener("click", () => {
+      const record = sortedRecords[index];
+      const previewUrl = image.getAttribute("src") || generationImageResultUrl(record);
+      if (!previewUrl) return;
+      previewImage({
+        title: record?.templateTitle || record?.sceneName || record?.taskId || t("common.preview"),
+        imageUrl: previewUrl,
+      });
+    });
   });
   els.historyList.querySelectorAll("[data-history-regenerate]").forEach((button) => {
     button.addEventListener("click", () => regenerateHistoryRecord(button.dataset.historyRegenerate || "", button));
