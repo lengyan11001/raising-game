@@ -265,6 +265,25 @@ async function ensureSchema() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_admin_home_items_created_idx ON app_admin_home_items (created_at DESC);`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_support_messages (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_support_messages
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_support_messages_user_created_idx ON app_support_messages (user_id, created_at DESC);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_generation_records (
       task_id TEXT PRIMARY KEY,
       payload JSONB NOT NULL,
@@ -466,6 +485,7 @@ async function tableCounts() {
     UNION ALL SELECT 'user_characters', COUNT(*)::int FROM app_user_characters
     UNION ALL SELECT 'user_unlocks', COUNT(*)::int FROM app_user_unlocks
     UNION ALL SELECT 'admin_home_items', COUNT(*)::int FROM app_admin_home_items
+    UNION ALL SELECT 'support_messages', COUNT(*)::int FROM app_support_messages
   `);
   return Object.fromEntries(rows.map((row) => [row.name, row.count]));
 }
@@ -482,6 +502,7 @@ async function readAppDbFromTables(defaultDb = {}) {
     userCharacters,
     userUnlocks,
     adminHomeItems,
+    supportMessages,
   ] = await Promise.all([
     query(`SELECT * FROM app_users WHERE deleted_at IS NULL ORDER BY created_at ASC`),
     query(`SELECT * FROM app_sessions ORDER BY created_at ASC`),
@@ -491,6 +512,7 @@ async function readAppDbFromTables(defaultDb = {}) {
     query(`SELECT * FROM app_user_characters ORDER BY created_at DESC`),
     query(`SELECT * FROM app_user_unlocks ORDER BY created_at DESC`),
     query(`SELECT * FROM app_admin_home_items ORDER BY created_at DESC`),
+    query(`SELECT * FROM app_support_messages ORDER BY created_at DESC`),
   ]);
   return {
     users: users.rows.map(userFromRow),
@@ -501,6 +523,7 @@ async function readAppDbFromTables(defaultDb = {}) {
     userCharacters: userCharacters.rows.map(recordFromPayloadRow),
     userUnlocks: userUnlocks.rows.map(recordFromPayloadRow),
     adminHomeItems: adminHomeItems.rows.map(recordFromPayloadRow),
+    supportMessages: supportMessages.rows.map(recordFromPayloadRow),
     apiSubtokens: Array.isArray(defaultDb.apiSubtokens) ? defaultDb.apiSubtokens : [],
   };
 }
@@ -513,6 +536,7 @@ async function replaceAppDbTables(db = {}, options = {}) {
   try {
     await client.query("BEGIN");
     if (options.replaceAll === true) {
+      await client.query("DELETE FROM app_support_messages");
       await client.query("DELETE FROM app_admin_home_items");
       await client.query("DELETE FROM app_user_unlocks");
       await client.query("DELETE FROM app_user_characters");
@@ -521,6 +545,30 @@ async function replaceAppDbTables(db = {}, options = {}) {
       await client.query("DELETE FROM app_wallet_orders");
       await client.query("DELETE FROM app_sessions");
       await client.query("DELETE FROM app_users");
+    }
+
+    for (const message of Array.isArray(db.supportMessages) ? db.supportMessages : []) {
+      const id = String(message?.id || "").trim();
+      if (!id) continue;
+      await client.query(
+        `
+          INSERT INTO app_support_messages(id, user_id, payload, deleted_at, created_at, updated_at)
+          VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz, $6::timestamptz)
+          ON CONFLICT (id) DO UPDATE SET
+            user_id = EXCLUDED.user_id,
+            payload = EXCLUDED.payload,
+            deleted_at = EXCLUDED.deleted_at,
+            updated_at = EXCLUDED.updated_at
+        `,
+        [
+          id,
+          String(message.userId || ""),
+          JSON.stringify(message),
+          message.deletedAt || null,
+          message.createdAt || new Date().toISOString(),
+          message.updatedAt || message.createdAt || new Date().toISOString(),
+        ],
+      );
     }
 
     for (const user of Array.isArray(db.users) ? db.users : []) {
@@ -1727,6 +1775,7 @@ function mergeAppDbRecords(sourceDb = {}, currentDb = {}) {
     userUnlocks: mergeRecordArrays(sourceDb.userUnlocks, currentDb.userUnlocks),
     adminHomeItems: mergeRecordArrays(sourceDb.adminHomeItems, currentDb.adminHomeItems),
     apiSubtokens: mergeRecordArrays(sourceDb.apiSubtokens, currentDb.apiSubtokens),
+    supportMessages: mergeRecordArrays(sourceDb.supportMessages, currentDb.supportMessages),
   };
 }
 

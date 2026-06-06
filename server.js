@@ -358,6 +358,7 @@ const DEFAULT_DB = {
   userUnlocks: [],
   adminHomeItems: [],
   apiSubtokens: [],
+  supportMessages: [],
 };
 
 const FULL_BODY_LEG_DIRECTIVE = [
@@ -855,6 +856,7 @@ async function readDb() {
     userUnlocks: Array.isArray(db.userUnlocks) ? db.userUnlocks : [],
     adminHomeItems: Array.isArray(db.adminHomeItems) ? db.adminHomeItems : [],
     apiSubtokens: Array.isArray(db.apiSubtokens) ? db.apiSubtokens : [],
+    supportMessages: Array.isArray(db.supportMessages) ? db.supportMessages : [],
   };
 }
 
@@ -2392,6 +2394,24 @@ async function changeUserCredits(db, userId, delta, type, meta = {}) {
 
 function randomId(prefix) {
   return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function supportMessageView(record = {}, userMap = new Map()) {
+  const user = userMap.get(record.userId) || {};
+  return {
+    id: String(record.id || ""),
+    userId: String(record.userId || ""),
+    username: String(record.username || user.username || ""),
+    email: String(record.email || ""),
+    subject: String(record.subject || ""),
+    message: String(record.message || ""),
+    status: String(record.status || "open"),
+    reply: String(record.reply || ""),
+    repliedAt: String(record.repliedAt || ""),
+    repliedBy: String(record.repliedBy || ""),
+    createdAt: String(record.createdAt || ""),
+    updatedAt: String(record.updatedAt || ""),
+  };
 }
 
 function localGenerationTaskId(prefix = "cgt") {
@@ -10987,6 +11007,71 @@ async function handleMe(req, res) {
   return sendJson(res, 200, { ok: true, user });
 }
 
+async function handleCreateSupportMessage(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const email = String(body.email || "").trim();
+  const message = String(body.message || "").trim();
+  const subject = String(body.subject || "").trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return sendJson(res, 400, { ok: false, message: "Valid email is required." });
+  }
+  if (!message) {
+    return sendJson(res, 400, { ok: false, message: "Message is required." });
+  }
+  const now = new Date().toISOString();
+  const record = {
+    id: randomId("support"),
+    userId: auth.user.id,
+    username: auth.user.username || "",
+    email,
+    subject,
+    message,
+    status: "open",
+    reply: "",
+    repliedAt: "",
+    repliedBy: "",
+    createdAt: now,
+    updatedAt: now,
+  };
+  auth.db.supportMessages = Array.isArray(auth.db.supportMessages) ? auth.db.supportMessages : [];
+  auth.db.supportMessages.unshift(record);
+  if (dbEnabled()) await replaceAppDbTables(auth.db);
+  else await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, messageRecord: supportMessageView(record) });
+}
+
+async function handleAdminListSupportMessages(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
+  const messages = (auth.db.supportMessages || [])
+    .filter((record) => !isSoftDeleted(record))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .map((record) => supportMessageView(record, userMap));
+  return sendJson(res, 200, { ok: true, messages });
+}
+
+async function handleAdminReplySupportMessage(req, res, messageId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const reply = String(body.reply || "").trim();
+  if (!reply) return sendJson(res, 400, { ok: false, message: "Reply is required." });
+  const record = (auth.db.supportMessages || []).find((item) => item.id === messageId && !isSoftDeleted(item));
+  if (!record) return sendJson(res, 404, { ok: false, message: "Support message not found." });
+  record.reply = reply;
+  record.status = "replied";
+  record.repliedAt = new Date().toISOString();
+  record.repliedBy = auth.user.username || auth.user.id || "admin";
+  record.updatedAt = record.repliedAt;
+  auth.db.supportMessages = (auth.db.supportMessages || []).map((item) => (item.id === messageId ? record : item));
+  if (dbEnabled()) await replaceAppDbTables(auth.db);
+  else await writeDb(auth.db);
+  return sendJson(res, 200, { ok: true, messageRecord: supportMessageView(record) });
+}
+
 async function handleListApiSubtokens(req, res) {
   const auth = await requirePrimaryTokenOwner(req, res);
   if (!auth) return;
@@ -15936,6 +16021,10 @@ async function handleRequest(req, res) {
       return await handleMe(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/support-messages") {
+      return await handleCreateSupportMessage(req, res);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/access/subtokens") {
       return await handleListApiSubtokens(req, res);
     }
@@ -16219,6 +16308,15 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/user-assets") {
       return await handleAdminListUserAssets(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/support-messages") {
+      return await handleAdminListSupportMessages(req, res);
+    }
+
+    const adminSupportReplyMatch = url.pathname.match(/^\/api\/admin\/support-messages\/([^/]+)\/reply$/);
+    if (req.method === "POST" && adminSupportReplyMatch) {
+      return await handleAdminReplySupportMessage(req, res, decodeURIComponent(adminSupportReplyMatch[1]));
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/generation-records") {

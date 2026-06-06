@@ -242,6 +242,13 @@ const els = {
   previewTitle: document.querySelector("#previewTitle"),
   previewImage: document.querySelector("#previewImage"),
   previewVideo: document.querySelector("#previewVideo"),
+  supportFab: document.querySelector("#supportFab"),
+  supportDialog: document.querySelector("#supportDialog"),
+  supportEmail: document.querySelector("#supportEmail"),
+  supportSubject: document.querySelector("#supportSubject"),
+  supportMessage: document.querySelector("#supportMessage"),
+  supportStatus: document.querySelector("#supportStatus"),
+  supportSubmitBtn: document.querySelector("#supportSubmitBtn"),
   historyDetailDialog: document.querySelector("#historyDetailDialog"),
   historyDetailTitle: document.querySelector("#historyDetailTitle"),
   historyDetailBody: document.querySelector("#historyDetailBody"),
@@ -3752,6 +3759,9 @@ function renderTokenDisplays() {
     els.copyTokenBtn.disabled = !state.token || !state.user?.apiToken;
     els.copyTokenBtn.innerHTML = `<i data-lucide="key-round"></i>Copy token + docs`;
   }
+  if (els.supportFab) {
+    els.supportFab.hidden = !state.user;
+  }
   if (els.accountName) els.accountName.textContent = state.user?.username || t("account.title");
   if (els.accountCredits) els.accountCredits.textContent = String(Number(state.user?.credits || 0));
   if (els.menuBalanceValue) els.menuBalanceValue.textContent = String(Number(state.user?.credits || 0));
@@ -5445,6 +5455,44 @@ function previewImage({ title = "", imageUrl = "" } = {}) {
   els.previewImage.src = imageUrl;
   els.previewImage.hidden = false;
   if (!els.previewDialog.open) els.previewDialog.showModal();
+}
+
+async function submitSupportMessage() {
+  if (!state.user) return openLogin();
+  const email = String(els.supportEmail?.value || "").trim();
+  const subject = String(els.supportSubject?.value || "").trim();
+  const message = String(els.supportMessage?.value || "").trim();
+  if (els.supportStatus) els.supportStatus.textContent = "";
+  if (!email) {
+    if (els.supportStatus) els.supportStatus.textContent = "Email is required.";
+    return;
+  }
+  if (!message) {
+    if (els.supportStatus) els.supportStatus.textContent = "Message is required.";
+    return;
+  }
+  if (els.supportSubmitBtn) {
+    els.supportSubmitBtn.disabled = true;
+    els.supportSubmitBtn.innerHTML = `<i data-lucide="loader-circle"></i>Sending...`;
+    refreshIcons();
+  }
+  try {
+    await requestJson("/api/support-messages", {
+      method: "POST",
+      body: { email, subject, message },
+    });
+    if (els.supportStatus) els.supportStatus.textContent = "Sent. We will reply in admin.";
+    if (els.supportSubject) els.supportSubject.value = "";
+    if (els.supportMessage) els.supportMessage.value = "";
+  } catch (error) {
+    if (els.supportStatus) els.supportStatus.textContent = error.message || String(error);
+  } finally {
+    if (els.supportSubmitBtn) {
+      els.supportSubmitBtn.disabled = false;
+      els.supportSubmitBtn.innerHTML = `<i data-lucide="send"></i>Send`;
+      refreshIcons();
+    }
+  }
 }
 
 function historyDetailPayload(record = {}) {
@@ -8884,6 +8932,15 @@ els.copyTokenBtn?.addEventListener("click", async () => {
     refreshIcons();
   }, 1600);
 });
+els.supportFab?.addEventListener("click", () => {
+  if (!state.user) return openLogin();
+  if (els.supportEmail) els.supportEmail.value = "";
+  if (els.supportSubject) els.supportSubject.value = "";
+  if (els.supportMessage) els.supportMessage.value = "";
+  if (els.supportStatus) els.supportStatus.textContent = "";
+  els.supportDialog?.showModal();
+});
+els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
 els.menuCopyTokenBtn?.addEventListener("click", async () => {
   if (!state.token || !state.user?.apiToken) return openLogin();
   await navigator.clipboard.writeText(state.user.apiToken);

@@ -2806,6 +2806,24 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   background: #05070d;
   object-fit: contain;
 }
+.support-fab {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid rgba(15,37,64,.12);
+  border-radius: 999px;
+  background: #0f172a;
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(15,23,42,.22);
+}
+.support-fab span { font-weight: 700; }
+.support-fab:hover { transform: translateY(-1px); }
 .history-detail-modal {
   width: min(920px, calc(100vw - 24px));
 }

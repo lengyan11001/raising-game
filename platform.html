@@ -339,6 +339,11 @@
       </nav>
     </footer>
 
+    <button class="support-fab" id="supportFab" type="button" aria-label="Support">
+      <i data-lucide="messages-square"></i>
+      <span>Support</span>
+    </button>
+
     <dialog id="templateDialog" class="modal">
       <form method="dialog">
         <header>
@@ -485,6 +490,31 @@
         <div class="modal-body">
           <img id="previewImage" alt="Preview" hidden />
           <video id="previewVideo" controls playsinline></video>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="supportDialog" class="modal">
+      <form method="dialog">
+        <header>
+          <strong>Support</strong>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <label class="field">
+            <span>Email</span>
+            <input id="supportEmail" type="email" placeholder="name@example.com" />
+          </label>
+          <label class="field">
+            <span>Subject</span>
+            <input id="supportSubject" type="text" placeholder="Optional" />
+          </label>
+          <label class="field">
+            <span>Message</span>
+            <textarea id="supportMessage" rows="6" placeholder="Describe your issue..."></textarea>
+          </label>
+          <p class="job-note" id="supportStatus"></p>
+          <button class="copy-btn" id="supportSubmitBtn" type="button"><i data-lucide="send"></i>Send</button>
         </div>
       </form>
     </dialog>

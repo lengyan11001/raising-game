@@ -40,6 +40,7 @@ const ROUTES = [
   { id: "records", title: "生成记录", render: renderGenerationRecords },
   { id: "scenes", title: "场景管理", render: renderScenes },
   { id: "users", title: "用户管理", render: renderUsers },
+  { id: "support", title: "站内信", render: renderSupportMessages },
   { id: "wallet", title: "钱包订单", render: renderWallet },
   { id: "pricing", title: "价格配置", render: renderPricing },
   { id: "config", title: "系统配置", render: renderConfig },
@@ -2448,6 +2449,87 @@ async function renderWallet() {
       renderWallet();
     });
   });
+}
+
+async function renderSupportMessages() {
+  const routeId = "support";
+  if (!isActiveRoute(routeId)) return;
+  const payload = await api("/api/admin/support-messages");
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h1>站内信</h1>
+          <p>查看用户提交的邮箱与问题，并直接回复。</p>
+        </div>
+        <button class="adm-btn adm-btn-ghost" data-act="refresh"><i data-lucide="refresh-cw"></i>刷新</button>
+      </div>
+      <div class="adm-card">
+        ${messages.length ? `
+          <div class="adm-table-wrap">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th>用户</th>
+                  <th>邮箱</th>
+                  <th>问题</th>
+                  <th>状态</th>
+                  <th>时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${messages.map((item) => `
+                  <tr>
+                    <td>${escapeHtml(item.username || item.userId || "-")}</td>
+                    <td>${escapeHtml(item.email || "-")}</td>
+                    <td>
+                      <div style="display:grid;gap:6px;min-width:240px;">
+                        ${item.subject ? `<strong>${escapeHtml(item.subject)}</strong>` : ""}
+                        <span>${escapeHtml(item.message || "")}</span>
+                        ${item.reply ? `<small style="color:var(--adm-muted);">回复：${escapeHtml(item.reply)}</small>` : ""}
+                      </div>
+                    </td>
+                    <td>${escapeHtml(item.status || "open")}</td>
+                    <td>${escapeHtml(fmtDate(item.createdAt))}</td>
+                    <td>
+                      <button class="adm-btn adm-btn-ghost" type="button" data-reply-support="${escapeHtml(item.id)}">回复</button>
+                    </td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : '<div class="adm-empty"><i data-lucide="inbox"></i><p>暂无站内信</p></div>'}
+      </div>
+    </section>
+  `;
+  els.adminContent.querySelector('[data-act="refresh"]')?.addEventListener("click", () => renderSupportMessages().catch((err) => renderRouteError(routeId, err)));
+  els.adminContent.querySelectorAll("[data-reply-support]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const record = messages.find((item) => item.id === button.dataset.replySupport);
+      if (!record) return;
+      const result = await openDialog({
+        title: `回复 ${record.email || record.username || ""}`,
+        confirmText: "发送回复",
+        body: `
+          <div class="adm-form-row"><span>用户问题</span><div class="adm-inline-note">${escapeHtml(record.message || "")}</div></div>
+          <div class="adm-form-row"><span>回复内容</span><textarea id="supportReplyText" rows="6">${escapeHtml(record.reply || "")}</textarea></div>
+        `,
+      });
+      if (!result.confirmed) return;
+      const reply = byId("supportReplyText")?.value.trim() || "";
+      if (!reply) return toast("回复内容不能为空", "error");
+      await api(`/api/admin/support-messages/${encodeURIComponent(record.id)}/reply`, {
+        method: "POST",
+        body: { reply },
+      });
+      toast("已回复", "success");
+      renderSupportMessages().catch((err) => renderRouteError(routeId, err));
+    });
+  });
+  refreshIcons();
 }
 
 /* ============ PRICING ============ */
