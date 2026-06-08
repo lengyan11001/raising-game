@@ -1,4 +1,47 @@
-# Deploy Notes
+# 667zui Deploy Notes
+
+This branch is the second tenant/new-shell site for `667zui.video`.
+
+It should stay based on the old site branch and receive old-site fixes by
+merging or cherry-picking from `old-site`. Runtime differences belong in the
+server environment, not in copied secrets or ad-hoc code forks.
+
+## Scope
+
+- Local workspace: `D:\raising-game-667zui`
+- Branch: `codex/site-667zui`
+- Public site: `https://667zui.video`
+- Target server IP: `104.233.149.159`
+- Suggested remote root: `/opt/raising-game-667zui`
+- Suggested service: `raising-game-667zui`
+- Upstream mode: `gateway`
+- Upstream API base: `https://123vips.com`
+
+## Runtime Contract
+
+`667zui.video` calls the old site the same way the previous CloudToken new site
+did: it sends generation and pricing requests to the old site's public API with
+a configured user API token.
+
+Required production environment:
+
+```env
+NODE_ENV=production
+PORT=4174
+PUBLIC_BASE_URL=https://667zui.video
+SITE_STORAGE_SLUG=667zui
+
+UPSTREAM_MODE=gateway
+UPSTREAM_BASE_URL=https://123vips.com
+UPSTREAM_API_TOKEN=<old-site-user-api-token>
+```
+
+Do not copy old-site Ark, Aliyun, APIZ, or other upstream provider secrets to
+the 667zui server. The old site owns direct upstream access; 667zui owns its
+own users, balance ledger, records, and frontend state.
+
+The old-site user behind `UPSTREAM_API_TOKEN` must have enough credits because
+the old site will bill that account when 667zui submits generation tasks.
 
 ## Repo vs runtime
 
@@ -19,14 +62,14 @@ Keep these on the server and out of Git:
 
 Recommended flow:
 
-1. Push code to `main` on GitHub.
-2. On the server, inside `/opt/raising-game-demo`:
+1. Push code to `codex/site-667zui` on GitHub.
+2. On the server, inside `/opt/raising-game-667zui`:
 
 ```bash
-git fetch origin main
-git checkout main
-git reset --hard origin/main
-systemctl restart raising-game-demo
+git fetch origin codex/site-667zui
+git checkout codex/site-667zui
+git reset --hard origin/codex/site-667zui
+systemctl restart raising-game-667zui
 ```
 
 This avoids overwriting runtime data like `data/app-config.json` and `data/app-db.json`.
@@ -34,32 +77,23 @@ This avoids overwriting runtime data like `data/app-config.json` and `data/app-d
 From the local machine, use the helper only after pushing:
 
 ```powershell
-$env:FYSHARK_SSH_PASSWORD="..."
-python .\scripts\deploy_pull.py
+$env:DEPLOY_HOST = "104.233.149.159"
+$env:DEPLOY_SSH_PASSWORD = "<server-root-password>"
+python .\scripts\deploy_pull.py --branch codex/site-667zui --remote-root /opt/raising-game-667zui --service raising-game-667zui --health-url https://667zui.video/api/health
 ```
 
 The old SFTP upload deploy is intentionally removed. Do not deploy by copying
-files into `/opt/raising-game-demo`; that leaves Git unable to pull cleanly.
+files into `/opt/raising-game-667zui`; that leaves Git unable to pull cleanly.
 
-## Wan2.7 production env
+## Keeping In Sync With Old Site
 
-Wan2.7 generation requires DashScope credentials in the systemd env file used by
-`raising-game-demo`.
+When old-site fixes should be brought into 667zui:
 
-Check the current redacted state:
-
-```powershell
-$env:FYSHARK_SSH_PASSWORD="..."
-python .\scripts\configure_wan27_env.py --check-only
+```bash
+git fetch origin
+git checkout codex/site-667zui
+git merge origin/old-site
 ```
 
-Configure or rotate the key, restart the service, and verify `/api/health`:
-
-```powershell
-$env:FYSHARK_SSH_PASSWORD="..."
-$env:ALIYUN_DASHSCOPE_API_KEY="..."
-python .\scripts\configure_wan27_env.py
-```
-
-The helper updates `/etc/raising-game-demo.env`, creates a timestamped backup,
-restarts `raising-game-demo`, and prints only redacted key lengths.
+Resolve only real tenant-specific conflicts. Keep provider secrets in each
+server's environment files, never in Git.

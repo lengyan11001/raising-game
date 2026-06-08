@@ -249,6 +249,7 @@ function defaultStorageSlug() {
   try {
     const host = new URL(PUBLIC_BASE_URL || "https://raising-game.local").hostname;
     if (/cloudtoken/i.test(host)) return "cloudtoken";
+    if (/(^|\.)667zui\.video$/i.test(host)) return "667zui";
   } catch {
     // Keep the legacy namespace when the public URL is not configured yet.
   }
@@ -820,9 +821,9 @@ function isTenantPublicOrigin(origin = "") {
   if (!value) return false;
   try {
     const url = new URL(value.includes("://") ? value : `https://${value}`);
-    return /(^|\.)cloudtoken\.ai$/i.test(url.hostname);
+    return /(^|\.)(cloudtoken\.ai|667zui\.video)$/i.test(url.hostname);
   } catch {
-    return /(^|\.)cloudtoken\.ai(?::|\/|$)/i.test(value);
+    return /(^|\.)(cloudtoken\.ai|667zui\.video)(?::|\/|$)/i.test(value);
   }
 }
 
