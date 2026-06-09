@@ -1145,6 +1145,13 @@ function normalizePlatformTemplate(template = {}, index = 0) {
   };
 }
 
+function isExternalPlatformTemplate(template = {}) {
+  const model = String(template.model || template.requestJson?.model || "").trim().toLowerCase();
+  if (!model || model === "advanced-link") return false;
+  if (template.action === "advanced" || template.targetTab === "advanced") return false;
+  return template.enabled !== false;
+}
+
 function normalizeAdvancedCaseCategory(value = "") {
   const raw = String(value || "").trim().toLowerCase();
   if (raw.includes("extend")) return "extend";
@@ -8745,6 +8752,9 @@ async function handlePlatformGenerate(req, res) {
   const body = await readJson(req);
   const config = await readAppConfig();
   const template = findPlatformTemplate(config, body.templateId);
+  if (template && !isExternalPlatformTemplate(template)) {
+    return sendJson(res, 400, { ok: false, code: "TEMPLATE_NOT_GENERATABLE", message: "This template is a gallery shortcut and cannot be generated through /api/platform/generate. Use an Advanced generation endpoint instead." });
+  }
   if (!template) return sendJson(res, 404, { ok: false, message: "模板不存在或未启用。" });
 
   let imageUrl = "";
@@ -10237,13 +10247,18 @@ async function handlePlatformEstimates(req, res, url) {
   const config = await readAppConfig();
   const requestedTemplateId = String(url.searchParams.get("templateId") || body.templateId || "").trim();
   const platform = normalizePlatformConfig(config.platform || {});
-  const templates = requestedTemplateId
-    ? platform.templates.filter((template) => template.id === requestedTemplateId)
-    : platform.templates;
-
-  if (requestedTemplateId && !templates.length) {
+  const requestedTemplate = requestedTemplateId
+    ? platform.templates.find((template) => template.id === requestedTemplateId)
+    : null;
+  if (requestedTemplateId && !requestedTemplate) {
     return sendJson(res, 404, { ok: false, message: "Template not found." });
   }
+  if (requestedTemplate && !isExternalPlatformTemplate(requestedTemplate)) {
+    return sendJson(res, 400, { ok: false, code: "TEMPLATE_NOT_GENERATABLE", message: "This template is a gallery shortcut and cannot be generated through /api/platform/generate. Use an Advanced generation endpoint instead." });
+  }
+  const templates = requestedTemplate
+    ? [requestedTemplate]
+    : platform.templates.filter(isExternalPlatformTemplate);
 
   const estimates = await Promise.all(templates.map(async (template) => {
     try {
@@ -10605,7 +10620,9 @@ async function buildModelDocs(req) {
   const tenantPublic = isTenantPublicOrigin(origin);
   const config = await readAppConfig();
   const platform = normalizePlatformConfig(config.platform || {});
-  const templates = await Promise.all(platform.templates.map((template) => buildTemplateModelDoc(template, origin, auth.user, { tenantPublic })));
+  const templates = await Promise.all(platform.templates
+    .filter(isExternalPlatformTemplate)
+    .map((template) => buildTemplateModelDoc(template, origin, auth.user, { tenantPublic })));
   const advancedCases = (platform.advanced?.cases || [])
     .filter((item) => item.enabled !== false)
     .map((item) => buildAdvancedModelDoc(item, origin, auth.user, { tenantPublic, advancedPricing: platform.advancedPricing }));
