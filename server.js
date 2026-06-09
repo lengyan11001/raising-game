@@ -7911,6 +7911,45 @@ async function gatewaySubmitAdvancedTask(body = {}) {
   return gatewayTaskFromPayload(payload);
 }
 
+function gatewayImageTaskFromPayload(payload = {}) {
+  const record = payload.record || payload.data?.record || {};
+  const task = payload.task || payload.data?.task || record || payload;
+  const imageUrls = [
+    payload.imageUrl,
+    payload.image_url,
+    payload.data?.imageUrl,
+    payload.data?.image_url,
+    record.imageResultUrl,
+    record.localImageUrl,
+    record.cdnImageUrl,
+    record.remoteImageUrl,
+    task.imageResultUrl,
+    task.localImageUrl,
+    task.cdnImageUrl,
+    task.remoteImageUrl,
+    ...collectOutputImageUrls(payload),
+  ].filter(Boolean);
+  return {
+    taskId: record.taskId || task.taskId || payload.taskId || payload.data?.taskId || "",
+    upstreamTaskId: record.upstreamTaskId || task.upstreamTaskId || "",
+    status: record.status || task.status || (imageUrls.length ? "succeeded" : "submitted"),
+    imageUrls: [...new Set(imageUrls.map((url) => absoluteUrlFromBase(url, UPSTREAM_BASE_URL)))],
+    error: record.error || task.error || payload.error || "",
+    record,
+    raw: payload,
+  };
+}
+
+async function gatewaySubmitCharacterImageTask(body = {}) {
+  const payload = await gatewayRequest("POST", "/api/characters/generate", body);
+  return gatewayImageTaskFromPayload(payload);
+}
+
+async function gatewaySubmitSystemCharacterImageTask(characterId, body = {}) {
+  const payload = await gatewayRequest("POST", `/api/characters/${encodeURIComponent(characterId)}/modify`, body);
+  return gatewayImageTaskFromPayload(payload);
+}
+
 async function gatewayQueryTask(taskId) {
   const payload = await gatewayRequest("GET", `/api/generation-records/${encodeURIComponent(taskId)}`);
   return gatewayTaskFromPayload(payload);
@@ -12313,7 +12352,7 @@ async function systemCharacterImageUrl(item = {}) {
 async function handleGenerateUserCharacterImage(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!ALIYUN_DASHSCOPE_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
   }
   const body = await readJson(req);
@@ -12383,21 +12422,34 @@ async function handleGenerateUserCharacterImage(req, res) {
   }
 
   try {
-    const submitted = await submitWan27ImageTextGenerate({
-      prompt,
-      ratio,
-      resolution,
-      model,
-      input: imageOptions.input,
-      parameters: imageOptions.parameters,
-    });
+    const gatewayBody = {
+      ...plainObject(body),
+      prompt: userPrompt,
+      params: {
+        ...plainObject(body.params),
+        ...exposedWan27ImageParams(imageOptions),
+        input: imageOptions.input,
+        parameters: imageOptions.parameters,
+        finalPrompt: prompt,
+      },
+    };
+    const submitted = USE_GATEWAY_UPSTREAM
+      ? { task: await gatewaySubmitCharacterImageTask(gatewayBody), payload: gatewayBody, raw: null }
+      : await submitWan27ImageTextGenerate({
+          prompt,
+          ratio,
+          resolution,
+          model,
+          input: imageOptions.input,
+          parameters: imageOptions.parameters,
+        });
     const imageUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
       awaitingUpstreamTask: false,
       status: imageUrl ? (submitted.task.status || "succeeded") : "failed",
       upstreamPayload: submitted.payload,
-      createResponse: submitted.raw,
+      createResponse: submitted.raw || submitted.task.raw || null,
       remoteImageUrl: imageUrl || "",
       error: imageUrl ? "" : (submitted.task.error || "Wan2.7 character image returned no image."),
     }, "character-image-submit");
@@ -12478,7 +12530,7 @@ async function handleGenerateUserCharacterImage(req, res) {
 async function handleModifySystemCharacterImage(req, res, characterId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!ALIYUN_DASHSCOPE_API_KEY) return sendJson(res, 503, { ok: false, message: "DashScope API key is not configured." });
+  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) return sendJson(res, 503, { ok: false, message: "DashScope API key is not configured." });
   const config = await readAppConfig();
   config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const character = findHomeVideoItem(config.homeVideo, characterId);
@@ -12561,22 +12613,37 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
 
   try {
     const publicSourceUrl = /^https?:\/\//i.test(imageUrl) ? imageUrl : publicUrlForAssetPath(imageUrl);
-    const submitted = await submitWan27ImageModify({
+    const gatewayBody = {
+      ...plainObject(body),
+      mode,
+      prompt: userPrompt,
       imageUrl: publicSourceUrl,
-      prompt,
-      ratio,
-      resolution,
-      model,
-      input: imageOptions.input,
-      parameters: imageOptions.parameters,
-    });
+      params: {
+        ...plainObject(body.params),
+        ...exposedWan27ImageParams(imageOptions),
+        input: imageOptions.input,
+        parameters: imageOptions.parameters,
+        finalPrompt: prompt,
+      },
+    };
+    const submitted = USE_GATEWAY_UPSTREAM
+      ? { task: await gatewaySubmitSystemCharacterImageTask(characterId, gatewayBody), payload: gatewayBody, raw: null }
+      : await submitWan27ImageModify({
+          imageUrl: publicSourceUrl,
+          prompt,
+          ratio,
+          resolution,
+          model,
+          input: imageOptions.input,
+          parameters: imageOptions.parameters,
+        });
     const resultUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
       awaitingUpstreamTask: false,
       status: resultUrl ? (submitted.task.status || "succeeded") : "failed",
       upstreamPayload: submitted.payload,
-      createResponse: submitted.raw,
+      createResponse: submitted.raw || submitted.task.raw || null,
       remoteImageUrl: resultUrl || "",
       error: resultUrl ? "" : (submitted.task.error || "Wan2.7 character modify returned no image."),
     }, "character-image-modify-submit");
