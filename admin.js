@@ -3,8 +3,6 @@
 const TOKEN_KEY = "raisingGameAdminToken";
 const LEGACY_TOKEN_KEY = "raisingGameToken";
 const ADVANCED_SEEDANCE_FPS = 24;
-const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
-const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
 const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 100;
@@ -2539,6 +2537,11 @@ function fmtPrice(value, digits = 6) {
   return String(Math.round(next * 10 ** digits) / 10 ** digits);
 }
 
+function fmtPriceRange(values = [], suffix = "") {
+  if (!Array.isArray(values) || values.length < 2) return "";
+  return `${fmtPrice(values[0])}-${fmtPrice(values[1])}${suffix}`;
+}
+
 function pricingRowsToConfig(rows = [], creditsPerCny = ADVANCED_CREDITS_PER_CNY) {
   const pricing = {
     unit: "credits",
@@ -2604,8 +2607,9 @@ async function renderPricing() {
                   <td><strong>${escapeHtml(row.providerLabel || row.provider)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.provider)}</small></td>
                   <td>${escapeHtml(row.resolution)}${row.rateKind === "video_input" ? `<br/><small class="adm-muted">视频输入秒数</small>` : ""}</td>
                   <td>
-                    <strong>${row.purchaseYuanPerSecond === null || row.purchaseYuanPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseYuanPerSecond)} 元/秒`}</strong>
-                    <br/><small class="adm-muted">${row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} credits/s`} · ${escapeHtml(row.purchaseSource || "")}</small>
+                    <strong>${row.purchaseYuanPerSecondRange ? fmtPriceRange(row.purchaseYuanPerSecondRange, " 元/秒") : row.purchaseYuanPerSecond === null || row.purchaseYuanPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseYuanPerSecond)} 元/秒`}</strong>
+                    <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, " credits/s") : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} credits/s`} · ${escapeHtml(row.purchaseSource || "")}</small>
+                    ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
                   </td>
                   <td><input class="adm-price-input" data-f="saleYuanPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleYuanPerSecond))}" /></td>
                   <td class="adm-mono" data-price-credits>${escapeHtml(fmtPrice(row.saleCreditsPerSecond))}</td>

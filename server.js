@@ -118,6 +118,7 @@ const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, 720, 1, 100000);
+const UPSTREAM_USD_CNY_RATE = clampNumber(process.env.UPSTREAM_USD_CNY_RATE || process.env.SEEDANCE_USD_CNY_RATE || process.env.USD_CNY_RATE, DEFAULT_USDT_CNY_CENTS / 100, 0.0001, 100000);
 const PAYPAL_ENV = /sandbox/i.test(process.env.PAYPAL_ENV || process.env.PAYPAL_MODE || "") ? "sandbox" : "live";
 const PAYPAL_CLIENT_ID = String(process.env.PAYPAL_CLIENT_ID || "").trim();
 const PAYPAL_CLIENT_SECRET = String(process.env.PAYPAL_CLIENT_SECRET || "").trim();
@@ -161,8 +162,31 @@ const WALLET_EVM_RPC_URLS = {
 };
 const GENERATION_PRICE_MARKUP = 1.2;
 const ADVANCED_SEEDANCE_FPS = clampNumber(process.env.ADVANCED_SEEDANCE_FPS, 24, 1, 120);
-const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS, 46, 0.0001, 100000);
-const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS, 51, 0.0001, 100000);
+const ADVANCED_SEEDANCE_720P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_720P_USD_PER_MILLION_TOKENS, 7, 0.0001, 100000);
+const ADVANCED_SEEDANCE_1080P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_1080P_USD_PER_MILLION_TOKENS, 7.7, 0.0001, 100000);
+const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_720P_USD_PER_MILLION_TOKENS, 4.3, 0.0001, 100000);
+const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_USD_PER_MILLION_TOKENS, 4.7, 0.0001, 100000);
+const ADVANCED_SEEDANCE_FAST_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_FAST_USD_PER_MILLION_TOKENS, 5.6, 0.0001, 100000);
+const ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_USD_PER_MILLION_TOKENS, 3.3, 0.0001, 100000);
+const ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION = {
+  "480p": clampNumber(process.env.ADVANCED_SEEDANCE_480P_EXAMPLE_USD_PER_5S, 0.35, 0.0001, 100000),
+  "720p": clampNumber(process.env.ADVANCED_SEEDANCE_720P_EXAMPLE_USD_PER_5S, 0.76, 0.0001, 100000),
+  "1080p": clampNumber(process.env.ADVANCED_SEEDANCE_1080P_EXAMPLE_USD_PER_5S, 1.87, 0.0001, 100000),
+};
+const ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION = {
+  "480p": [
+    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_480P_MIN_EXAMPLE_USD_PER_5S, 0.39, 0.0001, 100000),
+    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_480P_MAX_EXAMPLE_USD_PER_5S, 0.86, 0.0001, 100000),
+  ],
+  "720p": [
+    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_720P_MIN_EXAMPLE_USD_PER_5S, 0.84, 0.0001, 100000),
+    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_720P_MAX_EXAMPLE_USD_PER_5S, 1.86, 0.0001, 100000),
+  ],
+  "1080p": [
+    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_MIN_EXAMPLE_USD_PER_5S, 2.06, 0.0001, 100000),
+    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_MAX_EXAMPLE_USD_PER_5S, 4.57, 0.0001, 100000),
+  ],
+};
 const ADVANCED_CREDITS_PER_CNY = 100;
 const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
@@ -171,6 +195,8 @@ const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 200;
 const ADVANCED_SEEDANCE_FAST_DISCOUNT = clampNumber(process.env.ADVANCED_SEEDANCE_FAST_DISCOUNT, 0.8, 0.01, 1);
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
+const ALIYUN_WAN27_720P_PURCHASE_CNY_PER_SECOND = pricingNumber(process.env.ALIYUN_WAN27_720P_PURCHASE_CNY_PER_SECOND, 0.6, 0, 6);
+const ALIYUN_WAN27_1080P_PURCHASE_CNY_PER_SECOND = pricingNumber(process.env.ALIYUN_WAN27_1080P_PURCHASE_CNY_PER_SECOND, 1, 0, 6);
 const WAN27_IMAGE_PRO_MODEL = process.env.ALIYUN_WAN27_IMAGE_PRO_MODEL || "wan2.7-image-pro";
 const WAN27_IMAGE_PRO_PURCHASE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_PURCHASE_CNY, 0.562065, 0, 6);
 const WAN27_IMAGE_PRO_MARKUP = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_MARKUP, 1.5, 1);
@@ -2023,27 +2049,78 @@ function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
   return { width, height };
 }
 
+function seedanceOfficialPixelDimensions(resolution = "720p", ratio = "16:9") {
+  const normalizedResolution = normalizeAdvancedResolution(resolution);
+  const normalizedRatio = normalizeVideoRatio(ratio);
+  if (normalizedRatio === "16:9") {
+    if (normalizedResolution === "480p") return { width: 864, height: 480 };
+    if (normalizedResolution === "1080p") return { width: 1920, height: 1088 };
+    return { width: 1248, height: 704 };
+  }
+  if (normalizedRatio === "9:16") {
+    if (normalizedResolution === "480p") return { width: 480, height: 864 };
+    if (normalizedResolution === "1080p") return { width: 1088, height: 1920 };
+    return { width: 704, height: 1248 };
+  }
+  return videoPixelDimensions(normalizedResolution, normalizedRatio);
+}
+
+function seedanceUsdPerMillionTokens(resolution = "720p", options = {}) {
+  const normalizedResolution = normalizeAdvancedResolution(resolution);
+  const hasVideoInput = Boolean(options.hasVideoInput || options.rateKind === "video_input");
+  const isFast = normalizeSeedanceTier(options.seedanceTier) === "fast" || /fast/i.test(String(options.model || ""));
+  if (isFast) {
+    return hasVideoInput
+      ? ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_USD_PER_MILLION_TOKENS
+      : ADVANCED_SEEDANCE_FAST_USD_PER_MILLION_TOKENS;
+  }
+  if (hasVideoInput) {
+    return normalizedResolution === "1080p"
+      ? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_USD_PER_MILLION_TOKENS
+      : ADVANCED_SEEDANCE_VIDEO_INPUT_720P_USD_PER_MILLION_TOKENS;
+  }
+  return normalizedResolution === "1080p"
+    ? ADVANCED_SEEDANCE_1080P_USD_PER_MILLION_TOKENS
+    : ADVANCED_SEEDANCE_720P_USD_PER_MILLION_TOKENS;
+}
+
 function seedanceTokenPricing(options = {}) {
   const resolution = normalizeAdvancedResolution(options.resolution);
   const ratio = normalizeVideoRatio(options.ratio || options.aspect_ratio || "16:9");
   const duration = clampNumber(options.duration ?? options.durationSeconds, advancedDurationBounds("seedance").fallback, advancedDurationBounds("seedance").min, advancedDurationBounds("seedance").max);
   const fps = clampNumber(options.fps || ADVANCED_SEEDANCE_FPS, ADVANCED_SEEDANCE_FPS, 1, 120);
-  const { width, height } = videoPixelDimensions(resolution, ratio);
-  const outputTokens = Math.ceil((duration * width * height * fps) / 1024);
-  const yuanPerMillionTokens = resolution === "1080p"
-    ? ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS
-    : ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS;
+  const videoInputSeconds = durationSecondsFromValue(firstPresent(
+    options.videoInputSeconds,
+    options.inputVideoSeconds,
+    options.referenceVideoDurationSeconds,
+    options.referenceVideoSeconds,
+  ));
+  const hasVideoInput = videoInputSeconds > 0 || Boolean(options.hasVideoInput || options.rateKind === "video_input");
+  const { width, height } = seedanceOfficialPixelDimensions(resolution, ratio);
+  const billableSeconds = hasVideoInput ? duration + videoInputSeconds : duration;
+  const outputTokens = Math.ceil((billableSeconds * width * height * fps) / 1024);
+  const usdPerMillionTokens = seedanceUsdPerMillionTokens(resolution, {
+    ...options,
+    hasVideoInput,
+  });
+  const yuanPerMillionTokens = pricingNumber(usdPerMillionTokens * UPSTREAM_USD_CNY_RATE, 0, 0, 6);
   const baseCredits = creditsAmount((outputTokens * yuanPerMillionTokens * 100) / 1000000);
   return {
     resolution,
     ratio,
     duration,
+    videoInputSeconds,
+    billableSeconds,
+    hasVideoInput,
     fps,
     width,
     height,
     outputTokens,
+    usdPerMillionTokens,
+    usdCnyRate: UPSTREAM_USD_CNY_RATE,
     yuanPerMillionTokens,
     baseCredits,
+    source: "byteplus_official_token_pricing",
   };
 }
 
@@ -8197,15 +8274,20 @@ function seedanceFinalCreditsFromUsage(record = {}) {
   if (!completionTokens) return null;
   const pricing = record.pricingEstimate && typeof record.pricingEstimate === "object" ? record.pricingEstimate : {};
   const resolution = normalizeAdvancedResolution(record.resolution || pricing.resolution || record.params?.resolution);
-  const yuanPerMillionTokens = Number(pricing.yuanPerMillionTokens || (resolution === "1080p"
-    ? ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS
-    : ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS));
+  const usdPerMillionTokens = Number(pricing.usdPerMillionTokens || seedanceUsdPerMillionTokens(resolution, {
+    model: record.model || pricing.model,
+    seedanceTier: pricing.seedanceTier || record.params?.seedanceTier,
+    hasVideoInput: Boolean(pricing.hasVideoInput || pricing.videoInputSeconds || record.params?.inputVideoSeconds || record.params?.videoInputSeconds),
+  }));
+  const yuanPerMillionTokens = Number(pricing.yuanPerMillionTokens || pricingNumber(usdPerMillionTokens * UPSTREAM_USD_CNY_RATE, 0, 0, 6));
   const markup = Number(pricing.markup || ADVANCED_GENERATION_MARKUP) || ADVANCED_GENERATION_MARKUP;
   const baseCredits = creditsAmount((completionTokens * yuanPerMillionTokens * 100) / 1000000);
   const originalCredits = creditsAmount(Math.round(baseCredits * markup));
   const pricingMultiplier = normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? pricing.userPricingMultiplier ?? 1);
   return {
     completionTokens,
+    usdPerMillionTokens,
+    usdCnyRate: Number(pricing.usdCnyRate || UPSTREAM_USD_CNY_RATE),
     yuanPerMillionTokens,
     baseCredits,
     markup,
@@ -14043,6 +14125,11 @@ function yuanPerSecondFromCredits(creditsPerSecond, creditsPerCny) {
   return pricingNumber(Number(creditsPerSecond || 0) / Number(creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0);
 }
 
+function yuanPerSecondRangeFromCredits(creditsPerSecondRange, creditsPerCny) {
+  if (!Array.isArray(creditsPerSecondRange) || creditsPerSecondRange.length < 2) return null;
+  return creditsPerSecondRange.slice(0, 2).map((value) => yuanPerSecondFromCredits(value, creditsPerCny));
+}
+
 function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provider = "seedance", resolution = "720p", rateKind = "output") {
   const normalized = normalizeAdvancedPricing(pricing);
   const normalizedProvider = normalizeAdvancedProvider(provider);
@@ -14064,10 +14151,13 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
   if (normalizedProvider === "seedance" && rateKind === "video_input") {
+    const range = ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION[publicResolution] || ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION["720p"];
+    const creditsPerSecondRange = range.map((value) => pricingNumber((Number(value || 0) * UPSTREAM_USD_CNY_RATE * ADVANCED_CREDITS_PER_CNY) / duration, 0));
     return {
-      creditsPerSecond: DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution[publicResolution],
-      source: "configured_video_input_rate",
-      message: "Seedance 2.0 input-with-video is billed separately from output duration; this is the configured public input-second add-on.",
+      creditsPerSecond: null,
+      creditsPerSecondRange,
+      source: "byteplus_official_video_example_pricing",
+      message: `BytePlus official 5s 16:9 input-with-video example: ${range[0]}-${range[1]} USD/video, USD/CNY ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens and minimum-token rules.`,
     };
   }
   if (USE_GATEWAY_UPSTREAM && typeof gatewayAdvancedEstimate === "function") {
@@ -14090,15 +14180,20 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
     }
   }
   if (normalizedProvider === "seedance") {
-    const tokenPricing = seedanceTokenPricing({ duration, resolution: publicResolution, ratio: "16:9" });
+    const exampleUsd = ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION[publicResolution] || ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION["720p"];
     return {
-      creditsPerSecond: pricingNumber(tokenPricing.baseCredits / tokenPricing.duration, 0),
-      source: "seedance_token_estimate",
+      creditsPerSecond: pricingNumber((exampleUsd * UPSTREAM_USD_CNY_RATE * ADVANCED_CREDITS_PER_CNY) / duration, 0),
+      source: "byteplus_official_video_example_pricing",
+      message: `BytePlus official 5s 16:9 example: ${exampleUsd} USD/video, USD/CNY ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens returned by the API.`,
     };
   }
+  const wan27PurchaseCnyPerSecond = publicResolution === "1080p"
+    ? ALIYUN_WAN27_1080P_PURCHASE_CNY_PER_SECOND
+    : ALIYUN_WAN27_720P_PURCHASE_CNY_PER_SECOND;
   return {
-    creditsPerSecond: DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution[publicResolution],
-    source: "wan27_configured_upstream_rate",
+    creditsPerSecond: pricingNumber(wan27PurchaseCnyPerSecond * ADVANCED_CREDITS_PER_CNY, 0),
+    source: "aliyun_official_model_pricing",
+    message: "Alibaba Cloud Model Studio international official price for wan2.7-i2v-2026-04-25.",
   };
 }
 
@@ -14110,7 +14205,9 @@ async function adminAdvancedPricingView(config = {}) {
     return {
       ...row,
       purchaseCreditsPerSecond: purchase.creditsPerSecond,
+      purchaseCreditsPerSecondRange: Array.isArray(purchase.creditsPerSecondRange) ? purchase.creditsPerSecondRange.slice(0, 2) : null,
       purchaseYuanPerSecond: yuanPerSecondFromCredits(purchase.creditsPerSecond, pricing.creditsPerCny),
+      purchaseYuanPerSecondRange: yuanPerSecondRangeFromCredits(purchase.creditsPerSecondRange, pricing.creditsPerCny),
       purchaseSource: purchase.source,
       purchaseMessage: purchase.message || "",
       saleCreditsPerSecond,
