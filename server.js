@@ -1866,6 +1866,11 @@ function normalizeAdvancedProvider(value = "") {
   return "seedance";
 }
 
+function isWan27ImageProvider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return ["wan27image", "wan27imageedit", "wan2.7image", "wan2.7imageedit", "wanimage", "wanimageedit", "imageedit"].includes(normalized);
+}
+
 function normalizeSeedanceTier(value = "") {
   return String(value || "").trim().toLowerCase() === "fast" ? "fast" : "standard";
 }
@@ -10361,6 +10366,9 @@ function tenantDocsPricingView(pricing = {}) {
 
 async function buildUserAdvancedEstimate(provider = "seedance", params = {}, user = null) {
   const config = await readAppConfig();
+  if (isWan27ImageProvider(provider)) {
+    return wan27ImageModifyPricing(config, user || null);
+  }
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const inputVideoSeconds = normalizedProvider === "seedance"
     ? await seedanceVideoInputSecondsForPricingWithProbe(params, { requestParams: params })
@@ -10382,7 +10390,8 @@ async function handleAdvancedEstimate(req, res) {
   const body = req.method === "POST" ? await readJson(req) : {};
   const url = new URL(req.url || "/", "http://localhost");
   const tenantPublic = isTenantPublicOrigin(publicOriginFromRequest(req));
-  const provider = normalizeAdvancedProvider(body.provider || url.searchParams.get("provider"));
+  const rawProvider = body.provider || url.searchParams.get("provider");
+  const provider = isWan27ImageProvider(rawProvider) ? "wan27-image" : normalizeAdvancedProvider(rawProvider);
   const duration = body.duration ?? url.searchParams.get("duration");
   const params = {
     ...plainObject(body.params),
