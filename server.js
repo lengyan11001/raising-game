@@ -7945,8 +7945,8 @@ async function gatewaySubmitCharacterImageTask(body = {}) {
   return gatewayImageTaskFromPayload(payload);
 }
 
-async function gatewaySubmitSystemCharacterImageTask(characterId, body = {}) {
-  const payload = await gatewayRequest("POST", `/api/characters/${encodeURIComponent(characterId)}/modify`, body);
+async function gatewaySubmitWan27ImageEditTask(body = {}) {
+  const payload = await gatewayRequest("POST", "/api/wan27/image-edit", body);
   return gatewayImageTaskFromPayload(payload);
 }
 
@@ -12425,6 +12425,7 @@ async function handleGenerateUserCharacterImage(req, res) {
     const gatewayBody = {
       ...plainObject(body),
       prompt: userPrompt,
+      imageUrls: [],
       params: {
         ...plainObject(body.params),
         ...exposedWan27ImageParams(imageOptions),
@@ -12616,8 +12617,8 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
     const gatewayBody = {
       ...plainObject(body),
       mode,
-      prompt: userPrompt,
-      imageUrl: publicSourceUrl,
+      prompt: displayPrompt,
+      imageUrls: [publicSourceUrl],
       params: {
         ...plainObject(body.params),
         ...exposedWan27ImageParams(imageOptions),
@@ -12627,7 +12628,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
       },
     };
     const submitted = USE_GATEWAY_UPSTREAM
-      ? { task: await gatewaySubmitSystemCharacterImageTask(characterId, gatewayBody), payload: gatewayBody, raw: null }
+      ? { task: await gatewaySubmitWan27ImageEditTask(gatewayBody), payload: gatewayBody, raw: null }
       : await submitWan27ImageModify({
           imageUrl: publicSourceUrl,
           prompt,
@@ -12748,7 +12749,7 @@ function imageEditAssetIdsFromBody(body = {}) {
 async function handleWan27ImageEdit(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!ALIYUN_DASHSCOPE_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
   }
 
@@ -12863,10 +12864,18 @@ async function handleWan27ImageEdit(req, res) {
 
   try {
     const preparedAssets = [];
-    for (const asset of sourceAssets) {
-      preparedAssets.push(await ensurePublicUrlForUserMediaAsset(auth.db, asset));
+    if (USE_GATEWAY_UPSTREAM) {
+      preparedAssets.push(...sourceAssets);
+    } else {
+      for (const asset of sourceAssets) {
+        preparedAssets.push(await ensurePublicUrlForUserMediaAsset(auth.db, asset));
+      }
     }
-    const publicImageUrls = preparedAssets.map((asset) => asset.publicUrl || publicUrlForLocalAsset(asset)).filter(Boolean);
+    const publicImageUrls = preparedAssets.map((asset) => (
+      USE_GATEWAY_UPSTREAM
+        ? publicUrlForLocalAsset(asset)
+        : (asset.publicUrl || publicUrlForLocalAsset(asset))
+    )).filter(Boolean);
     if (publicImageUrls.length !== sourceAssets.length) {
       const error = new Error("Failed to prepare all source images for Wan2.7 image edit.");
       error.statusCode = 502;
@@ -12880,22 +12889,36 @@ async function handleWan27ImageEdit(req, res) {
       sourceImageUrls: referenceUrls,
       status: "running",
     }, "wan27-image-edit-references-ready");
-    const submitted = await submitWan27ImageModify({
-      imageUrls: publicImageUrls,
+    const gatewayBody = {
+      ...plainObject(body),
       prompt,
-      ratio,
-      resolution,
-      model,
-      input: imageOptions.input,
-      parameters: imageOptions.parameters,
-    });
+      imageAssetIds: [],
+      imageUrls: publicImageUrls,
+      params: {
+        ...plainObject(body.params),
+        ...exposedWan27ImageParams(imageOptions),
+        input: imageOptions.input,
+        parameters: imageOptions.parameters,
+      },
+    };
+    const submitted = USE_GATEWAY_UPSTREAM
+      ? { task: await gatewaySubmitWan27ImageEditTask(gatewayBody), payload: gatewayBody, raw: null }
+      : await submitWan27ImageModify({
+          imageUrls: publicImageUrls,
+          prompt,
+          ratio,
+          resolution,
+          model,
+          input: imageOptions.input,
+          parameters: imageOptions.parameters,
+        });
     const imageUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
       awaitingUpstreamTask: false,
       status: imageUrl ? (submitted.task.status || "succeeded") : "failed",
       upstreamPayload: submitted.payload,
-      createResponse: submitted.raw,
+      createResponse: submitted.raw || submitted.task.raw || null,
       remoteImageUrl: imageUrl || "",
       error: imageUrl ? "" : (submitted.task.error || "Wan2.7 image edit returned no image."),
     }, "wan27-image-edit-submit");
@@ -12990,7 +13013,7 @@ async function handleWan27ImageEdit(req, res) {
 async function handleModifyUserAssetImage(req, res, assetId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!ALIYUN_DASHSCOPE_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
   }
   const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
@@ -13087,28 +13110,50 @@ async function handleModifyUserAssetImage(req, res, assetId) {
   }
 
   try {
-    const publicAsset = await ensurePublicUrlForUserMediaAsset(auth.db, asset);
+    const publicAsset = USE_GATEWAY_UPSTREAM ? asset : await ensurePublicUrlForUserMediaAsset(auth.db, asset);
+    const sourcePublicUrl = USE_GATEWAY_UPSTREAM
+      ? publicUrlForLocalAsset(publicAsset)
+      : (publicAsset.publicUrl || publicUrlForLocalAsset(publicAsset));
+    if (!sourcePublicUrl) {
+      const error = new Error("Failed to prepare source image for Wan2.7 image edit.");
+      error.statusCode = 502;
+      throw error;
+    }
     await updateAssetImageModifyRecord(taskId, {
       imageUrl: publicAsset.localUrl || publicAsset.publicUrl || assetPreviewUrl,
       sourceImageUrl: publicAsset.localUrl || publicAsset.publicUrl || assetPreviewUrl,
       status: "running",
     }, "asset-image-modify-reference-ready");
-    const submitted = await submitWan27ImageModify({
-      imageUrl: publicAsset.publicUrl || publicUrlForLocalAsset(publicAsset),
+    const gatewayBody = {
+      ...plainObject(body),
       prompt,
-      ratio,
-      resolution,
-      model,
-      input: imageOptions.input,
-      parameters: imageOptions.parameters,
-    });
+      imageAssetIds: [],
+      imageUrls: [sourcePublicUrl],
+      params: {
+        ...plainObject(body.params),
+        ...exposedWan27ImageParams(imageOptions),
+        input: imageOptions.input,
+        parameters: imageOptions.parameters,
+      },
+    };
+    const submitted = USE_GATEWAY_UPSTREAM
+      ? { task: await gatewaySubmitWan27ImageEditTask(gatewayBody), payload: gatewayBody, raw: null }
+      : await submitWan27ImageModify({
+          imageUrl: sourcePublicUrl,
+          prompt,
+          ratio,
+          resolution,
+          model,
+          input: imageOptions.input,
+          parameters: imageOptions.parameters,
+        });
     const imageUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
       awaitingUpstreamTask: false,
       status: imageUrl ? (submitted.task.status || "succeeded") : "failed",
       upstreamPayload: submitted.payload,
-      createResponse: submitted.raw,
+      createResponse: submitted.raw || submitted.task.raw || null,
       remoteImageUrl: imageUrl || "",
       error: imageUrl ? "" : (submitted.task.error || "Wan2.7 image modify returned no image."),
     }, "asset-image-modify-submit");
