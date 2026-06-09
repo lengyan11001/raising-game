@@ -2009,7 +2009,8 @@ function wan27ImageSize(resolution = "2K", ratio = "9:16") {
 }
 
 function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
-  const shortSide = normalizeAdvancedResolution(resolution) === "1080p" ? 1080 : 720;
+  const normalizedResolution = normalizeAdvancedResolution(resolution);
+  const shortSide = normalizedResolution === "1080p" ? 1080 : normalizedResolution === "480p" ? 480 : 720;
   const [ratioW, ratioH] = normalizeVideoRatio(ratio).split(":").map((part) => Math.max(1, Number(part) || 1));
   if (ratioW >= ratioH) {
     return {
