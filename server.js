@@ -811,6 +811,20 @@ function publicOriginFromRequest(req) {
   return `${protocol}://${host}`.replace(/\/+$/, "");
 }
 
+function requestHostname(req) {
+  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
+  if (!host) return "";
+  try {
+    return new URL(`http://${host}`).hostname.toLowerCase();
+  } catch {
+    return host.replace(/:\d+$/, "").toLowerCase();
+  }
+}
+
+function isCmsHostRequest(req) {
+  return requestHostname(req).startsWith("cms.");
+}
+
 function configuredPublicBaseUrl() {
   return (PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 }
@@ -16014,7 +16028,7 @@ async function handleGetSceneVideo(req, res, taskId) {
 }
 
 async function serveStatic(req, res, url) {
-  let pathname = decodeURIComponent(url.pathname === "/" ? "/platform.html" : url.pathname);
+  let pathname = decodeURIComponent(url.pathname === "/" ? (isCmsHostRequest(req) ? "/admin.html" : "/platform.html") : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/index.html";
   if (await isProtectedUnlockAssetPath(pathname)) {
     return sendText(res, 403, "Unlock required");
