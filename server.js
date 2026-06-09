@@ -12677,6 +12677,17 @@ function imageEditAssetIdsFromBody(body = {}) {
   return ids.map((value) => String(value || "").trim()).filter(Boolean);
 }
 
+function imageEditUrlsFromBody(body = {}) {
+  const urls = [];
+  for (const key of ["imageUrls", "image_urls", "sourceImageUrls", "source_image_urls", "referenceImageUrls", "reference_image_urls"]) {
+    if (body[key] !== undefined && body[key] !== null && body[key] !== "") urls.push(...arrayFromBody(body[key]));
+  }
+  for (const key of ["imageUrl", "image_url", "sourceImageUrl", "source_image_url", "referenceImageUrl", "reference_image_url"]) {
+    if (body[key] !== undefined && body[key] !== null && body[key] !== "") urls.push(...arrayFromBody(body[key]));
+  }
+  return [...new Set(urls.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
 async function handleWan27ImageEdit(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -12690,7 +12701,12 @@ async function handleWan27ImageEdit(req, res) {
   const bodyParams = requestParamsFromBody(body);
   const mergedBody = { ...bodyParams, ...body };
   const assetIds = imageEditAssetIdsFromBody(mergedBody);
-  if (assetIds.length > 9) {
+  const externalImageUrls = imageEditUrlsFromBody(mergedBody);
+  const invalidExternalImageUrl = externalImageUrls.find((url) => !isPublicHttpUrl(url));
+  if (invalidExternalImageUrl) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_IMAGE_URL", message: "Wan2.7 image URLs must be public http(s) URLs." });
+  }
+  if (assetIds.length + externalImageUrls.length > 9) {
     return sendJson(res, 400, { ok: false, code: "TOO_MANY_IMAGES", message: "Wan2.7 image edit supports 0 to 9 input images." });
   }
 
@@ -12724,7 +12740,10 @@ async function handleWan27ImageEdit(req, res) {
   }
 
   const taskId = localGenerationTaskId("img");
-  const previewUrls = sourceAssets.map((asset) => asset.localUrl || asset.publicUrl || "");
+  const previewUrls = [
+    ...sourceAssets.map((asset) => asset.localUrl || asset.publicUrl || ""),
+    ...externalImageUrls,
+  ];
   const initialRecord = {
     taskId,
     status: "submitting",
@@ -12743,8 +12762,8 @@ async function handleWan27ImageEdit(req, res) {
     finalPrompt: prompt,
     params: {
       provider: "wan27-image",
-      action: sourceAssets.length ? "image_edit" : "text_to_image",
-      imageCount: sourceAssets.length,
+      action: previewUrls.length ? "image_edit" : "text_to_image",
+      imageCount: previewUrls.length,
       ...exposedWan27ImageParams(imageOptions),
     },
     ratio,
@@ -12778,10 +12797,11 @@ async function handleWan27ImageEdit(req, res) {
       meta: {
         taskId,
         assetIds: sourceAssets.map((asset) => asset.id),
+        externalImageCount: externalImageUrls.length,
         model,
         ratio,
         resolution,
-        imageCount: sourceAssets.length,
+        imageCount: previewUrls.length,
         baseCredits: pricing.baseCredits,
         originalCost: pricing.originalCredits,
         pricingMultiplier: pricing.userPricingMultiplier,
@@ -12798,13 +12818,19 @@ async function handleWan27ImageEdit(req, res) {
     for (const asset of sourceAssets) {
       preparedAssets.push(await ensurePublicUrlForUserMediaAsset(auth.db, asset));
     }
-    const publicImageUrls = preparedAssets.map((asset) => asset.publicUrl || publicUrlForLocalAsset(asset)).filter(Boolean);
-    if (publicImageUrls.length !== sourceAssets.length) {
+    const publicImageUrls = [
+      ...preparedAssets.map((asset) => asset.publicUrl || publicUrlForLocalAsset(asset)).filter(Boolean),
+      ...externalImageUrls,
+    ];
+    if (publicImageUrls.length !== sourceAssets.length + externalImageUrls.length) {
       const error = new Error("Failed to prepare all source images for Wan2.7 image edit.");
       error.statusCode = 502;
       throw error;
     }
-    const referenceUrls = preparedAssets.map((asset) => asset.localUrl || asset.publicUrl || "");
+    const referenceUrls = [
+      ...preparedAssets.map((asset) => asset.localUrl || asset.publicUrl || ""),
+      ...externalImageUrls,
+    ];
     await updateAssetImageModifyRecord(taskId, {
       imageUrl: referenceUrls[0] || "",
       imageUrls: referenceUrls,
@@ -12864,13 +12890,14 @@ async function handleWan27ImageEdit(req, res) {
       imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
       sourceAssets: sourceAssets.map(publicUserAsset),
       sourceAsset: sourceAssets[0] ? publicUserAsset(sourceAssets[0]) : null,
+      sourceImageUrls: referenceUrls,
       user: userView(latestUser),
       pricing,
       cost,
       record: publicRecord,
       params: {
         ...exposedWan27ImageParams(imageOptions),
-        imageCount: sourceAssets.length,
+        imageCount: referenceUrls.length,
       },
     });
   } catch (error) {
