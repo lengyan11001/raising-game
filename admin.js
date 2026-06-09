@@ -2542,22 +2542,43 @@ function fmtPriceRange(values = [], suffix = "") {
   return `${fmtPrice(values[0])}-${fmtPrice(values[1])}${suffix}`;
 }
 
-function pricingRowsToConfig(rows = [], creditsPerCny = ADVANCED_CREDITS_PER_CNY) {
+function isImagePricingRow(row = {}) {
+  return String(row.provider || "").toLowerCase() === "wan27-image" || String(row.unit || "").toLowerCase() === "image";
+}
+
+function rowPriceUnit(row = {}, credits = false) {
+  return isImagePricingRow(row) ? (credits ? "credits/image" : "元/张") : (credits ? "credits/s" : "元/秒");
+}
+
+function pricingRowsToConfig(rows = [], creditsPerCny = ADVANCED_CREDITS_PER_CNY, currentPricing = {}) {
+  const source = currentPricing && typeof currentPricing === "object" ? currentPricing : {};
+  const seedance = source.seedanceCreditsPerSecondByResolution || {};
+  const seedanceVideoInput = source.seedanceVideoInputCreditsPerSecondByResolution || {};
+  const wan27 = source.wan27CreditsPerSecondByResolution || {};
   const pricing = {
     unit: "credits",
     creditsPerCny: Number(creditsPerCny) || ADVANCED_CREDITS_PER_CNY,
-    seedanceCreditsPerSecondByResolution: { "480p": Math.round(ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND * 0.5), "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND },
-    seedanceVideoInputCreditsPerSecondByResolution: { "480p": Math.round(ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND * 0.5), "720p": ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND },
-    wan27CreditsPerSecondByResolution: { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
+    seedanceCreditsPerSecondByResolution: { "480p": Number(seedance["480p"] ?? Math.round(ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND * 0.5)), "720p": Number(seedance["720p"] ?? ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND), "1080p": Number(seedance["1080p"] ?? ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND) },
+    seedanceVideoInputCreditsPerSecondByResolution: { "480p": Number(seedanceVideoInput["480p"] ?? Math.round(ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND * 0.5)), "720p": Number(seedanceVideoInput["720p"] ?? ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND), "1080p": Number(seedanceVideoInput["1080p"] ?? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND) },
+    wan27CreditsPerSecondByResolution: { "720p": Number(wan27["720p"] ?? ADVANCED_WAN27_720P_CREDITS_PER_SECOND), "1080p": Number(wan27["1080p"] ?? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND) },
+    wan27ImagePro: { ...(source.wan27ImagePro || {}) },
   };
   rows.forEach((row) => {
     const provider = String(row.provider || "").toLowerCase();
-    const resolution = row.resolution === "1080p" ? "1080p" : row.resolution === "480p" ? "480p" : "720p";
     const rateKind = String(row.rateKind || row.unit || "").toLowerCase() === "video_input" || String(row.key || "").includes("video-input")
       ? "video_input"
       : "output";
     const yuan = Number(row.saleYuanPerSecond);
     if (!Number.isFinite(yuan) || yuan < 0) return;
+    if (provider === "wan27-image") {
+      pricing.wan27ImagePro = {
+        ...(pricing.wan27ImagePro || {}),
+        saleCnyPerImage: Math.round(yuan * 1000000) / 1000000,
+        userConfigured: true,
+      };
+      return;
+    }
+    const resolution = row.resolution === "1080p" ? "1080p" : row.resolution === "480p" ? "480p" : "720p";
     const credits = Math.round(yuan * pricing.creditsPerCny * 10000) / 10000;
     if (provider === "wan27") pricing.wan27CreditsPerSecondByResolution[resolution] = credits;
     else if (rateKind === "video_input") pricing.seedanceVideoInputCreditsPerSecondByResolution[resolution] = credits;
@@ -2597,18 +2618,18 @@ async function renderPricing() {
                 <th>模型</th>
                 <th>分辨率</th>
                 <th>采购价</th>
-                <th>对外价（元/秒）</th>
-                <th>Credits/秒</th>
+                <th>对外价</th>
+                <th>Credits</th>
               </tr>
             </thead>
             <tbody>
               ${rows.map((row) => `
-                <tr data-provider="${escapeHtml(row.provider)}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}">
+                <tr data-provider="${escapeHtml(row.provider)}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}" data-unit="${escapeHtml(row.unit || "")}">
                   <td><strong>${escapeHtml(row.providerLabel || row.provider)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.provider)}</small></td>
                   <td>${escapeHtml(row.resolution)}${row.rateKind === "video_input" ? `<br/><small class="adm-muted">视频输入秒数</small>` : ""}</td>
                   <td>
-                    <strong>${row.purchaseYuanPerSecondRange ? fmtPriceRange(row.purchaseYuanPerSecondRange, " 元/秒") : row.purchaseYuanPerSecond === null || row.purchaseYuanPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseYuanPerSecond)} 元/秒`}</strong>
-                    <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, " credits/s") : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} credits/s`} · ${escapeHtml(row.purchaseSource || "")}</small>
+                    <strong>${row.purchaseYuanPerSecondRange ? fmtPriceRange(row.purchaseYuanPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseYuanPerSecond === null || row.purchaseYuanPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseYuanPerSecond)} ${rowPriceUnit(row)}`}</strong>
+                    <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, ` ${rowPriceUnit(row, true)}`) : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} ${rowPriceUnit(row, true)}`} · ${escapeHtml(row.purchaseSource || "")}</small>
                     ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
                   </td>
                   <td><input class="adm-price-input" data-f="saleYuanPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleYuanPerSecond))}" /></td>
@@ -2645,11 +2666,12 @@ async function renderPricing() {
         resolution: tr.dataset.resolution,
         rateKind: tr.dataset.rateKind,
         key: tr.dataset.key,
+        unit: tr.dataset.unit,
         saleYuanPerSecond: Number(tr.querySelector('[data-f="saleYuanPerSecond"]')?.value || 0),
       }));
       const payload = await api("/api/admin/pricing", {
         method: "PUT",
-        body: { advancedPricing: pricingRowsToConfig(nextRows, pricing.creditsPerCny) },
+        body: { advancedPricing: pricingRowsToConfig(nextRows, pricing.creditsPerCny, pricing.pricing) },
       });
       state.config = payload.config || null;
       toast("价格已保存。", "success");
