@@ -1867,6 +1867,11 @@ function normalizeAdvancedProvider(value = "") {
   return "seedance";
 }
 
+function isWan27ImageProvider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return ["wan27image", "wan27imageedit", "wan2.7image", "wan2.7imageedit", "wanimage", "wanimageedit", "imageedit"].includes(normalized);
+}
+
 function normalizeSeedanceTier(value = "") {
   return String(value || "").trim().toLowerCase() === "fast" ? "fast" : "standard";
 }
@@ -8003,6 +8008,14 @@ async function gatewaySubmitAdvancedTask(body = {}) {
   return gatewayTaskFromPayload(payload);
 }
 
+async function gatewayAdvancedEstimate(provider = "seedance", body = {}) {
+  const payload = await gatewayRequest("POST", "/api/advanced/estimate", {
+    ...plainObject(body),
+    provider,
+  });
+  return payload.pricing || payload.estimate || payload;
+}
+
 function gatewayImageTaskFromPayload(payload = {}) {
   const record = payload.record || payload.data?.record || {};
   const task = payload.task || payload.data?.task || record || payload;
@@ -10401,6 +10414,9 @@ function tenantDocsPricingView(pricing = {}) {
 
 async function buildUserAdvancedEstimate(provider = "seedance", params = {}, user = null) {
   const config = await readAppConfig();
+  if (isWan27ImageProvider(provider)) {
+    return wan27ImageModifyPricing(config, user || null);
+  }
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const inputVideoSeconds = normalizedProvider === "seedance"
     ? await seedanceVideoInputSecondsForPricingWithProbe(params, { requestParams: params })
@@ -10422,7 +10438,8 @@ async function handleAdvancedEstimate(req, res) {
   const body = req.method === "POST" ? await readJson(req) : {};
   const url = new URL(req.url || "/", "http://localhost");
   const tenantPublic = isTenantPublicOrigin(publicOriginFromRequest(req));
-  const provider = normalizeAdvancedProvider(body.provider || url.searchParams.get("provider"));
+  const rawProvider = body.provider || url.searchParams.get("provider");
+  const provider = isWan27ImageProvider(rawProvider) ? "wan27-image" : normalizeAdvancedProvider(rawProvider);
   const duration = body.duration ?? url.searchParams.get("duration");
   const params = {
     ...plainObject(body.params),
@@ -14160,10 +14177,65 @@ function advancedSaleImageCredits(pricing = DEFAULT_ADVANCED_PRICING) {
   return pricingNumber(Number(normalized.wan27ImagePro.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6);
 }
 
+async function gatewayPurchaseImageCredits() {
+  if (!USE_GATEWAY_UPSTREAM) return null;
+  try {
+    const estimate = await gatewayAdvancedEstimate("wan27-image", {});
+    const credits = estimate?.credits ?? estimate?.cost;
+    if (!Number.isFinite(Number(credits))) return null;
+    return {
+      credits: creditsAmount(credits),
+      source: "gateway_upstream",
+      message: "Old-site sale price for Wan2.7 image generation through the configured upstream token.",
+    };
+  } catch (error) {
+    return {
+      credits: null,
+      source: "gateway_unavailable",
+      message: error.message || String(error),
+    };
+  }
+}
+
+async function gatewayPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output") {
+  if (!USE_GATEWAY_UPSTREAM) return null;
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  const publicResolution = normalizeAdvancedResolution(resolution);
+  const duration = 5;
+  try {
+    const estimate = await gatewayAdvancedEstimate(normalizedProvider, {
+      duration,
+      resolution: publicResolution,
+      ratio: "16:9",
+      ...(normalizedProvider === "seedance" && rateKind === "video_input" ? { inputVideoSeconds: duration } : {}),
+    });
+    const rawCredits = normalizedProvider === "seedance" && rateKind === "video_input"
+      ? Number(estimate.videoInputCredits ?? 0) / Number(estimate.videoInputSeconds || duration)
+      : Number(estimate.outputCredits ?? estimate.credits ?? 0) / Number(estimate.duration || duration);
+    if (!Number.isFinite(rawCredits) || rawCredits < 0) {
+      throw new Error("Gateway estimate did not include a usable credit amount.");
+    }
+    return {
+      creditsPerSecond: pricingNumber(rawCredits, 0),
+      source: "gateway_upstream",
+      message: "Old-site sale price through the configured upstream token.",
+    };
+  } catch (error) {
+    return {
+      creditsPerSecond: null,
+      source: "gateway_unavailable",
+      message: error.message || String(error),
+    };
+  }
+}
+
 async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
+  if (USE_GATEWAY_UPSTREAM) {
+    return await gatewayPurchaseCreditsPerSecond(normalizedProvider, publicResolution, rateKind);
+  }
   if (normalizedProvider === "seedance" && rateKind === "video_input") {
     const range = ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION[publicResolution] || ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION["720p"];
     const creditsPerSecondRange = range.map((value) => pricingNumber((Number(value || 0) * UPSTREAM_USD_CNY_RATE * ADVANCED_CREDITS_PER_CNY) / duration, 0));
@@ -14173,25 +14245,6 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
       source: "byteplus_official_video_example_pricing",
       message: `BytePlus official 5s 16:9 input-with-video example: ${range[0]}-${range[1]} USD/video, USD/CNY ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens and minimum-token rules.`,
     };
-  }
-  if (USE_GATEWAY_UPSTREAM && typeof gatewayAdvancedEstimate === "function") {
-    try {
-      const estimate = await gatewayAdvancedEstimate(normalizedProvider, {
-        duration,
-        resolution: publicResolution,
-        ratio: "16:9",
-      });
-      return {
-        creditsPerSecond: pricingNumber(Number(estimate.credits || 0) / Number(estimate.duration || duration), 0),
-        source: "gateway_upstream",
-      };
-    } catch (error) {
-      return {
-        creditsPerSecond: null,
-        source: "gateway_unavailable",
-        message: error.message || String(error),
-      };
-    }
   }
   if (normalizedProvider === "seedance") {
     const exampleUsd = ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION[publicResolution] || ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION["720p"];
@@ -14228,15 +14281,19 @@ async function adminAdvancedPricingView(config = {}) {
       saleYuanPerSecond: yuanPerSecondFromCredits(saleCreditsPerSecond, pricing.creditsPerCny),
     };
   }));
+  const gatewayImagePurchase = await gatewayPurchaseImageCredits();
+  const imagePurchaseCredits = gatewayImagePurchase
+    ? gatewayImagePurchase.credits
+    : pricingNumber(pricing.wan27ImagePro.purchaseCnyPerImage * pricing.creditsPerCny, 0);
   rows.push({
     provider: "wan27-image",
     providerLabel: "Wan2.7 Image Pro",
     resolution: "image",
     unit: "image",
-    purchaseCreditsPerSecond: pricingNumber(pricing.wan27ImagePro.purchaseCnyPerImage * pricing.creditsPerCny, 0),
-    purchaseYuanPerSecond: pricing.wan27ImagePro.purchaseCnyPerImage,
-    purchaseSource: "aliyun_model_pricing",
-    purchaseMessage: "Official unit price per generated image. Failed calls are not charged upstream.",
+    purchaseCreditsPerSecond: imagePurchaseCredits,
+    purchaseYuanPerSecond: yuanPerSecondFromCredits(imagePurchaseCredits, pricing.creditsPerCny),
+    purchaseSource: gatewayImagePurchase?.source || "aliyun_model_pricing",
+    purchaseMessage: gatewayImagePurchase?.message || "Official unit price per generated image. Failed calls are not charged upstream.",
     saleCreditsPerSecond: advancedSaleImageCredits(pricing),
     saleYuanPerSecond: pricing.wan27ImagePro.saleCnyPerImage,
     model: pricing.wan27ImagePro.model,
