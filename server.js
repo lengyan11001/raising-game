@@ -4765,7 +4765,7 @@ async function handleVolcengineGetGenerationTask(req, res, taskId) {
   }
   const upstreamTaskId = record.upstreamTaskId || record.taskId;
   let raw = record.queryResponse || record.createResponse || officialSeedanceResponseFromRecord(record);
-  if (ARK_API_KEY && shouldRefreshGenerationRecord(record)) {
+  if (ARK_API_KEY && !isImageGenerationRecord(record) && shouldRefreshGenerationRecord(record)) {
     try {
       raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(upstreamTaskId)}`);
       const task = normalizeTask(raw);
@@ -7063,6 +7063,14 @@ function generationRecordProviderImageUrl(record = {}) {
   ).trim();
 }
 
+function isImageGenerationRecord(record = {}) {
+  const provider = String(record.provider || "").toLowerCase();
+  const kind = String(record.kind || "").toLowerCase();
+  const source = String(record.source || "").toLowerCase();
+  if (provider.includes("image") || kind.includes("image") || source.includes("image")) return true;
+  return Boolean(generationRecordImageUrl(record)) && !Boolean(generationRecordVideoUrl(record));
+}
+
 function generationRecordResponseOptionsForAuth(auth = {}) {
   const tokenSource = String(auth?.tokenSource || "").toLowerCase();
   const externalApiCaller = tokenSource === "api_token" || tokenSource === "subtoken" || auth?.isApiToken === true;
@@ -7201,6 +7209,7 @@ function generationRecordMatchesQuery(record = {}, query = "") {
 function shouldRefreshGenerationRecord(record = {}) {
   if (needsApizFailureRefund(record)) return true;
   if (needsSeedanceFailureRefund(record)) return true;
+  if (isImageGenerationRecord(record)) return false;
   if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
   if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) return true;
@@ -15593,7 +15602,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
     } catch (error) {
       console.warn("[wan27-generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
-  } else if (ARK_API_KEY && shouldRefreshGenerationRecord(record) && !String(taskId).startsWith("demo-")) {
+  } else if (ARK_API_KEY && !isImageGenerationRecord(record) && shouldRefreshGenerationRecord(record) && !String(taskId).startsWith("demo-")) {
     try {
       const queryTaskId = record.upstreamTaskId || taskId;
       const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(queryTaskId)}`);
