@@ -2671,7 +2671,7 @@ async function renderPricing() {
       }));
       const payload = await api("/api/admin/pricing", {
         method: "PUT",
-        body: { advancedPricing: pricingRowsToConfig(nextRows, pricing.creditsPerCny, pricing.pricing) },
+        body: { rows: nextRows },
       });
       state.config = payload.config || null;
       toast("价格已保存。", "success");
