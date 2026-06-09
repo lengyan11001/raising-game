@@ -14057,6 +14057,45 @@ const ADVANCED_PRICING_ROWS = [
   { key: "wan27-1080p", provider: "wan27", providerLabel: "Wan2.7", resolution: "1080p", rateKind: "output", unit: "output_second" },
 ];
 
+const ADVANCED_PRICING_ROW_KEYS = new Set([
+  ...ADVANCED_PRICING_ROWS.map((row) => row.key),
+  "wan27-image",
+]);
+
+function pricingPayloadError(message, code = "INVALID_PRICING_ROWS") {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.code = code;
+  return error;
+}
+
+function advancedPricingRowKey(row = {}) {
+  const explicit = String(row.key || "").trim();
+  if (explicit) return explicit;
+  const providerRaw = String(row.provider || "").toLowerCase();
+  const unitRaw = String(row.unit || "").toLowerCase();
+  const resolutionRaw = String(row.resolution || "").toLowerCase();
+  if (providerRaw === "wan27-image" || unitRaw === "image" || resolutionRaw === "image") return "wan27-image";
+  const provider = normalizeAdvancedProvider(row.provider);
+  const resolution = normalizeAdvancedResolution(row.resolution);
+  const rateKindRaw = String(row.rateKind || row.unit || "").toLowerCase();
+  const isVideoInput = rateKindRaw === "video_input" || rateKindRaw === "input_second" || String(row.key || "").includes("video-input");
+  if (provider === "seedance" && isVideoInput) return `seedance-video-input-${resolution}`;
+  return `${provider}-${resolution}`;
+}
+
+function advancedPricingRowSaleCredits(row = {}, creditsPerCny = ADVANCED_CREDITS_PER_CNY) {
+  if (row.saleCreditsPerSecond !== undefined) return Number(row.saleCreditsPerSecond);
+  return Number(row.saleYuanPerSecond) * Number(creditsPerCny || ADVANCED_CREDITS_PER_CNY);
+}
+
+function advancedPricingRowSaleYuan(row = {}, creditsPerCny = ADVANCED_CREDITS_PER_CNY) {
+  if (row.saleYuanPerSecond !== undefined) return Number(row.saleYuanPerSecond);
+  if (row.saleCnyPerImage !== undefined) return Number(row.saleCnyPerImage);
+  if (row.saleCreditsPerSecond !== undefined) return Number(row.saleCreditsPerSecond) / Number(creditsPerCny || ADVANCED_CREDITS_PER_CNY);
+  return NaN;
+}
+
 function yuanPerSecondFromCredits(creditsPerSecond, creditsPerCny) {
   if (creditsPerSecond === null || creditsPerSecond === undefined) return null;
   return pricingNumber(Number(creditsPerSecond || 0) / Number(creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0);
@@ -14152,6 +14191,7 @@ async function adminAdvancedPricingView(config = {}) {
     };
   }));
   rows.push({
+    key: "wan27-image",
     provider: "wan27-image",
     providerLabel: "Wan2.7 Image Pro",
     resolution: "image",
@@ -14174,44 +14214,46 @@ async function adminAdvancedPricingView(config = {}) {
 }
 
 function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PRICING) {
-  const base = normalizeAdvancedPricing(body.advancedPricing || body.pricing || currentPricing);
-  if (!Array.isArray(body.rows)) return base;
-  const next = normalizeAdvancedPricing(base);
+  if (!Array.isArray(body.rows)) {
+    throw pricingPayloadError("Pricing save requires the latest row-based form. Refresh the admin page and try again.", "PRICING_ROWS_REQUIRED");
+  }
+  const next = normalizeAdvancedPricing(currentPricing);
+  const seen = new Set();
   for (const row of body.rows) {
-    const provider = normalizeAdvancedProvider(row.provider);
-    const resolution = normalizeAdvancedResolution(row.resolution);
-    const rateKind = String(row.rateKind || row.unit || "").toLowerCase() === "video_input" || String(row.key || "").includes("video-input")
-      ? "video_input"
-      : "output";
-    if (String(row.provider || "").toLowerCase() === "wan27-image") {
-      const rawSale = row.saleYuanPerSecond !== undefined
-        ? Number(row.saleYuanPerSecond)
-        : Number(row.saleCnyPerImage);
-      if (Number.isFinite(rawSale) && rawSale >= 0) next.wan27ImagePro.saleCnyPerImage = pricingNumber(rawSale, next.wan27ImagePro.saleCnyPerImage, 0, 6);
+    const key = advancedPricingRowKey(row);
+    if (!ADVANCED_PRICING_ROW_KEYS.has(key)) {
+      throw pricingPayloadError(`Unknown pricing row: ${key || "empty"}`);
+    }
+    seen.add(key);
+    if (key === "wan27-image") {
+      const rawSale = advancedPricingRowSaleYuan(row, next.creditsPerCny);
+      if (!Number.isFinite(rawSale) || rawSale < 0) {
+        throw pricingPayloadError(`Invalid sale price for ${key}`);
+      }
+      next.wan27ImagePro.saleCnyPerImage = pricingNumber(rawSale, next.wan27ImagePro.saleCnyPerImage, 0, 6);
       next.wan27ImagePro.userConfigured = true;
       continue;
     }
-    const rawCredits = row.saleCreditsPerSecond !== undefined
-      ? Number(row.saleCreditsPerSecond)
-      : Number(row.saleYuanPerSecond) * next.creditsPerCny;
-    if (!Number.isFinite(rawCredits) || rawCredits < 0) continue;
-    const credits = pricingNumber(rawCredits, 0);
-    if (provider === "wan27") {
-      next.wan27CreditsPerSecondByResolution[resolution] = credits;
-    } else if (rateKind === "video_input") {
-      next.seedanceVideoInputCreditsPerSecondByResolution[resolution] = credits;
-    } else {
-      next.seedanceCreditsPerSecondByResolution[resolution] = credits;
+    const rawCredits = advancedPricingRowSaleCredits(row, next.creditsPerCny);
+    if (!Number.isFinite(rawCredits) || rawCredits < 0) {
+      throw pricingPayloadError(`Invalid sale price for ${key}`);
     }
+    const credits = pricingNumber(rawCredits, 0);
+    if (key === "wan27-720p") next.wan27CreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "wan27-1080p") next.wan27CreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "seedance-video-input-480p") next.seedanceVideoInputCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "seedance-video-input-720p") next.seedanceVideoInputCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "seedance-video-input-1080p") next.seedanceVideoInputCreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "seedance-480p") next.seedanceCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "seedance-720p") next.seedanceCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "seedance-1080p") next.seedanceCreditsPerSecondByResolution["1080p"] = credits;
   }
-  const hasSeedance480Row = body.rows.some((row) => String(row?.key || "") === "seedance-480p" || (normalizeAdvancedProvider(row?.provider) === "seedance" && normalizeAdvancedResolution(row?.resolution) === "480p" && String(row?.rateKind || row?.unit || "").toLowerCase() !== "video_input"));
-  const hasSeedanceVideo480Row = body.rows.some((row) => String(row?.key || "") === "seedance-video-input-480p" || (normalizeAdvancedProvider(row?.provider) === "seedance" && normalizeAdvancedResolution(row?.resolution) === "480p" && (String(row?.rateKind || row?.unit || "").toLowerCase() === "video_input" || String(row?.key || "").includes("video-input"))));
   const seedance720 = next.seedanceCreditsPerSecondByResolution["720p"];
   const seedanceVideo720 = next.seedanceVideoInputCreditsPerSecondByResolution["720p"];
-  if (!hasSeedance480Row) {
+  if (!seen.has("seedance-480p")) {
     next.seedanceCreditsPerSecondByResolution["480p"] = pricingNumber(seedance720 * 0.5, DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]);
   }
-  if (!hasSeedanceVideo480Row) {
+  if (!seen.has("seedance-video-input-480p")) {
     next.seedanceVideoInputCreditsPerSecondByResolution["480p"] = pricingNumber(seedanceVideo720 * 0.5, DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["480p"]);
   }
   return normalizeAdvancedPricing(next);
@@ -14229,7 +14271,16 @@ async function handleAdminSavePricing(req, res) {
   if (!auth) return;
   const body = await readJson(req);
   const current = await readAppConfig();
-  const nextPricing = advancedPricingFromBody(body, current.platform?.advancedPricing);
+  let nextPricing;
+  try {
+    nextPricing = advancedPricingFromBody(body, current.platform?.advancedPricing);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, {
+      ok: false,
+      code: error.code || "INVALID_PRICING_ROWS",
+      message: error.message || "Invalid pricing rows.",
+    });
+  }
   const next = {
     ...current,
     platform: normalizePlatformConfig({
