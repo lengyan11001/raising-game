@@ -5273,6 +5273,80 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
   }, reason);
 }
 
+async function refreshGatewayImageGenerationRecord(record = {}, { reason = "gateway-image-query" } = {}) {
+  const queryTaskId = record.upstreamTaskId || record.taskId;
+  if (!queryTaskId) return record;
+  const payload = await gatewayRequest("GET", `/api/generation-records/${encodeURIComponent(queryTaskId)}`);
+  const imageTask = gatewayImageTaskFromPayload(payload);
+  const imageUrl = imageTask.imageUrls[0] || record.remoteImageUrl || "";
+  const failed = isFailedStatus(imageTask.status);
+  if (!imageUrl && !failed) {
+    return updateAssetImageModifyRecord(record.taskId, {
+      upstreamTaskId: imageTask.taskId || queryTaskId,
+      status: imageTask.status || record.status || "running",
+      awaitingUpstreamTask: true,
+      queryResponse: imageTask.raw || payload,
+      error: imageTask.error || "",
+    }, reason);
+  }
+  if (failed && !imageUrl) {
+    if (Number(record.preDeductedCredits || 0) > 0 && record.billingStatus === "pre_deducted") {
+      try {
+        const db = await readDb();
+        await changeUserCredits(db, record.userId, Number(record.preDeductedCredits || 0), "asset_image_modify_refund", {
+          taskId: record.taskId,
+          error: imageTask.error || "Wan2.7 image edit failed.",
+        });
+        await recordSubtokenAdjustment(record, {
+          taskId: record.taskId,
+          type: "asset_image_modify_refund",
+          amount: -Number(record.preDeductedCredits || 0),
+          meta: { error: imageTask.error || "Wan2.7 image edit failed." },
+        });
+        if (!dbEnabled()) await writeDb(db);
+      } catch (refundError) {
+        console.error("[gateway-image-refresh-refund-failed]", record.taskId, refundError.message || refundError);
+      }
+    }
+    return updateAssetImageModifyRecord(record.taskId, {
+      upstreamTaskId: imageTask.taskId || queryTaskId,
+      status: "failed",
+      awaitingUpstreamTask: false,
+      queryResponse: imageTask.raw || payload,
+      error: imageTask.error || "Wan2.7 image edit failed.",
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: Number(record.preDeductedCredits || 0) > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    }, reason);
+  }
+  let savedImage = null;
+  if (!record.localImageUrl && imageUrl) {
+    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "edited image", maxBytes: 20 * 1024 * 1024 });
+    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+    savedImage = await saveGeneratedImageFile(record.taskId, downloaded.bytes, mime);
+  }
+  return updateAssetImageModifyRecord(record.taskId, {
+    upstreamTaskId: imageTask.taskId || queryTaskId,
+    status: "succeeded",
+    awaitingUpstreamTask: false,
+    imageResultUrl: savedImage?.cdnImageUrl || savedImage?.localImageUrl || record.imageResultUrl || record.localImageUrl || imageUrl,
+    localImageUrl: savedImage?.localImageUrl || record.localImageUrl || "",
+    localImagePath: savedImage?.localImagePath || record.localImagePath || "",
+    cdnImageUrl: savedImage?.cdnImageUrl || record.cdnImageUrl || "",
+    cdnError: savedImage?.cdnError || record.cdnError || "",
+    remoteImageUrl: imageUrl,
+    queryResponse: imageTask.raw || payload,
+    finalCredits: record.preDeductedCredits || record.finalCredits || 0,
+    originalFinalCredits: record.originalPreDeductedCredits || record.originalFinalCredits || 0,
+    billingStatus: Number(record.preDeductedCredits || 0) > 0 ? "settled" : "free",
+    billingSettledAt: record.billingSettledAt || new Date().toISOString(),
+    completedAt: record.completedAt || new Date().toISOString(),
+    error: "",
+  }, reason);
+}
+
 async function downloadHomeReferenceImage(imageUrl, itemId) {
   const response = await fetch(imageUrl, { signal: AbortSignal.timeout(180000) });
   if (!response.ok) {
@@ -7321,6 +7395,13 @@ function generationRecordMatchesQuery(record = {}, query = "") {
 function shouldRefreshGenerationRecord(record = {}) {
   if (needsApizFailureRefund(record)) return true;
   if (needsSeedanceFailureRefund(record)) return true;
+  if (String(record.provider || "").toLowerCase() === "aliyun-wan27-image") {
+    if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
+    const imageStatus = String(record.status || "").toLowerCase();
+    if (isFailedStatus(imageStatus)) return false;
+    if (isSucceededStatus(imageStatus)) return !generationRecordImageUrl(record);
+    return Boolean(record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-");
+  }
   if (isImageGenerationRecord(record)) return false;
   if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
@@ -7430,6 +7511,15 @@ async function refreshGenerationRecordStatus(record = {}) {
       return await refreshApizGenerationRecord(record);
     } catch (error) {
       console.warn("[apiz-generation-record-refresh-failed]", record.taskId, error.message || error);
+      return record;
+    }
+  }
+  if (record.provider === "aliyun-wan27-image" && record.upstreamSource === "gateway") {
+    if (!shouldRefreshGenerationRecord(record)) return record;
+    try {
+      return await refreshGatewayImageGenerationRecord(record, { reason: "gateway-image-query" });
+    } catch (error) {
+      console.warn("[gateway-image-generation-record-refresh-failed]", record.taskId, error.message || error);
       return record;
     }
   }
@@ -13138,6 +13228,7 @@ async function handleWan27ImageEdit(req, res) {
       prompt,
       imageAssetIds: [],
       imageUrls: publicImageUrls,
+      async: true,
       params: {
         ...plainObject(body.params),
         ...exposedWan27ImageParams(imageOptions),
@@ -13159,14 +13250,33 @@ async function handleWan27ImageEdit(req, res) {
     const imageUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
-      awaitingUpstreamTask: false,
-      status: imageUrl ? (submitted.task.status || "succeeded") : "failed",
+      awaitingUpstreamTask: !imageUrl && !isFailedStatus(submitted.task.status),
+      status: imageUrl ? (submitted.task.status || "succeeded") : (submitted.task.status || "running"),
       upstreamPayload: submitted.payload,
       createResponse: submitted.raw || submitted.task.raw || null,
       remoteImageUrl: imageUrl || "",
-      error: imageUrl ? "" : (submitted.task.error || "Wan2.7 image edit returned no image."),
+      error: imageUrl || !isFailedStatus(submitted.task.status) ? "" : (submitted.task.error || "Wan2.7 image edit returned no image."),
     }, "wan27-image-edit-submit");
     if (!imageUrl) {
+      if (USE_GATEWAY_UPSTREAM && !isFailedStatus(submitted.task.status)) {
+        const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+        const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth));
+        return sendJson(res, 202, {
+          ok: true,
+          taskId,
+          upstreamTaskId: submitted.task.taskId || "",
+          status: publicRecord.status || "running",
+          async: true,
+          user: userView(latestUser),
+          pricing,
+          cost,
+          record: publicRecord,
+          params: {
+            ...exposedWan27ImageParams(imageOptions),
+            imageCount: sourceAssets.length,
+          },
+        });
+      }
       const error = new Error(submitted.task.error || "Wan2.7 image edit returned no image.");
       error.statusCode = 502;
       error.payload = submitted.raw;
@@ -15845,6 +15955,12 @@ async function handleGetGenerationRecord(req, res, taskId) {
       nextRecord = await refreshApizGenerationRecord(record);
     } catch (error) {
       console.warn("[apiz-generation-record-refresh-failed]", taskId, error.message || error);
+    }
+  } else if (record.provider === "aliyun-wan27-image" && record.upstreamSource === "gateway" && shouldRefreshGenerationRecord(record)) {
+    try {
+      nextRecord = await refreshGatewayImageGenerationRecord(record, { reason: "gateway-image-detail" });
+    } catch (error) {
+      console.warn("[gateway-image-generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
   } else if (record.upstreamSource === "gateway" && shouldRefreshGenerationRecord(record)) {
     try {
