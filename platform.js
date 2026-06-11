@@ -6912,6 +6912,57 @@ function fillAdvancedCase(item = {}) {
   }
 }
 
+function clearAdvancedCreationInputs() {
+  state.activeAdvancedCaseId = "";
+  state.advancedUploadDataUrl = "";
+  state.advancedSourceImageAssetId = "";
+  state.advancedFirstFrameAssetId = "";
+  state.advancedReferenceImages = [];
+  state.advancedSeedanceLastFrameDataUrl = "";
+  state.advancedSeedanceLastFrameAssetId = "";
+  state.advancedSeedanceVideoAssetId = "";
+  state.advancedSeedanceVideoPreviewUrl = "";
+  state.advancedWanLastFrameDataUrl = "";
+  state.advancedWanLastFrameAssetId = "";
+  state.advancedWanClipDataUrl = "";
+  state.advancedWanClipFileName = "";
+  state.advancedWanClipAssetId = "";
+  state.advancedAudioAssetId = "";
+  state.advancedAssetTarget = "primary";
+
+  [
+    els.advancedPrompt,
+    els.advancedSeedanceVideoUrls,
+    els.advancedSeedanceAudioUrls,
+    els.advancedWanSeed,
+    els.advancedWanAudioUrl,
+    els.advancedWanClipUrl,
+  ].forEach((input) => {
+    if (input) input.value = "";
+  });
+  [
+    els.advancedImage,
+    els.advancedSeedanceLastFrame,
+    els.advancedWanLastFrame,
+    els.advancedWanClipFile,
+  ].forEach((input) => {
+    if (input) input.value = "";
+  });
+  [
+    [els.advancedWanFirstFramePreview, els.advancedImage],
+    [els.advancedSeedanceLastFramePreview, els.advancedSeedanceLastFrame],
+    [els.advancedWanLastFramePreview, els.advancedWanLastFrame],
+    [els.advancedWanClipPreview, els.advancedWanClipFile],
+  ].forEach(([preview, input]) => {
+    preview?.removeAttribute("src");
+    preview?.classList.remove("is-visible");
+    input?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  });
+  if (els.advancedUploadPreview) els.advancedUploadPreview.innerHTML = "";
+  els.advancedUploadBox?.classList.remove("has-image");
+  updateAdvancedModelControls();
+}
+
 async function requestAdvancedAccess() {
   if (!state.user) return openLogin();
   try {
@@ -6974,6 +7025,7 @@ async function submitAdvancedGenerate() {
         mergeAdvancedResultRecord(payload.record);
       }
       state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
+      clearAdvancedCreationInputs();
       if (els.advancedNote) els.advancedNote.textContent = "";
       setAdvancedSideTab("result");
       renderAdvancedResultPanel();
@@ -7128,6 +7180,7 @@ async function submitAdvancedGenerate() {
         credits: formatCredits(charged),
       });
     }
+    clearAdvancedCreationInputs();
     setAdvancedSideTab("result");
     scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
     scheduleHistoryRefresh({ delayMs: 8000, force: true });
