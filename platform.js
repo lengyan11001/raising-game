@@ -6932,6 +6932,21 @@ async function submitAdvancedGenerate() {
   const provider = currentAdvancedProvider();
   const seedanceTier = currentSeedanceTier();
   if (provider === "wan27-image-edit") {
+    const pendingTaskId = `pending-image-${Date.now().toString(36)}`;
+    mergeAdvancedResultRecord({
+      taskId: pendingTaskId,
+      status: "submitting",
+      provider,
+      source: "asset-image-modify",
+      kind: "asset-image",
+      prompt,
+      ratio: currentAdvancedRatio(),
+      resolution: currentAdvancedResolution(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    state.advancedResultTaskId = pendingTaskId;
+    setAdvancedSideTab("result");
     try {
       const assets = await ensureAdvancedImageEditAssets();
       if (els.advancedNote) {
@@ -6951,6 +6966,7 @@ async function submitAdvancedGenerate() {
       });
       if (payload.user) setUser(payload.user);
       if (payload.record) {
+        state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== pendingTaskId);
         state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
         mergeAdvancedResultRecord(payload.record);
       }
@@ -6965,6 +6981,13 @@ async function submitAdvancedGenerate() {
       scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       await loadHistory({ silent: true }).catch(() => {});
     } catch (error) {
+      state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
+        record.taskId === pendingTaskId
+          ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
+          : record
+      ));
+      if (state.advancedResultTaskId === pendingTaskId) state.advancedResultTaskId = "";
+      renderAdvancedResultPanel();
       if (els.advancedNote) els.advancedNote.textContent = error.message;
     } finally {
       els.advancedSubmitBtn.disabled = false;
@@ -7445,7 +7468,6 @@ async function openAssetExtendDialog(asset = {}) {
     },
   });
   if (result === "confirm") {
-    setTab("history");
     scheduleHistoryRefresh({ delayMs: 8000, force: true });
   }
 }
@@ -7483,7 +7505,6 @@ async function openAssetVideoExtendDialog(videoAsset = {}) {
     },
   });
   if (result === "confirm") {
-    setTab("history");
     scheduleHistoryRefresh({ delayMs: 8000, force: true });
   }
 }
@@ -7526,7 +7547,6 @@ async function openAssetReplaceDialog(videoAsset = {}) {
     },
   });
   if (result === "confirm") {
-    setTab("history");
     scheduleHistoryRefresh({ delayMs: 8000, force: true });
   }
 }
