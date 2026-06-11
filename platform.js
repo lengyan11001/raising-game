@@ -6483,6 +6483,7 @@ function stopAdvancedResultRefresh() {
 
 function scheduleAdvancedResultRefresh({ delayMs = 5000, force = false } = {}) {
   if (!state.advancedResultTaskId || state.tab !== "advanced") return;
+  if (String(state.advancedResultTaskId).startsWith("pending-")) return;
   if (state.advancedResultTimer && !force) return;
   stopAdvancedResultRefresh();
   state.advancedResultTimer = window.setTimeout(() => {
@@ -6493,6 +6494,7 @@ function scheduleAdvancedResultRefresh({ delayMs = 5000, force = false } = {}) {
 
 async function refreshAdvancedResultRecord() {
   const taskId = state.advancedResultTaskId || state.advancedResultRecords[0]?.taskId || "";
+  if (String(taskId).startsWith("pending-")) return;
   if (!taskId || state.advancedResultLoading || state.tab !== "advanced") return;
   state.advancedResultLoading = true;
   try {
@@ -6936,6 +6938,7 @@ async function submitAdvancedGenerate() {
     mergeAdvancedResultRecord({
       taskId: pendingTaskId,
       status: "submitting",
+      model: "Wan2.7 Image Edit",
       provider,
       source: "asset-image-modify",
       kind: "asset-image",
@@ -6947,14 +6950,11 @@ async function submitAdvancedGenerate() {
     });
     state.advancedResultTaskId = pendingTaskId;
     setAdvancedSideTab("result");
+    renderAdvancedResultPanel();
+    if (els.advancedNote) els.advancedNote.textContent = "";
     try {
       const assets = await ensureAdvancedImageEditAssets();
-      if (els.advancedNote) {
-        els.advancedNote.textContent = t("advanced.submitting", {
-          note: "Wan2.7 Image Edit",
-          cost: advancedCostLabel(1, provider, currentAdvancedResolution(), currentAdvancedRatio()),
-        });
-      }
+      renderAdvancedResultPanel();
       const payload = await requestJson("/api/wan27/image-edit", {
         method: "POST",
         body: {
@@ -6962,23 +6962,20 @@ async function submitAdvancedGenerate() {
           imageAssetIds: assets.map((asset) => asset.id),
           ratio: currentAdvancedRatio(),
           resolution: currentAdvancedResolution(),
+          async: true,
         },
       });
       if (payload.user) setUser(payload.user);
+      state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== pendingTaskId);
       if (payload.record) {
-        state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== pendingTaskId);
         state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
         mergeAdvancedResultRecord(payload.record);
       }
       state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
-      if (els.advancedNote) {
-        els.advancedNote.textContent = t("advanced.jobSubmitted", {
-          taskId: payload.taskId || payload.record?.taskId || "",
-          credits: formatCredits(payload.cost ?? assetImageModifyCostCredits()),
-        });
-      }
+      if (els.advancedNote) els.advancedNote.textContent = "";
       setAdvancedSideTab("result");
-      scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
+      renderAdvancedResultPanel();
+      if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       await loadHistory({ silent: true }).catch(() => {});
     } catch (error) {
       state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
@@ -6988,7 +6985,7 @@ async function submitAdvancedGenerate() {
       ));
       if (state.advancedResultTaskId === pendingTaskId) state.advancedResultTaskId = "";
       renderAdvancedResultPanel();
-      if (els.advancedNote) els.advancedNote.textContent = error.message;
+      if (els.advancedNote) els.advancedNote.textContent = "";
     } finally {
       els.advancedSubmitBtn.disabled = false;
       updateAdvancedButtonCost();
