@@ -6440,6 +6440,7 @@ function renderAdvancedResultPanel() {
     const posterUrl = generationPosterUrl(record);
     const status = statusLabel(record.status);
     const taskId = record.taskId || "";
+    const visibleTaskId = String(taskId).startsWith("pending-") ? "" : taskId;
     const ratio = record.ratio || record.params?.ratio || "16:9";
     const media = videoUrl
       ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
@@ -6451,7 +6452,7 @@ function renderAdvancedResultPanel() {
         ${media}
         <div class="advanced-result-meta">
           <strong>${escapeHtml(record.templateTitle || record.sceneName || record.model || "Generation")}</strong>
-          <span>${escapeHtml(status)}${taskId ? ` - ${escapeHtml(taskId)}` : ""}</span>
+          <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
           ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
         </div>
       </article>
@@ -6493,7 +6494,7 @@ function scheduleAdvancedResultRefresh({ delayMs = 5000, force = false } = {}) {
 }
 
 async function refreshAdvancedResultRecord() {
-  const taskId = state.advancedResultTaskId || state.advancedResultRecords[0]?.taskId || "";
+  const taskId = state.advancedResultTaskId || state.advancedResultRecords.find((record) => !String(record.taskId || "").startsWith("pending-"))?.taskId || "";
   if (String(taskId).startsWith("pending-")) return;
   if (!taskId || state.advancedResultLoading || state.tab !== "advanced") return;
   state.advancedResultLoading = true;
@@ -6512,6 +6513,7 @@ async function refreshAdvancedResultRecord() {
     }
     if (payload.user) setUser(payload.user);
   } catch (error) {
+    if (String(taskId).startsWith("pending-")) return;
     if (els.advancedResultList) {
       els.advancedResultList.insertAdjacentHTML("afterbegin", `<div class="job-note history-action-note">${escapeHtml(error.message || String(error))}</div>`);
     }
