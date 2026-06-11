@@ -3823,7 +3823,7 @@ function generationImageResultUrl(record) {
 }
 
 function generationPosterUrl(record) {
-  return record?.cdnPosterUrl || record?.posterUrl || record?.localPosterUrl || generationImageResultUrl(record) || recordImageAssets(record)[0]?.imageUrl || "";
+  return record?.cdnPosterUrl || record?.posterUrl || record?.localPosterUrl || generationImageResultUrl(record) || "";
 }
 
 function stripModelParams(value) {
@@ -3915,6 +3915,10 @@ function statusClass(status) {
   if (["failed", "error", "cancelled", "canceled"].includes(value)) return "failed";
   if (["preparing", "submitting", "running", "processing", "in_progress", "queued"].includes(value)) return "running";
   return "submitted";
+}
+
+function isSucceededGenerationStatus(status) {
+  return statusClass(status) === "succeeded";
 }
 
 function isTerminalGenerationStatus(status) {
@@ -6435,9 +6439,10 @@ function renderAdvancedResultPanel() {
     return;
   }
   els.advancedResultList.innerHTML = records.map((record, index) => {
-    const videoUrl = generationVideoUrl(record);
-    const imageUrl = generationImageResultUrl(record);
-    const posterUrl = generationPosterUrl(record);
+    const isSucceeded = isSucceededGenerationStatus(record.status);
+    const videoUrl = isSucceeded ? generationVideoUrl(record) : "";
+    const imageUrl = isSucceeded ? generationImageResultUrl(record) : "";
+    const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
     const status = statusLabel(record.status);
     const taskId = record.taskId || "";
     const visibleTaskId = String(taskId).startsWith("pending-") ? "" : taskId;
@@ -6461,7 +6466,7 @@ function renderAdvancedResultPanel() {
   els.advancedResultList.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
     button.addEventListener("click", () => {
       const record = state.advancedResultRecords[Number(button.dataset.advancedResultVideo || 0)];
-      const videoUrl = generationVideoUrl(record);
+      const videoUrl = isSucceededGenerationStatus(record?.status) ? generationVideoUrl(record) : "";
       if (!videoUrl) return;
       playPreview({ title: record.templateTitle || record.taskId || t("common.preview"), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
     });
@@ -6469,7 +6474,7 @@ function renderAdvancedResultPanel() {
   els.advancedResultList.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
     button.addEventListener("click", () => {
       const record = state.advancedResultRecords[Number(button.dataset.advancedResultImage || 0)];
-      const imageUrl = generationImageResultUrl(record);
+      const imageUrl = isSucceededGenerationStatus(record?.status) ? generationImageResultUrl(record) : "";
       if (!imageUrl) return;
       previewImage({ title: record.templateTitle || record.taskId || t("common.preview"), imageUrl });
     });
@@ -8102,13 +8107,14 @@ function renderHistory(records = []) {
   }
   state.historyRecords = sortedRecords;
   els.historyList.innerHTML = `${expiryNotice}${sortedRecords.map((record, index) => {
-    const videoUrl = generationVideoUrl(record);
-    const imageResultUrl = generationImageResultUrl(record);
+    const isSucceeded = isSucceededGenerationStatus(record.status);
+    const videoUrl = isSucceeded ? generationVideoUrl(record) : "";
+    const imageResultUrl = isSucceeded ? generationImageResultUrl(record) : "";
     const taskId = record.taskId || "";
     const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
     const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio;
     const mediaStyle = ratioStyle(recordRatio);
-    const posterUrl = generationPosterUrl(record);
+    const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
     return `
       <article class="history-item is-${escapeHtml(statusClass(record.status))}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">

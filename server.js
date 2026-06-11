@@ -7225,9 +7225,9 @@ function generationRecordVideoUrl(record = {}, options = {}) {
 
 function generationRecordImageUrl(record = {}) {
   if (localPublicAssetStorageEnabled()) {
-    return String(record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || record.imageUrl || "");
+    return String(record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || "");
   }
-  return String(record.cdnImageUrl || record.imageResultUrl || record.localImageUrl || record.remoteImageUrl || record.imageUrl || "");
+  return String(record.cdnImageUrl || record.imageResultUrl || record.localImageUrl || record.remoteImageUrl || "");
 }
 
 function generationRecordProviderImageUrl(record = {}) {
