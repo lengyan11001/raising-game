@@ -5134,6 +5134,15 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
     method: "GET",
   });
   const task = normalizeWan27Task(raw);
+  const taskAgeMs = Date.now() - Date.parse(record.createdAt || "");
+  if (
+    String(task.status || "").toUpperCase() === "UNKNOWN" &&
+    !task.videoUrl &&
+    (!Number.isFinite(taskAgeMs) || taskAgeMs > 10 * 60 * 1000)
+  ) {
+    task.status = "failed";
+    task.error = task.error || "Upstream task returned UNKNOWN without a video.";
+  }
   let localVideoUrl = record.localVideoUrl || "";
   let localVideoPath = record.localVideoPath || "";
   let localPosterUrl = record.localPosterUrl || "";
