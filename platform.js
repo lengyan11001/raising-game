@@ -133,6 +133,11 @@ const state = {
   historyRecordsTotalPages: 1,
   assetSearchTimer: 0,
   advancedAssetSearchTimer: 0,
+  advancedSideTab: "assets",
+  advancedResultRecords: [],
+  advancedResultTaskId: "",
+  advancedResultTimer: 0,
+  advancedResultLoading: false,
   advancedAssetTarget: "primary",
   advancedAssetPage: 1,
   advancedAssetLimit: 12,
@@ -291,6 +296,11 @@ const els = {
   advancedAssetTypeFilter: document.querySelector("#advancedAssetTypeFilter"),
   advancedAssetUploadInput: document.querySelector("#advancedAssetUploadInput"),
   refreshAdvancedAssetsBtn: document.querySelector("#refreshAdvancedAssetsBtn"),
+  advancedSideTabs: document.querySelector("#advancedSideTabs"),
+  advancedAssetsView: document.querySelector("#advancedAssetsView"),
+  advancedResultView: document.querySelector("#advancedResultView"),
+  advancedResultList: document.querySelector("#advancedResultList"),
+  refreshAdvancedResultBtn: document.querySelector("#refreshAdvancedResultBtn"),
   advancedAssetTargets: document.querySelector("#advancedAssetTargets"),
   advancedAssetNote: document.querySelector("#advancedAssetNote"),
   advancedAssetGrid: document.querySelector("#advancedAssetGrid"),
@@ -3907,6 +3917,11 @@ function statusClass(status) {
   return "submitted";
 }
 
+function isTerminalGenerationStatus(status) {
+  const value = String(status || "").toLowerCase();
+  return ["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled"].includes(value);
+}
+
 function billingLabel(billing = {}) {
   const pre = Number(billing.preDeducted || 0);
   const final = billing.final === null || billing.final === undefined ? null : Number(billing.final || 0);
@@ -4330,6 +4345,7 @@ function setTab(tab) {
   if (nextTab !== "advanced") {
     window.clearTimeout(state.advancedAssetSearchTimer);
     state.advancedAssetSearchTimer = 0;
+    stopAdvancedResultRefresh();
   }
   syncTopupAutoRefresh();
   document.querySelectorAll("[data-panel]").forEach((panel) => {
@@ -4352,7 +4368,11 @@ function setTab(tab) {
     if (state.user) loadUserAssets(state.userAssetsPage || 1).catch(() => {});
   }
   if (nextTab === "access") loadApiSubtokens();
-  if (nextTab === "advanced") loadAdvancedAssets();
+  if (nextTab === "advanced") {
+    loadAdvancedAssets();
+    renderAdvancedResultPanel();
+    if (state.advancedSideTab === "result" && state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1000, force: true });
+  }
   closeAccountMenu();
 }
 
@@ -6178,8 +6198,27 @@ function renderAdvanced() {
   els.advancedGate.innerHTML = "";
   els.advancedWorkspace.hidden = false;
   renderAdvancedAssets();
+  setAdvancedSideTab(state.advancedSideTab || "assets", { silent: true });
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
+}
+
+function setAdvancedSideTab(tab = "assets", { silent = false } = {}) {
+  const next = tab === "result" ? "result" : "assets";
+  state.advancedSideTab = next;
+  if (els.advancedAssetsView) els.advancedAssetsView.hidden = next !== "assets";
+  if (els.advancedResultView) els.advancedResultView.hidden = next !== "result";
+  els.advancedSideTabs?.querySelectorAll("[data-advanced-side-tab]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.advancedSideTab === next);
+  });
+  if (next === "result") {
+    renderAdvancedResultPanel();
+    const current = state.advancedResultRecords.find((record) => record.taskId === state.advancedResultTaskId);
+    if (state.advancedResultTaskId && (!current || !isTerminalGenerationStatus(current.status))) {
+      scheduleAdvancedResultRefresh({ delayMs: silent ? 1200 : 0, force: true });
+    }
+  }
+  refreshIcons();
 }
 
 function advancedAssetTargetItems() {
@@ -6379,6 +6418,104 @@ function renderAdvancedAssets(assets) {
     total: state.advancedAssetTotal,
   }, loadAdvancedAssets);
   refreshIcons();
+}
+
+function mergeAdvancedResultRecord(record = {}) {
+  if (!record?.taskId) return;
+  const existing = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  state.advancedResultRecords = [record, ...existing.filter((item) => item.taskId !== record.taskId)].slice(0, 6);
+}
+
+function renderAdvancedResultPanel() {
+  if (!els.advancedResultList) return;
+  const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  if (!records.length) {
+    els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>No generation yet</strong><p>Click Generate to track progress here.</p></div>`;
+    refreshIcons();
+    return;
+  }
+  els.advancedResultList.innerHTML = records.map((record, index) => {
+    const videoUrl = generationVideoUrl(record);
+    const imageUrl = generationImageResultUrl(record);
+    const posterUrl = generationPosterUrl(record);
+    const status = statusLabel(record.status);
+    const taskId = record.taskId || "";
+    const ratio = record.ratio || record.params?.ratio || "16:9";
+    const media = videoUrl
+      ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
+      : imageUrl
+        ? `<button class="advanced-result-media" type="button" data-advanced-result-image="${escapeHtml(String(index))}"><img src="${escapeHtml(imageUrl)}" alt="" loading="lazy" decoding="async" /></button>`
+        : `<div class="advanced-result-media is-placeholder"><i data-lucide="${statusClass(record.status) === "failed" ? "circle-alert" : "loader-circle"}"></i><span>${escapeHtml(status)}</span></div>`;
+    return `
+      <article class="advanced-result-card is-${escapeHtml(statusClass(record.status))}">
+        ${media}
+        <div class="advanced-result-meta">
+          <strong>${escapeHtml(record.templateTitle || record.sceneName || record.model || "Generation")}</strong>
+          <span>${escapeHtml(status)}${taskId ? ` - ${escapeHtml(taskId)}` : ""}</span>
+          ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
+        </div>
+      </article>
+    `;
+  }).join("");
+  els.advancedResultList.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = state.advancedResultRecords[Number(button.dataset.advancedResultVideo || 0)];
+      const videoUrl = generationVideoUrl(record);
+      if (!videoUrl) return;
+      playPreview({ title: record.templateTitle || record.taskId || t("common.preview"), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
+    });
+  });
+  els.advancedResultList.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = state.advancedResultRecords[Number(button.dataset.advancedResultImage || 0)];
+      const imageUrl = generationImageResultUrl(record);
+      if (!imageUrl) return;
+      previewImage({ title: record.templateTitle || record.taskId || t("common.preview"), imageUrl });
+    });
+  });
+  refreshIcons();
+}
+
+function stopAdvancedResultRefresh() {
+  if (state.advancedResultTimer) window.clearTimeout(state.advancedResultTimer);
+  state.advancedResultTimer = 0;
+}
+
+function scheduleAdvancedResultRefresh({ delayMs = 5000, force = false } = {}) {
+  if (!state.advancedResultTaskId || state.tab !== "advanced") return;
+  if (state.advancedResultTimer && !force) return;
+  stopAdvancedResultRefresh();
+  state.advancedResultTimer = window.setTimeout(() => {
+    state.advancedResultTimer = 0;
+    refreshAdvancedResultRecord();
+  }, delayMs);
+}
+
+async function refreshAdvancedResultRecord() {
+  const taskId = state.advancedResultTaskId || state.advancedResultRecords[0]?.taskId || "";
+  if (!taskId || state.advancedResultLoading || state.tab !== "advanced") return;
+  state.advancedResultLoading = true;
+  try {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
+    const record = payload.record || payload.generation || null;
+    if (record?.taskId) {
+      mergeAdvancedResultRecord(record);
+      renderAdvancedResultPanel();
+      if (isTerminalGenerationStatus(record.status)) {
+        if (state.advancedResultTaskId === record.taskId) state.advancedResultTaskId = "";
+      } else {
+        state.advancedResultTaskId = record.taskId;
+        scheduleAdvancedResultRefresh({ delayMs: 5000, force: true });
+      }
+    }
+    if (payload.user) setUser(payload.user);
+  } catch (error) {
+    if (els.advancedResultList) {
+      els.advancedResultList.insertAdjacentHTML("afterbegin", `<div class="job-note history-action-note">${escapeHtml(error.message || String(error))}</div>`);
+    }
+  } finally {
+    state.advancedResultLoading = false;
+  }
 }
 
 async function loadAdvancedAssets(page = state.advancedAssetPage || 1) {
@@ -6815,14 +6952,17 @@ async function submitAdvancedGenerate() {
       if (payload.user) setUser(payload.user);
       if (payload.record) {
         state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
+        mergeAdvancedResultRecord(payload.record);
       }
+      state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
       if (els.advancedNote) {
         els.advancedNote.textContent = t("advanced.jobSubmitted", {
           taskId: payload.taskId || payload.record?.taskId || "",
           credits: formatCredits(payload.cost ?? assetImageModifyCostCredits()),
         });
       }
-      setTab("history");
+      setAdvancedSideTab("result");
+      scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       await loadHistory({ silent: true }).catch(() => {});
     } catch (error) {
       if (els.advancedNote) els.advancedNote.textContent = error.message;
@@ -6941,14 +7081,33 @@ async function submitAdvancedGenerate() {
       },
     });
     if (payload.user) setUser(payload.user);
+    const taskId = payload.taskId || payload.task?.taskId || payload.record?.taskId || "";
+    const submittedRecord = payload.record || payload.generation || {
+      taskId,
+      status: payload.task?.status || "submitted",
+      provider,
+      source: provider === "seedance" ? "advanced-seedance" : "advanced-wan27",
+      kind: "advanced-video",
+      prompt,
+      ratio: els.advancedRatio?.value || "9:16",
+      resolution: els.advancedResolution?.value || "720p",
+      duration,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    if (taskId) {
+      state.advancedResultTaskId = taskId;
+      mergeAdvancedResultRecord(submittedRecord);
+    }
     const charged = payload.cost ?? advancedCostForDuration(duration, provider, resolution, currentAdvancedRatio(), { inputVideoSeconds, seedanceTier });
     if (els.advancedNote) {
       els.advancedNote.textContent = t("advanced.jobSubmitted", {
-        taskId: payload.taskId || payload.task?.taskId || "",
+        taskId,
         credits: formatCredits(charged),
       });
     }
-    setTab("history");
+    setAdvancedSideTab("result");
+    scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
     scheduleHistoryRefresh({ delayMs: 8000, force: true });
   } catch (error) {
     if (els.advancedNote) els.advancedNote.textContent = error.message;
@@ -8802,6 +8961,10 @@ els.submitTemplateBtn?.addEventListener("click", submitTemplate);
 els.refreshHistoryBtn?.addEventListener("click", () => loadHistory({ refresh: true }));
 els.refreshAssetsBtn?.addEventListener("click", () => loadUserAssets(state.userAssetsPage || 1));
 els.refreshAdvancedAssetsBtn?.addEventListener("click", () => loadAdvancedAssets(state.advancedAssetPage || 1));
+els.advancedSideTabs?.querySelectorAll("[data-advanced-side-tab]").forEach((button) => {
+  button.addEventListener("click", () => setAdvancedSideTab(button.dataset.advancedSideTab || "assets"));
+});
+els.refreshAdvancedResultBtn?.addEventListener("click", () => refreshAdvancedResultRecord());
 els.characterCreateBtn?.addEventListener("click", createCharacterFromPrompt);
 els.assetSearch?.addEventListener("input", () => {
   window.clearTimeout(state.assetSearchTimer);
