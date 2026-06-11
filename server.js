@@ -7074,6 +7074,14 @@ function isImageGenerationRecord(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
   const kind = String(record.kind || "").toLowerCase();
   const source = String(record.source || "").toLowerCase();
+  if (
+    generationRecordVideoUrl(record) ||
+    kind.includes("video") ||
+    source.includes("video") ||
+    provider === "seedance" ||
+    provider === "wan27" ||
+    provider === "aliyun-wan27"
+  ) return false;
   if (provider.includes("image") || kind.includes("image") || source.includes("image")) return true;
   return Boolean(generationRecordImageUrl(record)) && !Boolean(generationRecordVideoUrl(record));
 }
