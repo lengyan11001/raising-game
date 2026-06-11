@@ -3599,6 +3599,91 @@ function imageMimeFromKnownPath(filePath) {
   return imageMimeFromPath(filePath);
 }
 
+const SEEDANCE_IMAGE_ASPECT_RATIO_MIN = 0.4;
+const SEEDANCE_IMAGE_ASPECT_RATIO_MAX = 2.5;
+
+function readLittleEndian24(buffer, offset) {
+  return buffer[offset] + (buffer[offset + 1] << 8) + (buffer[offset + 2] << 16);
+}
+
+function imageDimensionsFromBuffer(bytes) {
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
+  if (buffer.length >= 24 && buffer[0] === 0x89 && buffer.toString("ascii", 1, 4) === "PNG") {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20), type: "png" };
+  }
+  if (buffer.length >= 26 && buffer.toString("ascii", 0, 2) === "BM") {
+    return { width: Math.abs(buffer.readInt32LE(18)), height: Math.abs(buffer.readInt32LE(22)), type: "bmp" };
+  }
+  if (buffer.length >= 30 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP") {
+    const chunk = buffer.toString("ascii", 12, 16);
+    if (chunk === "VP8X" && buffer.length >= 30) {
+      return { width: readLittleEndian24(buffer, 24) + 1, height: readLittleEndian24(buffer, 27) + 1, type: "webp" };
+    }
+    if (chunk === "VP8 " && buffer.length >= 30) {
+      return { width: buffer.readUInt16LE(26) & 0x3fff, height: buffer.readUInt16LE(28) & 0x3fff, type: "webp" };
+    }
+    if (chunk === "VP8L" && buffer.length >= 25 && buffer[20] === 0x2f) {
+      const bits = buffer.readUInt32LE(21);
+      return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1, type: "webp" };
+    }
+  }
+  if (buffer.length >= 4 && buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < buffer.length) {
+      while (offset < buffer.length && buffer[offset] !== 0xff) offset += 1;
+      while (offset < buffer.length && buffer[offset] === 0xff) offset += 1;
+      const marker = buffer[offset];
+      offset += 1;
+      if (!marker || marker === 0xd9 || marker === 0xda) break;
+      if (marker >= 0xd0 && marker <= 0xd7) continue;
+      if (offset + 2 > buffer.length) break;
+      const length = buffer.readUInt16BE(offset);
+      if (length < 2 || offset + length > buffer.length) break;
+      if (
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf)
+      ) {
+        if (length < 7) break;
+        return { width: buffer.readUInt16BE(offset + 5), height: buffer.readUInt16BE(offset + 3), type: "jpeg" };
+      }
+      offset += length;
+    }
+  }
+  return null;
+}
+
+function assertSeedanceImageAspectRatio(dimensions, label = "Seedance image") {
+  if (!dimensions?.width || !dimensions?.height) {
+    const error = new Error(`${label} dimensions could not be read.`);
+    error.statusCode = 400;
+    error.code = "SEEDANCE_IMAGE_DIMENSIONS_UNREADABLE";
+    throw error;
+  }
+  const ratio = dimensions.width / dimensions.height;
+  if (ratio < SEEDANCE_IMAGE_ASPECT_RATIO_MIN || ratio > SEEDANCE_IMAGE_ASPECT_RATIO_MAX) {
+    const error = new Error(
+      `${label} aspect ratio must be between ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN} and ${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}. Current image is ${dimensions.width}x${dimensions.height} (${ratio.toFixed(2)}).`,
+    );
+    error.statusCode = 400;
+    error.code = "SEEDANCE_IMAGE_ASPECT_RATIO_INVALID";
+    error.details = {
+      width: dimensions.width,
+      height: dimensions.height,
+      ratio,
+      min: SEEDANCE_IMAGE_ASPECT_RATIO_MIN,
+      max: SEEDANCE_IMAGE_ASPECT_RATIO_MAX,
+    };
+    throw error;
+  }
+  return dimensions;
+}
+
+function validateSeedanceImageBytes(bytes, label = "Seedance image") {
+  return assertSeedanceImageAspectRatio(imageDimensionsFromBuffer(bytes), label);
+}
+
 function videoExtFromMime(mime = "", fallbackPath = "") {
   const cleanMime = String(mime || "").split(";")[0].trim().toLowerCase();
   if (cleanMime === "video/webm") return ".webm";
@@ -5411,6 +5496,7 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
 
   const localPath = path.join(ROOT, localUrl.replace(/^\//, ""));
   const bytes = await fs.readFile(localPath);
+  validateSeedanceImageBytes(bytes, "Seedance home image");
   const localPublicUrl = publicUrlForAssetPath(localUrl);
   let uploaded = { publicUrl: localPublicUrl, key: "" };
   if (!uploaded.publicUrl) {
@@ -6273,6 +6359,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
 
   const localPath = path.join(ROOT, userAsset.localUrl.replace(/^\//, ""));
   const bytes = await fs.readFile(localPath);
+  if (assetType === "Image") validateSeedanceImageBytes(bytes, "Seedance image asset");
   const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
   let uploaded = { publicUrl: localPublicUrl, key: "" };
   if (!uploaded.publicUrl) {
@@ -13462,6 +13549,7 @@ async function ensureCharacterReferenceForRecord(record) {
   const localUrl = record.syntheticReferenceLocalUrl || record.localImageUrl || record.posterUrl;
   const localPath = path.join(ROOT, localUrl.replace(/^\//, ""));
   const refBytes = await fs.readFile(localPath);
+  validateSeedanceImageBytes(refBytes, "Seedance character reference image");
   const localRefPublicUrl = publicUrlForAssetPath(localUrl);
   let uploadedRef = { publicUrl: localRefPublicUrl, key: "" };
   if (!uploadedRef.publicUrl) {
