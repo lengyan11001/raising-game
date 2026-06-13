@@ -9557,13 +9557,15 @@ async function runAdvancedGenerationJob(job = {}) {
         resolution: requestParams.resolution,
         duration: requestParams.duration,
         generateAudio: requestParams.generateAudio,
-        model: requestParams.model,
         parameters: Object.keys(plainObject(requestParams.parameters)).length ? requestParams.parameters : undefined,
         input: Object.keys(plainObject(requestParams.input)).length ? requestParams.input : undefined,
         mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (seedanceMode || undefined),
         seedanceMode: provider === "seedance" ? (seedanceMode || undefined) : undefined,
         seed: requestParams.seed === undefined || requestParams.seed === "" ? undefined : requestParams.seed,
       };
+      if (provider !== "seedance" || job.forwardModelToGateway) {
+        gatewayBody.model = requestParams.model;
+      }
       if (provider === "seedance") {
         const webSearchValue = firstPresent(requestParams.web_search, requestParams.webSearch, requestParams.parameters?.web_search, requestParams.parameters?.webSearch);
         const watermarkValue = firstPresent(requestParams.watermark, requestParams.parameters?.watermark);
@@ -9659,6 +9661,13 @@ async function runAdvancedGenerationJob(job = {}) {
     }
 
     const submittedAt = new Date().toISOString();
+    const submittedModel = String(firstPresent(
+      task?.record?.model,
+      task?.raw?.record?.model,
+      task?.raw?.data?.record?.model,
+      payload?.model,
+      runtime.model,
+    ));
     const fixedBilling = {
       finalCredits: cost,
       originalFinalCredits: pricing?.originalCredits ?? cost,
@@ -9670,7 +9679,7 @@ async function runAdvancedGenerationJob(job = {}) {
       status: task.status || "submitted",
       upstreamTaskId,
       awaitingUpstreamTask: false,
-      model: runtime.model,
+      model: submittedModel,
       provider: runtime.providerName,
       upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
       source: runtime.recordSource,
@@ -9691,6 +9700,7 @@ async function runAdvancedGenerationJob(job = {}) {
       error: "",
       createResponse,
       submittedAt,
+      pricingEstimate: pricing ? { ...pricing, model: submittedModel } : pricing,
       ...fixedBilling,
     }, "advanced-submit");
   } catch (error) {
@@ -9776,10 +9786,10 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.resolution = provider === "wan27" ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
   requestParams.preprocessReference = false;
   requestParams.seed = firstPresent(body.seed, bodyParams.seed, mergedProviderParameters.seed, caseParams.seed, "");
+  const requestedModel = firstPresent(body.model, bodyParams.model, caseParams.model);
+  const forwardModelToGateway = requestedModel !== undefined;
   requestParams.model = String(firstPresent(
-    body.model,
-    bodyParams.model,
-    caseParams.model,
+    requestedModel,
     provider === "wan27"
       ? ALIYUN_WAN27_MODEL
       : requestParams.seedanceTier === "fast"
@@ -10184,6 +10194,7 @@ async function handleAdvancedGenerate(req, res) {
     provider,
     prompt,
     requestParams,
+    forwardModelToGateway,
     pricing,
     cost,
     caseId: selectedCase?.id || "",
