@@ -10607,6 +10607,78 @@ function docsAdvancedExampleBody(item = {}) {
   return body;
 }
 
+function externalAdvancedApiDoc(origin) {
+  const advancedGenerate = `${origin}/api/advanced/generate`;
+  const advancedEstimate = `${origin}/api/advanced/estimate`;
+  const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
+  const userAssets = `${origin}/api/user-assets`;
+  const seedanceCompatibleGenerate = `${origin}/api/v3/contents/generations/tasks`;
+  return {
+    baseUrl: origin,
+    summary: "Use /api/advanced/generate when an external caller needs the same Create/Advanced generation path as the web UI. It supports Seedance and Wan2.7 and keeps token auth, account pricing, pre-deduction, user assets, generation records, and failed-task refunds inside this service.",
+    recommendedRoute: advancedGenerate,
+    routeChoice: {
+      advancedGenerate: "Recommended for Create/Advanced-style external integrations, including Wan2.7 and Seedance through the site's pricing and record flow.",
+      seedanceCompatibleGenerate: "Use only for Seedance callers that intentionally want a Volcengine-compatible content[] task body. This is not the Wan2.7 route.",
+      platformGenerate: "Use /api/platform/generate only for Gallery/template shortcuts, not for Advanced/Create.",
+    },
+    endpoints: {
+      advancedGenerate,
+      advancedEstimate,
+      generationRecordDetail,
+      userAssets,
+      seedanceCompatibleGenerate,
+    },
+    seedanceExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        provider: "seedance",
+        prompt: "Create a cinematic 5 second product promo video.",
+        seedanceMode: "first_frame",
+        imageUrl: "https://example.com/first-frame.jpg",
+        ratio: "9:16",
+        resolution: "720p",
+        duration: 5,
+        generateAudio: true,
+      },
+    },
+    wan27Example: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        provider: "wan27",
+        prompt: "Make the character walk naturally.",
+        dataUrl: "data:image/png;base64,...",
+        ratio: "9:16",
+        resolution: "720p",
+        duration: 2,
+      },
+    },
+    responseShape: {
+      ok: true,
+      taskId: "cgt-...",
+      task: { taskId: "cgt-...", status: "preparing" },
+      record: "Generation record object for history/progress.",
+      pricing: "Applied pricing estimate.",
+      cost: "Deducted credits.",
+    },
+    polling: {
+      method: "GET",
+      url: generationRecordDetail,
+      headers: { Authorization: "Bearer <user-token>" },
+    },
+  };
+}
+
 function docsPricingView(estimate = {}) {
   if (!estimate.available) {
     return {
@@ -10898,6 +10970,7 @@ async function buildModelDocs(req) {
       advancedWan27CreditsPerSecondByResolution: platform.advancedPricing.wan27CreditsPerSecondByResolution,
       wan27ImagePro: platform.advancedPricing.wan27ImagePro,
     },
+    advancedExternalApi: externalAdvancedApiDoc(origin),
     endpoints: {
       docsMarkdown: `${origin}/docs/models.md`,
       modelsJson: `${origin}/api/models`,
@@ -10954,15 +11027,64 @@ function advancedDocMarkdown(item) {
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
-  lines.push("", "New Seedance integrations should use `/api/v3/contents/generations/tasks` with the Volcengine-style `content[]` body. The legacy `/api/advanced/generate` path remains available for the site UI and older internal flows.");
+  lines.push("", "External callers that want the same Create/Advanced behavior as the web UI should call `/api/advanced/generate` with this `caseId` or with manual provider parameters. Seedance callers that intentionally need a Volcengine-compatible `content[]` body may use `/api/v3/contents/generations/tasks` instead.");
   lines.push("", "Seedance character upload: optionally call `/api/seedance/characters/upload` with `url`/`imageUrl`, `dataUrl`, or an existing `assetId`. The response returns `reference.assetUri`; put that value into `content[].image_url.url` with role `reference_image`. In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
   lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 image assets. The order maps to Image 1, Image 2, and so on in the prompt; with no images it works as text-to-image through the same endpoint. Results are saved to generation history first. Use the history Add asset action when the result should enter the asset library.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `content[]` image/video/audio objects; public/base64 image URLs are prepared into Ark assets before submit.");
   lines.push("", "Provider passthrough: Seedance accepts a Volcengine-style root body and also accepts upstream-only aliases in `params`. Fields such as `model`, `content`, `image_url`, `end_image_url`, `generate_audio`/`generateAudio`, `reference_images`/`referenceImages`, `reference_videos`/`referenceVideos`, `reference_audios`/`referenceAudios`, `web_search`/`webSearch`, `watermark`, `seed`, `fps`, `camera_fixed`, `draft`, and `service_tier` are forwarded or normalized into the Ark request. Use `dreamina-seedance-2-0-260128` for Standard, or `dreamina-seedance-2-0-fast-260128` for Fast. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`. Upstream decides whether each provider-specific field takes effect.");
   lines.push("", "Billing: Seedance-compatible calls are pre-deducted before upstream submission. Failed submissions and failed tasks are refunded. Duration must be a 4-15 second integer; fast 1080p is rejected before charging.");
-  lines.push("", "Task query: use `/api/v3/contents/generations/tasks/<taskId>` for Seedance-compatible task responses. The response keeps the upstream video URL when available; the legacy record endpoints remain available for site history.");
+  lines.push("", "Task query: calls made through `/api/advanced/generate` should poll `/api/generation-records/<taskId>`. Calls made through `/api/v3/contents/generations/tasks` should poll `/api/v3/contents/generations/tasks/<taskId>`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
+}
+
+function externalAdvancedApiMarkdown(doc = {}) {
+  const route = (url, fallback = "") => String(url || fallback || "").replace(String(doc.baseUrl || ""), "");
+  const endpoints = doc.endpoints || {};
+  return [
+    "## Advanced External API",
+    "",
+    "Use this section when an external caller needs the same Create/Advanced generation path as the web UI.",
+    "",
+    `Recommended route: \`${route(doc.recommendedRoute, "/api/advanced/generate")}\``,
+    "",
+    "- Supports Seedance video and Wan2.7 video.",
+    "- Keeps Bearer token auth, account pricing, pre-deduction, user assets, generation records, and failed-task refunds inside this service.",
+    "- Use `/api/platform/generate` only for Gallery/template shortcuts, not for Advanced/Create.",
+    "- Use `/api/v3/contents/generations/tasks` only for Seedance callers that intentionally want a Volcengine-compatible `content[]` payload; it is not the Wan2.7 route.",
+    "",
+    "**Seedance through Advanced**",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.seedanceExample?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Wan2.7 through Advanced**",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.wan27Example?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Response and polling**",
+    "",
+    "The generate response returns `taskId`, `task.status`, `record`, `pricing`, `cost`, and the updated `user`. Poll the generation record until it reaches a terminal status.",
+    "",
+    markdownCodeBlock("http", [
+      `GET ${route(endpoints.generationRecordDetail, "/api/generation-records/<taskId>")}`,
+      "Authorization: Bearer <user-token>",
+    ].join("\n")),
+    "",
+    "Optional: upload reusable image, video, or audio files first with `/api/user-assets`, then pass returned asset ids such as `imageAssetId`, `firstFrameAssetId`, `referenceVideoAssetIds`, or `referenceAudioAssetIds` to `/api/advanced/generate`.",
+    "",
+  ].join("\n");
 }
 
 function seedanceOfficialExampleMarkdown(docs) {
@@ -11041,6 +11163,8 @@ function buildModelDocsMarkdown(docs) {
     "",
     markdownCodeBlock("http", "Authorization: Bearer <user-token>"),
     "",
+    externalAdvancedApiMarkdown(docs.advancedExternalApi),
+    "",
     "## Wan2.7 Image Edit",
     "",
     "Use `/api/wan27/image-edit` for Wan2.7 image text generation, single-image editing, or multi-image fusion/reference editing. Pass `imageAssetIds` with 0 to 9 uploaded image assets; the array order maps to Image 1, Image 2, and so on in the prompt. Results are saved to History and admin generation records first; use History -> Add asset when the result should enter Assets.",
@@ -11064,16 +11188,14 @@ function buildModelDocsMarkdown(docs) {
     "",
     "## Quick Start",
     "",
-    "1. Read `/api/models` or this Markdown file to choose a template.",
-    "2. For image-to-video templates, send `templateId` and `dataUrl` to `/api/platform/generate`.",
-    "3. For text-to-video templates, send `templateId` and an optional `prompt` to `/api/platform/generate`.",
-    "4. Optional: upload a reusable image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
-    "5. For Seedance generation, call `/api/v3/contents/generations/tasks` with a Volcengine-style `content[]` body.",
-    "6. Optional Seedance character upload: POST `/api/seedance/characters/upload` with the character image, then put returned `reference.assetUri` into `content[].image_url.url`.",
-    "7. For advanced Wan2.7 generation, call `/api/advanced/generate` with `provider: \"wan27\"`, a reference image, `resolution`, optional pass-through parameters, and duration.",
-    "8. For Wan2.7 image generation/editing, call `/api/characters/generate` for text-to-image or `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 images. The array order maps to Image 1, Image 2, and so on in the prompt.",
-    "9. Query Seedance tasks with `/api/v3/contents/generations/tasks/<taskId>`. Legacy history remains at `/api/generation-records`.",
-    "10. Seedance-compatible task query returns the upstream task payload when available. Our saved copy is kept internally for site playback/backup.",
+    "1. Read `/api/models` or this Markdown file to choose the integration style.",
+    "2. For Create/Advanced-style external generation, call `/api/advanced/generate`; it supports Seedance and Wan2.7 and returns `taskId`.",
+    "3. Poll `/api/generation-records/<taskId>` for `/api/advanced/generate` tasks.",
+    "4. For Gallery/template shortcuts only, send `templateId` and inputs to `/api/platform/generate`.",
+    "5. Optional: upload a reusable image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
+    "6. For Seedance callers that specifically need a Volcengine-compatible `content[]` body, call `/api/v3/contents/generations/tasks` and poll `/api/v3/contents/generations/tasks/<taskId>`.",
+    "7. Optional Seedance character upload: POST `/api/seedance/characters/upload` with the character image, then put returned `reference.assetUri` into `content[].image_url.url`.",
+    "8. For Wan2.7 image generation/editing, call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 images. The array order maps to Image 1, Image 2, and so on in the prompt.",
     "",
     "## Seedance Character Upload Example",
     "",
