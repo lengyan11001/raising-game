@@ -1056,7 +1056,7 @@ function publicConfig(config, origin = "") {
     prices: config.prices,
     tenantFeatures: {
       tenantPublic,
-      assetLibrary: !tenantPublic,
+      assetLibrary: true,
       accountMenu: true,
     },
     assetImageModify: {

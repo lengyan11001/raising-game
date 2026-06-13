@@ -1650,7 +1650,7 @@ main {
 }
 .advanced-asset-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
   gap: 6px;
 }
 .advanced-asset-actions .copy-btn,
@@ -1659,6 +1659,11 @@ main {
   min-height: 30px;
   padding: 5px 8px;
   font-size: .8rem;
+}
+.advanced-asset-actions .danger {
+  color: #b42318;
+  border-color: rgba(180,35,24,.22);
+  background: rgba(254,242,242,.78);
 }
 .advanced-asset-pager {
   margin-top: 0;

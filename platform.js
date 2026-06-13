@@ -6393,6 +6393,7 @@ function renderAdvancedAssets(assets) {
         <div class="advanced-asset-actions">
           <button class="copy-btn" type="button" data-advanced-asset-add="${escapeHtml(asset.id)}">${escapeHtml(t("advanced.assetAdd"))}</button>
           ${!video && !audio ? `<button class="ghost-button" type="button" data-advanced-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
+          <button class="ghost-button danger" type="button" data-advanced-asset-delete="${escapeHtml(asset.id)}">${escapeHtml(t("assets.delete"))}</button>
         </div>
       </article>
     `;
@@ -6402,6 +6403,12 @@ function renderAdvancedAssets(assets) {
   });
   els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-modify]").forEach((button) => {
     button.addEventListener("click", () => useAssetInAdvanced(list.find((asset) => asset.id === button.dataset.advancedAssetModify), "modify"));
+  });
+  els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-delete]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteUserAsset(button.dataset.advancedAssetDelete || "", { source: "advanced", button });
+    });
   });
   els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-preview]").forEach((node) => {
     node.addEventListener("click", (event) => {
@@ -7955,7 +7962,7 @@ function renderAssets(assets = state.userAssets || []) {
     button.addEventListener("click", () => openAssetFrameDialog(state.userAssets.find((asset) => asset.id === button.dataset.assetFrame)));
   });
   els.assetGrid.querySelectorAll("[data-asset-delete]").forEach((button) => {
-    button.addEventListener("click", () => deleteUserAsset(button.dataset.assetDelete || ""));
+    button.addEventListener("click", () => deleteUserAsset(button.dataset.assetDelete || "", { source: "assets", button }));
   });
   els.assetGrid.querySelectorAll("[data-asset-preview]").forEach((node) => {
     node.addEventListener("click", (event) => {
@@ -8033,13 +8040,77 @@ async function uploadUserAssets(files = []) {
   }
 }
 
-async function deleteUserAsset(assetId = "") {
+function clearDeletedAdvancedAssetReference(assetId = "") {
   if (!assetId) return;
+  let changed = false;
+  const images = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
+  const nextImages = images.filter((item) => item?.assetId !== assetId);
+  if (nextImages.length !== images.length) {
+    state.advancedReferenceImages = nextImages;
+    state.advancedUploadDataUrl = nextImages[0]?.dataUrl || "";
+    if (state.advancedFirstFrameAssetId === assetId) state.advancedFirstFrameAssetId = nextImages[0]?.assetId || "";
+    if (state.advancedSourceImageAssetId === assetId) state.advancedSourceImageAssetId = nextImages[0]?.assetId || "";
+    if (!nextImages.length && els.advancedImage) els.advancedImage.value = "";
+    changed = true;
+  }
+  if (state.advancedFirstFrameAssetId === assetId) {
+    state.advancedFirstFrameAssetId = "";
+    state.advancedUploadDataUrl = nextImages[0]?.dataUrl || "";
+    changed = true;
+  }
+  if (state.advancedSourceImageAssetId === assetId) {
+    state.advancedSourceImageAssetId = "";
+    state.advancedUploadDataUrl = nextImages[0]?.dataUrl || "";
+    changed = true;
+  }
+  if (state.advancedSeedanceLastFrameAssetId === assetId) {
+    removeAdvancedMediaSlot("seedanceLastFrame");
+    changed = true;
+  }
+  if (state.advancedWanLastFrameAssetId === assetId) {
+    removeAdvancedMediaSlot("wanLastFrame");
+    changed = true;
+  }
+  if (state.advancedWanClipAssetId === assetId) {
+    removeAdvancedMediaSlot("wanClip");
+    changed = true;
+  }
+  if (state.advancedSeedanceVideoAssetId === assetId) {
+    state.advancedSeedanceVideoAssetId = "";
+    state.advancedSeedanceVideoPreviewUrl = "";
+    changed = true;
+  }
+  if (state.advancedAudioAssetId === assetId) {
+    state.advancedAudioAssetId = "";
+    changed = true;
+  }
+  if (!changed) return;
+  renderAdvancedReferencePreviews();
+  updateAdvancedReferenceSummary();
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+async function deleteUserAsset(assetId = "", options = {}) {
+  if (!assetId) return;
+  const source = options?.source || "assets";
+  const button = options?.button || null;
+  if (button) button.disabled = true;
   try {
     await requestJson(`/api/user-assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
-    await loadUserAssets(state.userAssetsPage || 1);
+    clearDeletedAdvancedAssetReference(assetId);
+    if (Array.isArray(state.userAssets)) state.userAssets = state.userAssets.filter((asset) => asset.id !== assetId);
+    if (Array.isArray(state.advancedAssets)) state.advancedAssets = state.advancedAssets.filter((asset) => asset.id !== assetId);
+    if (state.tab === "assets") await loadUserAssets(state.userAssetsPage || 1);
+    if (source === "advanced" || state.tab === "advanced") {
+      await loadAdvancedAssets(state.advancedAssetPage || 1);
+    } else if (state.advancedAssetsLoaded) {
+      renderAdvancedAssets();
+    }
   } catch (error) {
-    if (els.assetNote) els.assetNote.textContent = error.message || String(error);
+    const note = source === "advanced" ? els.advancedAssetNote : els.assetNote;
+    if (note) note.textContent = error.message || String(error);
+    if (button) button.disabled = false;
   }
 }
 
