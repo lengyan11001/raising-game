@@ -30,6 +30,7 @@ const DEFAULT_GALLERY_MODE = "characters";
 const GALLERY_MODE_TABS = [
   { id: "characters", labelKey: "nav.gallery" },
 ];
+const CHARACTER_PAGE_SIZE = 20;
 const CHARACTER_FILTER_TAGS = [
   "Group Chats",
   "Dominant",
@@ -129,6 +130,8 @@ const state = {
   category: "all",
   homeCharacters: [],
   activeGalleryCharacterId: "",
+  visibleCharacterCount: CHARACTER_PAGE_SIZE,
+  characterLoadObserver: null,
   galleryUnlocks: [],
   galleryUnlocksLoaded: false,
   galleryUnlockMessage: "",
@@ -4605,15 +4608,57 @@ function renderGalleryCharacters(root = els.templateGrid) {
   const emptyMessage = characters.length && !filteredCharacters.length
     ? "No characters match these filters."
     : source === "custom" ? t("characters.customEmpty") : t("gallery.character.empty");
+  const visibleCount = Math.max(CHARACTER_PAGE_SIZE, Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE));
+  const visibleCharacters = filteredCharacters.slice(0, visibleCount);
   root.innerHTML = `${filterBar}${
-    filteredCharacters.length
-      ? filteredCharacters.map((item, index) => renderGalleryCharacterCard(item, index)).join("")
+    visibleCharacters.length
+      ? `${visibleCharacters.map((item, index) => renderGalleryCharacterCard(item, index)).join("")}${renderCharacterLoadMore(visibleCharacters.length, filteredCharacters.length)}`
       : `<div class="job-note character-filter-empty">${escapeHtml(emptyMessage)}</div>`
   }`;
   bindCharacterFilterActions(root);
+  bindCharacterLoadMore(root, filteredCharacters.length);
   bindGalleryImageFallbacks(root);
   bindGalleryCharacterCards(root);
   refreshIcons();
+}
+
+function resetCharacterPagination() {
+  state.visibleCharacterCount = CHARACTER_PAGE_SIZE;
+  if (state.characterLoadObserver) {
+    state.characterLoadObserver.disconnect();
+    state.characterLoadObserver = null;
+  }
+}
+
+function renderCharacterLoadMore(visibleCount = 0, totalCount = 0) {
+  if (!totalCount || visibleCount >= totalCount) return "";
+  return `
+    <div class="character-load-more" data-character-load-more>
+      <span>${escapeHtml(String(visibleCount))} / ${escapeHtml(String(totalCount))} characters</span>
+      <button class="ghost-button" data-character-load-more-button type="button"><i data-lucide="chevrons-down"></i>Load more</button>
+      <i class="character-load-sentinel" data-character-load-sentinel aria-hidden="true"></i>
+    </div>
+  `;
+}
+
+function bindCharacterLoadMore(root = els.templateGrid, totalCount = 0) {
+  if (state.characterLoadObserver) {
+    state.characterLoadObserver.disconnect();
+    state.characterLoadObserver = null;
+  }
+  const loadMore = () => {
+    if (Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE) >= totalCount) return;
+    state.visibleCharacterCount = Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE) + CHARACTER_PAGE_SIZE;
+    renderGalleryCharacters(root);
+  };
+  root.querySelector("[data-character-load-more-button]")?.addEventListener("click", loadMore);
+  const sentinel = root.querySelector("[data-character-load-sentinel]");
+  if (!sentinel) return;
+  if (!("IntersectionObserver" in window)) return;
+  state.characterLoadObserver = new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) loadMore();
+  }, { rootMargin: "220px 0px", threshold: 0.01 });
+  state.characterLoadObserver.observe(sentinel);
 }
 
 function bindGalleryCharacterCards(root = els.templateGrid) {
@@ -4903,12 +4948,14 @@ function bindCharacterFilterActions(root = els.templateGrid) {
         ...(state.characterFilters || {}),
         [type]: value,
       };
+      resetCharacterPagination();
       renderGalleryCharacters(root);
     });
   });
   root.querySelector("[data-character-filter-clear]")?.addEventListener("click", (event) => {
     event.stopPropagation();
     state.characterFilters = { sort: "recommended", tag: "", gender: "", style: "", age: "", q: "" };
+    resetCharacterPagination();
     renderGalleryCharacters(root);
   });
   root.querySelector("[data-character-filter-search]")?.addEventListener("input", (event) => {
@@ -4916,16 +4963,9 @@ function bindCharacterFilterActions(root = els.templateGrid) {
       ...(state.characterFilters || {}),
       q: event.currentTarget.value || "",
     };
-    const filteredCharacters = filterGalleryCharacters((state.homeCharacters || []).filter((item) => item && !item.deletedAt));
-    root.querySelector(".character-filter-summary span")?.replaceChildren(document.createTextNode(`${filteredCharacters.length} characters`));
-    const clearButton = root.querySelector("[data-character-filter-clear]");
-    if (clearButton) clearButton.hidden = !Boolean(state.characterFilters?.tag || state.characterFilters?.gender || state.characterFilters?.style || state.characterFilters?.age || state.characterFilters?.q || (state.characterFilters?.sort && state.characterFilters.sort !== "recommended"));
-    const cards = filteredCharacters.map((item, index) => renderGalleryCharacterCard(item, index)).join("");
-    root.querySelectorAll(".character-card, .character-filter-empty").forEach((node) => node.remove());
-    root.insertAdjacentHTML("beforeend", cards || `<div class="job-note character-filter-empty">No characters match these filters.</div>`);
-    bindGalleryImageFallbacks(root);
-    bindGalleryCharacterCards(root);
-    refreshIcons();
+    resetCharacterPagination();
+    renderGalleryCharacters(root);
+    root.querySelector("[data-character-filter-search]")?.focus();
   });
 }
 

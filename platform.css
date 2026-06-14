@@ -3317,6 +3317,26 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 .character-filter-empty {
   grid-column: 1 / -1;
 }
+.character-load-more {
+  grid-column: 1 / -1;
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: rgba(255,255,255,.5);
+  font-size: .8rem;
+  font-weight: 900;
+}
+.character-load-more .ghost-button {
+  min-height: 36px;
+  border-color: rgba(255,255,255,.12);
+  background: rgba(255,255,255,.08);
+}
+.character-load-sentinel {
+  width: 1px;
+  height: 1px;
+}
 
 .character-grid,
 .character-grid-main {
