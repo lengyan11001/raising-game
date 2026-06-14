@@ -3373,6 +3373,189 @@ input:focus {
   background: #ff4fa3;
 }
 
+/* Darken creation and asset work surfaces. */
+.advanced-gate,
+.advanced-workspace,
+.asset-panel,
+.characters-layout {
+  color: var(--text);
+}
+.permission-card,
+.advanced-form-card,
+.advanced-case-panel,
+.advanced-side-panel,
+.character-create-card,
+.asset-card,
+.advanced-asset-card,
+.advanced-result-card,
+.history-item,
+.history-empty-card,
+.ledger-table-wrap,
+.topup-modal-panel,
+.copy-card,
+.token-card,
+.subtoken-row,
+.subtoken-create,
+.subtoken-created,
+.account-grid > div,
+.token-box {
+  border-color: rgba(255,255,255,.1);
+  background: #151518;
+  box-shadow: none;
+}
+.advanced-case-panel,
+.advanced-side-panel {
+  background: #18181c;
+}
+.permission-card {
+  max-width: 620px;
+  background: #19191d;
+}
+.permission-card p,
+.copy-main p,
+.legal-body p,
+.advanced-result-empty p,
+.advanced-asset-empty p {
+  color: var(--muted);
+}
+.copy-kicker,
+.advanced-side-tab,
+.advanced-asset-target,
+.category-chip,
+.asset-source-toggle label,
+.access-mode-tabs,
+.access-tab,
+.topup-wallet-option {
+  border-color: rgba(255,255,255,.1);
+  color: var(--muted);
+  background: #1d1d22;
+}
+.advanced-side-tab.is-active,
+.advanced-asset-target.is-active,
+.access-mode-tab.is-active,
+.access-tab.is-active {
+  border-color: rgba(255,79,163,.58);
+  color: #fff;
+  background: rgba(255,79,163,.18);
+}
+.advanced-asset-empty,
+.advanced-result-empty,
+.upload-box,
+.advanced-upload-box {
+  border-color: rgba(117, 227, 226, .34);
+  background: #101114;
+}
+.advanced-asset-empty strong,
+.advanced-result-empty strong {
+  color: var(--text);
+}
+.wan-media-panel,
+.advanced-case-row,
+.history-detail-images figure,
+.history-detail-section pre {
+  border-color: rgba(255,255,255,.1);
+  background: #18181c;
+}
+.advanced-asset-toolbar input[type="search"],
+.advanced-asset-toolbar select,
+.asset-toolbar input,
+.asset-toolbar select,
+textarea,
+input,
+select,
+.subtoken-edit input,
+.wan-clip input[type="url"],
+.copy-preview,
+.access-doc-example pre,
+.access-param-table,
+.access-doc-row,
+.file-picker-control input {
+  border-color: rgba(255,255,255,.12);
+  color: var(--text);
+  background: #202126;
+}
+.advanced-asset-toolbar input[type="search"]::placeholder,
+textarea::placeholder,
+input::placeholder {
+  color: rgba(247,247,251,.42);
+}
+textarea:focus,
+input:focus,
+select:focus,
+.advanced-asset-toolbar input[type="search"]:focus,
+.advanced-asset-toolbar select:focus {
+  border-color: rgba(255,79,163,.62);
+  box-shadow: 0 0 0 3px rgba(255,79,163,.13);
+}
+.upload-box span,
+.asset-upload-control > span,
+.file-picker-button {
+  border-color: rgba(255,79,163,.34);
+  color: #fff;
+  background: rgba(255,79,163,.18);
+}
+.upload-box span {
+  background: rgba(255,255,255,.13);
+}
+.wan-frame-preview,
+.asset-modify-preview,
+.character-action-result img {
+  border-color: rgba(255,255,255,.1);
+  background: #0b0b0e;
+}
+.advanced-result-media,
+.history-media video,
+.history-poster,
+.history-result-image,
+.history-placeholder,
+.asset-preview,
+.advanced-asset-preview {
+  background: #0b0b0e;
+}
+.advanced-result-card.is-failed,
+.history-item.is-failed {
+  border-color: rgba(255,92,92,.34);
+  background: #1d1718;
+}
+.advanced-asset-actions .danger,
+.ghost-button.danger,
+.history-delete,
+.history-action-note {
+  border-color: rgba(255,92,92,.32);
+  color: #ff8a8a;
+  background: rgba(255,92,92,.1);
+}
+.modal {
+  background: #17171b;
+}
+.icon-btn {
+  background: #202126;
+}
+.ledger-table th {
+  color: var(--muted);
+  background: #1f2025;
+}
+.ledger-table td {
+  color: var(--text);
+}
+.ledger-badge,
+.history-add-asset,
+.history-replace,
+.history-frame,
+.history-extend,
+.history-params {
+  color: #75e3e2;
+}
+.history-download {
+  border-color: rgba(117,227,226,.2);
+  color: #75e3e2;
+  background: rgba(255,255,255,.06);
+}
+.history-download:hover {
+  border-color: rgba(117,227,226,.44);
+  background: rgba(117,227,226,.1);
+}
+
 @media (max-width: 1080px) {
   .gallery-panel { width: 100%; }
   .characters-layout { grid-template-columns: 1fr; }
