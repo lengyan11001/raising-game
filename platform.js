@@ -26,8 +26,9 @@ const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
 const DEFAULT_PLATFORM_TAB = "gallery";
-const DEFAULT_GALLERY_MODE = "hot";
+const DEFAULT_GALLERY_MODE = "characters";
 const ADVANCED_CASE_TABS = [
+  { id: "characters", labelKey: "nav.gallery" },
   { id: "hot", labelKey: "advanced.caseTab.hot" },
   { id: "extend", labelKey: "advanced.caseTab.extend" },
   { id: "replace", labelKey: "advanced.caseTab.replace" },
@@ -4388,6 +4389,7 @@ function setCategory(category) {
 
 function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
   state.galleryMode = normalizeAdvancedCaseTab(mode || DEFAULT_GALLERY_MODE);
+  state.activeGalleryCharacterId = "";
   renderTemplates();
 }
 
@@ -4513,6 +4515,12 @@ function renderTemplates() {
   activeHoverPreviewStop?.();
   activeHoverPreviewStop = null;
   renderGalleryModeTabs();
+  if (state.galleryMode === "characters") {
+    state.characterSource = "system";
+    renderGalleryCharacters(els.templateGrid);
+    loadGalleryUnlocks();
+    return;
+  }
   renderGalleryCases();
 }
 
@@ -4608,6 +4616,36 @@ function customCharacterItems() {
     }));
 }
 
+function compactNumber(value = 0) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number) || number <= 0) return "0";
+  if (number >= 1000000) return `${(number / 1000000).toFixed(number >= 10000000 ? 0 : 1).replace(/\.0$/, "")}M`;
+  if (number >= 1000) return `${(number / 1000).toFixed(number >= 10000 ? 0 : 1).replace(/\.0$/, "")}K`;
+  return String(Math.round(number));
+}
+
+function characterTags(item = {}, limit = 3) {
+  return (Array.isArray(item.tags) ? item.tags : [])
+    .map((tag) => String(tag || "").trim())
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function characterProfileLine(item = {}) {
+  return uniqueTruthy([
+    item.age ? `${item.age}` : "",
+    item.gender,
+    item.style,
+  ]).join(" / ");
+}
+
+function characterAllVideos(item = {}) {
+  const sceneVideos = characterSceneVideos(item);
+  const unlockVideos = characterUnlockVideos(item);
+  if (sceneVideos.length || unlockVideos.length) return uniqueCharacterVideos([...sceneVideos, ...unlockVideos], { dedupeByUrl: false });
+  return uniqueCharacterVideos([...characterRoleVideos(item), ...characterSceneVideos(item), ...characterUnlockVideos(item)], { dedupeByUrl: false });
+}
+
 function renderCharacterSourceTabs() {
   if (!els.characterSourceTabs) return;
   const tabs = [
@@ -4633,27 +4671,30 @@ function renderGalleryCharacterCard(item = {}) {
   const videoUrl = characterMainVideoUrl(item);
   const poster = characterPosterUrl(item);
   const fallbackPoster = DEFAULT_TEMPLATE_COVER;
-  const roleCount = characterRoleVideos(item).length;
-  const sceneCount = characterSceneVideos(item).length + characterUnlockVideos(item).length;
-  const status = item.referenceState === "ready" ? "Ready" : item.status || item.referenceState || "Draft";
-  const videoCount = roleCount + sceneCount;
+  const videoCount = item.videoCount || characterAllVideos(item).length;
   const custom = item.custom === true;
+  const tags = characterTags(item, 2);
+  const profileLine = characterProfileLine(item);
+  const stats = uniqueTruthy([
+    `${compactNumber(item.likeCount)} likes`,
+    `${videoCount} videos`,
+  ]).join(" / ");
   return `
-    <article class="character-card" data-character-id="${escapeHtml(item.id || "")}">
+    <article class="character-card explore-character-card" data-character-id="${escapeHtml(item.id || "")}">
       <div class="character-card-media">
         ${renderSmartCoverMedia({ className: "character-cover-media", posterUrl: poster, videoUrl, alt: item.name || "", fallbackUrl: fallbackPoster })}
-        ${videoUrl ? `<span class="character-card-video-mark"><i data-lucide="play"></i></span>` : ""}
-      </div>
-      <div class="character-card-meta">
-        <span>${escapeHtml(custom ? t("characters.customTab") : `${status} / ${videoCount} ${videoCount === 1 ? "video" : "videos"}`)}</span>
-        <strong>${escapeHtml(item.name || "Character")}</strong>
-        <p>${escapeHtml(item.title || "")}</p>
+        ${videoUrl ? `<span class="character-card-video-mark"><i data-lucide="radio"></i>LIVE</span>` : ""}
+        <div class="character-card-meta">
+          <span>${escapeHtml(custom ? t("characters.customTab") : stats)}</span>
+          <strong>${escapeHtml(item.name || "Character")}</strong>
+          <p>${escapeHtml(profileLine || item.title || "")}</p>
+          ${tags.length ? `<div class="character-card-tags">${tags.map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>` : ""}
+        </div>
         <div class="character-card-actions">
           <button class="ghost-button" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.use"))}</button>
           <button class="ghost-button" data-character-takeoff="${escapeHtml(item.id || "")}" type="button"><i data-lucide="shirt"></i>${escapeHtml(t("characters.takeOff"))}</button>
           <button class="copy-btn" data-character-modify="${escapeHtml(item.id || "")}" type="button"><i data-lucide="wand-sparkles"></i>${escapeHtml(t("characters.modify"))}</button>
           ${custom ? `<button class="ghost-button danger" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>` : ""}
-          ${custom ? "" : `<button class="primary-button compact" data-character-cases="${escapeHtml(item.id || "")}" type="button"><i data-lucide="clapperboard"></i>${escapeHtml(t("gallery.character.viewCases"))}</button>`}
         </div>
       </div>
     </article>
@@ -4917,10 +4958,14 @@ function isGalleryVideoUnlocked(character = {}, video = {}) {
 
 async function unlockGallerySceneVideo(characterId = "", sceneId = "", sceneEntryId = "default") {
   if (!state.user) return openLogin();
+  const renderActiveCharacterView = () => {
+    if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+    else renderTemplates();
+  };
   const key = galleryUnlockKey(characterId, sceneId, sceneEntryId);
   state.galleryUnlockLoadingKey = key;
   state.galleryUnlockMessage = t("gallery.character.unlocking");
-  renderTemplates();
+  renderActiveCharacterView();
   try {
     const payload = await requestJson("/api/unlock-video", {
       method: "POST",
@@ -4937,7 +4982,7 @@ async function unlockGallerySceneVideo(characterId = "", sceneId = "", sceneEntr
     state.galleryUnlockMessage = t("gallery.character.unlockFailed", { message: error.message || "Unknown error" });
   } finally {
     state.galleryUnlockLoadingKey = "";
-    renderTemplates();
+    renderActiveCharacterView();
     renderAccountMenu();
     renderTopupSummary();
   }
@@ -5125,10 +5170,15 @@ function renderSmartCoverMedia({ className = "", posterUrl = "", videoUrl = "", 
 }
 
 function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
-  const roleVideos = characterRoleVideos(item);
-  const sceneVideos = characterSceneVideos(item);
-  const unlockVideos = characterUnlockVideos(item);
+  const videos = characterAllVideos(item);
   const poster = characterPosterUrl(item);
+  const tags = characterTags(item, 6);
+  const profileLine = characterProfileLine(item);
+  const stats = uniqueTruthy([
+    `${compactNumber(item.likeCount)} likes`,
+    `${compactNumber(item.estimatedMessageCount)} chats`,
+    `${videos.length} videos`,
+  ]).join(" / ");
   if (!root) return;
   root.className = "template-grid character-detail";
   root.innerHTML = `
@@ -5136,18 +5186,24 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
       <button class="ghost-button character-back" data-character-back type="button"><i data-lucide="chevron-left"></i>${escapeHtml(t("gallery.character.back"))}</button>
       <div class="character-detail-profile">
         ${renderSmartCoverMedia({ className: "character-detail-cover-media", posterUrl: poster, videoUrl: characterMainVideoUrl(item), alt: item.name || "", fallbackUrl: DEFAULT_TEMPLATE_COVER })}
-        <div>
-          <span>${escapeHtml(item.referenceState === "ready" ? "Ready" : item.status || item.referenceState || "Draft")}</span>
+        <div class="character-detail-copy">
+          <span>${escapeHtml(profileLine || item.status || "Public profile")}</span>
           <h3>${escapeHtml(item.name || "Character")}</h3>
-          <p>${escapeHtml(item.title || "")}</p>
+          <p>${escapeHtml(item.description || item.title || "")}</p>
+          ${tags.length ? `<div class="character-detail-tags">${tags.map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>` : ""}
+          <div class="character-detail-stats">
+            <strong>${escapeHtml(stats || "Ready")}</strong>
+            ${item.creatorUsername ? `<span>@${escapeHtml(item.creatorUsername)}</span>` : ""}
+          </div>
+        </div>
+        <div class="character-detail-actions">
           <button class="primary-button compact" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.useThis"))}</button>
           ${item.custom ? `<button class="ghost-button danger compact" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>` : ""}
         </div>
       </div>
       ${state.galleryUnlockMessage ? `<div class="job-note">${escapeHtml(state.galleryUnlockMessage)}</div>` : ""}
     </section>
-    ${renderCharacterVideoSection(t("gallery.character.roleVideos"), roleVideos, item)}
-    ${renderCharacterVideoSection(t("gallery.character.sceneVideos"), [...sceneVideos, ...unlockVideos], item)}
+    ${renderCharacterVideoSection(t("gallery.character.sceneVideos"), videos, item)}
   `;
   root.querySelector("[data-character-back]")?.addEventListener("click", () => {
     state.activeGalleryCharacterId = "";
@@ -5196,10 +5252,10 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
   const loading = state.galleryUnlockLoadingKey === galleryUnlockKey(character.id || "", sceneId, sceneEntryId);
   const canPlay = !locked && hasVideo;
   const title = characterVideoTitle(video, locked ? t("gallery.character.sceneVideos") : t("gallery.character.roleVideos"));
-  const meta = [video.sceneName, video.resolution, video.duration ? `${video.duration}s` : ""].filter(Boolean).join(" / ");
+  const meta = [video.duration ? `${video.duration}s` : "", video.likes ? `${compactNumber(video.likes)} likes` : ""].filter(Boolean).join(" / ");
   const price = formatCredits(video.price || 0);
   const action = canPlay
-    ? `<button class="ghost-button" data-character-play="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"><i data-lucide="play"></i>${escapeHtml(t("gallery.character.play"))}</button>`
+    ? ""
     : locked
       ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"${loading ? " disabled" : ""}><i data-lucide="${unlocked ? "play" : "lock-keyhole"}"></i>${escapeHtml(loading ? t("gallery.character.unlocking") : unlocked ? t("gallery.character.play") : t("gallery.character.unlock", { cost: price }))}</button>`
       : "";
@@ -5213,11 +5269,10 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
       <button class="character-video-media" ${mediaAction || "disabled"} type="button">
         ${renderSmartCoverMedia({ className: "character-video-cover-media", posterUrl: poster, videoUrl: video.videoUrl || video.localVideoUrl || video.remoteVideoUrl || "", alt: title, fallbackUrl: characterPosterUrl(character) || DEFAULT_TEMPLATE_COVER })}
         <span class="character-video-play"><i data-lucide="${locked && !unlocked ? "lock" : "play"}"></i></span>
+        <span class="character-video-chip">${escapeHtml(meta || "Video")}</span>
       </button>
       <div class="character-video-info">
-        <span>${escapeHtml(locked ? (unlocked ? t("gallery.character.unlocked") : t("gallery.character.locked")) : video.kind === "scene" ? t("gallery.character.sceneVideos") : t("gallery.character.roleVideos"))}</span>
         <strong>${escapeHtml(title)}</strong>
-        <p>${escapeHtml(meta || video.status || "")}</p>
         ${action}
       </div>
     </article>
@@ -5225,10 +5280,7 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
 }
 
 function findGalleryCharacterVideo(character = {}, sceneId = "", sceneEntryId = "default") {
-  const candidates = [
-    ...characterRoleVideos(character),
-    ...characterSceneVideos(character),
-  ];
+  const candidates = characterAllVideos(character);
   return candidates.find((video) => String(video.sceneId || "") === String(sceneId || "") && String(video.sceneEntryId || "default") === String(sceneEntryId || "default")) || null;
 }
 
@@ -5654,7 +5706,9 @@ function renderGalleryModeTabs() {
     ...ADVANCED_CASE_TABS.map((tab) => ({
       id: tab.id,
       label: advancedCaseTabLabel(tab.id),
-      count: state.advancedCases.filter((item) => item.enabled !== false && normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === tab.id).length,
+      count: tab.id === "characters"
+        ? state.homeCharacters.filter((item) => item && !item.deletedAt).length
+        : state.advancedCases.filter((item) => item.enabled !== false && normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === tab.id).length,
     })),
   ];
   els.galleryModeTabs.innerHTML = modes.map((mode) => `
@@ -5810,6 +5864,7 @@ function renderAdvancedCasePager(tab, page, totalPages) {
 
 function normalizeAdvancedCaseTab(value = "") {
   const raw = String(value || "").trim().toLowerCase();
+  if (raw === "characters" || raw.includes("character") || raw.includes("explore")) return "characters";
   if (raw.includes("extend")) return "extend";
   if (raw.includes("replace")) return "replace";
   if (raw === "hot" || raw.includes("热门") || raw.includes("popular")) return "hot";
