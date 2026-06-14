@@ -1413,6 +1413,11 @@ function publicHomeVideoItem(item) {
     sourceImageUrl: item.sourceImageUrl || "",
     publicImageUrl: item.publicImageUrl || "",
     coverUrl: item.coverUrl || "",
+    thumbnailUrl: item.thumbnailUrl || "",
+    thumbUrl: item.thumbUrl || "",
+    listPosterUrl: item.listPosterUrl || "",
+    cardPosterUrl: item.cardPosterUrl || "",
+    posterThumbUrl: item.posterThumbUrl || "",
     videoUrl: item.videoUrl || item.localVideoUrl || item.remoteVideoUrl || "",
     localVideoUrl: item.localVideoUrl || item.videoUrl || "",
     remoteVideoUrl: item.remoteVideoUrl || "",
@@ -16686,15 +16691,24 @@ async function serveStatic(req, res, url) {
       return pipeFileStream(res, filePath, { start: chunkStart, end: chunkEnd });
     }
 
+    const isHtml = contentType === "text/html";
+    const isVersionedAsset = Boolean(url.searchParams.get("v"));
+    const isLongCacheAsset =
+      isVersionedAsset ||
+      contentType.startsWith("image/") ||
+      contentType.startsWith("font/") ||
+      filePath.startsWith(path.normalize(path.join(ROOT, "assets", "ourdream")));
     res.writeHead(200, {
       "content-type": contentType,
       "content-length": stat.size,
       "accept-ranges": contentType.startsWith("video/") ? "bytes" : "none",
-      "cache-control": contentType.startsWith("text/")
+      "cache-control": isHtml
         ? "no-cache"
-        : contentType.startsWith("video/")
+        : contentType.startsWith("video/") || isLongCacheAsset
           ? "public, max-age=604800, immutable"
-          : "public, max-age=60",
+          : contentType.startsWith("text/")
+            ? "no-cache"
+            : "public, max-age=60",
     });
     if (req.method === "HEAD") return res.end();
     return pipeFileStream(res, filePath);

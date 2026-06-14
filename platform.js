@@ -3,7 +3,7 @@
 const TOKEN_KEY = "raisingGameToken";
 const LANG_KEY = "raisingGameLanguage";
 const TAB_KEY = "raisingGamePlatformTab";
-const ALL_TABS = new Set(["gallery", "characters", "advanced", "assets", "access", "history", "topups", "spending"]);
+const ALL_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 75;
@@ -27,6 +27,9 @@ const DEFAULT_TOPUP_AMOUNT = 100;
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
 const DEFAULT_PLATFORM_TAB = "gallery";
 const DEFAULT_GALLERY_MODE = "characters";
+const GALLERY_MODE_TABS = [
+  { id: "characters", labelKey: "nav.gallery" },
+];
 const ADVANCED_CASE_TABS = [
   { id: "characters", labelKey: "nav.gallery" },
   { id: "hot", labelKey: "advanced.caseTab.hot" },
@@ -3359,7 +3362,7 @@ function applyLanguage() {
   renderAccessGuides();
   renderAdvanced();
   renderAssets();
-  renderGalleryCharacters(els.characterGrid);
+  if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
   renderAccountMenu();
   renderTopupSummary();
   renderTokenDisplays();
@@ -4388,7 +4391,7 @@ function setCategory(category) {
 }
 
 function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
-  state.galleryMode = normalizeAdvancedCaseTab(mode || DEFAULT_GALLERY_MODE);
+  state.galleryMode = normalizeGalleryMode(mode || DEFAULT_GALLERY_MODE);
   state.activeGalleryCharacterId = "";
   renderTemplates();
 }
@@ -4666,9 +4669,9 @@ function renderCharacterSourceTabs() {
   });
 }
 
-function renderGalleryCharacterCard(item = {}) {
+function renderGalleryCharacterCard(item = {}, index = 0) {
   const videoUrl = characterMainVideoUrl(item);
-  const poster = characterPosterUrl(item);
+  const poster = characterListPosterUrl(item);
   const fallbackPoster = DEFAULT_TEMPLATE_COVER;
   const videoCount = item.videoCount || characterAllVideos(item).length;
   const custom = item.custom === true;
@@ -4681,7 +4684,7 @@ function renderGalleryCharacterCard(item = {}) {
   return `
     <article class="character-card explore-character-card" data-character-id="${escapeHtml(item.id || "")}">
       <div class="character-card-media">
-        ${renderSmartCoverMedia({ className: "character-cover-media", posterUrl: poster, videoUrl, alt: item.name || "", fallbackUrl: fallbackPoster })}
+        ${renderSmartCoverMedia({ className: "character-cover-media", posterUrl: poster, videoUrl, alt: item.name || "", fallbackUrl: fallbackPoster, eager: index < 6, defer: index >= 6 })}
         ${videoUrl ? `<span class="character-card-video-mark"><i data-lucide="radio"></i>LIVE</span>` : ""}
         <div class="character-card-meta">
           <span>${escapeHtml(custom ? t("characters.customTab") : stats)}</span>
@@ -5049,6 +5052,17 @@ function characterPosterUrl(item = {}) {
   return uniqueTruthy(candidates).find((value) => !isGenericCharacterPoster(value)) || (mainVideo ? "" : DEFAULT_TEMPLATE_COVER);
 }
 
+function characterListPosterUrl(item = {}) {
+  const candidates = [
+    item.thumbnailUrl,
+    item.thumbUrl,
+    item.listPosterUrl,
+    item.cardPosterUrl,
+    item.posterThumbUrl,
+  ];
+  return uniqueTruthy(candidates).find((value) => !isVideoMediaUrl(value) && !isGenericCharacterPoster(value)) || characterPosterUrl(item);
+}
+
 function characterReferenceImageUrl(item = {}) {
   const candidates = [
     item.sourceImageUrl,
@@ -5160,17 +5174,22 @@ function characterVideoPoster(video = {}, character = {}) {
   return uniqueTruthy([video.posterUrl, characterPosterUrl(character), DEFAULT_TEMPLATE_COVER]).find(Boolean) || DEFAULT_TEMPLATE_COVER;
 }
 
-function renderSmartCoverMedia({ className = "", posterUrl = "", videoUrl = "", fallbackUrl = DEFAULT_TEMPLATE_COVER, alt = "" } = {}) {
+function renderSmartCoverMedia({ className = "", posterUrl = "", videoUrl = "", fallbackUrl = DEFAULT_TEMPLATE_COVER, alt = "", eager = false, defer = false } = {}) {
   const poster = String(posterUrl || "").trim();
   const video = String(videoUrl || "").trim();
   const fallback = String(fallbackUrl || DEFAULT_TEMPLATE_COVER).trim();
+  const loading = eager ? "eager" : "lazy";
+  const priority = eager ? ` fetchpriority="high"` : ` fetchpriority="low"`;
   if (poster) {
-    return `<img class="${escapeHtml(className)}" src="${escapeHtml(poster)}" alt="${escapeHtml(alt)}" loading="lazy" data-cover-fallback="${escapeHtml(video || fallback)}" data-cover-final-fallback="${escapeHtml(fallback)}" />`;
+    const sourceAttr = defer
+      ? `data-lazy-src="${escapeHtml(poster)}"`
+      : `src="${escapeHtml(poster)}"`;
+    return `<img class="${escapeHtml(className)}" ${sourceAttr} alt="${escapeHtml(alt)}" loading="${loading}" decoding="async"${priority} data-cover-fallback="${escapeHtml(video || fallback)}" data-cover-final-fallback="${escapeHtml(fallback)}" />`;
   }
   if (video) {
-    return `<video class="${escapeHtml(className)}" src="${escapeHtml(video)}" aria-label="${escapeHtml(alt)}" muted playsinline preload="metadata" data-video-cover-fallback="${escapeHtml(fallback)}"></video>`;
+    return `<video class="${escapeHtml(className)}" ${defer ? `data-lazy-src="${escapeHtml(video)}"` : `src="${escapeHtml(video)}"`} aria-label="${escapeHtml(alt)}" muted playsinline preload="${eager ? "metadata" : "none"}" data-video-cover-fallback="${escapeHtml(fallback)}"></video>`;
   }
-  return `<img class="${escapeHtml(className)}" src="${escapeHtml(fallback)}" alt="${escapeHtml(alt)}" loading="lazy" />`;
+  return `<img class="${escapeHtml(className)}" ${defer ? `data-lazy-src="${escapeHtml(fallback)}"` : `src="${escapeHtml(fallback)}"`} alt="${escapeHtml(alt)}" loading="${loading}" decoding="async"${priority} />`;
 }
 
 function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
@@ -5344,6 +5363,7 @@ function replaceImageWithCoverVideo(img, videoUrl = "", fallback = DEFAULT_TEMPL
 }
 
 function bindGalleryImageFallbacks(root = els.templateGrid) {
+  bindLazyMedia(root);
   root?.querySelectorAll?.("img[data-cover-fallback]")?.forEach((img) => {
     const fallback = img.dataset.coverFallback || DEFAULT_TEMPLATE_COVER;
     const finalFallback = img.dataset.coverFinalFallback || DEFAULT_TEMPLATE_COVER;
@@ -5360,9 +5380,33 @@ function bindGalleryImageFallbacks(root = els.templateGrid) {
       }
     };
     img.addEventListener("error", applyFallback);
-    if (img.complete && img.naturalWidth === 0) applyFallback();
+    if (img.getAttribute("src") && img.complete && img.naturalWidth === 0) applyFallback();
   });
   root?.querySelectorAll?.("video[data-video-cover-fallback]")?.forEach(bindGalleryCoverVideo);
+}
+
+function loadLazyMediaElement(element) {
+  if (!element?.dataset?.lazySrc) return;
+  element.src = element.dataset.lazySrc;
+  element.removeAttribute("data-lazy-src");
+  if (element.tagName === "VIDEO") element.load();
+}
+
+function bindLazyMedia(root = document) {
+  const items = Array.from(root?.querySelectorAll?.("[data-lazy-src]") || []);
+  if (!items.length) return;
+  if (!("IntersectionObserver" in window)) {
+    items.forEach(loadLazyMediaElement);
+    return;
+  }
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      loadLazyMediaElement(entry.target);
+      observer.unobserve(entry.target);
+    });
+  }, { rootMargin: "180px 0px", threshold: 0.01 });
+  items.forEach((item) => observer.observe(item));
 }
 
 function bindGalleryCaseActions() {
@@ -5705,9 +5749,9 @@ function advancedCaseInputVideoPoster(item = {}) {
 
 function renderGalleryModeTabs() {
   if (!els.galleryModeTabs) return;
-  const activeMode = state.galleryMode;
+  const activeMode = normalizeGalleryMode(state.galleryMode);
   const modes = [
-    ...ADVANCED_CASE_TABS.map((tab) => ({
+    ...GALLERY_MODE_TABS.map((tab) => ({
       id: tab.id,
       label: advancedCaseTabLabel(tab.id),
       count: tab.id === "characters"
@@ -5715,6 +5759,12 @@ function renderGalleryModeTabs() {
         : state.advancedCases.filter((item) => item.enabled !== false && normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === tab.id).length,
     })),
   ];
+  if (modes.length <= 1) {
+    els.galleryModeTabs.hidden = true;
+    els.galleryModeTabs.innerHTML = "";
+    return;
+  }
+  els.galleryModeTabs.hidden = false;
   els.galleryModeTabs.innerHTML = modes.map((mode) => `
     <button class="gallery-mode-tab ${activeMode === mode.id ? "is-active" : ""}" data-gallery-mode="${escapeHtml(mode.id)}" type="button">
       ${escapeHtml(mode.label)}<span>${escapeHtml(String(mode.count))}</span>
@@ -5873,6 +5923,11 @@ function normalizeAdvancedCaseTab(value = "") {
   if (raw.includes("replace")) return "replace";
   if (raw === "hot" || raw.includes("热门") || raw.includes("popular")) return "hot";
   return "hot";
+}
+
+function normalizeGalleryMode(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  return GALLERY_MODE_TABS.some((tab) => tab.id === raw) ? raw : DEFAULT_GALLERY_MODE;
 }
 
 function advancedCaseTabLabel(tab = "hot") {
