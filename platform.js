@@ -4518,7 +4518,6 @@ function renderTemplates() {
   if (state.galleryMode === "characters") {
     state.characterSource = "system";
     renderGalleryCharacters(els.templateGrid);
-    loadGalleryUnlocks();
     return;
   }
   renderGalleryCases();
@@ -4911,7 +4910,12 @@ function openGalleryCharacter(characterId = "") {
   state.activeGalleryCharacterId = item.id || "";
   if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
   else renderTemplates();
-  loadGalleryUnlocks();
+  if (state.user) loadGalleryUnlocks();
+  else {
+    state.galleryUnlocks = [];
+    state.galleryUnlocksLoaded = false;
+    state.galleryUnlockMessage = "";
+  }
 }
 
 async function loadGalleryUnlocks() {
