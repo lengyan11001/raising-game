@@ -30,6 +30,49 @@ const DEFAULT_GALLERY_MODE = "characters";
 const GALLERY_MODE_TABS = [
   { id: "characters", labelKey: "nav.gallery" },
 ];
+const CHARACTER_FILTER_TAGS = [
+  "Group Chats",
+  "Dominant",
+  "Feminine",
+  "Femboy",
+  "Tomboy",
+  "Curvy",
+  "Muscular",
+  "Goth",
+  "Slow Burn",
+  "Exhibitionist",
+  "Tattooed",
+  "Athletic",
+  "Femdom",
+  "Petite",
+  "Vampire",
+  "Cosplay",
+  "Redhead",
+  "Elf",
+  "Thick",
+  "Asian",
+  "Latina",
+  "Blonde",
+  "Brunette",
+  "Busty",
+  "MILF",
+  "Mature",
+  "Submissive",
+  "Romantic",
+  "Influencer",
+  "Goddess",
+];
+const CHARACTER_AGE_FILTERS = [
+  { id: "18-24", label: "18-24" },
+  { id: "25-34", label: "25-34" },
+  { id: "35+", label: "35+" },
+];
+const CHARACTER_SORT_OPTIONS = [
+  { id: "recommended", label: "For You" },
+  { id: "popular", label: "Most liked" },
+  { id: "videos", label: "Most videos" },
+  { id: "newest", label: "Newest" },
+];
 const ADVANCED_CASE_TABS = [
   { id: "characters", labelKey: "nav.gallery" },
   { id: "hot", labelKey: "advanced.caseTab.hot" },
@@ -82,6 +125,7 @@ const state = {
   tab: initialPlatformTab(),
   galleryMode: DEFAULT_GALLERY_MODE,
   characterSource: "system",
+  characterFilters: { sort: "recommended", tag: "", gender: "", style: "", age: "", q: "" },
   category: "all",
   homeCharacters: [],
   activeGalleryCharacterId: "",
@@ -4556,10 +4600,24 @@ function renderGalleryCharacters(root = els.templateGrid) {
   }
   state.activeGalleryCharacterId = "";
   root.className = "template-grid character-grid character-grid-main";
-  root.innerHTML = characters.length
-    ? characters.map(renderGalleryCharacterCard).join("")
-    : `<div class="job-note">${escapeHtml(source === "custom" ? t("characters.customEmpty") : t("gallery.character.empty"))}</div>`;
+  const filteredCharacters = filterGalleryCharacters(characters);
+  const filterBar = source === "system" ? renderCharacterFilterBar(characters, filteredCharacters.length) : "";
+  const emptyMessage = characters.length && !filteredCharacters.length
+    ? "No characters match these filters."
+    : source === "custom" ? t("characters.customEmpty") : t("gallery.character.empty");
+  root.innerHTML = `${filterBar}${
+    filteredCharacters.length
+      ? filteredCharacters.map((item, index) => renderGalleryCharacterCard(item, index)).join("")
+      : `<div class="job-note character-filter-empty">${escapeHtml(emptyMessage)}</div>`
+  }`;
+  bindCharacterFilterActions(root);
   bindGalleryImageFallbacks(root);
+  bindGalleryCharacterCards(root);
+  refreshIcons();
+}
+
+function bindGalleryCharacterCards(root = els.templateGrid) {
+  if (!root) return;
   root.querySelectorAll("[data-character-use]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -4596,7 +4654,6 @@ function renderGalleryCharacters(root = els.templateGrid) {
       openGalleryCharacter(card.dataset.characterId);
     });
   });
-  refreshIcons();
 }
 
 function customCharacterItems() {
@@ -4639,6 +4696,237 @@ function characterProfileLine(item = {}) {
     item.gender,
     item.style,
   ]).join(" / ");
+}
+
+function normalizeCharacterFilterValue(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function characterTagSet(item = {}) {
+  return new Set((Array.isArray(item.tags) ? item.tags : []).map(normalizeCharacterFilterValue).filter(Boolean));
+}
+
+function characterAgeBucket(item = {}) {
+  const age = Number(item.age || 0);
+  if (!Number.isFinite(age) || age <= 0) return "";
+  if (age <= 24) return "18-24";
+  if (age <= 34) return "25-34";
+  return "35+";
+}
+
+function characterVideoCount(item = {}) {
+  return Number(item.videoCount || characterAllVideos(item).length || 0);
+}
+
+function characterSearchText(item = {}) {
+  return [
+    item.id,
+    item.name,
+    item.title,
+    item.description,
+    item.gender,
+    item.style,
+    item.model,
+    item.creatorUsername,
+    ...(Array.isArray(item.tags) ? item.tags : []),
+  ].map((value) => String(value || "")).join(" ").toLowerCase();
+}
+
+function characterMatchesFilters(item = {}) {
+  const filters = state.characterFilters || {};
+  const tagSet = characterTagSet(item);
+  if (filters.tag && !tagSet.has(normalizeCharacterFilterValue(filters.tag))) return false;
+  if (filters.gender && normalizeCharacterFilterValue(item.gender) !== normalizeCharacterFilterValue(filters.gender)) return false;
+  if (filters.style && normalizeCharacterFilterValue(item.style) !== normalizeCharacterFilterValue(filters.style)) return false;
+  if (filters.age && characterAgeBucket(item) !== filters.age) return false;
+  if (filters.q && !characterSearchText(item).includes(normalizeCharacterFilterValue(filters.q))) return false;
+  return true;
+}
+
+function sortGalleryCharacters(characters = []) {
+  const sort = state.characterFilters?.sort || "recommended";
+  return [...characters].sort((a, b) => {
+    if (sort === "popular") return Number(b.likeCount || 0) - Number(a.likeCount || 0);
+    if (sort === "videos") return characterVideoCount(b) - characterVideoCount(a);
+    if (sort === "newest") return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    return 0;
+  });
+}
+
+function filterGalleryCharacters(characters = []) {
+  return sortGalleryCharacters(characters.filter(characterMatchesFilters));
+}
+
+function characterFilterOptions(characters = []) {
+  const tagCounts = new Map();
+  const genders = new Map();
+  const styles = new Map();
+  characters.forEach((item) => {
+    if (item.gender) genders.set(String(item.gender), (genders.get(String(item.gender)) || 0) + 1);
+    if (item.style) styles.set(String(item.style), (styles.get(String(item.style)) || 0) + 1);
+    (Array.isArray(item.tags) ? item.tags : []).forEach((tag) => {
+      const label = String(tag || "").trim();
+      if (!label) return;
+      const key = normalizeCharacterFilterValue(label);
+      const current = tagCounts.get(key) || { label, count: 0 };
+      current.count += 1;
+      tagCounts.set(key, current);
+    });
+  });
+  const tags = CHARACTER_FILTER_TAGS
+    .map((label) => tagCounts.get(normalizeCharacterFilterValue(label)))
+    .filter(Boolean);
+  return {
+    tags,
+    genders: [...genders.entries()].map(([label, count]) => ({ label, count })).sort((a, b) => a.label.localeCompare(b.label)),
+    styles: [...styles.entries()].map(([label, count]) => ({ label, count })).sort((a, b) => a.label.localeCompare(b.label)),
+  };
+}
+
+function characterFilterButton({ type, value, label, active = false, count = null, icon = "" } = {}) {
+  return `
+    <button class="character-filter-chip ${active ? "is-active" : ""}" data-character-filter="${escapeHtml(type)}" data-character-filter-value="${escapeHtml(value)}" type="button">
+      ${icon ? `<i data-lucide="${escapeHtml(icon)}"></i>` : ""}
+      <span>${escapeHtml(label)}</span>
+      ${count === null ? "" : `<small>${escapeHtml(String(count))}</small>`}
+    </button>
+  `;
+}
+
+function renderCharacterFilterBar(characters = [], filteredCount = 0) {
+  const filters = state.characterFilters || {};
+  const options = characterFilterOptions(characters);
+  const sort = CHARACTER_SORT_OPTIONS.find((item) => item.id === filters.sort) || CHARACTER_SORT_OPTIONS[0];
+  const activeTag = options.tags.find((item) => normalizeCharacterFilterValue(item.label) === normalizeCharacterFilterValue(filters.tag));
+  const hasFilters = Boolean(filters.tag || filters.gender || filters.style || filters.age || filters.q || (filters.sort && filters.sort !== "recommended"));
+  const tagButtons = [
+    characterFilterButton({ type: "tag", value: "", label: "All", active: !filters.tag }),
+    ...options.tags.map((tag) => characterFilterButton({
+      type: "tag",
+      value: tag.label,
+      label: tag.label,
+      active: normalizeCharacterFilterValue(filters.tag) === normalizeCharacterFilterValue(tag.label),
+      count: tag.count,
+    })),
+  ].join("");
+  const genderOptions = [
+    characterFilterButton({ type: "gender", value: "", label: "Any gender", active: !filters.gender }),
+    ...options.genders.map((item) => characterFilterButton({
+      type: "gender",
+      value: item.label,
+      label: item.label,
+      active: normalizeCharacterFilterValue(filters.gender) === normalizeCharacterFilterValue(item.label),
+      count: item.count,
+    })),
+  ].join("");
+  const styleOptions = [
+    characterFilterButton({ type: "style", value: "", label: "Any style", active: !filters.style }),
+    ...options.styles.map((item) => characterFilterButton({
+      type: "style",
+      value: item.label,
+      label: item.label,
+      active: normalizeCharacterFilterValue(filters.style) === normalizeCharacterFilterValue(item.label),
+      count: item.count,
+    })),
+  ].join("");
+  const ageOptions = [
+    characterFilterButton({ type: "age", value: "", label: "Any age", active: !filters.age }),
+    ...CHARACTER_AGE_FILTERS.map((item) => characterFilterButton({
+      type: "age",
+      value: item.id,
+      label: item.label,
+      active: filters.age === item.id,
+    })),
+  ].join("");
+  return `
+    <section class="character-filter-bar">
+      <div class="character-filter-top">
+        <div class="character-sort-menu">
+          <button class="character-filter-chip is-active" data-character-menu-toggle="sort" type="button">
+            <span>${escapeHtml(sort.label)}</span><i data-lucide="chevron-down"></i>
+          </button>
+          <div class="character-filter-menu" data-character-menu="sort">
+            ${CHARACTER_SORT_OPTIONS.map((item) => characterFilterButton({
+              type: "sort",
+              value: item.id,
+              label: item.label,
+              active: (filters.sort || "recommended") === item.id,
+            })).join("")}
+          </div>
+        </div>
+        <div class="character-selected-filter ${activeTag ? "has-tag" : ""}">
+          ${activeTag ? `<button class="character-selected-tag" data-character-filter="tag" data-character-filter-value="" type="button">${escapeHtml(activeTag.label)} <i data-lucide="x"></i></button>` : ""}
+          <input id="characterFilterSearch" data-character-filter-search type="search" value="${escapeHtml(filters.q || "")}" placeholder="${escapeHtml(activeTag ? "Search within tag..." : "Search within all characters")}" autocomplete="off" />
+        </div>
+        <div class="character-filter-dropdowns">
+          <div class="character-sort-menu">
+            <button class="character-filter-chip" data-character-menu-toggle="gender" type="button"><span>${escapeHtml(filters.gender || "Any gender")}</span><i data-lucide="chevron-down"></i></button>
+            <div class="character-filter-menu" data-character-menu="gender">${genderOptions}</div>
+          </div>
+          <div class="character-sort-menu">
+            <button class="character-filter-chip" data-character-menu-toggle="style" type="button"><span>${escapeHtml(filters.style || "Any style")}</span><i data-lucide="chevron-down"></i></button>
+            <div class="character-filter-menu" data-character-menu="style">${styleOptions}</div>
+          </div>
+          <div class="character-sort-menu">
+            <button class="character-filter-chip" data-character-menu-toggle="age" type="button"><span>${escapeHtml(filters.age || "Any age")}</span><i data-lucide="chevron-down"></i></button>
+            <div class="character-filter-menu" data-character-menu="age">${ageOptions}</div>
+          </div>
+        </div>
+      </div>
+      <div class="character-filter-tags">${tagButtons}</div>
+      <div class="character-filter-summary">
+        <span>${escapeHtml(String(filteredCount))} characters</span>
+        <button class="character-filter-clear" data-character-filter-clear type="button" ${hasFilters ? "" : "hidden"}>Clear</button>
+      </div>
+    </section>
+  `;
+}
+
+function bindCharacterFilterActions(root = els.templateGrid) {
+  if (!root) return;
+  root.querySelectorAll("[data-character-menu-toggle]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const menu = button.closest(".character-sort-menu")?.querySelector(".character-filter-menu");
+      root.querySelectorAll(".character-filter-menu.is-open").forEach((openMenu) => {
+        if (openMenu !== menu) openMenu.classList.remove("is-open");
+      });
+      menu?.classList.toggle("is-open");
+    });
+  });
+  root.querySelectorAll("[data-character-filter]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const type = button.dataset.characterFilter || "";
+      const value = button.dataset.characterFilterValue || "";
+      state.characterFilters = {
+        ...(state.characterFilters || {}),
+        [type]: value,
+      };
+      renderGalleryCharacters(root);
+    });
+  });
+  root.querySelector("[data-character-filter-clear]")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    state.characterFilters = { sort: "recommended", tag: "", gender: "", style: "", age: "", q: "" };
+    renderGalleryCharacters(root);
+  });
+  root.querySelector("[data-character-filter-search]")?.addEventListener("input", (event) => {
+    state.characterFilters = {
+      ...(state.characterFilters || {}),
+      q: event.currentTarget.value || "",
+    };
+    const filteredCharacters = filterGalleryCharacters((state.homeCharacters || []).filter((item) => item && !item.deletedAt));
+    root.querySelector(".character-filter-summary span")?.replaceChildren(document.createTextNode(`${filteredCharacters.length} characters`));
+    const clearButton = root.querySelector("[data-character-filter-clear]");
+    if (clearButton) clearButton.hidden = !Boolean(state.characterFilters?.tag || state.characterFilters?.gender || state.characterFilters?.style || state.characterFilters?.age || state.characterFilters?.q || (state.characterFilters?.sort && state.characterFilters.sort !== "recommended"));
+    const cards = filteredCharacters.map((item, index) => renderGalleryCharacterCard(item, index)).join("");
+    root.querySelectorAll(".character-card, .character-filter-empty").forEach((node) => node.remove());
+    root.insertAdjacentHTML("beforeend", cards || `<div class="job-note character-filter-empty">No characters match these filters.</div>`);
+    bindGalleryImageFallbacks(root);
+    bindGalleryCharacterCards(root);
+    refreshIcons();
+  });
 }
 
 function characterAllVideos(item = {}) {
