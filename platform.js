@@ -351,6 +351,7 @@ const els = {
   assetPager: document.querySelector("#assetPager"),
   historyPager: document.querySelector("#historyPager"),
   topupDialog: document.querySelector("#topupDialog"),
+  topupHeadBtn: document.querySelector("#topupHeadBtn"),
   topupTriggerBtn: document.querySelector("#topupTriggerBtn"),
   topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
   topupPanel: document.querySelector("#topupPanel"),
@@ -617,6 +618,7 @@ const I18N = {
     "billing.prepaid": "Prepaid {pre}",
     "billing.noCharge": "No charge",
     "topup.title": "Top Up",
+    "topup.buyCoins": "Buy credits",
     "topup.amount": "Amount",
     "topup.compact": "Top Up",
     "topup.dialogTitle": "Top up credits",
@@ -1040,6 +1042,7 @@ const I18N = {
     "billing.prepaid": "Đã tạm trừ {pre}",
     "billing.noCharge": "Không tính phí",
     "topup.title": "Nạp tiền",
+    "topup.buyCoins": "Mua credits",
     "topup.amount": "Số tiền",
     "topup.compact": "Nạp",
     "topup.dialogTitle": "Nạp credits",
@@ -3939,6 +3942,7 @@ function renderTokenDisplays() {
 function renderAccountMenu() {
   const loggedIn = Boolean(state.user);
   if (els.menuBalance) els.menuBalance.hidden = !loggedIn;
+  if (els.topupHeadBtn) els.topupHeadBtn.hidden = !loggedIn;
   if (els.topupTriggerBtn) els.topupTriggerBtn.hidden = !loggedIn;
   document.querySelectorAll(".account-menu [data-tab]").forEach((button) => {
     button.hidden = !loggedIn;
@@ -10125,14 +10129,16 @@ els.topupAmount?.addEventListener("input", () => {
   renderTopupSummary();
 });
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
-els.topupTriggerBtn?.addEventListener("click", () => {
+function openTopupDialog() {
   closeAccountMenu();
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   renderPayPalCheckout();
   syncTopupAutoRefresh();
   refreshIcons();
-});
+}
+els.topupHeadBtn?.addEventListener("click", openTopupDialog);
+els.topupTriggerBtn?.addEventListener("click", openTopupDialog);
 els.topupQrDialog?.addEventListener("close", syncTopupAutoRefresh);
 els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;

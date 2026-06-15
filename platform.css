@@ -135,6 +135,19 @@ a { color: inherit; text-decoration: none; }
   background: rgba(255, 255, 255, 0.06);
 }
 .topup-trigger svg { width: 16px; height: 16px; color: var(--cyan); }
+.topup-head-trigger {
+  flex: 0 0 auto;
+  min-height: 38px;
+  border-color: rgba(255, 79, 163, .58);
+  border-radius: 999px;
+  padding: 9px 16px;
+  color: #fff;
+  background: linear-gradient(135deg, #ff5ab0, #f32eb0);
+  box-shadow: 0 12px 30px rgba(255, 79, 163, .22);
+}
+.topup-head-trigger svg {
+  color: #fff;
+}
 .topup-trigger strong {
   min-width: 24px;
   border-left: 1px solid var(--line);
@@ -4106,6 +4119,10 @@ select:focus,
   .head-actions .ghost-link,
   .head-actions .primary-pill {
     justify-content: center;
+    min-height: 34px;
+    padding: 7px 10px;
+  }
+  .topup-head-trigger {
     min-height: 34px;
     padding: 7px 10px;
   }

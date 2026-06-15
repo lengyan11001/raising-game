@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-155" />
+    <link rel="stylesheet" href="./platform.css?v=ai-156" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -27,6 +27,10 @@
 
     <header class="site-head">
       <div class="head-actions account-menu-wrap tenant-menu-only" id="accountMenuWrap">
+        <button class="topup-trigger topup-head-trigger" id="topupHeadBtn" type="button" hidden>
+          <i data-lucide="coins"></i>
+          <span data-i18n="topup.buyCoins">Buy credits</span>
+        </button>
         <button class="primary-pill account-menu-trigger" id="accountMenuBtn" type="button">
           <i data-lucide="user-round"></i>
           <span id="accountMenuLabel">Login / Sign up</span>
@@ -598,6 +602,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-155"></script>
+    <script src="./platform.js?v=ai-156"></script>
 </body>
 </html>
