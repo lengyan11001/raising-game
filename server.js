@@ -122,8 +122,10 @@ const GATEWAY_PLATFORM_FALLBACK_CREDITS = Math.max(1, creditsAmount(process.env.
 const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
-const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, 720, 1, 100000);
-const UPSTREAM_USD_CNY_RATE = clampNumber(process.env.UPSTREAM_USD_CNY_RATE || process.env.SEEDANCE_USD_CNY_RATE || process.env.USD_CNY_RATE, DEFAULT_USDT_CNY_CENTS / 100, 0.0001, 100000);
+const DEFAULT_CREDITS_PER_USD = clampNumber(process.env.CREDITS_PER_USD || process.env.CREDITS_PER_USDT, 100, 0.0001, 100000);
+const INTERNAL_CNY_PER_USD = clampNumber(process.env.INTERNAL_CNY_PER_USD || process.env.UPSTREAM_CNY_PER_USD || process.env.USD_CNY_RATE, 5, 0.0001, 100000);
+const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, INTERNAL_CNY_PER_USD * 100, 1, 100000);
+const UPSTREAM_USD_CNY_RATE = clampNumber(process.env.UPSTREAM_USD_CNY_RATE || process.env.SEEDANCE_USD_CNY_RATE || process.env.USD_CNY_RATE, INTERNAL_CNY_PER_USD, 0.0001, 100000);
 const PAYPAL_ENV = /sandbox/i.test(process.env.PAYPAL_ENV || process.env.PAYPAL_MODE || "") ? "sandbox" : "live";
 const PAYPAL_CLIENT_ID = String(process.env.PAYPAL_CLIENT_ID || "").trim();
 const PAYPAL_CLIENT_SECRET = String(process.env.PAYPAL_CLIENT_SECRET || "").trim();
@@ -192,7 +194,7 @@ const ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION = {
     clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_MAX_EXAMPLE_USD_PER_5S, 4.57, 0.0001, 100000),
   ],
 };
-const ADVANCED_CREDITS_PER_CNY = 100;
+const ADVANCED_CREDITS_PER_CNY = pricingNumber(DEFAULT_CREDITS_PER_USD / INTERNAL_CNY_PER_USD, 20, 0.0001, 6);
 const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 100;
@@ -490,7 +492,7 @@ const DEFAULT_CONFIG = {
     address: "TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
     qrUrl: "/assets/wallet/usdt-trc20-qr.png",
     suffixDigits: 6,
-    /** Credits use RMB cents, matching upstream billing points. 1 USDT -> CNY cents. */
+    creditsPerUsd: DEFAULT_CREDITS_PER_USD,
     cnyCentsPerUsdt: DEFAULT_USDT_CNY_CENTS,
   },
   video: {
@@ -1020,22 +1022,35 @@ function normalizeAdvancedPricing(pricing = {}) {
     wan27ImageSource.purchaseCnyPerImage = WAN27_IMAGE_PRO_PURCHASE_CNY;
   }
   const wan27ImageDefault = DEFAULT_ADVANCED_PRICING.wan27ImagePro || {};
+  const rawCreditsPerCny = Number(source.creditsPerCny);
+  const hasLegacyCnyPricing = Number.isFinite(rawCreditsPerCny) && rawCreditsPerCny > ADVANCED_CREDITS_PER_CNY && !source.usdBillingConfigured;
+  const legacyPricingScale = hasLegacyCnyPricing ? ADVANCED_CREDITS_PER_CNY / rawCreditsPerCny : 1;
+  const creditsPerCny = hasLegacyCnyPricing
+    ? ADVANCED_CREDITS_PER_CNY
+    : pricingNumber(source.creditsPerCny, DEFAULT_ADVANCED_PRICING.creditsPerCny, 0.0001);
+  const normalizeStoredCredits = (value, fallback) => {
+    const normalized = pricingNumber(value, fallback);
+    return pricingNumber(normalized * legacyPricingScale, fallback);
+  };
   return {
     unit: "credits",
-    creditsPerCny: pricingNumber(source.creditsPerCny, DEFAULT_ADVANCED_PRICING.creditsPerCny, 0.0001),
+    creditsPerCny,
+    creditsPerUsd: DEFAULT_CREDITS_PER_USD,
+    internalCnyPerUsd: INTERNAL_CNY_PER_USD,
+    usdBillingConfigured: true,
     seedanceCreditsPerSecondByResolution: {
-      "480p": pricingNumber(seedance["480p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]),
-      "720p": pricingNumber(seedance["720p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"]),
-      "1080p": pricingNumber(seedance["1080p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["1080p"]),
+      "480p": normalizeStoredCredits(seedance["480p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]),
+      "720p": normalizeStoredCredits(seedance["720p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"]),
+      "1080p": normalizeStoredCredits(seedance["1080p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["1080p"]),
     },
     seedanceVideoInputCreditsPerSecondByResolution: {
-      "480p": pricingNumber(seedanceVideoInput["480p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["480p"]),
-      "720p": pricingNumber(seedanceVideoInput["720p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["720p"]),
-      "1080p": pricingNumber(seedanceVideoInput["1080p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["1080p"]),
+      "480p": normalizeStoredCredits(seedanceVideoInput["480p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["480p"]),
+      "720p": normalizeStoredCredits(seedanceVideoInput["720p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["720p"]),
+      "1080p": normalizeStoredCredits(seedanceVideoInput["1080p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["1080p"]),
     },
     wan27CreditsPerSecondByResolution: {
-      "720p": pricingNumber(wan27["720p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"]),
-      "1080p": pricingNumber(wan27["1080p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["1080p"]),
+      "720p": normalizeStoredCredits(wan27["720p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"]),
+      "1080p": normalizeStoredCredits(wan27["1080p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["1080p"]),
     },
     wan27ImagePro: {
       ...wan27ImageDefault,
@@ -1047,6 +1062,33 @@ function normalizeAdvancedPricing(pricing = {}) {
       ratios: Array.isArray(wan27ImageSource.ratios) && wan27ImageSource.ratios.length ? wan27ImageSource.ratios : wan27ImageDefault.ratios,
       defaultResolution: String(wan27ImageSource.defaultResolution || wan27ImageDefault.defaultResolution || "2K"),
       defaultRatio: String(wan27ImageSource.defaultRatio || wan27ImageDefault.defaultRatio || "9:16"),
+    },
+  };
+}
+
+function publicAdvancedPricingView(pricing = {}) {
+  const normalized = normalizeAdvancedPricing(pricing);
+  const imagePricing = normalized.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro || {};
+  const imageCostCredits = pricingNumber(
+    Number(imagePricing.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY),
+    0,
+    0,
+    6,
+  );
+  return {
+    unit: "credits",
+    creditsPerUsd: normalized.creditsPerUsd || DEFAULT_CREDITS_PER_USD,
+    seedanceCreditsPerSecondByResolution: { ...normalized.seedanceCreditsPerSecondByResolution },
+    seedanceVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceVideoInputCreditsPerSecondByResolution },
+    wan27CreditsPerSecondByResolution: { ...normalized.wan27CreditsPerSecondByResolution },
+    vipeak1Image: {
+      model: imagePricing.model || WAN27_IMAGE_PRO_MODEL,
+      costCredits: imageCostCredits,
+      saleUsdPerImage: pricingNumber(Number(imagePricing.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
+      resolutions: imagePricing.resolutions || ["1K", "2K"],
+      ratios: imagePricing.ratios || ["1:1", "3:4", "4:3", "9:16", "16:9"],
+      defaultResolution: imagePricing.defaultResolution || "2K",
+      defaultRatio: imagePricing.defaultRatio || "9:16",
     },
   };
 }
@@ -1070,8 +1112,9 @@ function publicConfig(config, origin = "", auth = null) {
       }),
     };
   }
-  publicPlatform.advancedPricing = normalizeAdvancedPricing(publicPlatform.advancedPricing);
-  const assetImageModifyPricing = publicPlatform.advancedPricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
+  const normalizedAdvancedPricing = normalizeAdvancedPricing(publicPlatform.advancedPricing);
+  const assetImageModifyPricing = normalizedAdvancedPricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
+  publicPlatform.advancedPricing = publicAdvancedPricingView(normalizedAdvancedPricing);
   return {
     defaultCompanionId: config.defaultCompanionId,
     prices: { ...config.prices, unlockVideo: CHARACTER_UNLOCK_COST_CREDITS },
@@ -1082,8 +1125,8 @@ function publicConfig(config, origin = "", auth = null) {
     },
     assetImageModify: {
       model: assetImageModifyPricing.model || WAN27_IMAGE_PRO_MODEL,
-      costCredits: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) * Number(publicPlatform.advancedPricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6),
-      saleCnyPerImage: assetImageModifyPricing.saleCnyPerImage,
+      costCredits: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) * Number(normalizedAdvancedPricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6),
+      saleUsdPerImage: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
       resolutions: assetImageModifyPricing.resolutions || ["1K", "2K"],
       ratios: assetImageModifyPricing.ratios || ["1:1", "3:4", "4:3", "9:16", "16:9"],
       defaultResolution: assetImageModifyPricing.defaultResolution || "2K",
@@ -1097,7 +1140,7 @@ function publicConfig(config, origin = "", auth = null) {
       explorerUrl: publicWalletDefault.explorerUrl || config.wallet.explorerUrl || "",
       options: walletOptions,
       suffixDigits: config.wallet.suffixDigits,
-      cnyCentsPerUsdt: walletCnyCentsPerUsdt(config.wallet),
+      creditsPerUsd: walletCreditsPerUsd(config.wallet),
     },
     video: config.video,
     homeVideo: {
@@ -2506,7 +2549,7 @@ function seedanceTokenPricing(options = {}) {
     hasVideoInput,
   });
   const yuanPerMillionTokens = pricingNumber(usdPerMillionTokens * UPSTREAM_USD_CNY_RATE, 0, 0, 6);
-  const baseCredits = creditsAmount((outputTokens * yuanPerMillionTokens * 100) / 1000000);
+  const baseCredits = creditsAmount((outputTokens * yuanPerMillionTokens * ADVANCED_CREDITS_PER_CNY) / 1000000);
   return {
     resolution,
     ratio,
@@ -3181,8 +3224,16 @@ function walletCnyCentsPerUsdt(wallet = {}) {
     : DEFAULT_USDT_CNY_CENTS;
 }
 
+function walletCreditsPerUsd(wallet = {}) {
+  const explicit = wallet.creditsPerUsd;
+  if (explicit !== undefined && explicit !== null && explicit !== "") {
+    return clampNumber(explicit, DEFAULT_CREDITS_PER_USD, 0.0001, 100000);
+  }
+  return DEFAULT_CREDITS_PER_USD;
+}
+
 function walletCreditsForUsdtAmount(amount, wallet = {}) {
-  return creditsAmount(Math.round(Number(amount || 0) * walletCnyCentsPerUsdt(wallet)));
+  return creditsAmount(Number(amount || 0) * walletCreditsPerUsd(wallet));
 }
 
 function normalizeWalletOption(option = {}, index = 0) {
@@ -3821,7 +3872,7 @@ function paypalCnyCentsPerUnit(wallet = {}) {
 }
 
 function paypalCreditsForAmount(amount, wallet = {}) {
-  return creditsAmount(Math.round(Number(amount || 0) * paypalCnyCentsPerUnit(wallet)));
+  return creditsAmount(Number(amount || 0) * walletCreditsPerUsd(wallet));
 }
 
 function paypalMoneyValue(amount) {
@@ -3917,13 +3968,15 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
   if (order.status === "paid") {
     return { settled: false, user: (db.users || []).find((u) => u.id === order.userId) || null };
   }
-  const rate = order.paymentProvider === "paypal"
+  const creditsPerUsd = order.creditsPerUsd || walletCreditsPerUsd(config.wallet);
+  const legacyRate = order.paymentProvider === "paypal"
     ? (order.cnyCentsPerUnit || paypalCnyCentsPerUnit(config.wallet))
     : (order.cnyCentsPerUsdt || walletCnyCentsPerUsdt(config.wallet));
-  const creditDelta = creditsAmount(order.creditAmount ?? Math.round(Number(order.baseAmount || 0) * rate));
+  const creditDelta = creditsAmount(order.creditAmount ?? Number(order.baseAmount || 0) * creditsPerUsd);
   order.creditAmount = creditDelta;
-  if (order.paymentProvider === "paypal") order.cnyCentsPerUnit = rate;
-  else order.cnyCentsPerUsdt = rate;
+  order.creditsPerUsd = creditsPerUsd;
+  if (order.paymentProvider === "paypal") order.cnyCentsPerUnit = order.cnyCentsPerUnit || legacyRate;
+  else order.cnyCentsPerUsdt = order.cnyCentsPerUsdt || legacyRate;
   if (meta.paypalCaptureId) order.paypalCaptureId = meta.paypalCaptureId;
   if (meta.paypalPayerEmail) order.paypalPayerEmail = meta.paypalPayerEmail;
   if (meta.paypalStatus) order.paypalStatus = meta.paypalStatus;
@@ -8952,7 +9005,7 @@ function seedanceFinalCreditsFromUsage(record = {}) {
   }));
   const yuanPerMillionTokens = Number(pricing.yuanPerMillionTokens || pricingNumber(usdPerMillionTokens * UPSTREAM_USD_CNY_RATE, 0, 0, 6));
   const markup = Number(pricing.markup || ADVANCED_GENERATION_MARKUP) || ADVANCED_GENERATION_MARKUP;
-  const baseCredits = creditsAmount((completionTokens * yuanPerMillionTokens * 100) / 1000000);
+  const baseCredits = creditsAmount((completionTokens * yuanPerMillionTokens * ADVANCED_CREDITS_PER_CNY) / 1000000);
   const originalCredits = creditsAmount(Math.round(baseCredits * markup));
   const pricingMultiplier = normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? pricing.userPricingMultiplier ?? 1);
   return {
@@ -11393,12 +11446,17 @@ async function buildModelDocs(req) {
       note: "Credits are deducted according to the selected model, resolution, duration, and your account pricing.",
     } : {
       unit: "credits",
-      note: `1 CNY equals ${platform.advancedPricing.creditsPerCny} credits. Advanced generation is charged by the configured per-second public rates.`,
+      note: `1 USD equals ${DEFAULT_CREDITS_PER_USD} credits. Advanced generation is charged by the configured public rates.`,
       galleryMarkup: GENERATION_PRICE_MARKUP,
-      advancedCreditsPerCny: platform.advancedPricing.creditsPerCny,
+      creditsPerUsd: DEFAULT_CREDITS_PER_USD,
       advancedSeedanceCreditsPerSecondByResolution: platform.advancedPricing.seedanceCreditsPerSecondByResolution,
       advancedWan27CreditsPerSecondByResolution: platform.advancedPricing.wan27CreditsPerSecondByResolution,
-      wan27ImagePro: platform.advancedPricing.wan27ImagePro,
+      vipeak1Image: {
+        model: platform.advancedPricing.wan27ImagePro?.model,
+        saleUsdPerImage: pricingNumber(Number(platform.advancedPricing.wan27ImagePro?.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
+        resolutions: platform.advancedPricing.wan27ImagePro?.resolutions || ["1K", "2K"],
+        ratios: platform.advancedPricing.wan27ImagePro?.ratios || ["1:1", "3:4", "4:3", "9:16", "16:9"],
+      },
     },
     advancedExternalApi: externalAdvancedApiDoc(origin),
     endpoints: {
@@ -12160,6 +12218,7 @@ async function handleCreatePaymentOrder(req, res) {
     userId: auth.user.id,
     baseAmount,
     creditAmount,
+    creditsPerUsd: walletCreditsPerUsd(config.wallet),
     cnyCentsPerUsdt: walletCnyCentsPerUsdt(config.wallet),
     suffix: payment.suffix,
     payableAmount: payment.payableAmount,
@@ -12255,6 +12314,7 @@ async function handleCreatePayPalOrder(req, res) {
     paymentProvider: "paypal",
     baseAmount: amount,
     creditAmount: paypalCreditsForAmount(amount, config.wallet),
+    creditsPerUsd: walletCreditsPerUsd(config.wallet),
     cnyCentsPerUnit: rate,
     currency: PAYPAL_CURRENCY,
     payableAmount: amount,
@@ -12496,11 +12556,12 @@ function recordInDateRange(createdAt, fromDate, toDate) {
 
 function publicTopupOrder(order = {}, wallet = {}, options = {}) {
   const paymentProvider = order.paymentProvider || (order.network === "PayPal" ? "paypal" : "manual");
+  const creditsPerUsd = order.creditsPerUsd || walletCreditsPerUsd(wallet);
   const cnyCentsPerUsdt = order.cnyCentsPerUsdt || walletCnyCentsPerUsdt(wallet);
   const cnyCentsPerUnit = order.cnyCentsPerUnit || (paymentProvider === "paypal" ? paypalCnyCentsPerUnit(wallet) : cnyCentsPerUsdt);
   const creditAmount = order.creditAmount ?? (
     order.baseAmount
-      ? creditsAmount(Math.round(Number(order.baseAmount || 0) * cnyCentsPerUnit))
+      ? creditsAmount(Number(order.baseAmount || 0) * creditsPerUsd)
       : 0
   );
   const walletOption = findWalletOption(wallet, order.walletOptionId || order.network, options);
@@ -12509,8 +12570,7 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
     paymentProvider,
     amount: order.baseAmount ?? "",
     creditAmount: creditsAmount(creditAmount),
-    cnyCentsPerUsdt,
-    cnyCentsPerUnit,
+    creditsPerUsd,
     payableAmount: order.payableAmount ?? "",
     payableAmountText: order.payableAmountText || String(order.payableAmount || order.baseAmount || ""),
     asset: order.asset || order.currency || "USDT",
@@ -14988,14 +15048,26 @@ function advancedPricingRowKey(row = {}) {
 
 function advancedPricingRowSaleCredits(row = {}, creditsPerCny = ADVANCED_CREDITS_PER_CNY) {
   if (row.saleCreditsPerSecond !== undefined) return Number(row.saleCreditsPerSecond);
+  if (row.saleUsdPerSecond !== undefined) return Number(row.saleUsdPerSecond) * DEFAULT_CREDITS_PER_USD;
   return Number(row.saleYuanPerSecond) * Number(creditsPerCny || ADVANCED_CREDITS_PER_CNY);
 }
 
 function advancedPricingRowSaleYuan(row = {}, creditsPerCny = ADVANCED_CREDITS_PER_CNY) {
+  if (row.saleUsdPerSecond !== undefined) return Number(row.saleUsdPerSecond) * INTERNAL_CNY_PER_USD;
   if (row.saleYuanPerSecond !== undefined) return Number(row.saleYuanPerSecond);
   if (row.saleCnyPerImage !== undefined) return Number(row.saleCnyPerImage);
   if (row.saleCreditsPerSecond !== undefined) return Number(row.saleCreditsPerSecond) / Number(creditsPerCny || ADVANCED_CREDITS_PER_CNY);
   return NaN;
+}
+
+function usdFromCny(value) {
+  if (value === null || value === undefined) return null;
+  return pricingNumber(Number(value || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6);
+}
+
+function usdRangeFromCny(values) {
+  if (!Array.isArray(values) || values.length < 2) return null;
+  return values.slice(0, 2).map((value) => usdFromCny(value));
 }
 
 function yuanPerSecondFromCredits(creditsPerSecond, creditsPerCny) {
@@ -15090,7 +15162,7 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
       creditsPerSecond: null,
       creditsPerSecondRange,
       source: "byteplus_official_video_example_pricing",
-      message: `BytePlus official 5s 16:9 input-with-video example: ${range[0]}-${range[1]} USD/video, USD/CNY ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens and minimum-token rules.`,
+      message: `BytePlus official 5s 16:9 input-with-video example: ${range[0]}-${range[1]} USD/video. Internal upstream rate: ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens and minimum-token rules.`,
     };
   }
   if (normalizedProvider === "seedance") {
@@ -15098,7 +15170,7 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
     return {
       creditsPerSecond: pricingNumber((exampleUsd * UPSTREAM_USD_CNY_RATE * ADVANCED_CREDITS_PER_CNY) / duration, 0),
       source: "byteplus_official_video_example_pricing",
-      message: `BytePlus official 5s 16:9 example: ${exampleUsd} USD/video, USD/CNY ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens returned by the API.`,
+      message: `BytePlus official 5s 16:9 example: ${exampleUsd} USD/video. Internal upstream rate: ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens returned by the API.`,
     };
   }
   const wan27PurchaseCnyPerSecond = publicResolution === "1080p"
@@ -15120,12 +15192,12 @@ async function adminAdvancedPricingView(config = {}) {
       ...row,
       purchaseCreditsPerSecond: purchase.creditsPerSecond,
       purchaseCreditsPerSecondRange: Array.isArray(purchase.creditsPerSecondRange) ? purchase.creditsPerSecondRange.slice(0, 2) : null,
-      purchaseYuanPerSecond: yuanPerSecondFromCredits(purchase.creditsPerSecond, pricing.creditsPerCny),
-      purchaseYuanPerSecondRange: yuanPerSecondRangeFromCredits(purchase.creditsPerSecondRange, pricing.creditsPerCny),
+      purchaseUsdPerSecond: usdFromCny(yuanPerSecondFromCredits(purchase.creditsPerSecond, pricing.creditsPerCny)),
+      purchaseUsdPerSecondRange: usdRangeFromCny(yuanPerSecondRangeFromCredits(purchase.creditsPerSecondRange, pricing.creditsPerCny)),
       purchaseSource: purchase.source,
       purchaseMessage: purchase.message || "",
       saleCreditsPerSecond,
-      saleYuanPerSecond: yuanPerSecondFromCredits(saleCreditsPerSecond, pricing.creditsPerCny),
+      saleUsdPerSecond: pricingNumber(saleCreditsPerSecond / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     };
   }));
   const gatewayImagePurchase = await gatewayPurchaseImageCredits();
@@ -15139,18 +15211,17 @@ async function adminAdvancedPricingView(config = {}) {
     resolution: "image",
     unit: "image",
     purchaseCreditsPerSecond: imagePurchaseCredits,
-    purchaseYuanPerSecond: yuanPerSecondFromCredits(imagePurchaseCredits, pricing.creditsPerCny),
+    purchaseUsdPerSecond: pricingNumber(Number(imagePurchaseCredits || 0) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     purchaseSource: gatewayImagePurchase?.source || "aliyun_model_pricing",
     purchaseMessage: gatewayImagePurchase?.message || "Official unit price per generated image. Failed calls are not charged upstream.",
     saleCreditsPerSecond: advancedSaleImageCredits(pricing),
-    saleYuanPerSecond: pricing.wan27ImagePro.saleCnyPerImage,
+    saleUsdPerSecond: pricingNumber(advancedSaleImageCredits(pricing) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     model: pricing.wan27ImagePro.model,
   });
   return {
     unit: "credits",
-    creditsPerCny: pricing.creditsPerCny,
+    creditsPerUsd: DEFAULT_CREDITS_PER_USD,
     upstreamMode: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
-    pricing,
     rows,
   };
 }
@@ -16007,11 +16078,8 @@ function adminWalletOrderView(order, userMap) {
     username: user?.username || "",
     paymentProvider,
     baseAmount: order.baseAmount,
-    creditAmount: order.creditAmount ?? creditsAmount(Math.round(Number(order.baseAmount || 0) * (
-      paymentProvider === "paypal"
-        ? (order.cnyCentsPerUnit || paypalCnyCentsPerUnit())
-        : (order.cnyCentsPerUsdt || DEFAULT_USDT_CNY_CENTS)
-    ))),
+    creditAmount: order.creditAmount ?? creditsAmount(Number(order.baseAmount || 0) * Number(order.creditsPerUsd || DEFAULT_CREDITS_PER_USD)),
+    creditsPerUsd: order.creditsPerUsd || "",
     cnyCentsPerUsdt: order.cnyCentsPerUsdt || "",
     cnyCentsPerUnit: order.cnyCentsPerUnit || "",
     suffix: order.suffix,
