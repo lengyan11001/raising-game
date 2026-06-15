@@ -99,14 +99,16 @@ const ARK_API_KEY =
   process.env.MODELARK_API_KEY ||
   "";
 
+const SEEDANCE_QUALITY_ENDPOINT_ID = "ep-20260429142513-zg667";
+const SEEDANCE_FAST_ENDPOINT_ID = "ep-20260429142538-fkm9d";
 const MODEL_FAST =
   process.env.SEEDANCE_FAST_ENDPOINT_ID ||
   process.env.SEEDANCE_FAST_MODEL ||
-  "dreamina-seedance-2-0-fast-260128";
+  SEEDANCE_FAST_ENDPOINT_ID;
 const MODEL_QUALITY =
   process.env.SEEDANCE_ENDPOINT_ID ||
   process.env.SEEDANCE_MODEL ||
-  "dreamina-seedance-2-0-260128";
+  SEEDANCE_QUALITY_ENDPOINT_ID;
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
@@ -501,7 +503,7 @@ const DEFAULT_CONFIG = {
     heroSubtitle: "Choose a template, upload an image or enter text, and create a new video.",
     notice: "Generated results are saved in history. Video links may expire after 24 hours, so download and save them in time.",
     accessCopy:
-      "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>\n\nImportant: returned video URLs may expire after 24 hours. Download and save successful videos promptly.",
+      "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"prompt\":\"Use Image 1 as the character reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_images\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>\n\nSeedance standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d.",
     advancedPricing: DEFAULT_ADVANCED_PRICING,
     categories: [
       { id: "featured", name: "精选模板" },
@@ -982,6 +984,10 @@ function tenantScopedAccessCopy(copy = "", origin = "") {
     });
 }
 
+function isLegacyAccessCopy(copy = "") {
+  return /api\/platform\/generate|api\/v3\/contents\/generations\/tasks|dreamina-seedance/i.test(String(copy || ""));
+}
+
 function pricingNumber(value, fallback = 0, min = 0, digits = 4) {
   const scale = 10 ** Math.max(0, Math.min(8, Math.floor(Number(digits) || 4)));
   const next = Number(value);
@@ -1050,7 +1056,7 @@ function publicConfig(config, origin = "") {
   const publicWalletDefault = walletOptions[0] || {};
   const publicPlatform = {
     ...platform,
-    accessCopy: tenantScopedAccessCopy(platform.accessCopy, origin),
+    accessCopy: tenantScopedAccessCopy(isLegacyAccessCopy(platform.accessCopy) ? DEFAULT_CONFIG.platform.accessCopy : platform.accessCopy, origin),
   };
   if (tenantPublic) {
     publicPlatform.advanced = {
@@ -1913,17 +1919,140 @@ function fixedCnyPricingEstimate(cny, source = "", details = {}, creditsPerCny =
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
-  if (["wan27", "wan2.7", "wan"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7")) return "wan27";
+  if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "wan27";
+  if (["seedance", "vipeak2", "vp2"].includes(normalized) || normalized.includes("vipeak2")) return "seedance";
   return "seedance";
 }
 
 function isWan27ImageProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
-  return ["wan27image", "wan27imageedit", "wan2.7image", "wan2.7imageedit", "wanimage", "wanimageedit", "imageedit"].includes(normalized);
+  return ["wan27image", "wan27imageedit", "wan2.7image", "wan2.7imageedit", "wanimage", "wanimageedit", "imageedit", "vipeak1image", "vipeak1imageedit", "vp1image", "vp1imageedit"].includes(normalized);
+}
+
+function publicProviderId(value = "") {
+  const raw = String(value || "").trim();
+  const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  if (!normalized) return "";
+  if (isWan27ImageProvider(raw) || ["vipeak1image", "vp1image"].includes(normalized) || normalized.includes("wan27image") || normalized.includes("wan2.7image")) return "vipeak1-image";
+  if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "vipeak1";
+  if (["seedance", "vipeak2", "vp2"].includes(normalized) || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina")) return "vipeak2";
+  return raw;
+}
+
+function publicProviderLabel(value = "") {
+  const id = publicProviderId(value);
+  if (id === "vipeak1-image") return "Vipeak 1 Image";
+  if (id === "vipeak1") return "Vipeak 1";
+  if (id === "vipeak2") return "Vipeak 2";
+  return id;
+}
+
+function publicModelText(value = "") {
+  return String(value ?? "")
+    .replace(/\/api\/seedance\/characters\/upload/gi, "/api/vipeak2/characters/upload")
+    .replace(/\/api\/wan27\/image-edit/gi, "/api/vipeak1/image-edit")
+    .replace(/dreamina-seedance-2-0-fast-260128/gi, "vipeak2-fast")
+    .replace(/dreamina-seedance-2-0-260128/gi, "vipeak2-standard")
+    .replace(/wan2\.7-image-pro/gi, "vipeak1-image")
+    .replace(/wan2\.7-i2v-2026-04-25/gi, "vipeak1-video")
+    .replace(/Wan2\.7 Image Edit/gi, "Vipeak 1 Image")
+    .replace(/Wan2\.7 Image Pro/gi, "Vipeak 1 Image")
+    .replace(/Wan2\.7/gi, "Vipeak 1")
+    .replace(/\bseedanceMode\b/g, "vipeak2Mode")
+    .replace(/\bseedanceTier\b/g, "vipeak2Tier")
+    .replace(/\bseedanceReferenceAssetUri\b/g, "vipeak2ReferenceAssetUri")
+    .replace(/\bseedanceCharacterAssetUri\b/g, "vipeak2CharacterAssetUri")
+    .replace(/\bseedanceReferenceAssetUris\b/g, "vipeak2ReferenceAssetUris")
+    .replace(/\bseedance\s+callers\b/gi, "Vipeak 2 callers")
+    .replace(/\bseedance\b/g, "vipeak2")
+    .replace(/\bwan27-image\b/g, "vipeak1-image")
+    .replace(/\bwan27\b/g, "vipeak1")
+    .replace(/\bSeedance\b/g, "Vipeak 2");
+}
+
+function publicModelKey(key = "") {
+  return String(key || "")
+    .replace(/seedance/g, "vipeak2")
+    .replace(/Seedance/g, "Vipeak2")
+    .replace(/wan27Image/g, "vipeak1Image")
+    .replace(/wan27/g, "vipeak1")
+    .replace(/Wan27/g, "Vipeak1");
+}
+
+function publicModelValue(value) {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map(publicModelValue);
+  if (typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [publicModelKey(key), publicModelValue(item)]));
+  return typeof value === "string" ? publicModelText(value) : value;
+}
+
+function publicPricingValue(value) {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map(publicPricingValue);
+  if (typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => {
+      if (key === "provider") return [key, publicProviderId(item)];
+      if (key === "providerLabel") return [key, publicProviderLabel(value.provider || item)];
+      return [publicModelKey(key), publicPricingValue(item)];
+    }));
+  }
+  return typeof value === "string" ? publicModelText(value) : value;
+}
+
+function publicDocsValue(value, key = "") {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map((item) => publicDocsValue(item, key));
+  if (typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([entryKey, item]) => {
+      if (entryKey === "provider") return [entryKey, publicProviderId(item)];
+      return [publicModelKey(entryKey), publicDocsValue(item, entryKey)];
+    }));
+  }
+  if (typeof value !== "string") return value;
+  if (key === "provider") return publicProviderId(value);
+  return publicModelText(value);
 }
 
 function normalizeSeedanceTier(value = "") {
   return String(value || "").trim().toLowerCase() === "fast" ? "fast" : "standard";
+}
+
+function seedanceModelAliasKind(model = "") {
+  const raw = String(model || "").trim();
+  const compact = raw.toLowerCase().replace(/[\s_-]+/g, "");
+  const knownFast = [
+    SEEDANCE_FAST_ENDPOINT_ID.toLowerCase().replace(/[\s_-]+/g, ""),
+    "dreaminaseedance20fast260128",
+    "dreaminaseedance2.0fast260128",
+    "seedance20fast",
+    "seedance2.0fast",
+    "vipeak2fast",
+    "vp2fast",
+  ];
+  const knownQuality = [
+    SEEDANCE_QUALITY_ENDPOINT_ID.toLowerCase().replace(/[\s_-]+/g, ""),
+    "dreaminaseedance20260128",
+    "dreaminaseedance2.0260128",
+    "seedance20",
+    "seedance2.0",
+    "vipeak2standard",
+    "vipeak2",
+    "vp2standard",
+  ];
+  if (knownFast.includes(compact)) return "fast";
+  if (knownQuality.includes(compact)) return "standard";
+  return "";
+}
+
+function seedanceConfiguredModelForRequest(model = "", seedanceTier = "standard") {
+  const raw = String(model || "").trim();
+  const configuredFast = String(MODEL_FAST || "").trim();
+  const configuredQuality = String(MODEL_QUALITY || "").trim();
+  const aliasKind = seedanceModelAliasKind(raw);
+  if (!raw) return normalizeSeedanceTier(seedanceTier) === "fast" ? configuredFast : configuredQuality;
+  if (aliasKind === "fast") return configuredFast;
+  if (aliasKind === "standard") return configuredQuality;
+  return raw;
 }
 
 function normalizeAdvancedResolution(value = "") {
@@ -4647,7 +4776,7 @@ function validateOfficialSeedancePayloadBeforeCharge(payload = {}) {
     errors.push("duration must be an integer from 4 to 15 seconds.");
   }
   const model = String(payload.model || "").toLowerCase();
-  if (model.includes("fast") && resolution === "1080p") errors.push("dreamina-seedance-2-0-fast does not support 1080p.");
+  if (model.includes("fast") && resolution === "1080p") errors.push("Seedance fast does not support 1080p.");
   const content = Array.isArray(payload.content) ? payload.content : [];
   const unsupportedContent = content.find((item) => item && typeof item === "object" && item.type && !["text", "image_url", "video_url", "audio_url"].includes(String(item.type)));
   if (unsupportedContent) errors.push(`unsupported content type: ${unsupportedContent.type}.`);
@@ -4705,7 +4834,7 @@ async function handleVolcengineCreateGenerationTask(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   if (USE_GATEWAY_UPSTREAM) {
-    return sendJson(res, 503, { error: { code: "GATEWAY_MODE_NOT_SUPPORTED", message: "Volcengine-compatible API requires direct Ark upstream mode." } });
+    return sendJson(res, 503, { error: { code: "GATEWAY_MODE_NOT_SUPPORTED", message: "This legacy route requires direct Ark upstream mode. Use /api/advanced/generate for external integrations." } });
   }
   if (!ARK_API_KEY) {
     return sendJson(res, 503, { error: { code: "MISSING_ARK_API_KEY", message: "Seedance generation is not configured." } });
@@ -5781,10 +5910,11 @@ function normalizeSeedanceMode(value = "", body = {}) {
     arrayFromBody(merged.referenceImageDataUrls).length ||
     arrayFromBody(merged.referenceImageAssetUris).length ||
     arrayFromBody(merged.seedanceReferenceAssetUris).length ||
+    arrayFromBody(merged.vipeak2ReferenceAssetUris).length ||
     arrayFromBody(merged.referenceImages).some((item) => (
       typeof item === "object" && item && (item.assetUri || item.referenceAssetUri || item.seedanceAssetUri)
     )) ||
-    firstPresent(merged.reference_images, merged.seedanceReferenceAssetUri, merged.seedanceCharacterAssetUri, merged.userAssetId, merged.referenceImageAssetId)
+    firstPresent(merged.reference_images, merged.seedanceReferenceAssetUri, merged.vipeak2ReferenceAssetUri, merged.seedanceCharacterAssetUri, merged.vipeak2CharacterAssetUri, merged.userAssetId, merged.referenceImageAssetId)
   ) return "reference_images";
   return "text_to_video";
 }
@@ -5951,8 +6081,11 @@ function seedanceReferenceAssetIdsFromBody(body = {}, { includeUserAssetId = tru
 function seedanceReferenceAssetUrisFromBody(body = {}) {
   const explicitInputs = [
     body.seedanceCharacterAssetUri,
+    body.vipeak2CharacterAssetUri,
     body.seedanceReferenceAssetUri,
+    body.vipeak2ReferenceAssetUri,
     ...arrayFromBody(body.seedanceReferenceAssetUris),
+    ...arrayFromBody(body.vipeak2ReferenceAssetUris),
     ...arrayFromBody(body.referenceImageAssetUris),
   ].map((item) => String(item || "").trim()).filter(Boolean);
   const referenceImageInputs = [
@@ -7333,7 +7466,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     taskId: String(record.taskId || ""),
     upstreamTaskId: String(record.upstreamTaskId || ""),
     status: String(record.status || "submitted"),
-    source: String(record.source || ""),
+    source: publicModelText(record.source || ""),
     kind: String(record.kind || generationRecordKind(record)),
     templateId: String(record.templateId || ""),
     templateTitle: String(record.templateTitle || ""),
@@ -7351,14 +7484,15 @@ function publicGenerationRecord(record = {}, options = {}) {
     syntheticReferenceUrl: String(record.syntheticReferenceUrl || ""),
     userAssetId: String(record.userAssetId || ""),
     referenceAssetUri: String(record.referenceAssetUri || ""),
-    mediaMode: String(record.mediaMode || record.params?.mediaMode || ""),
-    mediaAssets: Array.isArray(record.mediaAssets) ? record.mediaAssets : [],
+    mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
+    mediaAssets: publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : []),
     posterUrl: includeStoredVideoUrls ? storedPosterUrl : providerPosterUrl,
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
-    params: record.params || null,
-    model: String(record.model || ""),
-    provider: String(record.provider || ""),
+    params: publicModelValue(record.params || null),
+    model: publicModelText(record.model || ""),
+    provider: publicProviderId(record.provider || record.params?.provider || ""),
+    providerLabel: publicProviderLabel(record.provider || record.params?.provider || ""),
     ratio: String(record.ratio || ""),
     resolution: String(record.resolution || ""),
     duration: record.duration || "",
@@ -7372,8 +7506,8 @@ function publicGenerationRecord(record = {}, options = {}) {
     providerImageUrl,
     upstreamImageUrl: providerImageUrl,
     remoteImageUrl: String(record.remoteImageUrl || ""),
-    error: String(record.error || ""),
-    cdnError: String(record.cdnError || ""),
+    error: publicModelText(record.error || ""),
+    cdnError: publicModelText(record.cdnError || ""),
     billing: publicBilling(record),
     createdAt: String(record.createdAt || ""),
     updatedAt: String(record.updatedAt || ""),
@@ -7403,7 +7537,14 @@ function adminGenerationRecordView(record = {}, userMap = new Map()) {
     ...publicRecord,
     userId: String(record.userId || ""),
     username: user?.username || "",
+    source: String(record.source || ""),
+    mediaMode: String(record.mediaMode || record.params?.mediaMode || ""),
+    mediaAssets: Array.isArray(record.mediaAssets) ? record.mediaAssets : [],
+    params: record.params || null,
+    model: String(record.model || ""),
     provider: String(inferredProvider || ""),
+    error: String(record.error || ""),
+    cdnError: String(record.cdnError || ""),
     upstreamPayload: record.upstreamPayload || null,
     pricingEstimate: record.pricingEstimate || null,
     createResponse: record.createResponse || null,
@@ -8997,7 +9138,7 @@ async function handlePlatformGenerate(req, res) {
   const config = await readAppConfig();
   const template = findPlatformTemplate(config, body.templateId);
   if (template && !isExternalPlatformTemplate(template)) {
-    return sendJson(res, 400, { ok: false, code: "TEMPLATE_NOT_GENERATABLE", message: "This template is a gallery shortcut and cannot be generated through /api/platform/generate. Use an Advanced generation endpoint instead." });
+    return sendJson(res, 400, { ok: false, code: "TEMPLATE_NOT_GENERATABLE", message: "This template is a gallery shortcut. Use /api/advanced/generate instead." });
   }
   if (!template) return sendJson(res, 404, { ok: false, message: "模板不存在或未启用。" });
 
@@ -9743,22 +9884,27 @@ async function handleAdvancedGenerate(req, res) {
   const selectedCase = cases.find((item) => item.id === String(firstPresent(body.caseId, bodyParams.caseId, "")).trim());
   const caseParams = selectedCase?.params && typeof selectedCase.params === "object" ? selectedCase.params : {};
   const mergedBody = mergedRequestForMedia(body, caseParams);
-  const provider = normalizeAdvancedProvider(firstPresent(
+  const requestedModel = firstPresent(body.model, bodyParams.model, caseParams.model);
+  const providerHint = firstPresent(
     body.provider,
     bodyParams.provider,
     selectedCase?.provider,
     caseParams.provider,
     caseParams.modelProvider,
     caseParams.model_provider,
+  );
+  const provider = normalizeAdvancedProvider(firstPresent(
+    providerHint,
+    seedanceModelAliasKind(requestedModel) ? "seedance" : "",
   ));
   if (USE_GATEWAY_UPSTREAM && !UPSTREAM_API_TOKEN) {
     return sendJson(res, 503, { ok: false, code: "GATEWAY_TOKEN_NOT_CONFIGURED", message: "Gateway upstream token is not configured." });
   }
   if (!USE_GATEWAY_UPSTREAM && provider === "seedance" && !ARK_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Seedance generation is not configured." });
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Vipeak 2 generation is not configured." });
   }
   if (!USE_GATEWAY_UPSTREAM && provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 generation is not configured." });
+    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Vipeak 1 generation is not configured." });
   }
   const prompt = String(firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
@@ -9773,7 +9919,7 @@ async function handleAdvancedGenerate(req, res) {
     ...caseParams,
     ...bodyParams,
     provider,
-    seedanceTier: normalizeSeedanceTier(firstPresent(body.seedanceTier, bodyParams.seedanceTier, caseParams.seedanceTier)),
+    seedanceTier: normalizeSeedanceTier(firstPresent(body.seedanceTier, body.vipeak2Tier, bodyParams.seedanceTier, bodyParams.vipeak2Tier, caseParams.seedanceTier, caseParams.vipeak2Tier)),
     ratio: firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, config.video.ratio, "9:16"),
     resolution: firstPresent(body.resolution, bodyParams.resolution, mergedProviderParameters.resolution, caseParams.resolution, config.video.resolution, "720p"),
     duration: clampNumber(
@@ -9788,20 +9934,17 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.resolution = provider === "wan27" ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
   requestParams.preprocessReference = false;
   requestParams.seed = firstPresent(body.seed, bodyParams.seed, mergedProviderParameters.seed, caseParams.seed, "");
-  const requestedModel = firstPresent(body.model, bodyParams.model, caseParams.model);
-  const forwardModelToGateway = requestedModel !== undefined;
-  requestParams.model = String(firstPresent(
-    requestedModel,
-    provider === "wan27"
-      ? ALIYUN_WAN27_MODEL
-      : requestParams.seedanceTier === "fast"
-      ? MODEL_FAST
-      : MODEL_QUALITY,
-  ));
+  const normalizedSeedanceModel = provider === "seedance"
+    ? seedanceConfiguredModelForRequest(requestedModel, requestParams.seedanceTier)
+    : "";
+  const forwardModelToGateway = provider !== "seedance" && requestedModel !== undefined;
+  requestParams.model = provider === "seedance"
+    ? normalizedSeedanceModel
+    : String(firstPresent(requestedModel, ALIYUN_WAN27_MODEL));
   requestParams.input = plainObject(firstPresent(body.input, bodyParams.input, caseParams.input, {}));
   requestParams.parameters = mergedProviderParameters;
   if (provider === "seedance" && requestParams.seedanceTier === "fast" && requestParams.resolution === "1080p") {
-    return sendJson(res, 400, { ok: false, code: "INVALID_SEEDANCE_FAST_RESOLUTION", message: "Seedance Fast does not support 1080p." });
+    return sendJson(res, 400, { ok: false, code: "INVALID_SEEDANCE_FAST_RESOLUTION", message: "Vipeak 2 Fast does not support 1080p." });
   }
   if (provider === "seedance") {
     [
@@ -9835,7 +9978,7 @@ async function handleAdvancedGenerate(req, res) {
   let seedanceFirstFrameAsset = null;
   let seedanceEndFrameAsset = null;
   if (provider !== "wan27") {
-    seedanceMode = normalizeSeedanceMode(firstPresent(body.seedanceMode, body.mediaMode, bodyParams.seedanceMode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.mediaMode), mergedBody);
+    seedanceMode = normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.vipeak2Mode, caseParams.mediaMode), mergedBody);
     requestParams.seedanceMode = seedanceMode;
     const firstFrameInput = seedanceFirstFrameInputFromBody(mergedBody, {
       includeDataUrlFallback: seedanceModeNeedsFirstFrame(seedanceMode),
@@ -9846,14 +9989,14 @@ async function handleAdvancedGenerate(req, res) {
       seedanceFirstFrameAsset = await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, firstFrameInput, { name: "Seedance first frame" });
       const rawFirstFrameUrl = String(firstPresent(mergedBody.image_url, mergedBody.firstFrameRawUrl, "") || "").trim();
       if (!seedanceFirstFrameAsset && !rawFirstFrameUrl) {
-        return sendJson(res, 400, { ok: false, message: "Seedance image-to-video requires imageUrl, firstFrameUrl, imageAssetId, firstFrameAssetId, or dataUrl." });
+        return sendJson(res, 400, { ok: false, message: "Vipeak 2 image-to-video requires imageUrl, firstFrameUrl, imageAssetId, firstFrameAssetId, or dataUrl." });
       }
     }
     if (seedanceModeNeedsEndFrame(seedanceMode)) {
       seedanceEndFrameAsset = await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, endFrameInput, { name: "Seedance end frame" });
       const rawEndFrameUrl = String(firstPresent(mergedBody.end_image_url, mergedBody.endImageRawUrl, "") || "").trim();
       if (!seedanceEndFrameAsset && !rawEndFrameUrl) {
-        return sendJson(res, 400, { ok: false, message: "Seedance first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl." });
+        return sendJson(res, 400, { ok: false, message: "Vipeak 2 first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl." });
       }
     } else if (endFrameInput) {
       seedanceEndFrameAsset = await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, endFrameInput, { name: "Seedance end frame" });
@@ -9869,33 +10012,33 @@ async function handleAdvancedGenerate(req, res) {
       try {
         validateWan27MediaKind(seedanceVideoAsset, "video", "Seedance reference video");
       } catch (error) {
-        return sendJson(res, 400, { ok: false, message: error.message || "Seedance reference video must be a video." });
+        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference video must be a video.") });
       }
       seedanceVideoAssets = referenceVideoAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
       if (seedanceVideoAssets.some((asset) => !asset)) return sendJson(res, 404, { ok: false, message: "Reference video not found." });
       try {
         seedanceVideoAssets.forEach((asset) => validateWan27MediaKind(asset, "video", "Seedance reference video"));
       } catch (error) {
-        return sendJson(res, 400, { ok: false, message: error.message || "Seedance reference video must be a video." });
+        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference video must be a video.") });
       }
     }
     try {
       referenceImageAssetUris = seedanceReferenceAssetUrisFromBody(mergedBody);
       if (referenceImageAssetUris.length) requestParams.referenceImageAssetUris = referenceImageAssetUris;
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, message: error.message || "Seedance reference image assetUri is invalid." });
+      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference image assetUri is invalid.") });
     }
     try {
       referenceVideoAssetUris = seedanceReferenceVideoUrlInputsFromBody(mergedBody);
       if (referenceVideoAssetUris.length) requestParams.reference_videos = referenceVideoAssetUris;
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, message: error.message || "Seedance reference video is invalid." });
+      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference video is invalid.") });
     }
     try {
       referenceAudioAssetUris = seedanceReferenceAudioInputsFromBody(mergedBody);
       referenceAudioAssetIds = seedanceReferenceAudioAssetIdsFromBody(mergedBody);
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, message: error.message || "Seedance reference audio is invalid." });
+      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference audio is invalid.") });
     }
     if (referenceAudioAssetIds.length) {
       seedanceAudioAssets = referenceAudioAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
@@ -9903,7 +10046,7 @@ async function handleAdvancedGenerate(req, res) {
       try {
         seedanceAudioAssets.forEach((asset) => validateWan27MediaKind(asset, "audio", "Seedance reference audio"));
       } catch (error) {
-        return sendJson(res, 400, { ok: false, message: error.message || "Seedance reference audio must be audio." });
+        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference audio must be audio.") });
       }
     }
     if (referenceAudioAssetUris.length) {
@@ -9930,7 +10073,7 @@ async function handleAdvancedGenerate(req, res) {
         try {
           foundAssets.forEach((asset) => validateWan27MediaKind(asset, "image", "Seedance reference image"));
         } catch (error) {
-          return sendJson(res, 400, { ok: false, message: error.message || "Seedance reference image must be an image." });
+          return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference image must be an image.") });
         }
         [userAsset, ...extraUserAssets] = foundAssets;
       }
@@ -10509,7 +10652,7 @@ async function handlePlatformEstimates(req, res, url) {
     return sendJson(res, 404, { ok: false, message: "Template not found." });
   }
   if (requestedTemplate && !isExternalPlatformTemplate(requestedTemplate)) {
-    return sendJson(res, 400, { ok: false, code: "TEMPLATE_NOT_GENERATABLE", message: "This template is a gallery shortcut and cannot be generated through /api/platform/generate. Use an Advanced generation endpoint instead." });
+    return sendJson(res, 400, { ok: false, code: "TEMPLATE_NOT_GENERATABLE", message: "This template is a gallery shortcut. Use /api/advanced/generate instead." });
   }
   const templates = requestedTemplate
     ? [requestedTemplate]
@@ -10614,22 +10757,18 @@ function externalAdvancedApiDoc(origin) {
   const advancedEstimate = `${origin}/api/advanced/estimate`;
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   const userAssets = `${origin}/api/user-assets`;
-  const seedanceCompatibleGenerate = `${origin}/api/v3/contents/generations/tasks`;
   return {
     baseUrl: origin,
-    summary: "Use /api/advanced/generate when an external caller needs the same Create/Advanced generation path as the web UI. It supports Seedance and Wan2.7 and keeps token auth, account pricing, pre-deduction, user assets, generation records, and failed-task refunds inside this service.",
+    summary: `Use /api/advanced/generate when an external caller needs the same Create/Advanced generation path as the web UI. It supports Seedance and Wan2.7 and keeps token auth, account pricing, pre-deduction, user assets, generation records, and failed-task refunds inside this service. Seedance standard routes to ${SEEDANCE_QUALITY_ENDPOINT_ID}; fast routes to ${SEEDANCE_FAST_ENDPOINT_ID}.`,
     recommendedRoute: advancedGenerate,
     routeChoice: {
-      advancedGenerate: "Recommended for Create/Advanced-style external integrations, including Wan2.7 and Seedance through the site's pricing and record flow.",
-      seedanceCompatibleGenerate: "Use only for Seedance callers that intentionally want a Volcengine-compatible content[] task body. This is not the Wan2.7 route.",
-      platformGenerate: "Use /api/platform/generate only for Gallery/template shortcuts, not for Advanced/Create.",
+      advancedGenerate: `Required for Create/Advanced-style external integrations, including Wan2.7 and Seedance through the site's pricing and record flow. Seedance standard uses ${SEEDANCE_QUALITY_ENDPOINT_ID}; fast uses ${SEEDANCE_FAST_ENDPOINT_ID}.`,
     },
     endpoints: {
       advancedGenerate,
       advancedEstimate,
       generationRecordDetail,
       userAssets,
-      seedanceCompatibleGenerate,
     },
     seedanceExample: {
       method: "POST",
@@ -10763,13 +10902,13 @@ async function handleAdvancedEstimate(req, res) {
   const pricing = await buildUserAdvancedEstimate(provider, params, auth.user);
   const publicPricing = tenantPublic
     ? {
-      provider: pricing.provider,
+      provider: publicProviderId(pricing.provider),
       credits: pricing.credits,
       duration: pricing.duration,
       resolution: pricing.resolution,
       ratio: pricing.ratio,
     }
-    : pricing;
+    : publicPricingValue(pricing);
   return sendJson(res, 200, {
     ok: true,
     userPricing: pricingMultiplierView(auth.user || 1),
@@ -10887,7 +11026,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     },
     requestFields: [
       { name: "caseId", type: "string", required: false, description: "Advanced case id. Omit only when sending all parameters manually." },
-      { name: "provider", type: "string", required: false, description: "`wan27` or `seedance`. Defaults to the saved case provider, or Wan2.7 when no case/provider is supplied." },
+      { name: "provider", type: "string", required: false, description: "`wan27` or `seedance`. Defaults to the saved case provider. Known Seedance model aliases also imply `seedance`, but explicit provider is recommended." },
       { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
       { name: "seedanceMode", type: "string", required: false, description: "Seedance only. text_to_video, first_frame, first_last_frame, reference_images, or reference_video." },
       { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded base64 image. Required for Wan2.7 first-frame generation; accepted as Seedance first frame when seedanceMode is first_frame/first_last_frame." },
@@ -10896,9 +11035,9 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "endImageUrl / lastFrameUrl", type: "string", required: false, description: "Seedance last-frame public URL for first_last_frame. The server prepares it as upstream end_image_url." },
       { name: "endImageAssetId / lastFrameAssetId", type: "string", required: false, description: "Seedance last-frame asset id for first_last_frame." },
       { name: "referenceImages", type: "array", required: false, description: "Seedance reference_images mode. One or more images in the same field. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId." },
-      { name: "referenceImages[].assetUri", type: "string", required: false, description: "Seedance-ready asset:// URI returned by /api/seedance/characters/upload. Use assetId when possible; assetUri is accepted for upstream pass-through." },
-      { name: "seedanceReferenceAssetUri / seedanceCharacterAssetUri", type: "string", required: false, description: "Seedance-ready asset:// URI returned by /api/seedance/characters/upload." },
-      { name: "referenceImageAssetUris / seedanceReferenceAssetUris", type: "array", required: false, description: "Seedance-ready asset:// URI array returned by /api/seedance/characters/upload." },
+      { name: "referenceImages[].assetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI. Prefer assetId from /api/user-assets when possible.", default: "-" },
+      { name: "seedanceReferenceAssetUri / seedanceCharacterAssetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI for callers that already have a provider asset URI.", default: "-" },
+      { name: "referenceImageAssetUris / seedanceReferenceAssetUris", type: "array", required: false, description: "Advanced passthrough asset:// URI array for callers that already have provider asset URIs.", default: "[]" },
       { name: "referenceVideos / referenceVideoUrls", type: "array", required: false, description: "Seedance reference_video/edit/extend public video URLs. Up to 3 URLs." },
       { name: "referenceVideoAssetId", type: "string", required: false, description: "Seedance reference_video mode. Existing uploaded video asset id." },
       { name: "referenceVideoAssetIds", type: "array", required: false, description: "Seedance multimodal/edit/extend. Up to 3 existing uploaded video asset ids." },
@@ -10947,9 +11086,7 @@ async function buildModelDocs(req) {
   const tenantPublic = isTenantPublicOrigin(origin);
   const config = await readAppConfig();
   const platform = normalizePlatformConfig(config.platform || {});
-  const templates = await Promise.all(platform.templates
-    .filter(isExternalPlatformTemplate)
-    .map((template) => buildTemplateModelDoc(template, origin, auth.user, { tenantPublic })));
+  const templates = [];
   const advancedCases = (platform.advanced?.cases || [])
     .filter((item) => item.enabled !== false)
     .map((item) => buildAdvancedModelDoc(item, origin, auth.user, { tenantPublic, advancedPricing: platform.advancedPricing }));
@@ -10976,12 +11113,8 @@ async function buildModelDocs(req) {
     endpoints: {
       docsMarkdown: `${origin}/docs/models.md`,
       modelsJson: `${origin}/api/models`,
-      platformGenerate: `${origin}/api/platform/generate`,
       advancedGenerate: `${origin}/api/advanced/generate`,
-      volcengineCompatibleGenerate: `${origin}/api/v3/contents/generations/tasks`,
-      volcengineCompatibleTask: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
       userAssets: `${origin}/api/user-assets`,
-      seedanceCharacterUpload: `${origin}/api/seedance/characters/upload`,
       wan27ImageTextToImage: `${origin}/api/characters/generate`,
       wan27ImageEdit: `${origin}/api/wan27/image-edit`,
       wan27ImageEditAsset: `${origin}/api/user-assets/<assetId>/modify`,
@@ -11029,13 +11162,13 @@ function advancedDocMarkdown(item) {
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
-  lines.push("", "External callers that want the same Create/Advanced behavior as the web UI should call `/api/advanced/generate` with this `caseId` or with manual provider parameters. Seedance callers that intentionally need a Volcengine-compatible `content[]` body may use `/api/v3/contents/generations/tasks` instead.");
-  lines.push("", "Seedance character upload: optionally call `/api/seedance/characters/upload` with `url`/`imageUrl`, `dataUrl`, or an existing `assetId`. The response returns `reference.assetUri`; put that value into `content[].image_url.url` with role `reference_image`. In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
+  lines.push("", "External callers that want the same Create/Advanced behavior as the web UI should call `/api/advanced/generate` with this `caseId` or with manual provider parameters. Poll `/api/generation-records/<taskId>` for progress and final result.");
+  lines.push("", "Seedance inputs: upload reusable image, video, or audio files through `/api/user-assets`, then pass returned asset ids such as `firstFrameAssetId`, `referenceImages[].assetId`, `referenceVideoAssetIds`, or `referenceAudioAssetIds`. In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
   lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 image assets. The order maps to Image 1, Image 2, and so on in the prompt; with no images it works as text-to-image through the same endpoint. Results are saved to generation history first. Use the history Add asset action when the result should enter the asset library.");
-  lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `content[]` image/video/audio objects; public/base64 image URLs are prepared into Ark assets before submit.");
-  lines.push("", "Provider passthrough: Seedance accepts a Volcengine-style root body and also accepts upstream-only aliases in `params`. Fields such as `model`, `content`, `image_url`, `end_image_url`, `generate_audio`/`generateAudio`, `reference_images`/`referenceImages`, `reference_videos`/`referenceVideos`, `reference_audios`/`referenceAudios`, `web_search`/`webSearch`, `watermark`, `seed`, `fps`, `camera_fixed`, `draft`, and `service_tier` are forwarded or normalized into the Ark request. Use `dreamina-seedance-2-0-260128` for Standard, or `dreamina-seedance-2-0-fast-260128` for Fast. Wan2.7 forwards `params.input` into DashScope `input` and `params.parameters` into DashScope `parameters`. Upstream decides whether each provider-specific field takes effect.");
-  lines.push("", "Billing: Seedance-compatible calls are pre-deducted before upstream submission. Failed submissions and failed tasks are refunded. Duration must be a 4-15 second integer; fast 1080p is rejected before charging.");
-  lines.push("", "Task query: calls made through `/api/advanced/generate` should poll `/api/generation-records/<taskId>`. Calls made through `/api/v3/contents/generations/tasks` should poll `/api/v3/contents/generations/tasks/<taskId>`.");
+  lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `seedanceMode` plus first-frame, last-frame, reference image/video/audio fields on `/api/advanced/generate`.");
+  lines.push("", `Provider passthrough: Seedance accepts friendly fields on the Advanced body and also accepts provider-specific aliases in \`params\`. Fields such as \`model\`, \`image_url\`, \`end_image_url\`, \`generate_audio\`/\`generateAudio\`, \`reference_images\`/\`referenceImages\`, \`reference_videos\`/\`referenceVideos\`, \`reference_audios\`/\`referenceAudios\`, \`web_search\`/\`webSearch\`, \`watermark\`, \`seed\`, \`fps\`, \`camera_fixed\`, \`draft\`, and \`service_tier\` are forwarded or normalized into the upstream request. Omit \`model\` unless support gives a specific override. Standard Seedance maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`. Wan2.7 forwards \`params.input\` into DashScope \`input\` and \`params.parameters\` into DashScope \`parameters\`. Upstream decides whether each provider-specific field takes effect.`);
+  lines.push("", "Billing: Advanced calls are pre-deducted before upstream submission. Failed submissions and failed tasks are refunded. Seedance duration must be a 4-15 second integer; fast 1080p is rejected before charging.");
+  lines.push("", "Task query: calls made through `/api/advanced/generate` should poll `/api/generation-records/<taskId>`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -11051,9 +11184,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
     `Recommended route: \`${route(doc.recommendedRoute, "/api/advanced/generate")}\``,
     "",
     "- Supports Seedance video and Wan2.7 video.",
-    "- Keeps Bearer token auth, account pricing, pre-deduction, user assets, generation records, and failed-task refunds inside this service.",
-    "- Use `/api/platform/generate` only for Gallery/template shortcuts, not for Advanced/Create.",
-    "- Use `/api/v3/contents/generations/tasks` only for Seedance callers that intentionally want a Volcengine-compatible `content[]` payload; it is not the Wan2.7 route.",
+    `- Keeps Bearer token auth, account pricing, pre-deduction, user assets, generation records, and failed-task refunds inside this service. Seedance standard routes to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast routes to \`${SEEDANCE_FAST_ENDPOINT_ID}\`.`,
     "",
     "**Seedance through Advanced**",
     "",
@@ -11089,38 +11220,39 @@ function externalAdvancedApiMarkdown(doc = {}) {
   ].join("\n");
 }
 
-function seedanceOfficialExampleMarkdown(docs) {
-  const endpoint = docs.endpoints.volcengineCompatibleGenerate || `${docs.baseUrl}/api/v3/contents/generations/tasks`;
-  const detailEndpoint = docs.endpoints.volcengineCompatibleTask || `${docs.baseUrl}/api/v3/contents/generations/tasks/<taskId>`;
+function seedanceAdvancedExampleMarkdown(docs) {
+  const endpoint = docs.endpoints.advancedGenerate || `${docs.baseUrl}/api/advanced/generate`;
+  const detailEndpoint = docs.endpoints.generationRecordDetail || `${docs.baseUrl}/api/generation-records/<taskId>`;
   const request = {
-    model: "dreamina-seedance-2-0-260128",
-    content: [
-      { type: "text", text: "Use Image 1 as the character reference. Generate a cinematic 5 second shot, no subtitles, no watermark." },
-      { type: "image_url", image_url: { url: "asset://seedance-uploaded-character-or-public-url" }, role: "reference_image" },
+    provider: "seedance",
+    prompt: "Use Image 1 as the character reference. Generate a cinematic 5 second shot, no subtitles, no watermark.",
+    seedanceMode: "reference_images",
+    referenceImages: [
+      { url: "https://example.com/image1.png", fileName: "image1.png" },
     ],
     ratio: "9:16",
     resolution: "720p",
     duration: 5,
-    generate_audio: true,
+    generateAudio: true,
     watermark: false,
   };
   return [
-    "## Seedance / Volcengine-Compatible API",
+    "## Seedance Through Advanced",
     "",
-    "Use this section for new integrations. The request body follows the Volcengine Ark Seedance task shape; vip123 still handles authentication, pre-deduction, history, and refunds internally.",
+    `Use \`/api/advanced/generate\` for new Seedance integrations. The service routes standard generation to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`, fast generation to \`${SEEDANCE_FAST_ENDPOINT_ID}\`, and keeps authentication, pre-deduction, history, and refunds internally.`,
     "",
-    "Model values:",
+    "Routing values:",
     "",
-    "- Standard: `dreamina-seedance-2-0-260128`",
-    "- Fast: `dreamina-seedance-2-0-fast-260128`",
-    "- Old-site production endpoint ids are also accepted: `ep-20260429142513-zg667` (Standard) and `ep-20260429142538-fkm9d` (Fast)",
+    "- `provider`: `seedance`",
+    "- `seedanceTier`: `standard` or `fast` (optional)",
+    `- \`model\`: normally omitted. Standard maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`. Known Seedance aliases are accepted for compatibility and mapped to those nodes.`,
     "",
     "Parameter ranges:",
     "",
     "- `resolution`: `480p`, `720p`, `1080p`",
     "- `duration`: integer `4` to `15`",
-    "- `ratio`: UI-safe values `9:16`, `16:9`, `1:1`; direct callers may forward other upstream ratio strings",
-    "- Fast does not support `1080p`",
+    "- `ratio`: UI-safe values `9:16`, `16:9`, `1:1`",
+    "- Fast tier does not support `1080p`",
     "",
     markdownCodeBlock("http", [
       `POST ${endpoint.replace(docs.baseUrl, "")}`,
@@ -11130,14 +11262,14 @@ function seedanceOfficialExampleMarkdown(docs) {
       JSON.stringify(request, null, 2),
     ].join("\n")),
     "",
-    "Query the task with the same Volcengine-style path. The response is the upstream task response when available, including provider output URLs and `usage` fields returned by the provider.",
+    "Poll the local generation record for progress and final result.",
     "",
     markdownCodeBlock("http", [
       `GET ${detailEndpoint.replace(docs.baseUrl, "")}`,
       "Authorization: Bearer <user-token>",
     ].join("\n")),
     "",
-    "Supported media inputs in `content`: `text`, `image_url`, `video_url`, and `audio_url`. Use `role` values such as `first_frame`, `last_frame`, `reference_image`, `reference_video`, and `reference_audio` to match Seedance modes. Public image URLs and base64 image data URLs are accepted for image inputs and are prepared into Ark assets before submission; `asset://` URLs pass through directly. Include `content[].video_url.durationSeconds` when known; otherwise the server probes the URL and falls back conservatively for pre-deduction.",
+    "Supported media inputs: `imageUrl`/`firstFrameUrl`, `endImageUrl`/`lastFrameUrl`, `referenceImages`, `referenceVideoUrls`/`referenceVideoAssetIds`, and `referenceAudioUrls`/`referenceAudioAssetIds`. Use `seedanceMode` values such as `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, and `reference_video`. Include `referenceVideoDurationSeconds` when known; otherwise the server probes the URL and falls back conservatively for pre-deduction.",
     "",
     "Billing guardrails: `duration` must be an integer from 4 to 15 seconds. `resolution` may be `480p`, `720p`, or `1080p`; the fast model does not accept `1080p`, so vip123 rejects that combination before charging.",
     "",
@@ -11145,9 +11277,6 @@ function seedanceOfficialExampleMarkdown(docs) {
 }
 
 function buildModelDocsMarkdown(docs) {
-  const templateSections = docs.templates.length
-    ? docs.templates.map(templateDocMarkdown).join("\n\n")
-    : "No public templates are configured.";
   const advancedSections = docs.advanced.cases.length
     ? docs.advanced.cases.map(advancedDocMarkdown).join("\n\n")
     : "No advanced cases are configured.";
@@ -11193,18 +11322,16 @@ function buildModelDocsMarkdown(docs) {
     "1. Read `/api/models` or this Markdown file to choose the integration style.",
     "2. For Create/Advanced-style external generation, call `/api/advanced/generate`; it supports Seedance and Wan2.7 and returns `taskId`.",
     "3. Poll `/api/generation-records/<taskId>` for `/api/advanced/generate` tasks.",
-    "4. For Gallery/template shortcuts only, send `templateId` and inputs to `/api/platform/generate`.",
-    "5. Optional: upload a reusable image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
-    "6. For Seedance callers that specifically need a Volcengine-compatible `content[]` body, call `/api/v3/contents/generations/tasks` and poll `/api/v3/contents/generations/tasks/<taskId>`.",
-    "7. Optional Seedance character upload: POST `/api/seedance/characters/upload` with the character image, then put returned `reference.assetUri` into `content[].image_url.url`.",
-    "8. For Wan2.7 image generation/editing, call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 images. The array order maps to Image 1, Image 2, and so on in the prompt.",
+    "4. Optional: upload a reusable image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
+    `5. For Seedance/Vipeak 2 video, call \`/api/advanced/generate\` with \`provider: "seedance"\`; omit \`model\` unless support gives a specific override. Standard maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`.`,
+    "6. For Wan2.7 image generation/editing, call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 images. The array order maps to Image 1, Image 2, and so on in the prompt.",
     "",
-    "## Seedance Character Upload Example",
+    "## Seedance Advanced Example",
     "",
-    "This is the Seedance-specific role-image preparation flow. It is not the generic asset upload flow.",
+    "This is the Seedance/Vipeak 2 role-image flow through `/api/advanced/generate`.",
     "",
     markdownCodeBlock("http", [
-      "POST /api/seedance/characters/upload",
+      "POST /api/user-assets",
       "Authorization: Bearer <user-token>",
       "Content-Type: application/json",
       "",
@@ -11217,23 +11344,24 @@ function buildModelDocsMarkdown(docs) {
       "Response:",
       "{",
       '  "ok": true,',
-      '  "reference": {"assetId": "asset-id-from-upload", "assetUri": "asset://seedance-asset-id", "fileName": "image1.png", "imageLabel": "Image 1"}',
+      '  "asset": {"id": "asset-id-from-upload", "kind": "image", "name": "image1"}',
       "}",
       "",
-      "POST /api/v3/contents/generations/tasks",
+      "POST /api/advanced/generate",
       "Authorization: Bearer <user-token>",
       "Content-Type: application/json",
       "",
       "{",
-      '  "model": "dreamina-seedance-2-0-260128",',
-      '  "content": [',
-      '    {"type": "text", "text": "Use Image 1 as the main character. Keep the same face, hairstyle, body shape, and outfit. Create a cinematic 5 second shot."},',
-      '    {"type": "image_url", "image_url": {"url": "asset://seedance-asset-id"}, "role": "reference_image"}',
+      '  "provider": "seedance",',
+      '  "prompt": "Use Image 1 as the main character. Keep the same face, hairstyle, body shape, and outfit. Create a cinematic 5 second shot.",',
+      '  "seedanceMode": "reference_images",',
+      '  "referenceImages": [',
+      '    {"assetId": "asset-id-from-upload"}',
       "  ],",
       '  "ratio": "9:16",',
       '  "resolution": "720p",',
       '  "duration": 5,',
-      '  "generate_audio": true,',
+      '  "generateAudio": true,',
       '  "watermark": false',
       "}",
     ].join("\n")),
@@ -11246,14 +11374,10 @@ function buildModelDocsMarkdown(docs) {
     "",
     markdownCodeBlock("json", docs.endpoints),
     "",
-    seedanceOfficialExampleMarkdown(docs),
-    "## Template Gallery Models",
-    "",
-    templateSections,
-    "",
+    seedanceAdvancedExampleMarkdown(docs),
     "## Advanced Generate",
     "",
-    "Legacy advanced generation is still available for the site UI and Wan2.7 flows. New Seedance integrations should use `/api/v3/contents/generations/tasks` above.",
+    "External Create/Advanced integrations should use `/api/advanced/generate` and poll `/api/generation-records/<taskId>`.",
     docs.advanced.telegram ? `\nSupport: ${docs.advanced.telegram}\n` : "",
     advancedSections,
     "",
@@ -16774,7 +16898,7 @@ async function handleRequest(req, res) {
       return await handleUploadUserAsset(req, res);
     }
 
-    if (req.method === "POST" && url.pathname === "/api/seedance/characters/upload") {
+    if (req.method === "POST" && (url.pathname === "/api/seedance/characters/upload" || url.pathname === "/api/vipeak2/characters/upload")) {
       return await handleUploadSeedanceCharacter(req, res);
     }
 
@@ -16815,7 +16939,7 @@ async function handleRequest(req, res) {
       return await handleListUserAssets(req, res, url);
     }
 
-    if (req.method === "POST" && url.pathname === "/api/wan27/image-edit") {
+    if (req.method === "POST" && (url.pathname === "/api/wan27/image-edit" || url.pathname === "/api/vipeak1/image-edit")) {
       return await handleWan27ImageEdit(req, res);
     }
 
