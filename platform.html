@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-154" />
+    <link rel="stylesheet" href="./platform.css?v=ai-155" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -19,6 +19,7 @@
       <nav class="top-tabs" aria-label="Main sections">
         <button class="top-tab is-active" data-tab="gallery" data-i18n="nav.gallery" type="button">Gallery</button>
         <button class="top-tab" data-tab="advanced" data-i18n="nav.advanced" type="button">Advanced</button>
+        <button class="top-tab" data-tab="referral" data-i18n="nav.referral" type="button">Referral</button>
         <button class="top-tab" data-tab="access" data-i18n="nav.access" type="button">API Access</button>
         <button class="top-tab" data-tab="history" data-i18n="nav.history" type="button">History</button>
       </nav>
@@ -308,6 +309,24 @@
         <div class="ledger-pager history-pager" id="historyPager"></div>
       </section>
 
+      <section class="referral-panel" data-panel="referral" hidden>
+        <div class="referral-card" id="referralCard">
+          <div class="referral-copy">
+            <span class="copy-kicker" data-i18n="referral.eyebrow">Referral</span>
+            <h2 data-i18n="referral.title">Invite one friend, earn credits</h2>
+            <p data-i18n="referral.subtitle">Share your invite link. When one invited user completes a payment, you receive 750 credits.</p>
+          </div>
+          <button class="ghost-button referral-copy-btn" id="copyReferralBtn" type="button"><i data-lucide="copy"></i><span data-i18n="referral.invite">Invite</span></button>
+          <div class="referral-link" id="referralLink">Login to get your invite link.</div>
+          <div class="referral-progress" aria-hidden="true"><span id="referralProgressFill"></span></div>
+          <div class="referral-stats">
+            <strong id="referralInvitedCount">0 invited</strong>
+            <strong id="referralRewardStatus">1 reward available</strong>
+          </div>
+          <p class="job-note" id="referralNote"></p>
+        </div>
+      </section>
+
       <section class="ledger-panel" data-panel="topups" hidden>
         <div class="panel-actions">
           <button class="ghost-button" id="exportTopupsBtn" data-i18n="ledger.export" type="button"><i data-lucide="download"></i>Export</button>
@@ -579,6 +598,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-154"></script>
+    <script src="./platform.js?v=ai-155"></script>
 </body>
 </html>

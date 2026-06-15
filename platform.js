@@ -3,7 +3,8 @@
 const TOKEN_KEY = "raisingGameToken";
 const LANG_KEY = "raisingGameLanguage";
 const TAB_KEY = "raisingGamePlatformTab";
-const ALL_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending"]);
+const REFERRAL_CODE_KEY = "raisingGameReferralCode";
+const ALL_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending", "referral"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 75;
@@ -244,6 +245,7 @@ const state = {
   showAccountToken: false,
   topupRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [] },
   spendingRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [], types: [] },
+  referral: null,
   historyRecords: [],
   historyRecordsPage: 1,
   historyRecordsLimit: 8,
@@ -325,6 +327,13 @@ const els = {
   topupTable: document.querySelector("#topupTable"),
   topupPager: document.querySelector("#topupPager"),
   exportTopupsBtn: document.querySelector("#exportTopupsBtn"),
+  referralCard: document.querySelector("#referralCard"),
+  referralLink: document.querySelector("#referralLink"),
+  referralProgressFill: document.querySelector("#referralProgressFill"),
+  referralInvitedCount: document.querySelector("#referralInvitedCount"),
+  referralRewardStatus: document.querySelector("#referralRewardStatus"),
+  referralNote: document.querySelector("#referralNote"),
+  copyReferralBtn: document.querySelector("#copyReferralBtn"),
   spendingFilters: document.querySelector("#spendingFilters"),
   spendingSearch: document.querySelector("#spendingSearch"),
   spendingType: document.querySelector("#spendingType"),
@@ -468,6 +477,7 @@ const I18N = {
     "nav.history": "History",
     "nav.topups": "Top-ups",
     "nav.spending": "Spending",
+    "nav.referral": "Referral",
     "nav.game": "Game",
     "nav.login": "Login / Sign up",
     "common.close": "Close",
@@ -517,6 +527,9 @@ const I18N = {
     "copy.spendingTitle": "Spending Records",
     "copy.spendingSubtitle": "Review credit consumption across generation and unlock actions.",
     "copy.spendingNotice": "Only actual credit deductions are shown here.",
+    "copy.referralTitle": "Referral",
+    "copy.referralSubtitle": "Invite one paying user and earn 750 credits.",
+    "copy.referralNotice": "Referral rewards are credited automatically after the invited account completes payment.",
     "hero.access.eyebrow": "Integration",
     "hero.access.badge": "HTTP API",
     "hero.advanced.eyebrow": "Advanced",
@@ -529,6 +542,8 @@ const I18N = {
     "hero.topups.badge": "Top-ups",
     "hero.spending.eyebrow": "Billing",
     "hero.spending.badge": "Credits",
+    "hero.referral.eyebrow": "Referral",
+    "hero.referral.badge": "Invite",
     "hero.gallery.badge": "Templates",
     "gallery.title": "Video Cases",
     "gallery.subtitle": "Start from a proven advanced case or choose a maintained character.",
@@ -903,6 +918,16 @@ const I18N = {
     "spending.title": "Spending Records",
     "spending.subtitle": "Search and export your credit consumption records.",
     "spending.searchPlaceholder": "Task / type / title",
+    "referral.eyebrow": "Referral",
+    "referral.title": "Invite one friend, earn credits",
+    "referral.subtitle": "Share your invite link. When one invited user completes a payment, you receive 750 credits.",
+    "referral.invite": "Invite",
+    "referral.login": "Login to get your invite link.",
+    "referral.linkCopied": "Invite link copied.",
+    "referral.invitedCount": "{count} invited",
+    "referral.rewardAvailable": "{count} reward available",
+    "referral.rewardUsed": "Reward claimed",
+    "referral.rules": "Rule: one paid invited user unlocks one 750-credit reward for your account.",
     "status.completed": "Completed",
     "status.failed": "Failed",
     "status.processing": "Processing",
@@ -937,6 +962,7 @@ const I18N = {
     "nav.history": "Lịch sử",
     "nav.topups": "Nạp tiền",
     "nav.spending": "Chi tiêu",
+    "nav.referral": "Referral",
     "nav.game": "Trò chơi",
     "nav.login": "Đăng nhập / Đăng ký",
     "common.close": "Đóng",
@@ -1214,6 +1240,7 @@ const I18N = {
     "nav.history": "履歴",
     "nav.topups": "チャージ履歴",
     "nav.spending": "消費履歴",
+    "nav.referral": "Referral",
     "nav.game": "ゲーム",
     "nav.login": "ログイン / 登録",
     "common.close": "閉じる",
@@ -1491,6 +1518,7 @@ const I18N = {
     "nav.history": "기록",
     "nav.topups": "충전 내역",
     "nav.spending": "소비 내역",
+    "nav.referral": "Referral",
     "nav.game": "게임",
     "nav.login": "로그인 / 가입",
     "common.close": "닫기",
@@ -1768,6 +1796,7 @@ const I18N = {
     "nav.history": "Riwayat",
     "nav.topups": "Top-up",
     "nav.spending": "Pemakaian",
+    "nav.referral": "Referral",
     "nav.game": "Game",
     "nav.login": "Login / Daftar",
     "common.close": "Tutup",
@@ -3486,6 +3515,7 @@ function applyLanguage() {
   if (state.tab === "history" && !historyLoading) loadHistory();
   if (state.tab === "topups") loadTopupRecords();
   if (state.tab === "spending") loadSpendingRecords();
+  if (state.tab === "referral") renderReferral();
   if (state.tab === "assets") loadUserAssets();
   if (state.tab === "advanced") loadAdvancedAssets();
   if (state.tab === "access") loadApiSubtokens();
@@ -3508,6 +3538,7 @@ function setUser(user, { refreshHistory = false } = {}) {
     state.galleryUnlocks = [];
     state.galleryUnlocksLoaded = false;
     state.galleryUnlockMessage = "";
+    state.referral = null;
     state.advancedAssets = [];
     state.advancedAssetsLoaded = false;
     state.advancedAssetPage = 1;
@@ -3530,6 +3561,10 @@ function setUser(user, { refreshHistory = false } = {}) {
   if (state.tab === "assets") loadUserAssets();
   if (state.tab === "advanced") loadAdvancedAssets();
   if (state.tab === "access") loadApiSubtokens({ force: true });
+  if (state.tab === "referral") {
+    if (state.user) loadReferralSummary();
+    else renderReferral();
+  }
   if (state.tab === "characters") {
     loadUserAssets(state.userAssetsPage || 1).catch(() => {});
     if (state.activeGalleryCharacterId) loadGalleryUnlocks();
@@ -4680,6 +4715,7 @@ function setTab(tab) {
   if (nextTab === "history") loadHistory();
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();
+  if (nextTab === "referral") loadReferralSummary();
   if (nextTab === "assets") {
     if (state.user) loadUserAssets();
     else renderAssets([]);
@@ -9494,6 +9530,43 @@ function renderTopupRecords() {
   renderLedgerPager("topups");
 }
 
+function renderReferral() {
+  const referral = state.referral || null;
+  const loggedIn = Boolean(state.user);
+  const invitedCount = Number(referral?.invitedCount || 0);
+  const remainingRewards = Math.max(0, Number(referral?.remainingRewards ?? 1));
+  const maxRewards = Math.max(1, Number(referral?.maxRewards || 1));
+  const rewardCount = Math.max(0, maxRewards - remainingRewards);
+  const progress = Math.max(0, Math.min(100, (rewardCount / maxRewards) * 100));
+  if (els.referralLink) els.referralLink.textContent = loggedIn ? (referral?.inviteUrl || "") : t("referral.login");
+  if (els.referralProgressFill) els.referralProgressFill.style.width = `${progress}%`;
+  if (els.referralInvitedCount) els.referralInvitedCount.textContent = t("referral.invitedCount", { count: invitedCount });
+  if (els.referralRewardStatus) {
+    els.referralRewardStatus.textContent = remainingRewards > 0
+      ? t("referral.rewardAvailable", { count: remainingRewards })
+      : t("referral.rewardUsed");
+  }
+  if (els.referralNote) els.referralNote.textContent = loggedIn ? t("referral.rules") : t("referral.login");
+  if (els.copyReferralBtn) els.copyReferralBtn.disabled = !loggedIn || !referral?.inviteUrl;
+  refreshIcons();
+}
+
+async function loadReferralSummary() {
+  if (!state.user) {
+    state.referral = null;
+    renderReferral();
+    return;
+  }
+  try {
+    const payload = await requestJson("/api/referral");
+    state.referral = payload.referral || null;
+    if (payload.user) setUser(payload.user);
+  } catch (error) {
+    if (els.referralNote) els.referralNote.textContent = error.message || String(error);
+  }
+  renderReferral();
+}
+
 function renderSpendingTypeOptions(types = []) {
   if (!els.spendingType) return;
   const current = els.spendingType.value;
@@ -9703,6 +9776,7 @@ function logout() {
   if (state.tab === "spending") renderSpendingRecords();
   if (state.tab === "assets") renderAssets([]);
   if (state.tab === "access") renderApiSubtokens();
+  if (state.tab === "referral") renderReferral();
   syncTopupAutoRefresh();
 }
 
@@ -9722,10 +9796,11 @@ async function submitLogin() {
     return;
   }
   const endpoint = state.loginMode === "register" ? "/api/auth/register" : "/api/auth/login";
+  const referralCode = localStorage.getItem(REFERRAL_CODE_KEY) || "";
   try {
     const payload = await requestJson(endpoint, {
       method: "POST",
-      body: { username, password },
+      body: { username, password, referralCode: state.loginMode === "register" ? referralCode : "" },
     });
     state.token = payload.token;
     setUser(payload.user);
@@ -9737,6 +9812,7 @@ async function submitLogin() {
     if (state.tab === "topups") loadTopupRecords(1);
     if (state.tab === "spending") loadSpendingRecords(1);
     if (state.tab === "assets") loadUserAssets();
+    if (state.tab === "referral") loadReferralSummary();
   } catch (error) {
     els.loginMessage.textContent = error.message;
   }
@@ -9772,7 +9848,14 @@ async function loadPlatformEstimates() {
   updateSubmitButtonCost();
 }
 
+function captureReferralCodeFromUrl() {
+  const params = new URLSearchParams(window.location.search || "");
+  const ref = String(params.get("ref") || params.get("referral") || "").trim();
+  if (ref) localStorage.setItem(REFERRAL_CODE_KEY, ref);
+}
+
 async function bootstrap() {
+  captureReferralCodeFromUrl();
   await loadMe();
   const payload = await requestJson("/api/config/public");
   const platform = payload.config?.platform || {};
@@ -10027,6 +10110,14 @@ els.spendingFilters?.addEventListener("submit", (event) => {
 });
 els.exportTopupsBtn?.addEventListener("click", () => exportLedger("topups"));
 els.exportSpendingBtn?.addEventListener("click", () => exportLedger("spending"));
+els.copyReferralBtn?.addEventListener("click", async () => {
+  if (!state.user) return openLogin();
+  if (!state.referral?.inviteUrl) await loadReferralSummary();
+  const inviteUrl = state.referral?.inviteUrl || "";
+  if (!inviteUrl) return;
+  await navigator.clipboard.writeText(inviteUrl);
+  if (els.referralNote) els.referralNote.textContent = t("referral.linkCopied");
+});
 document.querySelectorAll("[data-legal-doc]").forEach((button) => {
   button.addEventListener("click", () => openLegalDialog(button.dataset.legalDoc || "privacy"));
 });
