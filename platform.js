@@ -496,6 +496,7 @@ const I18N = {
     "gallery.character.sceneVideos": "Scene videos",
     "gallery.character.noVideos": "No videos configured for this character yet.",
     "gallery.character.unlock": "Unlock {cost} credits",
+    "gallery.character.unlockBundle": "Unlock 3 videos - {cost} credits",
     "gallery.character.unlocked": "Unlocked",
     "gallery.character.locked": "Locked",
     "gallery.character.play": "Play",
@@ -503,7 +504,7 @@ const I18N = {
     "gallery.character.unlockLogin": "Login to unlock scene videos.",
     "gallery.character.unlocking": "Unlocking...",
     "gallery.character.unlockFailed": "Unlock failed: {message}",
-    "gallery.character.unlockReady": "Scene unlocked.",
+    "gallery.character.unlockReady": "Character videos unlocked.",
     "characters.eyebrow": "Characters",
     "characters.title": "Characters",
     "characters.subtitle": "Use a maintained character or generate your own role image.",
@@ -5468,36 +5469,62 @@ function galleryUnlockKey(itemId = "", sceneId = "", sceneEntryId = "default") {
   return [itemId, sceneId, sceneEntryId || "default"].map((part) => String(part || "").trim()).join("::");
 }
 
+function galleryCharacterUnlockKey(itemId = "") {
+  return galleryUnlockKey(itemId, "__character__", "bundle");
+}
+
 function galleryUnlockedSet() {
-  return new Set((state.galleryUnlocks || []).map((record) => galleryUnlockKey(record.itemId, record.sceneId, record.sceneEntryId || "default")));
+  const keys = new Set();
+  (state.galleryUnlocks || []).forEach((record) => {
+    keys.add(galleryUnlockKey(record.itemId, record.sceneId, record.sceneEntryId || "default"));
+    if (record.unlockType === "character_bundle" || record.sceneId === "__character__") {
+      keys.add(galleryCharacterUnlockKey(record.itemId));
+    }
+  });
+  return keys;
 }
 
 function isGalleryVideoUnlocked(character = {}, video = {}) {
-  return galleryUnlockedSet().has(galleryUnlockKey(character.id || "", video.sceneId || "", video.sceneEntryId || "default"));
+  const set = galleryUnlockedSet();
+  return set.has(galleryCharacterUnlockKey(character.id || "")) || set.has(galleryUnlockKey(character.id || "", video.sceneId || "", video.sceneEntryId || "default"));
 }
 
-async function unlockGallerySceneVideo(characterId = "", sceneId = "", sceneEntryId = "default") {
+function applyUnlockedCharacterVideos(characterId = "", videos = []) {
+  const item = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
+  if (!item || !Array.isArray(videos)) return;
+  const homeSceneVideos = {};
+  const unlockVideos = {};
+  videos.forEach((video = {}, index) => {
+    const key = [video.sceneId || `scene-${index}`, video.sceneEntryId || "default"].join("__");
+    const entry = { ...video, locked: false };
+    if (index === 0) homeSceneVideos[key] = entry;
+    else unlockVideos[key] = entry;
+  });
+  item.homeSceneVideos = homeSceneVideos;
+  item.sceneVideos = {};
+  item.unlockVideos = unlockVideos;
+  item.unlocked = true;
+}
+
+async function unlockGallerySceneVideo(characterId = "") {
   if (!state.user) return openLogin();
   const renderActiveCharacterView = () => {
     if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
     else renderTemplates();
   };
-  const key = galleryUnlockKey(characterId, sceneId, sceneEntryId);
+  const key = galleryCharacterUnlockKey(characterId);
   state.galleryUnlockLoadingKey = key;
   state.galleryUnlockMessage = t("gallery.character.unlocking");
   renderActiveCharacterView();
   try {
     const payload = await requestJson("/api/unlock-video", {
       method: "POST",
-      body: { itemId: characterId, sceneId, sceneEntryId },
+      body: { itemId: characterId },
     });
     state.user = payload.user || state.user;
     state.galleryUnlocks = payload.unlocks || state.galleryUnlocks || [];
+    applyUnlockedCharacterVideos(characterId, payload.videos || []);
     state.galleryUnlockMessage = t("gallery.character.unlockReady");
-    const item = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
-    if (item && payload.video?.videoUrl) {
-      playCharacterVideo(payload.video, item.name || t("gallery.character.sceneVideos"));
-    }
   } catch (error) {
     state.galleryUnlockMessage = t("gallery.character.unlockFailed", { message: error.message || "Unknown error" });
   } finally {
@@ -5758,7 +5785,7 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
     });
   });
   root.querySelectorAll("[data-character-unlock]").forEach((button) => {
-    button.addEventListener("click", () => unlockGallerySceneVideo(item.id || "", button.dataset.characterUnlock, button.dataset.characterSceneEntry || "default"));
+    button.addEventListener("click", () => unlockGallerySceneVideo(item.id || ""));
   });
   bindGalleryImageFallbacks(root);
   refreshIcons();
@@ -5784,27 +5811,31 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
   const sceneEntryId = video.sceneEntryId || "default";
   const poster = characterVideoPoster(video, character);
   const hasVideo = Boolean(video.videoUrl);
-  const unlocked = !locked || isGalleryVideoUnlocked(character, video);
-  const loading = state.galleryUnlockLoadingKey === galleryUnlockKey(character.id || "", sceneId, sceneEntryId);
-  const canPlay = !locked && hasVideo;
+  const characterUnlocked = isGalleryVideoUnlocked(character, video);
+  const guest = !state.user;
+  const unlocked = Boolean(state.user) && (index === 0 || characterUnlocked);
+  const loading = state.galleryUnlockLoadingKey === galleryCharacterUnlockKey(character.id || "");
+  const canPlay = unlocked && hasVideo;
   const title = characterVideoTitle(video, locked ? t("gallery.character.sceneVideos") : t("gallery.character.roleVideos"));
   const meta = [video.duration ? `${video.duration}s` : "", video.likes ? `${compactNumber(video.likes)} likes` : ""].filter(Boolean).join(" / ");
-  const price = formatCredits(video.price || 0);
+  const price = formatCredits(video.price || state.config?.homeVideo?.characterUnlockCost || 750);
   const action = canPlay
     ? ""
-    : locked
-      ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"${loading ? " disabled" : ""}><i data-lucide="${unlocked ? "play" : "lock-keyhole"}"></i>${escapeHtml(loading ? t("gallery.character.unlocking") : unlocked ? t("gallery.character.play") : t("gallery.character.unlock", { cost: price }))}</button>`
+    : guest
+      ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"><i data-lucide="lock-keyhole"></i>${escapeHtml(t("gallery.character.unlockLogin"))}</button>`
+    : index > 0
+      ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"${loading ? " disabled" : ""}><i data-lucide="lock-keyhole"></i>${escapeHtml(loading ? t("gallery.character.unlocking") : t("gallery.character.unlockBundle", { cost: price }))}</button>`
       : "";
-  const mediaAction = locked
+  const mediaAction = !canPlay && (guest || index > 0)
     ? `data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}"`
     : canPlay
       ? `data-character-play="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}"`
       : "";
   return `
-    <article class="character-video-card ${locked && !unlocked ? "is-locked" : ""}">
+    <article class="character-video-card ${!canPlay ? "is-locked" : ""}">
       <button class="character-video-media" ${mediaAction || "disabled"} type="button">
-        ${renderSmartCoverMedia({ className: "character-video-cover-media", posterUrl: poster, videoUrl: video.videoUrl || video.localVideoUrl || video.remoteVideoUrl || "", alt: title, fallbackUrl: characterPosterUrl(character) || DEFAULT_TEMPLATE_COVER })}
-        <span class="character-video-play"><i data-lucide="${locked && !unlocked ? "lock" : "play"}"></i></span>
+        ${renderSmartCoverMedia({ className: "character-video-cover-media", posterUrl: poster, videoUrl: canPlay ? (video.videoUrl || video.localVideoUrl || video.remoteVideoUrl || "") : "", alt: title, fallbackUrl: characterPosterUrl(character) || DEFAULT_TEMPLATE_COVER })}
+        <span class="character-video-play"><i data-lucide="${canPlay ? "play" : "lock"}"></i></span>
         <span class="character-video-chip">${escapeHtml(meta || "Video")}</span>
       </button>
       <div class="character-video-info">

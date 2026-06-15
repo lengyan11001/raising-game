@@ -82,6 +82,7 @@ const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 const GENERATION_RECORDS_PATH = path.join(ROOT, "data", "generation-records.json");
 const APP_DB_PATH = path.join(ROOT, "data", "app-db.json");
 const APP_CONFIG_PATH = path.join(ROOT, "data", "app-config.json");
+const CHARACTER_UNLOCK_COST_CREDITS = 750;
 const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
 const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
 const OURDREAM_HOME_ITEMS_PATH = path.join(ROOT, "assets", "ourdream", "home-items.json");
@@ -479,7 +480,7 @@ const DEFAULT_CONFIG = {
     photo: 18,
     dateVideo: 25,
     customCharacter: 30,
-    unlockVideo: 18,
+    unlockVideo: CHARACTER_UNLOCK_COST_CREDITS,
   },
   wallet: {
     asset: "USDT",
@@ -1048,7 +1049,7 @@ function normalizeAdvancedPricing(pricing = {}) {
   };
 }
 
-function publicConfig(config, origin = "") {
+function publicConfig(config, origin = "", auth = null) {
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const platform = normalizePlatformConfig(config.platform || {});
   const tenantPublic = isTenantPublicOrigin(origin);
@@ -1071,7 +1072,7 @@ function publicConfig(config, origin = "") {
   const assetImageModifyPricing = publicPlatform.advancedPricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
   return {
     defaultCompanionId: config.defaultCompanionId,
-    prices: config.prices,
+    prices: { ...config.prices, unlockVideo: CHARACTER_UNLOCK_COST_CREDITS },
     tenantFeatures: {
       tenantPublic,
       assetLibrary: true,
@@ -1105,7 +1106,8 @@ function publicConfig(config, origin = "") {
       status: homeVideo.status || "",
       referenceAssetUri: homeVideo.referenceAssetUri || "",
       activeItemId: homeVideo.activeItemId || "",
-      items: homeVideo.items.map(publicHomeVideoItem),
+      characterUnlockCost: CHARACTER_UNLOCK_COST_CREDITS,
+      items: homeVideo.items.map((item) => publicHomeVideoItem(item, auth)),
     },
     platform: publicPlatform,
     characterImage: config.characterImage,
@@ -1400,9 +1402,101 @@ function sceneIdFromVideoKey(videoKey = "") {
   return String(videoKey || "").split("__")[0] || "";
 }
 
-function publicHomeVideoItem(item) {
+function publicCharacterVideoList(item = {}) {
+  const sceneVideos = [
+    ...Object.entries(item.homeSceneVideos || {}).map(([key, entry]) => ({ key, entry })),
+    ...Object.entries(item.sceneVideos || {}).map(([key, entry]) => ({ key, entry })),
+    ...Object.entries(item.unlockVideos || {}).map(([key, entry]) => ({ key, entry, unlockOnly: true })),
+  ];
+  const seen = new Set();
+  const videos = [];
+  for (const { key, entry, unlockOnly } of sceneVideos) {
+    const raw = entry || {};
+    const sceneId = raw.sceneId || sceneIdFromVideoKey(key);
+    const sceneEntryId = raw.sceneEntryId || "default";
+    const videoUrl = String(raw.videoUrl || raw.localVideoUrl || raw.remoteVideoUrl || "").trim();
+    const taskId = String(raw.taskId || "").trim();
+    const posterUrl = String(raw.posterUrl || raw.coverUrl || raw.thumbnailUrl || "").trim();
+    if (!sceneId || (!videoUrl && !taskId && !posterUrl)) continue;
+    const dedupeKey = [sceneId, sceneEntryId, taskId, videoUrl, key].join("|");
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    videos.push({
+      key,
+      unlockOnly: Boolean(unlockOnly),
+      entry: {
+        ...raw,
+        sceneId,
+        sceneEntryId,
+        sceneName: raw.sceneName || "",
+        title: raw.title || raw.sceneEntryName || raw.sceneName || key,
+      },
+    });
+    if (videos.length >= 4) break;
+  }
+  return videos;
+}
+
+function characterUnlockedByRecord(db = {}, userId = "", itemId = "") {
+  if (!userId || !itemId) return false;
+  return (db.userUnlocks || []).some((record) => (
+    !isSoftDeleted(record)
+    && record.userId === userId
+    && record.itemId === itemId
+    && (record.unlockType === "character_bundle" || record.sceneId === "__character__")
+  ));
+}
+
+function publicCharacterSceneVideo(entry = {}, { playable = false, locked = true, price = CHARACTER_UNLOCK_COST_CREDITS } = {}) {
+  const video = publicSceneVideo(entry) || publicUnlockVideo(entry, entry.sceneId || "");
+  if (!video) return null;
+  return {
+    ...video,
+    videoUrl: playable ? String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim() : "",
+    locked: Boolean(locked),
+    price,
+  };
+}
+
+function characterVideoPublicUrl(entry = {}, item = {}, auth = null, videoKey = "") {
+  if (!auth?.user || !item?.id || !entry?.sceneId) return "";
+  return secureUnlockVideoUrl({
+    userId: auth.user.id,
+    itemId: item.id,
+    sceneId: entry.sceneId,
+    sceneEntryId: entry.sceneEntryId || "default",
+    videoKey: videoKey || makeSceneVideoKey(entry.sceneId, entry.sceneEntryId || "default"),
+  });
+}
+
+function publicCharacterVideoMaps(item = {}, auth = null) {
+  const videos = publicCharacterVideoList(item);
+  const loggedIn = Boolean(auth?.user);
+  const bundleUnlocked = characterUnlockedByRecord(auth?.db || {}, auth?.user?.id || "", item.id || "");
+  const homeSceneVideos = {};
+  const unlockVideos = {};
+  videos.forEach(({ key, entry }, index) => {
+    const singleUnlocked = loggedIn && !bundleUnlocked && Boolean(findUserUnlock(auth?.db || {}, auth?.user?.id || "", item.id || "", entry.sceneId || "", entry.sceneEntryId || "default"));
+    const playable = loggedIn && (index === 0 || bundleUnlocked || singleUnlocked);
+    const locked = !playable;
+    const publicVideo = publicCharacterSceneVideo(entry, {
+      playable,
+      locked,
+      price: CHARACTER_UNLOCK_COST_CREDITS,
+    });
+    if (!publicVideo) return;
+    const outKey = key || makeSceneVideoKey(publicVideo.sceneId, publicVideo.sceneEntryId || "default");
+    if (playable) publicVideo.videoUrl = characterVideoPublicUrl(entry, item, auth, outKey);
+    if (index === 0) homeSceneVideos[outKey] = publicVideo;
+    else unlockVideos[outKey] = publicVideo;
+  });
+  return { homeSceneVideos, sceneVideos: {}, unlockVideos, unlocked: bundleUnlocked };
+}
+
+function publicHomeVideoItem(item, auth = null) {
   const hasSynth = Boolean(item.syntheticReferenceLocalUrl || item.syntheticReferenceUrl);
   const hasAsset = Boolean(item.referenceAssetUri);
+  const characterVideos = publicCharacterVideoMaps(item, auth);
   let referenceState = "missing";
   if (hasSynth && hasAsset) referenceState = "ready";
   else if (hasSynth) referenceState = "asset_pending";
@@ -1423,9 +1517,9 @@ function publicHomeVideoItem(item) {
     listPosterUrl: item.listPosterUrl || "",
     cardPosterUrl: item.cardPosterUrl || "",
     posterThumbUrl: item.posterThumbUrl || "",
-    videoUrl: item.videoUrl || item.localVideoUrl || item.remoteVideoUrl || "",
-    localVideoUrl: item.localVideoUrl || item.videoUrl || "",
-    remoteVideoUrl: item.remoteVideoUrl || "",
+    videoUrl: "",
+    localVideoUrl: "",
+    remoteVideoUrl: "",
     taskId: item.taskId || "",
     status: item.status || "",
     provider: item.provider || "",
@@ -1443,14 +1537,16 @@ function publicHomeVideoItem(item) {
     estimatedMessageCount: Number(item.estimatedMessageCount || 0),
     creatorUsername: item.creatorUsername || "",
     creatorAvatarUrl: item.creatorAvatarUrl || "",
-    videoCount: Number(item.videoCount || 0),
+    videoCount: Number(item.videoCount || Object.keys(characterVideos.homeSceneVideos).length + Object.keys(characterVideos.unlockVideos).length),
     referenceAssetUri: item.referenceAssetUri || "",
     referenceState,
     deletedAt: item.deletedAt || "",
     createdAt: item.createdAt || "",
-    homeSceneVideos: publicSceneVideoMap(item.homeSceneVideos || {}),
-    sceneVideos: publicSceneVideoMap(item.sceneVideos || {}),
-    unlockVideos: publicUnlockVideoMap(item.unlockVideos || {}),
+    homeSceneVideos: characterVideos.homeSceneVideos,
+    sceneVideos: characterVideos.sceneVideos,
+    unlockVideos: characterVideos.unlockVideos,
+    unlocked: characterVideos.unlocked,
+    unlockCost: CHARACTER_UNLOCK_COST_CREDITS,
   };
 }
 
@@ -1633,8 +1729,41 @@ function findUnlockVideoForItem(item = {}, sceneId = "", sceneEntryId = "") {
   return null;
 }
 
+function findCharacterVideoForItem(item = {}, sceneId = "", sceneEntryId = "") {
+  const requestedScene = String(sceneId || "").trim();
+  const requestedEntry = String(sceneEntryId || "default").trim() || "default";
+  return publicCharacterVideoList(item).find(({ entry }) => (
+    String(entry.sceneId || "") === requestedScene
+    && String(entry.sceneEntryId || "default") === requestedEntry
+  )) || null;
+}
+
 function makeUnlockRecordKey(itemId, sceneId, sceneEntryId = "default") {
   return [itemId, sceneId, sceneEntryId || "default"].map((part) => String(part || "").trim()).join("::");
+}
+
+function characterBundleUnlockRecord(item = {}, userId = "") {
+  if (!item?.id || !userId) return null;
+  return {
+    id: randomId("unlock"),
+    userId,
+    itemId: item.id,
+    itemName: item.name || "",
+    sceneId: "__character__",
+    sceneName: "Character videos",
+    sceneEntryId: "bundle",
+    sceneEntryName: "Character bundle",
+    videoKey: "__character__",
+    unlockType: "character_bundle",
+    cost: CHARACTER_UNLOCK_COST_CREDITS,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    deletedAt: "",
+  };
+}
+
+function isCharacterBundleUnlock(record = {}) {
+  return record.unlockType === "character_bundle" || record.sceneId === "__character__";
 }
 
 function publicUserUnlock(record = {}) {
@@ -1647,12 +1776,24 @@ function publicUserUnlock(record = {}) {
     sceneEntryId: record.sceneEntryId || "default",
     sceneEntryName: record.sceneEntryName || "",
     videoKey: record.videoKey || "",
+    unlockType: record.unlockType || "",
     cost: Number(record.cost || 0),
     createdAt: record.createdAt || "",
   };
 }
 
+function findUserCharacterUnlock(db, userId, itemId) {
+  return (db.userUnlocks || []).find((record) => (
+    !isSoftDeleted(record)
+    && record.userId === userId
+    && record.itemId === itemId
+    && isCharacterBundleUnlock(record)
+  )) || null;
+}
+
 function findUserUnlock(db, userId, itemId, sceneId, sceneEntryId = "default") {
+  const bundle = findUserCharacterUnlock(db, userId, itemId);
+  if (bundle) return bundle;
   const key = makeUnlockRecordKey(itemId, sceneId, sceneEntryId);
   return (db.userUnlocks || []).find((record) => {
     if (isSoftDeleted(record)) return false;
@@ -1725,12 +1866,10 @@ function normalizePublicAssetPath(value = "") {
 
 async function isProtectedUnlockAssetPath(publicPath = "") {
   const normalizedPath = normalizePublicAssetPath(publicPath);
-  if (!normalizedPath.startsWith("/assets/generated/videos/")) return false;
   const config = await readAppConfig();
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   return (homeVideo.items || []).some((item) => {
-    const unlockVideos = item.unlockVideos && typeof item.unlockVideos === "object" ? item.unlockVideos : {};
-    return Object.values(unlockVideos).some((entry) => {
+    return publicCharacterVideoList(item).some(({ entry }) => {
       const localVideoPath = normalizePublicAssetPath(entry?.videoUrl || entry?.localVideoUrl || "");
       return localVideoPath && localVideoPath === normalizedPath;
     });
@@ -12415,10 +12554,8 @@ async function handleUnlockVideo(req, res) {
 
   const body = await readJson(req);
   const itemId = String(body.itemId || "").trim();
-  const sceneId = String(body.sceneId || "").trim();
-  const sceneEntryId = String(body.sceneEntryId || "").trim();
-  if (!itemId || !sceneId) {
-    return sendJson(res, 400, { ok: false, message: "Missing itemId or sceneId." });
+  if (!itemId) {
+    return sendJson(res, 400, { ok: false, message: "Missing itemId." });
   }
 
   let config = await readAppConfig();
@@ -12426,18 +12563,16 @@ async function handleUnlockVideo(req, res) {
   const item = findHomeVideoItem(config.homeVideo, itemId);
   if (!item) return sendJson(res, 404, { ok: false, message: "Character not found." });
 
-  const match = findUnlockVideoForItem(item, sceneId, sceneEntryId);
-  if (!match) return sendJson(res, 404, { ok: false, message: "No unlock video for this scene yet." });
-
-  const video = match.entry;
-  const videoUrl = getUnlockVideoUrl(video);
-  if (!videoUrl) {
-    return sendJson(res, 409, { ok: false, message: "Unlock video is still generating.", video: publicUnlockVideo(video, match.key) });
+  const characterVideos = publicCharacterVideoList(item);
+  const lockedVideos = characterVideos.slice(1, 4);
+  if (!lockedVideos.length) return sendJson(res, 404, { ok: false, message: "No locked videos for this character yet." });
+  const missingVideo = lockedVideos.find(({ entry }) => !getUnlockVideoUrl(entry));
+  if (missingVideo) {
+    return sendJson(res, 409, { ok: false, message: "Unlock video is still generating." });
   }
 
-  const unlockSceneEntryId = video.sceneEntryId || "default";
-  let unlock = findUserUnlock(auth.db, auth.user.id, item.id, video.sceneId, unlockSceneEntryId);
-  const cost = clampNumber(video.price, config.prices?.unlockVideo || DEFAULT_CONFIG.prices.unlockVideo, 0, 9999);
+  let unlock = findUserCharacterUnlock(auth.db, auth.user.id, item.id);
+  const cost = CHARACTER_UNLOCK_COST_CREDITS;
   let charged = false;
 
   if (!unlock) {
@@ -12451,24 +12586,11 @@ async function handleUnlockVideo(req, res) {
     }
     await chargeUserWithSubtoken(auth, {
       cost,
-      type: "unlock_video",
-      taskId: `${item.id}:${video.sceneId}:${unlockSceneEntryId}`,
-      meta: { itemId: item.id, sceneId: video.sceneId, sceneEntryId: unlockSceneEntryId, videoKey: match.key },
+      type: "unlock_character_videos",
+      taskId: `${item.id}:character_bundle`,
+      meta: { itemId: item.id, unlockType: "character_bundle", count: lockedVideos.length },
     });
-    unlock = {
-      id: randomId("unlock"),
-      userId: auth.user.id,
-      itemId: item.id,
-      itemName: item.name || "",
-      sceneId: video.sceneId,
-      sceneName: video.sceneName || "",
-      sceneEntryId: unlockSceneEntryId,
-      sceneEntryName: video.sceneEntryName || "",
-      videoKey: match.key,
-      cost,
-      createdAt: new Date().toISOString(),
-      deletedAt: "",
-    };
+    unlock = characterBundleUnlockRecord(item, auth.user.id);
     auth.db.userUnlocks.unshift(unlock);
     charged = cost > 0;
     if (dbEnabled()) await upsertUserUnlockInDb(unlock);
@@ -12485,16 +12607,17 @@ async function handleUnlockVideo(req, res) {
     user: userView(auth.user),
     unlock: publicUserUnlock(unlock),
     unlocks,
-    video: {
-      ...publicUnlockVideo(video, match.key),
+    videos: characterVideos.map(({ key, entry }, index) => ({
+      ...publicCharacterSceneVideo(entry, { playable: true, locked: false, price: cost }),
       videoUrl: secureUnlockVideoUrl({
         userId: auth.user.id,
         itemId: item.id,
-        sceneId: video.sceneId,
-        sceneEntryId: unlockSceneEntryId,
-        videoKey: match.key,
+        sceneId: entry.sceneId,
+        sceneEntryId: entry.sceneEntryId || "default",
+        videoKey: key || makeSceneVideoKey(entry.sceneId, entry.sceneEntryId || "default"),
       }),
-    },
+      primary: index === 0,
+    })),
   });
 }
 
@@ -12542,27 +12665,39 @@ async function handleStreamUnlockVideo(req, res, token) {
   const db = await readDb();
   const user = db.users.find((entry) => entry.id === payload.userId && !isSoftDeleted(entry));
   if (!user) return sendJson(res, 401, { ok: false, message: "Please sign in to continue." });
-  const unlock = await findUserUnlockInDb({
+  const directUnlock = await findUserUnlockInDb({
     userId: user.id,
     itemId: payload.itemId,
     sceneId: payload.sceneId,
     sceneEntryId: payload.sceneEntryId || "default",
-  }) || findUserUnlock(db, user.id, payload.itemId, payload.sceneId, payload.sceneEntryId || "default");
-  if (!unlock) return sendJson(res, 403, { ok: false, message: "Unlock required." });
+  });
+  const bundleUnlock = dbEnabled() ? await findUserUnlockInDb({
+    userId: user.id,
+    itemId: payload.itemId,
+    sceneId: "__character__",
+    sceneEntryId: "bundle",
+  }) : null;
+  const unlock = directUnlock || bundleUnlock || findUserUnlock(db, user.id, payload.itemId, payload.sceneId, payload.sceneEntryId || "default");
 
   let config = await readAppConfig();
   config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const item = findHomeVideoItem(config.homeVideo, payload.itemId);
-  const match = item ? findUnlockVideoForItem(item, payload.sceneId, payload.sceneEntryId || "default") : null;
+  const match = item ? (findCharacterVideoForItem(item, payload.sceneId, payload.sceneEntryId || "default") || findUnlockVideoForItem(item, payload.sceneId, payload.sceneEntryId || "default")) : null;
   if (!match) return sendJson(res, 404, { ok: false, message: "Unlock video not found." });
+  const firstPlayable = publicCharacterVideoList(item)[0]?.entry;
+  const isFirstPlayableVideo = firstPlayable
+    && String(firstPlayable.sceneId || "") === String(payload.sceneId || "")
+    && String(firstPlayable.sceneEntryId || "default") === String(payload.sceneEntryId || "default");
+  if (!isFirstPlayableVideo && !unlock) return sendJson(res, 403, { ok: false, message: "Unlock required." });
 
   const videoUrl = getUnlockVideoUrl(match.entry);
   if (!videoUrl) return sendJson(res, 409, { ok: false, message: "Unlock video is still generating." });
   if (/^https?:\/\//i.test(videoUrl)) return res.writeHead(302, { location: videoUrl }).end();
 
   const localPath = path.normalize(path.join(ROOT, videoUrl.replace(/^\//, "")));
-  const generatedRoot = path.normalize(GENERATED_VIDEO_DIR);
-  if (!localPath.startsWith(generatedRoot)) return sendJson(res, 403, { ok: false, message: "Forbidden." });
+  if (!localPath.startsWith(ROOT)) return sendJson(res, 403, { ok: false, message: "Forbidden." });
+  const contentType = mimeTypes.get(path.extname(localPath).toLowerCase()) || "";
+  if (!contentType.startsWith("video/")) return sendJson(res, 403, { ok: false, message: "Forbidden." });
   return streamVideoFile(req, res, localPath);
 }
 
@@ -16789,7 +16924,8 @@ async function handleRequest(req, res) {
       let config = await readAppConfig();
       config = await ensureSceneEntriesPersisted(config);
       config = await refreshCompletedHomeVideoItems(config);
-      return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req)) });
+      const auth = await getAuth(req);
+      return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null) });
     }
 
     const volcengineTaskMatch = url.pathname.match(/^\/(?:(?:api\/v3|v3)\/)?contents\/generations\/tasks\/([^/]+)\/?$/);
