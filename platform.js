@@ -236,6 +236,7 @@ const state = {
   advancedWanClipAssetId: "",
   wallet: null,
   selectedWalletOptionId: "",
+  topupMethod: "paypal",
   paypalConfig: null,
   token: localStorage.getItem(TOKEN_KEY) || "",
   lang: localStorage.getItem(LANG_KEY) || "en",
@@ -352,6 +353,9 @@ const els = {
   historyPager: document.querySelector("#historyPager"),
   topupDialog: document.querySelector("#topupDialog"),
   topupHeadBtn: document.querySelector("#topupHeadBtn"),
+  topupMethodTabs: document.querySelector("#topupMethodTabs"),
+  topupPaypalPanel: document.querySelector("#topupPaypalPanel"),
+  topupUsdtPanel: document.querySelector("#topupUsdtPanel"),
   topupTriggerBtn: document.querySelector("#topupTriggerBtn"),
   topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
   topupPanel: document.querySelector("#topupPanel"),
@@ -619,6 +623,9 @@ const I18N = {
     "billing.noCharge": "No charge",
     "topup.title": "Top Up",
     "topup.buyCoins": "Buy credits",
+    "topup.paypalTab": "PayPal",
+    "topup.usdtTab": "USDT",
+    "topup.paypalRate": "PayPal checkout. Credits use RMB cents.",
     "topup.amount": "Amount",
     "topup.compact": "Top Up",
     "topup.dialogTitle": "Top up credits",
@@ -6694,6 +6701,21 @@ function renderWalletOptions() {
   });
 }
 
+function setTopupMethod(method = "paypal") {
+  const next = method === "usdt" ? "usdt" : "paypal";
+  state.topupMethod = next;
+  els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
+    const active = button.dataset.topupMethod === next;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (els.topupPaypalPanel) els.topupPaypalPanel.hidden = next !== "paypal";
+  if (els.topupUsdtPanel) els.topupUsdtPanel.hidden = next !== "usdt";
+  if (next === "paypal") renderPayPalCheckout();
+  renderTopupSummary();
+  refreshIcons();
+}
+
 function renderTopupQrDialog(order = null) {
   if (!order || !els.topupQrDialog) return;
   const wallet = state.wallet || {};
@@ -6748,7 +6770,9 @@ function renderTopupSummary() {
   });
   if (els.topupRate) {
     els.topupRate.textContent = state.user
-      ? t("topup.rate", { amount: amount || 0, asset, network })
+      ? state.topupMethod === "paypal"
+        ? t("topup.paypalRate")
+        : t("topup.rate", { amount: amount || 0, asset, network })
       : t("topup.login");
   }
   renderWalletOptions();
@@ -6807,7 +6831,7 @@ async function renderPayPalCheckout() {
   try {
     const config = await loadPayPalConfig();
     if (!config.enabled || !config.clientId) {
-      els.paypalBox.hidden = true;
+      els.paypalBox.hidden = false;
       els.paypalButtons.hidden = true;
       if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalUnavailable");
       return;
@@ -6867,7 +6891,7 @@ async function renderPayPalCheckout() {
     await buttons.render(els.paypalButtons);
     paypalButtonsRendered = true;
   } catch (error) {
-    els.paypalBox.hidden = true;
+    els.paypalBox.hidden = false;
     els.paypalButtons.hidden = true;
     if (els.paypalStatus) els.paypalStatus.textContent = error.message || String(error);
   }
@@ -10125,15 +10149,18 @@ els.copyReferralBtn?.addEventListener("click", async () => {
 document.querySelectorAll("[data-legal-doc]").forEach((button) => {
   button.addEventListener("click", () => openLegalDialog(button.dataset.legalDoc || "privacy"));
 });
+els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
+  button.addEventListener("click", () => setTopupMethod(button.dataset.topupMethod || "paypal"));
+});
 els.topupAmount?.addEventListener("input", () => {
   renderTopupSummary();
 });
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
 function openTopupDialog() {
   closeAccountMenu();
+  setTopupMethod("paypal");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
-  renderPayPalCheckout();
   syncTopupAutoRefresh();
   refreshIcons();
 }
