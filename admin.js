@@ -2552,7 +2552,7 @@ function rowPriceUnit(row = {}, credits = false) {
   return isImagePricingRow(row) ? (credits ? "credits/image" : "USD/image") : (credits ? "credits/s" : "USD/s");
 }
 
-async function renderPricing() {
+async function renderPricingLegacy() {
   const payload = await api("/api/admin/pricing");
   if (!isActiveRoute("pricing")) return;
   const pricing = payload.pricing || {};
@@ -2639,6 +2639,160 @@ async function renderPricing() {
         body: { rows: nextRows },
       });
       state.config = payload.config || null;
+      toast("价格已保存。", "success");
+      renderPricing();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+}
+
+function pricingRowTitle(row = {}) {
+  const key = String(row.key || "");
+  const provider = String(row.provider || "").toLowerCase();
+  if (key.startsWith("seedance-video-input")) return "Seedance 视频输入加收";
+  if (provider === "seedance") return "Seedance 基础生成";
+  return row.providerLabel || row.provider || "Model";
+}
+
+function pricingRowUsage(row = {}) {
+  if (isImagePricingRow(row)) return "按生成图片张数";
+  if (String(row.rateKind || "") === "video_input") return "按输入视频秒数额外加收";
+  return "按生成视频秒数";
+}
+
+function renderPricingTable(rows = []) {
+  if (!rows.length) return `<div class="adm-empty">暂无价格项</div>`;
+  return `
+    <div class="adm-table-wrap">
+      <table class="adm-table adm-pricing-table">
+        <thead>
+          <tr>
+            <th>计费项</th>
+            <th>分辨率</th>
+            <th>采购价</th>
+            <th>对外价</th>
+            <th>Credits</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr data-provider="${escapeHtml(row.provider)}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}" data-unit="${escapeHtml(row.unit || "")}">
+              <td><strong>${escapeHtml(pricingRowTitle(row))}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.key || row.provider || "")}</small></td>
+              <td>${escapeHtml(row.resolution)}<br/><small class="adm-muted">${escapeHtml(pricingRowUsage(row))}</small></td>
+              <td>
+                <strong>${row.purchaseUsdPerSecondRange ? fmtPriceRange(row.purchaseUsdPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseUsdPerSecond === null || row.purchaseUsdPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseUsdPerSecond)} ${rowPriceUnit(row)}`}</strong>
+                <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, ` ${rowPriceUnit(row, true)}`) : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} ${rowPriceUnit(row, true)}`} · ${escapeHtml(row.purchaseSource || "")}</small>
+                ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
+              </td>
+              <td>
+                <input class="adm-price-input" data-f="saleUsdPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleUsdPerSecond))}" />
+                <small class="adm-muted adm-block">${escapeHtml(rowPriceUnit(row))}</small>
+              </td>
+              <td class="adm-mono" data-price-credits>${escapeHtml(fmtPrice(row.saleCreditsPerSecond))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function renderPricing() {
+  const payload = await api("/api/admin/pricing");
+  if (!isActiveRoute("pricing")) return;
+  const pricing = payload.pricing || {};
+  const rows = pricing.rows || [];
+  const seedanceOutputRows = rows.filter((row) => String(row.provider || "").toLowerCase() === "seedance" && String(row.rateKind || "output") !== "video_input");
+  const seedanceInputRows = rows.filter((row) => String(row.provider || "").toLowerCase() === "seedance" && String(row.rateKind || "") === "video_input");
+  const otherRows = rows.filter((row) => String(row.provider || "").toLowerCase() !== "seedance");
+
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>价格配置</h2>
+          <p class="adm-muted">配置 Advanced 对外价格。Seedance 视频输入任务按两段计费：基础生成价 + 视频输入加收价。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="reloadPricingBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+          <button class="adm-btn adm-btn-primary" id="savePricingBtn" type="button"><i data-lucide="save"></i>保存</button>
+        </div>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-head">
+          <div>
+            <h3>Advanced 价格</h3>
+            <p class="adm-muted">Billing unit: 1 USD = ${escapeHtml(String(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))} credits. Upstream source: ${escapeHtml(pricing.upstreamMode || "direct")}</p>
+          </div>
+        </div>
+        <div class="adm-pricing-formula">
+          Seedance 视频输入任务总扣费 = 基础生成对外价 x 生成视频秒数 + 视频输入加收价 x 输入视频秒数。
+        </div>
+        <div class="adm-pricing-groups">
+          <section class="adm-pricing-section">
+            <div class="adm-pricing-section-head">
+              <div>
+                <h4>Seedance 基础生成价格</h4>
+                <p class="adm-muted">所有 Seedance 任务都会按生成出来的视频秒数收这一段。</p>
+              </div>
+            </div>
+            ${renderPricingTable(seedanceOutputRows)}
+          </section>
+          <section class="adm-pricing-section">
+            <div class="adm-pricing-section-head">
+              <div>
+                <h4>Seedance 视频输入加收价格</h4>
+                <p class="adm-muted">仅在传入视频作为参考、编辑、续写等输入时，按输入视频秒数额外加收。这里不是总价。</p>
+              </div>
+            </div>
+            ${renderPricingTable(seedanceInputRows)}
+          </section>
+          <section class="adm-pricing-section">
+            <div class="adm-pricing-section-head">
+              <div>
+                <h4>其他模型价格</h4>
+                <p class="adm-muted">Wan2.7 视频和图片价格。</p>
+              </div>
+            </div>
+            ${renderPricingTable(otherRows)}
+          </section>
+        </div>
+      </div>
+    </section>
+  `;
+  refreshIcons();
+
+  const updateCredits = () => {
+    els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
+      const input = tr.querySelector('[data-f="saleUsdPerSecond"]');
+      const target = tr.querySelector("[data-price-credits]");
+      const usd = Number(input?.value || 0);
+      target.textContent = Number.isFinite(usd) && usd >= 0
+        ? fmtPrice(usd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
+        : "-";
+    });
+  };
+
+  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"]').forEach((input) => {
+    input.addEventListener("input", updateCredits);
+  });
+  byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
+  byId("savePricingBtn")?.addEventListener("click", async () => {
+    try {
+      const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map((tr) => ({
+        provider: tr.dataset.provider,
+        resolution: tr.dataset.resolution,
+        rateKind: tr.dataset.rateKind,
+        key: tr.dataset.key,
+        unit: tr.dataset.unit,
+        saleUsdPerSecond: Number(tr.querySelector('[data-f="saleUsdPerSecond"]')?.value || 0),
+      }));
+      const result = await api("/api/admin/pricing", {
+        method: "PUT",
+        body: { rows: nextRows },
+      });
+      state.config = result.config || null;
       toast("价格已保存。", "success");
       renderPricing();
     } catch (err) {
