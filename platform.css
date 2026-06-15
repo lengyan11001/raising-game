@@ -1852,6 +1852,7 @@ main {
 .advanced-workspace:not(.is-create-custom) .advanced-setting-field,
 .advanced-workspace:not(.is-create-custom) .advanced-duration-field,
 .advanced-workspace:not(.is-create-custom) .advanced-seed-field,
+.advanced-workspace.is-create-auto-prompt:not(.is-create-custom) .advanced-prompt-field,
 .advanced-workspace:not(.is-create-custom) .wan-mode-field,
 .advanced-workspace:not(.is-create-custom) #advancedWanMediaPanel,
 .advanced-workspace:not(.is-create-custom) #advancedSeedanceMediaPanel,
