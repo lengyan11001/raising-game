@@ -14977,9 +14977,9 @@ const ADVANCED_PRICING_ROWS = [
   { key: "seedance-480p", provider: "seedance", providerLabel: "Seedance", resolution: "480p", rateKind: "output", unit: "output_second" },
   { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance", resolution: "1080p", rateKind: "output", unit: "output_second" },
-  { key: "seedance-video-input-480p", provider: "seedance", providerLabel: "Seedance video input", resolution: "480p", rateKind: "video_input", unit: "input_second" },
-  { key: "seedance-video-input-720p", provider: "seedance", providerLabel: "Seedance 视频输入", resolution: "720p", rateKind: "video_input", unit: "input_second" },
-  { key: "seedance-video-input-1080p", provider: "seedance", providerLabel: "Seedance 视频输入", resolution: "1080p", rateKind: "video_input", unit: "input_second" },
+  { key: "seedance-video-input-480p", provider: "seedance", providerLabel: "Seedance 视频输入加收", resolution: "480p", rateKind: "video_input", unit: "input_second" },
+  { key: "seedance-video-input-720p", provider: "seedance", providerLabel: "Seedance 视频输入加收", resolution: "720p", rateKind: "video_input", unit: "input_second" },
+  { key: "seedance-video-input-1080p", provider: "seedance", providerLabel: "Seedance 视频输入加收", resolution: "1080p", rateKind: "video_input", unit: "input_second" },
   { key: "wan27-720p", provider: "wan27", providerLabel: "Wan2.7", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "wan27-1080p", provider: "wan27", providerLabel: "Wan2.7", resolution: "1080p", rateKind: "output", unit: "output_second" },
 ];
