@@ -6666,6 +6666,16 @@ let paypalConfigPromise = null;
 let paypalSdkPromise = null;
 let paypalButtonsRendered = false;
 
+function payPalCheckoutVisible() {
+  return Boolean(
+    els.topupDialog?.open &&
+    state.topupStep === "payment" &&
+    state.topupMethod === "paypal" &&
+    !els.topupPaymentStage?.hidden &&
+    !els.topupPaypalPanel?.hidden,
+  );
+}
+
 function topupPackages() {
   const configured = Array.isArray(state.wallet?.topupPackages) ? state.wallet.topupPackages : [];
   const packages = configured.length ? configured : DEFAULT_TOPUP_PACKAGES;
@@ -6690,8 +6700,8 @@ function setTopupStep(step = "packages") {
   if (els.topupPackageStage) els.topupPackageStage.hidden = state.topupStep !== "packages";
   if (els.topupPaymentStage) els.topupPaymentStage.hidden = state.topupStep !== "payment";
   if (els.topupBackBtn) els.topupBackBtn.hidden = state.topupStep !== "payment";
-  if (state.topupStep === "payment" && state.topupMethod === "paypal") renderPayPalCheckout();
   renderTopupSummary();
+  if (payPalCheckoutVisible()) renderPayPalCheckout();
   refreshIcons();
 }
 
@@ -6932,7 +6942,9 @@ function loadPayPalSdk(config) {
 
 async function renderPayPalCheckout() {
   if (!els.paypalBox || !els.paypalButtons) return;
-  if (paypalButtonsRendered) return;
+  if (!payPalCheckoutVisible()) return;
+  if (paypalButtonsRendered && els.paypalButtons.childElementCount > 0) return;
+  paypalButtonsRendered = false;
   try {
     const config = await loadPayPalConfig();
     if (!config.enabled || !config.clientId) {
@@ -6947,6 +6959,8 @@ async function renderPayPalCheckout() {
     if (!paypal?.Buttons) throw new Error("PayPal is unavailable.");
     els.paypalButtons.innerHTML = "";
     els.paypalButtons.hidden = false;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    if (!payPalCheckoutVisible()) return;
     const buttons = paypal.Buttons({
       style: {
         layout: "horizontal",
@@ -10263,8 +10277,8 @@ els.topupBackBtn?.addEventListener("click", () => setTopupStep("packages"));
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
 function openTopupDialog() {
   closeAccountMenu();
-  setTopupMethod("paypal");
   setTopupStep("packages");
+  setTopupMethod("paypal");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   syncTopupAutoRefresh();
