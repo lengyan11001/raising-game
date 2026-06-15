@@ -127,6 +127,10 @@ function seedanceModeNeedsReferenceVideo(mode = "") {
   return normalizeSeedanceMediaMode(mode) === "reference_video";
 }
 
+function advancedCreateModeNeedsVideoUpload() {
+  return state.advancedCreateKind === "video" && state.advancedCreateMode === "video-edit";
+}
+
 function normalizePlatformTab(value = "") {
   const normalized = String(value || "").trim().replace(/^#\/?/, "");
   return ALL_TABS.has(normalized) ? normalized : DEFAULT_PLATFORM_TAB;
@@ -4387,6 +4391,12 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
   if (els.advancedPrompt) {
     els.advancedPrompt.setAttribute("placeholder", t(config.placeholderKey || "advanced.promptPlaceholder"));
   }
+  if (els.advancedImage) {
+    els.advancedImage.accept = advancedCreateModeNeedsVideoUpload()
+      ? "video/mp4,video/webm,video/quicktime,video/*"
+      : "image/*";
+    els.advancedImage.multiple = !advancedCreateModeNeedsVideoUpload();
+  }
 }
 
 function renderAdvancedCreateControls() {
@@ -7313,6 +7323,49 @@ async function uploadAdvancedAssets(files = []) {
   }
 }
 
+async function uploadAdvancedVideoReference(file) {
+  if (!state.user) {
+    openLogin();
+    return null;
+  }
+  if (!file) return null;
+  if (!String(file.type || "").startsWith("video/")) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceVideoRequired");
+    return null;
+  }
+  if (file.size > ADVANCED_WAN_CLIP_MAX_BYTES) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLarge");
+    return null;
+  }
+  if (els.advancedNote) els.advancedNote.textContent = t("assets.uploading");
+  const durationSeconds = await readVideoDuration(file).catch(() => 0);
+  const payload = await requestJson("/api/user-assets", {
+    method: "POST",
+    body: {
+      dataUrl: await readFileAsDataUrl(file),
+      name: file.name || "Video reference",
+      fileName: file.name || "",
+      durationSeconds,
+    },
+  });
+  const asset = payload.asset || null;
+  if (!asset?.id || !isVideoAsset(asset)) throw new Error(t("assets.uploadFailed", { message: "Invalid video asset" }));
+  state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+  state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+  state.advancedSeedanceVideoAssetId = asset.id;
+  state.advancedSeedanceVideoPreviewUrl = assetPreviewUrl(asset);
+  state.advancedReferenceImages = [];
+  state.advancedUploadDataUrl = "";
+  state.advancedFirstFrameAssetId = "";
+  state.advancedSourceImageAssetId = "";
+  if (els.advancedNote) els.advancedNote.textContent = "";
+  renderAdvancedAssets();
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  return asset;
+}
+
 function assetTargetTypeLabel(type = "image") {
   if (type === "video") return t("assets.video");
   if (type === "audio") return t("assets.audio");
@@ -7494,16 +7547,20 @@ function updateAdvancedModelControls() {
   });
   renderAdvancedAssetTargets();
   if (els.advancedUploadBox) {
-    els.advancedUploadBox.hidden = (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
-      (provider === "seedance" && seedanceMode === "text_to_video");
+    els.advancedUploadBox.hidden = !advancedCreateModeNeedsVideoUpload() && (
+      (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
+      (provider === "seedance" && seedanceMode === "text_to_video")
+    );
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
+    els.advancedUploadBox.classList.toggle("is-video-upload", advancedCreateModeNeedsVideoUpload());
     const label = els.advancedUploadBox.querySelector("span");
     if (label) {
       const seedanceLabel = seedanceModeNeedsFirstFrame(seedanceMode) ? t("advanced.firstFrame") : t("advanced.uploadReference");
       const imageEditLabel = t("advanced.assetTargetSourceImages");
-      label.innerHTML = `<i data-lucide="image-up"></i>${escapeHtml(isImageEdit ? imageEditLabel : provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel)}`;
+      const videoEditLabel = t("advanced.assetTargetVideo");
+      label.innerHTML = `<i data-lucide="${advancedCreateModeNeedsVideoUpload() ? "video" : "image-up"}"></i>${escapeHtml(advancedCreateModeNeedsVideoUpload() ? videoEditLabel : isImageEdit ? imageEditLabel : provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel)}`;
     }
   }
   renderAdvancedReferencePreviews();
@@ -9662,6 +9719,16 @@ els.advancedImage?.addEventListener("change", async () => {
   const provider = currentAdvancedProvider();
   const files = Array.from(els.advancedImage.files || []);
   if (!files.length) return;
+  if (advancedCreateModeNeedsVideoUpload()) {
+    try {
+      await uploadAdvancedVideoReference(files[0]);
+    } catch (error) {
+      if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+    } finally {
+      els.advancedImage.value = "";
+    }
+    return;
+  }
   if (files.some((file) => file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES)) {
     els.advancedImage.value = "";
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
