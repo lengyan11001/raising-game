@@ -1450,6 +1450,65 @@ main {
   top: 78px;
   box-shadow: var(--soft-shadow);
 }
+.advanced-create-switch {
+  display: grid;
+  gap: 10px;
+}
+.advanced-create-kind-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(17,24,39,.06);
+}
+.advanced-create-kind,
+.advanced-create-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #4b5d73;
+  background: transparent;
+  font-weight: 900;
+  cursor: pointer;
+}
+.advanced-create-kind svg,
+.advanced-create-mode svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.advanced-create-kind span,
+.advanced-create-mode span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.advanced-create-kind.is-active,
+.advanced-create-mode.is-active {
+  color: #fff;
+  border-color: #111827;
+  background: #111827;
+}
+.advanced-create-mode-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.advanced-create-mode {
+  min-height: 34px;
+  border-color: var(--line);
+  background: rgba(255,255,255,.72);
+  font-size: .84rem;
+}
 .advanced-case-panel {
   min-height: auto;
   background: rgba(255,255,255,.54);
@@ -1779,6 +1838,19 @@ main {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 9px;
+}
+.advanced-workspace:not(.is-create-custom) .advanced-provider-field,
+.advanced-workspace:not(.is-create-custom) .advanced-tier-field,
+.advanced-workspace:not(.is-create-custom) .advanced-seed-field,
+.advanced-workspace:not(.is-create-custom) .wan-mode-field,
+.advanced-workspace:not(.is-create-custom) #advancedWanMediaPanel,
+.advanced-workspace:not(.is-create-custom):not(.is-create-video-edit) #advancedSeedanceMediaPanel,
+.advanced-workspace.is-create-image-create:not(.is-create-custom) #advancedUploadBox,
+.advanced-workspace.is-create-video-text:not(.is-create-custom) #advancedUploadBox {
+  display: none !important;
+}
+.advanced-workspace:not(.is-create-custom) .advanced-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .wan-media-panel {
   display: grid;
