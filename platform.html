@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-156" />
+    <link rel="stylesheet" href="./platform.css?v=ai-157" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -477,16 +477,30 @@
                 <input id="topupAmount" type="number" min="1" step="1" value="100" aria-label="Top-up amount" />
               </label>
             </div>
-            <div class="paypal-checkout" id="paypalBox" hidden>
-              <div>
-                <span data-i18n="topup.paypalTitle">PayPal Checkout</span>
-                <small id="paypalStatus" data-i18n="topup.paypalLoading">Loading PayPal...</small>
-              </div>
-              <div class="paypal-buttons" id="paypalButtons"></div>
+            <div class="topup-method-tabs" id="topupMethodTabs" role="tablist" aria-label="Payment method">
+              <button class="topup-method-tab is-active" type="button" data-topup-method="paypal" role="tab" aria-selected="true">
+                <i data-lucide="credit-card"></i>
+                <span data-i18n="topup.paypalTab">PayPal</span>
+              </button>
+              <button class="topup-method-tab" type="button" data-topup-method="usdt" role="tab" aria-selected="false">
+                <i data-lucide="wallet"></i>
+                <span data-i18n="topup.usdtTab">USDT</span>
+              </button>
             </div>
-            <div class="topup-wallet-options" id="topupWalletOptions"></div>
-            <div class="topup-actions topup-usdt-actions">
-              <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create USDT order</button>
+            <div class="topup-method-panel" id="topupPaypalPanel" data-topup-panel="paypal">
+              <div class="paypal-checkout" id="paypalBox" hidden>
+                <div>
+                  <span data-i18n="topup.paypalTitle">PayPal Checkout</span>
+                  <small id="paypalStatus" data-i18n="topup.paypalLoading">Loading PayPal...</small>
+                </div>
+                <div class="paypal-buttons" id="paypalButtons"></div>
+              </div>
+            </div>
+            <div class="topup-method-panel" id="topupUsdtPanel" data-topup-panel="usdt" hidden>
+              <div class="topup-wallet-options" id="topupWalletOptions"></div>
+              <div class="topup-actions topup-usdt-actions">
+                <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create USDT order</button>
+              </div>
             </div>
           </section>
         </div>
@@ -602,6 +616,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-156"></script>
+    <script src="./platform.js?v=ai-157"></script>
 </body>
 </html>

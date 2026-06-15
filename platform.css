@@ -901,8 +901,43 @@ main {
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--text);
-  background: rgba(255,255,255,.72);
+  background: #202126;
   padding: 10px 12px;
+}
+.topup-method-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #111114;
+}
+.topup-method-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  font-weight: 900;
+}
+.topup-method-tab svg {
+  width: 16px;
+  height: 16px;
+}
+.topup-method-tab.is-active {
+  border-color: rgba(255,79,163,.58);
+  color: #fff;
+  background: linear-gradient(135deg, #ff5ab0, #f32eb0);
+  box-shadow: 0 10px 24px rgba(255,79,163,.18);
+}
+.topup-method-panel {
+  display: grid;
+  gap: 12px;
 }
 .paypal-checkout {
   display: grid;
@@ -910,9 +945,9 @@ main {
   gap: 12px;
   align-items: center;
   padding: 14px;
-  border: 1px solid rgba(0, 48, 135, .22);
+  border: 1px solid rgba(255,255,255,.1);
   border-radius: 8px;
-  background: linear-gradient(135deg, rgba(255,255,255,.86), rgba(226,241,255,.72));
+  background: #202126;
 }
 .paypal-checkout[hidden] { display: none; }
 .paypal-checkout span {
@@ -925,15 +960,16 @@ main {
 }
 .paypal-buttons {
   min-height: 40px;
+  width: 100%;
   max-width: 360px;
 }
 .topup-wallet-options {
   display: grid;
   gap: 10px;
   padding: 14px;
-  border: 1px solid rgba(15,148,139,.18);
+  border: 1px solid rgba(117,227,226,.18);
   border-radius: 8px;
-  background: rgba(15,148,139,.05);
+  background: #15191b;
 }
 .topup-wallet-options:empty { display: none; }
 .topup-wallet-options-head {
@@ -961,7 +997,7 @@ main {
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--text);
-  background: rgba(255,255,255,.78);
+  background: #202126;
   text-align: left;
   cursor: pointer;
 }
@@ -977,9 +1013,9 @@ main {
   font-size: .72rem;
 }
 .topup-wallet-option.is-active {
-  border-color: rgba(15,148,139,.58);
-  box-shadow: 0 0 0 3px rgba(15,148,139,.12);
-  background: rgba(235,252,249,.92);
+  border-color: rgba(117,227,226,.58);
+  box-shadow: 0 0 0 3px rgba(117,227,226,.1);
+  background: rgba(117,227,226,.12);
 }
 .topup-qr-modal { width: min(520px, calc(100vw - 28px)); }
 .topup-qr-panel {
@@ -1026,7 +1062,7 @@ main {
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255,255,255,.68);
+  background: #151518;
 }
 .access-mode-tabs {
   display: inline-grid;
@@ -4245,6 +4281,13 @@ select:focus,
 }
 
 @media (max-width: 460px) {
+  .topup-headline,
+  .paypal-checkout {
+    grid-template-columns: 1fr;
+  }
+  .topup-wallet-option-grid {
+    grid-template-columns: 1fr;
+  }
   .template-grid { grid-template-columns: 1fr; }
   .gallery-advanced-grid,
   .character-grid,
