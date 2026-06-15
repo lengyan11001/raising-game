@@ -83,6 +83,7 @@ const GENERATION_RECORDS_PATH = path.join(ROOT, "data", "generation-records.json
 const APP_DB_PATH = path.join(ROOT, "data", "app-db.json");
 const APP_CONFIG_PATH = path.join(ROOT, "data", "app-config.json");
 const CHARACTER_UNLOCK_COST_CREDITS = 750;
+const REFERRAL_REWARD_CREDITS = 750;
 const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
 const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
 const OURDREAM_HOME_ITEMS_PATH = path.join(ROOT, "assets", "ourdream", "home-items.json");
@@ -1938,6 +1939,69 @@ function userView(user) {
   };
 }
 
+function referralCodeForUser(user = {}) {
+  const id = String(user.id || "").trim();
+  if (!id) return "";
+  return Buffer.from(id, "utf8").toString("base64url").replace(/=+$/, "");
+}
+
+function userIdFromReferralCode(code = "") {
+  const clean = String(code || "").trim();
+  if (!/^[a-z0-9_-]{6,128}$/i.test(clean)) return "";
+  try {
+    return Buffer.from(clean, "base64url").toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function referralPayload(user = {}) {
+  return user.referral && typeof user.referral === "object" ? user.referral : {};
+}
+
+function normalizeReferralCode(value = "") {
+  return String(value || "").trim().replace(/^#/, "");
+}
+
+function referralRewardAlreadyGranted(db = {}, referrerUserId = "", referredUserId = "") {
+  const cleanReferrerId = String(referrerUserId || "").trim();
+  const cleanReferredId = String(referredUserId || "").trim();
+  return (db.creditLedger || []).some((entry) => (
+    entry.type === "referral_reward" && (
+      String(entry.userId || "") === cleanReferrerId ||
+      String(entry.meta?.referrerUserId || "") === cleanReferrerId ||
+      String(entry.meta?.referredUserId || "") === cleanReferredId
+    )
+  ));
+}
+
+function publicReferralSummary(req, db = {}, user = {}) {
+  const referral = referralPayload(user);
+  const code = referralCodeForUser(user);
+  const invitedUserIds = new Set((db.users || [])
+    .filter((entry) => referralPayload(entry).referredByUserId === user.id)
+    .map((entry) => entry.id));
+  if (referral.invitedUserId) invitedUserIds.add(referral.invitedUserId);
+  const rewardedUserIds = new Set((db.creditLedger || [])
+    .filter((entry) => entry.type === "referral_reward" && entry.userId === user.id)
+    .map((entry) => String(entry.meta?.referredUserId || ""))
+    .filter(Boolean));
+  const rewardCount = rewardedUserIds.size || (referral.rewardedAt ? 1 : 0);
+  const origin = publicOriginFromRequest(req);
+  return {
+    code,
+    inviteUrl: `${origin}/?ref=${encodeURIComponent(code)}`,
+    rewardCredits: REFERRAL_REWARD_CREDITS,
+    invitedCount: invitedUserIds.size,
+    rewardCount,
+    remainingRewards: Math.max(0, 1 - rewardCount),
+    maxRewards: 1,
+    rewardedAt: referral.rewardedAt || "",
+    referredByUserId: referral.referredByUserId || "",
+    referredByUsername: referral.referredByUsername || "",
+  };
+}
+
 function apiSubtokenView(record = {}, { includeToken = false } = {}) {
   const normalized = typeof record === "object" && record && record.id ? record : null;
   if (!normalized) return null;
@@ -2563,6 +2627,7 @@ function insufficientCreditsPayload(cost, credits, extra = {}) {
 function stableLedgerId(type = "", meta = {}) {
   const cleanType = String(type || "ledger").trim() || "ledger";
   const stableKey = String(
+    (cleanType === "referral_reward" ? (meta?.referrerUserId || meta?.referredUserId) : "") ||
     meta?.orderId ||
     meta?.taskId ||
     meta?.unlockId ||
@@ -2609,6 +2674,47 @@ async function appendCreditLedger(db, user, delta, type, meta = {}) {
   db.creditLedger.unshift(record);
   db.creditLedger = db.creditLedger.slice(0, 1000);
   return record;
+}
+
+async function maybeGrantReferralReward(db, referredUserId = "", order = {}) {
+  const referredUser = (db.users || []).find((entry) => entry.id === referredUserId);
+  const referral = referralPayload(referredUser);
+  const referrerId = String(referral.referredByUserId || "").trim();
+  if (!referredUser || !referrerId || referrerId === referredUser.id) return null;
+  const referrer = (db.users || []).find((entry) => entry.id === referrerId);
+  if (!referrer) return null;
+  if (referralRewardAlreadyGranted(db, referrer.id, referredUser.id) || referralPayload(referrer).rewardedAt) return null;
+  const now = new Date().toISOString();
+  const rewardMeta = {
+    referrerUserId: referrer.id,
+    referredUserId: referredUser.id,
+    referredUsername: referredUser.username || "",
+    orderId: order.id || "",
+    orderProvider: order.paymentProvider || "manual",
+  };
+  await changeUserCredits(db, referrer.id, REFERRAL_REWARD_CREDITS, "referral_reward", rewardMeta);
+  const referrerReferral = referralPayload(referrer);
+  referrer.referral = {
+    ...referrerReferral,
+    invitedUserId: referredUser.id,
+    invitedUsername: referredUser.username || "",
+    rewardedAt: now,
+    rewardOrderId: order.id || "",
+    rewardCredits: REFERRAL_REWARD_CREDITS,
+  };
+  referredUser.referral = {
+    ...referral,
+    firstPaidAt: referral.firstPaidAt || now,
+    firstPaidOrderId: referral.firstPaidOrderId || order.id || "",
+    rewardGrantedAt: now,
+  };
+  referrer.updatedAt = now;
+  referredUser.updatedAt = now;
+  if (dbEnabled()) {
+    await updateUserInDb(referrer);
+    await updateUserInDb(referredUser);
+  }
+  return referrer;
 }
 
 function currentAuthContext() {
@@ -3859,6 +3965,7 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
   order.paidAt = order.paidAt || now;
   order.updatedAt = now;
   if (meta.note && !order.note) order.note = String(meta.note).slice(0, 200);
+  await maybeGrantReferralReward(db, order.userId, order);
   return { settled: true, user };
 }
 
@@ -11701,6 +11808,7 @@ async function handleRegister(req, res) {
   const body = await readJson(req);
   const username = String(body.username || "").trim().toLowerCase();
   const password = String(body.password || "");
+  const referralCode = normalizeReferralCode(body.referralCode || body.referral || body.ref || "");
   if (!/^[a-z0-9_]{3,24}$/.test(username)) {
     return sendJson(res, 400, { ok: false, message: "Username must be 3-24 chars: letters, digits or underscores." });
   }
@@ -11715,6 +11823,8 @@ async function handleRegister(req, res) {
   }
 
   const now = new Date().toISOString();
+  const referrerId = userIdFromReferralCode(referralCode);
+  const referrer = referrerId ? (await getUserByIdInDb(referrerId) || db.users.find((item) => item.id === referrerId)) : null;
   const user = {
     id: randomId("user"),
     username,
@@ -11725,6 +11835,14 @@ async function handleRegister(req, res) {
     createdAt: now,
     updatedAt: now,
   };
+  if (referrer?.id && referrer.id !== user.id) {
+    user.referral = {
+      referredByUserId: referrer.id,
+      referredByUsername: referrer.username || "",
+      referralCode,
+      registeredAt: now,
+    };
+  }
   const token = crypto.randomBytes(32).toString("hex");
   const session = { token, userId: user.id, createdAt: now };
   db.users.push(user);
@@ -11777,6 +11895,16 @@ async function handleMe(req, res) {
     user.accessTokenPreview = auth.tokenRecord?.tokenPreview || "";
   }
   return sendJson(res, 200, { ok: true, user });
+}
+
+async function handleReferralSummary(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  return sendJson(res, 200, {
+    ok: true,
+    referral: publicReferralSummary(req, auth.db, auth.user),
+    user: userView(auth.user),
+  });
 }
 
 async function handleCreateSupportMessage(req, res) {
@@ -16958,6 +17086,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/auth/me") {
       return await handleMe(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/referral") {
+      return await handleReferralSummary(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/support-messages") {

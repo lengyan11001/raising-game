@@ -1427,6 +1427,87 @@ main {
 }
 .permission-card h2 { margin: 0; font-size: clamp(1.35rem, 2.2vw, 1.9rem); letter-spacing: 0; }
 .permission-card p { margin: 0; color: #34435a; line-height: 1.65; }
+.referral-panel {
+  display: grid;
+  justify-items: center;
+  padding: 38px 18px;
+}
+.referral-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px 22px;
+  width: min(760px, 100%);
+  padding: 22px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 12% 15%, rgba(255,69,174,.18), transparent 36%),
+    #151519;
+  color: #fff;
+  box-shadow: 0 20px 54px rgba(0,0,0,.32);
+}
+.referral-copy {
+  display: grid;
+  gap: 7px;
+}
+.referral-copy h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.55rem;
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+.referral-copy p {
+  margin: 0;
+  color: rgba(255,255,255,.76);
+  line-height: 1.55;
+}
+.referral-card .copy-kicker {
+  color: #ff4ab3;
+}
+.referral-copy-btn {
+  align-self: start;
+  border-color: transparent;
+  background: #fff;
+  color: #111;
+}
+.referral-link {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 8px;
+  background: rgba(255,255,255,.07);
+  color: rgba(255,255,255,.86);
+  overflow-wrap: anywhere;
+}
+.referral-progress {
+  grid-column: 1 / -1;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255,255,255,.18);
+}
+.referral-progress span {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: #ff2fb2;
+  transition: width .2s ease;
+}
+.referral-stats {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  color: #fff;
+}
+.referral-card .job-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: rgba(255,255,255,.64);
+}
 .advanced-workspace {
   display: grid;
   grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
@@ -3923,6 +4004,13 @@ select:focus,
 
 @media (max-width: 1080px) {
   .gallery-panel { width: 100%; }
+  .referral-card {
+    grid-template-columns: 1fr;
+  }
+  .referral-copy-btn {
+    width: 100%;
+    justify-content: center;
+  }
   .characters-layout { grid-template-columns: 1fr; }
   .character-create-card { position: static; }
   .character-grid-main { grid-template-columns: repeat(4, minmax(0, 1fr)); }
