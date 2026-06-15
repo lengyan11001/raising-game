@@ -916,25 +916,51 @@ main {
   gap: 12px;
 }
 .topup-stage[hidden] { display: none; }
+.topup-package-stage {
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(255,79,163,.08), transparent 38%),
+    linear-gradient(315deg, rgba(117,227,226,.06), transparent 42%),
+    #141416;
+}
 .topup-package-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 .topup-package-card {
+  position: relative;
+  overflow: hidden;
   display: grid;
   gap: 8px;
   min-height: 118px;
   padding: 14px;
-  border: 1px solid rgba(255,255,255,.1);
+  border: 1px solid rgba(255,255,255,.12);
   border-radius: 8px;
   color: var(--text);
-  background: #202126;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255,255,255,.08), transparent 34%),
+    #202126;
   text-align: left;
   cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, box-shadow .18s ease, transform .18s ease;
 }
+.topup-package-card::after {
+  content: "";
+  position: absolute;
+  inset: auto 12px 10px 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.16);
+}
+.topup-package-card:nth-child(4n+1)::after { background: linear-gradient(90deg, #ff4fa3, rgba(255,79,163,.15)); }
+.topup-package-card:nth-child(4n+2)::after { background: linear-gradient(90deg, #75e3e2, rgba(117,227,226,.12)); }
+.topup-package-card:nth-child(4n+3)::after { background: linear-gradient(90deg, #ffd166, rgba(255,209,102,.12)); }
+.topup-package-card:nth-child(4n+4)::after { background: linear-gradient(90deg, #9b8cff, rgba(155,140,255,.12)); }
 .topup-package-card span {
-  color: var(--muted);
+  color: rgba(247,247,251,.58);
   font-size: .68rem;
 }
 .topup-package-card strong {
@@ -951,8 +977,18 @@ main {
 .topup-package-card:hover,
 .topup-package-card.is-active {
   border-color: rgba(255,79,163,.62);
-  background: linear-gradient(135deg, rgba(255,79,163,.18), rgba(255,255,255,.055));
-  box-shadow: 0 12px 30px rgba(255,79,163,.12);
+  background:
+    radial-gradient(circle at 16% 0%, rgba(255,255,255,.16), transparent 32%),
+    linear-gradient(135deg, rgba(255,79,163,.28), rgba(117,227,226,.08)),
+    #261823;
+  box-shadow: 0 16px 36px rgba(255,79,163,.2);
+}
+.topup-package-card:hover {
+  transform: translateY(-1px);
+}
+.topup-package-card.is-active::after {
+  height: 3px;
+  background: linear-gradient(90deg, #ff4fa3, #75e3e2);
 }
 .topup-selected-package {
   display: flex;
@@ -975,9 +1011,9 @@ main {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding: 5px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255,255,255,.1);
   border-radius: 999px;
-  background: #111114;
+  background: #0d0d10;
 }
 .topup-method-tab {
   display: inline-flex;
@@ -987,19 +1023,24 @@ main {
   min-height: 40px;
   border: 1px solid transparent;
   border-radius: 999px;
-  color: var(--muted);
+  color: rgba(247,247,251,.72);
   background: transparent;
   font-weight: 900;
 }
 .topup-method-tab svg {
   width: 16px;
   height: 16px;
+  color: currentColor;
+}
+.topup-method-tab span {
+  color: inherit;
+  letter-spacing: .02em;
 }
 .topup-method-tab.is-active {
-  border-color: rgba(255,79,163,.58);
-  color: #fff;
-  background: linear-gradient(135deg, #ff5ab0, #f32eb0);
-  box-shadow: 0 10px 24px rgba(255,79,163,.18);
+  border-color: #ffffff;
+  color: #111114;
+  background: #f7f7fb;
+  box-shadow: 0 12px 28px rgba(255,79,163,.22);
 }
 .topup-method-panel {
   display: grid;
