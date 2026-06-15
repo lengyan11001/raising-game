@@ -84,20 +84,21 @@ const ADVANCED_CASE_PAGE_SIZE = { hot: 9, extend: 3, replace: 3 };
 const ADVANCED_CREATE_KINDS = [
   { id: "image", labelKey: "advanced.createKindImage", icon: "image" },
   { id: "video", labelKey: "advanced.createKindVideo", icon: "clapperboard" },
+  { id: "custom", labelKey: "advanced.modeCustom", icon: "sliders-horizontal" },
 ];
+const ADVANCED_CUSTOM_MODE = { id: "custom", labelKey: "advanced.modeCustom", icon: "sliders-horizontal", custom: true, placeholderKey: "advanced.promptPlaceholder" };
 const ADVANCED_CREATE_MODES = {
   image: [
     { id: "image-create", labelKey: "advanced.modeImageCreate", icon: "image-plus", provider: "wan27-image-edit", assetTarget: "sourceImages", placeholderKey: "advanced.promptImageCreate" },
     { id: "image-edit", labelKey: "advanced.modeImageEdit", icon: "wand-sparkles", provider: "wan27-image-edit", assetTarget: "sourceImages", placeholderKey: "advanced.promptImageEdit" },
-    { id: "image-custom", labelKey: "advanced.modeCustom", icon: "settings-2", custom: true, placeholderKey: "advanced.promptPlaceholder" },
   ],
   video: [
     { id: "video-text", labelKey: "advanced.modeVideoText", icon: "type", provider: "seedance", seedanceMode: "text_to_video", assetTarget: "primary", placeholderKey: "advanced.promptVideoText" },
     { id: "video-image", labelKey: "advanced.modeVideoImage", icon: "image-up", provider: "seedance", seedanceMode: "first_frame", assetTarget: "primary", placeholderKey: "advanced.promptVideoImage" },
     { id: "video-extend", labelKey: "advanced.modeVideoExtend", icon: "stretch-horizontal", provider: "seedance", seedanceMode: "first_frame", assetTarget: "primary", placeholderKey: "advanced.promptVideoExtend" },
     { id: "video-edit", labelKey: "advanced.modeVideoEdit", icon: "film", provider: "seedance", seedanceMode: "reference_video", assetTarget: "video", placeholderKey: "advanced.promptVideoEdit" },
-    { id: "video-custom", labelKey: "advanced.modeCustom", icon: "settings-2", custom: true, placeholderKey: "advanced.promptPlaceholder" },
   ],
+  custom: [ADVANCED_CUSTOM_MODE],
 };
 
 function normalizeSeedanceMediaMode(value = "") {
@@ -4297,10 +4298,12 @@ function advancedCreateKindConfig(kind = state.advancedCreateKind) {
 }
 
 function advancedCreateModesForKind(kind = state.advancedCreateKind) {
-  return ADVANCED_CREATE_MODES[kind] || ADVANCED_CREATE_MODES.video;
+  const normalizedKind = advancedCreateKindConfig(kind).id;
+  return ADVANCED_CREATE_MODES[normalizedKind] || ADVANCED_CREATE_MODES.video;
 }
 
 function advancedCreateModeConfig(kind = state.advancedCreateKind, mode = state.advancedCreateMode) {
+  if (advancedCreateKindConfig(kind).id === "custom") return ADVANCED_CUSTOM_MODE;
   const modes = advancedCreateModesForKind(kind);
   return modes.find((item) => item.id === mode) || modes[0];
 }
@@ -4362,6 +4365,7 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
     els.advancedWorkspace.classList.toggle("is-create-custom", custom);
     els.advancedWorkspace.classList.toggle("is-create-image", kind === "image");
     els.advancedWorkspace.classList.toggle("is-create-video", kind === "video");
+    els.advancedWorkspace.classList.toggle("is-create-custom-kind", kind === "custom");
     Object.values(ADVANCED_CREATE_MODES).flat().forEach((mode) => {
       els.advancedWorkspace.classList.toggle(`is-create-${mode.id}`, mode.id === config.id);
     });
@@ -4372,6 +4376,8 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
     if (config.seedanceMode && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = normalizeSeedanceMediaMode(config.seedanceMode);
     if (config.wanMode && els.advancedWanMediaMode) els.advancedWanMediaMode.value = normalizeWanMediaMode(config.wanMode);
     if (config.assetTarget) state.advancedAssetTarget = config.assetTarget;
+    if (els.advancedRatio) els.advancedRatio.value = "9:16";
+    if (els.advancedResolution) els.advancedResolution.value = kind === "image" ? "2K" : "720p";
     if (kind === "image" && els.advancedDuration) els.advancedDuration.value = "1";
     if (kind === "video" && els.advancedDuration && Number(els.advancedDuration.value || 0) < 4) els.advancedDuration.value = "5";
   }
@@ -4393,6 +4399,7 @@ function renderAdvancedCreateControls() {
     if (!modes.some((mode) => mode.id === state.advancedCreateMode)) {
       state.advancedCreateMode = modes[0]?.id || "video-image";
     }
+    els.advancedCreateModeTabs.hidden = state.advancedCreateKind === "custom";
     els.advancedCreateModeTabs.innerHTML = modes.map((mode) => `
       <button class="advanced-create-mode ${mode.id === state.advancedCreateMode ? "is-active" : ""}" data-advanced-create-mode="${escapeHtml(mode.id)}" type="button" role="tab" aria-selected="${mode.id === state.advancedCreateMode ? "true" : "false"}">
         <i data-lucide="${escapeHtml(mode.icon)}"></i><span>${escapeHtml(t(mode.labelKey))}</span>
@@ -4405,15 +4412,19 @@ function renderAdvancedCreateControls() {
 
 function setAdvancedCreateKind(kind = "video") {
   const nextKind = advancedCreateKindConfig(kind).id;
+  const previousKind = state.advancedCreateKind;
   state.advancedCreateKind = nextKind;
-  state.advancedCreateMode = advancedCreateModesForKind(nextKind)[0]?.id || state.advancedCreateMode;
+  state.advancedCreateMode = nextKind === "custom"
+    ? ADVANCED_CUSTOM_MODE.id
+    : advancedCreateModesForKind(nextKind)[0]?.id || state.advancedCreateMode;
   renderAdvancedCreateControls();
-  applyAdvancedCreateMode({ clearMedia: true });
+  applyAdvancedCreateMode({ clearMedia: previousKind !== nextKind && nextKind !== "custom" });
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }
 
 function setAdvancedCreateMode(mode = "") {
+  if (state.advancedCreateKind === "custom") return;
   const modes = advancedCreateModesForKind();
   const previousMode = state.advancedCreateMode;
   const nextMode = modes.find((item) => item.id === mode)?.id || modes[0]?.id || state.advancedCreateMode;
@@ -4468,6 +4479,17 @@ function assetImageModifyCostCredits() {
 
 function assetImageModifyCostLabel() {
   return t("cost.credits", { credits: formatCredits(assetImageModifyCostCredits()) });
+}
+
+function advancedButtonCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
+  const fullLabel = advancedCostLabel(duration, provider, resolution, ratio, options);
+  if (state.advancedCreateKind === "custom") return fullLabel;
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "wan27-image-edit") return assetImageModifyCostLabel();
+  const pricing = state.advancedEstimate && state.advancedEstimateKey === advancedEstimateKey(duration, provider, resolution, ratio, options)
+    ? state.advancedEstimate
+    : advancedPricing(duration, provider, resolution, ratio, options);
+  return t("cost.credits", { credits: formatCredits(pricing.credits) });
 }
 
 function advancedEstimateKey(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
@@ -4533,13 +4555,13 @@ function updateAdvancedButtonCost() {
   const provider = currentAdvancedProvider();
   const seedanceTier = currentSeedanceTier();
   if (provider === "wan27-image-edit") {
-    els.advancedSubmitBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(1, provider, currentAdvancedResolution(), currentAdvancedRatio()) }))}`;
+    els.advancedSubmitBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(1, provider, currentAdvancedResolution(), currentAdvancedRatio()) }))}`;
     refreshIcons();
     return;
   }
   const options = { inputVideoSeconds: currentSeedanceVideoInputSeconds(duration, provider), seedanceTier };
   requestAdvancedEstimate(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options);
-  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;
+  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;
   refreshIcons();
 }
 
@@ -7569,8 +7591,8 @@ function renderAdvancedCases() {
 function fillAdvancedCase(item = {}) {
   const params = item.params && typeof item.params === "object" ? item.params : {};
   const provider = advancedCaseProvider(item);
-  state.advancedCreateKind = provider === "wan27-image-edit" ? "image" : "video";
-  state.advancedCreateMode = provider === "wan27-image-edit" ? "image-custom" : "video-custom";
+  state.advancedCreateKind = "custom";
+  state.advancedCreateMode = ADVANCED_CUSTOM_MODE.id;
   renderAdvancedCreateControls();
   state.activeAdvancedCaseId = item.id || "";
   if (els.advancedProvider) els.advancedProvider.value = provider;
