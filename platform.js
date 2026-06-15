@@ -422,7 +422,7 @@ const I18N = {
     "legal.disclaimer": "Disclaimer",
     "legal.updated": "Last updated: {date}",
     "field.prompt": "Prompt",
-    "field.model": "Model",
+    "field.model": "Engine",
     "field.ratio": "Ratio",
     "field.resolution": "Resolution",
     "field.duration": "Duration",
@@ -557,10 +557,10 @@ const I18N = {
   "topup.provider": "Provider",
     "advanced.models": "Create Character Video",
     "advanced.title": "Create from image or story",
-    "advanced.subtitle": "Upload or select assets, choose a model, and create a new video.",
+    "advanced.subtitle": "Upload or select assets, choose an engine, and create a new video.",
     "advanced.promptPlaceholder": "Describe the video you want...",
     "advanced.uploadReference": "Upload reference image(s)",
-    "advanced.wanMode": "Wan2.7 input",
+    "advanced.wanMode": "Vipeak 1 input",
     "advanced.wanModeFirst": "Single image",
     "advanced.wanModeFirstLast": "First + last image",
     "advanced.wanModeFirstAudio": "Image + audio",
@@ -575,8 +575,8 @@ const I18N = {
     "advanced.clipRequired": "Source video file or URL is required.",
     "advanced.clipTooLarge": "Source video must be 30MB or smaller.",
     "advanced.clipTooLong": "Source video must be 5 seconds or shorter.",
-    "advanced.seedanceHandling": "Seedance image handling",
-    "advanced.seedanceMode": "Seedance input",
+    "advanced.seedanceHandling": "Vipeak 2 image handling",
+    "advanced.seedanceMode": "Vipeak 2 input",
     "advanced.seedanceModeText": "Text only",
     "advanced.seedanceModeFirst": "First frame image",
     "advanced.seedanceModeFirstLast": "First + last image",
@@ -584,16 +584,16 @@ const I18N = {
     "advanced.seedanceModeVideo": "Reference video/audio",
     "advanced.seedanceVideoUrls": "Reference video URLs",
     "advanced.seedanceAudioUrls": "Reference audio URLs",
-    "advanced.seedanceFirstRequired": "First frame image is required for this Seedance mode.",
-    "advanced.seedanceLastRequired": "Last frame image is required for this Seedance mode.",
-    "advanced.seedanceVideoRequired": "Reference video is required for this Seedance mode.",
+    "advanced.seedanceFirstRequired": "First frame image is required for this mode.",
+    "advanced.seedanceLastRequired": "Last frame image is required for this mode.",
+    "advanced.seedanceVideoRequired": "Reference video is required for this mode.",
     "advanced.prepareReference": "Prepare safe reference",
     "advanced.originalImage": "Use original image",
-    "advanced.seedanceReferenceHint": "Seedance will use all selected images as references.",
+    "advanced.seedanceReferenceHint": "Vipeak 2 will use all selected images as references.",
     "advanced.seedanceReferenceCount": "{count} reference image(s) selected.",
-    "advanced.wanFirstFrameHint": "Wan2.7 first frame selected.",
+    "advanced.wanFirstFrameHint": "Vipeak 1 first frame selected.",
     "advanced.referenceImageTooLarge": "Each reference image must be 8MB or smaller.",
-    "advanced.referenceImageTooMany": "Seedance supports up to {count} reference images.",
+    "advanced.referenceImageTooMany": "This mode supports up to {count} reference images.",
     "advanced.randomSeed": "Random seed",
     "advanced.cases": "Video Cases",
     "advanced.caseTitle": "Choose a video case",
@@ -624,8 +624,8 @@ const I18N = {
     "advanced.waitingApproval": "Waiting for approval",
     "advanced.requestSubmitted": "Request submitted.",
     "advanced.promptRequired": "Prompt is required.",
-    "advanced.referenceSeedance": "Reference selected. Seedance will use {mode}.",
-    "advanced.referenceWan": "First frame selected. Wan2.7 will use it as the opening frame.",
+    "advanced.referenceSeedance": "Reference selected. Vipeak 2 will use {mode}.",
+    "advanced.referenceWan": "First frame selected. Vipeak 1 will use it as the opening frame.",
     "advanced.safeReference": "safe reference",
     "advanced.originalReference": "original image",
     "advanced.submitting": "Submitting advanced generation{note} - {cost}...",
@@ -676,8 +676,8 @@ const I18N = {
     "assets.generating": "Generating...",
     "assets.extend": "Extend",
     "assets.replace": "Replace",
-    "assets.seedanceReady": "Seedance ready",
-    "assets.seedancePending": "Seedance asset will be created on first use",
+    "assets.seedanceReady": "Vipeak 2 ready",
+    "assets.seedancePending": "Vipeak 2 asset will be created on first use",
     "assets.used": "Loaded into Advanced.",
     "assets.replaced": "Replace prompt loaded.",
     "assets.extended": "Extend prompt loaded.",
@@ -2132,7 +2132,7 @@ const PUBLIC_COPY = {
   historySubtitle: "Review your generated videos, prompts, parameters and billing in one compact list.",
   historyNotice: "Only your own records are shown. Video links may expire after 24 hours; download/save successful results in time.",
   accessCopy:
-    "POST /api/platform/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"templateId\":\"template-id\",\"prompt\":\"...\",\"dataUrl\":\"data:image/png;base64,...\"}\n\nGET /api/generation-records\nGET /api/generation-records/<taskId>",
+    "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"prompt\":\"Use Image 1 as the character reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_images\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>",
 };
 
 let ACCESS_GUIDES = [];
@@ -2159,41 +2159,32 @@ function tenantScopedAccessText(text = "") {
     });
 }
 
-const VOLCENGINE_SEEDANCE_ACCESS_COPY = `POST ${apiUrl("/api/v3/contents/generations/tasks")}
+const ADVANCED_SEEDANCE_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "model": "dreamina-seedance-2-0-fast-260128",
-  "content": [
-    {"type": "text", "text": "Use Image 1 as the character reference. Generate a cinematic 5 second shot, no subtitles, no watermark."},
-    {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"}
+  "provider": "seedance",
+  "prompt": "Use Image 1 as the character reference. Generate a cinematic 5 second shot, no subtitles, no watermark.",
+  "seedanceMode": "reference_images",
+  "referenceImages": [
+    {"url": "https://example.com/image1.png", "fileName": "image1.png"}
   ],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5,
-  "generate_audio": true,
+  "generateAudio": true,
   "watermark": false
 }
 
-GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}
+GET ${apiUrl("/api/generation-records/<taskId>")}
 Authorization: Bearer <user-token>
 
-The response is the upstream Volcengine/Ark task response when available. vip123 handles auth, balance pre-deduction, history, and refund internally. Public image URLs or base64 image data URLs in image_url content are prepared into Ark assets before submit; asset:// URLs pass through directly.
+The response returns the local generation record and progress. vip123 handles auth, configured allow-listed upstream routing, balance pre-deduction, history, and refund internally. Public URLs, base64 data URLs, and uploaded asset ids are accepted through the fields below.
 
-Tip: use "dreamina-seedance-2-0-260128" for Standard, or "dreamina-seedance-2-0-fast-260128" for Fast. Fast does not support 1080p.`;
+Tip: do not call upstream task routes directly. Use provider "seedance" for Vipeak 2. Standard routes to the allow-listed endpoint ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d.`;
 
-const LIVE_HTTP_ACCESS_COPY = `${VOLCENGINE_SEEDANCE_ACCESS_COPY}
-
-Legacy gallery template:
-POST ${apiUrl("/api/platform/generate")}
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "dataUrl": "data:image/png;base64,...",
-  "prompt": ""
-}
+const LIVE_HTTP_ACCESS_COPY = `${ADVANCED_SEEDANCE_ACCESS_COPY}
 
 Asset upload for reusable files:
 POST ${apiUrl("/api/user-assets")}
@@ -2203,10 +2194,10 @@ POST ${apiUrl("/api/user-assets")}
   "name": "image1"
 }`;
 
-const SEEDANCE_CHARACTER_UPLOAD_COPY = `Seedance role workflow, Volcengine-compatible:
+const SEEDANCE_CHARACTER_UPLOAD_COPY = `Vipeak 2 role workflow through Advanced:
 
-1) Optional: prepare a character image as a Seedance asset.
-POST ${apiUrl("/api/seedance/characters/upload")}
+1) Optional: upload a reusable character image.
+POST ${apiUrl("/api/user-assets")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
@@ -2216,49 +2207,55 @@ Content-Type: application/json
   "name": "image1"
 }
 
-The response returns reference.assetUri, for example asset://....
+The response returns asset.id. Use that id in referenceImages or firstFrameAssetId.
 
-2) Submit with the Volcengine-compatible task endpoint:
-POST ${apiUrl("/api/v3/contents/generations/tasks")}
+2) Submit with the Advanced endpoint:
+POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "model": "dreamina-seedance-2-0-260128",
-  "content": [
-    {"type": "text", "text": "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot."},
-    {"type": "image_url", "image_url": {"url": "asset://reference.assetUri-from-step-1"}, "role": "reference_image"}
+  "provider": "seedance",
+  "prompt": "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot.",
+  "seedanceMode": "reference_images",
+  "referenceImages": [
+    {"assetId": "asset-id-from-step-1"}
   ],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5,
-  "generate_audio": true,
+  "generateAudio": true,
   "watermark": false
 }
 
-You may also send a public image URL or base64 data URL directly in content[].image_url.url:
+You may also send a public image URL or base64 data URL directly:
 {
-  "type": "image_url",
-  "image_url": {"url": "data:image/png;base64,..."},
-  "role": "first_frame"
+  "provider": "seedance",
+  "prompt": "Animate Image 1 into a cinematic shot.",
+  "seedanceMode": "first_frame",
+  "firstFrameDataUrl": "data:image/png;base64,...",
+  "ratio": "9:16",
+  "resolution": "720p",
+  "duration": 5
 }
 Prompt rule: uploaded character images are referenced as Image 1, Image 2, etc. Do not put raw asset ids in the prompt text.`;
 
 const TYPE_SCRIPT_ACCESS_COPY = `const token = "<user-token>";
 const body = {
-  model: "dreamina-seedance-2-0-260128",
-  content: [
-    { type: "text", text: "Use Image 1 as the character reference. Generate a cinematic 5 second shot." },
-    { type: "image_url", image_url: { url: "https://example.com/image1.png" }, role: "reference_image" }
+  provider: "seedance",
+  prompt: "Use Image 1 as the character reference. Generate a cinematic 5 second shot.",
+  seedanceMode: "reference_images",
+  referenceImages: [
+    { url: "https://example.com/image1.png", fileName: "image1.png" }
   ],
   ratio: "9:16",
   resolution: "720p",
   duration: 5,
-  generate_audio: true,
+  generateAudio: true,
   watermark: false
 };
 
-const created = await fetch("${apiUrl("/api/v3/contents/generations/tasks")}", {
+const created = await fetch("${apiUrl("/api/advanced/generate")}", {
   method: "POST",
   headers: {
     authorization: \`Bearer \${token}\`,
@@ -2267,8 +2264,8 @@ const created = await fetch("${apiUrl("/api/v3/contents/generations/tasks")}", {
   body: JSON.stringify(body)
 }).then((res) => res.json());
 
-const taskId = created.id || created.task_id || created.data?.id || created.data?.task_id;
-const task = await fetch("${apiUrl("/api/v3/contents/generations/tasks")}/" + encodeURIComponent(taskId), {
+const taskId = created.taskId || created.task?.taskId || created.record?.taskId;
+const task = await fetch("${apiUrl("/api/generation-records")}/" + encodeURIComponent(taskId), {
   headers: { authorization: \`Bearer \${token}\` }
 }).then((res) => res.json());
 console.log(task);
@@ -2280,27 +2277,28 @@ const PYTHON_ACCESS_COPY = `import requests
 
 token = "<user-token>"
 payload = {
-    "model": "dreamina-seedance-2-0-260128",
-    "content": [
-        {"type": "text", "text": "Use Image 1 as the character reference. Generate a cinematic 5 second shot."},
-        {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"},
+    "provider": "seedance",
+    "prompt": "Use Image 1 as the character reference. Generate a cinematic 5 second shot.",
+    "seedanceMode": "reference_images",
+    "referenceImages": [
+        {"url": "https://example.com/image1.png", "fileName": "image1.png"},
     ],
     "ratio": "9:16",
     "resolution": "720p",
     "duration": 5,
-    "generate_audio": True,
+    "generateAudio": True,
     "watermark": False,
 }
 
 created = requests.post(
-    "${apiUrl("/api/v3/contents/generations/tasks")}",
+    "${apiUrl("/api/advanced/generate")}",
     headers={"Authorization": f"Bearer {token}"},
     json=payload,
     timeout=120,
 ).json()
-task_id = created.get("id") or created.get("task_id") or created.get("data", {}).get("id") or created.get("data", {}).get("task_id")
+task_id = created.get("taskId") or created.get("task", {}).get("taskId") or created.get("record", {}).get("taskId")
 task = requests.get(
-    f"${apiUrl("/api/v3/contents/generations/tasks")}/{task_id}",
+    f"${apiUrl("/api/generation-records")}/{task_id}",
     headers={"Authorization": f"Bearer {token}"},
     timeout=120,
 ).json()
@@ -2309,86 +2307,75 @@ print(task)
 # Important: returned video URLs may expire after 24 hours.
 # Download and save successful videos promptly.`;
 
-const CLI_ACCESS_COPY = `curl -X POST "${apiUrl("/api/v3/contents/generations/tasks")}" \\
-  -H "Authorization: Bearer <user-token>" \\
-  -H "Content-Type: application/json" \\
-  -d '{"model":"dreamina-seedance-2-0-260128","content":[{"type":"text","text":"Use Image 1 as the character reference. Generate a cinematic 5 second shot."},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"}],"ratio":"9:16","resolution":"720p","duration":5,"generate_audio":true,"watermark":false}'
+const CLI_ACCESS_COPY = `curl -X POST "${apiUrl("/api/advanced/generate")}" \
+  -H "Authorization: Bearer <user-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"seedance","prompt":"Use Image 1 as the character reference. Generate a cinematic 5 second shot.","seedanceMode":"reference_images","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true,"watermark":false}'
 
-curl -X GET "${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}" \\
+curl -X GET "${apiUrl("/api/generation-records/<taskId>")}" \
   -H "Authorization: Bearer <user-token>"
 
 # Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
-# vip123 records the task internally, but this endpoint returns the Volcengine/Ark task response when available.`;
+# vip123 records the task internally and returns progress/results from /api/generation-records/<taskId>.`;
 
 const AGENT_ACCESS_COPY = `Use this video API:
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
 Task queries with API tokens or sub tokens return only upstream provider URLs in record.videoUrl and record.downloadUrl. Local/CDN backup URLs are internal and are not returned downstream.
 
-Gallery templates:
-POST ${apiUrl("/api/platform/generate")}
-Authorization: Bearer <user-token>
+Vipeak 2 video generation:
+POST ${apiUrl("/api/advanced/generate")}
 Body:
-{"templateId":"template-id","dataUrl":"data:image/png;base64,...","prompt":""}
-
-Seedance direct generation, Volcengine-compatible:
-POST ${apiUrl("/api/v3/contents/generations/tasks")}
-Body:
-{"model":"dreamina-seedance-2-0-260128","content":[{"type":"text","text":"Use Image 1 as the character, Video 1 as motion reference, and Audio 1 as music reference."},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"},{"type":"video_url","video_url":{"url":"https://example.com/video1.mp4","durationSeconds":6},"role":"reference_video"},{"type":"audio_url","audio_url":{"url":"https://example.com/audio1.mp3"},"role":"reference_audio"}],"ratio":"9:16","resolution":"720p","duration":5,"generate_audio":true}
+{"provider":"seedance","prompt":"Use Image 1 as the character, Video 1 as motion reference, and Audio 1 as music reference.","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceVideoDurationSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true}
 
 Check records:
-GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}`;
+GET ${apiUrl("/api/generation-records/<taskId>")}`;
 
-const MCP_ACCESS_COPY = `MCP wrapper target:
-POST ${apiUrl("/api/platform/generate")}
+const MCP_ACCESS_COPY = `Vipeak 2 MCP wrapper target:
+POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
-{"templateId":"string","dataUrl":"string","prompt":"string"}
+{"provider":"seedance","prompt":"string","seedanceMode":"reference_images","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"ratio":"9:16","resolution":"480p|720p","duration":5,"generateAudio":true,"watermark":false,"seed":123456}
 
-Seedance MCP wrapper target:
-POST ${apiUrl("/api/v3/contents/generations/tasks")}
-Authorization: Bearer <user-token>
-Input:
-{"model":"dreamina-seedance-2-0-fast-260128","content":[{"type":"text","text":"string"},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"}],"ratio":"9:16","resolution":"480p|720p","duration":5,"generate_audio":true,"watermark":false,"seed":123456}
-
-Seedance character upload target:
-POST ${apiUrl("/api/seedance/characters/upload")}
+Reusable asset upload target:
+POST ${apiUrl("/api/user-assets")}
 Authorization: Bearer <user-token>
 Input:
 {"url":"https://example.com/character-image1.png","fileName":"image1.png","name":"image1"}
 
 Task query:
-GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}`;
+GET ${apiUrl("/api/generation-records/<taskId>")}`;
 
 const SEEDANCE_PARAM_ACCESS_COPY = `${SEEDANCE_CHARACTER_UPLOAD_COPY}
 
-Direct Seedance generation endpoint, Volcengine-compatible:
-POST ${apiUrl("/api/v3/contents/generations/tasks")}
+Vipeak 2 generation endpoint:
+POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
-Model tiers:
-- Standard: "dreamina-seedance-2-0-260128"
-- Fast: "dreamina-seedance-2-0-fast-260128" (no 1080p)
+Model routing:
+- provider: "seedance"
+- seedanceTier: "standard" or "fast" (optional; fast does not support 1080p)
+- model is normally omitted so the server uses the allow-listed Seedance endpoint ep-20260429142513-zg667
 
 Prompt reference rule: describe uploaded materials as Image 1, Video 1, Audio 1. Do not put raw asset ids in the prompt text.
 
 Text to video:
 {
-  "model": "dreamina-seedance-2-0-260128",
-  "content": [{"type": "text", "text": "Describe the video. Dialogue can be quoted in the prompt."}],
+  "provider": "seedance",
+  "prompt": "Describe the video. Dialogue can be quoted in the prompt.",
+  "seedanceMode": "text_to_video",
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5,
-  "generate_audio": true
+  "generateAudio": true
 }
 
 First-frame image to video:
 {
-  "model": "dreamina-seedance-2-0-260128",
-  "content": [
-    {"type": "text", "text": "Animate Image 1 into a cinematic shot."},
-    {"type": "image_url", "image_url": {"url": "https://example.com/first-frame.png"}, "role": "first_frame"}
-  ],
+  "provider": "seedance",
+  "prompt": "Animate Image 1 into a cinematic shot.",
+  "seedanceMode": "first_frame",
+  "imageUrl": "https://example.com/first-frame.png",
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5
@@ -2396,12 +2383,11 @@ First-frame image to video:
 
 First + last frame:
 {
-  "model": "dreamina-seedance-2-0-260128",
-  "content": [
-    {"type": "text", "text": "Move smoothly from the first frame to the last frame."},
-    {"type": "image_url", "image_url": {"url": "https://example.com/first-frame.png"}, "role": "first_frame"},
-    {"type": "image_url", "image_url": {"url": "https://example.com/last-frame.png"}, "role": "last_frame"}
-  ],
+  "provider": "seedance",
+  "prompt": "Move smoothly from the first frame to the last frame.",
+  "seedanceMode": "first_last_frame",
+  "imageUrl": "https://example.com/first-frame.png",
+  "endImageUrl": "https://example.com/last-frame.png",
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5
@@ -2409,15 +2395,16 @@ First + last frame:
 
 Reference images:
 {
-  "model": "dreamina-seedance-2-0-260128",
-  "content": [
-    {"type": "text", "text": "Use Image 1 as the character reference and generate a cinematic shot."},
-    {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"}
+  "provider": "seedance",
+  "prompt": "Use Image 1 as the character reference and generate a cinematic shot.",
+  "seedanceMode": "reference_images",
+  "referenceImages": [
+    {"url": "https://example.com/image1.png", "fileName": "image1.png"}
   ],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5,
-  "generate_audio": true,
+  "generateAudio": true,
   "web_search": false,
   "watermark": false,
   "seed": 123456
@@ -2425,17 +2412,19 @@ Reference images:
 
 Edit or extend with video/audio references:
 {
-  "model": "dreamina-seedance-2-0-260128",
-  "content": [
-    {"type": "text", "text": "Use Video 1 as the action reference, Image 1 as the character reference, and Audio 1 as the music reference."},
-    {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"},
-    {"type": "video_url", "video_url": {"url": "https://example.com/video2.mp4", "durationSeconds": 6}, "role": "reference_video"},
-    {"type": "audio_url", "audio_url": {"url": "https://example.com/music.mp3"}, "role": "reference_audio"}
+  "provider": "seedance",
+  "prompt": "Use Video 1 as the action reference, Image 1 as the character reference, and Audio 1 as the music reference.",
+  "seedanceMode": "reference_video",
+  "referenceImages": [
+    {"url": "https://example.com/image1.png", "fileName": "image1.png"}
   ],
+  "referenceVideoUrls": ["https://example.com/video2.mp4"],
+  "referenceVideoDurationSeconds": 6,
+  "referenceAudioUrls": ["https://example.com/music.mp3"],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 8,
-  "generate_audio": true
+  "generateAudio": true
 }`;
 
 const WAN27_VIDEO_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
@@ -2496,35 +2485,6 @@ Wan2.7 image edit accepts 0-9 source images. The order of imageAssetIds maps to 
 const PARAM_DOC_MARKDOWN_URL = apiUrl("/docs/models.md");
 
 const ACCESS_DOCS = {
-  platform: {
-    title: "Template Generation",
-    summary: "Use this endpoint for gallery templates. Send the template id, prompt, and the image data when the template is image-to-video.",
-    request: [
-      ["Authorization", "Bearer <user-token>"],
-      ["Content-Type", "application/json"],
-      ["templateId", "Template id from /api/models or the docs page."],
-      ["prompt", "Optional override prompt. If omitted, the saved template prompt is used."],
-      ["dataUrl", "Required for image-to-video templates. Base64 image data URL."],
-      ["userAssetId", "Optional existing uploaded asset id instead of dataUrl."],
-      ["params", "Optional advanced override object for power users."],
-    ],
-    response: [
-      ["ok", "true when the request is accepted."],
-      ["taskId", "Local generation task id."],
-      ["task.status", "Usually submitting when the request is queued."],
-      ["record", "Public generation record, including billing and prompt."],
-      ["user", "Updated user snapshot, including current credits."],
-    ],
-    example: `POST /api/platform/generate
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "templateId": "template-id",
-  "prompt": "...",
-  "dataUrl": "data:image/png;base64,..."
-}`,
-  },
   assets: {
     title: "Asset Upload",
     summary: "Upload a reusable image, video, or audio file to the current user's asset library. Seedance-specific character preparation is documented inside Seedance Params.",
@@ -2557,65 +2517,75 @@ Content-Type: application/json
 }`,
   },
   advanced: {
-    title: "Seedance Generation",
-    summary: "New integrations should use the Volcengine-compatible Seedance task endpoint. vip123 keeps authentication, balance pre-deduction, task history, and refund handling internally.",
+    title: "Advanced Generation",
+    summary: "New integrations should use /api/advanced/generate. vip123 keeps token authentication, allow-listed upstream routing, balance pre-deduction, task history, and refund handling internally.",
     request: [
       ["Authorization", "Bearer <user-token>"],
       ["Content-Type", "application/json"],
-      ["POST /api/v3/contents/generations/tasks", "Create a Seedance task with a Volcengine-style body."],
-      ["GET /api/v3/contents/generations/tasks/<taskId>", "Query a Seedance task with a Volcengine-style path."],
-      ["model", "Seedance model id. Standard: dreamina-seedance-2-0-260128. Fast: dreamina-seedance-2-0-fast-260128. Old-site production endpoint ids ep-20260429142513-zg667 and ep-20260429142538-fkm9d are also accepted."],
-      ["content", "Array of text/image_url/video_url/audio_url items. Use role values like first_frame, last_frame, reference_image, reference_video, reference_audio."],
-      ["content[].image_url.url", "Public URL, base64 data URL, or asset:// URI. Public/base64 images are prepared into Ark assets before submit."],
-      ["content[].video_url.url", "Public video URL or asset:// URI. Include durationSeconds when known so pre-deduction can include input-video cost."],
-      ["content[].audio_url.url", "Public audio URL or asset:// URI."],
+      ["POST /api/advanced/generate", "Create an Advanced task. This is the only documented external video generation route."],
+      ["GET /api/generation-records/<taskId>", "Query progress and final result for Advanced tasks."],
+      ["provider", "Use seedance for Vipeak 2 video or wan27 for Vipeak 1 video. For compatibility, known Seedance model aliases also imply seedance, but explicit provider is recommended."],
+      ["prompt", "Video prompt. Refer to materials as Image 1, Video 1, Audio 1 instead of raw asset ids."],
+      ["seedanceMode", "For provider=seedance: text_to_video, first_frame, first_last_frame, reference_images, or reference_video."],
+      ["imageUrl / firstFrameUrl / firstFrameDataUrl", "First-frame input for seedance first_frame/first_last_frame modes."],
+      ["endImageUrl / lastFrameUrl / endImageDataUrl", "Last-frame input for seedance first_last_frame mode."],
+      ["referenceImages", "Array for seedance reference_images/reference_video modes. Each item may use assetId, url/imageUrl + fileName, or dataUrl + fileName."],
+      ["referenceVideoUrls / referenceVideoAssetIds", "Video references for seedance reference_video/edit/extend. Include referenceVideoDurationSeconds when known for billing."],
+      ["referenceAudioUrls / referenceAudioAssetIds", "Optional audio references for multimodal seedance requests."],
       ["ratio", "9:16, 16:9, or 1:1."],
-      ["resolution", "480p, 720p, or 1080p. Fast model does not support 1080p."],
+      ["resolution", "480p, 720p, or 1080p. Fast tier does not support 1080p."],
       ["duration", "Integer seconds from 4 to 15. Invalid values are rejected before billing."],
-      ["generate_audio", "Forwarded to upstream."],
+      ["seedanceTier", "Optional for provider=seedance. standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d and does not support 1080p."],
+      ["generateAudio / generate_audio", "Forwarded to upstream when supported."],
       ["web_search / webSearch", "Forwarded to upstream when supplied."],
       ["watermark", "Forwarded to upstream when supplied."],
       ["seed", "Forwarded to upstream when supplied; upstream decides whether it takes effect."],
     ],
     response: [
-      ["id / task_id", "Upstream Seedance task id when upstream returns one."],
-      ["status", "Upstream task status."],
-      ["content / output", "Upstream output payload, including video URL when ready."],
-      ["usage", "Upstream token usage when the provider returns it."],
-      ["error", "Upstream-style error object when the task fails."],
+      ["ok", "true when the task is accepted."],
+      ["taskId", "Local generation task id. Poll this id with /api/generation-records/<taskId>."],
+      ["task.status", "Initial task status."],
+      ["record", "Public generation record, including progress, result URL, billing, and prompt."],
+      ["pricing / cost", "Applied pricing and deducted credits."],
+      ["user", "Updated user snapshot, including current credits."],
     ],
     example: LIVE_HTTP_ACCESS_COPY,
   },
   seedanceParams: {
-    title: "Seedance Video Parameters",
-    summary: "Use /api/v3/contents/generations/tasks. The body follows the Volcengine/Ark Seedance task shape; vip123 prepares public/base64 images into Ark assets and handles billing.",
+    title: "Vipeak 2 Video Parameters",
+    summary: "Use /api/advanced/generate with provider=seedance. Standard routes to ep-20260429142513-zg667, fast routes to ep-20260429142538-fkm9d, and billing/history/refunds stay in this service.",
     request: [
-      { name: "/api/seedance/characters/upload", type: "endpoint", required: "No", description: "Optional helper endpoint. Send url/imageUrl, dataUrl, or assetId; response.reference.assetUri can be used as content[].image_url.url.", default: "-" },
-      { name: "model", type: "string", required: "No", description: "Seedance model id. Allowed values: dreamina-seedance-2-0-260128 (Standard), dreamina-seedance-2-0-fast-260128 (Fast), ep-20260429142513-zg667 (old-site Standard endpoint), ep-20260429142538-fkm9d (old-site Fast endpoint).", default: "dreamina-seedance-2-0-260128" },
-      { name: "content", type: "array", required: "Yes", description: "Volcengine-style multimodal content array. Include one text item and optional image_url/video_url/audio_url items.", default: "-" },
-      { name: "content[].type", type: "string", required: "Yes", description: "text, image_url, video_url, or audio_url.", default: "-" },
-      { name: "content[].text", type: "string", required: "For text", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
-      { name: "content[].image_url.url", type: "string", required: "For image", description: "Public URL, base64 data URL, or asset:// URI. Public/base64 images are prepared into Ark assets before submit.", default: "-" },
-      { name: "content[].video_url.url", type: "string", required: "For video", description: "Public video URL or asset:// URI.", default: "-" },
-      { name: "content[].video_url.durationSeconds", type: "number", required: "No", description: "Input video duration used for pre-deduction. If omitted, the server probes the URL when possible, then falls back conservatively.", default: "-" },
-      { name: "content[].audio_url.url", type: "string", required: "For audio", description: "Public audio URL or asset:// URI.", default: "-" },
-      { name: "content[].role", type: "string", required: "No", description: "first_frame, last_frame, reference_image, reference_video, or reference_audio.", default: "-" },
-      { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. UI-safe values: 9:16, 16:9, 1:1. Other official upstream ratio strings can still be forwarded by direct callers.", default: "9:16" },
-      { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported values are 480p, 720p, and 1080p. Fast model 1080p is rejected before billing.", default: "720p" },
-      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs are limited to integer 4-15 seconds here.", default: "5" },
-      { name: "generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
+      { name: "/api/user-assets", type: "endpoint", required: "No", description: "Optional reusable upload endpoint. Send url/imageUrl/videoUrl/audioUrl or dataUrl; reuse the returned asset.id.", default: "-" },
+      { name: "provider", type: "string", required: "Yes", description: "Use seedance for Vipeak 2 video generation.", default: "seedance" },
+      { name: "prompt", type: "string", required: "Yes", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
+      { name: "seedanceMode", type: "string", required: "No", description: "text_to_video, first_frame, first_last_frame, reference_images, or reference_video.", default: "text_to_video" },
+      { name: "seedanceTier", type: "string", required: "No", description: "standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d. Fast tier does not support 1080p.", default: "standard" },
+      { name: "model", type: "string", required: "No", description: "Usually omit. Known Seedance aliases are accepted for compatibility and mapped to ep-20260429142513-zg667 or ep-20260429142538-fkm9d. Only send another model override if support gives you one.", default: "-" },
+      { name: "imageUrl / firstFrameUrl / firstFrameDataUrl", type: "string", required: "For first frame modes", description: "Public URL or base64 data URL for the first frame.", default: "-" },
+      { name: "firstFrameAssetId / imageAssetId", type: "string", required: "No", description: "Existing uploaded image asset id for the first frame.", default: "-" },
+      { name: "endImageUrl / lastFrameUrl / endImageDataUrl", type: "string", required: "For first_last_frame", description: "Public URL or base64 data URL for the last frame.", default: "-" },
+      { name: "endImageAssetId / lastFrameAssetId", type: "string", required: "No", description: "Existing uploaded image asset id for the last frame.", default: "-" },
+      { name: "referenceImages", type: "array", required: "For reference_images/reference_video", description: "Image references. Each item may use assetId, url/imageUrl + fileName, or dataUrl + fileName.", default: "[]" },
+      { name: "referenceVideoUrls", type: "array", required: "For reference_video without asset ids", description: "Public video URLs. Include referenceVideoDurationSeconds when known.", default: "[]" },
+      { name: "referenceVideoAssetIds", type: "array", required: "No", description: "Existing uploaded video asset ids.", default: "[]" },
+      { name: "referenceVideoDurationSeconds / inputVideoSeconds", type: "number", required: "No", description: "Total input video duration used for pre-deduction. If omitted, the server probes when possible, then falls back conservatively.", default: "0" },
+      { name: "referenceAudioUrls / referenceAudioAssetIds", type: "array", required: "No", description: "Optional audio references. Text+audio without image/video is not supported upstream.", default: "[]" },
+      { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. UI-safe values: 9:16, 16:9, 1:1.", default: "9:16" },
+      { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported values are 480p, 720p, and 1080p. Fast tier 1080p is rejected before billing.", default: "720p" },
+      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Vipeak 2 jobs are limited to integer 4-15 seconds here.", default: "5" },
+      { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
       { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
       { name: "web_search / webSearch", type: "boolean", required: "No", description: "Pass-through web search enhancement flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
       { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
       { name: "seed", type: "integer", required: "No", description: "Pass-through random seed. The API forwards it; upstream decides whether it takes effect.", default: "-" },
       { name: "draft / service_tier / fps / camera_fixed", type: "mixed", required: "No", description: "Provider-specific pass-through fields. vip123 forwards or normalizes them; upstream decides whether each one takes effect.", default: "-" },
-      { name: "legacy /api/advanced/generate seedanceTier", type: "string", required: "No", description: "Only for the legacy advanced endpoint. Allowed values: standard, fast. Fast does not support 1080p.", default: "standard" },
     ],
     response: [
-      { name: "id / task_id", type: "string", required: "Yes", description: "Upstream Seedance task id when upstream returns one.", default: "-" },
-      { name: "status", type: "string", required: "Yes", description: "Upstream task status.", default: "-" },
-      { name: "content / output", type: "object", required: "No", description: "Upstream result payload with video URL when ready.", default: "-" },
-      { name: "usage", type: "object", required: "No", description: "Upstream token usage when the provider returns it.", default: "-" },
+      { name: "ok", type: "boolean", required: "Yes", description: "true when the request is accepted.", default: "-" },
+      { name: "taskId", type: "string", required: "Yes", description: "Local generation task id for /api/generation-records/<taskId>.", default: "-" },
+      { name: "record.status", type: "string", required: "Yes", description: "Current local task status.", default: "-" },
+      { name: "record.videoUrl / record.downloadUrl", type: "string", required: "No", description: "Result URL when ready. Returned provider URLs may expire after 24 hours.", default: "-" },
+      { name: "pricing / cost", type: "object", required: "No", description: "Applied pricing and deducted credits.", default: "-" },
     ],
     example: SEEDANCE_PARAM_ACCESS_COPY,
   },
@@ -2791,9 +2761,9 @@ ACCESS_PARAM_GUIDES = [
   {
     id: "seedance-params",
     docs: "seedanceParams",
-    title: "Seedance Params",
+    title: "Vipeak 2 Params",
     subtitle: "Video",
-    desc: "Parameter table for Seedance video generation through the Volcengine-compatible task endpoint.",
+    desc: "Parameter table for Vipeak 2 video generation through /api/advanced/generate.",
     copy: SEEDANCE_PARAM_ACCESS_COPY,
   },
   {
@@ -3046,7 +3016,7 @@ function cleanPublicCopy(value, fallback) {
 
 function t(key, vars = {}, fallback = "") {
   const value = I18N[state.lang]?.[key] ?? I18N.en[key] ?? fallback ?? key;
-  return String(value).replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? "");
+  return publicModelText(String(value).replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? ""));
 }
 
 function fileInputLabel(input) {
@@ -3156,7 +3126,11 @@ function guideText(guide, field) {
 }
 
 function accessDoc(guide = activeAccessGuide) {
-  return ACCESS_DOCS[guide.docs || guide.id] || ACCESS_DOCS.platform;
+  return ACCESS_DOCS[guide.docs || guide.id] || ACCESS_DOCS.advanced;
+}
+
+function accessText(value = "") {
+  return String(tenantScopedAccessText(value || ""));
 }
 
 function accessGuidesForMode(mode = activeAccessMode) {
@@ -3188,11 +3162,11 @@ function accessFieldTable(rows = []) {
             : row;
           return `
             <div class="access-param-row">
-              <strong>${escapeHtml(tenantScopedAccessText(item.name || ""))}</strong>
-              <span><code>${escapeHtml(item.type || "-")}</code></span>
-              <span>${escapeHtml(item.required || "No")}</span>
-              <span>${escapeHtml(item.description || "")}</span>
-              <span>${escapeHtml(item.default || "-")}</span>
+              <strong>${escapeHtml(accessText(item.name || ""))}</strong>
+              <span><code>${escapeHtml(accessText(item.type || "-"))}</code></span>
+              <span>${escapeHtml(accessText(item.required || "No"))}</span>
+              <span>${escapeHtml(accessText(item.description || ""))}</span>
+              <span>${escapeHtml(accessText(item.default || "-"))}</span>
             </div>
           `;
         }).join("")}
@@ -3203,8 +3177,8 @@ function accessFieldTable(rows = []) {
     <div class="access-doc-table">
       ${rows.map(([name, desc]) => `
         <div class="access-doc-row">
-          <strong>${escapeHtml(tenantScopedAccessText(name))}</strong>
-          <span>${escapeHtml(desc)}</span>
+          <strong>${escapeHtml(accessText(name))}</strong>
+          <span>${escapeHtml(accessText(desc))}</span>
         </div>
       `).join("")}
     </div>
@@ -3230,7 +3204,7 @@ function markdownTable(rows = []) {
 }
 
 function markdownCell(value = "") {
-  return String(tenantScopedAccessText(value || ""))
+  return accessText(value || "")
     .replace(/\|/g, "\\|")
     .replace(/\r?\n/g, " ")
     .trim();
@@ -3238,9 +3212,9 @@ function markdownCell(value = "") {
 
 function accessDocMarkdown(doc = accessDoc(activeAccessGuide)) {
   return [
-    `# ${doc.title}`,
+    `# ${accessText(doc.title)}`,
     "",
-    doc.summary || "",
+    accessText(doc.summary || ""),
     "",
     "## Request",
     "",
@@ -3253,7 +3227,7 @@ function accessDocMarkdown(doc = accessDoc(activeAccessGuide)) {
     "## Example",
     "",
     "```http",
-    tenantScopedAccessText(doc.example || "").trim(),
+    accessText(doc.example || "").trim(),
     "```",
     "",
   ].join("\n");
@@ -3495,7 +3469,10 @@ function currentTokenLabel(showFull = false) {
 function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
   const tokenLabel = token !== "<user-token>" ? (revealToken ? token : maskToken(token)) : "<user-token>";
-  return tenantScopedAccessText(copy || PUBLIC_COPY.accessCopy).replaceAll("<user-token>", tokenLabel);
+  const source = /api\/platform\/generate|api\/v3\/contents\/generations\/tasks|dreamina-seedance/i.test(String(copy || ""))
+    ? LIVE_HTTP_ACCESS_COPY
+    : (copy || PUBLIC_COPY.accessCopy);
+  return tenantScopedAccessText(source).replaceAll("<user-token>", tokenLabel);
 }
 
 function fullAccessCopy() {
@@ -3529,14 +3506,12 @@ function tokenAccessPackageMarkdown() {
     "",
     "## Supported Endpoints",
     "",
-    `- Seedance direct: ${apiUrl("/api/v3/contents/generations/tasks")}`,
-    `- Seedance task query: ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}`,
-    `- Legacy advanced generate: ${apiUrl("/api/advanced/generate")}`,
-    `- Wan2.7 image edit: ${apiUrl("/api/wan27/image-edit")}`,
+    `- Advanced generate: ${apiUrl("/api/advanced/generate")}`,
     `- Asset upload: ${apiUrl("/api/user-assets")}`,
+    `- Wan2.7 image edit: ${apiUrl("/api/wan27/image-edit")}`,
     `- Records list/detail: ${recordsUrl} and ${apiUrl("/api/generation-records/<taskId>")}`,
     "",
-    "Preferred path: use the Volcengine-compatible Seedance endpoint first. Keep `/api/advanced/generate` for old-site advanced workflows, Wan2.7, or legacy clients that already depend on that body shape.",
+    "Preferred path: use `/api/advanced/generate` for Create/Advanced integrations. It keeps provider routing, pricing, records, and refunds inside this service.",
     "",
     "## Quick Start",
     "",
@@ -4053,8 +4028,48 @@ function advancedCaseDuration(item = {}) {
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return DEFAULT_ADVANCED_PROVIDER;
-  if (["wan27imageedit", "wan2.7imageedit", "wanimageedit", "imageedit", "wan27image"].includes(normalized)) return "wan27-image-edit";
-  return normalized === "wan27" || normalized === "wan2.7" || normalized === "wan" ? "wan27" : "seedance";
+  if (["wan27imageedit", "wan2.7imageedit", "wanimageedit", "imageedit", "wan27image", "vipeak1image", "vipeak1imageedit"].includes(normalized)) return "wan27-image-edit";
+  if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized)) return "wan27";
+  if (["seedance", "vipeak2", "vp2"].includes(normalized)) return "seedance";
+  return normalized.includes("vipeak1") || normalized.includes("wan27") || normalized.includes("wan2.7") ? "wan27" : "seedance";
+}
+
+function advancedProviderLabel(provider = currentAdvancedProvider()) {
+  const normalized = normalizeAdvancedProvider(provider);
+  if (normalized === "wan27-image-edit") return "Vipeak 1 Image";
+  return normalized === "wan27" ? "Vipeak 1" : "Vipeak 2";
+}
+
+function publicModelText(value = "") {
+  return String(value ?? "")
+    .replace(/\/api\/seedance\/characters\/upload/gi, "/api/vipeak2/characters/upload")
+    .replace(/\/api\/wan27\/image-edit/gi, "/api/vipeak1/image-edit")
+    .replace(/dreamina-seedance-2-0-fast-260128/gi, "vipeak2-fast")
+    .replace(/dreamina-seedance-2-0-260128/gi, "vipeak2-standard")
+    .replace(/wan2\.7-image-pro/gi, "vipeak1-image")
+    .replace(/wan2\.7-i2v-2026-04-25/gi, "vipeak1-video")
+    .replace(/Wan2\.7 Image Edit/gi, "Vipeak 1 Image")
+    .replace(/Wan2\.7 Image Pro/gi, "Vipeak 1 Image")
+    .replace(/Wan2\.7/gi, "Vipeak 1")
+    .replace(/\bseedanceMode\b/g, "vipeak2Mode")
+    .replace(/\bseedanceTier\b/g, "vipeak2Tier")
+    .replace(/\bseedanceReferenceAssetUri\b/g, "vipeak2ReferenceAssetUri")
+    .replace(/\bseedanceCharacterAssetUri\b/g, "vipeak2CharacterAssetUri")
+    .replace(/\bseedanceReferenceAssetUris\b/g, "vipeak2ReferenceAssetUris")
+    .replace(/\bseedance\s+callers\b/gi, "Vipeak 2 callers")
+    .replace(/\bseedance\b/g, "vipeak2")
+    .replace(/\bwan27-image\b/g, "vipeak1-image")
+    .replace(/\bwan27\b/g, "vipeak1")
+    .replace(/\bSeedance\b/g, "Vipeak 2");
+}
+
+function publicModelKey(key = "") {
+  return String(key || "")
+    .replace(/seedance/g, "vipeak2")
+    .replace(/Seedance/g, "Vipeak2")
+    .replace(/wan27Image/g, "vipeak1Image")
+    .replace(/wan27/g, "vipeak1")
+    .replace(/Wan27/g, "Vipeak1");
 }
 
 function advancedCaseProvider(item = {}) {
@@ -5949,13 +5964,13 @@ function historyDetailPayload(record = {}) {
   return {
     taskId: record.taskId || "",
     status: statusLabel(record.status),
-    source: record.source || "",
+    source: publicModelText(record.source || ""),
     prompt: record.finalPrompt || record.prompt || "",
-    params: stripModelParams(record.params || null),
+    params: publicHistoryParams(stripModelParams(record.params || null)),
     ratio: record.ratio || record.params?.ratio || record.params?.aspect_ratio || "",
     resolution: record.resolution || record.params?.resolution || "",
     duration: record.duration || "",
-    mediaMode: record.mediaMode || record.params?.mediaMode || "",
+    mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
     billing: record.billing || null,
     error: record.error || "",
     poster: generationPosterUrl(record) || "",
@@ -5965,10 +5980,19 @@ function historyDetailPayload(record = {}) {
   };
 }
 
+function publicHistoryParams(value) {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map(publicHistoryParams);
+  if (typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [publicModelKey(key), publicHistoryParams(item)]));
+  }
+  return typeof value === "string" ? publicModelText(value) : value;
+}
+
 function openHistoryDetail(index) {
   const record = state.historyRecords?.[Number(index || 0)];
   if (!record || !els.historyDetailDialog || !els.historyDetailBody) return;
-  const title = record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle");
+  const title = publicModelText(record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle"));
   const videoUrl = generationVideoUrl(record);
   const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
   const images = recordImageAssets(record);
@@ -6554,7 +6578,7 @@ function renderAccessGuides() {
   `).join("");
   els.accessGuideTitle.textContent = guideText(activeAccessGuide, "title");
   els.accessGuideDesc.textContent = guideText(activeAccessGuide, "desc");
-  els.accessCopy.textContent = hydrateAccessCopy(activeAccessGuide.copy || PUBLIC_COPY.accessCopy, { revealToken: state.showAccessToken });
+  els.accessCopy.textContent = accessText(hydrateAccessCopy(activeAccessGuide.copy || PUBLIC_COPY.accessCopy, { revealToken: state.showAccessToken }));
   const doc = accessDoc(activeAccessGuide);
   if (els.accessDocs) {
     els.accessDocs.innerHTML = `
@@ -6583,17 +6607,16 @@ function renderAccessGuides() {
           </section>
         </div>
         ${accessQuickList([
-          doc === ACCESS_DOCS.platform ? "One token, one template id, and one image for image-to-video templates." : "",
           doc === ACCESS_DOCS.assets ? "Upload once, then pass asset.id into the matching image/video/audio field." : "",
-          doc === ACCESS_DOCS.advanced ? "Seedance now uses the Volcengine-compatible content[] task body. Public/base64 images are prepared into Ark assets automatically." : "",
-          doc === ACCESS_DOCS.seedanceParams ? "Start directly with /api/v3/contents/generations/tasks. Optionally call /api/seedance/characters/upload first and put returned reference.assetUri into content[].image_url.url." : "",
+          doc === ACCESS_DOCS.advanced ? "Use /api/advanced/generate for external Create/Advanced jobs; poll /api/generation-records/<taskId>." : "",
+          doc === ACCESS_DOCS.seedanceParams ? "For Vipeak 2, call /api/advanced/generate with provider=seedance and normal user-facing media fields." : "",
           doc === ACCESS_DOCS.wan27VideoParams ? "Fields inside params.parameters merge into DashScope parameters; fields inside params.input merge into DashScope input." : "",
           doc === ACCESS_DOCS.wan27ImageParams ? "Image results are saved to history first; call Add asset from history to place a result in assets. Admin records include the upstream payload." : "",
           doc === ACCESS_DOCS.records ? "Use refresh=1 on list views when you want pending tasks to refresh." : "",
         ].filter(Boolean))}
         <details class="access-doc-example" open>
           <summary>Example</summary>
-          <pre>${escapeHtml(tenantScopedAccessText(doc.example))}</pre>
+          <pre>${escapeHtml(accessText(doc.example))}</pre>
         </details>
       </article>
     `;
@@ -6905,7 +6928,7 @@ function renderAdvancedResultPanel() {
       <article class="advanced-result-card is-${escapeHtml(statusClass(record.status))}">
         ${media}
         <div class="advanced-result-meta">
-          <strong>${escapeHtml(record.templateTitle || record.sceneName || record.model || "Generation")}</strong>
+          <strong>${escapeHtml(publicModelText(record.templateTitle || record.sceneName || record.model || "Generation"))}</strong>
           <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
           ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
         </div>
@@ -6917,7 +6940,7 @@ function renderAdvancedResultPanel() {
       const record = state.advancedResultRecords[Number(button.dataset.advancedResultVideo || 0)];
       const videoUrl = isSucceededGenerationStatus(record?.status) ? generationVideoUrl(record) : "";
       if (!videoUrl) return;
-      playPreview({ title: record.templateTitle || record.taskId || t("common.preview"), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
+      playPreview({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
@@ -6925,7 +6948,7 @@ function renderAdvancedResultPanel() {
       const record = state.advancedResultRecords[Number(button.dataset.advancedResultImage || 0)];
       const imageUrl = isSucceededGenerationStatus(record?.status) ? generationImageResultUrl(record) : "";
       if (!imageUrl) return;
-      previewImage({ title: record.templateTitle || record.taskId || t("common.preview"), imageUrl });
+      previewImage({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), imageUrl });
     });
   });
   refreshIcons();
@@ -7243,7 +7266,7 @@ function updateAdvancedModelControls() {
       els.advancedNote.textContent = `${t("advanced.referenceSeedance", { mode: t("advanced.originalReference") })} ${t("advanced.seedanceReferenceCount", { count })}`;
     } else if (isImageEdit) {
       const count = selectedAdvancedReferenceImages("wan27-image-edit").length;
-      els.advancedNote.textContent = count ? `Wan2.7 Image Edit ready. ${count} image(s) selected.` : "Wan2.7 Image Edit ready.";
+      els.advancedNote.textContent = count ? `${advancedProviderLabel("wan27-image-edit")} ready. ${count} image(s) selected.` : `${advancedProviderLabel("wan27-image-edit")} ready.`;
     } else {
       els.advancedNote.textContent = t("advanced.referenceWan");
     }
@@ -7445,7 +7468,7 @@ async function submitAdvancedGenerate() {
     mergeAdvancedResultRecord({
       taskId: pendingTaskId,
       status: "submitting",
-      model: "Wan2.7 Image Edit",
+      model: advancedProviderLabel(provider),
       provider,
       source: "asset-image-modify",
       kind: "asset-image",
@@ -7532,7 +7555,7 @@ async function submitAdvancedGenerate() {
   }
   if (provider === "seedance" && seedanceTier === "fast" && resolution === "1080p") {
     els.advancedSubmitBtn.disabled = false;
-    if (els.advancedNote) els.advancedNote.textContent = "Seedance Fast does not support 1080p.";
+    if (els.advancedNote) els.advancedNote.textContent = `${advancedProviderLabel(provider)} Fast does not support 1080p.`;
     return;
   }
   if (provider === "wan27") {
@@ -7649,26 +7672,20 @@ async function submitAdvancedGenerate() {
 function openTemplate(templateId) {
   const template = state.templates.find((item) => item.id === templateId);
   if (!template) return;
-  if (template.action === "advanced" || template.targetTab === "advanced") {
-    setTab("advanced");
-    if (template.advancedCaseId) {
-      const matched = state.advancedCases.find((item) => item.id === template.advancedCaseId);
-      if (matched) fillAdvancedCase(matched);
+  setTab("advanced");
+  if (template.advancedCaseId) {
+    const matched = state.advancedCases.find((item) => item.id === template.advancedCaseId);
+    if (matched) {
+      fillAdvancedCase(matched);
+      return;
     }
-    return;
   }
-  state.activeTemplate = template;
-  state.uploadDataUrl = "";
-  els.modalType.textContent = template.type === "image-to-video" ? t("modal.imageToVideo") : t("modal.textToVideo");
-  els.modalTitle.textContent = template.title;
-  els.templatePrompt.value = template.prompt || "";
-  els.jobNote.textContent = t("modal.promptNote");
-  els.uploadBox.hidden = template.type !== "image-to-video";
-  els.uploadBox.classList.remove("has-image");
-  els.uploadPreview.removeAttribute("src");
-  els.templateImage.value = "";
-  updateSubmitButtonCost();
-  els.templateDialog.showModal();
+  state.activeAdvancedCaseId = "";
+  if (els.advancedProvider) els.advancedProvider.value = "seedance";
+  if (els.advancedPrompt) els.advancedPrompt.value = template.prompt || template.description || "";
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = template.type === "text-to-video" ? "text_to_video" : "reference_images";
+  updateAdvancedModelControls();
+  setAdvancedSideTab("assets");
   refreshIcons();
 }
 
@@ -8307,7 +8324,7 @@ function updateAdvancedReferenceSummary() {
   const provider = currentAdvancedProvider();
   const count = selectedAdvancedReferenceImages().length;
   if (provider === "wan27-image-edit") {
-    els.advancedReferenceSummary.textContent = count ? `${count} source image(s) selected. Wan2.7 accepts 0-9 images in order.` : "Wan2.7 accepts 0-9 source images. Leave empty for text-to-image.";
+    els.advancedReferenceSummary.textContent = count ? `${count} source image(s) selected. ${advancedProviderLabel(provider)} accepts 0-9 images in order.` : `${advancedProviderLabel(provider)} accepts 0-9 source images. Leave empty for text-to-image.`;
     return;
   }
   if (provider === "seedance") {
@@ -8558,31 +8575,20 @@ async function deleteUserAsset(assetId = "", options = {}) {
 
 async function submitTemplate() {
   if (!state.activeTemplate) return;
-  if (!state.user) {
-    openLogin();
-    els.jobNote.textContent = t("modal.loginBeforeGenerate");
-    return;
+  const template = state.activeTemplate;
+  if (els.templateDialog?.open) els.templateDialog.close();
+  setTab("advanced");
+  state.activeTemplate = null;
+  state.activeAdvancedCaseId = "";
+  if (els.advancedProvider) els.advancedProvider.value = "seedance";
+  if (els.advancedPrompt) els.advancedPrompt.value = els.templatePrompt?.value || template.prompt || template.description || "";
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = template.type === "text-to-video" ? "text_to_video" : "reference_images";
+  if (state.uploadDataUrl) {
+    state.advancedReferenceImages = [{ dataUrl: state.uploadDataUrl, fileName: "reference.png" }];
+    state.advancedUploadDataUrl = state.uploadDataUrl;
   }
-  els.submitTemplateBtn.disabled = true;
-  els.jobNote.textContent = t("modal.submitting");
-  try {
-    const payload = await requestJson("/api/platform/generate", {
-      method: "POST",
-      body: {
-        templateId: state.activeTemplate.id,
-        prompt: els.templatePrompt.value,
-        dataUrl: state.uploadDataUrl,
-      },
-    });
-    if (payload.user) setUser(payload.user);
-    els.jobNote.innerHTML = escapeHtml(t("modal.submitted", { taskId: "__TASK_ID__" })).replace("__TASK_ID__", `<code>${escapeHtml(payload.taskId)}</code>`);
-    loadHistory();
-  } catch (error) {
-    els.jobNote.textContent = error.message;
-  } finally {
-    els.submitTemplateBtn.disabled = false;
-    updateSubmitButtonCost();
-  }
+  updateAdvancedModelControls();
+  setAdvancedSideTab("assets");
 }
 
 function renderHistory(records = []) {
