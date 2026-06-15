@@ -3,13 +3,15 @@
 const TOKEN_KEY = "raisingGameAdminToken";
 const LEGACY_TOKEN_KEY = "raisingGameToken";
 const ADVANCED_SEEDANCE_FPS = 24;
-const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
-const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
-const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 100;
-const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 200;
-const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
-const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
-const ADVANCED_CREDITS_PER_CNY = 100;
+const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 30;
+const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 60;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 20;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 40;
+const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 20;
+const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 50;
+const ADVANCED_CREDITS_PER_USD = 100;
+const INTERNAL_CNY_PER_USD = 5;
+const ADVANCED_CREDITS_PER_CNY = ADVANCED_CREDITS_PER_USD / INTERNAL_CNY_PER_USD;
 const ADVANCED_GENERATION_MARKUP = 1.5;
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
@@ -2547,44 +2549,7 @@ function isImagePricingRow(row = {}) {
 }
 
 function rowPriceUnit(row = {}, credits = false) {
-  return isImagePricingRow(row) ? (credits ? "credits/image" : "元/张") : (credits ? "credits/s" : "元/秒");
-}
-
-function pricingRowsToConfig(rows = [], creditsPerCny = ADVANCED_CREDITS_PER_CNY, currentPricing = {}) {
-  const source = currentPricing && typeof currentPricing === "object" ? currentPricing : {};
-  const seedance = source.seedanceCreditsPerSecondByResolution || {};
-  const seedanceVideoInput = source.seedanceVideoInputCreditsPerSecondByResolution || {};
-  const wan27 = source.wan27CreditsPerSecondByResolution || {};
-  const pricing = {
-    unit: "credits",
-    creditsPerCny: Number(creditsPerCny) || ADVANCED_CREDITS_PER_CNY,
-    seedanceCreditsPerSecondByResolution: { "480p": Number(seedance["480p"] ?? Math.round(ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND * 0.5)), "720p": Number(seedance["720p"] ?? ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND), "1080p": Number(seedance["1080p"] ?? ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND) },
-    seedanceVideoInputCreditsPerSecondByResolution: { "480p": Number(seedanceVideoInput["480p"] ?? Math.round(ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND * 0.5)), "720p": Number(seedanceVideoInput["720p"] ?? ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND), "1080p": Number(seedanceVideoInput["1080p"] ?? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND) },
-    wan27CreditsPerSecondByResolution: { "720p": Number(wan27["720p"] ?? ADVANCED_WAN27_720P_CREDITS_PER_SECOND), "1080p": Number(wan27["1080p"] ?? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND) },
-    wan27ImagePro: { ...(source.wan27ImagePro || {}) },
-  };
-  rows.forEach((row) => {
-    const provider = String(row.provider || "").toLowerCase();
-    const rateKind = String(row.rateKind || row.unit || "").toLowerCase() === "video_input" || String(row.key || "").includes("video-input")
-      ? "video_input"
-      : "output";
-    const yuan = Number(row.saleYuanPerSecond);
-    if (!Number.isFinite(yuan) || yuan < 0) return;
-    if (provider === "wan27-image") {
-      pricing.wan27ImagePro = {
-        ...(pricing.wan27ImagePro || {}),
-        saleCnyPerImage: Math.round(yuan * 1000000) / 1000000,
-        userConfigured: true,
-      };
-      return;
-    }
-    const resolution = row.resolution === "1080p" ? "1080p" : row.resolution === "480p" ? "480p" : "720p";
-    const credits = Math.round(yuan * pricing.creditsPerCny * 10000) / 10000;
-    if (provider === "wan27") pricing.wan27CreditsPerSecondByResolution[resolution] = credits;
-    else if (rateKind === "video_input") pricing.seedanceVideoInputCreditsPerSecondByResolution[resolution] = credits;
-    else pricing.seedanceCreditsPerSecondByResolution[resolution] = credits;
-  });
-  return pricing;
+  return isImagePricingRow(row) ? (credits ? "credits/image" : "USD/image") : (credits ? "credits/s" : "USD/s");
 }
 
 async function renderPricing() {
@@ -2608,7 +2573,7 @@ async function renderPricing() {
         <div class="adm-card-head">
           <div>
             <h3>Advanced 价格</h3>
-            <p class="adm-muted">计费单位：${escapeHtml(String(pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY))} credits = 1 CNY，采购来源：${escapeHtml(pricing.upstreamMode || "direct")}</p>
+            <p class="adm-muted">Billing unit: 1 USD = ${escapeHtml(String(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))} credits. Upstream source: ${escapeHtml(pricing.upstreamMode || "direct")}</p>
           </div>
         </div>
         <div class="adm-table-wrap">
@@ -2628,11 +2593,11 @@ async function renderPricing() {
                   <td><strong>${escapeHtml(row.providerLabel || row.provider)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.provider)}</small></td>
                   <td>${escapeHtml(row.resolution)}${row.rateKind === "video_input" ? `<br/><small class="adm-muted">视频输入秒数</small>` : ""}</td>
                   <td>
-                    <strong>${row.purchaseYuanPerSecondRange ? fmtPriceRange(row.purchaseYuanPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseYuanPerSecond === null || row.purchaseYuanPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseYuanPerSecond)} ${rowPriceUnit(row)}`}</strong>
+                    <strong>${row.purchaseUsdPerSecondRange ? fmtPriceRange(row.purchaseUsdPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseUsdPerSecond === null || row.purchaseUsdPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseUsdPerSecond)} ${rowPriceUnit(row)}`}</strong>
                     <br/><small class="adm-muted">${row.purchaseCreditsPerSecondRange ? fmtPriceRange(row.purchaseCreditsPerSecondRange, ` ${rowPriceUnit(row, true)}`) : row.purchaseCreditsPerSecond === null || row.purchaseCreditsPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseCreditsPerSecond)} ${rowPriceUnit(row, true)}`} · ${escapeHtml(row.purchaseSource || "")}</small>
                     ${row.purchaseMessage ? `<br/><small class="adm-muted">${escapeHtml(row.purchaseMessage)}</small>` : ""}
                   </td>
-                  <td><input class="adm-price-input" data-f="saleYuanPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleYuanPerSecond))}" /></td>
+                  <td><input class="adm-price-input" data-f="saleUsdPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleUsdPerSecond))}" /></td>
                   <td class="adm-mono" data-price-credits>${escapeHtml(fmtPrice(row.saleCreditsPerSecond))}</td>
                 </tr>
               `).join("")}
@@ -2646,16 +2611,16 @@ async function renderPricing() {
 
   const updateCredits = () => {
     els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
-      const input = tr.querySelector('[data-f="saleYuanPerSecond"]');
+      const input = tr.querySelector('[data-f="saleUsdPerSecond"]');
       const target = tr.querySelector("[data-price-credits]");
-      const yuan = Number(input?.value || 0);
-      target.textContent = Number.isFinite(yuan) && yuan >= 0
-        ? fmtPrice(yuan * Number(pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY))
+      const usd = Number(input?.value || 0);
+      target.textContent = Number.isFinite(usd) && usd >= 0
+        ? fmtPrice(usd * Number(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))
         : "-";
     });
   };
 
-  els.adminContent.querySelectorAll('[data-f="saleYuanPerSecond"]').forEach((input) => {
+  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"]').forEach((input) => {
     input.addEventListener("input", updateCredits);
   });
   byId("reloadPricingBtn")?.addEventListener("click", () => renderPricing());
@@ -2667,7 +2632,7 @@ async function renderPricing() {
         rateKind: tr.dataset.rateKind,
         key: tr.dataset.key,
         unit: tr.dataset.unit,
-        saleYuanPerSecond: Number(tr.querySelector('[data-f="saleYuanPerSecond"]')?.value || 0),
+        saleUsdPerSecond: Number(tr.querySelector('[data-f="saleUsdPerSecond"]')?.value || 0),
       }));
       const payload = await api("/api/admin/pricing", {
         method: "PUT",

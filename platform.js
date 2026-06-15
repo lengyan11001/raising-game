@@ -7,22 +7,22 @@ const REFERRAL_CODE_KEY = "raisingGameReferralCode";
 const ALL_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending", "referral"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
-const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 75;
-const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
-const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
-const ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND = 50;
-const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 100;
-const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 200;
+const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 15;
+const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 30;
+const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 60;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND = 10;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 20;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 40;
 const ADVANCED_SEEDANCE_FAST_DISCOUNT = 0.8;
-const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
-const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
+const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 20;
+const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 50;
 const ADVANCED_GENERATION_MARKUP = 1.5;
 const DEFAULT_ADVANCED_PROVIDER = "wan27";
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 9;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
-const DEFAULT_ASSET_IMAGE_MODIFY_CREDITS = 84.3098;
+const DEFAULT_ASSET_IMAGE_MODIFY_CREDITS = 16.862;
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
@@ -625,7 +625,7 @@ const I18N = {
     "topup.buyCoins": "Buy credits",
     "topup.paypalTab": "PayPal",
     "topup.usdtTab": "USDT",
-    "topup.paypalRate": "PayPal checkout. Credits use RMB cents.",
+    "topup.paypalRate": "$1 = 100 credits.",
     "topup.amount": "Amount",
     "topup.compact": "Top Up",
     "topup.dialogTitle": "Top up credits",
@@ -634,7 +634,7 @@ const I18N = {
     "topup.walletNetwork": "USDT network",
     "topup.walletNetworkHint": "Choose the network you will transfer from.",
     "topup.login": "Login to create a payment order.",
-    "topup.rate": "{amount} {asset} via {network}. Credits use RMB cents.",
+    "topup.rate": "{amount} {asset} via {network}. $1 = 100 credits.",
     "topup.payExactly": "Pay exactly",
   "topup.copyAddress": "Copy address",
   "topup.showQr": "Show QR",
@@ -1058,7 +1058,7 @@ const I18N = {
     "topup.walletNetwork": "Mạng USDT",
     "topup.walletNetworkHint": "Chọn mạng bạn sẽ chuyển tiền.",
     "topup.login": "Đăng nhập để tạo đơn thanh toán.",
-    "topup.rate": "{amount} {asset} qua {network}. Credits tính theo cent RMB.",
+    "topup.rate": "{amount} {asset} qua {network}. $1 = 100 credits.",
     "topup.payExactly": "Thanh toán chính xác",
   "topup.copyAddress": "Sao chép địa chỉ",
   "topup.showQr": "Hiện QR",
@@ -1336,7 +1336,7 @@ const I18N = {
     "topup.walletNetwork": "USDT ネットワーク",
     "topup.walletNetworkHint": "送金に使うネットワークを選択してください。",
     "topup.login": "ログインして支払い注文を作成してください。",
-    "topup.rate": "{amount} {asset} / {network}。Credits は RMB セントで計算されます。",
+    "topup.rate": "{amount} {asset} / {network}. $1 = 100 credits.",
     "topup.payExactly": "正確に支払う",
   "topup.copyAddress": "アドレスをコピー",
   "topup.showQr": "QR を表示",
@@ -1614,7 +1614,7 @@ const I18N = {
     "topup.walletNetwork": "USDT 네트워크",
     "topup.walletNetworkHint": "송금할 네트워크를 선택하세요.",
     "topup.login": "결제 주문을 만들려면 로그인하세요.",
-    "topup.rate": "{amount} {asset}, {network}. Credits는 RMB 센트 기준입니다.",
+    "topup.rate": "{amount} {asset}, {network}. $1 = 100 credits.",
     "topup.payExactly": "정확히 결제",
   "topup.copyAddress": "주소 복사",
   "topup.showQr": "QR 보기",
@@ -1892,7 +1892,7 @@ const I18N = {
     "topup.walletNetwork": "Jaringan USDT",
     "topup.walletNetworkHint": "Pilih jaringan yang akan Anda pakai untuk transfer.",
     "topup.login": "Login untuk membuat order pembayaran.",
-    "topup.rate": "{amount} {asset} via {network}. Credits memakai sen RMB.",
+    "topup.rate": "{amount} {asset} via {network}. $1 = 100 credits.",
     "topup.payExactly": "Bayar tepat",
   "topup.copyAddress": "Salin alamat",
   "topup.showQr": "Tampilkan QR",
@@ -6632,8 +6632,8 @@ let paypalSdkPromise = null;
 let paypalButtonsRendered = false;
 
 function walletCreditsForAmount(amount) {
-  const rate = Number(state.wallet?.cnyCentsPerUsdt || 720);
-  return Math.max(0, Math.round(Number(amount || 0) * rate));
+  const rate = Number(state.wallet?.creditsPerUsd || 100);
+  return Math.max(0, Math.round(Number(amount || 0) * rate * 10000) / 10000);
 }
 
 function walletOptionList() {
