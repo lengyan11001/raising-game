@@ -2262,7 +2262,7 @@ const PUBLIC_COPY = {
   historySubtitle: "Review your generated videos, prompts, parameters and billing in one compact list.",
   historyNotice: "Only your own records are shown. Video links may expire after 24 hours; download/save successful results in time.",
   accessCopy:
-    "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"prompt\":\"Use Image 1 as the character reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_images\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>",
+    "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"model\":\"dreamina-seedance-2-0-260128\",\"prompt\":\"Use Image 1 as the character reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_images\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>",
 };
 
 let ACCESS_GUIDES = [];
@@ -3618,7 +3618,11 @@ function currentTokenLabel(showFull = false) {
 function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
   const tokenLabel = token !== "<user-token>" ? (revealToken ? token : maskToken(token)) : "<user-token>";
-  const source = /api\/platform\/generate|api\/v3\/contents\/generations\/tasks/i.test(String(copy || ""))
+  const rawCopy = String(copy || "");
+  const staleAccessCopy = /api\/platform\/generate|api\/v3\/contents\/generations\/tasks/i.test(rawCopy)
+    || /Vipeak 2/i.test(rawCopy)
+    || (/api\/advanced\/generate/i.test(rawCopy) && !/dreamina-seedance-2-0(?:-fast)?-260128/i.test(rawCopy));
+  const source = staleAccessCopy
     ? LIVE_HTTP_ACCESS_COPY
     : (copy || PUBLIC_COPY.accessCopy);
   return tenantScopedAccessText(source).replaceAll("<user-token>", tokenLabel);
