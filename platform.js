@@ -496,8 +496,11 @@ const I18N = {
     "gallery.character.roleVideos": "Character videos",
     "gallery.character.sceneVideos": "Scene videos",
     "gallery.character.noVideos": "No videos configured for this character yet.",
-    "gallery.character.unlock": "Unlock {cost} credits",
-    "gallery.character.unlockBundle": "Unlock 3 videos - {cost} credits",
+    "gallery.character.unlock": "Unlock",
+    "gallery.character.unlockBundle": "Unlock videos",
+    "gallery.character.unlockConfirmTitle": "Unlock videos?",
+    "gallery.character.unlockConfirmBody": "This will deduct {cost} credits.",
+    "gallery.character.unlockConfirmButton": "Confirm unlock",
     "gallery.character.unlocked": "Unlocked",
     "gallery.character.locked": "Locked",
     "gallery.character.play": "Play",
@@ -580,7 +583,7 @@ const I18N = {
   "topup.paypalOrder": "PayPal order",
   "topup.provider": "Provider",
     "advanced.models": "Create Character Video",
-    "advanced.title": "Create from image or story",
+    "advanced.title": "",
     "advanced.subtitle": "Upload or select assets, choose an engine, and create a new video.",
     "advanced.promptPlaceholder": "Describe the video you want...",
     "advanced.createKindImage": "ImageGen",
@@ -628,7 +631,7 @@ const I18N = {
     "advanced.seedanceVideoRequired": "Reference video is required for this mode.",
     "advanced.prepareReference": "Prepare safe reference",
     "advanced.originalImage": "Use original image",
-    "advanced.seedanceReferenceHint": "Vipeak 2 will use all selected images as references.",
+    "advanced.seedanceReferenceHint": "",
     "advanced.seedanceReferenceCount": "{count} reference image(s) selected.",
     "advanced.wanFirstFrameHint": "Vipeak 1 first frame selected.",
     "advanced.referenceImageTooLarge": "Each reference image must be 8MB or smaller.",
@@ -4555,13 +4558,13 @@ function updateAdvancedButtonCost() {
   const provider = currentAdvancedProvider();
   const seedanceTier = currentSeedanceTier();
   if (provider === "wan27-image-edit") {
-    els.advancedSubmitBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(1, provider, currentAdvancedResolution(), currentAdvancedRatio()) }))}`;
+    els.advancedSubmitBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("common.generate"))}`;
     refreshIcons();
     return;
   }
   const options = { inputVideoSeconds: currentSeedanceVideoInputSeconds(duration, provider), seedanceTier };
   requestAdvancedEstimate(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options);
-  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;
+  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("common.generate"))}`;
   refreshIcons();
 }
 
@@ -5530,6 +5533,15 @@ function applyUnlockedCharacterVideos(characterId = "", videos = []) {
 
 async function unlockGallerySceneVideo(characterId = "") {
   if (!state.user) return openLogin();
+  const character = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
+  const unlockCost = formatCredits(character?.unlockCost || state.config?.homeVideo?.characterUnlockCost || 750);
+  const confirmed = await showInlineDialog({
+    title: t("gallery.character.unlockConfirmTitle"),
+    body: `<p class="job-note">${escapeHtml(t("gallery.character.unlockConfirmBody", { cost: unlockCost }))}</p>`,
+    confirmText: t("gallery.character.unlockConfirmButton"),
+    dialogClass: "is-frame-action",
+  });
+  if (confirmed !== "confirm") return;
   const renderActiveCharacterView = () => {
     if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
     else renderTemplates();
@@ -5840,13 +5852,12 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
   const canPlay = unlocked && hasVideo;
   const title = characterVideoTitle(video, locked ? t("gallery.character.sceneVideos") : t("gallery.character.roleVideos"));
   const meta = [video.duration ? `${video.duration}s` : "", video.likes ? `${compactNumber(video.likes)} likes` : ""].filter(Boolean).join(" / ");
-  const price = formatCredits(video.price || state.config?.homeVideo?.characterUnlockCost || 750);
   const action = canPlay
     ? ""
     : guest
       ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"><i data-lucide="lock-keyhole"></i>${escapeHtml(t("gallery.character.unlockLogin"))}</button>`
     : index > 0
-      ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"${loading ? " disabled" : ""}><i data-lucide="lock-keyhole"></i>${escapeHtml(loading ? t("gallery.character.unlocking") : t("gallery.character.unlockBundle", { cost: price }))}</button>`
+      ? `<button class="primary-button compact" data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}" type="button"${loading ? " disabled" : ""}><i data-lucide="lock-keyhole"></i>${escapeHtml(loading ? t("gallery.character.unlocking") : t("gallery.character.unlockBundle"))}</button>`
       : "";
   const mediaAction = !canPlay && (guest || index > 0)
     ? `data-character-unlock="${escapeHtml(sceneId)}" data-character-scene-entry="${escapeHtml(sceneEntryId)}"`
@@ -7498,17 +7509,7 @@ function updateAdvancedModelControls() {
   renderAdvancedReferencePreviews();
   updateAdvancedReferenceSummary();
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
-  if (els.advancedNote && (state.advancedUploadDataUrl || state.advancedSeedanceVideoAssetId)) {
-    if (provider === "seedance") {
-      const count = selectedAdvancedReferenceImages().length;
-      els.advancedNote.textContent = `${t("advanced.referenceSeedance", { mode: t("advanced.originalReference") })} ${t("advanced.seedanceReferenceCount", { count })}`;
-    } else if (isImageEdit) {
-      const count = selectedAdvancedReferenceImages("wan27-image-edit").length;
-      els.advancedNote.textContent = count ? `${advancedProviderLabel("wan27-image-edit")} ready. ${count} image(s) selected.` : `${advancedProviderLabel("wan27-image-edit")} ready.`;
-    } else {
-      els.advancedNote.textContent = t("advanced.referenceWan");
-    }
-  }
+  if (els.advancedNote && (state.advancedUploadDataUrl || state.advancedSeedanceVideoAssetId)) els.advancedNote.textContent = "";
   updateAdvancedButtonCost();
 }
 
@@ -7786,7 +7787,7 @@ async function submitAdvancedGenerate() {
   }
   if (provider === "seedance" && seedanceModeNeedsReferenceImages(seedanceMode) && !referenceImages.length) {
     els.advancedSubmitBtn.disabled = false;
-    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceReferenceHint");
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
     return;
   }
   if (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode) && !state.advancedSeedanceVideoAssetId && !seedanceVideoUrls.length) {
@@ -8583,36 +8584,7 @@ function renderAdvancedReferencePreviews() {
 
 function updateAdvancedReferenceSummary() {
   if (!els.advancedReferenceSummary) return;
-  const provider = currentAdvancedProvider();
-  const count = selectedAdvancedReferenceImages().length;
-  if (provider === "wan27-image-edit") {
-    els.advancedReferenceSummary.textContent = count ? `${count} source image(s) selected. ${advancedProviderLabel(provider)} accepts 0-9 images in order.` : `${advancedProviderLabel(provider)} accepts 0-9 source images. Leave empty for text-to-image.`;
-    return;
-  }
-  if (provider === "seedance") {
-    const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
-    if (mode === "text_to_video") {
-      els.advancedReferenceSummary.textContent = "";
-      return;
-    }
-    if (mode === "first_frame") {
-      els.advancedReferenceSummary.textContent = count ? t("advanced.seedanceModeFirst") : t("advanced.seedanceFirstRequired");
-      return;
-    }
-    if (mode === "first_last_frame") {
-      els.advancedReferenceSummary.textContent = count
-        ? `${t("advanced.seedanceModeFirstLast")}${state.advancedSeedanceLastFrameDataUrl ? "" : ` - ${t("advanced.seedanceLastRequired")}`}`
-        : t("advanced.seedanceFirstRequired");
-      return;
-    }
-    const hasVideo = Boolean(state.advancedSeedanceVideoAssetId) || splitUrlList(els.advancedSeedanceVideoUrls?.value || "").length > 0;
-    const hasAudio = Boolean(state.advancedAudioAssetId) || splitUrlList(els.advancedSeedanceAudioUrls?.value || "").length > 0;
-    els.advancedReferenceSummary.textContent = count
-      ? `${t("advanced.seedanceReferenceCount", { count })}${hasVideo ? " Video selected." : ""}${hasAudio ? " Audio selected." : ""}`
-      : hasVideo ? `Video selected.${hasAudio ? " Audio selected." : ""}` : hasAudio ? "Audio selected." : t("advanced.seedanceReferenceHint");
-    return;
-  }
-  els.advancedReferenceSummary.textContent = count ? t("advanced.wanFirstFrameHint") : "";
+  els.advancedReferenceSummary.textContent = "";
 }
 
 function renderAssets(assets = state.userAssets || []) {
