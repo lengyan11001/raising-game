@@ -21,6 +21,7 @@ import paramiko
 HOST = os.environ.get("FYSHARK_HOST", os.environ.get("DEPLOY_HOST", "101.47.76.188"))
 USER = os.environ.get("FYSHARK_USER", os.environ.get("DEPLOY_USER", "root"))
 PASSWORD = os.environ.get("FYSHARK_SSH_PASSWORD", os.environ.get("DEPLOY_SSH_PASSWORD", ""))
+PORT = int(os.environ.get("FYSHARK_PORT", os.environ.get("DEPLOY_PORT", "22")))
 REMOTE_ROOT = os.environ.get("DEPLOY_REMOTE_ROOT", "/opt/raising-game-demo")
 SERVICE = os.environ.get("DEPLOY_SERVICE", "raising-game-demo")
 HEALTH_URL = os.environ.get("DEPLOY_HEALTH_URL", "https://123vips.com/api/health")
@@ -45,6 +46,7 @@ def main() -> None:
     parser.add_argument("--remote-root", default=REMOTE_ROOT)
     parser.add_argument("--service", default=SERVICE)
     parser.add_argument("--health-url", default=HEALTH_URL)
+    parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--no-restart", action="store_true")
     args = parser.parse_args()
     if not PASSWORD:
@@ -72,8 +74,8 @@ echo
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    print(f"[ssh] connecting {USER}@{HOST}")
-    client.connect(HOST, username=USER, password=PASSWORD, timeout=20)
+    print(f"[ssh] connecting {USER}@{HOST}:{args.port}")
+    client.connect(HOST, port=args.port, username=USER, password=PASSWORD, timeout=20)
     rc, out, err = remote_run(client, command, timeout=240)
     client.close()
     print(out)
