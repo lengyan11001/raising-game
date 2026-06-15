@@ -25,6 +25,15 @@ const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const DEFAULT_ASSET_IMAGE_MODIFY_CREDITS = 16.862;
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
+const DEFAULT_TOPUP_PACKAGES = [
+  { id: "usd-20", amount: 20, credits: 2000, currency: "USD" },
+  { id: "usd-30", amount: 30, credits: 3100, currency: "USD" },
+  { id: "usd-50", amount: 50, credits: 5500, currency: "USD" },
+  { id: "usd-100", amount: 100, credits: 12000, currency: "USD" },
+  { id: "usd-200", amount: 200, credits: 25000, currency: "USD" },
+  { id: "usd-500", amount: 500, credits: 65000, currency: "USD" },
+  { id: "usd-1000", amount: 1000, credits: 140000, currency: "USD" },
+];
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
 const DEFAULT_PLATFORM_TAB = "gallery";
 const DEFAULT_GALLERY_MODE = "characters";
@@ -237,6 +246,8 @@ const state = {
   wallet: null,
   selectedWalletOptionId: "",
   topupMethod: "paypal",
+  topupStep: "packages",
+  selectedTopupPackageId: "",
   paypalConfig: null,
   token: localStorage.getItem(TOKEN_KEY) || "",
   lang: localStorage.getItem(LANG_KEY) || "en",
@@ -359,7 +370,11 @@ const els = {
   topupTriggerBtn: document.querySelector("#topupTriggerBtn"),
   topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
   topupPanel: document.querySelector("#topupPanel"),
-  topupAmount: document.querySelector("#topupAmount"),
+  topupBackBtn: document.querySelector("#topupBackBtn"),
+  topupPackageStage: document.querySelector("#topupPackageStage"),
+  topupPackageGrid: document.querySelector("#topupPackageGrid"),
+  topupPaymentStage: document.querySelector("#topupPaymentStage"),
+  topupSelectedPackage: document.querySelector("#topupSelectedPackage"),
   topupCredits: document.querySelector("#topupCredits"),
   topupRate: document.querySelector("#topupRate"),
   topupWalletOptions: document.querySelector("#topupWalletOptions"),
@@ -627,6 +642,9 @@ const I18N = {
     "topup.usdtTab": "USDT",
     "topup.paypalRate": "$1 = 100 credits.",
     "topup.amount": "Amount",
+    "topup.packages": "Packages",
+    "topup.changePackage": "Packages",
+    "topup.selectedPackage": "Selected package",
     "topup.compact": "Top Up",
     "topup.dialogTitle": "Top up credits",
     "topup.createOrder": "Create USDT order",
@@ -6648,7 +6666,47 @@ let paypalConfigPromise = null;
 let paypalSdkPromise = null;
 let paypalButtonsRendered = false;
 
+function topupPackages() {
+  const configured = Array.isArray(state.wallet?.topupPackages) ? state.wallet.topupPackages : [];
+  const packages = configured.length ? configured : DEFAULT_TOPUP_PACKAGES;
+  return packages
+    .map((item) => ({
+      id: String(item.id || `usd-${item.amount || ""}`).trim(),
+      amount: Number(item.amount || 0),
+      credits: creditsAmount(item.credits),
+      currency: String(item.currency || "USD").trim().toUpperCase() || "USD",
+    }))
+    .filter((item) => item.id && item.amount > 0 && item.credits > 0);
+}
+
+function selectedTopupPackage() {
+  const packages = topupPackages();
+  if (!packages.length) return null;
+  return packages.find((item) => item.id === state.selectedTopupPackageId) || packages[0];
+}
+
+function setTopupStep(step = "packages") {
+  state.topupStep = step === "payment" ? "payment" : "packages";
+  if (els.topupPackageStage) els.topupPackageStage.hidden = state.topupStep !== "packages";
+  if (els.topupPaymentStage) els.topupPaymentStage.hidden = state.topupStep !== "payment";
+  if (els.topupBackBtn) els.topupBackBtn.hidden = state.topupStep !== "payment";
+  if (state.topupStep === "payment" && state.topupMethod === "paypal") renderPayPalCheckout();
+  renderTopupSummary();
+  refreshIcons();
+}
+
+function selectTopupPackage(packageId = "") {
+  const packages = topupPackages();
+  const selected = packages.find((item) => item.id === packageId) || packages[0];
+  if (!selected) return;
+  state.selectedTopupPackageId = selected.id;
+  setTopupMethod("paypal", { skipSummary: true });
+  setTopupStep("payment");
+}
+
 function walletCreditsForAmount(amount) {
+  const matched = topupPackages().find((item) => Number(item.amount) === Number(amount));
+  if (matched) return matched.credits;
   const rate = Number(state.wallet?.creditsPerUsd || 100);
   return Math.max(0, Math.round(Number(amount || 0) * rate * 10000) / 10000);
 }
@@ -6718,7 +6776,7 @@ function renderWalletOptions() {
   });
 }
 
-function setTopupMethod(method = "paypal") {
+function setTopupMethod(method = "paypal", options = {}) {
   const next = method === "usdt" ? "usdt" : "paypal";
   state.topupMethod = next;
   els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
@@ -6728,8 +6786,8 @@ function setTopupMethod(method = "paypal") {
   });
   if (els.topupPaypalPanel) els.topupPaypalPanel.hidden = next !== "paypal";
   if (els.topupUsdtPanel) els.topupUsdtPanel.hidden = next !== "usdt";
-  if (next === "paypal") renderPayPalCheckout();
-  renderTopupSummary();
+  if (next === "paypal" && state.topupStep === "payment") renderPayPalCheckout();
+  if (!options.skipSummary) renderTopupSummary();
   refreshIcons();
 }
 
@@ -6772,22 +6830,52 @@ function copyTopupAddress(address = "") {
   });
 }
 
+function renderTopupPackages() {
+  if (!els.topupPackageGrid) return;
+  const packages = topupPackages();
+  if (!state.selectedTopupPackageId && packages[0]) state.selectedTopupPackageId = packages[0].id;
+  els.topupPackageGrid.innerHTML = packages.map((item) => {
+    const active = item.id === state.selectedTopupPackageId;
+    return `
+      <button class="topup-package-card ${active ? "is-active" : ""}" type="button" data-topup-package="${escapeHtml(item.id)}">
+        <span>${escapeHtml(item.currency)}</span>
+        <strong>$${escapeHtml(formatCredits(item.amount))}</strong>
+        <small>${escapeHtml(formatCredits(item.credits))} ${escapeHtml(t("common.credits"))}</small>
+      </button>
+    `;
+  }).join("");
+  els.topupPackageGrid.querySelectorAll("[data-topup-package]").forEach((button) => {
+    button.addEventListener("click", () => selectTopupPackage(button.dataset.topupPackage || ""));
+  });
+}
+
 function renderTopupSummary() {
   if (!els.topupPanel) return;
-  const rawAmount = Number(els.topupAmount?.value || 0);
-  const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : DEFAULT_TOPUP_AMOUNT;
-  const credits = walletCreditsForAmount(amount);
+  renderTopupPackages();
+  const selectedPackage = selectedTopupPackage();
+  const amount = selectedPackage?.amount || DEFAULT_TOPUP_AMOUNT;
+  const credits = selectedPackage?.credits || walletCreditsForAmount(amount);
   const asset = state.wallet?.asset || "USDT";
   const selected = ensureSelectedWalletOption();
   const network = selected?.network || state.wallet?.network || "TRC20";
   if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits });
+  if (els.topupSelectedPackage) {
+    els.topupSelectedPackage.textContent = selectedPackage
+      ? `$${formatCredits(selectedPackage.amount)} / ${formatCredits(selectedPackage.credits)} ${t("common.credits")}`
+      : "";
+  }
+  if (els.topupPackageStage) els.topupPackageStage.hidden = state.topupStep !== "packages";
+  if (els.topupPaymentStage) els.topupPaymentStage.hidden = state.topupStep !== "payment";
+  if (els.topupBackBtn) els.topupBackBtn.hidden = state.topupStep !== "payment";
   currentTopupCreditsEls().forEach((element) => {
     element.hidden = !state.user;
     element.textContent = state.user ? formatCredits(Number(state.user.credits || 0)) : "";
   });
   if (els.topupRate) {
     els.topupRate.textContent = state.user
-      ? state.topupMethod === "paypal"
+      ? state.topupStep === "packages"
+        ? t("topup.packages")
+        : state.topupMethod === "paypal"
         ? t("topup.paypalRate")
         : t("topup.rate", { amount: amount || 0, asset, network })
       : t("topup.login");
@@ -6873,15 +6961,16 @@ async function renderPayPalCheckout() {
           openLogin();
           throw new Error(t("topup.login"));
         }
-        const amount = Number(els.topupAmount?.value || 0);
-        if (!Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
+        const topupPackage = selectedTopupPackage();
+        const amount = Number(topupPackage?.amount || 0);
+        if (!topupPackage || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
           if (els.paypalStatus) els.paypalStatus.textContent = t("topup.invalid");
           throw new Error(t("topup.invalid"));
         }
         if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalCreating");
         const payload = await requestJson("/api/pay/paypal/orders", {
           method: "POST",
-          body: { amount },
+          body: { amount, packageId: topupPackage.id },
         });
         renderTopupOrder(payload.order);
         return payload.paypalOrderId;
@@ -6916,8 +7005,9 @@ async function renderPayPalCheckout() {
 
 async function createTopupOrder() {
   if (!state.user) return openLogin();
-  const amount = Number(els.topupAmount?.value || 0);
-  if (!Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
+  const topupPackage = selectedTopupPackage();
+  const amount = Number(topupPackage?.amount || 0);
+  if (!topupPackage || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
     if (els.topupRate) els.topupRate.textContent = t("topup.invalid");
     return;
   }
@@ -6926,7 +7016,7 @@ async function createTopupOrder() {
   try {
     const payload = await requestJson("/api/pay/orders", {
       method: "POST",
-      body: { amount, walletOptionId: selectedWalletOption()?.id || "" },
+      body: { amount, packageId: topupPackage.id, walletOptionId: selectedWalletOption()?.id || "" },
     });
     renderTopupOrder(payload.order);
     if (els.topupRate) els.topupRate.textContent = t("topup.created");
@@ -10169,13 +10259,12 @@ document.querySelectorAll("[data-legal-doc]").forEach((button) => {
 els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
   button.addEventListener("click", () => setTopupMethod(button.dataset.topupMethod || "paypal"));
 });
-els.topupAmount?.addEventListener("input", () => {
-  renderTopupSummary();
-});
+els.topupBackBtn?.addEventListener("click", () => setTopupStep("packages"));
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
 function openTopupDialog() {
   closeAccountMenu();
   setTopupMethod("paypal");
+  setTopupStep("packages");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   syncTopupAutoRefresh();

@@ -135,6 +135,15 @@ const PAYPAL_BRAND_NAME = String(process.env.PAYPAL_BRAND_NAME || "Vipeak AI").t
 const MIN_TOPUP_AMOUNT = clampNumber(process.env.MIN_TOPUP_AMOUNT, 1, 1, 100000);
 const PAYPAL_MIN_AMOUNT = clampNumber(process.env.PAYPAL_MIN_AMOUNT, MIN_TOPUP_AMOUNT, 0.01, 100000);
 const PAYPAL_MAX_AMOUNT = clampNumber(process.env.PAYPAL_MAX_AMOUNT, 10000, PAYPAL_MIN_AMOUNT, 1000000);
+const TOPUP_PACKAGES = Object.freeze([
+  Object.freeze({ id: "usd-20", amount: 20, credits: 2000 }),
+  Object.freeze({ id: "usd-30", amount: 30, credits: 3100 }),
+  Object.freeze({ id: "usd-50", amount: 50, credits: 5500 }),
+  Object.freeze({ id: "usd-100", amount: 100, credits: 12000 }),
+  Object.freeze({ id: "usd-200", amount: 200, credits: 25000 }),
+  Object.freeze({ id: "usd-500", amount: 500, credits: 65000 }),
+  Object.freeze({ id: "usd-1000", amount: 1000, credits: 140000 }),
+]);
 const PAYPAL_CNY_CENTS_PER_UNIT_ENV =
   process.env.PAYPAL_CNY_CENTS_PER_UNIT ||
   process.env.PAYPAL_USD_CNY_CENTS ||
@@ -1143,6 +1152,7 @@ function publicConfig(config, origin = "", auth = null) {
       options: walletOptions,
       suffixDigits: config.wallet.suffixDigits,
       creditsPerUsd: walletCreditsPerUsd(config.wallet),
+      topupPackages: publicTopupPackages(),
     },
     video: config.video,
     homeVideo: {
@@ -3234,8 +3244,28 @@ function walletCreditsPerUsd(wallet = {}) {
   return DEFAULT_CREDITS_PER_USD;
 }
 
-function walletCreditsForUsdtAmount(amount, wallet = {}) {
-  return creditsAmount(Number(amount || 0) * walletCreditsPerUsd(wallet));
+function publicTopupPackages() {
+  return TOPUP_PACKAGES.map((item) => ({
+    id: item.id,
+    amount: item.amount,
+    credits: item.credits,
+    currency: "USD",
+  }));
+}
+
+function normalizeTopupAmount(value) {
+  const amount = Number(value || 0);
+  return Number.isFinite(amount) ? Math.round(amount * 100) / 100 : 0;
+}
+
+function findTopupPackage(input = {}) {
+  const packageId = String(input.packageId || input.topupPackageId || "").trim().toLowerCase();
+  if (packageId) {
+    const byId = TOPUP_PACKAGES.find((item) => item.id === packageId);
+    if (byId) return byId;
+  }
+  const amount = normalizeTopupAmount(input.amount ?? input.baseAmount);
+  return TOPUP_PACKAGES.find((item) => normalizeTopupAmount(item.amount) === amount) || null;
 }
 
 function normalizeWalletOption(option = {}, index = 0) {
@@ -3873,10 +3903,6 @@ function paypalCnyCentsPerUnit(wallet = {}) {
   return walletCnyCentsPerUsdt(wallet);
 }
 
-function paypalCreditsForAmount(amount, wallet = {}) {
-  return creditsAmount(Number(amount || 0) * walletCreditsPerUsd(wallet));
-}
-
 function paypalMoneyValue(amount) {
   return (Math.round(Number(amount || 0) * 100) / 100).toFixed(2);
 }
@@ -3889,6 +3915,7 @@ function paypalPublicConfig() {
     environment: PAYPAL_ENV,
     minAmount: PAYPAL_MIN_AMOUNT,
     maxAmount: PAYPAL_MAX_AMOUNT,
+    topupPackages: publicTopupPackages(),
   };
 }
 
@@ -12165,9 +12192,14 @@ async function handleCreatePaymentOrder(req, res) {
 
   const body = await readJson(req);
   const config = await readAppConfig();
-  const amount = Number(body.amount || 0);
-  if (!Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
-    return sendJson(res, 400, { ok: false, message: `Top-up amount must be at least ${MIN_TOPUP_AMOUNT}.` });
+  const topupPackage = findTopupPackage(body);
+  if (!topupPackage) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "INVALID_TOPUP_PACKAGE",
+      message: "Please select one of the available top-up packages.",
+      packages: publicTopupPackages(),
+    });
   }
   const walletOption = findWalletOption(config.wallet || {}, body.walletOptionId || body.walletNetwork || body.network, requestTenantOptions(req));
   if (!walletOption?.address) {
@@ -12175,9 +12207,9 @@ async function handleCreatePaymentOrder(req, res) {
   }
 
   const suffixDigits = clampNumber(config.wallet.suffixDigits, 6, 3, 6);
-  const payment = makeUniquePaymentAmount(amount, suffixDigits);
-  const baseAmount = Math.max(1, Math.round(Number(amount || 0)));
-  const creditAmount = walletCreditsForUsdtAmount(baseAmount, config.wallet);
+  const baseAmount = topupPackage.amount;
+  const payment = makeUniquePaymentAmount(baseAmount, suffixDigits);
+  const creditAmount = creditsAmount(topupPackage.credits);
   if (!dbEnabled()) {
     payment.amount = baseAmount;
     payment.payableAmountText = `${baseAmount}.${payment.suffix}`;
@@ -12188,6 +12220,8 @@ async function handleCreatePaymentOrder(req, res) {
     userId: auth.user.id,
     baseAmount,
     creditAmount,
+    packageId: topupPackage.id,
+    packageCredits: topupPackage.credits,
     creditsPerUsd: walletCreditsPerUsd(config.wallet),
     cnyCentsPerUsdt: walletCnyCentsPerUsdt(config.wallet),
     suffix: payment.suffix,
@@ -12230,7 +12264,16 @@ async function handleCreatePayPalOrder(req, res) {
   const body = await readJson(req);
   const config = await readAppConfig();
   const tenantOptions = requestTenantOptions(req);
-  const rawAmount = Number(body.amount || 0);
+  const topupPackage = findTopupPackage(body);
+  if (!topupPackage) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "INVALID_TOPUP_PACKAGE",
+      message: "Please select one of the available top-up packages.",
+      packages: publicTopupPackages(),
+    });
+  }
+  const rawAmount = topupPackage.amount;
   if (!Number.isFinite(rawAmount) || rawAmount < PAYPAL_MIN_AMOUNT || rawAmount > PAYPAL_MAX_AMOUNT) {
     return sendJson(res, 400, {
       ok: false,
@@ -12283,7 +12326,9 @@ async function handleCreatePayPalOrder(req, res) {
     userId: auth.user.id,
     paymentProvider: "paypal",
     baseAmount: amount,
-    creditAmount: paypalCreditsForAmount(amount, config.wallet),
+    creditAmount: creditsAmount(topupPackage.credits),
+    packageId: topupPackage.id,
+    packageCredits: topupPackage.credits,
     creditsPerUsd: walletCreditsPerUsd(config.wallet),
     cnyCentsPerUnit: rate,
     currency: PAYPAL_CURRENCY,
@@ -12530,7 +12575,9 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
   const cnyCentsPerUsdt = order.cnyCentsPerUsdt || walletCnyCentsPerUsdt(wallet);
   const cnyCentsPerUnit = order.cnyCentsPerUnit || (paymentProvider === "paypal" ? paypalCnyCentsPerUnit(wallet) : cnyCentsPerUsdt);
   const creditAmount = order.creditAmount ?? (
-    order.baseAmount
+    order.packageCredits !== undefined
+      ? creditsAmount(order.packageCredits)
+      : order.baseAmount
       ? creditsAmount(Number(order.baseAmount || 0) * creditsPerUsd)
       : 0
   );
@@ -12540,6 +12587,8 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
     paymentProvider,
     amount: order.baseAmount ?? "",
     creditAmount: creditsAmount(creditAmount),
+    packageId: order.packageId || "",
+    packageCredits: order.packageCredits ?? "",
     creditsPerUsd,
     payableAmount: order.payableAmount ?? "",
     payableAmountText: order.payableAmountText || String(order.payableAmount || order.baseAmount || ""),
@@ -16003,7 +16052,13 @@ function adminWalletOrderView(order, userMap) {
     username: user?.username || "",
     paymentProvider,
     baseAmount: order.baseAmount,
-    creditAmount: order.creditAmount ?? creditsAmount(Number(order.baseAmount || 0) * Number(order.creditsPerUsd || DEFAULT_CREDITS_PER_USD)),
+    creditAmount: order.creditAmount ?? (
+      order.packageCredits !== undefined
+        ? creditsAmount(order.packageCredits)
+        : creditsAmount(Number(order.baseAmount || 0) * Number(order.creditsPerUsd || DEFAULT_CREDITS_PER_USD))
+    ),
+    packageId: order.packageId || "",
+    packageCredits: order.packageCredits ?? "",
     creditsPerUsd: order.creditsPerUsd || "",
     cnyCentsPerUsdt: order.cnyCentsPerUsdt || "",
     cnyCentsPerUnit: order.cnyCentsPerUnit || "",
