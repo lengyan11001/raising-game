@@ -508,7 +508,7 @@ const DEFAULT_CONFIG = {
     heroSubtitle: "Choose a template, upload an image or enter text, and create a new video.",
     notice: "Generated results are saved in history. Video links may expire after 24 hours, so download and save them in time.",
     accessCopy:
-      "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"model\":\"dreamina-seedance-2-0-260128\",\"prompt\":\"Use Image 1 as the character reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_images\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>\n\nSeedance standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d.",
+      "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"model\":\"dreamina-seedance-2-0-260128\",\"prompt\":\"Use Image 1 as the character reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_images\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>\n\nmodel dreamina-seedance-2-0-260128 routes to ep-20260429142513-zg667; model dreamina-seedance-2-0-fast-260128 routes to ep-20260429142538-fkm9d.",
     advancedPricing: DEFAULT_ADVANCED_PRICING,
     categories: [
       { id: "featured", name: "精选模板" },
