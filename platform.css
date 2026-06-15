@@ -869,7 +869,7 @@ main {
 }
 .topup-headline {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: end;
 }
@@ -903,6 +903,66 @@ main {
   color: var(--text);
   background: #202126;
   padding: 10px 12px;
+}
+.topup-back-btn[hidden] { display: none; }
+.topup-stage {
+  display: grid;
+  gap: 12px;
+}
+.topup-stage[hidden] { display: none; }
+.topup-package-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.topup-package-card {
+  display: grid;
+  gap: 8px;
+  min-height: 118px;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 8px;
+  color: var(--text);
+  background: #202126;
+  text-align: left;
+  cursor: pointer;
+}
+.topup-package-card span {
+  color: var(--muted);
+  font-size: .68rem;
+}
+.topup-package-card strong {
+  margin: 0;
+  color: #fff;
+  font-size: 1.56rem;
+  line-height: 1;
+}
+.topup-package-card small {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+.topup-package-card:hover,
+.topup-package-card.is-active {
+  border-color: rgba(255,79,163,.62);
+  background: linear-gradient(135deg, rgba(255,79,163,.18), rgba(255,255,255,.055));
+  box-shadow: 0 12px 30px rgba(255,79,163,.12);
+}
+.topup-selected-package {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 8px;
+  background: #202126;
+}
+.topup-selected-package strong {
+  margin: 0;
+  color: #fff;
+  font-size: .95rem;
+  text-align: right;
 }
 .topup-method-tabs {
   display: grid;
@@ -4075,6 +4135,7 @@ select:focus,
   .history-panel .history-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ledger-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .paypal-checkout { grid-template-columns: 1fr; }
+  .topup-package-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topup-wallet-option-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topup-qr-panel { grid-template-columns: 1fr; justify-items: center; }
   .token-card { align-items: stretch; flex-direction: column; }
@@ -4285,9 +4346,15 @@ select:focus,
   .paypal-checkout {
     grid-template-columns: 1fr;
   }
+  .topup-package-grid,
   .topup-wallet-option-grid {
     grid-template-columns: 1fr;
   }
+  .topup-selected-package {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .topup-selected-package strong { text-align: left; }
   .template-grid { grid-template-columns: 1fr; }
   .gallery-advanced-grid,
   .character-grid,
