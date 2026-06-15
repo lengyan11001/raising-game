@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-147" />
+    <link rel="stylesheet" href="./platform.css?v=ai-150" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -100,6 +100,10 @@
                 <p class="eyebrow" data-i18n="advanced.models">Advanced Models</p>
                 <h2 data-i18n="advanced.title">Advanced Generate</h2>
               </div>
+            </div>
+            <div class="advanced-create-switch">
+              <div class="advanced-create-kind-tabs" id="advancedCreateKindTabs" role="tablist" aria-label="Create type"></div>
+              <div class="advanced-create-mode-tabs" id="advancedCreateModeTabs" role="tablist" aria-label="Create mode"></div>
             </div>
             <label class="field">
               <span data-i18n="field.prompt">Prompt</span>
@@ -197,13 +201,13 @@
               </div>
             </div>
             <div class="advanced-fields">
-              <label class="field"><span data-i18n="field.model">Engine</span><select id="advancedProvider"><option value="wan27" selected>Vipeak 1</option><option value="seedance">Vipeak 2</option><option value="wan27-image-edit">Vipeak 1 Image</option></select></label>
-              <label class="field advanced-seedance-option" hidden><span>Vipeak 2 tier</span><select id="advancedSeedanceTier"><option value="standard">Standard</option><option value="fast">Fast</option></select></label>
-              <label class="field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
-              <label class="field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+              <label class="field advanced-provider-field"><span data-i18n="field.model">Engine</span><select id="advancedProvider"><option value="wan27" selected>Vipeak 1</option><option value="seedance">Vipeak 2</option><option value="wan27-image-edit">Vipeak 1 Image</option></select></label>
+              <label class="field advanced-seedance-option advanced-tier-field" hidden><span>Vipeak 2 tier</span><select id="advancedSeedanceTier"><option value="standard">Standard</option><option value="fast">Fast</option></select></label>
+              <label class="field advanced-setting-field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
+              <label class="field advanced-setting-field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
               <label class="field advanced-duration-field"><span data-i18n="field.duration">Duration</span><input id="advancedDuration" type="number" min="2" max="15" value="5" /></label>
               <input id="advancedPreprocessReference" type="hidden" value="no" />
-              <label class="field advanced-wan-option" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="0" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
+              <label class="field advanced-wan-option advanced-seed-field" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="0" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
             </div>
             <button class="generate-btn" id="advancedSubmitBtn" type="button"><i data-lucide="sparkles"></i>Generate</button>
             <p class="job-note" id="advancedNote"></p>
@@ -581,6 +585,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-149"></script>
+    <script src="./platform.js?v=ai-150"></script>
 </body>
 </html>
