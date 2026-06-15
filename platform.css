@@ -211,19 +211,25 @@ a { color: inherit; text-decoration: none; }
   position: absolute;
   right: 0;
   top: calc(100% + 10px);
-  z-index: 40;
+  z-index: 90;
   display: grid;
   gap: 8px;
   width: min(260px, calc(100vw - 24px));
+  max-height: min(420px, calc(100vh - 86px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255,255,255,.14);
   border-radius: 8px;
-  background: rgba(20,20,23,.98);
-  box-shadow: var(--shadow);
+  background: #17171a;
+  box-shadow: 0 20px 54px rgba(0,0,0,.48);
+  backdrop-filter: blur(14px);
 }
+.account-menu[hidden] { display: none; }
 .account-menu .language-switch {
   width: 100%;
   min-width: 0;
+  background: #242429;
 }
 .menu-balance {
   display: flex;
@@ -254,7 +260,7 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--text);
-  background: rgba(255,255,255,.06);
+  background: #242429;
   font-weight: 800;
   text-align: left;
 }
@@ -3788,7 +3794,6 @@ select,
 .access-doc-row,
 .access-param-table,
 .access-doc-example pre,
-.account-menu,
 .menu-item,
 .language-switch,
 .topup-trigger,
@@ -4212,6 +4217,13 @@ select:focus,
   }
   .account-menu-wrap { justify-self: end; max-width: 46vw; }
   .account-menu-trigger { max-width: 100%; }
+  .account-menu {
+    position: fixed;
+    top: 48px;
+    right: 10px;
+    width: min(320px, calc(100vw - 20px));
+    max-height: calc(100vh - 64px);
+  }
   #accountMenuLabel { max-width: 112px; }
   .head-actions .ghost-link,
   .head-actions .primary-pill {
