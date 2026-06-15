@@ -2295,6 +2295,7 @@ Content-Type: application/json
 
 {
   "provider": "seedance",
+  "model": "dreamina-seedance-2-0-260128",
   "prompt": "Use Image 1 as the character reference. Generate a cinematic 5 second shot, no subtitles, no watermark.",
   "seedanceMode": "reference_images",
   "referenceImages": [
@@ -2312,7 +2313,7 @@ Authorization: Bearer <user-token>
 
 The response returns the local generation record and progress. vip123 handles auth, configured allow-listed upstream routing, balance pre-deduction, history, and refund internally. Public URLs, base64 data URLs, and uploaded asset ids are accepted through the fields below.
 
-Tip: do not call upstream task routes directly. Use provider "seedance" for Vipeak 2. Standard routes to the allow-listed endpoint ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d.`;
+Tip: do not call upstream task routes directly. Use POST /api/advanced/generate with provider "seedance". model "dreamina-seedance-2-0-260128" routes to ep-20260429142513-zg667; model "dreamina-seedance-2-0-fast-260128" routes to ep-20260429142538-fkm9d.`;
 
 const LIVE_HTTP_ACCESS_COPY = `${ADVANCED_SEEDANCE_ACCESS_COPY}
 
@@ -2324,7 +2325,7 @@ POST ${apiUrl("/api/user-assets")}
   "name": "image1"
 }`;
 
-const SEEDANCE_CHARACTER_UPLOAD_COPY = `Vipeak 2 role workflow through Advanced:
+const SEEDANCE_CHARACTER_UPLOAD_COPY = `Seedance workflow through /api/advanced/generate:
 
 1) Optional: upload a reusable character image.
 POST ${apiUrl("/api/user-assets")}
@@ -2346,6 +2347,7 @@ Content-Type: application/json
 
 {
   "provider": "seedance",
+  "model": "dreamina-seedance-2-0-260128",
   "prompt": "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot.",
   "seedanceMode": "reference_images",
   "referenceImages": [
@@ -2361,6 +2363,7 @@ Content-Type: application/json
 You may also send a public image URL or base64 data URL directly:
 {
   "provider": "seedance",
+  "model": "dreamina-seedance-2-0-260128",
   "prompt": "Animate Image 1 into a cinematic shot.",
   "seedanceMode": "first_frame",
   "firstFrameDataUrl": "data:image/png;base64,...",
@@ -2373,6 +2376,7 @@ Prompt rule: uploaded character images are referenced as Image 1, Image 2, etc. 
 const TYPE_SCRIPT_ACCESS_COPY = `const token = "<user-token>";
 const body = {
   provider: "seedance",
+  model: "dreamina-seedance-2-0-260128",
   prompt: "Use Image 1 as the character reference. Generate a cinematic 5 second shot.",
   seedanceMode: "reference_images",
   referenceImages: [
@@ -2408,6 +2412,7 @@ const PYTHON_ACCESS_COPY = `import requests
 token = "<user-token>"
 payload = {
     "provider": "seedance",
+    "model": "dreamina-seedance-2-0-260128",
     "prompt": "Use Image 1 as the character reference. Generate a cinematic 5 second shot.",
     "seedanceMode": "reference_images",
     "referenceImages": [
@@ -2440,7 +2445,7 @@ print(task)
 const CLI_ACCESS_COPY = `curl -X POST "${apiUrl("/api/advanced/generate")}" \
   -H "Authorization: Bearer <user-token>" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"seedance","prompt":"Use Image 1 as the character reference. Generate a cinematic 5 second shot.","seedanceMode":"reference_images","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true,"watermark":false}'
+  -d '{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"Use Image 1 as the character reference. Generate a cinematic 5 second shot.","seedanceMode":"reference_images","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true,"watermark":false}'
 
 curl -X GET "${apiUrl("/api/generation-records/<taskId>")}" \
   -H "Authorization: Bearer <user-token>"
@@ -2452,19 +2457,19 @@ const AGENT_ACCESS_COPY = `Use this video API:
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
 Task queries with API tokens or sub tokens return only upstream provider URLs in record.videoUrl and record.downloadUrl. Local/CDN backup URLs are internal and are not returned downstream.
 
-Vipeak 2 video generation:
+Seedance generation endpoint:
 POST ${apiUrl("/api/advanced/generate")}
 Body:
-{"provider":"seedance","prompt":"Use Image 1 as the character, Video 1 as motion reference, and Audio 1 as music reference.","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceVideoDurationSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true}
+{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"Use Image 1 as the character, Video 1 as motion reference, and Audio 1 as music reference.","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceVideoDurationSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true}
 
 Check records:
 GET ${apiUrl("/api/generation-records/<taskId>")}`;
 
-const MCP_ACCESS_COPY = `Vipeak 2 MCP wrapper target:
+const MCP_ACCESS_COPY = `Advanced generation wrapper target:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
-{"provider":"seedance","prompt":"string","seedanceMode":"reference_images","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"ratio":"9:16","resolution":"480p|720p","duration":5,"generateAudio":true,"watermark":false,"seed":123456}
+{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"string","seedanceMode":"reference_images","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"ratio":"9:16","resolution":"480p|720p","duration":5,"generateAudio":true,"watermark":false,"seed":123456}
 
 Reusable asset upload target:
 POST ${apiUrl("/api/user-assets")}
@@ -2477,21 +2482,23 @@ GET ${apiUrl("/api/generation-records/<taskId>")}`;
 
 const SEEDANCE_PARAM_ACCESS_COPY = `${SEEDANCE_CHARACTER_UPLOAD_COPY}
 
-Vipeak 2 generation endpoint:
+Seedance generation endpoint:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 Model routing:
 - provider: "seedance"
+- model: "dreamina-seedance-2-0-260128" for standard or "dreamina-seedance-2-0-fast-260128" for fast
 - seedanceTier: "standard" or "fast" (optional; fast does not support 1080p)
-- model is normally omitted so the server uses the allow-listed Seedance endpoint ep-20260429142513-zg667
+- standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d
 
 Prompt reference rule: describe uploaded materials as Image 1, Video 1, Audio 1. Do not put raw asset ids in the prompt text.
 
 Text to video:
 {
   "provider": "seedance",
+  "model": "dreamina-seedance-2-0-260128",
   "prompt": "Describe the video. Dialogue can be quoted in the prompt.",
   "seedanceMode": "text_to_video",
   "ratio": "9:16",
@@ -2503,6 +2510,7 @@ Text to video:
 First-frame image to video:
 {
   "provider": "seedance",
+  "model": "dreamina-seedance-2-0-260128",
   "prompt": "Animate Image 1 into a cinematic shot.",
   "seedanceMode": "first_frame",
   "imageUrl": "https://example.com/first-frame.png",
@@ -2514,6 +2522,7 @@ First-frame image to video:
 First + last frame:
 {
   "provider": "seedance",
+  "model": "dreamina-seedance-2-0-260128",
   "prompt": "Move smoothly from the first frame to the last frame.",
   "seedanceMode": "first_last_frame",
   "imageUrl": "https://example.com/first-frame.png",
@@ -2526,6 +2535,7 @@ First + last frame:
 Reference images:
 {
   "provider": "seedance",
+  "model": "dreamina-seedance-2-0-260128",
   "prompt": "Use Image 1 as the character reference and generate a cinematic shot.",
   "seedanceMode": "reference_images",
   "referenceImages": [
@@ -2543,6 +2553,7 @@ Reference images:
 Edit or extend with video/audio references:
 {
   "provider": "seedance",
+  "model": "dreamina-seedance-2-0-260128",
   "prompt": "Use Video 1 as the action reference, Image 1 as the character reference, and Audio 1 as the music reference.",
   "seedanceMode": "reference_video",
   "referenceImages": [
@@ -2654,7 +2665,8 @@ Content-Type: application/json
       ["Content-Type", "application/json"],
       ["POST /api/advanced/generate", "Create an Advanced task. This is the only documented external video generation route."],
       ["GET /api/generation-records/<taskId>", "Query progress and final result for Advanced tasks."],
-      ["provider", "Use seedance for Vipeak 2 video or wan27 for Vipeak 1 video. For compatibility, known Seedance model aliases also imply seedance, but explicit provider is recommended."],
+      ["provider", "Use seedance for Seedance video or wan27 for Wan2.7 video. For compatibility, known Seedance model aliases also imply seedance, but explicit provider is recommended."],
+      ["model", "For provider=seedance, use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. The service maps them to the allow-listed endpoint ids."],
       ["prompt", "Video prompt. Refer to materials as Image 1, Video 1, Audio 1 instead of raw asset ids."],
       ["seedanceMode", "For provider=seedance: text_to_video, first_frame, first_last_frame, reference_images, or reference_video."],
       ["imageUrl / firstFrameUrl / firstFrameDataUrl", "First-frame input for seedance first_frame/first_last_frame modes."],
@@ -2682,15 +2694,15 @@ Content-Type: application/json
     example: LIVE_HTTP_ACCESS_COPY,
   },
   seedanceParams: {
-    title: "Vipeak 2 Video Parameters",
+    title: "Seedance Video Parameters",
     summary: "Use /api/advanced/generate with provider=seedance. Standard routes to ep-20260429142513-zg667, fast routes to ep-20260429142538-fkm9d, and billing/history/refunds stay in this service.",
     request: [
       { name: "/api/user-assets", type: "endpoint", required: "No", description: "Optional reusable upload endpoint. Send url/imageUrl/videoUrl/audioUrl or dataUrl; reuse the returned asset.id.", default: "-" },
-      { name: "provider", type: "string", required: "Yes", description: "Use seedance for Vipeak 2 video generation.", default: "seedance" },
+      { name: "provider", type: "string", required: "Yes", description: "Use seedance for this endpoint route.", default: "seedance" },
       { name: "prompt", type: "string", required: "Yes", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
       { name: "seedanceMode", type: "string", required: "No", description: "text_to_video, first_frame, first_last_frame, reference_images, or reference_video.", default: "text_to_video" },
       { name: "seedanceTier", type: "string", required: "No", description: "standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d. Fast tier does not support 1080p.", default: "standard" },
-      { name: "model", type: "string", required: "No", description: "Usually omit. Known Seedance aliases are accepted for compatibility and mapped to ep-20260429142513-zg667 or ep-20260429142538-fkm9d. Only send another model override if support gives you one.", default: "-" },
+      { name: "model", type: "string", required: "Yes", description: "Use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. These map to ep-20260429142513-zg667 and ep-20260429142538-fkm9d.", default: "dreamina-seedance-2-0-260128" },
       { name: "imageUrl / firstFrameUrl / firstFrameDataUrl", type: "string", required: "For first frame modes", description: "Public URL or base64 data URL for the first frame.", default: "-" },
       { name: "firstFrameAssetId / imageAssetId", type: "string", required: "No", description: "Existing uploaded image asset id for the first frame.", default: "-" },
       { name: "endImageUrl / lastFrameUrl / endImageDataUrl", type: "string", required: "For first_last_frame", description: "Public URL or base64 data URL for the last frame.", default: "-" },
@@ -2702,7 +2714,7 @@ Content-Type: application/json
       { name: "referenceAudioUrls / referenceAudioAssetIds", type: "array", required: "No", description: "Optional audio references. Text+audio without image/video is not supported upstream.", default: "[]" },
       { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. UI-safe values: 9:16, 16:9, 1:1.", default: "9:16" },
       { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported values are 480p, 720p, and 1080p. Fast tier 1080p is rejected before billing.", default: "720p" },
-      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Vipeak 2 jobs are limited to integer 4-15 seconds here.", default: "5" },
+      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs are limited to integer 4-15 seconds here.", default: "5" },
       { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
       { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
       { name: "web_search / webSearch", type: "boolean", required: "No", description: "Pass-through web search enhancement flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
@@ -2891,9 +2903,9 @@ ACCESS_PARAM_GUIDES = [
   {
     id: "seedance-params",
     docs: "seedanceParams",
-    title: "Vipeak 2 Params",
+    title: "Seedance Params",
     subtitle: "Video",
-    desc: "Parameter table for Vipeak 2 video generation through /api/advanced/generate.",
+    desc: "Parameter table for Seedance video generation through /api/advanced/generate.",
     copy: SEEDANCE_PARAM_ACCESS_COPY,
   },
   {
@@ -3252,7 +3264,8 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
 }
 
 function guideText(guide, field) {
-  return t(`guide.${guide.id}.${field}`, {}, guide[field] || "");
+  const translated = I18N[state.lang]?.[`guide.${guide.id}.${field}`] ?? I18N.en[`guide.${guide.id}.${field}`];
+  return String(translated ?? guide[field] ?? "");
 }
 
 function accessDoc(guide = activeAccessGuide) {
@@ -3605,7 +3618,7 @@ function currentTokenLabel(showFull = false) {
 function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
   const tokenLabel = token !== "<user-token>" ? (revealToken ? token : maskToken(token)) : "<user-token>";
-  const source = /api\/platform\/generate|api\/v3\/contents\/generations\/tasks|dreamina-seedance/i.test(String(copy || ""))
+  const source = /api\/platform\/generate|api\/v3\/contents\/generations\/tasks/i.test(String(copy || ""))
     ? LIVE_HTTP_ACCESS_COPY
     : (copy || PUBLIC_COPY.accessCopy);
   return tenantScopedAccessText(source).replaceAll("<user-token>", tokenLabel);
@@ -6966,7 +6979,7 @@ function renderAccessGuides() {
         ${accessQuickList([
           doc === ACCESS_DOCS.assets ? "Upload once, then pass asset.id into the matching image/video/audio field." : "",
           doc === ACCESS_DOCS.advanced ? "Use /api/advanced/generate for external Create/Advanced jobs; poll /api/generation-records/<taskId>." : "",
-          doc === ACCESS_DOCS.seedanceParams ? "For Vipeak 2, call /api/advanced/generate with provider=seedance and normal user-facing media fields." : "",
+          doc === ACCESS_DOCS.seedanceParams ? "Call /api/advanced/generate with provider=seedance and model=dreamina-seedance-2-0-260128 or dreamina-seedance-2-0-fast-260128." : "",
           doc === ACCESS_DOCS.wan27VideoParams ? "Fields inside params.parameters merge into DashScope parameters; fields inside params.input merge into DashScope input." : "",
           doc === ACCESS_DOCS.wan27ImageParams ? "Image results are saved to history first; call Add asset from history to place a result in assets. Admin records include the upstream payload." : "",
           doc === ACCESS_DOCS.records ? "Use refresh=1 on list views when you want pending tasks to refresh." : "",

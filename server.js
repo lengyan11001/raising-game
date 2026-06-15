@@ -989,7 +989,7 @@ function tenantScopedAccessCopy(copy = "", origin = "") {
 }
 
 function isLegacyAccessCopy(copy = "") {
-  return /api\/platform\/generate|api\/v3\/contents\/generations\/tasks|dreamina-seedance/i.test(String(copy || ""));
+  return /api\/platform\/generate|api\/v3\/contents\/generations\/tasks/i.test(String(copy || ""));
 }
 
 function pricingNumber(value, fallback = 0, min = 0, digits = 4) {
@@ -10184,6 +10184,14 @@ async function handleAdvancedGenerate(req, res) {
   const caseParams = selectedCase?.params && typeof selectedCase.params === "object" ? selectedCase.params : {};
   const mergedBody = mergedRequestForMedia(body, caseParams);
   const requestedModel = firstPresent(body.model, bodyParams.model, caseParams.model);
+  const requestedSeedanceTier = seedanceModelAliasKind(requestedModel) || firstPresent(
+    body.seedanceTier,
+    body.vipeak2Tier,
+    bodyParams.seedanceTier,
+    bodyParams.vipeak2Tier,
+    caseParams.seedanceTier,
+    caseParams.vipeak2Tier,
+  );
   const providerHint = firstPresent(
     body.provider,
     bodyParams.provider,
@@ -10218,7 +10226,7 @@ async function handleAdvancedGenerate(req, res) {
     ...caseParams,
     ...bodyParams,
     provider,
-    seedanceTier: normalizeSeedanceTier(firstPresent(body.seedanceTier, body.vipeak2Tier, bodyParams.seedanceTier, bodyParams.vipeak2Tier, caseParams.seedanceTier, caseParams.vipeak2Tier)),
+    seedanceTier: normalizeSeedanceTier(requestedSeedanceTier),
     ratio: firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, config.video.ratio, "9:16"),
     resolution: firstPresent(body.resolution, bodyParams.resolution, mergedProviderParameters.resolution, caseParams.resolution, config.video.resolution, "720p"),
     duration: clampNumber(
@@ -11326,6 +11334,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     requestFields: [
       { name: "caseId", type: "string", required: false, description: "Advanced case id. Omit only when sending all parameters manually." },
       { name: "provider", type: "string", required: false, description: "`wan27` or `seedance`. Defaults to the saved case provider. Known Seedance model aliases also imply `seedance`, but explicit provider is recommended." },
+      { name: "model", type: "string", required: provider === "seedance", description: provider === "seedance" ? `Use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. These map to ${SEEDANCE_QUALITY_ENDPOINT_ID} and ${SEEDANCE_FAST_ENDPOINT_ID}.` : "Wan2.7 model id. Defaults to wan2.7-i2v-2026-04-25." },
       { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
       { name: "seedanceMode", type: "string", required: false, description: "Seedance only. text_to_video, first_frame, first_last_frame, reference_images, or reference_video." },
       { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded base64 image. Required for Wan2.7 first-frame generation; accepted as Seedance first frame when seedanceMode is first_frame/first_last_frame." },
@@ -11352,7 +11361,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "duration", type: "number", required: false, description: "Duration in seconds. Seedance is clamped to 5-15; Wan2.7 is clamped to 2-15." },
       { name: "seed", type: "number", required: false, description: "Provider pass-through random seed. The API forwards it when supplied; upstream decides whether it takes effect." },
       { name: "params", type: "object", required: false, description: "Provider pass-through object. Seedance forwards model/content/reference_* fields; Wan2.7 forwards model plus input/parameters." },
-      { name: "params.model", type: "string", required: false, description: "Override the upstream model id when the provider supports it." },
+      { name: "params.model", type: "string", required: false, description: "Compatibility alias for model. Prefer the top-level model field for new integrations." },
       { name: "params.input", type: "object", required: false, description: "Wan2.7 only. Extra DashScope input fields; prompt/media are still set by this API." },
       { name: "params.parameters", type: "object", required: false, description: "Wan2.7 and Wan2.7 image. Extra DashScope parameters merged into the upstream payload." },
       { name: "Wan2.7 image edit", type: "endpoint", required: false, description: "Use /api/wan27/image-edit with imageAssetIds containing 0-9 images. The image order maps to Image 1, Image 2, etc. Results are saved to history/admin records first; add to assets from history when needed." },
@@ -11470,7 +11479,7 @@ function advancedDocMarkdown(item) {
   lines.push("", "Seedance inputs: upload reusable image, video, or audio files through `/api/user-assets`, then pass returned asset ids such as `firstFrameAssetId`, `referenceImages[].assetId`, `referenceVideoAssetIds`, or `referenceAudioAssetIds`. In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
   lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 image assets. The order maps to Image 1, Image 2, and so on in the prompt; with no images it works as text-to-image through the same endpoint. Results are saved to generation history first. Use the history Add asset action when the result should enter the asset library.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `seedanceMode` plus first-frame, last-frame, reference image/video/audio fields on `/api/advanced/generate`.");
-  lines.push("", `Provider passthrough: Seedance accepts friendly fields on the Advanced body and also accepts provider-specific aliases in \`params\`. Fields such as \`model\`, \`image_url\`, \`end_image_url\`, \`generate_audio\`/\`generateAudio\`, \`reference_images\`/\`referenceImages\`, \`reference_videos\`/\`referenceVideos\`, \`reference_audios\`/\`referenceAudios\`, \`web_search\`/\`webSearch\`, \`watermark\`, \`seed\`, \`fps\`, \`camera_fixed\`, \`draft\`, and \`service_tier\` are forwarded or normalized into the upstream request. Omit \`model\` unless support gives a specific override. Standard Seedance maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`. Wan2.7 forwards \`params.input\` into DashScope \`input\` and \`params.parameters\` into DashScope \`parameters\`. Upstream decides whether each provider-specific field takes effect.`);
+  lines.push("", `Provider passthrough: Seedance accepts friendly fields on the Advanced body and also accepts provider-specific aliases in \`params\`. Fields such as \`model\`, \`image_url\`, \`end_image_url\`, \`generate_audio\`/\`generateAudio\`, \`reference_images\`/\`referenceImages\`, \`reference_videos\`/\`referenceVideos\`, \`reference_audios\`/\`referenceAudios\`, \`web_search\`/\`webSearch\`, \`watermark\`, \`seed\`, \`fps\`, \`camera_fixed\`, \`draft\`, and \`service_tier\` are forwarded or normalized into the upstream request. For Seedance, send \`model: "dreamina-seedance-2-0-260128"\` for standard or \`model: "dreamina-seedance-2-0-fast-260128"\` for fast. Standard maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`. Wan2.7 forwards \`params.input\` into DashScope \`input\` and \`params.parameters\` into DashScope \`parameters\`. Upstream decides whether each provider-specific field takes effect.`);
   lines.push("", "Billing: Advanced calls are pre-deducted before upstream submission. Failed submissions and failed tasks are refunded. Seedance duration must be a 4-15 second integer; fast 1080p is rejected before charging.");
   lines.push("", "Task query: calls made through `/api/advanced/generate` should poll `/api/generation-records/<taskId>`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
@@ -11529,6 +11538,7 @@ function seedanceAdvancedExampleMarkdown(docs) {
   const detailEndpoint = docs.endpoints.generationRecordDetail || `${docs.baseUrl}/api/generation-records/<taskId>`;
   const request = {
     provider: "seedance",
+    model: "dreamina-seedance-2-0-260128",
     prompt: "Use Image 1 as the character reference. Generate a cinematic 5 second shot, no subtitles, no watermark.",
     seedanceMode: "reference_images",
     referenceImages: [
@@ -11543,13 +11553,14 @@ function seedanceAdvancedExampleMarkdown(docs) {
   return [
     "## Seedance Through Advanced",
     "",
-    `Use \`/api/advanced/generate\` for new Seedance integrations. The service routes standard generation to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`, fast generation to \`${SEEDANCE_FAST_ENDPOINT_ID}\`, and keeps authentication, pre-deduction, history, and refunds internally.`,
+    `Use \`/api/advanced/generate\` for new Seedance integrations. Send \`model: "dreamina-seedance-2-0-260128"\` for standard or \`model: "dreamina-seedance-2-0-fast-260128"\` for fast. The service routes them to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\` and \`${SEEDANCE_FAST_ENDPOINT_ID}\`, and keeps authentication, pre-deduction, history, and refunds internally.`,
     "",
     "Routing values:",
     "",
     "- `provider`: `seedance`",
-    "- `seedanceTier`: `standard` or `fast` (optional)",
-    `- \`model\`: normally omitted. Standard maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`. Known Seedance aliases are accepted for compatibility and mapped to those nodes.`,
+    "- `model`: `dreamina-seedance-2-0-260128` or `dreamina-seedance-2-0-fast-260128`",
+    "- `seedanceTier`: `standard` or `fast` (optional; model aliases also select the route)",
+    `- Standard maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`.`,
     "",
     "Parameter ranges:",
     "",
@@ -11627,12 +11638,12 @@ function buildModelDocsMarkdown(docs) {
     "2. For Create/Advanced-style external generation, call `/api/advanced/generate`; it supports Seedance and Wan2.7 and returns `taskId`.",
     "3. Poll `/api/generation-records/<taskId>` for `/api/advanced/generate` tasks.",
     "4. Optional: upload a reusable image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
-    `5. For Seedance/Vipeak 2 video, call \`/api/advanced/generate\` with \`provider: "seedance"\`; omit \`model\` unless support gives a specific override. Standard maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`.`,
+    `5. For Seedance video, call \`/api/advanced/generate\` with \`provider: "seedance"\` and \`model: "dreamina-seedance-2-0-260128"\` for standard or \`model: "dreamina-seedance-2-0-fast-260128"\` for fast. Standard maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`.`,
     "6. For Wan2.7 image generation/editing, call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 images. The array order maps to Image 1, Image 2, and so on in the prompt.",
     "",
     "## Seedance Advanced Example",
     "",
-    "This is the Seedance/Vipeak 2 role-image flow through `/api/advanced/generate`.",
+    "This is the Seedance role-image flow through `/api/advanced/generate`.",
     "",
     markdownCodeBlock("http", [
       "POST /api/user-assets",
@@ -11657,6 +11668,7 @@ function buildModelDocsMarkdown(docs) {
       "",
       "{",
       '  "provider": "seedance",',
+      '  "model": "dreamina-seedance-2-0-260128",',
       '  "prompt": "Use Image 1 as the main character. Keep the same face, hairstyle, body shape, and outfit. Create a cinematic 5 second shot.",',
       '  "seedanceMode": "reference_images",',
       '  "referenceImages": [',
