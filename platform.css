@@ -3913,8 +3913,8 @@ select:focus,
   border-radius: 8px;
   background: #17171b;
 }
-.advanced-workspace.is-create-custom .advanced-form-card .section-head {
-  display: grid;
+.advanced-reference-summary {
+  display: none !important;
 }
 .advanced-workspace.is-create-custom .advanced-create-mode-tabs {
   display: none !important;
