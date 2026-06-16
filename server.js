@@ -380,6 +380,8 @@ const mimeTypes = new Map([
   [".css", "text/css; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".xml", "application/xml; charset=utf-8"],
   [".png", "image/png"],
   [".jpg", "image/jpeg"],
   [".jpeg", "image/jpeg"],
@@ -701,6 +703,22 @@ function sendText(res, statusCode, body) {
   res.end(body);
 }
 
+function sendHtml(res, statusCode, body, { cacheControl = "public, max-age=300" } = {}) {
+  res.writeHead(statusCode, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": cacheControl,
+  });
+  res.end(body);
+}
+
+function sendXml(res, statusCode, body, { cacheControl = "public, max-age=300" } = {}) {
+  res.writeHead(statusCode, {
+    "content-type": "application/xml; charset=utf-8",
+    "cache-control": cacheControl,
+  });
+  res.end(body);
+}
+
 function sendCsv(res, filename, body) {
   const safeName = String(filename || "export.csv").replace(/[^a-z0-9._-]/gi, "-") || "export.csv";
   res.writeHead(200, {
@@ -721,6 +739,19 @@ function csvRows(headers, rows) {
     headers.map(({ label }) => csvValue(label)).join(","),
     ...rows.map((row) => headers.map(({ key }) => csvValue(row[key])).join(",")),
   ].join("\n");
+}
+
+function htmlEscape(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function xmlEscape(value) {
+  return htmlEscape(value);
 }
 
 function requestCountryCode(req) {
@@ -1176,6 +1207,431 @@ function publicConfig(config, origin = "", auth = null) {
         return publicScene;
       }),
   };
+}
+
+function compactPlainText(value = "", maxLength = 220) {
+  const text = String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!maxLength || text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
+}
+
+function slugSegment(value = "", fallback = "item") {
+  return String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 140) || fallback;
+}
+
+function siteBrandFromConfig(config = {}) {
+  return String(config.platform?.brand || DEFAULT_CONFIG.platform.brand || "Vipeak AI").trim() || "Vipeak AI";
+}
+
+function characterPublicPath(item = {}) {
+  return `/characters/${encodeURIComponent(slugSegment(item.id || item.sourceDisplayId || item.name, "character"))}`;
+}
+
+function characterPosterForGeo(item = {}) {
+  return String(
+    item.posterUrl ||
+      item.localImageUrl ||
+      item.syntheticReferenceLocalUrl ||
+      item.sourceImageUrl ||
+      item.publicImageUrl ||
+      item.coverUrl ||
+      item.thumbnailUrl ||
+      "/assets/admin/home/default-hero.jpg"
+  ).trim();
+}
+
+function characterTagsForGeo(item = {}, max = 10) {
+  return (Array.isArray(item.tags) ? item.tags : [])
+    .map((tag) => compactPlainText(tag, 32))
+    .filter(Boolean)
+    .filter((tag, index, list) => list.indexOf(tag) === index)
+    .slice(0, max);
+}
+
+function characterSummaryForGeo(item = {}) {
+  const parts = [
+    item.description,
+    item.title,
+    characterTagsForGeo(item, 5).join(", "),
+    item.style,
+  ].filter(Boolean);
+  return compactPlainText(parts.join(". "), 240) || "Explore this AI character profile and preview the available video scenes.";
+}
+
+function publicCharacterVideosForGeo(item = {}) {
+  return publicCharacterVideoList(item).map(({ key, entry }, index) => ({
+    key,
+    title: compactPlainText(entry.title || entry.sceneEntryName || entry.sceneName || `Video ${index + 1}`, 90),
+    sceneId: entry.sceneId || sceneIdFromVideoKey(key) || "",
+    sceneEntryId: entry.sceneEntryId || "default",
+    posterUrl: String(entry.posterUrl || entry.coverUrl || entry.thumbnailUrl || characterPosterForGeo(item)).trim(),
+    duration: Number(entry.duration || item.duration || 0),
+    locked: index > 0,
+  }));
+}
+
+async function geoSiteSnapshot(req) {
+  const origin = publicOriginFromRequest(req);
+  const config = await readAppConfig();
+  const platform = normalizePlatformConfig(config.platform || {});
+  const homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const characters = (homeVideo.items || [])
+    .filter((item) => item && !isSoftDeleted(item))
+    .map((item) => ({
+      ...item,
+      geoPath: characterPublicPath(item),
+      geoUrl: scopedApiUrl(origin, characterPublicPath(item)),
+      geoPoster: characterPosterForGeo(item),
+      geoSummary: characterSummaryForGeo(item),
+      geoTags: characterTagsForGeo(item),
+      geoVideos: publicCharacterVideosForGeo(item),
+    }));
+  return { origin, config, platform, brand: siteBrandFromConfig(config), homeVideo, characters };
+}
+
+function homeDescriptionForGeo(platform = {}) {
+  return compactPlainText(
+    platform.heroSubtitle ||
+      platform.notice ||
+      "Create AI character videos, browse public character profiles, and generate video scenes through the advanced API.",
+    170,
+  );
+}
+
+function jsonLdScript(data) {
+  return `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>`;
+}
+
+function geoMetaTags({ title, description, url, image, type = "website", jsonLd = [] }) {
+  const imageTag = image ? `
+    <meta property="og:image" content="${htmlEscape(image)}" />
+    <meta name="twitter:image" content="${htmlEscape(image)}" />` : "";
+  const ld = (Array.isArray(jsonLd) ? jsonLd : [jsonLd]).filter(Boolean).map(jsonLdScript).join("\n    ");
+  return `
+    <title>${htmlEscape(title)}</title>
+    <meta name="description" content="${htmlEscape(description)}" />
+    <meta name="robots" content="index,follow,max-image-preview:large,max-video-preview:30,max-snippet:-1" />
+    <link rel="canonical" href="${htmlEscape(url)}" />
+    <meta property="og:type" content="${htmlEscape(type)}" />
+    <meta property="og:title" content="${htmlEscape(title)}" />
+    <meta property="og:description" content="${htmlEscape(description)}" />
+    <meta property="og:url" content="${htmlEscape(url)}" />${imageTag}
+    <meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}" />
+    <meta name="twitter:title" content="${htmlEscape(title)}" />
+    <meta name="twitter:description" content="${htmlEscape(description)}" />
+    ${ld}`;
+}
+
+function injectPlatformGeoHead(html = "", snapshot) {
+  const { origin, brand, platform, characters } = snapshot;
+  const canonical = scopedApiUrl(origin, "/");
+  const description = homeDescriptionForGeo(platform);
+  const image = characters[0]?.geoPoster ? absoluteUrlFromBase(characters[0].geoPoster, origin) : "";
+  const title = `${brand} | AI Character Video Generator`;
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: brand,
+      url: canonical,
+      description,
+      potentialAction: {
+        "@type": "SearchAction",
+        target: `${canonical}?q={search_term_string}`,
+        "query-input": "required name=search_term_string",
+      },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: brand,
+      applicationCategory: "MultimediaApplication",
+      operatingSystem: "Web",
+      url: canonical,
+      description,
+      offers: {
+        "@type": "Offer",
+        priceCurrency: "USD",
+      },
+    },
+  ];
+  const tags = geoMetaTags({ title, description, url: canonical, image, jsonLd });
+  const withoutTitle = html.replace(/<title>[\s\S]*?<\/title>/i, "");
+  return withoutTitle.replace(/<\/head>/i, `${tags}\n  </head>`);
+}
+
+function renderCharacterGeoHtml(snapshot, item = {}) {
+  const { origin, brand } = snapshot;
+  const url = scopedApiUrl(origin, characterPublicPath(item));
+  const poster = absoluteUrlFromBase(characterPosterForGeo(item), origin);
+  const name = compactPlainText(item.name || item.title || "AI Character", 90);
+  const title = `${name} | ${brand}`;
+  const description = characterSummaryForGeo(item);
+  const tags = characterTagsForGeo(item, 12);
+  const videos = publicCharacterVideosForGeo(item);
+  const videoLd = videos.map((video, index) => ({
+    "@type": "VideoObject",
+    name: video.title || `${name} video ${index + 1}`,
+    description: `${name} preview scene ${index + 1}.`,
+    thumbnailUrl: [absoluteUrlFromBase(video.posterUrl || characterPosterForGeo(item), origin)].filter(Boolean),
+    uploadDate: item.createdAt || new Date().toISOString(),
+    isAccessibleForFree: index === 0,
+  }));
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "ProfilePage",
+      name: title,
+      url,
+      description,
+      primaryImageOfPage: poster ? { "@type": "ImageObject", url: poster } : undefined,
+      mainEntity: {
+        "@type": "Person",
+        name,
+        description,
+        image: poster || undefined,
+        knowsAbout: tags,
+      },
+      hasPart: videoLd,
+    },
+    ...videoLd.map((video) => ({ "@context": "https://schema.org", ...video })),
+  ];
+  const videoCards = videos.length ? videos.map((video, index) => `
+          <article class="video-card">
+            <img src="${htmlEscape(absoluteUrlFromBase(video.posterUrl || characterPosterForGeo(item), origin))}" alt="${htmlEscape(video.title || `${name} video`)}" loading="lazy" />
+            <div>
+              <strong>${htmlEscape(video.title || `Video ${index + 1}`)}</strong>
+              <span>${index === 0 ? "Preview available after sign in" : "Unlock in app"}</span>
+            </div>
+          </article>`).join("") : `<p class="muted">No public video previews are configured yet.</p>`;
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    ${geoMetaTags({ title, description, url, image: poster, type: "profile", jsonLd })}
+    <style>
+      :root { color-scheme: dark; --bg:#0b0b0f; --panel:#15151d; --line:rgba(255,255,255,.12); --ink:#f7f4fb; --muted:#aaa3b6; --pink:#ff45aa; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#0b0b0f; color:var(--ink); }
+      main { width:min(1120px, calc(100% - 32px)); margin:0 auto; padding:32px 0 56px; }
+      a { color:inherit; text-decoration:none; }
+      .back { display:inline-flex; margin-bottom:18px; color:var(--muted); font-weight:700; }
+      .hero { display:grid; grid-template-columns:minmax(240px, 360px) minmax(0, 1fr); gap:28px; align-items:end; }
+      .hero img { width:100%; aspect-ratio:9/13; object-fit:cover; border-radius:18px; border:1px solid var(--line); background:#222; }
+      .eyebrow { color:var(--pink); text-transform:uppercase; letter-spacing:.16em; font-size:12px; font-weight:900; }
+      h1 { margin:.2em 0; font-size:clamp(36px, 6vw, 72px); line-height:.95; }
+      p { color:var(--muted); line-height:1.7; font-size:16px; }
+      .tags { display:flex; gap:8px; flex-wrap:wrap; margin:18px 0; }
+      .tags span { padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.06); color:#ddd7e8; font-weight:700; font-size:13px; }
+      .cta { display:inline-flex; align-items:center; justify-content:center; min-height:46px; padding:0 20px; border-radius:999px; background:var(--pink); color:white; font-weight:900; }
+      .videos { margin-top:34px; display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:14px; }
+      .video-card { overflow:hidden; border:1px solid var(--line); border-radius:16px; background:var(--panel); }
+      .video-card img { width:100%; aspect-ratio:9/13; object-fit:cover; display:block; }
+      .video-card div { padding:12px; display:grid; gap:4px; }
+      .video-card span, .muted { color:var(--muted); font-size:13px; }
+      @media (max-width: 760px) { .hero { grid-template-columns:1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back" href="/">Back to ${htmlEscape(brand)}</a>
+      <section class="hero">
+        <img src="${htmlEscape(poster)}" alt="${htmlEscape(name)}" />
+        <div>
+          <div class="eyebrow">Character Profile</div>
+          <h1>${htmlEscape(name)}</h1>
+          <p>${htmlEscape(description)}</p>
+          ${tags.length ? `<div class="tags">${tags.map((tag) => `<span>${htmlEscape(tag)}</span>`).join("")}</div>` : ""}
+          <a class="cta" href="/#gallery">Open in app</a>
+        </div>
+      </section>
+      <section class="videos" aria-label="Video previews">
+        ${videoCards}
+      </section>
+    </main>
+  </body>
+</html>`;
+}
+
+function buildRobotsTxt(snapshot) {
+  return [
+    "User-agent: *",
+    "Allow: /",
+    "Disallow: /api/",
+    "Disallow: /admin.html",
+    "Disallow: /assets/user-uploads/",
+    `Sitemap: ${scopedApiUrl(snapshot.origin, "/sitemap.xml")}`,
+    "",
+  ].join("\n");
+}
+
+function sitemapEntryXml({ loc, lastmod, changefreq = "weekly", priority = "0.7", image }) {
+  const imageXml = image ? `
+    <image:image>
+      <image:loc>${xmlEscape(image)}</image:loc>
+    </image:image>` : "";
+  return `  <url>
+    <loc>${xmlEscape(loc)}</loc>
+    <lastmod>${xmlEscape(lastmod || new Date().toISOString())}</lastmod>
+    <changefreq>${xmlEscape(changefreq)}</changefreq>
+    <priority>${xmlEscape(priority)}</priority>${imageXml}
+  </url>`;
+}
+
+function buildSitemapXml(snapshot) {
+  const now = new Date().toISOString();
+  const entries = [
+    sitemapEntryXml({ loc: scopedApiUrl(snapshot.origin, "/"), lastmod: now, changefreq: "daily", priority: "1.0" }),
+    sitemapEntryXml({ loc: scopedApiUrl(snapshot.origin, "/llms.txt"), lastmod: now, changefreq: "weekly", priority: "0.4" }),
+    ...snapshot.characters.map((item) => sitemapEntryXml({
+      loc: item.geoUrl,
+      lastmod: item.updatedAt || item.createdAt || now,
+      changefreq: "weekly",
+      priority: "0.8",
+      image: absoluteUrlFromBase(item.geoPoster, snapshot.origin),
+    })),
+  ];
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+${entries.join("\n")}
+</urlset>
+`;
+}
+
+function buildLlmsTxt(snapshot, { full = false } = {}) {
+  const description = homeDescriptionForGeo(snapshot.platform);
+  const topCharacters = snapshot.characters.slice(0, full ? 30 : 8);
+  const lines = [
+    `# ${snapshot.brand}`,
+    "",
+    `> ${description}`,
+    "",
+    "## Core URLs",
+    `- Home: ${scopedApiUrl(snapshot.origin, "/")}`,
+    `- Sitemap: ${scopedApiUrl(snapshot.origin, "/sitemap.xml")}`,
+    `- Character library: ${scopedApiUrl(snapshot.origin, "/#gallery")}`,
+    `- Create workspace: ${scopedApiUrl(snapshot.origin, "/#advanced")}`,
+    `- API guide: ${scopedApiUrl(snapshot.origin, "/#access")}`,
+    "",
+    "## API",
+    "- Primary generation endpoint: POST /api/advanced/generate",
+    "- Query generation records: GET /api/generation-records/<taskId>",
+    "- Public model guide: GET /models.md",
+    "- API clients should use the public platform endpoint and should not call upstream vendor task routes directly.",
+    "",
+    "## Content",
+    `- Public character profiles: ${snapshot.characters.length}`,
+    `- Public character videos listed: ${snapshot.characters.reduce((sum, item) => sum + item.geoVideos.length, 0)}`,
+    "",
+    "## Featured Characters",
+    ...topCharacters.map((item) => `- ${item.name || item.title || item.id}: ${item.geoUrl} - ${compactPlainText(item.geoSummary, full ? 180 : 110)}`),
+  ];
+  if (full) {
+    lines.push(
+      "",
+      "## GEO Notes",
+      "- The site exposes robots.txt, sitemap.xml, llms.txt, structured home metadata, and structured character profile pages.",
+      "- Character pages include ProfilePage and VideoObject structured data for AI/search understanding.",
+      "- Some videos require login or unlock in the application; public profile pages expose previews and metadata only.",
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+async function servePlatformHtmlWithGeo(req, res) {
+  const filePath = path.join(ROOT, "platform.html");
+  const html = await fs.readFile(filePath, "utf8");
+  const snapshot = await geoSiteSnapshot(req);
+  return sendHtml(res, 200, injectPlatformGeoHead(html, snapshot), { cacheControl: "no-cache" });
+}
+
+async function handleRobotsTxt(req, res) {
+  const snapshot = await geoSiteSnapshot(req);
+  return sendText(res, 200, buildRobotsTxt(snapshot));
+}
+
+async function handleSitemapXml(req, res) {
+  const snapshot = await geoSiteSnapshot(req);
+  return sendXml(res, 200, buildSitemapXml(snapshot));
+}
+
+async function handleLlmsTxt(req, res, { full = false } = {}) {
+  const snapshot = await geoSiteSnapshot(req);
+  return sendText(res, 200, buildLlmsTxt(snapshot, { full }));
+}
+
+async function handleCharacterGeoPage(req, res, characterId) {
+  const snapshot = await geoSiteSnapshot(req);
+  const decoded = decodeURIComponent(String(characterId || ""));
+  const item = snapshot.characters.find((candidate) => (
+    slugSegment(candidate.id) === decoded ||
+    slugSegment(candidate.sourceDisplayId) === decoded ||
+    slugSegment(candidate.name) === decoded ||
+    String(candidate.id || "") === decoded
+  ));
+  if (!item) return sendText(res, 404, "Character not found");
+  return sendHtml(res, 200, renderCharacterGeoHtml(snapshot, item));
+}
+
+async function handleAdminGeoReport(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const snapshot = await geoSiteSnapshot(req);
+  const sampleCharacter = snapshot.characters[0] || null;
+  const endpoints = [
+    { id: "home", label: "Home metadata", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: ["application/ld+json", "canonical", snapshot.brand] },
+    { id: "robots", label: "robots.txt", path: "/robots.txt", url: scopedApiUrl(snapshot.origin, "/robots.txt"), expect: ["Sitemap:", "/sitemap.xml"] },
+    { id: "sitemap", label: "sitemap.xml", path: "/sitemap.xml", url: scopedApiUrl(snapshot.origin, "/sitemap.xml"), expect: ["<urlset", "/characters/"] },
+    { id: "llms", label: "llms.txt", path: "/llms.txt", url: scopedApiUrl(snapshot.origin, "/llms.txt"), expect: [snapshot.brand, "/api/advanced/generate"] },
+    { id: "llms-full", label: "llms-full.txt", path: "/llms-full.txt", url: scopedApiUrl(snapshot.origin, "/llms-full.txt"), expect: ["GEO Notes", "VideoObject"] },
+  ];
+  if (sampleCharacter) {
+    endpoints.push({
+      id: "character",
+      label: "Sample character page",
+      path: sampleCharacter.geoPath,
+      url: sampleCharacter.geoUrl,
+      expect: ["ProfilePage", "VideoObject", sampleCharacter.name || sampleCharacter.id],
+    });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    baseUrl: snapshot.origin,
+    brand: snapshot.brand,
+    summary: {
+      characterCount: snapshot.characters.length,
+      videoCount: snapshot.characters.reduce((sum, item) => sum + item.geoVideos.length, 0),
+      sitemapUrlCount: 2 + snapshot.characters.length,
+      llmsUrl: scopedApiUrl(snapshot.origin, "/llms.txt"),
+      sitemapUrl: scopedApiUrl(snapshot.origin, "/sitemap.xml"),
+    },
+    checks: endpoints,
+    sampleCharacters: snapshot.characters.slice(0, 12).map((item) => ({
+      id: item.id,
+      name: item.name || item.title || item.id,
+      path: item.geoPath,
+      url: item.geoUrl,
+      posterUrl: absoluteUrlFromBase(item.geoPoster, snapshot.origin),
+      videoCount: item.geoVideos.length,
+      tags: item.geoTags,
+      summary: item.geoSummary,
+    })),
+    recommendations: [
+      "Keep character names, summaries, tags, and poster images descriptive.",
+      "Run this GEO check after importing a new character batch or changing the domain.",
+      "Avoid exposing upstream vendor routes in public API copy; keep /api/advanced/generate as the documented entry.",
+    ],
+  });
 }
 
 function normalizePlatformTemplate(template = {}, index = 0) {
@@ -5639,6 +6095,7 @@ async function submitWan27ImageModify({
   model = WAN27_IMAGE_PRO_MODEL,
   input = {},
   parameters = {},
+  waitForResult = true,
 } = {}) {
   const orderedImages = arrayFromBody(imageUrls).map((item) => String(item || "").trim()).filter(Boolean);
   if (!orderedImages.length && imageUrl) orderedImages.push(String(imageUrl || "").trim());
@@ -5677,7 +6134,7 @@ async function submitWan27ImageModify({
     body: payload,
     asyncTask: true,
   });
-  return { task: await resolveWan27ImageResult(raw), payload, raw };
+  return { task: waitForResult ? await resolveWan27ImageResult(raw) : normalizeWan27ImageTask(raw), payload, raw };
 }
 
 async function submitWan27ImageTextGenerate({
@@ -5778,20 +6235,22 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
   }, reason);
 }
 
-async function refreshGatewayImageGenerationRecord(record = {}, { reason = "gateway-image-query" } = {}) {
+async function refreshWan27ImageGenerationRecord(record = {}, { reason = "query" } = {}) {
   const queryTaskId = record.upstreamTaskId || record.taskId;
   if (!queryTaskId) return record;
-  const payload = await gatewayRequest("GET", `/api/generation-records/${encodeURIComponent(queryTaskId)}`);
-  const imageTask = gatewayImageTaskFromPayload(payload);
-  const imageUrl = imageTask.imageUrls[0] || record.remoteImageUrl || "";
-  const failed = isFailedStatus(imageTask.status);
+  const raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
+    method: "GET",
+  });
+  const task = normalizeWan27ImageTask(raw);
+  const imageUrl = task.imageUrls[0] || record.remoteImageUrl || "";
+  const failed = isFailedStatus(task.status);
   if (!imageUrl && !failed) {
     return updateAssetImageModifyRecord(record.taskId, {
-      upstreamTaskId: imageTask.taskId || queryTaskId,
-      status: imageTask.status || record.status || "running",
+      upstreamTaskId: task.taskId || queryTaskId,
+      status: task.status || record.status || "running",
       awaitingUpstreamTask: true,
-      queryResponse: imageTask.raw || payload,
-      error: imageTask.error || "",
+      queryResponse: raw,
+      error: task.error || "",
     }, reason);
   }
   if (failed && !imageUrl) {
@@ -5800,25 +6259,25 @@ async function refreshGatewayImageGenerationRecord(record = {}, { reason = "gate
         const db = await readDb();
         await changeUserCredits(db, record.userId, Number(record.preDeductedCredits || 0), "asset_image_modify_refund", {
           taskId: record.taskId,
-          error: imageTask.error || "Wan2.7 image edit failed.",
+          error: task.error || "Wan2.7 image edit failed.",
         });
         await recordSubtokenAdjustment(record, {
           taskId: record.taskId,
           type: "asset_image_modify_refund",
           amount: -Number(record.preDeductedCredits || 0),
-          meta: { error: imageTask.error || "Wan2.7 image edit failed." },
+          meta: { error: task.error || "Wan2.7 image edit failed." },
         });
         if (!dbEnabled()) await writeDb(db);
       } catch (refundError) {
-        console.error("[gateway-image-refresh-refund-failed]", record.taskId, refundError.message || refundError);
+        console.error("[wan27-image-edit-refresh-refund-failed]", record.taskId, refundError.message || refundError);
       }
     }
     return updateAssetImageModifyRecord(record.taskId, {
-      upstreamTaskId: imageTask.taskId || queryTaskId,
+      upstreamTaskId: task.taskId || queryTaskId,
       status: "failed",
       awaitingUpstreamTask: false,
-      queryResponse: imageTask.raw || payload,
-      error: imageTask.error || "Wan2.7 image edit failed.",
+      queryResponse: raw,
+      error: task.error || "Wan2.7 image edit failed.",
       finalCredits: 0,
       originalFinalCredits: 0,
       billingStatus: Number(record.preDeductedCredits || 0) > 0 ? "refunded" : "free",
@@ -5833,16 +6292,16 @@ async function refreshGatewayImageGenerationRecord(record = {}, { reason = "gate
     savedImage = await saveGeneratedImageFile(record.taskId, downloaded.bytes, mime);
   }
   return updateAssetImageModifyRecord(record.taskId, {
-    upstreamTaskId: imageTask.taskId || queryTaskId,
+    upstreamTaskId: task.taskId || queryTaskId,
     status: "succeeded",
     awaitingUpstreamTask: false,
-    imageResultUrl: savedImage?.cdnImageUrl || savedImage?.localImageUrl || record.imageResultUrl || record.localImageUrl || imageUrl,
+    imageResultUrl: savedImage?.cdnImageUrl || savedImage?.localImageUrl || record.imageResultUrl || record.localImageUrl || "",
     localImageUrl: savedImage?.localImageUrl || record.localImageUrl || "",
     localImagePath: savedImage?.localImagePath || record.localImagePath || "",
     cdnImageUrl: savedImage?.cdnImageUrl || record.cdnImageUrl || "",
     cdnError: savedImage?.cdnError || record.cdnError || "",
     remoteImageUrl: imageUrl,
-    queryResponse: imageTask.raw || payload,
+    queryResponse: raw,
     finalCredits: record.preDeductedCredits || record.finalCredits || 0,
     originalFinalCredits: record.originalPreDeductedCredits || record.originalFinalCredits || 0,
     billingStatus: Number(record.preDeductedCredits || 0) > 0 ? "settled" : "free",
@@ -8031,15 +8490,6 @@ async function refreshGenerationRecordStatus(record = {}) {
       return record;
     }
   }
-  if (record.provider === "aliyun-wan27-image" && record.upstreamSource === "gateway") {
-    if (!shouldRefreshGenerationRecord(record)) return record;
-    try {
-      return await refreshGatewayImageGenerationRecord(record, { reason: "gateway-image-query" });
-    } catch (error) {
-      console.warn("[gateway-image-generation-record-refresh-failed]", record.taskId, error.message || error);
-      return record;
-    }
-  }
   if (record.upstreamSource === "gateway") {
     if (!shouldRefreshGenerationRecord(record)) return record;
     try {
@@ -8091,6 +8541,15 @@ async function refreshGenerationRecordStatus(record = {}) {
           originalFinalCredits: 0,
         }, "wan27-missing-resource");
       }
+      return record;
+    }
+  }
+  if (record.provider === "aliyun-wan27-image") {
+    if (!ALIYUN_DASHSCOPE_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+    try {
+      return await refreshWan27ImageGenerationRecord(record, { reason: "query" });
+    } catch (error) {
+      console.warn("[wan27-image-generation-record-refresh-failed]", record.taskId, error.message || error);
       return record;
     }
   }
@@ -8733,53 +9192,6 @@ async function gatewaySubmitPlatformTask(body = {}) {
 async function gatewaySubmitAdvancedTask(body = {}) {
   const payload = await gatewayRequest("POST", "/api/advanced/generate", body);
   return gatewayTaskFromPayload(payload);
-}
-
-async function gatewayAdvancedEstimate(provider = "seedance", body = {}) {
-  const payload = await gatewayRequest("POST", "/api/advanced/estimate", {
-    ...plainObject(body),
-    provider,
-  });
-  return payload.pricing || payload.estimate || payload;
-}
-
-function gatewayImageTaskFromPayload(payload = {}) {
-  const record = payload.record || payload.data?.record || {};
-  const task = payload.task || payload.data?.task || record || payload;
-  const imageUrls = [
-    payload.imageUrl,
-    payload.image_url,
-    payload.data?.imageUrl,
-    payload.data?.image_url,
-    record.imageResultUrl,
-    record.localImageUrl,
-    record.cdnImageUrl,
-    record.remoteImageUrl,
-    task.imageResultUrl,
-    task.localImageUrl,
-    task.cdnImageUrl,
-    task.remoteImageUrl,
-    ...collectOutputImageUrls(payload),
-  ].filter(Boolean);
-  return {
-    taskId: record.taskId || task.taskId || payload.taskId || payload.data?.taskId || "",
-    upstreamTaskId: record.upstreamTaskId || task.upstreamTaskId || "",
-    status: record.status || task.status || (imageUrls.length ? "succeeded" : "submitted"),
-    imageUrls: [...new Set(imageUrls.map((url) => absoluteUrlFromBase(url, UPSTREAM_BASE_URL)))],
-    error: record.error || task.error || payload.error || "",
-    record,
-    raw: payload,
-  };
-}
-
-async function gatewaySubmitCharacterImageTask(body = {}) {
-  const payload = await gatewayRequest("POST", "/api/characters/generate", body);
-  return gatewayImageTaskFromPayload(payload);
-}
-
-async function gatewaySubmitWan27ImageEditTask(body = {}) {
-  const payload = await gatewayRequest("POST", "/api/wan27/image-edit", body);
-  return gatewayImageTaskFromPayload(payload);
 }
 
 async function gatewayQueryTask(taskId) {
@@ -13377,7 +13789,7 @@ async function systemCharacterImageUrl(item = {}) {
 async function handleGenerateUserCharacterImage(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
+  if (!ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
   }
   const body = await readJson(req);
@@ -13447,35 +13859,21 @@ async function handleGenerateUserCharacterImage(req, res) {
   }
 
   try {
-    const gatewayBody = {
-      ...plainObject(body),
-      prompt: userPrompt,
-      imageUrls: [],
-      params: {
-        ...plainObject(body.params),
-        ...exposedWan27ImageParams(imageOptions),
-        input: imageOptions.input,
-        parameters: imageOptions.parameters,
-        finalPrompt: prompt,
-      },
-    };
-    const submitted = USE_GATEWAY_UPSTREAM
-      ? { task: await gatewaySubmitCharacterImageTask(gatewayBody), payload: gatewayBody, raw: null }
-      : await submitWan27ImageTextGenerate({
-          prompt,
-          ratio,
-          resolution,
-          model,
-          input: imageOptions.input,
-          parameters: imageOptions.parameters,
-        });
+    const submitted = await submitWan27ImageTextGenerate({
+      prompt,
+      ratio,
+      resolution,
+      model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+    });
     const imageUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
       awaitingUpstreamTask: false,
       status: imageUrl ? (submitted.task.status || "succeeded") : "failed",
       upstreamPayload: submitted.payload,
-      createResponse: submitted.raw || submitted.task.raw || null,
+      createResponse: submitted.raw,
       remoteImageUrl: imageUrl || "",
       error: imageUrl ? "" : (submitted.task.error || "Wan2.7 character image returned no image."),
     }, "character-image-submit");
@@ -13556,7 +13954,7 @@ async function handleGenerateUserCharacterImage(req, res) {
 async function handleModifySystemCharacterImage(req, res, characterId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) return sendJson(res, 503, { ok: false, message: "DashScope API key is not configured." });
+  if (!ALIYUN_DASHSCOPE_API_KEY) return sendJson(res, 503, { ok: false, message: "DashScope API key is not configured." });
   const config = await readAppConfig();
   config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const character = findHomeVideoItem(config.homeVideo, characterId);
@@ -13639,37 +14037,22 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
 
   try {
     const publicSourceUrl = /^https?:\/\//i.test(imageUrl) ? imageUrl : publicUrlForAssetPath(imageUrl);
-    const gatewayBody = {
-      ...plainObject(body),
-      mode,
-      prompt: displayPrompt,
-      imageUrls: [publicSourceUrl],
-      params: {
-        ...plainObject(body.params),
-        ...exposedWan27ImageParams(imageOptions),
-        input: imageOptions.input,
-        parameters: imageOptions.parameters,
-        finalPrompt: prompt,
-      },
-    };
-    const submitted = USE_GATEWAY_UPSTREAM
-      ? { task: await gatewaySubmitWan27ImageEditTask(gatewayBody), payload: gatewayBody, raw: null }
-      : await submitWan27ImageModify({
-          imageUrl: publicSourceUrl,
-          prompt,
-          ratio,
-          resolution,
-          model,
-          input: imageOptions.input,
-          parameters: imageOptions.parameters,
-        });
+    const submitted = await submitWan27ImageModify({
+      imageUrl: publicSourceUrl,
+      prompt,
+      ratio,
+      resolution,
+      model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+    });
     const resultUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
       awaitingUpstreamTask: false,
       status: resultUrl ? (submitted.task.status || "succeeded") : "failed",
       upstreamPayload: submitted.payload,
-      createResponse: submitted.raw || submitted.task.raw || null,
+      createResponse: submitted.raw,
       remoteImageUrl: resultUrl || "",
       error: resultUrl ? "" : (submitted.task.error || "Wan2.7 character modify returned no image."),
     }, "character-image-modify-submit");
@@ -13771,10 +14154,21 @@ function imageEditAssetIdsFromBody(body = {}) {
   return ids.map((value) => String(value || "").trim()).filter(Boolean);
 }
 
+function imageEditUrlsFromBody(body = {}) {
+  const urls = [];
+  for (const key of ["imageUrls", "image_urls", "sourceImageUrls", "source_image_urls", "referenceImageUrls", "reference_image_urls"]) {
+    if (body[key] !== undefined && body[key] !== null && body[key] !== "") urls.push(...arrayFromBody(body[key]));
+  }
+  for (const key of ["imageUrl", "image_url", "sourceImageUrl", "source_image_url", "referenceImageUrl", "reference_image_url"]) {
+    if (body[key] !== undefined && body[key] !== null && body[key] !== "") urls.push(...arrayFromBody(body[key]));
+  }
+  return [...new Set(urls.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
 async function handleWan27ImageEdit(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
+  if (!ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
   }
 
@@ -13783,8 +14177,14 @@ async function handleWan27ImageEdit(req, res) {
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   const bodyParams = requestParamsFromBody(body);
   const mergedBody = { ...bodyParams, ...body };
+  const asyncResponse = boolFromRequest(firstPresent(mergedBody.async, mergedBody.asyncResponse, mergedBody.returnImmediately), false);
   const assetIds = imageEditAssetIdsFromBody(mergedBody);
-  if (assetIds.length > 9) {
+  const externalImageUrls = imageEditUrlsFromBody(mergedBody);
+  const invalidExternalImageUrl = externalImageUrls.find((url) => !isPublicHttpUrl(url));
+  if (invalidExternalImageUrl) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_IMAGE_URL", message: "Wan2.7 image URLs must be public http(s) URLs." });
+  }
+  if (assetIds.length + externalImageUrls.length > 9) {
     return sendJson(res, 400, { ok: false, code: "TOO_MANY_IMAGES", message: "Wan2.7 image edit supports 0 to 9 input images." });
   }
 
@@ -13818,7 +14218,10 @@ async function handleWan27ImageEdit(req, res) {
   }
 
   const taskId = localGenerationTaskId("img");
-  const previewUrls = sourceAssets.map((asset) => asset.localUrl || asset.publicUrl || "");
+  const previewUrls = [
+    ...sourceAssets.map((asset) => asset.localUrl || asset.publicUrl || ""),
+    ...externalImageUrls,
+  ];
   const initialRecord = {
     taskId,
     status: "submitting",
@@ -13837,8 +14240,8 @@ async function handleWan27ImageEdit(req, res) {
     finalPrompt: prompt,
     params: {
       provider: "wan27-image",
-      action: sourceAssets.length ? "image_edit" : "text_to_image",
-      imageCount: sourceAssets.length,
+      action: previewUrls.length ? "image_edit" : "text_to_image",
+      imageCount: previewUrls.length,
       ...exposedWan27ImageParams(imageOptions),
     },
     ratio,
@@ -13872,10 +14275,11 @@ async function handleWan27ImageEdit(req, res) {
       meta: {
         taskId,
         assetIds: sourceAssets.map((asset) => asset.id),
+        externalImageCount: externalImageUrls.length,
         model,
         ratio,
         resolution,
-        imageCount: sourceAssets.length,
+        imageCount: previewUrls.length,
         baseCredits: pricing.baseCredits,
         originalCost: pricing.originalCredits,
         pricingMultiplier: pricing.userPricingMultiplier,
@@ -13887,26 +14291,24 @@ async function handleWan27ImageEdit(req, res) {
     if (!dbEnabled()) await writeDb(auth.db);
   }
 
-  try {
+  const runWan27ImageEditTask = async ({ waitForResult = true } = {}) => {
     const preparedAssets = [];
-    if (USE_GATEWAY_UPSTREAM) {
-      preparedAssets.push(...sourceAssets);
-    } else {
-      for (const asset of sourceAssets) {
-        preparedAssets.push(await ensurePublicUrlForUserMediaAsset(auth.db, asset));
-      }
+    for (const asset of sourceAssets) {
+      preparedAssets.push(await ensurePublicUrlForUserMediaAsset(auth.db, asset));
     }
-    const publicImageUrls = preparedAssets.map((asset) => (
-      USE_GATEWAY_UPSTREAM
-        ? publicUrlForLocalAsset(asset)
-        : (asset.publicUrl || publicUrlForLocalAsset(asset))
-    )).filter(Boolean);
-    if (publicImageUrls.length !== sourceAssets.length) {
+    const publicImageUrls = [
+      ...preparedAssets.map((asset) => asset.publicUrl || publicUrlForLocalAsset(asset)).filter(Boolean),
+      ...externalImageUrls,
+    ];
+    if (publicImageUrls.length !== sourceAssets.length + externalImageUrls.length) {
       const error = new Error("Failed to prepare all source images for Wan2.7 image edit.");
       error.statusCode = 502;
       throw error;
     }
-    const referenceUrls = preparedAssets.map((asset) => asset.localUrl || asset.publicUrl || "");
+    const referenceUrls = [
+      ...preparedAssets.map((asset) => asset.localUrl || asset.publicUrl || ""),
+      ...externalImageUrls,
+    ];
     await updateAssetImageModifyRecord(taskId, {
       imageUrl: referenceUrls[0] || "",
       imageUrls: referenceUrls,
@@ -13914,60 +14316,28 @@ async function handleWan27ImageEdit(req, res) {
       sourceImageUrls: referenceUrls,
       status: "running",
     }, "wan27-image-edit-references-ready");
-    const gatewayBody = {
-      ...plainObject(body),
-      prompt,
-      imageAssetIds: [],
+    const submitted = await submitWan27ImageModify({
       imageUrls: publicImageUrls,
-      async: true,
-      params: {
-        ...plainObject(body.params),
-        ...exposedWan27ImageParams(imageOptions),
-        input: imageOptions.input,
-        parameters: imageOptions.parameters,
-      },
-    };
-    const submitted = USE_GATEWAY_UPSTREAM
-      ? { task: await gatewaySubmitWan27ImageEditTask(gatewayBody), payload: gatewayBody, raw: null }
-      : await submitWan27ImageModify({
-          imageUrls: publicImageUrls,
-          prompt,
-          ratio,
-          resolution,
-          model,
-          input: imageOptions.input,
-          parameters: imageOptions.parameters,
-        });
+      prompt,
+      ratio,
+      resolution,
+      model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+      waitForResult,
+    });
     const imageUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
       awaitingUpstreamTask: !imageUrl && !isFailedStatus(submitted.task.status),
       status: imageUrl ? (submitted.task.status || "succeeded") : (submitted.task.status || "running"),
       upstreamPayload: submitted.payload,
-      createResponse: submitted.raw || submitted.task.raw || null,
+      createResponse: submitted.raw,
       remoteImageUrl: imageUrl || "",
       error: imageUrl || !isFailedStatus(submitted.task.status) ? "" : (submitted.task.error || "Wan2.7 image edit returned no image."),
     }, "wan27-image-edit-submit");
     if (!imageUrl) {
-      if (USE_GATEWAY_UPSTREAM && !isFailedStatus(submitted.task.status)) {
-        const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
-        const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth));
-        return sendJson(res, 202, {
-          ok: true,
-          taskId,
-          upstreamTaskId: submitted.task.taskId || "",
-          status: publicRecord.status || "running",
-          async: true,
-          user: userView(latestUser),
-          pricing,
-          cost,
-          record: publicRecord,
-          params: {
-            ...exposedWan27ImageParams(imageOptions),
-            imageCount: sourceAssets.length,
-          },
-        });
-      }
+      if (!waitForResult && !isFailedStatus(submitted.task.status)) return null;
       const error = new Error(submitted.task.error || "Wan2.7 image edit returned no image.");
       error.statusCode = 502;
       error.payload = submitted.raw;
@@ -14000,15 +14370,74 @@ async function handleWan27ImageEdit(req, res) {
       imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
       sourceAssets: sourceAssets.map(publicUserAsset),
       sourceAsset: sourceAssets[0] ? publicUserAsset(sourceAssets[0]) : null,
+      sourceImageUrls: referenceUrls,
       user: userView(latestUser),
       pricing,
       cost,
       record: publicRecord,
       params: {
         ...exposedWan27ImageParams(imageOptions),
-        imageCount: sourceAssets.length,
+        imageCount: referenceUrls.length,
       },
     });
+  };
+
+  if (asyncResponse) {
+    runWan27ImageEditTask({ waitForResult: false }).catch(async (error) => {
+      const errorInfo = normalizeErrorPayload(error);
+      console.warn("[wan27-image-edit-background-error]", taskId, error.message || error);
+      if (cost > 0) {
+        try {
+          const db = await readDb();
+          await changeUserCredits(db, auth.user.id, cost, "asset_image_modify_refund", {
+            taskId,
+            assetIds: sourceAssets.map((asset) => asset.id),
+            error: error.message || "Wan2.7 image edit failed.",
+          });
+          await recordSubtokenAdjustment(auth, {
+            taskId,
+            type: "asset_image_modify_refund",
+            amount: -cost,
+            meta: { assetIds: sourceAssets.map((asset) => asset.id), error: error.message || "Wan2.7 image edit failed." },
+          });
+          if (!dbEnabled()) await writeDb(db);
+        } catch (refundError) {
+          console.error("[wan27-image-edit-background-refund-failed]", taskId, refundError.message || refundError);
+        }
+      }
+      await updateAssetImageModifyRecord(taskId, {
+        status: "failed",
+        awaitingUpstreamTask: false,
+        error: errorInfo.message || "Wan2.7 image edit failed.",
+        code: errorInfo.code || "",
+        errorPayload: errorInfo.payload || null,
+        createResponse: errorInfo.payload || null,
+        finalCredits: 0,
+        originalFinalCredits: 0,
+        billingStatus: cost > 0 ? "refunded" : "free",
+        billingSettledAt: new Date().toISOString(),
+        failedAt: new Date().toISOString(),
+      }, "wan27-image-edit-background-failed");
+    });
+    const latestUser = (auth.db.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    return sendJson(res, 202, {
+      ok: true,
+      taskId,
+      status: "submitting",
+      async: true,
+      user: userView(latestUser),
+      pricing,
+      cost,
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
+      params: {
+        ...exposedWan27ImageParams(imageOptions),
+        imageCount: previewUrls.length,
+      },
+    });
+  }
+
+  try {
+    return await runWan27ImageEditTask({ waitForResult: true });
   } catch (error) {
     const errorInfo = normalizeErrorPayload(error);
     console.warn("[wan27-image-edit-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
@@ -14058,7 +14487,7 @@ async function handleWan27ImageEdit(req, res) {
 async function handleModifyUserAssetImage(req, res, assetId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
+  if (!ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
   }
   const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
@@ -14155,50 +14584,28 @@ async function handleModifyUserAssetImage(req, res, assetId) {
   }
 
   try {
-    const publicAsset = USE_GATEWAY_UPSTREAM ? asset : await ensurePublicUrlForUserMediaAsset(auth.db, asset);
-    const sourcePublicUrl = USE_GATEWAY_UPSTREAM
-      ? publicUrlForLocalAsset(publicAsset)
-      : (publicAsset.publicUrl || publicUrlForLocalAsset(publicAsset));
-    if (!sourcePublicUrl) {
-      const error = new Error("Failed to prepare source image for Wan2.7 image edit.");
-      error.statusCode = 502;
-      throw error;
-    }
+    const publicAsset = await ensurePublicUrlForUserMediaAsset(auth.db, asset);
     await updateAssetImageModifyRecord(taskId, {
       imageUrl: publicAsset.localUrl || publicAsset.publicUrl || assetPreviewUrl,
       sourceImageUrl: publicAsset.localUrl || publicAsset.publicUrl || assetPreviewUrl,
       status: "running",
     }, "asset-image-modify-reference-ready");
-    const gatewayBody = {
-      ...plainObject(body),
+    const submitted = await submitWan27ImageModify({
+      imageUrl: publicAsset.publicUrl || publicUrlForLocalAsset(publicAsset),
       prompt,
-      imageAssetIds: [],
-      imageUrls: [sourcePublicUrl],
-      params: {
-        ...plainObject(body.params),
-        ...exposedWan27ImageParams(imageOptions),
-        input: imageOptions.input,
-        parameters: imageOptions.parameters,
-      },
-    };
-    const submitted = USE_GATEWAY_UPSTREAM
-      ? { task: await gatewaySubmitWan27ImageEditTask(gatewayBody), payload: gatewayBody, raw: null }
-      : await submitWan27ImageModify({
-          imageUrl: sourcePublicUrl,
-          prompt,
-          ratio,
-          resolution,
-          model,
-          input: imageOptions.input,
-          parameters: imageOptions.parameters,
-        });
+      ratio,
+      resolution,
+      model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+    });
     const imageUrl = submitted.task.imageUrls[0];
     await updateAssetImageModifyRecord(taskId, {
       upstreamTaskId: submitted.task.taskId || "",
       awaitingUpstreamTask: false,
       status: imageUrl ? (submitted.task.status || "succeeded") : "failed",
       upstreamPayload: submitted.payload,
-      createResponse: submitted.raw || submitted.task.raw || null,
+      createResponse: submitted.raw,
       remoteImageUrl: imageUrl || "",
       error: imageUrl ? "" : (submitted.task.error || "Wan2.7 image modify returned no image."),
     }, "asset-image-modify-submit");
@@ -15160,65 +15567,10 @@ function advancedSaleImageCredits(pricing = DEFAULT_ADVANCED_PRICING) {
   return pricingNumber(Number(normalized.wan27ImagePro.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6);
 }
 
-async function gatewayPurchaseImageCredits() {
-  if (!USE_GATEWAY_UPSTREAM) return null;
-  try {
-    const estimate = await gatewayAdvancedEstimate("wan27-image", {});
-    const credits = estimate?.credits ?? estimate?.cost;
-    if (!Number.isFinite(Number(credits))) return null;
-    return {
-      credits: creditsAmount(credits),
-      source: "gateway_upstream",
-      message: "Old-site sale price for Wan2.7 image generation through the configured upstream token.",
-    };
-  } catch (error) {
-    return {
-      credits: null,
-      source: "gateway_unavailable",
-      message: error.message || String(error),
-    };
-  }
-}
-
-async function gatewayPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output") {
-  if (!USE_GATEWAY_UPSTREAM) return null;
-  const normalizedProvider = normalizeAdvancedProvider(provider);
-  const publicResolution = normalizeAdvancedResolution(resolution);
-  const duration = 5;
-  try {
-    const estimate = await gatewayAdvancedEstimate(normalizedProvider, {
-      duration,
-      resolution: publicResolution,
-      ratio: "16:9",
-      ...(normalizedProvider === "seedance" && rateKind === "video_input" ? { inputVideoSeconds: duration } : {}),
-    });
-    const rawCredits = normalizedProvider === "seedance" && rateKind === "video_input"
-      ? Number(estimate.videoInputCredits ?? 0) / Number(estimate.videoInputSeconds || duration)
-      : Number(estimate.outputCredits ?? estimate.credits ?? 0) / Number(estimate.duration || duration);
-    if (!Number.isFinite(rawCredits) || rawCredits < 0) {
-      throw new Error("Gateway estimate did not include a usable credit amount.");
-    }
-    return {
-      creditsPerSecond: pricingNumber(rawCredits, 0),
-      source: "gateway_upstream",
-      message: "Old-site sale price through the configured upstream token.",
-    };
-  } catch (error) {
-    return {
-      creditsPerSecond: null,
-      source: "gateway_unavailable",
-      message: error.message || String(error),
-    };
-  }
-}
-
 async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
-  if (USE_GATEWAY_UPSTREAM) {
-    return await gatewayPurchaseCreditsPerSecond(normalizedProvider, publicResolution, rateKind);
-  }
   if (normalizedProvider === "seedance" && rateKind === "video_input") {
     const range = ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION[publicResolution] || ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION["720p"];
     const creditsPerSecondRange = range.map((value) => pricingNumber((Number(value || 0) * UPSTREAM_USD_CNY_RATE * ADVANCED_CREDITS_PER_CNY) / duration, 0));
@@ -15228,6 +15580,25 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
       source: "byteplus_official_video_example_pricing",
       message: `BytePlus official 5s 16:9 input-with-video example: ${range[0]}-${range[1]} USD/video. Internal upstream rate: ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens and minimum-token rules.`,
     };
+  }
+  if (USE_GATEWAY_UPSTREAM && typeof gatewayAdvancedEstimate === "function") {
+    try {
+      const estimate = await gatewayAdvancedEstimate(normalizedProvider, {
+        duration,
+        resolution: publicResolution,
+        ratio: "16:9",
+      });
+      return {
+        creditsPerSecond: pricingNumber(Number(estimate.credits || 0) / Number(estimate.duration || duration), 0),
+        source: "gateway_upstream",
+      };
+    } catch (error) {
+      return {
+        creditsPerSecond: null,
+        source: "gateway_unavailable",
+        message: error.message || String(error),
+      };
+    }
   }
   if (normalizedProvider === "seedance") {
     const exampleUsd = ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION[publicResolution] || ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION["720p"];
@@ -15264,20 +15635,16 @@ async function adminAdvancedPricingView(config = {}) {
       saleUsdPerSecond: pricingNumber(saleCreditsPerSecond / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     };
   }));
-  const gatewayImagePurchase = await gatewayPurchaseImageCredits();
-  const imagePurchaseCredits = gatewayImagePurchase
-    ? gatewayImagePurchase.credits
-    : pricingNumber(pricing.wan27ImagePro.purchaseCnyPerImage * pricing.creditsPerCny, 0);
   rows.push({
     key: "wan27-image",
     provider: "wan27-image",
     providerLabel: "Wan2.7 Image Pro",
     resolution: "image",
     unit: "image",
-    purchaseCreditsPerSecond: imagePurchaseCredits,
-    purchaseUsdPerSecond: pricingNumber(Number(imagePurchaseCredits || 0) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
-    purchaseSource: gatewayImagePurchase?.source || "aliyun_model_pricing",
-    purchaseMessage: gatewayImagePurchase?.message || "Official unit price per generated image. Failed calls are not charged upstream.",
+    purchaseCreditsPerSecond: pricingNumber(pricing.wan27ImagePro.purchaseCnyPerImage * pricing.creditsPerCny, 0),
+    purchaseUsdPerSecond: usdFromCny(pricing.wan27ImagePro.purchaseCnyPerImage),
+    purchaseSource: "aliyun_model_pricing",
+    purchaseMessage: "Official unit price per generated image. Failed calls are not charged upstream.",
     saleCreditsPerSecond: advancedSaleImageCredits(pricing),
     saleUsdPerSecond: pricingNumber(advancedSaleImageCredits(pricing) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     model: pricing.wan27ImagePro.model,
@@ -16661,12 +17028,6 @@ async function handleGetGenerationRecord(req, res, taskId) {
     } catch (error) {
       console.warn("[apiz-generation-record-refresh-failed]", taskId, error.message || error);
     }
-  } else if (record.provider === "aliyun-wan27-image" && record.upstreamSource === "gateway" && shouldRefreshGenerationRecord(record)) {
-    try {
-      nextRecord = await refreshGatewayImageGenerationRecord(record, { reason: "gateway-image-detail" });
-    } catch (error) {
-      console.warn("[gateway-image-generation-record-detail-refresh-failed]", taskId, error.message || error);
-    }
   } else if (record.upstreamSource === "gateway" && shouldRefreshGenerationRecord(record)) {
     try {
       nextRecord = await refreshGenerationRecordStatus(record);
@@ -16678,6 +17039,12 @@ async function handleGetGenerationRecord(req, res, taskId) {
       nextRecord = await refreshWan27GenerationRecord(record, { download: true, reason: "detail" });
     } catch (error) {
       console.warn("[wan27-generation-record-detail-refresh-failed]", taskId, error.message || error);
+    }
+  } else if (record.provider === "aliyun-wan27-image" && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(record)) {
+    try {
+      nextRecord = await refreshWan27ImageGenerationRecord(record, { reason: "detail" });
+    } catch (error) {
+      console.warn("[wan27-image-generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
   } else if (ARK_API_KEY && !isImageGenerationRecord(record) && shouldRefreshGenerationRecord(record) && !String(taskId).startsWith("demo-")) {
     try {
@@ -17185,6 +17552,10 @@ async function serveStatic(req, res, url) {
     return sendText(res, 403, "Forbidden");
   }
 
+  if (req.method === "GET" && path.normalize(filePath) === path.normalize(path.join(ROOT, "platform.html"))) {
+    return await servePlatformHtmlWithGeo(req, res);
+  }
+
   try {
     const contentType = mimeTypes.get(path.extname(filePath).toLowerCase()) || "application/octet-stream";
     const stat = await fs.stat(filePath);
@@ -17274,6 +17645,27 @@ async function handleRequest(req, res) {
         baseUrl: publicOriginFromRequest(req),
         models: { fast: MODEL_FAST, quality: MODEL_QUALITY, wan27: ALIYUN_WAN27_MODEL },
       });
+    }
+
+    if (req.method === "GET" && url.pathname === "/robots.txt") {
+      return await handleRobotsTxt(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/sitemap.xml") {
+      return await handleSitemapXml(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/llms.txt") {
+      return await handleLlmsTxt(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/llms-full.txt") {
+      return await handleLlmsTxt(req, res, { full: true });
+    }
+
+    const characterGeoMatch = url.pathname.match(/^\/characters\/([^/]+)\/?$/);
+    if (req.method === "GET" && characterGeoMatch) {
+      return await handleCharacterGeoPage(req, res, characterGeoMatch[1]);
     }
 
     if (req.method === "GET" && url.pathname === "/api/config/public") {
@@ -17527,6 +17919,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/dashboard") {
       return await handleAdminDashboard(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/geo-report") {
+      return await handleAdminGeoReport(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/users") {
