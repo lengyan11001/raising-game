@@ -3728,6 +3728,7 @@ async function renderGeo() {
         <div class="adm-page-actions">
           <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.sitemapUrl || "/sitemap.xml")}" target="_blank" rel="noopener"><i data-lucide="map"></i>Sitemap</a>
           <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.llmsUrl || "/llms.txt")}" target="_blank" rel="noopener"><i data-lucide="file-text"></i>llms.txt</a>
+          <button class="adm-btn adm-btn-ghost" id="geoSubmitIndexNowBtn" type="button"><i data-lucide="send"></i>Submit IndexNow</button>
           <button class="adm-btn adm-btn-primary" id="geoRunChecksBtn" type="button"><i data-lucide="radar"></i>Run checks</button>
         </div>
       </div>
@@ -3736,7 +3737,25 @@ async function renderGeo() {
         ${statCard("Base URL", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
         ${statCard("Characters", summary.characterCount || 0, "crawlable profiles", "user-round", "violet")}
         ${statCard("Videos", summary.videoCount || 0, "listed for understanding", "film", "mint")}
-        ${statCard("Sitemap URLs", summary.sitemapUrlCount || 0, "home + docs + profiles", "map", "amber")}
+        ${statCard("IndexNow URLs", summary.indexNowUrlCount || summary.sitemapUrlCount || 0, "ready to submit", "send", "amber")}
+      </div>
+
+      <div class="adm-card adm-geo-indexnow">
+        <header class="adm-card-head">
+          <h3>IndexNow</h3>
+          <span class="adm-muted" id="geoIndexNowStatus">${escapeHtml(String(summary.indexNowUrlCount || 0))} URLs ready</span>
+        </header>
+        <div class="adm-card-body adm-geo-indexnow-body">
+          <div>
+            <span class="adm-kicker">Key file</span>
+            <a class="adm-mono" href="${escapeHtml(summary.indexNowKeyLocation || "#")}" target="_blank" rel="noopener">${escapeHtml(summary.indexNowKeyLocation || "-")}</a>
+          </div>
+          <div>
+            <span class="adm-kicker">Crawler visits</span>
+            <strong>${escapeHtml(String(summary.crawlerVisits || 0))}</strong>
+            <small>${escapeHtml(String(summary.crawlerBotCount || 0))} bot types recorded</small>
+          </div>
+        </div>
       </div>
 
       <div class="adm-card">
@@ -3749,6 +3768,21 @@ async function renderGeo() {
             <thead><tr><th>Target</th><th>Status</th><th>Signals</th><th>Size</th><th>Open</th></tr></thead>
             <tbody id="geoCheckRows">
               ${checks.map((check) => renderGeoCheckRow(check)).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>Recent crawler visits</h3>
+          <span class="adm-muted">${escapeHtml(String((payload.crawlerStats?.recent || []).length))} recent</span>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-geo-crawler-table">
+            <thead><tr><th>Bot</th><th>Path</th><th>Time</th><th>User agent</th></tr></thead>
+            <tbody>
+              ${(payload.crawlerStats?.recent || []).map(renderGeoCrawlerRow).join("") || '<tr><td colspan="4" class="adm-muted">No crawler visits recorded yet.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -3779,6 +3813,7 @@ async function renderGeo() {
   refreshIcons();
   const run = () => runGeoChecks(checks);
   byId("geoRunChecksBtn")?.addEventListener("click", run);
+  byId("geoSubmitIndexNowBtn")?.addEventListener("click", submitGeoIndexNow);
   run();
 }
 
@@ -3813,6 +3848,42 @@ function renderGeoSampleCard(item = {}) {
       </div>
     </article>
   `;
+}
+
+function renderGeoCrawlerRow(item = {}) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.bot || "-")}</strong></td>
+      <td class="adm-mono">${escapeHtml(item.path || "-")}</td>
+      <td>${escapeHtml(item.at ? fmtDate(item.at) : "-")}</td>
+      <td class="adm-truncate" title="${escapeHtml(item.userAgent || "")}">${escapeHtml(item.userAgent || "-")}</td>
+    </tr>
+  `;
+}
+
+async function submitGeoIndexNow() {
+  const button = byId("geoSubmitIndexNowBtn");
+  const status = byId("geoIndexNowStatus");
+  if (!button) return;
+  const previous = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = '<i data-lucide="loader-2"></i>Submitting';
+  if (status) status.textContent = "Submitting...";
+  refreshIcons();
+  try {
+    const payload = await api("/api/admin/geo/indexnow", { method: "POST", body: {} });
+    const result = payload.result || {};
+    const message = `IndexNow ${result.status || ""}: ${result.urlCount || 0} URLs`;
+    if (status) status.textContent = message;
+    toast(message, payload.ok ? "success" : "error");
+  } catch (err) {
+    if (status) status.textContent = err.message || "Submit failed";
+    toast(err.message || "IndexNow submit failed", "error");
+  } finally {
+    button.disabled = false;
+    button.innerHTML = previous;
+    refreshIcons();
+  }
 }
 
 async function runGeoChecks(checks = []) {
