@@ -700,7 +700,10 @@ function sendJson(res, statusCode, payload) {
 }
 
 function sendText(res, statusCode, body) {
-  res.writeHead(statusCode, { "content-type": "text/plain; charset=utf-8" });
+  res.writeHead(statusCode, {
+    "content-type": "text/plain; charset=utf-8",
+    "cache-control": "no-cache",
+  });
   res.end(body);
 }
 
@@ -712,7 +715,7 @@ function sendHtml(res, statusCode, body, { cacheControl = "public, max-age=300" 
   res.end(body);
 }
 
-function sendXml(res, statusCode, body, { cacheControl = "public, max-age=300" } = {}) {
+function sendXml(res, statusCode, body, { cacheControl = "no-cache" } = {}) {
   res.writeHead(statusCode, {
     "content-type": "application/xml; charset=utf-8",
     "cache-control": cacheControl,
