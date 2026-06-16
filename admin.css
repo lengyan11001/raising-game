@@ -399,6 +399,87 @@ a { color: inherit; text-decoration: none; }
   color: var(--adm-muted);
   font-size: 0.76rem;
 }
+.adm-geo-score-body {
+  display: grid;
+  grid-template-columns: 140px minmax(260px, 1fr) minmax(240px, 0.8fr);
+  gap: 18px;
+  align-items: stretch;
+}
+.adm-geo-score-ring {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 2px;
+  min-height: 140px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 74, 171, 0.38);
+  background: radial-gradient(circle at 50% 40%, rgba(255, 74, 171, 0.2), rgba(255, 255, 255, 0.035) 68%);
+}
+.adm-geo-score-ring strong {
+  font-size: 2.25rem;
+  line-height: 1;
+}
+.adm-geo-score-ring span,
+.adm-geo-tags span {
+  color: var(--adm-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.adm-geo-metrics {
+  display: grid;
+  gap: 10px;
+}
+.adm-geo-metric {
+  display: grid;
+  gap: 6px;
+}
+.adm-geo-metric > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--adm-muted);
+  font-size: 0.78rem;
+}
+.adm-geo-metric strong {
+  color: var(--adm-text);
+}
+.adm-geo-meter {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.adm-geo-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--adm-rose), var(--adm-mint));
+}
+.adm-geo-tags {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.adm-geo-tags div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.adm-geo-tags small {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--adm-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.adm-geo-bot-table,
+.adm-geo-indexnow-table,
+.adm-geo-issue-table {
+  min-width: 820px;
+}
 .adm-geo-crawler-table { min-width: 860px; }
 .adm-geo-crawler-table th:nth-child(1) { width: 170px; }
 .adm-geo-crawler-table th:nth-child(2) { width: 220px; }
@@ -463,8 +544,13 @@ a { color: inherit; text-decoration: none; }
   line-height: 1.7;
 }
 @media (max-width: 760px) {
-  .adm-geo-indexnow-body {
+  .adm-geo-indexnow-body,
+  .adm-geo-score-body {
     grid-template-columns: 1fr;
+  }
+  .adm-geo-score-ring {
+    width: 140px;
+    justify-self: center;
   }
 }
 
