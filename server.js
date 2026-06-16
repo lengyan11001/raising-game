@@ -79,6 +79,7 @@ const MAINLAND_BYPASS_MAX_AGE_SECONDS = Math.max(
 
 const PORT = Number(process.env.PORT || 4174);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+const INDEXNOW_KEY = String(process.env.INDEXNOW_KEY || "").trim();
 const GENERATION_RECORDS_PATH = path.join(ROOT, "data", "generation-records.json");
 const APP_DB_PATH = path.join(ROOT, "data", "app-db.json");
 const APP_CONFIG_PATH = path.join(ROOT, "data", "app-config.json");
@@ -1266,6 +1267,20 @@ function characterSummaryForGeo(item = {}) {
   return compactPlainText(parts.join(". "), 240) || "Explore this AI character profile and preview the available video scenes.";
 }
 
+function characterVideoDescriptionForGeo(item = {}, video = {}, index = 0) {
+  const name = compactPlainText(item.name || item.title || "AI character", 80);
+  const scene = compactPlainText(video.title || video.sceneId || `scene ${index + 1}`, 80);
+  const tags = characterTagsForGeo(item, 4).join(", ");
+  return compactPlainText(
+    [
+      `${name} ${scene} video preview.`,
+      tags ? `Character tags: ${tags}.` : "",
+      video.locked ? "This preview is listed for discovery and can be unlocked in the app." : "This is the first public preview listed for the character.",
+    ].filter(Boolean).join(" "),
+    220,
+  );
+}
+
 function publicCharacterVideosForGeo(item = {}) {
   return publicCharacterVideoList(item).map(({ key, entry }, index) => ({
     key,
@@ -1275,6 +1290,14 @@ function publicCharacterVideosForGeo(item = {}) {
     posterUrl: String(entry.posterUrl || entry.coverUrl || entry.thumbnailUrl || characterPosterForGeo(item)).trim(),
     duration: Number(entry.duration || item.duration || 0),
     locked: index > 0,
+  }));
+}
+
+function addCharacterVideoDescriptionsForGeo(item = {}) {
+  const videos = publicCharacterVideosForGeo(item);
+  return videos.map((video, index) => ({
+    ...video,
+    description: characterVideoDescriptionForGeo(item, video, index),
   }));
 }
 
@@ -1292,7 +1315,7 @@ async function geoSiteSnapshot(req) {
       geoPoster: characterPosterForGeo(item),
       geoSummary: characterSummaryForGeo(item),
       geoTags: characterTagsForGeo(item),
-      geoVideos: publicCharacterVideosForGeo(item),
+      geoVideos: addCharacterVideoDescriptionsForGeo(item),
     }));
   return { origin, config, platform, brand: siteBrandFromConfig(config), homeVideo, characters };
 }
@@ -1304,6 +1327,155 @@ function homeDescriptionForGeo(platform = {}) {
       "Create AI character videos, browse public character profiles, and generate video scenes through the advanced API.",
     170,
   );
+}
+
+function indexNowKeyForOrigin(origin = "") {
+  if (INDEXNOW_KEY) {
+    const explicitKey = INDEXNOW_KEY.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 128);
+    if (explicitKey) return explicitKey;
+  }
+  const source = [
+    "raising-game-indexnow",
+    PUBLIC_BASE_URL || origin || "local",
+    String(process.env.SESSION_SECRET || "").trim(),
+    String(process.env.ARK_API_KEY || "").trim(),
+  ].filter(Boolean).join(":");
+  return crypto.createHash("sha256").update(source).digest("hex").slice(0, 32);
+}
+
+function indexNowKeyLocation(snapshot) {
+  const key = indexNowKeyForOrigin(snapshot.origin);
+  return scopedApiUrl(snapshot.origin, `/${key}.txt`);
+}
+
+function indexNowUrls(snapshot) {
+  return [
+    scopedApiUrl(snapshot.origin, "/"),
+    scopedApiUrl(snapshot.origin, "/sitemap.xml"),
+    scopedApiUrl(snapshot.origin, "/llms.txt"),
+    scopedApiUrl(snapshot.origin, "/llms-full.txt"),
+    ...snapshot.characters.map((item) => item.geoUrl).filter(Boolean),
+  ].filter((url, index, list) => url && list.indexOf(url) === index);
+}
+
+function isIndexNowKeyPath(req, pathname = "") {
+  const origin = publicOriginFromRequest(req);
+  return pathname === `/${indexNowKeyForOrigin(origin)}.txt`;
+}
+
+async function submitIndexNowSnapshot(snapshot, { limit = 10000 } = {}) {
+  const key = indexNowKeyForOrigin(snapshot.origin);
+  const urls = indexNowUrls(snapshot).slice(0, Math.max(1, Math.min(10000, Number(limit) || 10000)));
+  const payload = {
+    host: new URL(snapshot.origin).hostname,
+    key,
+    keyLocation: indexNowKeyLocation(snapshot),
+    urlList: urls,
+  };
+  const response = await fetch("https://api.indexnow.org/indexnow", {
+    method: "POST",
+    headers: { "content-type": "application/json; charset=utf-8" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000),
+  });
+  const text = await response.text().catch(() => "");
+  return {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    urlCount: urls.length,
+    keyLocation: payload.keyLocation,
+    responseText: compactPlainText(text, 500),
+  };
+}
+
+const GEO_CRAWLER_STATS_KEY = "geo_crawler_stats";
+const GEO_CRAWLERS = [
+  { id: "OAI-SearchBot", pattern: /OAI-SearchBot/i },
+  { id: "ChatGPT-User", pattern: /ChatGPT-User/i },
+  { id: "PerplexityBot", pattern: /PerplexityBot/i },
+  { id: "Perplexity-User", pattern: /Perplexity-User/i },
+  { id: "Googlebot", pattern: /Googlebot/i },
+  { id: "Bingbot", pattern: /bingbot/i },
+  { id: "DuckDuckBot", pattern: /DuckDuckBot/i },
+  { id: "Applebot", pattern: /Applebot/i },
+  { id: "FacebookExternalHit", pattern: /facebookexternalhit/i },
+  { id: "Twitterbot", pattern: /Twitterbot/i },
+];
+
+function classifyGeoCrawler(req) {
+  const userAgent = String(req.headers["user-agent"] || "");
+  if (!userAgent) return null;
+  const match = GEO_CRAWLERS.find((item) => item.pattern.test(userAgent));
+  return match ? { id: match.id, userAgent } : null;
+}
+
+function isGeoPublicPath(pathname = "") {
+  return pathname === "/" ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml" ||
+    pathname === "/llms.txt" ||
+    pathname === "/llms-full.txt" ||
+    /^\/characters\/[^/]+\/?$/.test(pathname);
+}
+
+function requestIpForStats(req) {
+  return String(
+    req.headers["cf-connecting-ip"] ||
+      req.headers["x-real-ip"] ||
+      String(req.headers["x-forwarded-for"] || "").split(",")[0] ||
+      req.socket?.remoteAddress ||
+      "",
+  ).trim();
+}
+
+async function readGeoCrawlerStats() {
+  const stats = await getKv(GEO_CRAWLER_STATS_KEY, {});
+  return {
+    total: Number(stats.total || 0),
+    byBot: stats.byBot && typeof stats.byBot === "object" ? stats.byBot : {},
+    byPath: stats.byPath && typeof stats.byPath === "object" ? stats.byPath : {},
+    recent: Array.isArray(stats.recent) ? stats.recent.slice(0, 80) : [],
+  };
+}
+
+async function recordGeoCrawlerVisit(req, url) {
+  try {
+    if (!isGeoPublicPath(url.pathname)) return;
+    const crawler = classifyGeoCrawler(req);
+    if (!crawler) return;
+    const now = new Date().toISOString();
+    const pathKey = url.pathname || "/";
+    const stats = await readGeoCrawlerStats();
+    stats.total += 1;
+    const bot = stats.byBot[crawler.id] || { count: 0 };
+    stats.byBot[crawler.id] = {
+      ...bot,
+      count: Number(bot.count || 0) + 1,
+      lastSeen: now,
+      lastPath: pathKey,
+      lastUserAgent: compactPlainText(crawler.userAgent, 180),
+    };
+    const pathStats = stats.byPath[pathKey] || { count: 0, bots: {} };
+    pathStats.count = Number(pathStats.count || 0) + 1;
+    pathStats.lastSeen = now;
+    pathStats.bots = pathStats.bots && typeof pathStats.bots === "object" ? pathStats.bots : {};
+    pathStats.bots[crawler.id] = Number(pathStats.bots[crawler.id] || 0) + 1;
+    stats.byPath[pathKey] = pathStats;
+    stats.recent = [
+      {
+        bot: crawler.id,
+        path: pathKey,
+        at: now,
+        ip: requestIpForStats(req),
+        userAgent: compactPlainText(crawler.userAgent, 180),
+      },
+      ...stats.recent,
+    ].slice(0, 80);
+    await setKv(GEO_CRAWLER_STATS_KEY, stats);
+  } catch (error) {
+    console.warn("Failed to record GEO crawler visit:", error.message || error);
+  }
 }
 
 function jsonLdScript(data) {
@@ -1376,11 +1548,18 @@ function renderCharacterGeoHtml(snapshot, item = {}) {
   const title = `${name} | ${brand}`;
   const description = characterSummaryForGeo(item);
   const tags = characterTagsForGeo(item, 12);
-  const videos = publicCharacterVideosForGeo(item);
+  const videos = item.geoVideos || addCharacterVideoDescriptionsForGeo(item);
+  const related = relatedCharactersForGeo(snapshot, item, 6);
+  const facts = [
+    item.age ? `Age style: ${compactPlainText(item.age, 30)}` : "",
+    item.style ? `Style: ${compactPlainText(item.style, 80)}` : "",
+    item.sourceDisplayId ? `Profile ID: ${compactPlainText(item.sourceDisplayId, 80)}` : "",
+    `${videos.length} listed video ${videos.length === 1 ? "scene" : "scenes"}`,
+  ].filter(Boolean);
   const videoLd = videos.map((video, index) => ({
     "@type": "VideoObject",
     name: video.title || `${name} video ${index + 1}`,
-    description: `${name} preview scene ${index + 1}.`,
+    description: video.description || `${name} preview scene ${index + 1}.`,
     thumbnailUrl: [absoluteUrlFromBase(video.posterUrl || characterPosterForGeo(item), origin)].filter(Boolean),
     uploadDate: item.createdAt || new Date().toISOString(),
     isAccessibleForFree: index === 0,
@@ -1402,6 +1581,31 @@ function renderCharacterGeoHtml(snapshot, item = {}) {
       },
       hasPart: videoLd,
     },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: brand, item: scopedApiUrl(origin, "/") },
+        { "@type": "ListItem", position: 2, name: "Characters", item: scopedApiUrl(origin, "/#gallery") },
+        { "@type": "ListItem", position: 3, name, item: url },
+      ],
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      name: `${name} video scenes`,
+      itemListElement: videos.map((video, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        item: {
+          "@type": "VideoObject",
+          name: video.title || `${name} video ${index + 1}`,
+          description: video.description || `${name} preview scene ${index + 1}.`,
+          thumbnailUrl: [absoluteUrlFromBase(video.posterUrl || characterPosterForGeo(item), origin)].filter(Boolean),
+          isAccessibleForFree: index === 0,
+        },
+      })),
+    },
     ...videoLd.map((video) => ({ "@context": "https://schema.org", ...video })),
   ];
   const videoCards = videos.length ? videos.map((video, index) => `
@@ -1410,8 +1614,14 @@ function renderCharacterGeoHtml(snapshot, item = {}) {
             <div>
               <strong>${htmlEscape(video.title || `Video ${index + 1}`)}</strong>
               <span>${index === 0 ? "Preview available after sign in" : "Unlock in app"}</span>
+              <p>${htmlEscape(video.description || "")}</p>
             </div>
           </article>`).join("") : `<p class="muted">No public video previews are configured yet.</p>`;
+  const relatedCards = related.length ? related.map((candidate) => `
+          <a class="related-card" href="${htmlEscape(candidate.geoPath)}">
+            <img src="${htmlEscape(absoluteUrlFromBase(candidate.geoPoster, origin))}" alt="${htmlEscape(candidate.name || candidate.title || "Related character")}" loading="lazy" />
+            <span>${htmlEscape(candidate.name || candidate.title || candidate.id)}</span>
+          </a>`).join("") : "";
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -1433,12 +1643,21 @@ function renderCharacterGeoHtml(snapshot, item = {}) {
       .tags { display:flex; gap:8px; flex-wrap:wrap; margin:18px 0; }
       .tags span { padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.06); color:#ddd7e8; font-weight:700; font-size:13px; }
       .cta { display:inline-flex; align-items:center; justify-content:center; min-height:46px; padding:0 20px; border-radius:999px; background:var(--pink); color:white; font-weight:900; }
+      .info { margin-top:28px; display:grid; grid-template-columns:1.1fr .9fr; gap:18px; }
+      .panel { border:1px solid var(--line); border-radius:18px; padding:20px; background:rgba(255,255,255,.045); }
+      .panel h2 { margin:0 0 10px; font-size:22px; }
+      .facts { margin:0; padding:0; list-style:none; display:grid; gap:8px; color:#ddd7e8; font-weight:700; }
       .videos { margin-top:34px; display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:14px; }
       .video-card { overflow:hidden; border:1px solid var(--line); border-radius:16px; background:var(--panel); }
       .video-card img { width:100%; aspect-ratio:9/13; object-fit:cover; display:block; }
       .video-card div { padding:12px; display:grid; gap:4px; }
       .video-card span, .muted { color:var(--muted); font-size:13px; }
-      @media (max-width: 760px) { .hero { grid-template-columns:1fr; } }
+      .video-card p { margin:2px 0 0; font-size:13px; line-height:1.5; }
+      .related { margin-top:34px; }
+      .related-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:12px; }
+      .related-card { display:grid; gap:8px; padding:10px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.04); font-weight:800; }
+      .related-card img { width:100%; aspect-ratio:9/13; object-fit:cover; border-radius:10px; }
+      @media (max-width: 760px) { .hero, .info { grid-template-columns:1fr; } }
     </style>
   </head>
   <body>
@@ -1454,22 +1673,66 @@ function renderCharacterGeoHtml(snapshot, item = {}) {
           <a class="cta" href="/#gallery">Open in app</a>
         </div>
       </section>
+      <section class="info" aria-label="Character information">
+        <article class="panel">
+          <h2>About ${htmlEscape(name)}</h2>
+          <p>${htmlEscape(description)} ${tags.length ? htmlEscape(`Common discovery tags include ${tags.slice(0, 6).join(", ")}.`) : ""}</p>
+        </article>
+        <aside class="panel">
+          <h2>Profile signals</h2>
+          <ul class="facts">${facts.map((fact) => `<li>${htmlEscape(fact)}</li>`).join("")}</ul>
+        </aside>
+      </section>
       <section class="videos" aria-label="Video previews">
         ${videoCards}
       </section>
+      ${relatedCards ? `<section class="related" aria-label="Related characters"><h2>Related characters</h2><div class="related-grid">${relatedCards}</div></section>` : ""}
     </main>
   </body>
 </html>`;
 }
 
+function relatedCharactersForGeo(snapshot, item = {}, max = 6) {
+  const tags = new Set(characterTagsForGeo(item, 12).map((tag) => tag.toLowerCase()));
+  return (snapshot.characters || [])
+    .filter((candidate) => candidate && candidate.id !== item.id)
+    .map((candidate) => ({
+      candidate,
+      score: characterTagsForGeo(candidate, 12).filter((tag) => tags.has(tag.toLowerCase())).length,
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, max)
+    .map((entry) => entry.candidate);
+}
+
 function buildRobotsTxt(snapshot) {
+  const indexNowKey = indexNowKeyForOrigin(snapshot.origin);
   return [
+    "User-agent: OAI-SearchBot",
+    "Allow: /",
+    "",
+    "User-agent: ChatGPT-User",
+    "Allow: /",
+    "",
+    "User-agent: PerplexityBot",
+    "Allow: /",
+    "",
+    "User-agent: Perplexity-User",
+    "Allow: /",
+    "",
+    "User-agent: Googlebot",
+    "Allow: /",
+    "",
+    "User-agent: Bingbot",
+    "Allow: /",
+    "",
     "User-agent: *",
     "Allow: /",
     "Disallow: /api/",
     "Disallow: /admin.html",
     "Disallow: /assets/user-uploads/",
     `Sitemap: ${scopedApiUrl(snapshot.origin, "/sitemap.xml")}`,
+    `# IndexNow-Key: ${scopedApiUrl(snapshot.origin, `/${indexNowKey}.txt`)}`,
     "",
   ].join("\n");
 }
@@ -1569,6 +1832,10 @@ async function handleLlmsTxt(req, res, { full = false } = {}) {
   return sendText(res, 200, buildLlmsTxt(snapshot, { full }));
 }
 
+async function handleIndexNowKey(req, res) {
+  return sendText(res, 200, indexNowKeyForOrigin(publicOriginFromRequest(req)));
+}
+
 async function handleCharacterGeoPage(req, res, characterId) {
   const snapshot = await geoSiteSnapshot(req);
   const decoded = decodeURIComponent(String(characterId || ""));
@@ -1582,17 +1849,44 @@ async function handleCharacterGeoPage(req, res, characterId) {
   return sendHtml(res, 200, renderCharacterGeoHtml(snapshot, item));
 }
 
+async function handleAdminSubmitIndexNow(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req).catch(() => ({}));
+  const snapshot = await geoSiteSnapshot(req);
+  try {
+    const result = await submitIndexNowSnapshot(snapshot, { limit: body.limit });
+    return sendJson(res, result.ok ? 200 : 502, {
+      ok: result.ok,
+      result,
+    });
+  } catch (error) {
+    return sendJson(res, 502, {
+      ok: false,
+      error: error.message || "IndexNow submit failed",
+    });
+  }
+}
+
 async function handleAdminGeoReport(req, res) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
   const snapshot = await geoSiteSnapshot(req);
+  const crawlerStats = await readGeoCrawlerStats();
   const sampleCharacter = snapshot.characters[0] || null;
   const endpoints = [
     { id: "home", label: "Home metadata", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: ["application/ld+json", "canonical", snapshot.brand] },
-    { id: "robots", label: "robots.txt", path: "/robots.txt", url: scopedApiUrl(snapshot.origin, "/robots.txt"), expect: ["Sitemap:", "/sitemap.xml"] },
+    { id: "robots", label: "robots.txt", path: "/robots.txt", url: scopedApiUrl(snapshot.origin, "/robots.txt"), expect: ["Sitemap:", "/sitemap.xml", "OAI-SearchBot", "PerplexityBot"] },
     { id: "sitemap", label: "sitemap.xml", path: "/sitemap.xml", url: scopedApiUrl(snapshot.origin, "/sitemap.xml"), expect: ["<urlset", "/characters/"] },
     { id: "llms", label: "llms.txt", path: "/llms.txt", url: scopedApiUrl(snapshot.origin, "/llms.txt"), expect: [snapshot.brand, "/api/advanced/generate"] },
     { id: "llms-full", label: "llms-full.txt", path: "/llms-full.txt", url: scopedApiUrl(snapshot.origin, "/llms-full.txt"), expect: ["GEO Notes", "VideoObject"] },
+    {
+      id: "indexnow-key",
+      label: "IndexNow key file",
+      path: `/${indexNowKeyForOrigin(snapshot.origin)}.txt`,
+      url: indexNowKeyLocation(snapshot),
+      expect: [indexNowKeyForOrigin(snapshot.origin)],
+    },
   ];
   if (sampleCharacter) {
     endpoints.push({
@@ -1600,7 +1894,7 @@ async function handleAdminGeoReport(req, res) {
       label: "Sample character page",
       path: sampleCharacter.geoPath,
       url: sampleCharacter.geoUrl,
-      expect: ["ProfilePage", "VideoObject", sampleCharacter.name || sampleCharacter.id],
+      expect: ["ProfilePage", "VideoObject", "Related characters", sampleCharacter.name || sampleCharacter.id],
     });
   }
   return sendJson(res, 200, {
@@ -1614,8 +1908,13 @@ async function handleAdminGeoReport(req, res) {
       sitemapUrlCount: 2 + snapshot.characters.length,
       llmsUrl: scopedApiUrl(snapshot.origin, "/llms.txt"),
       sitemapUrl: scopedApiUrl(snapshot.origin, "/sitemap.xml"),
+      indexNowUrlCount: indexNowUrls(snapshot).length,
+      indexNowKeyLocation: indexNowKeyLocation(snapshot),
+      crawlerVisits: crawlerStats.total,
+      crawlerBotCount: Object.keys(crawlerStats.byBot || {}).length,
     },
     checks: endpoints,
+    crawlerStats,
     sampleCharacters: snapshot.characters.slice(0, 12).map((item) => ({
       id: item.id,
       name: item.name || item.title || item.id,
@@ -1629,6 +1928,7 @@ async function handleAdminGeoReport(req, res) {
     recommendations: [
       "Keep character names, summaries, tags, and poster images descriptive.",
       "Run this GEO check after importing a new character batch or changing the domain.",
+      "Submit IndexNow after sitemap or character-page changes, then watch crawler visits here.",
       "Avoid exposing upstream vendor routes in public API copy; keep /api/advanced/generate as the documented entry.",
     ],
   });
@@ -17618,6 +17918,8 @@ async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   try {
+    await recordGeoCrawlerVisit(req, url);
+
     if (isMainlandChinaRequest(req)) {
       if (requestHasMainlandBypass(req, url)) {
         setMainlandBypassCookie(res);
@@ -17661,6 +17963,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/llms-full.txt") {
       return await handleLlmsTxt(req, res, { full: true });
+    }
+
+    if (req.method === "GET" && isIndexNowKeyPath(req, url.pathname)) {
+      return await handleIndexNowKey(req, res);
     }
 
     const characterGeoMatch = url.pathname.match(/^\/characters\/([^/]+)\/?$/);
@@ -17923,6 +18229,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/geo-report") {
       return await handleAdminGeoReport(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/geo/indexnow") {
+      return await handleAdminSubmitIndexNow(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/users") {
