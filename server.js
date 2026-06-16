@@ -1245,6 +1245,14 @@ function characterPublicPath(item = {}) {
   return `/characters/${encodeURIComponent(slugSegment(item.id || item.sourceDisplayId || item.name, "character"))}`;
 }
 
+function geoTagPublicPath(tag = "") {
+  return `/tags/${encodeURIComponent(slugSegment(tag, "tag"))}`;
+}
+
+function geoCategoryPublicPath(category = {}) {
+  return `/categories/${encodeURIComponent(slugSegment(category.id || category.label, "category"))}`;
+}
+
 function characterPosterForGeo(item = {}) {
   return String(
     item.posterUrl ||
@@ -1310,6 +1318,68 @@ function addCharacterVideoDescriptionsForGeo(item = {}) {
   }));
 }
 
+function buildGeoTagsForSnapshot(characters = [], origin = "") {
+  const tagMap = new Map();
+  characters.forEach((item) => {
+    (item.geoTags || []).forEach((tag) => {
+      const label = compactPlainText(tag, 40);
+      if (!label) return;
+      const slug = slugSegment(label, "tag");
+      const entry = tagMap.get(slug) || {
+        id: slug,
+        label,
+        path: geoTagPublicPath(label),
+        url: scopedApiUrl(origin, geoTagPublicPath(label)),
+        characters: [],
+      };
+      entry.characters.push(item);
+      tagMap.set(slug, entry);
+    });
+  });
+  return [...tagMap.values()]
+    .sort((a, b) => b.characters.length - a.characters.length || a.label.localeCompare(b.label))
+    .slice(0, 80)
+    .map((entry) => ({
+      ...entry,
+      summary: compactPlainText(`${entry.label} AI character video profiles with ${entry.characters.length} crawlable character pages and preview scenes.`, 180),
+    }));
+}
+
+function buildGeoCategoriesForSnapshot(characters = [], origin = "") {
+  const categories = [
+    {
+      id: "character-videos",
+      label: "Character Videos",
+      matcher: (item) => (item.geoVideos || []).length > 0,
+      summary: "AI character profiles with listed video scenes and preview metadata.",
+    },
+    {
+      id: "image-reference",
+      label: "Image Reference Characters",
+      matcher: (item) => Boolean(item.geoPoster),
+      summary: "AI characters organized around reusable image references and portrait posters.",
+    },
+    {
+      id: "unlockable-scenes",
+      label: "Unlockable Scenes",
+      matcher: (item) => (item.geoVideos || []).some((video) => video.locked),
+      summary: "Character video scene libraries with public preview metadata and unlockable videos.",
+    },
+  ];
+  return categories
+    .map((category) => {
+      const path = geoCategoryPublicPath(category);
+      const matched = characters.filter(category.matcher);
+      return {
+        ...category,
+        path,
+        url: scopedApiUrl(origin, path),
+        characters: matched,
+      };
+    })
+    .filter((category) => category.characters.length > 0);
+}
+
 async function geoSiteSnapshot(req) {
   const origin = publicOriginFromRequest(req);
   const config = await readAppConfig();
@@ -1326,7 +1396,9 @@ async function geoSiteSnapshot(req) {
       geoTags: characterTagsForGeo(item),
       geoVideos: addCharacterVideoDescriptionsForGeo(item),
     }));
-  return { origin, config, platform, brand: siteBrandFromConfig(config), homeVideo, characters };
+  const tags = buildGeoTagsForSnapshot(characters, origin);
+  const categories = buildGeoCategoriesForSnapshot(characters, origin);
+  return { origin, config, platform, brand: siteBrandFromConfig(config), homeVideo, characters, tags, categories };
 }
 
 function homeDescriptionForGeo(platform = {}) {
@@ -1363,6 +1435,8 @@ function indexNowUrls(snapshot) {
     scopedApiUrl(snapshot.origin, "/sitemap.xml"),
     scopedApiUrl(snapshot.origin, "/llms.txt"),
     scopedApiUrl(snapshot.origin, "/llms-full.txt"),
+    ...(snapshot.tags || []).map((item) => item.url).filter(Boolean),
+    ...(snapshot.categories || []).map((item) => item.url).filter(Boolean),
     ...snapshot.characters.map((item) => item.geoUrl).filter(Boolean),
   ].filter((url, index, list) => url && list.indexOf(url) === index);
 }
@@ -1447,6 +1521,8 @@ function isGeoPublicPath(pathname = "") {
     pathname === "/sitemap.xml" ||
     pathname === "/llms.txt" ||
     pathname === "/llms-full.txt" ||
+    /^\/tags\/[^/]+\/?$/.test(pathname) ||
+    /^\/categories\/[^/]+\/?$/.test(pathname) ||
     /^\/characters\/[^/]+\/?$/.test(pathname);
 }
 
@@ -1509,11 +1585,13 @@ function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
   const seenImportantBots = importantBots.filter((bot) => crawlerByBot[bot]?.count > 0);
   const byPath = crawlerStats.byPath || {};
   const crawledCharacterPaths = Object.keys(byPath).filter((pathname) => /^\/characters\/[^/]+\/?$/.test(pathname));
+  const topicCount = (snapshot.tags?.length || 0) + (snapshot.categories?.length || 0);
   const metrics = [
     geoCoverageMetric("Summaries", withSummary, total),
     geoCoverageMetric("Tags", withTags, total),
     geoCoverageMetric("Posters", withPoster, total),
     geoCoverageMetric("Videos", withVideos, total),
+    geoCoverageMetric("Topic pages", Math.min(topicCount, 20), 20),
     geoCoverageMetric("3+ videos", withThreeVideos, total),
     geoCoverageMetric("Important bots", seenImportantBots.length, importantBots.length),
   ];
@@ -1830,6 +1908,103 @@ function relatedCharactersForGeo(snapshot, item = {}, max = 6) {
     .map((entry) => entry.candidate);
 }
 
+function renderGeoCollectionHtml(snapshot, collection = {}, { kind = "tag" } = {}) {
+  const { origin, brand } = snapshot;
+  const label = compactPlainText(collection.label || collection.id || "Collection", 90);
+  const url = collection.url || scopedApiUrl(origin, collection.path || "/");
+  const characters = (collection.characters || []).slice(0, 48);
+  const description = compactPlainText(
+    collection.summary || `${label} AI character video profiles with crawlable character pages, tags, posters, and listed video scenes.`,
+    180,
+  );
+  const image = characters[0]?.geoPoster ? absoluteUrlFromBase(characters[0].geoPoster, origin) : "";
+  const title = `${label} | ${brand}`;
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: title,
+      url,
+      description,
+      isPartOf: {
+        "@type": "WebSite",
+        name: brand,
+        url: scopedApiUrl(origin, "/"),
+      },
+      mainEntity: {
+        "@type": "ItemList",
+        name: `${label} characters`,
+        itemListElement: characters.map((item, index) => ({
+          "@type": "ListItem",
+          position: index + 1,
+          url: item.geoUrl,
+          name: item.name || item.title || item.id,
+        })),
+      },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: brand, item: scopedApiUrl(origin, "/") },
+        { "@type": "ListItem", position: 2, name: kind === "category" ? "Categories" : "Tags", item: scopedApiUrl(origin, kind === "category" ? "/categories/character-videos" : "/tags") },
+        { "@type": "ListItem", position: 3, name: label, item: url },
+      ],
+    },
+  ];
+  const cards = characters.map((item) => `
+        <a class="card" href="${htmlEscape(item.geoPath)}">
+          <img src="${htmlEscape(absoluteUrlFromBase(item.geoPoster, origin))}" alt="${htmlEscape(item.name || item.title || "AI character")}" loading="lazy" />
+          <span>${htmlEscape(item.name || item.title || item.id)}</span>
+          <small>${htmlEscape((item.geoTags || []).slice(0, 4).join(", ") || `${item.geoVideos.length} videos`)}</small>
+        </a>`).join("");
+  const relatedLinks = [
+    ...(snapshot.tags || []).filter((tag) => tag.id !== collection.id).slice(0, 12).map((tag) => ({ label: tag.label, path: tag.path })),
+    ...(snapshot.categories || []).filter((category) => category.id !== collection.id).slice(0, 4).map((category) => ({ label: category.label, path: category.path })),
+  ].slice(0, 14);
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    ${geoMetaTags({ title, description, url, image, type: "website", jsonLd })}
+    <style>
+      :root { color-scheme: dark; --bg:#0b0b0f; --panel:#15151d; --line:rgba(255,255,255,.12); --ink:#f7f4fb; --muted:#aaa3b6; --pink:#ff45aa; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#0b0b0f; color:var(--ink); }
+      main { width:min(1180px, calc(100% - 32px)); margin:0 auto; padding:34px 0 58px; }
+      a { color:inherit; text-decoration:none; }
+      .back { display:inline-flex; margin-bottom:18px; color:var(--muted); font-weight:800; }
+      .hero { max-width:800px; margin-bottom:28px; }
+      .eyebrow { color:var(--pink); text-transform:uppercase; letter-spacing:.16em; font-size:12px; font-weight:900; }
+      h1 { margin:.18em 0; font-size:clamp(38px, 7vw, 84px); line-height:.93; }
+      p { color:var(--muted); line-height:1.7; font-size:16px; }
+      .links { display:flex; flex-wrap:wrap; gap:8px; margin:18px 0 28px; }
+      .links a { padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.06); color:#ddd7e8; font-weight:800; font-size:13px; }
+      .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:14px; }
+      .card { display:grid; gap:8px; padding:10px; border:1px solid var(--line); border-radius:16px; background:var(--panel); }
+      .card img { width:100%; aspect-ratio:9/13; object-fit:cover; border-radius:12px; background:#24242b; }
+      .card span { font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .card small { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back" href="/">Back to ${htmlEscape(brand)}</a>
+      <section class="hero">
+        <div class="eyebrow">${htmlEscape(kind === "category" ? "Category" : "Tag")} collection</div>
+        <h1>${htmlEscape(label)}</h1>
+        <p>${htmlEscape(description)} This collection includes ${characters.length} crawlable profiles.</p>
+      </section>
+      ${relatedLinks.length ? `<nav class="links" aria-label="Related topics">${relatedLinks.map((item) => `<a href="${htmlEscape(item.path)}">${htmlEscape(item.label)}</a>`).join("")}</nav>` : ""}
+      <section class="grid" aria-label="${htmlEscape(label)} characters">
+        ${cards || `<p class="muted">No public character profiles are available for this collection yet.</p>`}
+      </section>
+    </main>
+  </body>
+</html>`;
+}
+
 function buildRobotsTxt(snapshot) {
   const indexNowKey = indexNowKeyForOrigin(snapshot.origin);
   return [
@@ -1880,6 +2055,20 @@ function buildSitemapXml(snapshot) {
   const entries = [
     sitemapEntryXml({ loc: scopedApiUrl(snapshot.origin, "/"), lastmod: now, changefreq: "daily", priority: "1.0" }),
     sitemapEntryXml({ loc: scopedApiUrl(snapshot.origin, "/llms.txt"), lastmod: now, changefreq: "weekly", priority: "0.4" }),
+    ...(snapshot.categories || []).map((category) => sitemapEntryXml({
+      loc: category.url,
+      lastmod: now,
+      changefreq: "weekly",
+      priority: "0.75",
+      image: category.characters[0]?.geoPoster ? absoluteUrlFromBase(category.characters[0].geoPoster, snapshot.origin) : "",
+    })),
+    ...(snapshot.tags || []).map((tag) => sitemapEntryXml({
+      loc: tag.url,
+      lastmod: now,
+      changefreq: "weekly",
+      priority: "0.72",
+      image: tag.characters[0]?.geoPoster ? absoluteUrlFromBase(tag.characters[0].geoPoster, snapshot.origin) : "",
+    })),
     ...snapshot.characters.map((item) => sitemapEntryXml({
       loc: item.geoUrl,
       lastmod: item.updatedAt || item.createdAt || now,
@@ -1898,6 +2087,8 @@ ${entries.join("\n")}
 function buildLlmsTxt(snapshot, { full = false } = {}) {
   const description = homeDescriptionForGeo(snapshot.platform);
   const topCharacters = snapshot.characters.slice(0, full ? 30 : 8);
+  const topTags = (snapshot.tags || []).slice(0, full ? 30 : 10);
+  const topCategories = (snapshot.categories || []).slice(0, full ? 12 : 6);
   const lines = [
     `# ${snapshot.brand}`,
     "",
@@ -1919,6 +2110,12 @@ function buildLlmsTxt(snapshot, { full = false } = {}) {
     "## Content",
     `- Public character profiles: ${snapshot.characters.length}`,
     `- Public character videos listed: ${snapshot.characters.reduce((sum, item) => sum + item.geoVideos.length, 0)}`,
+    `- Topic tag pages: ${snapshot.tags?.length || 0}`,
+    `- Category pages: ${snapshot.categories?.length || 0}`,
+    "",
+    "## Topic Pages",
+    ...topCategories.map((item) => `- ${item.label}: ${item.url} - ${compactPlainText(item.summary, full ? 180 : 110)}`),
+    ...topTags.map((item) => `- ${item.label}: ${item.url} - ${compactPlainText(item.summary, full ? 180 : 110)}`),
     "",
     "## Featured Characters",
     ...topCharacters.map((item) => `- ${item.name || item.title || item.id}: ${item.geoUrl} - ${compactPlainText(item.geoSummary, full ? 180 : 110)}`),
@@ -1974,6 +2171,22 @@ async function handleCharacterGeoPage(req, res, characterId) {
   return sendHtml(res, 200, renderCharacterGeoHtml(snapshot, item), { head: req.method === "HEAD" });
 }
 
+async function handleGeoTagPage(req, res, tagId) {
+  const snapshot = await geoSiteSnapshot(req);
+  const decoded = decodeURIComponent(String(tagId || ""));
+  const tag = (snapshot.tags || []).find((candidate) => candidate.id === decoded || slugSegment(candidate.label) === decoded);
+  if (!tag) return sendText(res, 404, "Tag not found", { head: req.method === "HEAD" });
+  return sendHtml(res, 200, renderGeoCollectionHtml(snapshot, tag, { kind: "tag" }), { head: req.method === "HEAD" });
+}
+
+async function handleGeoCategoryPage(req, res, categoryId) {
+  const snapshot = await geoSiteSnapshot(req);
+  const decoded = decodeURIComponent(String(categoryId || ""));
+  const category = (snapshot.categories || []).find((candidate) => candidate.id === decoded || slugSegment(candidate.label) === decoded);
+  if (!category) return sendText(res, 404, "Category not found", { head: req.method === "HEAD" });
+  return sendHtml(res, 200, renderGeoCollectionHtml(snapshot, category, { kind: "category" }), { head: req.method === "HEAD" });
+}
+
 async function handleAdminSubmitIndexNow(req, res) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
@@ -2014,6 +2227,8 @@ async function handleAdminGeoReport(req, res) {
   const indexNowHistory = await readGeoIndexNowHistory();
   const coverage = buildGeoCoverage(snapshot, crawlerStats, indexNowHistory);
   const sampleCharacter = snapshot.characters[0] || null;
+  const sampleTag = (snapshot.tags || [])[0] || null;
+  const sampleCategory = (snapshot.categories || [])[0] || null;
   const endpoints = [
     { id: "home", label: "Home metadata", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: ["application/ld+json", "canonical", snapshot.brand] },
     { id: "robots", label: "robots.txt", path: "/robots.txt", url: scopedApiUrl(snapshot.origin, "/robots.txt"), expect: ["Sitemap:", "/sitemap.xml", "OAI-SearchBot", "PerplexityBot"] },
@@ -2028,6 +2243,24 @@ async function handleAdminGeoReport(req, res) {
       expect: [indexNowKeyForOrigin(snapshot.origin)],
     },
   ];
+  if (sampleCategory) {
+    endpoints.push({
+      id: "category",
+      label: "Sample category page",
+      path: sampleCategory.path,
+      url: sampleCategory.url,
+      expect: ["CollectionPage", "ItemList", sampleCategory.label],
+    });
+  }
+  if (sampleTag) {
+    endpoints.push({
+      id: "tag",
+      label: "Sample tag page",
+      path: sampleTag.path,
+      url: sampleTag.url,
+      expect: ["CollectionPage", "ItemList", sampleTag.label],
+    });
+  }
   if (sampleCharacter) {
     endpoints.push({
       id: "character",
@@ -2045,7 +2278,9 @@ async function handleAdminGeoReport(req, res) {
     summary: {
       characterCount: snapshot.characters.length,
       videoCount: snapshot.characters.reduce((sum, item) => sum + item.geoVideos.length, 0),
-      sitemapUrlCount: 2 + snapshot.characters.length,
+      tagCount: snapshot.tags?.length || 0,
+      categoryCount: snapshot.categories?.length || 0,
+      sitemapUrlCount: 2 + (snapshot.tags?.length || 0) + (snapshot.categories?.length || 0) + snapshot.characters.length,
       llmsUrl: scopedApiUrl(snapshot.origin, "/llms.txt"),
       sitemapUrl: scopedApiUrl(snapshot.origin, "/sitemap.xml"),
       indexNowUrlCount: indexNowUrls(snapshot).length,
@@ -2061,6 +2296,26 @@ async function handleAdminGeoReport(req, res) {
     crawlerStats,
     indexNowHistory,
     coverage,
+    sampleTopics: [
+      ...(snapshot.categories || []).slice(0, 6).map((item) => ({
+        id: item.id,
+        label: item.label,
+        type: "category",
+        path: item.path,
+        url: item.url,
+        count: item.characters.length,
+        summary: item.summary,
+      })),
+      ...(snapshot.tags || []).slice(0, 12).map((item) => ({
+        id: item.id,
+        label: item.label,
+        type: "tag",
+        path: item.path,
+        url: item.url,
+        count: item.characters.length,
+        summary: item.summary,
+      })),
+    ],
     sampleCharacters: snapshot.characters.slice(0, 12).map((item) => ({
       id: item.id,
       name: item.name || item.title || item.id,
@@ -2073,6 +2328,7 @@ async function handleAdminGeoReport(req, res) {
     })),
     recommendations: [
       "Keep character names, summaries, tags, and poster images descriptive.",
+      "Use tag and category pages as crawlable topic entry points for AI/search discovery.",
       "Run this GEO check after importing a new character batch or changing the domain.",
       "Submit IndexNow after sitemap or character-page changes, then watch crawler visits here.",
       "Avoid exposing upstream vendor routes in public API copy; keep /api/advanced/generate as the documented entry.",
@@ -18113,6 +18369,16 @@ async function handleRequest(req, res) {
 
     if ((req.method === "GET" || req.method === "HEAD") && isIndexNowKeyPath(req, url.pathname)) {
       return await handleIndexNowKey(req, res);
+    }
+
+    const tagGeoMatch = url.pathname.match(/^\/tags\/([^/]+)\/?$/);
+    if ((req.method === "GET" || req.method === "HEAD") && tagGeoMatch) {
+      return await handleGeoTagPage(req, res, tagGeoMatch[1]);
+    }
+
+    const categoryGeoMatch = url.pathname.match(/^\/categories\/([^/]+)\/?$/);
+    if ((req.method === "GET" || req.method === "HEAD") && categoryGeoMatch) {
+      return await handleGeoCategoryPage(req, res, categoryGeoMatch[1]);
     }
 
     const characterGeoMatch = url.pathname.match(/^\/characters\/([^/]+)\/?$/);

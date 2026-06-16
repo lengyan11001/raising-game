@@ -3718,6 +3718,7 @@ async function renderGeo() {
   const summary = payload.summary || {};
   const checks = payload.checks || [];
   const samples = payload.sampleCharacters || [];
+  const topics = payload.sampleTopics || [];
   const coverage = payload.coverage || {};
   const indexNowHistory = payload.indexNowHistory || [];
   els.adminContent.innerHTML = `
@@ -3868,6 +3869,18 @@ async function renderGeo() {
       </div>
 
       <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>Sample topic pages</h3>
+          <span class="adm-muted">${escapeHtml(String(summary.categoryCount || 0))} categories · ${escapeHtml(String(summary.tagCount || 0))} tags</span>
+        </header>
+        <div class="adm-card-body">
+          <div class="adm-geo-topic-grid">
+            ${topics.map(renderGeoTopicCard).join("") || '<div class="adm-empty"><i data-lucide="tags"></i><p>No topic pages found.</p></div>'}
+          </div>
+        </div>
+      </div>
+
+      <div class="adm-card">
         <header class="adm-card-head"><h3>Recommended workflow</h3></header>
         <div class="adm-card-body">
           <ul class="adm-geo-list">
@@ -3961,6 +3974,19 @@ function renderGeoIssueRow(item = {}) {
       <td>${(item.missing || []).map((value) => `<span class="adm-pill is-failed">${escapeHtml(value)}</span>`).join(" ")}</td>
       <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open</a></td>
     </tr>
+  `;
+}
+
+function renderGeoTopicCard(item = {}) {
+  return `
+    <article class="adm-geo-topic-card">
+      <div>
+        <strong>${escapeHtml(item.label || item.id || "Topic")}</strong>
+        <span>${escapeHtml(item.type || "topic")} · ${escapeHtml(String(item.count || 0))} profiles</span>
+      </div>
+      <p>${escapeHtml(shortText(item.summary || "", 120))}</p>
+      <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.url || item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open</a>
+    </article>
   `;
 }
 
