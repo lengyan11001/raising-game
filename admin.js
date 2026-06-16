@@ -3739,7 +3739,7 @@ async function renderGeo() {
       <div class="adm-grid adm-grid-4">
         ${statCard("Base URL", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
         ${statCard("GEO Score", summary.geoScore || 0, coverage.status || "needs work", "activity", "violet")}
-        ${statCard("Content coverage", `${summary.contentCoveragePercent || 0}%`, `${summary.characterCount || 0} profiles`, "scan-search", "mint")}
+        ${statCard("Content quality", `${summary.contentQualityPercent || 0}%`, `${summary.characterCount || 0} profiles`, "badge-check", "mint")}
         ${statCard("IndexNow URLs", summary.indexNowUrlCount || summary.sitemapUrlCount || 0, "ready to submit", "send", "amber")}
       </div>
 
@@ -3760,6 +3760,16 @@ async function renderGeo() {
             <span class="adm-kicker">Top discovery tags</span>
             <div>${(coverage.topTags || []).map((item) => `<small>${escapeHtml(item.tag)} · ${escapeHtml(String(item.count))}</small>`).join("") || '<em class="adm-muted">No tags yet.</em>'}</div>
           </div>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>Content quality</h3>
+          <span class="adm-muted">${escapeHtml(String(summary.contentQualityPercent || 0))}% ready</span>
+        </header>
+        <div class="adm-card-body adm-geo-quality-grid">
+          ${(coverage.qualityMetrics || []).map(renderGeoMetric).join("")}
         </div>
       </div>
 

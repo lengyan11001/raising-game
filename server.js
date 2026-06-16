@@ -1318,6 +1318,74 @@ function addCharacterVideoDescriptionsForGeo(item = {}) {
   }));
 }
 
+function geoCharacterNames(items = [], max = 5) {
+  return items
+    .map((item) => compactPlainText(item.name || item.title || item.id, 48))
+    .filter(Boolean)
+    .slice(0, max);
+}
+
+function geoCollectionRelatedTagLabels(items = [], activeLabel = "", max = 8) {
+  const counts = new Map();
+  const active = String(activeLabel || "").toLowerCase();
+  items.forEach((item) => {
+    (item.geoTags || []).forEach((tag) => {
+      const label = compactPlainText(tag, 36);
+      if (!label || label.toLowerCase() === active) return;
+      counts.set(label, (counts.get(label) || 0) + 1);
+    });
+  });
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, max)
+    .map(([label, count]) => ({ label, count }));
+}
+
+function geoCollectionVideoCount(items = []) {
+  return items.reduce((sum, item) => sum + (item.geoVideos || []).length, 0);
+}
+
+function buildGeoCollectionCopy({ label, characters = [], kind = "tag", baseSummary = "" } = {}) {
+  const names = geoCharacterNames(characters, 5);
+  const relatedTags = geoCollectionRelatedTagLabels(characters, label, 6);
+  const videoCount = geoCollectionVideoCount(characters);
+  const profileCount = characters.length;
+  const topicLabel = compactPlainText(label || "AI character videos", 80);
+  const lead = kind === "category"
+    ? `${topicLabel} groups ${profileCount} crawlable AI character profiles with posters, scene metadata, and video preview context.`
+    : `${topicLabel} is a crawlable topic collection with ${profileCount} AI character profiles and ${videoCount} listed video scenes.`;
+  const namesText = names.length ? `Representative profiles include ${names.join(", ")}.` : "";
+  const tagsText = relatedTags.length ? `Related discovery tags include ${relatedTags.map((item) => item.label).join(", ")}.` : "";
+  const intro = compactPlainText([lead, baseSummary, namesText, tagsText].filter(Boolean).join(" "), 520);
+  const highlights = [
+    `${profileCount} public character ${profileCount === 1 ? "profile" : "profiles"}`,
+    `${videoCount} listed video ${videoCount === 1 ? "scene" : "scenes"}`,
+    relatedTags.length ? `Related tags: ${relatedTags.slice(0, 4).map((item) => item.label).join(", ")}` : "Structured profile and video metadata",
+  ];
+  const faq = [
+    {
+      question: `What is the ${topicLabel} collection?`,
+      answer: compactPlainText(`${topicLabel} is a public collection of AI character profiles organized for browsing, search, and AI understanding.`, 220),
+    },
+    {
+      question: `How many profiles are listed under ${topicLabel}?`,
+      answer: `This collection currently lists ${profileCount} public profiles and ${videoCount} video scene entries.`,
+    },
+    {
+      question: `Can these profiles be used for video generation?`,
+      answer: "Open a profile in the app to review available scenes, public previews, and unlock options where configured.",
+    },
+  ];
+  return {
+    summary: compactPlainText(intro, 180),
+    intro,
+    highlights,
+    relatedTags,
+    faq,
+    videoCount,
+  };
+}
+
 function buildGeoTagsForSnapshot(characters = [], origin = "") {
   const tagMap = new Map();
   characters.forEach((item) => {
@@ -1339,10 +1407,13 @@ function buildGeoTagsForSnapshot(characters = [], origin = "") {
   return [...tagMap.values()]
     .sort((a, b) => b.characters.length - a.characters.length || a.label.localeCompare(b.label))
     .slice(0, 80)
-    .map((entry) => ({
-      ...entry,
-      summary: compactPlainText(`${entry.label} AI character video profiles with ${entry.characters.length} crawlable character pages and preview scenes.`, 180),
-    }));
+    .map((entry) => {
+      const copy = buildGeoCollectionCopy({ label: entry.label, characters: entry.characters, kind: "tag" });
+      return {
+        ...entry,
+        ...copy,
+      };
+    });
 }
 
 function buildGeoCategoriesForSnapshot(characters = [], origin = "") {
@@ -1375,6 +1446,12 @@ function buildGeoCategoriesForSnapshot(characters = [], origin = "") {
         path,
         url: scopedApiUrl(origin, path),
         characters: matched,
+        ...buildGeoCollectionCopy({
+          label: category.label,
+          characters: matched,
+          kind: "category",
+          baseSummary: category.summary,
+        }),
       };
     })
     .filter((category) => category.characters.length > 0);
@@ -1575,11 +1652,15 @@ function topGeoTags(snapshot, max = 18) {
 function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
   const characters = snapshot.characters || [];
   const total = characters.length;
+  const topics = [...(snapshot.tags || []), ...(snapshot.categories || [])];
   const withSummary = characters.filter((item) => item.geoSummary && item.geoSummary.length > 40).length;
   const withTags = characters.filter((item) => (item.geoTags || []).length > 0).length;
   const withPoster = characters.filter((item) => item.geoPoster && !String(item.geoPoster).includes("default-hero")).length;
   const withVideos = characters.filter((item) => (item.geoVideos || []).length > 0).length;
   const withThreeVideos = characters.filter((item) => (item.geoVideos || []).length >= 3).length;
+  const withFaq = characters.filter((item) => characterFaqForGeo(item).length >= 3).length;
+  const topicsWithIntro = topics.filter((item) => item.intro && item.intro.length > 160).length;
+  const topicsWithFaq = topics.filter((item) => Array.isArray(item.faq) && item.faq.length >= 3).length;
   const crawlerByBot = crawlerStats.byBot || {};
   const importantBots = ["OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "Googlebot", "Bingbot"];
   const seenImportantBots = importantBots.filter((bot) => crawlerByBot[bot]?.count > 0);
@@ -1592,12 +1673,23 @@ function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
     geoCoverageMetric("Posters", withPoster, total),
     geoCoverageMetric("Videos", withVideos, total),
     geoCoverageMetric("Topic pages", Math.min(topicCount, 20), 20),
+    geoCoverageMetric("Role FAQ", withFaq, total),
+    geoCoverageMetric("Topic intros", topicsWithIntro, topics.length),
+    geoCoverageMetric("Topic FAQ", topicsWithFaq, topics.length),
     geoCoverageMetric("3+ videos", withThreeVideos, total),
     geoCoverageMetric("Important bots", seenImportantBots.length, importantBots.length),
   ];
   const contentPercent = total
     ? Math.round(((withSummary + withTags + withPoster + withVideos) / (total * 4)) * 100)
     : 0;
+  const qualityPercent = Math.round((
+    (total ? (withSummary / total) : 0) +
+      (total ? (withTags / total) : 0) +
+      (total ? (withVideos / total) : 0) +
+      (total ? (withFaq / total) : 0) +
+      (topics.length ? (topicsWithIntro / topics.length) : 0) +
+      (topics.length ? (topicsWithFaq / topics.length) : 0)
+  ) / 6 * 100);
   const submitted = indexNowHistory.length > 0;
   const crawlerSeen = Number(crawlerStats.total || 0) > 0;
   const score = Math.min(100, Math.round(
@@ -1626,7 +1718,16 @@ function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
     score,
     status: score >= 85 ? "healthy" : score >= 65 ? "warming up" : "needs work",
     contentPercent,
+    qualityPercent,
     metrics,
+    qualityMetrics: [
+      geoCoverageMetric("Character summaries", withSummary, total),
+      geoCoverageMetric("Character tags", withTags, total),
+      geoCoverageMetric("Character videos", withVideos, total),
+      geoCoverageMetric("Character FAQ", withFaq, total),
+      geoCoverageMetric("Topic intros", topicsWithIntro, topics.length),
+      geoCoverageMetric("Topic FAQ", topicsWithFaq, topics.length),
+    ],
     topTags: topGeoTags(snapshot),
     issues: issues.slice(0, 24),
     issueCount: issues.length,
@@ -1753,6 +1854,7 @@ function renderCharacterGeoHtml(snapshot, item = {}) {
   const tags = characterTagsForGeo(item, 12);
   const videos = item.geoVideos || addCharacterVideoDescriptionsForGeo(item);
   const related = relatedCharactersForGeo(snapshot, item, 6);
+  const faq = characterFaqForGeo({ ...item, geoVideos: videos });
   const facts = [
     item.age ? `Age style: ${compactPlainText(item.age, 30)}` : "",
     item.style ? `Style: ${compactPlainText(item.style, 80)}` : "",
@@ -1792,6 +1894,18 @@ function renderCharacterGeoHtml(snapshot, item = {}) {
         { "@type": "ListItem", position: 2, name: "Characters", item: scopedApiUrl(origin, "/#gallery") },
         { "@type": "ListItem", position: 3, name, item: url },
       ],
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: faq.map((item) => ({
+        "@type": "Question",
+        name: item.question,
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: item.answer,
+        },
+      })),
     },
     {
       "@context": "https://schema.org",
@@ -1860,6 +1974,9 @@ function renderCharacterGeoHtml(snapshot, item = {}) {
       .related-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:12px; }
       .related-card { display:grid; gap:8px; padding:10px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.04); font-weight:800; }
       .related-card img { width:100%; aspect-ratio:9/13; object-fit:cover; border-radius:10px; }
+      .faq { margin-top:34px; display:grid; gap:12px; }
+      .faq article { padding:16px; border:1px solid var(--line); border-radius:16px; background:rgba(255,255,255,.04); }
+      .faq h2 { margin:0 0 4px; font-size:18px; }
       @media (max-width: 760px) { .hero, .info { grid-template-columns:1fr; } }
     </style>
   </head>
@@ -1889,6 +2006,9 @@ function renderCharacterGeoHtml(snapshot, item = {}) {
       <section class="videos" aria-label="Video previews">
         ${videoCards}
       </section>
+      <section class="faq" aria-label="Frequently asked questions">
+        ${faq.map((item) => `<article><h2>${htmlEscape(item.question)}</h2><p>${htmlEscape(item.answer)}</p></article>`).join("")}
+      </section>
       ${relatedCards ? `<section class="related" aria-label="Related characters"><h2>Related characters</h2><div class="related-grid">${relatedCards}</div></section>` : ""}
     </main>
   </body>
@@ -1908,6 +2028,26 @@ function relatedCharactersForGeo(snapshot, item = {}, max = 6) {
     .map((entry) => entry.candidate);
 }
 
+function characterFaqForGeo(item = {}) {
+  const name = compactPlainText(item.name || item.title || "this AI character", 80);
+  const tags = characterTagsForGeo(item, 5);
+  const videos = item.geoVideos || addCharacterVideoDescriptionsForGeo(item);
+  return [
+    {
+      question: `What can I create with ${name}?`,
+      answer: compactPlainText(`${name} can be used as a character reference for AI video scenes. ${tags.length ? `Common discovery tags include ${tags.join(", ")}.` : "Open the profile to review available scene metadata."}`, 260),
+    },
+    {
+      question: `Are there video previews for ${name}?`,
+      answer: `This profile lists ${videos.length} video ${videos.length === 1 ? "scene" : "scenes"}. The first scene is shown as the public preview when configured.`,
+    },
+    {
+      question: `How do I unlock more ${name} videos?`,
+      answer: "Sign in to the app, open the character profile, and use the unlock action where additional scenes are available.",
+    },
+  ];
+}
+
 function renderGeoCollectionHtml(snapshot, collection = {}, { kind = "tag" } = {}) {
   const { origin, brand } = snapshot;
   const label = compactPlainText(collection.label || collection.id || "Collection", 90);
@@ -1917,6 +2057,10 @@ function renderGeoCollectionHtml(snapshot, collection = {}, { kind = "tag" } = {
     collection.summary || `${label} AI character video profiles with crawlable character pages, tags, posters, and listed video scenes.`,
     180,
   );
+  const intro = compactPlainText(collection.intro || description, 620);
+  const highlights = Array.isArray(collection.highlights) ? collection.highlights.filter(Boolean).slice(0, 6) : [];
+  const relatedTags = Array.isArray(collection.relatedTags) ? collection.relatedTags.slice(0, 10) : [];
+  const faq = Array.isArray(collection.faq) ? collection.faq.slice(0, 4) : [];
   const image = characters[0]?.geoPoster ? absoluteUrlFromBase(characters[0].geoPoster, origin) : "";
   const title = `${label} | ${brand}`;
   const jsonLd = [
@@ -1942,6 +2086,18 @@ function renderGeoCollectionHtml(snapshot, collection = {}, { kind = "tag" } = {
         })),
       },
     },
+    faq.length ? {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: faq.map((item) => ({
+        "@type": "Question",
+        name: item.question,
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: item.answer,
+        },
+      })),
+    } : null,
     {
       "@context": "https://schema.org",
       "@type": "BreadcrumbList",
@@ -1979,6 +2135,9 @@ function renderGeoCollectionHtml(snapshot, collection = {}, { kind = "tag" } = {
       .eyebrow { color:var(--pink); text-transform:uppercase; letter-spacing:.16em; font-size:12px; font-weight:900; }
       h1 { margin:.18em 0; font-size:clamp(38px, 7vw, 84px); line-height:.93; }
       p { color:var(--muted); line-height:1.7; font-size:16px; }
+      .intro { max-width:880px; margin:0 0 18px; }
+      .facts { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin:0 0 26px; padding:0; list-style:none; }
+      .facts li { padding:12px 14px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.045); color:#ddd7e8; font-weight:800; }
       .links { display:flex; flex-wrap:wrap; gap:8px; margin:18px 0 28px; }
       .links a { padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.06); color:#ddd7e8; font-weight:800; font-size:13px; }
       .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:14px; }
@@ -1986,6 +2145,9 @@ function renderGeoCollectionHtml(snapshot, collection = {}, { kind = "tag" } = {
       .card img { width:100%; aspect-ratio:9/13; object-fit:cover; border-radius:12px; background:#24242b; }
       .card span { font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .card small { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .faq { margin-top:34px; display:grid; gap:12px; }
+      .faq article { padding:16px; border:1px solid var(--line); border-radius:16px; background:rgba(255,255,255,.04); }
+      .faq h2 { margin:0 0 4px; font-size:18px; }
     </style>
   </head>
   <body>
@@ -1996,10 +2158,14 @@ function renderGeoCollectionHtml(snapshot, collection = {}, { kind = "tag" } = {
         <h1>${htmlEscape(label)}</h1>
         <p>${htmlEscape(description)} This collection includes ${characters.length} crawlable profiles.</p>
       </section>
+      <p class="intro">${htmlEscape(intro)}</p>
+      ${highlights.length ? `<ul class="facts">${highlights.map((item) => `<li>${htmlEscape(item)}</li>`).join("")}</ul>` : ""}
       ${relatedLinks.length ? `<nav class="links" aria-label="Related topics">${relatedLinks.map((item) => `<a href="${htmlEscape(item.path)}">${htmlEscape(item.label)}</a>`).join("")}</nav>` : ""}
+      ${relatedTags.length ? `<nav class="links" aria-label="Related tags">${relatedTags.map((item) => `<a href="${htmlEscape(geoTagPublicPath(item.label))}">${htmlEscape(item.label)} · ${htmlEscape(String(item.count))}</a>`).join("")}</nav>` : ""}
       <section class="grid" aria-label="${htmlEscape(label)} characters">
         ${cards || `<p class="muted">No public character profiles are available for this collection yet.</p>`}
       </section>
+      ${faq.length ? `<section class="faq" aria-label="Frequently asked questions">${faq.map((item) => `<article><h2>${htmlEscape(item.question)}</h2><p>${htmlEscape(item.answer)}</p></article>`).join("")}</section>` : ""}
     </main>
   </body>
 </html>`;
@@ -2290,6 +2456,7 @@ async function handleAdminGeoReport(req, res) {
       geoScore: coverage.score,
       geoStatus: coverage.status,
       contentCoveragePercent: coverage.contentPercent,
+      contentQualityPercent: coverage.qualityPercent,
       crawledCharacterPathCount: coverage.crawledCharacterPathCount,
     },
     checks: endpoints,
