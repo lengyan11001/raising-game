@@ -3718,6 +3718,8 @@ async function renderGeo() {
   const summary = payload.summary || {};
   const checks = payload.checks || [];
   const samples = payload.sampleCharacters || [];
+  const coverage = payload.coverage || {};
+  const indexNowHistory = payload.indexNowHistory || [];
   els.adminContent.innerHTML = `
     <section class="adm-page adm-geo-page">
       <div class="adm-page-head">
@@ -3735,9 +3737,29 @@ async function renderGeo() {
 
       <div class="adm-grid adm-grid-4">
         ${statCard("Base URL", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
-        ${statCard("Characters", summary.characterCount || 0, "crawlable profiles", "user-round", "violet")}
-        ${statCard("Videos", summary.videoCount || 0, "listed for understanding", "film", "mint")}
+        ${statCard("GEO Score", summary.geoScore || 0, coverage.status || "needs work", "activity", "violet")}
+        ${statCard("Content coverage", `${summary.contentCoveragePercent || 0}%`, `${summary.characterCount || 0} profiles`, "scan-search", "mint")}
         ${statCard("IndexNow URLs", summary.indexNowUrlCount || summary.sitemapUrlCount || 0, "ready to submit", "send", "amber")}
+      </div>
+
+      <div class="adm-card adm-geo-score-card">
+        <header class="adm-card-head">
+          <h3>GEO effect dashboard</h3>
+          <span class="adm-pill ${coverage.status === "healthy" ? "is-success" : coverage.status === "warming up" ? "is-pending" : "is-failed"}">${escapeHtml(coverage.status || "unknown")}</span>
+        </header>
+        <div class="adm-card-body adm-geo-score-body">
+          <div class="adm-geo-score-ring">
+            <strong>${escapeHtml(String(coverage.score || 0))}</strong>
+            <span>score</span>
+          </div>
+          <div class="adm-geo-metrics">
+            ${(coverage.metrics || []).map(renderGeoMetric).join("")}
+          </div>
+          <div class="adm-geo-tags">
+            <span class="adm-kicker">Top discovery tags</span>
+            <div>${(coverage.topTags || []).map((item) => `<small>${escapeHtml(item.tag)} · ${escapeHtml(String(item.count))}</small>`).join("") || '<em class="adm-muted">No tags yet.</em>'}</div>
+          </div>
+        </div>
       </div>
 
       <div class="adm-card adm-geo-indexnow">
@@ -3760,6 +3782,21 @@ async function renderGeo() {
 
       <div class="adm-card">
         <header class="adm-card-head">
+          <h3>Important bot coverage</h3>
+          <span class="adm-muted">${escapeHtml(String(summary.crawledCharacterPathCount || 0))} character pages crawled</span>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-geo-bot-table">
+            <thead><tr><th>Bot</th><th>Visits</th><th>Last seen</th><th>Last path</th></tr></thead>
+            <tbody>
+              ${(coverage.importantBots || []).map(renderGeoImportantBotRow).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
           <h3>Live GEO checks</h3>
           <span class="adm-muted" id="geoCheckSummary">Not run yet</span>
         </header>
@@ -3768,6 +3805,36 @@ async function renderGeo() {
             <thead><tr><th>Target</th><th>Status</th><th>Signals</th><th>Size</th><th>Open</th></tr></thead>
             <tbody id="geoCheckRows">
               ${checks.map((check) => renderGeoCheckRow(check)).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>IndexNow submit history</h3>
+          <span class="adm-muted">${escapeHtml(String(indexNowHistory.length))} attempts</span>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-geo-indexnow-table">
+            <thead><tr><th>Time</th><th>Status</th><th>URLs</th><th>Response</th></tr></thead>
+            <tbody>
+              ${indexNowHistory.map(renderGeoIndexNowHistoryRow).join("") || '<tr><td colspan="4" class="adm-muted">No submit history yet.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>Content issues</h3>
+          <span class="adm-muted">${escapeHtml(String(coverage.issueCount || 0))} profiles need attention</span>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-geo-issue-table">
+            <thead><tr><th>Character</th><th>Missing</th><th>Open</th></tr></thead>
+            <tbody>
+              ${(coverage.issues || []).map(renderGeoIssueRow).join("") || '<tr><td colspan="3" class="adm-muted">No obvious content issues.</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -3850,6 +3917,53 @@ function renderGeoSampleCard(item = {}) {
   `;
 }
 
+function renderGeoMetric(metric = {}) {
+  const percent = Math.max(0, Math.min(100, Number(metric.percent || 0)));
+  return `
+    <div class="adm-geo-metric">
+      <div>
+        <strong>${escapeHtml(metric.label || "-")}</strong>
+        <span>${escapeHtml(String(metric.count || 0))}/${escapeHtml(String(metric.total || 0))}</span>
+      </div>
+      <span class="adm-geo-meter"><i style="width:${percent}%"></i></span>
+    </div>
+  `;
+}
+
+function renderGeoImportantBotRow(item = {}) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.bot || "-")}</strong></td>
+      <td>${escapeHtml(String(item.count || 0))}</td>
+      <td>${escapeHtml(item.lastSeen ? fmtDate(item.lastSeen) : "-")}</td>
+      <td class="adm-mono adm-truncate" title="${escapeHtml(item.lastPath || "")}">${escapeHtml(item.lastPath || "-")}</td>
+    </tr>
+  `;
+}
+
+function renderGeoIndexNowHistoryRow(item = {}) {
+  const stateClass = item.ok ? "is-success" : "is-failed";
+  const stateText = item.status ? `${item.status} ${item.statusText || ""}`.trim() : (item.statusText || "failed");
+  return `
+    <tr>
+      <td>${escapeHtml(item.at ? fmtDate(item.at) : "-")}</td>
+      <td><span class="adm-pill ${stateClass}">${escapeHtml(stateText)}</span></td>
+      <td>${escapeHtml(String(item.urlCount || 0))}</td>
+      <td class="adm-truncate" title="${escapeHtml(item.responseText || "")}">${escapeHtml(item.responseText || "-")}</td>
+    </tr>
+  `;
+}
+
+function renderGeoIssueRow(item = {}) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.name || item.id || "-")}</strong><span class="adm-block adm-muted adm-mono">${escapeHtml(item.path || "")}</span></td>
+      <td>${(item.missing || []).map((value) => `<span class="adm-pill is-failed">${escapeHtml(value)}</span>`).join(" ")}</td>
+      <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open</a></td>
+    </tr>
+  `;
+}
+
 function renderGeoCrawlerRow(item = {}) {
   return `
     <tr>
@@ -3873,9 +3987,9 @@ async function submitGeoIndexNow() {
   try {
     const payload = await api("/api/admin/geo/indexnow", { method: "POST", body: {} });
     const result = payload.result || {};
-    const message = `IndexNow ${result.status || ""}: ${result.urlCount || 0} URLs`;
+    const message = `IndexNow ${payload.accepted ? "accepted" : "rejected"} ${result.status || ""}: ${result.urlCount || 0} URLs`;
     if (status) status.textContent = message;
-    toast(message, payload.ok ? "success" : "error");
+    toast(message, payload.accepted ? "success" : "error");
   } catch (err) {
     if (status) status.textContent = err.message || "Submit failed";
     toast(err.message || "IndexNow submit failed", "error");

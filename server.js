@@ -1392,7 +1392,29 @@ async function submitIndexNowSnapshot(snapshot, { limit = 10000 } = {}) {
   };
 }
 
+async function readGeoIndexNowHistory() {
+  const history = await getKv(GEO_INDEXNOW_HISTORY_KEY, []);
+  return Array.isArray(history) ? history.slice(0, 20) : [];
+}
+
+async function appendGeoIndexNowHistory(snapshot, result = {}) {
+  const history = await readGeoIndexNowHistory();
+  const entry = {
+    at: new Date().toISOString(),
+    origin: snapshot.origin,
+    ok: Boolean(result.ok),
+    status: result.status || 0,
+    statusText: result.statusText || "",
+    urlCount: result.urlCount || 0,
+    keyLocation: result.keyLocation || indexNowKeyLocation(snapshot),
+    responseText: compactPlainText(result.responseText || "", 500),
+  };
+  await setKv(GEO_INDEXNOW_HISTORY_KEY, [entry, ...history].slice(0, 20));
+  return entry;
+}
+
 const GEO_CRAWLER_STATS_KEY = "geo_crawler_stats";
+const GEO_INDEXNOW_HISTORY_KEY = "geo_indexnow_history";
 const GEO_CRAWLERS = [
   { id: "OAI-SearchBot", pattern: /OAI-SearchBot/i },
   { id: "ChatGPT-User", pattern: /ChatGPT-User/i },
@@ -1439,6 +1461,100 @@ async function readGeoCrawlerStats() {
     byBot: stats.byBot && typeof stats.byBot === "object" ? stats.byBot : {},
     byPath: stats.byPath && typeof stats.byPath === "object" ? stats.byPath : {},
     recent: Array.isArray(stats.recent) ? stats.recent.slice(0, 80) : [],
+  };
+}
+
+function geoCoverageMetric(label, count, total) {
+  const safeTotal = Math.max(0, Number(total || 0));
+  const safeCount = Math.max(0, Math.min(safeTotal, Number(count || 0)));
+  return {
+    label,
+    count: safeCount,
+    total: safeTotal,
+    percent: safeTotal ? Math.round((safeCount / safeTotal) * 100) : 0,
+  };
+}
+
+function topGeoTags(snapshot, max = 18) {
+  const counts = new Map();
+  (snapshot.characters || []).forEach((item) => {
+    (item.geoTags || characterTagsForGeo(item, 12)).forEach((tag) => {
+      const key = compactPlainText(tag, 40);
+      if (!key) return;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+  });
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, max)
+    .map(([tag, count]) => ({ tag, count }));
+}
+
+function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
+  const characters = snapshot.characters || [];
+  const total = characters.length;
+  const withSummary = characters.filter((item) => item.geoSummary && item.geoSummary.length > 40).length;
+  const withTags = characters.filter((item) => (item.geoTags || []).length > 0).length;
+  const withPoster = characters.filter((item) => item.geoPoster && !String(item.geoPoster).includes("default-hero")).length;
+  const withVideos = characters.filter((item) => (item.geoVideos || []).length > 0).length;
+  const withThreeVideos = characters.filter((item) => (item.geoVideos || []).length >= 3).length;
+  const crawlerByBot = crawlerStats.byBot || {};
+  const importantBots = ["OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "Googlebot", "Bingbot"];
+  const seenImportantBots = importantBots.filter((bot) => crawlerByBot[bot]?.count > 0);
+  const byPath = crawlerStats.byPath || {};
+  const crawledCharacterPaths = Object.keys(byPath).filter((pathname) => /^\/characters\/[^/]+\/?$/.test(pathname));
+  const metrics = [
+    geoCoverageMetric("Summaries", withSummary, total),
+    geoCoverageMetric("Tags", withTags, total),
+    geoCoverageMetric("Posters", withPoster, total),
+    geoCoverageMetric("Videos", withVideos, total),
+    geoCoverageMetric("3+ videos", withThreeVideos, total),
+    geoCoverageMetric("Important bots", seenImportantBots.length, importantBots.length),
+  ];
+  const contentPercent = total
+    ? Math.round(((withSummary + withTags + withPoster + withVideos) / (total * 4)) * 100)
+    : 0;
+  const submitted = indexNowHistory.length > 0;
+  const crawlerSeen = Number(crawlerStats.total || 0) > 0;
+  const score = Math.min(100, Math.round(
+    (total ? 30 : 0) +
+      contentPercent * 0.45 +
+      (submitted ? 12 : 0) +
+      (crawlerSeen ? 13 : 0),
+  ));
+  const issues = [];
+  characters.forEach((item) => {
+    const missing = [];
+    if (!item.geoSummary || item.geoSummary.length <= 40) missing.push("summary");
+    if (!(item.geoTags || []).length) missing.push("tags");
+    if (!item.geoPoster || String(item.geoPoster).includes("default-hero")) missing.push("poster");
+    if (!(item.geoVideos || []).length) missing.push("videos");
+    if (missing.length) {
+      issues.push({
+        id: item.id,
+        name: item.name || item.title || item.id,
+        path: item.geoPath,
+        missing,
+      });
+    }
+  });
+  return {
+    score,
+    status: score >= 85 ? "healthy" : score >= 65 ? "warming up" : "needs work",
+    contentPercent,
+    metrics,
+    topTags: topGeoTags(snapshot),
+    issues: issues.slice(0, 24),
+    issueCount: issues.length,
+    importantBots: importantBots.map((bot) => ({
+      bot,
+      count: Number(crawlerByBot[bot]?.count || 0),
+      lastSeen: crawlerByBot[bot]?.lastSeen || "",
+      lastPath: crawlerByBot[bot]?.lastPath || "",
+    })),
+    crawledCharacterPathCount: crawledCharacterPaths.length,
+    submitted,
+    lastIndexNow: indexNowHistory[0] || null,
   };
 }
 
@@ -1859,14 +1975,27 @@ async function handleAdminSubmitIndexNow(req, res) {
   const snapshot = await geoSiteSnapshot(req);
   try {
     const result = await submitIndexNowSnapshot(snapshot, { limit: body.limit });
-    return sendJson(res, result.ok ? 200 : 502, {
-      ok: result.ok,
+    const historyEntry = await appendGeoIndexNowHistory(snapshot, result);
+    return sendJson(res, 200, {
+      ok: true,
+      accepted: result.ok,
       result,
+      historyEntry,
     });
   } catch (error) {
-    return sendJson(res, 502, {
+    const historyEntry = await appendGeoIndexNowHistory(snapshot, {
       ok: false,
+      status: 0,
+      statusText: "Request failed",
+      urlCount: indexNowUrls(snapshot).length,
+      keyLocation: indexNowKeyLocation(snapshot),
+      responseText: error.message || "IndexNow submit failed",
+    }).catch(() => null);
+    return sendJson(res, 200, {
+      ok: true,
+      accepted: false,
       error: error.message || "IndexNow submit failed",
+      historyEntry,
     });
   }
 }
@@ -1876,6 +2005,8 @@ async function handleAdminGeoReport(req, res) {
   if (!auth) return;
   const snapshot = await geoSiteSnapshot(req);
   const crawlerStats = await readGeoCrawlerStats();
+  const indexNowHistory = await readGeoIndexNowHistory();
+  const coverage = buildGeoCoverage(snapshot, crawlerStats, indexNowHistory);
   const sampleCharacter = snapshot.characters[0] || null;
   const endpoints = [
     { id: "home", label: "Home metadata", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: ["application/ld+json", "canonical", snapshot.brand] },
@@ -1915,9 +2046,15 @@ async function handleAdminGeoReport(req, res) {
       indexNowKeyLocation: indexNowKeyLocation(snapshot),
       crawlerVisits: crawlerStats.total,
       crawlerBotCount: Object.keys(crawlerStats.byBot || {}).length,
+      geoScore: coverage.score,
+      geoStatus: coverage.status,
+      contentCoveragePercent: coverage.contentPercent,
+      crawledCharacterPathCount: coverage.crawledCharacterPathCount,
     },
     checks: endpoints,
     crawlerStats,
+    indexNowHistory,
+    coverage,
     sampleCharacters: snapshot.characters.slice(0, 12).map((item) => ({
       id: item.id,
       name: item.name || item.title || item.id,
