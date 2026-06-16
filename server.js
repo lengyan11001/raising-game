@@ -699,28 +699,34 @@ function sendJson(res, statusCode, payload) {
   res.end(body);
 }
 
-function sendText(res, statusCode, body) {
+function sendText(res, statusCode, body, { cacheControl = "no-cache", head = false } = {}) {
+  const text = String(body ?? "");
   res.writeHead(statusCode, {
     "content-type": "text/plain; charset=utf-8",
-    "cache-control": "no-cache",
+    "cache-control": cacheControl,
+    "content-length": Buffer.byteLength(text),
   });
-  res.end(body);
+  res.end(head ? undefined : text);
 }
 
-function sendHtml(res, statusCode, body, { cacheControl = "public, max-age=300" } = {}) {
+function sendHtml(res, statusCode, body, { cacheControl = "public, max-age=300", head = false } = {}) {
+  const html = String(body ?? "");
   res.writeHead(statusCode, {
     "content-type": "text/html; charset=utf-8",
     "cache-control": cacheControl,
+    "content-length": Buffer.byteLength(html),
   });
-  res.end(body);
+  res.end(head ? undefined : html);
 }
 
-function sendXml(res, statusCode, body, { cacheControl = "no-cache" } = {}) {
+function sendXml(res, statusCode, body, { cacheControl = "no-cache", head = false } = {}) {
+  const xml = String(body ?? "");
   res.writeHead(statusCode, {
     "content-type": "application/xml; charset=utf-8",
     "cache-control": cacheControl,
+    "content-length": Buffer.byteLength(xml),
   });
-  res.end(body);
+  res.end(head ? undefined : xml);
 }
 
 function sendCsv(res, filename, body) {
@@ -1933,26 +1939,26 @@ async function servePlatformHtmlWithGeo(req, res) {
   const filePath = path.join(ROOT, "platform.html");
   const html = await fs.readFile(filePath, "utf8");
   const snapshot = await geoSiteSnapshot(req);
-  return sendHtml(res, 200, injectPlatformGeoHead(html, snapshot), { cacheControl: "no-cache" });
+  return sendHtml(res, 200, injectPlatformGeoHead(html, snapshot), { cacheControl: "no-cache", head: req.method === "HEAD" });
 }
 
 async function handleRobotsTxt(req, res) {
   const snapshot = await geoSiteSnapshot(req);
-  return sendText(res, 200, buildRobotsTxt(snapshot));
+  return sendText(res, 200, buildRobotsTxt(snapshot), { head: req.method === "HEAD" });
 }
 
 async function handleSitemapXml(req, res) {
   const snapshot = await geoSiteSnapshot(req);
-  return sendXml(res, 200, buildSitemapXml(snapshot));
+  return sendXml(res, 200, buildSitemapXml(snapshot), { head: req.method === "HEAD" });
 }
 
 async function handleLlmsTxt(req, res, { full = false } = {}) {
   const snapshot = await geoSiteSnapshot(req);
-  return sendText(res, 200, buildLlmsTxt(snapshot, { full }));
+  return sendText(res, 200, buildLlmsTxt(snapshot, { full }), { head: req.method === "HEAD" });
 }
 
 async function handleIndexNowKey(req, res) {
-  return sendText(res, 200, indexNowKeyForOrigin(publicOriginFromRequest(req)));
+  return sendText(res, 200, indexNowKeyForOrigin(publicOriginFromRequest(req)), { head: req.method === "HEAD" });
 }
 
 async function handleCharacterGeoPage(req, res, characterId) {
@@ -1965,7 +1971,7 @@ async function handleCharacterGeoPage(req, res, characterId) {
     String(candidate.id || "") === decoded
   ));
   if (!item) return sendText(res, 404, "Character not found");
-  return sendHtml(res, 200, renderCharacterGeoHtml(snapshot, item));
+  return sendHtml(res, 200, renderCharacterGeoHtml(snapshot, item), { head: req.method === "HEAD" });
 }
 
 async function handleAdminSubmitIndexNow(req, res) {
@@ -18089,28 +18095,28 @@ async function handleRequest(req, res) {
       });
     }
 
-    if (req.method === "GET" && url.pathname === "/robots.txt") {
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/robots.txt") {
       return await handleRobotsTxt(req, res);
     }
 
-    if (req.method === "GET" && url.pathname === "/sitemap.xml") {
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/sitemap.xml") {
       return await handleSitemapXml(req, res);
     }
 
-    if (req.method === "GET" && url.pathname === "/llms.txt") {
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/llms.txt") {
       return await handleLlmsTxt(req, res);
     }
 
-    if (req.method === "GET" && url.pathname === "/llms-full.txt") {
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/llms-full.txt") {
       return await handleLlmsTxt(req, res, { full: true });
     }
 
-    if (req.method === "GET" && isIndexNowKeyPath(req, url.pathname)) {
+    if ((req.method === "GET" || req.method === "HEAD") && isIndexNowKeyPath(req, url.pathname)) {
       return await handleIndexNowKey(req, res);
     }
 
     const characterGeoMatch = url.pathname.match(/^\/characters\/([^/]+)\/?$/);
-    if (req.method === "GET" && characterGeoMatch) {
+    if ((req.method === "GET" || req.method === "HEAD") && characterGeoMatch) {
       return await handleCharacterGeoPage(req, res, characterGeoMatch[1]);
     }
 
