@@ -291,6 +291,7 @@ function defaultStorageSlug() {
   try {
     const host = new URL(PUBLIC_BASE_URL || "https://raising-game.local").hostname;
     if (/cloudtoken/i.test(host)) return "cloudtoken";
+    if (/(^|\.)667zui\.video$/i.test(host)) return "667zui";
   } catch {
     // Keep the legacy namespace when the public URL is not configured yet.
   }
@@ -379,6 +380,8 @@ const mimeTypes = new Map([
   [".css", "text/css; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".xml", "application/xml; charset=utf-8"],
   [".png", "image/png"],
   [".jpg", "image/jpeg"],
   [".jpeg", "image/jpeg"],
@@ -700,6 +703,22 @@ function sendText(res, statusCode, body) {
   res.end(body);
 }
 
+function sendHtml(res, statusCode, body, { cacheControl = "public, max-age=300" } = {}) {
+  res.writeHead(statusCode, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": cacheControl,
+  });
+  res.end(body);
+}
+
+function sendXml(res, statusCode, body, { cacheControl = "public, max-age=300" } = {}) {
+  res.writeHead(statusCode, {
+    "content-type": "application/xml; charset=utf-8",
+    "cache-control": cacheControl,
+  });
+  res.end(body);
+}
+
 function sendCsv(res, filename, body) {
   const safeName = String(filename || "export.csv").replace(/[^a-z0-9._-]/gi, "-") || "export.csv";
   res.writeHead(200, {
@@ -720,6 +739,19 @@ function csvRows(headers, rows) {
     headers.map(({ label }) => csvValue(label)).join(","),
     ...rows.map((row) => headers.map(({ key }) => csvValue(row[key])).join(",")),
   ].join("\n");
+}
+
+function htmlEscape(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function xmlEscape(value) {
+  return htmlEscape(value);
 }
 
 function requestCountryCode(req) {
@@ -876,9 +908,9 @@ function isTenantPublicOrigin(origin = "") {
   if (!value) return false;
   try {
     const url = new URL(value.includes("://") ? value : `https://${value}`);
-    return /(^|\.)cloudtoken\.ai$/i.test(url.hostname);
+    return /(^|\.)(cloudtoken\.ai|667zui\.video)$/i.test(url.hostname);
   } catch {
-    return /(^|\.)cloudtoken\.ai(?::|\/|$)/i.test(value);
+    return /(^|\.)(cloudtoken\.ai|667zui\.video)(?::|\/|$)/i.test(value);
   }
 }
 
@@ -1175,6 +1207,431 @@ function publicConfig(config, origin = "", auth = null) {
         return publicScene;
       }),
   };
+}
+
+function compactPlainText(value = "", maxLength = 220) {
+  const text = String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!maxLength || text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
+}
+
+function slugSegment(value = "", fallback = "item") {
+  return String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 140) || fallback;
+}
+
+function siteBrandFromConfig(config = {}) {
+  return String(config.platform?.brand || DEFAULT_CONFIG.platform.brand || "Vipeak AI").trim() || "Vipeak AI";
+}
+
+function characterPublicPath(item = {}) {
+  return `/characters/${encodeURIComponent(slugSegment(item.id || item.sourceDisplayId || item.name, "character"))}`;
+}
+
+function characterPosterForGeo(item = {}) {
+  return String(
+    item.posterUrl ||
+      item.localImageUrl ||
+      item.syntheticReferenceLocalUrl ||
+      item.sourceImageUrl ||
+      item.publicImageUrl ||
+      item.coverUrl ||
+      item.thumbnailUrl ||
+      "/assets/admin/home/default-hero.jpg"
+  ).trim();
+}
+
+function characterTagsForGeo(item = {}, max = 10) {
+  return (Array.isArray(item.tags) ? item.tags : [])
+    .map((tag) => compactPlainText(tag, 32))
+    .filter(Boolean)
+    .filter((tag, index, list) => list.indexOf(tag) === index)
+    .slice(0, max);
+}
+
+function characterSummaryForGeo(item = {}) {
+  const parts = [
+    item.description,
+    item.title,
+    characterTagsForGeo(item, 5).join(", "),
+    item.style,
+  ].filter(Boolean);
+  return compactPlainText(parts.join(". "), 240) || "Explore this AI character profile and preview the available video scenes.";
+}
+
+function publicCharacterVideosForGeo(item = {}) {
+  return publicCharacterVideoList(item).map(({ key, entry }, index) => ({
+    key,
+    title: compactPlainText(entry.title || entry.sceneEntryName || entry.sceneName || `Video ${index + 1}`, 90),
+    sceneId: entry.sceneId || sceneIdFromVideoKey(key) || "",
+    sceneEntryId: entry.sceneEntryId || "default",
+    posterUrl: String(entry.posterUrl || entry.coverUrl || entry.thumbnailUrl || characterPosterForGeo(item)).trim(),
+    duration: Number(entry.duration || item.duration || 0),
+    locked: index > 0,
+  }));
+}
+
+async function geoSiteSnapshot(req) {
+  const origin = publicOriginFromRequest(req);
+  const config = await readAppConfig();
+  const platform = normalizePlatformConfig(config.platform || {});
+  const homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const characters = (homeVideo.items || [])
+    .filter((item) => item && !isSoftDeleted(item))
+    .map((item) => ({
+      ...item,
+      geoPath: characterPublicPath(item),
+      geoUrl: scopedApiUrl(origin, characterPublicPath(item)),
+      geoPoster: characterPosterForGeo(item),
+      geoSummary: characterSummaryForGeo(item),
+      geoTags: characterTagsForGeo(item),
+      geoVideos: publicCharacterVideosForGeo(item),
+    }));
+  return { origin, config, platform, brand: siteBrandFromConfig(config), homeVideo, characters };
+}
+
+function homeDescriptionForGeo(platform = {}) {
+  return compactPlainText(
+    platform.heroSubtitle ||
+      platform.notice ||
+      "Create AI character videos, browse public character profiles, and generate video scenes through the advanced API.",
+    170,
+  );
+}
+
+function jsonLdScript(data) {
+  return `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>`;
+}
+
+function geoMetaTags({ title, description, url, image, type = "website", jsonLd = [] }) {
+  const imageTag = image ? `
+    <meta property="og:image" content="${htmlEscape(image)}" />
+    <meta name="twitter:image" content="${htmlEscape(image)}" />` : "";
+  const ld = (Array.isArray(jsonLd) ? jsonLd : [jsonLd]).filter(Boolean).map(jsonLdScript).join("\n    ");
+  return `
+    <title>${htmlEscape(title)}</title>
+    <meta name="description" content="${htmlEscape(description)}" />
+    <meta name="robots" content="index,follow,max-image-preview:large,max-video-preview:30,max-snippet:-1" />
+    <link rel="canonical" href="${htmlEscape(url)}" />
+    <meta property="og:type" content="${htmlEscape(type)}" />
+    <meta property="og:title" content="${htmlEscape(title)}" />
+    <meta property="og:description" content="${htmlEscape(description)}" />
+    <meta property="og:url" content="${htmlEscape(url)}" />${imageTag}
+    <meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}" />
+    <meta name="twitter:title" content="${htmlEscape(title)}" />
+    <meta name="twitter:description" content="${htmlEscape(description)}" />
+    ${ld}`;
+}
+
+function injectPlatformGeoHead(html = "", snapshot) {
+  const { origin, brand, platform, characters } = snapshot;
+  const canonical = scopedApiUrl(origin, "/");
+  const description = homeDescriptionForGeo(platform);
+  const image = characters[0]?.geoPoster ? absoluteUrlFromBase(characters[0].geoPoster, origin) : "";
+  const title = `${brand} | AI Character Video Generator`;
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: brand,
+      url: canonical,
+      description,
+      potentialAction: {
+        "@type": "SearchAction",
+        target: `${canonical}?q={search_term_string}`,
+        "query-input": "required name=search_term_string",
+      },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: brand,
+      applicationCategory: "MultimediaApplication",
+      operatingSystem: "Web",
+      url: canonical,
+      description,
+      offers: {
+        "@type": "Offer",
+        priceCurrency: "USD",
+      },
+    },
+  ];
+  const tags = geoMetaTags({ title, description, url: canonical, image, jsonLd });
+  const withoutTitle = html.replace(/<title>[\s\S]*?<\/title>/i, "");
+  return withoutTitle.replace(/<\/head>/i, `${tags}\n  </head>`);
+}
+
+function renderCharacterGeoHtml(snapshot, item = {}) {
+  const { origin, brand } = snapshot;
+  const url = scopedApiUrl(origin, characterPublicPath(item));
+  const poster = absoluteUrlFromBase(characterPosterForGeo(item), origin);
+  const name = compactPlainText(item.name || item.title || "AI Character", 90);
+  const title = `${name} | ${brand}`;
+  const description = characterSummaryForGeo(item);
+  const tags = characterTagsForGeo(item, 12);
+  const videos = publicCharacterVideosForGeo(item);
+  const videoLd = videos.map((video, index) => ({
+    "@type": "VideoObject",
+    name: video.title || `${name} video ${index + 1}`,
+    description: `${name} preview scene ${index + 1}.`,
+    thumbnailUrl: [absoluteUrlFromBase(video.posterUrl || characterPosterForGeo(item), origin)].filter(Boolean),
+    uploadDate: item.createdAt || new Date().toISOString(),
+    isAccessibleForFree: index === 0,
+  }));
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "ProfilePage",
+      name: title,
+      url,
+      description,
+      primaryImageOfPage: poster ? { "@type": "ImageObject", url: poster } : undefined,
+      mainEntity: {
+        "@type": "Person",
+        name,
+        description,
+        image: poster || undefined,
+        knowsAbout: tags,
+      },
+      hasPart: videoLd,
+    },
+    ...videoLd.map((video) => ({ "@context": "https://schema.org", ...video })),
+  ];
+  const videoCards = videos.length ? videos.map((video, index) => `
+          <article class="video-card">
+            <img src="${htmlEscape(absoluteUrlFromBase(video.posterUrl || characterPosterForGeo(item), origin))}" alt="${htmlEscape(video.title || `${name} video`)}" loading="lazy" />
+            <div>
+              <strong>${htmlEscape(video.title || `Video ${index + 1}`)}</strong>
+              <span>${index === 0 ? "Preview available after sign in" : "Unlock in app"}</span>
+            </div>
+          </article>`).join("") : `<p class="muted">No public video previews are configured yet.</p>`;
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    ${geoMetaTags({ title, description, url, image: poster, type: "profile", jsonLd })}
+    <style>
+      :root { color-scheme: dark; --bg:#0b0b0f; --panel:#15151d; --line:rgba(255,255,255,.12); --ink:#f7f4fb; --muted:#aaa3b6; --pink:#ff45aa; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#0b0b0f; color:var(--ink); }
+      main { width:min(1120px, calc(100% - 32px)); margin:0 auto; padding:32px 0 56px; }
+      a { color:inherit; text-decoration:none; }
+      .back { display:inline-flex; margin-bottom:18px; color:var(--muted); font-weight:700; }
+      .hero { display:grid; grid-template-columns:minmax(240px, 360px) minmax(0, 1fr); gap:28px; align-items:end; }
+      .hero img { width:100%; aspect-ratio:9/13; object-fit:cover; border-radius:18px; border:1px solid var(--line); background:#222; }
+      .eyebrow { color:var(--pink); text-transform:uppercase; letter-spacing:.16em; font-size:12px; font-weight:900; }
+      h1 { margin:.2em 0; font-size:clamp(36px, 6vw, 72px); line-height:.95; }
+      p { color:var(--muted); line-height:1.7; font-size:16px; }
+      .tags { display:flex; gap:8px; flex-wrap:wrap; margin:18px 0; }
+      .tags span { padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.06); color:#ddd7e8; font-weight:700; font-size:13px; }
+      .cta { display:inline-flex; align-items:center; justify-content:center; min-height:46px; padding:0 20px; border-radius:999px; background:var(--pink); color:white; font-weight:900; }
+      .videos { margin-top:34px; display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:14px; }
+      .video-card { overflow:hidden; border:1px solid var(--line); border-radius:16px; background:var(--panel); }
+      .video-card img { width:100%; aspect-ratio:9/13; object-fit:cover; display:block; }
+      .video-card div { padding:12px; display:grid; gap:4px; }
+      .video-card span, .muted { color:var(--muted); font-size:13px; }
+      @media (max-width: 760px) { .hero { grid-template-columns:1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back" href="/">Back to ${htmlEscape(brand)}</a>
+      <section class="hero">
+        <img src="${htmlEscape(poster)}" alt="${htmlEscape(name)}" />
+        <div>
+          <div class="eyebrow">Character Profile</div>
+          <h1>${htmlEscape(name)}</h1>
+          <p>${htmlEscape(description)}</p>
+          ${tags.length ? `<div class="tags">${tags.map((tag) => `<span>${htmlEscape(tag)}</span>`).join("")}</div>` : ""}
+          <a class="cta" href="/#gallery">Open in app</a>
+        </div>
+      </section>
+      <section class="videos" aria-label="Video previews">
+        ${videoCards}
+      </section>
+    </main>
+  </body>
+</html>`;
+}
+
+function buildRobotsTxt(snapshot) {
+  return [
+    "User-agent: *",
+    "Allow: /",
+    "Disallow: /api/",
+    "Disallow: /admin.html",
+    "Disallow: /assets/user-uploads/",
+    `Sitemap: ${scopedApiUrl(snapshot.origin, "/sitemap.xml")}`,
+    "",
+  ].join("\n");
+}
+
+function sitemapEntryXml({ loc, lastmod, changefreq = "weekly", priority = "0.7", image }) {
+  const imageXml = image ? `
+    <image:image>
+      <image:loc>${xmlEscape(image)}</image:loc>
+    </image:image>` : "";
+  return `  <url>
+    <loc>${xmlEscape(loc)}</loc>
+    <lastmod>${xmlEscape(lastmod || new Date().toISOString())}</lastmod>
+    <changefreq>${xmlEscape(changefreq)}</changefreq>
+    <priority>${xmlEscape(priority)}</priority>${imageXml}
+  </url>`;
+}
+
+function buildSitemapXml(snapshot) {
+  const now = new Date().toISOString();
+  const entries = [
+    sitemapEntryXml({ loc: scopedApiUrl(snapshot.origin, "/"), lastmod: now, changefreq: "daily", priority: "1.0" }),
+    sitemapEntryXml({ loc: scopedApiUrl(snapshot.origin, "/llms.txt"), lastmod: now, changefreq: "weekly", priority: "0.4" }),
+    ...snapshot.characters.map((item) => sitemapEntryXml({
+      loc: item.geoUrl,
+      lastmod: item.updatedAt || item.createdAt || now,
+      changefreq: "weekly",
+      priority: "0.8",
+      image: absoluteUrlFromBase(item.geoPoster, snapshot.origin),
+    })),
+  ];
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+${entries.join("\n")}
+</urlset>
+`;
+}
+
+function buildLlmsTxt(snapshot, { full = false } = {}) {
+  const description = homeDescriptionForGeo(snapshot.platform);
+  const topCharacters = snapshot.characters.slice(0, full ? 30 : 8);
+  const lines = [
+    `# ${snapshot.brand}`,
+    "",
+    `> ${description}`,
+    "",
+    "## Core URLs",
+    `- Home: ${scopedApiUrl(snapshot.origin, "/")}`,
+    `- Sitemap: ${scopedApiUrl(snapshot.origin, "/sitemap.xml")}`,
+    `- Character library: ${scopedApiUrl(snapshot.origin, "/#gallery")}`,
+    `- Create workspace: ${scopedApiUrl(snapshot.origin, "/#advanced")}`,
+    `- API guide: ${scopedApiUrl(snapshot.origin, "/#access")}`,
+    "",
+    "## API",
+    "- Primary generation endpoint: POST /api/advanced/generate",
+    "- Query generation records: GET /api/generation-records/<taskId>",
+    "- Public model guide: GET /models.md",
+    "- API clients should use the public platform endpoint and should not call upstream vendor task routes directly.",
+    "",
+    "## Content",
+    `- Public character profiles: ${snapshot.characters.length}`,
+    `- Public character videos listed: ${snapshot.characters.reduce((sum, item) => sum + item.geoVideos.length, 0)}`,
+    "",
+    "## Featured Characters",
+    ...topCharacters.map((item) => `- ${item.name || item.title || item.id}: ${item.geoUrl} - ${compactPlainText(item.geoSummary, full ? 180 : 110)}`),
+  ];
+  if (full) {
+    lines.push(
+      "",
+      "## GEO Notes",
+      "- The site exposes robots.txt, sitemap.xml, llms.txt, structured home metadata, and structured character profile pages.",
+      "- Character pages include ProfilePage and VideoObject structured data for AI/search understanding.",
+      "- Some videos require login or unlock in the application; public profile pages expose previews and metadata only.",
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+async function servePlatformHtmlWithGeo(req, res) {
+  const filePath = path.join(ROOT, "platform.html");
+  const html = await fs.readFile(filePath, "utf8");
+  const snapshot = await geoSiteSnapshot(req);
+  return sendHtml(res, 200, injectPlatformGeoHead(html, snapshot), { cacheControl: "no-cache" });
+}
+
+async function handleRobotsTxt(req, res) {
+  const snapshot = await geoSiteSnapshot(req);
+  return sendText(res, 200, buildRobotsTxt(snapshot));
+}
+
+async function handleSitemapXml(req, res) {
+  const snapshot = await geoSiteSnapshot(req);
+  return sendXml(res, 200, buildSitemapXml(snapshot));
+}
+
+async function handleLlmsTxt(req, res, { full = false } = {}) {
+  const snapshot = await geoSiteSnapshot(req);
+  return sendText(res, 200, buildLlmsTxt(snapshot, { full }));
+}
+
+async function handleCharacterGeoPage(req, res, characterId) {
+  const snapshot = await geoSiteSnapshot(req);
+  const decoded = decodeURIComponent(String(characterId || ""));
+  const item = snapshot.characters.find((candidate) => (
+    slugSegment(candidate.id) === decoded ||
+    slugSegment(candidate.sourceDisplayId) === decoded ||
+    slugSegment(candidate.name) === decoded ||
+    String(candidate.id || "") === decoded
+  ));
+  if (!item) return sendText(res, 404, "Character not found");
+  return sendHtml(res, 200, renderCharacterGeoHtml(snapshot, item));
+}
+
+async function handleAdminGeoReport(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const snapshot = await geoSiteSnapshot(req);
+  const sampleCharacter = snapshot.characters[0] || null;
+  const endpoints = [
+    { id: "home", label: "Home metadata", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: ["application/ld+json", "canonical", snapshot.brand] },
+    { id: "robots", label: "robots.txt", path: "/robots.txt", url: scopedApiUrl(snapshot.origin, "/robots.txt"), expect: ["Sitemap:", "/sitemap.xml"] },
+    { id: "sitemap", label: "sitemap.xml", path: "/sitemap.xml", url: scopedApiUrl(snapshot.origin, "/sitemap.xml"), expect: ["<urlset", "/characters/"] },
+    { id: "llms", label: "llms.txt", path: "/llms.txt", url: scopedApiUrl(snapshot.origin, "/llms.txt"), expect: [snapshot.brand, "/api/advanced/generate"] },
+    { id: "llms-full", label: "llms-full.txt", path: "/llms-full.txt", url: scopedApiUrl(snapshot.origin, "/llms-full.txt"), expect: ["GEO Notes", "VideoObject"] },
+  ];
+  if (sampleCharacter) {
+    endpoints.push({
+      id: "character",
+      label: "Sample character page",
+      path: sampleCharacter.geoPath,
+      url: sampleCharacter.geoUrl,
+      expect: ["ProfilePage", "VideoObject", sampleCharacter.name || sampleCharacter.id],
+    });
+  }
+  return sendJson(res, 200, {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    baseUrl: snapshot.origin,
+    brand: snapshot.brand,
+    summary: {
+      characterCount: snapshot.characters.length,
+      videoCount: snapshot.characters.reduce((sum, item) => sum + item.geoVideos.length, 0),
+      sitemapUrlCount: 2 + snapshot.characters.length,
+      llmsUrl: scopedApiUrl(snapshot.origin, "/llms.txt"),
+      sitemapUrl: scopedApiUrl(snapshot.origin, "/sitemap.xml"),
+    },
+    checks: endpoints,
+    sampleCharacters: snapshot.characters.slice(0, 12).map((item) => ({
+      id: item.id,
+      name: item.name || item.title || item.id,
+      path: item.geoPath,
+      url: item.geoUrl,
+      posterUrl: absoluteUrlFromBase(item.geoPoster, snapshot.origin),
+      videoCount: item.geoVideos.length,
+      tags: item.geoTags,
+      summary: item.geoSummary,
+    })),
+    recommendations: [
+      "Keep character names, summaries, tags, and poster images descriptive.",
+      "Run this GEO check after importing a new character batch or changing the domain.",
+      "Avoid exposing upstream vendor routes in public API copy; keep /api/advanced/generate as the documented entry.",
+    ],
+  });
 }
 
 function normalizePlatformTemplate(template = {}, index = 0) {
@@ -17095,6 +17552,10 @@ async function serveStatic(req, res, url) {
     return sendText(res, 403, "Forbidden");
   }
 
+  if (req.method === "GET" && path.normalize(filePath) === path.normalize(path.join(ROOT, "platform.html"))) {
+    return await servePlatformHtmlWithGeo(req, res);
+  }
+
   try {
     const contentType = mimeTypes.get(path.extname(filePath).toLowerCase()) || "application/octet-stream";
     const stat = await fs.stat(filePath);
@@ -17184,6 +17645,27 @@ async function handleRequest(req, res) {
         baseUrl: publicOriginFromRequest(req),
         models: { fast: MODEL_FAST, quality: MODEL_QUALITY, wan27: ALIYUN_WAN27_MODEL },
       });
+    }
+
+    if (req.method === "GET" && url.pathname === "/robots.txt") {
+      return await handleRobotsTxt(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/sitemap.xml") {
+      return await handleSitemapXml(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/llms.txt") {
+      return await handleLlmsTxt(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/llms-full.txt") {
+      return await handleLlmsTxt(req, res, { full: true });
+    }
+
+    const characterGeoMatch = url.pathname.match(/^\/characters\/([^/]+)\/?$/);
+    if (req.method === "GET" && characterGeoMatch) {
+      return await handleCharacterGeoPage(req, res, characterGeoMatch[1]);
     }
 
     if (req.method === "GET" && url.pathname === "/api/config/public") {
@@ -17437,6 +17919,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/dashboard") {
       return await handleAdminDashboard(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/geo-report") {
+      return await handleAdminGeoReport(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/users") {

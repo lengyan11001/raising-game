@@ -45,10 +45,15 @@ const ROUTES = [
   { id: "pricing", title: "价格配置", render: renderPricing },
   { id: "config", title: "系统配置", render: renderConfig },
 ];
+ROUTES.splice(Math.max(0, ROUTES.findIndex((route) => route.id === "config")), 0, {
+  id: "geo",
+  title: "GEO",
+  render: renderGeo,
+});
 const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "config"]);
 
 function isTenantAdminHost() {
-  return /(^|\.)cloudtoken\.ai$/i.test(window.location.hostname || "");
+  return /(^|\.)(cloudtoken\.ai|667zui\.video)$/i.test(window.location.hostname || "");
 }
 
 function visibleAdminRoutes() {
@@ -332,7 +337,19 @@ function hideAppLoading() {
 }
 
 /* ============ routing ============ */
+function ensureGeoNavItem() {
+  if (!els.adminNav || els.adminNav.querySelector('[data-route="geo"]')) return;
+  const link = document.createElement("a");
+  link.href = "#/geo";
+  link.dataset.route = "geo";
+  link.innerHTML = '<i data-lucide="radar"></i><span>GEO</span>';
+  const configLink = els.adminNav.querySelector('[data-route="config"]');
+  if (configLink) els.adminNav.insertBefore(link, configLink);
+  else els.adminNav.appendChild(link);
+}
+
 function applyAdminNavVisibility() {
+  ensureGeoNavItem();
   els.adminNav?.querySelectorAll("a[data-route]").forEach((a) => {
     const hidden = isTenantAdminHost() && TENANT_HIDDEN_ADMIN_ROUTES.has(a.dataset.route);
     a.hidden = hidden;
@@ -3692,6 +3709,154 @@ async function renderConfig() {
       toast(err.message, "error");
     }
   });
+}
+
+/* ============ GEO ============ */
+async function renderGeo() {
+  const payload = await api("/api/admin/geo-report");
+  if (!isActiveRoute("geo")) return;
+  const summary = payload.summary || {};
+  const checks = payload.checks || [];
+  const samples = payload.sampleCharacters || [];
+  els.adminContent.innerHTML = `
+    <section class="adm-page adm-geo-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>GEO</h2>
+          <p class="adm-muted">Check AI-search entry files, structured metadata, sitemap coverage, and crawlable character pages.</p>
+        </div>
+        <div class="adm-page-actions">
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.sitemapUrl || "/sitemap.xml")}" target="_blank" rel="noopener"><i data-lucide="map"></i>Sitemap</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.llmsUrl || "/llms.txt")}" target="_blank" rel="noopener"><i data-lucide="file-text"></i>llms.txt</a>
+          <button class="adm-btn adm-btn-primary" id="geoRunChecksBtn" type="button"><i data-lucide="radar"></i>Run checks</button>
+        </div>
+      </div>
+
+      <div class="adm-grid adm-grid-4">
+        ${statCard("Base URL", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
+        ${statCard("Characters", summary.characterCount || 0, "crawlable profiles", "user-round", "violet")}
+        ${statCard("Videos", summary.videoCount || 0, "listed for understanding", "film", "mint")}
+        ${statCard("Sitemap URLs", summary.sitemapUrlCount || 0, "home + docs + profiles", "map", "amber")}
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>Live GEO checks</h3>
+          <span class="adm-muted" id="geoCheckSummary">Not run yet</span>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-geo-table">
+            <thead><tr><th>Target</th><th>Status</th><th>Signals</th><th>Size</th><th>Open</th></tr></thead>
+            <tbody id="geoCheckRows">
+              ${checks.map((check) => renderGeoCheckRow(check)).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>Sample character pages</h3>
+          <span class="adm-muted">${escapeHtml(String(samples.length))} samples</span>
+        </header>
+        <div class="adm-card-body">
+          <div class="adm-geo-sample-grid">
+            ${samples.map(renderGeoSampleCard).join("") || '<div class="adm-empty"><i data-lucide="user-x"></i><p>No characters found.</p></div>'}
+          </div>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head"><h3>Recommended workflow</h3></header>
+        <div class="adm-card-body">
+          <ul class="adm-geo-list">
+            ${(payload.recommendations || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      </div>
+    </section>
+  `;
+  refreshIcons();
+  const run = () => runGeoChecks(checks);
+  byId("geoRunChecksBtn")?.addEventListener("click", run);
+  run();
+}
+
+function renderGeoCheckRow(check = {}, result = null) {
+  const stateClass = !result ? "" : result.ok ? "is-success" : "is-failed";
+  const stateText = !result ? "pending" : result.ok ? `${result.status}` : result.error || `${result.status || "failed"}`;
+  const signalText = result
+    ? `${result.matched}/${result.total} matched${result.missing?.length ? ` - missing: ${result.missing.join(", ")}` : ""}`
+    : (check.expect || []).join(", ");
+  return `
+    <tr data-geo-check-row="${escapeHtml(check.id || "")}">
+      <td><strong>${escapeHtml(check.label || check.id || "")}</strong><span class="adm-block adm-muted adm-mono">${escapeHtml(check.path || "")}</span></td>
+      <td><span class="adm-pill ${stateClass}">${escapeHtml(stateText)}</span></td>
+      <td class="adm-truncate" title="${escapeHtml(signalText)}">${escapeHtml(signalText)}</td>
+      <td>${escapeHtml(result ? fmtBytes(result.bytes || 0) : "-")}</td>
+      <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(check.url || check.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open</a></td>
+    </tr>
+  `;
+}
+
+function renderGeoSampleCard(item = {}) {
+  const tags = (item.tags || []).slice(0, 4);
+  return `
+    <article class="adm-geo-sample-card">
+      <img src="${escapeHtml(item.posterUrl || "")}" alt="${escapeHtml(item.name || "")}" loading="lazy" />
+      <div>
+        <strong>${escapeHtml(item.name || item.id || "Character")}</strong>
+        <span>${escapeHtml(item.videoCount || 0)} videos</span>
+        <p>${escapeHtml(shortText(item.summary || "", 120))}</p>
+        ${tags.length ? `<div>${tags.map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>` : ""}
+        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.url || item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open</a>
+      </div>
+    </article>
+  `;
+}
+
+async function runGeoChecks(checks = []) {
+  const rows = byId("geoCheckRows");
+  const summary = byId("geoCheckSummary");
+  if (!rows || !summary) return;
+  summary.textContent = "Running...";
+  let passed = 0;
+  for (const check of checks) {
+    const result = await fetchGeoCheck(check);
+    if (result.ok) passed += 1;
+    const row = [...rows.querySelectorAll("[data-geo-check-row]")].find((item) => item.dataset.geoCheckRow === String(check.id || ""));
+    if (row) row.outerHTML = renderGeoCheckRow(check, result);
+    refreshIcons();
+  }
+  summary.textContent = `${passed}/${checks.length} passed`;
+  summary.className = passed === checks.length ? "adm-muted adm-geo-pass" : "adm-muted adm-geo-fail";
+}
+
+async function fetchGeoCheck(check = {}) {
+  try {
+    const response = await fetch(check.path || check.url || "/", { cache: "no-store" });
+    const text = await response.text();
+    const expects = check.expect || [];
+    const missing = expects.filter((needle) => !text.includes(String(needle)));
+    return {
+      ok: response.ok && missing.length === 0,
+      status: response.status,
+      bytes: text.length,
+      matched: expects.length - missing.length,
+      total: expects.length,
+      missing,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      bytes: 0,
+      matched: 0,
+      total: (check.expect || []).length,
+      missing: check.expect || [],
+      error: err.message || "fetch failed",
+    };
+  }
 }
 
 /* ============ boot ============ */

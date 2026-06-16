@@ -368,6 +368,74 @@ a { color: inherit; text-decoration: none; }
 .adm-pricing-section-head h4 { margin: 0 0 4px; font-size: 1rem; }
 .adm-pricing-section-head p { margin: 0; }
 
+/* ============ GEO ============ */
+.adm-geo-table { min-width: 980px; }
+.adm-geo-table th:nth-child(1) { width: 260px; }
+.adm-geo-table th:nth-child(2) { width: 120px; }
+.adm-geo-table th:nth-child(4) { width: 110px; }
+.adm-geo-table th:nth-child(5) { width: 120px; }
+.adm-geo-pass { color: var(--adm-success); }
+.adm-geo-fail { color: var(--adm-danger); }
+.adm-geo-sample-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+.adm-geo-sample-card {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--adm-line);
+  border-radius: var(--adm-radius-lg);
+  background: rgba(255, 255, 255, 0.035);
+}
+.adm-geo-sample-card img {
+  width: 82px;
+  aspect-ratio: 9 / 13;
+  object-fit: cover;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.adm-geo-sample-card div {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.adm-geo-sample-card strong,
+.adm-geo-sample-card p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.adm-geo-sample-card p {
+  margin: 0;
+  color: var(--adm-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.adm-geo-sample-card span {
+  color: var(--adm-rose-2);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+.adm-geo-sample-card small {
+  display: inline-flex;
+  margin: 0 4px 4px 0;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--adm-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.adm-geo-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--adm-muted);
+  line-height: 1.7;
+}
+
 .adm-pill {
   display: inline-block;
   padding: 2px 8px;
