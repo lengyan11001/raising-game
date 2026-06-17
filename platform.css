@@ -911,6 +911,43 @@ main {
   padding: 10px 12px;
 }
 .topup-back-btn[hidden] { display: none; }
+.modal header.topup-dialog-header {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 38px;
+  gap: 12px;
+  align-items: center;
+}
+.modal .topup-dialog-header > div {
+  min-width: 0;
+  text-align: left;
+}
+.modal-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 92px;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(17,29,53,.04);
+  font-weight: 900;
+  cursor: pointer;
+}
+.modal-back-btn svg {
+  width: 17px;
+  height: 17px;
+}
+.modal header .modal-back-btn span {
+  color: inherit;
+  font-size: .82rem;
+  text-transform: none;
+}
+.modal-back-btn.is-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
 .topup-stage {
   display: grid;
   gap: 12px;
@@ -1274,11 +1311,11 @@ main {
 }
 .topup-transfer-actions {
   display: grid;
-  grid-template-columns: minmax(120px, .45fr) minmax(180px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 .topup-transfer-actions .topup-transfer-done {
-  width: auto;
+  width: 100%;
 }
 .topup-tronlink-btn {
   display: inline-flex;
@@ -1348,7 +1385,7 @@ main {
 .topup-confirm-status[data-tone="error"] { color: #ff8c8c; }
 .topup-confirm-actions {
   display: grid;
-  grid-template-columns: minmax(120px, .45fr) minmax(180px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 .topup-usdt-actions {

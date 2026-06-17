@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-166" />
+    <link rel="stylesheet" href="./platform.css?v=ai-167" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -457,7 +457,11 @@
 
     <dialog id="topupDialog" class="modal topup-modal">
       <form method="dialog">
-        <header>
+        <header class="topup-dialog-header">
+          <button class="modal-back-btn topup-back-btn is-hidden" id="topupBackBtn" type="button" aria-label="Back" aria-hidden="true" tabindex="-1">
+            <i data-lucide="arrow-left"></i>
+            <span data-i18n="topup.changePackage">Packages</span>
+          </button>
           <div>
             <span data-i18n="topup.title">Top Up</span>
             <strong data-i18n="topup.dialogTitle">Top up credits</strong>
@@ -472,10 +476,6 @@
                 <strong id="topupCredits">0 credits</strong>
                 <small id="topupRate">Login to create a payment order.</small>
               </div>
-              <button class="ghost-button topup-back-btn" id="topupBackBtn" type="button" hidden>
-                <i data-lucide="arrow-left"></i>
-                <span data-i18n="topup.changePackage">Packages</span>
-              </button>
             </div>
             <div class="topup-stage topup-package-stage" id="topupPackageStage">
               <div class="topup-package-grid" id="topupPackageGrid"></div>
@@ -505,7 +505,11 @@
 
     <dialog id="topupQrDialog" class="modal topup-qr-modal">
       <form method="dialog">
-        <header>
+        <header class="topup-dialog-header">
+          <button class="modal-back-btn" id="topupQrBackBtn" type="button" aria-label="Back">
+            <i data-lucide="arrow-left"></i>
+            <span>Back</span>
+          </button>
           <div>
             <span>USDT Payment</span>
             <strong id="topupQrAmount">0 USDT</strong>
@@ -549,7 +553,6 @@
           </button>
           <p class="topup-transfer-note">After sending the transfer, click the button below and paste the transaction hash.</p>
           <div class="topup-transfer-actions">
-            <button class="ghost-button" id="topupQrBackBtn" type="button"><i data-lucide="arrow-left"></i><span>Back</span></button>
             <button class="copy-btn topup-transfer-done" id="topupTransferDoneBtn" type="button">I have transferred</button>
           </div>
           </section>
@@ -564,7 +567,6 @@
             </label>
             <p class="topup-confirm-status" id="topupConfirmStatus" aria-live="polite"></p>
             <div class="topup-confirm-actions">
-              <button class="ghost-button" id="topupConfirmBackBtn" type="button"><i data-lucide="arrow-left"></i><span>Back</span></button>
               <button class="copy-btn" id="topupSubmitHashBtn" type="button"><i data-lucide="badge-check"></i><span>Submit confirmation</span></button>
             </div>
           </section>
@@ -658,6 +660,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-166"></script>
+    <script src="./platform.js?v=ai-167"></script>
 </body>
 </html>

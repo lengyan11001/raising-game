@@ -248,6 +248,7 @@ const state = {
   selectedWalletOptionId: "",
   topupMethod: "usdt",
   topupStep: "packages",
+  topupPayStep: "transfer",
   selectedTopupPackageId: "",
   activeTopupOrder: null,
   paypalConfig: null,
@@ -399,7 +400,6 @@ const els = {
   topupTransferDoneBtn: document.querySelector("#topupTransferDoneBtn"),
   topupTxHashInput: document.querySelector("#topupTxHashInput"),
   topupSubmitHashBtn: document.querySelector("#topupSubmitHashBtn"),
-  topupConfirmBackBtn: document.querySelector("#topupConfirmBackBtn"),
   topupConfirmStatus: document.querySelector("#topupConfirmStatus"),
   paypalBox: document.querySelector("#paypalBox"),
   paypalButtons: document.querySelector("#paypalButtons"),
@@ -6765,6 +6765,7 @@ function setTopupConfirmStatus(message = "", tone = "") {
 
 function setTopupQrStep(step = "transfer") {
   const next = step === "confirm" ? "confirm" : "transfer";
+  state.topupPayStep = next;
   if (els.topupTransferStep) els.topupTransferStep.hidden = next !== "transfer";
   if (els.topupConfirmStep) els.topupConfirmStep.hidden = next !== "confirm";
   [els.topupStepTransfer, els.topupStepConfirm].forEach((button) => {
@@ -6812,7 +6813,7 @@ function setTopupStep(step = "packages") {
   state.topupStep = step === "payment" ? "payment" : "packages";
   if (els.topupPackageStage) els.topupPackageStage.hidden = state.topupStep !== "packages";
   if (els.topupPaymentStage) els.topupPaymentStage.hidden = state.topupStep !== "payment";
-  if (els.topupBackBtn) els.topupBackBtn.hidden = state.topupStep !== "payment";
+  syncTopupBackButtons();
   renderTopupSummary();
   if (payPalCheckoutVisible()) renderPayPalCheckout();
   refreshIcons();
@@ -6957,20 +6958,7 @@ function renderTopupQrDialog(order = null) {
   if (els.topupTransferDoneBtn) {
     els.topupTransferDoneBtn.onclick = () => setTopupQrStep("confirm");
   }
-  if (els.topupQrBackBtn) {
-    els.topupQrBackBtn.onclick = () => {
-      if (els.topupQrDialog?.open) els.topupQrDialog.close();
-      if (!els.topupDialog?.open) els.topupDialog?.showModal();
-      setTopupStep("payment");
-      setTopupMethod("usdt");
-      renderTopupSummary();
-      syncTopupAutoRefresh();
-      refreshIcons();
-    };
-  }
-  if (els.topupConfirmBackBtn) {
-    els.topupConfirmBackBtn.onclick = () => setTopupQrStep("transfer");
-  }
+  if (els.topupQrBackBtn) els.topupQrBackBtn.onclick = handleTopupBack;
   if (els.topupSubmitHashBtn) {
     els.topupSubmitHashBtn.onclick = () => submitTopupHash(order.id, els.topupTxHashInput?.value || "");
   }
@@ -7026,7 +7014,7 @@ function renderTopupSummary() {
   }
   if (els.topupPackageStage) els.topupPackageStage.hidden = state.topupStep !== "packages";
   if (els.topupPaymentStage) els.topupPaymentStage.hidden = state.topupStep !== "payment";
-  if (els.topupBackBtn) els.topupBackBtn.hidden = state.topupStep !== "payment";
+  syncTopupBackButtons();
   currentTopupCreditsEls().forEach((element) => {
     element.hidden = !state.user;
     element.textContent = state.user ? formatCredits(Number(state.user.credits || 0)) : "";
@@ -7163,6 +7151,42 @@ async function renderPayPalCheckout() {
     els.paypalButtons.hidden = true;
     if (els.paypalStatus) els.paypalStatus.textContent = error.message || String(error);
   }
+}
+
+function setBackButtonVisibility(button, visible) {
+  if (!button) return;
+  button.classList.toggle("is-hidden", !visible);
+  button.setAttribute("aria-hidden", visible ? "false" : "true");
+  if (visible) button.removeAttribute("tabindex");
+  else button.setAttribute("tabindex", "-1");
+}
+
+function syncTopupBackButtons() {
+  setBackButtonVisibility(els.topupBackBtn, state.topupStep === "payment");
+  if (els.topupQrBackBtn) {
+    const label = els.topupQrBackBtn.querySelector("span");
+    if (label) label.textContent = state.topupPayStep === "confirm" ? "Transfer" : "Back";
+  }
+}
+
+function handleTopupBack() {
+  if (els.topupQrDialog?.open) {
+    if (state.topupPayStep === "confirm") {
+      setTopupQrStep("transfer");
+      syncTopupBackButtons();
+      refreshIcons();
+      return;
+    }
+    els.topupQrDialog.close();
+    if (!els.topupDialog?.open) els.topupDialog?.showModal();
+    setTopupStep("payment");
+    setTopupMethod("usdt");
+    renderTopupSummary();
+    syncTopupAutoRefresh();
+    refreshIcons();
+    return;
+  }
+  if (els.topupDialog?.open) setTopupStep("packages");
 }
 
 async function submitTopupHash(orderId = "", hash = "") {
@@ -10490,7 +10514,7 @@ document.querySelectorAll("[data-legal-doc]").forEach((button) => {
 els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
   button.addEventListener("click", () => setTopupMethod(button.dataset.topupMethod || "usdt"));
 });
-els.topupBackBtn?.addEventListener("click", () => setTopupStep("packages"));
+els.topupBackBtn?.addEventListener("click", handleTopupBack);
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
 function openTopupDialog() {
   closeAccountMenu();
