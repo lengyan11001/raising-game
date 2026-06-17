@@ -1272,6 +1272,14 @@ main {
   width: 100%;
   min-height: 48px;
 }
+.topup-transfer-actions {
+  display: grid;
+  grid-template-columns: minmax(120px, .45fr) minmax(180px, 1fr);
+  gap: 10px;
+}
+.topup-transfer-actions .topup-transfer-done {
+  width: auto;
+}
 .topup-tronlink-btn {
   display: inline-flex;
   align-items: center;

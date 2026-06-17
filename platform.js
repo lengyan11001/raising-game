@@ -385,6 +385,7 @@ const els = {
   topupQrAmount: document.querySelector("#topupQrAmount"),
   topupQrAmountValue: document.querySelector("#topupQrAmountValue"),
   topupQrSubtitle: document.querySelector("#topupQrSubtitle"),
+  topupQrBackBtn: document.querySelector("#topupQrBackBtn"),
   topupQrCopyBtn: document.querySelector("#topupQrCopyBtn"),
   topupQrCopyAmountBtn: document.querySelector("#topupQrCopyAmountBtn"),
   topupWalletQr: document.querySelector("#topupWalletQr"),
@@ -6960,6 +6961,17 @@ function renderTopupQrDialog(order = null) {
   }
   if (els.topupTransferDoneBtn) {
     els.topupTransferDoneBtn.onclick = () => setTopupQrStep("confirm");
+  }
+  if (els.topupQrBackBtn) {
+    els.topupQrBackBtn.onclick = () => {
+      if (els.topupQrDialog?.open) els.topupQrDialog.close();
+      if (!els.topupDialog?.open) els.topupDialog?.showModal();
+      setTopupStep("payment");
+      setTopupMethod("usdt");
+      renderTopupSummary();
+      syncTopupAutoRefresh();
+      refreshIcons();
+    };
   }
   if (els.topupConfirmBackBtn) {
     els.topupConfirmBackBtn.onclick = () => setTopupQrStep("transfer");

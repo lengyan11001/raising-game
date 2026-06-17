@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-165" />
+    <link rel="stylesheet" href="./platform.css?v=ai-166" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -549,7 +549,10 @@
             <span>Pay with TronLink</span>
           </button>
           <p class="topup-transfer-note">After sending the transfer, click the button below and paste the transaction hash.</p>
-          <button class="copy-btn topup-transfer-done" id="topupTransferDoneBtn" type="button">I have transferred</button>
+          <div class="topup-transfer-actions">
+            <button class="ghost-button" id="topupQrBackBtn" type="button"><i data-lucide="arrow-left"></i><span>Back</span></button>
+            <button class="copy-btn topup-transfer-done" id="topupTransferDoneBtn" type="button">I have transferred</button>
+          </div>
           </section>
           <section class="topup-confirm-step" id="topupConfirmStep" hidden>
             <div class="topup-confirm-copy">
@@ -656,6 +659,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-165"></script>
+    <script src="./platform.js?v=ai-166"></script>
 </body>
 </html>
