@@ -1668,16 +1668,16 @@ function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
   const crawledCharacterPaths = Object.keys(byPath).filter((pathname) => /^\/characters\/[^/]+\/?$/.test(pathname));
   const topicCount = (snapshot.tags?.length || 0) + (snapshot.categories?.length || 0);
   const metrics = [
-    geoCoverageMetric("Summaries", withSummary, total),
-    geoCoverageMetric("Tags", withTags, total),
-    geoCoverageMetric("Posters", withPoster, total),
-    geoCoverageMetric("Videos", withVideos, total),
-    geoCoverageMetric("Topic pages", Math.min(topicCount, 20), 20),
-    geoCoverageMetric("Role FAQ", withFaq, total),
-    geoCoverageMetric("Topic intros", topicsWithIntro, topics.length),
-    geoCoverageMetric("Topic FAQ", topicsWithFaq, topics.length),
-    geoCoverageMetric("3+ videos", withThreeVideos, total),
-    geoCoverageMetric("Important bots", seenImportantBots.length, importantBots.length),
+    geoCoverageMetric("摘要", withSummary, total),
+    geoCoverageMetric("标签", withTags, total),
+    geoCoverageMetric("封面", withPoster, total),
+    geoCoverageMetric("视频", withVideos, total),
+    geoCoverageMetric("主题页", Math.min(topicCount, 20), 20),
+    geoCoverageMetric("角色问答", withFaq, total),
+    geoCoverageMetric("主题介绍", topicsWithIntro, topics.length),
+    geoCoverageMetric("主题问答", topicsWithFaq, topics.length),
+    geoCoverageMetric("3 个以上视频", withThreeVideos, total),
+    geoCoverageMetric("重点爬虫", seenImportantBots.length, importantBots.length),
   ];
   const contentPercent = total
     ? Math.round(((withSummary + withTags + withPoster + withVideos) / (total * 4)) * 100)
@@ -1701,10 +1701,10 @@ function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
   const issues = [];
   characters.forEach((item) => {
     const missing = [];
-    if (!item.geoSummary || item.geoSummary.length <= 40) missing.push("summary");
-    if (!(item.geoTags || []).length) missing.push("tags");
-    if (!item.geoPoster || String(item.geoPoster).includes("default-hero")) missing.push("poster");
-    if (!(item.geoVideos || []).length) missing.push("videos");
+    if (!item.geoSummary || item.geoSummary.length <= 40) missing.push("摘要");
+    if (!(item.geoTags || []).length) missing.push("标签");
+    if (!item.geoPoster || String(item.geoPoster).includes("default-hero")) missing.push("封面");
+    if (!(item.geoVideos || []).length) missing.push("视频");
     if (missing.length) {
       issues.push({
         id: item.id,
@@ -1721,12 +1721,12 @@ function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
     qualityPercent,
     metrics,
     qualityMetrics: [
-      geoCoverageMetric("Character summaries", withSummary, total),
-      geoCoverageMetric("Character tags", withTags, total),
-      geoCoverageMetric("Character videos", withVideos, total),
-      geoCoverageMetric("Character FAQ", withFaq, total),
-      geoCoverageMetric("Topic intros", topicsWithIntro, topics.length),
-      geoCoverageMetric("Topic FAQ", topicsWithFaq, topics.length),
+      geoCoverageMetric("角色摘要", withSummary, total),
+      geoCoverageMetric("角色标签", withTags, total),
+      geoCoverageMetric("角色视频", withVideos, total),
+      geoCoverageMetric("角色问答", withFaq, total),
+      geoCoverageMetric("主题介绍", topicsWithIntro, topics.length),
+      geoCoverageMetric("主题问答", topicsWithFaq, topics.length),
     ],
     topTags: topGeoTags(snapshot),
     issues: issues.slice(0, 24),
@@ -1756,57 +1756,57 @@ function buildGeoOffsitePlan(snapshot) {
   const homepageUrl = scopedApiUrl(origin, "/");
   const platformRows = [
     {
-      group: "AI directories",
+      group: "AI 工具目录",
       platforms: "Futurepedia, There's An AI For That, Toolify, AI Tool Hunt",
-      purpose: "Create third-party AI-tool references that can be indexed and cited.",
-      cadence: "Submit once, refresh after major feature changes.",
-      contentType: "Product listing",
+      purpose: "建立可被索引和引用的第三方 AI 工具信源。",
+      cadence: "先提交一次，重大功能变化后再更新。",
+      contentType: "产品收录",
       priority: "P0",
     },
     {
-      group: "Launch communities",
+      group: "产品发布社区",
       platforms: "Product Hunt, Betalist, Indie Hackers",
-      purpose: "Build branded launch pages with consistent product wording and links.",
-      cadence: "One coordinated launch, then monthly updates.",
-      contentType: "Launch post",
+      purpose: "建立品牌发布页，统一产品描述和回链。",
+      cadence: "集中发布一次，之后每月更新。",
+      contentType: "发布帖",
       priority: "P0",
     },
     {
-      group: "Long-form articles",
+      group: "长文平台",
       platforms: "Medium, Substack, Hashnode, dev.to",
-      purpose: "Publish answer-style guides around character video generation queries.",
-      cadence: "2-3 posts per week until the first 20 posts are live.",
-      contentType: "Guide / comparison",
+      purpose: "围绕角色视频生成问题发布解答型指南。",
+      cadence: "每周 2-3 篇，先完成前 20 篇。",
+      contentType: "指南 / 对比",
       priority: "P1",
     },
     {
-      group: "Q&A discovery",
+      group: "问答发现",
       platforms: "Quora, Reddit communities, niche AI forums",
-      purpose: "Answer real questions and point to the relevant topic or character page.",
-      cadence: "3-5 useful answers per week.",
-      contentType: "Answer",
+      purpose: "回答真实问题，并指向相关主题页或角色页。",
+      cadence: "每周 3-5 条有用回答。",
+      contentType: "问答回复",
       priority: "P1",
     },
     {
-      group: "Video/social proof",
+      group: "视频 / 社媒信源",
       platforms: "YouTube Shorts, X, TikTok-safe previews where allowed",
-      purpose: "Give crawlers and users external references for generated video examples.",
-      cadence: "3 short posts per week.",
-      contentType: "Short demo",
+      purpose: "给爬虫和用户提供生成视频样例的站外引用。",
+      cadence: "每周 3 条短内容。",
+      contentType: "短视频说明",
       priority: "P2",
     },
     {
-      group: "Search submit",
+      group: "搜索提交",
       platforms: "Google Search Console, Bing Webmaster, IndexNow",
-      purpose: "Accelerate discovery after new topic pages or offsite posts go live.",
-      cadence: "After every content batch.",
-      contentType: "Sitemap / URL submit",
+      purpose: "新主题页或站外内容发布后，加速发现。",
+      cadence: "每批内容发布后执行。",
+      contentType: "站点地图 / URL 提交",
       priority: "P0",
     },
   ];
   const keywordSets = [
     {
-      label: "Search terms",
+      label: "搜索词",
       terms: [
         "AI character video generator",
         "image to video AI character",
@@ -1817,7 +1817,7 @@ function buildGeoOffsitePlan(snapshot) {
       ],
     },
     {
-      label: "Question terms",
+      label: "问答词",
       terms: [
         "How do I turn an AI character image into a video?",
         "What is the best AI tool for consistent character videos?",
@@ -1827,7 +1827,7 @@ function buildGeoOffsitePlan(snapshot) {
       ],
     },
     {
-      label: "Scene terms",
+      label: "场景词",
       terms: [
         "walking character video",
         "talking AI avatar scene",
@@ -1841,7 +1841,7 @@ function buildGeoOffsitePlan(snapshot) {
   const drafts = [
     {
       id: "ai-directory-listing",
-      channel: "AI directory",
+      channel: "AI 工具目录",
       platform: "Futurepedia / Toolify / There's An AI For That",
       title: `${brand} - AI character video generator for image-to-video scenes`,
       link: homepageUrl,
@@ -1857,7 +1857,7 @@ function buildGeoOffsitePlan(snapshot) {
     },
     {
       id: "longform-guide",
-      channel: "Long-form article",
+      channel: "长文文章",
       platform: "Medium / Substack / Hashnode",
       title: "How to create AI character videos from a single reference image",
       link: createUrl,
@@ -1873,7 +1873,7 @@ function buildGeoOffsitePlan(snapshot) {
     },
     {
       id: "qa-answer",
-      channel: "Q&A answer",
+      channel: "问答回复",
       platform: "Quora / Reddit / AI forums",
       title: "What is a good AI character video generator for short vertical scenes?",
       link: sampleTagUrl,
@@ -1889,7 +1889,7 @@ function buildGeoOffsitePlan(snapshot) {
     },
     {
       id: "product-launch",
-      channel: "Launch post",
+      channel: "发布帖",
       platform: "Product Hunt / Indie Hackers",
       title: `${brand}: create AI character videos from images and prompts`,
       link: homepageUrl,
@@ -1905,7 +1905,7 @@ function buildGeoOffsitePlan(snapshot) {
     },
     {
       id: "short-demo-script",
-      channel: "Short demo",
+      channel: "短视频说明",
       platform: "YouTube Shorts / X / allowed social channels",
       title: "Turn one character image into a short AI video",
       link: createUrl,
@@ -1921,7 +1921,7 @@ function buildGeoOffsitePlan(snapshot) {
     },
     {
       id: "brand-source-note",
-      channel: "Brand source",
+      channel: "品牌源说明",
       platform: "GitHub Pages / public docs / brand profile",
       title: `${brand} public product note for AI search`,
       link: homepageUrl,
@@ -1938,11 +1938,11 @@ function buildGeoOffsitePlan(snapshot) {
     },
   ];
   const schedule = [
-    { week: "Week 1", task: "Submit AI-tool directory listings and Product Hunt/Indie Hackers profile drafts.", goal: "Create first external brand references." },
-    { week: "Week 1", task: "Publish 3 long-form answer guides linking to homepage, create flow, one tag page, and one character page.", goal: "Seed crawlable offsite answers." },
-    { week: "Week 2", task: "Answer 5 real Q&A/forum questions using non-spammy, useful explanations.", goal: "Build natural question-answer citations." },
-    { week: "Week 2", task: "Post 3 short demo captions with links to topic or create pages.", goal: "Add social/video references." },
-    { week: "Ongoing", task: "After every batch, submit sitemap/IndexNow and check whether crawlers reach topic and character pages.", goal: "Close the publish-to-crawl loop." },
+    { week: "第 1 周", task: "提交 AI 工具目录收录，并准备 Product Hunt / Indie Hackers 发布资料。", goal: "建立第一批站外品牌引用。" },
+    { week: "第 1 周", task: "发布 3 篇长文解答，分别回链首页、生成页、一个标签页和一个角色页。", goal: "沉淀可抓取的站外问答内容。" },
+    { week: "第 2 周", task: "回答 5 个真实问答或论坛问题，内容要有帮助，避免广告式灌水。", goal: "建立自然的问题答案引用。" },
+    { week: "第 2 周", task: "发布 3 条短视频说明，链接到主题页或生成页。", goal: "补充社媒和视频信源。" },
+    { week: "持续", task: "每批内容发布后提交 sitemap / IndexNow，并检查爬虫是否访问主题页和角色页。", goal: "闭合发布到抓取的链路。" },
   ];
   return {
     updatedAt: new Date().toISOString(),
@@ -2587,15 +2587,15 @@ async function handleAdminSubmitIndexNow(req, res) {
     const historyEntry = await appendGeoIndexNowHistory(snapshot, {
       ok: false,
       status: 0,
-      statusText: "Request failed",
+      statusText: "请求失败",
       urlCount: indexNowUrls(snapshot).length,
       keyLocation: indexNowKeyLocation(snapshot),
-      responseText: error.message || "IndexNow submit failed",
+      responseText: error.message || "IndexNow 提交失败",
     }).catch(() => null);
     return sendJson(res, 200, {
       ok: true,
       accepted: false,
-      error: error.message || "IndexNow submit failed",
+      error: error.message || "IndexNow 提交失败",
       historyEntry,
     });
   }
@@ -2613,14 +2613,14 @@ async function handleAdminGeoReport(req, res) {
   const sampleTag = (snapshot.tags || [])[0] || null;
   const sampleCategory = (snapshot.categories || [])[0] || null;
   const endpoints = [
-    { id: "home", label: "Home metadata", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: ["application/ld+json", "canonical", snapshot.brand] },
+    { id: "home", label: "首页元数据", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: ["application/ld+json", "canonical", snapshot.brand] },
     { id: "robots", label: "robots.txt", path: "/robots.txt", url: scopedApiUrl(snapshot.origin, "/robots.txt"), expect: ["Sitemap:", "/sitemap.xml", "OAI-SearchBot", "PerplexityBot"] },
     { id: "sitemap", label: "sitemap.xml", path: "/sitemap.xml", url: scopedApiUrl(snapshot.origin, "/sitemap.xml"), expect: ["<urlset", "/characters/"] },
     { id: "llms", label: "llms.txt", path: "/llms.txt", url: scopedApiUrl(snapshot.origin, "/llms.txt"), expect: [snapshot.brand, "/api/advanced/generate"] },
     { id: "llms-full", label: "llms-full.txt", path: "/llms-full.txt", url: scopedApiUrl(snapshot.origin, "/llms-full.txt"), expect: ["GEO Notes", "VideoObject"] },
     {
       id: "indexnow-key",
-      label: "IndexNow key file",
+      label: "IndexNow 验证文件",
       path: `/${indexNowKeyForOrigin(snapshot.origin)}.txt`,
       url: indexNowKeyLocation(snapshot),
       expect: [indexNowKeyForOrigin(snapshot.origin)],
@@ -2629,7 +2629,7 @@ async function handleAdminGeoReport(req, res) {
   if (sampleCategory) {
     endpoints.push({
       id: "category",
-      label: "Sample category page",
+      label: "分类页样例",
       path: sampleCategory.path,
       url: sampleCategory.url,
       expect: ["CollectionPage", "ItemList", sampleCategory.label],
@@ -2638,7 +2638,7 @@ async function handleAdminGeoReport(req, res) {
   if (sampleTag) {
     endpoints.push({
       id: "tag",
-      label: "Sample tag page",
+      label: "标签页样例",
       path: sampleTag.path,
       url: sampleTag.url,
       expect: ["CollectionPage", "ItemList", sampleTag.label],
@@ -2647,7 +2647,7 @@ async function handleAdminGeoReport(req, res) {
   if (sampleCharacter) {
     endpoints.push({
       id: "character",
-      label: "Sample character page",
+      label: "角色页样例",
       path: sampleCharacter.geoPath,
       url: sampleCharacter.geoUrl,
       expect: ["ProfilePage", "VideoObject", "Related characters", sampleCharacter.name || sampleCharacter.id],
@@ -2712,11 +2712,11 @@ async function handleAdminGeoReport(req, res) {
       summary: item.geoSummary,
     })),
     recommendations: [
-      "Keep character names, summaries, tags, and poster images descriptive.",
-      "Use tag and category pages as crawlable topic entry points for AI/search discovery.",
-      "Run this GEO check after importing a new character batch or changing the domain.",
-      "Submit IndexNow after sitemap or character-page changes, then watch crawler visits here.",
-      "Avoid exposing upstream vendor routes in public API copy; keep /api/advanced/generate as the documented entry.",
+      "保持角色名称、摘要、标签和封面图描述清晰。",
+      "把标签页和分类页作为 AI / 搜索可抓取的主题入口。",
+      "导入新角色批次或切换域名后，运行 GEO 检查。",
+      "站点地图或角色页变化后提交 IndexNow，然后在这里观察爬虫访问。",
+      "对外接口文案避免暴露上游供应商路由，统一保留 /api/advanced/generate 作为文档入口。",
     ],
   });
 }
