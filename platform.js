@@ -35,6 +35,7 @@ const DEFAULT_TOPUP_PACKAGES = [
   { id: "usd-1000", amount: 1000, credits: 140000, currency: "USD" },
 ];
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
+const TRON_USDT_CONTRACT = "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj";
 const DEFAULT_PLATFORM_TAB = "gallery";
 const DEFAULT_GALLERY_MODE = "characters";
 const GALLERY_MODE_TABS = [
@@ -245,9 +246,10 @@ const state = {
   advancedWanClipAssetId: "",
   wallet: null,
   selectedWalletOptionId: "",
-  topupMethod: "paypal",
+  topupMethod: "usdt",
   topupStep: "packages",
   selectedTopupPackageId: "",
+  activeTopupOrder: null,
   paypalConfig: null,
   token: localStorage.getItem(TOKEN_KEY) || "",
   lang: localStorage.getItem(LANG_KEY) || "en",
@@ -381,10 +383,24 @@ const els = {
   createTopupBtn: document.querySelector("#createTopupBtn"),
   topupQrDialog: document.querySelector("#topupQrDialog"),
   topupQrAmount: document.querySelector("#topupQrAmount"),
+  topupQrAmountValue: document.querySelector("#topupQrAmountValue"),
+  topupQrSubtitle: document.querySelector("#topupQrSubtitle"),
   topupQrCopyBtn: document.querySelector("#topupQrCopyBtn"),
+  topupQrCopyAmountBtn: document.querySelector("#topupQrCopyAmountBtn"),
   topupWalletQr: document.querySelector("#topupWalletQr"),
   topupWalletNetwork: document.querySelector("#topupWalletNetwork"),
   topupWalletAddress: document.querySelector("#topupWalletAddress"),
+  topupPayUri: document.querySelector("#topupPayUri"),
+  topupStepTransfer: document.querySelector("#topupStepTransfer"),
+  topupStepConfirm: document.querySelector("#topupStepConfirm"),
+  topupTransferStep: document.querySelector("#topupTransferStep"),
+  topupConfirmStep: document.querySelector("#topupConfirmStep"),
+  topupTronLinkBtn: document.querySelector("#topupTronLinkBtn"),
+  topupTransferDoneBtn: document.querySelector("#topupTransferDoneBtn"),
+  topupTxHashInput: document.querySelector("#topupTxHashInput"),
+  topupSubmitHashBtn: document.querySelector("#topupSubmitHashBtn"),
+  topupConfirmBackBtn: document.querySelector("#topupConfirmBackBtn"),
+  topupConfirmStatus: document.querySelector("#topupConfirmStatus"),
   paypalBox: document.querySelector("#paypalBox"),
   paypalButtons: document.querySelector("#paypalButtons"),
   paypalStatus: document.querySelector("#paypalStatus"),
@@ -6676,6 +6692,103 @@ function payPalCheckoutVisible() {
   );
 }
 
+function topupPayableAmountText(order = {}) {
+  return String(order.payableAmountText || order.payableAmount || order.baseAmount || order.amount || "").trim();
+}
+
+function topupCurrentTronAddress() {
+  return String(
+    window.tronWeb?.defaultAddress?.base58 ||
+    window.tronLink?.tronWeb?.defaultAddress?.base58 ||
+    "",
+  ).trim();
+}
+
+function topupTronLinkTransferUri({ orderId = "", address = "", amount = "", network = "TRC20" } = {}) {
+  const from = topupCurrentTronAddress();
+  const to = String(address || "").trim();
+  if (!to || !/tron|trc20/i.test(String(network || ""))) return "";
+  const origin = window.location.origin || "";
+  const pathname = window.location.pathname || "/platform.html";
+  const param = {
+    url: `${origin}${pathname}`,
+    callbackUrl: `${origin}/api/pay/tronlink/callback`,
+    dappName: "Vipeak AI",
+    protocol: "TronLink",
+    version: "1.0",
+    chainId: "0x2b6653dc",
+    memo: orderId ? `Top up ${orderId}` : "Top up",
+    from,
+    to,
+    loginAddress: from,
+    tokenId: "",
+    contract: TRON_USDT_CONTRACT,
+    amount: String(amount || ""),
+    action: "transfer",
+    actionId: String(orderId || ""),
+  };
+  return `tronlinkoutside://pull.activity?param=${encodeURIComponent(JSON.stringify(param))}`;
+}
+
+function topupPaymentUri({ orderId = "", address = "", amount = "", asset = "USDT", network = "TRC20" } = {}) {
+  const cleanAddress = String(address || "").trim();
+  if (!cleanAddress) return "";
+  const deepLink = topupTronLinkTransferUri({ orderId, address: cleanAddress, amount, network });
+  if (deepLink) return deepLink;
+  const params = new URLSearchParams();
+  if (amount) params.set("amount", String(amount));
+  params.set("asset", String(asset || "USDT").toUpperCase());
+  params.set("network", String(network || "TRC20").toUpperCase());
+  return `tron:${cleanAddress}?${params.toString()}`;
+}
+
+function qrImageUrlForData(data = "") {
+  const text = String(data || "").trim();
+  if (!text) return "";
+  return `https://api.qrserver.com/v1/create-qr-code/?size=236x236&margin=12&data=${encodeURIComponent(text)}`;
+}
+
+function topupUsdtUnits(amountText = "") {
+  const cleaned = String(amountText || "").trim().replace(/[^\d.]/g, "");
+  if (!cleaned) return "0";
+  const [wholeRaw = "0", fractionRaw = ""] = cleaned.split(".");
+  const whole = wholeRaw.replace(/^0+(?=\d)/, "") || "0";
+  const fraction = `${fractionRaw.replace(/\D/g, "")}000000`.slice(0, 6);
+  return `${whole}${fraction}`.replace(/^0+(?=\d)/, "") || "0";
+}
+
+function setTopupConfirmStatus(message = "", tone = "") {
+  if (!els.topupConfirmStatus) return;
+  els.topupConfirmStatus.textContent = message;
+  els.topupConfirmStatus.dataset.tone = tone || "";
+}
+
+function setTopupQrStep(step = "transfer") {
+  const next = step === "confirm" ? "confirm" : "transfer";
+  if (els.topupTransferStep) els.topupTransferStep.hidden = next !== "transfer";
+  if (els.topupConfirmStep) els.topupConfirmStep.hidden = next !== "confirm";
+  [els.topupStepTransfer, els.topupStepConfirm].forEach((button) => {
+    if (!button) return;
+    const active = button.dataset.topupPayStep === next;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (next === "confirm") {
+    window.setTimeout(() => els.topupTxHashInput?.focus(), 50);
+  }
+}
+
+function copyTopupValue(value = "", message = "") {
+  const text = String(value || "").trim();
+  if (!text) return;
+  navigator.clipboard?.writeText(text).then(() => {
+    if (els.topupRate && message) els.topupRate.textContent = message;
+    setTopupConfirmStatus(message || t("topup.addressCopied"), "success");
+  }).catch(() => {
+    setTopupConfirmStatus("Copy failed. Please copy manually.", "error");
+  });
+}
+
 function topupPackages() {
   const configured = Array.isArray(state.wallet?.topupPackages) ? state.wallet.topupPackages : [];
   const packages = configured.length ? configured : DEFAULT_TOPUP_PACKAGES;
@@ -6710,7 +6823,7 @@ function selectTopupPackage(packageId = "") {
   const selected = packages.find((item) => item.id === packageId) || packages[0];
   if (!selected) return;
   state.selectedTopupPackageId = selected.id;
-  setTopupMethod("paypal", { skipSummary: true });
+  setTopupMethod("usdt", { skipSummary: true });
   setTopupStep("payment");
 }
 
@@ -6786,8 +6899,8 @@ function renderWalletOptions() {
   });
 }
 
-function setTopupMethod(method = "paypal", options = {}) {
-  const next = method === "usdt" ? "usdt" : "paypal";
+function setTopupMethod(method = "usdt", options = {}) {
+  const next = "usdt";
   state.topupMethod = next;
   els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
     const active = button.dataset.topupMethod === next;
@@ -6796,22 +6909,30 @@ function setTopupMethod(method = "paypal", options = {}) {
   });
   if (els.topupPaypalPanel) els.topupPaypalPanel.hidden = next !== "paypal";
   if (els.topupUsdtPanel) els.topupUsdtPanel.hidden = next !== "usdt";
-  if (next === "paypal" && state.topupStep === "payment") renderPayPalCheckout();
   if (!options.skipSummary) renderTopupSummary();
   refreshIcons();
 }
 
 function renderTopupQrDialog(order = null) {
   if (!order || !els.topupQrDialog) return;
+  state.activeTopupOrder = order;
   const wallet = state.wallet || {};
   const selected = selectedWalletOption();
   const address = order?.address || selected?.address || wallet.address || "";
-  const qrUrl = order?.qrUrl || selected?.qrUrl || wallet.qrUrl || "";
   const explorerUrl = order?.explorerUrl || selected?.explorerUrl || wallet.explorerUrl || "";
   const asset = order?.asset || selected?.asset || wallet.asset || "USDT";
   const network = order?.network || selected?.network || wallet.network || "TRC20";
+  const amount = topupPayableAmountText(order);
+  const paymentUri = topupPaymentUri({ orderId: order.id, address, amount, asset, network });
+  const qrUrl = paymentUri ? qrImageUrlForData(paymentUri) : "";
   if (els.topupQrAmount) {
-    els.topupQrAmount.textContent = `${order.payableAmountText || order.payableAmount || order.baseAmount || ""} ${asset}`.trim();
+    els.topupQrAmount.textContent = `${amount} ${asset}`.trim();
+  }
+  if (els.topupQrAmountValue) {
+    els.topupQrAmountValue.textContent = amount;
+  }
+  if (els.topupQrSubtitle) {
+    els.topupQrSubtitle.textContent = `Use ${network} network`;
   }
   if (els.topupWalletQr) {
     els.topupWalletQr.hidden = !qrUrl;
@@ -6822,11 +6943,35 @@ function renderTopupQrDialog(order = null) {
   if (els.topupQrCopyBtn) {
     els.topupQrCopyBtn.onclick = () => copyTopupAddress(address);
   }
+  if (els.topupQrCopyAmountBtn) {
+    els.topupQrCopyAmountBtn.onclick = () => copyTopupValue(amount, "Amount copied. Transfer this exact value.");
+  }
+  if (els.topupPayUri) {
+    els.topupPayUri.hidden = !paymentUri;
+    els.topupPayUri.href = paymentUri || "#";
+  }
   const explorerLink = document.querySelector("#topupWalletExplorer");
   if (explorerLink) {
     explorerLink.hidden = !explorerUrl;
     explorerLink.href = explorerUrl || "#";
   }
+  if (els.topupTronLinkBtn) {
+    els.topupTronLinkBtn.onclick = () => payTopupWithTronLink(order);
+  }
+  if (els.topupTransferDoneBtn) {
+    els.topupTransferDoneBtn.onclick = () => setTopupQrStep("confirm");
+  }
+  if (els.topupConfirmBackBtn) {
+    els.topupConfirmBackBtn.onclick = () => setTopupQrStep("transfer");
+  }
+  if (els.topupSubmitHashBtn) {
+    els.topupSubmitHashBtn.onclick = () => submitTopupHash(order.id, els.topupTxHashInput?.value || "");
+  }
+  if (els.topupTxHashInput) {
+    els.topupTxHashInput.value = order.confirmationHash || "";
+  }
+  setTopupConfirmStatus(order.confirmationSubmittedAt ? "Confirmation submitted. Waiting for chain verification." : "", order.confirmationSubmittedAt ? "success" : "");
+  setTopupQrStep("transfer");
   if (els.topupDialog?.open) els.topupDialog.close();
   if (!els.topupQrDialog.open) els.topupQrDialog.showModal();
   syncTopupAutoRefresh();
@@ -6835,9 +6980,7 @@ function renderTopupQrDialog(order = null) {
 
 function copyTopupAddress(address = "") {
   if (!address) return;
-  navigator.clipboard?.writeText(address).then(() => {
-    if (els.topupRate) els.topupRate.textContent = t("topup.addressCopied");
-  });
+  copyTopupValue(address, t("topup.addressCopied"));
 }
 
 function renderTopupPackages() {
@@ -6885,8 +7028,6 @@ function renderTopupSummary() {
     els.topupRate.textContent = state.user
       ? state.topupStep === "packages"
         ? t("topup.packages")
-        : state.topupMethod === "paypal"
-        ? t("topup.paypalRate")
         : t("topup.rate", { amount: amount || 0, asset, network })
       : t("topup.login");
   }
@@ -7014,6 +7155,75 @@ async function renderPayPalCheckout() {
     els.paypalBox.hidden = false;
     els.paypalButtons.hidden = true;
     if (els.paypalStatus) els.paypalStatus.textContent = error.message || String(error);
+  }
+}
+
+async function submitTopupHash(orderId = "", hash = "") {
+  const cleanId = String(orderId || state.activeTopupOrder?.id || "").trim();
+  const cleanHash = String(hash || "").trim();
+  if (!cleanId) return;
+  if (!cleanHash || cleanHash.length < 20) {
+    setTopupConfirmStatus("Enter a valid transaction hash.", "error");
+    return;
+  }
+  if (els.topupSubmitHashBtn) els.topupSubmitHashBtn.disabled = true;
+  setTopupConfirmStatus("Submitting confirmation...", "");
+  try {
+    const payload = await requestJson(`/api/pay/orders/${encodeURIComponent(cleanId)}/confirm`, {
+      method: "POST",
+      body: { transactionHash: cleanHash },
+    });
+    if (payload.order) {
+      state.activeTopupOrder = payload.order;
+      renderTopupQrDialog(payload.order);
+      setTopupQrStep("confirm");
+    }
+    setTopupConfirmStatus("Confirmation submitted. Waiting for chain verification.", "success");
+    if (state.tab === "topups") loadTopupRecords(1);
+  } catch (error) {
+    setTopupConfirmStatus(error.message || "Confirmation failed.", "error");
+  } finally {
+    if (els.topupSubmitHashBtn) els.topupSubmitHashBtn.disabled = false;
+  }
+}
+
+async function payTopupWithTronLink(order = {}) {
+  const activeOrder = order?.id ? order : state.activeTopupOrder;
+  if (!activeOrder?.id) return;
+  const selected = selectedWalletOption();
+  const address = activeOrder.address || selected?.address || state.wallet?.address || "";
+  const amount = topupPayableAmountText(activeOrder);
+  if (!address || !amount) {
+    setTopupConfirmStatus("Payment order is incomplete. Please recreate the order.", "error");
+    return;
+  }
+  const tronProvider = window.tron || window.tronLink || null;
+  const tronWeb = window.tronWeb || tronProvider?.tronWeb || null;
+  if (!tronWeb?.contract) {
+    setTopupConfirmStatus("Open this page in TronLink, or copy the exact amount and address to transfer manually.", "error");
+    return;
+  }
+  if (els.topupTronLinkBtn) els.topupTronLinkBtn.disabled = true;
+  setTopupConfirmStatus("Requesting wallet approval...", "");
+  try {
+    if (tronProvider?.request) {
+      await tronProvider.request({ method: "tron_requestAccounts" }).catch(() => null);
+    }
+    const contract = await tronWeb.contract().at(TRON_USDT_CONTRACT);
+    const amountUnits = topupUsdtUnits(amount);
+    const txId = await contract.transfer(address, amountUnits).send({ feeLimit: 100_000_000 });
+    const hash = typeof txId === "string" ? txId : txId?.txid || txId?.transactionHash || "";
+    if (els.topupTxHashInput && hash) els.topupTxHashInput.value = hash;
+    setTopupQrStep("confirm");
+    if (hash) {
+      await submitTopupHash(activeOrder.id, hash);
+    } else {
+      setTopupConfirmStatus("Transfer broadcasted. Paste the transaction hash to confirm.", "success");
+    }
+  } catch (error) {
+    setTopupConfirmStatus(error?.message || "Wallet payment was cancelled or failed.", "error");
+  } finally {
+    if (els.topupTronLinkBtn) els.topupTronLinkBtn.disabled = false;
   }
 }
 
@@ -10271,14 +10481,14 @@ document.querySelectorAll("[data-legal-doc]").forEach((button) => {
   button.addEventListener("click", () => openLegalDialog(button.dataset.legalDoc || "privacy"));
 });
 els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
-  button.addEventListener("click", () => setTopupMethod(button.dataset.topupMethod || "paypal"));
+  button.addEventListener("click", () => setTopupMethod(button.dataset.topupMethod || "usdt"));
 });
 els.topupBackBtn?.addEventListener("click", () => setTopupStep("packages"));
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
 function openTopupDialog() {
   closeAccountMenu();
   setTopupStep("packages");
-  setTopupMethod("paypal");
+  setTopupMethod("usdt");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   syncTopupAutoRefresh();
