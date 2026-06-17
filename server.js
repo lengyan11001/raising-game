@@ -1743,6 +1743,222 @@ function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
   };
 }
 
+function buildGeoOffsitePlan(snapshot) {
+  const brand = snapshot.brand || "Vipeak AI";
+  const origin = snapshot.origin || "";
+  const tags = (snapshot.tags || []).slice(0, 8).map((item) => item.label || item.id).filter(Boolean);
+  const characters = (snapshot.characters || []).slice(0, 6);
+  const sampleCharacter = characters[0] || {};
+  const sampleCharacterUrl = sampleCharacter.geoUrl || scopedApiUrl(origin, sampleCharacter.geoPath || "/");
+  const sampleTag = (snapshot.tags || [])[0] || {};
+  const sampleTagUrl = sampleTag.url || scopedApiUrl(origin, sampleTag.path || "/tags/ai-character-video");
+  const createUrl = scopedApiUrl(origin, "/create");
+  const homepageUrl = scopedApiUrl(origin, "/");
+  const platformRows = [
+    {
+      group: "AI directories",
+      platforms: "Futurepedia, There's An AI For That, Toolify, AI Tool Hunt",
+      purpose: "Create third-party AI-tool references that can be indexed and cited.",
+      cadence: "Submit once, refresh after major feature changes.",
+      contentType: "Product listing",
+      priority: "P0",
+    },
+    {
+      group: "Launch communities",
+      platforms: "Product Hunt, Betalist, Indie Hackers",
+      purpose: "Build branded launch pages with consistent product wording and links.",
+      cadence: "One coordinated launch, then monthly updates.",
+      contentType: "Launch post",
+      priority: "P0",
+    },
+    {
+      group: "Long-form articles",
+      platforms: "Medium, Substack, Hashnode, dev.to",
+      purpose: "Publish answer-style guides around character video generation queries.",
+      cadence: "2-3 posts per week until the first 20 posts are live.",
+      contentType: "Guide / comparison",
+      priority: "P1",
+    },
+    {
+      group: "Q&A discovery",
+      platforms: "Quora, Reddit communities, niche AI forums",
+      purpose: "Answer real questions and point to the relevant topic or character page.",
+      cadence: "3-5 useful answers per week.",
+      contentType: "Answer",
+      priority: "P1",
+    },
+    {
+      group: "Video/social proof",
+      platforms: "YouTube Shorts, X, TikTok-safe previews where allowed",
+      purpose: "Give crawlers and users external references for generated video examples.",
+      cadence: "3 short posts per week.",
+      contentType: "Short demo",
+      priority: "P2",
+    },
+    {
+      group: "Search submit",
+      platforms: "Google Search Console, Bing Webmaster, IndexNow",
+      purpose: "Accelerate discovery after new topic pages or offsite posts go live.",
+      cadence: "After every content batch.",
+      contentType: "Sitemap / URL submit",
+      priority: "P0",
+    },
+  ];
+  const keywordSets = [
+    {
+      label: "Search terms",
+      terms: [
+        "AI character video generator",
+        "image to video AI character",
+        "AI companion video generator",
+        "realistic AI girlfriend video generator",
+        "anime character video generator",
+        "create AI roleplay videos",
+      ],
+    },
+    {
+      label: "Question terms",
+      terms: [
+        "How do I turn an AI character image into a video?",
+        "What is the best AI tool for consistent character videos?",
+        "Can I create short AI companion videos from one image?",
+        "How do AI girlfriend video generators keep the same character?",
+        "Where can I find AI character video examples?",
+      ],
+    },
+    {
+      label: "Scene terms",
+      terms: [
+        "walking character video",
+        "talking AI avatar scene",
+        "cinematic portrait video",
+        "AI roleplay video scene",
+        "image reference character animation",
+        "short vertical AI video",
+      ],
+    },
+  ];
+  const drafts = [
+    {
+      id: "ai-directory-listing",
+      channel: "AI directory",
+      platform: "Futurepedia / Toolify / There's An AI For That",
+      title: `${brand} - AI character video generator for image-to-video scenes`,
+      link: homepageUrl,
+      summary: `${brand} helps creators explore AI character profiles, preview short video scenes, and generate character-focused image-to-video clips from simple prompts or reference images.`,
+      body: [
+        `${brand} is an AI character video platform for creators who want fast image-to-video workflows, public character examples, and reusable scene references.`,
+        `Core use cases include AI companion videos, cinematic portrait clips, roleplay-style character scenes, and short vertical videos for social content.`,
+        `Useful pages to cite: homepage ${homepageUrl}, create flow ${createUrl}, sample character ${sampleCharacterUrl}.`,
+      ].join("\n\n"),
+      cta: `Visit ${homepageUrl} to explore characters and generation examples.`,
+      keywords: ["AI character video", "image to video", "AI companion", "character generator"],
+      status: "Ready",
+    },
+    {
+      id: "longform-guide",
+      channel: "Long-form article",
+      platform: "Medium / Substack / Hashnode",
+      title: "How to create AI character videos from a single reference image",
+      link: createUrl,
+      summary: "A practical guide explaining image-to-video character generation, reference images, prompt writing, and how to evaluate results.",
+      body: [
+        "AI character video generation works best when the source image, motion intent, and output format are clear. Start with a clean character reference, then describe the action in plain language.",
+        `On ${brand}, users can browse public character examples, pick a visual direction, and create short video scenes without exposing advanced model settings.`,
+        `For discovery, link the guide to a relevant character page such as ${sampleCharacterUrl} and a tag page such as ${sampleTagUrl}.`,
+      ].join("\n\n"),
+      cta: `Try the create flow: ${createUrl}`,
+      keywords: ["image to video", "character consistency", "AI video guide"],
+      status: "Ready",
+    },
+    {
+      id: "qa-answer",
+      channel: "Q&A answer",
+      platform: "Quora / Reddit / AI forums",
+      title: "What is a good AI character video generator for short vertical scenes?",
+      link: sampleTagUrl,
+      summary: "Answer-style post that compares the decision criteria and links to a relevant tag/topic page.",
+      body: [
+        "A good AI character video generator should make three things easy: choosing a character reference, describing the action, and previewing examples before spending credits.",
+        `${brand} is built around character profiles and short scene previews, so users can start from examples instead of configuring every technical parameter.`,
+        `For examples, see ${sampleTagUrl}. For direct generation, use ${createUrl}.`,
+      ].join("\n\n"),
+      cta: `Open examples: ${sampleTagUrl}`,
+      keywords: ["best AI video generator", "vertical AI video", "character examples"],
+      status: "Ready",
+    },
+    {
+      id: "product-launch",
+      channel: "Launch post",
+      platform: "Product Hunt / Indie Hackers",
+      title: `${brand}: create AI character videos from images and prompts`,
+      link: homepageUrl,
+      summary: "Launch copy that explains the product clearly without overloading users with model names.",
+      body: [
+        `${brand} is a creator-focused AI character video platform. It combines public character discovery, short video previews, and a simplified create flow for image-to-video and prompt-driven scenes.`,
+        "The product is designed for users who want visual examples first, then a fast path to generate their own character videos.",
+        `Explore the site at ${homepageUrl} or start creating at ${createUrl}.`,
+      ].join("\n\n"),
+      cta: `Launch page link: ${homepageUrl}`,
+      keywords: ["Product Hunt", "AI video", "creator tool"],
+      status: "Ready",
+    },
+    {
+      id: "short-demo-script",
+      channel: "Short demo",
+      platform: "YouTube Shorts / X / allowed social channels",
+      title: "Turn one character image into a short AI video",
+      link: createUrl,
+      summary: "Short caption and script for a demo post.",
+      body: [
+        "Caption: Turn a single character reference into a short cinematic AI video.",
+        "Script: Pick a character, add a reference image or prompt, choose the video flow, and preview the result in the result tab.",
+        `Link: ${createUrl}`,
+      ].join("\n\n"),
+      cta: `Create a scene: ${createUrl}`,
+      keywords: ["AI demo", "image to video", "short video"],
+      status: "Draft",
+    },
+    {
+      id: "brand-source-note",
+      channel: "Brand source",
+      platform: "GitHub Pages / public docs / brand profile",
+      title: `${brand} public product note for AI search`,
+      link: homepageUrl,
+      summary: "A concise public source page that repeats the canonical brand description and important URLs.",
+      body: [
+        `${brand} is an AI character video generation site focused on discoverable character profiles, short video examples, and simple creation workflows.`,
+        `Canonical homepage: ${homepageUrl}`,
+        `Sitemap: ${scopedApiUrl(origin, "/sitemap.xml")}`,
+        `LLM reference: ${scopedApiUrl(origin, "/llms.txt")}`,
+      ].join("\n"),
+      cta: `Use the canonical homepage when citing the product: ${homepageUrl}`,
+      keywords: ["brand source", "AI search", "canonical"],
+      status: "Ready",
+    },
+  ];
+  const schedule = [
+    { week: "Week 1", task: "Submit AI-tool directory listings and Product Hunt/Indie Hackers profile drafts.", goal: "Create first external brand references." },
+    { week: "Week 1", task: "Publish 3 long-form answer guides linking to homepage, create flow, one tag page, and one character page.", goal: "Seed crawlable offsite answers." },
+    { week: "Week 2", task: "Answer 5 real Q&A/forum questions using non-spammy, useful explanations.", goal: "Build natural question-answer citations." },
+    { week: "Week 2", task: "Post 3 short demo captions with links to topic or create pages.", goal: "Add social/video references." },
+    { week: "Ongoing", task: "After every batch, submit sitemap/IndexNow and check whether crawlers reach topic and character pages.", goal: "Close the publish-to-crawl loop." },
+  ];
+  return {
+    updatedAt: new Date().toISOString(),
+    brand,
+    homepageUrl,
+    createUrl,
+    sampleCharacterUrl,
+    sampleTagUrl,
+    platformRows,
+    keywordSets,
+    drafts,
+    schedule,
+    discoveredTags: tags,
+  };
+}
+
 async function recordGeoCrawlerVisit(req, url) {
   try {
     if (!isGeoPublicPath(url.pathname)) return;
@@ -2392,6 +2608,7 @@ async function handleAdminGeoReport(req, res) {
   const crawlerStats = await readGeoCrawlerStats();
   const indexNowHistory = await readGeoIndexNowHistory();
   const coverage = buildGeoCoverage(snapshot, crawlerStats, indexNowHistory);
+  const offsitePlan = buildGeoOffsitePlan(snapshot);
   const sampleCharacter = snapshot.characters[0] || null;
   const sampleTag = (snapshot.tags || [])[0] || null;
   const sampleCategory = (snapshot.categories || [])[0] || null;
@@ -2463,6 +2680,7 @@ async function handleAdminGeoReport(req, res) {
     crawlerStats,
     indexNowHistory,
     coverage,
+    offsitePlan,
     sampleTopics: [
       ...(snapshot.categories || []).slice(0, 6).map((item) => ({
         id: item.id,

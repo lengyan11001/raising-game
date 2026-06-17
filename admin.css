@@ -376,6 +376,14 @@ a { color: inherit; text-decoration: none; }
 .adm-geo-table th:nth-child(5) { width: 120px; }
 .adm-geo-pass { color: var(--adm-success); }
 .adm-geo-fail { color: var(--adm-danger); }
+.adm-geo-tabs { margin: 0 0 18px; }
+.adm-geo-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.adm-geo-tabs i { width: 15px; height: 15px; }
+.adm-geo-panel.is-hidden { display: none; }
 .adm-geo-indexnow-body {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(180px, 0.5fr);
@@ -581,6 +589,138 @@ a { color: inherit; text-decoration: none; }
   color: var(--adm-muted);
   line-height: 1.7;
 }
+.adm-geo-offsite-hero {
+  background:
+    linear-gradient(135deg, rgba(255, 74, 171, 0.12), rgba(46, 212, 207, 0.06)),
+    rgba(255, 255, 255, 0.035);
+}
+.adm-geo-offsite-hero .adm-card-body,
+.adm-geo-offsite-hero {
+  display: grid;
+}
+.adm-geo-offsite-hero {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 18px;
+  align-items: center;
+  padding: 20px;
+}
+.adm-geo-offsite-hero h3 {
+  margin: 4px 0 8px;
+  font-size: 1.25rem;
+}
+.adm-geo-offsite-hero p {
+  max-width: 860px;
+  margin: 0;
+  color: var(--adm-muted);
+  line-height: 1.55;
+}
+.adm-geo-offsite-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.adm-geo-platform-table { min-width: 1080px; }
+.adm-geo-platform-table th:nth-child(1) { width: 190px; }
+.adm-geo-platform-table th:nth-child(4) { width: 210px; }
+.adm-geo-platform-table th:nth-child(5) { width: 90px; }
+.adm-geo-keyword-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+.adm-geo-keyword-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--adm-line);
+  border-radius: var(--adm-radius-lg);
+  background: rgba(255, 255, 255, 0.035);
+}
+.adm-geo-keyword-card div,
+.adm-geo-draft-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.adm-geo-keyword-card span,
+.adm-geo-draft-tags small {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--adm-muted);
+  font-size: 0.73rem;
+  font-weight: 800;
+}
+.adm-geo-draft-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+}
+.adm-geo-draft-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--adm-line);
+  border-radius: var(--adm-radius-lg);
+  background: rgba(255, 255, 255, 0.035);
+}
+.adm-geo-draft-card header,
+.adm-geo-draft-card footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+.adm-geo-draft-card header > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.adm-geo-draft-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+.adm-geo-draft-card p {
+  margin: 0;
+  color: var(--adm-muted);
+  line-height: 1.5;
+}
+.adm-geo-draft-meta {
+  display: grid;
+  gap: 6px;
+  color: var(--adm-muted);
+  font-size: 0.76rem;
+}
+.adm-geo-draft-meta span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+.adm-geo-draft-meta i {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--adm-rose-2);
+}
+.adm-geo-draft-card pre {
+  max-height: 190px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--adm-radius-md);
+  background: rgba(0, 0, 0, 0.22);
+  color: rgba(255, 255, 255, 0.78);
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: 0.78rem;
+}
+.adm-geo-schedule-table { min-width: 760px; }
+.adm-geo-schedule-table th:nth-child(1) { width: 120px; }
 @media (max-width: 760px) {
   .adm-geo-indexnow-body,
   .adm-geo-score-body {
@@ -589,6 +729,15 @@ a { color: inherit; text-decoration: none; }
   .adm-geo-score-ring {
     width: 140px;
     justify-self: center;
+  }
+  .adm-geo-offsite-hero {
+    grid-template-columns: 1fr;
+  }
+  .adm-geo-offsite-links {
+    justify-content: flex-start;
+  }
+  .adm-geo-draft-grid {
+    grid-template-columns: 1fr;
   }
 }
 
