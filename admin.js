@@ -3738,8 +3738,8 @@ async function renderGeo() {
       </div>
 
       <div class="adm-tabs adm-geo-tabs" id="geoTabs">
-        <button data-tab="data" class="${geoTab === "data" ? "is-active" : ""}"><i data-lucide="bar-chart-3"></i>Data</button>
-        <button data-tab="offsite" class="${geoTab === "offsite" ? "is-active" : ""}"><i data-lucide="send-horizontal"></i>Offsite Publishing</button>
+        <button data-tab="data" class="${geoTab === "data" ? "is-active" : ""}"><i data-lucide="bar-chart-3"></i>数据</button>
+        <button data-tab="offsite" class="${geoTab === "offsite" ? "is-active" : ""}"><i data-lucide="send-horizontal"></i>站外发布</button>
       </div>
 
       <div class="adm-geo-panel ${geoTab === "data" ? "" : "is-hidden"}" data-geo-panel="data">
