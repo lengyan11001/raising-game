@@ -391,7 +391,6 @@ const els = {
   topupWalletQr: document.querySelector("#topupWalletQr"),
   topupWalletNetwork: document.querySelector("#topupWalletNetwork"),
   topupWalletAddress: document.querySelector("#topupWalletAddress"),
-  topupPayUri: document.querySelector("#topupPayUri"),
   topupStepTransfer: document.querySelector("#topupStepTransfer"),
   topupStepConfirm: document.querySelector("#topupStepConfirm"),
   topupTransferStep: document.querySelector("#topupTransferStep"),
@@ -6947,10 +6946,6 @@ function renderTopupQrDialog(order = null) {
   }
   if (els.topupQrCopyAmountBtn) {
     els.topupQrCopyAmountBtn.onclick = () => copyTopupValue(amount, "Amount copied. Transfer this exact value.");
-  }
-  if (els.topupPayUri) {
-    els.topupPayUri.hidden = !paymentUri;
-    els.topupPayUri.href = paymentUri || "#";
   }
   const explorerLink = document.querySelector("#topupWalletExplorer");
   if (explorerLink) {

@@ -5104,20 +5104,28 @@ async function scanEvmUsdtTransfersByRpc(chain, address) {
   const toTopic = evmTopicAddress(address);
   if (!toTopic) return [];
   const logs = [];
-  for (let start = fromBlock; start <= currentBlock; start += WALLET_EVM_SCAN_CHUNK_SIZE) {
-    const end = Math.min(currentBlock, start + WALLET_EVM_SCAN_CHUNK_SIZE - 1);
-    const chunk = await evmRpc(chain, "eth_getLogs", [{
-      fromBlock: evmHex(start),
-      toBlock: evmHex(end),
-      address: config.usdtContract,
-      topics: [transferTopic, null, toTopic],
-    }]);
-    if (Array.isArray(chunk)) logs.push(...chunk);
+  let successfulChunks = 0;
+  let lastError = null;
+  for (let end = currentBlock; end >= fromBlock; end -= WALLET_EVM_SCAN_CHUNK_SIZE) {
+    const start = Math.max(fromBlock, end - WALLET_EVM_SCAN_CHUNK_SIZE + 1);
+    try {
+      const chunk = await evmRpc(chain, "eth_getLogs", [{
+        fromBlock: evmHex(start),
+        toBlock: evmHex(end),
+        address: config.usdtContract,
+        topics: [transferTopic, null, toTopic],
+      }]);
+      successfulChunks += 1;
+      if (Array.isArray(chunk)) logs.push(...chunk);
+    } catch (error) {
+      lastError = error;
+    }
     if (logs.length >= WALLET_CHAIN_SCAN_LOOKBACK_LIMIT) break;
   }
+  if (!successfulChunks && lastError) throw lastError;
   return logs
-    .slice(-WALLET_CHAIN_SCAN_LOOKBACK_LIMIT)
-    .reverse()
+    .sort((a, b) => Number(evmHexToBigInt(b.blockNumber || "0x0")) - Number(evmHexToBigInt(a.blockNumber || "0x0")))
+    .slice(0, WALLET_CHAIN_SCAN_LOOKBACK_LIMIT)
     .map((log) => {
       const blockNumber = Number(evmHexToBigInt(log.blockNumber || "0x0"));
       const value = evmHexToBigInt(log.data || "0x0");
