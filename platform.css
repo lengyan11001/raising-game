@@ -1124,7 +1124,91 @@ main {
   box-shadow: 0 0 0 3px rgba(117,227,226,.1);
   background: rgba(117,227,226,.12);
 }
-.topup-qr-modal { width: min(520px, calc(100vw - 28px)); }
+.topup-qr-modal { width: min(560px, calc(100vw - 28px)); }
+.topup-qr-modal header small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: .74rem;
+}
+.topup-pay-steps {
+  display: inline-grid;
+  grid-template-columns: auto 18px auto;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 18px;
+}
+.topup-pay-steps > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+}
+.topup-pay-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: #202126;
+  font-weight: 900;
+}
+.topup-pay-step span {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(255,255,255,.08);
+}
+.topup-pay-step.is-active {
+  color: #fff;
+  background: linear-gradient(135deg, #ff4fa3, #7d5cff);
+}
+.topup-transfer-step,
+.topup-confirm-step {
+  display: grid;
+  gap: 14px;
+}
+.topup-transfer-step[hidden],
+.topup-confirm-step[hidden] { display: none; }
+.topup-exact-amount {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid rgba(255,79,163,.22);
+  border-radius: 8px;
+  background: radial-gradient(circle at top, rgba(255,79,163,.16), rgba(32,33,38,.96) 58%);
+}
+.topup-exact-amount > span,
+.topup-exact-amount small {
+  color: var(--muted);
+  font-size: .78rem;
+}
+.topup-copy-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  color: #fff;
+  background: transparent;
+  cursor: pointer;
+}
+.topup-copy-value strong {
+  font-size: clamp(2rem, 7vw, 3.05rem);
+  line-height: 1;
+  color: #ff4fa3;
+}
+.topup-copy-value svg {
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+}
 .topup-qr-panel {
   display: grid;
   grid-template-columns: 184px minmax(0, 1fr);
@@ -1159,7 +1243,111 @@ main {
   font: .78rem/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
   word-break: break-all;
 }
+.topup-qr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .topup-wallet-explorer[hidden] { display: none; }
+.topup-pay-uri {
+  display: none;
+  justify-content: center;
+  align-items: center;
+  min-height: 42px;
+  border: 1px solid rgba(117,227,226,.18);
+  border-radius: 8px;
+  color: var(--cyan);
+  background: rgba(117,227,226,.08);
+  font-weight: 900;
+  text-decoration: none;
+}
+.topup-pay-uri[href]:not([href="#"]) {
+  display: inline-flex;
+}
+.topup-tronlink-btn,
+.topup-transfer-done {
+  width: 100%;
+  min-height: 48px;
+}
+.topup-transfer-actions {
+  display: grid;
+  grid-template-columns: minmax(120px, .45fr) minmax(180px, 1fr);
+  gap: 10px;
+}
+.topup-transfer-actions .topup-transfer-done {
+  width: auto;
+}
+.topup-tronlink-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(255,79,163,.38);
+  border-radius: 8px;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(255,79,163,.95), rgba(125,92,255,.95));
+  font-weight: 900;
+}
+.topup-tronlink-btn:disabled,
+.topup-transfer-done:disabled,
+.topup-confirm-actions button:disabled {
+  cursor: wait;
+  opacity: .62;
+}
+.topup-transfer-note {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255,188,66,.2);
+  border-radius: 8px;
+  color: #ffd08a;
+  background: rgba(255,188,66,.08);
+  font-size: .82rem;
+}
+.topup-confirm-copy {
+  display: grid;
+  gap: 6px;
+  color: var(--text);
+}
+.topup-confirm-copy span {
+  color: var(--muted);
+  font-size: .84rem;
+}
+.topup-hash-field {
+  display: grid;
+  gap: 8px;
+}
+.topup-hash-field span {
+  color: var(--text);
+  font-size: .82rem;
+  font-weight: 900;
+}
+.topup-hash-field input {
+  min-height: 48px;
+  width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: #202126;
+  outline: 0;
+}
+.topup-hash-field input:focus {
+  border-color: rgba(255,79,163,.68);
+  box-shadow: 0 0 0 3px rgba(255,79,163,.12);
+}
+.topup-confirm-status {
+  min-height: 20px;
+  margin: 0;
+  color: var(--muted);
+  font-size: .82rem;
+}
+.topup-confirm-status[data-tone="success"] { color: var(--cyan); }
+.topup-confirm-status[data-tone="error"] { color: #ff8c8c; }
+.topup-confirm-actions {
+  display: grid;
+  grid-template-columns: minmax(120px, .45fr) minmax(180px, 1fr);
+  gap: 10px;
+}
 .topup-usdt-actions {
   color: var(--muted);
   justify-content: end;

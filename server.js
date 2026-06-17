@@ -13798,6 +13798,100 @@ async function handleListPaymentOrders(req, res) {
   return sendJson(res, 200, { ok: true, orders });
 }
 
+function normalizeSubmittedTxHash(value = "") {
+  return String(value || "").trim().replace(/\s+/g, "");
+}
+
+function isValidSubmittedTxHash(value = "") {
+  const text = normalizeSubmittedTxHash(value);
+  return text.length >= 20 && text.length <= 140 && /^[A-Za-z0-9:_-]+$/.test(text);
+}
+
+async function handleConfirmPaymentOrder(req, res, orderId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const hash = normalizeSubmittedTxHash(body.transactionHash || body.txHash || body.hash);
+  if (!isValidSubmittedTxHash(hash)) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_TRANSACTION_HASH", message: "Please enter a valid transaction hash." });
+  }
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const id = String(orderId || "").trim();
+  const dbOrder = await getWalletOrderByIdInDb(id);
+  const order = dbOrder || (auth.db.walletOrders || []).find((entry) => entry.id === id);
+  if (!order || order.userId !== auth.user.id) {
+    return sendJson(res, 404, { ok: false, code: "ORDER_NOT_FOUND", message: "Payment order not found." });
+  }
+  if (order.paymentProvider === "paypal" || order.network === "PayPal") {
+    return sendJson(res, 400, { ok: false, code: "UNSUPPORTED_PAYMENT_PROVIDER", message: "This order does not support hash confirmation." });
+  }
+  if (order.status === "paid") {
+    return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet, tenantOptions), user: userView(auth.user) });
+  }
+  order.confirmationHash = hash;
+  order.confirmationSubmittedAt = new Date().toISOString();
+  order.confirmationSource = "user";
+  order.note = "User submitted transaction hash. Waiting for wallet scanner verification.";
+  order.updatedAt = new Date().toISOString();
+  if (dbEnabled()) {
+    await updateWalletOrderInDb(order);
+  } else {
+    await writeDb(auth.db);
+  }
+  return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet, tenantOptions) });
+}
+
+function parseNestedJsonParam(value) {
+  if (!value || typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function handleTronLinkCallback(req, res, url) {
+  let payload = {};
+  if (req.method === "POST") {
+    try {
+      payload = await readJson(req);
+    } catch {
+      payload = {};
+    }
+  }
+  for (const [key, value] of url.searchParams.entries()) {
+    if (payload[key] === undefined) payload[key] = value;
+  }
+  const nested = parseNestedJsonParam(payload.param) || parseNestedJsonParam(payload.data) || parseNestedJsonParam(payload.result);
+  if (nested) payload = { ...payload, ...nested };
+  const orderId = String(payload.actionId || payload.orderId || payload.order_id || payload.id || "").trim();
+  const hash = normalizeSubmittedTxHash(
+    payload.transactionHash || payload.txHash || payload.txid || payload.txId || payload.hash || payload.transaction_id,
+  );
+  if (!orderId) return sendJson(res, 400, { ok: false, code: "ORDER_ID_REQUIRED", message: "Order id is required." });
+  if (!isValidSubmittedTxHash(hash)) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_TRANSACTION_HASH", message: "Please enter a valid transaction hash." });
+  }
+  const db = await readDb();
+  const order = await getWalletOrderByIdInDb(orderId) || (db.walletOrders || []).find((entry) => entry.id === orderId);
+  if (!order) return sendJson(res, 404, { ok: false, code: "ORDER_NOT_FOUND", message: "Payment order not found." });
+  if (order.status !== "paid") {
+    order.confirmationHash = hash;
+    order.confirmationSubmittedAt = new Date().toISOString();
+    order.confirmationSource = "tronlink_callback";
+    order.note = "TronLink callback submitted transaction hash. Waiting for wallet scanner verification.";
+    order.updatedAt = new Date().toISOString();
+    if (dbEnabled()) {
+      await updateWalletOrderInDb(order);
+    } else {
+      await writeDb(db);
+    }
+  }
+  return sendJson(res, 200, { ok: true, orderId: order.id, status: order.status || "pending" });
+}
+
 async function handlePayPalConfig(req, res) {
   return sendJson(res, 200, { ok: true, paypal: paypalPublicConfig() });
 }
@@ -14152,6 +14246,8 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
     matchedAmountText: order.matchedAmountText || "",
     scanSource: order.scanSource || "",
     matched: Boolean(order.matched || order.transactionHash || order.txHash),
+    confirmationHash: order.confirmationHash || "",
+    confirmationSubmittedAt: order.confirmationSubmittedAt || "",
     paypalOrderId: order.paypalOrderId || "",
     paypalCaptureId: order.paypalCaptureId || "",
     paypalStatus: order.paypalStatus || "",
@@ -18854,6 +18950,15 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/pay/orders") {
       return await handleCreatePaymentOrder(req, res);
+    }
+
+    const paymentConfirmMatch = url.pathname.match(/^\/api\/pay\/orders\/([^/]+)\/confirm$/);
+    if (req.method === "POST" && paymentConfirmMatch) {
+      return await handleConfirmPaymentOrder(req, res, decodeURIComponent(paymentConfirmMatch[1]));
+    }
+
+    if ((req.method === "GET" || req.method === "POST") && url.pathname === "/api/pay/tronlink/callback") {
+      return await handleTronLinkCallback(req, res, url);
     }
 
     if (req.method === "GET" && url.pathname === "/api/pay/orders") {
