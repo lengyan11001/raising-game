@@ -183,11 +183,11 @@ function jsonPretty(value) {
   }
 }
 
-function copyText(text, success = "Copied.") {
+function copyText(text, success = "已复制。") {
   if (!text) return;
   navigator.clipboard?.writeText(text)
     .then(() => toast(success, "success"))
-    .catch(() => toast("Copy failed.", "error"));
+    .catch(() => toast("复制失败。", "error"));
 }
 
 function readVideoDuration(file) {
@@ -874,16 +874,16 @@ async function openRegenPresetDialog(itemId) {
   const scenes = config.scenes || [];
   const homeSceneVideos = item.homeSceneVideos || {};
   tpl.innerHTML = `
-    <p class="adm-muted">Configure the main video shown on the home page for "${escapeHtml(item.name)}". You can save the prompt only, or submit generation now.</p>
-    <div class="adm-form-row adm-mt"><span>Provider</span><select id="genProvider"><option value="seedance">Seedance / Ark</option><option value="ifilm-cli">ifilm CLI (when available)</option></select></div>
-    <div class="adm-form-row"><span>Scene</span><select id="genHomeScene">
+    <p class="adm-muted">配置首页展示的主视频：${escapeHtml(item.name)}。可以只保存 Prompt，也可以立即提交生成。</p>
+    <div class="adm-form-row adm-mt"><span>供应商</span><select id="genProvider"><option value="seedance">Seedance / Ark</option><option value="ifilm-cli">ifilm CLI（可用时）</option></select></div>
+    <div class="adm-form-row"><span>场景</span><select id="genHomeScene">
       ${scenes.map((scene) => {
         const entry = homeSceneVideos[scene.id] || {};
-        const tag = entry.taskId ? `(${statusText(entry.status)})` : entry.userPrompt ? "(prompt saved)" : "(not generated)";
+        const tag = entry.taskId ? `(${statusText(entry.status)})` : entry.userPrompt ? "（Prompt 已保存）" : "（未生成）";
         return `<option value="${escapeHtml(scene.id)}" data-default-prompt="${escapeHtml(scene.prompt || "")}">${escapeHtml(scene.name || scene.id)} ${tag}</option>`;
       }).join("")}
     </select></div>
-    <div class="adm-form-row"><span>Prompt</span><textarea id="genPrompt" rows="6" placeholder="Enter a prompt, then save it or generate the main video."></textarea></div>
+    <div class="adm-form-row"><span>Prompt</span><textarea id="genPrompt" rows="6" placeholder="输入 Prompt，然后保存或生成主视频。"></textarea></div>
     <p class="adm-muted adm-mt" id="genPromptHint"></p>
   `;
 
@@ -896,21 +896,21 @@ async function openRegenPresetDialog(itemId) {
     const savedPrompt = String(entry.userPrompt || entry.savedPrompt || "").trim();
     const fallback = String(entry.prompt || item.prompt || select.options[select.selectedIndex]?.dataset.defaultPrompt || "").trim();
     promptEl.value = savedPrompt || "";
-    promptEl.placeholder = fallback || "Save this prompt to prefill the user creation dialog.";
+    promptEl.placeholder = fallback || "保存后会预填到用户端生成弹窗。";
     const lines = [];
-    if (entry.taskId) lines.push(`Existing main video task ${entry.taskId} (${statusText(entry.status)}).`);
-    if (savedPrompt) lines.push("Saved prompt will prefill the user creation dialog.");
-    else if (fallback) lines.push("No saved prompt yet; generation can still use the fallback prompt.");
+    if (entry.taskId) lines.push(`已有主视频任务 ${entry.taskId}（${statusText(entry.status)}）。`);
+    if (savedPrompt) lines.push("已保存的 Prompt 会预填到用户端生成弹窗。");
+    else if (fallback) lines.push("还没有保存 Prompt，生成时仍可使用兜底 Prompt。");
     hintEl.textContent = lines.join(" ");
   }
   select.addEventListener("change", syncMainPrompt);
   setTimeout(syncMainPrompt, 0);
 
   openDialog({
-    title: `Main video - ${item.name || item.id}`,
+    title: `主视频 - ${item.name || item.id}`,
     body: tpl,
-    confirmText: "Generate",
-    cancelText: "Save prompt only",
+    confirmText: "生成",
+    cancelText: "只保存 Prompt",
     onConfirm: async () => {
       const provider = tpl.querySelector("#genProvider").value;
       const sceneId = select.value || "room";
@@ -919,7 +919,7 @@ async function openRegenPresetDialog(itemId) {
         method: "POST",
         body: { itemId, sceneId, provider, prompt, name: item.name, title: item.title },
       });
-      toast("Main video task submitted. Check the Videos page for progress.", "success");
+      toast("主视频任务已提交，可在视频管理里查看进度。", "success");
       state.config = null;
       renderCharacters();
     },
@@ -932,7 +932,7 @@ async function openRegenPresetDialog(itemId) {
         method: "POST",
         body: { itemId, sceneId, provider: tpl.querySelector("#genProvider").value, prompt, name: item.name, title: item.title, saveOnly: true },
       });
-      toast("Main video prompt saved.", "success");
+      toast("主视频 Prompt 已保存。", "success");
       state.config = null;
       renderCharacters();
     } catch (err) {
@@ -964,20 +964,20 @@ function openSceneBindDialog(itemId, scenes) {
     const sceneVideos = item.sceneVideos || {};
     const tpl = document.createElement("div");
     tpl.innerHTML = `
-      <p class="adm-muted">Configure the scene video users create from the popup for "${escapeHtml(item.name)}". You can save the prompt only, or submit generation now.</p>
+      <p class="adm-muted">配置用户在弹窗里生成的场景视频：${escapeHtml(item.name)}。可以只保存 Prompt，也可以立即提交生成。</p>
       <label class="adm-field adm-mt">
-        <span>Scene</span>
+        <span>场景</span>
         <select id="sceneBindScene">
           ${scenes.map((scene) => {
             const entry = sceneVideos[scene.id] || {};
-            const tag = entry.taskId ? `(${statusText(entry.status)})` : entry.userPrompt ? "(prompt saved)" : "(not generated)";
+            const tag = entry.taskId ? `(${statusText(entry.status)})` : entry.userPrompt ? "（Prompt 已保存）" : "（未生成）";
             return `<option value="${escapeHtml(scene.id)}" data-default-prompt="${escapeHtml(scene.prompt || "")}">${escapeHtml(scene.name || scene.id)} ${tag}</option>`;
           }).join("")}
         </select>
       </label>
       <label class="adm-field adm-mt">
         <span>Prompt</span>
-        <textarea id="sceneBindPrompt" rows="6" placeholder="Enter a prompt, then save it or generate the scene video."></textarea>
+        <textarea id="sceneBindPrompt" rows="6" placeholder="输入 Prompt，然后保存或生成场景视频。"></textarea>
       </label>
       <p class="adm-muted adm-mt" id="sceneBindHint"></p>
     `;
@@ -990,20 +990,20 @@ function openSceneBindDialog(itemId, scenes) {
       const savedPrompt = String(entry.userPrompt || entry.savedPrompt || "").trim();
       const fallback = String(entry.prompt || select.options[select.selectedIndex]?.dataset.defaultPrompt || "").trim();
       promptEl.value = savedPrompt || "";
-      promptEl.placeholder = fallback || "Save this prompt to prefill the user creation dialog.";
+      promptEl.placeholder = fallback || "保存后会预填到用户端生成弹窗。";
       const lines = [];
-      if (entry.taskId) lines.push(`Existing scene video task ${entry.taskId} (${statusText(entry.status)}); submitting again will overwrite the record.`);
-      if (savedPrompt) lines.push("Saved prompt will prefill the user creation dialog.");
-      else if (fallback) lines.push(`Fallback prompt: ${fallback.length > 80 ? fallback.slice(0, 80) + "..." : fallback}`);
+      if (entry.taskId) lines.push(`已有场景视频任务 ${entry.taskId}（${statusText(entry.status)}），再次提交会覆盖记录。`);
+      if (savedPrompt) lines.push("已保存的 Prompt 会预填到用户端生成弹窗。");
+      else if (fallback) lines.push(`兜底 Prompt：${fallback.length > 80 ? fallback.slice(0, 80) + "..." : fallback}`);
       hintEl.textContent = lines.join(" ");
     }
     select.addEventListener("change", syncHint);
     setTimeout(syncHint, 0);
     openDialog({
-      title: `Scene video - ${item.name || item.id}`,
+      title: `场景视频 - ${item.name || item.id}`,
       body: tpl,
-      confirmText: "Generate",
-      cancelText: "Save prompt only",
+      confirmText: "生成",
+      cancelText: "只保存 Prompt",
       onConfirm: async () => {
         const sceneId = select.value;
         const prompt = promptEl.value;
@@ -1012,7 +1012,7 @@ function openSceneBindDialog(itemId, scenes) {
             method: "POST",
             body: { itemId, sceneId, prompt },
           });
-          toast(`Scene video task submitted for ${sceneId}.`, "success");
+          toast(`场景视频任务已提交：${sceneId}。`, "success");
           state.config = null;
           sessionStorage.setItem("admTabVideos", "scene");
           window.location.hash = "#/videos";
@@ -1030,7 +1030,7 @@ function openSceneBindDialog(itemId, scenes) {
           method: "POST",
           body: { itemId, sceneId, prompt, saveOnly: true },
         });
-        toast("Scene video prompt saved.", "success");
+        toast("场景视频 Prompt 已保存。", "success");
         state.config = null;
         renderCharacters();
       } catch (err) {
@@ -1573,26 +1573,26 @@ function recordPreviewHtml(record) {
     return `
       <div class="adm-record-preview-missing">
         <i data-lucide="video-off"></i>
-        <strong>Remote preview unavailable</strong>
-        <p>${escapeHtml(record.error || "The upstream temporary video link may have expired before it was cached locally.")}</p>
-        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(remoteVideo)}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open original URL</a>
+        <strong>远程预览不可用</strong>
+        <p>${escapeHtml(record.error || "上游临时视频链接可能在本地缓存前已经失效。")}</p>
+        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(remoteVideo)}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开原始链接</a>
       </div>
     `;
   }
   if (record.imageUrl) return `<img src="${escapeHtml(record.imageUrl)}" alt="" />`;
-  return '<div class="adm-empty"><i data-lucide="video-off"></i><p>No preview yet.</p></div>';
+  return '<div class="adm-empty"><i data-lucide="video-off"></i><p>暂无预览。</p></div>';
 }
 
 function recordBillingText(record) {
   const billing = record.billing || {};
   const final = billing.final === null || billing.final === undefined ? "" : billing.final;
   const pre = billing.preDeducted || 0;
-  if (billing.settled && final !== "") return `${final} / pre ${pre}`;
-  return pre ? `pre ${pre}` : "0";
+  if (billing.settled && final !== "") return `${final} / 预扣 ${pre}`;
+  return pre ? `预扣 ${pre}` : "0";
 }
 
 function recordOwnerText(record) {
-  return record.username || record.userId || "unknown";
+  return record.username || record.userId || "未知";
 }
 
 async function renderGenerationRecords() {
@@ -1606,35 +1606,35 @@ async function renderGenerationRecords() {
     <section class="adm-page adm-records-page">
       <div class="adm-page-head adm-records-head">
         <div>
-          <h2>Generation Records</h2>
-          <p class="adm-muted">All user/API generation jobs. Compact table for browsing; open details for prompt, params and result preview.</p>
+          <h2>生成记录</h2>
+          <p class="adm-muted">查看所有用户和 API 生成任务，可打开详情查看 Prompt、参数和结果预览。</p>
         </div>
         <div class="adm-page-actions">
-          <button class="adm-btn adm-btn-ghost" id="refreshRecordsBtn"><i data-lucide="refresh-cw"></i>Refresh</button>
+          <button class="adm-btn adm-btn-ghost" id="refreshRecordsBtn"><i data-lucide="refresh-cw"></i>刷新</button>
         </div>
       </div>
       <form class="adm-record-filters" id="recordFilters">
-        <input id="recordQuery" type="search" placeholder="Search task, user, prompt, template..." value="${escapeHtml(query)}" />
+        <input id="recordQuery" type="search" placeholder="搜索任务、用户、Prompt、模板..." value="${escapeHtml(query)}" />
         <select id="recordProvider">
-          <option value="">All providers</option>
+          <option value="">全部供应商</option>
           <option value="apiz" ${provider === "apiz" ? "selected" : ""}>apiz</option>
           <option value="seedance" ${provider === "seedance" ? "selected" : ""}>seedance</option>
         </select>
         <select id="recordKind">
-          <option value="">All kinds</option>
-          <option value="image-to-video" ${kind === "image-to-video" ? "selected" : ""}>image-to-video</option>
-          <option value="text-to-video" ${kind === "text-to-video" ? "selected" : ""}>text-to-video</option>
-          <option value="advanced-video" ${kind === "advanced-video" ? "selected" : ""}>advanced-video</option>
-          <option value="scene-video" ${kind === "scene-video" ? "selected" : ""}>scene-video</option>
-          <option value="main-video" ${kind === "main-video" ? "selected" : ""}>main-video</option>
+          <option value="">全部类型</option>
+          <option value="image-to-video" ${kind === "image-to-video" ? "selected" : ""}>图生视频</option>
+          <option value="text-to-video" ${kind === "text-to-video" ? "selected" : ""}>文生视频</option>
+          <option value="advanced-video" ${kind === "advanced-video" ? "selected" : ""}>高级生成</option>
+          <option value="scene-video" ${kind === "scene-video" ? "selected" : ""}>场景视频</option>
+          <option value="main-video" ${kind === "main-video" ? "selected" : ""}>主视频</option>
         </select>
         <select id="recordStatus">
-          <option value="">All status</option>
-          <option value="submitted" ${status === "submitted" ? "selected" : ""}>submitted</option>
-          <option value="running" ${status === "running" ? "selected" : ""}>running</option>
-          <option value="succeeded" ${status === "succeeded" ? "selected" : ""}>succeeded</option>
-          <option value="completed" ${status === "completed" ? "selected" : ""}>completed</option>
-          <option value="failed" ${status === "failed" ? "selected" : ""}>failed</option>
+          <option value="">全部状态</option>
+          <option value="submitted" ${status === "submitted" ? "selected" : ""}>已提交</option>
+          <option value="running" ${status === "running" ? "selected" : ""}>运行中</option>
+          <option value="succeeded" ${status === "succeeded" ? "selected" : ""}>已成功</option>
+          <option value="completed" ${status === "completed" ? "selected" : ""}>已完成</option>
+          <option value="failed" ${status === "failed" ? "selected" : ""}>失败</option>
         </select>
         <select id="recordLimit">
           <option value="80" ${String(limit) === "80" ? "selected" : ""}>80</option>
@@ -1642,7 +1642,7 @@ async function renderGenerationRecords() {
           <option value="300" ${String(limit) === "300" ? "selected" : ""}>300</option>
           <option value="500" ${String(limit) === "500" ? "selected" : ""}>500</option>
         </select>
-        <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>Apply</button>
+        <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
       </form>
       <div id="recordTablePane" class="adm-card adm-mt">
         <div class="adm-loading"><div class="adm-spinner"></div></div>
@@ -1701,22 +1701,22 @@ function renderGenerationRecordTable(records, payload = {}) {
   if (!pane) return;
   pane.innerHTML = `
     <header class="adm-card-head adm-record-summary">
-      <h3>${records.length} shown</h3>
-      <span class="adm-muted">filtered ${payload.filtered ?? records.length} / total ${payload.total ?? records.length}</span>
+      <h3>显示 ${records.length} 条</h3>
+      <span class="adm-muted">筛选 ${payload.filtered ?? records.length} / 总计 ${payload.total ?? records.length}</span>
     </header>
     <div class="adm-table-wrap adm-record-table-wrap">
       ${records.length ? `
         <table class="adm-table adm-record-table">
           <thead>
             <tr>
-              <th>Time</th>
-              <th>User</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Cost</th>
-              <th>Task</th>
+              <th>时间</th>
+              <th>用户</th>
+              <th>类型</th>
+              <th>状态</th>
+              <th>扣费</th>
+              <th>任务</th>
               <th>Prompt</th>
-              <th>Result</th>
+              <th>结果</th>
               <th></th>
             </tr>
           </thead>
@@ -1724,7 +1724,7 @@ function renderGenerationRecordTable(records, payload = {}) {
             ${records.map((record, index) => generationRecordRowHtml(record, index)).join("")}
           </tbody>
         </table>
-      ` : '<div class="adm-empty"><i data-lucide="inbox"></i><p>No generation records found.</p></div>'}
+      ` : '<div class="adm-empty"><i data-lucide="inbox"></i><p>暂无生成记录。</p></div>'}
     </div>
   `;
   refreshIcons();
@@ -1737,7 +1737,7 @@ function renderGenerationRecordTable(records, payload = {}) {
   pane.querySelectorAll("[data-act='copy-record']").forEach((button) => {
     button.addEventListener("click", () => {
       const record = records[Number(button.dataset.index || 0)];
-      if (record) copyText(record.finalPrompt || record.prompt || "", "Prompt copied.");
+      if (record) copyText(record.finalPrompt || record.prompt || "", "Prompt 已复制。");
     });
   });
   pane.querySelectorAll("[data-act='promote-advanced']").forEach((button) => {
@@ -1759,7 +1759,7 @@ function generationRecordRowHtml(record, index) {
   const remoteVideo = recordRemoteVideoUrl(record);
   const imageResult = recordImageResultUrl(record);
   const canPromote = Boolean(video || remoteVideo);
-  const label = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "job";
+  const label = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "任务";
   const ratioStyle = recordRatioStyle(record);
   return `
     <tr>
@@ -1770,12 +1770,12 @@ function generationRecordRowHtml(record, index) {
       <td><span class="adm-mono">${escapeHtml(recordBillingText(record))}</span><span class="adm-block adm-muted">${escapeHtml(record.billing?.status || "")}</span></td>
       <td><span class="adm-mono adm-truncate" title="${escapeHtml(record.taskId)}">${escapeHtml(shortText(record.taskId, 24))}</span><span class="adm-block adm-muted">${escapeHtml(record.model || "")}</span></td>
       <td class="adm-record-prompt-cell" title="${escapeHtml(record.finalPrompt || record.prompt || "")}">${escapeHtml(shortText(record.finalPrompt || record.prompt || "", 150))}</td>
-      <td>${video ? `<video class="adm-record-thumb" src="${escapeHtml(video)}" preload="metadata" muted playsinline style="${escapeHtml(ratioStyle)}"></video>` : imageResult ? `<img class="adm-record-thumb" src="${escapeHtml(imageResult)}" alt="" />` : record.imageUrl ? `<img class="adm-record-thumb" src="${escapeHtml(record.imageUrl)}" alt="" />` : remoteVideo ? '<span class="adm-muted">Remote only</span>' : '<span class="adm-muted">No result</span>'}</td>
+      <td>${video ? `<video class="adm-record-thumb" src="${escapeHtml(video)}" preload="metadata" muted playsinline style="${escapeHtml(ratioStyle)}"></video>` : imageResult ? `<img class="adm-record-thumb" src="${escapeHtml(imageResult)}" alt="" />` : record.imageUrl ? `<img class="adm-record-thumb" src="${escapeHtml(record.imageUrl)}" alt="" />` : remoteVideo ? '<span class="adm-muted">仅远程链接</span>' : '<span class="adm-muted">暂无结果</span>'}</td>
       <td class="adm-record-actions">
-        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>Detail</button>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>详情</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-record" data-index="${index}"><i data-lucide="copy"></i>Prompt</button>
-        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="promote-platform" data-index="${index}"><i data-lucide="layout-template"></i>Gallery</button>` : ""}
-        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="promote-advanced" data-index="${index}"><i data-lucide="wand-sparkles"></i>Advanced</button>` : ""}
+        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="promote-platform" data-index="${index}"><i data-lucide="layout-template"></i>广场</button>` : ""}
+        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="promote-advanced" data-index="${index}"><i data-lucide="wand-sparkles"></i>高级案例</button>` : ""}
       </td>
     </tr>
   `;
@@ -1803,7 +1803,7 @@ function advancedCaseFromRecord(record = {}, index = 0, category = "hot") {
     }),
   };
   if (provider === "wan27" && record.params?.seed) params.seed = record.params.seed;
-  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || "Advanced generation";
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || "高级生成";
   const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
   const sourceCoverUrl = toAbsoluteHttpUrl(record.coverUrl || record.posterUrl || record.imageUrl || "");
   const inputImageUrl = recordPrimaryImageUrl(record);
@@ -1811,7 +1811,7 @@ function advancedCaseFromRecord(record = {}, index = 0, category = "hot") {
   const inputVideoPosterUrl = recordInputVideoPosterUrl(record);
   return {
     id: `advanced-record-${String(record.taskId || Date.now()).replace(/[^a-z0-9_-]/gi, "-").slice(0, 48)}`,
-    title: String(title || "Advanced generation").slice(0, 80),
+    title: String(title || "高级生成").slice(0, 80),
     category: normalizeAdvancedCaseCategory(category),
     provider,
     price: advancedCaseCredits({ provider, params }),
@@ -1834,7 +1834,7 @@ function advancedCaseFromRecord(record = {}, index = 0, category = "hot") {
 async function promoteRecordToAdvancedCase(record = {}, button = null) {
   const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
   if (!sourceVideoUrl) {
-    toast("该记录没有可用视频，不能设置到 Advanced 广场。", "error");
+    toast("该记录没有可用视频，不能设置到高级广场。", "error");
     return;
   }
   const originalHtml = button?.innerHTML || "";
@@ -1844,14 +1844,14 @@ async function promoteRecordToAdvancedCase(record = {}, button = null) {
     const advanced = defaultAdvancedConfig(platform);
     const draft = advancedCaseFromRecord(record, advanced.cases.length);
     const result = await openDialog({
-      title: "设置到 Advanced 广场",
+      title: "设置到高级广场",
       body: advancedCaseEditor(draft, advanced.cases.length),
-      confirmText: "加入 Advanced",
+      confirmText: "加入高级广场",
       cancelText: "取消",
       onConfirm: async () => {
         if (button) {
           button.disabled = true;
-          button.innerHTML = '<i data-lucide="loader-circle"></i>Saving';
+          button.innerHTML = '<i data-lucide="loader-circle"></i>保存中';
           refreshIcons();
         }
         const editor = els.dialogBody.querySelector("[data-advanced-index]");
@@ -1869,9 +1869,9 @@ async function promoteRecordToAdvancedCase(record = {}, button = null) {
       },
     });
     if (result !== "confirm") return;
-    toast("已加入 Advanced 广场。", "success");
+    toast("已加入高级广场。", "success");
   } catch (error) {
-    toast(error.message || "加入 Advanced 失败。", "error");
+    toast(error.message || "加入高级广场失败。", "error");
   } finally {
     if (button) {
       button.disabled = false;
@@ -1884,16 +1884,16 @@ async function promoteRecordToAdvancedCase(record = {}, button = null) {
 async function promoteRecordToAdvancedCaseWithCategory(record = {}, button = null) {
   const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
   if (!sourceVideoUrl) {
-    toast("该记录没有可用视频，不能设置到 Advanced。", "error");
+    toast("该记录没有可用视频，不能设置到高级案例。", "error");
     return;
   }
-  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "Advanced generation";
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "高级生成";
   const originalHtml = button?.innerHTML || "";
   const detectedInputVideoUrl = recordInputVideoUrl(record);
   const detectedInputVideoPosterUrl = recordInputVideoPosterUrl(record);
   const detectedInputImageUrl = recordPrimaryImageUrl(record);
   await openDialog({
-    title: "设置到 Advanced",
+    title: "设置到高级案例",
     body: `
       <div class="adm-form-row">
         <span>视频</span>
@@ -1919,7 +1919,7 @@ async function promoteRecordToAdvancedCaseWithCategory(record = {}, button = nul
       </div>
       <p class="adm-muted" style="margin:0;">保存时会把右侧结果视频下载到本地素材，并自动生成封面。Replace 分类会同时保存左侧输入视频和右侧结果视频；移出展示不会删除视频文件。</p>
     `,
-    confirmText: "加入 Advanced",
+    confirmText: "加入高级案例",
     cancelText: "取消",
     onOpen: () => {
       const categorySelect = els.dialogBody.querySelector("#promoteAdvancedCategory");
@@ -1933,7 +1933,7 @@ async function promoteRecordToAdvancedCaseWithCategory(record = {}, button = nul
     onConfirm: async () => {
       if (button) {
         button.disabled = true;
-        button.innerHTML = '<i data-lucide="loader-circle"></i>Saving';
+        button.innerHTML = '<i data-lucide="loader-circle"></i>保存中';
         refreshIcons();
       }
       try {
@@ -1973,7 +1973,7 @@ async function promoteRecordToAdvancedCaseWithCategory(record = {}, button = nul
           body: { config: { ...config, platform: { ...platform, advanced: nextAdvanced } } },
         });
         state.config = payload.config;
-        toast("已加入 Advanced。", "success");
+        toast("已加入高级案例。", "success");
       } finally {
         if (button) {
           button.disabled = false;
@@ -1991,7 +1991,7 @@ async function promoteRecordToPlatformGallery(record = {}, button = null) {
     toast("该记录没有可用视频，不能加入普通广场。", "error");
     return;
   }
-  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "Gallery video";
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "广场视频";
   const ok = await confirmAction(
     "加入首页普通广场",
     `确认把「${title}」加入首页普通广场？前台点击这个视频会跳到 Advanced，不弹出普通生成窗口。`,
@@ -2001,7 +2001,7 @@ async function promoteRecordToPlatformGallery(record = {}, button = null) {
   const originalHtml = button?.innerHTML || "";
   if (button) {
     button.disabled = true;
-    button.innerHTML = '<i data-lucide="loader-circle"></i>Saving';
+    button.innerHTML = '<i data-lucide="loader-circle"></i>保存中';
     refreshIcons();
   }
   try {
@@ -2034,41 +2034,41 @@ function openGenerationRecordDetail(record) {
       </div>
       ${recordImageAssetsHtml(record)}
       <div class="adm-record-kv">
-        <span>User</span><strong>${escapeHtml(recordOwnerText(record))}</strong>
-        <span>Status</span><strong>${statusPill(record.status)}</strong>
-        <span>Task</span><code>${escapeHtml(record.taskId || "")}</code>
-        ${record.upstreamTaskId ? `<span>Upstream</span><code>${escapeHtml(record.upstreamTaskId)}</code>` : ""}
-        <span>Provider</span><strong>${escapeHtml(record.provider || "")}</strong>
-        <span>Kind</span><strong>${escapeHtml(record.kind || "")}</strong>
-        <span>Cost</span><strong>${escapeHtml(recordBillingText(record))}</strong>
-        <span>Created</span><strong>${escapeHtml(fmtDate(record.createdAt))}</strong>
-        <span>Updated</span><strong>${escapeHtml(fmtDate(record.updatedAt))}</strong>
+        <span>用户</span><strong>${escapeHtml(recordOwnerText(record))}</strong>
+        <span>状态</span><strong>${statusPill(record.status)}</strong>
+        <span>任务</span><code>${escapeHtml(record.taskId || "")}</code>
+        ${record.upstreamTaskId ? `<span>上游任务</span><code>${escapeHtml(record.upstreamTaskId)}</code>` : ""}
+        <span>供应商</span><strong>${escapeHtml(record.provider || "")}</strong>
+        <span>类型</span><strong>${escapeHtml(record.kind || "")}</strong>
+        <span>扣费</span><strong>${escapeHtml(recordBillingText(record))}</strong>
+        <span>创建时间</span><strong>${escapeHtml(fmtDate(record.createdAt))}</strong>
+        <span>更新时间</span><strong>${escapeHtml(fmtDate(record.updatedAt))}</strong>
       </div>
-      ${record.referenceAssetUri ? `<div class="adm-record-line"><span>Reference</span><code>${escapeHtml(record.referenceAssetUri)}</code></div>` : ""}
-      ${record.imageUrl ? `<div class="adm-record-line"><span>Image</span><a href="${escapeHtml(record.imageUrl)}" target="_blank" rel="noopener">${escapeHtml(record.imageUrl)}</a></div>` : ""}
-      ${video ? `<div class="adm-record-line"><span>Result</span><a href="${escapeHtml(video)}" target="_blank" rel="noopener">${escapeHtml(video)}</a></div>` : ""}
-      ${imageResult ? `<div class="adm-record-line"><span>Image result</span><a href="${escapeHtml(imageResult)}" target="_blank" rel="noopener">${escapeHtml(imageResult)}</a></div>` : ""}
-      ${!video && remoteVideo ? `<div class="adm-record-line"><span>Remote result</span><a href="${escapeHtml(remoteVideo)}" target="_blank" rel="noopener">${escapeHtml(remoteVideo)}</a></div>` : ""}
-      ${record.error ? `<div class="adm-record-line"><span>Error</span><code>${escapeHtml(record.error)}</code></div>` : ""}
+      ${record.referenceAssetUri ? `<div class="adm-record-line"><span>参考素材</span><code>${escapeHtml(record.referenceAssetUri)}</code></div>` : ""}
+      ${record.imageUrl ? `<div class="adm-record-line"><span>图片</span><a href="${escapeHtml(record.imageUrl)}" target="_blank" rel="noopener">${escapeHtml(record.imageUrl)}</a></div>` : ""}
+      ${video ? `<div class="adm-record-line"><span>结果</span><a href="${escapeHtml(video)}" target="_blank" rel="noopener">${escapeHtml(video)}</a></div>` : ""}
+      ${imageResult ? `<div class="adm-record-line"><span>图片结果</span><a href="${escapeHtml(imageResult)}" target="_blank" rel="noopener">${escapeHtml(imageResult)}</a></div>` : ""}
+      ${!video && remoteVideo ? `<div class="adm-record-line"><span>远程结果</span><a href="${escapeHtml(remoteVideo)}" target="_blank" rel="noopener">${escapeHtml(remoteVideo)}</a></div>` : ""}
+      ${record.error ? `<div class="adm-record-line"><span>错误</span><code>${escapeHtml(record.error)}</code></div>` : ""}
       <section class="adm-record-section">
-        <header><strong>Prompt</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="prompt"><i data-lucide="copy"></i>Copy</button></header>
+        <header><strong>Prompt</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="prompt"><i data-lucide="copy"></i>复制</button></header>
         <pre>${escapeHtml(record.finalPrompt || record.prompt || "")}</pre>
       </section>
-      ${record.prompt && record.finalPrompt && record.prompt !== record.finalPrompt ? `<section class="adm-record-section"><header><strong>User Prompt</strong></header><pre>${escapeHtml(record.prompt)}</pre></section>` : ""}
+      ${record.prompt && record.finalPrompt && record.prompt !== record.finalPrompt ? `<section class="adm-record-section"><header><strong>用户 Prompt</strong></header><pre>${escapeHtml(record.prompt)}</pre></section>` : ""}
       <section class="adm-record-section">
-        <header><strong>Params</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="params"><i data-lucide="copy"></i>Copy</button></header>
+        <header><strong>参数</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="params"><i data-lucide="copy"></i>复制</button></header>
         <pre>${escapeHtml(paramsText || "{}")}</pre>
       </section>
-      ${upstreamText ? `<section class="adm-record-section"><header><strong>Upstream Payload</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="upstream"><i data-lucide="copy"></i>Copy</button></header><pre>${escapeHtml(upstreamText)}</pre></section>` : ""}
-      ${createText ? `<section class="adm-record-section"><header><strong>Create Response</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="create"><i data-lucide="copy"></i>Copy</button></header><pre>${escapeHtml(createText)}</pre></section>` : ""}
-      ${queryText ? `<section class="adm-record-section"><header><strong>Query Response</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="query"><i data-lucide="copy"></i>Copy</button></header><pre>${escapeHtml(queryText)}</pre></section>` : ""}
+      ${upstreamText ? `<section class="adm-record-section"><header><strong>上游请求</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="upstream"><i data-lucide="copy"></i>复制</button></header><pre>${escapeHtml(upstreamText)}</pre></section>` : ""}
+      ${createText ? `<section class="adm-record-section"><header><strong>创建返回</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="create"><i data-lucide="copy"></i>复制</button></header><pre>${escapeHtml(createText)}</pre></section>` : ""}
+      ${queryText ? `<section class="adm-record-section"><header><strong>查询返回</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="query"><i data-lucide="copy"></i>复制</button></header><pre>${escapeHtml(queryText)}</pre></section>` : ""}
     </div>
   `;
   openDialog({
-    title: `Generation Detail · ${record.taskId || ""}`,
+    title: `生成详情 · ${record.taskId || ""}`,
     body,
     hideConfirm: true,
-    cancelText: "Close",
+    cancelText: "关闭",
   });
   const copyMap = {
     prompt: record.finalPrompt || record.prompt || "",
@@ -2405,37 +2405,37 @@ async function renderWallet() {
     <section class="adm-page">
       <div class="adm-page-head">
         <div>
-          <h2>Wallet Orders</h2>
-          <p class="adm-muted">USDT top-up orders. Auto scan matches chain, address, exact amount, transaction hash and confirmations.</p>
+          <h2>钱包订单</h2>
+          <p class="adm-muted">USDT 充值订单。自动扫描会匹配链、地址、精确金额、交易哈希和确认数。</p>
         </div>
-        <button class="adm-btn adm-btn-primary" id="scanWalletOrdersBtn" type="button"><i data-lucide="radar"></i>Scan chain</button>
+        <button class="adm-btn adm-btn-primary" id="scanWalletOrdersBtn" type="button"><i data-lucide="radar"></i>扫描链上订单</button>
       </div>
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           ${orders.length ? `
             <table class="adm-table adm-wallet-table">
-              <thead><tr><th>Order</th><th>User</th><th>Top up</th><th>Pay exactly</th><th>Chain / Address</th><th>Transaction</th><th>Status</th><th>Time</th><th class="adm-text-right">Actions</th></tr></thead>
+              <thead><tr><th>订单</th><th>用户</th><th>充值</th><th>应付金额</th><th>链 / 地址</th><th>交易</th><th>状态</th><th>时间</th><th class="adm-text-right">操作</th></tr></thead>
               <tbody>
                 ${orders.map((o) => `
                   <tr data-id="${escapeHtml(o.id)}">
                     <td class="adm-mono adm-truncate">${escapeHtml(o.id)}</td>
                     <td>${escapeHtml(o.username || o.userId)}</td>
-                    <td><strong>${escapeHtml(o.baseAmount)}</strong> ${escapeHtml(o.asset || "")}<br/><span class="adm-muted">${escapeHtml(o.paymentProvider || "manual")} &middot; Credits: ${escapeHtml(o.creditAmount || 0)}</span></td>
+                    <td><strong>${escapeHtml(o.baseAmount)}</strong> ${escapeHtml(o.asset || "")}<br/><span class="adm-muted">${escapeHtml(o.paymentProvider || "manual")} &middot; 积分：${escapeHtml(o.creditAmount || 0)}</span></td>
                     <td><strong>${escapeHtml(o.payableAmountText || "")}</strong></td>
                     <td class="adm-mono adm-truncate"><strong>${escapeHtml(o.network || o.chain || "-")}</strong><br/>${escapeHtml(o.address || o.paypalOrderId || "-")}</td>
-                    <td class="adm-mono adm-truncate">${o.transactionHash ? `${escapeHtml(o.transactionHash)}<br/><span class="adm-muted">${escapeHtml(o.confirmations || 0)} conf &middot; ${escapeHtml(o.scanSource || "")}</span>` : `<span class="adm-muted">Not matched</span>`}</td>
+                    <td class="adm-mono adm-truncate">${o.transactionHash ? `${escapeHtml(o.transactionHash)}<br/><span class="adm-muted">${escapeHtml(o.confirmations || 0)} 次确认 &middot; ${escapeHtml(o.scanSource || "")}</span>` : `<span class="adm-muted">未匹配</span>`}</td>
                     <td>${statusPill(o.status)}</td>
                     <td>${fmtDate(o.createdAt)}</td>
                     <td>
                       <div class="adm-row-actions">
-                        ${o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="mark-paid"><i data-lucide="check"></i>Mark paid</button>` : ""}
-                        ${o.status !== "cancelled" && o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="cancel-order"><i data-lucide="x"></i>Cancel</button>` : ""}
+                        ${o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="mark-paid"><i data-lucide="check"></i>标记已支付</button>` : ""}
+                        ${o.status !== "cancelled" && o.status !== "paid" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="cancel-order"><i data-lucide="x"></i>取消订单</button>` : ""}
                       </div>
                     </td>
                   </tr>`).join("")}
               </tbody>
             </table>
-          ` : `<div class="adm-empty"><i data-lucide="wallet"></i><p>No orders</p></div>`}
+          ` : `<div class="adm-empty"><i data-lucide="wallet"></i><p>暂无订单</p></div>`}
         </div>
       </div>
     </section>
@@ -2444,11 +2444,11 @@ async function renderWallet() {
   els.adminContent.querySelector("#scanWalletOrdersBtn")?.addEventListener("click", async () => {
     const button = els.adminContent.querySelector("#scanWalletOrdersBtn");
     button.disabled = true;
-    button.innerHTML = `<i data-lucide="loader-2"></i>Scanning`;
+    button.innerHTML = `<i data-lucide="loader-2"></i>扫描中`;
     refreshIcons();
     try {
       const result = await api("/api/admin/wallet-orders/scan", { method: "POST" });
-      toast(`Scan done: matched ${result.matched || 0}, errors ${result.errors?.length || 0}`, result.errors?.length ? "warn" : "success");
+      toast(`扫描完成：匹配 ${result.matched || 0} 条，错误 ${result.errors?.length || 0} 条`, result.errors?.length ? "warn" : "success");
     } finally {
       renderWallet();
     }
@@ -2457,12 +2457,12 @@ async function renderWallet() {
     const id = tr.dataset.id;
     tr.querySelector('[data-act="mark-paid"]')?.addEventListener("click", async () => {
       await api(`/api/admin/wallet-orders/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: "paid" } });
-      toast("Marked paid and credits added.", "success");
+      toast("已标记支付并增加积分。", "success");
       renderWallet();
     });
     tr.querySelector('[data-act="cancel-order"]')?.addEventListener("click", async () => {
       await api(`/api/admin/wallet-orders/${encodeURIComponent(id)}`, { method: "PATCH", body: { status: "cancelled" } });
-      toast("Order cancelled.", "success");
+      toast("订单已取消。", "success");
       renderWallet();
     });
   });
@@ -2590,7 +2590,7 @@ async function renderPricingLegacy() {
         <div class="adm-card-head">
           <div>
             <h3>Advanced 价格</h3>
-            <p class="adm-muted">Billing unit: 1 USD = ${escapeHtml(String(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))} credits. Upstream source: ${escapeHtml(pricing.upstreamMode || "direct")}</p>
+            <p class="adm-muted">计费单位：1 USD = ${escapeHtml(String(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))} 积分。采购来源：${escapeHtml(pricing.upstreamMode || "direct")}</p>
           </div>
         </div>
         <div class="adm-table-wrap">
@@ -2601,7 +2601,7 @@ async function renderPricingLegacy() {
                 <th>分辨率</th>
                 <th>采购价</th>
                 <th>对外价</th>
-                <th>Credits</th>
+                <th>积分</th>
               </tr>
             </thead>
             <tbody>
@@ -2669,7 +2669,7 @@ function pricingRowTitle(row = {}) {
   const provider = String(row.provider || "").toLowerCase();
   if (key.startsWith("seedance-video-input")) return "Seedance 视频输入加收";
   if (provider === "seedance") return "Seedance 基础生成";
-  return row.providerLabel || row.provider || "Model";
+  return row.providerLabel || row.provider || "模型";
 }
 
 function pricingRowUsage(row = {}) {
@@ -2689,7 +2689,7 @@ function renderPricingTable(rows = []) {
             <th>分辨率</th>
             <th>采购价</th>
             <th>对外价</th>
-            <th>Credits</th>
+            <th>积分</th>
           </tr>
         </thead>
         <tbody>
@@ -2740,7 +2740,7 @@ async function renderPricing() {
         <div class="adm-card-head">
           <div>
             <h3>Advanced 价格</h3>
-            <p class="adm-muted">Billing unit: 1 USD = ${escapeHtml(String(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))} credits. Upstream source: ${escapeHtml(pricing.upstreamMode || "direct")}</p>
+            <p class="adm-muted">计费单位：1 USD = ${escapeHtml(String(pricing.creditsPerUsd || ADVANCED_CREDITS_PER_USD))} 积分。采购来源：${escapeHtml(pricing.upstreamMode || "direct")}</p>
           </div>
         </div>
         <div class="adm-pricing-formula">
@@ -2950,14 +2950,14 @@ function platformTemplateSummary(template = {}, index = 0, categories = []) {
     <tr data-template-index="${index}">
       <td>${platformTemplatePreview(template)}</td>
       <td>
-        <strong>${escapeHtml(template.title || `Template ${index + 1}`)}</strong>
+        <strong>${escapeHtml(template.title || `模板 ${index + 1}`)}</strong>
         <small class="adm-muted adm-block adm-mono">${escapeHtml(template.id || "")}</small>
       </td>
       <td>${escapeHtml(category?.name || template.category || "—")}</td>
-      <td>${escapeHtml(template.type === "text-to-video" ? "Text to Video" : "Image to Video")}</td>
+      <td>${escapeHtml(template.type === "text-to-video" ? "文生视频" : "图生视频")}</td>
       <td class="adm-mono adm-truncate" title="${escapeHtml(String(model))}">${escapeHtml(String(model)).slice(0, 42)}</td>
       <td class="adm-truncate" title="${escapeHtml(prompt)}">${escapeHtml(prompt).slice(0, 80)}</td>
-      <td>${template.enabled === false ? '<span class="adm-pill is-cancelled">Off</span>' : '<span class="adm-pill is-success">On</span>'}</td>
+      <td>${template.enabled === false ? '<span class="adm-pill is-cancelled">停用</span>' : '<span class="adm-pill is-success">启用</span>'}</td>
       <td>${Number.isFinite(Number(template.sort)) ? Number(template.sort) : index}</td>
       <td>
         <div class="adm-actions">
@@ -2977,12 +2977,12 @@ function platformTemplateEditor(template = {}, index = 0, categories = []) {
         <div class="adm-form-row"><span>模板标题</span><input data-f="title" value="${escapeHtml(template.title || "")}" /></div>
         <div class="adm-form-row"><span>分类</span><select data-f="category">${platformCategoryOptions(categories, template.category || "")}</select></div>
         <div class="adm-form-row"><span>类型</span><select data-f="type">
-          <option value="image-to-video" ${template.type !== "text-to-video" ? "selected" : ""}>Image to Video</option>
-          <option value="text-to-video" ${template.type === "text-to-video" ? "selected" : ""}>Text to Video</option>
+          <option value="image-to-video" ${template.type !== "text-to-video" ? "selected" : ""}>图生视频</option>
+          <option value="text-to-video" ${template.type === "text-to-video" ? "selected" : ""}>文生视频</option>
         </select></div>
       </div>
       <div class="adm-grid adm-grid-3">
-        <div class="adm-form-row"><span>徽标</span><input data-f="badge" value="${escapeHtml(template.badge || "")}" placeholder="Hot / Image to Video" /></div>
+        <div class="adm-form-row"><span>徽标</span><input data-f="badge" value="${escapeHtml(template.badge || "")}" placeholder="热门 / 图生视频" /></div>
         <div class="adm-form-row"><span>排序</span><input data-f="sort" type="number" value="${escapeHtml(template.sort ?? index)}" /></div>
         <div class="adm-form-row"><span>启用</span><label class="adm-flex" style="gap:8px;align-items:center;"><input data-f="enabled" type="checkbox" ${template.enabled !== false ? "checked" : ""} style="width:18px;height:18px;" /><span class="adm-muted">用户端展示</span></label></div>
       </div>
@@ -3010,7 +3010,7 @@ function collectPlatformTemplateFromCard(card, existing = {}) {
   const type = get("type")?.value === "text-to-video" ? "text-to-video" : "image-to-video";
   return {
     ...existing,
-    title: get("title")?.value.trim() || existing.title || "Untitled template",
+    title: get("title")?.value.trim() || existing.title || "未命名模板",
     category: get("category")?.value || existing.category || (type === "text-to-video" ? "t2v" : "i2v"),
     type,
     badge: get("badge")?.value.trim() || "",
@@ -3029,10 +3029,10 @@ function defaultPlatformTemplate(categories = [], index = 0) {
   const fixedCategories = categories.length ? categories : FIXED_PLATFORM_CATEGORIES;
   return {
     id: `template-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-    title: "New Template",
+    title: "新模板",
     category: fixedCategories[0]?.id || "featured",
     type: "image-to-video",
-    badge: "Image to Video",
+    badge: "图生视频",
     previewUrl: "",
     coverUrl: "",
     enabled: true,
@@ -3051,7 +3051,7 @@ function defaultPlatformTemplate(categories = [], index = 0) {
 function defaultAdvancedCase(index = 0) {
   return {
     id: `advanced-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-    title: "Advanced Case",
+    title: "高级案例",
     category: "hot",
     provider: "wan27",
     price: 500,
@@ -3122,11 +3122,11 @@ function advancedCaseSummary(item = {}, index = 0) {
   return `
     <tr data-advanced-index="${index}">
       <td>${platformTemplatePreview(item)}</td>
-      <td><strong>${escapeHtml(item.title || `Case ${index + 1}`)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(item.id || "")}</small></td>
+      <td><strong>${escapeHtml(item.title || `案例 ${index + 1}`)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(item.id || "")}</small></td>
       <td>${escapeHtml(advancedCaseCategoryLabel(item.category))}</td>
       <td>${escapeHtml(item.provider || item.params?.provider || "seedance")} / ${advancedCaseCredits(item)}（${advancedCaseDuration(item)}s）</td>
       <td class="adm-truncate" title="${escapeHtml(item.prompt || "")}">${escapeHtml(item.prompt || "").slice(0, 80)}</td>
-      <td>${item.enabled === false ? '<span class="adm-pill is-cancelled">Off</span>' : '<span class="adm-pill is-success">On</span>'}</td>
+      <td>${item.enabled === false ? '<span class="adm-pill is-cancelled">停用</span>' : '<span class="adm-pill is-success">启用</span>'}</td>
       <td>
         <div class="adm-actions">
           <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit-advanced" type="button"><i data-lucide="pencil"></i>编辑</button>
@@ -3712,6 +3712,29 @@ async function renderConfig() {
 }
 
 /* ============ GEO ============ */
+function geoStatusLabel(status = "") {
+  const value = String(status || "").toLowerCase();
+  if (value === "healthy") return "健康";
+  if (value === "warming up") return "预热中";
+  if (value === "needs work") return "需处理";
+  if (value === "unknown") return "未知";
+  return status || "未知";
+}
+
+function geoDraftStatusLabel(status = "") {
+  const value = String(status || "").toLowerCase();
+  if (value === "ready") return "可发布";
+  if (value === "draft") return "草稿";
+  return status || "草稿";
+}
+
+function geoTopicTypeLabel(type = "") {
+  const value = String(type || "").toLowerCase();
+  if (value === "category") return "分类";
+  if (value === "tag") return "标签";
+  return type || "主题";
+}
+
 async function renderGeo() {
   const payload = await api("/api/admin/geo-report");
   if (!isActiveRoute("geo")) return;
@@ -3727,13 +3750,13 @@ async function renderGeo() {
       <div class="adm-page-head">
         <div>
           <h2>GEO</h2>
-          <p class="adm-muted">Check AI-search entry files, structured metadata, sitemap coverage, and crawlable character pages.</p>
+          <p class="adm-muted">检查 AI 搜索入口文件、结构化数据、站点地图覆盖，以及可抓取的角色页面。</p>
         </div>
         <div class="adm-page-actions">
-          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.sitemapUrl || "/sitemap.xml")}" target="_blank" rel="noopener"><i data-lucide="map"></i>Sitemap</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.sitemapUrl || "/sitemap.xml")}" target="_blank" rel="noopener"><i data-lucide="map"></i>站点地图</a>
           <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.llmsUrl || "/llms.txt")}" target="_blank" rel="noopener"><i data-lucide="file-text"></i>llms.txt</a>
-          <button class="adm-btn adm-btn-ghost" id="geoSubmitIndexNowBtn" type="button"><i data-lucide="send"></i>Submit IndexNow</button>
-          <button class="adm-btn adm-btn-primary" id="geoRunChecksBtn" type="button"><i data-lucide="radar"></i>Run checks</button>
+          <button class="adm-btn adm-btn-ghost" id="geoSubmitIndexNowBtn" type="button"><i data-lucide="send"></i>提交 IndexNow</button>
+          <button class="adm-btn adm-btn-primary" id="geoRunChecksBtn" type="button"><i data-lucide="radar"></i>运行检查</button>
         </div>
       </div>
 
@@ -3745,36 +3768,36 @@ async function renderGeo() {
       <div class="adm-geo-panel ${geoTab === "data" ? "" : "is-hidden"}" data-geo-panel="data">
 
       <div class="adm-grid adm-grid-4">
-        ${statCard("Base URL", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
-        ${statCard("GEO Score", summary.geoScore || 0, coverage.status || "needs work", "activity", "violet")}
-        ${statCard("Content quality", `${summary.contentQualityPercent || 0}%`, `${summary.characterCount || 0} profiles`, "badge-check", "mint")}
-        ${statCard("IndexNow URLs", summary.indexNowUrlCount || summary.sitemapUrlCount || 0, "ready to submit", "send", "amber")}
+        ${statCard("站点地址", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
+        ${statCard("GEO 分数", summary.geoScore || 0, geoStatusLabel(coverage.status), "activity", "violet")}
+        ${statCard("内容质量", `${summary.contentQualityPercent || 0}%`, `${summary.characterCount || 0} 个角色页`, "badge-check", "mint")}
+        ${statCard("IndexNow 链接", summary.indexNowUrlCount || summary.sitemapUrlCount || 0, "待提交", "send", "amber")}
       </div>
 
       <div class="adm-card adm-geo-score-card">
         <header class="adm-card-head">
-          <h3>GEO effect dashboard</h3>
-          <span class="adm-pill ${coverage.status === "healthy" ? "is-success" : coverage.status === "warming up" ? "is-pending" : "is-failed"}">${escapeHtml(coverage.status || "unknown")}</span>
+          <h3>GEO 效果数据</h3>
+          <span class="adm-pill ${coverage.status === "healthy" ? "is-success" : coverage.status === "warming up" ? "is-pending" : "is-failed"}">${escapeHtml(geoStatusLabel(coverage.status))}</span>
         </header>
         <div class="adm-card-body adm-geo-score-body">
           <div class="adm-geo-score-ring">
             <strong>${escapeHtml(String(coverage.score || 0))}</strong>
-            <span>score</span>
+            <span>分数</span>
           </div>
           <div class="adm-geo-metrics">
             ${(coverage.metrics || []).map(renderGeoMetric).join("")}
           </div>
           <div class="adm-geo-tags">
-            <span class="adm-kicker">Top discovery tags</span>
-            <div>${(coverage.topTags || []).map((item) => `<small>${escapeHtml(item.tag)} · ${escapeHtml(String(item.count))}</small>`).join("") || '<em class="adm-muted">No tags yet.</em>'}</div>
+            <span class="adm-kicker">热门发现标签</span>
+            <div>${(coverage.topTags || []).map((item) => `<small>${escapeHtml(item.tag)} · ${escapeHtml(String(item.count))}</small>`).join("") || '<em class="adm-muted">暂无标签。</em>'}</div>
           </div>
         </div>
       </div>
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>Content quality</h3>
-          <span class="adm-muted">${escapeHtml(String(summary.contentQualityPercent || 0))}% ready</span>
+          <h3>内容质量</h3>
+          <span class="adm-muted">${escapeHtml(String(summary.contentQualityPercent || 0))}% 已就绪</span>
         </header>
         <div class="adm-card-body adm-geo-quality-grid">
           ${(coverage.qualityMetrics || []).map(renderGeoMetric).join("")}
@@ -3784,29 +3807,29 @@ async function renderGeo() {
       <div class="adm-card adm-geo-indexnow">
         <header class="adm-card-head">
           <h3>IndexNow</h3>
-          <span class="adm-muted" id="geoIndexNowStatus">${escapeHtml(String(summary.indexNowUrlCount || 0))} URLs ready</span>
+          <span class="adm-muted" id="geoIndexNowStatus">${escapeHtml(String(summary.indexNowUrlCount || 0))} 个链接待提交</span>
         </header>
         <div class="adm-card-body adm-geo-indexnow-body">
           <div>
-            <span class="adm-kicker">Key file</span>
+            <span class="adm-kicker">验证文件</span>
             <a class="adm-mono" href="${escapeHtml(summary.indexNowKeyLocation || "#")}" target="_blank" rel="noopener">${escapeHtml(summary.indexNowKeyLocation || "-")}</a>
           </div>
           <div>
-            <span class="adm-kicker">Crawler visits</span>
+            <span class="adm-kicker">爬虫访问</span>
             <strong>${escapeHtml(String(summary.crawlerVisits || 0))}</strong>
-            <small>${escapeHtml(String(summary.crawlerBotCount || 0))} bot types recorded</small>
+            <small>${escapeHtml(String(summary.crawlerBotCount || 0))} 类爬虫已记录</small>
           </div>
         </div>
       </div>
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>Important bot coverage</h3>
-          <span class="adm-muted">${escapeHtml(String(summary.crawledCharacterPathCount || 0))} character pages crawled</span>
+          <h3>重点爬虫覆盖</h3>
+          <span class="adm-muted">${escapeHtml(String(summary.crawledCharacterPathCount || 0))} 个角色页被抓取</span>
         </header>
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-geo-bot-table">
-            <thead><tr><th>Bot</th><th>Visits</th><th>Last seen</th><th>Last path</th></tr></thead>
+            <thead><tr><th>爬虫</th><th>访问次数</th><th>最近访问</th><th>最近路径</th></tr></thead>
             <tbody>
               ${(coverage.importantBots || []).map(renderGeoImportantBotRow).join("")}
             </tbody>
@@ -3816,12 +3839,12 @@ async function renderGeo() {
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>Live GEO checks</h3>
-          <span class="adm-muted" id="geoCheckSummary">Not run yet</span>
+          <h3>实时 GEO 检查</h3>
+          <span class="adm-muted" id="geoCheckSummary">尚未运行</span>
         </header>
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-geo-table">
-            <thead><tr><th>Target</th><th>Status</th><th>Signals</th><th>Size</th><th>Open</th></tr></thead>
+            <thead><tr><th>检查项</th><th>状态</th><th>信号</th><th>大小</th><th>打开</th></tr></thead>
             <tbody id="geoCheckRows">
               ${checks.map((check) => renderGeoCheckRow(check)).join("")}
             </tbody>
@@ -3831,14 +3854,14 @@ async function renderGeo() {
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>IndexNow submit history</h3>
-          <span class="adm-muted">${escapeHtml(String(indexNowHistory.length))} attempts</span>
+          <h3>IndexNow 提交记录</h3>
+          <span class="adm-muted">${escapeHtml(String(indexNowHistory.length))} 次提交</span>
         </header>
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-geo-indexnow-table">
-            <thead><tr><th>Time</th><th>Status</th><th>URLs</th><th>Response</th></tr></thead>
+            <thead><tr><th>时间</th><th>状态</th><th>链接数</th><th>返回</th></tr></thead>
             <tbody>
-              ${indexNowHistory.map(renderGeoIndexNowHistoryRow).join("") || '<tr><td colspan="4" class="adm-muted">No submit history yet.</td></tr>'}
+              ${indexNowHistory.map(renderGeoIndexNowHistoryRow).join("") || '<tr><td colspan="4" class="adm-muted">暂无提交记录。</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -3846,14 +3869,14 @@ async function renderGeo() {
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>Content issues</h3>
-          <span class="adm-muted">${escapeHtml(String(coverage.issueCount || 0))} profiles need attention</span>
+          <h3>内容问题</h3>
+          <span class="adm-muted">${escapeHtml(String(coverage.issueCount || 0))} 个角色页需处理</span>
         </header>
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-geo-issue-table">
-            <thead><tr><th>Character</th><th>Missing</th><th>Open</th></tr></thead>
+            <thead><tr><th>角色</th><th>缺失项</th><th>打开</th></tr></thead>
             <tbody>
-              ${(coverage.issues || []).map(renderGeoIssueRow).join("") || '<tr><td colspan="3" class="adm-muted">No obvious content issues.</td></tr>'}
+              ${(coverage.issues || []).map(renderGeoIssueRow).join("") || '<tr><td colspan="3" class="adm-muted">暂无明显内容问题。</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -3861,14 +3884,14 @@ async function renderGeo() {
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>Recent crawler visits</h3>
-          <span class="adm-muted">${escapeHtml(String((payload.crawlerStats?.recent || []).length))} recent</span>
+          <h3>最近爬虫访问</h3>
+          <span class="adm-muted">${escapeHtml(String((payload.crawlerStats?.recent || []).length))} 条最近记录</span>
         </header>
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-geo-crawler-table">
-            <thead><tr><th>Bot</th><th>Path</th><th>Time</th><th>User agent</th></tr></thead>
+            <thead><tr><th>爬虫</th><th>路径</th><th>时间</th><th>User-Agent</th></tr></thead>
             <tbody>
-              ${(payload.crawlerStats?.recent || []).map(renderGeoCrawlerRow).join("") || '<tr><td colspan="4" class="adm-muted">No crawler visits recorded yet.</td></tr>'}
+              ${(payload.crawlerStats?.recent || []).map(renderGeoCrawlerRow).join("") || '<tr><td colspan="4" class="adm-muted">暂无爬虫访问记录。</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -3876,30 +3899,30 @@ async function renderGeo() {
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>Sample character pages</h3>
-          <span class="adm-muted">${escapeHtml(String(samples.length))} samples</span>
+          <h3>角色页样例</h3>
+          <span class="adm-muted">${escapeHtml(String(samples.length))} 个样例</span>
         </header>
         <div class="adm-card-body">
           <div class="adm-geo-sample-grid">
-            ${samples.map(renderGeoSampleCard).join("") || '<div class="adm-empty"><i data-lucide="user-x"></i><p>No characters found.</p></div>'}
+            ${samples.map(renderGeoSampleCard).join("") || '<div class="adm-empty"><i data-lucide="user-x"></i><p>暂无角色。</p></div>'}
           </div>
         </div>
       </div>
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>Sample topic pages</h3>
-          <span class="adm-muted">${escapeHtml(String(summary.categoryCount || 0))} categories · ${escapeHtml(String(summary.tagCount || 0))} tags</span>
+          <h3>主题页样例</h3>
+          <span class="adm-muted">${escapeHtml(String(summary.categoryCount || 0))} 个分类 · ${escapeHtml(String(summary.tagCount || 0))} 个标签</span>
         </header>
         <div class="adm-card-body">
           <div class="adm-geo-topic-grid">
-            ${topics.map(renderGeoTopicCard).join("") || '<div class="adm-empty"><i data-lucide="tags"></i><p>No topic pages found.</p></div>'}
+            ${topics.map(renderGeoTopicCard).join("") || '<div class="adm-empty"><i data-lucide="tags"></i><p>暂无主题页。</p></div>'}
           </div>
         </div>
       </div>
 
       <div class="adm-card">
-        <header class="adm-card-head"><h3>Recommended workflow</h3></header>
+        <header class="adm-card-head"><h3>推荐流程</h3></header>
         <div class="adm-card-body">
           <ul class="adm-geo-list">
             ${(payload.recommendations || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
@@ -3941,32 +3964,32 @@ function renderGeoOffsitePlan(plan = {}, activeTab = "data") {
     <div class="adm-geo-panel ${activeTab === "offsite" ? "" : "is-hidden"}" data-geo-panel="offsite">
       <div class="adm-card adm-geo-offsite-hero">
         <div>
-          <span class="adm-kicker">Offsite GEO</span>
-          <h3>Publish external sources that AI systems can discover and cite</h3>
-          <p>Use this batch to build a clean offsite reference network: AI-tool listings, launch posts, answer-style guides, Q&A replies, and short demo captions. Keep the wording consistent and link back to canonical pages.</p>
+          <span class="adm-kicker">站外 GEO</span>
+          <h3>发布可被 AI 发现和引用的站外信源</h3>
+          <p>用这一批内容建立干净的站外引用网络：AI 工具目录、产品发布、长文指南、问答回复和短视频说明。对外正文保持一致，并链接回站内标准页面。</p>
         </div>
         <div class="adm-geo-offsite-links">
-          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.homepageUrl || "/")}" target="_blank" rel="noopener"><i data-lucide="home"></i>Homepage</a>
-          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.createUrl || "/create")}" target="_blank" rel="noopener"><i data-lucide="wand-sparkles"></i>Create</a>
-          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.sampleTagUrl || "/")}" target="_blank" rel="noopener"><i data-lucide="tags"></i>Topic</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.homepageUrl || "/")}" target="_blank" rel="noopener"><i data-lucide="home"></i>首页</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.createUrl || "/create")}" target="_blank" rel="noopener"><i data-lucide="wand-sparkles"></i>生成页</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.sampleTagUrl || "/")}" target="_blank" rel="noopener"><i data-lucide="tags"></i>主题页</a>
         </div>
       </div>
 
       <div class="adm-grid adm-grid-4">
-        ${statCard("Publishing groups", platformRows.length, "platform layers", "network", "rose")}
-        ${statCard("Drafts ready", drafts.filter((item) => item.status === "Ready").length, `${drafts.length} total`, "file-check-2", "mint")}
-        ${statCard("Keyword sets", keywordSets.length, "search / Q&A / scene", "list-checks", "violet")}
-        ${statCard("Next batch", schedule[0]?.week || "Week 1", "start with directories", "calendar-days", "amber")}
+        ${statCard("发布渠道", platformRows.length, "渠道层级", "network", "rose")}
+        ${statCard("可发布草稿", drafts.filter((item) => item.status === "Ready").length, `共 ${drafts.length} 篇`, "file-check-2", "mint")}
+        ${statCard("关键词组", keywordSets.length, "搜索 / 问答 / 场景", "list-checks", "violet")}
+        ${statCard("下一批", schedule[0]?.week || "Week 1", "先发目录站", "calendar-days", "amber")}
       </div>
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>Platform matrix</h3>
-          <span class="adm-muted">Prioritized external sources</span>
+          <h3>平台矩阵</h3>
+          <span class="adm-muted">按优先级整理的站外信源</span>
         </header>
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-geo-platform-table">
-            <thead><tr><th>Layer</th><th>Platforms</th><th>Purpose</th><th>Cadence</th><th>Priority</th></tr></thead>
+            <thead><tr><th>层级</th><th>平台</th><th>目的</th><th>频率</th><th>优先级</th></tr></thead>
             <tbody>${platformRows.map(renderGeoPlatformRow).join("")}</tbody>
           </table>
         </div>
@@ -3974,8 +3997,8 @@ function renderGeoOffsitePlan(plan = {}, activeTab = "data") {
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>Keyword matrix</h3>
-          <span class="adm-muted">Use these to choose article titles and Q&A targets</span>
+          <h3>关键词矩阵</h3>
+          <span class="adm-muted">用于选择文章标题和问答目标</span>
         </header>
         <div class="adm-card-body adm-geo-keyword-grid">
           ${keywordSets.map(renderGeoKeywordSet).join("")}
@@ -3984,8 +4007,8 @@ function renderGeoOffsitePlan(plan = {}, activeTab = "data") {
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>First offsite content batch</h3>
-          <span class="adm-muted">${escapeHtml(String(drafts.length))} drafts</span>
+          <h3>首批站外发布内容</h3>
+          <span class="adm-muted">${escapeHtml(String(drafts.length))} 篇草稿</span>
         </header>
         <div class="adm-card-body adm-geo-draft-grid">
           ${drafts.map(renderGeoDraftCard).join("")}
@@ -3994,12 +4017,12 @@ function renderGeoOffsitePlan(plan = {}, activeTab = "data") {
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>Publishing schedule</h3>
-          <span class="adm-muted">Close the publish-to-crawl loop</span>
+          <h3>发布节奏</h3>
+          <span class="adm-muted">闭合发布到抓取的链路</span>
         </header>
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-geo-schedule-table">
-            <thead><tr><th>Window</th><th>Task</th><th>Goal</th></tr></thead>
+            <thead><tr><th>阶段</th><th>任务</th><th>目标</th></tr></thead>
             <tbody>${schedule.map(renderGeoScheduleRow).join("")}</tbody>
           </table>
         </div>
@@ -4023,7 +4046,7 @@ function renderGeoPlatformRow(item = {}) {
 function renderGeoKeywordSet(item = {}) {
   return `
     <article class="adm-geo-keyword-card">
-      <strong>${escapeHtml(item.label || "Keywords")}</strong>
+      <strong>${escapeHtml(item.label || "关键词")}</strong>
       <div>${(item.terms || []).map((term) => `<span>${escapeHtml(term)}</span>`).join("")}</div>
     </article>
   `;
@@ -4034,10 +4057,10 @@ function renderGeoDraftCard(item = {}, index = 0) {
     <article class="adm-geo-draft-card">
       <header>
         <div>
-          <span class="adm-kicker">${escapeHtml(item.channel || "Content")}</span>
-          <strong>${escapeHtml(item.title || "Untitled draft")}</strong>
+          <span class="adm-kicker">${escapeHtml(item.channel || "内容")}</span>
+          <strong>${escapeHtml(item.title || "未命名草稿")}</strong>
         </div>
-        <span class="adm-pill ${item.status === "Ready" ? "is-success" : "is-pending"}">${escapeHtml(item.status || "Draft")}</span>
+        <span class="adm-pill ${item.status === "Ready" ? "is-success" : "is-pending"}">${escapeHtml(geoDraftStatusLabel(item.status))}</span>
       </header>
       <p>${escapeHtml(item.summary || "")}</p>
       <div class="adm-geo-draft-meta">
@@ -4047,8 +4070,8 @@ function renderGeoDraftCard(item = {}, index = 0) {
       <pre>${escapeHtml(item.body || "")}</pre>
       <div class="adm-geo-draft-tags">${(item.keywords || []).map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>
       <footer>
-        <button class="adm-btn adm-btn-sm adm-btn-primary" type="button" data-copy-geo-draft="${index}"><i data-lucide="copy"></i>Copy draft</button>
-        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.link || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open target</a>
+        <button class="adm-btn adm-btn-sm adm-btn-primary" type="button" data-copy-geo-draft="${index}"><i data-lucide="copy"></i>复制草稿</button>
+        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.link || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开目标</a>
       </footer>
     </article>
   `;
@@ -4086,16 +4109,16 @@ function bindGeoOffsiteCopyButtons(plan = {}) {
   els.adminContent.querySelectorAll("[data-copy-geo-draft]").forEach((button) => {
     button.addEventListener("click", () => {
       const index = Number(button.dataset.copyGeoDraft || 0);
-      copyText(geoDraftText(drafts[index] || {}), "Offsite draft copied.");
+      copyText(geoDraftText(drafts[index] || {}), "站外草稿已复制。");
     });
   });
 }
 
 function renderGeoCheckRow(check = {}, result = null) {
   const stateClass = !result ? "" : result.ok ? "is-success" : "is-failed";
-  const stateText = !result ? "pending" : result.ok ? `${result.status}` : result.error || `${result.status || "failed"}`;
+  const stateText = !result ? "待检查" : result.ok ? `${result.status}` : result.error || `${result.status || "失败"}`;
   const signalText = result
-    ? `${result.matched}/${result.total} matched${result.missing?.length ? ` - missing: ${result.missing.join(", ")}` : ""}`
+    ? `${result.matched}/${result.total} 已匹配${result.missing?.length ? `，缺失：${result.missing.join(", ")}` : ""}`
     : (check.expect || []).join(", ");
   return `
     <tr data-geo-check-row="${escapeHtml(check.id || "")}">
@@ -4103,7 +4126,7 @@ function renderGeoCheckRow(check = {}, result = null) {
       <td><span class="adm-pill ${stateClass}">${escapeHtml(stateText)}</span></td>
       <td class="adm-truncate" title="${escapeHtml(signalText)}">${escapeHtml(signalText)}</td>
       <td>${escapeHtml(result ? fmtBytes(result.bytes || 0) : "-")}</td>
-      <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(check.url || check.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open</a></td>
+      <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(check.url || check.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开</a></td>
     </tr>
   `;
 }
@@ -4114,11 +4137,11 @@ function renderGeoSampleCard(item = {}) {
     <article class="adm-geo-sample-card">
       <img src="${escapeHtml(item.posterUrl || "")}" alt="${escapeHtml(item.name || "")}" loading="lazy" />
       <div>
-        <strong>${escapeHtml(item.name || item.id || "Character")}</strong>
-        <span>${escapeHtml(item.videoCount || 0)} videos</span>
+        <strong>${escapeHtml(item.name || item.id || "角色")}</strong>
+        <span>${escapeHtml(item.videoCount || 0)} 个视频</span>
         <p>${escapeHtml(shortText(item.summary || "", 120))}</p>
         ${tags.length ? `<div>${tags.map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>` : ""}
-        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.url || item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open</a>
+        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.url || item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开</a>
       </div>
     </article>
   `;
@@ -4150,7 +4173,7 @@ function renderGeoImportantBotRow(item = {}) {
 
 function renderGeoIndexNowHistoryRow(item = {}) {
   const stateClass = item.ok ? "is-success" : "is-failed";
-  const stateText = item.status ? `${item.status} ${item.statusText || ""}`.trim() : (item.statusText || "failed");
+  const stateText = item.status ? `${item.status} ${item.statusText || ""}`.trim() : (item.statusText || "失败");
   return `
     <tr>
       <td>${escapeHtml(item.at ? fmtDate(item.at) : "-")}</td>
@@ -4166,7 +4189,7 @@ function renderGeoIssueRow(item = {}) {
     <tr>
       <td><strong>${escapeHtml(item.name || item.id || "-")}</strong><span class="adm-block adm-muted adm-mono">${escapeHtml(item.path || "")}</span></td>
       <td>${(item.missing || []).map((value) => `<span class="adm-pill is-failed">${escapeHtml(value)}</span>`).join(" ")}</td>
-      <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open</a></td>
+      <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开</a></td>
     </tr>
   `;
 }
@@ -4175,11 +4198,11 @@ function renderGeoTopicCard(item = {}) {
   return `
     <article class="adm-geo-topic-card">
       <div>
-        <strong>${escapeHtml(item.label || item.id || "Topic")}</strong>
-        <span>${escapeHtml(item.type || "topic")} · ${escapeHtml(String(item.count || 0))} profiles</span>
+        <strong>${escapeHtml(item.label || item.id || "主题")}</strong>
+        <span>${escapeHtml(geoTopicTypeLabel(item.type || "topic"))} · ${escapeHtml(String(item.count || 0))} 个角色页</span>
       </div>
       <p>${escapeHtml(shortText(item.summary || "", 120))}</p>
-      <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.url || item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open</a>
+      <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.url || item.path || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开</a>
     </article>
   `;
 }
@@ -4201,18 +4224,18 @@ async function submitGeoIndexNow() {
   if (!button) return;
   const previous = button.innerHTML;
   button.disabled = true;
-  button.innerHTML = '<i data-lucide="loader-2"></i>Submitting';
-  if (status) status.textContent = "Submitting...";
+  button.innerHTML = '<i data-lucide="loader-2"></i>提交中';
+  if (status) status.textContent = "提交中...";
   refreshIcons();
   try {
     const payload = await api("/api/admin/geo/indexnow", { method: "POST", body: {} });
     const result = payload.result || {};
-    const message = `IndexNow ${payload.accepted ? "accepted" : "rejected"} ${result.status || ""}: ${result.urlCount || 0} URLs`;
+    const message = `IndexNow ${payload.accepted ? "已接受" : "被拒绝"} ${result.status || ""}：${result.urlCount || 0} 个链接`;
     if (status) status.textContent = message;
     toast(message, payload.accepted ? "success" : "error");
   } catch (err) {
-    if (status) status.textContent = err.message || "Submit failed";
-    toast(err.message || "IndexNow submit failed", "error");
+    if (status) status.textContent = err.message || "提交失败";
+    toast(err.message || "IndexNow 提交失败", "error");
   } finally {
     button.disabled = false;
     button.innerHTML = previous;
@@ -4224,7 +4247,7 @@ async function runGeoChecks(checks = []) {
   const rows = byId("geoCheckRows");
   const summary = byId("geoCheckSummary");
   if (!rows || !summary) return;
-  summary.textContent = "Running...";
+  summary.textContent = "检查中...";
   let passed = 0;
   for (const check of checks) {
     const result = await fetchGeoCheck(check);
@@ -4233,7 +4256,7 @@ async function runGeoChecks(checks = []) {
     if (row) row.outerHTML = renderGeoCheckRow(check, result);
     refreshIcons();
   }
-  summary.textContent = `${passed}/${checks.length} passed`;
+  summary.textContent = `${passed}/${checks.length} 通过`;
   summary.className = passed === checks.length ? "adm-muted adm-geo-pass" : "adm-muted adm-geo-fail";
 }
 
@@ -4259,7 +4282,7 @@ async function fetchGeoCheck(check = {}) {
       matched: 0,
       total: (check.expect || []).length,
       missing: check.expect || [],
-      error: err.message || "fetch failed",
+      error: err.message || "请求失败",
     };
   }
 }
