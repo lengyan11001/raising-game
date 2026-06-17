@@ -3721,6 +3721,7 @@ async function renderGeo() {
   const topics = payload.sampleTopics || [];
   const coverage = payload.coverage || {};
   const indexNowHistory = payload.indexNowHistory || [];
+  const geoTab = sessionStorage.getItem("admTabGeo") === "offsite" ? "offsite" : "data";
   els.adminContent.innerHTML = `
     <section class="adm-page adm-geo-page">
       <div class="adm-page-head">
@@ -3735,6 +3736,13 @@ async function renderGeo() {
           <button class="adm-btn adm-btn-primary" id="geoRunChecksBtn" type="button"><i data-lucide="radar"></i>Run checks</button>
         </div>
       </div>
+
+      <div class="adm-tabs adm-geo-tabs" id="geoTabs">
+        <button data-tab="data" class="${geoTab === "data" ? "is-active" : ""}"><i data-lucide="bar-chart-3"></i>Data</button>
+        <button data-tab="offsite" class="${geoTab === "offsite" ? "is-active" : ""}"><i data-lucide="send-horizontal"></i>Offsite Publishing</button>
+      </div>
+
+      <div class="adm-geo-panel ${geoTab === "data" ? "" : "is-hidden"}" data-geo-panel="data">
 
       <div class="adm-grid adm-grid-4">
         ${statCard("Base URL", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
@@ -3898,13 +3906,189 @@ async function renderGeo() {
           </ul>
         </div>
       </div>
+      </div>
+
+      ${renderGeoOffsitePlan(payload.offsitePlan || {}, geoTab)}
     </section>
   `;
   refreshIcons();
   const run = () => runGeoChecks(checks);
   byId("geoRunChecksBtn")?.addEventListener("click", run);
   byId("geoSubmitIndexNowBtn")?.addEventListener("click", submitGeoIndexNow);
+  const geoTabs = byId("geoTabs");
+  geoTabs?.addEventListener("click", (e) => {
+    const button = e.target.closest("button[data-tab]");
+    if (!button) return;
+    const nextTab = button.dataset.tab === "offsite" ? "offsite" : "data";
+    sessionStorage.setItem("admTabGeo", nextTab);
+    geoTabs.querySelectorAll("button[data-tab]").forEach((item) => {
+      item.classList.toggle("is-active", item.dataset.tab === nextTab);
+    });
+    els.adminContent.querySelectorAll("[data-geo-panel]").forEach((panel) => {
+      panel.classList.toggle("is-hidden", panel.dataset.geoPanel !== nextTab);
+    });
+  });
+  bindGeoOffsiteCopyButtons(payload.offsitePlan || {});
   run();
+}
+
+function renderGeoOffsitePlan(plan = {}, activeTab = "data") {
+  const platformRows = plan.platformRows || [];
+  const keywordSets = plan.keywordSets || [];
+  const drafts = plan.drafts || [];
+  const schedule = plan.schedule || [];
+  return `
+    <div class="adm-geo-panel ${activeTab === "offsite" ? "" : "is-hidden"}" data-geo-panel="offsite">
+      <div class="adm-card adm-geo-offsite-hero">
+        <div>
+          <span class="adm-kicker">Offsite GEO</span>
+          <h3>Publish external sources that AI systems can discover and cite</h3>
+          <p>Use this batch to build a clean offsite reference network: AI-tool listings, launch posts, answer-style guides, Q&A replies, and short demo captions. Keep the wording consistent and link back to canonical pages.</p>
+        </div>
+        <div class="adm-geo-offsite-links">
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.homepageUrl || "/")}" target="_blank" rel="noopener"><i data-lucide="home"></i>Homepage</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.createUrl || "/create")}" target="_blank" rel="noopener"><i data-lucide="wand-sparkles"></i>Create</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(plan.sampleTagUrl || "/")}" target="_blank" rel="noopener"><i data-lucide="tags"></i>Topic</a>
+        </div>
+      </div>
+
+      <div class="adm-grid adm-grid-4">
+        ${statCard("Publishing groups", platformRows.length, "platform layers", "network", "rose")}
+        ${statCard("Drafts ready", drafts.filter((item) => item.status === "Ready").length, `${drafts.length} total`, "file-check-2", "mint")}
+        ${statCard("Keyword sets", keywordSets.length, "search / Q&A / scene", "list-checks", "violet")}
+        ${statCard("Next batch", schedule[0]?.week || "Week 1", "start with directories", "calendar-days", "amber")}
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>Platform matrix</h3>
+          <span class="adm-muted">Prioritized external sources</span>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-geo-platform-table">
+            <thead><tr><th>Layer</th><th>Platforms</th><th>Purpose</th><th>Cadence</th><th>Priority</th></tr></thead>
+            <tbody>${platformRows.map(renderGeoPlatformRow).join("")}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>Keyword matrix</h3>
+          <span class="adm-muted">Use these to choose article titles and Q&A targets</span>
+        </header>
+        <div class="adm-card-body adm-geo-keyword-grid">
+          ${keywordSets.map(renderGeoKeywordSet).join("")}
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>First offsite content batch</h3>
+          <span class="adm-muted">${escapeHtml(String(drafts.length))} drafts</span>
+        </header>
+        <div class="adm-card-body adm-geo-draft-grid">
+          ${drafts.map(renderGeoDraftCard).join("")}
+        </div>
+      </div>
+
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>Publishing schedule</h3>
+          <span class="adm-muted">Close the publish-to-crawl loop</span>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          <table class="adm-table adm-geo-schedule-table">
+            <thead><tr><th>Window</th><th>Task</th><th>Goal</th></tr></thead>
+            <tbody>${schedule.map(renderGeoScheduleRow).join("")}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderGeoPlatformRow(item = {}) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.group || "-")}</strong><span class="adm-block adm-muted">${escapeHtml(item.contentType || "")}</span></td>
+      <td>${escapeHtml(item.platforms || "-")}</td>
+      <td>${escapeHtml(item.purpose || "-")}</td>
+      <td>${escapeHtml(item.cadence || "-")}</td>
+      <td><span class="adm-pill ${item.priority === "P0" ? "is-success" : item.priority === "P1" ? "is-running" : "is-pending"}">${escapeHtml(item.priority || "-")}</span></td>
+    </tr>
+  `;
+}
+
+function renderGeoKeywordSet(item = {}) {
+  return `
+    <article class="adm-geo-keyword-card">
+      <strong>${escapeHtml(item.label || "Keywords")}</strong>
+      <div>${(item.terms || []).map((term) => `<span>${escapeHtml(term)}</span>`).join("")}</div>
+    </article>
+  `;
+}
+
+function renderGeoDraftCard(item = {}, index = 0) {
+  return `
+    <article class="adm-geo-draft-card">
+      <header>
+        <div>
+          <span class="adm-kicker">${escapeHtml(item.channel || "Content")}</span>
+          <strong>${escapeHtml(item.title || "Untitled draft")}</strong>
+        </div>
+        <span class="adm-pill ${item.status === "Ready" ? "is-success" : "is-pending"}">${escapeHtml(item.status || "Draft")}</span>
+      </header>
+      <p>${escapeHtml(item.summary || "")}</p>
+      <div class="adm-geo-draft-meta">
+        <span><i data-lucide="send"></i>${escapeHtml(item.platform || "-")}</span>
+        <span><i data-lucide="link"></i>${escapeHtml(shortText(item.link || "-", 54))}</span>
+      </div>
+      <pre>${escapeHtml(item.body || "")}</pre>
+      <div class="adm-geo-draft-tags">${(item.keywords || []).map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>
+      <footer>
+        <button class="adm-btn adm-btn-sm adm-btn-primary" type="button" data-copy-geo-draft="${index}"><i data-lucide="copy"></i>Copy draft</button>
+        <a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.link || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>Open target</a>
+      </footer>
+    </article>
+  `;
+}
+
+function renderGeoScheduleRow(item = {}) {
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.week || "-")}</strong></td>
+      <td>${escapeHtml(item.task || "-")}</td>
+      <td>${escapeHtml(item.goal || "-")}</td>
+    </tr>
+  `;
+}
+
+function geoDraftText(item = {}) {
+  return [
+    `Channel: ${item.channel || ""}`,
+    `Platform: ${item.platform || ""}`,
+    `Title: ${item.title || ""}`,
+    `Link: ${item.link || ""}`,
+    "",
+    item.summary || "",
+    "",
+    item.body || "",
+    "",
+    item.cta || "",
+    "",
+    `Keywords: ${(item.keywords || []).join(", ")}`,
+  ].join("\n").trim();
+}
+
+function bindGeoOffsiteCopyButtons(plan = {}) {
+  const drafts = plan.drafts || [];
+  els.adminContent.querySelectorAll("[data-copy-geo-draft]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.copyGeoDraft || 0);
+      copyText(geoDraftText(drafts[index] || {}), "Offsite draft copied.");
+    });
+  });
 }
 
 function renderGeoCheckRow(check = {}, result = null) {
