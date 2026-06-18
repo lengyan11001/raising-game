@@ -1476,6 +1476,12 @@ function recordImageResultUrl(record) {
   return record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || "";
 }
 
+function recordResultPosterUrl(record = {}) {
+  return toAbsoluteHttpUrl(record.localPosterUrl || record.posterUrl || record.coverUrl || record.thumbnailUrl || record.cdnCoverUrl || record.localCoverUrl || "")
+    || recordPrimaryImageUrl(record)
+    || toAbsoluteHttpUrl(record.localImageUrl || record.imageResultUrl || record.cdnImageUrl || record.remoteImageUrl || record.imageUrl || "");
+}
+
 function recordMediaAssetPreviewUrl(asset = {}) {
   return asset.imageUrl || asset.localUrl || asset.url || asset.sourceImageUrl || "";
 }
@@ -1567,7 +1573,9 @@ function recordPreviewHtml(record) {
   const localVideo = recordVideoUrl(record);
   const remoteVideo = recordRemoteVideoUrl(record);
   const imageResult = recordImageResultUrl(record);
-  if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="metadata" playsinline style="${escapeHtml(recordRatioStyle(record))}"></video>`;
+  const poster = recordResultPosterUrl(record);
+  const posterAttr = poster ? ` poster="${escapeHtml(poster)}"` : "";
+  if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="auto" playsinline${posterAttr} style="${escapeHtml(recordRatioStyle(record))}"></video>`;
   if (imageResult) return `<img src="${escapeHtml(imageResult)}" alt="" />`;
   if (remoteVideo) {
     return `
@@ -1758,9 +1766,15 @@ function generationRecordRowHtml(record, index) {
   const video = recordVideoUrl(record);
   const remoteVideo = recordRemoteVideoUrl(record);
   const imageResult = recordImageResultUrl(record);
+  const poster = recordResultPosterUrl(record);
   const canPromote = Boolean(video || remoteVideo);
   const label = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "任务";
   const ratioStyle = recordRatioStyle(record);
+  const resultCell = video
+    ? (poster ? `<img class="adm-record-thumb" src="${escapeHtml(poster)}" alt="" loading="lazy" style="${escapeHtml(ratioStyle)}" />` : `<span class="adm-record-video-chip" style="${escapeHtml(ratioStyle)}"><i data-lucide="video"></i></span>`)
+    : imageResult ? `<img class="adm-record-thumb" src="${escapeHtml(imageResult)}" alt="" loading="lazy" />`
+      : record.imageUrl ? `<img class="adm-record-thumb" src="${escapeHtml(record.imageUrl)}" alt="" loading="lazy" />`
+        : remoteVideo ? '<span class="adm-muted">仅远程链接</span>' : '<span class="adm-muted">暂无结果</span>';
   return `
     <tr>
       <td><span class="adm-mono">${escapeHtml(fmtDate(record.createdAt).slice(5))}</span><span class="adm-block adm-muted">${escapeHtml(fmtRelative(record.updatedAt || record.createdAt))}</span></td>
@@ -1770,7 +1784,7 @@ function generationRecordRowHtml(record, index) {
       <td><span class="adm-mono">${escapeHtml(recordBillingText(record))}</span><span class="adm-block adm-muted">${escapeHtml(record.billing?.status || "")}</span></td>
       <td><span class="adm-mono adm-truncate" title="${escapeHtml(record.taskId)}">${escapeHtml(shortText(record.taskId, 24))}</span><span class="adm-block adm-muted">${escapeHtml(record.model || "")}</span></td>
       <td class="adm-record-prompt-cell" title="${escapeHtml(record.finalPrompt || record.prompt || "")}">${escapeHtml(shortText(record.finalPrompt || record.prompt || "", 150))}</td>
-      <td>${video ? `<video class="adm-record-thumb" src="${escapeHtml(video)}" preload="metadata" muted playsinline style="${escapeHtml(ratioStyle)}"></video>` : imageResult ? `<img class="adm-record-thumb" src="${escapeHtml(imageResult)}" alt="" />` : record.imageUrl ? `<img class="adm-record-thumb" src="${escapeHtml(record.imageUrl)}" alt="" />` : remoteVideo ? '<span class="adm-muted">仅远程链接</span>' : '<span class="adm-muted">暂无结果</span>'}</td>
+      <td>${resultCell}</td>
       <td class="adm-record-actions">
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>详情</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-record" data-index="${index}"><i data-lucide="copy"></i>Prompt</button>
@@ -2069,6 +2083,10 @@ function openGenerationRecordDetail(record) {
     body,
     hideConfirm: true,
     cancelText: "关闭",
+    onOpen: (bodyEl) => {
+      const previewVideo = bodyEl.querySelector(".adm-record-preview video");
+      if (previewVideo) previewVideo.load();
+    },
   });
   const copyMap = {
     prompt: record.finalPrompt || record.prompt || "",

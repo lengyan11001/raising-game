@@ -1181,6 +1181,21 @@ a { color: inherit; text-decoration: none; }
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--adm-line);
 }
+.adm-record-video-chip {
+  width: 70px;
+  aspect-ratio: var(--video-ratio, 16 / 9);
+  max-height: 96px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--adm-accent);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--adm-line);
+}
+.adm-record-video-chip i {
+  width: 20px;
+  height: 20px;
+}
 .adm-record-actions {
   min-width: 190px;
   display: flex;
