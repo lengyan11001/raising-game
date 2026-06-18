@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-167" />
+    <link rel="stylesheet" href="./platform.css?v=ai-168" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -520,12 +520,12 @@
     <dialog id="topupQrDialog" class="modal topup-qr-modal">
       <form method="dialog">
         <header class="topup-dialog-header">
-          <button class="modal-back-btn" id="topupQrBackBtn" type="button" aria-label="Back">
+          <button class="modal-back-btn" id="topupQrBackBtn" type="button" aria-label="Back" data-i18n-aria="common.back">
             <i data-lucide="arrow-left"></i>
-            <span>Back</span>
+            <span data-i18n="common.back">Back</span>
           </button>
           <div>
-            <span>USDT Payment</span>
+            <span data-i18n="topup.paymentTitle">USDT Payment</span>
             <strong id="topupQrAmount">0 USDT</strong>
             <small id="topupQrSubtitle">Use TRC20 network</small>
           </div>
@@ -534,21 +534,21 @@
         <div class="modal-body">
           <div class="topup-pay-steps" aria-label="USDT payment steps">
             <button class="topup-pay-step is-active" id="topupStepTransfer" type="button" data-topup-pay-step="transfer">
-              <span>1</span><strong>Transfer</strong>
+              <span>1</span><strong data-i18n="topup.stepTransfer">Transfer</strong>
             </button>
             <i data-lucide="chevron-right"></i>
             <button class="topup-pay-step" id="topupStepConfirm" type="button" data-topup-pay-step="confirm">
-              <span>2</span><strong>Confirm</strong>
+              <span>2</span><strong data-i18n="topup.stepConfirm">Confirm</strong>
             </button>
           </div>
           <section class="topup-transfer-step" id="topupTransferStep">
             <div class="topup-exact-amount">
-              <span>Pay exactly</span>
+              <span data-i18n="topup.payExactly">Pay exactly</span>
               <button class="topup-copy-value" id="topupQrCopyAmountBtn" type="button">
                 <strong id="topupQrAmountValue">0</strong>
                 <i data-lucide="copy"></i>
               </button>
-              <small>Use the exact amount including the decimal suffix.</small>
+              <small data-i18n="topup.exactAmountHint">Use the exact amount including the decimal suffix.</small>
             </div>
             <div class="topup-qr-panel">
             <img id="topupWalletQr" alt="USDT TRC20 payment QR" loading="lazy" />
@@ -563,25 +563,25 @@
           </div>
           <button class="topup-tronlink-btn" id="topupTronLinkBtn" type="button">
             <i data-lucide="send"></i>
-            <span>Pay with TronLink</span>
+            <span data-i18n="topup.tronlink">Pay with TronLink</span>
           </button>
-          <p class="topup-transfer-note">After sending the transfer, click the button below and paste the transaction hash.</p>
+          <p class="topup-transfer-note" data-i18n="topup.transferNote">After sending the transfer, click the button below and paste the transaction hash.</p>
           <div class="topup-transfer-actions">
-            <button class="copy-btn topup-transfer-done" id="topupTransferDoneBtn" type="button">I have transferred</button>
+            <button class="copy-btn topup-transfer-done" id="topupTransferDoneBtn" type="button" data-i18n="topup.transferred">I have transferred</button>
           </div>
           </section>
           <section class="topup-confirm-step" id="topupConfirmStep" hidden>
             <div class="topup-confirm-copy">
-              <strong>Confirm transfer result</strong>
-              <span>Paste the transaction hash after your wallet broadcast succeeds. Credits are added after the chain payment is verified.</span>
+              <strong data-i18n="topup.confirmTitle">Confirm transfer result</strong>
+              <span data-i18n="topup.confirmDesc">Paste the transaction hash after your wallet broadcast succeeds. Credits are added after the chain payment is verified.</span>
             </div>
             <label class="topup-hash-field">
-              <span>Transaction HASH</span>
-              <input id="topupTxHashInput" type="text" autocomplete="off" placeholder="Enter blockchain transaction hash" />
+              <span data-i18n="topup.transactionHash">Transaction HASH</span>
+              <input id="topupTxHashInput" type="text" autocomplete="off" placeholder="Enter blockchain transaction hash" data-i18n-placeholder="topup.hashPlaceholder" />
             </label>
             <p class="topup-confirm-status" id="topupConfirmStatus" aria-live="polite"></p>
             <div class="topup-confirm-actions">
-              <button class="copy-btn" id="topupSubmitHashBtn" type="button"><i data-lucide="badge-check"></i><span>Submit confirmation</span></button>
+              <button class="copy-btn" id="topupSubmitHashBtn" type="button"><i data-lucide="badge-check"></i><span data-i18n="topup.submitConfirmation">Submit confirmation</span></button>
             </div>
           </section>
         </div>
@@ -674,6 +674,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-167"></script>
+    <script src="./platform.js?v=ai-168"></script>
 </body>
 </html>
