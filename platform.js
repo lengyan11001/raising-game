@@ -4,7 +4,7 @@ const TOKEN_KEY = "raisingGameToken";
 const LANG_KEY = "raisingGameLanguage";
 const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";
-const ALL_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending", "referral"]);
+const ALL_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 15;
@@ -349,6 +349,7 @@ const els = {
   referralRewardStatus: document.querySelector("#referralRewardStatus"),
   referralNote: document.querySelector("#referralNote"),
   copyReferralBtn: document.querySelector("#copyReferralBtn"),
+  pricingRules: document.querySelector("#pricingRules"),
   spendingFilters: document.querySelector("#spendingFilters"),
   spendingSearch: document.querySelector("#spendingSearch"),
   spendingType: document.querySelector("#spendingType"),
@@ -3200,6 +3201,36 @@ Object.assign(I18N.en, {
   "topup.walletBroadcasted": "Transfer broadcasted. Paste the transaction hash to confirm.",
   "topup.walletFailed": "Wallet payment was cancelled or failed.",
   "topup.tronlink": "Pay with TronLink",
+  "nav.pricing": "Price list",
+  "pricing.eyebrow": "Pricing",
+  "pricing.title": "Price list",
+  "pricing.subtitle": "Check the final credit cost for common generation parameters.",
+  "pricing.topupRate": "$1 = {credits} credits",
+  "pricing.outputTitle": "Vipeak 2 video generation",
+  "pricing.outputDesc": "Charged by generated video duration and resolution.",
+  "pricing.inputTitle": "Vipeak 2 video input add-on",
+  "pricing.inputDesc": "Added only when a video is used as input. This is charged on top of generated video duration.",
+  "pricing.vipeak1VideoTitle": "Vipeak 1 video generation",
+  "pricing.vipeak1VideoDesc": "Charged by generated video duration and resolution.",
+  "pricing.imageTitle": "Vipeak 1 image generation / edit",
+  "pricing.imageDesc": "1K and 2K currently use the same credit cost.",
+  "pricing.unlockTitle": "Character video unlock",
+  "pricing.unlockDesc": "Logged-in users can watch the first character video. Unlocking deducts credits for the remaining videos of that character.",
+  "pricing.packagesTitle": "Top-up packages",
+  "pricing.resolution": "Resolution",
+  "pricing.standard5s": "Standard 5s",
+  "pricing.fast5s": "Fast 5s",
+  "pricing.rateSecond": "Per second",
+  "pricing.standardRateSecond": "Standard / second",
+  "pricing.fastRateSecond": "Fast / second",
+  "pricing.yourCost": "Final cost",
+  "pricing.videoInputFormula": "Final cost = generated video cost + video input add-on.",
+  "pricing.durationRule": "Duration changes the cost proportionally.",
+  "pricing.ratioRule": "Ratio does not change credits.",
+  "pricing.fastRule": "Fast uses a lower credit rate when available.",
+  "pricing.notSupported": "Not supported",
+  "pricing.perImage": "Per image",
+  "pricing.perCharacter": "Per character",
 });
 I18N.zh = {
   ...(I18N.en || {}),
@@ -3705,6 +3736,38 @@ I18N.zh = {
   "file.none": "未选择文件",
   "file.multipleSelected": "已选择 {count} 个文件",
 };
+Object.assign(I18N.zh, {
+  "nav.pricing": "价目表",
+  "pricing.eyebrow": "价格",
+  "pricing.title": "价目表",
+  "pricing.subtitle": "查看不同生成参数对应的最终扣分规则。",
+  "pricing.topupRate": "$1 = {credits} 积分",
+  "pricing.outputTitle": "Vipeak 2 视频生成",
+  "pricing.outputDesc": "按生成视频时长和分辨率扣分。",
+  "pricing.inputTitle": "Vipeak 2 视频输入加收",
+  "pricing.inputDesc": "只有传入视频作为参考、编辑、续写、替换等输入时才加收；这不是总价，会叠加基础生成费用。",
+  "pricing.vipeak1VideoTitle": "Vipeak 1 视频生成",
+  "pricing.vipeak1VideoDesc": "按生成视频时长和分辨率扣分。",
+  "pricing.imageTitle": "Vipeak 1 图片生成 / 编辑",
+  "pricing.imageDesc": "1K 和 2K 当前扣分一致。",
+  "pricing.unlockTitle": "角色视频解锁",
+  "pricing.unlockDesc": "登录用户可观看当前角色第一个视频；解锁会扣除当前角色剩余视频的费用。",
+  "pricing.packagesTitle": "充值档位",
+  "pricing.resolution": "分辨率",
+  "pricing.standard5s": "普通 5 秒",
+  "pricing.fast5s": "快速 5 秒",
+  "pricing.rateSecond": "每秒",
+  "pricing.standardRateSecond": "普通每秒",
+  "pricing.fastRateSecond": "快速每秒",
+  "pricing.yourCost": "最终扣分",
+  "pricing.videoInputFormula": "最终扣分 = 生成视频扣分 + 视频输入加收。",
+  "pricing.durationRule": "时长变化时，扣分按比例变化。",
+  "pricing.ratioRule": "比例不影响扣分。",
+  "pricing.fastRule": "支持快速模式时，快速模式按更低扣分率计算。",
+  "pricing.notSupported": "不支持",
+  "pricing.perImage": "每张",
+  "pricing.perCharacter": "每个角色",
+});
 const SUPPORTED_LANGS = new Set(Object.keys(I18N));
 if (!SUPPORTED_LANGS.has(state.lang)) state.lang = "en";
 
@@ -4095,6 +4158,7 @@ function applyLanguage() {
   if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
   renderAccountMenu();
   renderTopupSummary();
+  renderPricing();
   renderTokenDisplays();
   renderApiSubtokens();
   renderLoginMode();
@@ -4140,6 +4204,7 @@ function setUser(user, { refreshHistory = false } = {}) {
   if (els.accountMenuLabel) els.accountMenuLabel.textContent = accountLabel;
   renderTokenDisplays();
   renderTopupSummary();
+  renderPricing();
   renderAccessGuides();
   renderApiSubtokens();
   renderAdvanced();
@@ -4164,6 +4229,7 @@ function setUser(user, { refreshHistory = false } = {}) {
     state.advancedEstimateKey = "";
     loadPlatformEstimates();
     updateAdvancedButtonCost();
+    renderPricing();
   }
   syncTopupAutoRefresh();
 }
@@ -4535,7 +4601,7 @@ function renderAccountMenu() {
   if (els.topupHeadBtn) els.topupHeadBtn.hidden = !loggedIn;
   if (els.topupTriggerBtn) els.topupTriggerBtn.hidden = !loggedIn;
   document.querySelectorAll(".account-menu [data-tab]").forEach((button) => {
-    button.hidden = !loggedIn;
+    button.hidden = !loggedIn && button.dataset.tab !== "pricing";
   });
   if (els.menuLoginBtn) els.menuLoginBtn.hidden = loggedIn;
   if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user?.apiToken;
@@ -5170,6 +5236,150 @@ function assetImageModifyCostLabel() {
   return t("cost.credits", { credits: formatCredits(assetImageModifyCostCredits()) });
 }
 
+function pricingCreditLabel(value) {
+  return t("cost.credits", { credits: formatCredits(creditsAmount(value)) });
+}
+
+function seedanceInputCreditsPerSecond(resolution = "720p") {
+  const normalizedResolution = normalizeAdvancedResolution(resolution, "seedance");
+  const byResolution = state.config?.platform?.advancedPricing?.seedanceVideoInputCreditsPerSecondByResolution || {};
+  const fallback = normalizedResolution === "1080p"
+    ? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND
+    : normalizedResolution === "480p"
+    ? ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND
+    : ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND;
+  return Number(byResolution[normalizedResolution] || fallback) || fallback;
+}
+
+function pricingTable(title, description, columns = [], rows = []) {
+  return `
+    <section class="pricing-rule-block">
+      <div class="pricing-rule-head">
+        <h3>${escapeHtml(title)}</h3>
+        ${description ? `<p>${escapeHtml(description)}</p>` : ""}
+      </div>
+      <div class="pricing-table-wrap">
+        <table class="pricing-table">
+          <thead>
+            <tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderPricing() {
+  if (!els.pricingRules) return;
+  const seedanceResolutions = ["480p", "720p", "1080p"];
+  const wanResolutions = ["720p", "1080p"];
+  const sampleDuration = 5;
+  const creditsPerUsd = Number(state.wallet?.creditsPerUsd || state.config?.platform?.advancedPricing?.creditsPerUsd || 100) || 100;
+  const unlockCost = Number(state.config?.homeVideo?.characterUnlockCost ?? state.config?.prices?.unlockVideo ?? 750) || 750;
+  const packages = topupPackages();
+  const outputRows = seedanceResolutions.map((resolution) => {
+    const standard = advancedPricing(sampleDuration, "seedance", resolution, "16:9", { seedanceTier: "standard" });
+    const fast = resolution === "1080p"
+      ? t("pricing.notSupported")
+      : pricingCreditLabel(advancedPricing(sampleDuration, "seedance", resolution, "16:9", { seedanceTier: "fast" }).credits);
+    return [
+      `<strong>${escapeHtml(resolution)}</strong>`,
+      pricingCreditLabel(standard.credits / standard.duration),
+      pricingCreditLabel(standard.credits),
+      fast,
+    ];
+  });
+  const inputRows = seedanceResolutions.map((resolution) => {
+    const inputPerSecond = seedanceInputCreditsPerSecond(resolution);
+    const standard = inputPerSecond * userPricingMultiplier();
+    const fast = resolution === "1080p"
+      ? t("pricing.notSupported")
+      : pricingCreditLabel(inputPerSecond * ADVANCED_SEEDANCE_FAST_DISCOUNT * userPricingMultiplier());
+    return [
+      `<strong>${escapeHtml(resolution)}</strong>`,
+      pricingCreditLabel(standard),
+      fast,
+    ];
+  });
+  const wanRows = wanResolutions.map((resolution) => {
+    const pricing = advancedPricing(sampleDuration, "wan27", resolution, "16:9");
+    return [
+      `<strong>${escapeHtml(resolution)}</strong>`,
+      pricingCreditLabel(pricing.credits / pricing.duration),
+      pricingCreditLabel(pricing.credits),
+    ];
+  });
+  const imageCost = assetImageModifyCostCredits() * userPricingMultiplier();
+  const imageRows = [
+    ["<strong>1K</strong>", pricingCreditLabel(imageCost)],
+    ["<strong>2K</strong>", pricingCreditLabel(imageCost)],
+  ];
+  const packageChips = packages.length
+    ? packages.map((item) => `<span><strong>${escapeHtml(item.currency)} $${escapeHtml(formatCredits(item.amount))}</strong>${escapeHtml(pricingCreditLabel(item.credits))}</span>`).join("")
+    : "";
+  els.pricingRules.innerHTML = `
+    <div class="pricing-summary">
+      <div>
+        <span>${escapeHtml(t("pricing.topupRate", { credits: formatCredits(creditsPerUsd) }))}</span>
+        <strong>${escapeHtml(t("pricing.yourCost"))}</strong>
+      </div>
+      <ul>
+        <li>${escapeHtml(t("pricing.durationRule"))}</li>
+        <li>${escapeHtml(t("pricing.ratioRule"))}</li>
+        <li>${escapeHtml(t("pricing.fastRule"))}</li>
+      </ul>
+    </div>
+    <div class="pricing-rule-grid">
+      ${pricingTable(
+        t("pricing.outputTitle"),
+        t("pricing.outputDesc"),
+        [t("pricing.resolution"), t("pricing.rateSecond"), t("pricing.standard5s"), t("pricing.fast5s")],
+        outputRows
+      )}
+      ${pricingTable(
+        t("pricing.inputTitle"),
+        t("pricing.inputDesc"),
+        [t("pricing.resolution"), t("pricing.standardRateSecond"), t("pricing.fastRateSecond")],
+        inputRows
+      )}
+      ${pricingTable(
+        t("pricing.vipeak1VideoTitle"),
+        t("pricing.vipeak1VideoDesc"),
+        [t("pricing.resolution"), t("pricing.rateSecond"), t("pricing.standard5s")],
+        wanRows
+      )}
+      ${pricingTable(
+        t("pricing.imageTitle"),
+        t("pricing.imageDesc"),
+        [t("field.resolution"), t("pricing.perImage")],
+        imageRows
+      )}
+    </div>
+    <div class="pricing-bottom-row">
+      <section class="pricing-rule-block">
+        <div class="pricing-rule-head">
+          <h3>${escapeHtml(t("pricing.unlockTitle"))}</h3>
+          <p>${escapeHtml(t("pricing.unlockDesc"))}</p>
+        </div>
+        <div class="pricing-single-price">
+          <strong>${escapeHtml(pricingCreditLabel(unlockCost))}</strong>
+          <span>${escapeHtml(t("pricing.perCharacter"))}</span>
+        </div>
+      </section>
+      <section class="pricing-rule-block">
+        <div class="pricing-rule-head">
+          <h3>${escapeHtml(t("pricing.packagesTitle"))}</h3>
+        </div>
+        <div class="pricing-package-list">${packageChips}</div>
+      </section>
+    </div>
+    <p class="pricing-footnote">${escapeHtml(t("pricing.videoInputFormula"))}</p>
+  `;
+}
+
 function advancedButtonCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const fullLabel = advancedCostLabel(duration, provider, resolution, ratio, options);
   if (state.advancedCreateKind === "custom") return fullLabel;
@@ -5310,6 +5520,7 @@ function setTab(tab) {
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();
   if (nextTab === "referral") loadReferralSummary();
+  if (nextTab === "pricing") renderPricing();
   if (nextTab === "assets") {
     if (state.user) loadUserAssets();
     else renderAssets([]);
@@ -10799,6 +11010,7 @@ async function bootstrap() {
   renderAssets();
   renderAccountMenu();
   renderTopupSummary();
+  renderPricing();
   renderTokenDisplays();
   setTab(state.tab);
   refreshIcons();
