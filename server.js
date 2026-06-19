@@ -250,6 +250,8 @@ const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADV
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT, 3, 1, 3));
 const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT, 3, 1, 3));
 const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 80, 1, 200) * 1024 * 1024);
+const IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
+const MEDIA_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
 const VIDEO_DURATION_PROBE_TIMEOUT_MS = Math.max(3000, Number(process.env.VIDEO_DURATION_PROBE_TIMEOUT_MS || 10000) || 10000);
 const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_DASHSCOPE_API_KEY =
@@ -5865,7 +5867,7 @@ async function createUserAssetFromDataUrl(db, user, { dataUrl, name = "Upload", 
     mime,
     name,
     fileName,
-    maxBytes: 8 * 1024 * 1024,
+    maxBytes: IMAGE_UPLOAD_MAX_BYTES,
   });
 }
 
@@ -5877,7 +5879,7 @@ async function createUserWanMediaAssetFromDataUrl(db, user, { dataUrl, name = "W
     mime,
     name,
     fileName,
-    maxBytes: isImage ? 20 * 1024 * 1024 : 30 * 1024 * 1024,
+    maxBytes: isImage ? IMAGE_UPLOAD_MAX_BYTES : MEDIA_UPLOAD_MAX_BYTES,
   });
 }
 
@@ -5891,7 +5893,7 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
   const fallbackName = path.basename(new URL(mediaUrl).pathname) || "";
   const downloaded = await downloadRemoteFileToBuffer(mediaUrl, {
     label: "asset",
-    maxBytes: 30 * 1024 * 1024,
+    maxBytes: MEDIA_UPLOAD_MAX_BYTES,
     timeoutMs: 120000,
   });
   const pathname = new URL(mediaUrl).pathname;
@@ -5923,7 +5925,7 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
     error.statusCode = 400;
     throw error;
   }
-  const maxBytes = mime.startsWith("image/") ? 8 * 1024 * 1024 : 30 * 1024 * 1024;
+  const maxBytes = mime.startsWith("image/") ? IMAGE_UPLOAD_MAX_BYTES : MEDIA_UPLOAD_MAX_BYTES;
   return createUserMediaAssetFromBytes(db, user, {
     bytes: downloaded.bytes,
     mime,
@@ -6542,7 +6544,7 @@ async function prepareOfficialSeedanceImageUrl(db, user, url = "", name = "Seeda
       mime,
       name,
       fileName: `${String(name || "image").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 40) || "image"}.png`,
-      maxBytes: 8 * 1024 * 1024,
+      maxBytes: IMAGE_UPLOAD_MAX_BYTES,
     });
   } else if (isPublicHttpUrl(text)) {
     userAsset = await createUserMediaAssetFromPublicUrl(db, user, {
@@ -8251,7 +8253,7 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
       }
       const downloaded = await downloadRemoteFileToBuffer(imageUrl, {
         label: `reference image ${index + 1}`,
-        maxBytes: 8 * 1024 * 1024,
+        maxBytes: IMAGE_UPLOAD_MAX_BYTES,
         timeoutMs: 120000,
       });
       const pathname = new URL(imageUrl).pathname;
@@ -8266,7 +8268,7 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
         mime,
         fileName: item.fileName || path.basename(pathname) || "",
         name: item.name || `${name} ${index + 1}`,
-        maxBytes: 8 * 1024 * 1024,
+        maxBytes: IMAGE_UPLOAD_MAX_BYTES,
       }));
     } else if (item.assetId) {
       const asset = (db.userAssets || []).find((entry) => entry.id === String(item.assetId || "").trim() && entry.userId === user.id && !isSoftDeleted(entry));
@@ -14634,7 +14636,7 @@ async function handleUploadUserAsset(req, res) {
   if (!mime.startsWith("image/") && !mime.startsWith("video/") && !mime.startsWith("audio/")) {
     return sendJson(res, 400, { ok: false, message: "Only image, video, or audio assets are supported." });
   }
-  const maxBytes = mime.startsWith("image/") ? 8 * 1024 * 1024 : 30 * 1024 * 1024;
+  const maxBytes = mime.startsWith("image/") ? IMAGE_UPLOAD_MAX_BYTES : MEDIA_UPLOAD_MAX_BYTES;
   const userAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
     bytes,
     mime,
@@ -14687,7 +14689,7 @@ async function handleUploadSeedanceCharacter(req, res) {
         mime,
         name: body.name || "Seedance character image1",
         fileName: body.fileName || body.name || "image1.png",
-        maxBytes: 8 * 1024 * 1024,
+        maxBytes: IMAGE_UPLOAD_MAX_BYTES,
       });
     }
   }
@@ -16161,8 +16163,8 @@ async function handleSaveMyCharacterDraft(req, res) {
   if (!auth) return;
   const body = await readJson(req);
   const { mime, bytes } = decodeDataUrl(body.dataUrl || "");
-  if (bytes.byteLength > 8 * 1024 * 1024) {
-    return sendJson(res, 400, { ok: false, message: "Image must be 8MB or smaller." });
+  if (bytes.byteLength > IMAGE_UPLOAD_MAX_BYTES) {
+    return sendJson(res, 400, { ok: false, message: "Image must be 20MB or smaller." });
   }
   const name = String(body.name || "").trim().slice(0, 32);
   if (!name) {
@@ -16216,8 +16218,8 @@ async function handleCreateMyCharacter(req, res) {
   if (!auth) return;
   const body = await readJson(req);
   const { mime, bytes } = decodeDataUrl(body.dataUrl || "");
-  if (bytes.byteLength > 8 * 1024 * 1024) {
-    return sendJson(res, 400, { ok: false, message: "Image must be 8MB or smaller." });
+  if (bytes.byteLength > IMAGE_UPLOAD_MAX_BYTES) {
+    return sendJson(res, 400, { ok: false, message: "Image must be 20MB or smaller." });
   }
 
   if (!ARK_API_KEY) {
