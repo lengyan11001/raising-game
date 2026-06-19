@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-169" />
+    <link rel="stylesheet" href="./platform.css?v=ai-170" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -53,6 +53,7 @@
             <strong id="menuBalanceValue">0</strong>
           </div>
           <button class="menu-item" id="topupTriggerBtn" type="button"><i data-lucide="wallet"></i><span data-i18n="topup.compact">Top Up</span><strong id="topupTriggerCredits" hidden></strong></button>
+          <button class="menu-item" data-tab="pricing" data-i18n="nav.pricing" type="button">Price list</button>
           <button class="menu-item" data-tab="topups" data-i18n="nav.topups" type="button">Top-ups</button>
           <button class="menu-item" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
           <button class="menu-item" id="menuLoginBtn" data-i18n="nav.login" type="button">Login / Sign up</button>
@@ -330,6 +331,15 @@
           </div>
           <p class="job-note" id="referralNote"></p>
         </div>
+      </section>
+
+      <section class="pricing-panel" data-panel="pricing" hidden>
+        <div class="pricing-head">
+          <p class="eyebrow" data-i18n="pricing.eyebrow">Pricing</p>
+          <h2 data-i18n="pricing.title">Price list</h2>
+          <p data-i18n="pricing.subtitle">Check the final credit cost for common generation parameters.</p>
+        </div>
+        <div class="pricing-rules" id="pricingRules"></div>
       </section>
 
       <section class="ledger-panel" data-panel="topups" hidden>
@@ -674,6 +684,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-169"></script>
-</body>
+    <script src="./platform.js?v=ai-170"></script>
+  </body>
 </html>
