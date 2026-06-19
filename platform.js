@@ -5244,13 +5244,13 @@ function updateAdvancedButtonCost() {
   const provider = currentAdvancedProvider();
   const seedanceTier = currentSeedanceTier();
   if (provider === "wan27-image-edit") {
-    els.advancedSubmitBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("common.generate"))}`;
+    els.advancedSubmitBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio()) }))}`;
     refreshIcons();
     return;
   }
   const options = { inputVideoSeconds: currentSeedanceVideoInputSeconds(duration, provider), seedanceTier };
   requestAdvancedEstimate(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options);
-  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("common.generate"))}`;
+  els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;
   refreshIcons();
 }
 
@@ -10930,7 +10930,10 @@ els.advancedSeedanceVideoUrls?.addEventListener("input", () => {
   updateAdvancedReferenceSummary();
   updateAdvancedButtonCost();
 });
-els.advancedSeedanceAudioUrls?.addEventListener("input", updateAdvancedReferenceSummary);
+els.advancedSeedanceAudioUrls?.addEventListener("input", () => {
+  updateAdvancedReferenceSummary();
+  updateAdvancedButtonCost();
+});
 els.advancedWanLastFrame?.addEventListener("change", async () => {
   const file = els.advancedWanLastFrame.files?.[0];
   if (!file) return;
@@ -11106,6 +11109,8 @@ document.querySelectorAll("[data-remove-advanced-slot]").forEach((button) => {
 els.advancedSeedanceLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
 els.advancedWanLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
 els.advancedWanClipFile?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("video"));
+els.advancedWanAudioUrl?.addEventListener("input", updateAdvancedButtonCost);
+els.advancedWanClipUrl?.addEventListener("input", updateAdvancedButtonCost);
 els.advancedWanAudioUrl?.addEventListener("focus", () => setAdvancedAssetTarget("audio"));
 els.advancedSeedanceVideoUrls?.addEventListener("focus", () => setAdvancedAssetTarget("video"));
 els.advancedSeedanceAudioUrls?.addEventListener("focus", () => setAdvancedAssetTarget("audio"));
