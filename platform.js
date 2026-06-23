@@ -9187,6 +9187,14 @@ async function submitAdvancedGenerate() {
   renderAdvancedResultPanel();
   if (els.advancedNote) els.advancedNote.textContent = "";
   try {
+    const firstFrameDataUrl = dataUrlValue(state.advancedUploadDataUrl);
+    const firstFrameUrl = absoluteHttpUrl(state.advancedUploadDataUrl);
+    const seedanceLastFrameDataUrl = dataUrlValue(state.advancedSeedanceLastFrameDataUrl);
+    const seedanceLastFrameUrl = absoluteHttpUrl(state.advancedSeedanceLastFrameDataUrl);
+    const wanLastFrameDataUrl = dataUrlValue(state.advancedWanLastFrameDataUrl);
+    const wanLastFrameUrl = absoluteHttpUrl(state.advancedWanLastFrameDataUrl);
+    const wanClipDataUrl = dataUrlValue(selectedWanClipData(mediaMode));
+    const wanClipUrl = selectedWanClipUrl(mediaMode) || absoluteHttpUrl(selectedWanClipData(mediaMode));
     const payload = await requestJson("/api/advanced/generate", {
       method: "POST",
       body: {
@@ -9194,14 +9202,17 @@ async function submitAdvancedGenerate() {
         provider,
         seedanceTier: provider === "seedance" ? seedanceTier : undefined,
         prompt,
-        dataUrl: provider === "wan27" && !state.advancedFirstFrameAssetId ? state.advancedUploadDataUrl : undefined,
+        dataUrl: provider === "wan27" && !state.advancedFirstFrameAssetId ? firstFrameDataUrl : undefined,
         seedanceMode: provider === "seedance" ? seedanceMode : undefined,
         imageAssetId: provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) ? (state.advancedFirstFrameAssetId || "") : undefined,
         firstFrameAssetId: provider === "wan27" || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode)) ? (state.advancedFirstFrameAssetId || "") : undefined,
-        firstFrameDataUrl: (provider === "wan27" || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode))) && !state.advancedFirstFrameAssetId ? state.advancedUploadDataUrl : undefined,
+        firstFrameDataUrl: (provider === "wan27" || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode))) && !state.advancedFirstFrameAssetId ? firstFrameDataUrl : undefined,
+        firstFrameUrl: (provider === "wan27" || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode))) && !state.advancedFirstFrameAssetId ? firstFrameUrl : undefined,
+        imageUrl: provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !state.advancedFirstFrameAssetId ? firstFrameUrl : undefined,
         endImageAssetId: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : undefined,
         lastFrameAssetId: provider === "wan27" ? (state.advancedWanLastFrameAssetId || "") : provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : "",
-        endImageDataUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? state.advancedSeedanceLastFrameDataUrl : undefined,
+        endImageDataUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameDataUrl : undefined,
+        endImageUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameUrl : undefined,
         referenceImages: provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? referenceImages.map(seedanceImageRefPayload) : undefined,
         referenceVideoAssetId: provider === "seedance" ? (state.advancedSeedanceVideoAssetId || "") : undefined,
         referenceAudioAssetId: provider === "seedance" ? (state.advancedAudioAssetId || "") : undefined,
@@ -9209,13 +9220,14 @@ async function submitAdvancedGenerate() {
         inputVideoSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
         referenceVideoDurationSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
         referenceAudioUrls: provider === "seedance" ? seedanceAudioUrls : undefined,
-        lastFrameDataUrl: !state.advancedWanLastFrameAssetId ? state.advancedWanLastFrameDataUrl : "",
+        lastFrameDataUrl: !state.advancedWanLastFrameAssetId ? wanLastFrameDataUrl : "",
+        lastFrameUrl: !state.advancedWanLastFrameAssetId ? wanLastFrameUrl : "",
         drivingAudioUrl: els.advancedWanAudioUrl?.value.trim() || "",
         drivingAudioAssetId: provider === "wan27" ? (state.advancedAudioAssetId || "") : undefined,
-        firstClipDataUrl: selectedWanClipData(mediaMode),
+        firstClipDataUrl: wanClipDataUrl,
         firstClipFileName: selectedWanClipFileName(mediaMode),
         firstClipAssetId: provider === "wan27" ? (state.advancedWanClipAssetId || "") : undefined,
-        firstClipUrl: selectedWanClipUrl(mediaMode),
+        firstClipUrl: wanClipUrl,
         mediaMode,
         fileName: referenceImages[0]?.fileName || els.advancedImage?.files?.[0]?.name || "",
         lastFrameFileName: els.advancedWanLastFrame?.files?.[0]?.name || "",
@@ -9341,6 +9353,11 @@ function absoluteHttpUrl(value = "") {
   } catch (_error) {
     return "";
   }
+}
+
+function dataUrlValue(value = "") {
+  const raw = String(value || "").trim();
+  return raw.startsWith("data:") ? raw : "";
 }
 
 function advancedSeedanceImageRefsFromState() {
