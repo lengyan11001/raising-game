@@ -8223,8 +8223,9 @@ function selectedAdvancedImageAsset() {
 
 async function ensureAdvancedImageEditAssets() {
   const references = selectedAdvancedReferenceImages("wan27-image-edit").slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
-  if (!references.length) return [];
+  if (!references.length) return { assets: [], imageUrls: [] };
   const resolved = [];
+  const imageUrls = [];
   const nextRefs = [];
   for (const reference of references) {
     let asset = reference.assetId
@@ -8256,6 +8257,19 @@ async function ensureAdvancedImageEditAssets() {
         name: asset.name || reference.name || "",
         fromLibrary: true,
       });
+      continue;
+    }
+    const imageUrl = absoluteHttpUrl(reference.url || reference.imageUrl || reference.dataUrl || reference.previewUrl || "");
+    if (imageUrl) {
+      imageUrls.push(imageUrl);
+      nextRefs.push({
+        assetId: "",
+        dataUrl: imageUrl,
+        url: imageUrl,
+        fileName: reference.fileName || "",
+        name: reference.name || reference.fileName || "",
+        fromLibrary: false,
+      });
     }
   }
   state.advancedReferenceImages = nextRefs.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
@@ -8264,7 +8278,7 @@ async function ensureAdvancedImageEditAssets() {
   state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
   renderAdvancedAssets();
   renderAdvancedReferencePreviews();
-  return resolved;
+  return { assets: resolved, imageUrls: [...new Set(imageUrls)] };
 }
 
 function setAdvancedAssetTarget(target = "primary") {
@@ -9053,13 +9067,14 @@ async function submitAdvancedGenerate() {
     renderAdvancedResultPanel();
     if (els.advancedNote) els.advancedNote.textContent = "";
     try {
-      const assets = await ensureAdvancedImageEditAssets();
+      const { assets, imageUrls } = await ensureAdvancedImageEditAssets();
       renderAdvancedResultPanel();
       const payload = await requestJson("/api/wan27/image-edit", {
         method: "POST",
         body: {
           prompt,
           imageAssetIds: assets.map((asset) => asset.id),
+          imageUrls,
           ratio: currentAdvancedRatio(),
           resolution: currentAdvancedResolution(),
           async: true,
@@ -9319,6 +9334,16 @@ function isAudioAsset(asset = {}) {
 
 function assetPreviewUrl(asset = {}) {
   return asset.previewUrl || asset.localUrl || asset.publicUrl || "";
+}
+
+function absoluteHttpUrl(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw || raw.startsWith("data:") || raw.startsWith("asset://")) return "";
+  try {
+    return new URL(raw, window.location.origin || API_ORIGIN || undefined).href;
+  } catch (_error) {
+    return "";
+  }
 }
 
 function advancedSeedanceImageRefsFromState() {
