@@ -2486,6 +2486,11 @@ main {
   font-size: .82rem;
   line-height: 1.4;
 }
+.advanced-result-regenerate {
+  width: fit-content;
+  margin-top: 4px;
+  padding: 0 12px;
+}
 .advanced-fields {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
