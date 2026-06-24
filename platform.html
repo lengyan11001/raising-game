@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-173" />
+    <link rel="stylesheet" href="./platform.css?v=ai-172" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -106,6 +106,7 @@
               <div class="advanced-create-kind-tabs" id="advancedCreateKindTabs" role="tablist" aria-label="Create type"></div>
               <div class="advanced-create-mode-tabs" id="advancedCreateModeTabs" role="tablist" aria-label="Create mode"></div>
             </div>
+            <div class="advanced-preset-builder" id="advancedPresetBuilder" aria-label="Generation presets"></div>
             <label class="field advanced-prompt-field">
               <span data-i18n="field.prompt">Prompt</span>
               <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..." data-i18n-placeholder="advanced.promptPlaceholder"></textarea>
@@ -496,13 +497,26 @@
                 <span data-i18n="topup.selectedPackage">Selected package</span>
                 <strong id="topupSelectedPackage">0 credits</strong>
               </div>
-              <div class="topup-method-tabs topup-method-tabs-single" id="topupMethodTabs" role="tablist" aria-label="Payment method">
-                <button class="topup-method-tab is-active" type="button" data-topup-method="usdt" role="tab" aria-selected="true">
+              <div class="topup-method-tabs" id="topupMethodTabs" role="tablist" aria-label="Payment method">
+                <button class="topup-method-tab is-active" type="button" data-topup-method="paypal" role="tab" aria-selected="true">
+                  <i data-lucide="credit-card"></i>
+                  <span data-i18n="topup.paypalTab">PayPal</span>
+                </button>
+                <button class="topup-method-tab" type="button" data-topup-method="usdt" role="tab" aria-selected="false">
                   <i data-lucide="wallet"></i>
                   <span data-i18n="topup.usdtTab">USDT</span>
                 </button>
               </div>
-              <div class="topup-method-panel" id="topupUsdtPanel" data-topup-panel="usdt">
+              <div class="topup-method-panel" id="topupPaypalPanel" data-topup-panel="paypal">
+                <div class="paypal-checkout" id="paypalBox" hidden>
+                  <div>
+                    <span data-i18n="topup.paypalTitle">PayPal Checkout</span>
+                    <small id="paypalStatus" data-i18n="topup.paypalLoading">Loading PayPal...</small>
+                  </div>
+                  <div class="paypal-buttons" id="paypalButtons"></div>
+                </div>
+              </div>
+              <div class="topup-method-panel" id="topupUsdtPanel" data-topup-panel="usdt" hidden>
                 <div class="topup-wallet-options" id="topupWalletOptions"></div>
                 <div class="topup-actions topup-usdt-actions">
                   <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create USDT order</button>
@@ -581,6 +595,28 @@
               <button class="copy-btn" id="topupSubmitHashBtn" type="button"><i data-lucide="badge-check"></i><span data-i18n="topup.submitConfirmation">Submit confirmation</span></button>
             </div>
           </section>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="advancedPresetDialog" class="modal advanced-preset-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span id="advancedPresetDialogKicker">Preset</span>
+            <strong id="advancedPresetDialogTitle">Choose</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <div class="advanced-preset-toolbar">
+            <div class="advanced-preset-categories" id="advancedPresetCategories"></div>
+            <label class="advanced-preset-search">
+              <i data-lucide="search"></i>
+              <input id="advancedPresetSearch" type="search" placeholder="Search..." />
+            </label>
+          </div>
+          <div class="advanced-preset-grid" id="advancedPresetGrid"></div>
         </div>
       </form>
     </dialog>

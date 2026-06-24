@@ -23,6 +23,14 @@ const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 20 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const DEFAULT_ASSET_IMAGE_MODIFY_CREDITS = 16.862;
+const OURDREAM_PRESET_URL = "/assets/ourdream/presets/presets.json";
+const ADVANCED_PRESET_SLOT_ORDER = ["character", "action", "outfit", "scene"];
+const ADVANCED_PRESET_SLOT_META = {
+  character: { labelKey: "advancedPreset.character", icon: "user-round", required: true },
+  action: { labelKey: "advancedPreset.action", icon: "clapperboard", required: true },
+  outfit: { labelKey: "advancedPreset.outfit", icon: "shirt", required: false },
+  scene: { labelKey: "advancedPreset.scene", icon: "image", required: false },
+};
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
 const DEFAULT_TOPUP_PACKAGES = [
@@ -221,6 +229,13 @@ const state = {
   advancedEstimate: null,
   advancedEstimateKey: "",
   advancedEstimateTimer: 0,
+  advancedPresetData: { sets: [], categories: {} },
+  advancedPresetsLoaded: false,
+  advancedPresetsLoading: false,
+  advancedPresetDialogSlot: "",
+  advancedPresetCategory: "All",
+  advancedPresetSearch: "",
+  advancedSelectedPresets: {},
   activeTemplate: null,
   userAssets: [],
   advancedAssets: [],
@@ -246,7 +261,7 @@ const state = {
   advancedWanClipAssetId: "",
   wallet: null,
   selectedWalletOptionId: "",
-  topupMethod: "usdt",
+  topupMethod: "paypal",
   topupStep: "packages",
   topupPayStep: "transfer",
   selectedTopupPackageId: "",
@@ -430,6 +445,13 @@ const els = {
   advancedWorkspace: document.querySelector("#advancedWorkspace"),
   advancedCreateKindTabs: document.querySelector("#advancedCreateKindTabs"),
   advancedCreateModeTabs: document.querySelector("#advancedCreateModeTabs"),
+  advancedPresetBuilder: document.querySelector("#advancedPresetBuilder"),
+  advancedPresetDialog: document.querySelector("#advancedPresetDialog"),
+  advancedPresetDialogKicker: document.querySelector("#advancedPresetDialogKicker"),
+  advancedPresetDialogTitle: document.querySelector("#advancedPresetDialogTitle"),
+  advancedPresetCategories: document.querySelector("#advancedPresetCategories"),
+  advancedPresetSearch: document.querySelector("#advancedPresetSearch"),
+  advancedPresetGrid: document.querySelector("#advancedPresetGrid"),
   advancedPrompt: document.querySelector("#advancedPrompt"),
   advancedImage: document.querySelector("#advancedImage"),
   advancedUploadBox: document.querySelector("#advancedUploadBox"),
@@ -708,6 +730,20 @@ const I18N = {
     "advanced.promptVideoExtend": "Describe how to continue this shot...",
     "advanced.promptVideoReplace": "Describe what to replace...",
     "advanced.promptVideoEdit": "Describe how to edit the video...",
+    "advancedPreset.character": "Character",
+    "advancedPreset.action": "Action",
+    "advancedPreset.outfit": "Outfit",
+    "advancedPreset.scene": "Scene",
+    "advancedPreset.required": "required",
+    "advancedPreset.optional": "optional",
+    "advancedPreset.choose": "Choose {slot}",
+    "advancedPreset.none": "No presets found.",
+    "advancedPreset.search": "Search...",
+    "advancedPreset.clear": "Clear",
+    "advancedPreset.loading": "Loading presets...",
+    "advancedPreset.loadFailed": "Preset library failed to load.",
+    "advancedPreset.actionRequired": "Choose an action first.",
+    "advancedPreset.characterRequired": "Choose or upload a character image first.",
     "advanced.uploadReference": "Upload reference image(s)",
     "advanced.uploadImageVideo": "Upload image/video",
     "advanced.wanMode": "Vipeak 1 input",
@@ -5040,6 +5076,317 @@ function currentAdvancedRatio() {
   return normalizeVideoRatio(els.advancedRatio?.value || "16:9");
 }
 
+function advancedPresetMeta(slot = "") {
+  return ADVANCED_PRESET_SLOT_META[slot] || ADVANCED_PRESET_SLOT_META.action;
+}
+
+function advancedPresetLabel(slot = "") {
+  return t(advancedPresetMeta(slot).labelKey);
+}
+
+function advancedPresetSet(slot = "") {
+  return (state.advancedPresetData?.sets || []).find((set) => set.slot === slot) || { slot, items: [] };
+}
+
+function advancedPresetItems(slot = "") {
+  return Array.isArray(advancedPresetSet(slot).items) ? advancedPresetSet(slot).items : [];
+}
+
+function selectedAdvancedPreset(slot = "") {
+  return state.advancedSelectedPresets?.[slot] || null;
+}
+
+function clearAdvancedPreset(slot = "") {
+  if (!slot) return;
+  state.advancedSelectedPresets = { ...(state.advancedSelectedPresets || {}), [slot]: null };
+  renderAdvancedPresetBuilder();
+}
+
+function resetAdvancedPresets() {
+  state.advancedSelectedPresets = {};
+  state.advancedPresetDialogSlot = "";
+  state.advancedPresetCategory = "All";
+  state.advancedPresetSearch = "";
+}
+
+async function loadAdvancedPresets() {
+  if (state.advancedPresetsLoaded || state.advancedPresetsLoading) return;
+  state.advancedPresetsLoading = true;
+  try {
+    const response = await fetch(`${OURDREAM_PRESET_URL}?v=1`, { cache: "force-cache" });
+    if (!response.ok) throw new Error(`Preset request failed: ${response.status}`);
+    const payload = await response.json();
+    state.advancedPresetData = {
+      sets: Array.isArray(payload.sets) ? payload.sets : [],
+      categories: payload.categories && typeof payload.categories === "object" ? payload.categories : {},
+    };
+    state.advancedPresetsLoaded = true;
+  } catch (error) {
+    console.warn("advanced presets failed", error);
+  } finally {
+    state.advancedPresetsLoading = false;
+    renderAdvancedPresetBuilder();
+  }
+}
+
+function presetImageUrl(item = {}) {
+  return item.imageUrl || item.referenceImageUrl || "";
+}
+
+function presetPromptText(item = {}) {
+  return String(item.prompt || item.description || item.label || "").trim();
+}
+
+function renderAdvancedPresetBuilder() {
+  if (!els.advancedPresetBuilder) return;
+  const hidden = state.advancedCreateKind === "custom";
+  els.advancedPresetBuilder.hidden = hidden;
+  if (hidden) {
+    els.advancedPresetBuilder.innerHTML = "";
+    return;
+  }
+  if (state.advancedPresetsLoading && !state.advancedPresetsLoaded) {
+    els.advancedPresetBuilder.innerHTML = `<div class="advanced-preset-status">${escapeHtml(t("advancedPreset.loading"))}</div>`;
+    return;
+  }
+  els.advancedPresetBuilder.innerHTML = ADVANCED_PRESET_SLOT_ORDER.map((slot) => {
+    const meta = advancedPresetMeta(slot);
+    const selected = selectedAdvancedPreset(slot);
+    const image = presetImageUrl(selected || {});
+    return `
+      <button class="advanced-preset-slot ${selected ? "has-preset" : ""}" type="button" data-advanced-preset-slot="${escapeHtml(slot)}">
+        <span class="advanced-preset-slot-media">
+          ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(selected?.label || advancedPresetLabel(slot))}" loading="lazy" />` : `<i data-lucide="${escapeHtml(meta.icon)}"></i>`}
+        </span>
+        <span class="advanced-preset-slot-copy">
+          <strong>${escapeHtml(selected?.label || advancedPresetLabel(slot))}</strong>
+          <small>${escapeHtml(selected ? advancedPresetLabel(slot) : t(meta.required ? "advancedPreset.required" : "advancedPreset.optional"))}</small>
+        </span>
+        ${selected ? `<span class="advanced-preset-clear" data-advanced-preset-clear="${escapeHtml(slot)}" aria-label="${escapeHtml(t("advancedPreset.clear"))}">&times;</span>` : ""}
+      </button>
+    `;
+  }).join("");
+  els.advancedPresetBuilder.querySelectorAll("[data-advanced-preset-slot]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      if (event.target.closest("[data-advanced-preset-clear]")) return;
+      openAdvancedPresetDialog(button.dataset.advancedPresetSlot || "");
+    });
+  });
+  els.advancedPresetBuilder.querySelectorAll("[data-advanced-preset-clear]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearAdvancedPreset(button.dataset.advancedPresetClear || "");
+    });
+  });
+  refreshIcons();
+}
+
+function advancedPresetCategoriesForSlot(slot = "") {
+  const configured = Array.isArray(state.advancedPresetData?.categories?.[slot]) ? state.advancedPresetData.categories[slot] : [];
+  const itemCategories = [...new Set(advancedPresetItems(slot).map((item) => item.category || "").filter(Boolean))];
+  const categories = configured.length ? configured : ["All", ...itemCategories];
+  return [...new Set(["All", ...categories.filter(Boolean)])];
+}
+
+function openAdvancedPresetDialog(slot = "") {
+  if (!slot || !els.advancedPresetDialog) return;
+  state.advancedPresetDialogSlot = slot;
+  state.advancedPresetCategory = "All";
+  state.advancedPresetSearch = "";
+  if (els.advancedPresetSearch) els.advancedPresetSearch.value = "";
+  if (els.advancedPresetDialogKicker) els.advancedPresetDialogKicker.textContent = "Preset";
+  if (els.advancedPresetDialogTitle) {
+    els.advancedPresetDialogTitle.textContent = t("advancedPreset.choose", { slot: advancedPresetLabel(slot) });
+  }
+  renderAdvancedPresetDialog();
+  els.advancedPresetDialog.showModal();
+  window.setTimeout(() => els.advancedPresetSearch?.focus(), 80);
+}
+
+function renderAdvancedPresetDialog() {
+  const slot = state.advancedPresetDialogSlot;
+  if (!slot || !els.advancedPresetGrid) return;
+  const categories = advancedPresetCategoriesForSlot(slot);
+  if (els.advancedPresetCategories) {
+    els.advancedPresetCategories.innerHTML = categories.map((category) => `
+      <button class="advanced-preset-category ${category === state.advancedPresetCategory ? "is-active" : ""}" type="button" data-advanced-preset-category="${escapeHtml(category)}">
+        ${escapeHtml(category)}
+      </button>
+    `).join("");
+    els.advancedPresetCategories.querySelectorAll("[data-advanced-preset-category]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.advancedPresetCategory = button.dataset.advancedPresetCategory || "All";
+        renderAdvancedPresetDialog();
+      });
+    });
+  }
+  const query = String(state.advancedPresetSearch || "").trim().toLowerCase();
+  const selectedCategory = String(state.advancedPresetCategory || "All").toLowerCase();
+  const items = advancedPresetItems(slot).filter((item) => {
+    const tagList = (item.tags || []).map((tag) => String(tag || "").toLowerCase());
+    const categoryOk = state.advancedPresetCategory === "All" || String(item.category || "").toLowerCase() === selectedCategory || tagList.includes(selectedCategory);
+    const haystack = [item.label, item.category, item.section, item.description, item.prompt, ...(item.tags || [])].join(" ").toLowerCase();
+    return categoryOk && (!query || haystack.includes(query));
+  });
+  if (!items.length) {
+    els.advancedPresetGrid.innerHTML = `<div class="advanced-preset-empty">${escapeHtml(t("advancedPreset.none"))}</div>`;
+    return;
+  }
+  els.advancedPresetGrid.innerHTML = items.map((item) => {
+    const image = presetImageUrl(item);
+    const active = selectedAdvancedPreset(slot)?.id === item.id;
+    return `
+      <button class="advanced-preset-card ${active ? "is-active" : ""}" type="button" data-advanced-preset-id="${escapeHtml(item.id)}">
+        ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(item.label || "")}" loading="lazy" />` : `<span><i data-lucide="${escapeHtml(advancedPresetMeta(slot).icon)}"></i></span>`}
+        <strong>${escapeHtml(item.label || "")}</strong>
+      </button>
+    `;
+  }).join("");
+  els.advancedPresetGrid.querySelectorAll("[data-advanced-preset-id]").forEach((button) => {
+    button.addEventListener("click", () => selectAdvancedPreset(slot, button.dataset.advancedPresetId || ""));
+  });
+  refreshIcons();
+}
+
+function selectAdvancedPreset(slot = "", presetId = "") {
+  const preset = advancedPresetItems(slot).find((item) => item.id === presetId);
+  if (!preset) return;
+  state.advancedSelectedPresets = { ...(state.advancedSelectedPresets || {}), [slot]: preset };
+  if (slot === "character") applyAdvancedCharacterPreset(preset);
+  els.advancedPresetDialog?.close();
+  renderAdvancedPresetBuilder();
+  if (els.advancedNote) els.advancedNote.textContent = "";
+}
+
+function applyAdvancedCharacterPreset(preset = {}) {
+  const url = preset.referenceImageUrl || preset.imageUrl || "";
+  if (!url) return;
+  const ref = {
+    dataUrl: url,
+    url,
+    fileName: `${preset.id || "character"}.jpg`,
+    name: preset.label || "Character",
+    fromPreset: true,
+  };
+  const provider = currentAdvancedProvider();
+  if (provider === "wan27-image-edit") {
+    state.advancedSourceImageAssetId = "";
+    state.advancedFirstFrameAssetId = "";
+    state.advancedReferenceImages = [ref];
+  } else {
+    state.advancedFirstFrameAssetId = "";
+    state.advancedSourceImageAssetId = "";
+    state.advancedReferenceImages = [ref];
+    if (provider === "seedance" && els.advancedSeedanceMediaMode) {
+      const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode.value || "");
+      if (mode === "text_to_video") els.advancedSeedanceMediaMode.value = "first_frame";
+    }
+  }
+  state.advancedUploadDataUrl = url;
+  state.advancedSeedanceVideoAssetId = "";
+  state.advancedSeedanceVideoPreviewUrl = "";
+  if (els.advancedImage) els.advancedImage.value = "";
+  updateAdvancedModelControls();
+}
+
+function advancedPresetPromptParts() {
+  const character = selectedAdvancedPreset("character");
+  const action = selectedAdvancedPreset("action");
+  const outfit = selectedAdvancedPreset("outfit");
+  const scene = selectedAdvancedPreset("scene");
+  const parts = [];
+  if (character) parts.push(`Character: ${character.label}. ${presetPromptText(character)}`);
+  if (action) parts.push(`Action: ${presetPromptText(action)}`);
+  if (outfit) parts.push(`Outfit: ${presetPromptText(outfit)}`);
+  if (scene) parts.push(`Scene: ${presetPromptText(scene)}`);
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+function advancedPresetSelectionPayload() {
+  return Object.fromEntries(ADVANCED_PRESET_SLOT_ORDER.map((slot) => {
+    const item = selectedAdvancedPreset(slot);
+    return [slot, item ? {
+      id: item.id,
+      label: item.label,
+      category: item.category || "",
+      prompt: presetPromptText(item),
+      imageUrl: presetImageUrl(item),
+    } : null];
+  }));
+}
+
+function hydrateAdvancedPresetsFromParams(params = {}) {
+  const saved = params.presets && typeof params.presets === "object" && !Array.isArray(params.presets) ? params.presets : null;
+  if (!saved) return false;
+  const next = {};
+  ADVANCED_PRESET_SLOT_ORDER.forEach((slot) => {
+    const savedItem = saved[slot];
+    if (!savedItem) return;
+    const matched = advancedPresetItems(slot).find((item) => item.id === savedItem.id) || null;
+    next[slot] = matched || {
+      id: savedItem.id || `${slot}-restored`,
+      label: savedItem.label || advancedPresetLabel(slot),
+      category: savedItem.category || "",
+      prompt: savedItem.prompt || "",
+      imageUrl: savedItem.imageUrl || "",
+      referenceImageUrl: savedItem.imageUrl || "",
+    };
+  });
+  state.advancedSelectedPresets = next;
+  return Object.values(next).some(Boolean);
+}
+
+function promptWithoutPresetParts(prompt = "", params = {}) {
+  const saved = params.presets && typeof params.presets === "object" && !Array.isArray(params.presets) ? params.presets : null;
+  let text = String(prompt || "");
+  if (!saved) return text.trim();
+  Object.entries(saved).forEach(([slot, item]) => {
+    if (!item) return;
+    const label = item.label || "";
+    const promptText = item.prompt || "";
+    const slotTitle = slot.charAt(0).toUpperCase() + slot.slice(1);
+    const patterns = [
+      `${slotTitle}: ${label}. ${promptText}`,
+      `${slotTitle}: ${promptText}`,
+      promptText,
+    ].filter((value) => String(value || "").trim().length > 8);
+    patterns.forEach((pattern) => {
+      text = text.replace(pattern, "");
+    });
+  });
+  return text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function advancedEffectivePrompt(basePrompt = "") {
+  if (state.advancedCreateKind === "custom") return String(basePrompt || "").trim();
+  return [...advancedPresetPromptParts(), String(basePrompt || "").trim()]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function nonCustomAdvancedNeedsCharacterImage() {
+  if (state.advancedCreateKind === "custom") return false;
+  const provider = currentAdvancedProvider();
+  if (provider === "wan27-image-edit") return state.advancedCreateMode === "image-edit";
+  return provider === "seedance" && ["video-text", "video-image", "video-extend"].includes(state.advancedCreateMode);
+}
+
+function hasAdvancedCharacterImage() {
+  return Boolean(
+    state.advancedUploadDataUrl ||
+    state.advancedFirstFrameAssetId ||
+    state.advancedSourceImageAssetId ||
+    selectedAdvancedReferenceImages("seedance").length ||
+    selectedAdvancedReferenceImages("wan27-image-edit").length
+  );
+}
+
 function advancedCreateKindConfig(kind = state.advancedCreateKind) {
   return ADVANCED_CREATE_KINDS.find((item) => item.id === kind) || ADVANCED_CREATE_KINDS[1];
 }
@@ -5071,6 +5418,7 @@ function clearAdvancedMediaInputs() {
   state.advancedWanClipFileName = "";
   state.advancedWanClipAssetId = "";
   state.advancedAudioAssetId = "";
+  resetAdvancedPresets();
   [
     els.advancedSeedanceVideoUrls,
     els.advancedSeedanceAudioUrls,
@@ -5099,6 +5447,7 @@ function clearAdvancedMediaInputs() {
   });
   if (els.advancedUploadPreview) els.advancedUploadPreview.innerHTML = "";
   els.advancedUploadBox?.classList.remove("has-image");
+  renderAdvancedPresetBuilder();
 }
 
 function applyAdvancedCreateMode({ clearMedia = false } = {}) {
@@ -5139,6 +5488,7 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
     els.advancedImage.accept = advancedCreateUploadAcceptValue(config.id);
     els.advancedImage.multiple = !advancedCreateModeAcceptsVideoUpload(config.id);
   }
+  renderAdvancedPresetBuilder();
 }
 
 function renderAdvancedCreateControls() {
@@ -5172,6 +5522,7 @@ function setAdvancedCreateKind(kind = "video") {
   state.advancedCreateMode = nextKind === "custom"
     ? ADVANCED_CUSTOM_MODE.id
     : advancedCreateModesForKind(nextKind)[0]?.id || state.advancedCreateMode;
+  if (previousKind !== nextKind) resetAdvancedPresets();
   renderAdvancedCreateControls();
   applyAdvancedCreateMode({ clearMedia: previousKind !== nextKind && nextKind !== "custom" });
   updateAdvancedModelControls();
@@ -5185,6 +5536,7 @@ function setAdvancedCreateMode(mode = "") {
   const nextMode = modes.find((item) => item.id === mode)?.id || modes[0]?.id || state.advancedCreateMode;
   state.advancedCreateMode = nextMode;
   const nextConfig = advancedCreateModeConfig(state.advancedCreateKind, nextMode);
+  if (previousMode !== nextMode) resetAdvancedPresets();
   renderAdvancedCreateControls();
   applyAdvancedCreateMode({ clearMedia: previousMode !== nextMode && !nextConfig.custom });
   updateAdvancedModelControls();
@@ -7568,7 +7920,7 @@ function selectTopupPackage(packageId = "") {
   const selected = packages.find((item) => item.id === packageId) || packages[0];
   if (!selected) return;
   state.selectedTopupPackageId = selected.id;
-  setTopupMethod("usdt", { skipSummary: true });
+  setTopupMethod("paypal", { skipSummary: true });
   setTopupStep("payment");
 }
 
@@ -7644,8 +7996,8 @@ function renderWalletOptions() {
   });
 }
 
-function setTopupMethod(method = "usdt", options = {}) {
-  const next = "usdt";
+function setTopupMethod(method = "paypal", options = {}) {
+  const next = method === "usdt" ? "usdt" : "paypal";
   state.topupMethod = next;
   els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
     const active = button.dataset.topupMethod === next;
@@ -7654,6 +8006,7 @@ function setTopupMethod(method = "usdt", options = {}) {
   });
   if (els.topupPaypalPanel) els.topupPaypalPanel.hidden = next !== "paypal";
   if (els.topupUsdtPanel) els.topupUsdtPanel.hidden = next !== "usdt";
+  if (next === "paypal" && state.topupStep === "payment") renderPayPalCheckout();
   if (!options.skipSummary) renderTopupSummary();
   refreshIcons();
 }
@@ -7767,10 +8120,48 @@ function renderTopupSummary() {
     els.topupRate.textContent = state.user
       ? state.topupStep === "packages"
         ? t("topup.packages")
+        : state.topupMethod === "paypal"
+        ? t("topup.paypalRate")
         : t("topup.rate", { amount: amount || 0, asset, network })
       : t("topup.login");
   }
   renderWalletOptions();
+}
+
+function setBackButtonVisibility(button, visible) {
+  if (!button) return;
+  button.classList.toggle("is-hidden", !visible);
+  button.setAttribute("aria-hidden", visible ? "false" : "true");
+  if (visible) button.removeAttribute("tabindex");
+  else button.setAttribute("tabindex", "-1");
+}
+
+function syncTopupBackButtons() {
+  setBackButtonVisibility(els.topupBackBtn, state.topupStep === "payment");
+  if (els.topupQrBackBtn) {
+    const label = els.topupQrBackBtn.querySelector("span");
+    if (label) label.textContent = state.topupPayStep === "confirm" ? t("topup.stepTransfer", {}, "Transfer") : t("common.back", {}, "Back");
+  }
+}
+
+function handleTopupBack() {
+  if (els.topupQrDialog?.open) {
+    if (state.topupPayStep === "confirm") {
+      setTopupQrStep("transfer");
+      syncTopupBackButtons();
+      refreshIcons();
+      return;
+    }
+    els.topupQrDialog.close();
+    if (!els.topupDialog?.open) els.topupDialog?.showModal();
+    setTopupStep("payment");
+    setTopupMethod("usdt");
+    renderTopupSummary();
+    syncTopupAutoRefresh();
+    refreshIcons();
+    return;
+  }
+  if (els.topupDialog?.open) setTopupStep("packages");
 }
 
 function renderTopupOrder(order) {
@@ -7895,42 +8286,6 @@ async function renderPayPalCheckout() {
     els.paypalButtons.hidden = true;
     if (els.paypalStatus) els.paypalStatus.textContent = error.message || String(error);
   }
-}
-
-function setBackButtonVisibility(button, visible) {
-  if (!button) return;
-  button.classList.toggle("is-hidden", !visible);
-  button.setAttribute("aria-hidden", visible ? "false" : "true");
-  if (visible) button.removeAttribute("tabindex");
-  else button.setAttribute("tabindex", "-1");
-}
-
-function syncTopupBackButtons() {
-  setBackButtonVisibility(els.topupBackBtn, state.topupStep === "payment");
-  if (els.topupQrBackBtn) {
-    const label = els.topupQrBackBtn.querySelector("span");
-    if (label) label.textContent = state.topupPayStep === "confirm" ? t("topup.stepTransfer", {}, "Transfer") : t("common.back", {}, "Back");
-  }
-}
-
-function handleTopupBack() {
-  if (els.topupQrDialog?.open) {
-    if (state.topupPayStep === "confirm") {
-      setTopupQrStep("transfer");
-      syncTopupBackButtons();
-      refreshIcons();
-      return;
-    }
-    els.topupQrDialog.close();
-    if (!els.topupDialog?.open) els.topupDialog?.showModal();
-    setTopupStep("payment");
-    setTopupMethod("usdt");
-    renderTopupSummary();
-    syncTopupAutoRefresh();
-    refreshIcons();
-    return;
-  }
-  if (els.topupDialog?.open) setTopupStep("packages");
 }
 
 async function submitTopupHash(orderId = "", hash = "") {
@@ -9033,8 +9388,19 @@ async function requestAdvancedAccess() {
 
 async function submitAdvancedGenerate() {
   if (!state.user) return openLogin();
+  const promptInput = els.advancedPrompt?.value.trim() || "";
+  const usingPresetFlow = state.advancedCreateKind !== "custom";
+  if (usingPresetFlow && !selectedAdvancedPreset("action")) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.actionRequired");
+    return;
+  }
+  if (usingPresetFlow && nonCustomAdvancedNeedsCharacterImage() && !hasAdvancedCharacterImage()) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.characterRequired");
+    return;
+  }
   const autoPrompt = advancedCreateModeUsesAutoPrompt();
-  const prompt = autoPrompt ? advancedCreateModeDefaultPrompt() : (els.advancedPrompt?.value.trim() || "");
+  const basePrompt = autoPrompt ? advancedCreateModeDefaultPrompt() : promptInput;
+  const prompt = advancedEffectivePrompt(basePrompt);
   if (!prompt) {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.promptRequired");
     return;
@@ -9044,6 +9410,7 @@ async function submitAdvancedGenerate() {
   els.advancedSubmitBtn.disabled = true;
   const provider = currentAdvancedProvider();
   const seedanceTier = currentSeedanceTier();
+  const advancedPresetSelection = usingPresetFlow ? advancedPresetSelectionPayload() : undefined;
   if (provider === "wan27-image-edit") {
     const pendingTaskId = `pending-image-${Date.now().toString(36)}`;
     mergeAdvancedResultRecord({
@@ -9054,6 +9421,12 @@ async function submitAdvancedGenerate() {
       source: "asset-image-modify",
       kind: "asset-image",
       prompt,
+      presets: advancedPresetSelection,
+      params: {
+        createKind: state.advancedCreateKind,
+        createMode: state.advancedCreateMode,
+        presets: advancedPresetSelection,
+      },
       ratio: currentAdvancedRatio(),
       resolution: currentAdvancedResolution(),
       createdAt: new Date().toISOString(),
@@ -9074,6 +9447,11 @@ async function submitAdvancedGenerate() {
           imageUrls,
           ratio: currentAdvancedRatio(),
           resolution: currentAdvancedResolution(),
+          params: {
+            createKind: state.advancedCreateKind,
+            createMode: state.advancedCreateMode,
+            presets: advancedPresetSelection,
+          },
           async: true,
         },
       });
@@ -9176,6 +9554,12 @@ async function submitAdvancedGenerate() {
     source: provider === "seedance" ? "advanced-seedance" : "advanced-wan27",
     kind: "advanced-video",
     prompt,
+    presets: advancedPresetSelection,
+    params: {
+      createKind: state.advancedCreateKind,
+      createMode: state.advancedCreateMode,
+      presets: advancedPresetSelection,
+    },
     ratio: els.advancedRatio?.value || "9:16",
     resolution,
     duration,
@@ -9236,6 +9620,11 @@ async function submitAdvancedGenerate() {
         duration,
         preprocessReference,
         seed: els.advancedWanSeed?.value || "",
+        params: {
+          createKind: state.advancedCreateKind,
+          createMode: state.advancedCreateMode,
+          presets: advancedPresetSelection,
+        },
       },
     });
     if (payload.user) setUser(payload.user);
@@ -9247,6 +9636,12 @@ async function submitAdvancedGenerate() {
       source: provider === "seedance" ? "advanced-seedance" : "advanced-wan27",
       kind: "advanced-video",
       prompt,
+      presets: advancedPresetSelection,
+      params: {
+        createKind: state.advancedCreateKind,
+        createMode: state.advancedCreateMode,
+        presets: advancedPresetSelection,
+      },
       ratio: els.advancedRatio?.value || "9:16",
       resolution: els.advancedResolution?.value || "720p",
       duration,
@@ -9468,14 +9863,21 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   const ratio = normalizeVideoRatio(record.ratio || params.ratio || params.aspect_ratio || "9:16");
   const resolution = normalizeAdvancedResolution(record.resolution || params.resolution || (provider === "wan27-image-edit" ? "2K" : "720p"), provider);
   const duration = record.duration || params.duration || params.durationSeconds || (provider === "wan27" ? 2 : 5);
+  const restoredPresetFlow = hydrateAdvancedPresetsFromParams(params);
+  const restoredKind = ADVANCED_CREATE_KINDS.some((item) => item.id === params.createKind) ? params.createKind : "";
+  const restoredMode = restoredKind && advancedCreateModesForKind(restoredKind).some((item) => item.id === params.createMode) ? params.createMode : "";
   setTab("advanced");
-  state.advancedCreateKind = "custom";
-  state.advancedCreateMode = ADVANCED_CUSTOM_MODE.id;
+  state.advancedCreateKind = restoredPresetFlow && restoredKind ? restoredKind : "custom";
+  state.advancedCreateMode = state.advancedCreateKind === "custom" ? ADVANCED_CUSTOM_MODE.id : (restoredMode || advancedCreateModesForKind(state.advancedCreateKind)[0]?.id || ADVANCED_CUSTOM_MODE.id);
   renderAdvancedCreateControls();
   clearAdvancedCreationInputs();
+  if (restoredPresetFlow) hydrateAdvancedPresetsFromParams(params);
   state.activeAdvancedCaseId = "";
   if (els.advancedProvider) els.advancedProvider.value = provider;
-  if (els.advancedPrompt) els.advancedPrompt.value = record.finalPrompt || record.prompt || params.prompt || "";
+  if (els.advancedPrompt) {
+    const rawPrompt = record.finalPrompt || record.prompt || params.prompt || "";
+    els.advancedPrompt.value = restoredPresetFlow ? promptWithoutPresetParts(rawPrompt, params) : rawPrompt;
+  }
   if (els.advancedRatio) els.advancedRatio.value = ratio;
   if (els.advancedResolution) els.advancedResolution.value = resolution;
   if (els.advancedDuration) els.advancedDuration.value = duration;
@@ -9521,6 +9923,7 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
     if (provider === "seedance" && els.advancedSeedanceAudioUrls) els.advancedSeedanceAudioUrls.value = firstAudio.assetId ? "" : firstAudio.url || "";
     if (provider === "wan27" && els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = firstAudio.assetId ? "" : firstAudio.url || "";
   }
+  renderAdvancedPresetBuilder();
   renderAdvancedReferencePreviews();
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
@@ -11220,6 +11623,7 @@ async function bootstrap() {
   state.advancedCases = platform.advanced?.cases || [];
   state.homeCharacters = payload.config?.homeVideo?.items || [];
   els.brandName.textContent = platform.brand || "Vipeak AI";
+  await loadAdvancedPresets();
   applyTenantFeatures();
   if (!isTabAllowed(state.tab)) state.tab = DEFAULT_PLATFORM_TAB;
   renderCategories();
@@ -11479,14 +11883,14 @@ document.querySelectorAll("[data-legal-doc]").forEach((button) => {
   button.addEventListener("click", () => openLegalDialog(button.dataset.legalDoc || "privacy"));
 });
 els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
-  button.addEventListener("click", () => setTopupMethod(button.dataset.topupMethod || "usdt"));
+  button.addEventListener("click", () => setTopupMethod(button.dataset.topupMethod || "paypal"));
 });
 els.topupBackBtn?.addEventListener("click", handleTopupBack);
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
 function openTopupDialog() {
   closeAccountMenu();
   setTopupStep("packages");
-  setTopupMethod("usdt");
+  setTopupMethod("paypal");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   syncTopupAutoRefresh();
@@ -11503,6 +11907,15 @@ els.previewDialog?.addEventListener("close", () => {
   els.previewVideo.load();
 });
 els.advancedSubmitBtn?.addEventListener("click", submitAdvancedGenerate);
+els.advancedPresetSearch?.addEventListener("input", () => {
+  state.advancedPresetSearch = els.advancedPresetSearch.value || "";
+  renderAdvancedPresetDialog();
+});
+els.advancedPresetDialog?.addEventListener("close", () => {
+  state.advancedPresetDialogSlot = "";
+  state.advancedPresetSearch = "";
+  if (els.advancedPresetSearch) els.advancedPresetSearch.value = "";
+});
 els.advancedDuration?.addEventListener("input", updateAdvancedButtonCost);
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";

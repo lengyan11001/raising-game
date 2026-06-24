@@ -5473,10 +5473,6 @@ function paypalPublicConfig() {
   };
 }
 
-function paypalDisabledForRequest(req) {
-  return requestTenantOptions(req).tenantPublic;
-}
-
 async function getPayPalAccessToken() {
   if (!paypalEnabled()) {
     const error = new Error("PayPal is not configured.");
@@ -13907,16 +13903,10 @@ async function handleTronLinkCallback(req, res, url) {
 }
 
 async function handlePayPalConfig(req, res) {
-  if (paypalDisabledForRequest(req)) {
-    return sendJson(res, 200, { ok: true, paypal: { ...paypalPublicConfig(), enabled: false, clientId: "" } });
-  }
   return sendJson(res, 200, { ok: true, paypal: paypalPublicConfig() });
 }
 
 async function handleCreatePayPalOrder(req, res) {
-  if (paypalDisabledForRequest(req)) {
-    return sendJson(res, 404, { ok: false, code: "PAYPAL_DISABLED", message: "PayPal payment is disabled for this site." });
-  }
   const auth = await requireUser(req, res);
   if (!auth) return;
   const body = await readJson(req);
@@ -14018,9 +14008,6 @@ async function handleCreatePayPalOrder(req, res) {
 }
 
 async function handleCapturePayPalOrder(req, res, paypalOrderId) {
-  if (paypalDisabledForRequest(req)) {
-    return sendJson(res, 404, { ok: false, code: "PAYPAL_DISABLED", message: "PayPal payment is disabled for this site." });
-  }
   const auth = await requireUser(req, res);
   if (!auth) return;
   const config = await readAppConfig();
@@ -15445,6 +15432,8 @@ async function handleWan27ImageEdit(req, res) {
     prompt,
     finalPrompt: prompt,
     params: {
+      ...plainObject(bodyParams),
+      ...plainObject(body.params),
       provider: "wan27-image",
       action: previewUrls.length ? "image_edit" : "text_to_image",
       imageCount: previewUrls.length,
