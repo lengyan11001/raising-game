@@ -5113,7 +5113,7 @@ async function loadAdvancedPresets() {
   if (state.advancedPresetsLoaded || state.advancedPresetsLoading) return;
   state.advancedPresetsLoading = true;
   try {
-    const response = await fetch(`${OURDREAM_PRESET_URL}?v=1`, { cache: "force-cache" });
+    const response = await fetch(`${OURDREAM_PRESET_URL}?v=2`, { cache: "force-cache" });
     if (!response.ok) throw new Error(`Preset request failed: ${response.status}`);
     const payload = await response.json();
     state.advancedPresetData = {
