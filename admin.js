@@ -190,6 +190,47 @@ function copyText(text, success = "已复制。") {
     .catch(() => toast("复制失败。", "error"));
 }
 
+const ADMIN_PAGE_LIMITS = [20, 50, 100];
+
+function normalizeAdminPage(value = 1) {
+  return Math.max(1, Number.parseInt(value, 10) || 1);
+}
+
+function normalizeAdminLimit(value = 20) {
+  const next = Number.parseInt(value, 10) || 20;
+  return ADMIN_PAGE_LIMITS.includes(next) ? next : 20;
+}
+
+function adminPagerHtml(payload = {}) {
+  const page = normalizeAdminPage(payload.page || 1);
+  const limit = normalizeAdminLimit(payload.limit || 20);
+  const total = Math.max(0, Number(payload.filtered ?? payload.total ?? 0) || 0);
+  const totalPages = Math.max(1, Number(payload.totalPages || Math.ceil(total / limit) || 1));
+  return `
+    <div class="adm-pagination">
+      <div class="adm-pagination-info">第 ${page} / ${totalPages} 页 · 共 ${total} 条</div>
+      <div class="adm-pagination-controls">
+        <select data-admin-limit aria-label="每页条数">
+          ${ADMIN_PAGE_LIMITS.map((item) => `<option value="${item}" ${item === limit ? "selected" : ""}>每页 ${item}</option>`).join("")}
+        </select>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-admin-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button>
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-admin-page="${page + 1}" ${page >= totalPages ? "disabled" : ""}>下一页</button>
+      </div>
+    </div>
+  `;
+}
+
+function bindAdminPager(root, payload = {}, onChange) {
+  if (!root || typeof onChange !== "function") return;
+  const limit = normalizeAdminLimit(payload.limit || 20);
+  root.querySelectorAll("[data-admin-page]").forEach((button) => {
+    button.addEventListener("click", () => onChange({ page: normalizeAdminPage(button.dataset.adminPage), limit }));
+  });
+  root.querySelector("[data-admin-limit]")?.addEventListener("change", (event) => {
+    onChange({ page: 1, limit: normalizeAdminLimit(event.target.value) });
+  });
+}
+
 function readVideoDuration(file) {
   return new Promise((resolve, reject) => {
     const video = document.createElement("video");
@@ -1355,7 +1396,7 @@ async function renderHistory({ silent = false, refresh = false } = {}) {
   stopAdminHistoryPoll();
   const initialPane = activeRoutePane("videoPaneBody", "videos");
   const previousScrollTop = initialPane?.scrollTop || 0;
-  const payload = await api(`/api/admin/generation-records?limit=120${refresh ? "&refresh=1" : ""}`);
+  const payload = await api(`/api/admin/generation-records?page=1&limit=20${refresh ? "&refresh=1" : ""}`);
   const pane = activeRoutePane("videoPaneBody", "videos");
   if (!pane || (sessionStorage.getItem("admTabVideos") || "scene") !== "history") return;
   const records = payload.records || [];
@@ -1604,12 +1645,13 @@ function recordOwnerText(record) {
 }
 
 async function renderGenerationRecords() {
-  const saved = JSON.parse(sessionStorage.getItem("admRecordFilters") || "{}");
+  let saved = JSON.parse(sessionStorage.getItem("admRecordFilters") || "{}");
   const query = saved.q || "";
   const provider = saved.provider || "";
   const kind = saved.kind || "";
   const status = saved.status || "";
-  const limit = saved.limit || 160;
+  const page = normalizeAdminPage(saved.page || 1);
+  const limit = normalizeAdminLimit(saved.limit || 20);
   els.adminContent.innerHTML = `
     <section class="adm-page adm-records-page">
       <div class="adm-page-head adm-records-head">
@@ -1645,10 +1687,9 @@ async function renderGenerationRecords() {
           <option value="failed" ${status === "failed" ? "selected" : ""}>失败</option>
         </select>
         <select id="recordLimit">
-          <option value="80" ${String(limit) === "80" ? "selected" : ""}>80</option>
-          <option value="160" ${String(limit) === "160" ? "selected" : ""}>160</option>
-          <option value="300" ${String(limit) === "300" ? "selected" : ""}>300</option>
-          <option value="500" ${String(limit) === "500" ? "selected" : ""}>500</option>
+          <option value="20" ${String(limit) === "20" ? "selected" : ""}>20</option>
+          <option value="50" ${String(limit) === "50" ? "selected" : ""}>50</option>
+          <option value="100" ${String(limit) === "100" ? "selected" : ""}>100</option>
         </select>
         <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
       </form>
@@ -1658,7 +1699,7 @@ async function renderGenerationRecords() {
     </section>
   `;
 
-  const load = async ({ silent = false, refresh = false } = {}) => {
+  const load = async ({ silent = false, refresh = false, page: targetPage = null, limit: targetLimit = null } = {}) => {
     stopAdminRecordPoll();
     const tablePane = activeRoutePane("recordTablePane", "records");
     if (!tablePane) return;
@@ -1671,11 +1712,15 @@ async function renderGenerationRecords() {
       provider: byId("recordProvider")?.value || "",
       kind: byId("recordKind")?.value || "",
       status: byId("recordStatus")?.value || "",
-      limit: byId("recordLimit")?.value || "160",
+      page: normalizeAdminPage(targetPage || saved.page || page),
+      limit: normalizeAdminLimit(targetLimit || byId("recordLimit")?.value || limit),
     };
     Object.entries(next).forEach(([key, value]) => { if (value) params.set(key, value); });
+    params.set("page", String(next.page));
+    params.set("limit", String(next.limit));
     if (refresh) params.set("refresh", "1");
     sessionStorage.setItem("admRecordFilters", JSON.stringify(next));
+    saved = next;
     if (!silent) tablePane.innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
     const payload = await api(`/api/admin/generation-records?${params.toString()}`);
     if (!activeRoutePane("recordTablePane", "records")) return;
@@ -1686,7 +1731,7 @@ async function renderGenerationRecords() {
       return;
     }
     adminRecordSignature = nextSignature;
-    renderGenerationRecordTable(records, payload);
+    renderGenerationRecordTable(records, payload, load);
     const nextScrollHost = byId("recordTablePane")?.querySelector(".adm-record-table-wrap");
     if (nextScrollHost) {
       nextScrollHost.scrollTop = previousScrollTop;
@@ -1697,14 +1742,14 @@ async function renderGenerationRecords() {
 
   byId("recordFilters")?.addEventListener("submit", (event) => {
     event.preventDefault();
-    load().catch((err) => renderRouteError("records", err));
+    load({ page: 1 }).catch((err) => renderRouteError("records", err));
   });
   byId("refreshRecordsBtn")?.addEventListener("click", () => load({ refresh: true }).catch((err) => renderRouteError("records", err)));
   refreshIcons();
   await load();
 }
 
-function renderGenerationRecordTable(records, payload = {}) {
+function renderGenerationRecordTable(records, payload = {}, load = null) {
   const pane = activeRoutePane("recordTablePane", "records");
   if (!pane) return;
   pane.innerHTML = `
@@ -1734,6 +1779,7 @@ function renderGenerationRecordTable(records, payload = {}) {
         </table>
       ` : '<div class="adm-empty"><i data-lucide="inbox"></i><p>暂无生成记录。</p></div>'}
     </div>
+    ${adminPagerHtml(payload)}
   `;
   refreshIcons();
   pane.querySelectorAll("[data-act='record-detail']").forEach((button) => {
@@ -1759,6 +1805,9 @@ function renderGenerationRecordTable(records, payload = {}) {
       const record = records[Number(button.dataset.index || 0)];
       if (record) promoteRecordToPlatformGallery(record, button);
     });
+  });
+  bindAdminPager(pane, payload, ({ page, limit }) => {
+    if (typeof load === "function") load({ page, limit }).catch((err) => renderRouteError("records", err));
   });
 }
 
@@ -2293,10 +2342,14 @@ function sceneCard(scene) {
 }
 
 /* ============ USERS ============ */
-async function renderUsers() {
-  const payload = await api("/api/admin/users");
+async function renderUsers(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admUsersPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const payload = await api(`/api/admin/users?page=${page}&limit=${limit}`);
   if (!isActiveRoute("users")) return;
   const users = payload.users || [];
+  sessionStorage.setItem("admUsersPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
@@ -2331,10 +2384,12 @@ async function renderUsers() {
             </tbody>
           </table>
         </div>
+        ${adminPagerHtml(payload)}
       </div>
     </section>
   `;
   refreshIcons();
+  bindAdminPager(els.adminContent, payload, ({ page, limit }) => renderUsers(page, limit).catch((err) => renderRouteError("users", err)));
   els.adminContent.querySelectorAll("tr[data-id]").forEach((tr) => {
     const id = tr.dataset.id;
     tr.querySelector('[data-act="edit-user"]')?.addEventListener("click", () => openEditUserDialog(id, users));
@@ -2415,10 +2470,14 @@ async function deleteUser(id, users) {
 }
 
 /* ============ WALLET ============ */
-async function renderWallet() {
-  const payload = await api("/api/admin/wallet-orders");
+async function renderWallet(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admWalletPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const payload = await api(`/api/admin/wallet-orders?page=${page}&limit=${limit}`);
   if (!isActiveRoute("wallet")) return;
   const orders = payload.orders || [];
+  sessionStorage.setItem("admWalletPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
@@ -2455,10 +2514,12 @@ async function renderWallet() {
             </table>
           ` : `<div class="adm-empty"><i data-lucide="wallet"></i><p>暂无订单</p></div>`}
         </div>
+        ${adminPagerHtml(payload)}
       </div>
     </section>
   `;
   refreshIcons();
+  bindAdminPager(els.adminContent, payload, ({ page, limit }) => renderWallet(page, limit).catch((err) => renderRouteError("wallet", err)));
   els.adminContent.querySelector("#scanWalletOrdersBtn")?.addEventListener("click", async () => {
     const button = els.adminContent.querySelector("#scanWalletOrdersBtn");
     button.disabled = true;
@@ -2486,11 +2547,15 @@ async function renderWallet() {
   });
 }
 
-async function renderSupportMessages() {
+async function renderSupportMessages(pageArg = null, limitArg = null) {
   const routeId = "support";
   if (!isActiveRoute(routeId)) return;
-  const payload = await api("/api/admin/support-messages");
+  const savedPager = JSON.parse(sessionStorage.getItem("admSupportPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const payload = await api(`/api/admin/support-messages?page=${page}&limit=${limit}`);
   const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  sessionStorage.setItem("admSupportPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
@@ -2537,6 +2602,7 @@ async function renderSupportMessages() {
             </table>
           </div>
         ` : '<div class="adm-empty"><i data-lucide="inbox"></i><p>暂无站内信</p></div>'}
+        ${adminPagerHtml(payload)}
       </div>
     </section>
   `;
@@ -2564,6 +2630,7 @@ async function renderSupportMessages() {
       renderSupportMessages().catch((err) => renderRouteError(routeId, err));
     });
   });
+  bindAdminPager(els.adminContent, payload, ({ page, limit }) => renderSupportMessages(page, limit).catch((err) => renderRouteError(routeId, err)));
   refreshIcons();
 }
 
@@ -3691,6 +3758,7 @@ async function renderPlatform(options = {}) {
 async function renderConfig() {
   const config = await loadConfig(true);
   if (!isActiveRoute("config")) return;
+  const analyticsId = config.platform?.analytics?.googleMeasurementId || config.platform?.googleMeasurementId || "";
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
@@ -3701,6 +3769,22 @@ async function renderConfig() {
         <div class="adm-page-actions">
           <button class="adm-btn adm-btn-ghost" id="reloadConfigBtn"><i data-lucide="refresh-cw"></i>刷新</button>
           <button class="adm-btn adm-btn-primary" id="saveConfigBtn"><i data-lucide="save"></i>保存</button>
+        </div>
+      </div>
+      <div class="adm-card adm-mt">
+        <div class="adm-card-head">
+          <div>
+            <h3>数据分析</h3>
+            <p class="adm-muted">填写 Google Analytics Measurement ID 后，用户端会自动接入统计。</p>
+          </div>
+          <button class="adm-btn adm-btn-primary" id="saveAnalyticsBtn" type="button"><i data-lucide="save"></i>保存分析配置</button>
+        </div>
+        <div class="adm-card-body">
+          <div class="adm-form-row">
+            <span>Google Analytics Measurement ID</span>
+            <input id="gaMeasurementId" type="text" placeholder="G-XXXXXXXXXX" value="${escapeHtml(analyticsId)}" />
+            <small class="adm-muted">只填 Measurement ID，不需要粘贴脚本代码。</small>
+          </div>
         </div>
       </div>
       <div class="adm-card">
@@ -3716,6 +3800,32 @@ async function renderConfig() {
     state.config = null;
     renderConfig();
     toast("已重新拉取配置。", "success");
+  });
+  byId("saveAnalyticsBtn")?.addEventListener("click", async () => {
+    try {
+      const id = byId("gaMeasurementId")?.value.trim() || "";
+      if (id && !/^G-[A-Z0-9]+$/i.test(id)) {
+        toast("Measurement ID 格式不对，应该类似 G-XXXXXXXXXX。", "error");
+        return;
+      }
+      const editorConfig = JSON.parse(byId("configEditor").value);
+      const next = {
+        ...editorConfig,
+        platform: {
+          ...(editorConfig.platform || {}),
+          analytics: {
+            ...((editorConfig.platform || {}).analytics || {}),
+            googleMeasurementId: id,
+          },
+        },
+      };
+      const payload = await api("/api/admin/config", { method: "PUT", body: { config: next } });
+      state.config = payload.config || next;
+      byId("configEditor").value = JSON.stringify(state.config, null, 2);
+      toast("分析配置已保存。", "success");
+    } catch (err) {
+      toast(err.message, "error");
+    }
   });
   byId("saveConfigBtn")?.addEventListener("click", async () => {
     try {

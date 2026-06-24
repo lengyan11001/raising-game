@@ -524,6 +524,9 @@ const DEFAULT_CONFIG = {
     accessCopy:
       "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"model\":\"dreamina-seedance-2-0-260128\",\"prompt\":\"Use Image 1 as the character reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_images\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>\n\nmodel dreamina-seedance-2-0-260128 routes to ep-20260429142513-zg667; model dreamina-seedance-2-0-fast-260128 routes to ep-20260429142538-fkm9d.",
     advancedPricing: DEFAULT_ADVANCED_PRICING,
+    analytics: {
+      googleMeasurementId: "",
+    },
     categories: [
       { id: "featured", name: "精选模板" },
       { id: "i2v", name: "图生视频" },
@@ -2913,6 +2916,16 @@ function normalizePlatformConfig(platform = {}) {
   const categories = Array.isArray(platform.categories) ? platform.categories : fallback.categories || [];
   const templates = Array.isArray(platform.templates) ? platform.templates : fallback.templates || [];
   const advancedPricing = normalizeAdvancedPricing(platform.advancedPricing || fallback.advancedPricing || DEFAULT_ADVANCED_PRICING);
+  const rawAnalytics = platform.analytics && typeof platform.analytics === "object" && !Array.isArray(platform.analytics)
+    ? platform.analytics
+    : fallback.analytics || {};
+  const googleMeasurementId = String(
+    rawAnalytics.googleMeasurementId
+    || platform.googleMeasurementId
+    || platform.googleAnalyticsId
+    || platform.gaMeasurementId
+    || "",
+  ).trim();
   return {
     ...fallback,
     ...platform,
@@ -2921,6 +2934,11 @@ function normalizePlatformConfig(platform = {}) {
     heroSubtitle: cleanPlatformHeroCopy(platform.heroSubtitle, fallback.heroSubtitle || ""),
     notice: cleanPlatformHeroCopy(platform.notice, fallback.notice || ""),
     accessCopy: cleanPlatformPublicCopy(platform.accessCopy, fallback.accessCopy || ""),
+    analytics: {
+      ...(fallback.analytics || {}),
+      ...rawAnalytics,
+      googleMeasurementId,
+    },
     advancedPricing,
     advanced: normalizePlatformAdvancedConfig(platform.advanced || fallback.advanced || {}, advancedPricing),
     categories: categories
@@ -13675,15 +13693,17 @@ async function handleCreateSupportMessage(req, res) {
   return sendJson(res, 200, { ok: true, messageRecord: supportMessageView(record) });
 }
 
-async function handleAdminListSupportMessages(req, res) {
+async function handleAdminListSupportMessages(req, res, url) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
   const messages = (auth.db.supportMessages || [])
     .filter((record) => !isSoftDeleted(record))
     .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
     .map((record) => supportMessageView(record, userMap));
-  return sendJson(res, 200, { ok: true, messages });
+  const paged = pagedResponse(messages, paging);
+  return sendJson(res, 200, { ok: true, messages: paged.items, page: paged.page, limit: paged.limit, total: paged.total, totalPages: paged.totalPages });
 }
 
 async function handleAdminReplySupportMessage(req, res, messageId) {
@@ -14276,6 +14296,22 @@ function pagingFromUrl(url, { defaultLimit = 12, maxLimit = 100 } = {}) {
   const page = Math.max(1, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1);
   const limit = Math.min(maxLimit, Math.max(1, Number.parseInt(url.searchParams.get("limit") || String(defaultLimit), 10) || defaultLimit));
   return { page, limit, offset: (page - 1) * limit };
+}
+
+function pagedResponse(list = [], paging = {}) {
+  const requestedPage = Math.max(1, Number(paging.page || 1) || 1);
+  const limit = Math.max(1, Number(paging.limit || 20) || 20);
+  const total = Array.isArray(list) ? list.length : 0;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(requestedPage, totalPages);
+  const offset = (page - 1) * limit;
+  return {
+    page,
+    limit,
+    total,
+    totalPages,
+    items: Array.isArray(list) ? list.slice(offset, offset + limit) : [],
+  };
 }
 
 function dateFromQuery(value, endOfDay = false) {
@@ -17874,9 +17910,11 @@ async function handleAdminDashboard(req, res) {
   });
 }
 
-async function handleAdminListUsers(req, res) {
+async function handleAdminListUsers(req, res, url) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
   const userCharacters = Array.isArray(auth.db.userCharacters) ? auth.db.userCharacters : [];
   const charByUser = new Map();
   userCharacters.forEach((c) => {
@@ -17886,15 +17924,20 @@ async function handleAdminListUsers(req, res) {
   (auth.db.walletOrders || []).forEach((o) => {
     orderByUser.set(o.userId, (orderByUser.get(o.userId) || 0) + 1);
   });
-  const list = (auth.db.users || []).map((u) => ({
+  let list = (auth.db.users || []).map((u) => ({
     ...userView(u),
     customCharacters: charByUser.get(u.id) || 0,
     walletOrders: orderByUser.get(u.id) || 0,
     advancedAccess: u.advancedAccess === true,
     advancedAccessRequestedAt: u.advancedAccessRequestedAt || "",
   }));
+  if (query) {
+    list = list.filter((user) => [user.username, user.id, user.apiToken, user.role]
+      .some((value) => String(value || "").toLowerCase().includes(query)));
+  }
   list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-  return sendJson(res, 200, { ok: true, users: list });
+  const paged = pagedResponse(list, paging);
+  return sendJson(res, 200, { ok: true, users: paged.items, page: paged.page, limit: paged.limit, total: paged.total, totalPages: paged.totalPages });
 }
 
 async function handleAdminUpdateUser(req, res, userId) {
@@ -18162,13 +18205,22 @@ async function handleAdminUpdateSceneEntry(req, res, sceneId, entryId) {
   return sendJson(res, 200, { ok: true, scene, entry: scene.entries[entryIdx] });
 }
 
-async function handleAdminListWalletOrders(req, res) {
+async function handleAdminListWalletOrders(req, res, url) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  const status = String((url || new URL("http://localhost")).searchParams.get("status") || "").trim().toLowerCase();
+  const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
   const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
-  const list = (auth.db.walletOrders || []).map((o) => adminWalletOrderView(o, userMap));
+  let list = (auth.db.walletOrders || []).map((o) => adminWalletOrderView(o, userMap));
+  if (status) list = list.filter((order) => String(order.status || "").toLowerCase() === status);
+  if (query) {
+    list = list.filter((order) => [order.id, order.username, order.userId, order.chain, order.network, order.address, order.transactionHash, order.paypalOrderId]
+      .some((value) => String(value || "").toLowerCase().includes(query)));
+  }
   list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-  return sendJson(res, 200, { ok: true, orders: list });
+  const paged = pagedResponse(list, paging);
+  return sendJson(res, 200, { ok: true, orders: paged.items, page: paged.page, limit: paged.limit, total: paged.total, totalPages: paged.totalPages });
 }
 
 async function handleAdminUpdateWalletOrder(req, res, orderId) {
@@ -18199,19 +18251,26 @@ async function handleAdminScanWalletOrders(req, res) {
   return sendJson(res, 200, result);
 }
 
-async function handleAdminListUserAssets(req, res) {
+async function handleAdminListUserAssets(req, res, url) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
   const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
-  const list = (auth.db.userAssets || []).map((a) => adminUserAssetView(a, userMap));
+  let list = (auth.db.userAssets || []).map((a) => adminUserAssetView(a, userMap));
+  if (query) {
+    list = list.filter((asset) => [asset.id, asset.username, asset.userId, asset.mime, asset.localUrl, asset.publicUrl]
+      .some((value) => String(value || "").toLowerCase().includes(query)));
+  }
   list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-  return sendJson(res, 200, { ok: true, assets: list });
+  const paged = pagedResponse(list, paging);
+  return sendJson(res, 200, { ok: true, assets: paged.items, page: paged.page, limit: paged.limit, total: paged.total, totalPages: paged.totalPages });
 }
 
 async function handleAdminListGenerationRecords(req, res, url) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
-  const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") || 160)));
+  const paging = pagingFromUrl(url, { defaultLimit: 20, maxLimit: 100 });
   const query = String(url.searchParams.get("q") || "").trim();
   const provider = String(url.searchParams.get("provider") || "").trim();
   const status = String(url.searchParams.get("status") || "").trim().toLowerCase();
@@ -18240,11 +18299,17 @@ async function handleAdminListGenerationRecords(req, res, url) {
     if (status && String(record.status || "").toLowerCase() !== status) return false;
     return generationRecordMatchesQuery(record, query);
   });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / paging.limit));
+  const page = Math.min(paging.page, totalPages);
+  const offset = (page - 1) * paging.limit;
   return sendJson(res, 200, {
     ok: true,
-    records: filtered.slice(0, limit),
+    records: filtered.slice(offset, offset + paging.limit),
+    page,
+    limit: paging.limit,
     total: records.length,
     filtered: filtered.length,
+    totalPages,
   });
 }
 
@@ -19229,7 +19294,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/users") {
-      return await handleAdminListUsers(req, res);
+      return await handleAdminListUsers(req, res, url);
     }
 
     const adminUserMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
@@ -19292,7 +19357,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/wallet-orders") {
-      return await handleAdminListWalletOrders(req, res);
+      return await handleAdminListWalletOrders(req, res, url);
     }
 
     if (req.method === "POST" && url.pathname === "/api/admin/wallet-orders/scan") {
@@ -19305,11 +19370,11 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/user-assets") {
-      return await handleAdminListUserAssets(req, res);
+      return await handleAdminListUserAssets(req, res, url);
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/support-messages") {
-      return await handleAdminListSupportMessages(req, res);
+      return await handleAdminListSupportMessages(req, res, url);
     }
 
     const adminSupportReplyMatch = url.pathname.match(/^\/api\/admin\/support-messages\/([^/]+)\/reply$/);
