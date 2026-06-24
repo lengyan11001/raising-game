@@ -173,6 +173,7 @@ function advancedCreateModeAcceptsImageUpload(mode = state.advancedCreateMode) {
 
 function advancedCreateModePreferredSeedanceMode(config = advancedCreateModeConfig()) {
   const configured = normalizeSeedanceMediaMode(config.seedanceMode || "text_to_video");
+  if (advancedCreateModeUsesCharacterPresetReference(config.id)) return "reference_images";
   if (advancedCreateModeUsesAutoPrompt(config.id)) {
     if (advancedCreateModeNeedsReplacePair(config.id)) return "reference_video";
     return state.advancedSeedanceVideoAssetId ? "reference_video" : "first_frame";
@@ -9564,10 +9565,20 @@ async function submitAdvancedGenerate() {
   const resolution = currentAdvancedResolution();
   const preprocessReference = false;
   const mediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
-  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
-  const referenceImages = selectedAdvancedReferenceImages();
+  const rawSeedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const presetReferenceImages = usingPresetFlow && provider === "seedance" ? advancedPresetReferenceImages() : [];
-  const supplementalPresetReferenceImages = usingPresetFlow && provider === "seedance" ? advancedPresetSupplementalReferenceImages(seedanceMode) : [];
+  const presetReferenceMode = provider === "seedance"
+    && usingPresetFlow
+    && advancedCreateModeUsesCharacterPresetReference()
+    && presetReferenceImages.length > 0;
+  const seedanceMode = presetReferenceMode ? "reference_images" : rawSeedanceMode;
+  if (presetReferenceMode && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
+  const referenceImages = presetReferenceMode
+    ? dedupeAdvancedReferenceImages([
+        ...presetReferenceImages,
+        ...(Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []),
+      ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT)
+    : selectedAdvancedReferenceImages();
   const seedanceVideoUrls = splitUrlList(els.advancedSeedanceVideoUrls?.value || "");
   const seedanceAudioUrls = splitUrlList(els.advancedSeedanceAudioUrls?.value || "");
   const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0;
@@ -9676,13 +9687,7 @@ async function submitAdvancedGenerate() {
         endImageDataUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameDataUrl : undefined,
         endImageUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameUrl : undefined,
         referenceImages: provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode)
-          ? dedupeAdvancedReferenceImages([
-              ...(presetReferenceImages.length ? presetReferenceImages : []),
-              ...referenceImages,
-            ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT).map(seedanceImageRefPayload)
-          : undefined,
-        extraReferenceImages: supplementalPresetReferenceImages.length
-          ? supplementalPresetReferenceImages.map(seedanceImageRefPayload)
+          ? referenceImages.map(seedanceImageRefPayload)
           : undefined,
         referenceVideoAssetId: provider === "seedance" ? (state.advancedSeedanceVideoAssetId || "") : undefined,
         referenceAudioAssetId: provider === "seedance" ? (state.advancedAudioAssetId || "") : undefined,
