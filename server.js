@@ -8235,11 +8235,35 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
       continue;
     }
     if (item.dataUrl) {
-      assets.push(await createUserAssetFromDataUrl(db, user, {
-        dataUrl: item.dataUrl,
-        fileName: item.fileName || "",
-        name: item.name || `${name} ${index + 1}`,
-      }));
+      const rawDataUrl = String(item.dataUrl || "").trim();
+      const dataImageUrl = rawDataUrl.startsWith("/") ? publicUrlForAssetPath(rawDataUrl) : rawDataUrl;
+      if (isPublicHttpUrl(dataImageUrl)) {
+        const downloaded = await downloadRemoteFileToBuffer(dataImageUrl, {
+          label: `reference image ${index + 1}`,
+          maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+          timeoutMs: 120000,
+        });
+        const pathname = new URL(dataImageUrl).pathname;
+        const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : imageMimeFromKnownPath(pathname);
+        if (!String(mime || "").startsWith("image/") || !["image/jpeg", "image/png", "image/webp", "image/bmp"].includes(mime)) {
+          const error = new Error("Reference image URL must point to an image file.");
+          error.statusCode = 400;
+          throw error;
+        }
+        assets.push(await createUserMediaAssetFromBytes(db, user, {
+          bytes: downloaded.bytes,
+          mime,
+          fileName: item.fileName || path.basename(pathname) || "",
+          name: item.name || `${name} ${index + 1}`,
+          maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+        }));
+      } else {
+        assets.push(await createUserAssetFromDataUrl(db, user, {
+          dataUrl: rawDataUrl,
+          fileName: item.fileName || "",
+          name: item.name || `${name} ${index + 1}`,
+        }));
+      }
     } else if (item.url || item.imageUrl) {
       const rawImageUrl = String(item.url || item.imageUrl || "").trim();
       const imageUrl = rawImageUrl.startsWith("/") ? publicUrlForAssetPath(rawImageUrl) : rawImageUrl;
