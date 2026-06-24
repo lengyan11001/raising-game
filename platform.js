@@ -5161,6 +5161,53 @@ function presetPromptText(item = {}) {
   return String(item.prompt || item.description || item.label || "").trim();
 }
 
+function advancedPresetReferenceImage(slot = "", item = selectedAdvancedPreset(slot)) {
+  if (!slot || !item) return null;
+  const url = presetImageUrl(item);
+  if (!url) return null;
+  return {
+    dataUrl: url,
+    url,
+    imageUrl: url,
+    fileName: `${item.id || slot}.jpg`,
+    name: `${advancedPresetLabel(slot)}: ${item.label || slot}`,
+    presetSlot: slot,
+    fromPreset: true,
+  };
+}
+
+function advancedPresetReferenceImages() {
+  return ADVANCED_PRESET_SLOT_ORDER
+    .map((slot) => advancedPresetReferenceImage(slot))
+    .filter(Boolean)
+    .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+}
+
+function advancedPresetSupplementalReferenceImages(seedanceMode = "") {
+  const refs = advancedPresetReferenceImages();
+  if (!seedanceModeNeedsFirstFrame(seedanceMode)) return refs;
+  return refs.filter((item) => item.presetSlot !== "character");
+}
+
+function advancedPresetImageRolePrompt() {
+  const refs = advancedPresetReferenceImages();
+  if (!refs.length) return "";
+  const roles = {
+    character: "character identity and first-frame subject",
+    action: "action, pose, and motion direction",
+    outfit: "outfit and styling",
+    scene: "environment, lighting, and background",
+  };
+  const lines = refs.map((item, index) => (
+    `Image ${index + 1}: ${roles[item.presetSlot] || item.presetSlot} reference (${item.name || item.label || item.presetSlot}).`
+  ));
+  return [
+    "Follow the selected reference images exactly for their roles.",
+    ...lines,
+    "Do not ignore the action or scene references when composing the video.",
+  ].join(" ");
+}
+
 function renderAdvancedPresetBuilder() {
   if (!els.advancedPresetBuilder) return;
   const hidden = state.advancedCreateKind === "custom";
@@ -5319,7 +5366,7 @@ function advancedPresetPromptParts() {
   const action = selectedAdvancedPreset("action");
   const outfit = selectedAdvancedPreset("outfit");
   const scene = selectedAdvancedPreset("scene");
-  const parts = [];
+  const parts = [advancedPresetImageRolePrompt()];
   if (character) parts.push(`Character: ${character.label}. ${presetPromptText(character)}`);
   if (action) parts.push(`Action: ${presetPromptText(action)}`);
   if (outfit) parts.push(`Outfit: ${presetPromptText(outfit)}`);
@@ -9519,6 +9566,8 @@ async function submitAdvancedGenerate() {
   const mediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const referenceImages = selectedAdvancedReferenceImages();
+  const presetReferenceImages = usingPresetFlow && provider === "seedance" ? advancedPresetReferenceImages() : [];
+  const supplementalPresetReferenceImages = usingPresetFlow && provider === "seedance" ? advancedPresetSupplementalReferenceImages(seedanceMode) : [];
   const seedanceVideoUrls = splitUrlList(els.advancedSeedanceVideoUrls?.value || "");
   const seedanceAudioUrls = splitUrlList(els.advancedSeedanceAudioUrls?.value || "");
   const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0;
@@ -9626,7 +9675,15 @@ async function submitAdvancedGenerate() {
         lastFrameAssetId: provider === "wan27" ? (state.advancedWanLastFrameAssetId || "") : provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : "",
         endImageDataUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameDataUrl : undefined,
         endImageUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameUrl : undefined,
-        referenceImages: provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? referenceImages.map(seedanceImageRefPayload) : undefined,
+        referenceImages: provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode)
+          ? dedupeAdvancedReferenceImages([
+              ...(presetReferenceImages.length ? presetReferenceImages : []),
+              ...referenceImages,
+            ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT).map(seedanceImageRefPayload)
+          : undefined,
+        extraReferenceImages: supplementalPresetReferenceImages.length
+          ? supplementalPresetReferenceImages.map(seedanceImageRefPayload)
+          : undefined,
         referenceVideoAssetId: provider === "seedance" ? (state.advancedSeedanceVideoAssetId || "") : undefined,
         referenceAudioAssetId: provider === "seedance" ? (state.advancedAudioAssetId || "") : undefined,
         referenceVideoUrls: provider === "seedance" ? seedanceVideoUrls : undefined,
