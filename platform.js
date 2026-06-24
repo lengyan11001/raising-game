@@ -5172,8 +5172,10 @@ function advancedPresetReferenceImage(slot = "", item = selectedAdvancedPreset(s
     imageUrl: url,
     fileName: `${item.id || slot}.jpg`,
     name: `${advancedPresetLabel(slot)}: ${item.label || slot}`,
+    presetId: item.id || "",
     presetSlot: slot,
     fromPreset: true,
+    sourceUrl: url,
   };
 }
 
@@ -9852,14 +9854,22 @@ function advancedSeedanceImageRefsFromState() {
 
 function seedanceImageRefPayload(item = {}) {
   if (item.assetId) return { assetId: item.assetId, dataUrl: "", url: "", fileName: item.fileName || "", name: item.name || "" };
+  const meta = {
+    fileName: item.fileName || "",
+    name: item.name || "",
+    presetId: item.presetId || "",
+    presetSlot: item.presetSlot || "",
+    fromPreset: Boolean(item.fromPreset),
+    sourceUrl: item.sourceUrl || item.url || item.imageUrl || item.dataUrl || "",
+  };
   if (item.assetUri || item.referenceAssetUri) {
     const assetUri = item.assetUri || item.referenceAssetUri;
-    return { assetUri, referenceAssetUri: assetUri, dataUrl: "", url: "", fileName: item.fileName || "", name: item.name || "" };
+    return { assetUri, referenceAssetUri: assetUri, dataUrl: "", url: "", ...meta };
   }
-  if (item.url || item.imageUrl) return { url: absoluteHttpUrl(item.url || item.imageUrl), dataUrl: "", fileName: item.fileName || "", name: item.name || "" };
+  if (item.url || item.imageUrl) return { url: absoluteHttpUrl(item.url || item.imageUrl), dataUrl: "", ...meta };
   const imageUrl = absoluteHttpUrl(item.dataUrl || item.previewUrl || "");
-  if (imageUrl) return { url: imageUrl, dataUrl: "", fileName: item.fileName || "", name: item.name || "" };
-  return { dataUrl: item.dataUrl || "", url: "", fileName: item.fileName || "", name: item.name || "" };
+  if (imageUrl) return { url: imageUrl, dataUrl: "", ...meta };
+  return { dataUrl: item.dataUrl || "", url: "", ...meta };
 }
 
 function recordParams(record = {}) {
@@ -10499,7 +10509,8 @@ function dedupeAdvancedReferenceImages(images = []) {
   const seen = new Set();
   return images.filter((item) => {
     const assetUri = item?.assetUri || item?.referenceAssetUri || "";
-    const key = item?.assetId ? `asset:${item.assetId}` : assetUri ? `asset-uri:${assetUri}` : item?.url ? `url:${item.url}` : `${item?.fileName || ""}::${item?.dataUrl || ""}`;
+    const sourceUrl = item?.sourceUrl || "";
+    const key = item?.assetId ? `asset:${item.assetId}` : assetUri ? `asset-uri:${assetUri}` : sourceUrl ? `source:${sourceUrl}` : item?.url ? `url:${item.url}` : `${item?.fileName || ""}::${item?.dataUrl || ""}`;
     if ((!item?.dataUrl && !item?.assetId && !assetUri && !item?.url) || seen.has(key)) return false;
     seen.add(key);
     return true;
