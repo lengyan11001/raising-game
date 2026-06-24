@@ -2255,13 +2255,21 @@ main {
 }
 .advanced-preset-modal form {
   width: min(980px, calc(100vw - 32px));
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.advanced-preset-modal .modal-body {
+  max-height: min(74vh, 760px);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .advanced-preset-toolbar {
   position: sticky;
   top: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: 1fr minmax(220px, 280px);
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 280px);
   gap: 12px;
   align-items: center;
   padding-bottom: 12px;
@@ -2310,8 +2318,9 @@ main {
 }
 .advanced-preset-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 10px;
+  min-width: 0;
 }
 .advanced-preset-card {
   position: relative;
@@ -2355,6 +2364,7 @@ main {
   line-height: 1.05;
   text-align: left;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 .advanced-preset-card.is-active {
   border-color: #ff49ad;
