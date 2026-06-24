@@ -159,6 +159,10 @@ function advancedCreateModeNeedsVideoUpload() {
   return state.advancedCreateKind === "video" && state.advancedCreateMode === "video-edit";
 }
 
+function advancedCreateModeUsesCharacterPresetReference(mode = state.advancedCreateMode) {
+  return state.advancedCreateKind === "video" && ["video-text", "video-image"].includes(mode);
+}
+
 function advancedCreateModeAcceptsVideoUpload(mode = state.advancedCreateMode) {
   return state.advancedCreateKind === "video" && ["video-edit", "video-extend", "video-replace"].includes(mode);
 }
@@ -5099,7 +5103,27 @@ function selectedAdvancedPreset(slot = "") {
 function clearAdvancedPreset(slot = "") {
   if (!slot) return;
   state.advancedSelectedPresets = { ...(state.advancedSelectedPresets || {}), [slot]: null };
+  if (slot === "character") clearAdvancedCharacterPresetReference();
   renderAdvancedPresetBuilder();
+}
+
+function clearAdvancedCharacterPresetReference() {
+  const refs = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
+  const removedActivePresetRef = refs.some((item) => item?.fromPreset && item.dataUrl === state.advancedUploadDataUrl);
+  const nextRefs = refs.filter((item) => !item?.fromPreset);
+  state.advancedReferenceImages = nextRefs;
+  if (removedActivePresetRef || !nextRefs.length) state.advancedUploadDataUrl = nextRefs[0]?.dataUrl || "";
+  if (!nextRefs.length) {
+    state.advancedFirstFrameAssetId = "";
+    state.advancedSourceImageAssetId = "";
+  } else if (currentAdvancedProvider() === "wan27-image-edit") {
+    state.advancedSourceImageAssetId = nextRefs[0]?.assetId || "";
+    state.advancedFirstFrameAssetId = "";
+  } else {
+    state.advancedFirstFrameAssetId = nextRefs[0]?.assetId || "";
+    state.advancedSourceImageAssetId = "";
+  }
+  updateAdvancedModelControls();
 }
 
 function resetAdvancedPresets() {
@@ -9182,10 +9206,11 @@ function updateAdvancedModelControls() {
   });
   renderAdvancedAssetTargets();
   if (els.advancedUploadBox) {
-    els.advancedUploadBox.hidden = !advancedCreateModeNeedsVideoUpload() && (
+    const hidePresetReferenceUpload = advancedCreateModeUsesCharacterPresetReference();
+    els.advancedUploadBox.hidden = hidePresetReferenceUpload || (!advancedCreateModeNeedsVideoUpload() && (
       (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
       (provider === "seedance" && seedanceMode === "text_to_video")
-    );
+    ));
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
@@ -9390,6 +9415,10 @@ async function submitAdvancedGenerate() {
   if (!state.user) return openLogin();
   const promptInput = els.advancedPrompt?.value.trim() || "";
   const usingPresetFlow = state.advancedCreateKind !== "custom";
+  if (usingPresetFlow && nonCustomAdvancedNeedsCharacterImage() && !selectedAdvancedPreset("character")) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.characterRequired");
+    return;
+  }
   if (usingPresetFlow && !selectedAdvancedPreset("action")) {
     if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.actionRequired");
     return;
