@@ -106,6 +106,7 @@
               <div class="advanced-create-kind-tabs" id="advancedCreateKindTabs" role="tablist" aria-label="Create type"></div>
               <div class="advanced-create-mode-tabs" id="advancedCreateModeTabs" role="tablist" aria-label="Create mode"></div>
             </div>
+            <div class="advanced-preset-builder" id="advancedPresetBuilder" aria-label="Generation presets"></div>
             <label class="field advanced-prompt-field">
               <span data-i18n="field.prompt">Prompt</span>
               <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..." data-i18n-placeholder="advanced.promptPlaceholder"></textarea>
@@ -594,6 +595,28 @@
               <button class="copy-btn" id="topupSubmitHashBtn" type="button"><i data-lucide="badge-check"></i><span data-i18n="topup.submitConfirmation">Submit confirmation</span></button>
             </div>
           </section>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="advancedPresetDialog" class="modal advanced-preset-modal">
+      <form method="dialog">
+        <header>
+          <div>
+            <span id="advancedPresetDialogKicker">Preset</span>
+            <strong id="advancedPresetDialogTitle">Choose</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body">
+          <div class="advanced-preset-toolbar">
+            <div class="advanced-preset-categories" id="advancedPresetCategories"></div>
+            <label class="advanced-preset-search">
+              <i data-lucide="search"></i>
+              <input id="advancedPresetSearch" type="search" placeholder="Search..." />
+            </label>
+          </div>
+          <div class="advanced-preset-grid" id="advancedPresetGrid"></div>
         </div>
       </form>
     </dialog>

@@ -15432,6 +15432,8 @@ async function handleWan27ImageEdit(req, res) {
     prompt,
     finalPrompt: prompt,
     params: {
+      ...plainObject(bodyParams),
+      ...plainObject(body.params),
       provider: "wan27-image",
       action: previewUrls.length ? "image_edit" : "text_to_image",
       imageCount: previewUrls.length,

@@ -22,6 +22,8 @@ assets/generated/characters/ruoxi/
 assets/ourdream/*
 !assets/ourdream/imported-character-registry.json
 !assets/ourdream/imported-character-list.md
+!assets/ourdream/presets/
+!assets/ourdream/presets/**
 last_submit_prompt.txt
 LOCAL_CREDENTIALS.md
 scripts/fyshark_*
