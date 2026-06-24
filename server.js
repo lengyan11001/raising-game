@@ -8215,7 +8215,7 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
     const item = inputs[index];
     if (!item) continue;
     if (typeof item === "string") {
-      const text = item.trim();
+      const text = item.trim().startsWith("/") ? publicUrlForAssetPath(item.trim()) : item.trim();
       if (!text || text.startsWith("asset://")) continue;
       if (isPublicHttpUrl(text)) {
         const pathname = new URL(text).pathname;
@@ -8241,7 +8241,8 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
         name: item.name || `${name} ${index + 1}`,
       }));
     } else if (item.url || item.imageUrl) {
-      const imageUrl = String(item.url || item.imageUrl || "").trim();
+      const rawImageUrl = String(item.url || item.imageUrl || "").trim();
+      const imageUrl = rawImageUrl.startsWith("/") ? publicUrlForAssetPath(rawImageUrl) : rawImageUrl;
       if (!isPublicHttpUrl(imageUrl)) {
         const error = new Error("Reference image URL must be a public http(s) URL.");
         error.statusCode = 400;
