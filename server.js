@@ -5867,6 +5867,35 @@ async function createUserAssetFromDataUrl(db, user, { dataUrl, name = "Upload", 
   });
 }
 
+function normalizedAssetSourceUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text.startsWith("/") ? publicUrlForAssetPath(text) : text);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return text;
+  }
+}
+
+function findUserAssetBySourceUrl(db, user, sourceUrl = "") {
+  const normalized = normalizedAssetSourceUrl(sourceUrl);
+  if (!normalized) return null;
+  return (db.userAssets || []).find((asset) => {
+    if (!asset || asset.userId !== user.id || isSoftDeleted(asset)) return false;
+    return [asset.sourceUrl, asset.originalUrl, asset.publicUrl, asset.localUrl]
+      .map(normalizedAssetSourceUrl)
+      .some((candidate) => candidate && candidate === normalized);
+  }) || null;
+}
+
+function isAutoPresetReferenceAsset(asset = {}) {
+  if (asset.hidden || asset.meta?.fromPreset) return true;
+  const name = String(asset.name || "").trim().toLowerCase();
+  return /^(character|action|outfit|scene)-[a-z0-9_-]+\.(jpg|jpeg|png|webp)$/i.test(name);
+}
+
 async function createUserWanMediaAssetFromDataUrl(db, user, { dataUrl, name = "Wan media", fileName = "" } = {}) {
   const { mime, bytes } = decodeWanMediaDataUrl(dataUrl);
   const isImage = mime.startsWith("image/");
@@ -5879,12 +5908,34 @@ async function createUserWanMediaAssetFromDataUrl(db, user, { dataUrl, name = "W
   });
 }
 
-async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload", fileName = "", durationSeconds = 0 } = {}) {
+async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload", fileName = "", durationSeconds = 0, sourceUrl = "", hidden = false, meta = {} } = {}) {
   const mediaUrl = String(url || "").trim();
   if (!isPublicHttpUrl(mediaUrl)) {
     const error = new Error("Asset URL must be a public http(s) URL.");
     error.statusCode = 400;
     throw error;
+  }
+  let existing = findUserAssetBySourceUrl(db, user, sourceUrl || mediaUrl);
+  if (!existing && hidden) {
+    const reusableName = String(fileName || path.basename(new URL(mediaUrl).pathname) || "").trim().toLowerCase();
+    existing = (db.userAssets || []).find((asset) => (
+      asset
+      && asset.userId === user.id
+      && !isSoftDeleted(asset)
+      && isAutoPresetReferenceAsset(asset)
+      && reusableName
+      && String(asset.name || "").trim().toLowerCase() === reusableName
+    )) || null;
+  }
+  if (existing) {
+    if (!hidden && existing.hidden) {
+      existing.hidden = false;
+      existing.updatedAt = new Date().toISOString();
+      db.userAssets = (db.userAssets || []).map((entry) => (entry.id === existing.id ? existing : entry));
+      if (dbEnabled()) await upsertUserAssetInDb(existing);
+      else await writeDb(db);
+    }
+    return existing;
   }
   const fallbackName = path.basename(new URL(mediaUrl).pathname) || "";
   const downloaded = await downloadRemoteFileToBuffer(mediaUrl, {
@@ -5922,7 +5973,7 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
     throw error;
   }
   const maxBytes = mime.startsWith("image/") ? IMAGE_UPLOAD_MAX_BYTES : MEDIA_UPLOAD_MAX_BYTES;
-  return createUserMediaAssetFromBytes(db, user, {
+  const asset = await createUserMediaAssetFromBytes(db, user, {
     bytes: downloaded.bytes,
     mime,
     name,
@@ -5930,6 +5981,15 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
     maxBytes,
     durationSeconds,
   });
+  asset.sourceUrl = normalizedAssetSourceUrl(sourceUrl || mediaUrl);
+  asset.hidden = Boolean(hidden);
+  const currentMeta = asset.meta && typeof asset.meta === "object" && !Array.isArray(asset.meta) ? asset.meta : {};
+  asset.meta = { ...currentMeta, ...(meta || {}) };
+  asset.updatedAt = new Date().toISOString();
+  db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(db);
+  return asset;
 }
 
 function execFileJson(command, args, options = {}) {
@@ -8223,6 +8283,7 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
           url: text,
           fileName: path.basename(pathname) || "",
           name: `${name} ${index + 1}`,
+          sourceUrl: text,
         });
         validateWan27MediaKind(asset, "image", `${name} ${index + 1}`);
         assets.push(asset);
@@ -8237,26 +8298,23 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
     if (item.dataUrl) {
       const rawDataUrl = String(item.dataUrl || "").trim();
       const dataImageUrl = rawDataUrl.startsWith("/") ? publicUrlForAssetPath(rawDataUrl) : rawDataUrl;
+      const itemSourceUrl = String(item.sourceUrl || item.originalUrl || dataImageUrl || "").trim();
       if (isPublicHttpUrl(dataImageUrl)) {
-        const downloaded = await downloadRemoteFileToBuffer(dataImageUrl, {
-          label: `reference image ${index + 1}`,
-          maxBytes: IMAGE_UPLOAD_MAX_BYTES,
-          timeoutMs: 120000,
-        });
         const pathname = new URL(dataImageUrl).pathname;
-        const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : imageMimeFromKnownPath(pathname);
-        if (!String(mime || "").startsWith("image/") || !["image/jpeg", "image/png", "image/webp", "image/bmp"].includes(mime)) {
-          const error = new Error("Reference image URL must point to an image file.");
-          error.statusCode = 400;
-          throw error;
-        }
-        assets.push(await createUserMediaAssetFromBytes(db, user, {
-          bytes: downloaded.bytes,
-          mime,
+        const asset = await createUserMediaAssetFromPublicUrl(db, user, {
+          url: dataImageUrl,
           fileName: item.fileName || path.basename(pathname) || "",
           name: item.name || `${name} ${index + 1}`,
-          maxBytes: IMAGE_UPLOAD_MAX_BYTES,
-        }));
+          sourceUrl: itemSourceUrl || dataImageUrl,
+          hidden: Boolean(item.fromPreset),
+          meta: {
+            fromPreset: Boolean(item.fromPreset),
+            presetId: item.presetId || "",
+            presetSlot: item.presetSlot || "",
+          },
+        });
+        validateWan27MediaKind(asset, "image", `${name} ${index + 1}`);
+        assets.push(asset);
       } else {
         assets.push(await createUserAssetFromDataUrl(db, user, {
           dataUrl: rawDataUrl,
@@ -8272,25 +8330,21 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
         error.statusCode = 400;
         throw error;
       }
-      const downloaded = await downloadRemoteFileToBuffer(imageUrl, {
-        label: `reference image ${index + 1}`,
-        maxBytes: IMAGE_UPLOAD_MAX_BYTES,
-        timeoutMs: 120000,
-      });
       const pathname = new URL(imageUrl).pathname;
-      const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : imageMimeFromKnownPath(pathname);
-      if (!String(mime || "").startsWith("image/") || !["image/jpeg", "image/png", "image/webp", "image/bmp"].includes(mime)) {
-        const error = new Error("Reference image URL must point to an image file.");
-        error.statusCode = 400;
-        throw error;
-      }
-      assets.push(await createUserMediaAssetFromBytes(db, user, {
-        bytes: downloaded.bytes,
-        mime,
+      const asset = await createUserMediaAssetFromPublicUrl(db, user, {
+        url: imageUrl,
         fileName: item.fileName || path.basename(pathname) || "",
         name: item.name || `${name} ${index + 1}`,
-        maxBytes: IMAGE_UPLOAD_MAX_BYTES,
-      }));
+        sourceUrl: item.sourceUrl || item.originalUrl || imageUrl,
+        hidden: Boolean(item.fromPreset),
+        meta: {
+          fromPreset: Boolean(item.fromPreset),
+          presetId: item.presetId || "",
+          presetSlot: item.presetSlot || "",
+        },
+      });
+      validateWan27MediaKind(asset, "image", `${name} ${index + 1}`);
+      assets.push(asset);
     } else if (item.assetId) {
       const asset = (db.userAssets || []).find((entry) => entry.id === String(item.assetId || "").trim() && entry.userId === user.id && !isSoftDeleted(entry));
       if (!asset) {
@@ -15921,7 +15975,7 @@ async function handleListUserAssets(req, res, url = null) {
   const type = String(params.get("type") || "").trim().toLowerCase();
   const { page, limit, offset } = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 8, maxLimit: 50 });
   const filtered = auth.db.userAssets
-    .filter((asset) => asset.userId === auth.user.id && !isSoftDeleted(asset))
+    .filter((asset) => asset.userId === auth.user.id && !isSoftDeleted(asset) && !isAutoPresetReferenceAsset(asset))
     .map(publicUserAsset)
     .filter((asset) => !type || asset.kind === type)
     .filter((asset) => !q || [asset.name, asset.id, asset.mime].some((value) => String(value || "").toLowerCase().includes(q)))
