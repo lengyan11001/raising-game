@@ -5912,6 +5912,31 @@ async function requestJson(url, options = {}) {
   return payload;
 }
 
+let googleAnalyticsMeasurementId = "";
+
+function initGoogleAnalytics(measurementId = "") {
+  const id = String(measurementId || "").trim();
+  if (!/^G-[A-Z0-9]+$/i.test(id) || googleAnalyticsMeasurementId === id) return;
+  googleAnalyticsMeasurementId = id;
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = window.gtag || function gtag() { window.dataLayer.push(arguments); };
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}`;
+  document.head.appendChild(script);
+  window.gtag("js", new Date());
+  window.gtag("config", id, { send_page_view: false });
+}
+
+function trackGooglePageView() {
+  if (!googleAnalyticsMeasurementId || typeof window.gtag !== "function") return;
+  window.gtag("event", "page_view", {
+    page_title: document.title || "Vipeak AI",
+    page_location: window.location.href,
+    page_path: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+  });
+}
+
 function setTab(tab) {
   let nextTab = normalizePlatformTab(tab);
   if (!isTabAllowed(nextTab)) nextTab = DEFAULT_PLATFORM_TAB;
@@ -5964,6 +5989,7 @@ function setTab(tab) {
     if (state.advancedSideTab === "result" && state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1000, force: true });
   }
   closeAccountMenu();
+  trackGooglePageView();
 }
 
 function setCategory(category) {
@@ -11719,6 +11745,7 @@ async function bootstrap() {
   await loadMe();
   const payload = await requestJson("/api/config/public");
   const platform = payload.config?.platform || {};
+  initGoogleAnalytics(platform.analytics?.googleMeasurementId || platform.googleMeasurementId || "");
   state.config = payload.config;
   state.wallet = payload.config?.wallet || null;
   ensureSelectedWalletOption();
