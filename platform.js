@@ -9794,7 +9794,9 @@ function seedanceImageRefPayload(item = {}) {
     const assetUri = item.assetUri || item.referenceAssetUri;
     return { assetUri, referenceAssetUri: assetUri, dataUrl: "", url: "", fileName: item.fileName || "", name: item.name || "" };
   }
-  if (item.url || item.imageUrl) return { url: item.url || item.imageUrl, dataUrl: "", fileName: item.fileName || "", name: item.name || "" };
+  if (item.url || item.imageUrl) return { url: absoluteHttpUrl(item.url || item.imageUrl), dataUrl: "", fileName: item.fileName || "", name: item.name || "" };
+  const imageUrl = absoluteHttpUrl(item.dataUrl || item.previewUrl || "");
+  if (imageUrl) return { url: imageUrl, dataUrl: "", fileName: item.fileName || "", name: item.name || "" };
   return { dataUrl: item.dataUrl || "", url: "", fileName: item.fileName || "", name: item.name || "" };
 }
 
