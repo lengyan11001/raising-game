@@ -2253,16 +2253,25 @@ main {
   font-size: 1.05rem;
   line-height: 1;
 }
-.advanced-preset-modal form {
+.modal.advanced-preset-modal {
   width: min(980px, calc(100vw - 32px));
   max-width: calc(100vw - 24px);
   box-sizing: border-box;
   overflow: hidden;
 }
+.advanced-preset-modal form {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
 .advanced-preset-modal .modal-body {
+  width: 100%;
+  min-width: 0;
   max-height: min(74vh, 760px);
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .advanced-preset-toolbar {
   position: sticky;
@@ -2275,12 +2284,22 @@ main {
   padding-bottom: 12px;
   background: var(--surface);
 }
+.advanced-preset-toolbar,
+.advanced-preset-categories,
+.advanced-preset-search,
+.advanced-preset-grid {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
 .advanced-preset-categories {
   display: flex;
   gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  overflow-x: hidden;
+  flex-wrap: wrap;
+  scrollbar-width: none;
 }
+.advanced-preset-categories::-webkit-scrollbar { display: none; }
 .advanced-preset-category {
   flex: 0 0 auto;
   border: 0;
@@ -2320,7 +2339,9 @@ main {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 10px;
+  width: 100%;
   min-width: 0;
+  overflow-x: clip;
 }
 .advanced-preset-card {
   position: relative;
@@ -3108,9 +3129,15 @@ select option:checked {
   color: var(--text);
   background: #ffffff;
   box-shadow: var(--shadow);
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 .modal::backdrop { background: rgba(0,0,0,.68); backdrop-filter: blur(8px); }
-.modal form { margin: 0; }
+.modal form {
+  min-width: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
 .modal header {
   display: flex;
   justify-content: space-between;
@@ -3127,7 +3154,13 @@ select option:checked {
   color: var(--text);
   background: rgba(17,29,53,.04);
 }
-.modal-body { display: grid; gap: 16px; padding: 22px; }
+.modal-body {
+  display: grid;
+  min-width: 0;
+  box-sizing: border-box;
+  gap: 16px;
+  padding: 22px;
+}
 .legal-modal {
   width: min(860px, calc(100vw - 28px));
 }
