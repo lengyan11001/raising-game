@@ -5207,6 +5207,9 @@ function advancedPresetImageRolePrompt() {
   return [
     "Follow the selected reference images exactly for their roles.",
     ...lines,
+    "Image 1 is the highest-priority character identity reference. The final video must use Image 1 for the main subject's face, identity, hairstyle, body type, and overall character consistency.",
+    "Use later reference images only for their assigned role: action references only for pose and motion, outfit references only for clothing and styling, and scene references only for environment, lighting, and background.",
+    "Do not copy faces, identities, body types, or extra people from the action, outfit, or scene reference images unless they are explicitly described in the prompt.",
     "Do not ignore the action or scene references when composing the video.",
   ].join(" ");
 }
