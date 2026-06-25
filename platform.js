@@ -4,6 +4,7 @@ const TOKEN_KEY = "raisingGameToken";
 const LANG_KEY = "raisingGameLanguage";
 const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";
+const AGE_GATE_ACCEPTED_KEY = "raisingGameAgeGateAccepted";
 const ALL_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
@@ -3831,6 +3832,14 @@ function showAgeForbidden() {
 
 function ensureAgeGate() {
   if (!els.ageGate || !els.ageGateConfirmBtn || !els.ageGateDeclineBtn) return Promise.resolve(true);
+  if (localStorage.getItem(AGE_GATE_ACCEPTED_KEY) === "1") {
+    state.ageGateDecision = "accepted";
+    document.body.classList.add("age-gate-accepted");
+    document.body.classList.remove("age-gate-denied", "age-gate-locked");
+    if (els.ageGate) els.ageGate.hidden = true;
+    if (els.ageForbidden) els.ageForbidden.hidden = true;
+    return Promise.resolve(true);
+  }
   if (state.ageGateDecision === "accepted") return Promise.resolve(true);
   if (state.ageGateDecision === "denied") return Promise.resolve(false);
 
@@ -3845,6 +3854,9 @@ function ensureAgeGate() {
 
     const onConfirm = () => {
       state.ageGateDecision = "accepted";
+      try {
+        localStorage.setItem(AGE_GATE_ACCEPTED_KEY, "1");
+      } catch (error) {}
       document.body.classList.add("age-gate-accepted");
       document.body.classList.remove("age-gate-denied", "age-gate-locked");
       els.ageGate.hidden = true;
