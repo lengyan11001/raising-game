@@ -33,15 +33,16 @@ body.age-gate-locked {
   overflow: hidden;
 }
 
+body.age-gate-accepted .age-gate,
+body.age-gate-denied .age-gate {
+  display: none;
+}
+
 body.age-gate-locked .side-rail,
 body.age-gate-locked .site-head,
 body.age-gate-locked main {
   visibility: hidden;
   pointer-events: none;
-}
-
-body.age-gate-denied .age-gate {
-  display: none;
 }
 
 body.age-gate-denied .side-rail,
