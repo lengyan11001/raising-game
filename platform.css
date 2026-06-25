@@ -29,6 +29,98 @@ body {
   overflow-x: hidden;
 }
 
+body.age-gate-locked {
+  overflow: hidden;
+}
+
+body.age-gate-locked .side-rail,
+body.age-gate-locked .site-head,
+body.age-gate-locked main {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body.age-gate-denied .age-gate {
+  display: none;
+}
+
+body.age-gate-denied .side-rail,
+body.age-gate-denied .site-head,
+body.age-gate-denied main {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.age-gate,
+.age-forbidden {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(120% 120% at 50% 20%, rgba(255, 79, 163, 0.2), rgba(9, 9, 12, 0.98) 54%);
+  backdrop-filter: blur(14px);
+}
+
+.age-gate-card,
+.age-forbidden-card {
+  width: min(100%, 440px);
+  padding: 28px 24px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(28, 28, 33, 0.98), rgba(16, 16, 20, 0.98));
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.age-gate-pill,
+.age-forbidden-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 62px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(255, 79, 163, 0.16);
+  color: var(--cyan);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.age-gate-card h1,
+.age-forbidden-card strong {
+  display: block;
+  margin: 18px 0 10px;
+  font-size: 1.35rem;
+  line-height: 1.25;
+}
+
+.age-gate-card p,
+.age-forbidden-card p,
+.age-forbidden-card small {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.age-gate-actions {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.age-gate-secondary,
+.age-gate-primary {
+  width: 100%;
+  justify-content: center;
+}
+
+.age-forbidden-card {
+  display: grid;
+  gap: 10px;
+}
+
 @media (min-width: 1440px) {
   body {
     padding-left: 248px;

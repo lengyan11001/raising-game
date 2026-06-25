@@ -307,6 +307,7 @@ const state = {
   apiSubtokensLoaded: false,
   apiSubtokenMessage: "",
   createdApiSubtoken: null,
+  ageGateDecision: null,
 };
 
 function tenantFeature(name, fallback = true) {
@@ -322,6 +323,10 @@ function isTabAllowed(tab) {
 const els = {
   brandName: document.querySelector("#brandName"),
   languageSelect: document.querySelector("#languageSelect"),
+  ageGate: document.querySelector("#ageGate"),
+  ageGateConfirmBtn: document.querySelector("#ageGateConfirmBtn"),
+  ageGateDeclineBtn: document.querySelector("#ageGateDeclineBtn"),
+  ageForbidden: document.querySelector("#ageForbidden"),
   categoryRow: document.querySelector("#categoryRow"),
   galleryModeTabs: document.querySelector("#galleryModeTabs"),
   templateGrid: document.querySelector("#templateGrid"),
@@ -3814,6 +3819,49 @@ if (!SUPPORTED_LANGS.has(state.lang)) state.lang = "en";
 
 function refreshIcons() {
   window.lucide?.createIcons();
+}
+
+function showAgeForbidden() {
+  state.ageGateDecision = "denied";
+  document.body.classList.add("age-gate-denied");
+  document.body.classList.remove("age-gate-accepted", "age-gate-locked");
+  if (els.ageGate) els.ageGate.hidden = true;
+  if (els.ageForbidden) els.ageForbidden.hidden = false;
+}
+
+function ensureAgeGate() {
+  if (!els.ageGate || !els.ageGateConfirmBtn || !els.ageGateDeclineBtn) return Promise.resolve(true);
+  if (state.ageGateDecision === "accepted") return Promise.resolve(true);
+  if (state.ageGateDecision === "denied") return Promise.resolve(false);
+
+  els.ageGate.hidden = false;
+  if (els.ageForbidden) els.ageForbidden.hidden = true;
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      els.ageGateConfirmBtn.removeEventListener("click", onConfirm);
+      els.ageGateDeclineBtn.removeEventListener("click", onDecline);
+    };
+
+    const onConfirm = () => {
+      state.ageGateDecision = "accepted";
+      document.body.classList.add("age-gate-accepted");
+      document.body.classList.remove("age-gate-denied", "age-gate-locked");
+      els.ageGate.hidden = true;
+      if (els.ageForbidden) els.ageForbidden.hidden = true;
+      cleanup();
+      resolve(true);
+    };
+
+    const onDecline = () => {
+      cleanup();
+      showAgeForbidden();
+      resolve(false);
+    };
+
+    els.ageGateConfirmBtn.addEventListener("click", onConfirm, { once: true });
+    els.ageGateDeclineBtn.addEventListener("click", onDecline, { once: true });
+  });
 }
 
 function isInteractiveTarget(target) {
@@ -11774,6 +11822,12 @@ async function bootstrap() {
   loadPlatformEstimates();
 }
 
+async function startPlatform() {
+  const allowed = await ensureAgeGate();
+  if (!allowed) return;
+  await bootstrap();
+}
+
 document.querySelectorAll("[data-tab]").forEach((button) => {
   button.addEventListener("click", () => setTab(button.dataset.tab));
 });
@@ -12164,6 +12218,6 @@ els.menuLogoutBtn?.addEventListener("click", logout);
 
 applyLanguage();
 
-bootstrap().catch((error) => {
+startPlatform().catch((error) => {
   document.body.insertAdjacentHTML("beforeend", `<div class="job-note" style="position:fixed;left:20px;bottom:20px;background:#11182b;padding:14px 16px;border-radius:14px;">${escapeHtml(error.message)}</div>`);
 });

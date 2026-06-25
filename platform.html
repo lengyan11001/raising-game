@@ -4,10 +4,31 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="stylesheet" href="./platform.css?v=ai-182" />
+    <link rel="stylesheet" href="./platform.css?v=ai-183" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
-  <body>
+  <body class="age-gate-locked">
+    <section id="ageGate" class="age-gate" role="dialog" aria-modal="true" aria-labelledby="ageGateTitle">
+      <div class="age-gate-card">
+        <span class="age-gate-pill">18+</span>
+        <h1 id="ageGateTitle">仅限 18 岁及以上访问</h1>
+        <p>进入前请确认你已年满 18 岁。未满 18 岁请直接退出。</p>
+        <div class="age-gate-actions">
+          <button id="ageGateDeclineBtn" class="secondary-btn age-gate-secondary" type="button">未满 18 岁，退出</button>
+          <button id="ageGateConfirmBtn" class="primary-btn age-gate-primary" type="button">我已年满 18 岁，进入</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="ageForbidden" class="age-forbidden" hidden aria-live="polite">
+      <div class="age-forbidden-card">
+        <span class="age-forbidden-code">403</span>
+        <strong>访问已拒绝</strong>
+        <p>仅限 18 岁及以上用户进入。</p>
+        <small>刷新页面会再次出现年龄确认。</small>
+      </div>
+    </section>
+
     <div class="aurora aurora-a"></div>
     <div class="aurora aurora-b"></div>
 
@@ -707,6 +728,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-184"></script>
+    <script src="./platform.js?v=ai-185"></script>
   </body>
 </html>

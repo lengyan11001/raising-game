@@ -714,7 +714,7 @@ function sendText(res, statusCode, body, { cacheControl = "no-cache", head = fal
   res.end(head ? undefined : text);
 }
 
-function sendHtml(res, statusCode, body, { cacheControl = "public, max-age=300", head = false } = {}) {
+function sendHtml(res, statusCode, body, { cacheControl = "no-store", head = false } = {}) {
   const html = String(body ?? "");
   res.writeHead(statusCode, {
     "content-type": "text/html; charset=utf-8",
