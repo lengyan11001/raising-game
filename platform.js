@@ -5,7 +5,7 @@ const LANG_KEY = "raisingGameLanguage";
 const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";
 const AGE_GATE_ACCEPTED_KEY = "raisingGameAgeGateAccepted";
-const ALL_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
+const ALL_TABS = new Set(["gallery", "characters", "advanced", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 15;
@@ -94,6 +94,202 @@ const CHARACTER_SORT_OPTIONS = [
   { id: "videos", label: "Most videos" },
   { id: "newest", label: "Newest" },
 ];
+const CHARACTER_CREATOR_ASSET_BASE = "/assets/ourdream/creator/";
+const CHARACTER_CREATOR_STEPS = [
+  { id: "style", icon: "user-round" },
+  { id: "general", icon: "badge" },
+  { id: "face", icon: "smile" },
+  { id: "body", icon: "person-standing" },
+  { id: "details", icon: "file-text" },
+  { id: "prompt", icon: "image" },
+];
+const CHARACTER_CREATOR_DEFAULT = {
+  step: "style",
+  gender: "female",
+  style: "realistic",
+  ethnicity: "white",
+  skinTone: "bronze",
+  hairStyle: "long_straight",
+  eyeColor: "blue",
+  hairColor: "blonde",
+  bodyType: "curvy",
+  breastSize: "medium",
+  buttSize: "athletic",
+  name: "",
+  age: 23,
+  voice: "hottie",
+  personality: "charming",
+  occupation: "adult_film_actor",
+  relationship: "fling",
+  hobby: "none",
+  fetish: "none",
+  customPhysicalDetails: "",
+  customFaceDetails: "",
+  prompt: "",
+};
+const CHARACTER_CREATOR_OPTIONS = {
+  gender: [
+    { id: "female", label: "Female", zh: "女", prompt: "female" },
+    { id: "male", label: "Male", zh: "男", prompt: "male" },
+    { id: "trans", label: "Trans", zh: "跨性别", prompt: "transgender" },
+  ],
+  style: [
+    { id: "realistic", label: "Realistic", zh: "写实", prompt: "photorealistic", image: "style-realistic.webp" },
+    { id: "anime", label: "Anime", zh: "二次元", prompt: "anime-inspired", image: "style-anime.webp" },
+  ],
+  ethnicity: [
+    { id: "asian", label: "Asian", zh: "亚洲人", prompt: "Asian", image: "ethnicity-asian.webp" },
+    { id: "african", label: "Black", zh: "黑人", prompt: "Black", image: "ethnicity-african.webp" },
+    { id: "white", label: "White", zh: "白人", prompt: "White", image: "ethnicity-white.webp" },
+    { id: "latina", label: "Latina", zh: "拉丁裔", prompt: "Latina", image: "ethnicity-latina.webp" },
+    { id: "arab", label: "Arab", zh: "阿拉伯人", prompt: "Arab", image: "ethnicity-arab.webp" },
+    { id: "indian", label: "Indian", zh: "印度人", prompt: "Indian", image: "ethnicity-indian.webp" },
+    { id: "japanese", label: "Japanese", zh: "日本人", prompt: "Japanese", image: "ethnicity-japanese.webp" },
+    { id: "elf", label: "Elf", zh: "精灵", prompt: "elf fantasy", image: "ethnicity-elf.webp" },
+    { id: "alien", label: "Alien", zh: "外星人", prompt: "alien fantasy", image: "ethnicity-alien.webp" },
+    { id: "demon", label: "Demon", zh: "恶魔", prompt: "demon fantasy", image: "ethnicity-demon.webp" },
+    { id: "angel", label: "Angel", zh: "天使", prompt: "angel fantasy", image: "ethnicity-angel.webp" },
+    { id: "custom", label: "Custom", zh: "自定义", prompt: "", image: "custom.webp" },
+  ],
+  skinTone: [
+    { id: "fair", label: "Fair", zh: "白皙", prompt: "fair skin", color: "#ffe4d2" },
+    { id: "light", label: "Light", zh: "浅色", prompt: "light skin", color: "#ffd7b6" },
+    { id: "olive", label: "Olive", zh: "橄榄色", prompt: "olive skin", color: "#e6ad74" },
+    { id: "bronze", label: "Bronze", zh: "古铜色", prompt: "bronze skin", color: "#d88952" },
+    { id: "dark", label: "Dark", zh: "深色", prompt: "dark skin", color: "#ba6938" },
+    { id: "deep", label: "Deep", zh: "更深色", prompt: "deep dark skin", color: "#7f3b25" },
+  ],
+  hairStyle: [
+    { id: "braided", label: "Braided", zh: "编发", prompt: "braided hair", image: "hair-braided.webp" },
+    { id: "long_straight", label: "Long Straight", zh: "长发", prompt: "long straight hair", image: "hair-long-straight.webp" },
+    { id: "bangs", label: "Bangs", zh: "刘海", prompt: "bangs hairstyle", image: "hair-bangs.webp" },
+    { id: "ponytail", label: "Ponytail", zh: "马尾", prompt: "ponytail", image: "hair-ponytail.webp" },
+    { id: "short", label: "Short", zh: "短发", prompt: "short hair", image: "hair-short.webp" },
+    { id: "bun", label: "Bun", zh: "发髻", prompt: "hair bun", image: "hair-bun.webp" },
+    { id: "twin_buns", label: "Twin Buns", zh: "双丸子头", prompt: "twin buns", image: "hair-twin-buns.webp" },
+    { id: "wavy", label: "Wavy", zh: "波浪卷", prompt: "wavy hair", image: "hair-wavy.webp" },
+    { id: "pixie", label: "Pixie", zh: "精灵短发", prompt: "pixie cut", image: "hair-pixie.webp" },
+    { id: "custom", label: "Custom", zh: "自定义", prompt: "", image: "custom.webp" },
+  ],
+  eyeColor: [
+    { id: "black", label: "Black", zh: "黑色", prompt: "black eyes", color: "#202020" },
+    { id: "brown", label: "Brown", zh: "棕色", prompt: "brown eyes", color: "#b76635" },
+    { id: "red", label: "Red", zh: "红色", prompt: "red eyes", color: "#ff6868" },
+    { id: "gold", label: "Gold", zh: "金色", prompt: "gold eyes", color: "#f4d77f" },
+    { id: "green", label: "Green", zh: "绿色", prompt: "green eyes", color: "#a6d9a8" },
+    { id: "blue", label: "Blue", zh: "蓝色", prompt: "blue eyes", color: "#7fc4f1" },
+    { id: "purple", label: "Purple", zh: "紫色", prompt: "purple eyes", color: "#b292ea" },
+    { id: "pink", label: "Pink", zh: "粉色", prompt: "pink eyes", color: "#f4a3ce" },
+    { id: "white", label: "White", zh: "白色", prompt: "white eyes", color: "#f8f8f8" },
+    { id: "silver", label: "Silver", zh: "银色", prompt: "silver eyes", color: "#cbd2dc" },
+  ],
+  hairColor: [
+    { id: "black", label: "Black", zh: "黑色", prompt: "black hair", color: "#202020" },
+    { id: "brown", label: "Brown", zh: "棕色", prompt: "brown hair", color: "#b76635" },
+    { id: "red", label: "Red", zh: "红色", prompt: "red hair", color: "#ff6868" },
+    { id: "blonde", label: "Blonde", zh: "金色", prompt: "blonde hair", color: "#f4d77f" },
+    { id: "green", label: "Green", zh: "绿色", prompt: "green hair", color: "#a6d9a8" },
+    { id: "blue", label: "Blue", zh: "蓝色", prompt: "blue hair", color: "#7fc4f1" },
+    { id: "purple", label: "Purple", zh: "紫色", prompt: "purple hair", color: "#b292ea" },
+    { id: "pink", label: "Pink", zh: "粉色", prompt: "pink hair", color: "#f4a3ce" },
+    { id: "white", label: "White", zh: "白色", prompt: "white hair", color: "#f8f8f8" },
+    { id: "silver", label: "Silver", zh: "银色", prompt: "silver hair", color: "#cbd2dc" },
+  ],
+  bodyType: [
+    { id: "slim", label: "Slim", zh: "纤瘦型", prompt: "slim body", image: "body-slim.webp" },
+    { id: "athletic", label: "Athletic", zh: "运动型", prompt: "athletic body", image: "body-athletic.webp" },
+    { id: "voluptuous", label: "Voluptuous", zh: "丰满型", prompt: "voluptuous body", image: "body-voluptuous.webp" },
+    { id: "curvy", label: "Curvy", zh: "曲线型", prompt: "curvy body", image: "body-curvy.webp" },
+    { id: "muscular", label: "Muscular", zh: "肌肉型", prompt: "muscular body", image: "body-muscular.webp" },
+  ],
+  breastSize: [
+    { id: "flat", label: "Flat", zh: "平胸", prompt: "flat chest", image: "breast-flat.webp" },
+    { id: "small", label: "Small", zh: "小", prompt: "small chest", image: "breast-small.webp" },
+    { id: "medium", label: "Medium", zh: "中", prompt: "medium chest", image: "breast-medium.webp" },
+    { id: "large", label: "Large", zh: "大", prompt: "large chest", image: "breast-large.webp" },
+    { id: "extra_large", label: "Extra Large", zh: "超大", prompt: "extra large chest", image: "breast-extra-large.webp" },
+  ],
+  buttSize: [
+    { id: "small", label: "Small", zh: "小", prompt: "small hips", image: "butt-small.webp" },
+    { id: "slim", label: "Slim", zh: "瘦", prompt: "slim hips", image: "butt-slim.webp" },
+    { id: "athletic", label: "Athletic", zh: "运动型", prompt: "athletic hips", image: "butt-athletic.webp" },
+    { id: "medium", label: "Medium", zh: "中", prompt: "medium hips", image: "butt-medium.webp" },
+    { id: "large", label: "Large", zh: "大", prompt: "large hips", image: "butt-large.webp" },
+  ],
+  voice: [
+    { id: "hottie", label: "Hottie", zh: "Hottie", prompt: "Hottie voice" },
+    { id: "asmr", label: "ASMR", zh: "ASMR", prompt: "ASMR voice" },
+    { id: "aurora", label: "Aurora", zh: "Aurora", prompt: "Aurora voice" },
+    { id: "honey", label: "Honey", zh: "Honey", prompt: "Honey voice" },
+    { id: "playful", label: "Playful", zh: "Playful", prompt: "playful voice" },
+    { id: "seductive", label: "Seductive", zh: "Seductive", prompt: "seductive voice" },
+  ],
+  personality: [
+    { id: "flirty", label: "Flirty", zh: "调情", prompt: "flirty personality" },
+    { id: "seductive", label: "Seductive", zh: "诱人", prompt: "seductive personality" },
+    { id: "shy", label: "Shy", zh: "害羞", prompt: "shy personality" },
+    { id: "sweet", label: "Sweet", zh: "甜美", prompt: "sweet personality" },
+    { id: "playful", label: "Playful", zh: "爱玩", prompt: "playful personality" },
+    { id: "passionate", label: "Passionate", zh: "热情", prompt: "passionate personality" },
+    { id: "adventurous", label: "Adventurous", zh: "爱冒险", prompt: "adventurous personality" },
+    { id: "confident", label: "Confident", zh: "自信", prompt: "confident personality" },
+    { id: "charming", label: "Charming", zh: "有魅力", prompt: "charming personality" },
+    { id: "witty", label: "Witty", zh: "机智", prompt: "witty personality" },
+    { id: "dominant", label: "Dominant", zh: "主导", prompt: "dominant personality" },
+    { id: "submissive", label: "Submissive", zh: "顺从", prompt: "submissive personality" },
+    { id: "mischievous", label: "Mischievous", zh: "调皮", prompt: "mischievous personality" },
+    { id: "caring", label: "Caring", zh: "关爱", prompt: "caring personality" },
+    { id: "tsundere", label: "Tsundere", zh: "傲娇", prompt: "tsundere personality" },
+    { id: "mysterious", label: "Mysterious", zh: "神秘", prompt: "mysterious personality" },
+    { id: "intellectual", label: "Intellectual", zh: "知性", prompt: "intellectual personality" },
+  ],
+  occupation: [
+    { id: "none", label: "None", zh: "无", prompt: "" },
+    { id: "adult_film_actor", label: "Adult Film Actor", zh: "成人电影演员", prompt: "adult film actor" },
+    { id: "companion", label: "Companion", zh: "陪伴者", prompt: "companion" },
+    { id: "stripper", label: "Stripper", zh: "脱衣舞者", prompt: "stripper" },
+    { id: "teacher", label: "Teacher", zh: "老师", prompt: "teacher" },
+    { id: "lingerie_model", label: "Lingerie Model", zh: "内衣模特", prompt: "lingerie model" },
+    { id: "influencer", label: "Influencer", zh: "社交媒体达人", prompt: "social media influencer" },
+    { id: "doctor", label: "Doctor", zh: "医生", prompt: "doctor" },
+    { id: "gamer", label: "Professional Gamer", zh: "职业玩家", prompt: "professional gamer" },
+    { id: "dominatrix", label: "Dominatrix", zh: "女王", prompt: "dominatrix" },
+    { id: "artist", label: "Artist", zh: "艺术家", prompt: "artist" },
+    { id: "nurse", label: "Nurse", zh: "护士", prompt: "nurse" },
+    { id: "streamer", label: "Streamer", zh: "网络主播", prompt: "streamer" },
+    { id: "warrior", label: "Warrior", zh: "战士", prompt: "warrior" },
+    { id: "lawyer", label: "Lawyer", zh: "律师", prompt: "lawyer" },
+    { id: "entrepreneur", label: "Entrepreneur", zh: "创业者", prompt: "entrepreneur" },
+    { id: "athlete", label: "Athlete", zh: "运动员", prompt: "athlete" },
+  ],
+  relationship: [
+    { id: "none", label: "None", zh: "无", prompt: "" },
+    { id: "stranger", label: "Stranger", zh: "陌生人", prompt: "a stranger" },
+    { id: "friend", label: "Friend", zh: "朋友", prompt: "a friend" },
+    { id: "fling", label: "Fling", zh: "短暂恋情", prompt: "a short romantic fling" },
+    { id: "girlfriend", label: "Girlfriend", zh: "女朋友", prompt: "girlfriend" },
+    { id: "wife", label: "Wife", zh: "妻子", prompt: "wife" },
+    { id: "crush", label: "Crush", zh: "暗恋对象", prompt: "crush" },
+  ],
+  hobby: [
+    { id: "none", label: "None", zh: "无", prompt: "" },
+    { id: "fitness", label: "Fitness", zh: "健身", prompt: "fitness" },
+    { id: "dancing", label: "Dancing", zh: "跳舞", prompt: "dancing" },
+    { id: "gaming", label: "Gaming", zh: "游戏", prompt: "gaming" },
+    { id: "fashion", label: "Fashion", zh: "时尚", prompt: "fashion" },
+    { id: "travel", label: "Travel", zh: "旅行", prompt: "travel" },
+    { id: "music", label: "Music", zh: "音乐", prompt: "music" },
+    { id: "art", label: "Art", zh: "艺术", prompt: "art" },
+  ],
+  fetish: [
+    { id: "none", label: "None", zh: "无", prompt: "" },
+    { id: "roleplay", label: "Roleplay", zh: "角色扮演", prompt: "roleplay theme" },
+    { id: "cosplay", label: "Cosplay", zh: "Cosplay", prompt: "cosplay theme" },
+    { id: "romance", label: "Romance", zh: "浪漫", prompt: "romantic theme" },
+    { id: "dominance", label: "Dominance", zh: "支配", prompt: "dominance theme" },
+    { id: "submission", label: "Submission", zh: "顺从", prompt: "submission theme" },
+  ],
+};
 const ADVANCED_CASE_TABS = [
   { id: "characters", labelKey: "nav.gallery" },
   { id: "hot", labelKey: "advanced.caseTab.hot" },
@@ -217,6 +413,7 @@ const state = {
   galleryMode: DEFAULT_GALLERY_MODE,
   characterSource: "system",
   characterFilters: { sort: "recommended", tag: "", gender: "", style: "", age: "", q: "" },
+  characterCreator: { ...CHARACTER_CREATOR_DEFAULT },
   category: "all",
   homeCharacters: [],
   activeGalleryCharacterId: "",
@@ -333,6 +530,7 @@ const els = {
   templateGrid: document.querySelector("#templateGrid"),
   characterGrid: document.querySelector("#characterGrid"),
   characterSourceTabs: document.querySelector("#characterSourceTabs"),
+  characterCreatorRoot: document.querySelector("#characterCreatorRoot"),
   characterCreatePrompt: document.querySelector("#characterCreatePrompt"),
   characterCreateBtn: document.querySelector("#characterCreateBtn"),
   characterCreateCost: document.querySelector("#characterCreateCost"),
@@ -6680,14 +6878,284 @@ async function deleteCustomCharacter(characterId = "", button = null) {
   }
 }
 
+function characterCreatorOption(field = "", value = "") {
+  return (CHARACTER_CREATOR_OPTIONS[field] || []).find((item) => item.id === value) || null;
+}
+
+function characterCreatorLabel(item = {}) {
+  return state.lang === "zh" ? (item.zh || item.label || item.id || "") : (item.label || item.zh || item.id || "");
+}
+
+function characterCreatorFieldLabel(field = "") {
+  const labels = {
+    style: ["Style", "风格"],
+    gender: ["Gender", "性别"],
+    ethnicity: ["Ethnicity", "种族"],
+    skinTone: ["Skin tone", "肤色"],
+    hairStyle: ["Hair style", "发型"],
+    eyeColor: ["Eye color", "眼睛颜色"],
+    hairColor: ["Hair color", "头发颜色"],
+    bodyType: ["Body type", "体型"],
+    breastSize: ["Chest size", "胸部大小"],
+    buttSize: ["Hip size", "臀部大小"],
+    name: ["Character name", "角色名称"],
+    age: ["Age", "年龄"],
+    voice: ["Voice", "声音"],
+    personality: ["Personality", "个性"],
+    occupation: ["Occupation", "职业"],
+    relationship: ["Relationship", "关系"],
+    hobby: ["Hobby", "爱好"],
+    fetish: ["Preference", "偏好"],
+    customPhysicalDetails: ["Appearance details", "自定义外貌细节"],
+    customFaceDetails: ["Face details", "自定义面部细节"],
+  };
+  const pair = labels[field] || [field, field];
+  return state.lang === "zh" ? pair[1] : pair[0];
+}
+
+function characterCreatorCopy(key = "") {
+  const copy = {
+    eyebrow: ["Create character", "创建角色"],
+    title: ["Dream AI character", "创建你的梦想 AI 角色"],
+    subtitle: ["Choose the look and details, then generate a reusable character image.", "选择外观和细节，生成可复用角色图。"],
+    next: ["Next", "下一步"],
+    back: ["Back", "上一步"],
+    generate: ["Generate", "生成角色"],
+    aiPrompt: ["Optional custom prompt", "自定义提示词（可选）"],
+    aiPromptPlaceholder: ["Describe extra face, outfit, mood, lighting, or anything not covered above.", "补充面部、服装、气质、光线或上面没有覆盖的细节。"],
+    customPhysicalPlaceholder: ["Body, outfit, tattoos, accessories...", "身体、服装、纹身、配饰..."],
+    customFacePlaceholder: ["Face shape, makeup, expression...", "脸型、妆容、表情..."],
+    previewTitle: ["Prompt preview", "提示词预览"],
+  };
+  const pair = copy[key] || [key, key];
+  return state.lang === "zh" ? pair[1] : pair[0];
+}
+
+function characterCreatorAsset(fileName = "") {
+  return `${CHARACTER_CREATOR_ASSET_BASE}${encodeURIComponent(fileName)}`;
+}
+
+function selectedCharacterCreatorPrompts() {
+  const creator = state.characterCreator || CHARACTER_CREATOR_DEFAULT;
+  return [
+    ["gender", creator.gender],
+    ["style", creator.style],
+    ["ethnicity", creator.ethnicity],
+    ["skinTone", creator.skinTone],
+    ["hairStyle", creator.hairStyle],
+    ["eyeColor", creator.eyeColor],
+    ["hairColor", creator.hairColor],
+    ["bodyType", creator.bodyType],
+    ["breastSize", creator.breastSize],
+    ["buttSize", creator.buttSize],
+    ["personality", creator.personality],
+    ["occupation", creator.occupation],
+    ["relationship", creator.relationship],
+    ["hobby", creator.hobby],
+    ["fetish", creator.fetish],
+  ].map(([field, value]) => characterCreatorOption(field, value)?.prompt || "").filter(Boolean);
+}
+
+function buildCharacterCreatorPrompt() {
+  const creator = state.characterCreator || CHARACTER_CREATOR_DEFAULT;
+  const name = String(creator.name || "").trim();
+  const age = Math.max(18, Math.min(80, Number(creator.age) || 23));
+  return [
+    "Create one high quality adult character portrait",
+    name ? `character name: ${name}` : "",
+    `${age} years old`,
+    ...selectedCharacterCreatorPrompts(),
+    String(creator.customPhysicalDetails || "").trim(),
+    String(creator.customFaceDetails || "").trim(),
+    String(creator.prompt || "").trim(),
+    "solo character, clear face, detailed identity reference, polished lighting, no watermark, no text",
+  ].filter(Boolean).join(", ");
+}
+
+function renderCharacterCreatorSteps() {
+  const activeIndex = CHARACTER_CREATOR_STEPS.findIndex((step) => step.id === state.characterCreator.step);
+  return `
+    <div class="character-creator-steps">
+      ${CHARACTER_CREATOR_STEPS.map((step, index) => `
+        <button class="${index <= activeIndex ? "is-reachable" : ""} ${step.id === state.characterCreator.step ? "is-active" : ""}" data-creator-step="${escapeHtml(step.id)}" type="button" ${index > activeIndex ? "disabled" : ""}>
+          <i data-lucide="${escapeHtml(step.icon)}"></i>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCharacterCreatorSegment(field = "") {
+  const value = state.characterCreator[field];
+  return `
+    <div class="creator-segment">
+      ${(CHARACTER_CREATOR_OPTIONS[field] || []).map((item) => `
+        <button class="${value === item.id ? "is-active" : ""}" data-creator-set="${escapeHtml(field)}" data-creator-value="${escapeHtml(item.id)}" type="button">${escapeHtml(characterCreatorLabel(item))}</button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCharacterCreatorTiles(field = "") {
+  const value = state.characterCreator[field];
+  return `
+    <div class="creator-tile-grid">
+      ${(CHARACTER_CREATOR_OPTIONS[field] || []).map((item) => `
+        <button class="creator-tile ${value === item.id ? "is-active" : ""}" data-creator-set="${escapeHtml(field)}" data-creator-value="${escapeHtml(item.id)}" type="button">
+          ${item.image ? `<img src="${escapeHtml(characterCreatorAsset(item.image))}" alt="${escapeHtml(characterCreatorLabel(item))}" loading="lazy" />` : ""}
+          <span>${escapeHtml(characterCreatorLabel(item))}</span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCharacterCreatorSwatches(field = "") {
+  const value = state.characterCreator[field];
+  return `
+    <div class="creator-swatch-row">
+      ${(CHARACTER_CREATOR_OPTIONS[field] || []).map((item) => `
+        <button class="creator-swatch ${value === item.id ? "is-active" : ""}" data-creator-set="${escapeHtml(field)}" data-creator-value="${escapeHtml(item.id)}" type="button" title="${escapeHtml(characterCreatorLabel(item))}">
+          <span style="background:${escapeHtml(item.color || "#fff")}"></span>
+          <small>${escapeHtml(characterCreatorLabel(item))}</small>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCharacterCreatorChips(field = "") {
+  const value = state.characterCreator[field];
+  return `
+    <div class="creator-chip-row">
+      ${(CHARACTER_CREATOR_OPTIONS[field] || []).map((item) => `
+        <button class="${value === item.id ? "is-active" : ""}" data-creator-set="${escapeHtml(field)}" data-creator-value="${escapeHtml(item.id)}" type="button">${escapeHtml(characterCreatorLabel(item))}</button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCharacterCreatorField(field = "", content = "") {
+  return `<section class="creator-field"><h4>${escapeHtml(characterCreatorFieldLabel(field))}</h4>${content}</section>`;
+}
+
+function renderCharacterCreatorStepBody() {
+  const creator = state.characterCreator;
+  if (creator.step === "style") return `${renderCharacterCreatorSegment("gender")}${renderCharacterCreatorField("style", renderCharacterCreatorTiles("style"))}`;
+  if (creator.step === "general") return `${renderCharacterCreatorField("ethnicity", renderCharacterCreatorTiles("ethnicity"))}${renderCharacterCreatorField("skinTone", renderCharacterCreatorSwatches("skinTone"))}`;
+  if (creator.step === "face") return `${renderCharacterCreatorField("hairStyle", renderCharacterCreatorTiles("hairStyle"))}${renderCharacterCreatorField("eyeColor", renderCharacterCreatorSwatches("eyeColor"))}${renderCharacterCreatorField("hairColor", renderCharacterCreatorSwatches("hairColor"))}`;
+  if (creator.step === "body") return `${renderCharacterCreatorField("bodyType", renderCharacterCreatorTiles("bodyType"))}${renderCharacterCreatorField("breastSize", renderCharacterCreatorTiles("breastSize"))}${renderCharacterCreatorField("buttSize", renderCharacterCreatorTiles("buttSize"))}`;
+  if (creator.step === "details") {
+    return `
+      <div class="creator-inline-grid">
+        <label class="field"><span>${escapeHtml(characterCreatorFieldLabel("name"))}</span><input data-creator-input="name" type="text" value="${escapeHtml(creator.name || "")}" placeholder="${escapeHtml(characterCreatorFieldLabel("name"))}" /></label>
+        <label class="field"><span>${escapeHtml(characterCreatorFieldLabel("age"))}</span><input data-creator-input="age" type="number" min="18" max="80" value="${escapeHtml(creator.age)}" /></label>
+      </div>
+      ${renderCharacterCreatorField("voice", renderCharacterCreatorChips("voice"))}
+      ${renderCharacterCreatorField("personality", renderCharacterCreatorChips("personality"))}
+      ${renderCharacterCreatorField("occupation", renderCharacterCreatorChips("occupation"))}
+      ${renderCharacterCreatorField("relationship", renderCharacterCreatorChips("relationship"))}
+      ${renderCharacterCreatorField("hobby", renderCharacterCreatorChips("hobby"))}
+      ${renderCharacterCreatorField("fetish", renderCharacterCreatorChips("fetish"))}
+      <label class="field"><span>${escapeHtml(characterCreatorFieldLabel("customPhysicalDetails"))}</span><textarea data-creator-input="customPhysicalDetails" rows="3" placeholder="${escapeHtml(characterCreatorCopy("customPhysicalPlaceholder"))}">${escapeHtml(creator.customPhysicalDetails || "")}</textarea></label>
+      <label class="field"><span>${escapeHtml(characterCreatorFieldLabel("customFaceDetails"))}</span><textarea data-creator-input="customFaceDetails" rows="3" placeholder="${escapeHtml(characterCreatorCopy("customFacePlaceholder"))}">${escapeHtml(creator.customFaceDetails || "")}</textarea></label>
+    `;
+  }
+  return `
+    <label class="field"><span>${escapeHtml(characterCreatorCopy("aiPrompt"))}</span><textarea data-creator-input="prompt" rows="5" placeholder="${escapeHtml(characterCreatorCopy("aiPromptPlaceholder"))}">${escapeHtml(creator.prompt || "")}</textarea></label>
+    <div class="creator-prompt-preview"><strong>${escapeHtml(characterCreatorCopy("previewTitle"))}</strong><p>${escapeHtml(buildCharacterCreatorPrompt())}</p></div>
+  `;
+}
+
+function renderCharacterCreator() {
+  if (!els.characterCreatorRoot) return;
+  const currentIndex = Math.max(0, CHARACTER_CREATOR_STEPS.findIndex((step) => step.id === state.characterCreator.step));
+  const isFirst = currentIndex <= 0;
+  const isLast = currentIndex >= CHARACTER_CREATOR_STEPS.length - 1;
+  els.characterCreatorRoot.innerHTML = `
+    <div class="character-creator-head">
+      <span class="copy-kicker"><i data-lucide="sparkles"></i>${escapeHtml(characterCreatorCopy("eyebrow"))}</span>
+      <h3>${escapeHtml(characterCreatorCopy("title"))}</h3>
+      <p>${escapeHtml(characterCreatorCopy("subtitle"))}</p>
+    </div>
+    ${renderCharacterCreatorSteps()}
+    <div class="character-creator-body">${renderCharacterCreatorStepBody()}</div>
+    <p class="job-note" id="characterCreateCost">${escapeHtml(assetImageModifyCostLabel())}</p>
+    <div class="character-creator-actions">
+      <button class="ghost-button" data-creator-nav="back" type="button" ${isFirst ? "disabled" : ""}><i data-lucide="chevron-left"></i>${escapeHtml(characterCreatorCopy("back"))}</button>
+      <button class="generate-btn" id="characterCreateBtn" data-creator-submit="${isLast ? "true" : "false"}" data-creator-nav="${isLast ? "" : "next"}" type="button">
+        <i data-lucide="${isLast ? "wand-sparkles" : "chevron-right"}"></i><span>${escapeHtml(isLast ? characterCreatorCopy("generate") : characterCreatorCopy("next"))}</span>
+      </button>
+    </div>
+    <p class="job-note" id="characterCreateStatus"></p>
+  `;
+  els.characterCreateBtn = els.characterCreatorRoot.querySelector("#characterCreateBtn");
+  els.characterCreateCost = els.characterCreatorRoot.querySelector("#characterCreateCost");
+  els.characterCreateStatus = els.characterCreatorRoot.querySelector("#characterCreateStatus");
+  refreshIcons();
+}
+
+function updateCharacterCreatorInput(input) {
+  if (!input?.dataset?.creatorInput) return;
+  const field = input.dataset.creatorInput;
+  state.characterCreator[field] = field === "age" ? Math.max(18, Math.min(80, Number(input.value) || 23)) : (input.value || "");
+}
+
+function navigateCharacterCreator(direction = "next") {
+  const currentIndex = Math.max(0, CHARACTER_CREATOR_STEPS.findIndex((step) => step.id === state.characterCreator.step));
+  const nextIndex = direction === "back" ? Math.max(0, currentIndex - 1) : Math.min(CHARACTER_CREATOR_STEPS.length - 1, currentIndex + 1);
+  state.characterCreator.step = CHARACTER_CREATOR_STEPS[nextIndex].id;
+  renderCharacterCreator();
+}
+
+function bindCharacterCreatorEvents() {
+  if (!els.characterCreatorRoot || els.characterCreatorRoot.dataset.bound === "true") return;
+  els.characterCreatorRoot.dataset.bound = "true";
+  els.characterCreatorRoot.addEventListener("click", (event) => {
+    const setButton = event.target.closest("[data-creator-set]");
+    if (setButton) {
+      state.characterCreator[setButton.dataset.creatorSet || ""] = setButton.dataset.creatorValue || "";
+      renderCharacterCreator();
+      return;
+    }
+    const stepButton = event.target.closest("[data-creator-step]");
+    if (stepButton && !stepButton.disabled) {
+      state.characterCreator.step = stepButton.dataset.creatorStep || state.characterCreator.step;
+      renderCharacterCreator();
+      return;
+    }
+    const navButton = event.target.closest("[data-creator-nav]");
+    if (navButton && navButton.dataset.creatorNav) {
+      els.characterCreatorRoot.querySelectorAll("[data-creator-input]").forEach(updateCharacterCreatorInput);
+      navigateCharacterCreator(navButton.dataset.creatorNav);
+      return;
+    }
+    if (event.target.closest("[data-creator-submit='true']")) {
+      els.characterCreatorRoot.querySelectorAll("[data-creator-input]").forEach(updateCharacterCreatorInput);
+      createCharacterFromPrompt();
+    }
+  });
+  els.characterCreatorRoot.addEventListener("input", (event) => {
+    updateCharacterCreatorInput(event.target);
+    if (state.characterCreator.step === "prompt") {
+      const preview = els.characterCreatorRoot.querySelector(".creator-prompt-preview p");
+      if (preview) preview.textContent = buildCharacterCreatorPrompt();
+    }
+  });
+}
+
 function bindCharacterCreator() {
-  if (!els.characterCreateBtn) return;
+  if (els.characterCreatorRoot) {
+    renderCharacterCreator();
+    bindCharacterCreatorEvents();
+    return;
+  }
   if (els.characterCreateCost) els.characterCreateCost.textContent = assetImageModifyCostLabel();
 }
 
 async function createCharacterFromPrompt() {
   if (!state.user) return openLogin();
-  const prompt = els.characterCreatePrompt?.value.trim() || "";
+  const prompt = els.characterCreatorRoot ? buildCharacterCreatorPrompt() : (els.characterCreatePrompt?.value.trim() || "");
   if (!prompt) {
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("advanced.promptRequired");
     return;
@@ -6710,6 +7178,10 @@ async function createCharacterFromPrompt() {
       state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
     }
     if (els.characterCreatePrompt) els.characterCreatePrompt.value = "";
+    if (els.characterCreatorRoot) {
+      state.characterCreator = { ...CHARACTER_CREATOR_DEFAULT, step: "prompt" };
+      renderCharacterCreator();
+    }
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.created");
     await loadHistory({ silent: true }).catch(() => {});
   } catch (error) {
@@ -11840,8 +12312,10 @@ async function startPlatform() {
   await bootstrap();
 }
 
-document.querySelectorAll("[data-tab]").forEach((button) => {
-  button.addEventListener("click", () => setTab(button.dataset.tab));
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-tab]");
+  if (!button) return;
+  setTab(button.dataset.tab);
 });
 window.addEventListener("hashchange", () => setTab(window.location.hash));
 els.templateImage?.addEventListener("change", async () => {
