@@ -17859,6 +17859,95 @@ function adminWalletOrderView(order, userMap) {
   };
 }
 
+function adminRechargeLedgerRecordView(record = {}, userMap = new Map()) {
+  const user = userMap.get(record.userId) || {};
+  const source = record.source || record.kind || "";
+  const provider = record.paymentProvider || record.provider || "";
+  const credits = creditsAmount(record.credits ?? record.creditAmount ?? Math.abs(Number(record.delta || 0)));
+  return {
+    id: record.id || "",
+    source,
+    sourceLabel: source === "manual_admin" ? "后台手动加币" : "用户充值",
+    userId: record.userId || "",
+    username: record.username || user.username || "",
+    credits,
+    amountUsd: record.amountUsd ?? record.baseAmount ?? "",
+    payableAmount: record.payableAmount ?? "",
+    payableAmountText: record.payableAmountText || "",
+    asset: record.asset || "",
+    network: record.network || record.chain || "",
+    paymentProvider: provider,
+    transactionHash: record.transactionHash || record.txHash || "",
+    paypalOrderId: record.paypalOrderId || "",
+    adminUserId: record.adminUserId || "",
+    adminUsername: record.adminUsername || "",
+    note: record.note || "",
+    createdAt: record.createdAt || "",
+    paidAt: record.paidAt || "",
+  };
+}
+
+function adminRechargeLedgerRecords(db = {}) {
+  const users = Array.isArray(db.users) ? db.users : [];
+  const userMap = new Map(users.map((u) => [u.id, u]));
+  const paidOrders = (db.walletOrders || [])
+    .filter((order) => String(order.status || "").toLowerCase() === "paid")
+    .map((order) => adminRechargeLedgerRecordView({
+      id: order.id,
+      source: "user_topup",
+      userId: order.userId,
+      username: userMap.get(order.userId)?.username || order.username || "",
+      credits: order.creditAmount ?? order.packageCredits ?? Number(order.baseAmount || 0) * Number(order.creditsPerUsd || DEFAULT_CREDITS_PER_USD),
+      amountUsd: order.baseAmount,
+      payableAmount: order.payableAmount,
+      payableAmountText: order.payableAmountText,
+      asset: order.asset || order.currency || "",
+      network: order.network || order.chain || "",
+      paymentProvider: order.paymentProvider || (order.network === "PayPal" ? "paypal" : "manual"),
+      transactionHash: order.transactionHash || order.txHash || "",
+      paypalOrderId: order.paypalOrderId || "",
+      note: order.note || "",
+      createdAt: order.createdAt,
+      paidAt: order.paidAt || order.matchedAt || order.updatedAt || order.createdAt,
+    }, userMap));
+  const manualEntries = (db.creditLedger || [])
+    .filter((entry) => Number(entry.delta || 0) > 0)
+    .filter((entry) => ["admin_credit_add", "admin_credit_adjustment", "manual_credit_add", "manual_credit_adjustment"].includes(String(entry.type || "")))
+    .map((entry) => {
+      const meta = entry.meta && typeof entry.meta === "object" ? entry.meta : {};
+      return adminRechargeLedgerRecordView({
+        id: entry.id,
+        source: "manual_admin",
+        userId: entry.userId,
+        username: entry.username || userMap.get(entry.userId)?.username || "",
+        credits: entry.delta,
+        adminUserId: meta.adminUserId || "",
+        adminUsername: meta.adminUsername || "",
+        note: meta.note || meta.reason || entry.type || "",
+        createdAt: entry.createdAt,
+        paidAt: entry.createdAt,
+      }, userMap);
+    });
+  return [...paidOrders, ...manualEntries]
+    .sort((a, b) => String(b.paidAt || b.createdAt || "").localeCompare(String(a.paidAt || a.createdAt || "")));
+}
+
+function adminRechargeLedgerSummary(records = []) {
+  const userTopups = records.filter((entry) => entry.source === "user_topup");
+  const manualAdds = records.filter((entry) => entry.source === "manual_admin");
+  const sumCredits = (items) => creditsAmount(items.reduce((sum, item) => sum + Number(item.credits || 0), 0));
+  const sumUsd = (items) => creditsAmount(items.reduce((sum, item) => sum + Number(item.amountUsd || 0), 0));
+  return {
+    totalCount: records.length,
+    totalCredits: sumCredits(records),
+    userTopupCount: userTopups.length,
+    userTopupCredits: sumCredits(userTopups),
+    userTopupUsd: sumUsd(userTopups),
+    manualCount: manualAdds.length,
+    manualCredits: sumCredits(manualAdds),
+  };
+}
+
 function adminUserAssetView(asset, userMap) {
   if (!asset) return null;
   const user = userMap?.get(asset.userId);
@@ -17947,12 +18036,30 @@ async function handleAdminUpdateUser(req, res, userId) {
   if (!user) return sendJson(res, 404, { ok: false, message: "用户不存在。" });
   const body = await readJson(req);
   let changed = false;
-  if (typeof body.credits === "number" && Number.isFinite(body.credits)) {
-    user.credits = roundCredits(Math.max(0, Number(body.credits)), 6);
+  const adminCreditMeta = {
+    adminUserId: auth.user.id,
+    adminUsername: auth.user.username || "",
+    targetUserId: user.id,
+    targetUsername: user.username || "",
+    note: "Admin user credit adjustment",
+  };
+  if (typeof body.creditsDelta === "number" && Number.isFinite(body.creditsDelta) && Number(body.creditsDelta) !== 0) {
+    await changeUserCredits(auth.db, user.id, Number(body.creditsDelta), Number(body.creditsDelta) > 0 ? "admin_credit_add" : "admin_credit_adjustment", {
+      ...adminCreditMeta,
+      mode: "delta",
+    });
     changed = true;
-  } else if (typeof body.creditsDelta === "number" && Number.isFinite(body.creditsDelta)) {
-    user.credits = roundCredits(Math.max(0, Number(user.credits || 0) + Number(body.creditsDelta || 0)), 6);
-    changed = true;
+  } else if (typeof body.credits === "number" && Number.isFinite(body.credits)) {
+    const nextCredits = roundCredits(Math.max(0, Number(body.credits)), 6);
+    const delta = roundCredits(nextCredits - Number(user.credits || 0), 6);
+    if (delta !== 0) {
+      await changeUserCredits(auth.db, user.id, delta, delta > 0 ? "admin_credit_add" : "admin_credit_adjustment", {
+        ...adminCreditMeta,
+        mode: "set",
+        targetCredits: nextCredits,
+      });
+      changed = true;
+    }
   }
   if (typeof body.role === "string" && ["admin", "user"].includes(body.role)) {
     if (user.role === "admin" && body.role !== "admin") {
@@ -18221,6 +18328,47 @@ async function handleAdminListWalletOrders(req, res, url) {
   list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const paged = pagedResponse(list, paging);
   return sendJson(res, 200, { ok: true, orders: paged.items, page: paged.page, limit: paged.limit, total: paged.total, totalPages: paged.totalPages });
+}
+
+async function handleAdminListRechargeLedger(req, res, url) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 200 });
+  const source = String((url || new URL("http://localhost")).searchParams.get("source") || "").trim().toLowerCase();
+  const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
+  const fromDate = dateFromQuery((url || new URL("http://localhost")).searchParams.get("from"), false);
+  const toDate = dateFromQuery((url || new URL("http://localhost")).searchParams.get("to"), true);
+  let list = adminRechargeLedgerRecords(auth.db);
+  if (source) list = list.filter((entry) => String(entry.source || "").toLowerCase() === source);
+  if (fromDate || toDate) {
+    list = list.filter((entry) => recordInDateRange(entry.paidAt || entry.createdAt, fromDate, toDate));
+  }
+  if (query) {
+    list = list.filter((entry) => [
+      entry.id,
+      entry.username,
+      entry.userId,
+      entry.sourceLabel,
+      entry.paymentProvider,
+      entry.network,
+      entry.asset,
+      entry.transactionHash,
+      entry.paypalOrderId,
+      entry.adminUsername,
+      entry.note,
+    ].some((value) => String(value || "").toLowerCase().includes(query)));
+  }
+  const summary = adminRechargeLedgerSummary(list);
+  const paged = pagedResponse(list, paging);
+  return sendJson(res, 200, {
+    ok: true,
+    records: paged.items,
+    summary,
+    page: paged.page,
+    limit: paged.limit,
+    total: paged.total,
+    totalPages: paged.totalPages,
+  });
 }
 
 async function handleAdminUpdateWalletOrder(req, res, orderId) {
@@ -19358,6 +19506,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/wallet-orders") {
       return await handleAdminListWalletOrders(req, res, url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/recharge-ledger") {
+      return await handleAdminListRechargeLedger(req, res, url);
     }
 
     if (req.method === "POST" && url.pathname === "/api/admin/wallet-orders/scan") {
