@@ -411,7 +411,7 @@ const state = {
   estimates: {},
   tab: initialPlatformTab(),
   galleryMode: DEFAULT_GALLERY_MODE,
-  characterSource: "system",
+  characterSource: "custom",
   characterFilters: { sort: "recommended", tag: "", gender: "", style: "", age: "", q: "" },
   characterCreator: { ...CHARACTER_CREATOR_DEFAULT },
   category: "all",
@@ -838,12 +838,13 @@ const I18N = {
     "gallery.character.unlocking": "Unlocking...",
     "gallery.character.unlockFailed": "Unlock failed: {message}",
     "gallery.character.unlockReady": "Character videos unlocked.",
-    "characters.eyebrow": "Characters",
-    "characters.title": "Characters",
-    "characters.subtitle": "Use a maintained character or generate your own role image.",
+    "characters.eyebrow": "My characters",
+    "characters.title": "My characters",
+    "characters.subtitle": "Create and manage your own character images.",
     "characters.systemTab": "System Characters",
     "characters.customTab": "Custom Characters",
     "characters.customEmpty": "No custom characters yet. Create one from the panel on the right.",
+    "characters.customLogin": "Login to view your characters.",
     "characters.createEyebrow": "Create Image",
     "characters.createTitle": "Create character",
     "characters.createPlaceholder": "Describe the character's age, face, body, hairstyle, outfit and style...",
@@ -3581,12 +3582,13 @@ I18N.zh = {
   "gallery.character.unlocking": "解锁中...",
   "gallery.character.unlockFailed": "解锁失败",
   "gallery.character.unlockReady": "已解锁当前角色视频。",
-  "characters.eyebrow": "角色",
-  "characters.title": "角色库",
-  "characters.subtitle": "选择角色开始生成。",
+  "characters.eyebrow": "我的角色",
+  "characters.title": "我的角色",
+  "characters.subtitle": "创建并管理你自己的角色图片。",
   "characters.systemTab": "系统角色",
   "characters.customTab": "我的角色",
-  "characters.customEmpty": "暂无自定义角色",
+  "characters.customEmpty": "暂无我的角色。可以在右侧创建一个。",
+  "characters.customLogin": "登录后查看我的角色。",
   "characters.createEyebrow": "创建角色",
   "characters.createTitle": "创建角色",
   "characters.createPlaceholder": "描述角色外观和风格...",
@@ -6413,8 +6415,18 @@ function renderGalleryCases() {
 
 function renderGalleryCharacters(root = els.templateGrid) {
   if (!root) return;
-  renderCharacterSourceTabs();
-  const source = state.characterSource === "custom" ? "custom" : "system";
+  const myCharactersOnly = root === els.characterGrid;
+  if (myCharactersOnly) {
+    state.characterSource = "custom";
+    if (els.characterSourceTabs) {
+      els.characterSourceTabs.innerHTML = "";
+      els.characterSourceTabs.hidden = true;
+    }
+  } else {
+    if (els.characterSourceTabs) els.characterSourceTabs.hidden = false;
+    renderCharacterSourceTabs();
+  }
+  const source = myCharactersOnly || state.characterSource === "custom" ? "custom" : "system";
   const characters = source === "custom" ? customCharacterItems() : state.homeCharacters.filter((item) => item && !item.deletedAt);
   const activeCharacter = state.activeGalleryCharacterId
     ? characters.find((item) => String(item.id || "") === String(state.activeGalleryCharacterId || ""))
@@ -6427,7 +6439,9 @@ function renderGalleryCharacters(root = els.templateGrid) {
   root.className = "template-grid character-grid character-grid-main";
   const filteredCharacters = filterGalleryCharacters(characters);
   const filterBar = source === "system" ? renderCharacterFilterBar(characters, filteredCharacters.length) : "";
-  const emptyMessage = characters.length && !filteredCharacters.length
+  const emptyMessage = !state.user && source === "custom"
+    ? t("characters.customLogin")
+    : characters.length && !filteredCharacters.length
     ? "No characters match these filters."
     : source === "custom" ? t("characters.customEmpty") : t("gallery.character.empty");
   const visibleCount = Math.max(CHARACTER_PAGE_SIZE, Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE));
