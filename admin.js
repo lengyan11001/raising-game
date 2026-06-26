@@ -36,11 +36,10 @@ const ROUTES = [
   { id: "platform", title: "首页广场", render: renderPlatform },
   { id: "advanced-cases", title: "高级案例", render: renderAdvancedCases },
   { id: "characters", title: "角色管理", render: renderCharacters },
-  { id: "videos", title: "视频管理", render: renderVideos },
   { id: "records", title: "生成记录", render: renderGenerationRecords },
-  { id: "scenes", title: "场景管理", render: renderScenes },
   { id: "users", title: "用户管理", render: renderUsers },
   { id: "support", title: "站内信", render: renderSupportMessages },
+  { id: "recharges", title: "充值流水", render: renderRecharges },
   { id: "wallet", title: "钱包订单", render: renderWallet },
   { id: "pricing", title: "价格配置", render: renderPricing },
   { id: "config", title: "系统配置", render: renderConfig },
@@ -2467,6 +2466,92 @@ async function deleteUser(id, users) {
   await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE" });
   toast("已删除。", "success");
   renderUsers();
+}
+
+/* ============ RECHARGES ============ */
+async function renderRecharges(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admRechargePager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const source = sessionStorage.getItem("admRechargeSource") || "";
+  const q = sessionStorage.getItem("admRechargeQuery") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (source) params.set("source", source);
+  if (q) params.set("q", q);
+  const payload = await api(`/api/admin/recharge-ledger?${params.toString()}`);
+  if (!isActiveRoute("recharges")) return;
+  const records = payload.records || [];
+  const summary = payload.summary || {};
+  sessionStorage.setItem("admRechargePager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>充值流水</h2>
+          <p class="adm-muted">统计已成功充值的用户订单，以及后台手动给用户增加的积分。</p>
+        </div>
+      </div>
+      <div class="adm-stats">
+        ${statCard("成功流水", summary.totalCount || 0, `${summary.totalCredits || 0} credits`, "receipt-text", "rose")}
+        ${statCard("用户充值", summary.userTopupCount || 0, `${summary.userTopupCredits || 0} credits · $${summary.userTopupUsd || 0}`, "wallet-cards", "mint")}
+        ${statCard("后台加币", summary.manualCount || 0, `${summary.manualCredits || 0} credits`, "user-plus", "amber")}
+      </div>
+      <div class="adm-card adm-mt">
+        <div class="adm-card-head">
+          <div>
+            <h3>流水明细</h3>
+            <p class="adm-muted">只展示成功入账记录。待支付订单仍在「钱包订单」处理。</p>
+          </div>
+          <div class="adm-actions">
+            <select id="rechargeSourceFilter" class="adm-select">
+              <option value="" ${source === "" ? "selected" : ""}>全部来源</option>
+              <option value="user_topup" ${source === "user_topup" ? "selected" : ""}>用户充值</option>
+              <option value="manual_admin" ${source === "manual_admin" ? "selected" : ""}>后台手动加币</option>
+            </select>
+            <input id="rechargeSearchInput" class="adm-input" value="${escapeHtml(q)}" placeholder="搜索用户 / 订单 / hash / 备注" />
+            <button class="adm-btn adm-btn-ghost" id="rechargeSearchBtn" type="button"><i data-lucide="search"></i>查询</button>
+          </div>
+        </div>
+        <div class="adm-card-body adm-table-wrap">
+          ${records.length ? `
+            <table class="adm-table adm-recharge-table">
+              <thead><tr><th>来源</th><th>用户</th><th>入账积分</th><th>支付金额</th><th>支付 / 操作信息</th><th>时间</th><th>备注</th></tr></thead>
+              <tbody>
+                ${records.map((r) => `
+                  <tr>
+                    <td><span class="adm-pill ${r.source === "manual_admin" ? "is-admin" : ""}">${escapeHtml(r.sourceLabel || r.source)}</span><br/><span class="adm-muted adm-mono">${escapeHtml(r.id)}</span></td>
+                    <td><strong>${escapeHtml(r.username || r.userId)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.userId || "")}</span></td>
+                    <td><strong>${escapeHtml(r.credits || 0)}</strong></td>
+                    <td>${r.source === "user_topup" ? `<strong>$${escapeHtml(r.amountUsd || "")}</strong><br/><span class="adm-muted">${escapeHtml(r.payableAmountText || r.payableAmount || "")} ${escapeHtml(r.asset || "")}</span>` : `<span class="adm-muted">-</span>`}</td>
+                    <td class="adm-truncate">
+                      ${r.source === "manual_admin"
+                        ? `<strong>${escapeHtml(r.adminUsername || r.adminUserId || "admin")}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.adminUserId || "")}</span>`
+                        : `<strong>${escapeHtml(r.paymentProvider || "")}</strong> · ${escapeHtml(r.network || "")}<br/><span class="adm-muted adm-mono">${escapeHtml(r.transactionHash || r.paypalOrderId || "")}</span>`}
+                    </td>
+                    <td>${fmtDate(r.paidAt || r.createdAt)}</td>
+                    <td class="adm-truncate">${escapeHtml(r.note || "")}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>
+          ` : `<div class="adm-empty"><i data-lucide="receipt-text"></i><p>暂无成功充值流水</p></div>`}
+        </div>
+        ${adminPagerHtml(payload)}
+      </div>
+    </section>
+  `;
+  refreshIcons();
+  bindAdminPager(els.adminContent, payload, ({ page, limit }) => renderRecharges(page, limit).catch((err) => renderRouteError("recharges", err)));
+  const runFilter = () => {
+    sessionStorage.setItem("admRechargeSource", els.adminContent.querySelector("#rechargeSourceFilter")?.value || "");
+    sessionStorage.setItem("admRechargeQuery", els.adminContent.querySelector("#rechargeSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admRechargePager", JSON.stringify({ page: 1, limit }));
+    renderRecharges(1, limit).catch((err) => renderRouteError("recharges", err));
+  };
+  els.adminContent.querySelector("#rechargeSourceFilter")?.addEventListener("change", runFilter);
+  els.adminContent.querySelector("#rechargeSearchBtn")?.addEventListener("click", runFilter);
+  els.adminContent.querySelector("#rechargeSearchInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") runFilter();
+  });
 }
 
 /* ============ WALLET ============ */
