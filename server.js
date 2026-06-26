@@ -122,6 +122,8 @@ const PIVOX_ENABLED_USER_KEYS = new Set(
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean),
 );
+const PIVOX_ASSET_GROUP_CACHE = new Map();
+const PIVOX_ASSET_URI_CACHE = new Map();
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
@@ -6558,17 +6560,17 @@ function normalizePivoxSeedanceContent(content = []) {
       if (!item || typeof item !== "object" || Array.isArray(item)) return null;
       if (item.type === "text") return { ...item, text: String(item.text || "") };
       if (item.type === "image_url") {
-        const url = publicHttpUrlForUpstream(nestedMediaUrl(item.image_url));
+        const url = pivoxMediaReferenceUrl(nestedMediaUrl(item.image_url));
         if (!url) return null;
         return { ...item, image_url: { ...(item.image_url || {}), url } };
       }
       if (item.type === "video_url") {
-        const url = publicHttpUrlForUpstream(nestedMediaUrl(item.video_url));
+        const url = pivoxMediaReferenceUrl(nestedMediaUrl(item.video_url));
         if (!url) return null;
         return { ...item, video_url: { ...(item.video_url || {}), url } };
       }
       if (item.type === "audio_url") {
-        const url = publicHttpUrlForUpstream(nestedMediaUrl(item.audio_url));
+        const url = pivoxMediaReferenceUrl(nestedMediaUrl(item.audio_url));
         if (!url) return null;
         return { ...item, audio_url: { ...(item.audio_url || {}), url } };
       }
@@ -6579,8 +6581,137 @@ function normalizePivoxSeedanceContent(content = []) {
 
 function normalizePivoxUrlList(value = []) {
   return arrayFromBody(value)
-    .map((item) => publicHttpUrlForUpstream(nestedMediaUrl(item)))
+    .map((item) => pivoxMediaReferenceUrl(nestedMediaUrl(item)))
     .filter((url, index, list) => url && list.indexOf(url) === index);
+}
+
+function isPivoxAssetUri(value = "") {
+  return /^asset:\/\/asset-[a-z0-9_-]+$/i.test(String(value || "").trim());
+}
+
+function pivoxMediaReferenceUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (isPivoxAssetUri(text)) return text;
+  return publicHttpUrlForUpstream(text);
+}
+
+function pivoxAssetGroupCacheKey(user = {}, model = "") {
+  const userKey = String(user?.id || user?.username || user?.email || "default").trim().toLowerCase() || "default";
+  return `${String(model || "default").trim().toLowerCase() || "default"}:${userKey}`;
+}
+
+async function pivoxAssetGroupForUser(user = {}, model = "") {
+  const key = pivoxAssetGroupCacheKey(user, model);
+  const cached = PIVOX_ASSET_GROUP_CACHE.get(key);
+  if (cached) return cached;
+  const safeUser = String(user?.username || user?.id || "user").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 48) || "user";
+  const raw = await pivoxRequest("POST", "/v1/asset-groups", {
+    model,
+    name: `vipeak-${safeUser}`,
+    description: "Vipeak reusable Seedance references",
+  });
+  const groupId = String(raw?.id || raw?.group_id || raw?.data?.id || raw?.data?.group_id || "").trim();
+  if (!groupId) {
+    const error = new Error(`Pivoxapi did not return asset group id: ${JSON.stringify(raw || {})}`);
+    error.statusCode = 502;
+    error.code = "PIVOX_ASSET_GROUP_FAILED";
+    throw error;
+  }
+  PIVOX_ASSET_GROUP_CACHE.set(key, groupId);
+  return groupId;
+}
+
+async function waitForPivoxAsset(assetId = "", taskId = "", model = "") {
+  const id = String(assetId || "").trim();
+  const task = String(taskId || "").trim();
+  if (!id && !task) return null;
+  let last = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (attempt) await delay(Math.min(1000 + attempt * 500, 3500));
+    last = await pivoxRequest("POST", "/v1/assets/get", {
+      model,
+      ...(id ? { asset_id: id } : {}),
+      ...(task ? { task_id: task } : {}),
+    });
+    const status = String(last?.status || last?.data?.status || last?.asset?.status || "").toLowerCase();
+    const assetError = last?.error || last?.data?.error || last?.asset?.error;
+    if (status === "completed" || status === "success" || status === "succeeded") return last;
+    if (status === "failed" || status === "error" || assetError) {
+      const error = new Error(assetError?.message || assetError || "Pivoxapi asset upload failed.");
+      error.statusCode = 502;
+      error.code = "PIVOX_ASSET_UPLOAD_FAILED";
+      error.payload = last;
+      throw error;
+    }
+  }
+  const error = new Error(`Pivoxapi asset upload did not complete: ${id || task}`);
+  error.statusCode = 502;
+  error.code = "PIVOX_ASSET_UPLOAD_TIMEOUT";
+  error.payload = last;
+  throw error;
+}
+
+async function uploadPivoxImageReferenceAsset({ user = {}, model = "", url = "", name = "reference-image" } = {}) {
+  const sourceUrl = pivoxMediaReferenceUrl(url);
+  if (!sourceUrl) return "";
+  if (isPivoxAssetUri(sourceUrl)) return sourceUrl;
+  const cacheKey = `${pivoxAssetGroupCacheKey(user, model)}:${sourceUrl}`;
+  const cachedAssetUri = PIVOX_ASSET_URI_CACHE.get(cacheKey);
+  if (cachedAssetUri) return cachedAssetUri;
+  const groupId = await pivoxAssetGroupForUser(user, model);
+  const raw = await pivoxRequest("POST", "/v1/assets", {
+    model,
+    group_id: groupId,
+    url: sourceUrl,
+    asset_type: "Image",
+    name,
+  });
+  const assetId = String(raw?.id || raw?.asset_id || raw?.data?.id || raw?.data?.asset_id || "").trim();
+  const taskId = String(raw?.task_id || raw?.data?.task_id || "").trim();
+  if (!assetId) {
+    const error = new Error(`Pivoxapi did not return asset id: ${JSON.stringify(raw || {})}`);
+    error.statusCode = 502;
+    error.code = "PIVOX_ASSET_UPLOAD_FAILED";
+    throw error;
+  }
+  await waitForPivoxAsset(assetId, taskId, model);
+  const assetUri = `asset://${assetId}`;
+  PIVOX_ASSET_URI_CACHE.set(cacheKey, assetUri);
+  return assetUri;
+}
+
+async function preparePivoxSeedancePayloadAssets(payload = {}, { user = {} } = {}) {
+  if (!payload || typeof payload !== "object") return payload;
+  const model = String(payload.model || PIVOX_SEEDANCE_QUALITY_MODEL);
+  const assetUriByUrl = new Map();
+  const toAssetUri = async (url = "", name = "reference-image") => {
+    const normalized = pivoxMediaReferenceUrl(url);
+    if (!normalized) return "";
+    if (isPivoxAssetUri(normalized)) return normalized;
+    if (!assetUriByUrl.has(normalized)) {
+      assetUriByUrl.set(normalized, uploadPivoxImageReferenceAsset({ user, model, url: normalized, name }));
+    }
+    return await assetUriByUrl.get(normalized);
+  };
+
+  const content = Array.isArray(payload.content) ? payload.content : [];
+  for (let index = 0; index < content.length; index += 1) {
+    const item = content[index];
+    if (!item || item.type !== "image_url") continue;
+    const url = nestedMediaUrl(item.image_url);
+    const assetUri = await toAssetUri(url, `content-image-${index + 1}`);
+    if (assetUri) item.image_url = { ...(item.image_url || {}), url: assetUri };
+  }
+  if (Array.isArray(payload.reference_images) && payload.reference_images.length) {
+    const refs = [];
+    for (let index = 0; index < payload.reference_images.length; index += 1) {
+      const assetUri = await toAssetUri(payload.reference_images[index], `reference-image-${index + 1}`);
+      if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    payload.reference_images = refs;
+  }
+  return payload;
 }
 
 function avoidPivoxMixedFrameReferenceContent(content = []) {
@@ -6675,6 +6806,7 @@ async function submitPivoxSeedanceVideoTask({
   referenceAudioAssetUris = [],
   body = {},
   slug = "",
+  user = {},
 }) {
   const content = pivoxSeedanceContentFromReferences({
     prompt,
@@ -6688,6 +6820,7 @@ async function submitPivoxSeedanceVideoTask({
     body,
   });
   const { payload, externalModel } = pivoxSeedancePayloadFromBody({ config, prompt, content, body });
+  await preparePivoxSeedancePayloadAssets(payload, { user });
 
   console.log(`[pivox-seedance-submit-${slug || "video"}]`, JSON.stringify({
     ...payload,
@@ -6959,6 +7092,7 @@ async function prepareOfficialSeedancePayloadForPivox(db, user, body = {}, { con
     content: sourcePayload.content,
     body: sourcePayload,
   });
+  await preparePivoxSeedancePayloadAssets(payload, { user });
   return { payload, externalModel, sourcePayload };
 }
 
@@ -7115,6 +7249,10 @@ async function handleVolcengineCreateGenerationTask(req, res) {
     if (usePivoxSeedance) {
       const prepared = await prepareOfficialSeedancePayloadForPivox(auth.db, auth.user, body, { config });
       payload = prepared.payload;
+      console.log("[pivox-seedance-submit-volcengine]", JSON.stringify({
+        ...payload,
+        externalModel: prepared.externalModel,
+      }, null, 2));
       raw = await pivoxRequest("POST", "/v1/video/generate", payload);
       task = normalizePivoxTask(raw);
     } else {
@@ -12176,6 +12314,7 @@ async function runAdvancedGenerationJob(job = {}) {
           ...requestParams,
         },
         slug: "advanced",
+        user: jobUser,
       });
       task = { ...submitted.task, recordModel: submitted.recordModel || "" };
       payload = submitted.payload;
