@@ -6423,7 +6423,6 @@ function renderGalleryCharacters(root = els.templateGrid) {
       els.characterSourceTabs.hidden = true;
     }
   } else {
-    if (els.characterSourceTabs) els.characterSourceTabs.hidden = false;
     renderCharacterSourceTabs();
   }
   const source = myCharactersOnly || state.characterSource === "custom" ? "custom" : "system";
@@ -6814,6 +6813,11 @@ function characterAllVideos(item = {}) {
 
 function renderCharacterSourceTabs() {
   if (!els.characterSourceTabs) return;
+  if (state.tab === "characters") {
+    els.characterSourceTabs.innerHTML = "";
+    els.characterSourceTabs.hidden = true;
+    return;
+  }
   const tabs = [
     { id: "system", label: t("characters.systemTab"), count: state.homeCharacters.filter((item) => item && !item.deletedAt).length },
     { id: "custom", label: t("characters.customTab"), count: customCharacterItems().length },
