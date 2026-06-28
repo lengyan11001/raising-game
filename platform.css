@@ -4008,12 +4008,16 @@ select option:checked {
 }
 textarea, input {
   width: 100%;
+  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 11px 12px;
   color: var(--text);
   background: rgba(255,255,255,.72);
   outline: none;
+}
+textarea {
+  resize: vertical;
 }
 textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 0 0 3px rgba(15,148,139,.12); }
 .job-note { margin: 0; color: var(--muted); line-height: 1.6; }
