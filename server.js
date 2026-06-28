@@ -505,6 +505,49 @@ const DEFAULT_CONFIG = {
     network: "TRC20",
     address: "TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
     qrUrl: "/assets/wallet/usdt-trc20-qr.png",
+    options: [
+      {
+        id: "bnb",
+        label: "BNB Chain",
+        network: "BNB Chain",
+        asset: "USDT",
+        address: "0xe5D6Dc1691458d0F18e1503e58C4D3398B8901f5",
+        qrUrl: "/assets/wallet/old-usdt-bnb.png",
+      },
+      {
+        id: "solana",
+        label: "Solana",
+        network: "Solana",
+        asset: "USDT",
+        address: "CE1vLWK1u6QDgzx1LH5J5JW8HWwo5sGQKse5SzXcNoxd",
+        qrUrl: "/assets/wallet/old-usdt-solana.png",
+      },
+      {
+        id: "base",
+        label: "Base",
+        network: "Base",
+        asset: "USDT",
+        address: "0xe5D6Dc1691458d0F18e1503e58C4D3398B8901f5",
+        qrUrl: "/assets/wallet/old-usdt-base.png",
+      },
+      {
+        id: "ethereum",
+        label: "Ethereum",
+        network: "Ethereum",
+        asset: "USDT",
+        address: "0xe5D6Dc1691458d0F18e1503e58C4D3398B8901f5",
+        qrUrl: "/assets/wallet/old-usdt-ethereum.png",
+      },
+      {
+        id: "tron",
+        label: "Tron",
+        network: "TRC20 / Tron",
+        asset: "USDT",
+        address: "TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
+        qrUrl: "/assets/wallet/usdt-trc20-qr.png",
+        explorerUrl: "https://tronscan.org/#/address/TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
+      },
+    ],
     suffixDigits: 6,
     creditsPerUsd: DEFAULT_CREDITS_PER_USD,
     cnyCentsPerUsdt: DEFAULT_USDT_CNY_CENTS,
@@ -674,25 +717,6 @@ const DEFAULT_CONFIG = {
         "15-second photorealistic vertical private cinema full-body shot. Elegant adult woman in a sleek short evening outfit walking down the aisle of a private theater, projector light streaks across her body, velvet seats around her, slow tracking camera that always shows her full body and long legs, intimate whispering mood, premium scene, non-explicit.",
     },
   ],
-};
-
-const OLD_SITE_TRON_WALLET_OPTION = {
-  id: "tron",
-  label: "Tron",
-  network: "TRC20 / Tron",
-  asset: "USDT",
-  address: "TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
-  qrUrl: "/assets/wallet/usdt-trc20-qr.png",
-  explorerUrl: "https://tronscan.org/#/address/TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
-};
-
-const CLOUDTOKEN_TRON_WALLET_OPTION = {
-  id: "trc20",
-  label: "TRC20",
-  network: "TRC20",
-  asset: "USDT",
-  address: "TFLCCcZoNyavF5nGFYHKHitWLZ88888888",
-  qrUrl: "/assets/wallet/cloudtoken-usdt-trc20-qr.png",
 };
 
 function sendJson(res, statusCode, payload) {
@@ -4849,23 +4873,11 @@ function normalizeWalletOption(option = {}, index = 0) {
   };
 }
 
-function walletOptions(wallet = {}, options = {}) {
+function walletOptions(wallet = {}) {
   const configured = Array.isArray(wallet.options) ? wallet.options : [];
   let list = configured
     .map((option, index) => normalizeWalletOption(option, index))
     .filter((option) => option.address);
-  if (options.tenantPublic) {
-    const tenantTron = normalizeWalletOption(CLOUDTOKEN_TRON_WALLET_OPTION, 0);
-    const configuredTenantOptions = list.filter((option) => option.address !== OLD_SITE_TRON_WALLET_OPTION.address);
-    return configuredTenantOptions.length ? configuredTenantOptions : [tenantTron];
-  }
-  const oldSiteTron = normalizeWalletOption(OLD_SITE_TRON_WALLET_OPTION, list.length);
-  const hasOldSiteTron = list.some((option) => (
-    option.id === oldSiteTron.id ||
-    option.address === oldSiteTron.address ||
-    (normalizeWalletChain(option.network) === "tron" && option.address === oldSiteTron.address)
-  ));
-  if (oldSiteTron.address && !hasOldSiteTron) list = [...list, oldSiteTron];
   if (list.length) return list;
   const fallback = normalizeWalletOption({
     id: wallet.network || "wallet",
