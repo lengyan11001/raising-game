@@ -11213,11 +11213,10 @@ function renderAdvancedReferencePreviews() {
   const provider = currentAdvancedProvider();
   const images = selectedAdvancedReferenceImages();
   els.advancedUploadPreview.innerHTML = images.map((item, index) => `
-    <figure>
-      <button class="advanced-preview-remove" type="button" data-remove-advanced-ref="${index}" aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>
-      ${item.dataUrl || item.previewUrl ? `<img src="${escapeHtml(item.dataUrl || item.previewUrl || "")}" alt="" />` : `<div class="history-placeholder"><i data-lucide="image"></i></div>`}
-      <figcaption>${escapeHtml(provider === "wan27" ? t("advanced.firstFrame") : provider === "wan27-image-edit" ? `Image ${index + 1}` : tenantFeature("assetLibrary", true) ? `Image ${index + 1}` : `${index + 1}`)}</figcaption>
-    </figure>
+      <figure>
+        <button class="advanced-preview-remove" type="button" data-remove-advanced-ref="${index}" aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>
+        ${item.dataUrl || item.previewUrl ? `<img src="${escapeHtml(item.dataUrl || item.previewUrl || "")}" alt="" />` : `<div class="history-placeholder"><i data-lucide="image"></i></div>`}
+      </figure>
   `).join("");
   els.advancedUploadPreview.querySelectorAll("[data-remove-advanced-ref]").forEach((button) => {
     button.addEventListener("click", (event) => {
@@ -11243,7 +11242,6 @@ function renderAdvancedReferencePreviews() {
       <figure>
         <button class="advanced-preview-remove" type="button" data-remove-seedance-video aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>
         <video src="${escapeHtml(videoPreview)}" muted playsinline preload="metadata"></video>
-        <figcaption>Video 1</figcaption>
       </figure>
     `);
     els.advancedUploadPreview.querySelector("[data-remove-seedance-video]")?.addEventListener("click", (event) => {
