@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI Game</title>
-    <link rel="stylesheet" href="./game.css?v=game-1" />
+    <link rel="stylesheet" href="./game.css?v=game-2" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -32,10 +32,6 @@
         <div class="feed-scrim"></div>
 
         <header class="feed-topbar">
-          <a class="feed-brand" href="./platform.html#explore" aria-label="Back to explore">
-            <i data-lucide="chevron-left"></i>
-            <span>Explore</span>
-          </a>
           <div class="feed-wallet">
             <i data-lucide="gem"></i>
             <strong id="creditCount">0</strong>
@@ -73,9 +69,9 @@
           <div class="tag-row" id="tagRow"></div>
         </section>
 
-        <div class="gesture-hint">
-          <span><i data-lucide="chevrons-up-down"></i> Character</span>
-          <span><i data-lucide="chevrons-left-right"></i> Video</span>
+        <div class="gesture-hint" aria-hidden="true">
+          <span><i data-lucide="chevrons-up-down"></i></span>
+          <span><i data-lucide="chevrons-left-right"></i></span>
         </div>
       </section>
     </main>
@@ -91,7 +87,45 @@
       </form>
     </dialog>
 
+    <dialog id="actionDialog" class="game-dialog action-dialog">
+      <form method="dialog">
+        <header class="dialog-head">
+          <h2 id="actionTitle">Create</h2>
+          <button id="actionCloseBtn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div id="actionBody" class="action-body"></div>
+        <menu>
+          <button value="cancel" type="submit">Cancel</button>
+          <button id="actionSubmitBtn" value="confirm" type="submit">Generate</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="loginDialog" class="game-dialog action-dialog">
+      <form method="dialog">
+        <header class="dialog-head">
+          <h2>Sign in</h2>
+          <button value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="action-body">
+          <label class="action-field">
+            <span>Username</span>
+            <input id="loginUsername" autocomplete="username" />
+          </label>
+          <label class="action-field">
+            <span>Password</span>
+            <input id="loginPassword" type="password" autocomplete="current-password" />
+          </label>
+          <p class="action-status" id="loginStatus"></p>
+        </div>
+        <menu>
+          <button id="loginRegisterBtn" value="register" type="button">Register</button>
+          <button id="loginSubmitBtn" value="confirm" type="button">Sign in</button>
+        </menu>
+      </form>
+    </dialog>
+
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./game.js?v=game-2"></script>
+    <script src="./game.js?v=game-3"></script>
   </body>
 </html>

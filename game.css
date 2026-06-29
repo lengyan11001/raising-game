@@ -158,13 +158,12 @@ a {
   right: 0;
   z-index: 8;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 12px;
   padding: 14px 14px 8px;
 }
 
-.feed-brand,
 .feed-wallet,
 .feed-action {
   border: 1px solid var(--line);
@@ -175,20 +174,6 @@ a {
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
 }
 
-.feed-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 40px;
-  padding: 0 12px 0 8px;
-  border-radius: 999px;
-  color: var(--ink);
-  text-decoration: none;
-  font-size: 0.88rem;
-  font-weight: 800;
-}
-
-.feed-brand svg,
 .feed-wallet svg,
 .feed-action svg,
 .gesture-hint svg {
@@ -334,8 +319,10 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  width: 34px;
   min-height: 34px;
-  padding: 0 10px;
+  padding: 0;
+  justify-content: center;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
   background: rgba(10, 8, 14, 0.42);
@@ -375,7 +362,8 @@ a {
 }
 
 .game-dialog {
-  width: min(calc(100vw - 32px), 360px);
+  width: min(calc(100vw - 32px), 390px);
+  max-height: min(88vh, 760px);
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 22px;
   padding: 0;
@@ -392,6 +380,13 @@ a {
   display: grid;
   gap: 14px;
   padding: 22px;
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .game-dialog h2,
@@ -429,6 +424,137 @@ a {
 .game-dialog button[value="confirm"] {
   border-color: rgba(255, 177, 221, 0.7);
   background: linear-gradient(180deg, var(--pink), var(--pink-strong));
+}
+
+.dialog-head button {
+  width: 40px;
+  min-height: 40px;
+  border-radius: 14px;
+}
+
+.dialog-head button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.action-dialog form {
+  max-height: min(88vh, 760px);
+  overflow: auto;
+}
+
+.action-body {
+  display: grid;
+  gap: 14px;
+}
+
+.action-preview {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.action-preview img,
+.action-preview video {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  background: #09070a;
+}
+
+.action-field {
+  display: grid;
+  gap: 8px;
+}
+
+.action-field span,
+.action-label {
+  color: rgba(255, 247, 251, 0.74);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.action-field textarea,
+.action-field input,
+.action-field select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  font: inherit;
+  padding: 12px;
+  outline: none;
+}
+
+.action-field textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.action-upload {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  min-height: 132px;
+  place-items: center;
+  padding: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+  text-align: center;
+}
+
+.action-upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.action-upload img {
+  max-width: 100%;
+  max-height: 180px;
+  border-radius: 14px;
+  object-fit: contain;
+}
+
+.action-status {
+  min-height: 22px;
+  color: rgba(255, 247, 251, 0.78);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.action-result {
+  display: grid;
+  gap: 10px;
+}
+
+.action-result img,
+.action-result video {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 18px;
+  object-fit: contain;
+  background: #09070a;
+}
+
+.action-result a {
+  color: #ff8ccd;
+  font-weight: 900;
+  text-decoration: none;
 }
 
 @media (min-width: 640px) {

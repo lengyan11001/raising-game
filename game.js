@@ -33,6 +33,16 @@ const els = {
   confirmTitle: document.querySelector("#confirmTitle"),
   confirmText: document.querySelector("#confirmText"),
   confirmActionBtn: document.querySelector("#confirmActionBtn"),
+  actionDialog: document.querySelector("#actionDialog"),
+  actionTitle: document.querySelector("#actionTitle"),
+  actionBody: document.querySelector("#actionBody"),
+  actionSubmitBtn: document.querySelector("#actionSubmitBtn"),
+  loginDialog: document.querySelector("#loginDialog"),
+  loginUsername: document.querySelector("#loginUsername"),
+  loginPassword: document.querySelector("#loginPassword"),
+  loginStatus: document.querySelector("#loginStatus"),
+  loginSubmitBtn: document.querySelector("#loginSubmitBtn"),
+  loginRegisterBtn: document.querySelector("#loginRegisterBtn"),
   ageGate: document.querySelector("#ageGate"),
   ageForbidden: document.querySelector("#ageForbidden"),
   ageConfirmBtn: document.querySelector("#ageConfirmBtn"),
@@ -122,6 +132,26 @@ function posterUrl(entry = {}, character = {}) {
   ).trim();
 }
 
+function assetPreviewUrl(asset = {}) {
+  return String(asset.previewUrl || asset.localUrl || asset.publicUrl || asset.url || "").trim();
+}
+
+function isSucceededStatus(status = "") {
+  return ["succeeded", "success", "completed", "complete", "finished", "done"].includes(String(status || "").toLowerCase());
+}
+
+function isFailedStatus(status = "") {
+  return ["failed", "error", "cancelled", "canceled", "rejected"].includes(String(status || "").toLowerCase());
+}
+
+function generationVideoUrl(record = {}) {
+  return String(record.videoUrl || record.localVideoUrl || record.cdnVideoUrl || record.providerVideoUrl || record.remoteVideoUrl || "").trim();
+}
+
+function generationImageUrl(record = {}) {
+  return String(record.imageResultUrl || record.localImageUrl || record.cdnImageUrl || record.providerImageUrl || record.remoteImageUrl || "").trim();
+}
+
 function videoEntries(character = {}) {
   const entries = [
     ...Object.entries(character.homeSceneVideos || {}),
@@ -208,6 +238,7 @@ function renderCharacter() {
   if (url) {
     const nextSrc = new URL(url, window.location.href).href;
     if (els.video.src !== nextSrc) {
+      if (cover) els.poster.hidden = false;
       els.video.src = url;
       els.video.load();
     }
@@ -237,6 +268,41 @@ function syncUser(user) {
   els.creditCount.textContent = Number(user?.credits || 0).toLocaleString("en-US");
 }
 
+async function submitLogin(mode = "login") {
+  const username = els.loginUsername?.value.trim() || "";
+  const password = els.loginPassword?.value || "";
+  if (!username || !password) {
+    if (els.loginStatus) els.loginStatus.textContent = "Enter username and password.";
+    return;
+  }
+  const button = mode === "register" ? els.loginRegisterBtn : els.loginSubmitBtn;
+  try {
+    if (button) button.disabled = true;
+    if (els.loginStatus) els.loginStatus.textContent = mode === "register" ? "Creating account..." : "Signing in...";
+    const payload = await requestJson(mode === "register" ? "/api/auth/register" : "/api/auth/login", {
+      method: "POST",
+      auth: false,
+      body: { username, password },
+    });
+    state.token = payload.token || "";
+    if (state.token) localStorage.setItem("raisingGameToken", state.token);
+    syncUser(payload.user || null);
+    if (els.loginStatus) els.loginStatus.textContent = "Signed in";
+    els.loginDialog?.close("confirm");
+    await loadConfig();
+  } catch (error) {
+    if (els.loginStatus) els.loginStatus.textContent = error.message || "Sign in failed.";
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function openLoginDialog() {
+  if (!els.loginDialog) return;
+  if (els.loginStatus) els.loginStatus.textContent = "";
+  els.loginDialog.showModal();
+}
+
 async function loadSession() {
   if (!state.token) {
     syncUser(null);
@@ -257,16 +323,16 @@ async function loadSession() {
 }
 
 async function loadConfig() {
-  const payload = await requestJson("/api/config/public");
+  const payload = await requestJson("/api/game/feed", { auth: Boolean(state.token) });
   state.config = payload.config || null;
-  const items = state.config?.homeVideo?.items || [];
+  const items = payload.items || state.config?.homeVideo?.items || [];
   state.characters = items.filter((item) => videoEntries(item).length || posterUrl({}, item));
   renderCharacter();
 }
 
 function requireLogin() {
   if (state.user) return true;
-  window.location.href = "./platform.html#account";
+  openLoginDialog();
   return false;
 }
 
@@ -350,10 +416,22 @@ async function unlockCurrentVideo() {
     renderCharacter();
   } catch (error) {
     showToast(error.message || "Unlock failed");
-    if (error.status === 402) window.location.href = "./platform.html#account";
+    if (error.status === 402) openTopupDialog(error.message || "Not enough credits.");
   } finally {
     els.unlockBtn.disabled = false;
   }
+}
+
+function openTopupDialog(message = "Not enough credits.") {
+  showActionDialog({
+    title: "Buy credits",
+    submitText: "OK",
+    body: `
+      <p class="action-status">${escapeHtml(message)}</p>
+      <p class="action-status">Your credits are not enough. Add credits before retrying.</p>
+    `,
+    onSubmit: async () => els.actionDialog?.close("confirm"),
+  });
 }
 
 async function createAssetFromCurrent(kind = "image") {
@@ -377,29 +455,252 @@ async function createAssetFromCurrent(kind = "image") {
   return payload.asset;
 }
 
-async function openCreateWithAsset(action) {
+function actionPreviewMarkup({ image = "", video = "" } = {}) {
+  if (video) return `<div class="action-preview"><video src="${escapeHtml(video)}" controls playsinline muted loop preload="metadata"></video></div>`;
+  if (image) return `<div class="action-preview"><img src="${escapeHtml(image)}" alt="" /></div>`;
+  return "";
+}
+
+function actionOptionsMarkup({ prompt = "", needImage = false, imageLabel = "Replacement image", imageHint = "Upload image", imageUrl = "", videoUrl = "", duration = 5, resolution = "720p" } = {}) {
+  return `
+    ${actionPreviewMarkup({ image: imageUrl, video: videoUrl })}
+    ${needImage ? `
+      <label class="action-upload">
+        <input id="actionImageInput" type="file" accept="image/*" />
+        <img id="actionImagePreview" alt="" hidden />
+        <strong>${escapeHtml(imageLabel)}</strong>
+        <span>${escapeHtml(imageHint)}</span>
+      </label>
+    ` : ""}
+    <label class="action-field">
+      <span>Prompt</span>
+      <textarea id="actionPrompt">${escapeHtml(prompt)}</textarea>
+    </label>
+    <div class="action-grid">
+      <label class="action-field">
+        <span>Duration</span>
+        <input id="actionDuration" type="number" min="4" max="15" value="${escapeHtml(duration)}" />
+      </label>
+      <label class="action-field">
+        <span>Resolution</span>
+        <select id="actionResolution">
+          ${["480p", "720p", "1080p"].map((item) => `<option value="${item}" ${item === resolution ? "selected" : ""}>${item}</option>`).join("")}
+        </select>
+      </label>
+    </div>
+    <p class="action-status" id="actionStatus"></p>
+    <div class="action-result" id="actionResult"></div>
+  `;
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Failed to read file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function pollGeneration(taskId, root) {
+  const status = root.querySelector("#actionStatus");
+  const result = root.querySelector("#actionResult");
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, attempt < 8 ? 1800 : 3500));
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}?refresh=1`);
+    if (payload.user) syncUser(payload.user);
+    const record = payload.record || {};
+    const stateLabel = record.status || "processing";
+    if (status) status.textContent = `Status: ${stateLabel}`;
+    const videoUrl = generationVideoUrl(record);
+    const imageUrl = generationImageUrl(record);
+    if (isSucceededStatus(record.status) && (videoUrl || imageUrl)) {
+      if (result) {
+        result.innerHTML = videoUrl
+          ? `<video src="${escapeHtml(videoUrl)}" controls playsinline autoplay muted loop></video><a href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener">Open result</a>`
+          : `<img src="${escapeHtml(imageUrl)}" alt="" /><a href="${escapeHtml(imageUrl)}" target="_blank" rel="noopener">Open result</a>`;
+      }
+      if (status) status.textContent = "Done";
+      return record;
+    }
+    if (isFailedStatus(record.status)) {
+      throw new Error(record.error || "Generation failed.");
+    }
+  }
+  throw new Error("Still processing. Check history later.");
+}
+
+async function showActionDialog({ title, body, submitText = "Generate", onOpen, onSubmit }) {
+  if (!els.actionDialog) return;
+  els.actionTitle.textContent = title;
+  els.actionBody.innerHTML = body;
+  els.actionSubmitBtn.textContent = submitText;
+  els.actionSubmitBtn.disabled = false;
+  refreshIcons();
+  onOpen?.(els.actionBody);
+  return new Promise((resolve) => {
+    const onClose = () => {
+      els.actionDialog.removeEventListener("close", onClose);
+      els.actionSubmitBtn.removeEventListener("click", onSubmitClick);
+      resolve(els.actionDialog.returnValue);
+    };
+    const onSubmitClick = async (event) => {
+      event.preventDefault();
+      try {
+        els.actionSubmitBtn.disabled = true;
+        await onSubmit?.(els.actionBody);
+      } catch (error) {
+        const status = els.actionBody.querySelector("#actionStatus");
+        if (status) status.textContent = error.message || "Failed";
+        showToast(error.message || "Failed");
+      } finally {
+        els.actionSubmitBtn.disabled = false;
+      }
+    };
+    els.actionDialog.addEventListener("close", onClose);
+    els.actionSubmitBtn.addEventListener("click", onSubmitClick);
+    els.actionDialog.showModal();
+  });
+}
+
+async function runGameAction(action) {
   if (!requireLogin()) return;
+  const character = currentCharacter();
+  const video = currentVideo();
+  if (!character) return;
+  if ((action === "replace" || action === "extend") && isCurrentVideoLocked()) {
+    await unlockCurrentVideo();
+    return;
+  }
   try {
     state.busyAction = action;
     setActionBusy(true);
+    const sourceAsset = await createAssetFromCurrent(action === "undress" ? "image" : "video");
+    const sourceUrl = assetPreviewUrl(sourceAsset);
     if (action === "undress") {
-      const asset = await createAssetFromCurrent("image");
-      sessionStorage.setItem("vipeakGameCreateAction", JSON.stringify({
-        action: "modify",
-        assetId: asset.id,
-        asset,
-        prompt: "Remove clothes while preserving the same person, pose, face, body, lighting and background.",
-      }));
+      await showActionDialog({
+        title: "Undress",
+        body: actionOptionsMarkup({
+          imageUrl: sourceUrl,
+          prompt: "Remove clothes while preserving the same person, pose, face, body, lighting and background.",
+          duration: 5,
+          resolution: state.config?.assetImageModify?.defaultResolution || "2K",
+        }).replace(/<div class="action-grid">[\s\S]*?<\/div>\s*<p class="action-status"/, `
+          <div class="action-grid">
+            <label class="action-field"><span>Ratio</span><select id="actionRatio"><option value="9:16">9:16</option><option value="1:1">1:1</option><option value="16:9">16:9</option><option value="3:4">3:4</option><option value="4:3">4:3</option></select></label>
+            <label class="action-field"><span>Resolution</span><select id="actionResolution"><option value="1K">1K</option><option value="2K" selected>2K</option></select></label>
+          </div>
+          <p class="action-status"`),
+        onSubmit: async (root) => {
+          const status = root.querySelector("#actionStatus");
+          if (status) status.textContent = "Submitting...";
+          const payload = await requestJson(`/api/user-assets/${encodeURIComponent(sourceAsset.id)}/modify`, {
+            method: "POST",
+            body: {
+              prompt: root.querySelector("#actionPrompt")?.value.trim() || "Remove clothes while preserving identity.",
+              ratio: root.querySelector("#actionRatio")?.value || "9:16",
+              resolution: root.querySelector("#actionResolution")?.value || "2K",
+            },
+          });
+          if (payload.user) syncUser(payload.user);
+          if (payload.record) {
+            const imageUrl = generationImageUrl(payload.record);
+            root.querySelector("#actionResult").innerHTML = imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" />` : "";
+          }
+          if (status) status.textContent = payload.taskId ? `Done: ${payload.taskId}` : "Done";
+        },
+      });
     } else if (action === "replace") {
-      const videoAsset = await createAssetFromCurrent("video");
-      sessionStorage.setItem("vipeakGameCreateAction", JSON.stringify({ action: "replace", assetId: videoAsset.id, asset: videoAsset }));
+      await showActionDialog({
+        title: "Replace",
+        body: actionOptionsMarkup({
+          videoUrl: sourceUrl,
+          needImage: true,
+          imageLabel: "Replacement image",
+          imageHint: "Tap to upload",
+          prompt: "Replace the lady in [Video 1] with the lady in [Image 1]",
+          duration: video?.duration || 5,
+          resolution: "720p",
+        }),
+        onOpen: (root) => {
+          const input = root.querySelector("#actionImageInput");
+          const preview = root.querySelector("#actionImagePreview");
+          input?.addEventListener("change", async () => {
+            const file = input.files?.[0];
+            if (!file) return;
+            preview.src = await fileToDataUrl(file);
+            preview.hidden = false;
+          });
+        },
+        onSubmit: async (root) => {
+          const status = root.querySelector("#actionStatus");
+          const file = root.querySelector("#actionImageInput")?.files?.[0];
+          if (!file) throw new Error("Please upload replacement image.");
+          if (status) status.textContent = "Uploading image...";
+          const imageDataUrl = await fileToDataUrl(file);
+          const imagePayload = await requestJson("/api/user-assets", {
+            method: "POST",
+            body: { dataUrl: imageDataUrl, name: file.name || "Replacement image", fileName: file.name || "replacement.png" },
+          });
+          if (status) status.textContent = "Submitting...";
+          const duration = Number(root.querySelector("#actionDuration")?.value || 5);
+          const payload = await requestJson("/api/advanced/generate", {
+            method: "POST",
+            body: {
+              provider: "seedance",
+              prompt: root.querySelector("#actionPrompt")?.value.trim() || "Replace the lady in [Video 1] with the lady in [Image 1]",
+              referenceVideoAssetId: sourceAsset.id,
+              referenceImages: [{ assetId: imagePayload.asset?.id || "" }],
+              inputVideoSeconds: Number(sourceAsset.durationSeconds || sourceAsset.duration || duration),
+              referenceVideoDurationSeconds: Number(sourceAsset.durationSeconds || sourceAsset.duration || duration),
+              ratio: "16:9",
+              resolution: root.querySelector("#actionResolution")?.value || "720p",
+              duration,
+            },
+          });
+          if (payload.user) syncUser(payload.user);
+          if (status) status.textContent = `Submitted: ${payload.taskId || payload.task?.taskId || ""}`;
+          const taskId = payload.taskId || payload.task?.taskId || payload.record?.taskId || "";
+          if (!taskId) throw new Error("Generation task was not created.");
+          await pollGeneration(taskId, root);
+        },
+      });
     } else if (action === "extend") {
-      const videoAsset = await createAssetFromCurrent("video");
-      sessionStorage.setItem("vipeakGameCreateAction", JSON.stringify({ action: "extend", assetId: videoAsset.id, asset: videoAsset }));
+      await showActionDialog({
+        title: "Extend",
+        body: actionOptionsMarkup({
+          videoUrl: sourceUrl,
+          prompt: "Extend [Video 1] smoothly with the same subject, scene, motion, lighting and cinematic style.",
+          duration: video?.duration || 5,
+          resolution: "720p",
+        }),
+        onSubmit: async (root) => {
+          const status = root.querySelector("#actionStatus");
+          if (status) status.textContent = "Submitting...";
+          const duration = Number(root.querySelector("#actionDuration")?.value || 5);
+          const payload = await requestJson("/api/advanced/generate", {
+            method: "POST",
+            body: {
+              provider: "seedance",
+              prompt: root.querySelector("#actionPrompt")?.value.trim() || "Extend [Video 1] smoothly.",
+              referenceVideoAssetId: sourceAsset.id,
+              inputVideoSeconds: Number(sourceAsset.durationSeconds || sourceAsset.duration || duration),
+              referenceVideoDurationSeconds: Number(sourceAsset.durationSeconds || sourceAsset.duration || duration),
+              ratio: "16:9",
+              resolution: root.querySelector("#actionResolution")?.value || "720p",
+              duration,
+            },
+          });
+          if (payload.user) syncUser(payload.user);
+          if (status) status.textContent = `Submitted: ${payload.taskId || payload.task?.taskId || ""}`;
+          const taskId = payload.taskId || payload.task?.taskId || payload.record?.taskId || "";
+          if (!taskId) throw new Error("Generation task was not created.");
+          await pollGeneration(taskId, root);
+        },
+      });
     }
-    window.location.href = "./platform.html#advanced";
   } catch (error) {
-    showToast(error.message || "Unable to open Create");
+    showToast(error.message || "Unable to generate");
   } finally {
     state.busyAction = "";
     setActionBusy(false);
@@ -422,9 +723,14 @@ function bindEvents() {
     els.video.play().catch(() => {});
   });
   els.unlockBtn.addEventListener("click", unlockCurrentVideo);
-  els.undressBtn.addEventListener("click", () => openCreateWithAsset("undress"));
-  els.replaceBtn.addEventListener("click", () => openCreateWithAsset("replace"));
-  els.extendBtn.addEventListener("click", () => openCreateWithAsset("extend"));
+  els.undressBtn.addEventListener("click", () => runGameAction("undress"));
+  els.replaceBtn.addEventListener("click", () => runGameAction("replace"));
+  els.extendBtn.addEventListener("click", () => runGameAction("extend"));
+  els.loginSubmitBtn?.addEventListener("click", () => submitLogin("login"));
+  els.loginRegisterBtn?.addEventListener("click", () => submitLogin("register"));
+  els.loginPassword?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") submitLogin("login");
+  });
   els.video.addEventListener("loadeddata", () => {
     if (els.poster) els.poster.hidden = true;
   });
