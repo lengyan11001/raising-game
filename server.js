@@ -9547,6 +9547,15 @@ function adminGenerationRecordView(record = {}, userMap = new Map()) {
   };
 }
 
+function adminGenerationRecordListView(record = {}, userMap = new Map()) {
+  const view = adminGenerationRecordView(record, userMap);
+  delete view.upstreamPayload;
+  delete view.pricingEstimate;
+  delete view.createResponse;
+  delete view.queryResponse;
+  return view;
+}
+
 function generationRecordMatchesQuery(record = {}, query = "") {
   const needle = String(query || "").trim().toLowerCase();
   if (!needle) return true;
@@ -18438,12 +18447,14 @@ async function handleAdminListGenerationRecords(req, res, url) {
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
   let records = await readGenerationRecords();
   const refreshRequested = generationListRefreshRequested(url);
-  const refundable = records.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 100);
+  const refundable = refreshRequested
+    ? records.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 20)
+    : [];
   const statusRefreshable = refreshRequested
     ? records
       .filter((record) => !needsApizFailureRefund(record) && !needsSeedanceFailureRefund(record) && shouldRefreshGenerationRecordFromList(record))
       .filter((record) => !query || generationRecordMatchesQuery(record, query))
-      .slice(0, 12)
+      .slice(0, 4)
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
   if (refreshable.length) {
@@ -18452,7 +18463,7 @@ async function handleAdminListGenerationRecords(req, res, url) {
     );
     records = records.map((record) => refreshedByTask.get(record.taskId) || record);
   }
-  const enriched = records.map((record) => adminGenerationRecordView(record, userMap));
+  const enriched = records.map((record) => adminGenerationRecordListView(record, userMap));
   const filtered = enriched.filter((record) => {
     if (provider && record.provider !== provider) return false;
     if (kind && record.kind !== kind) return false;
@@ -18471,6 +18482,15 @@ async function handleAdminListGenerationRecords(req, res, url) {
     filtered: filtered.length,
     totalPages,
   });
+}
+
+async function handleAdminGetGenerationRecord(req, res, taskId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const record = await getGenerationRecord(decodeURIComponent(taskId));
+  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
+  return sendJson(res, 200, { ok: true, record: adminGenerationRecordView(record, userMap) });
 }
 
 async function handleListGenerationRecords(req, res, url) {
@@ -19548,6 +19568,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/generation-records") {
       return await handleAdminListGenerationRecords(req, res, url);
+    }
+    const adminGenerationRecordMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)$/);
+    if (req.method === "GET" && adminGenerationRecordMatch) {
+      return await handleAdminGetGenerationRecord(req, res, adminGenerationRecordMatch[1]);
     }
     const adminPromotePlatformMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)\/promote-platform$/);
     if (adminPromotePlatformMatch && req.method === "POST") {
