@@ -3207,6 +3207,53 @@ function publicHomeVideoItem(item, auth = null) {
   };
 }
 
+function publicGameCharacterVideoMaps(item = {}, auth = null) {
+  const videos = publicCharacterVideoList(item);
+  const loggedIn = Boolean(auth?.user);
+  const bundleUnlocked = characterUnlockedByRecord(auth?.db || {}, auth?.user?.id || "", item.id || "");
+  const homeSceneVideos = {};
+  const unlockVideos = {};
+  videos.forEach(({ key, entry }, index) => {
+    const singleUnlocked = loggedIn && !bundleUnlocked && Boolean(findUserUnlock(auth?.db || {}, auth?.user?.id || "", item.id || "", entry.sceneId || "", entry.sceneEntryId || "default"));
+    const firstPlayable = index === 0;
+    const playable = firstPlayable || (loggedIn && (bundleUnlocked || singleUnlocked));
+    const publicVideo = publicCharacterSceneVideo(entry, {
+      playable,
+      locked: !playable,
+      price: CHARACTER_UNLOCK_COST_CREDITS,
+    });
+    if (!publicVideo) return;
+    const outKey = key || makeSceneVideoKey(publicVideo.sceneId, publicVideo.sceneEntryId || "default");
+    if (firstPlayable) {
+      publicVideo.videoUrl = publicGameVideoUrl({
+        itemId: item.id,
+        sceneId: entry.sceneId,
+        sceneEntryId: entry.sceneEntryId || "default",
+        videoKey: outKey,
+      });
+      publicVideo.locked = false;
+    } else if (playable) {
+      publicVideo.videoUrl = characterVideoPublicUrl(entry, item, auth, outKey);
+    }
+    if (index === 0) homeSceneVideos[outKey] = publicVideo;
+    else unlockVideos[outKey] = publicVideo;
+  });
+  return { homeSceneVideos, sceneVideos: {}, unlockVideos, unlocked: bundleUnlocked };
+}
+
+function publicGameHomeVideoItem(item, auth = null) {
+  const base = publicHomeVideoItem(item, auth);
+  const characterVideos = publicGameCharacterVideoMaps(item, auth);
+  return {
+    ...base,
+    homeSceneVideos: characterVideos.homeSceneVideos,
+    sceneVideos: characterVideos.sceneVideos,
+    unlockVideos: characterVideos.unlockVideos,
+    unlocked: characterVideos.unlocked,
+    videoCount: Number(item.videoCount || Object.keys(characterVideos.homeSceneVideos).length + Object.keys(characterVideos.unlockVideos).length),
+  };
+}
+
 function legacyHomeItem(homeVideo = {}) {
   return {
     id: homeVideo.activeItemId || "home-default",
@@ -3513,6 +3560,23 @@ function getUnlockVideoUrl(entry = {}) {
 function secureUnlockVideoUrl({ userId, itemId, sceneId, sceneEntryId = "default", videoKey = "" }) {
   const token = makeUnlockStreamToken({ userId, itemId, sceneId, sceneEntryId, videoKey });
   return `/api/unlock-video/stream/${encodeURIComponent(token)}`;
+}
+
+function makePublicGameVideoToken({ itemId, sceneId, sceneEntryId = "default", videoKey = "" }) {
+  const payload = base64UrlJson({
+    userId: "__game_public__",
+    itemId,
+    sceneId,
+    sceneEntryId: sceneEntryId || "default",
+    videoKey,
+    exp: Date.now() + UNLOCK_STREAM_TTL_MS,
+  });
+  return `${payload}.${signUnlockStreamPayload(payload)}`;
+}
+
+function publicGameVideoUrl({ itemId, sceneId, sceneEntryId = "default", videoKey = "" }) {
+  const token = makePublicGameVideoToken({ itemId, sceneId, sceneEntryId, videoKey });
+  return `/api/game/video/${encodeURIComponent(token)}`;
 }
 
 function normalizePublicAssetPath(value = "") {
@@ -15189,6 +15253,23 @@ async function handleListUnlocks(req, res) {
   return sendJson(res, 200, { ok: true, unlocks });
 }
 
+async function handleGameFeed(req, res) {
+  let config = await readAppConfig();
+  config = await ensureSceneEntriesPersisted(config);
+  config = await refreshCompletedHomeVideoItems(config);
+  const auth = await getAuth(req);
+  const publicView = publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null);
+  const homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const items = homeVideo.items.map((item) => publicGameHomeVideoItem(item, auth?.user ? auth : null));
+  publicView.homeVideo.items = items;
+  return sendJson(res, 200, {
+    ok: true,
+    config: publicView,
+    items,
+    user: auth?.user ? userView(auth.user) : null,
+  });
+}
+
 async function handleUnlockVideo(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -15386,9 +15467,9 @@ async function handleCreateGameAssetFromCharacterMedia(req, res) {
   }
 }
 
-async function streamVideoFile(req, res, filePath) {
+async function streamVideoFile(req, res, filePath, { useInternalAsset = true } = {}) {
   const stat = await fs.stat(filePath);
-  if (sendInternalAsset(res, filePath, "video/mp4", stat, { privateCache: true })) return;
+  if (useInternalAsset && sendInternalAsset(res, filePath, "video/mp4", stat, { privateCache: true })) return;
   const range = req.headers.range;
   if (range) {
     const match = range.match(/bytes=(\d*)-(\d*)/);
@@ -15464,6 +15545,37 @@ async function handleStreamUnlockVideo(req, res, token) {
   const contentType = mimeTypes.get(path.extname(localPath).toLowerCase()) || "";
   if (!contentType.startsWith("video/")) return sendJson(res, 403, { ok: false, message: "Forbidden." });
   return streamVideoFile(req, res, localPath);
+}
+
+async function handleStreamPublicGameVideo(req, res, token) {
+  const payload = parseUnlockStreamToken(token);
+  if (!payload || payload.userId !== "__game_public__") {
+    return sendJson(res, 403, { ok: false, message: "Video link expired." });
+  }
+
+  let config = await readAppConfig();
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const item = findHomeVideoItem(config.homeVideo, payload.itemId);
+  const videos = item ? publicCharacterVideoList(item) : [];
+  const first = videos[0] || null;
+  if (!item || !first) return sendJson(res, 404, { ok: false, message: "Video not found." });
+  const firstEntry = first.entry || {};
+  const firstKey = first.key || makeSceneVideoKey(firstEntry.sceneId, firstEntry.sceneEntryId || "default");
+  const matchesFirst = String(firstEntry.sceneId || "") === String(payload.sceneId || "")
+    && String(firstEntry.sceneEntryId || "default") === String(payload.sceneEntryId || "default")
+    && (!payload.videoKey || String(payload.videoKey) === String(firstKey));
+  if (!matchesFirst) return sendJson(res, 403, { ok: false, message: "Unlock required." });
+
+  const videoUrl = getUnlockVideoUrl(firstEntry);
+  if (!videoUrl) return sendJson(res, 409, { ok: false, message: "Video is unavailable." });
+  if (/^https?:\/\//i.test(videoUrl)) return res.writeHead(302, { location: videoUrl }).end();
+
+  const localPath = path.normalize(path.join(ROOT, videoUrl.replace(/^\//, "")));
+  const rootWithSep = ROOT.endsWith(path.sep) ? ROOT : `${ROOT}${path.sep}`;
+  if (localPath !== ROOT && !localPath.startsWith(rootWithSep)) return sendJson(res, 403, { ok: false, message: "Forbidden." });
+  const contentType = mimeTypes.get(path.extname(localPath).toLowerCase()) || "";
+  if (!contentType.startsWith("video/")) return sendJson(res, 403, { ok: false, message: "Forbidden." });
+  return streamVideoFile(req, res, localPath, { useInternalAsset: false });
 }
 
 async function handleUploadUserAsset(req, res) {
@@ -19944,6 +20056,10 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null) });
     }
 
+    if (req.method === "GET" && url.pathname === "/api/game/feed") {
+      return await handleGameFeed(req, res);
+    }
+
     const volcengineTaskMatch = url.pathname.match(/^\/(?:(?:api\/v3|v3)\/)?contents\/generations\/tasks\/([^/]+)\/?$/);
     if (req.method === "POST" && /^\/(?:(?:api\/v3|v3)\/)?contents\/generations\/tasks\/?$/.test(url.pathname)) {
       return await handleVolcengineCreateGenerationTask(req, res);
@@ -20061,6 +20177,11 @@ async function handleRequest(req, res) {
     const unlockStreamMatch = url.pathname.match(/^\/api\/unlock-video\/stream\/([^/]+)$/);
     if ((req.method === "GET" || req.method === "HEAD") && unlockStreamMatch) {
       return await handleStreamUnlockVideo(req, res, unlockStreamMatch[1]);
+    }
+
+    const publicGameVideoStreamMatch = url.pathname.match(/^\/api\/game\/video\/([^/]+)$/);
+    if ((req.method === "GET" || req.method === "HEAD") && publicGameVideoStreamMatch) {
+      return await handleStreamPublicGameVideo(req, res, publicGameVideoStreamMatch[1]);
     }
 
     if (req.method === "POST" && url.pathname === "/api/user-assets") {
