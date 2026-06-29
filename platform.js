@@ -5,6 +5,7 @@ const LANG_KEY = "raisingGameLanguage";
 const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";
 const AGE_GATE_ACCEPTED_KEY = "raisingGameAgeGateAccepted";
+const GAME_CREATE_ACTION_KEY = "vipeakGameCreateAction";
 const ALL_TABS = new Set(["gallery", "characters", "advanced", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
@@ -11118,6 +11119,58 @@ function useAssetInAdvanced(asset = {}, action = "use") {
   }
 }
 
+async function findUserAssetForGameAction(assetId = "") {
+  const id = String(assetId || "").trim();
+  if (!id) return null;
+  let asset = (state.advancedAssets || []).find((item) => item.id === id)
+    || (state.userAssets || []).find((item) => item.id === id)
+    || null;
+  if (asset) return asset;
+  await loadAdvancedAssets(1).catch(() => {});
+  asset = (state.advancedAssets || []).find((item) => item.id === id)
+    || (state.userAssets || []).find((item) => item.id === id)
+    || null;
+  if (asset) return asset;
+  const payload = await requestJson("/api/user-assets?page=1&limit=50");
+  const assets = Array.isArray(payload.assets) ? payload.assets : [];
+  state.userAssets = assets;
+  state.advancedAssets = assets;
+  return assets.find((item) => item.id === id) || null;
+}
+
+async function consumeGameCreateAction() {
+  const raw = sessionStorage.getItem(GAME_CREATE_ACTION_KEY);
+  if (!raw) return;
+  sessionStorage.removeItem(GAME_CREATE_ACTION_KEY);
+  let action = null;
+  try {
+    action = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  if (!state.user) {
+    openLogin();
+    return;
+  }
+  setTab("advanced");
+  const fallbackAsset = action.asset && typeof action.asset === "object" && !Array.isArray(action.asset) ? action.asset : null;
+  const asset = await findUserAssetForGameAction(action.assetId) || fallbackAsset;
+  if (!asset) {
+    if (els.advancedNote) els.advancedNote.textContent = "Game asset was not found.";
+    return;
+  }
+  if (!state.userAssets.some((item) => item.id === asset.id)) state.userAssets = [asset, ...state.userAssets];
+  if (!state.advancedAssets.some((item) => item.id === asset.id)) state.advancedAssets = [asset, ...state.advancedAssets];
+  const nextAction = ["modify", "replace", "extend"].includes(action.action) ? action.action : "use";
+  useAssetInAdvanced(asset, nextAction);
+  if (nextAction === "replace") setAdvancedAssetTarget("primary");
+  if (nextAction === "modify" && els.advancedPrompt && action.prompt) {
+    els.advancedPrompt.value = String(action.prompt || "");
+    updateAdvancedButtonCost();
+  }
+  if (els.advancedNote) els.advancedNote.textContent = "";
+}
+
 function selectedWanClipData(mediaMode = "first_frame") {
   return wanModeNeedsClip(mediaMode) && !state.advancedWanClipAssetId ? state.advancedWanClipDataUrl : "";
 }
@@ -12374,6 +12427,7 @@ async function bootstrap() {
   renderPricing();
   renderTokenDisplays();
   setTab(state.tab);
+  await consumeGameCreateAction();
   refreshIcons();
   loadPlatformEstimates();
 }
