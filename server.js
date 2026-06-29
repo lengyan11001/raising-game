@@ -14659,6 +14659,130 @@ async function handleUnlockVideo(req, res) {
   });
 }
 
+function localAssetUrlForGameMedia(value = "") {
+  const text = String(value || "").trim();
+  if (!text || /^https?:\/\//i.test(text)) return "";
+  const clean = text.split("?")[0].replace(/^\/+/, "");
+  if (!clean) return "";
+  const filePath = path.normalize(path.join(ROOT, clean));
+  const rootWithSep = ROOT.endsWith(path.sep) ? ROOT : `${ROOT}${path.sep}`;
+  if (filePath !== ROOT && !filePath.startsWith(rootWithSep)) return "";
+  return { filePath, localUrl: `/${clean}` };
+}
+
+async function createUserAssetFromLocalMedia(auth, { localUrl = "", name = "Game asset", fileName = "", durationSeconds = 0 } = {}) {
+  const source = localAssetUrlForGameMedia(localUrl);
+  if (!source) {
+    return createUserMediaAssetFromPublicUrl(auth.db, auth.user, {
+      url: localUrl,
+      name,
+      fileName,
+      durationSeconds,
+      sourceUrl: localUrl,
+    });
+  }
+  const stat = await fs.stat(source.filePath);
+  if (!stat.isFile()) {
+    const error = new Error("Selected media file was not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const ext = path.extname(source.filePath).toLowerCase();
+  const mime = mimeTypes.get(ext) || imageMimeFromKnownPath(source.filePath) || videoMimeFromKnownPath(source.filePath) || "";
+  if (!mime || (!mime.startsWith("image/") && !mime.startsWith("video/"))) {
+    const error = new Error("Selected media is not an image or video.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (mime.startsWith("image/") && stat.size > IMAGE_UPLOAD_MAX_BYTES) {
+    const error = new Error(`Image must be ${Math.round(IMAGE_UPLOAD_MAX_BYTES / 1024 / 1024)}MB or smaller.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  if (mime.startsWith("video/") && stat.size > MEDIA_UPLOAD_MAX_BYTES) {
+    const error = new Error(`Media must be ${Math.round(MEDIA_UPLOAD_MAX_BYTES / 1024 / 1024)}MB or smaller.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  const existing = findUserAssetBySourceUrl(auth.db, auth.user, source.localUrl);
+  if (existing) return existing;
+  const bytes = await fs.readFile(source.filePath);
+  const asset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
+    bytes,
+    mime,
+    name,
+    fileName: fileName || path.basename(source.filePath),
+    maxBytes: mime.startsWith("image/") ? IMAGE_UPLOAD_MAX_BYTES : MEDIA_UPLOAD_MAX_BYTES,
+    durationSeconds,
+  });
+  asset.sourceUrl = normalizedAssetSourceUrl(source.localUrl);
+  asset.meta = { ...(asset.meta || {}), fromGame: true, sourceLocalUrl: source.localUrl };
+  asset.updatedAt = new Date().toISOString();
+  auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(auth.db);
+  return asset;
+}
+
+async function handleCreateGameAssetFromCharacterMedia(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const itemId = String(body.itemId || "").trim();
+  const kind = String(body.kind || "image").trim().toLowerCase();
+  if (!itemId) return sendJson(res, 400, { ok: false, message: "Missing itemId." });
+
+  let config = await readAppConfig();
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const item = findHomeVideoItem(config.homeVideo, itemId);
+  if (!item) return sendJson(res, 404, { ok: false, message: "Character not found." });
+
+  let sourceUrl = "";
+  let name = `${item.name || "Character"} image`;
+  let durationSeconds = 0;
+  if (kind === "video") {
+    const videoKey = String(body.videoKey || "").trim();
+    const sceneId = String(body.sceneId || "").trim();
+    const sceneEntryId = String(body.sceneEntryId || "default").trim() || "default";
+    const match = videoKey
+      ? publicCharacterVideoList(item).find(({ key }) => key === videoKey)
+      : findCharacterVideoForItem(item, sceneId, sceneEntryId);
+    if (!match) return sendJson(res, 404, { ok: false, message: "Video not found." });
+    const isFirst = publicCharacterVideoList(item)[0]?.key === match.key;
+    const bundleUnlocked = characterUnlockedByRecord(auth.db, auth.user.id, item.id);
+    const singleUnlocked = Boolean(findUserUnlock(auth.db, auth.user.id, item.id, match.entry.sceneId || "", match.entry.sceneEntryId || "default"));
+    if (!isFirst && !bundleUnlocked && !singleUnlocked) {
+      return sendJson(res, 403, { ok: false, message: "Unlock this character before using this video." });
+    }
+    sourceUrl = getUnlockVideoUrl(match.entry);
+    name = `${item.name || "Character"} video`;
+    durationSeconds = durationSecondsFromValue(match.entry.duration || item.duration || 0);
+  } else {
+    sourceUrl = String(
+      item.posterUrl ||
+      item.localImageUrl ||
+      item.syntheticReferenceLocalUrl ||
+      item.sourceImageUrl ||
+      item.publicImageUrl ||
+      item.coverUrl ||
+      item.thumbnailUrl ||
+      "",
+    ).trim();
+  }
+  if (!sourceUrl) return sendJson(res, 404, { ok: false, message: "Selected media is unavailable." });
+  try {
+    const asset = await createUserAssetFromLocalMedia(auth, {
+      localUrl: sourceUrl,
+      name,
+      fileName: `${item.id || "game"}-${kind}`,
+      durationSeconds,
+    });
+    return sendJson(res, 200, { ok: true, asset: publicUserAsset(asset), user: userView(auth.user) });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 500, { ok: false, message: error.message || "Failed to create asset." });
+  }
+}
+
 async function streamVideoFile(req, res, filePath) {
   const stat = await fs.stat(filePath);
   if (sendInternalAsset(res, filePath, "video/mp4", stat, { privateCache: true })) return;
@@ -19061,7 +19185,7 @@ async function handleGetSceneVideo(req, res, taskId) {
 
 async function serveStatic(req, res, url) {
   let pathname = decodeURIComponent(url.pathname === "/" ? (isCmsHostRequest(req) ? "/admin.html" : "/platform.html") : url.pathname);
-  if (pathname === "/game" || pathname === "/game/") pathname = "/index.html";
+  if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (await isProtectedUnlockAssetPath(pathname)) {
     return sendText(res, 403, "Unlock required");
   }
@@ -19319,6 +19443,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/unlock-video") {
       return await handleUnlockVideo(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/game/assets/from-character-media") {
+      return await handleCreateGameAssetFromCharacterMedia(req, res);
     }
 
     const unlockStreamMatch = url.pathname.match(/^\/api\/unlock-video\/stream\/([^/]+)$/);

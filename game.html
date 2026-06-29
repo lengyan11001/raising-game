@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Vipeak AI Game</title>
+    <link rel="stylesheet" href="./game.css?v=game-1" />
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  </head>
+  <body>
+    <section id="ageGate" class="age-gate" role="dialog" aria-modal="true" aria-labelledby="ageGateTitle" hidden>
+      <div class="age-card">
+        <span>18+</span>
+        <h1 id="ageGateTitle">Adults only</h1>
+        <p>Please confirm you are 18 years of age or older.</p>
+        <button id="ageConfirmBtn" type="button">I am 18 or older</button>
+        <button id="ageDeclineBtn" type="button">I am under 18</button>
+      </div>
+    </section>
+    <section id="ageForbidden" class="age-gate" hidden>
+      <div class="age-card">
+        <span>403</span>
+        <h1>Access denied</h1>
+        <p>Only users aged 18 or older can enter.</p>
+      </div>
+    </section>
+
+    <main class="game-feed" id="gameFeed">
+      <section class="feed-stage" id="feedStage" aria-label="Character video feed">
+        <video id="feedVideo" class="feed-video" autoplay muted loop playsinline preload="metadata"></video>
+        <img id="feedPoster" class="feed-poster" alt="" />
+        <div class="feed-scrim"></div>
+
+        <header class="feed-topbar">
+          <a class="feed-brand" href="./platform.html#explore" aria-label="Back to explore">
+            <i data-lucide="chevron-left"></i>
+            <span>Explore</span>
+          </a>
+          <div class="feed-wallet">
+            <i data-lucide="gem"></i>
+            <strong id="creditCount">0</strong>
+          </div>
+        </header>
+
+        <div class="video-index" id="videoIndex"></div>
+
+        <aside class="feed-actions" aria-label="Actions">
+          <button id="playBtn" class="feed-action" type="button" aria-label="Play">
+            <i data-lucide="play"></i>
+            <span>Play</span>
+          </button>
+          <button id="unlockBtn" class="feed-action" type="button" hidden aria-label="Unlock">
+            <i data-lucide="lock-keyhole"></i>
+            <span>Unlock</span>
+          </button>
+          <button id="undressBtn" class="feed-action" type="button" aria-label="Undress">
+            <i data-lucide="wand-sparkles"></i>
+            <span>Undress</span>
+          </button>
+          <button id="replaceBtn" class="feed-action" type="button" aria-label="Replace">
+            <i data-lucide="replace"></i>
+            <span>Replace</span>
+          </button>
+          <button id="extendBtn" class="feed-action" type="button" aria-label="Extend">
+            <i data-lucide="stretch-horizontal"></i>
+            <span>Extend</span>
+          </button>
+        </aside>
+
+        <section class="character-copy">
+          <p id="characterMeta">Swipe up and down to switch characters</p>
+          <h1 id="characterName">Loading</h1>
+          <div class="tag-row" id="tagRow"></div>
+        </section>
+
+        <div class="gesture-hint">
+          <span><i data-lucide="chevrons-up-down"></i> Character</span>
+          <span><i data-lucide="chevrons-left-right"></i> Video</span>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="confirmDialog" class="game-dialog">
+      <form method="dialog">
+        <h2 id="confirmTitle">Confirm</h2>
+        <p id="confirmText"></p>
+        <menu>
+          <button value="cancel" type="submit">Cancel</button>
+          <button id="confirmActionBtn" value="confirm" type="submit">Confirm</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="./game.js?v=game-2"></script>
+  </body>
+</html>
