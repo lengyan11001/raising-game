@@ -521,7 +521,7 @@ function scheduleAdminRecordPoll(records = [], load) {
   adminRecordPollTimer = window.setTimeout(() => {
     adminRecordPollTimer = null;
     if (!activeRoutePane("recordTablePane", "records")) return;
-    load({ silent: true, refresh: true }).catch((err) => renderRouteError("records", err));
+    load({ silent: true }).catch((err) => renderRouteError("records", err));
   }, ADMIN_GENERATION_POLL_MS);
 }
 
@@ -1717,7 +1717,6 @@ async function renderGenerationRecords() {
     Object.entries(next).forEach(([key, value]) => { if (value) params.set(key, value); });
     params.set("page", String(next.page));
     params.set("limit", String(next.limit));
-    if (refresh) params.set("refresh", "1");
     sessionStorage.setItem("admRecordFilters", JSON.stringify(next));
     saved = next;
     if (!silent) tablePane.innerHTML = '<div class="adm-loading"><div class="adm-spinner"></div></div>';
@@ -1743,7 +1742,7 @@ async function renderGenerationRecords() {
     event.preventDefault();
     load({ page: 1 }).catch((err) => renderRouteError("records", err));
   });
-  byId("refreshRecordsBtn")?.addEventListener("click", () => load({ refresh: true }).catch((err) => renderRouteError("records", err)));
+  byId("refreshRecordsBtn")?.addEventListener("click", () => load().catch((err) => renderRouteError("records", err)));
   refreshIcons();
   await load();
 }
@@ -1782,9 +1781,9 @@ function renderGenerationRecordTable(records, payload = {}, load = null) {
   `;
   refreshIcons();
   pane.querySelectorAll("[data-act='record-detail']").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const record = records[Number(button.dataset.index || 0)];
-      if (record) openGenerationRecordDetail(record);
+      if (record) await openGenerationRecordDetail(record);
     });
   });
   pane.querySelectorAll("[data-act='copy-record']").forEach((button) => {
@@ -1794,15 +1793,23 @@ function renderGenerationRecordTable(records, payload = {}, load = null) {
     });
   });
   pane.querySelectorAll("[data-act='promote-advanced']").forEach((button) => {
-    button.addEventListener("click", () => {
-      const record = records[Number(button.dataset.index || 0)];
-      if (record) promoteRecordToAdvancedCaseWithCategory(record, button);
+    button.addEventListener("click", async () => {
+      try {
+        const record = records[Number(button.dataset.index || 0)];
+        if (record) promoteRecordToAdvancedCaseWithCategory(await fetchAdminGenerationRecordDetail(record), button);
+      } catch (error) {
+        toast(error.message || "加载详情失败。", "error");
+      }
     });
   });
   pane.querySelectorAll("[data-act='promote-platform']").forEach((button) => {
-    button.addEventListener("click", () => {
-      const record = records[Number(button.dataset.index || 0)];
-      if (record) promoteRecordToPlatformGallery(record, button);
+    button.addEventListener("click", async () => {
+      try {
+        const record = records[Number(button.dataset.index || 0)];
+        if (record) promoteRecordToPlatformGallery(await fetchAdminGenerationRecordDetail(record), button);
+      } catch (error) {
+        toast(error.message || "加载详情失败。", "error");
+      }
     });
   });
   bindAdminPager(pane, payload, ({ page, limit }) => {
@@ -2081,7 +2088,20 @@ async function promoteRecordToPlatformGallery(record = {}, button = null) {
   }
 }
 
-function openGenerationRecordDetail(record) {
+async function fetchAdminGenerationRecordDetail(record = {}) {
+  if (!record?.taskId) return record;
+  if (record.upstreamPayload || record.createResponse || record.queryResponse) return record;
+  const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}`);
+  return payload.record || record;
+}
+
+async function openGenerationRecordDetail(record) {
+  try {
+    record = await fetchAdminGenerationRecordDetail(record);
+  } catch (error) {
+    toast(error.message || "加载详情失败。", "error");
+    return;
+  }
   const video = recordVideoUrl(record);
   const remoteVideo = recordRemoteVideoUrl(record);
   const imageResult = recordImageResultUrl(record);
