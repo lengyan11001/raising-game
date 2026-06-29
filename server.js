@@ -121,6 +121,8 @@ const UPSTREAM_BASE_URL = (process.env.UPSTREAM_BASE_URL || "https://123vips.com
 const UPSTREAM_API_TOKEN = String(process.env.UPSTREAM_API_TOKEN || "").trim();
 const GATEWAY_PLATFORM_FALLBACK_CREDITS = Math.max(1, creditsAmount(process.env.GATEWAY_PLATFORM_FALLBACK_CREDITS || 1325));
 const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
+const GENERATION_SUBMIT_STALE_MS = Math.max(5 * 60 * 1000, Number(process.env.GENERATION_SUBMIT_STALE_MS || 10 * 60 * 1000) || 10 * 60 * 1000);
+const GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS = Math.max(60 * 1000, Number(process.env.GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS || 60 * 1000) || 60 * 1000);
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const DEFAULT_CREDITS_PER_USD = clampNumber(process.env.CREDITS_PER_USD || process.env.CREDITS_PER_USDT, 100, 0.0001, 100000);
@@ -9676,6 +9678,38 @@ function shouldRefreshGenerationRecord(record = {}) {
   return Boolean(record.taskId) && !String(record.taskId).startsWith("demo-");
 }
 
+function isStalePreSubmitGenerationRecord(record = {}, staleMs = GENERATION_SUBMIT_STALE_MS) {
+  if (!record?.taskId || !record.userId) return false;
+  if (!record.awaitingUpstreamTask || record.upstreamTaskId) return false;
+  if (isSucceededStatus(record.status) || isFailedStatus(record.status)) return false;
+  const provider = String(record.provider || "").toLowerCase();
+  if (!["seedance", "aliyun-wan27", "apiz"].includes(provider)) return false;
+  const status = String(record.status || "").toLowerCase();
+  if (!["preparing", "submitting", "submitted", "running", "processing", "queued", "pending"].includes(status)) return false;
+  const time = generationRecordTime(record);
+  return Boolean(time) && Date.now() - time >= staleMs;
+}
+
+async function failStalePreSubmitGenerationRecord(record = {}, reason = "stale-submit") {
+  if (!isStalePreSubmitGenerationRecord(record, 0)) return record;
+  const failedRecord = await upsertGenerationRecord({
+    taskId: record.taskId,
+    status: "failed",
+    awaitingUpstreamTask: false,
+    error: "Generation submission timed out before an upstream task id was returned. The pre-deducted credits were refunded.",
+    failedAt: new Date().toISOString(),
+    lastUpdateReason: reason,
+  });
+  const provider = String(failedRecord.provider || "").toLowerCase();
+  if (provider === "apiz") {
+    return settleApizGenerationRecord(failedRecord, {
+      status: "failed",
+      error: failedRecord.error,
+    }, reason);
+  }
+  return settleSeedanceGenerationRecord(failedRecord, reason);
+}
+
 function generationListRefreshRequested(url) {
   return ["1", "true", "yes", "on"].includes(String(url.searchParams.get("refresh") || "").toLowerCase());
 }
@@ -9688,6 +9722,7 @@ function generationRecordTime(record = {}) {
 }
 
 function shouldRefreshGenerationRecordFromList(record = {}) {
+  if (isStalePreSubmitGenerationRecord(record)) return true;
   if (!shouldRefreshGenerationRecord(record)) return false;
   if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) return true;
   const time = generationRecordTime(record);
@@ -9751,6 +9786,9 @@ async function refreshGenerationRecordStatus(record = {}) {
   }
   if (needsSeedanceFailureRefund(record)) {
     return settleSeedanceGenerationRecord(record, "refresh");
+  }
+  if (isStalePreSubmitGenerationRecord(record)) {
+    return failStalePreSubmitGenerationRecord(record, "refresh-stale-submit");
   }
   if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) {
     try {
@@ -18773,7 +18811,9 @@ async function handleGetGenerationRecord(req, res, taskId) {
   }
 
   let nextRecord = record;
-  if (needsApizFailureRefund(record)) {
+  if (isStalePreSubmitGenerationRecord(record)) {
+    nextRecord = await failStalePreSubmitGenerationRecord(record, "detail-stale-submit");
+  } else if (needsApizFailureRefund(record)) {
     nextRecord = await settleApizGenerationRecord(record, { status: record.status || "failed", error: record.error || "" }, "detail");
   } else if (needsSeedanceFailureRefund(record)) {
     nextRecord = await settleSeedanceGenerationRecord(record, "detail");
@@ -19942,6 +19982,41 @@ server.requestTimeout = Number(process.env.HTTP_REQUEST_TIMEOUT_MS || 180000);
 server.maxRequestsPerSocket = Number(process.env.HTTP_MAX_REQUESTS_PER_SOCKET || 1000);
 server.maxConnections = Number(process.env.HTTP_MAX_CONNECTIONS || 2000);
 
+let staleSubmitScanRunning = false;
+
+async function scanStalePreSubmitGenerationRecords(reason = "timer") {
+  if (staleSubmitScanRunning) return;
+  staleSubmitScanRunning = true;
+  try {
+    const records = await readGenerationRecords();
+    const staleRecords = records
+      .filter((record) => isStalePreSubmitGenerationRecord(record))
+      .slice(0, 10);
+    if (!staleRecords.length) return;
+    const settled = [];
+    for (const record of staleRecords) {
+      try {
+        const nextRecord = await failStalePreSubmitGenerationRecord(record, `${reason}-stale-submit`);
+        settled.push(nextRecord.taskId || record.taskId);
+      } catch (error) {
+        console.warn("[stale-submit-generation-record-failed]", record.taskId, error.message || error);
+      }
+    }
+    if (settled.length) {
+      console.warn("[stale-submit-generation-records-settled]", { reason, count: settled.length, taskIds: settled });
+    }
+  } catch (error) {
+    console.warn("[stale-submit-generation-record-scan-failed]", error.message || error);
+  } finally {
+    staleSubmitScanRunning = false;
+  }
+}
+
+function startStaleSubmitGenerationRecordScheduler() {
+  setTimeout(() => scanStalePreSubmitGenerationRecords("startup"), 5000).unref?.();
+  setInterval(() => scanStalePreSubmitGenerationRecords("timer"), GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS).unref?.();
+}
+
 async function bootstrap() {
   if (dbEnabled()) {
     await migrateFileDataToDb({
@@ -19958,6 +20033,7 @@ async function bootstrap() {
     console.log("User API tokens migrated: yes");
   }
   startWalletScanScheduler();
+  startStaleSubmitGenerationRecordScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
