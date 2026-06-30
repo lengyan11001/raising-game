@@ -4035,6 +4035,17 @@ textarea {
 }
 textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 0 0 3px rgba(15,148,139,.12); }
 .job-note { margin: 0; color: var(--muted); line-height: 1.6; }
+.asset-simple-cost {
+  margin: 8px 0;
+  padding: 20px;
+  border: 1px solid rgba(255, 63, 173, 0.32);
+  border-radius: 14px;
+  background: rgba(255, 63, 173, 0.1);
+  color: var(--text);
+  font-size: 1.15rem;
+  font-weight: 900;
+  text-align: center;
+}
 .auth-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .account-grid {
   display: grid;
@@ -5152,6 +5163,35 @@ select:focus,
 }
 .advanced-workspace:not(.is-create-custom) .advanced-upload-previews {
   width: 100%;
+}
+.advanced-workspace.is-create-auto-prompt .advanced-upload-box {
+  min-height: 188px;
+  align-content: start;
+  justify-items: stretch;
+  padding: 10px;
+}
+.advanced-workspace.is-create-auto-prompt .advanced-upload-box.has-image {
+  min-height: 0;
+}
+.advanced-workspace.is-create-auto-prompt .advanced-upload-previews {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+.advanced-workspace.is-create-auto-prompt .advanced-upload-previews figure {
+  background: transparent;
+  overflow: hidden;
+}
+.advanced-workspace.is-create-auto-prompt .advanced-upload-previews img,
+.advanced-workspace.is-create-auto-prompt .advanced-upload-previews video {
+  width: 100%;
+  height: auto;
+  max-height: 260px;
+  object-fit: contain;
+  background: transparent;
+}
+.advanced-workspace.is-create-auto-prompt .advanced-upload-box.has-image span {
+  justify-self: center;
+  margin-top: 6px;
 }
 .advanced-workspace:not(.is-create-custom) .advanced-reference-summary {
   color: rgba(247,247,251,.58);

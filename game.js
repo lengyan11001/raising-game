@@ -493,6 +493,30 @@ function actionOptionsMarkup({ prompt = "", needImage = false, imageLabel = "Rep
   `;
 }
 
+function actionCostMarkup(cost = "") {
+  return `
+    <div class="action-cost">
+      <strong>${escapeHtml(cost || "Checking...")}</strong>
+    </div>
+    <p class="action-status" id="actionStatus"></p>
+    <div class="action-result" id="actionResult"></div>
+  `;
+}
+
+function simpleVideoActionCost(duration = 5, { hasVideoInput = false } = {}) {
+  const seconds = Math.max(5, Math.min(15, Number(duration || 5) || 5));
+  const pricing = state.config?.advancedPricing || {};
+  const outputTable = pricing.seedanceCreditsPerSecondByResolution || {};
+  const inputTable = pricing.seedanceVideoInputCreditsPerSecondByResolution || {};
+  const outputRate = Number(outputTable["720p"] || 30);
+  const inputRate = Number(inputTable["720p"] || 20);
+  return Math.round((seconds * outputRate + (hasVideoInput ? seconds * inputRate : 0)) * 10000) / 10000;
+}
+
+function simpleImageActionCost() {
+  return Number(state.config?.assetImageModify?.costCredits || 16);
+}
+
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -500,6 +524,59 @@ function fileToDataUrl(file) {
     reader.onerror = () => reject(reader.error || new Error("Failed to read file."));
     reader.readAsDataURL(file);
   });
+}
+
+function scaledCanvasSize(width = 0, height = 0, maxPixels = 2086876) {
+  const w = Math.max(1, Number(width) || 1);
+  const h = Math.max(1, Number(height) || 1);
+  const pixels = w * h;
+  if (pixels <= maxPixels) return { width: Math.round(w), height: Math.round(h) };
+  const scale = Math.sqrt(maxPixels / pixels);
+  return {
+    width: Math.max(1, Math.floor(w * scale)),
+    height: Math.max(1, Math.floor(h * scale)),
+  };
+}
+
+async function captureLastFrameDataUrl(sourceUrl = "") {
+  const response = await fetch(sourceUrl, { credentials: "same-origin" });
+  if (!response.ok) throw new Error("Failed to load source video.");
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  try {
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = resolve;
+      video.onerror = () => reject(new Error("Failed to read source video."));
+      video.src = objectUrl;
+      video.load?.();
+    });
+    const targetTime = Math.max(0, Number(video.duration || 0) - 0.08);
+    await new Promise((resolve, reject) => {
+      const timer = window.setTimeout(resolve, 1600);
+      video.onseeked = () => {
+        window.clearTimeout(timer);
+        resolve();
+      };
+      video.onerror = () => {
+        window.clearTimeout(timer);
+        reject(new Error("Failed to read source video."));
+      };
+      video.currentTime = targetTime;
+    });
+    const size = scaledCanvasSize(video.videoWidth || 1, video.videoHeight || 1);
+    const canvas = document.createElement("canvas");
+    canvas.width = size.width;
+    canvas.height = size.height;
+    canvas.getContext("2d").drawImage(video, 0, 0, size.width, size.height);
+    return canvas.toDataURL("image/jpeg", 0.9);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+    video.removeAttribute("src");
+    video.load?.();
+  }
 }
 
 async function pollGeneration(taskId, root) {
@@ -578,28 +655,21 @@ async function runGameAction(action) {
     const sourceAsset = await createAssetFromCurrent(action === "undress" ? "image" : "video");
     const sourceUrl = assetPreviewUrl(sourceAsset);
     if (action === "undress") {
+      const cost = simpleImageActionCost();
+      const options = state.config?.assetImageModify || {};
       await showActionDialog({
         title: "Undress",
-        body: actionOptionsMarkup({
-          imageUrl: sourceUrl,
-          prompt: "Remove clothes while preserving the same person, pose, face, body, lighting and background.",
-          duration: 5,
-          resolution: state.config?.assetImageModify?.defaultResolution || "2K",
-        }).replace(/<div class="action-grid">[\s\S]*?<\/div>\s*<p class="action-status"/, `
-          <div class="action-grid">
-            <label class="action-field"><span>Ratio</span><select id="actionRatio"><option value="9:16">9:16</option><option value="1:1">1:1</option><option value="16:9">16:9</option><option value="3:4">3:4</option><option value="4:3">4:3</option></select></label>
-            <label class="action-field"><span>Resolution</span><select id="actionResolution"><option value="1K">1K</option><option value="2K" selected>2K</option></select></label>
-          </div>
-          <p class="action-status"`),
+        submitText: "Generate",
+        body: actionCostMarkup(`${cost} credits`),
         onSubmit: async (root) => {
           const status = root.querySelector("#actionStatus");
           if (status) status.textContent = "Submitting...";
           const payload = await requestJson(`/api/user-assets/${encodeURIComponent(sourceAsset.id)}/modify`, {
             method: "POST",
             body: {
-              prompt: root.querySelector("#actionPrompt")?.value.trim() || "Remove clothes while preserving identity.",
-              ratio: root.querySelector("#actionRatio")?.value || "9:16",
-              resolution: root.querySelector("#actionResolution")?.value || "2K",
+              prompt: "Remove clothes while preserving the same person, pose, face, body, lighting and background.",
+              ratio: options.defaultRatio || "9:16",
+              resolution: options.defaultResolution || "2K",
             },
           });
           if (payload.user) syncUser(payload.user);
@@ -611,17 +681,20 @@ async function runGameAction(action) {
         },
       });
     } else if (action === "replace") {
+      const duration = 5;
+      const cost = simpleVideoActionCost(duration, { hasVideoInput: true });
       await showActionDialog({
         title: "Replace",
-        body: actionOptionsMarkup({
-          videoUrl: sourceUrl,
-          needImage: true,
-          imageLabel: "Replacement image",
-          imageHint: "Tap to upload",
-          prompt: "Replace the lady in [Video 1] with the lady in [Image 1]",
-          duration: video?.duration || 5,
-          resolution: "720p",
-        }),
+        submitText: "Generate",
+        body: `
+          <label class="action-upload">
+            <input id="actionImageInput" type="file" accept="image/*" />
+            <img id="actionImagePreview" alt="" hidden />
+            <strong>Replacement image</strong>
+            <span>Tap to upload</span>
+          </label>
+          ${actionCostMarkup(`${cost} credits`)}
+        `,
         onOpen: (root) => {
           const input = root.querySelector("#actionImageInput");
           const preview = root.querySelector("#actionImagePreview");
@@ -643,19 +716,20 @@ async function runGameAction(action) {
             body: { dataUrl: imageDataUrl, name: file.name || "Replacement image", fileName: file.name || "replacement.png" },
           });
           if (status) status.textContent = "Submitting...";
-          const duration = Number(root.querySelector("#actionDuration")?.value || 5);
           const payload = await requestJson("/api/advanced/generate", {
             method: "POST",
             body: {
               provider: "seedance",
-              prompt: root.querySelector("#actionPrompt")?.value.trim() || "Replace the lady in [Video 1] with the lady in [Image 1]",
+              seedanceMode: "reference_video",
+              prompt: "Replace the main person in [Video 1] with the person in [Image 1], preserving the original motion, camera, scene, and lighting.",
               referenceVideoAssetId: sourceAsset.id,
               referenceImages: [{ assetId: imagePayload.asset?.id || "" }],
               inputVideoSeconds: Number(sourceAsset.durationSeconds || sourceAsset.duration || duration),
               referenceVideoDurationSeconds: Number(sourceAsset.durationSeconds || sourceAsset.duration || duration),
               ratio: "16:9",
-              resolution: root.querySelector("#actionResolution")?.value || "720p",
+              resolution: "720p",
               duration,
+              params: { createKind: "video", createMode: "video-replace" },
             },
           });
           if (payload.user) syncUser(payload.user);
@@ -666,29 +740,30 @@ async function runGameAction(action) {
         },
       });
     } else if (action === "extend") {
+      const duration = 5;
+      const cost = simpleVideoActionCost(duration);
       await showActionDialog({
         title: "Extend",
-        body: actionOptionsMarkup({
-          videoUrl: sourceUrl,
-          prompt: "Extend [Video 1] smoothly with the same subject, scene, motion, lighting and cinematic style.",
-          duration: video?.duration || 5,
-          resolution: "720p",
-        }),
+        submitText: "Generate",
+        body: `
+          ${actionCostMarkup(`${cost} credits`)}
+        `,
         onSubmit: async (root) => {
           const status = root.querySelector("#actionStatus");
+          if (status) status.textContent = "Preparing video frame...";
+          const frameDataUrl = await captureLastFrameDataUrl(sourceUrl);
           if (status) status.textContent = "Submitting...";
-          const duration = Number(root.querySelector("#actionDuration")?.value || 5);
           const payload = await requestJson("/api/advanced/generate", {
             method: "POST",
             body: {
               provider: "seedance",
-              prompt: root.querySelector("#actionPrompt")?.value.trim() || "Extend [Video 1] smoothly.",
-              referenceVideoAssetId: sourceAsset.id,
-              inputVideoSeconds: Number(sourceAsset.durationSeconds || sourceAsset.duration || duration),
-              referenceVideoDurationSeconds: Number(sourceAsset.durationSeconds || sourceAsset.duration || duration),
+              seedanceMode: "first_frame",
+              prompt: "Extend [Image 1] smoothly with the same subject, scene, motion, lighting and cinematic style.",
+              firstFrameDataUrl: frameDataUrl,
               ratio: "16:9",
-              resolution: root.querySelector("#actionResolution")?.value || "720p",
+              resolution: "720p",
               duration,
+              params: { createKind: "video", createMode: "video-extend" },
             },
           });
           if (payload.user) syncUser(payload.user);
