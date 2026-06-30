@@ -876,6 +876,19 @@ function isMainlandChinaRequest(req) {
   return BLOCK_MAINLAND_CHINA && requestCountryCode(req) === "CN";
 }
 
+function isMainlandAdminAllowedRequest(req, url) {
+  const pathname = String(url.pathname || "");
+  if (isCmsHostRequest(req)) return true;
+  return (
+    pathname === "/admin.html" ||
+    pathname === "/admin.css" ||
+    pathname === "/admin.js" ||
+    pathname.startsWith("/api/admin/") ||
+    pathname === "/api/auth/login" ||
+    pathname === "/api/auth/me"
+  );
+}
+
 function sendMainlandBlocked(req, res, url) {
   const headers = {
     "cache-control": "no-store",
@@ -20040,7 +20053,7 @@ async function handleRequest(req, res) {
       return await handleFavicon(req, res);
     }
 
-    if (isMainlandChinaRequest(req)) {
+    if (isMainlandChinaRequest(req) && !isMainlandAdminAllowedRequest(req, url)) {
       if (requestHasMainlandBypass(req, url)) {
         setMainlandBypassCookie(res);
         if (shouldCleanBypassUrl(req, url)) {
