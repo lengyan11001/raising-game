@@ -118,6 +118,21 @@ function mediaUrl(entry = {}) {
   return String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
 }
 
+function absoluteMediaUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    return new URL(text, window.location.href).href;
+  } catch {
+    return text;
+  }
+}
+
+function mediaDurationSeconds(entry = {}, fallback = 5) {
+  const value = Number(entry?.durationSeconds || entry?.duration || entry?.videoDurationSeconds || fallback);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 function posterUrl(entry = {}, character = {}) {
   return String(
     entry.posterUrl ||
@@ -503,14 +518,17 @@ function actionCostMarkup(cost = "") {
   `;
 }
 
-function simpleVideoActionCost(duration = 5, { hasVideoInput = false } = {}) {
+function simpleVideoActionCost(duration = 5, { hasVideoInput = false, inputVideoSeconds = 0 } = {}) {
   const seconds = Math.max(5, Math.min(15, Number(duration || 5) || 5));
+  const inputSeconds = Number(inputVideoSeconds || 0) > 0
+    ? Number(inputVideoSeconds || 0)
+    : (hasVideoInput ? seconds : 0);
   const pricing = state.config?.advancedPricing || {};
   const outputTable = pricing.seedanceCreditsPerSecondByResolution || {};
   const inputTable = pricing.seedanceVideoInputCreditsPerSecondByResolution || {};
   const outputRate = Number(outputTable["720p"] || 30);
   const inputRate = Number(inputTable["720p"] || 20);
-  return Math.round((seconds * outputRate + (hasVideoInput ? seconds * inputRate : 0)) * 10000) / 10000;
+  return Math.round((seconds * outputRate + inputSeconds * inputRate) * 10000) / 10000;
 }
 
 function simpleImageActionCost() {
@@ -539,9 +557,21 @@ function scaledCanvasSize(width = 0, height = 0, maxPixels = 2086876) {
 }
 
 async function captureLastFrameDataUrl(sourceUrl = "") {
-  const response = await fetch(sourceUrl, { credentials: "same-origin" });
-  if (!response.ok) throw new Error("Failed to load source video.");
-  const objectUrl = URL.createObjectURL(await response.blob());
+  const absoluteUrl = absoluteMediaUrl(sourceUrl);
+  if (!absoluteUrl) throw new Error("No source video selected.");
+  let objectUrl = "";
+  let videoSrc = absoluteUrl;
+  try {
+    if (new URL(absoluteUrl).origin !== window.location.origin) {
+      const response = await fetch(absoluteUrl, { credentials: "same-origin" });
+      if (!response.ok) throw new Error("Failed to load source video.");
+      objectUrl = URL.createObjectURL(await response.blob());
+      videoSrc = objectUrl;
+    }
+  } catch (error) {
+    if (!objectUrl && videoSrc !== absoluteUrl) URL.revokeObjectURL(objectUrl);
+    throw error;
+  }
   const video = document.createElement("video");
   video.muted = true;
   video.playsInline = true;
@@ -550,7 +580,7 @@ async function captureLastFrameDataUrl(sourceUrl = "") {
     await new Promise((resolve, reject) => {
       video.onloadedmetadata = resolve;
       video.onerror = () => reject(new Error("Failed to read source video."));
-      video.src = objectUrl;
+      video.src = videoSrc;
       video.load?.();
     });
     const targetTime = Math.max(0, Number(video.duration || 0) - 0.08);
@@ -573,7 +603,7 @@ async function captureLastFrameDataUrl(sourceUrl = "") {
     canvas.getContext("2d").drawImage(video, 0, 0, size.width, size.height);
     return canvas.toDataURL("image/jpeg", 0.9);
   } finally {
-    URL.revokeObjectURL(objectUrl);
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
     video.removeAttribute("src");
     video.load?.();
   }
@@ -652,9 +682,8 @@ async function runGameAction(action) {
   try {
     state.busyAction = action;
     setActionBusy(true);
-    const sourceAsset = await createAssetFromCurrent(action === "undress" ? "image" : "video");
-    const sourceUrl = assetPreviewUrl(sourceAsset);
     if (action === "undress") {
+      const sourceAsset = await createAssetFromCurrent("image");
       const cost = simpleImageActionCost();
       const options = state.config?.assetImageModify || {};
       await showActionDialog({
@@ -682,7 +711,8 @@ async function runGameAction(action) {
       });
     } else if (action === "replace") {
       const duration = 5;
-      const cost = simpleVideoActionCost(duration, { hasVideoInput: true });
+      const inputVideoSeconds = mediaDurationSeconds(video, duration);
+      const cost = simpleVideoActionCost(duration, { inputVideoSeconds });
       await showActionDialog({
         title: "Replace",
         submitText: "Generate",
@@ -722,10 +752,10 @@ async function runGameAction(action) {
               provider: "seedance",
               seedanceMode: "reference_video",
               prompt: "Replace the main person in [Video 1] with the person in [Image 1], preserving the original motion, camera, scene, and lighting.",
-              referenceVideoAssetId: sourceAsset.id,
+              referenceVideos: [{ url: absoluteMediaUrl(mediaUrl(video)), durationSeconds: inputVideoSeconds }],
               referenceImages: [{ assetId: imagePayload.asset?.id || "" }],
-              inputVideoSeconds: Number(sourceAsset.durationSeconds || sourceAsset.duration || duration),
-              referenceVideoDurationSeconds: Number(sourceAsset.durationSeconds || sourceAsset.duration || duration),
+              inputVideoSeconds,
+              referenceVideoDurationSeconds: inputVideoSeconds,
               ratio: "16:9",
               resolution: "720p",
               duration,
@@ -751,7 +781,7 @@ async function runGameAction(action) {
         onSubmit: async (root) => {
           const status = root.querySelector("#actionStatus");
           if (status) status.textContent = "Preparing video frame...";
-          const frameDataUrl = await captureLastFrameDataUrl(sourceUrl);
+          const frameDataUrl = await captureLastFrameDataUrl(mediaUrl(video));
           if (status) status.textContent = "Submitting...";
           const payload = await requestJson("/api/advanced/generate", {
             method: "POST",
