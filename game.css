@@ -530,6 +530,23 @@ a {
   object-fit: contain;
 }
 
+.action-cost {
+  display: grid;
+  place-items: center;
+  min-height: 104px;
+  padding: 20px;
+  border: 1px solid rgba(255, 63, 173, 0.32);
+  border-radius: 20px;
+  background: rgba(255, 63, 173, 0.12);
+  text-align: center;
+}
+
+.action-cost strong {
+  color: #fff;
+  font-size: 1.45rem;
+  font-weight: 950;
+}
+
 .action-status {
   min-height: 22px;
   color: rgba(255, 247, 251, 0.78);

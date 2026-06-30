@@ -21,6 +21,7 @@ const ADVANCED_GENERATION_MARKUP = 1.5;
 const DEFAULT_ADVANCED_PROVIDER = "wan27";
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 9;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 20 * 1024 * 1024;
+const ADVANCED_SEEDANCE_MAX_PIXELS = 2086876;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const DEFAULT_ASSET_IMAGE_MODIFY_CREDITS = 16.862;
@@ -311,8 +312,8 @@ const ADVANCED_CREATE_MODES = {
   video: [
     { id: "video-text", labelKey: "advanced.modeVideoText", icon: "type", provider: "seedance", seedanceMode: "text_to_video", assetTarget: "primary", placeholderKey: "advanced.promptVideoText" },
     { id: "video-image", labelKey: "advanced.modeVideoImage", icon: "image-up", provider: "seedance", seedanceMode: "first_frame", assetTarget: "primary", placeholderKey: "advanced.promptVideoImage" },
-    { id: "video-extend", labelKey: "advanced.modeVideoExtend", icon: "stretch-horizontal", provider: "seedance", seedanceMode: "first_frame", assetTarget: "primary", placeholderKey: "advanced.promptVideoExtend" },
-    { id: "video-replace", labelKey: "advanced.modeVideoReplace", icon: "replace", provider: "seedance", seedanceMode: "reference_video", assetTarget: "video", placeholderKey: "advanced.promptVideoReplace" },
+    { id: "video-extend", labelKey: "advanced.modeVideoExtend", icon: "stretch-horizontal", provider: "seedance", seedanceMode: "first_frame", assetTarget: "video", placeholderKey: "advanced.promptVideoExtend" },
+    { id: "video-replace", labelKey: "advanced.modeVideoReplace", icon: "replace", provider: "seedance", seedanceMode: "reference_video", assetTarget: "primary", placeholderKey: "advanced.promptVideoReplace" },
     { id: "video-edit", labelKey: "advanced.modeVideoEdit", icon: "film", provider: "seedance", seedanceMode: "reference_video", assetTarget: "video", placeholderKey: "advanced.promptVideoEdit" },
   ],
   custom: [ADVANCED_CUSTOM_MODE],
@@ -353,7 +354,7 @@ function advancedCreateModeNeedsReplacePair(mode = state.advancedCreateMode) {
 }
 
 function advancedCreateModeNeedsVideoUpload() {
-  return state.advancedCreateKind === "video" && state.advancedCreateMode === "video-edit";
+  return state.advancedCreateKind === "video" && ["video-edit", "video-extend"].includes(state.advancedCreateMode);
 }
 
 function advancedCreateModeUsesCharacterPresetReference(mode = state.advancedCreateMode) {
@@ -361,11 +362,11 @@ function advancedCreateModeUsesCharacterPresetReference(mode = state.advancedCre
 }
 
 function advancedCreateModeAcceptsVideoUpload(mode = state.advancedCreateMode) {
-  return state.advancedCreateKind === "video" && ["video-edit", "video-extend", "video-replace"].includes(mode);
+  return state.advancedCreateKind === "video" && ["video-edit", "video-extend"].includes(mode);
 }
 
 function advancedCreateModeAcceptsImageUpload(mode = state.advancedCreateMode) {
-  return !(state.advancedCreateKind === "video" && mode === "video-edit");
+  return !(state.advancedCreateKind === "video" && ["video-edit", "video-extend"].includes(mode));
 }
 
 function advancedCreateModePreferredSeedanceMode(config = advancedCreateModeConfig()) {
@@ -373,16 +374,16 @@ function advancedCreateModePreferredSeedanceMode(config = advancedCreateModeConf
   if (advancedCreateModeUsesCharacterPresetReference(config.id)) return "reference_images";
   if (advancedCreateModeUsesAutoPrompt(config.id)) {
     if (advancedCreateModeNeedsReplacePair(config.id)) return "reference_video";
-    return state.advancedSeedanceVideoAssetId ? "reference_video" : "first_frame";
+    return "first_frame";
   }
   return configured;
 }
 
 function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
   if (mode === "video-extend") {
-    return state.advancedSeedanceVideoAssetId ? "Extend [Video 1] smoothly." : "Extend [Image 1]";
+    return "Extend [Image 1] smoothly with the same subject, scene, motion, lighting and cinematic style.";
   }
-  if (mode === "video-replace") return "Replace the lady in [Video 1] with the lady in [Image 1]";
+  if (mode === "video-replace") return "Replace the main person in [Video 1] with the person in [Image 1], preserving the original motion, camera, scene, and lighting.";
   return "";
 }
 
@@ -983,6 +984,8 @@ const I18N = {
     "advanced.seedanceFirstRequired": "First frame image is required for this mode.",
     "advanced.seedanceLastRequired": "Last frame image is required for this mode.",
     "advanced.seedanceVideoRequired": "Reference video is required for this mode.",
+    "advanced.extractingLastFrame": "Preparing video frame...",
+    "advanced.confirmCostOnly": "{cost}",
     "advanced.prepareReference": "Prepare safe reference",
     "advanced.originalImage": "Use original image",
     "advanced.seedanceReferenceHint": "",
@@ -5452,6 +5455,25 @@ function advancedPresetSupplementalReferenceImages(seedanceMode = "") {
   return refs.filter((item) => item.presetSlot !== "character");
 }
 
+function advancedSimpleActionCostLabel(provider = currentAdvancedProvider(), duration = Number(els.advancedDuration?.value || 5), resolution = currentAdvancedResolution(), ratio = currentAdvancedRatio()) {
+  const options = {
+    inputVideoSeconds: provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0,
+    seedanceTier: currentSeedanceTier(),
+  };
+  return advancedButtonCostLabel(duration, provider, resolution, ratio, options);
+}
+
+async function confirmAdvancedSimpleActionCost(costLabel = "") {
+  const cost = String(costLabel || "").trim();
+  const result = await showInlineDialog({
+    title: "",
+    body: `<p class="job-note">${escapeHtml(t("advanced.confirmCostOnly", { cost }, cost))}</p>`,
+    confirmText: t("common.generate"),
+    dialogClass: "is-frame-action",
+  });
+  return result === "confirm";
+}
+
 function advancedPresetImageRolePrompt() {
   const refs = advancedPresetReferenceImages();
   if (!refs.length) return "";
@@ -5711,7 +5733,7 @@ function nonCustomAdvancedNeedsCharacterImage() {
   if (state.advancedCreateKind === "custom") return false;
   const provider = currentAdvancedProvider();
   if (provider === "wan27-image-edit") return state.advancedCreateMode === "image-edit";
-  return provider === "seedance" && ["video-text", "video-image", "video-extend"].includes(state.advancedCreateMode);
+  return provider === "seedance" && ["video-text", "video-image"].includes(state.advancedCreateMode);
 }
 
 function hasAdvancedCharacterImage() {
@@ -5823,7 +5845,7 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
   }
   if (els.advancedImage) {
     els.advancedImage.accept = advancedCreateUploadAcceptValue(config.id);
-    els.advancedImage.multiple = !advancedCreateModeAcceptsVideoUpload(config.id);
+    els.advancedImage.multiple = !advancedCreateModeAcceptsVideoUpload(config.id) && !advancedCreateModeNeedsReplacePair(config.id);
   }
   renderAdvancedPresetBuilder();
 }
@@ -6142,6 +6164,11 @@ function updateAdvancedButtonCost() {
   const duration = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
   const provider = currentAdvancedProvider();
   const seedanceTier = currentSeedanceTier();
+  if (state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt()) {
+    els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("common.generate"))}`;
+    refreshIcons();
+    return;
+  }
   if (provider === "wan27-image-edit") {
     els.advancedSubmitBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio()) }))}`;
     refreshIcons();
@@ -9177,10 +9204,8 @@ function advancedAssetTargetItems() {
     if (wanModeNeedsAudio(wanMode)) targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
   } else {
     if (advancedCreateModeNeedsReplacePair()) {
-      targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
       targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
     } else if (advancedCreateModeUsesAutoPrompt()) {
-      targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
       targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
     } else if (seedanceModeNeedsReferenceImages(seedanceMode)) {
       targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
@@ -9204,12 +9229,10 @@ function activeAdvancedAssetTarget() {
 
 function preferredAdvancedAssetTargetForAsset(asset = {}) {
   if (advancedCreateModeNeedsReplacePair()) {
-    if (isVideoAsset(asset)) return "video";
     if (isImageAsset(asset)) return "primary";
   }
   if (advancedCreateModeUsesAutoPrompt()) {
     if (isVideoAsset(asset)) return "video";
-    if (isImageAsset(asset)) return "primary";
   }
   return "";
 }
@@ -9638,6 +9661,33 @@ async function uploadAdvancedVideoReference(file) {
   return asset;
 }
 
+function setAdvancedExtendFrameReference(dataUrl = "", fileName = "video-last-frame.jpg") {
+  if (!dataUrl) return;
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "first_frame";
+  state.activeAdvancedCaseId = "";
+  state.advancedFirstFrameAssetId = "";
+  state.advancedSourceImageAssetId = "";
+  state.advancedReferenceImages = [{
+    dataUrl,
+    fileName,
+    name: fileName,
+  }];
+  state.advancedUploadDataUrl = dataUrl;
+  state.advancedSeedanceVideoAssetId = "";
+  state.advancedSeedanceVideoPreviewUrl = "";
+  state.advancedAudioAssetId = "";
+  if (els.advancedImage) els.advancedImage.value = "";
+  if (els.advancedNote) els.advancedNote.textContent = "";
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+async function captureAdvancedExtendFrameFromSource(source, fileName = "video-last-frame.jpg") {
+  if (els.advancedNote) els.advancedNote.textContent = t("advanced.extractingLastFrame", {}, "Preparing video frame...");
+  const frameDataUrl = await captureLastFrameDataUrl(source);
+  setAdvancedExtendFrameReference(frameDataUrl, fileName);
+}
+
 function assetTargetTypeLabel(type = "image") {
   if (type === "video") return t("assets.video");
   if (type === "audio") return t("assets.audio");
@@ -9650,7 +9700,7 @@ function assetMatchesTarget(asset = {}, target = activeAdvancedAssetTarget()) {
   return isImageAsset(asset);
 }
 
-function addAssetToAdvancedTarget(assetId = "") {
+async function addAssetToAdvancedTarget(assetId = "") {
   if (!state.user) return openLogin();
   const asset = (state.advancedAssets || []).find((item) => item.id === assetId)
     || (state.userAssets || []).find((item) => item.id === assetId);
@@ -9701,7 +9751,7 @@ function addAssetToAdvancedTarget(assetId = "") {
         state.advancedSeedanceVideoAssetId = "";
         state.advancedSeedanceVideoPreviewUrl = "";
       }
-      if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = state.advancedSeedanceVideoAssetId ? "primary" : "video";
+      if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
       state.advancedAudioAssetId = "";
     } else if (provider === "wan27-image-edit") {
       const ref = { assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true };
@@ -9732,6 +9782,15 @@ function addAssetToAdvancedTarget(assetId = "") {
   } else if (target.id === "video") {
     if (!isVideoAsset(asset)) return;
     if (provider === "seedance") {
+      if (state.advancedCreateMode === "video-extend") {
+        try {
+          await captureAdvancedExtendFrameFromSource(url, `${asset.id || "video"}-last-frame.jpg`);
+          if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("advanced.assetAdded", { target: target.label });
+        } catch (error) {
+          if (els.advancedAssetNote) els.advancedAssetNote.textContent = error.message || String(error);
+        }
+        return;
+      }
       if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
       state.advancedSeedanceVideoAssetId = asset.id;
       state.advancedSeedanceVideoPreviewUrl = url;
@@ -9777,6 +9836,7 @@ function updateAdvancedModelControls() {
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const bounds = advancedDurationBounds(provider);
   const isImageEdit = provider === "wan27-image-edit";
+  const simpleAction = state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt();
   if (els.advancedDuration) {
     els.advancedDuration.min = String(bounds.min);
     els.advancedDuration.max = String(bounds.max);
@@ -9807,10 +9867,16 @@ function updateAdvancedModelControls() {
     if (!options.includes(current)) els.advancedRatio.value = isImageEdit ? "9:16" : "9:16";
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
-    item.hidden = provider !== "wan27";
+    item.hidden = simpleAction || provider !== "wan27";
   });
   document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
-    item.hidden = provider !== "seedance";
+    item.hidden = simpleAction || provider !== "seedance";
+  });
+  document.querySelectorAll(".advanced-fields").forEach((item) => {
+    item.hidden = simpleAction;
+  });
+  document.querySelectorAll(".advanced-prompt-field").forEach((item) => {
+    item.hidden = simpleAction;
   });
   document.querySelectorAll(".advanced-duration-field").forEach((item) => {
     item.hidden = isImageEdit;
@@ -9836,7 +9902,7 @@ function updateAdvancedModelControls() {
   renderAdvancedAssetTargets();
   if (els.advancedUploadBox) {
     const hidePresetReferenceUpload = advancedCreateModeUsesCharacterPresetReference();
-    els.advancedUploadBox.hidden = hidePresetReferenceUpload || (!advancedCreateModeNeedsVideoUpload() && (
+    els.advancedUploadBox.hidden = hidePresetReferenceUpload || (!simpleAction && !advancedCreateModeNeedsVideoUpload() && (
       (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
       (provider === "seedance" && seedanceMode === "text_to_video")
     ));
@@ -10044,11 +10110,12 @@ async function submitAdvancedGenerate() {
   if (!state.user) return openLogin();
   const promptInput = els.advancedPrompt?.value.trim() || "";
   const usingPresetFlow = state.advancedCreateKind !== "custom";
+  const autoPrompt = advancedCreateModeUsesAutoPrompt();
   if (usingPresetFlow && nonCustomAdvancedNeedsCharacterImage() && !selectedAdvancedPreset("character")) {
     if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.characterRequired");
     return;
   }
-  if (usingPresetFlow && !selectedAdvancedPreset("action")) {
+  if (usingPresetFlow && !autoPrompt && !selectedAdvancedPreset("action")) {
     if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.actionRequired");
     return;
   }
@@ -10056,7 +10123,6 @@ async function submitAdvancedGenerate() {
     if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.characterRequired");
     return;
   }
-  const autoPrompt = advancedCreateModeUsesAutoPrompt();
   const basePrompt = autoPrompt ? advancedCreateModeDefaultPrompt() : promptInput;
   const prompt = advancedEffectivePrompt(basePrompt);
   if (!prompt) {
@@ -10160,7 +10226,11 @@ async function submitAdvancedGenerate() {
         ...(Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []),
       ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT)
     : selectedAdvancedReferenceImages();
+  const caseVideoUrl = provider === "seedance" && advancedCreateModeNeedsReplacePair()
+    ? absoluteHttpUrl(advancedCaseInputVideo(currentCase || {}))
+    : "";
   const seedanceVideoUrls = splitUrlList(els.advancedSeedanceVideoUrls?.value || "");
+  const effectiveSeedanceVideoUrls = seedanceVideoUrls.length ? seedanceVideoUrls : (caseVideoUrl ? [caseVideoUrl] : []);
   const seedanceAudioUrls = splitUrlList(els.advancedSeedanceAudioUrls?.value || "");
   const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0;
   if (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !referenceImages.length) {
@@ -10183,7 +10253,7 @@ async function submitAdvancedGenerate() {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
     return;
   }
-  if (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode) && !state.advancedSeedanceVideoAssetId && !seedanceVideoUrls.length) {
+  if (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode) && !state.advancedSeedanceVideoAssetId && !effectiveSeedanceVideoUrls.length) {
     els.advancedSubmitBtn.disabled = false;
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceVideoRequired");
     return;
@@ -10212,6 +10282,14 @@ async function submitAdvancedGenerate() {
     if (wanModeNeedsClip(mediaMode) && !state.advancedWanClipDataUrl && !String(els.advancedWanClipUrl?.value || "").trim() && !state.advancedWanClipAssetId) {
       els.advancedSubmitBtn.disabled = false;
       if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipRequired");
+      return;
+    }
+  }
+  if (provider === "seedance" && autoPrompt) {
+    const confirmed = await confirmAdvancedSimpleActionCost(advancedSimpleActionCostLabel(provider, duration, resolution, currentAdvancedRatio()));
+    if (!confirmed) {
+      els.advancedSubmitBtn.disabled = false;
+      updateAdvancedButtonCost();
       return;
     }
   }
@@ -10272,7 +10350,7 @@ async function submitAdvancedGenerate() {
           : undefined,
         referenceVideoAssetId: provider === "seedance" ? (state.advancedSeedanceVideoAssetId || "") : undefined,
         referenceAudioAssetId: provider === "seedance" ? (state.advancedAudioAssetId || "") : undefined,
-        referenceVideoUrls: provider === "seedance" ? seedanceVideoUrls : undefined,
+        referenceVideoUrls: provider === "seedance" ? effectiveSeedanceVideoUrls : undefined,
         inputVideoSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
         referenceVideoDurationSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
         referenceAudioUrls: provider === "seedance" ? seedanceAudioUrls : undefined,
@@ -10450,6 +10528,71 @@ function readVideoDuration(file) {
     };
     video.src = url;
   });
+}
+
+function scaledCanvasSize(width = 0, height = 0, maxPixels = ADVANCED_SEEDANCE_MAX_PIXELS) {
+  const w = Math.max(1, Number(width) || 1);
+  const h = Math.max(1, Number(height) || 1);
+  const pixels = w * h;
+  if (pixels <= maxPixels) return { width: Math.round(w), height: Math.round(h) };
+  const scale = Math.sqrt(maxPixels / pixels);
+  return {
+    width: Math.max(1, Math.floor(w * scale)),
+    height: Math.max(1, Math.floor(h * scale)),
+  };
+}
+
+function videoSourceObjectUrl(source) {
+  if (source instanceof Blob) {
+    const url = URL.createObjectURL(source);
+    return Promise.resolve({ url, cleanup: () => URL.revokeObjectURL(url) });
+  }
+  const url = String(source || "").trim();
+  if (!url) return Promise.reject(new Error(t("advanced.seedanceVideoRequired")));
+  return fetch(url, { credentials: "same-origin" })
+    .then((response) => {
+      if (!response.ok) throw new Error(t("advanced.seedanceVideoRequired"));
+      return response.blob();
+    })
+    .then((blob) => {
+      const objectUrl = URL.createObjectURL(blob);
+      return { url: objectUrl, cleanup: () => URL.revokeObjectURL(objectUrl) };
+    });
+}
+
+async function captureLastFrameDataUrl(source) {
+  const { url, cleanup } = await videoSourceObjectUrl(source);
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  try {
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = resolve;
+      video.onerror = () => reject(new Error(t("modal.readImageFailed")));
+      video.src = url;
+      video.load?.();
+    });
+    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    const targetTime = Math.max(0, duration - 0.08);
+    await new Promise((resolve, reject) => {
+      video.onseeked = resolve;
+      video.onerror = () => reject(new Error(t("modal.readImageFailed")));
+      video.currentTime = targetTime;
+    });
+    const width = video.videoWidth || 1;
+    const height = video.videoHeight || 1;
+    const size = scaledCanvasSize(width, height);
+    const canvas = document.createElement("canvas");
+    canvas.width = size.width;
+    canvas.height = size.height;
+    canvas.getContext("2d").drawImage(video, 0, 0, size.width, size.height);
+    return canvas.toDataURL("image/jpeg", 0.9);
+  } finally {
+    cleanup();
+    video.removeAttribute("src");
+    video.load?.();
+  }
 }
 
 function isVideoAsset(asset = {}) {
@@ -10896,29 +11039,34 @@ async function openAssetExtendDialog(asset = {}) {
   if (!asset?.id) return;
   if (!state.user) return openLogin();
   if (isVideoAsset(asset)) return openAssetVideoExtendDialog(asset);
+  const duration = 5;
+  const resolution = "720p";
+  const ratio = "16:9";
+  const cost = advancedButtonCostLabel(duration, "seedance", resolution, ratio, { seedanceTier: "standard", inputVideoSeconds: 0 });
   const result = await showInlineDialog({
     title: t("assets.extendTitle"),
-    body: assetGenerateDialogBody({ mode: "extend" }),
+    body: `
+      <p class="job-note asset-simple-cost">${escapeHtml(t("advanced.confirmCostOnly", { cost }, cost))}</p>
+      <p class="job-note" id="assetGenerateStatus"></p>
+    `,
     confirmText: t("common.generate"),
-    onOpen: bindAssetGenerateCost,
     onConfirm: async (root) => {
-      const duration = Number(root.querySelector("#assetGenerateDuration")?.value || 5);
-      const resolution = root.querySelector("#assetGenerateResolution")?.value || "720p";
-      const prompt = root.querySelector("#assetGeneratePrompt")?.value.trim() || "Extend [Image 1]";
-      root.querySelector("#assetGenerateStatus").textContent = t("assets.generating");
+      const status = root.querySelector("#assetGenerateStatus");
+      if (status) status.textContent = t("assets.generating");
       const payload = await requestJson("/api/advanced/generate", {
         method: "POST",
         body: {
           provider: "seedance",
-          prompt,
+          prompt: "Extend [Image 1] smoothly with the same subject, scene, lighting and cinematic style.",
           referenceImages: [{ assetId: asset.id, name: asset.name || "" }],
-          ratio: "16:9",
+          ratio,
           resolution,
           duration,
+          params: { createKind: "video", createMode: "video-extend" },
         },
       });
       if (payload.user) setUser(payload.user);
-      root.querySelector("#assetGenerateStatus").textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
+      if (status) status.textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
     },
   });
   if (result === "confirm") {
@@ -10929,33 +11077,37 @@ async function openAssetExtendDialog(asset = {}) {
 async function openAssetVideoExtendDialog(videoAsset = {}) {
   if (!videoAsset?.id) return;
   if (!state.user) return openLogin();
-  const inputSecondsForAsset = (duration) => positiveDurationSeconds(videoAsset.durationSeconds || videoAsset.duration, duration || 5);
+  const duration = 5;
+  const resolution = "720p";
+  const ratio = "16:9";
+  const cost = advancedButtonCostLabel(duration, "seedance", resolution, ratio, { seedanceTier: "standard", inputVideoSeconds: 0 });
   const result = await showInlineDialog({
     title: t("assets.extendTitle"),
-    body: assetVideoExtendDialogBody(),
+    body: `
+      <p class="job-note asset-simple-cost">${escapeHtml(t("advanced.confirmCostOnly", { cost }, cost))}</p>
+      <p class="job-note" id="assetGenerateStatus"></p>
+    `,
     confirmText: t("common.generate"),
-    onOpen: (root) => bindAssetGenerateCost(root, { inputVideoSeconds: inputSecondsForAsset }),
     onConfirm: async (root) => {
-      const duration = Number(root.querySelector("#assetGenerateDuration")?.value || 5);
-      const resolution = root.querySelector("#assetGenerateResolution")?.value || "720p";
-      const inputVideoSeconds = inputSecondsForAsset(duration);
-      const prompt = root.querySelector("#assetGeneratePrompt")?.value.trim() || "Extend [Video 1] smoothly.";
-      root.querySelector("#assetGenerateStatus").textContent = t("assets.generating");
+      const status = root.querySelector("#assetGenerateStatus");
+      if (status) status.textContent = t("advanced.extractingLastFrame", {}, "Preparing video frame...");
+      const frameDataUrl = await captureLastFrameDataUrl(assetPreviewUrl(videoAsset));
+      if (status) status.textContent = t("assets.generating");
       const payload = await requestJson("/api/advanced/generate", {
         method: "POST",
         body: {
           provider: "seedance",
-          prompt,
-          referenceVideoAssetId: videoAsset.id,
-          inputVideoSeconds,
-          referenceVideoDurationSeconds: inputVideoSeconds,
-          ratio: "16:9",
+          seedanceMode: "first_frame",
+          prompt: advancedCreateModeDefaultPrompt("video-extend"),
+          firstFrameDataUrl: frameDataUrl,
+          ratio,
           resolution,
           duration,
+          params: { createKind: "video", createMode: "video-extend" },
         },
       });
       if (payload.user) setUser(payload.user);
-      root.querySelector("#assetGenerateStatus").textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
+      if (status) status.textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
     },
   });
   if (result === "confirm") {
@@ -10966,38 +11118,67 @@ async function openAssetVideoExtendDialog(videoAsset = {}) {
 async function openAssetReplaceDialog(videoAsset = {}) {
   if (!videoAsset?.id) return;
   if (!state.user) return openLogin();
-  const inputSecondsForAsset = (duration) => positiveDurationSeconds(videoAsset.durationSeconds || videoAsset.duration, duration || 5);
-  const choices = await ensureAssetImageChoices().catch(() => (state.userAssets || []).filter(isImageAsset));
-  const firstImage = choices.find(isImageAsset);
+  const duration = 5;
+  const resolution = "720p";
+  const ratio = "16:9";
+  const inputVideoSeconds = positiveDurationSeconds(videoAsset.durationSeconds || videoAsset.duration, duration);
+  const cost = advancedButtonCostLabel(duration, "seedance", resolution, ratio, { seedanceTier: "standard", inputVideoSeconds });
   const result = await showInlineDialog({
     title: t("assets.replaceTitle"),
-    body: assetGenerateDialogBody({ mode: "replace", imageAssetId: firstImage?.id || "" }),
+    body: `
+      <label class="field file-picker-field asset-replace-upload-field">
+        <span>${escapeHtml(t("assets.replaceImage"))}</span>
+        <div class="file-picker-control">
+          <input id="assetReplaceUploadImage" type="file" accept="image/*" />
+          <span class="file-picker-button"><i data-lucide="image-up"></i>${escapeHtml(t("assets.sourceUpload"))}</span>
+        </div>
+        <img class="asset-upload-preview" id="assetReplaceUploadPreview" alt="" hidden />
+      </label>
+      <p class="job-note asset-simple-cost">${escapeHtml(t("advanced.confirmCostOnly", { cost }, cost))}</p>
+      <p class="job-note" id="assetGenerateStatus"></p>
+    `,
     confirmText: t("common.generate"),
     dialogClass: "is-media-action",
-    onOpen: (root) => bindAssetGenerateCost(root, { inputVideoSeconds: inputSecondsForAsset }),
+    onOpen: (root) => {
+      const input = root.querySelector("#assetReplaceUploadImage");
+      const preview = root.querySelector("#assetReplaceUploadPreview");
+      input?.addEventListener("change", async () => {
+        const file = input.files?.[0];
+        if (!file || !preview) return;
+        preview.src = await readFileAsDataUrl(file);
+        preview.hidden = false;
+      });
+      refreshIcons();
+    },
     onConfirm: async (root) => {
-      const duration = Number(root.querySelector("#assetGenerateDuration")?.value || 5);
-      const resolution = root.querySelector("#assetGenerateResolution")?.value || "720p";
-      const inputVideoSeconds = inputSecondsForAsset(duration);
-      const prompt = root.querySelector("#assetGeneratePrompt")?.value.trim() || "Replace the lady in [Video 1] with the lady in [Image 1]";
-      const imageReference = await selectedReplaceImageReference(root);
-      root.querySelector("#assetGenerateStatus").textContent = t("assets.generating");
+      const file = root.querySelector("#assetReplaceUploadImage")?.files?.[0];
+      if (!file) throw new Error(t("assets.replaceImageRequired"));
+      const status = root.querySelector("#assetGenerateStatus");
+      if (status) status.textContent = t("assets.uploading");
+      const dataUrl = await readFileAsDataUrl(file);
+      const uploaded = await requestJson("/api/user-assets", {
+        method: "POST",
+        body: { dataUrl, name: file.name || "Replacement image", fileName: file.name || "replacement.png" },
+      });
+      if (status) status.textContent = t("assets.generating");
       const payload = await requestJson("/api/advanced/generate", {
         method: "POST",
         body: {
           provider: "seedance",
-          prompt,
+          seedanceMode: "reference_video",
+          prompt: advancedCreateModeDefaultPrompt("video-replace"),
           referenceVideoAssetId: videoAsset.id,
-          referenceImages: [imageReference],
+          referenceImages: [{ assetId: uploaded.asset?.id || "" }],
           inputVideoSeconds,
           referenceVideoDurationSeconds: inputVideoSeconds,
-          ratio: "16:9",
+          ratio,
           resolution,
           duration,
+          params: { createKind: "video", createMode: "video-replace" },
         },
       });
       if (payload.user) setUser(payload.user);
-      root.querySelector("#assetGenerateStatus").textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
+      if (status) status.textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
     },
   });
   if (result === "confirm") {
@@ -12406,7 +12587,11 @@ els.advancedImage?.addEventListener("change", async () => {
   const firstFileIsImage = String(firstFile.type || "").startsWith("image/");
   if (advancedCreateModeAcceptsVideoUpload() && firstFileIsVideo) {
     try {
-      await uploadAdvancedVideoReference(firstFile);
+      if (state.advancedCreateMode === "video-extend") {
+        await captureAdvancedExtendFrameFromSource(firstFile, `${firstFile.name || "video"}-last-frame.jpg`);
+      } else {
+        await uploadAdvancedVideoReference(firstFile);
+      }
     } catch (error) {
       if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
     } finally {
@@ -12469,7 +12654,7 @@ els.advancedImage?.addEventListener("change", async () => {
     }
     state.advancedWanClipAssetId = "";
     els.advancedImage.value = "";
-    if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = state.advancedSeedanceVideoAssetId ? "primary" : "video";
+    if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
     if (files.length > selectedFiles.length && els.advancedNote) {
       els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: limit });
     }
