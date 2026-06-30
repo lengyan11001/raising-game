@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 72" role="img" aria-label="667zui logo">
+  <defs>
+    <linearGradient id="g" x1="8" y1="6" x2="66" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#27f3d5"/>
+      <stop offset="0.55" stop-color="#5a8cff"/>
+      <stop offset="1" stop-color="#ff4fb3"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="64" height="64" rx="18" fill="#0b1218" stroke="url(#g)" stroke-width="3"/>
+  <text x="16" y="43" fill="#fff" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="900" letter-spacing="-1">667</text>
+  <path d="M47 20l12 7-12 7z" fill="url(#g)"/>
+  <text x="84" y="43" fill="#fff" font-family="Inter, Arial, sans-serif" font-size="27" font-weight="800" letter-spacing="0">667zui.video</text>
+  <text x="86" y="59" fill="#27f3d5" font-family="Inter, Arial, sans-serif" font-size="10" font-weight="700" letter-spacing="3">AI VIDEO STUDIO</text>
+</svg>
