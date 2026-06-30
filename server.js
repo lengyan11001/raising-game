@@ -2583,6 +2583,18 @@ async function handleIndexNowKey(req, res) {
   return sendText(res, 200, indexNowKeyForOrigin(publicOriginFromRequest(req)), { head: req.method === "HEAD" });
 }
 
+async function handleFavicon(req, res) {
+  const filePath = path.join(ROOT, "assets", "brand", "favicon.svg");
+  const data = await fs.readFile(filePath);
+  res.writeHead(200, {
+    "content-type": "image/svg+xml",
+    "content-length": data.length,
+    "cache-control": "public, max-age=604800, immutable",
+  });
+  if (req.method === "HEAD") return res.end();
+  return res.end(data);
+}
+
 async function handleCharacterGeoPage(req, res, characterId) {
   const snapshot = await geoSiteSnapshot(req);
   const decoded = decodeURIComponent(String(characterId || ""));
@@ -20023,6 +20035,10 @@ async function handleRequest(req, res) {
 
   try {
     await recordGeoCrawlerVisit(req, url);
+
+    if ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/favicon.ico" || url.pathname === "/favicon.svg")) {
+      return await handleFavicon(req, res);
+    }
 
     if (isMainlandChinaRequest(req)) {
       if (requestHasMainlandBypass(req, url)) {
