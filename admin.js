@@ -3976,6 +3976,7 @@ async function renderGeo() {
   const samples = payload.sampleCharacters || [];
   const topics = payload.sampleTopics || [];
   const coverage = payload.coverage || {};
+  const visitorStats = payload.visitorStats || {};
   const indexNowHistory = payload.indexNowHistory || [];
   const geoTab = sessionStorage.getItem("admTabGeo") === "offsite" ? "offsite" : "data";
   els.adminContent.innerHTML = `
@@ -4048,23 +4049,23 @@ async function renderGeo() {
             <a class="adm-mono" href="${escapeHtml(summary.indexNowKeyLocation || "#")}" target="_blank" rel="noopener">${escapeHtml(summary.indexNowKeyLocation || "-")}</a>
           </div>
           <div>
-            <span class="adm-kicker">爬虫访问</span>
-            <strong>${escapeHtml(String(summary.crawlerVisits || 0))}</strong>
-            <small>${escapeHtml(String(summary.crawlerBotCount || 0))} 类爬虫已记录</small>
+            <span class="adm-kicker">真实用户访问</span>
+            <strong>${escapeHtml(String(summary.realUserVisits || 0))}</strong>
+            <small>${escapeHtml(String(summary.uniqueVisitorCount || 0))} 个去重访客</small>
           </div>
         </div>
       </div>
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>重点爬虫覆盖</h3>
-          <span class="adm-muted">${escapeHtml(String(summary.crawledCharacterPathCount || 0))} 个角色页被抓取</span>
+          <h3>真实访问路径</h3>
+          <span class="adm-muted">${escapeHtml(String(summary.visitedCharacterPathCount || 0))} 个角色页被真实用户访问</span>
         </header>
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-geo-bot-table">
-            <thead><tr><th>爬虫</th><th>访问次数</th><th>最近访问</th><th>最近路径</th></tr></thead>
+            <thead><tr><th>路径</th><th>访问次数</th><th>最近访问</th></tr></thead>
             <tbody>
-              ${(coverage.importantBots || []).map(renderGeoImportantBotRow).join("")}
+              ${(visitorStats.topPaths || []).map(renderGeoVisitorPathRow).join("") || '<tr><td colspan="3" class="adm-muted">暂无真实访问路径。</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -4117,14 +4118,14 @@ async function renderGeo() {
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>最近爬虫访问</h3>
-          <span class="adm-muted">${escapeHtml(String((payload.crawlerStats?.recent || []).length))} 条最近记录</span>
+          <h3>最近真实用户访问</h3>
+          <span class="adm-muted">${escapeHtml(String((visitorStats.recent || []).length))} 条最近记录</span>
         </header>
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-geo-crawler-table">
-            <thead><tr><th>爬虫</th><th>路径</th><th>时间</th><th>User-Agent</th></tr></thead>
+            <thead><tr><th>路径</th><th>国家/地区</th><th>IP</th><th>时间</th><th>User-Agent</th></tr></thead>
             <tbody>
-              ${(payload.crawlerStats?.recent || []).map(renderGeoCrawlerRow).join("") || '<tr><td colspan="4" class="adm-muted">暂无爬虫访问记录。</td></tr>'}
+              ${(visitorStats.recent || []).map(renderGeoVisitorRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无真实用户访问记录。</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -4400,6 +4401,28 @@ function renderGeoImportantBotRow(item = {}) {
       <td>${escapeHtml(String(item.count || 0))}</td>
       <td>${escapeHtml(item.lastSeen ? fmtDate(item.lastSeen) : "-")}</td>
       <td class="adm-mono adm-truncate" title="${escapeHtml(item.lastPath || "")}">${escapeHtml(item.lastPath || "-")}</td>
+    </tr>
+  `;
+}
+
+function renderGeoVisitorPathRow(item = {}) {
+  return `
+    <tr>
+      <td class="adm-mono adm-truncate" title="${escapeHtml(item.path || "")}">${escapeHtml(item.path || "-")}</td>
+      <td>${escapeHtml(String(item.count || 0))}</td>
+      <td>${escapeHtml(item.lastSeen ? fmtDate(item.lastSeen) : "-")}</td>
+    </tr>
+  `;
+}
+
+function renderGeoVisitorRow(item = {}) {
+  return `
+    <tr>
+      <td class="adm-mono">${escapeHtml(item.path || "-")}</td>
+      <td>${escapeHtml(item.country || "-")}</td>
+      <td class="adm-mono">${escapeHtml(item.ip || "-")}</td>
+      <td>${escapeHtml(item.at ? fmtDate(item.at) : "-")}</td>
+      <td class="adm-truncate" title="${escapeHtml(item.userAgent || "")}">${escapeHtml(item.userAgent || "-")}</td>
     </tr>
   `;
 }

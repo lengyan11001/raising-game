@@ -1627,6 +1627,7 @@ async function appendGeoIndexNowHistory(snapshot, result = {}) {
 }
 
 const GEO_CRAWLER_STATS_KEY = "geo_crawler_stats";
+const GEO_VISITOR_STATS_KEY = "geo_visitor_stats";
 const GEO_INDEXNOW_HISTORY_KEY = "geo_indexnow_history";
 const GEO_CRAWLERS = [
   { id: "OAI-SearchBot", pattern: /OAI-SearchBot/i },
@@ -1648,12 +1649,26 @@ function classifyGeoCrawler(req) {
   return match ? { id: match.id, userAgent } : null;
 }
 
+function isLikelyAutomatedGeoRequest(req) {
+  const userAgent = String(req.headers["user-agent"] || "");
+  if (!userAgent) return true;
+  if (classifyGeoCrawler(req)) return true;
+  return /bot|crawl|spider|slurp|fetch|preview|monitor|probe|scan|headless|phantom|selenium|curl|wget|python|scrapy|httpclient|go-http-client|java|okhttp|axios|node-fetch|libwww|httpx|ahrefs|semrush|mj12|dotbot|yandex|baidu|sogou|bytespider|petalbot|uptime|archive\.org/i.test(userAgent);
+}
+
 function isGeoPublicPath(pathname = "") {
   return pathname === "/" ||
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||
     pathname === "/llms.txt" ||
     pathname === "/llms-full.txt" ||
+    /^\/tags\/[^/]+\/?$/.test(pathname) ||
+    /^\/categories\/[^/]+\/?$/.test(pathname) ||
+    /^\/characters\/[^/]+\/?$/.test(pathname);
+}
+
+function isGeoVisitorPath(pathname = "") {
+  return pathname === "/" ||
     /^\/tags\/[^/]+\/?$/.test(pathname) ||
     /^\/categories\/[^/]+\/?$/.test(pathname) ||
     /^\/characters\/[^/]+\/?$/.test(pathname);
@@ -1669,6 +1684,23 @@ function requestIpForStats(req) {
   ).trim();
 }
 
+function maskIpForStats(ip = "") {
+  const value = String(ip || "").trim();
+  if (!value) return "";
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value)) {
+    return value.replace(/\.\d{1,3}$/, ".*");
+  }
+  if (value.includes(":")) {
+    return `${value.split(":").slice(0, 3).join(":")}:*`;
+  }
+  return value.slice(0, 3) ? `${value.slice(0, 3)}*` : "";
+}
+
+function ipHashForStats(ip = "") {
+  const value = String(ip || "").trim();
+  return value ? crypto.createHash("sha256").update(value).digest("hex").slice(0, 20) : "";
+}
+
 async function readGeoCrawlerStats() {
   const stats = await getKv(GEO_CRAWLER_STATS_KEY, {});
   return {
@@ -1676,6 +1708,51 @@ async function readGeoCrawlerStats() {
     byBot: stats.byBot && typeof stats.byBot === "object" ? stats.byBot : {},
     byPath: stats.byPath && typeof stats.byPath === "object" ? stats.byPath : {},
     recent: Array.isArray(stats.recent) ? stats.recent.slice(0, 80) : [],
+  };
+}
+
+async function readGeoVisitorStats() {
+  const stats = await getKv(GEO_VISITOR_STATS_KEY, {});
+  const ipHashes = stats.ipHashes && typeof stats.ipHashes === "object" ? stats.ipHashes : {};
+  return {
+    total: Number(stats.total || 0),
+    uniqueIpCount: Number(stats.uniqueIpCount || Object.keys(ipHashes).length || 0),
+    ipHashes,
+    byPath: stats.byPath && typeof stats.byPath === "object" ? stats.byPath : {},
+    byCountry: stats.byCountry && typeof stats.byCountry === "object" ? stats.byCountry : {},
+    recent: Array.isArray(stats.recent) ? stats.recent.slice(0, 80) : [],
+    lastSeen: stats.lastSeen || "",
+  };
+}
+
+function geoVisitorStatsView(stats = {}) {
+  const byPath = stats.byPath && typeof stats.byPath === "object" ? stats.byPath : {};
+  const byCountry = stats.byCountry && typeof stats.byCountry === "object" ? stats.byCountry : {};
+  const topPaths = Object.entries(byPath)
+    .map(([pathKey, entry]) => ({
+      path: pathKey,
+      count: Number(entry?.count || 0),
+      lastSeen: entry?.lastSeen || "",
+    }))
+    .sort((a, b) => b.count - a.count || String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")))
+    .slice(0, 30);
+  const countries = Object.entries(byCountry)
+    .map(([country, entry]) => ({
+      country: country || "-",
+      count: Number(entry?.count || 0),
+      lastSeen: entry?.lastSeen || "",
+    }))
+    .sort((a, b) => b.count - a.count || a.country.localeCompare(b.country))
+    .slice(0, 12);
+  return {
+    total: Number(stats.total || 0),
+    uniqueIpCount: Number(stats.uniqueIpCount || 0),
+    pathCount: Object.keys(byPath).length,
+    countryCount: Object.keys(byCountry).length,
+    topPaths,
+    countries,
+    recent: Array.isArray(stats.recent) ? stats.recent.slice(0, 80) : [],
+    lastSeen: stats.lastSeen || "",
   };
 }
 
@@ -1705,7 +1782,7 @@ function topGeoTags(snapshot, max = 18) {
     .map(([tag, count]) => ({ tag, count }));
 }
 
-function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
+function buildGeoCoverage(snapshot, visitorStats = {}, indexNowHistory = []) {
   const characters = snapshot.characters || [];
   const total = characters.length;
   const topics = [...(snapshot.tags || []), ...(snapshot.categories || [])];
@@ -1717,12 +1794,10 @@ function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
   const withFaq = characters.filter((item) => characterFaqForGeo(item).length >= 3).length;
   const topicsWithIntro = topics.filter((item) => item.intro && item.intro.length > 160).length;
   const topicsWithFaq = topics.filter((item) => Array.isArray(item.faq) && item.faq.length >= 3).length;
-  const crawlerByBot = crawlerStats.byBot || {};
-  const importantBots = ["OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "Googlebot", "Bingbot"];
-  const seenImportantBots = importantBots.filter((bot) => crawlerByBot[bot]?.count > 0);
-  const byPath = crawlerStats.byPath || {};
-  const crawledCharacterPaths = Object.keys(byPath).filter((pathname) => /^\/characters\/[^/]+\/?$/.test(pathname));
+  const byPath = visitorStats.byPath || {};
+  const visitedCharacterPaths = Object.keys(byPath).filter((pathname) => /^\/characters\/[^/]+\/?$/.test(pathname));
   const topicCount = (snapshot.tags?.length || 0) + (snapshot.categories?.length || 0);
+  const visitedPathCount = Object.keys(byPath).length;
   const metrics = [
     geoCoverageMetric("摘要", withSummary, total),
     geoCoverageMetric("标签", withTags, total),
@@ -1733,7 +1808,7 @@ function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
     geoCoverageMetric("主题介绍", topicsWithIntro, topics.length),
     geoCoverageMetric("主题问答", topicsWithFaq, topics.length),
     geoCoverageMetric("3 个以上视频", withThreeVideos, total),
-    geoCoverageMetric("重点爬虫", seenImportantBots.length, importantBots.length),
+    geoCoverageMetric("真实访问页", Math.min(visitedPathCount, 20), 20),
   ];
   const contentPercent = total
     ? Math.round(((withSummary + withTags + withPoster + withVideos) / (total * 4)) * 100)
@@ -1747,12 +1822,12 @@ function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
       (topics.length ? (topicsWithFaq / topics.length) : 0)
   ) / 6 * 100);
   const submitted = indexNowHistory.length > 0;
-  const crawlerSeen = Number(crawlerStats.total || 0) > 0;
+  const visitorSeen = Number(visitorStats.total || 0) > 0;
   const score = Math.min(100, Math.round(
     (total ? 30 : 0) +
       contentPercent * 0.45 +
       (submitted ? 12 : 0) +
-      (crawlerSeen ? 13 : 0),
+      (visitorSeen ? 13 : 0),
   ));
   const issues = [];
   characters.forEach((item) => {
@@ -1787,13 +1862,8 @@ function buildGeoCoverage(snapshot, crawlerStats = {}, indexNowHistory = []) {
     topTags: topGeoTags(snapshot),
     issues: issues.slice(0, 24),
     issueCount: issues.length,
-    importantBots: importantBots.map((bot) => ({
-      bot,
-      count: Number(crawlerByBot[bot]?.count || 0),
-      lastSeen: crawlerByBot[bot]?.lastSeen || "",
-      lastPath: crawlerByBot[bot]?.lastPath || "",
-    })),
-    crawledCharacterPathCount: crawledCharacterPaths.length,
+    visitedCharacterPathCount: visitedCharacterPaths.length,
+    visitedPathCount,
     submitted,
     lastIndexNow: indexNowHistory[0] || null,
   };
@@ -2052,6 +2122,66 @@ async function recordGeoCrawlerVisit(req, url) {
   } catch (error) {
     console.warn("Failed to record GEO crawler visit:", error.message || error);
   }
+}
+
+async function recordGeoVisitorStats(req, url) {
+  try {
+    if (req.method !== "GET" && req.method !== "HEAD") return;
+    if (!isGeoVisitorPath(url.pathname)) return;
+    if (isLikelyAutomatedGeoRequest(req)) return;
+    const now = new Date().toISOString();
+    const pathKey = url.pathname || "/";
+    const country = requestCountryCode(req) || "UNKNOWN";
+    const ip = requestIpForStats(req);
+    const ipHash = ipHashForStats(ip);
+    const stats = await readGeoVisitorStats();
+    stats.total += 1;
+    stats.lastSeen = now;
+
+    stats.ipHashes = stats.ipHashes && typeof stats.ipHashes === "object" ? stats.ipHashes : {};
+    if (ipHash) {
+      const ipEntry = stats.ipHashes[ipHash] || { firstSeen: now, count: 0 };
+      stats.ipHashes[ipHash] = {
+        ...ipEntry,
+        count: Number(ipEntry.count || 0) + 1,
+        lastSeen: now,
+      };
+    }
+    stats.uniqueIpCount = Object.keys(stats.ipHashes).length;
+
+    const pathStats = stats.byPath[pathKey] || { count: 0 };
+    stats.byPath[pathKey] = {
+      ...pathStats,
+      count: Number(pathStats.count || 0) + 1,
+      lastSeen: now,
+    };
+
+    const countryStats = stats.byCountry[country] || { count: 0 };
+    stats.byCountry[country] = {
+      ...countryStats,
+      count: Number(countryStats.count || 0) + 1,
+      lastSeen: now,
+    };
+
+    stats.recent = [
+      {
+        path: pathKey,
+        at: now,
+        country,
+        ip: maskIpForStats(ip),
+        userAgent: compactPlainText(req.headers["user-agent"] || "", 180),
+      },
+      ...stats.recent,
+    ].slice(0, 80);
+    await setKv(GEO_VISITOR_STATS_KEY, stats);
+  } catch (error) {
+    console.warn("Failed to record GEO visitor stats:", error.message || error);
+  }
+}
+
+async function recordGeoVisitStats(req, url) {
+  await recordGeoCrawlerVisit(req, url);
+  await recordGeoVisitorStats(req, url);
 }
 
 function jsonLdScript(data) {
@@ -2673,9 +2803,10 @@ async function handleAdminGeoReport(req, res) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
   const snapshot = await geoSiteSnapshot(req);
-  const crawlerStats = await readGeoCrawlerStats();
+  const visitorStats = await readGeoVisitorStats();
+  const visitorStatsForAdmin = geoVisitorStatsView(visitorStats);
   const indexNowHistory = await readGeoIndexNowHistory();
-  const coverage = buildGeoCoverage(snapshot, crawlerStats, indexNowHistory);
+  const coverage = buildGeoCoverage(snapshot, visitorStats, indexNowHistory);
   const offsitePlan = buildGeoOffsitePlan(snapshot);
   const sampleCharacter = snapshot.characters[0] || null;
   const sampleTag = (snapshot.tags || [])[0] || null;
@@ -2736,16 +2867,18 @@ async function handleAdminGeoReport(req, res) {
       sitemapUrl: scopedApiUrl(snapshot.origin, "/sitemap.xml"),
       indexNowUrlCount: indexNowUrls(snapshot).length,
       indexNowKeyLocation: indexNowKeyLocation(snapshot),
-      crawlerVisits: crawlerStats.total,
-      crawlerBotCount: Object.keys(crawlerStats.byBot || {}).length,
+      realUserVisits: visitorStatsForAdmin.total,
+      uniqueVisitorCount: visitorStatsForAdmin.uniqueIpCount,
+      visitedPathCount: visitorStatsForAdmin.pathCount,
+      visitorCountryCount: visitorStatsForAdmin.countryCount,
       geoScore: coverage.score,
       geoStatus: coverage.status,
       contentCoveragePercent: coverage.contentPercent,
       contentQualityPercent: coverage.qualityPercent,
-      crawledCharacterPathCount: coverage.crawledCharacterPathCount,
+      visitedCharacterPathCount: coverage.visitedCharacterPathCount,
     },
     checks: endpoints,
-    crawlerStats,
+    visitorStats: visitorStatsForAdmin,
     indexNowHistory,
     coverage,
     offsitePlan,
@@ -2783,7 +2916,7 @@ async function handleAdminGeoReport(req, res) {
       "保持角色名称、摘要、标签和封面图描述清晰。",
       "把标签页和分类页作为 AI / 搜索可抓取的主题入口。",
       "导入新角色批次或切换域名后，运行 GEO 检查。",
-      "站点地图或角色页变化后提交 IndexNow，然后在这里观察爬虫访问。",
+      "站点地图或角色页变化后提交 IndexNow，然后在这里观察真实用户访问。",
       "对外接口文案避免暴露上游供应商路由，统一保留 /api/advanced/generate 作为文档入口。",
     ],
   });
@@ -20047,7 +20180,7 @@ async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   try {
-    await recordGeoCrawlerVisit(req, url);
+    await recordGeoVisitStats(req, url);
 
     if ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/favicon.ico" || url.pathname === "/favicon.svg")) {
       return await handleFavicon(req, res);
