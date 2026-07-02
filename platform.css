@@ -422,6 +422,9 @@ main {
   gap: 8px;
 }
 .footer-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px 10px;
