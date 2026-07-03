@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-189" />
+    <link rel="stylesheet" href="./platform.css?v=ai-190" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -58,11 +58,7 @@
         <button class="top-tab" data-tab="history" data-i18n="nav.history" type="button">History</button>
       </nav>
       <nav class="side-utility-nav" aria-label="Community and support">
-        <button class="side-utility-link is-support" id="navSupportBtn" type="button" data-analytics-event="telegram_support_click" data-analytics-location="side_nav">
-          <i data-lucide="headphones"></i>
-          <span>Support</span>
-        </button>
-        <a class="side-utility-link" href="https://t.me/VipeakAILab" target="_blank" rel="noopener" data-analytics-event="telegram_channel_click" data-analytics-location="side_nav">
+        <a class="side-utility-link" href="https://t.me/VipeakAILab" data-direct-url="https://t.me/VipeakAILab" data-analytics-event="telegram_channel_click" data-analytics-location="side_nav">
           <i data-lucide="send"></i>
           <span>Telegram</span>
         </a>
@@ -693,7 +689,9 @@
             <span>Message</span>
             <textarea id="supportMessage" rows="6" placeholder="Describe your issue..."></textarea>
           </label>
-          <p class="job-note">Telegram support: <a href="https://t.me/VipeakSupportBot" target="_blank" rel="noopener" data-analytics-event="telegram_support_click">https://t.me/VipeakSupportBot</a></p>
+          <a class="copy-btn" href="https://t.me/VipeakSupportBot" data-direct-url="https://t.me/VipeakSupportBot" data-analytics-event="telegram_support_click">
+            <i data-lucide="send"></i>Open Telegram support
+          </a>
           <p class="job-note" id="supportStatus"></p>
           <button class="copy-btn" id="supportSubmitBtn" type="button"><i data-lucide="send"></i>Send</button>
         </div>
@@ -748,6 +746,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-197"></script>
+    <script src="./platform.js?v=ai-198"></script>
   </body>
 </html>

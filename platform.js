@@ -637,7 +637,6 @@ const els = {
   previewImage: document.querySelector("#previewImage"),
   previewVideo: document.querySelector("#previewVideo"),
   supportFab: document.querySelector("#supportFab"),
-  navSupportBtn: document.querySelector("#navSupportBtn"),
   supportDialog: document.querySelector("#supportDialog"),
   supportEmail: document.querySelector("#supportEmail"),
   supportSubject: document.querySelector("#supportSubject"),
@@ -13009,14 +13008,18 @@ function openSupportDialog() {
 }
 
 document.querySelectorAll("[data-analytics-event]").forEach((element) => {
-  element.addEventListener("click", () => {
+  element.addEventListener("click", (event) => {
     trackAnalyticsEvent(element.dataset.analyticsEvent, {
       event_location: element.dataset.analyticsLocation || "platform",
     });
+    const directUrl = String(element.dataset.directUrl || "").trim();
+    if (directUrl) {
+      event.preventDefault();
+      window.location.href = directUrl;
+    }
   });
 });
 els.supportFab?.addEventListener("click", openSupportDialog);
-els.navSupportBtn?.addEventListener("click", openSupportDialog);
 els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
 els.menuCopyTokenBtn?.addEventListener("click", async () => {
   if (!state.token || !state.user?.apiToken) return openLogin();
