@@ -144,6 +144,8 @@ const APIZ_SEEDANCE_ENABLED_USER_KEYS = new Set(
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean),
 );
+const APIZ_SEEDANCE_ASSET_GROUP_CACHE = new Map();
+const APIZ_SEEDANCE_ASSET_URI_CACHE = new Map();
 const UPSTREAM_MODE = String(process.env.UPSTREAM_MODE || "direct").trim().toLowerCase();
 const USE_GATEWAY_UPSTREAM = ["gateway", "proxy", "api"].includes(UPSTREAM_MODE);
 const UPSTREAM_BASE_URL = (process.env.UPSTREAM_BASE_URL || "https://123vips.com").replace(/\/+$/, "");
@@ -7331,6 +7333,159 @@ function apizSeedancePayloadFromBody({ config = {}, prompt = "", content = [], b
   };
 }
 
+function isApizAssetUri(value = "") {
+  return /^asset:\/\/asset-[a-z0-9_-]+$/i.test(String(value || "").trim());
+}
+
+function normalizeApizAssetUri(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(/asset:\/\/asset-[a-z0-9_-]+/i);
+  return match ? match[0].toLowerCase().replace(/^asset:\/\//i, "asset://") : "";
+}
+
+function apizSeedanceAssetGroupCacheKey(user = {}) {
+  const userKey = String(user?.id || user?.username || user?.email || "default").trim().toLowerCase() || "default";
+  return `${String(APIZ_SEEDANCE_MODEL_ID || "seedance").trim().toLowerCase()}:${userKey}`;
+}
+
+async function apizSeedanceAssetGroupForUser(user = {}) {
+  const key = apizSeedanceAssetGroupCacheKey(user);
+  const cached = APIZ_SEEDANCE_ASSET_GROUP_CACHE.get(key);
+  if (cached) return cached;
+  const safeUser = String(user?.username || user?.id || "user").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 48) || "user";
+  const groupName = `vipeak-${safeUser}`;
+  try {
+    const list = await apizSeedanceRequest("/api/v3/assets/groups", null, { method: "GET" });
+    const items = Array.isArray(list?.items) ? list.items : Array.isArray(list?.data?.items) ? list.data.items : [];
+    const existing = items.find((item) => String(item?.name || "").trim() === groupName && String(item?.group_id || item?.id || "").trim());
+    if (existing) {
+      const groupId = String(existing.group_id || existing.id).trim();
+      APIZ_SEEDANCE_ASSET_GROUP_CACHE.set(key, groupId);
+      return groupId;
+    }
+  } catch (error) {
+    console.warn("[apiz-seedance-asset-groups-list-failed]", error.message || error);
+  }
+  const raw = await apizSeedanceRequest("/api/v3/assets/groups", {
+    model: APIZ_SEEDANCE_MODEL_ID,
+    name: groupName,
+    description: "Vipeak reusable Seedance references",
+  });
+  const groupId = String(raw?.group_id || raw?.id || raw?.data?.group_id || raw?.data?.id || "").trim();
+  if (!groupId) {
+    const error = new Error(`APIZ Seedance did not return asset group id: ${JSON.stringify(raw || {})}`);
+    error.statusCode = 502;
+    error.code = "APIZ_SEEDANCE_ASSET_GROUP_FAILED";
+    throw error;
+  }
+  APIZ_SEEDANCE_ASSET_GROUP_CACHE.set(key, groupId);
+  return groupId;
+}
+
+async function waitForApizSeedanceAsset(assetId = "") {
+  const id = String(assetId || "").trim();
+  if (!id) return null;
+  let last = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (attempt) await delay(Math.min(1000 + attempt * 500, 3500));
+    last = await apizSeedanceRequest(`/api/v3/assets/${encodeURIComponent(id)}`, null, { method: "GET" });
+    const status = String(firstPresent(last?.sync_status, last?.status, last?.data?.sync_status, last?.data?.status, "")).toLowerCase();
+    const assetError = firstPresent(last?.sync_error, last?.error?.message, last?.error, last?.data?.sync_error, last?.data?.error?.message, last?.data?.error, "");
+    if (["active", "completed", "complete", "success", "succeeded", "ready"].includes(status)) return last;
+    if (["failed", "fail", "error"].includes(status) || assetError) {
+      const error = new Error(assetError || "APIZ Seedance asset upload failed.");
+      error.statusCode = 502;
+      error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
+      error.payload = last;
+      throw error;
+    }
+  }
+  const error = new Error(`APIZ Seedance asset upload did not complete: ${id}`);
+  error.statusCode = 502;
+  error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_TIMEOUT";
+  error.payload = last;
+  throw error;
+}
+
+async function uploadApizSeedanceAsset({ user = {}, url = "", assetType = "Image", name = "reference-media" } = {}) {
+  const sourceUrl = apizSeedanceMediaReferenceUrl(url);
+  if (!sourceUrl) return "";
+  const existingAssetUri = normalizeApizAssetUri(sourceUrl);
+  if (existingAssetUri) return existingAssetUri;
+  const normalizedType = String(assetType || "Image").trim();
+  const cacheKey = `${apizSeedanceAssetGroupCacheKey(user)}:${normalizedType.toLowerCase()}:${sourceUrl}`;
+  const cachedAssetUri = APIZ_SEEDANCE_ASSET_URI_CACHE.get(cacheKey);
+  if (cachedAssetUri) return cachedAssetUri;
+  const groupId = await apizSeedanceAssetGroupForUser(user);
+  const mediaKey = normalizedType.toLowerCase() === "video" ? "video_url" : normalizedType.toLowerCase() === "audio" ? "audio_url" : "image_url";
+  const raw = await apizSeedanceRequest("/api/v3/assets", {
+    group_id: groupId,
+    asset_type: normalizedType,
+    [mediaKey]: sourceUrl,
+    name,
+    model: APIZ_SEEDANCE_MODEL_ID,
+    moderation: { strategy: "Skip" },
+    Moderation: { Strategy: "Skip" },
+  });
+  const assetId = String(raw?.asset_id || raw?.id || raw?.data?.asset_id || raw?.data?.id || "").trim();
+  const assetUri = normalizeApizAssetUri(firstPresent(raw?.intl_asset_uri, raw?.asset_uri, raw?.data?.intl_asset_uri, raw?.data?.asset_uri, ""));
+  if (!assetId && !assetUri) {
+    const error = new Error(`APIZ Seedance did not return asset id: ${JSON.stringify(raw || {})}`);
+    error.statusCode = 502;
+    error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
+    throw error;
+  }
+  if (assetId) await waitForApizSeedanceAsset(assetId);
+  const finalAssetUri = assetUri || `asset://${assetId}`;
+  APIZ_SEEDANCE_ASSET_URI_CACHE.set(cacheKey, finalAssetUri);
+  return finalAssetUri;
+}
+
+async function prepareApizSeedancePayloadAssets(payload = {}, { user = {} } = {}) {
+  const params = payload?.params && typeof payload.params === "object" ? payload.params : null;
+  if (!params) return payload;
+  const imageCache = new Map();
+  const toAsset = async (value = "", assetType = "Image", name = "reference-media") => {
+    const sourceUrl = apizSeedanceMediaReferenceUrl(value);
+    if (!sourceUrl) return "";
+    if (!imageCache.has(`${assetType}:${sourceUrl}`)) {
+      imageCache.set(`${assetType}:${sourceUrl}`, uploadApizSeedanceAsset({ user, url: sourceUrl, assetType, name }));
+    }
+    return await imageCache.get(`${assetType}:${sourceUrl}`);
+  };
+  if (params.image_url) params.image_url = await toAsset(params.image_url, "Image", "first-frame");
+  if (params.end_image_url) params.end_image_url = await toAsset(params.end_image_url, "Image", "last-frame");
+  if (Array.isArray(params.reference_images)) {
+    const refs = [];
+    for (let index = 0; index < params.reference_images.length; index += 1) {
+      const assetUri = await toAsset(params.reference_images[index], "Image", `reference-image-${index + 1}`);
+      if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    params.reference_images = refs;
+  }
+  if (Array.isArray(params.reference_videos)) {
+    const refs = [];
+    for (let index = 0; index < params.reference_videos.length; index += 1) {
+      const assetUri = await toAsset(params.reference_videos[index], "Video", `reference-video-${index + 1}`);
+      if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    params.reference_videos = refs;
+  }
+  if (Array.isArray(params.reference_audios)) {
+    const refs = [];
+    for (let index = 0; index < params.reference_audios.length; index += 1) {
+      const assetUri = await toAsset(params.reference_audios[index], "Audio", `reference-audio-${index + 1}`);
+      if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    params.reference_audios = refs;
+  }
+  if (Array.isArray(params.reference_images) && !params.reference_images.length) delete params.reference_images;
+  if (Array.isArray(params.reference_videos) && !params.reference_videos.length) delete params.reference_videos;
+  if (Array.isArray(params.reference_audios) && !params.reference_audios.length) delete params.reference_audios;
+  return payload;
+}
+
 async function submitApizSeedanceVideoTask({
   config,
   prompt,
@@ -7343,6 +7498,7 @@ async function submitApizSeedanceVideoTask({
   referenceAudioAssetUris = [],
   body = {},
   slug = "",
+  user = {},
 }) {
   const content = pivoxSeedanceContentFromReferences({
     prompt,
@@ -7356,6 +7512,7 @@ async function submitApizSeedanceVideoTask({
     body,
   });
   const { payload, externalModel } = apizSeedancePayloadFromBody({ config, prompt, content, body });
+  await prepareApizSeedancePayloadAssets(payload, { user });
 
   console.log(`[apiz-seedance-submit-${slug || "video"}]`, JSON.stringify({
     ...payload,
@@ -7681,6 +7838,7 @@ async function prepareOfficialSeedancePayloadForApiz(db, user, body = {}, { conf
     content: sourcePayload.content,
     body: sourcePayload,
   });
+  await prepareApizSeedancePayloadAssets(payload, { user });
   return { payload, externalModel, sourcePayload };
 }
 
@@ -14888,7 +15046,7 @@ async function pivoxRequest(method, pathname, body = null) {
   return payload;
 }
 
-async function apizSeedanceRequest(pathname, body = {}) {
+async function apizSeedanceRequest(pathname, body = {}, options = {}) {
   if (!APIZ_SEEDANCE_API_KEY) {
     const error = new Error("Missing APIZ_SEEDANCE_API_KEY");
     error.code = "MISSING_APIZ_SEEDANCE_API_KEY";
@@ -14896,24 +15054,27 @@ async function apizSeedanceRequest(pathname, body = {}) {
     throw error;
   }
 
+  const method = String(options.method || "POST").toUpperCase();
+  const hasBody = body !== undefined && body !== null && method !== "GET" && method !== "HEAD";
   let response;
   let lastError;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  const maxAttempts = method === "GET" ? 3 : 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       response = await fetch(`${APIZ_SEEDANCE_API_BASE_URL}${pathname}`, {
-        method: "POST",
+        method,
         headers: {
           authorization: `Bearer ${APIZ_SEEDANCE_API_KEY}`,
           accept: "application/json",
-          "content-type": "application/json",
+          ...(hasBody ? { "content-type": "application/json" } : {}),
         },
-        body: JSON.stringify(body || {}),
-        signal: AbortSignal.timeout(180000),
+        body: hasBody ? JSON.stringify(body || {}) : undefined,
+        signal: AbortSignal.timeout(method === "GET" ? 60000 : 180000),
       });
       break;
     } catch (error) {
       lastError = error;
-      if (attempt < 2) await delay(attempt * 900);
+      if (attempt < maxAttempts) await delay(attempt * 900);
     }
   }
   if (!response) {
