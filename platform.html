@@ -57,6 +57,20 @@
         <button class="top-tab" data-tab="access" data-i18n="nav.access" type="button">API Access</button>
         <button class="top-tab" data-tab="history" data-i18n="nav.history" type="button">History</button>
       </nav>
+      <nav class="side-utility-nav" aria-label="Community and support">
+        <button class="side-utility-link is-support" id="navSupportBtn" type="button" data-analytics-event="telegram_support_click" data-analytics-location="side_nav">
+          <i data-lucide="headphones"></i>
+          <span>Support</span>
+        </button>
+        <a class="side-utility-link" href="https://t.me/VipeakAILab" target="_blank" rel="noopener" data-analytics-event="telegram_channel_click" data-analytics-location="side_nav">
+          <i data-lucide="send"></i>
+          <span>Telegram</span>
+        </a>
+        <a class="side-utility-link" href="https://x.com/VipeakAI" target="_blank" rel="noopener" data-analytics-event="x_click" data-analytics-location="side_nav">
+          <i data-lucide="twitter"></i>
+          <span>X</span>
+        </a>
+      </nav>
     </aside>
 
     <header class="site-head">
@@ -679,6 +693,7 @@
             <span>Message</span>
             <textarea id="supportMessage" rows="6" placeholder="Describe your issue..."></textarea>
           </label>
+          <p class="job-note">Telegram support: <a href="https://t.me/VipeakSupportBot" target="_blank" rel="noopener" data-analytics-event="telegram_support_click">https://t.me/VipeakSupportBot</a></p>
           <p class="job-note" id="supportStatus"></p>
           <button class="copy-btn" id="supportSubmitBtn" type="button"><i data-lucide="send"></i>Send</button>
         </div>
