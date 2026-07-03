@@ -11,9 +11,11 @@ const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 15;
 const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 30;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 60;
+const ADVANCED_SEEDANCE_4K_CREDITS_PER_SECOND = 240;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND = 10;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 20;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 40;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND = 160;
 const ADVANCED_SEEDANCE_FAST_DISCOUNT = 0.8;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 20;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 50;
@@ -2959,9 +2961,9 @@ Content-Type: application/json
       ["referenceVideoUrls / referenceVideoAssetIds", "Video references for seedance reference_video/edit/extend. Include referenceVideoDurationSeconds when known for billing."],
       ["referenceAudioUrls / referenceAudioAssetIds", "Optional audio references for multimodal seedance requests."],
       ["ratio", "9:16, 16:9, or 1:1."],
-      ["resolution", "480p, 720p, or 1080p. Fast tier does not support 1080p."],
+      ["resolution", "480p, 720p, 1080p, or 4k. Fast tier does not support 1080p or 4k."],
       ["duration", "Integer seconds from 4 to 15. Invalid values are rejected before billing."],
-      ["seedanceTier", "Optional for provider=seedance. standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d and does not support 1080p."],
+      ["seedanceTier", "Optional for provider=seedance. standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d and does not support 1080p or 4k."],
       ["generateAudio / generate_audio", "Forwarded to upstream when supported."],
       ["web_search / webSearch", "Forwarded to upstream when supplied."],
       ["watermark", "Forwarded to upstream when supplied."],
@@ -2985,7 +2987,7 @@ Content-Type: application/json
       { name: "provider", type: "string", required: "Yes", description: "Use seedance for this endpoint route.", default: "seedance" },
       { name: "prompt", type: "string", required: "Yes", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
       { name: "seedanceMode", type: "string", required: "No", description: "text_to_video, first_frame, first_last_frame, reference_images, or reference_video.", default: "text_to_video" },
-      { name: "seedanceTier", type: "string", required: "No", description: "standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d. Fast tier does not support 1080p.", default: "standard" },
+      { name: "seedanceTier", type: "string", required: "No", description: "standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d. Fast tier does not support 1080p or 4k.", default: "standard" },
       { name: "model", type: "string", required: "Yes", description: "Use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. These map to ep-20260429142513-zg667 and ep-20260429142538-fkm9d.", default: "dreamina-seedance-2-0-260128" },
       { name: "imageUrl / firstFrameUrl / firstFrameDataUrl", type: "string", required: "For first frame modes", description: "Public URL or base64 data URL for the first frame.", default: "-" },
       { name: "firstFrameAssetId / imageAssetId", type: "string", required: "No", description: "Existing uploaded image asset id for the first frame.", default: "-" },
@@ -2997,7 +2999,7 @@ Content-Type: application/json
       { name: "referenceVideoDurationSeconds / inputVideoSeconds", type: "number", required: "No", description: "Total input video duration used for pre-deduction. If omitted, the server probes when possible, then falls back conservatively.", default: "0" },
       { name: "referenceAudioUrls / referenceAudioAssetIds", type: "array", required: "No", description: "Optional audio references. Text+audio without image/video is not supported upstream.", default: "[]" },
       { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. UI-safe values: 9:16, 16:9, 1:1.", default: "9:16" },
-      { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported values are 480p, 720p, and 1080p. Fast tier 1080p is rejected before billing.", default: "720p" },
+      { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported values are 480p, 720p, 1080p, and 4k. Fast tier 1080p/4k is rejected before billing.", default: "720p" },
       { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs are limited to integer 4-15 seconds here.", default: "5" },
       { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
       { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
@@ -3462,7 +3464,7 @@ Object.assign(I18N.en, {
   "pricing.vipeak1VideoTitle": "Vipeak 1 video generation",
   "pricing.vipeak1VideoDesc": "Charged by generated video duration and resolution.",
   "pricing.imageTitle": "Vipeak 1 image generation / edit",
-  "pricing.imageDesc": "1K and 2K currently use the same credit cost.",
+  "pricing.imageDesc": "Text-to-image supports 1K, 2K, and 4K. Reference images and edits support 1K or 2K.",
   "pricing.unlockTitle": "Character video unlock",
   "pricing.unlockDesc": "Logged-in users can watch the first character video. Unlocking deducts credits for the remaining videos of that character.",
   "pricing.packagesTitle": "Top-up packages",
@@ -3999,7 +4001,7 @@ Object.assign(I18N.zh, {
   "pricing.vipeak1VideoTitle": "Vipeak 1 视频生成",
   "pricing.vipeak1VideoDesc": "按生成视频时长和分辨率扣分。",
   "pricing.imageTitle": "Vipeak 1 图片生成 / 编辑",
-  "pricing.imageDesc": "1K 和 2K 当前扣分一致。",
+  "pricing.imageDesc": "文生图支持 1K、2K、4K；参考图和图片编辑支持 1K 或 2K。",
   "pricing.unlockTitle": "角色视频解锁",
   "pricing.unlockDesc": "登录用户可观看当前角色第一个视频；解锁会扣除当前角色剩余视频的费用。",
   "pricing.packagesTitle": "充值档位",
@@ -5169,9 +5171,10 @@ function advancedCaseProvider(item = {}) {
 
 function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
-  if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return raw === "1k" ? "1K" : "2K";
+  if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return raw === "4k" ? "4K" : raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan27") return raw === "1080p" ? "1080p" : "720p";
   if (raw === "480p") return "480p";
+  if (raw === "4k" || raw === "2160p") return "4k";
   return raw === "1080p" ? "1080p" : "720p";
 }
 
@@ -5281,7 +5284,9 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
   const normalizedRatio = normalizeVideoRatio(ratio);
   const byResolution = configPricing.seedanceCreditsPerSecondByResolution || {};
-  const fallbackPerSecond = normalizedResolution === "1080p"
+  const fallbackPerSecond = normalizedResolution === "4k"
+    ? ADVANCED_SEEDANCE_4K_CREDITS_PER_SECOND
+    : normalizedResolution === "1080p"
     ? ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND
     : normalizedResolution === "480p"
     ? ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND
@@ -5289,7 +5294,9 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
   const videoInputSeconds = positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0);
   const videoInputByResolution = configPricing.seedanceVideoInputCreditsPerSecondByResolution || {};
-  const fallbackVideoInputPerSecond = normalizedResolution === "1080p"
+  const fallbackVideoInputPerSecond = normalizedResolution === "4k"
+    ? ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND
+    : normalizedResolution === "1080p"
     ? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND
     : normalizedResolution === "480p"
     ? ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND
@@ -5338,6 +5345,14 @@ function currentSeedanceTier() {
 
 function currentAdvancedResolution() {
   return normalizeAdvancedResolution(els.advancedResolution?.value || "720p", currentAdvancedProvider());
+}
+
+function imageCreateHasReferences() {
+  return selectedAdvancedReferenceImages("wan27-image-edit").length > 0;
+}
+
+function imageCreateResolutionOptions() {
+  return imageCreateHasReferences() ? ["1K", "2K"] : ["1K", "2K", "4K"];
 }
 
 function currentAdvancedRatio() {
@@ -5954,7 +5969,9 @@ function pricingCreditLabel(value) {
 function seedanceInputCreditsPerSecond(resolution = "720p") {
   const normalizedResolution = normalizeAdvancedResolution(resolution, "seedance");
   const byResolution = state.config?.platform?.advancedPricing?.seedanceVideoInputCreditsPerSecondByResolution || {};
-  const fallback = normalizedResolution === "1080p"
+  const fallback = normalizedResolution === "4k"
+    ? ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND
+    : normalizedResolution === "1080p"
     ? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND
     : normalizedResolution === "480p"
     ? ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND
@@ -5985,7 +6002,7 @@ function pricingTable(title, description, columns = [], rows = []) {
 
 function renderPricing() {
   if (!els.pricingRules) return;
-  const seedanceResolutions = ["480p", "720p", "1080p"];
+  const seedanceResolutions = ["480p", "720p", "1080p", "4k"];
   const wanResolutions = ["720p", "1080p"];
   const sampleDuration = 5;
   const creditsPerUsd = Number(state.wallet?.creditsPerUsd || state.config?.platform?.advancedPricing?.creditsPerUsd || 100) || 100;
@@ -5993,7 +6010,7 @@ function renderPricing() {
   const packages = topupPackages();
   const outputRows = seedanceResolutions.map((resolution) => {
     const standard = advancedPricing(sampleDuration, "seedance", resolution, "16:9", { seedanceTier: "standard" });
-    const fast = resolution === "1080p"
+    const fast = ["1080p", "4k"].includes(resolution)
       ? t("pricing.notSupported")
       : pricingCreditLabel(advancedPricing(sampleDuration, "seedance", resolution, "16:9", { seedanceTier: "fast" }).credits);
     return [
@@ -6006,7 +6023,7 @@ function renderPricing() {
   const inputRows = seedanceResolutions.map((resolution) => {
     const inputPerSecond = seedanceInputCreditsPerSecond(resolution);
     const standard = inputPerSecond * userPricingMultiplier();
-    const fast = resolution === "1080p"
+    const fast = ["1080p", "4k"].includes(resolution)
       ? t("pricing.notSupported")
       : pricingCreditLabel(inputPerSecond * ADVANCED_SEEDANCE_FAST_DISCOUNT * userPricingMultiplier());
     return [
@@ -6027,6 +6044,7 @@ function renderPricing() {
   const imageRows = [
     ["<strong>1K</strong>", pricingCreditLabel(imageCost)],
     ["<strong>2K</strong>", pricingCreditLabel(imageCost)],
+    ["<strong>4K</strong>", pricingCreditLabel(imageCost)],
   ];
   const packageChips = packages.length
     ? packages.map((item) => `<span><strong>${escapeHtml(item.currency)} $${escapeHtml(formatCredits(item.amount))}</strong>${escapeHtml(pricingCreditLabel(item.credits))}</span>`).join("")
@@ -9843,8 +9861,8 @@ function updateAdvancedModelControls() {
     els.advancedDuration.value = isImageEdit ? "1" : String(Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration.value || bounds.fallback))));
   }
   if (els.advancedResolution) {
-    const imageEditOptions = ["1K", "2K"];
-    const videoOptions = provider === "seedance" ? ["480p", "720p", "1080p"] : ["720p", "1080p"];
+    const imageEditOptions = imageCreateResolutionOptions();
+    const videoOptions = provider === "seedance" ? ["480p", "720p", "1080p", "4k"] : ["720p", "1080p"];
     const options = isImageEdit ? imageEditOptions : videoOptions;
     const current = normalizeAdvancedResolution(els.advancedResolution.value, provider);
     els.advancedResolution.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
@@ -9854,7 +9872,7 @@ function updateAdvancedModelControls() {
     const active = provider === "seedance";
     els.advancedSeedanceTier.closest(".field")?.toggleAttribute("hidden", !active);
     if (!active) els.advancedSeedanceTier.value = "standard";
-    if (active && currentAdvancedResolution() === "1080p" && currentSeedanceTier() === "fast") {
+    if (active && ["1080p", "4k"].includes(currentAdvancedResolution()) && currentSeedanceTier() === "fast") {
       els.advancedSeedanceTier.value = "standard";
     }
   }
@@ -10258,9 +10276,9 @@ async function submitAdvancedGenerate() {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceVideoRequired");
     return;
   }
-  if (provider === "seedance" && seedanceTier === "fast" && resolution === "1080p") {
+  if (provider === "seedance" && seedanceTier === "fast" && ["1080p", "4k"].includes(resolution)) {
     els.advancedSubmitBtn.disabled = false;
-    if (els.advancedNote) els.advancedNote.textContent = `${advancedProviderLabel(provider)} Fast does not support 1080p.`;
+    if (els.advancedNote) els.advancedNote.textContent = `${advancedProviderLabel(provider)} Fast does not support ${resolution === "4k" ? "4K" : "1080p"}.`;
     return;
   }
   if (provider === "wan27") {

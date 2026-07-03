@@ -195,14 +195,17 @@ const GENERATION_PRICE_MARKUP = 1.2;
 const ADVANCED_SEEDANCE_FPS = clampNumber(process.env.ADVANCED_SEEDANCE_FPS, 24, 1, 120);
 const ADVANCED_SEEDANCE_720P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_720P_USD_PER_MILLION_TOKENS, 7, 0.0001, 100000);
 const ADVANCED_SEEDANCE_1080P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_1080P_USD_PER_MILLION_TOKENS, 7.7, 0.0001, 100000);
+const ADVANCED_SEEDANCE_4K_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_4K_USD_PER_MILLION_TOKENS, ADVANCED_SEEDANCE_1080P_USD_PER_MILLION_TOKENS, 0.0001, 100000);
 const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_720P_USD_PER_MILLION_TOKENS, 4.3, 0.0001, 100000);
 const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_USD_PER_MILLION_TOKENS, 4.7, 0.0001, 100000);
+const ADVANCED_SEEDANCE_VIDEO_INPUT_4K_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_4K_USD_PER_MILLION_TOKENS, ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_USD_PER_MILLION_TOKENS, 0.0001, 100000);
 const ADVANCED_SEEDANCE_FAST_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_FAST_USD_PER_MILLION_TOKENS, 5.6, 0.0001, 100000);
 const ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_USD_PER_MILLION_TOKENS, 3.3, 0.0001, 100000);
 const ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION = {
   "480p": clampNumber(process.env.ADVANCED_SEEDANCE_480P_EXAMPLE_USD_PER_5S, 0.35, 0.0001, 100000),
   "720p": clampNumber(process.env.ADVANCED_SEEDANCE_720P_EXAMPLE_USD_PER_5S, 0.76, 0.0001, 100000),
   "1080p": clampNumber(process.env.ADVANCED_SEEDANCE_1080P_EXAMPLE_USD_PER_5S, 1.87, 0.0001, 100000),
+  "4k": clampNumber(process.env.ADVANCED_SEEDANCE_4K_EXAMPLE_USD_PER_5S, 7.48, 0.0001, 100000),
 };
 const ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION = {
   "480p": [
@@ -217,12 +220,18 @@ const ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION = {
     clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_MIN_EXAMPLE_USD_PER_5S, 2.06, 0.0001, 100000),
     clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_MAX_EXAMPLE_USD_PER_5S, 4.57, 0.0001, 100000),
   ],
+  "4k": [
+    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_4K_MIN_EXAMPLE_USD_PER_5S, 8.24, 0.0001, 100000),
+    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_4K_MAX_EXAMPLE_USD_PER_5S, 18.28, 0.0001, 100000),
+  ],
 };
 const ADVANCED_CREDITS_PER_CNY = pricingNumber(DEFAULT_CREDITS_PER_USD / INTERNAL_CNY_PER_USD, 20, 0.0001, 6);
 const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
+const ADVANCED_SEEDANCE_4K_CREDITS_PER_SECOND = 1200;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 200;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND = 800;
 const ADVANCED_SEEDANCE_FAST_DISCOUNT = clampNumber(process.env.ADVANCED_SEEDANCE_FAST_DISCOUNT, 0.8, 0.01, 1);
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
@@ -239,11 +248,13 @@ const DEFAULT_ADVANCED_PRICING = {
     "480p": Math.ceil(ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND * 0.5),
     "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND,
+    "4k": ADVANCED_SEEDANCE_4K_CREDITS_PER_SECOND,
   },
   seedanceVideoInputCreditsPerSecondByResolution: {
     "480p": Math.ceil(ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND * 0.5),
     "720p": ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND,
+    "4k": ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND,
   },
   wan27CreditsPerSecondByResolution: {
     "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
@@ -253,7 +264,7 @@ const DEFAULT_ADVANCED_PRICING = {
     model: WAN27_IMAGE_PRO_MODEL,
     purchaseCnyPerImage: WAN27_IMAGE_PRO_PURCHASE_CNY,
     saleCnyPerImage: WAN27_IMAGE_PRO_SALE_CNY,
-    resolutions: ["1K", "2K"],
+    resolutions: ["1K", "2K", "4K"],
     ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"],
     defaultResolution: "2K",
     defaultRatio: "9:16",
@@ -1141,6 +1152,14 @@ function normalizeAdvancedPricing(pricing = {}) {
     const normalized = pricingNumber(value, fallback);
     return pricingNumber(normalized * legacyPricingScale, fallback);
   };
+  const imageResolutionValues = Array.isArray(wan27ImageSource.resolutions) && wan27ImageSource.resolutions.length
+    ? wan27ImageSource.resolutions
+    : (Array.isArray(wan27ImageDefault.resolutions) ? wan27ImageDefault.resolutions : ["1K", "2K"]);
+  const normalizedImageResolutions = [];
+  for (const value of [...imageResolutionValues, "4K"]) {
+    const normalizedResolution = normalizeWan27ImageResolution(value);
+    if (!normalizedImageResolutions.includes(normalizedResolution)) normalizedImageResolutions.push(normalizedResolution);
+  }
   return {
     unit: "credits",
     creditsPerCny,
@@ -1151,11 +1170,13 @@ function normalizeAdvancedPricing(pricing = {}) {
       "480p": normalizeStoredCredits(seedance["480p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]),
       "720p": normalizeStoredCredits(seedance["720p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"]),
       "1080p": normalizeStoredCredits(seedance["1080p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["1080p"]),
+      "4k": normalizeStoredCredits(seedance["4k"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["4k"]),
     },
     seedanceVideoInputCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedanceVideoInput["480p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["480p"]),
       "720p": normalizeStoredCredits(seedanceVideoInput["720p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["720p"]),
       "1080p": normalizeStoredCredits(seedanceVideoInput["1080p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["1080p"]),
+      "4k": normalizeStoredCredits(seedanceVideoInput["4k"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["4k"]),
     },
     wan27CreditsPerSecondByResolution: {
       "720p": normalizeStoredCredits(wan27["720p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"]),
@@ -1167,7 +1188,7 @@ function normalizeAdvancedPricing(pricing = {}) {
       model: String(wan27ImageSource.model || wan27ImageDefault.model || WAN27_IMAGE_PRO_MODEL),
       purchaseCnyPerImage: pricingNumber(wan27ImageSource.purchaseCnyPerImage, wan27ImageDefault.purchaseCnyPerImage ?? WAN27_IMAGE_PRO_PURCHASE_CNY, 0, 6),
       saleCnyPerImage: pricingNumber(wan27ImageSource.saleCnyPerImage, wan27ImageDefault.saleCnyPerImage ?? WAN27_IMAGE_PRO_SALE_CNY, 0, 6),
-      resolutions: Array.isArray(wan27ImageSource.resolutions) && wan27ImageSource.resolutions.length ? wan27ImageSource.resolutions : wan27ImageDefault.resolutions,
+      resolutions: normalizedImageResolutions,
       ratios: Array.isArray(wan27ImageSource.ratios) && wan27ImageSource.ratios.length ? wan27ImageSource.ratios : wan27ImageDefault.ratios,
       defaultResolution: String(wan27ImageSource.defaultResolution || wan27ImageDefault.defaultResolution || "2K"),
       defaultRatio: String(wan27ImageSource.defaultRatio || wan27ImageDefault.defaultRatio || "9:16"),
@@ -1194,7 +1215,7 @@ function publicAdvancedPricingView(pricing = {}) {
       model: imagePricing.model || WAN27_IMAGE_PRO_MODEL,
       costCredits: imageCostCredits,
       saleUsdPerImage: pricingNumber(Number(imagePricing.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
-      resolutions: imagePricing.resolutions || ["1K", "2K"],
+      resolutions: imagePricing.resolutions || ["1K", "2K", "4K"],
       ratios: imagePricing.ratios || ["1:1", "3:4", "4:3", "9:16", "16:9"],
       defaultResolution: imagePricing.defaultResolution || "2K",
       defaultRatio: imagePricing.defaultRatio || "9:16",
@@ -1236,7 +1257,7 @@ function publicConfig(config, origin = "", auth = null) {
       model: assetImageModifyPricing.model || WAN27_IMAGE_PRO_MODEL,
       costCredits: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) * Number(normalizedAdvancedPricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6),
       saleUsdPerImage: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
-      resolutions: assetImageModifyPricing.resolutions || ["1K", "2K"],
+      resolutions: (assetImageModifyPricing.resolutions || ["1K", "2K", "4K"]).filter((item) => String(item || "").toUpperCase() !== "4K"),
       ratios: assetImageModifyPricing.ratios || ["1:1", "3:4", "4:3", "9:16", "16:9"],
       defaultResolution: assetImageModifyPricing.defaultResolution || "2K",
       defaultRatio: assetImageModifyPricing.defaultRatio || "9:16",
@@ -4173,6 +4194,7 @@ function publicHttpUrlForUserAsset(asset = {}, fallback = "") {
 function normalizeAdvancedResolution(value = "") {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "480p") return "480p";
+  if (["4k", "4K", "2160p"].includes(String(value || "").trim())) return "4k";
   return normalized === "1080p" ? "1080p" : "720p";
 }
 
@@ -4322,6 +4344,7 @@ function normalizeWan27ImageRatio(value = "") {
 
 function normalizeWan27ImageResolution(value = "") {
   const normalized = String(value || "").trim().toUpperCase();
+  if (normalized === "4K") return "4K";
   return normalized === "1K" ? "1K" : "2K";
 }
 
@@ -4343,13 +4366,20 @@ function wan27ImageSize(resolution = "2K", ratio = "9:16") {
       "9:16": "1440*2560",
       "16:9": "2560*1440",
     },
+    "4K": {
+      "1:1": "4096*4096",
+      "3:4": "3072*4096",
+      "4:3": "4096*3072",
+      "9:16": "2160*3840",
+      "16:9": "3840*2160",
+    },
   };
   return sizes[tier]?.[normalizedRatio] || tier;
 }
 
 function videoPixelDimensions(resolution = "720p", ratio = "16:9") {
   const normalizedResolution = normalizeAdvancedResolution(resolution);
-  const shortSide = normalizedResolution === "1080p" ? 1080 : normalizedResolution === "480p" ? 480 : 720;
+  const shortSide = normalizedResolution === "4k" ? 2160 : normalizedResolution === "1080p" ? 1080 : normalizedResolution === "480p" ? 480 : 720;
   const [ratioW, ratioH] = normalizeVideoRatio(ratio).split(":").map((part) => Math.max(1, Number(part) || 1));
   if (ratioW >= ratioH) {
     return {
@@ -4368,11 +4398,13 @@ function seedanceOfficialPixelDimensions(resolution = "720p", ratio = "16:9") {
   if (normalizedRatio === "16:9") {
     if (normalizedResolution === "480p") return { width: 864, height: 480 };
     if (normalizedResolution === "1080p") return { width: 1920, height: 1088 };
+    if (normalizedResolution === "4k") return { width: 3840, height: 2160 };
     return { width: 1248, height: 704 };
   }
   if (normalizedRatio === "9:16") {
     if (normalizedResolution === "480p") return { width: 480, height: 864 };
     if (normalizedResolution === "1080p") return { width: 1088, height: 1920 };
+    if (normalizedResolution === "4k") return { width: 2160, height: 3840 };
     return { width: 704, height: 1248 };
   }
   return videoPixelDimensions(normalizedResolution, normalizedRatio);
@@ -4388,11 +4420,15 @@ function seedanceUsdPerMillionTokens(resolution = "720p", options = {}) {
       : ADVANCED_SEEDANCE_FAST_USD_PER_MILLION_TOKENS;
   }
   if (hasVideoInput) {
-    return normalizedResolution === "1080p"
+    return normalizedResolution === "4k"
+      ? ADVANCED_SEEDANCE_VIDEO_INPUT_4K_USD_PER_MILLION_TOKENS
+      : normalizedResolution === "1080p"
       ? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_USD_PER_MILLION_TOKENS
       : ADVANCED_SEEDANCE_VIDEO_INPUT_720P_USD_PER_MILLION_TOKENS;
   }
-  return normalizedResolution === "1080p"
+  return normalizedResolution === "4k"
+    ? ADVANCED_SEEDANCE_4K_USD_PER_MILLION_TOKENS
+    : normalizedResolution === "1080p"
     ? ADVANCED_SEEDANCE_1080P_USD_PER_MILLION_TOKENS
     : ADVANCED_SEEDANCE_720P_USD_PER_MILLION_TOKENS;
 }
@@ -7335,13 +7371,13 @@ async function prepareOfficialSeedancePayloadForPivox(db, user, body = {}, { con
 function validateOfficialSeedancePayloadBeforeCharge(payload = {}) {
   const errors = [];
   const resolution = String(payload.resolution || "720p").trim().toLowerCase();
-  if (!["480p", "720p", "1080p"].includes(resolution)) errors.push("resolution must be 480p, 720p, or 1080p.");
+  if (!["480p", "720p", "1080p", "4k"].includes(resolution)) errors.push("resolution must be 480p, 720p, 1080p, or 4k.");
   const duration = Number(payload.duration ?? advancedDurationBounds("seedance").fallback);
   if (!Number.isFinite(duration) || !Number.isInteger(duration) || duration < 4 || duration > 15) {
     errors.push("duration must be an integer from 4 to 15 seconds.");
   }
   const model = String(payload.model || "").toLowerCase();
-  if (model.includes("fast") && resolution === "1080p") errors.push("Seedance fast does not support 1080p.");
+  if (model.includes("fast") && ["1080p", "4k"].includes(resolution)) errors.push("Seedance fast does not support 1080p or 4k.");
   const content = Array.isArray(payload.content) ? payload.content : [];
   const unsupportedContent = content.find((item) => item && typeof item === "object" && item.type && !["text", "image_url", "video_url", "audio_url"].includes(String(item.type)));
   if (unsupportedContent) errors.push(`unsupported content type: ${unsupportedContent.type}.`);
@@ -7915,6 +7951,12 @@ async function submitWan27ImageModify({
 } = {}) {
   const orderedImages = arrayFromBody(imageUrls).map((item) => String(item || "").trim()).filter(Boolean);
   if (!orderedImages.length && imageUrl) orderedImages.push(String(imageUrl || "").trim());
+  if (normalizeWan27ImageResolution(resolution) === "4K" && orderedImages.length) {
+    const error = new Error("Vipeak 1 Image 4K is only available for text-to-image without reference images.");
+    error.statusCode = 400;
+    error.code = "WAN27_IMAGE_4K_TEXT_ONLY";
+    throw error;
+  }
   if (orderedImages.length > 9) {
     const error = new Error("Wan2.7 image supports at most 9 input images.");
     error.statusCode = 400;
@@ -12764,6 +12806,9 @@ async function handleAdvancedGenerate(req, res) {
   if (provider === "seedance" && requestParams.seedanceTier === "fast" && requestParams.resolution === "1080p") {
     return sendJson(res, 400, { ok: false, code: "INVALID_SEEDANCE_FAST_RESOLUTION", message: "Vipeak 2 Fast does not support 1080p." });
   }
+  if (provider === "seedance" && requestParams.seedanceTier === "fast" && requestParams.resolution === "4k") {
+    return sendJson(res, 400, { ok: false, code: "INVALID_SEEDANCE_FAST_RESOLUTION", message: "Vipeak 2 Fast does not support 4K." });
+  }
   if (provider === "seedance") {
     [
       "image_url",
@@ -16342,6 +16387,9 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
     defaultResolution: pricingConfig.defaultResolution || "2K",
   });
   const { ratio, resolution, model } = imageOptions;
+  if (resolution === "4K") {
+    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Vipeak 1 Image 4K is only available for text-to-image without reference images." });
+  }
   const pricing = wan27ImageModifyPricing(config, auth.user);
   const cost = pricing.credits;
   if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -16570,6 +16618,9 @@ async function handleWan27ImageEdit(req, res) {
     defaultResolution: pricingConfig.defaultResolution || "2K",
   });
   const { ratio, resolution, model } = imageOptions;
+  if (resolution === "4K" && sourceAssets.length + externalImageUrls.length > 0) {
+    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Vipeak 1 Image 4K is only available for text-to-image without reference images." });
+  }
   const pricing = wan27ImageModifyPricing(config, auth.user);
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
@@ -16873,6 +16924,9 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     defaultResolution: pricingConfig.defaultResolution || "2K",
   });
   const { ratio, resolution, model } = imageOptions;
+  if (resolution === "4K") {
+    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Vipeak 1 Image 4K is only available for text-to-image without reference images." });
+  }
   const pricing = wan27ImageModifyPricing(config, auth.user);
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
@@ -17849,9 +17903,11 @@ const ADVANCED_PRICING_ROWS = [
   { key: "seedance-480p", provider: "seedance", providerLabel: "Seedance", resolution: "480p", rateKind: "output", unit: "output_second" },
   { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance", resolution: "1080p", rateKind: "output", unit: "output_second" },
+  { key: "seedance-4k", provider: "seedance", providerLabel: "Seedance", resolution: "4k", rateKind: "output", unit: "output_second" },
   { key: "seedance-video-input-480p", provider: "seedance", providerLabel: "Seedance 视频输入加收", resolution: "480p", rateKind: "video_input", unit: "input_second" },
   { key: "seedance-video-input-720p", provider: "seedance", providerLabel: "Seedance 视频输入加收", resolution: "720p", rateKind: "video_input", unit: "input_second" },
   { key: "seedance-video-input-1080p", provider: "seedance", providerLabel: "Seedance 视频输入加收", resolution: "1080p", rateKind: "video_input", unit: "input_second" },
+  { key: "seedance-video-input-4k", provider: "seedance", providerLabel: "Seedance 视频输入加收", resolution: "4k", rateKind: "video_input", unit: "input_second" },
   { key: "wan27-720p", provider: "wan27", providerLabel: "Wan2.7", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "wan27-1080p", provider: "wan27", providerLabel: "Wan2.7", resolution: "1080p", rateKind: "output", unit: "output_second" },
 ];
@@ -18054,9 +18110,11 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     else if (key === "seedance-video-input-480p") next.seedanceVideoInputCreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance-video-input-720p") next.seedanceVideoInputCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance-video-input-1080p") next.seedanceVideoInputCreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "seedance-video-input-4k") next.seedanceVideoInputCreditsPerSecondByResolution["4k"] = credits;
     else if (key === "seedance-480p") next.seedanceCreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance-720p") next.seedanceCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance-1080p") next.seedanceCreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "seedance-4k") next.seedanceCreditsPerSecondByResolution["4k"] = credits;
   }
   const seedance720 = next.seedanceCreditsPerSecondByResolution["720p"];
   const seedanceVideo720 = next.seedanceVideoInputCreditsPerSecondByResolution["720p"];
