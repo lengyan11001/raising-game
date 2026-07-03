@@ -133,6 +133,17 @@ const PIVOX_ASSET_URI_CACHE = new Map();
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
+const APIZ_SEEDANCE_API_BASE_URL = (process.env.APIZ_SEEDANCE_API_BASE_URL || APIZ_BASE_URL).replace(/\/+$/, "");
+const APIZ_SEEDANCE_API_KEY = String(process.env.APIZ_SEEDANCE_API_KEY || "").trim();
+const APIZ_SEEDANCE_MODEL_ID = String(process.env.APIZ_SEEDANCE_MODEL_ID || "service-inference/seedance-2.0").trim();
+const APIZ_SEEDANCE_QUALITY_MODEL = String(process.env.APIZ_SEEDANCE_QUALITY_MODEL || "dreamina-seedance-2-0-ep").trim();
+const APIZ_SEEDANCE_FAST_MODEL = String(process.env.APIZ_SEEDANCE_FAST_MODEL || "dreamina-seedance-2-0-fast-ep").trim();
+const APIZ_SEEDANCE_ENABLED_USER_KEYS = new Set(
+  String(process.env.APIZ_SEEDANCE_ENABLED_USERS || "test01")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean),
+);
 const UPSTREAM_MODE = String(process.env.UPSTREAM_MODE || "direct").trim().toLowerCase();
 const USE_GATEWAY_UPSTREAM = ["gateway", "proxy", "api"].includes(UPSTREAM_MODE);
 const UPSTREAM_BASE_URL = (process.env.UPSTREAM_BASE_URL || "https://123vips.com").replace(/\/+$/, "");
@@ -4218,20 +4229,36 @@ function seedanceConfiguredModelForRequest(model = "", seedanceTier = "standard"
   return raw;
 }
 
-function seedancePivoxEnabledForUser(user = {}) {
-  if (!PIVOX_API_KEY || !PIVOX_ENABLED_USER_KEYS.size) return false;
+function seedanceUpstreamEnabledForUser(user = {}, enabledKeys = new Set()) {
+  if (!enabledKeys?.size) return false;
   const keys = [
     user?.username,
     user?.name,
     user?.email,
     user?.id,
   ].map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
-  return PIVOX_ENABLED_USER_KEYS.has("*") || keys.some((key) => PIVOX_ENABLED_USER_KEYS.has(key));
+  return enabledKeys.has("*") || keys.some((key) => enabledKeys.has(key));
+}
+
+function seedancePivoxEnabledForUser(user = {}) {
+  if (!PIVOX_API_KEY) return false;
+  return seedanceUpstreamEnabledForUser(user, PIVOX_ENABLED_USER_KEYS);
+}
+
+function seedanceApizEnabledForUser(user = {}) {
+  if (!APIZ_SEEDANCE_API_KEY || !APIZ_SEEDANCE_MODEL_ID) return false;
+  return seedanceUpstreamEnabledForUser(user, APIZ_SEEDANCE_ENABLED_USER_KEYS);
 }
 
 function seedancePivoxModelForRequest(model = "", seedanceTier = "standard") {
   const kind = seedanceModelAliasKind(model) || normalizeSeedanceTier(seedanceTier);
   return kind === "fast" ? PIVOX_SEEDANCE_FAST_MODEL : PIVOX_SEEDANCE_QUALITY_MODEL;
+}
+
+function seedanceApizModelForRequest(model = "", seedanceTier = "standard") {
+  const raw = String(model || "").trim().toLowerCase();
+  const kind = seedanceModelAliasKind(model) || (raw.includes("fast") ? "fast" : "") || normalizeSeedanceTier(seedanceTier);
+  return kind === "fast" ? APIZ_SEEDANCE_FAST_MODEL : APIZ_SEEDANCE_QUALITY_MODEL;
 }
 
 function publicHttpUrlForUpstream(value = "") {
@@ -7171,6 +7198,179 @@ async function submitPivoxSeedanceVideoTask({
   };
 }
 
+function apizSeedanceMediaReferenceUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^asset:\/\/asset-[a-z0-9_-]+$/i.test(text)) return text;
+  return publicHttpUrlForUpstream(text);
+}
+
+function normalizeApizSeedanceUrlList(value = [], limit = 9) {
+  const urls = [];
+  arrayFromBody(value).forEach((item) => {
+    const url = apizSeedanceMediaReferenceUrl(nestedMediaUrl(item));
+    if (url && !urls.includes(url) && urls.length < limit) urls.push(url);
+  });
+  return urls;
+}
+
+function normalizeApizSeedanceContent(content = []) {
+  return (Array.isArray(content) ? content : [])
+    .map((item) => normalizeSeedanceContentItem(item))
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      if (item.type === "text") return { ...item, text: String(item.text || "") };
+      if (item.type === "image_url") {
+        const url = apizSeedanceMediaReferenceUrl(nestedMediaUrl(item.image_url));
+        if (!url) return null;
+        return { ...item, image_url: { ...(item.image_url || {}), url } };
+      }
+      if (item.type === "video_url") {
+        const url = apizSeedanceMediaReferenceUrl(nestedMediaUrl(item.video_url));
+        if (!url) return null;
+        return { ...item, video_url: { ...(item.video_url || {}), url } };
+      }
+      if (item.type === "audio_url") {
+        const url = apizSeedanceMediaReferenceUrl(nestedMediaUrl(item.audio_url));
+        if (!url) return null;
+        return { ...item, audio_url: { ...(item.audio_url || {}), url } };
+      }
+      return item;
+    })
+    .filter(Boolean);
+}
+
+function addApizSeedanceUrl(list = [], value = "", limit = 9) {
+  const url = apizSeedanceMediaReferenceUrl(value);
+  if (url && !list.includes(url) && list.length < limit) list.push(url);
+}
+
+function apizSeedanceParamsFromPayload(payload = {}, { prompt = "", body = {} } = {}) {
+  const source = { ...requestParamsFromBody(body), ...body };
+  const content = normalizeApizSeedanceContent(payload.content);
+  const textPrompt = content
+    .filter((item) => item?.type === "text")
+    .map((item) => String(item.text || ""))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  const params = {
+    model: seedanceApizModelForRequest(payload.model, firstPresent(source.seedanceTier, source.vipeak2Tier)),
+    prompt: textPrompt || String(prompt || source.prompt || "").trim(),
+    ratio: String(firstPresent(payload.ratio, source.ratio, source.aspect_ratio, "9:16")),
+    resolution: normalizeAdvancedResolution(firstPresent(payload.resolution, source.resolution, "720p")),
+    duration: clampNumber(
+      firstPresent(payload.duration, source.duration, source.durationSeconds),
+      advancedDurationBounds("seedance").fallback,
+      advancedDurationBounds("seedance").min,
+      advancedDurationBounds("seedance").max,
+    ),
+    generate_audio: boolFromRequest(firstPresent(payload.generate_audio, source.generate_audio, source.generateAudio), true),
+  };
+  const webSearchValue = firstPresent(payload.web_search, source.web_search, source.webSearch, source.parameters?.web_search, source.parameters?.webSearch);
+  if (webSearchValue !== undefined) params.web_search = boolFromRequest(webSearchValue, false);
+  const watermarkValue = firstPresent(payload.watermark, source.watermark, source.parameters?.watermark);
+  if (watermarkValue !== undefined) params.watermark = boolFromRequest(watermarkValue, false);
+  const returnLastFrame = firstPresent(payload.return_last_frame, source.return_last_frame, source.returnLastFrame);
+  if (returnLastFrame !== undefined) params.return_last_frame = boolFromRequest(returnLastFrame, false);
+
+  let firstFrameUrl = apizSeedanceMediaReferenceUrl(firstPresent(payload.image_url, source.image_url, source.imageUrl, source.firstFrameUrl, source.first_frame_url));
+  let lastFrameUrl = apizSeedanceMediaReferenceUrl(firstPresent(payload.end_image_url, source.end_image_url, source.endImageUrl, source.lastFrameUrl, source.last_frame_url));
+  const referenceImages = normalizeApizSeedanceUrlList([
+    ...arrayFromBody(payload.reference_images),
+    ...arrayFromBody(source.referenceImages),
+  ], ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  const referenceVideos = normalizeApizSeedanceUrlList([
+    ...arrayFromBody(payload.reference_videos),
+    ...arrayFromBody(source.referenceVideos),
+  ], ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT);
+  const referenceAudios = normalizeApizSeedanceUrlList([
+    ...arrayFromBody(payload.reference_audios),
+    ...arrayFromBody(source.referenceAudios),
+  ], ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
+
+  content.forEach((item) => {
+    if (item?.type === "image_url") {
+      const url = nestedMediaUrl(item.image_url);
+      const role = String(item.role || "");
+      if (role === "first_frame" && !firstFrameUrl) firstFrameUrl = url;
+      else if (role === "last_frame" && !lastFrameUrl) lastFrameUrl = url;
+      else addApizSeedanceUrl(referenceImages, url, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    } else if (item?.type === "video_url") {
+      addApizSeedanceUrl(referenceVideos, nestedMediaUrl(item.video_url), ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT);
+    } else if (item?.type === "audio_url") {
+      addApizSeedanceUrl(referenceAudios, nestedMediaUrl(item.audio_url), ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
+    }
+  });
+
+  const hasReferenceMedia = referenceImages.length || referenceVideos.length || referenceAudios.length;
+  if (hasReferenceMedia) {
+    addApizSeedanceUrl(referenceImages, firstFrameUrl, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    addApizSeedanceUrl(referenceImages, lastFrameUrl, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  } else {
+    if (firstFrameUrl) params.image_url = firstFrameUrl;
+    if (lastFrameUrl) params.end_image_url = lastFrameUrl;
+  }
+  if (referenceImages.length) params.reference_images = referenceImages;
+  if (referenceVideos.length) params.reference_videos = referenceVideos;
+  if (referenceAudios.length) params.reference_audios = referenceAudios;
+  return params;
+}
+
+function apizSeedancePayloadFromBody({ config = {}, prompt = "", content = [], body = {} } = {}) {
+  const seedancePayload = seedancePayloadFromBody({ config, prompt, content, body });
+  const externalModel = String(seedancePayload.model || MODEL_QUALITY);
+  const params = apizSeedanceParamsFromPayload(seedancePayload, { prompt, body });
+  return {
+    payload: {
+      model: APIZ_SEEDANCE_MODEL_ID,
+      params,
+      channel: null,
+    },
+    externalModel,
+  };
+}
+
+async function submitApizSeedanceVideoTask({
+  config,
+  prompt,
+  referenceAssetUri,
+  extraReferenceAssetUris = [],
+  firstFrameAssetUri = "",
+  lastFrameAssetUri = "",
+  referenceVideoAssetUri = "",
+  extraReferenceVideoAssetUris = [],
+  referenceAudioAssetUris = [],
+  body = {},
+  slug = "",
+}) {
+  const content = pivoxSeedanceContentFromReferences({
+    prompt,
+    referenceAssetUri,
+    extraReferenceAssetUris,
+    firstFrameAssetUri,
+    lastFrameAssetUri,
+    referenceVideoAssetUri,
+    extraReferenceVideoAssetUris,
+    referenceAudioAssetUris,
+    body,
+  });
+  const { payload, externalModel } = apizSeedancePayloadFromBody({ config, prompt, content, body });
+
+  console.log(`[apiz-seedance-submit-${slug || "video"}]`, JSON.stringify({
+    ...payload,
+    externalModel,
+  }, null, 2));
+  const raw = await apizSeedanceRequest("/api/v3/tasks/create", payload);
+  return {
+    task: normalizeApizSeedanceTask(raw),
+    payload,
+    raw,
+    recordModel: externalModel,
+    upstreamSource: "apiz-seedance",
+  };
+}
+
 function cloneJson(value) {
   if (value === undefined) return undefined;
   return JSON.parse(JSON.stringify(value));
@@ -7430,6 +7630,60 @@ async function prepareOfficialSeedancePayloadForPivox(db, user, body = {}, { con
   return { payload, externalModel, sourcePayload };
 }
 
+async function prepareOfficialSeedancePayloadForApiz(db, user, body = {}, { config = {} } = {}) {
+  const sourcePayload = await prepareOfficialSeedancePayloadForArk(db, user, body, { prepareImages: false });
+  const prompt = officialSeedancePrompt(sourcePayload);
+  const preparedContent = [];
+  for (let index = 0; index < (Array.isArray(sourcePayload.content) ? sourcePayload.content : []).length; index += 1) {
+    const item = sourcePayload.content[index];
+    if (!item || typeof item !== "object" || Array.isArray(item) || !["image_url", "video_url", "audio_url"].includes(item.type)) {
+      preparedContent.push(item);
+      continue;
+    }
+    const key = item.type;
+    const url = await preparePivoxMediaUrlForUser(db, user, mediaUrlFromOfficialItem(item, key), `Seedance content ${index + 1}`);
+    if (!url) {
+      const error = new Error(`${item.type || "media"} content requires a public http(s) URL for APIZ Seedance.`);
+      error.statusCode = 400;
+      error.code = "INVALID_APIZ_SEEDANCE_MEDIA_URL";
+      throw error;
+    }
+    preparedContent.push(setOfficialMediaUrl(item, key, url));
+  }
+  sourcePayload.content = preparedContent;
+  if (Array.isArray(sourcePayload.reference_images)) {
+    const urls = [];
+    for (let index = 0; index < sourcePayload.reference_images.length; index += 1) {
+      const url = await preparePivoxMediaUrlForUser(db, user, nestedMediaUrl(sourcePayload.reference_images[index]), `Seedance reference image ${index + 1}`);
+      if (url) urls.push(url);
+    }
+    sourcePayload.reference_images = urls;
+  }
+  if (Array.isArray(sourcePayload.reference_videos)) {
+    const urls = [];
+    for (let index = 0; index < sourcePayload.reference_videos.length; index += 1) {
+      const url = await preparePivoxMediaUrlForUser(db, user, nestedMediaUrl(sourcePayload.reference_videos[index]), `Seedance reference video ${index + 1}`);
+      if (url) urls.push(url);
+    }
+    sourcePayload.reference_videos = urls;
+  }
+  if (Array.isArray(sourcePayload.reference_audios)) {
+    const urls = [];
+    for (let index = 0; index < sourcePayload.reference_audios.length; index += 1) {
+      const url = await preparePivoxMediaUrlForUser(db, user, nestedMediaUrl(sourcePayload.reference_audios[index]), `Seedance reference audio ${index + 1}`);
+      if (url) urls.push(url);
+    }
+    sourcePayload.reference_audios = urls;
+  }
+  const { payload, externalModel } = apizSeedancePayloadFromBody({
+    config,
+    prompt,
+    content: sourcePayload.content,
+    body: sourcePayload,
+  });
+  return { payload, externalModel, sourcePayload };
+}
+
 function validateOfficialSeedancePayloadBeforeCharge(payload = {}) {
   const errors = [];
   const resolution = String(payload.resolution || "720p").trim().toLowerCase();
@@ -7499,8 +7753,10 @@ async function handleVolcengineCreateGenerationTask(req, res) {
   if (USE_GATEWAY_UPSTREAM) {
     return sendJson(res, 503, { error: { code: "GATEWAY_MODE_NOT_SUPPORTED", message: "This legacy route requires direct Ark upstream mode. Use /api/advanced/generate for external integrations." } });
   }
-  const usePivoxSeedance = seedancePivoxEnabledForUser(auth.user);
-  if (!ARK_API_KEY && !usePivoxSeedance) {
+  const useApizSeedance = seedanceApizEnabledForUser(auth.user);
+  const usePivoxSeedance = !useApizSeedance && seedancePivoxEnabledForUser(auth.user);
+  const useExternalSeedanceHttp = useApizSeedance || usePivoxSeedance;
+  if (!ARK_API_KEY && !useExternalSeedanceHttp) {
     return sendJson(res, 503, { error: { code: "MISSING_ARK_API_KEY", message: "Seedance generation is not configured." } });
   }
 
@@ -7555,7 +7811,7 @@ async function handleVolcengineCreateGenerationTask(req, res) {
 
   const fallbackTaskId = localGenerationTaskId("ark");
   const recordModel = payloadForValidation.model || MODEL_QUALITY;
-  const upstreamSource = usePivoxSeedance ? "pivoxapi" : "direct";
+  const upstreamSource = useApizSeedance ? "apiz-seedance" : usePivoxSeedance ? "pivoxapi" : "direct";
   if (cost > 0) {
     await chargeUserWithSubtoken(auth, {
       cost,
@@ -7580,7 +7836,16 @@ async function handleVolcengineCreateGenerationTask(req, res) {
   try {
     let raw;
     let task;
-    if (usePivoxSeedance) {
+    if (useApizSeedance) {
+      const prepared = await prepareOfficialSeedancePayloadForApiz(auth.db, auth.user, body, { config });
+      payload = prepared.payload;
+      console.log("[apiz-seedance-submit-volcengine]", JSON.stringify({
+        ...payload,
+        externalModel: prepared.externalModel,
+      }, null, 2));
+      raw = await apizSeedanceRequest("/api/v3/tasks/create", payload);
+      task = normalizeApizSeedanceTask(raw);
+    } else if (usePivoxSeedance) {
       const prepared = await prepareOfficialSeedancePayloadForPivox(auth.db, auth.user, body, { config });
       payload = prepared.payload;
       console.log("[pivox-seedance-submit-volcengine]", JSON.stringify({
@@ -7618,7 +7883,7 @@ async function handleVolcengineCreateGenerationTask(req, res) {
       model: recordModel,
       provider: "seedance",
       upstreamSource,
-      upstreamModel: usePivoxSeedance ? (payload.model || "") : "",
+      upstreamModel: useExternalSeedanceHttp ? (payload.params?.model || payload.model || "") : "",
       source: "volcengine-compatible",
       kind: "advanced-video",
       userId: auth.user.id,
@@ -7645,7 +7910,7 @@ async function handleVolcengineCreateGenerationTask(req, res) {
       apiTokenType: auth.tokenRecord?.quotaType || "",
       apiTokenSource: auth.tokenSource || "",
     });
-    if (usePivoxSeedance) {
+    if (useExternalSeedanceHttp) {
       return sendJson(res, 200, officialSeedanceResponseFromRecord({
         taskId,
         upstreamTaskId: task.taskId || "",
@@ -7665,7 +7930,7 @@ async function handleVolcengineCreateGenerationTask(req, res) {
       model: recordModel,
       provider: "seedance",
       upstreamSource,
-      upstreamModel: usePivoxSeedance ? (payload?.model || "") : "",
+      upstreamModel: useExternalSeedanceHttp ? (payload?.params?.model || payload?.model || "") : "",
       source: "volcengine-compatible",
       kind: "advanced-video",
       userId: auth.user.id,
@@ -7726,7 +7991,14 @@ async function handleVolcengineGetGenerationTask(req, res, taskId) {
   }
   const upstreamTaskId = record.upstreamTaskId || record.taskId;
   let raw = record.queryResponse || record.createResponse || officialSeedanceResponseFromRecord(record);
-  if (record.upstreamSource === "pivoxapi" && !isImageGenerationRecord(record) && shouldRefreshGenerationRecord(record)) {
+  if (record.upstreamSource === "apiz-seedance" && !isImageGenerationRecord(record) && shouldRefreshGenerationRecord(record)) {
+    try {
+      const refreshed = await refreshApizSeedanceGenerationRecord(record, "volcengine-apiz-seedance-query");
+      raw = officialSeedanceResponseFromRecord(refreshed);
+    } catch (error) {
+      raw = officialSeedanceResponseFromRecord(record);
+    }
+  } else if (record.upstreamSource === "pivoxapi" && !isImageGenerationRecord(record) && shouldRefreshGenerationRecord(record)) {
     try {
       const refreshed = await refreshPivoxGenerationRecord(record, "volcengine-pivox-query");
       raw = officialSeedanceResponseFromRecord(refreshed);
@@ -10491,6 +10763,59 @@ async function refreshPivoxGenerationRecord(record = {}, reason = "pivox-query")
   }, reason);
 }
 
+async function refreshApizSeedanceGenerationRecord(record = {}, reason = "apiz-seedance-query") {
+  if (!APIZ_SEEDANCE_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+  const queryTaskId = record.upstreamTaskId || record.taskId;
+  const raw = await apizSeedanceRequest("/api/v3/tasks/query", { task_id: queryTaskId });
+  const task = normalizeApizSeedanceTask(raw);
+  let localVideoUrl = record.localVideoUrl || "";
+  let localVideoPath = record.localVideoPath || "";
+  let localPosterUrl = record.localPosterUrl || "";
+  let localPosterPath = record.localPosterPath || "";
+  let cdnVideoUrl = record.cdnVideoUrl || "";
+  let cdnPosterUrl = record.cdnPosterUrl || "";
+  let cdnError = record.cdnError || "";
+  let downloadError = "";
+  const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
+  if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+    try {
+      const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
+      localVideoUrl = localVideo.localVideoUrl;
+      localVideoPath = localVideo.localVideoPath;
+      localPosterUrl = localVideo.localPosterUrl || localPosterUrl;
+      localPosterPath = localVideo.localPosterPath || localPosterPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
+      cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+      cdnError = localVideo.cdnError || cdnError;
+    } catch (error) {
+      downloadError = error.message || "Failed to download generated video.";
+    }
+  }
+  return await upsertAndSettleGenerationRecord({
+    taskId: record.taskId,
+    upstreamTaskId: task.taskId || queryTaskId,
+    status: task.status || record.status || "unknown",
+    upstreamSource: "apiz-seedance",
+    remoteVideoUrl,
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (localVideoUrl || cdnVideoUrl || remoteVideoUrl || record.videoUrl || "")
+      : (cdnVideoUrl || localVideoUrl || remoteVideoUrl || record.videoUrl || ""),
+    localVideoUrl,
+    localVideoPath,
+    localPosterUrl,
+    localPosterPath,
+    posterUrl: localPublicAssetStorageEnabled()
+      ? (localPosterUrl || cdnPosterUrl || record.posterUrl || "")
+      : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
+    cdnVideoUrl,
+    cdnPosterUrl,
+    cdnError,
+    error: task.error || downloadError || record.error || "",
+    queryResponse: raw,
+    completedAt: isSucceededStatus(task.status) ? (record.completedAt || new Date().toISOString()) : record.completedAt || "",
+  }, reason);
+}
+
 async function refreshGenerationRecordStatus(record = {}) {
   if (needsApizFailureRefund(record)) {
     return settleApizGenerationRecord(record, { status: record.status || "failed", error: record.error || "" }, "refresh");
@@ -10550,6 +10875,15 @@ async function refreshGenerationRecordStatus(record = {}) {
       }, "gateway-query");
     } catch (error) {
       console.warn("[gateway-generation-record-refresh-failed]", record.taskId, error.message || error);
+      return record;
+    }
+  }
+  if (record.upstreamSource === "apiz-seedance") {
+    if (!shouldRefreshGenerationRecord(record)) return record;
+    try {
+      return await refreshApizSeedanceGenerationRecord(record, "apiz-seedance-query");
+    } catch (error) {
+      console.warn("[apiz-seedance-generation-record-refresh-failed]", record.taskId, error.message || error);
       return record;
     }
   }
@@ -11185,6 +11519,31 @@ function normalizePivoxTask(raw = {}) {
     taskId: String(taskId || ""),
     status: normalizePivoxStatus(status),
     videoUrl: findPivoxOutputVideoUrl(raw) || "",
+    error: String(error || ""),
+  };
+}
+
+function normalizeApizSeedanceTask(raw = {}) {
+  const outer = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+  const task = outer?.data?.task || outer?.task || raw?.task || {};
+  const status = firstPresent(outer.status, task.status, raw.status, task.state, raw.state, "submitted");
+  const taskId = firstPresent(outer.task_id, outer.taskId, task.task_id, task.taskId, task.id, raw.task_id, raw.taskId, raw.id, "");
+  const error = firstPresent(
+    outer.fail_reason,
+    outer.error_msg,
+    outer.error?.message,
+    task.fail_reason,
+    task.error_msg,
+    task.error?.message,
+    task.error,
+    raw.error?.message,
+    raw.message,
+    "",
+  );
+  return {
+    taskId: String(taskId || ""),
+    status: normalizePivoxStatus(status),
+    videoUrl: apizResultUrl(raw) || findPivoxOutputVideoUrl(raw) || "",
     error: String(error || ""),
   };
 }
@@ -12246,7 +12605,9 @@ async function runAdvancedGenerationJob(job = {}) {
     : [];
   let payload = null;
   let createResponse = null;
+  let useApizSeedance = false;
   let usePivoxSeedance = false;
+  let useExternalSeedanceHttp = false;
   let upstreamSource = USE_GATEWAY_UPSTREAM ? "gateway" : "direct";
 
   try {
@@ -12258,8 +12619,10 @@ async function runAdvancedGenerationJob(job = {}) {
 
     let db = await readDb();
     const jobUser = (db.users || []).find((user) => user.id === userId && !isSoftDeleted(user)) || null;
-    usePivoxSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && seedancePivoxEnabledForUser(jobUser);
-    upstreamSource = usePivoxSeedance ? "pivoxapi" : (USE_GATEWAY_UPSTREAM ? "gateway" : "direct");
+    useApizSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && seedanceApizEnabledForUser(jobUser);
+    usePivoxSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && !useApizSeedance && seedancePivoxEnabledForUser(jobUser);
+    useExternalSeedanceHttp = useApizSeedance || usePivoxSeedance;
+    upstreamSource = useApizSeedance ? "apiz-seedance" : usePivoxSeedance ? "pivoxapi" : (USE_GATEWAY_UPSTREAM ? "gateway" : "direct");
     if (userAssetId) {
       userAsset = (db.userAssets || []).find((asset) => asset.id === userAssetId && asset.userId === userId && !isSoftDeleted(asset));
       if (!userAsset) {
@@ -12338,7 +12701,7 @@ async function runAdvancedGenerationJob(job = {}) {
         if (USE_GATEWAY_UPSTREAM) {
           imageUrl = userAsset.localUrl || userAsset.publicUrl || "";
           sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
-        } else if (usePivoxSeedance) {
+        } else if (useExternalSeedanceHttp) {
           referenceAssetUri = publicHttpUrlForUserAsset(userAsset);
           imageUrl = referenceAssetUri || userAsset.localUrl || userAsset.publicUrl || "";
           sourceImageUrl = publicHttpUrlForUpstream(userAsset.sourceImageUrl) || publicHttpUrlForUserAsset(userAsset) || userAsset.sourceImageUrl || userAsset.localUrl || "";
@@ -12357,7 +12720,7 @@ async function runAdvancedGenerationJob(job = {}) {
         sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
       }
     }
-    if (provider === "seedance" && directReferenceAssetUris.length && !usePivoxSeedance) {
+    if (provider === "seedance" && directReferenceAssetUris.length && !useExternalSeedanceHttp) {
       const directQueue = directReferenceAssetUris
         .filter((uri) => uri && uri !== referenceAssetUri)
         .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
@@ -12372,7 +12735,7 @@ async function runAdvancedGenerationJob(job = {}) {
     if (provider === "seedance" && seedanceVideoAsset) {
       if (USE_GATEWAY_UPSTREAM) {
         imageUrl = imageUrl || seedanceVideoAsset.localUrl || seedanceVideoAsset.publicUrl || "";
-      } else if (usePivoxSeedance) {
+      } else if (useExternalSeedanceHttp) {
         referenceVideoAssetUri = publicHttpUrlForUserAsset(seedanceVideoAsset);
         imageUrl = imageUrl || referenceVideoAssetUri || seedanceVideoAsset.localUrl || seedanceVideoAsset.publicUrl || "";
       } else {
@@ -12383,7 +12746,7 @@ async function runAdvancedGenerationJob(job = {}) {
       }
     }
     const extraReferenceVideoUriQueue = [];
-    if (provider === "seedance" && extraSeedanceVideoAssets.length && usePivoxSeedance) {
+    if (provider === "seedance" && extraSeedanceVideoAssets.length && useExternalSeedanceHttp) {
       for (const asset of extraSeedanceVideoAssets) {
         const uri = publicHttpUrlForUserAsset(asset);
         if (uri && uri !== referenceVideoAssetUri && !extraReferenceVideoAssetUris.includes(uri)) {
@@ -12405,7 +12768,7 @@ async function runAdvancedGenerationJob(job = {}) {
       resolvedReferenceAudioAssetUris = referenceAudioAssetUris
         .map((uri) => String(uri || "").trim())
         .filter(Boolean);
-      if (seedanceAudioAssets.length && !USE_GATEWAY_UPSTREAM && !usePivoxSeedance) {
+      if (seedanceAudioAssets.length && !USE_GATEWAY_UPSTREAM && !useExternalSeedanceHttp) {
         for (const asset of seedanceAudioAssets) {
           const preparedAudio = await prepareSeedanceAudioAsset(db, asset);
           const uri = preparedAudio.referenceAssetUri || preparedAudio.audioUrl || "";
@@ -12416,7 +12779,7 @@ async function runAdvancedGenerationJob(job = {}) {
         }
       } else if (seedanceAudioAssets.length) {
         for (const asset of seedanceAudioAssets) {
-          const uri = usePivoxSeedance ? publicHttpUrlForUserAsset(asset) : (asset.localUrl || asset.publicUrl || "");
+          const uri = useExternalSeedanceHttp ? publicHttpUrlForUserAsset(asset) : (asset.localUrl || asset.publicUrl || "");
           if (uri && !resolvedReferenceAudioAssetUris.includes(uri)) {
             resolvedReferenceAudioAssetUris.push(uri);
             audioReferenceUriByAssetId.set(asset.id, uri);
@@ -12429,7 +12792,7 @@ async function runAdvancedGenerationJob(job = {}) {
       if (USE_GATEWAY_UPSTREAM) {
         imageUrl = imageUrl || seedanceFirstFrameAsset.localUrl || seedanceFirstFrameAsset.publicUrl || "";
         sourceImageUrl = sourceImageUrl || seedanceFirstFrameAsset.sourceImageUrl || seedanceFirstFrameAsset.localUrl || "";
-      } else if (usePivoxSeedance) {
+      } else if (useExternalSeedanceHttp) {
         seedanceImageUrl = publicHttpUrlForUserAsset(seedanceFirstFrameAsset);
         imageUrl = imageUrl || seedanceImageUrl || seedanceFirstFrameAsset.localUrl || seedanceFirstFrameAsset.publicUrl || "";
         sourceImageUrl = sourceImageUrl || publicHttpUrlForUpstream(seedanceFirstFrameAsset.sourceImageUrl) || seedanceImageUrl || seedanceFirstFrameAsset.sourceImageUrl || seedanceFirstFrameAsset.localUrl || "";
@@ -12442,7 +12805,7 @@ async function runAdvancedGenerationJob(job = {}) {
       }
     }
     if (provider === "seedance" && seedanceEndFrameAsset) {
-      if (usePivoxSeedance) {
+      if (useExternalSeedanceHttp) {
         seedanceEndImageUrl = publicHttpUrlForUserAsset(seedanceEndFrameAsset);
       } else if (!USE_GATEWAY_UPSTREAM) {
         const preparedEndFrame = await prepareSeedanceReferenceAsset(db, seedanceEndFrameAsset, false);
@@ -12512,11 +12875,11 @@ async function runAdvancedGenerationJob(job = {}) {
           referenceAssetUri: uri,
           imageUrl: uri,
         }));
-      const primaryMediaAsset = (USE_GATEWAY_UPSTREAM || usePivoxSeedance) && userAsset ? [{
+      const primaryMediaAsset = (USE_GATEWAY_UPSTREAM || useExternalSeedanceHttp) && userAsset ? [{
         type: "reference_image",
         key: "image_1",
         userAssetId: userAsset.id,
-        referenceAssetUri: usePivoxSeedance ? referenceAssetUri : "",
+        referenceAssetUri: useExternalSeedanceHttp ? referenceAssetUri : "",
         imageUrl,
         sourceImageUrl,
         localUrl: userAsset.localUrl || "",
@@ -12533,9 +12896,9 @@ async function runAdvancedGenerationJob(job = {}) {
       }] : [];
       const extraMediaAssets = [];
       for (let index = 0; index < extraUserAssets.length; index += 1) {
-        if (USE_GATEWAY_UPSTREAM || usePivoxSeedance) {
+        if (USE_GATEWAY_UPSTREAM || useExternalSeedanceHttp) {
           const asset = extraUserAssets[index];
-          const referenceUrl = usePivoxSeedance ? publicHttpUrlForUserAsset(asset) : "";
+          const referenceUrl = useExternalSeedanceHttp ? publicHttpUrlForUserAsset(asset) : "";
           if (referenceUrl && !extraReferenceAssetUris.includes(referenceUrl)) extraReferenceAssetUris.push(referenceUrl);
           extraMediaAssets.push({
             type: "reference_image",
@@ -12543,7 +12906,7 @@ async function runAdvancedGenerationJob(job = {}) {
             userAssetId: asset?.id || "",
             referenceAssetUri: referenceUrl,
             imageUrl: referenceUrl || asset?.localUrl || asset?.publicUrl || "",
-            sourceImageUrl: (usePivoxSeedance ? publicHttpUrlForUpstream(asset?.sourceImageUrl) : "") || asset?.sourceImageUrl || asset?.localUrl || "",
+            sourceImageUrl: (useExternalSeedanceHttp ? publicHttpUrlForUpstream(asset?.sourceImageUrl) : "") || asset?.sourceImageUrl || asset?.localUrl || "",
             localUrl: asset?.localUrl || "",
             mime: asset?.mime || "",
           });
@@ -12684,7 +13047,11 @@ async function runAdvancedGenerationJob(job = {}) {
       payload = submitted.payload;
       createResponse = submitted.raw;
     } else {
-      const submitSeedanceTask = usePivoxSeedance ? submitPivoxSeedanceVideoTask : submitSeedanceVideoTask;
+      const submitSeedanceTask = useApizSeedance
+        ? submitApizSeedanceVideoTask
+        : usePivoxSeedance
+        ? submitPivoxSeedanceVideoTask
+        : submitSeedanceVideoTask;
       const submitted = await submitSeedanceTask({
         config,
         prompt,
@@ -12720,7 +13087,7 @@ async function runAdvancedGenerationJob(job = {}) {
       task?.record?.model,
       task?.raw?.record?.model,
       task?.raw?.data?.record?.model,
-      usePivoxSeedance ? runtime.model : payload?.model,
+      useExternalSeedanceHttp ? runtime.model : payload?.model,
       runtime.model,
     ));
     const fixedBilling = {
@@ -12737,7 +13104,7 @@ async function runAdvancedGenerationJob(job = {}) {
       model: submittedModel,
       provider: runtime.providerName,
       upstreamSource,
-      upstreamModel: usePivoxSeedance ? (payload?.model || "") : "",
+      upstreamModel: useExternalSeedanceHttp ? (payload?.params?.model || payload?.model || "") : "",
       source: runtime.recordSource,
       kind: "advanced-video",
       imageUrl,
@@ -12818,11 +13185,12 @@ async function handleAdvancedGenerate(req, res) {
     providerHint,
     seedanceModelAliasKind(requestedModel) ? "seedance" : "",
   ));
-  const canUsePivoxSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && seedancePivoxEnabledForUser(auth.user);
+  const canUseApizSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && seedanceApizEnabledForUser(auth.user);
+  const canUsePivoxSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && !canUseApizSeedance && seedancePivoxEnabledForUser(auth.user);
   if (USE_GATEWAY_UPSTREAM && !UPSTREAM_API_TOKEN) {
     return sendJson(res, 503, { ok: false, code: "GATEWAY_TOKEN_NOT_CONFIGURED", message: "Gateway upstream token is not configured." });
   }
-  if (!USE_GATEWAY_UPSTREAM && provider === "seedance" && !ARK_API_KEY && !canUsePivoxSeedance) {
+  if (!USE_GATEWAY_UPSTREAM && provider === "seedance" && !ARK_API_KEY && !canUseApizSeedance && !canUsePivoxSeedance) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Vipeak 2 generation is not configured." });
   }
   if (!USE_GATEWAY_UPSTREAM && provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
@@ -14518,6 +14886,59 @@ async function pivoxRequest(method, pathname, body = null) {
     throw error;
   }
   return payload;
+}
+
+async function apizSeedanceRequest(pathname, body = {}) {
+  if (!APIZ_SEEDANCE_API_KEY) {
+    const error = new Error("Missing APIZ_SEEDANCE_API_KEY");
+    error.code = "MISSING_APIZ_SEEDANCE_API_KEY";
+    error.statusCode = 503;
+    throw error;
+  }
+
+  let response;
+  let lastError;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      response = await fetch(`${APIZ_SEEDANCE_API_BASE_URL}${pathname}`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${APIZ_SEEDANCE_API_KEY}`,
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body || {}),
+        signal: AbortSignal.timeout(180000),
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await delay(attempt * 900);
+    }
+  }
+  if (!response) {
+    const error = new Error(`APIZ Seedance request failed: ${lastError?.cause?.code || lastError?.message || "fetch failed"}`);
+    error.code = "APIZ_SEEDANCE_FETCH_FAILED";
+    error.statusCode = 502;
+    error.cause = lastError;
+    throw error;
+  }
+
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { message: text };
+  }
+  if (!response.ok || payload?.error || payload?.code >= 400) {
+    const error = new Error(payload?.error?.message || payload?.message || payload?.detail || `APIZ Seedance request failed: ${response.status}`);
+    error.statusCode = response.status || 502;
+    error.code = payload?.error?.code || payload?.code || "APIZ_SEEDANCE_REQUEST_FAILED";
+    error.payload = payload;
+    throw error;
+  }
+  return payload.data || payload;
 }
 
 function createDemoTask(body) {
@@ -19903,6 +20324,12 @@ async function handleGetGenerationRecord(req, res, taskId) {
       nextRecord = await refreshGenerationRecordStatus(record);
     } catch (error) {
       console.warn("[gateway-generation-record-detail-refresh-failed]", taskId, error.message || error);
+    }
+  } else if (record.upstreamSource === "apiz-seedance" && shouldRefreshGenerationRecord(record)) {
+    try {
+      nextRecord = await refreshApizSeedanceGenerationRecord(record, "apiz-seedance-detail");
+    } catch (error) {
+      console.warn("[apiz-seedance-generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
   } else if (record.upstreamSource === "pivoxapi" && shouldRefreshGenerationRecord(record)) {
     try {
