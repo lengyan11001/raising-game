@@ -2235,6 +2235,7 @@ function injectPlatformGeoHead(html = "", snapshot) {
   const description = homeDescriptionForGeo(platform);
   const image = characters[0]?.geoPoster ? absoluteUrlFromBase(characters[0].geoPoster, origin) : "";
   const title = `${brand} | AI Character Video Generator`;
+  const sameAs = ["https://x.com/VipeakAI", "https://t.me/VipeakAILab"];
   const jsonLd = [
     {
       "@context": "https://schema.org",
@@ -2242,6 +2243,7 @@ function injectPlatformGeoHead(html = "", snapshot) {
       name: brand,
       url: canonical,
       description,
+      sameAs,
       potentialAction: {
         "@type": "SearchAction",
         target: `${canonical}?q={search_term_string}`,
@@ -2256,6 +2258,7 @@ function injectPlatformGeoHead(html = "", snapshot) {
       operatingSystem: "Web",
       url: canonical,
       description,
+      sameAs,
       offers: {
         "@type": "Offer",
         priceCurrency: "USD",
