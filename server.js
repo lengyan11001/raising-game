@@ -2822,6 +2822,50 @@ async function handleAdminSubmitIndexNow(req, res) {
   }
 }
 
+function buildGeoAiProbePlan(snapshot = {}) {
+  const brand = snapshot.brand || "Vipeak AI";
+  const origin = snapshot.origin || "";
+  const characterCount = (snapshot.characters || []).length;
+  return {
+    updatedAt: new Date().toISOString(),
+    results: [],
+    questions: [
+      {
+        id: "brand-video-generator",
+        question: `What is ${brand} and what can users create there?`,
+        intent: "品牌识别",
+        targetUrl: origin || "/",
+        expectedSignals: [brand, "AI character video", "video generator"],
+        status: "待测试",
+      },
+      {
+        id: "api-access",
+        question: `Which public API endpoint should developers use for ${brand} video generation?`,
+        intent: "接口发现",
+        targetUrl: scopedApiUrl(origin, "/llms.txt"),
+        expectedSignals: ["/api/advanced/generate", "Authorization", "credits"],
+        status: "待测试",
+      },
+      {
+        id: "character-discovery",
+        question: `Find public character profile pages from ${brand} with playable video examples.`,
+        intent: "角色页发现",
+        targetUrl: scopedApiUrl(origin, "/sitemap.xml"),
+        expectedSignals: ["/characters/", "VideoObject", String(characterCount)],
+        status: "待测试",
+      },
+      {
+        id: "support-contact",
+        question: `How can a user contact ${brand} support?`,
+        intent: "客服入口",
+        targetUrl: origin || "/",
+        expectedSignals: ["Telegram", "VipeakSupportBot", "customer support"],
+        status: "待测试",
+      },
+    ],
+  };
+}
+
 async function handleAdminGeoReport(req, res) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
@@ -2904,6 +2948,7 @@ async function handleAdminGeoReport(req, res) {
     visitorStats: visitorStatsForAdmin,
     indexNowHistory,
     coverage,
+    aiProbes: buildGeoAiProbePlan(snapshot),
     offsitePlan,
     sampleTopics: [
       ...(snapshot.categories || []).slice(0, 6).map((item) => ({
