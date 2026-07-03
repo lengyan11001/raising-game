@@ -3970,6 +3970,59 @@ function geoTopicTypeLabel(type = "") {
   return type || "主题";
 }
 
+function normalizeGeoAdminTab(value = "") {
+  const allowed = new Set(["basic", "realtime", "users", "offsite"]);
+  return allowed.has(value) ? value : "basic";
+}
+
+function renderGeoTabButton(id, label, icon, activeTab) {
+  return `<button data-tab="${escapeHtml(id)}" class="${activeTab === id ? "is-active" : ""}"><i data-lucide="${escapeHtml(icon)}"></i>${escapeHtml(label)}</button>`;
+}
+
+function defaultGeoProbePlan(payload = {}) {
+  const summary = payload.summary || {};
+  const brand = payload.brand || "Vipeak AI";
+  const baseUrl = payload.baseUrl || "";
+  return {
+    updatedAt: payload.generatedAt || "",
+    results: [],
+    questions: [
+      {
+        id: "brand-video-generator",
+        question: `What is ${brand} and what can users create there?`,
+        intent: "品牌识别",
+        targetUrl: baseUrl || "/",
+        expectedSignals: [brand, "AI character video", "video generator"],
+        status: "待测试",
+      },
+      {
+        id: "api-access",
+        question: `Which public API endpoint should developers use for ${brand} video generation?`,
+        intent: "接口发现",
+        targetUrl: `${baseUrl}/llms.txt`,
+        expectedSignals: ["/api/advanced/generate", "Authorization", "credits"],
+        status: "待测试",
+      },
+      {
+        id: "character-discovery",
+        question: `Find public character profile pages from ${brand} with playable video examples.`,
+        intent: "角色页发现",
+        targetUrl: `${baseUrl}/sitemap.xml`,
+        expectedSignals: ["/characters/", "VideoObject", String(summary.characterCount || "")],
+        status: "待测试",
+      },
+      {
+        id: "support-contact",
+        question: `How can a user contact ${brand} support?`,
+        intent: "客服入口",
+        targetUrl: baseUrl || "/",
+        expectedSignals: ["Telegram", "VipeakSupportBot", "customer support"],
+        status: "待测试",
+      },
+    ],
+  };
+}
+
 async function renderGeo() {
   const payload = await api("/api/admin/geo-report");
   if (!isActiveRoute("geo")) return;
@@ -3980,191 +4033,241 @@ async function renderGeo() {
   const coverage = payload.coverage || {};
   const visitorStats = payload.visitorStats || {};
   const indexNowHistory = payload.indexNowHistory || [];
-  const geoTab = sessionStorage.getItem("admTabGeo") === "offsite" ? "offsite" : "data";
+  const aiProbes = payload.aiProbes || defaultGeoProbePlan(payload);
+  const geoTab = normalizeGeoAdminTab(sessionStorage.getItem("admTabGeo"));
   els.adminContent.innerHTML = `
     <section class="adm-page adm-geo-page">
       <div class="adm-page-head">
         <div>
           <h2>GEO</h2>
-          <p class="adm-muted">检查 AI 搜索入口文件、结构化数据、站点地图覆盖，以及可抓取的角色页面。</p>
+          <p class="adm-muted">把基础网站检测、AI 检索测试、真实用户访问和站外发布拆开看，避免所有数据堆在一个页面。</p>
         </div>
         <div class="adm-page-actions">
           <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.sitemapUrl || "/sitemap.xml")}" target="_blank" rel="noopener"><i data-lucide="map"></i>站点地图</a>
           <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.llmsUrl || "/llms.txt")}" target="_blank" rel="noopener"><i data-lucide="file-text"></i>llms.txt</a>
           <button class="adm-btn adm-btn-ghost" id="geoSubmitIndexNowBtn" type="button"><i data-lucide="send"></i>提交 IndexNow</button>
-          <button class="adm-btn adm-btn-primary" id="geoRunChecksBtn" type="button"><i data-lucide="radar"></i>运行检查</button>
+          <button class="adm-btn adm-btn-primary" id="geoRunChecksBtn" type="button"><i data-lucide="radar"></i>运行基础检测</button>
         </div>
       </div>
 
       <div class="adm-tabs adm-geo-tabs" id="geoTabs">
-        <button data-tab="data" class="${geoTab === "data" ? "is-active" : ""}"><i data-lucide="bar-chart-3"></i>数据</button>
-        <button data-tab="offsite" class="${geoTab === "offsite" ? "is-active" : ""}"><i data-lucide="send-horizontal"></i>站外发布</button>
+        ${renderGeoTabButton("basic", "基础检测", "shield-check", geoTab)}
+        ${renderGeoTabButton("realtime", "实时测试", "radar", geoTab)}
+        ${renderGeoTabButton("users", "真实用户", "users-round", geoTab)}
+        ${renderGeoTabButton("offsite", "站外发布", "send-horizontal", geoTab)}
       </div>
 
-      <div class="adm-geo-panel ${geoTab === "data" ? "" : "is-hidden"}" data-geo-panel="data">
-
-      <div class="adm-grid adm-grid-4">
-        ${statCard("站点地址", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
-        ${statCard("GEO 分数", summary.geoScore || 0, geoStatusLabel(coverage.status), "activity", "violet")}
-        ${statCard("内容质量", `${summary.contentQualityPercent || 0}%`, `${summary.characterCount || 0} 个角色页`, "badge-check", "mint")}
-        ${statCard("IndexNow 链接", summary.indexNowUrlCount || summary.sitemapUrlCount || 0, "待提交", "send", "amber")}
-      </div>
-
-      <div class="adm-card adm-geo-score-card">
-        <header class="adm-card-head">
-          <h3>GEO 效果数据</h3>
-          <span class="adm-pill ${coverage.status === "healthy" ? "is-success" : coverage.status === "warming up" ? "is-pending" : "is-failed"}">${escapeHtml(geoStatusLabel(coverage.status))}</span>
-        </header>
-        <div class="adm-card-body adm-geo-score-body">
-          <div class="adm-geo-score-ring">
-            <strong>${escapeHtml(String(coverage.score || 0))}</strong>
-            <span>分数</span>
-          </div>
-          <div class="adm-geo-metrics">
-            ${(coverage.metrics || []).map(renderGeoMetric).join("")}
-          </div>
-          <div class="adm-geo-tags">
-            <span class="adm-kicker">热门发现标签</span>
-            <div>${(coverage.topTags || []).map((item) => `<small>${escapeHtml(item.tag)} · ${escapeHtml(String(item.count))}</small>`).join("") || '<em class="adm-muted">暂无标签。</em>'}</div>
-          </div>
+      <div class="adm-geo-panel ${geoTab === "basic" ? "" : "is-hidden"}" data-geo-panel="basic">
+        <div class="adm-grid adm-grid-4">
+          ${statCard("站点地址", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
+          ${statCard("GEO 分数", summary.geoScore || 0, geoStatusLabel(coverage.status), "activity", "violet")}
+          ${statCard("内容质量", `${summary.contentQualityPercent || 0}%`, `${summary.characterCount || 0} 个角色页`, "badge-check", "mint")}
+          ${statCard("IndexNow 链接", summary.indexNowUrlCount || summary.sitemapUrlCount || 0, "待提交", "send", "amber")}
         </div>
-      </div>
 
-      <div class="adm-card">
-        <header class="adm-card-head">
-          <h3>内容质量</h3>
-          <span class="adm-muted">${escapeHtml(String(summary.contentQualityPercent || 0))}% 已就绪</span>
-        </header>
-        <div class="adm-card-body adm-geo-quality-grid">
-          ${(coverage.qualityMetrics || []).map(renderGeoMetric).join("")}
-        </div>
-      </div>
-
-      <div class="adm-card adm-geo-indexnow">
-        <header class="adm-card-head">
-          <h3>IndexNow</h3>
-          <span class="adm-muted" id="geoIndexNowStatus">${escapeHtml(String(summary.indexNowUrlCount || 0))} 个链接待提交</span>
-        </header>
-        <div class="adm-card-body adm-geo-indexnow-body">
-          <div>
-            <span class="adm-kicker">验证文件</span>
-            <a class="adm-mono" href="${escapeHtml(summary.indexNowKeyLocation || "#")}" target="_blank" rel="noopener">${escapeHtml(summary.indexNowKeyLocation || "-")}</a>
-          </div>
-          <div>
-            <span class="adm-kicker">真实用户访问</span>
-            <strong>${escapeHtml(String(summary.realUserVisits || 0))}</strong>
-            <small>${escapeHtml(String(summary.uniqueVisitorCount || 0))} 个去重访客</small>
+        <div class="adm-card adm-geo-score-card">
+          <header class="adm-card-head">
+            <h3>基础覆盖情况</h3>
+            <span class="adm-pill ${coverage.status === "healthy" ? "is-success" : coverage.status === "warming up" ? "is-pending" : "is-failed"}">${escapeHtml(geoStatusLabel(coverage.status))}</span>
+          </header>
+          <div class="adm-card-body adm-geo-score-body">
+            <div class="adm-geo-score-ring">
+              <strong>${escapeHtml(String(coverage.score || 0))}</strong>
+              <span>分数</span>
+            </div>
+            <div class="adm-geo-metrics">
+              ${(coverage.metrics || []).map(renderGeoMetric).join("")}
+            </div>
+            <div class="adm-geo-tags">
+              <span class="adm-kicker">热门发现标签</span>
+              <div>${(coverage.topTags || []).map((item) => `<small>${escapeHtml(item.tag)} · ${escapeHtml(String(item.count))}</small>`).join("") || '<em class="adm-muted">暂无标签。</em>'}</div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="adm-card">
-        <header class="adm-card-head">
-          <h3>真实访问路径</h3>
-          <span class="adm-muted">${escapeHtml(String(summary.visitedCharacterPathCount || 0))} 个角色页被真实用户访问</span>
-        </header>
-        <div class="adm-card-body adm-table-wrap">
-          <table class="adm-table adm-geo-bot-table">
-            <thead><tr><th>路径</th><th>访问次数</th><th>最近访问</th></tr></thead>
-            <tbody>
-              ${(visitorStats.topPaths || []).map(renderGeoVisitorPathRow).join("") || '<tr><td colspan="3" class="adm-muted">暂无真实访问路径。</td></tr>'}
-            </tbody>
-          </table>
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>内容质量</h3>
+            <span class="adm-muted">${escapeHtml(String(summary.contentQualityPercent || 0))}% 已就绪</span>
+          </header>
+          <div class="adm-card-body adm-geo-quality-grid">
+            ${(coverage.qualityMetrics || []).map(renderGeoMetric).join("")}
+          </div>
         </div>
-      </div>
 
-      <div class="adm-card">
-        <header class="adm-card-head">
-          <h3>实时 GEO 检查</h3>
-          <span class="adm-muted" id="geoCheckSummary">尚未运行</span>
-        </header>
-        <div class="adm-card-body adm-table-wrap">
-          <table class="adm-table adm-geo-table">
-            <thead><tr><th>检查项</th><th>状态</th><th>信号</th><th>大小</th><th>打开</th></tr></thead>
-            <tbody id="geoCheckRows">
-              ${checks.map((check) => renderGeoCheckRow(check)).join("")}
-            </tbody>
-          </table>
+        <div class="adm-card adm-geo-indexnow">
+          <header class="adm-card-head">
+            <h3>IndexNow 与入口文件</h3>
+            <span class="adm-muted" id="geoIndexNowStatus">${escapeHtml(String(summary.indexNowUrlCount || 0))} 个链接待提交</span>
+          </header>
+          <div class="adm-card-body adm-geo-indexnow-body">
+            <div>
+              <span class="adm-kicker">验证文件</span>
+              <a class="adm-mono" href="${escapeHtml(summary.indexNowKeyLocation || "#")}" target="_blank" rel="noopener">${escapeHtml(summary.indexNowKeyLocation || "-")}</a>
+            </div>
+            <div>
+              <span class="adm-kicker">基础入口</span>
+              <strong>${escapeHtml(String(summary.sitemapUrlCount || 0))} 个 sitemap URL</strong>
+              <small>${escapeHtml(summary.llmsUrl || "/llms.txt")}</small>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div class="adm-card">
-        <header class="adm-card-head">
-          <h3>IndexNow 提交记录</h3>
-          <span class="adm-muted">${escapeHtml(String(indexNowHistory.length))} 次提交</span>
-        </header>
-        <div class="adm-card-body adm-table-wrap">
-          <table class="adm-table adm-geo-indexnow-table">
-            <thead><tr><th>时间</th><th>状态</th><th>链接数</th><th>返回</th></tr></thead>
-            <tbody>
-              ${indexNowHistory.map(renderGeoIndexNowHistoryRow).join("") || '<tr><td colspan="4" class="adm-muted">暂无提交记录。</td></tr>'}
-            </tbody>
-          </table>
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>基础网站检测</h3>
+            <span class="adm-muted" id="geoCheckSummary">尚未运行</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-table">
+              <thead><tr><th>检查项</th><th>状态</th><th>信号</th><th>大小</th><th>打开</th></tr></thead>
+              <tbody id="geoCheckRows">
+                ${checks.map((check) => renderGeoCheckRow(check)).join("")}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
-      <div class="adm-card">
-        <header class="adm-card-head">
-          <h3>内容问题</h3>
-          <span class="adm-muted">${escapeHtml(String(coverage.issueCount || 0))} 个角色页需处理</span>
-        </header>
-        <div class="adm-card-body adm-table-wrap">
-          <table class="adm-table adm-geo-issue-table">
-            <thead><tr><th>角色</th><th>缺失项</th><th>打开</th></tr></thead>
-            <tbody>
-              ${(coverage.issues || []).map(renderGeoIssueRow).join("") || '<tr><td colspan="3" class="adm-muted">暂无明显内容问题。</td></tr>'}
-            </tbody>
-          </table>
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>IndexNow 提交记录</h3>
+            <span class="adm-muted">${escapeHtml(String(indexNowHistory.length))} 次提交</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-indexnow-table">
+              <thead><tr><th>时间</th><th>状态</th><th>链接数</th><th>返回</th></tr></thead>
+              <tbody>
+                ${indexNowHistory.map(renderGeoIndexNowHistoryRow).join("") || '<tr><td colspan="4" class="adm-muted">暂无提交记录。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
-      <div class="adm-card">
-        <header class="adm-card-head">
-          <h3>最近真实用户访问</h3>
-          <span class="adm-muted">${escapeHtml(String((visitorStats.recent || []).length))} 条最近记录</span>
-        </header>
-        <div class="adm-card-body adm-table-wrap">
-          <table class="adm-table adm-geo-crawler-table">
-            <thead><tr><th>路径</th><th>国家/地区</th><th>IP</th><th>时间</th><th>User-Agent</th></tr></thead>
-            <tbody>
-              ${(visitorStats.recent || []).map(renderGeoVisitorRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无真实用户访问记录。</td></tr>'}
-            </tbody>
-          </table>
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>内容问题</h3>
+            <span class="adm-muted">${escapeHtml(String(coverage.issueCount || 0))} 个角色页需要处理</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-issue-table">
+              <thead><tr><th>角色</th><th>缺失项</th><th>打开</th></tr></thead>
+              <tbody>
+                ${(coverage.issues || []).map(renderGeoIssueRow).join("") || '<tr><td colspan="3" class="adm-muted">暂无明显内容问题。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
-      <div class="adm-card">
-        <header class="adm-card-head">
-          <h3>角色页样例</h3>
-          <span class="adm-muted">${escapeHtml(String(samples.length))} 个样例</span>
-        </header>
-        <div class="adm-card-body">
-          <div class="adm-geo-sample-grid">
-            ${samples.map(renderGeoSampleCard).join("") || '<div class="adm-empty"><i data-lucide="user-x"></i><p>暂无角色。</p></div>'}
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>角色页样例</h3>
+            <span class="adm-muted">${escapeHtml(String(samples.length))} 个样例</span>
+          </header>
+          <div class="adm-card-body">
+            <div class="adm-geo-sample-grid">
+              ${samples.map(renderGeoSampleCard).join("") || '<div class="adm-empty"><i data-lucide="user-x"></i><p>暂无角色。</p></div>'}
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>主题页样例</h3>
+            <span class="adm-muted">${escapeHtml(String(summary.categoryCount || 0))} 个分类 · ${escapeHtml(String(summary.tagCount || 0))} 个标签</span>
+          </header>
+          <div class="adm-card-body">
+            <div class="adm-geo-topic-grid">
+              ${topics.map(renderGeoTopicCard).join("") || '<div class="adm-empty"><i data-lucide="tags"></i><p>暂无主题页。</p></div>'}
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head"><h3>推荐流程</h3></header>
+          <div class="adm-card-body">
+            <ul class="adm-geo-list">
+              ${(payload.recommendations || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+            </ul>
           </div>
         </div>
       </div>
 
-      <div class="adm-card">
-        <header class="adm-card-head">
-          <h3>主题页样例</h3>
-          <span class="adm-muted">${escapeHtml(String(summary.categoryCount || 0))} 个分类 · ${escapeHtml(String(summary.tagCount || 0))} 个标签</span>
-        </header>
-        <div class="adm-card-body">
-          <div class="adm-geo-topic-grid">
-            ${topics.map(renderGeoTopicCard).join("") || '<div class="adm-empty"><i data-lucide="tags"></i><p>暂无主题页。</p></div>'}
+      <div class="adm-geo-panel ${geoTab === "realtime" ? "" : "is-hidden"}" data-geo-panel="realtime">
+        <div class="adm-grid adm-grid-4">
+          ${statCard("测试问题", (aiProbes.questions || []).length, "AI 检索问题池", "message-square-search", "violet")}
+          ${statCard("已有结果", (aiProbes.results || []).length, "模型返回记录", "activity", "mint")}
+          ${statCard("最后更新", aiProbes.updatedAt ? fmtDate(aiProbes.updatedAt) : "-", "实时检索结果", "clock-3", "amber")}
+          ${statCard("目标", "引用率", "看 AI 是否能找到并引用本站", "target", "rose")}
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>AI 模型检索测试问题</h3>
+            <span class="adm-muted">后续接入模型查询后，结果只在这个 tab 展示。</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-probe-table">
+              <thead><tr><th>问题</th><th>意图</th><th>期望命中信号</th><th>目标页</th><th>状态</th></tr></thead>
+              <tbody>
+                ${(aiProbes.questions || []).map(renderGeoProbeQuestionRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无测试问题。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>AI 检索结果</h3>
+            <span class="adm-muted">按模型、问题、是否引用本站分开看。</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-result-table">
+              <thead><tr><th>时间</th><th>模型</th><th>问题</th><th>命中</th><th>结果摘要</th></tr></thead>
+              <tbody>
+                ${(aiProbes.results || []).map(renderGeoProbeResultRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无 AI 模型检索结果。接入实时查询后会显示在这里。</td></tr>'}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
 
-      <div class="adm-card">
-        <header class="adm-card-head"><h3>推荐流程</h3></header>
-        <div class="adm-card-body">
-          <ul class="adm-geo-list">
-            ${(payload.recommendations || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
-          </ul>
+      <div class="adm-geo-panel ${geoTab === "users" ? "" : "is-hidden"}" data-geo-panel="users">
+        <div class="adm-grid adm-grid-4">
+          ${statCard("真实访问", summary.realUserVisits || 0, "已排除爬虫", "mouse-pointer-click", "mint")}
+          ${statCard("独立 IP", summary.uniqueVisitorCount || 0, "去重访客", "users-round", "violet")}
+          ${statCard("访问路径", summary.visitedPathCount || 0, "真实用户打开过的路径", "route", "amber")}
+          ${statCard("国家/地区", summary.visitorCountryCount || 0, "访问来源", "globe-2", "rose")}
         </div>
-      </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>真实访问路径</h3>
+            <span class="adm-muted">${escapeHtml(String(summary.visitedCharacterPathCount || 0))} 个角色页被真实用户访问</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-bot-table">
+              <thead><tr><th>路径</th><th>访问次数</th><th>最近访问</th></tr></thead>
+              <tbody>
+                ${(visitorStats.topPaths || []).map(renderGeoVisitorPathRow).join("") || '<tr><td colspan="3" class="adm-muted">暂无真实访问路径。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>最近真实用户访问</h3>
+            <span class="adm-muted">${escapeHtml(String((visitorStats.recent || []).length))} 条最近记录</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table adm-geo-crawler-table">
+              <thead><tr><th>路径</th><th>国家/地区</th><th>IP</th><th>时间</th><th>User-Agent</th></tr></thead>
+              <tbody>
+                ${(visitorStats.recent || []).map(renderGeoVisitorRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无真实用户访问记录。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       ${renderGeoOffsitePlan(payload.offsitePlan || {}, geoTab)}
@@ -4178,7 +4281,7 @@ async function renderGeo() {
   geoTabs?.addEventListener("click", (e) => {
     const button = e.target.closest("button[data-tab]");
     if (!button) return;
-    const nextTab = button.dataset.tab === "offsite" ? "offsite" : "data";
+    const nextTab = normalizeGeoAdminTab(button.dataset.tab);
     sessionStorage.setItem("admTabGeo", nextTab);
     geoTabs.querySelectorAll("button[data-tab]").forEach((item) => {
       item.classList.toggle("is-active", item.dataset.tab === nextTab);
@@ -4191,6 +4294,31 @@ async function renderGeo() {
   run();
 }
 
+function renderGeoProbeQuestionRow(item = {}) {
+  const signals = (item.expectedSignals || []).filter(Boolean).map((signal) => `<span class="adm-pill">${escapeHtml(signal)}</span>`).join(" ");
+  return `
+    <tr>
+      <td><strong>${escapeHtml(item.question || "-")}</strong><span class="adm-block adm-muted adm-mono">${escapeHtml(item.id || "")}</span></td>
+      <td>${escapeHtml(item.intent || "-")}</td>
+      <td>${signals || '<span class="adm-muted">-</span>'}</td>
+      <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.targetUrl || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开</a></td>
+      <td><span class="adm-pill is-pending">${escapeHtml(item.status || "待测试")}</span></td>
+    </tr>
+  `;
+}
+
+function renderGeoProbeResultRow(item = {}) {
+  const hit = item.hit === true;
+  return `
+    <tr>
+      <td>${escapeHtml(item.at ? fmtDate(item.at) : "-")}</td>
+      <td>${escapeHtml(item.model || "-")}</td>
+      <td class="adm-truncate" title="${escapeHtml(item.question || "")}">${escapeHtml(item.question || "-")}</td>
+      <td><span class="adm-pill ${hit ? "is-success" : "is-failed"}">${hit ? "命中" : "未命中"}</span></td>
+      <td class="adm-truncate" title="${escapeHtml(item.summary || "")}">${escapeHtml(item.summary || "-")}</td>
+    </tr>
+  `;
+}
 function renderGeoOffsitePlan(plan = {}, activeTab = "data") {
   const platformRows = plan.platformRows || [];
   const keywordSets = plan.keywordSets || [];
