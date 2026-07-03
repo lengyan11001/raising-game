@@ -13015,7 +13015,7 @@ document.querySelectorAll("[data-analytics-event]").forEach((element) => {
     const directUrl = String(element.dataset.directUrl || "").trim();
     if (directUrl) {
       event.preventDefault();
-      window.location.href = directUrl;
+      window.open(directUrl, "_blank");
     }
   });
 });
