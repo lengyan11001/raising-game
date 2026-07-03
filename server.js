@@ -7368,7 +7368,6 @@ async function apizSeedanceAssetGroupForUser(user = {}) {
     console.warn("[apiz-seedance-asset-groups-list-failed]", error.message || error);
   }
   const raw = await apizSeedanceRequest("/api/v3/assets/groups", {
-    model: APIZ_SEEDANCE_MODEL_ID,
     name: groupName,
     description: "Vipeak reusable Seedance references",
   });
@@ -7394,7 +7393,7 @@ async function waitForApizSeedanceAsset(assetId = "") {
     const assetError = firstPresent(last?.sync_error, last?.error?.message, last?.error, last?.data?.sync_error, last?.data?.error?.message, last?.data?.error, "");
     if (["active", "completed", "complete", "success", "succeeded", "ready"].includes(status)) return last;
     if (["failed", "fail", "error"].includes(status) || assetError) {
-      const error = new Error(assetError || "APIZ Seedance asset upload failed.");
+      const error = new Error(assetError || `APIZ Seedance asset upload failed: ${id}`);
       error.statusCode = 502;
       error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
       error.payload = last;
@@ -7421,12 +7420,8 @@ async function uploadApizSeedanceAsset({ user = {}, url = "", assetType = "Image
   const mediaKey = normalizedType.toLowerCase() === "video" ? "video_url" : normalizedType.toLowerCase() === "audio" ? "audio_url" : "image_url";
   const raw = await apizSeedanceRequest("/api/v3/assets", {
     group_id: groupId,
-    asset_type: normalizedType,
     [mediaKey]: sourceUrl,
     name,
-    model: APIZ_SEEDANCE_MODEL_ID,
-    moderation: { strategy: "Skip" },
-    Moderation: { Strategy: "Skip" },
   });
   const assetId = String(raw?.asset_id || raw?.id || raw?.data?.asset_id || raw?.data?.id || "").trim();
   const assetUri = normalizeApizAssetUri(firstPresent(raw?.intl_asset_uri, raw?.asset_uri, raw?.data?.intl_asset_uri, raw?.data?.asset_uri, ""));
@@ -7436,47 +7431,93 @@ async function uploadApizSeedanceAsset({ user = {}, url = "", assetType = "Image
     error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
     throw error;
   }
-  if (assetId) await waitForApizSeedanceAsset(assetId);
+  if (assetId) {
+    try {
+      await waitForApizSeedanceAsset(assetId);
+    } catch (error) {
+      error.sourceUrl = sourceUrl;
+      error.assetId = assetId;
+      error.assetUri = assetUri;
+      throw error;
+    }
+  }
   const finalAssetUri = assetUri || `asset://${assetId}`;
   APIZ_SEEDANCE_ASSET_URI_CACHE.set(cacheKey, finalAssetUri);
   return finalAssetUri;
+}
+
+function uniqueApizSeedanceMediaRefs(values = []) {
+  return [...new Set(values.map((item) => apizSeedanceMediaReferenceUrl(item)).filter(Boolean))];
 }
 
 async function prepareApizSeedancePayloadAssets(payload = {}, { user = {} } = {}) {
   const params = payload?.params && typeof payload.params === "object" ? payload.params : null;
   if (!params) return payload;
   const imageCache = new Map();
-  const toAsset = async (value = "", assetType = "Image", name = "reference-media") => {
+  const toAsset = async (value = "", assetType = "Image", name = "reference-media", { optional = false } = {}) => {
     const sourceUrl = apizSeedanceMediaReferenceUrl(value);
     if (!sourceUrl) return "";
     if (!imageCache.has(`${assetType}:${sourceUrl}`)) {
       imageCache.set(`${assetType}:${sourceUrl}`, uploadApizSeedanceAsset({ user, url: sourceUrl, assetType, name }));
     }
-    return await imageCache.get(`${assetType}:${sourceUrl}`);
+    try {
+      return await imageCache.get(`${assetType}:${sourceUrl}`);
+    } catch (error) {
+      if (!optional) throw error;
+      console.warn("[apiz-seedance-optional-asset-skipped]", {
+        name,
+        assetType,
+        sourceUrl,
+        assetId: error?.assetId || "",
+        message: error?.message || String(error),
+      });
+      return "";
+    }
   };
   if (params.image_url) params.image_url = await toAsset(params.image_url, "Image", "first-frame");
   if (params.end_image_url) params.end_image_url = await toAsset(params.end_image_url, "Image", "last-frame");
   if (Array.isArray(params.reference_images)) {
     const refs = [];
-    for (let index = 0; index < params.reference_images.length; index += 1) {
-      const assetUri = await toAsset(params.reference_images[index], "Image", `reference-image-${index + 1}`);
+    const sourceRefs = uniqueApizSeedanceMediaRefs(params.reference_images);
+    for (let index = 0; index < sourceRefs.length; index += 1) {
+      const assetUri = await toAsset(sourceRefs[index], "Image", `reference-image-${index + 1}`, { optional: true });
       if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    if (sourceRefs.length && !refs.length) {
+      const error = new Error("APIZ Seedance rejected all reference images.");
+      error.statusCode = 502;
+      error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
+      throw error;
     }
     params.reference_images = refs;
   }
   if (Array.isArray(params.reference_videos)) {
     const refs = [];
-    for (let index = 0; index < params.reference_videos.length; index += 1) {
-      const assetUri = await toAsset(params.reference_videos[index], "Video", `reference-video-${index + 1}`);
+    const sourceRefs = uniqueApizSeedanceMediaRefs(params.reference_videos);
+    for (let index = 0; index < sourceRefs.length; index += 1) {
+      const assetUri = await toAsset(sourceRefs[index], "Video", `reference-video-${index + 1}`, { optional: true });
       if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    if (sourceRefs.length && !refs.length) {
+      const error = new Error("APIZ Seedance rejected all reference videos.");
+      error.statusCode = 502;
+      error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
+      throw error;
     }
     params.reference_videos = refs;
   }
   if (Array.isArray(params.reference_audios)) {
     const refs = [];
-    for (let index = 0; index < params.reference_audios.length; index += 1) {
-      const assetUri = await toAsset(params.reference_audios[index], "Audio", `reference-audio-${index + 1}`);
+    const sourceRefs = uniqueApizSeedanceMediaRefs(params.reference_audios);
+    for (let index = 0; index < sourceRefs.length; index += 1) {
+      const assetUri = await toAsset(sourceRefs[index], "Audio", `reference-audio-${index + 1}`, { optional: true });
       if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    if (sourceRefs.length && !refs.length) {
+      const error = new Error("APIZ Seedance rejected all reference audios.");
+      error.statusCode = 502;
+      error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
+      throw error;
     }
     params.reference_audios = refs;
   }
