@@ -2547,8 +2547,7 @@ const PUBLIC_COPY = {
   historyTitle: "Generation History",
   historySubtitle: "Review your generated videos, prompts, parameters and billing in one compact list.",
   historyNotice: "Only your own records are shown. Video links may expire after 24 hours; download/save successful results in time.",
-  accessCopy:
-    "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"model\":\"dreamina-seedance-2-0-260128\",\"prompt\":\"Use Image 1 as the character reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_images\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>",
+  accessCopy: "",
 };
 
 let ACCESS_GUIDES = [];
@@ -2588,7 +2587,7 @@ Content-Type: application/json
     {"url": "https://example.com/image1.png", "fileName": "image1.png"}
   ],
   "ratio": "9:16",
-  "resolution": "720p",
+  "resolution": "4k",
   "duration": 5,
   "generateAudio": true,
   "watermark": false
@@ -2599,9 +2598,48 @@ Authorization: Bearer <user-token>
 
 The response returns the local generation record and progress. vip123 handles auth, configured allow-listed upstream routing, balance pre-deduction, history, and refund internally. Public URLs, base64 data URLs, and uploaded asset ids are accepted through the fields below.
 
-Tip: do not call upstream task routes directly. Use POST /api/advanced/generate with provider "seedance". model "dreamina-seedance-2-0-260128" routes to ep-20260429142513-zg667; model "dreamina-seedance-2-0-fast-260128" routes to ep-20260429142538-fkm9d.`;
+Tip: do not call upstream task routes directly. Use POST /api/advanced/generate with provider "seedance". model "dreamina-seedance-2-0-260128" routes to ep-20260429142513-zg667; model "dreamina-seedance-2-0-fast-260128" routes to ep-20260429142538-fkm9d. Standard supports 480p, 720p, 1080p, and 4k. Fast supports 480p and 720p only.`;
 
-const LIVE_HTTP_ACCESS_COPY = `${ADVANCED_SEEDANCE_ACCESS_COPY}
+const LIVE_HTTP_ACCESS_COPY = `Production generation endpoints:
+
+1) Wan2.7 video through Advanced:
+POST ${apiUrl("/api/advanced/generate")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "provider": "wan27",
+  "model": "wan2.7-i2v-2026-04-25",
+  "prompt": "Animate Image 1 into a cinematic 5 second shot, no subtitles, no watermark.",
+  "firstFrameUrl": "https://example.com/first-frame.png",
+  "mediaMode": "first_frame",
+  "ratio": "9:16",
+  "resolution": "1080p",
+  "duration": 5,
+  "parameters": {"prompt_extend": false, "watermark": false}
+}
+
+Wan2.7 video supports 720p and 1080p.
+
+2) Wan2.7 image text-to-image or image edit:
+POST ${apiUrl("/api/wan27/image-edit")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "provider": "wan27-image",
+  "model": "wan2.7-image-pro",
+  "prompt": "Create a realistic cinematic portrait.",
+  "imageAssetIds": [],
+  "ratio": "9:16",
+  "resolution": "4K",
+  "parameters": {"n": 1, "watermark": false}
+}
+
+Wan2.7 image supports 1K, 2K, and 4K for text-to-image. 4K is text-to-image only; reference-image edit/fusion supports 1K and 2K.
+
+3) Seedance video through Advanced:
+${ADVANCED_SEEDANCE_ACCESS_COPY}
 
 Asset upload for reusable files:
 POST ${apiUrl("/api/user-assets")}
@@ -2640,7 +2678,7 @@ Content-Type: application/json
     {"assetId": "asset-id-from-step-1"}
   ],
   "ratio": "9:16",
-  "resolution": "720p",
+  "resolution": "4k",
   "duration": 5,
   "generateAudio": true,
   "watermark": false
@@ -2755,7 +2793,7 @@ const MCP_ACCESS_COPY = `Advanced generation wrapper target:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
-{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"string","seedanceMode":"reference_images","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"ratio":"9:16","resolution":"480p|720p","duration":5,"generateAudio":true,"watermark":false,"seed":123456}
+{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"string","seedanceMode":"reference_images","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"ratio":"9:16","resolution":"480p|720p|1080p|4k","duration":5,"generateAudio":true,"watermark":false,"seed":123456}
 
 Reusable asset upload target:
 POST ${apiUrl("/api/user-assets")}
@@ -2860,35 +2898,37 @@ Content-Type: application/json
 
 {
   "provider": "wan27",
+  "model": "wan2.7-i2v-2026-04-25",
   "prompt": "Describe the video motion and camera.",
-  "dataUrl": "data:image/png;base64,...",
+  "firstFrameUrl": "https://example.com/first-frame.png",
+  "mediaMode": "first_frame",
+  "ratio": "9:16",
+  "resolution": "1080p",
+  "duration": 5,
   "params": {
-    "model": "wan2.7-i2v-2026-04-25",
-    "ratio": "9:16",
-    "resolution": "1080p",
-    "duration": 5,
-    "mediaMode": "first_frame",
     "parameters": {
       "prompt_extend": false,
       "seed": 123456,
       "watermark": false
     }
   }
-}`;
+}
+
+Wan2.7 video supports 720p and 1080p. Use Seedance standard for video 4k.`;
 
 const WAN27_IMAGE_PARAM_ACCESS_COPY = `Text-to-image:
-POST ${apiUrl("/api/characters/generate")}
+POST ${apiUrl("/api/wan27/image-edit")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
+  "provider": "wan27-image",
+  "model": "wan2.7-image-pro",
   "prompt": "Create one realistic adult character portrait...",
+  "imageAssetIds": [],
   "ratio": "9:16",
-  "resolution": "2K",
-  "params": {
-    "model": "wan2.7-image-pro",
-    "parameters": {"n": 1, "watermark": false}
-  }
+  "resolution": "4K",
+  "parameters": {"n": 1, "watermark": false}
 }
 
 Image edit / multi-image edit:
@@ -2907,7 +2947,7 @@ Content-Type: application/json
   }
 }
 
-Wan2.7 image edit accepts 0-9 source images. The order of imageAssetIds maps to Image 1, Image 2, ... in the prompt. Use an empty imageAssetIds array for text-to-image through the edit endpoint. The older single-asset endpoint /api/user-assets/<assetId>/modify remains supported for one image.`;
+Wan2.7 image edit accepts 0-9 source images. The order of imageAssetIds maps to Image 1, Image 2, ... in the prompt. Use an empty imageAssetIds array for text-to-image through the edit endpoint. Text-to-image supports 1K, 2K, and 4K. Requests with reference images support 1K and 2K. The older single-asset endpoint /api/user-assets/<assetId>/modify remains supported for one image.`;
 
 const PARAM_DOC_MARKDOWN_URL = apiUrl("/docs/models.md");
 
@@ -2951,8 +2991,8 @@ Content-Type: application/json
       ["Content-Type", "application/json"],
       ["POST /api/advanced/generate", "Create an Advanced task. This is the only documented external video generation route."],
       ["GET /api/generation-records/<taskId>", "Query progress and final result for Advanced tasks."],
-      ["provider", "Use seedance for Seedance video or wan27 for Wan2.7 video. For compatibility, known Seedance model aliases also imply seedance, but explicit provider is recommended."],
-      ["model", "For provider=seedance, use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. The service maps them to the allow-listed endpoint ids."],
+      ["provider", "Use wan27 for Wan2.7 video or seedance for Seedance video. For compatibility, known Seedance model aliases also imply seedance, but explicit provider is recommended."],
+      ["model", "For provider=wan27, use wan2.7-i2v-2026-04-25. For provider=seedance, use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast."],
       ["prompt", "Video prompt. Refer to materials as Image 1, Video 1, Audio 1 instead of raw asset ids."],
       ["seedanceMode", "For provider=seedance: text_to_video, first_frame, first_last_frame, reference_images, or reference_video."],
       ["imageUrl / firstFrameUrl / firstFrameDataUrl", "First-frame input for seedance first_frame/first_last_frame modes."],
@@ -2961,7 +3001,7 @@ Content-Type: application/json
       ["referenceVideoUrls / referenceVideoAssetIds", "Video references for seedance reference_video/edit/extend. Include referenceVideoDurationSeconds when known for billing."],
       ["referenceAudioUrls / referenceAudioAssetIds", "Optional audio references for multimodal seedance requests."],
       ["ratio", "9:16, 16:9, or 1:1."],
-      ["resolution", "480p, 720p, 1080p, or 4k. Fast tier does not support 1080p or 4k."],
+      ["resolution", "Wan2.7 video: 720p or 1080p. Seedance standard: 480p, 720p, 1080p, or 4k. Seedance fast: 480p or 720p."],
       ["duration", "Integer seconds from 4 to 15. Invalid values are rejected before billing."],
       ["seedanceTier", "Optional for provider=seedance. standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d and does not support 1080p or 4k."],
       ["generateAudio / generate_audio", "Forwarded to upstream when supported."],
@@ -3048,14 +3088,14 @@ Content-Type: application/json
   },
   wan27ImageParams: {
     title: "Wan2.7 Image Parameters",
-    summary: "Use /api/characters/generate for text-to-image, /api/wan27/image-edit for 0-9 image text/edit/fusion requests, /api/user-assets/<assetId>/modify for the older single-asset edit path, or /api/characters/<characterId>/modify for system character editing.",
+    summary: "Use /api/wan27/image-edit for text-to-image and 0-9 image text/edit/fusion requests. /api/characters/generate, /api/user-assets/<assetId>/modify, and /api/characters/<characterId>/modify remain supported legacy paths.",
     request: [
       { name: "model", type: "string", required: "No", description: "Image generation/editing model id. Allowed value: wan2.7-image-pro.", default: "wan2.7-image-pro" },
       { name: "prompt", type: "string", required: "Yes", description: "Prompt sent to upstream exactly as provided by the caller, except take-off uses the fixed take-off prompt.", default: "-" },
       { name: "imageAssetIds", type: "array", required: "No", description: "Wan2.7 image edit source images from /api/user-assets. Supports 0-9 images. Array order maps to Image 1, Image 2, etc.", default: "[]" },
       { name: "imageAssetId / assetId / userAssetId", type: "string", required: "No", description: "Single-image alias accepted by /api/wan27/image-edit and the legacy /api/user-assets/<assetId>/modify path.", default: "-" },
       { name: "ratio", type: "string", required: "No", description: "Allowed values: 1:1, 3:4, 4:3, 9:16, 16:9.", default: "9:16" },
-      { name: "resolution", type: "string", required: "No", description: "Allowed values: 1K, 2K. Used to derive the default size.", default: "2K" },
+      { name: "resolution", type: "string", required: "No", description: "Allowed values: 1K, 2K, or 4K for text-to-image. Requests with reference images support 1K or 2K.", default: "2K" },
       { name: "size", type: "string", required: "No", description: "Direct upstream image size, for example 1440*2560. Overrides ratio/resolution size mapping.", default: "by ratio/resolution" },
       { name: "parameters.n", type: "integer", required: "No", description: "Number of images requested from upstream.", default: "1" },
       { name: "parameters.watermark", type: "boolean", required: "No", description: "Whether to request an upstream watermark.", default: "false" },
@@ -4559,7 +4599,9 @@ function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
   const rawCopy = String(copy || "");
   const staleAccessCopy = /api\/platform\/generate|api\/v3\/contents\/generations\/tasks/i.test(rawCopy)
     || /Vipeak 2/i.test(rawCopy)
-    || (/api\/advanced\/generate/i.test(rawCopy) && !/dreamina-seedance-2-0(?:-fast)?-260128/i.test(rawCopy));
+    || (/api\/advanced\/generate/i.test(rawCopy)
+      && !/dreamina-seedance-2-0(?:-fast)?-260128/i.test(rawCopy)
+      && !/\bwan27\b|wan2\.7-i2v-2026-04-25/i.test(rawCopy));
   const source = staleAccessCopy
     ? LIVE_HTTP_ACCESS_COPY
     : (copy || PUBLIC_COPY.accessCopy);
