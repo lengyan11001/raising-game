@@ -80,6 +80,12 @@ const MAINLAND_BYPASS_MAX_AGE_SECONDS = Math.max(
 const PORT = Number(process.env.PORT || 4174);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 const INDEXNOW_KEY = String(process.env.INDEXNOW_KEY || "").trim();
+const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
+const TELEGRAM_SUPPORT_ADMIN_CHAT_ID = String(process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID || "").trim();
+const TELEGRAM_SUPPORT_WEBHOOK_SECRET = String(process.env.TELEGRAM_SUPPORT_WEBHOOK_SECRET || "").trim();
+const VIPEAK_X_URL = "https://x.com/VipeakAI";
+const VIPEAK_TELEGRAM_CHANNEL_URL = "https://t.me/VipeakAILab";
+const VIPEAK_TELEGRAM_SUPPORT_URL = "https://t.me/VipeakSupportBot";
 const GENERATION_RECORDS_PATH = path.join(ROOT, "data", "generation-records.json");
 const APP_DB_PATH = path.join(ROOT, "data", "app-db.json");
 const APP_CONFIG_PATH = path.join(ROOT, "data", "app-config.json");
@@ -2235,7 +2241,7 @@ function injectPlatformGeoHead(html = "", snapshot) {
   const description = homeDescriptionForGeo(platform);
   const image = characters[0]?.geoPoster ? absoluteUrlFromBase(characters[0].geoPoster, origin) : "";
   const title = `${brand} | AI Character Video Generator`;
-  const sameAs = ["https://x.com/VipeakAI", "https://t.me/VipeakAILab"];
+  const sameAs = [VIPEAK_X_URL, VIPEAK_TELEGRAM_CHANNEL_URL];
   const jsonLd = [
     {
       "@context": "https://schema.org",
@@ -2259,6 +2265,11 @@ function injectPlatformGeoHead(html = "", snapshot) {
       url: canonical,
       description,
       sameAs,
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer support",
+        url: VIPEAK_TELEGRAM_SUPPORT_URL,
+      },
       offers: {
         "@type": "Offer",
         priceCurrency: "USD",
@@ -4882,6 +4893,9 @@ function supportMessageView(record = {}, userMap = new Map()) {
     reply: String(record.reply || ""),
     repliedAt: String(record.repliedAt || ""),
     repliedBy: String(record.repliedBy || ""),
+    source: String(record.source || ""),
+    telegramChatId: String(record.telegramChatId || ""),
+    telegramUsername: String(record.telegramUsername || ""),
     createdAt: String(record.createdAt || ""),
     updatedAt: String(record.updatedAt || ""),
   };
@@ -14625,6 +14639,199 @@ async function handleCreateSupportMessage(req, res) {
   return sendJson(res, 200, { ok: true, messageRecord: supportMessageView(record) });
 }
 
+function telegramSupportEnabled() {
+  return Boolean(TELEGRAM_SUPPORT_BOT_TOKEN && TELEGRAM_SUPPORT_ADMIN_CHAT_ID && TELEGRAM_SUPPORT_WEBHOOK_SECRET);
+}
+
+function telegramSupportApiUrl(method) {
+  return `https://api.telegram.org/bot${TELEGRAM_SUPPORT_BOT_TOKEN}/${method}`;
+}
+
+async function callTelegramSupportApi(method, payload = {}) {
+  if (!TELEGRAM_SUPPORT_BOT_TOKEN) return null;
+  try {
+    const response = await fetch(telegramSupportApiUrl(method), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+      console.warn("Telegram support API failed:", method, response.status, data.description || data);
+    }
+    return data;
+  } catch (error) {
+    console.warn("Telegram support API error:", method, error.message || error);
+    return null;
+  }
+}
+
+function telegramUserLabel(user = {}, chat = {}) {
+  const username = user.username || chat.username;
+  const name = [user.first_name || chat.first_name, user.last_name || chat.last_name].filter(Boolean).join(" ").trim();
+  if (username && name) return `${name} (@${username})`;
+  if (username) return `@${username}`;
+  return name || String(chat.id || user.id || "unknown");
+}
+
+function telegramMessageBody(message = {}) {
+  if (typeof message.text === "string" && message.text.trim()) return message.text.trim();
+  if (typeof message.caption === "string" && message.caption.trim()) return message.caption.trim();
+  if (message.photo) return "[photo]";
+  if (message.document) return `[document] ${message.document.file_name || ""}`.trim();
+  if (message.video) return "[video]";
+  if (message.voice) return "[voice]";
+  if (message.audio) return "[audio]";
+  if (message.sticker) return "[sticker]";
+  return "[non-text message]";
+}
+
+function telegramSupportHelpText() {
+  return [
+    "Welcome to Vipeak AI Support.",
+    "",
+    "Send your issue or feedback here. For faster handling, include:",
+    "- account email",
+    "- task ID or order ID",
+    "- browser/device",
+    "- what happened and what you expected",
+    "- screenshot if useful",
+  ].join("\n");
+}
+
+async function persistTelegramSupportMessage(message = {}) {
+  const db = await readDb();
+  const chat = message.chat || {};
+  const from = message.from || {};
+  const body = telegramMessageBody(message);
+  const label = telegramUserLabel(from, chat);
+  const now = new Date().toISOString();
+  const record = {
+    id: randomId("support"),
+    userId: "",
+    username: label,
+    email: "",
+    subject: "Telegram support",
+    message: [
+      `From: ${label}`,
+      `Telegram chat ID: ${chat.id || ""}`,
+      from.username ? `Telegram username: @${from.username}` : "",
+      "",
+      body,
+    ].filter(Boolean).join("\n"),
+    status: "open",
+    reply: "",
+    repliedAt: "",
+    repliedBy: "",
+    source: "telegram",
+    telegramChatId: String(chat.id || ""),
+    telegramUsername: from.username ? `@${from.username}` : "",
+    telegramMessageId: String(message.message_id || ""),
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.supportMessages = Array.isArray(db.supportMessages) ? db.supportMessages : [];
+  db.supportMessages.unshift(record);
+  await writeDb(db);
+  return record;
+}
+
+async function notifyTelegramSupportAdmin(record = {}, message = {}) {
+  if (!TELEGRAM_SUPPORT_ADMIN_CHAT_ID) return;
+  const chat = message.chat || {};
+  const from = message.from || {};
+  const body = compactPlainText(telegramMessageBody(message), 2600);
+  const label = telegramUserLabel(from, chat);
+  const lines = [
+    "New Vipeak Telegram support message",
+    `Record: ${record.id || ""}`,
+    `From: ${label}`,
+    `Chat ID: ${chat.id || ""}`,
+    "",
+    body,
+    "",
+    `Reply with: /reply ${chat.id || ""} your message`,
+  ];
+  await callTelegramSupportApi("sendMessage", {
+    chat_id: TELEGRAM_SUPPORT_ADMIN_CHAT_ID,
+    text: lines.join("\n"),
+    disable_web_page_preview: true,
+  });
+  if (!message.text && message.message_id && chat.id) {
+    await callTelegramSupportApi("forwardMessage", {
+      chat_id: TELEGRAM_SUPPORT_ADMIN_CHAT_ID,
+      from_chat_id: chat.id,
+      message_id: message.message_id,
+    });
+  }
+}
+
+async function handleTelegramSupportAdminReply(message = {}) {
+  const text = String(message.text || "");
+  const match = text.match(/^\/reply(?:@\w+)?\s+(-?\d+)\s+([\s\S]+)$/i);
+  if (!match) {
+    await callTelegramSupportApi("sendMessage", {
+      chat_id: TELEGRAM_SUPPORT_ADMIN_CHAT_ID,
+      text: `Admin mode is active.\nUse: /reply <telegram_chat_id> your message`,
+    });
+    return;
+  }
+  const targetChatId = match[1];
+  const replyText = match[2].trim();
+  if (!replyText) {
+    await callTelegramSupportApi("sendMessage", { chat_id: TELEGRAM_SUPPORT_ADMIN_CHAT_ID, text: "Reply text is required." });
+    return;
+  }
+  const result = await callTelegramSupportApi("sendMessage", {
+    chat_id: targetChatId,
+    text: replyText,
+    disable_web_page_preview: true,
+  });
+  await callTelegramSupportApi("sendMessage", {
+    chat_id: TELEGRAM_SUPPORT_ADMIN_CHAT_ID,
+    text: result?.ok ? `Reply sent to ${targetChatId}.` : `Reply failed for ${targetChatId}.`,
+  });
+}
+
+async function processTelegramSupportUpdate(update = {}) {
+  const message = update.message || update.edited_message;
+  if (!message || message.from?.is_bot) return;
+  const chat = message.chat || {};
+  const chatId = String(chat.id || "");
+  const text = String(message.text || "").trim();
+  const isAdmin = chatId && chatId === String(TELEGRAM_SUPPORT_ADMIN_CHAT_ID);
+  if (isAdmin) {
+    if (text.startsWith("/reply")) await handleTelegramSupportAdminReply(message);
+    return;
+  }
+  if (chat.type && chat.type !== "private") return;
+  const command = text.split(/\s+/)[0].replace(/@\w+$/, "").toLowerCase();
+  if (["/start", "/help", "/feedback", "/bug"].includes(command)) {
+    await callTelegramSupportApi("sendMessage", {
+      chat_id: chat.id,
+      text: telegramSupportHelpText(),
+      disable_web_page_preview: true,
+    });
+    return;
+  }
+  const record = await persistTelegramSupportMessage(message);
+  await notifyTelegramSupportAdmin(record, message);
+  await callTelegramSupportApi("sendMessage", {
+    chat_id: chat.id,
+    text: "Received. Vipeak support will review this and reply here if follow-up is needed.",
+    disable_web_page_preview: true,
+  });
+}
+
+async function handleTelegramSupportWebhook(req, res, secret) {
+  if (!telegramSupportEnabled()) return sendJson(res, 404, { ok: false, message: "Telegram support is not enabled." });
+  if (!secret || secret !== TELEGRAM_SUPPORT_WEBHOOK_SECRET) return sendJson(res, 403, { ok: false, message: "Invalid webhook secret." });
+  const update = await readJson(req);
+  await processTelegramSupportUpdate(update);
+  return sendJson(res, 200, { ok: true });
+}
+
 async function handleAdminListSupportMessages(req, res, url) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
@@ -20357,6 +20564,11 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/referral") {
       return await handleReferralSummary(req, res);
+    }
+
+    const telegramSupportWebhookMatch = url.pathname.match(/^\/api\/telegram\/support-webhook\/([^/]+)$/);
+    if (req.method === "POST" && telegramSupportWebhookMatch) {
+      return await handleTelegramSupportWebhook(req, res, decodeURIComponent(telegramSupportWebhookMatch[1]));
     }
 
     if (req.method === "POST" && url.pathname === "/api/support-messages") {
