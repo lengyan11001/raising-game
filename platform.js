@@ -8157,7 +8157,10 @@ function previewImage({ title = "", imageUrl = "" } = {}) {
 }
 
 async function submitSupportMessage() {
-  if (!state.user) return openLogin();
+  if (!state.user) {
+    if (els.supportStatus) els.supportStatus.textContent = "Login is required to send a site message. Telegram support is available above.";
+    return;
+  }
   const email = String(els.supportEmail?.value || "").trim();
   const subject = String(els.supportSubject?.value || "").trim();
   const message = String(els.supportMessage?.value || "").trim();
@@ -12998,7 +13001,6 @@ els.copyTokenBtn?.addEventListener("click", async () => {
   }, 1600);
 });
 function openSupportDialog() {
-  if (!state.user) return openLogin();
   if (els.supportEmail) els.supportEmail.value = "";
   if (els.supportSubject) els.supportSubject.value = "";
   if (els.supportMessage) els.supportMessage.value = "";
