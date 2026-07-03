@@ -637,6 +637,7 @@ const els = {
   previewImage: document.querySelector("#previewImage"),
   previewVideo: document.querySelector("#previewVideo"),
   supportFab: document.querySelector("#supportFab"),
+  navSupportBtn: document.querySelector("#navSupportBtn"),
   supportDialog: document.querySelector("#supportDialog"),
   supportEmail: document.querySelector("#supportEmail"),
   supportSubject: document.querySelector("#supportSubject"),
@@ -6286,6 +6287,12 @@ function trackGooglePageView() {
     page_location: window.location.href,
     page_path: `${window.location.pathname}${window.location.search}${window.location.hash}`,
   });
+}
+
+function trackAnalyticsEvent(eventName, params = {}) {
+  const name = String(eventName || "").trim();
+  if (!name || !googleAnalyticsMeasurementId || typeof window.gtag !== "function") return;
+  window.gtag("event", name, params);
 }
 
 function setTab(tab) {
@@ -12990,14 +12997,24 @@ els.copyTokenBtn?.addEventListener("click", async () => {
     refreshIcons();
   }, 1600);
 });
-els.supportFab?.addEventListener("click", () => {
+function openSupportDialog() {
   if (!state.user) return openLogin();
   if (els.supportEmail) els.supportEmail.value = "";
   if (els.supportSubject) els.supportSubject.value = "";
   if (els.supportMessage) els.supportMessage.value = "";
   if (els.supportStatus) els.supportStatus.textContent = "";
   els.supportDialog?.showModal();
+}
+
+document.querySelectorAll("[data-analytics-event]").forEach((element) => {
+  element.addEventListener("click", () => {
+    trackAnalyticsEvent(element.dataset.analyticsEvent, {
+      event_location: element.dataset.analyticsLocation || "platform",
+    });
+  });
 });
+els.supportFab?.addEventListener("click", openSupportDialog);
+els.navSupportBtn?.addEventListener("click", openSupportDialog);
 els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
 els.menuCopyTokenBtn?.addEventListener("click", async () => {
   if (!state.token || !state.user?.apiToken) return openLogin();

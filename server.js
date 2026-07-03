@@ -14629,6 +14629,7 @@ async function handleCreateSupportMessage(req, res) {
     reply: "",
     repliedAt: "",
     repliedBy: "",
+    source: "site form",
     createdAt: now,
     updatedAt: now,
   };

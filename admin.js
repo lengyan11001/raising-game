@@ -2681,6 +2681,7 @@ async function renderSupportMessages(pageArg = null, limitArg = null) {
                   <th>问题</th>
                   <th>状态</th>
                   <th>时间</th>
+                  <th>&#26469;&#28304;</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -2698,6 +2699,7 @@ async function renderSupportMessages(pageArg = null, limitArg = null) {
                     </td>
                     <td>${escapeHtml(item.status || "open")}</td>
                     <td>${escapeHtml(fmtDate(item.createdAt))}</td>
+                    <td>${escapeHtml(item.source || "-")}</td>
                     <td>
                       <button class="adm-btn adm-btn-ghost" type="button" data-reply-support="${escapeHtml(item.id)}">回复</button>
                     </td>
