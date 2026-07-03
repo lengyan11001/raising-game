@@ -7340,8 +7340,8 @@ function isApizAssetUri(value = "") {
 function normalizeApizAssetUri(value = "") {
   const text = String(value || "").trim();
   if (!text) return "";
-  const match = text.match(/asset:\/\/asset-[a-z0-9_-]+/i);
-  return match ? match[0].toLowerCase().replace(/^asset:\/\//i, "asset://") : "";
+  const match = text.match(/asset:\/\/(asset-[a-z0-9_-]+)/i);
+  return match ? `Asset://${match[1]}` : "";
 }
 
 function apizSeedanceAssetGroupCacheKey(user = {}) {
@@ -7424,7 +7424,7 @@ async function uploadApizSeedanceAsset({ user = {}, url = "", assetType = "Image
     name,
   });
   const assetId = String(raw?.asset_id || raw?.id || raw?.data?.asset_id || raw?.data?.id || "").trim();
-  const assetUri = normalizeApizAssetUri(firstPresent(raw?.intl_asset_uri, raw?.asset_uri, raw?.data?.intl_asset_uri, raw?.data?.asset_uri, ""));
+  const assetUri = normalizeApizAssetUri(firstPresent(raw?.asset_uri, raw?.data?.asset_uri, raw?.intl_asset_uri, raw?.data?.intl_asset_uri, ""));
   if (!assetId && !assetUri) {
     const error = new Error(`APIZ Seedance did not return asset id: ${JSON.stringify(raw || {})}`);
     error.statusCode = 502;
@@ -7441,7 +7441,7 @@ async function uploadApizSeedanceAsset({ user = {}, url = "", assetType = "Image
       throw error;
     }
   }
-  const finalAssetUri = assetUri || `asset://${assetId}`;
+  const finalAssetUri = assetUri || `Asset://${assetId}`;
   APIZ_SEEDANCE_ASSET_URI_CACHE.set(cacheKey, finalAssetUri);
   return finalAssetUri;
 }
