@@ -4042,7 +4042,7 @@ async function renderGeo() {
           <h2>GEO</h2>
           <p class="adm-muted">把基础网站检测、AI 检索测试、真实用户访问和站外发布拆开看，避免所有数据堆在一个页面。</p>
         </div>
-        <div class="adm-page-actions">
+        <div class="adm-page-actions" hidden>
           <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.sitemapUrl || "/sitemap.xml")}" target="_blank" rel="noopener"><i data-lucide="map"></i>站点地图</a>
           <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.llmsUrl || "/llms.txt")}" target="_blank" rel="noopener"><i data-lucide="file-text"></i>llms.txt</a>
           <button class="adm-btn adm-btn-ghost" id="geoSubmitIndexNowBtn" type="button"><i data-lucide="send"></i>提交 IndexNow</button>
@@ -4058,6 +4058,12 @@ async function renderGeo() {
       </div>
 
       <div class="adm-geo-panel ${geoTab === "basic" ? "" : "is-hidden"}" data-geo-panel="basic">
+        <div class="adm-page-actions adm-geo-subtab-actions">
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.sitemapUrl || "/sitemap.xml")}" target="_blank" rel="noopener"><i data-lucide="map"></i>站点地图</a>
+          <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.llmsUrl || "/llms.txt")}" target="_blank" rel="noopener"><i data-lucide="file-text"></i>llms.txt</a>
+          <button class="adm-btn adm-btn-ghost" id="geoSubmitIndexNowBtn" type="button"><i data-lucide="send"></i>提交 IndexNow</button>
+          <button class="adm-btn adm-btn-primary" id="geoRunChecksBtn" type="button"><i data-lucide="radar"></i>运行基础检测</button>
+        </div>
         <div class="adm-grid adm-grid-4">
           ${statCard("站点地址", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
           ${statCard("GEO 分数", summary.geoScore || 0, geoStatusLabel(coverage.status), "activity", "violet")}
@@ -4193,6 +4199,10 @@ async function renderGeo() {
       </div>
 
       <div class="adm-geo-panel ${geoTab === "realtime" ? "" : "is-hidden"}" data-geo-panel="realtime">
+        <div class="adm-page-actions adm-geo-subtab-actions">
+          <button class="adm-btn adm-btn-primary" id="geoRunRealtimeBtn" type="button"><i data-lucide="radar"></i>运行实时测试</button>
+          <span class="adm-muted" id="geoRealtimeStatus"></span>
+        </div>
         <div class="adm-grid adm-grid-4">
           ${statCard("测试问题", (aiProbes.questions || []).length, "AI 检索问题池", "message-square-search", "violet")}
           ${statCard("已有结果", (aiProbes.results || []).length, "模型返回记录", "activity", "mint")}
@@ -4277,6 +4287,7 @@ async function renderGeo() {
   const run = () => runGeoChecks(checks);
   byId("geoRunChecksBtn")?.addEventListener("click", run);
   byId("geoSubmitIndexNowBtn")?.addEventListener("click", submitGeoIndexNow);
+  byId("geoRunRealtimeBtn")?.addEventListener("click", () => runGeoRealtimeTest(aiProbes.questions || []));
   const geoTabs = byId("geoTabs");
   geoTabs?.addEventListener("click", (e) => {
     const button = e.target.closest("button[data-tab]");
@@ -4622,6 +4633,37 @@ async function submitGeoIndexNow() {
   } catch (err) {
     if (status) status.textContent = err.message || "提交失败";
     toast(err.message || "IndexNow 提交失败", "error");
+  } finally {
+    button.disabled = false;
+    button.innerHTML = previous;
+    refreshIcons();
+  }
+}
+
+async function runGeoRealtimeTest(questions = []) {
+  const button = byId("geoRunRealtimeBtn");
+  const status = byId("geoRealtimeStatus");
+  if (!button) return;
+  const previous = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = '<i data-lucide="loader-2"></i>测试中';
+  if (status) status.textContent = "正在抓取目标页并检查命中信号...";
+  refreshIcons();
+  try {
+    const payload = await api("/api/admin/geo/realtime-test", {
+      method: "POST",
+      body: { questions },
+    });
+    const results = payload.aiProbes?.results || [];
+    const latestCount = Math.min((questions || []).length, results.length);
+    const hits = results.slice(0, latestCount).filter((item) => item.hit).length;
+    const message = `实时测试完成：${hits}/${latestCount} 命中`;
+    if (status) status.textContent = message;
+    toast(message, hits === latestCount ? "success" : "info");
+    await renderGeo();
+  } catch (err) {
+    if (status) status.textContent = err.message || "实时测试失败";
+    toast(err.message || "实时测试失败", "error");
   } finally {
     button.disabled = false;
     button.innerHTML = previous;
