@@ -666,13 +666,16 @@ async function renderDashboard() {
   refreshIcons();
 }
 
-function statCard(label, value, detail, icon, color) {
+function statCard(label, value, detail, icon, color, options = {}) {
+  const attrs = options.id ? ` id="${escapeHtml(options.id)}"` : "";
+  const valueAttrs = options.valueId ? ` id="${escapeHtml(options.valueId)}"` : "";
+  const detailAttrs = options.detailId ? ` id="${escapeHtml(options.detailId)}"` : "";
   return `
-    <div class="adm-stat is-${color}">
+    <div class="adm-stat is-${color}"${attrs}>
       <span class="adm-stat-icon"><i data-lucide="${icon}"></i></span>
       <span class="adm-stat-label">${escapeHtml(label)}</span>
-      <strong class="adm-stat-value">${escapeHtml(value ?? 0)}</strong>
-      <span class="adm-stat-detail">${escapeHtml(detail || "")}</span>
+      <strong class="adm-stat-value"${valueAttrs}>${escapeHtml(value ?? 0)}</strong>
+      <span class="adm-stat-detail"${detailAttrs}>${escapeHtml(detail || "")}</span>
     </div>
   `;
 }
@@ -4197,9 +4200,10 @@ async function renderGeo() {
         </div>
         <div class="adm-grid adm-grid-4">
           ${statCard("站点地址", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
-          ${statCard("站内覆盖分", summary.geoScore || 0, `${geoStatusLabel(coverage.status)}，不代表外部 AI 命中`, "activity", "violet")}
+          ${statCard("内容覆盖分", summary.geoScore || 0, `${geoStatusLabel(coverage.status)}，不是基础检测通过率`, "activity", "violet")}
+          ${statCard("基础检测通过率", "未运行", "点击运行基础检测后更新", "radar", "amber", { id: "geoCheckRateCard", valueId: "geoCheckRateValue", detailId: "geoCheckRateDetail" })}
           ${statCard("内容质量", `${summary.contentQualityPercent || 0}%`, `${summary.characterCount || 0} 个角色页`, "badge-check", "mint")}
-          ${statCard("IndexNow 链接", summary.indexNowUrlCount || summary.sitemapUrlCount || 0, "待提交", "send", "amber")}
+          ${statCard("IndexNow 链接", summary.indexNowUrlCount || summary.sitemapUrlCount || 0, "待提交", "send", "violet")}
         </div>
 
         <div class="adm-card adm-geo-help-card">
@@ -4210,11 +4214,11 @@ async function renderGeo() {
           <div class="adm-card-body adm-geo-help-grid">
             <div>
               <strong>100 分代表什么</strong>
-              <p>代表站内内容覆盖、入口文件和基础结构基本完整，不代表外部 AI 已经能搜到或推荐我们。</p>
+              <p>这里的 100 分只代表内容覆盖完整，不代表基础检测每一项都通过，也不代表外部 AI 已经能搜到或推荐我们。</p>
             </div>
             <div>
               <strong>按钮会检查什么</strong>
-              <p>点击“运行基础检测”会实时抓取首页、robots、sitemap、llms、角色页，并检查品牌、API、客服、结构化视频等信号。</p>
+              <p>点击“运行基础检测”会实时抓取首页、robots、sitemap、llms、角色页，并检查品牌、API、客服、结构化视频等信号；通过率会单独显示。</p>
             </div>
             <div>
               <strong>和实时测试的区别</strong>
@@ -4231,7 +4235,7 @@ async function renderGeo() {
           <div class="adm-card-body adm-geo-score-body">
             <div class="adm-geo-score-ring">
               <strong>${escapeHtml(String(coverage.score || 0))}</strong>
-              <span>分数</span>
+              <span>内容覆盖分</span>
             </div>
             <div class="adm-geo-metrics">
               ${(coverage.metrics || []).map(renderGeoMetric).join("")}
@@ -4896,6 +4900,8 @@ async function runGeoChecks(checks = []) {
   const rows = byId("geoCheckRows");
   const summary = byId("geoCheckSummary");
   const button = byId("geoRunChecksBtn");
+  const rateValue = byId("geoCheckRateValue");
+  const rateDetail = byId("geoCheckRateDetail");
   if (!rows || !summary) return;
   const previous = button?.innerHTML || "";
   if (button) {
@@ -4903,6 +4909,8 @@ async function runGeoChecks(checks = []) {
     button.innerHTML = '<i data-lucide="loader-2"></i>检查中';
   }
   summary.textContent = "检查中...";
+  if (rateValue) rateValue.textContent = "检查中";
+  if (rateDetail) rateDetail.textContent = "正在逐项抓取站内入口";
   let passed = 0;
   try {
     for (const check of checks) {
@@ -4915,8 +4923,11 @@ async function runGeoChecks(checks = []) {
       if (nextRow) nextRow.outerHTML = renderGeoCheckRow(check, result);
       refreshIcons();
     }
+    const rate = checks.length ? Math.round((passed / checks.length) * 100) : 0;
     summary.textContent = `${passed}/${checks.length} 通过`;
     summary.className = passed === checks.length ? "adm-muted adm-geo-pass" : "adm-muted adm-geo-fail";
+    if (rateValue) rateValue.textContent = `${rate}%`;
+    if (rateDetail) rateDetail.textContent = `${passed}/${checks.length} 通过，${checks.length - passed} 项未通过`;
     toast(`基础检测完成：${passed}/${checks.length} 通过`, passed === checks.length ? "success" : "info");
   } finally {
     if (button) {
