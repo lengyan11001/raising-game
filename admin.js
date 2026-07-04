@@ -4005,10 +4005,10 @@ function defaultGeoProbePlan(payload = {}) {
       },
       {
         id: "character-discovery",
-        question: `Find public character profile pages from ${brand} with playable video examples.`,
-        intent: "角色页发现",
+        question: `Can ${brand} expose a public character profile page with playable video metadata?`,
+        intent: "角色页结构",
         targetUrl: `${baseUrl}/sitemap.xml`,
-        expectedSignals: ["/characters/", "VideoObject", String(summary.characterCount || "")],
+        expectedSignals: ["/characters/"],
         status: "待测试",
       },
       {
@@ -4023,6 +4023,92 @@ function defaultGeoProbePlan(payload = {}) {
   };
 }
 
+function geoProbeResultMatchesQuestion(result = {}, question = {}) {
+  if (result.id && question.id && String(result.id) === String(question.id)) return true;
+  const resultQuestion = String(result.question || "").trim();
+  const questionText = String(question.question || "").trim();
+  if (!resultQuestion || resultQuestion !== questionText) return false;
+  const resultUrl = String(result.targetUrl || "").replace(/\/+$/, "");
+  const questionUrl = String(question.targetUrl || "").replace(/\/+$/, "");
+  return !resultUrl || !questionUrl || resultUrl === questionUrl;
+}
+
+function enrichGeoProbeQuestions(questions = [], results = []) {
+  const used = new Set();
+  return (questions || []).map((question) => {
+    const index = (results || []).findIndex((result, resultIndex) => {
+      return !used.has(resultIndex) && geoProbeResultMatchesQuestion(result, question);
+    });
+    if (index >= 0) used.add(index);
+    return {
+      ...question,
+      latestResult: index >= 0 ? results[index] : null,
+    };
+  });
+}
+
+function geoProbeStatusText(item = {}) {
+  const result = item.latestResult;
+  if (!result) return "待测试";
+  return result.hit ? "通过" : "需优化";
+}
+
+function geoProbeStatusClass(item = {}) {
+  const result = item.latestResult;
+  if (!result) return "is-pending";
+  return result.hit ? "is-success" : "is-failed";
+}
+
+function geoProbeModelLabel(model = "") {
+  return String(model || "") === "Site realtime probe" ? "站内实时检测" : (model || "-");
+}
+
+function geoProbeResultExplain(result = {}) {
+  const expected = Array.isArray(result.expectedSignals) ? result.expectedSignals : [];
+  const matched = Array.isArray(result.matchedSignals) ? result.matchedSignals : [];
+  const missing = Array.isArray(result.missingSignals) ? result.missingSignals : [];
+  const prefix = `命中 ${matched.length}/${expected.length} 个信号`;
+  if (!expected.length) return result.hit ? "目标页可访问。" : "目标页访问失败。";
+  if (result.hit) return `${prefix}，说明这个公开页面已包含 AI/搜索引擎需要识别的核心信息。`;
+  return `${prefix}，缺少：${missing.join("、") || "目标页访问失败"}。`;
+}
+
+function geoProbeQuestionAdvice(item = {}) {
+  const result = item.latestResult;
+  if (!result) return "点击“运行实时测试”后，服务器会立刻抓取目标页并判断这些信号是否存在。";
+  if (result.hit) return "当前检查通过，保持这些关键词、结构化数据和入口链接稳定。";
+  const missing = Array.isArray(result.missingSignals) ? result.missingSignals : [];
+  if (item.id === "api-access") return `把缺失信号补到 llms.txt 或 API Access 文档里：${missing.join("、") || "接口、鉴权、扣费说明"}。`;
+  if (item.id === "character-discovery") return `角色详情页需要能看到结构化角色信息和视频信息：${missing.join("、") || "ProfilePage、VideoObject、角色名"}。`;
+  if (item.id === "support-contact") return `首页或支持入口需要清楚写出 Telegram 客服和 support 相关文案：${missing.join("、") || "客服入口"}。`;
+  if (item.id === "brand-video-generator") return `首页首屏、标题或结构化数据里补齐品牌和用途关键词：${missing.join("、") || "品牌、AI 视频生成能力"}。`;
+  return `补齐缺失信号：${missing.join("、") || "目标页核心信息"}。`;
+}
+
+function buildGeoProbeAdvice(questions = []) {
+  const untested = questions.filter((item) => !item.latestResult);
+  const failed = questions.filter((item) => item.latestResult && !item.latestResult.hit);
+  const advice = [];
+  if (untested.length) {
+    advice.push(`还有 ${untested.length} 个检测项未测试。点击“运行实时测试”会由服务器逐条抓取目标页，不需要等真实用户或搜索引擎触发。`);
+  }
+  failed.forEach((item) => {
+    advice.push(`${item.intent || item.id || "检测项"}：${geoProbeQuestionAdvice(item)}`);
+  });
+  if (!untested.length && !failed.length) {
+    advice.push("当前问题池全部通过。下一步重点看真实用户访问、站外发布回链，以及 Google/Bing/AI Bot 是否持续抓取角色页。");
+  }
+  return advice.slice(0, 8);
+}
+
+function renderGeoProbeAdviceList(advice = []) {
+  return `
+    <ul class="adm-geo-list">
+      ${(advice || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("") || "<li>暂无建议。</li>"}
+    </ul>
+  `;
+}
+
 async function renderGeo() {
   const payload = await api("/api/admin/geo-report");
   if (!isActiveRoute("geo")) return;
@@ -4034,6 +4120,11 @@ async function renderGeo() {
   const visitorStats = payload.visitorStats || {};
   const indexNowHistory = payload.indexNowHistory || [];
   const aiProbes = payload.aiProbes || defaultGeoProbePlan(payload);
+  const geoProbeQuestions = enrichGeoProbeQuestions(aiProbes.questions || [], aiProbes.results || []);
+  const geoProbeLatestResults = geoProbeQuestions.map((item) => item.latestResult).filter(Boolean);
+  const geoProbeHits = geoProbeLatestResults.filter((item) => item.hit).length;
+  const geoProbePassRate = geoProbeLatestResults.length ? Math.round((geoProbeHits / geoProbeLatestResults.length) * 100) : 0;
+  const geoProbeAdvice = buildGeoProbeAdvice(geoProbeQuestions);
   const geoTab = normalizeGeoAdminTab(sessionStorage.getItem("admTabGeo"));
   els.adminContent.innerHTML = `
     <section class="adm-page adm-geo-page">
@@ -4204,22 +4295,43 @@ async function renderGeo() {
           <span class="adm-muted" id="geoRealtimeStatus"></span>
         </div>
         <div class="adm-grid adm-grid-4">
-          ${statCard("测试问题", (aiProbes.questions || []).length, "AI 检索问题池", "message-square-search", "violet")}
-          ${statCard("已有结果", (aiProbes.results || []).length, "模型返回记录", "activity", "mint")}
+          ${statCard("已测问题", `${geoProbeLatestResults.length}/${geoProbeQuestions.length}`, `${geoProbeHits} 个通过`, "message-square-search", "violet")}
+          ${statCard("历史结果", (aiProbes.results || []).length, "最近 80 条检测记录", "activity", "mint")}
           ${statCard("最后更新", aiProbes.updatedAt ? fmtDate(aiProbes.updatedAt) : "-", "实时检索结果", "clock-3", "amber")}
-          ${statCard("目标", "引用率", "看 AI 是否能找到并引用本站", "target", "rose")}
+          ${statCard("通过率", geoProbeLatestResults.length ? `${geoProbePassRate}%` : "-", "全部信号命中才算通过", "target", "rose")}
+        </div>
+
+        <div class="adm-card adm-geo-help-card">
+          <header class="adm-card-head">
+            <h3>这组检测在看什么</h3>
+            <span class="adm-muted">点击按钮后由服务器立即触发</span>
+          </header>
+          <div class="adm-card-body adm-geo-help-grid">
+            <div>
+              <strong>谁来测</strong>
+              <p>不是等 Google、Bing 或真实用户来触发。点击“运行实时测试”后，后台服务器会按问题池逐条抓取公开页面。</p>
+            </div>
+            <div>
+              <strong>命中是什么意思</strong>
+              <p>命中表示目标页里找到了这个问题需要的全部关键信号，比如品牌名、接口路径、结构化数据或客服入口。</p>
+            </div>
+            <div>
+              <strong>未命中怎么办</strong>
+              <p>未命中不是任务失败，而是告诉我们哪类公开信息不够明确。下面会列出缺失信号和对应优化建议。</p>
+            </div>
+          </div>
         </div>
 
         <div class="adm-card">
           <header class="adm-card-head">
-            <h3>AI 模型检索测试问题</h3>
-            <span class="adm-muted">后续接入模型查询后，结果只在这个 tab 展示。</span>
+            <h3>实时检测项</h3>
+            <span class="adm-muted">每一项都对应一个公开页面和一组必须出现的信号。</span>
           </header>
           <div class="adm-card-body adm-table-wrap">
             <table class="adm-table adm-geo-probe-table">
-              <thead><tr><th>问题</th><th>意图</th><th>期望命中信号</th><th>目标页</th><th>状态</th></tr></thead>
+              <thead><tr><th>检测项</th><th>怎么判断</th><th>当前结果</th><th>优化建议</th><th>打开</th></tr></thead>
               <tbody>
-                ${(aiProbes.questions || []).map(renderGeoProbeQuestionRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无测试问题。</td></tr>'}
+                ${geoProbeQuestions.map(renderGeoProbeQuestionRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无测试问题。</td></tr>'}
               </tbody>
             </table>
           </div>
@@ -4227,14 +4339,24 @@ async function renderGeo() {
 
         <div class="adm-card">
           <header class="adm-card-head">
-            <h3>AI 检索结果</h3>
-            <span class="adm-muted">按模型、问题、是否引用本站分开看。</span>
+            <h3>检测后的优化建议</h3>
+            <span class="adm-muted">按当前检测结果自动生成</span>
+          </header>
+          <div class="adm-card-body">
+            ${renderGeoProbeAdviceList(geoProbeAdvice)}
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>检测结果明细</h3>
+            <span class="adm-muted">保留最近记录，方便看每次调整后是否变好。</span>
           </header>
           <div class="adm-card-body adm-table-wrap">
             <table class="adm-table adm-geo-result-table">
-              <thead><tr><th>时间</th><th>模型</th><th>问题</th><th>命中</th><th>结果摘要</th></tr></thead>
+              <thead><tr><th>时间</th><th>检测方式</th><th>问题</th><th>结果</th><th>解释</th></tr></thead>
               <tbody>
-                ${(aiProbes.results || []).map(renderGeoProbeResultRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无 AI 模型检索结果。接入实时查询后会显示在这里。</td></tr>'}
+                ${(aiProbes.results || []).map(renderGeoProbeResultRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无检测结果。点击“运行实时测试”后会显示在这里。</td></tr>'}
               </tbody>
             </table>
           </div>
@@ -4309,27 +4431,49 @@ async function renderGeo() {
 }
 
 function renderGeoProbeQuestionRow(item = {}) {
-  const signals = (item.expectedSignals || []).filter(Boolean).map((signal) => `<span class="adm-pill">${escapeHtml(signal)}</span>`).join(" ");
+  const result = item.latestResult;
+  const expected = (item.expectedSignals || []).filter(Boolean);
+  const matched = result && Array.isArray(result.matchedSignals) ? result.matchedSignals : [];
+  const missing = result && Array.isArray(result.missingSignals) ? result.missingSignals : [];
+  const signals = expected.map((signal) => {
+    const isMatched = matched.includes(signal);
+    const isMissing = result && missing.includes(signal);
+    return `<span class="adm-pill ${isMatched ? "is-success" : isMissing ? "is-failed" : ""}">${escapeHtml(signal)}</span>`;
+  }).join(" ");
+  const status = geoProbeStatusText(item);
+  const resultText = result ? geoProbeResultExplain(result) : "还没有运行过这一项。";
   return `
     <tr>
-      <td><strong>${escapeHtml(item.question || "-")}</strong><span class="adm-block adm-muted adm-mono">${escapeHtml(item.id || "")}</span></td>
-      <td>${escapeHtml(item.intent || "-")}</td>
-      <td>${signals || '<span class="adm-muted">-</span>'}</td>
+      <td>
+        <strong>${escapeHtml(item.intent || item.id || "检测项")}</strong>
+        <span class="adm-block adm-muted">${escapeHtml(item.question || "-")}</span>
+        <span class="adm-block adm-muted adm-mono">${escapeHtml(item.id || "")}</span>
+      </td>
+      <td>
+        <span class="adm-block adm-muted">目标页</span>
+        <span class="adm-block adm-mono adm-truncate" title="${escapeHtml(item.targetUrl || "")}">${escapeHtml(item.targetUrl || "-")}</span>
+        <div class="adm-geo-signal-list">${signals || '<span class="adm-muted">无固定信号，只检查页面可访问。</span>'}</div>
+      </td>
+      <td>
+        <span class="adm-pill ${geoProbeStatusClass(item)}">${escapeHtml(status)}</span>
+        <small class="adm-block adm-muted">${escapeHtml(resultText)}</small>
+      </td>
+      <td>${escapeHtml(geoProbeQuestionAdvice(item))}</td>
       <td><a class="adm-btn adm-btn-sm adm-btn-ghost" href="${escapeHtml(item.targetUrl || "#")}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>打开</a></td>
-      <td><span class="adm-pill is-pending">${escapeHtml(item.status || "待测试")}</span></td>
     </tr>
   `;
 }
 
 function renderGeoProbeResultRow(item = {}) {
   const hit = item.hit === true;
+  const explanation = geoProbeResultExplain(item);
   return `
     <tr>
       <td>${escapeHtml(item.at ? fmtDate(item.at) : "-")}</td>
-      <td>${escapeHtml(item.model || "-")}</td>
+      <td>${escapeHtml(geoProbeModelLabel(item.model))}</td>
       <td class="adm-truncate" title="${escapeHtml(item.question || "")}">${escapeHtml(item.question || "-")}</td>
       <td><span class="adm-pill ${hit ? "is-success" : "is-failed"}">${hit ? "命中" : "未命中"}</span></td>
-      <td class="adm-truncate" title="${escapeHtml(item.summary || "")}">${escapeHtml(item.summary || "-")}</td>
+      <td class="adm-truncate" title="${escapeHtml(explanation)}">${escapeHtml(explanation)}</td>
     </tr>
   `;
 }
