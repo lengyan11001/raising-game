@@ -4034,33 +4034,54 @@ function geoProbeResultMatchesQuestion(result = {}, question = {}) {
 }
 
 function enrichGeoProbeQuestions(questions = [], results = []) {
-  const used = new Set();
   return (questions || []).map((question) => {
-    const index = (results || []).findIndex((result, resultIndex) => {
-      return !used.has(resultIndex) && geoProbeResultMatchesQuestion(result, question);
+    const seenProviders = new Set();
+    const latestResults = [];
+    (results || []).forEach((result) => {
+      if (!geoProbeResultMatchesQuestion(result, question)) return;
+      const providerKey = result.providerId || result.platform || result.model || "unknown";
+      if (seenProviders.has(providerKey)) return;
+      seenProviders.add(providerKey);
+      latestResults.push(result);
     });
-    if (index >= 0) used.add(index);
     return {
       ...question,
-      latestResult: index >= 0 ? results[index] : null,
+      latestResults,
+      latestResult: latestResults[0] || null,
     };
   });
 }
 
+function geoProbeQuestionResults(item = {}) {
+  return Array.isArray(item.latestResults) ? item.latestResults : item.latestResult ? [item.latestResult] : [];
+}
+
 function geoProbeStatusText(item = {}) {
-  const result = item.latestResult;
-  if (!result) return "待测试";
-  return result.hit ? "通过" : "需优化";
+  const results = geoProbeQuestionResults(item);
+  if (!results.length) return "待测试";
+  const configured = results.filter((result) => result.state !== "not_configured");
+  if (!configured.length) return "未配置平台";
+  const hitCount = configured.filter((result) => result.hit).length;
+  if (hitCount === configured.length) return "全部命中";
+  if (hitCount > 0) return "部分命中";
+  return "需优化";
 }
 
 function geoProbeStatusClass(item = {}) {
-  const result = item.latestResult;
-  if (!result) return "is-pending";
-  return result.hit ? "is-success" : "is-failed";
+  const results = geoProbeQuestionResults(item);
+  if (!results.length) return "is-pending";
+  const configured = results.filter((result) => result.state !== "not_configured");
+  if (!configured.length) return "is-pending";
+  const hitCount = configured.filter((result) => result.hit).length;
+  if (hitCount === configured.length) return "is-success";
+  if (hitCount > 0) return "is-running";
+  return "is-failed";
 }
 
-function geoProbeModelLabel(model = "") {
-  return String(model || "") === "Site realtime probe" ? "站内实时检测" : (model || "-");
+function geoProbeModelLabel(model = "", item = {}) {
+  const platform = item.platform || "";
+  if (platform && model && platform !== model) return `${platform} / ${model}`;
+  return platform || model || "-";
 }
 
 function geoProbeResultExplain(result = {}) {
@@ -4068,16 +4089,21 @@ function geoProbeResultExplain(result = {}) {
   const matched = Array.isArray(result.matchedSignals) ? result.matchedSignals : [];
   const missing = Array.isArray(result.missingSignals) ? result.missingSignals : [];
   const prefix = `命中 ${matched.length}/${expected.length} 个信号`;
-  if (!expected.length) return result.hit ? "目标页可访问。" : "目标页访问失败。";
-  if (result.hit) return `${prefix}，说明这个公开页面已包含 AI/搜索引擎需要识别的核心信息。`;
+  if (result.state === "not_configured") return result.summary || "外部平台未配置，未执行测试。";
+  if (result.state === "error") return result.summary || "外部平台调用失败。";
+  if (!expected.length) return result.hit ? "外部平台有有效回答。" : "外部平台没有给出有效回答。";
+  if (result.hit) return `${prefix}，说明这个外部平台的回答已经提到我们希望它识别的核心信息。`;
   return `${prefix}，缺少：${missing.join("、") || "目标页访问失败"}。`;
 }
 
 function geoProbeQuestionAdvice(item = {}) {
-  const result = item.latestResult;
-  if (!result) return "点击“运行实时测试”后，服务器会立刻抓取目标页并判断这些信号是否存在。";
-  if (result.hit) return "当前检查通过，保持这些关键词、结构化数据和入口链接稳定。";
-  const missing = Array.isArray(result.missingSignals) ? result.missingSignals : [];
+  const results = geoProbeQuestionResults(item);
+  if (!results.length) return "点击“运行实时测试”后，后台会把这个问题分别发给已配置的外部 AI 平台。";
+  const configured = results.filter((result) => result.state !== "not_configured");
+  if (!configured.length) return "先在服务器配置 GEO_PERPLEXITY_API_KEY / GEO_OPENAI_API_KEY / GEO_GEMINI_API_KEY，才会真正向外部平台提问。";
+  const misses = configured.filter((result) => !result.hit);
+  if (!misses.length) return "当前外部平台都能识别这项信息，保持站内说明、llms.txt、站外内容和回链稳定。";
+  const missing = [...new Set(misses.flatMap((result) => Array.isArray(result.missingSignals) ? result.missingSignals : []))];
   if (item.id === "api-access") return `把缺失信号补到 llms.txt 或 API Access 文档里：${missing.join("、") || "接口、鉴权、扣费说明"}。`;
   if (item.id === "character-discovery") return `角色详情页需要能看到结构化角色信息和视频信息：${missing.join("、") || "ProfilePage、VideoObject、角色名"}。`;
   if (item.id === "support-contact") return `首页或支持入口需要清楚写出 Telegram 客服和 support 相关文案：${missing.join("、") || "客服入口"}。`;
@@ -4086,17 +4112,27 @@ function geoProbeQuestionAdvice(item = {}) {
 }
 
 function buildGeoProbeAdvice(questions = []) {
-  const untested = questions.filter((item) => !item.latestResult);
-  const failed = questions.filter((item) => item.latestResult && !item.latestResult.hit);
+  const untested = questions.filter((item) => !geoProbeQuestionResults(item).length);
+  const failed = questions.filter((item) => {
+    const configured = geoProbeQuestionResults(item).filter((result) => result.state !== "not_configured");
+    return configured.length && configured.some((result) => !result.hit);
+  });
+  const notConfigured = questions.filter((item) => {
+    const results = geoProbeQuestionResults(item);
+    return results.length && results.every((result) => result.state === "not_configured");
+  });
   const advice = [];
   if (untested.length) {
-    advice.push(`还有 ${untested.length} 个检测项未测试。点击“运行实时测试”会由服务器逐条抓取目标页，不需要等真实用户或搜索引擎触发。`);
+    advice.push(`还有 ${untested.length} 个问题未向外部 AI 平台测试。点击“运行实时测试”会按平台逐条提问。`);
+  }
+  if (notConfigured.length) {
+    advice.push("当前没有可用的外部 AI 平台配置。先配置 Perplexity / OpenAI / Gemini 的 GEO API Key，实时测试才会有真实外部结果。");
   }
   failed.forEach((item) => {
     advice.push(`${item.intent || item.id || "检测项"}：${geoProbeQuestionAdvice(item)}`);
   });
-  if (!untested.length && !failed.length) {
-    advice.push("当前问题池全部通过。下一步重点看真实用户访问、站外发布回链，以及 Google/Bing/AI Bot 是否持续抓取角色页。");
+  if (!untested.length && !failed.length && !notConfigured.length) {
+    advice.push("当前已配置外部平台的测试项全部通过。下一步重点看站外发布回链，以及 Google/Bing/AI Bot 是否持续抓取角色页。");
   }
   return advice.slice(0, 8);
 }
@@ -4120,10 +4156,14 @@ async function renderGeo() {
   const visitorStats = payload.visitorStats || {};
   const indexNowHistory = payload.indexNowHistory || [];
   const aiProbes = payload.aiProbes || defaultGeoProbePlan(payload);
+  const geoProbeProviders = aiProbes.providers || [];
+  const configuredGeoProbeProviders = geoProbeProviders.filter((provider) => provider.configured);
   const geoProbeQuestions = enrichGeoProbeQuestions(aiProbes.questions || [], aiProbes.results || []);
-  const geoProbeLatestResults = geoProbeQuestions.map((item) => item.latestResult).filter(Boolean);
-  const geoProbeHits = geoProbeLatestResults.filter((item) => item.hit).length;
-  const geoProbePassRate = geoProbeLatestResults.length ? Math.round((geoProbeHits / geoProbeLatestResults.length) * 100) : 0;
+  const geoProbeLatestResults = geoProbeQuestions.flatMap((item) => geoProbeQuestionResults(item));
+  const geoProbeConfiguredResults = geoProbeLatestResults.filter((item) => item.state !== "not_configured");
+  const geoProbeHits = geoProbeConfiguredResults.filter((item) => item.hit).length;
+  const geoProbeExpectedRuns = geoProbeQuestions.length * configuredGeoProbeProviders.length;
+  const geoProbePassRate = geoProbeConfiguredResults.length ? Math.round((geoProbeHits / geoProbeConfiguredResults.length) * 100) : 0;
   const geoProbeAdvice = buildGeoProbeAdvice(geoProbeQuestions);
   const geoTab = normalizeGeoAdminTab(sessionStorage.getItem("admTabGeo"));
   els.adminContent.innerHTML = `
@@ -4131,7 +4171,7 @@ async function renderGeo() {
       <div class="adm-page-head">
         <div>
           <h2>GEO</h2>
-          <p class="adm-muted">把基础网站检测、AI 检索测试、真实用户访问和站外发布拆开看，避免所有数据堆在一个页面。</p>
+          <p class="adm-muted">基础检测看站内公开信号是否完整；实时测试看外部 AI 平台回答里是否能提到和引用本站。</p>
         </div>
         <div class="adm-page-actions" hidden>
           <a class="adm-btn adm-btn-ghost" href="${escapeHtml(summary.sitemapUrl || "/sitemap.xml")}" target="_blank" rel="noopener"><i data-lucide="map"></i>站点地图</a>
@@ -4157,9 +4197,30 @@ async function renderGeo() {
         </div>
         <div class="adm-grid adm-grid-4">
           ${statCard("站点地址", payload.baseUrl || "-", payload.brand || "", "globe-2", "rose")}
-          ${statCard("GEO 分数", summary.geoScore || 0, geoStatusLabel(coverage.status), "activity", "violet")}
+          ${statCard("站内覆盖分", summary.geoScore || 0, `${geoStatusLabel(coverage.status)}，不代表外部 AI 命中`, "activity", "violet")}
           ${statCard("内容质量", `${summary.contentQualityPercent || 0}%`, `${summary.characterCount || 0} 个角色页`, "badge-check", "mint")}
           ${statCard("IndexNow 链接", summary.indexNowUrlCount || summary.sitemapUrlCount || 0, "待提交", "send", "amber")}
+        </div>
+
+        <div class="adm-card adm-geo-help-card">
+          <header class="adm-card-head">
+            <h3>基础检测口径</h3>
+            <span class="adm-muted">只代表站内技术和内容信号</span>
+          </header>
+          <div class="adm-card-body adm-geo-help-grid">
+            <div>
+              <strong>100 分代表什么</strong>
+              <p>代表站内内容覆盖、入口文件和基础结构基本完整，不代表外部 AI 已经能搜到或推荐我们。</p>
+            </div>
+            <div>
+              <strong>按钮会检查什么</strong>
+              <p>点击“运行基础检测”会实时抓取首页、robots、sitemap、llms、角色页，并检查品牌、API、客服、结构化视频等信号。</p>
+            </div>
+            <div>
+              <strong>和实时测试的区别</strong>
+              <p>实时测试会把问题发给外部 AI 平台，看平台回答里有没有提到我们；那才是 GEO 效果检测。</p>
+            </div>
+          </div>
         </div>
 
         <div class="adm-card adm-geo-score-card">
@@ -4295,29 +4356,29 @@ async function renderGeo() {
           <span class="adm-muted" id="geoRealtimeStatus"></span>
         </div>
         <div class="adm-grid adm-grid-4">
-          ${statCard("已测问题", `${geoProbeLatestResults.length}/${geoProbeQuestions.length}`, `${geoProbeHits} 个通过`, "message-square-search", "violet")}
+          ${statCard("外部平台", `${configuredGeoProbeProviders.length}/${geoProbeProviders.length || 0}`, "已配置 / 可检测", "bot", "violet")}
+          ${statCard("已测组合", `${geoProbeConfiguredResults.length}/${geoProbeExpectedRuns}`, `${geoProbeHits} 个命中`, "message-square-search", "mint")}
           ${statCard("历史结果", (aiProbes.results || []).length, "最近 80 条检测记录", "activity", "mint")}
-          ${statCard("最后更新", aiProbes.updatedAt ? fmtDate(aiProbes.updatedAt) : "-", "实时检索结果", "clock-3", "amber")}
-          ${statCard("通过率", geoProbeLatestResults.length ? `${geoProbePassRate}%` : "-", "全部信号命中才算通过", "target", "rose")}
+          ${statCard("外部命中率", geoProbeConfiguredResults.length ? `${geoProbePassRate}%` : "-", "外部平台回答命中情况", "target", "rose")}
         </div>
 
         <div class="adm-card adm-geo-help-card">
           <header class="adm-card-head">
             <h3>这组检测在看什么</h3>
-            <span class="adm-muted">点击按钮后由服务器立即触发</span>
+            <span class="adm-muted">点击按钮后向外部 AI 平台提问</span>
           </header>
           <div class="adm-card-body adm-geo-help-grid">
             <div>
               <strong>谁来测</strong>
-              <p>不是等 Google、Bing 或真实用户来触发。点击“运行实时测试”后，后台服务器会按问题池逐条抓取公开页面。</p>
+              <p>不是巡检自己网站。点击“运行实时测试”后，后台会把问题分别发给已配置的 Perplexity、OpenAI、Gemini 等外部平台。</p>
             </div>
             <div>
               <strong>命中是什么意思</strong>
-              <p>命中表示目标页里找到了这个问题需要的全部关键信号，比如品牌名、接口路径、结构化数据或客服入口。</p>
+              <p>命中表示外部平台的回答里出现了这个问题需要的关键信号，比如品牌名、接口路径、角色页结构或客服入口。</p>
             </div>
             <div>
               <strong>未命中怎么办</strong>
-              <p>未命中不是任务失败，而是告诉我们哪类公开信息不够明确。下面会列出缺失信号和对应优化建议。</p>
+              <p>未命中说明外部平台没有识别到这些信息。通常要补站内说明、llms、结构化数据，或者发站外内容和回链。</p>
             </div>
           </div>
         </div>
@@ -4325,11 +4386,11 @@ async function renderGeo() {
         <div class="adm-card">
           <header class="adm-card-head">
             <h3>实时检测项</h3>
-            <span class="adm-muted">每一项都对应一个公开页面和一组必须出现的信号。</span>
+            <span class="adm-muted">每一项都会按外部平台分别提问，结果按平台统计。</span>
           </header>
           <div class="adm-card-body adm-table-wrap">
             <table class="adm-table adm-geo-probe-table">
-              <thead><tr><th>检测项</th><th>怎么判断</th><th>当前结果</th><th>优化建议</th><th>打开</th></tr></thead>
+              <thead><tr><th>检测项</th><th>希望外部回答出现</th><th>当前结果</th><th>优化建议</th><th>参考页</th></tr></thead>
               <tbody>
                 ${geoProbeQuestions.map(renderGeoProbeQuestionRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无测试问题。</td></tr>'}
               </tbody>
@@ -4431,17 +4492,23 @@ async function renderGeo() {
 }
 
 function renderGeoProbeQuestionRow(item = {}) {
-  const result = item.latestResult;
+  const results = geoProbeQuestionResults(item);
   const expected = (item.expectedSignals || []).filter(Boolean);
-  const matched = result && Array.isArray(result.matchedSignals) ? result.matchedSignals : [];
-  const missing = result && Array.isArray(result.missingSignals) ? result.missingSignals : [];
+  const matched = [...new Set(results.flatMap((result) => Array.isArray(result.matchedSignals) ? result.matchedSignals : []))];
+  const missing = expected.filter((signal) => !matched.includes(signal));
   const signals = expected.map((signal) => {
     const isMatched = matched.includes(signal);
-    const isMissing = result && missing.includes(signal);
+    const isMissing = results.length && missing.includes(signal);
     return `<span class="adm-pill ${isMatched ? "is-success" : isMissing ? "is-failed" : ""}">${escapeHtml(signal)}</span>`;
   }).join(" ");
   const status = geoProbeStatusText(item);
-  const resultText = result ? geoProbeResultExplain(result) : "还没有运行过这一项。";
+  const configured = results.filter((result) => result.state !== "not_configured");
+  const hitCount = configured.filter((result) => result.hit).length;
+  const resultText = results.length
+    ? configured.length
+      ? `${hitCount}/${configured.length} 个外部平台回答命中。`
+      : "外部平台未配置，尚未实际提问。"
+    : "还没有运行过这一项。";
   return `
     <tr>
       <td>
@@ -4450,7 +4517,7 @@ function renderGeoProbeQuestionRow(item = {}) {
         <span class="adm-block adm-muted adm-mono">${escapeHtml(item.id || "")}</span>
       </td>
       <td>
-        <span class="adm-block adm-muted">目标页</span>
+        <span class="adm-block adm-muted">参考页 / 站内依据</span>
         <span class="adm-block adm-mono adm-truncate" title="${escapeHtml(item.targetUrl || "")}">${escapeHtml(item.targetUrl || "-")}</span>
         <div class="adm-geo-signal-list">${signals || '<span class="adm-muted">无固定信号，只检查页面可访问。</span>'}</div>
       </td>
@@ -4470,7 +4537,7 @@ function renderGeoProbeResultRow(item = {}) {
   return `
     <tr>
       <td>${escapeHtml(item.at ? fmtDate(item.at) : "-")}</td>
-      <td>${escapeHtml(geoProbeModelLabel(item.model))}</td>
+      <td>${escapeHtml(geoProbeModelLabel(item.model, item))}</td>
       <td class="adm-truncate" title="${escapeHtml(item.question || "")}">${escapeHtml(item.question || "-")}</td>
       <td><span class="adm-pill ${hit ? "is-success" : "is-failed"}">${hit ? "命中" : "未命中"}</span></td>
       <td class="adm-truncate" title="${escapeHtml(explanation)}">${escapeHtml(explanation)}</td>
@@ -4637,10 +4704,12 @@ function bindGeoOffsiteCopyButtons(plan = {}) {
 }
 
 function renderGeoCheckRow(check = {}, result = null) {
-  const stateClass = !result ? "" : result.ok ? "is-success" : "is-failed";
-  const stateText = !result ? "待检查" : result.ok ? `${result.status}` : result.error || `${result.status || "失败"}`;
+  const stateClass = !result ? "" : result.running ? "is-running" : result.ok ? "is-success" : "is-failed";
+  const stateText = !result ? "待检查" : result.running ? "检查中" : result.ok ? `${result.status}` : result.error || `${result.status || "失败"}`;
   const signalText = result
-    ? `${result.matched}/${result.total} 已匹配${result.missing?.length ? `，缺失：${result.missing.join(", ")}` : ""}`
+    ? result.running
+      ? `正在检查：${(check.expect || []).join(", ")}`
+      : `${result.matched}/${result.total} 已匹配${result.missing?.length ? `，缺失：${result.missing.join(", ")}` : ""}`
     : (check.expect || []).join(", ");
   return `
     <tr data-geo-check-row="${escapeHtml(check.id || "")}">
@@ -4794,7 +4863,7 @@ async function runGeoRealtimeTest(questions = []) {
   const previous = button.innerHTML;
   button.disabled = true;
   button.innerHTML = '<i data-lucide="loader-2"></i>测试中';
-  if (status) status.textContent = "正在抓取目标页并检查命中信号...";
+  if (status) status.textContent = "正在向已配置的外部 AI 平台逐个提问...";
   refreshIcons();
   try {
     const payload = await api("/api/admin/geo/realtime-test", {
@@ -4802,11 +4871,16 @@ async function runGeoRealtimeTest(questions = []) {
       body: { questions },
     });
     const results = payload.aiProbes?.results || [];
-    const latestCount = Math.min((questions || []).length, results.length);
-    const hits = results.slice(0, latestCount).filter((item) => item.hit).length;
-    const message = `实时测试完成：${hits}/${latestCount} 命中`;
+    const providers = payload.aiProbes?.providers || [];
+    const configuredCount = providers.filter((item) => item.configured).length;
+    const latestCount = Math.min((questions || []).length * Math.max(configuredCount, 1), results.length);
+    const latest = results.slice(0, latestCount).filter((item) => item.state !== "not_configured");
+    const hits = latest.filter((item) => item.hit).length;
+    const message = configuredCount
+      ? `外部 AI 实时测试完成：${hits}/${latest.length} 个问答命中`
+      : "实时测试未执行：还没有配置外部 AI 平台 API Key";
     if (status) status.textContent = message;
-    toast(message, hits === latestCount ? "success" : "info");
+    toast(message, configuredCount && hits === latest.length ? "success" : "info");
     await renderGeo();
   } catch (err) {
     if (status) status.textContent = err.message || "实时测试失败";
@@ -4821,18 +4895,36 @@ async function runGeoRealtimeTest(questions = []) {
 async function runGeoChecks(checks = []) {
   const rows = byId("geoCheckRows");
   const summary = byId("geoCheckSummary");
+  const button = byId("geoRunChecksBtn");
   if (!rows || !summary) return;
+  const previous = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-2"></i>检查中';
+  }
   summary.textContent = "检查中...";
   let passed = 0;
-  for (const check of checks) {
-    const result = await fetchGeoCheck(check);
-    if (result.ok) passed += 1;
-    const row = [...rows.querySelectorAll("[data-geo-check-row]")].find((item) => item.dataset.geoCheckRow === String(check.id || ""));
-    if (row) row.outerHTML = renderGeoCheckRow(check, result);
-    refreshIcons();
+  try {
+    for (const check of checks) {
+      const row = [...rows.querySelectorAll("[data-geo-check-row]")].find((item) => item.dataset.geoCheckRow === String(check.id || ""));
+      if (row) row.outerHTML = renderGeoCheckRow(check, { running: true, matched: 0, total: (check.expect || []).length, missing: [] });
+      refreshIcons();
+      const result = await fetchGeoCheck(check);
+      if (result.ok) passed += 1;
+      const nextRow = [...rows.querySelectorAll("[data-geo-check-row]")].find((item) => item.dataset.geoCheckRow === String(check.id || ""));
+      if (nextRow) nextRow.outerHTML = renderGeoCheckRow(check, result);
+      refreshIcons();
+    }
+    summary.textContent = `${passed}/${checks.length} 通过`;
+    summary.className = passed === checks.length ? "adm-muted adm-geo-pass" : "adm-muted adm-geo-fail";
+    toast(`基础检测完成：${passed}/${checks.length} 通过`, passed === checks.length ? "success" : "info");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = previous;
+      refreshIcons();
+    }
   }
-  summary.textContent = `${passed}/${checks.length} 通过`;
-  summary.className = passed === checks.length ? "adm-muted adm-geo-pass" : "adm-muted adm-geo-fail";
 }
 
 async function fetchGeoCheck(check = {}) {

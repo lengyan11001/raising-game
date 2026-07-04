@@ -2896,13 +2896,20 @@ function buildGeoAiProbePlan(snapshot = {}) {
 
 async function readGeoAiProbes(snapshot = {}) {
   const plan = buildGeoAiProbePlan(snapshot);
+  const providers = geoExternalProbeProviders().map((provider) => ({
+    id: provider.id,
+    label: provider.label,
+    model: provider.model,
+    configured: provider.configured,
+  }));
   const stored = await getKv(GEO_AI_PROBES_KEY, null).catch(() => null);
-  if (!stored || typeof stored !== "object") return plan;
+  if (!stored || typeof stored !== "object") return { ...plan, providers };
   const results = Array.isArray(stored.results) ? stored.results.slice(0, 80) : [];
   return {
     ...plan,
     updatedAt: stored.updatedAt || plan.updatedAt,
     results,
+    providers,
   };
 }
 
@@ -2926,51 +2933,199 @@ function normalizeGeoProbeQuestions(questions = [], snapshot = {}) {
     .filter((item) => item.question && item.targetUrl);
 }
 
-async function runGeoProbeQuestion(question = {}) {
+function geoExternalProbeProviders() {
+  const customProviders = (() => {
+    try {
+      const parsed = JSON.parse(process.env.GEO_AI_PROVIDERS_JSON || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  })();
+  const providers = [
+    {
+      id: "perplexity",
+      label: "Perplexity",
+      model: process.env.GEO_PERPLEXITY_MODEL || "sonar-pro",
+      apiKey: process.env.GEO_PERPLEXITY_API_KEY || process.env.PERPLEXITY_API_KEY || "",
+      type: "openai-compatible",
+      endpoint: "https://api.perplexity.ai/chat/completions",
+    },
+    {
+      id: "openai",
+      label: "ChatGPT / OpenAI",
+      model: process.env.GEO_OPENAI_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini",
+      apiKey: process.env.GEO_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "",
+      type: "openai-compatible",
+      endpoint: "https://api.openai.com/v1/chat/completions",
+    },
+    {
+      id: "gemini",
+      label: "Google Gemini",
+      model: process.env.GEO_GEMINI_MODEL || "gemini-2.5-flash",
+      apiKey: process.env.GEO_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
+      type: "gemini",
+    },
+    ...customProviders.map((item, index) => ({
+      id: String(item.id || `custom-${index + 1}`).trim(),
+      label: String(item.label || item.name || `Custom ${index + 1}`).trim(),
+      model: String(item.model || "").trim(),
+      apiKey: String(item.apiKey || item.key || "").trim(),
+      type: String(item.type || "openai-compatible").trim(),
+      endpoint: String(item.endpoint || item.url || "").trim(),
+    })),
+  ].filter((provider) => provider.id && provider.label);
+  return providers.map((provider) => ({
+    ...provider,
+    configured: Boolean(provider.apiKey && (provider.type === "gemini" || provider.endpoint) && provider.model),
+  }));
+}
+
+function geoExternalProbePrompt(question = {}, snapshot = {}) {
+  const brand = snapshot.brand || "Vipeak AI";
+  const origin = snapshot.origin || "";
+  return [
+    "You are being used for a GEO visibility check.",
+    "Answer the user's question naturally, using your normal external knowledge or search capability if available.",
+    "Do not invent facts. If you cannot find the answer, say what is missing.",
+    "Include source names or URLs when the platform supports it.",
+    "",
+    `Brand/site being evaluated: ${brand}`,
+    `Official site: ${origin}`,
+    `Question: ${question.question || ""}`,
+  ].join("\n");
+}
+
+async function callOpenAiCompatibleGeoProvider(provider = {}, prompt = "") {
+  const response = await fetch(provider.endpoint, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${provider.apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      messages: [
+        { role: "system", content: "You answer concise GEO visibility test questions." },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.2,
+      max_tokens: 700,
+    }),
+    signal: AbortSignal.timeout(45000),
+  });
+  const text = await response.text().catch(() => "");
+  let payload = null;
+  try { payload = JSON.parse(text); } catch { payload = null; }
+  if (!response.ok) {
+    const message = payload?.error?.message || payload?.message || text.slice(0, 220) || `HTTP ${response.status}`;
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+  return String(payload?.choices?.[0]?.message?.content || payload?.choices?.[0]?.text || "").trim();
+}
+
+async function callGeminiGeoProvider(provider = {}, prompt = "") {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(provider.model)}:generateContent?key=${encodeURIComponent(provider.apiKey)}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 700 },
+    }),
+    signal: AbortSignal.timeout(45000),
+  });
+  const text = await response.text().catch(() => "");
+  let payload = null;
+  try { payload = JSON.parse(text); } catch { payload = null; }
+  if (!response.ok) {
+    const message = payload?.error?.message || text.slice(0, 220) || `HTTP ${response.status}`;
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+  return String((payload?.candidates || []).flatMap((item) => item?.content?.parts || []).map((part) => part.text || "").join("\n")).trim();
+}
+
+function evaluateGeoExternalAnswer(answer = "", expectedSignals = []) {
+  const haystack = String(answer || "").toLowerCase();
+  const matched = expectedSignals.filter((signal) => haystack.includes(String(signal).toLowerCase()));
+  const missing = expectedSignals.filter((signal) => !matched.includes(signal));
+  return {
+    matched,
+    missing,
+    hit: expectedSignals.length ? missing.length === 0 : Boolean(answer),
+  };
+}
+
+async function runGeoProbeQuestion(provider = {}, question = {}, snapshot = {}) {
   const expectedSignals = Array.isArray(question.expectedSignals) ? question.expectedSignals : [];
   const startedAt = new Date().toISOString();
-  try {
-    const response = await fetch(question.targetUrl, {
-      cache: "no-store",
-      headers: {
-        accept: "text/html, text/plain, application/xml, application/json;q=0.8, */*;q=0.5",
-        "user-agent": "Vipeak-GEO-Realtime-Probe/1.0",
-      },
-      signal: AbortSignal.timeout(20000),
-    });
-    const text = await response.text().catch(() => "");
-    const haystack = text.toLowerCase();
-    const matched = expectedSignals.filter((signal) => haystack.includes(String(signal).toLowerCase()));
-    const missing = expectedSignals.filter((signal) => !matched.includes(signal));
-    const hit = response.ok && (!expectedSignals.length || missing.length === 0);
+  if (!provider.configured) {
     return {
       at: startedAt,
       id: question.id,
-      model: "Site realtime probe",
+      providerId: provider.id,
+      platform: provider.label,
+      model: provider.model || provider.label,
       question: question.question,
       intent: question.intent,
       targetUrl: question.targetUrl,
-      hit,
-      status: response.status,
-      summary: hit
-        ? `Matched ${matched.length}/${expectedSignals.length} signals on ${question.targetUrl}.`
-        : `Matched ${matched.length}/${expectedSignals.length} signals on ${question.targetUrl}. Missing: ${missing.join(", ") || "HTTP failed"}.`,
+      hit: false,
+      state: "not_configured",
+      status: 0,
+      summary: `${provider.label} 未配置 API Key 或模型，未执行外部平台检测。`,
+      answer: "",
       expectedSignals,
-      matchedSignals: matched,
-      missingSignals: missing,
-      bytes: text.length,
+      matchedSignals: [],
+      missingSignals: expectedSignals,
+      bytes: 0,
+    };
+  }
+  const prompt = geoExternalProbePrompt(question, snapshot);
+  try {
+    const answer = provider.type === "gemini"
+      ? await callGeminiGeoProvider(provider, prompt)
+      : await callOpenAiCompatibleGeoProvider(provider, prompt);
+    const evaluated = evaluateGeoExternalAnswer(answer, expectedSignals);
+    return {
+      at: startedAt,
+      id: question.id,
+      providerId: provider.id,
+      platform: provider.label,
+      model: provider.model || provider.label,
+      question: question.question,
+      intent: question.intent,
+      targetUrl: question.targetUrl,
+      hit: evaluated.hit,
+      state: evaluated.hit ? "hit" : "miss",
+      status: 200,
+      summary: evaluated.hit
+        ? `${provider.label} 回答命中 ${evaluated.matched.length}/${expectedSignals.length} 个信号。`
+        : `${provider.label} 回答命中 ${evaluated.matched.length}/${expectedSignals.length} 个信号，缺少：${evaluated.missing.join(", ") || "有效回答"}。`,
+      answer: compactPlainText(answer, 1400),
+      expectedSignals,
+      matchedSignals: evaluated.matched,
+      missingSignals: evaluated.missing,
+      bytes: answer.length,
     };
   } catch (error) {
     return {
       at: startedAt,
       id: question.id,
-      model: "Site realtime probe",
+      providerId: provider.id,
+      platform: provider.label,
+      model: provider.model || provider.label,
       question: question.question,
       intent: question.intent,
       targetUrl: question.targetUrl,
       hit: false,
-      status: 0,
-      summary: error.message || "Probe request failed.",
+      state: "error",
+      status: error.status || 0,
+      summary: `${provider.label} 调用失败：${error.message || "外部平台请求失败"}`,
+      answer: "",
       expectedSignals,
       matchedSignals: [],
       missingSignals: expectedSignals,
@@ -2985,10 +3140,13 @@ async function handleAdminGeoRealtimeTest(req, res) {
   const body = await readJson(req).catch(() => ({}));
   const snapshot = await geoSiteSnapshot(req);
   const questions = normalizeGeoProbeQuestions(body.questions || [], snapshot).slice(0, 20);
+  const providers = geoExternalProbeProviders();
   const results = [];
-  for (const question of questions) {
-    // Keep this sequential so the site does not self-spike when an admin runs the check.
-    results.push(await runGeoProbeQuestion(question));
+  for (const provider of providers) {
+    for (const question of questions) {
+      // Keep this sequential to avoid rate-limit spikes across external AI platforms.
+      results.push(await runGeoProbeQuestion(provider, question, snapshot));
+    }
   }
   const previous = await getKv(GEO_AI_PROBES_KEY, {}).catch(() => ({}));
   const updatedAt = new Date().toISOString();
@@ -3003,6 +3161,12 @@ async function handleAdminGeoRealtimeTest(req, res) {
     aiProbes: {
       updatedAt,
       questions,
+      providers: providers.map((provider) => ({
+        id: provider.id,
+        label: provider.label,
+        model: provider.model,
+        configured: provider.configured,
+      })),
       results: nextResults,
     },
   });
@@ -3022,10 +3186,13 @@ async function handleAdminGeoReport(req, res) {
   const sampleTag = (snapshot.tags || [])[0] || null;
   const sampleCategory = (snapshot.categories || [])[0] || null;
   const endpoints = [
-    { id: "home", label: "首页元数据", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: ["application/ld+json", "canonical", snapshot.brand] },
+    { id: "home", label: "首页技术入口", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: ["application/ld+json", "canonical", snapshot.brand] },
+    { id: "home-brand", label: "首页品牌与生成信号", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: [snapshot.brand, "AI character video", "video generator"] },
+    { id: "support-contact", label: "客服入口信号", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: ["Telegram", "VipeakSupportBot"] },
     { id: "robots", label: "robots.txt", path: "/robots.txt", url: scopedApiUrl(snapshot.origin, "/robots.txt"), expect: ["Sitemap:", "/sitemap.xml", "OAI-SearchBot", "PerplexityBot"] },
     { id: "sitemap", label: "sitemap.xml", path: "/sitemap.xml", url: scopedApiUrl(snapshot.origin, "/sitemap.xml"), expect: ["<urlset", "/characters/"] },
-    { id: "llms", label: "llms.txt", path: "/llms.txt", url: scopedApiUrl(snapshot.origin, "/llms.txt"), expect: [snapshot.brand, "/api/advanced/generate"] },
+    { id: "llms", label: "llms.txt 基础信号", path: "/llms.txt", url: scopedApiUrl(snapshot.origin, "/llms.txt"), expect: [snapshot.brand, "/api/advanced/generate"] },
+    { id: "api-access-signal", label: "API 接入信号", path: "/llms.txt", url: scopedApiUrl(snapshot.origin, "/llms.txt"), expect: ["/api/advanced/generate", "Authorization", "credits"] },
     { id: "llms-full", label: "llms-full.txt", path: "/llms-full.txt", url: scopedApiUrl(snapshot.origin, "/llms-full.txt"), expect: ["GEO Notes", "VideoObject"] },
     {
       id: "indexnow-key",
@@ -3056,7 +3223,7 @@ async function handleAdminGeoReport(req, res) {
   if (sampleCharacter) {
     endpoints.push({
       id: "character",
-      label: "角色页样例",
+      label: "角色页结构化视频信号",
       path: sampleCharacter.geoPath,
       url: sampleCharacter.geoUrl,
       expect: ["ProfilePage", "VideoObject", "Related characters", sampleCharacter.name || sampleCharacter.id],
