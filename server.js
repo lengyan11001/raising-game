@@ -2851,7 +2851,7 @@ async function handleAdminSubmitIndexNow(req, res) {
 function buildGeoAiProbePlan(snapshot = {}) {
   const brand = snapshot.brand || "Vipeak AI";
   const origin = snapshot.origin || "";
-  const characterCount = (snapshot.characters || []).length;
+  const sampleCharacter = (snapshot.characters || []).find((item) => item.geoUrl && (item.geoVideos || []).length) || (snapshot.characters || [])[0] || null;
   return {
     updatedAt: new Date().toISOString(),
     results: [],
@@ -2874,10 +2874,12 @@ function buildGeoAiProbePlan(snapshot = {}) {
       },
       {
         id: "character-discovery",
-        question: `Find public character profile pages from ${brand} with playable video examples.`,
-        intent: "角色页发现",
-        targetUrl: scopedApiUrl(origin, "/sitemap.xml"),
-        expectedSignals: ["/characters/", "VideoObject", String(characterCount)],
+        question: `Can ${brand} expose a public character profile page with playable video metadata?`,
+        intent: "角色页结构",
+        targetUrl: sampleCharacter?.geoUrl || scopedApiUrl(origin, "/sitemap.xml"),
+        expectedSignals: sampleCharacter
+          ? ["ProfilePage", "VideoObject", sampleCharacter.name || sampleCharacter.id]
+          : ["/characters/"],
         status: "待测试",
       },
       {
@@ -2943,6 +2945,7 @@ async function runGeoProbeQuestion(question = {}) {
     const hit = response.ok && (!expectedSignals.length || missing.length === 0);
     return {
       at: startedAt,
+      id: question.id,
       model: "Site realtime probe",
       question: question.question,
       intent: question.intent,
@@ -2960,6 +2963,7 @@ async function runGeoProbeQuestion(question = {}) {
   } catch (error) {
     return {
       at: startedAt,
+      id: question.id,
       model: "Site realtime probe",
       question: question.question,
       intent: question.intent,
