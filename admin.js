@@ -4284,6 +4284,9 @@ async function renderGeo() {
     </section>
   `;
   refreshIcons();
+  els.adminContent.querySelectorAll(".adm-page-head [id^='geo']").forEach((node) => {
+    node.removeAttribute("id");
+  });
   const run = () => runGeoChecks(checks);
   byId("geoRunChecksBtn")?.addEventListener("click", run);
   byId("geoSubmitIndexNowBtn")?.addEventListener("click", submitGeoIndexNow);

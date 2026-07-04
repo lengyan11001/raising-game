@@ -226,6 +226,7 @@ a { color: inherit; text-decoration: none; }
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
 }
 .adm-page-head .adm-page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.adm-page-head .adm-page-actions[hidden] { display: none !important; }
 
 .adm-card {
   border: 1px solid var(--adm-line);
@@ -430,6 +431,11 @@ a { color: inherit; text-decoration: none; }
 }
 .adm-geo-tabs i { width: 15px; height: 15px; }
 .adm-geo-panel.is-hidden { display: none; }
+.adm-geo-subtab-actions {
+  justify-content: flex-start;
+  align-items: center;
+  margin: 2px 0 10px;
+}
 .adm-geo-indexnow-body {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(180px, 0.5fr);
