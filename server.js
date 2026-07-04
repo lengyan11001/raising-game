@@ -1669,6 +1669,7 @@ async function appendGeoIndexNowHistory(snapshot, result = {}) {
 const GEO_CRAWLER_STATS_KEY = "geo_crawler_stats";
 const GEO_VISITOR_STATS_KEY = "geo_visitor_stats";
 const GEO_INDEXNOW_HISTORY_KEY = "geo_indexnow_history";
+const GEO_AI_PROBES_KEY = "geo_ai_probes";
 const GEO_CRAWLERS = [
   { id: "OAI-SearchBot", pattern: /OAI-SearchBot/i },
   { id: "ChatGPT-User", pattern: /ChatGPT-User/i },
@@ -2891,6 +2892,118 @@ function buildGeoAiProbePlan(snapshot = {}) {
   };
 }
 
+async function readGeoAiProbes(snapshot = {}) {
+  const plan = buildGeoAiProbePlan(snapshot);
+  const stored = await getKv(GEO_AI_PROBES_KEY, null).catch(() => null);
+  if (!stored || typeof stored !== "object") return plan;
+  const results = Array.isArray(stored.results) ? stored.results.slice(0, 80) : [];
+  return {
+    ...plan,
+    updatedAt: stored.updatedAt || plan.updatedAt,
+    results,
+  };
+}
+
+function normalizeGeoProbeQuestions(questions = [], snapshot = {}) {
+  const fallback = buildGeoAiProbePlan(snapshot).questions || [];
+  const list = Array.isArray(questions) && questions.length ? questions : fallback;
+  return list
+    .map((item, index) => {
+      const targetUrl = String(item.targetUrl || item.url || "").trim() || snapshot.origin || "/";
+      return {
+        id: String(item.id || `probe-${index + 1}`).trim().slice(0, 80) || `probe-${index + 1}`,
+        question: compactPlainText(item.question || item.prompt || "", 260),
+        intent: compactPlainText(item.intent || "", 80),
+        targetUrl: /^https?:\/\//i.test(targetUrl) ? targetUrl : scopedApiUrl(snapshot.origin || "", targetUrl),
+        expectedSignals: (Array.isArray(item.expectedSignals) ? item.expectedSignals : Array.isArray(item.expect) ? item.expect : [])
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+          .slice(0, 12),
+      };
+    })
+    .filter((item) => item.question && item.targetUrl);
+}
+
+async function runGeoProbeQuestion(question = {}) {
+  const expectedSignals = Array.isArray(question.expectedSignals) ? question.expectedSignals : [];
+  const startedAt = new Date().toISOString();
+  try {
+    const response = await fetch(question.targetUrl, {
+      cache: "no-store",
+      headers: {
+        accept: "text/html, text/plain, application/xml, application/json;q=0.8, */*;q=0.5",
+        "user-agent": "Vipeak-GEO-Realtime-Probe/1.0",
+      },
+      signal: AbortSignal.timeout(20000),
+    });
+    const text = await response.text().catch(() => "");
+    const haystack = text.toLowerCase();
+    const matched = expectedSignals.filter((signal) => haystack.includes(String(signal).toLowerCase()));
+    const missing = expectedSignals.filter((signal) => !matched.includes(signal));
+    const hit = response.ok && (!expectedSignals.length || missing.length === 0);
+    return {
+      at: startedAt,
+      model: "Site realtime probe",
+      question: question.question,
+      intent: question.intent,
+      targetUrl: question.targetUrl,
+      hit,
+      status: response.status,
+      summary: hit
+        ? `Matched ${matched.length}/${expectedSignals.length} signals on ${question.targetUrl}.`
+        : `Matched ${matched.length}/${expectedSignals.length} signals on ${question.targetUrl}. Missing: ${missing.join(", ") || "HTTP failed"}.`,
+      expectedSignals,
+      matchedSignals: matched,
+      missingSignals: missing,
+      bytes: text.length,
+    };
+  } catch (error) {
+    return {
+      at: startedAt,
+      model: "Site realtime probe",
+      question: question.question,
+      intent: question.intent,
+      targetUrl: question.targetUrl,
+      hit: false,
+      status: 0,
+      summary: error.message || "Probe request failed.",
+      expectedSignals,
+      matchedSignals: [],
+      missingSignals: expectedSignals,
+      bytes: 0,
+    };
+  }
+}
+
+async function handleAdminGeoRealtimeTest(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req).catch(() => ({}));
+  const snapshot = await geoSiteSnapshot(req);
+  const questions = normalizeGeoProbeQuestions(body.questions || [], snapshot).slice(0, 20);
+  const results = [];
+  for (const question of questions) {
+    // Keep this sequential so the site does not self-spike when an admin runs the check.
+    results.push(await runGeoProbeQuestion(question));
+  }
+  const previous = await getKv(GEO_AI_PROBES_KEY, {}).catch(() => ({}));
+  const updatedAt = new Date().toISOString();
+  const nextResults = [
+    ...results,
+    ...(Array.isArray(previous.results) ? previous.results : []),
+  ].slice(0, 80);
+  await setKv(GEO_AI_PROBES_KEY, { updatedAt, results: nextResults });
+  return sendJson(res, 200, {
+    ok: true,
+    updatedAt,
+    aiProbes: {
+      updatedAt,
+      questions,
+      results: nextResults,
+    },
+  });
+}
+
 async function handleAdminGeoReport(req, res) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
@@ -2900,6 +3013,7 @@ async function handleAdminGeoReport(req, res) {
   const indexNowHistory = await readGeoIndexNowHistory();
   const coverage = buildGeoCoverage(snapshot, visitorStats, indexNowHistory);
   const offsitePlan = buildGeoOffsitePlan(snapshot);
+  const aiProbes = await readGeoAiProbes(snapshot);
   const sampleCharacter = snapshot.characters[0] || null;
   const sampleTag = (snapshot.tags || [])[0] || null;
   const sampleCategory = (snapshot.categories || [])[0] || null;
@@ -2973,7 +3087,7 @@ async function handleAdminGeoReport(req, res) {
     visitorStats: visitorStatsForAdmin,
     indexNowHistory,
     coverage,
-    aiProbes: buildGeoAiProbePlan(snapshot),
+    aiProbes,
     offsitePlan,
     sampleTopics: [
       ...(snapshot.categories || []).slice(0, 6).map((item) => ({
@@ -18042,16 +18156,92 @@ function publicUserCharacter(character) {
     name: character.name || "My character",
     title: character.title || "My drama",
     posterUrl: character.posterUrl || character.localImageUrl || "",
+    localImageUrl: character.localImageUrl || "",
+    sourceImageUrl: character.sourceImageUrl || character.localImageUrl || character.posterUrl || "",
+    publicImageUrl: character.publicImageUrl || "",
+    imageTaskId: character.imageTaskId || "",
+    imageRemoteUrl: character.imageRemoteUrl || "",
     videoUrl: character.videoUrl || character.localVideoUrl || "",
     taskId: character.taskId || "",
     status: character.status || "",
     error: character.error || "",
     referenceAssetUri: character.referenceAssetUri || "",
+    prompt: character.prompt || "",
     sceneVideos: publicSceneVideoMap(character.sceneVideos || {}),
     deletedAt: character.deletedAt || "",
     createdAt: character.createdAt || "",
     updatedAt: character.updatedAt || "",
   };
+}
+
+function apizTaskIdFromResponse(value = {}) {
+  return String(
+    value?.task_id ||
+      value?.taskId ||
+      value?.id ||
+      value?.data?.task_id ||
+      value?.data?.taskId ||
+      value?.data?.id ||
+      value?.task?.task_id ||
+      value?.task?.taskId ||
+      value?.task?.id ||
+      "",
+  ).trim();
+}
+
+function apizTaskStatus(value = {}) {
+  return String(
+    value?.status ||
+      value?.state ||
+      value?.data?.status ||
+      value?.data?.state ||
+      value?.task?.status ||
+      value?.task?.state ||
+      "submitted",
+  ).trim();
+}
+
+async function saveUserCharacterForAuth(auth, record) {
+  const existingIndex = auth.db.userCharacters.findIndex((entry) => entry.id === record.id);
+  if (existingIndex >= 0) {
+    auth.db.userCharacters[existingIndex] = record;
+  } else {
+    auth.db.userCharacters.unshift(record);
+  }
+  if (dbEnabled()) await upsertUserCharacterInDb(record);
+  else await writeDb(auth.db);
+  return record;
+}
+
+async function refreshGeneratedMyCharacterImage(auth, record) {
+  if (!record?.imageTaskId) return { record, task: null, imageUrls: [] };
+  const task = await apizRequest("/api/v3/tasks/query", { task_id: record.imageTaskId });
+  const status = apizTaskStatus(task);
+  const imageUrls = collectImageUrls(task);
+  const nowIso = new Date().toISOString();
+  record.imageStatus = status;
+  record.updatedAt = nowIso;
+
+  if (isCompletedStatus(status) && imageUrls[0]) {
+    const local = await downloadGeneratedCharacterSheet(record.imageTaskId, imageUrls[0]);
+    record.posterUrl = local.localUrl;
+    record.localImageUrl = local.localUrl;
+    record.sourceImageUrl = local.localUrl;
+    record.imageRemoteUrl = imageUrls[0];
+    record.imageTaskResponse = task;
+    record.status = "image_ready";
+    record.error = "";
+  } else if (isFailedStatus(status)) {
+    record.status = "image_failed";
+    record.error = String(task.error || task.message || task.fail_reason || "Character image generation failed.");
+    record.imageTaskResponse = task;
+  } else {
+    record.status = record.status || "image_generating";
+    record.imageTaskResponse = task;
+  }
+
+  await saveUserCharacterForAuth(auth, record);
+  return { record, task, imageUrls };
 }
 
 async function ensureCharacterReferenceForRecord(record) {
@@ -18306,6 +18496,88 @@ async function handleSaveMyCharacterDraft(req, res) {
   return sendJson(res, 200, { ok: true, character: publicUserCharacter(record) });
 }
 
+async function handleGenerateMyCharacterImage(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const userPrompt = String(body.prompt || "").trim();
+  if (!userPrompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  const config = await readAppConfig();
+  const nowIso = new Date().toISOString();
+  const characterId = randomId("mychar");
+  const record = {
+    id: characterId,
+    userId: auth.user.id,
+    name: String(body.name || "My character").trim().slice(0, 32) || "My character",
+    title: String(body.title || "My character").trim().slice(0, 48) || "My character",
+    posterUrl: "",
+    localImageUrl: "",
+    sourceImageUrl: "",
+    imageMime: "",
+    sourceImageMime: "",
+    publicImageUrl: "",
+    imageTaskId: "",
+    imageStatus: "submitted",
+    imageRemoteUrl: "",
+    referenceAssetUri: "",
+    syntheticReferenceLocalUrl: "",
+    syntheticReferenceUrl: "",
+    syntheticReferenceTaskId: "",
+    videoUrl: "",
+    localVideoUrl: "",
+    taskId: "",
+    status: "image_generating",
+    prompt: userPrompt,
+    creator: body.creator && typeof body.creator === "object" && !Array.isArray(body.creator) ? body.creator : null,
+    sceneVideos: {},
+    deletedAt: "",
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+  await saveUserCharacterForAuth(auth, record);
+
+  const model = config.characterImage.textModel;
+  const params = {
+    prompt: userPrompt,
+    image_size: normalizeSeedreamImageSize(config.characterImage.imageSize),
+    num_images: 1,
+    max_images: 1,
+    enhance_prompt_mode: "standard",
+  };
+
+  try {
+    console.log("[my-character-image-submit]", JSON.stringify({ userId: auth.user.id, characterId, model, params }, null, 2));
+    const submitted = await apizRequest("/api/v3/tasks/create", { model, params });
+    const taskId = apizTaskIdFromResponse(submitted);
+    if (!taskId) {
+      const error = new Error(`Character image task did not return task id: ${JSON.stringify(submitted)}`);
+      error.statusCode = 502;
+      throw error;
+    }
+    record.imageTaskId = taskId;
+    record.imageStatus = apizTaskStatus(submitted);
+    record.imageTaskResponse = submitted;
+    record.updatedAt = new Date().toISOString();
+    await saveUserCharacterForAuth(auth, record);
+    return sendJson(res, 200, {
+      ok: true,
+      character: publicUserCharacter(record),
+      task: { taskId, status: record.imageStatus },
+      user: userView(auth.user),
+    });
+  } catch (error) {
+    record.status = "image_failed";
+    record.error = error.message || "Character image generation failed.";
+    record.updatedAt = new Date().toISOString();
+    await saveUserCharacterForAuth(auth, record);
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      message: record.error,
+      character: publicUserCharacter(record),
+    });
+  }
+}
+
 async function handleCreateMyCharacter(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -18494,6 +18766,33 @@ async function handleGetMyCharacter(req, res, characterId) {
   const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id && !isSoftDeleted(entry));
   if (!record) return sendJson(res, 404, { ok: false, message: "Character not found." });
   return sendJson(res, 200, { ok: true, character: publicUserCharacter(record) });
+}
+
+async function handleRefreshMyCharacterImage(req, res, characterId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const record = auth.db.userCharacters.find((entry) => entry.id === characterId && entry.userId === auth.user.id && !isSoftDeleted(entry));
+  if (!record) return sendJson(res, 404, { ok: false, message: "Character not found." });
+  if (!record.imageTaskId) return sendJson(res, 400, { ok: false, message: "This character has no image generation task." });
+  try {
+    const refreshed = await refreshGeneratedMyCharacterImage(auth, record);
+    return sendJson(res, 200, {
+      ok: true,
+      character: publicUserCharacter(refreshed.record),
+      task: refreshed.task,
+      imageUrls: refreshed.imageUrls,
+    });
+  } catch (error) {
+    record.status = "image_failed";
+    record.error = error.message || "Failed to refresh character image.";
+    record.updatedAt = new Date().toISOString();
+    await saveUserCharacterForAuth(auth, record);
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      message: record.error,
+      character: publicUserCharacter(record),
+    });
+  }
 }
 
 async function handleDeleteMyCharacter(req, res, characterId) {
@@ -21477,6 +21776,10 @@ async function handleRequest(req, res) {
       return await handleAdminGeoReport(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/admin/geo/realtime-test") {
+      return await handleAdminGeoRealtimeTest(req, res);
+    }
+
     if (req.method === "POST" && url.pathname === "/api/admin/geo/indexnow") {
       return await handleAdminSubmitIndexNow(req, res);
     }
@@ -21590,6 +21893,10 @@ async function handleRequest(req, res) {
       return await handleSaveMyCharacterDraft(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/my/characters/generate-image") {
+      return await handleGenerateMyCharacterImage(req, res);
+    }
+
     const myCharacterStartMainMatch = url.pathname.match(/^\/api\/my\/characters\/([^/]+)\/start-main-video$/);
     if (req.method === "POST" && myCharacterStartMainMatch) {
       return await handleStartMyCharacterMainVideo(req, res, myCharacterStartMainMatch[1]);
@@ -21609,6 +21916,11 @@ async function handleRequest(req, res) {
     }
     if (req.method === "DELETE" && myCharacterMatch) {
       return await handleDeleteMyCharacter(req, res, myCharacterMatch[1]);
+    }
+
+    const myCharacterImageTaskMatch = url.pathname.match(/^\/api\/my\/characters\/([^/]+)\/image$/);
+    if (req.method === "GET" && myCharacterImageTaskMatch) {
+      return await handleRefreshMyCharacterImage(req, res, myCharacterImageTaskMatch[1]);
     }
 
     const myCharacterMainTaskMatch = url.pathname.match(/^\/api\/my\/characters\/([^/]+)\/main-video$/);

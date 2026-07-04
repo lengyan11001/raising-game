@@ -422,6 +422,9 @@ const state = {
   activeGalleryCharacterId: "",
   visibleCharacterCount: CHARACTER_PAGE_SIZE,
   characterLoadObserver: null,
+  myCharacters: [],
+  myCharactersLoaded: false,
+  myCharacterRefreshTimers: {},
   galleryUnlocks: [],
   galleryUnlocksLoaded: false,
   galleryUnlockMessage: "",
@@ -6337,6 +6340,7 @@ function setTab(tab) {
     renderGalleryCharacters(els.characterGrid);
     bindCharacterCreator();
     loadGalleryUnlocks();
+    if (state.user) loadMyCharacters({ silent: true }).catch(() => {});
     if (state.user) loadUserAssets(state.userAssetsPage || 1).catch(() => {});
   }
   if (nextTab === "access") loadApiSubtokens();
@@ -6592,6 +6596,26 @@ function bindCharacterLoadMore(root = els.templateGrid, totalCount = 0) {
 
 function bindGalleryCharacterCards(root = els.templateGrid) {
   if (!root) return;
+  root.querySelectorAll("[data-character-refresh]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      refreshMyCharacterImage(button.dataset.characterRefresh || "", { render: true }).catch((error) => {
+        if (els.characterCreateStatus) els.characterCreateStatus.textContent = error.message || String(error);
+      });
+    });
+  });
+  root.querySelectorAll("[data-character-alive]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      useHomeCharacter(button.dataset.characterAlive || "");
+    });
+  });
+  root.querySelectorAll("[data-character-alive-picker]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openCharacterAliveQuickGenerateDialog(button.dataset.characterAlivePicker || "");
+    });
+  });
   root.querySelectorAll("[data-character-use]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -6630,8 +6654,47 @@ function bindGalleryCharacterCards(root = els.templateGrid) {
   });
 }
 
+function characterUsableImage(item = {}) {
+  return item.posterUrl || item.localImageUrl || item.sourceImageUrl || item.publicImageUrl || item.imageUrl || "";
+}
+
+function isMyCharacterGenerating(item = {}) {
+  const status = String(item.status || "").toLowerCase();
+  return Boolean(item.myCharacter && (status.includes("generating") || status.includes("submitted") || status.includes("pending") || status.includes("processing")));
+}
+
+function myCharacterStatusLabel(item = {}) {
+  const status = String(item.status || "").toLowerCase();
+  if (status === "image_ready" || characterUsableImage(item)) return state.lang === "zh" ? "已生成" : "Ready";
+  if (status === "image_failed" || status.includes("failed") || status.includes("error")) return state.lang === "zh" ? "失败" : "Failed";
+  if (status.includes("generating") || status.includes("submitted") || status.includes("pending") || status.includes("processing")) return state.lang === "zh" ? "生成中" : "Generating";
+  return item.status || (state.lang === "zh" ? "处理中" : "Processing");
+}
+
+function myCharacterToGalleryItem(character = {}) {
+  const posterUrl = characterUsableImage(character);
+  return {
+    ...character,
+    id: character.id,
+    name: character.name || "My character",
+    title: character.title || character.prompt || "",
+    posterUrl,
+    localImageUrl: character.localImageUrl || posterUrl,
+    publicImageUrl: character.publicImageUrl || "",
+    sourceImageUrl: character.sourceImageUrl || posterUrl,
+    status: character.status || "",
+    custom: true,
+    myCharacter: true,
+    videoCount: character.videoUrl ? 1 : 0,
+    tags: [myCharacterStatusLabel(character)].filter(Boolean),
+  };
+}
+
 function customCharacterItems() {
-  return (state.userAssets || [])
+  const myCharacters = (state.myCharacters || [])
+    .filter((character) => character && !character.deletedAt)
+    .map(myCharacterToGalleryItem);
+  const legacyAssets = (state.userAssets || [])
     .filter((asset) => asset?.kind === "image" && (asset.isCharacterAsset || String(asset.name || "").toLowerCase().includes("character")))
     .map((asset) => ({
       id: `custom:${asset.id}`,
@@ -6647,6 +6710,7 @@ function customCharacterItems() {
       custom: true,
       createdAt: asset.createdAt || "",
     }));
+  return [...myCharacters, ...legacyAssets];
 }
 
 function compactNumber(value = 0) {
@@ -6937,28 +7001,42 @@ function renderGalleryCharacterCard(item = {}, index = 0) {
   const fallbackPoster = DEFAULT_TEMPLATE_COVER;
   const videoCount = item.videoCount || characterAllVideos(item).length;
   const custom = item.custom === true;
+  const mine = item.myCharacter === true;
+  const imageReady = Boolean(characterUsableImage(item));
+  const generating = isMyCharacterGenerating(item);
   const tags = characterTags(item, 2);
   const profileLine = characterProfileLine(item);
   const stats = uniqueTruthy([
     `${compactNumber(item.likeCount)} likes`,
     `${videoCount} videos`,
   ]).join(" / ");
+  const actionMarkup = mine
+    ? `
+          ${generating ? `<button class="ghost-button" data-character-refresh="${escapeHtml(item.id || "")}" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>` : ""}
+          ${imageReady ? `<button class="primary-button" data-character-alive="${escapeHtml(item.id || "")}" type="button"><i data-lucide="sparkles"></i>Bring alive</button>` : ""}
+          ${imageReady ? `<button class="copy-btn" data-character-alive-picker="${escapeHtml(item.id || "")}" type="button"><i data-lucide="clapperboard"></i>Scene</button>` : ""}
+          <button class="ghost-button danger" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>
+      `
+    : `
+          <button class="ghost-button" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.use"))}</button>
+          <button class="ghost-button" data-character-takeoff="${escapeHtml(item.id || "")}" type="button"><i data-lucide="shirt"></i>${escapeHtml(t("characters.takeOff"))}</button>
+          <button class="copy-btn" data-character-modify="${escapeHtml(item.id || "")}" type="button"><i data-lucide="wand-sparkles"></i>${escapeHtml(t("characters.modify"))}</button>
+          ${custom ? `<button class="ghost-button danger" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>` : ""}
+      `;
   return `
     <article class="character-card explore-character-card" data-character-id="${escapeHtml(item.id || "")}">
       <div class="character-card-media">
         ${renderSmartCoverMedia({ className: "character-cover-media", posterUrl: poster, videoUrl, alt: item.name || "", fallbackUrl: fallbackPoster, eager: index < 6, defer: index >= 6 })}
         ${videoUrl ? `<span class="character-card-video-mark"><i data-lucide="radio"></i>LIVE</span>` : ""}
+        ${mine ? `<span class="character-card-status ${generating ? "is-pending" : imageReady ? "is-ready" : "is-failed"}">${escapeHtml(myCharacterStatusLabel(item))}</span>` : ""}
         <div class="character-card-meta">
-          <span>${escapeHtml(custom ? t("characters.customTab") : stats)}</span>
+          <span>${escapeHtml(mine ? myCharacterStatusLabel(item) : custom ? t("characters.customTab") : stats)}</span>
           <strong>${escapeHtml(item.name || "Character")}</strong>
           <p>${escapeHtml(profileLine || item.title || "")}</p>
           ${tags.length ? `<div class="character-card-tags">${tags.map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>` : ""}
         </div>
         <div class="character-card-actions">
-          <button class="ghost-button" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.use"))}</button>
-          <button class="ghost-button" data-character-takeoff="${escapeHtml(item.id || "")}" type="button"><i data-lucide="shirt"></i>${escapeHtml(t("characters.takeOff"))}</button>
-          <button class="copy-btn" data-character-modify="${escapeHtml(item.id || "")}" type="button"><i data-lucide="wand-sparkles"></i>${escapeHtml(t("characters.modify"))}</button>
-          ${custom ? `<button class="ghost-button danger" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>` : ""}
+          ${actionMarkup}
         </div>
       </div>
     </article>
@@ -6967,7 +7045,8 @@ function renderGalleryCharacterCard(item = {}, index = 0) {
 
 async function deleteCustomCharacter(characterId = "", button = null) {
   const assetId = String(characterId || "").startsWith("custom:") ? String(characterId).slice("custom:".length) : "";
-  if (!assetId) return;
+  const isMyCharacter = !assetId && (state.myCharacters || []).some((item) => String(item.id || "") === String(characterId || ""));
+  if (!assetId && !isMyCharacter) return;
   const originalHtml = button?.innerHTML || "";
   if (button) {
     button.disabled = true;
@@ -6975,9 +7054,14 @@ async function deleteCustomCharacter(characterId = "", button = null) {
     refreshIcons();
   }
   try {
-    await requestJson(`/api/user-assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
-    state.userAssets = (state.userAssets || []).filter((asset) => asset.id !== assetId);
-    state.userAssetsTotal = Math.max(0, Number(state.userAssetsTotal || 0) - 1);
+    if (isMyCharacter) {
+      await requestJson(`/api/my/characters/${encodeURIComponent(characterId)}`, { method: "DELETE" });
+      state.myCharacters = (state.myCharacters || []).filter((item) => String(item.id || "") !== String(characterId || ""));
+    } else {
+      await requestJson(`/api/user-assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
+      state.userAssets = (state.userAssets || []).filter((asset) => asset.id !== assetId);
+      state.userAssetsTotal = Math.max(0, Number(state.userAssetsTotal || 0) - 1);
+    }
     renderGalleryCharacters(els.characterGrid);
     if (state.tab === "assets") await loadUserAssets(state.userAssetsPage || 1);
   } catch (error) {
@@ -6988,6 +7072,54 @@ async function deleteCustomCharacter(characterId = "", button = null) {
       refreshIcons();
     }
   }
+}
+
+async function loadMyCharacters({ silent = false } = {}) {
+  if (!state.user) {
+    state.myCharacters = [];
+    state.myCharactersLoaded = true;
+    if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+    return [];
+  }
+  if (!silent && els.characterCreateStatus) els.characterCreateStatus.textContent = "Loading characters...";
+  const payload = await requestJson("/api/my/characters");
+  state.myCharacters = payload.characters || [];
+  state.myCharactersLoaded = true;
+  scheduleMyCharacterProgressRefreshes();
+  if (!silent && els.characterCreateStatus) els.characterCreateStatus.textContent = "";
+  if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+  return state.myCharacters;
+}
+
+function updateMyCharacterInState(character = {}) {
+  if (!character?.id) return;
+  state.myCharacters = [
+    character,
+    ...(state.myCharacters || []).filter((item) => String(item.id || "") !== String(character.id || "")),
+  ];
+}
+
+function scheduleMyCharacterProgressRefreshes() {
+  (state.myCharacters || []).forEach((character) => {
+    if (!character?.id || !character.imageTaskId) return;
+    if (!isMyCharacterGenerating(myCharacterToGalleryItem(character))) return;
+    if (state.myCharacterRefreshTimers?.[character.id]) return;
+    state.myCharacterRefreshTimers[character.id] = window.setTimeout(async () => {
+      delete state.myCharacterRefreshTimers[character.id];
+      await refreshMyCharacterImage(character.id, { render: state.tab === "characters", reschedule: true }).catch(() => {});
+    }, 5000);
+  });
+}
+
+async function refreshMyCharacterImage(characterId = "", { render = false, reschedule = false } = {}) {
+  const id = String(characterId || "").trim();
+  if (!id) return null;
+  const payload = await requestJson(`/api/my/characters/${encodeURIComponent(id)}/image`);
+  if (payload.character) updateMyCharacterInState(payload.character);
+  if (render && state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+  const item = payload.character ? myCharacterToGalleryItem(payload.character) : null;
+  if (reschedule && item && isMyCharacterGenerating(item)) scheduleMyCharacterProgressRefreshes();
+  return payload.character || null;
 }
 
 function characterCreatorOption(field = "", value = "") {
@@ -7281,24 +7413,29 @@ async function createCharacterFromPrompt() {
   }
   if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.creating");
   try {
-    const payload = await requestJson("/api/characters/generate", {
+    const creatorState = els.characterCreatorRoot ? { ...(state.characterCreator || {}) } : null;
+    const payload = await requestJson("/api/my/characters/generate-image", {
       method: "POST",
-      body: { prompt },
+      body: {
+        prompt,
+        name: creatorState?.name || "My character",
+        title: creatorState?.relationship || creatorState?.personality || "My character",
+        creator: creatorState,
+      },
     });
     if (payload.user) setUser(payload.user);
-    if (payload.record) {
-      state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
-    }
+    if (payload.character) updateMyCharacterInState(payload.character);
     if (els.characterCreatePrompt) els.characterCreatePrompt.value = "";
     if (els.characterCreatorRoot) {
       state.characterCreator = { ...CHARACTER_CREATOR_DEFAULT, step: "prompt" };
       renderCharacterCreator();
     }
-    if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.created");
-    await loadHistory({ silent: true }).catch(() => {});
+    if (els.characterCreateStatus) els.characterCreateStatus.textContent = state.lang === "zh" ? "角色已加入我的角色，正在生成。" : "Character added. Generating image...";
+    state.activeGalleryCharacterId = "";
+    renderGalleryCharacters(els.characterGrid);
+    scheduleMyCharacterProgressRefreshes();
   } catch (error) {
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.createFailed", { message: error.message || String(error) });
-    window.setTimeout(() => loadHistory({ silent: true }), 300);
   } finally {
     if (button) {
       button.disabled = false;
@@ -8018,40 +8155,115 @@ function bindGalleryCaseActions() {
   });
 }
 
+function findGalleryCharacterById(characterId = "") {
+  const id = String(characterId || "");
+  return [
+    ...(state.homeCharacters || []),
+    ...customCharacterItems(),
+  ].find((entry) => String(entry.id || "") === id) || null;
+}
+
 async function useHomeCharacter(characterId = "") {
-  const item = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
+  const item = findGalleryCharacterById(characterId);
   if (!item) return;
   const imageUrl = characterReferenceImageUrl(item);
-  let dataUrl = "";
-  try {
-    dataUrl = await imageUrlToDataUrl(imageUrl);
-  } catch (error) {
-    dataUrl = "";
-  }
   state.advancedCreateKind = "video";
   state.advancedCreateMode = "video-image";
+  renderAdvancedCreateControls();
   if (els.advancedProvider) els.advancedProvider.value = "seedance";
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
   state.activeAdvancedCaseId = "";
   state.advancedSeedanceVideoAssetId = "";
   state.advancedSeedanceVideoPreviewUrl = "";
-  state.advancedReferenceImages = dataUrl ? [{
-    dataUrl,
+  const preset = {
+    id: item.id || "character",
+    label: item.name || "Character",
+    prompt: item.prompt || item.title || `Use ${item.name || "the selected character"} as the main subject.`,
+    imageUrl,
+    referenceImageUrl: imageUrl,
+    category: item.myCharacter ? "My characters" : "Characters",
+  };
+  state.advancedSelectedPresets = { ...(state.advancedSelectedPresets || {}), character: preset };
+  state.advancedReferenceImages = imageUrl ? [{
+    dataUrl: imageUrl,
+    url: imageUrl,
     previewUrl: imageUrl,
     fileName: item.name || "Character",
+    name: item.name || "Character",
+    fromPreset: true,
+    presetId: item.id || "",
+    presetSlot: "character",
   }] : [];
-  state.advancedUploadDataUrl = dataUrl;
-  if (els.advancedPrompt && !els.advancedPrompt.value.trim()) {
+  state.advancedUploadDataUrl = imageUrl || "";
+  if (els.advancedPrompt) {
     els.advancedPrompt.value = `Use Image 1 as the main character reference. Create a cinematic video featuring ${item.name || "the character"}.`;
   }
   setTab("advanced");
   updateAdvancedModelControls();
+  renderAdvancedPresetBuilder();
   updateAdvancedButtonCost();
   if (els.advancedNote) {
-    els.advancedNote.textContent = dataUrl
+    els.advancedNote.textContent = imageUrl
       ? `${item.name || "Character"} selected. Choose a case or generate directly.`
       : `Failed to load ${item.name || "character"} image.`;
   }
+}
+
+function renderAlivePresetSelect(slot = "") {
+  const label = advancedPresetLabel(slot);
+  const items = advancedPresetItems(slot);
+  return `
+    <label class="field">
+      <span>${escapeHtml(label)}</span>
+      <select data-alive-preset="${escapeHtml(slot)}">
+        <option value="">${escapeHtml(slot === "action" ? `Choose ${label}` : `Optional ${label}`)}</option>
+        ${items.map((item) => `<option value="${escapeHtml(item.id || "")}">${escapeHtml(item.label || item.id || "")}</option>`).join("")}
+      </select>
+    </label>
+  `;
+}
+
+async function openCharacterAliveQuickGenerateDialog(characterId = "") {
+  if (!state.user) return openLogin();
+  await loadAdvancedPresets();
+  await useHomeCharacter(characterId);
+  const item = findGalleryCharacterById(characterId);
+  if (!item) return;
+  await showInlineDialog({
+    title: state.lang === "zh" ? "选择场景并生成" : "Choose scene and generate",
+    body: `
+      <div class="asset-generate-form character-alive-form">
+        <p class="job-note">${escapeHtml(state.lang === "zh" ? "选择动作、服装和场景后会跳到 Create，并在 Result 中显示进度。" : "Choose action, outfit, and scene. Generation will open Create and show progress in Result.")}</p>
+        ${renderAlivePresetSelect("action")}
+        ${renderAlivePresetSelect("outfit")}
+        ${renderAlivePresetSelect("scene")}
+        <p class="job-note" id="characterAliveStatus"></p>
+      </div>
+    `,
+    confirmText: t("common.generate"),
+    onConfirm: async (root) => {
+      const selected = {};
+      root.querySelectorAll("[data-alive-preset]").forEach((select) => {
+        const slot = select.dataset.alivePreset || "";
+        const presetId = select.value || "";
+        if (!slot || !presetId) return;
+        const preset = advancedPresetItems(slot).find((entry) => entry.id === presetId);
+        if (preset) selected[slot] = preset;
+      });
+      if (!selected.action) {
+        throw new Error(state.lang === "zh" ? "请先选择动作。" : "Choose an action first.");
+      }
+      state.advancedSelectedPresets = {
+        ...(state.advancedSelectedPresets || {}),
+        ...selected,
+      };
+      renderAdvancedPresetBuilder();
+      updateAdvancedModelControls();
+      setTab("advanced");
+      setAdvancedSideTab("result");
+      await submitAdvancedGenerate();
+    },
+  });
 }
 
 async function imageUrlToDataUrl(url = "") {

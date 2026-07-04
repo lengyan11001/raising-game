@@ -4754,6 +4754,35 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   font-size: .68rem;
   font-weight: 900;
 }
+.character-card-status {
+  position: absolute;
+  left: 9px;
+  top: 9px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(12,12,15,.72);
+  color: rgba(255,255,255,.86);
+  font-size: .68rem;
+  font-weight: 900;
+  backdrop-filter: blur(8px);
+}
+.character-card-status.is-pending {
+  color: #ffdca8;
+  border-color: rgba(255,180,80,.36);
+}
+.character-card-status.is-ready {
+  color: #9ff5d0;
+  border-color: rgba(80,255,180,.32);
+}
+.character-card-status.is-failed {
+  color: #ff9dbd;
+  border-color: rgba(255,80,140,.36);
+}
 .character-card-meta {
   position: absolute;
   inset: auto 0 0;
