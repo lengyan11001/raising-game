@@ -2368,7 +2368,12 @@ async function renderUsers(pageArg = null, limitArg = null) {
   const savedPager = JSON.parse(sessionStorage.getItem("admUsersPager") || "{}");
   const page = normalizeAdminPage(pageArg || savedPager.page || 1);
   const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
-  const payload = await api(`/api/admin/users?page=${page}&limit=${limit}`);
+  const q = sessionStorage.getItem("admUsersQuery") || "";
+  const role = sessionStorage.getItem("admUsersRole") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  if (role) params.set("role", role);
+  const payload = await api(`/api/admin/users?${params.toString()}`);
   if (!isActiveRoute("users")) return;
   const users = payload.users || [];
   sessionStorage.setItem("admUsersPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
@@ -2379,6 +2384,16 @@ async function renderUsers(pageArg = null, limitArg = null) {
           <h2>用户管理</h2>
           <p class="adm-muted">编辑积分、重置密码、切换角色或删除用户。</p>
         </div>
+        <form class="adm-list-filters" id="usersFilterForm">
+          <input id="usersSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索用户名 / 用户ID / Token" />
+          <select id="usersRoleFilter">
+            <option value="" ${role === "" ? "selected" : ""}>全部角色</option>
+            <option value="user" ${role === "user" ? "selected" : ""}>普通用户</option>
+            <option value="admin" ${role === "admin" ? "selected" : ""}>管理员</option>
+          </select>
+          <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+          <button class="adm-btn adm-btn-ghost" id="usersResetFilterBtn" type="button"><i data-lucide="x"></i>清空</button>
+        </form>
       </div>
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
@@ -2412,6 +2427,23 @@ async function renderUsers(pageArg = null, limitArg = null) {
   `;
   refreshIcons();
   bindAdminPager(els.adminContent, payload, ({ page, limit }) => renderUsers(page, limit).catch((err) => renderRouteError("users", err)));
+  const runUserFilter = () => {
+    sessionStorage.setItem("admUsersQuery", els.adminContent.querySelector("#usersSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admUsersRole", els.adminContent.querySelector("#usersRoleFilter")?.value || "");
+    sessionStorage.setItem("admUsersPager", JSON.stringify({ page: 1, limit }));
+    renderUsers(1, limit).catch((err) => renderRouteError("users", err));
+  };
+  els.adminContent.querySelector("#usersFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runUserFilter();
+  });
+  els.adminContent.querySelector("#usersRoleFilter")?.addEventListener("change", runUserFilter);
+  els.adminContent.querySelector("#usersResetFilterBtn")?.addEventListener("click", () => {
+    sessionStorage.removeItem("admUsersQuery");
+    sessionStorage.removeItem("admUsersRole");
+    sessionStorage.setItem("admUsersPager", JSON.stringify({ page: 1, limit }));
+    renderUsers(1, limit).catch((err) => renderRouteError("users", err));
+  });
   els.adminContent.querySelectorAll("tr[data-id]").forEach((tr) => {
     const id = tr.dataset.id;
     tr.querySelector('[data-act="edit-user"]')?.addEventListener("click", () => openEditUserDialog(id, users));
@@ -2582,7 +2614,12 @@ async function renderWallet(pageArg = null, limitArg = null) {
   const savedPager = JSON.parse(sessionStorage.getItem("admWalletPager") || "{}");
   const page = normalizeAdminPage(pageArg || savedPager.page || 1);
   const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
-  const payload = await api(`/api/admin/wallet-orders?page=${page}&limit=${limit}`);
+  const q = sessionStorage.getItem("admWalletQuery") || "";
+  const status = sessionStorage.getItem("admWalletStatus") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  if (status) params.set("status", status);
+  const payload = await api(`/api/admin/wallet-orders?${params.toString()}`);
   if (!isActiveRoute("wallet")) return;
   const orders = payload.orders || [];
   sessionStorage.setItem("admWalletPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
@@ -2596,6 +2633,23 @@ async function renderWallet(pageArg = null, limitArg = null) {
         <button class="adm-btn adm-btn-primary" id="scanWalletOrdersBtn" type="button"><i data-lucide="radar"></i>扫描链上订单</button>
       </div>
       <div class="adm-card">
+        <div class="adm-card-head">
+          <div>
+            <h3>订单列表</h3>
+            <p class="adm-muted">按用户、订单号、地址、交易哈希或支付渠道筛选。</p>
+          </div>
+          <form class="adm-list-filters" id="walletFilterForm">
+            <select id="walletStatusFilter">
+              <option value="" ${status === "" ? "selected" : ""}>全部状态</option>
+              <option value="pending" ${status === "pending" ? "selected" : ""}>待支付</option>
+              <option value="paid" ${status === "paid" ? "selected" : ""}>已支付</option>
+              <option value="cancelled" ${status === "cancelled" ? "selected" : ""}>已取消</option>
+            </select>
+            <input id="walletSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索用户 / 订单 / 地址 / hash" />
+            <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+            <button class="adm-btn adm-btn-ghost" id="walletResetFilterBtn" type="button"><i data-lucide="x"></i>清空</button>
+          </form>
+        </div>
         <div class="adm-card-body adm-table-wrap">
           ${orders.length ? `
             <table class="adm-table adm-wallet-table">
@@ -2628,6 +2682,23 @@ async function renderWallet(pageArg = null, limitArg = null) {
   `;
   refreshIcons();
   bindAdminPager(els.adminContent, payload, ({ page, limit }) => renderWallet(page, limit).catch((err) => renderRouteError("wallet", err)));
+  const runWalletFilter = () => {
+    sessionStorage.setItem("admWalletQuery", els.adminContent.querySelector("#walletSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admWalletStatus", els.adminContent.querySelector("#walletStatusFilter")?.value || "");
+    sessionStorage.setItem("admWalletPager", JSON.stringify({ page: 1, limit }));
+    renderWallet(1, limit).catch((err) => renderRouteError("wallet", err));
+  };
+  els.adminContent.querySelector("#walletFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runWalletFilter();
+  });
+  els.adminContent.querySelector("#walletStatusFilter")?.addEventListener("change", runWalletFilter);
+  els.adminContent.querySelector("#walletResetFilterBtn")?.addEventListener("click", () => {
+    sessionStorage.removeItem("admWalletQuery");
+    sessionStorage.removeItem("admWalletStatus");
+    sessionStorage.setItem("admWalletPager", JSON.stringify({ page: 1, limit }));
+    renderWallet(1, limit).catch((err) => renderRouteError("wallet", err));
+  });
   els.adminContent.querySelector("#scanWalletOrdersBtn")?.addEventListener("click", async () => {
     const button = els.adminContent.querySelector("#scanWalletOrdersBtn");
     button.disabled = true;
@@ -2661,7 +2732,14 @@ async function renderSupportMessages(pageArg = null, limitArg = null) {
   const savedPager = JSON.parse(sessionStorage.getItem("admSupportPager") || "{}");
   const page = normalizeAdminPage(pageArg || savedPager.page || 1);
   const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
-  const payload = await api(`/api/admin/support-messages?page=${page}&limit=${limit}`);
+  const q = sessionStorage.getItem("admSupportQuery") || "";
+  const status = sessionStorage.getItem("admSupportStatus") || "";
+  const source = sessionStorage.getItem("admSupportSource") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  if (status) params.set("status", status);
+  if (source) params.set("source", source);
+  const payload = await api(`/api/admin/support-messages?${params.toString()}`);
   const messages = Array.isArray(payload.messages) ? payload.messages : [];
   sessionStorage.setItem("admSupportPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
   els.adminContent.innerHTML = `
@@ -2671,9 +2749,34 @@ async function renderSupportMessages(pageArg = null, limitArg = null) {
           <h1>站内信</h1>
           <p>查看用户提交的邮箱与问题，并直接回复。</p>
         </div>
-        <button class="adm-btn adm-btn-ghost" data-act="refresh"><i data-lucide="refresh-cw"></i>刷新</button>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" data-act="refresh" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+        </div>
       </div>
       <div class="adm-card">
+        <div class="adm-card-head">
+          <div>
+            <h3>消息列表</h3>
+            <p class="adm-muted">按用户、邮箱、问题内容、来源或处理状态筛选。</p>
+          </div>
+          <form class="adm-list-filters" id="supportFilterForm">
+            <select id="supportStatusFilter">
+              <option value="" ${status === "" ? "selected" : ""}>全部状态</option>
+              <option value="open" ${status === "open" ? "selected" : ""}>未回复</option>
+              <option value="replied" ${status === "replied" ? "selected" : ""}>已回复</option>
+            </select>
+            <select id="supportSourceFilter">
+              <option value="" ${source === "" ? "selected" : ""}>全部来源</option>
+              <option value="site form" ${source === "site form" ? "selected" : ""}>站内表单</option>
+              <option value="telegram" ${source === "telegram" ? "selected" : ""}>Telegram</option>
+              <option value="x" ${source === "x" ? "selected" : ""}>X</option>
+              <option value="reddit" ${source === "reddit" ? "selected" : ""}>Reddit</option>
+            </select>
+            <input id="supportSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索用户 / 邮箱 / 问题" />
+            <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+            <button class="adm-btn adm-btn-ghost" id="supportResetFilterBtn" type="button"><i data-lucide="x"></i>清空</button>
+          </form>
+        </div>
         ${messages.length ? `
           <div class="adm-table-wrap">
             <table class="adm-table">
@@ -2717,6 +2820,26 @@ async function renderSupportMessages(pageArg = null, limitArg = null) {
     </section>
   `;
   els.adminContent.querySelector('[data-act="refresh"]')?.addEventListener("click", () => renderSupportMessages().catch((err) => renderRouteError(routeId, err)));
+  const runSupportFilter = () => {
+    sessionStorage.setItem("admSupportQuery", els.adminContent.querySelector("#supportSearchInput")?.value.trim() || "");
+    sessionStorage.setItem("admSupportStatus", els.adminContent.querySelector("#supportStatusFilter")?.value || "");
+    sessionStorage.setItem("admSupportSource", els.adminContent.querySelector("#supportSourceFilter")?.value || "");
+    sessionStorage.setItem("admSupportPager", JSON.stringify({ page: 1, limit }));
+    renderSupportMessages(1, limit).catch((err) => renderRouteError(routeId, err));
+  };
+  els.adminContent.querySelector("#supportFilterForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runSupportFilter();
+  });
+  els.adminContent.querySelector("#supportStatusFilter")?.addEventListener("change", runSupportFilter);
+  els.adminContent.querySelector("#supportSourceFilter")?.addEventListener("change", runSupportFilter);
+  els.adminContent.querySelector("#supportResetFilterBtn")?.addEventListener("click", () => {
+    sessionStorage.removeItem("admSupportQuery");
+    sessionStorage.removeItem("admSupportStatus");
+    sessionStorage.removeItem("admSupportSource");
+    sessionStorage.setItem("admSupportPager", JSON.stringify({ page: 1, limit }));
+    renderSupportMessages(1, limit).catch((err) => renderRouteError(routeId, err));
+  });
   els.adminContent.querySelectorAll("[data-reply-support]").forEach((button) => {
     button.addEventListener("click", async () => {
       const record = messages.find((item) => item.id === button.dataset.replySupport);
