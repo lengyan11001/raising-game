@@ -19063,6 +19063,8 @@ function adminMyCharacterView(record, userMap) {
     username: user?.username || "",
     name: record.name || "",
     title: record.title || "",
+    description: record.description || record.summary || record.bio || record.prompt || record.finalPrompt || "",
+    prompt: record.prompt || record.finalPrompt || "",
     posterUrl: record.posterUrl || record.localImageUrl || "",
     sourceImageUrl: record.sourceImageUrl || "",
     videoUrl: record.videoUrl || record.localVideoUrl || "",
@@ -19437,6 +19439,91 @@ async function handleAdminListMyCharacters(req, res) {
   const list = (auth.db.userCharacters || []).map((r) => adminMyCharacterView(r, userMap));
   list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   return sendJson(res, 200, { ok: true, characters: list });
+}
+
+function adminTextMatches(record, query, fields = []) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return true;
+  return fields.some((field) => String(record?.[field] || "").toLowerCase().includes(q));
+}
+
+function adminHomeItemView(item, activeId) {
+  return {
+    ...item,
+    isActive: item?.id === activeId,
+    description: item?.description || item?.summary || item?.bio || item?.prompt || item?.finalPrompt || "",
+    prompt: item?.prompt || item?.finalPrompt || "",
+  };
+}
+
+async function handleAdminListHomeItems(req, res, url) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  const q = String(url?.searchParams?.get("q") || "").trim().toLowerCase();
+  const config = await readAppConfig();
+  const activeId = config.homeVideo?.activeItemId || "";
+  let list = (Array.isArray(config.homeVideo?.items) ? config.homeVideo.items : [])
+    .map((item) => adminHomeItemView(item, activeId));
+  if (q) {
+    list = list.filter((item) => adminTextMatches(item, q, [
+      "id",
+      "name",
+      "title",
+      "description",
+      "prompt",
+      "status",
+      "taskId",
+      "upstreamTaskId",
+      "referenceAssetUri",
+    ]));
+  }
+  list.sort((a, b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")));
+  const paged = pagedResponse(list, paging);
+  return sendJson(res, 200, {
+    ok: true,
+    items: paged.items,
+    page: paged.page,
+    limit: paged.limit,
+    total: paged.total,
+    totalPages: paged.totalPages,
+  });
+}
+
+async function handleAdminListMyCharacters(req, res, url) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  const q = String(url?.searchParams?.get("q") || "").trim().toLowerCase();
+  const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
+  let list = (auth.db.userCharacters || [])
+    .filter((record) => !isSoftDeleted(record))
+    .map((r) => adminMyCharacterView(r, userMap))
+    .filter(Boolean);
+  if (q) {
+    list = list.filter((item) => adminTextMatches(item, q, [
+      "id",
+      "userId",
+      "username",
+      "name",
+      "title",
+      "description",
+      "prompt",
+      "status",
+      "taskId",
+      "upstreamTaskId",
+    ]));
+  }
+  list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+  const paged = pagedResponse(list, paging);
+  return sendJson(res, 200, {
+    ok: true,
+    characters: paged.items,
+    page: paged.page,
+    limit: paged.limit,
+    total: paged.total,
+    totalPages: paged.totalPages,
+  });
 }
 
 async function handleAdminDeleteMyCharacter(req, res, characterId) {
@@ -20768,12 +20855,16 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/my-characters") {
-      return await handleAdminListMyCharacters(req, res);
+      return await handleAdminListMyCharacters(req, res, url);
     }
 
     const adminMyCharMatch = url.pathname.match(/^\/api\/admin\/my-characters\/([^/]+)$/);
     if (req.method === "DELETE" && adminMyCharMatch) {
       return await handleAdminDeleteMyCharacter(req, res, adminMyCharMatch[1]);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/home-items") {
+      return await handleAdminListHomeItems(req, res, url);
     }
 
     const adminHomeItemMatch = url.pathname.match(/^\/api\/admin\/home-items\/([^/]+)$/);

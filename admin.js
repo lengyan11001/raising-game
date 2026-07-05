@@ -1134,6 +1134,230 @@ function userCharCard(c) {
   `;
 }
 
+function adminCharacterDescription(item = {}) {
+  return String(
+    item.description ||
+    item.summary ||
+    item.bio ||
+    item.prompt ||
+    item.finalPrompt ||
+    item.title ||
+    ""
+  ).trim();
+}
+
+function adminCharacterSearchForm(id, value, placeholder) {
+  return `
+    <form class="adm-list-filters adm-mt" id="${id}">
+      <input type="search" data-role="character-search" value="${escapeHtml(value || "")}" placeholder="${escapeHtml(placeholder)}" />
+      <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+      <button class="adm-btn adm-btn-ghost" data-role="character-reset" type="button"><i data-lucide="x"></i>清空</button>
+    </form>
+  `;
+}
+
+function adminCharacterDetailRows(item = {}) {
+  const rows = [
+    ["ID", item.id],
+    ["名称", item.name],
+    ["标题", item.title],
+    ["归属用户", item.username || item.userId],
+    ["状态", statusText(item.status)],
+    ["任务ID", item.taskId],
+    ["上游任务ID", item.upstreamTaskId],
+    ["创建时间", fmtDate(item.createdAt)],
+    ["更新时间", fmtDate(item.updatedAt)],
+    ["封面", item.posterUrl || item.localImageUrl],
+    ["源图", item.sourceImageUrl],
+    ["视频", item.videoUrl || item.localVideoUrl],
+  ];
+  return rows
+    .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "")
+    .map(([label, value]) => `
+      <div class="adm-detail-row">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(String(value))}</strong>
+      </div>
+    `)
+    .join("");
+}
+
+function openAdminCharacterDetailDialog(item = {}) {
+  const description = adminCharacterDescription(item);
+  const prompt = String(item.prompt || item.finalPrompt || item.userPrompt || "").trim();
+  const error = String(item.error || "").trim();
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <div class="adm-character-detail">
+      <div class="adm-character-detail-media">${videoOrPoster(item)}</div>
+      <div class="adm-detail-grid">${adminCharacterDetailRows(item)}</div>
+      ${description ? `<div class="adm-detail-block"><span>描述</span><p>${escapeHtml(description)}</p></div>` : ""}
+      ${prompt ? `<div class="adm-detail-block"><span>Prompt</span><pre>${escapeHtml(prompt)}</pre></div>` : ""}
+      ${error ? `<div class="adm-detail-block is-error"><span>错误</span><pre>${escapeHtml(error)}</pre></div>` : ""}
+      <details class="adm-detail-json">
+        <summary>原始数据</summary>
+        <pre>${escapeHtml(jsonPretty(item))}</pre>
+      </details>
+    </div>
+  `;
+  openDialog({
+    title: "角色详情",
+    body: tpl,
+    confirmText: "关闭",
+    showCancel: false,
+  });
+}
+
+async function renderPresetCharacters(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admPresetCharactersPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admPresetCharactersQuery") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  const payload = await api(`/api/admin/home-items?${params.toString()}`);
+  const pane = activeRoutePane("charPaneBody", "characters");
+  if (!pane || (sessionStorage.getItem("admTabCharacters") || "preset") !== "preset") return;
+  const items = payload.items || [];
+  sessionStorage.setItem("admPresetCharactersPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+  pane.innerHTML = `
+    <div class="adm-page-actions adm-mt">
+      <button class="adm-btn adm-btn-primary" id="newPresetBtn"><i data-lucide="plus"></i>上传角色图</button>
+      <button class="adm-btn adm-btn-ghost" id="refreshPresetBtn"><i data-lucide="refresh-cw"></i>刷新</button>
+    </div>
+    ${adminCharacterSearchForm("presetCharacterFilters", q, "搜索角色名 / 描述 / ID")}
+    ${items.length ? `
+      <div class="adm-char-grid adm-mt">
+        ${items.map((item) => presetCharCard(item)).join("")}
+      </div>
+    ` : `<div class="adm-card adm-mt"><div class="adm-empty"><i data-lucide="image-plus"></i><p>没有符合条件的后台预设角色。</p></div></div>`}
+    ${adminPagerHtml(payload)}
+  `;
+  refreshIcons();
+
+  byId("newPresetBtn")?.addEventListener("click", () => openCreatePresetDialog());
+  byId("refreshPresetBtn")?.addEventListener("click", () => renderPresetCharacters(page, limit).catch((err) => renderRouteError("characters", err)));
+  bindAdminPager(pane, payload, ({ page, limit }) => renderPresetCharacters(page, limit).catch((err) => renderRouteError("characters", err)));
+
+  const runFilter = () => {
+    sessionStorage.setItem("admPresetCharactersQuery", pane.querySelector('[data-role="character-search"]')?.value.trim() || "");
+    sessionStorage.setItem("admPresetCharactersPager", JSON.stringify({ page: 1, limit }));
+    renderPresetCharacters(1, limit).catch((err) => renderRouteError("characters", err));
+  };
+  pane.querySelector("#presetCharacterFilters")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runFilter();
+  });
+  pane.querySelector('[data-role="character-reset"]')?.addEventListener("click", () => {
+    sessionStorage.removeItem("admPresetCharactersQuery");
+    sessionStorage.setItem("admPresetCharactersPager", JSON.stringify({ page: 1, limit }));
+    renderPresetCharacters(1, limit).catch((err) => renderRouteError("characters", err));
+  });
+  pane.querySelectorAll(".adm-char-card").forEach((card) => {
+    const id = card.dataset.id;
+    const item = items.find((entry) => entry.id === id);
+    card.querySelector('[data-act="detail"]')?.addEventListener("click", () => openAdminCharacterDetailDialog(item));
+    card.querySelector('[data-act="delete"]')?.addEventListener("click", () => deletePresetItem(id));
+  });
+}
+
+function presetCharCard(item = {}) {
+  const description = adminCharacterDescription(item);
+  return `
+    <article class="adm-char-card" data-id="${escapeHtml(item.id)}">
+      <div class="adm-char-poster">
+        ${item.isActive ? `<span class="adm-active-flag">主推</span>` : ""}
+        ${videoOrPoster(item)}
+      </div>
+      <div class="adm-char-meta">
+        <strong>${escapeHtml(item.name || "-")}</strong>
+        <em>${escapeHtml(item.title || "后台角色")} · ${statusText(item.status)}</em>
+        <em class="adm-mono">${escapeHtml(item.id || "")}</em>
+        ${description ? `<p class="adm-char-summary">${escapeHtml(shortText(description, 72))}</p>` : ""}
+      </div>
+      <div class="adm-char-actions">
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="detail"><i data-lucide="file-text"></i>详情</button>
+        <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete"><i data-lucide="trash-2"></i>删除</button>
+      </div>
+    </article>
+  `;
+}
+
+async function renderUserCharacters(pageArg = null, limitArg = null) {
+  const savedPager = JSON.parse(sessionStorage.getItem("admUserCharactersPager") || "{}");
+  const page = normalizeAdminPage(pageArg || savedPager.page || 1);
+  const limit = normalizeAdminLimit(limitArg || savedPager.limit || 20);
+  const q = sessionStorage.getItem("admUserCharactersQuery") || "";
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (q) params.set("q", q);
+  const payload = await api(`/api/admin/my-characters?${params.toString()}`);
+  const pane = activeRoutePane("charPaneBody", "characters");
+  if (!pane || (sessionStorage.getItem("admTabCharacters") || "preset") !== "user") return;
+  const list = payload.characters || [];
+  sessionStorage.setItem("admUserCharactersPager", JSON.stringify({ page: payload.page || page, limit: payload.limit || limit }));
+  pane.innerHTML = `
+    <div class="adm-page-actions adm-mt">
+      <button class="adm-btn adm-btn-ghost" id="refreshUserCharBtn"><i data-lucide="refresh-cw"></i>刷新</button>
+    </div>
+    ${adminCharacterSearchForm("userCharacterFilters", q, "搜索用户名 / 角色名 / 描述 / ID")}
+    ${list.length ? `
+      <div class="adm-char-grid adm-mt">
+        ${list.map((c) => userCharCard(c)).join("")}
+      </div>` : `<div class="adm-card adm-mt"><div class="adm-empty"><i data-lucide="user-x"></i><p>没有符合条件的用户角色。</p></div></div>`}
+    ${adminPagerHtml(payload)}
+  `;
+  refreshIcons();
+  byId("refreshUserCharBtn")?.addEventListener("click", () => renderUserCharacters(page, limit).catch((err) => renderRouteError("characters", err)));
+  bindAdminPager(pane, payload, ({ page, limit }) => renderUserCharacters(page, limit).catch((err) => renderRouteError("characters", err)));
+
+  const runFilter = () => {
+    sessionStorage.setItem("admUserCharactersQuery", pane.querySelector('[data-role="character-search"]')?.value.trim() || "");
+    sessionStorage.setItem("admUserCharactersPager", JSON.stringify({ page: 1, limit }));
+    renderUserCharacters(1, limit).catch((err) => renderRouteError("characters", err));
+  };
+  pane.querySelector("#userCharacterFilters")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runFilter();
+  });
+  pane.querySelector('[data-role="character-reset"]')?.addEventListener("click", () => {
+    sessionStorage.removeItem("admUserCharactersQuery");
+    sessionStorage.setItem("admUserCharactersPager", JSON.stringify({ page: 1, limit }));
+    renderUserCharacters(1, limit).catch((err) => renderRouteError("characters", err));
+  });
+  pane.querySelectorAll(".adm-char-card").forEach((card) => {
+    const id = card.dataset.id;
+    const item = list.find((entry) => entry.id === id);
+    card.querySelector('[data-act="detail"]')?.addEventListener("click", () => openAdminCharacterDetailDialog(item));
+    card.querySelector('[data-act="delete-user-char"]')?.addEventListener("click", async () => {
+      const ok = await confirmAction("删除用户角色", "确认删除这个用户自定义角色？不会删除用户账号。", { danger: true, confirmText: "删除" });
+      if (!ok) return;
+      await api(`/api/admin/my-characters/${encodeURIComponent(id)}`, { method: "DELETE" });
+      toast("已删除。", "success");
+      renderUserCharacters(page, limit).catch((err) => renderRouteError("characters", err));
+    });
+  });
+}
+
+function userCharCard(c = {}) {
+  const description = adminCharacterDescription(c);
+  return `
+    <article class="adm-char-card" data-id="${escapeHtml(c.id)}">
+      <div class="adm-char-poster">${videoOrPoster(c)}</div>
+      <div class="adm-char-meta">
+        <strong>${escapeHtml(c.name || "-")}</strong>
+        <em>归属用户：${escapeHtml(c.username || c.userId || "-")}</em>
+        <em>${escapeHtml(c.title || "")} · ${statusText(c.status)}</em>
+        <em class="adm-mono">${escapeHtml(c.id || "")}</em>
+        ${description ? `<p class="adm-char-summary">${escapeHtml(shortText(description, 72))}</p>` : ""}
+      </div>
+      <div class="adm-char-actions">
+        <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="detail"><i data-lucide="file-text"></i>详情</button>
+        <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-user-char"><i data-lucide="trash-2"></i>删除</button>
+      </div>
+    </article>
+  `;
+}
+
 function openAddCreditsFromCharacterDialog(id, characters) {
   const character = (characters || []).find((item) => item.id === id);
   if (!character?.userId) {
