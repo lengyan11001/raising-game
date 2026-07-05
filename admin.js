@@ -1708,7 +1708,7 @@ async function renderGenerationRecords() {
         </div>
       </div>
       <form class="adm-record-filters" id="recordFilters">
-        <input id="recordQuery" type="search" placeholder="搜索任务、用户、Prompt、模板..." value="${escapeHtml(query)}" />
+        <input id="recordQuery" type="search" placeholder="Search Task ID / Upstream ID / user / Prompt..." value="${escapeHtml(query)}" />
         <select id="recordProvider">
           <option value="">全部供应商</option>
           <option value="apiz" ${provider === "apiz" ? "selected" : ""}>apiz</option>
@@ -1810,7 +1810,7 @@ function renderGenerationRecordTable(records, payload = {}, load = null) {
               <th>类型</th>
               <th>状态</th>
               <th>扣费</th>
-              <th>任务</th>
+              <th>Task ID</th>
               <th>Prompt</th>
               <th>结果</th>
               <th></th>
@@ -1871,6 +1871,14 @@ function generationRecordRowHtml(record, index) {
   const label = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "任务";
   const ratioStyle = recordRatioStyle(record);
   const statusIssue = record.error || record.statusQueryError || "";
+  const taskCell = `
+    <div class="adm-record-task-cell">
+      <span>Task ID</span>
+      <code title="${escapeHtml(record.taskId || "")}">${escapeHtml(shortText(record.taskId || "-", 36))}</code>
+      ${record.upstreamTaskId ? `<span>Upstream</span><code title="${escapeHtml(record.upstreamTaskId)}">${escapeHtml(shortText(record.upstreamTaskId, 36))}</code>` : ""}
+      ${record.model ? `<em title="${escapeHtml(record.model)}">${escapeHtml(shortText(record.model, 34))}</em>` : ""}
+    </div>
+  `;
   const resultCell = video
     ? (poster ? `<img class="adm-record-thumb" src="${escapeHtml(poster)}" alt="" loading="lazy" style="${escapeHtml(ratioStyle)}" />` : `<span class="adm-record-video-chip" style="${escapeHtml(ratioStyle)}"><i data-lucide="video"></i></span>`)
     : imageResult ? `<img class="adm-record-thumb" src="${escapeHtml(imageResult)}" alt="" loading="lazy" />`
@@ -1883,7 +1891,7 @@ function generationRecordRowHtml(record, index) {
       <td><span class="adm-pill">${escapeHtml(record.provider || "n/a")}</span><span class="adm-block adm-muted">${escapeHtml(record.kind || record.source || "")}</span><span class="adm-block adm-truncate" title="${escapeHtml(label)}">${escapeHtml(label)}</span></td>
       <td>${statusPill(record.status)}${statusIssue ? `<span class="adm-block adm-error-text" title="${escapeHtml(statusIssue)}">${escapeHtml(shortText(statusIssue, 54))}</span>` : ""}</td>
       <td><span class="adm-mono">${escapeHtml(recordBillingText(record))}</span><span class="adm-block adm-muted">${escapeHtml(record.billing?.status || "")}</span></td>
-      <td><span class="adm-mono adm-truncate" title="${escapeHtml(record.taskId)}">${escapeHtml(shortText(record.taskId, 24))}</span><span class="adm-block adm-muted">${escapeHtml(record.model || "")}</span></td>
+      <td>${taskCell}</td>
       <td class="adm-record-prompt-cell" title="${escapeHtml(record.finalPrompt || record.prompt || "")}">${escapeHtml(shortText(record.finalPrompt || record.prompt || "", 150))}</td>
       <td>${resultCell}</td>
       <td class="adm-record-actions">
