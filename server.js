@@ -15790,11 +15790,29 @@ async function handleAdminListSupportMessages(req, res, url) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
+  const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
+  const status = String((url || new URL("http://localhost")).searchParams.get("status") || "").trim().toLowerCase();
+  const source = String((url || new URL("http://localhost")).searchParams.get("source") || "").trim().toLowerCase();
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
-  const messages = (auth.db.supportMessages || [])
+  let messages = (auth.db.supportMessages || [])
     .filter((record) => !isSoftDeleted(record))
     .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
     .map((record) => supportMessageView(record, userMap));
+  if (status) messages = messages.filter((record) => String(record.status || "open").toLowerCase() === status);
+  if (source) messages = messages.filter((record) => String(record.source || "").toLowerCase() === source);
+  if (query) {
+    messages = messages.filter((record) => [
+      record.id,
+      record.username,
+      record.userId,
+      record.email,
+      record.subject,
+      record.message,
+      record.reply,
+      record.status,
+      record.source,
+    ].some((value) => String(value || "").toLowerCase().includes(query)));
+  }
   const paged = pagedResponse(messages, paging);
   return sendJson(res, 200, { ok: true, messages: paged.items, page: paged.page, limit: paged.limit, total: paged.total, totalPages: paged.totalPages });
 }
@@ -20467,6 +20485,7 @@ async function handleAdminListUsers(req, res, url) {
   if (!auth) return;
   const paging = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 20, maxLimit: 100 });
   const query = String((url || new URL("http://localhost")).searchParams.get("q") || "").trim().toLowerCase();
+  const role = String((url || new URL("http://localhost")).searchParams.get("role") || "").trim().toLowerCase();
   const userCharacters = Array.isArray(auth.db.userCharacters) ? auth.db.userCharacters : [];
   const charByUser = new Map();
   userCharacters.forEach((c) => {
@@ -20487,6 +20506,7 @@ async function handleAdminListUsers(req, res, url) {
     list = list.filter((user) => [user.username, user.id, user.apiToken, user.role]
       .some((value) => String(value || "").toLowerCase().includes(query)));
   }
+  if (role) list = list.filter((user) => String(user.role || "").toLowerCase() === role);
   list.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const paged = pagedResponse(list, paging);
   return sendJson(res, 200, { ok: true, users: paged.items, page: paged.page, limit: paged.limit, total: paged.total, totalPages: paged.totalPages });

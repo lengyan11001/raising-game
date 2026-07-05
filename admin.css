@@ -238,10 +238,28 @@ a { color: inherit; text-decoration: none; }
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--adm-line);
+  flex-wrap: wrap;
 }
 .adm-card-head h3 { margin: 0; font-size: 0.96rem; }
 .adm-card-head .adm-muted { font-size: 0.78rem; }
 .adm-card-body { padding: 16px 18px; }
+
+.adm-list-filters {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.adm-list-filters input,
+.adm-list-filters select {
+  min-height: 36px;
+  padding: 8px 10px;
+  font-size: 0.84rem;
+}
+.adm-list-filters input { min-width: 230px; }
+.adm-list-filters select { min-width: 120px; }
 
 .adm-grid { display: grid; gap: 14px; }
 .adm-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
