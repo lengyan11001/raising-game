@@ -471,6 +471,7 @@ const state = {
   activeGalleryCharacterId: "",
   routeCharacterId: currentCharacterRouteParams().characterId,
   routeCharacterSource: currentCharacterRouteParams().source,
+  characterViewTrackKeys: new Set(),
   visibleCharacterCount: CHARACTER_PAGE_SIZE,
   characterLoadObserver: null,
   myCharacters: [],
@@ -6458,6 +6459,18 @@ function findGalleryCharacterInSource(characterId = "", source = "") {
   return galleryCharacterItemsForSource(preferredSource).find((item) => String(item?.id || "") === id) || null;
 }
 
+function trackSystemCharacterView(characterId = "", source = "") {
+  const id = String(characterId || "").trim();
+  if (!id || characterSourceForId(id) !== "system") return;
+  const normalizedSource = ["home", "direct", "external"].includes(source) ? source : "";
+  if (state.characterViewTrackKeys?.has(id)) return;
+  state.characterViewTrackKeys?.add(id);
+  requestJson("/api/analytics/character-view", {
+    method: "POST",
+    body: { characterId: id, source: normalizedSource },
+  }).catch((error) => console.warn("character view tracking failed", error.message || error));
+}
+
 function applyRouteCharacterDetail({ allowTabSwitch = true } = {}) {
   const liveRoute = currentCharacterRouteParams({ includeSearch: true });
   if (liveRoute.characterId) {
@@ -6478,6 +6491,7 @@ function applyRouteCharacterDetail({ allowTabSwitch = true } = {}) {
   state.characterSource = source;
   state.activeGalleryCharacterId = characterId;
   state.routeCharacterSource = source;
+  if (source === "system") trackSystemCharacterView(characterId, liveRoute.source === "home" ? "home" : "");
   return true;
 }
 
@@ -7725,6 +7739,7 @@ function openGalleryCharacter(characterId = "", { updateRoute = true } = {}) {
   state.activeGalleryCharacterId = item.id || "";
   state.routeCharacterId = item.id || "";
   state.routeCharacterSource = source;
+  if (source === "system") trackSystemCharacterView(item.id || "", "home");
   if (updateRoute) replacePlatformUrlForCharacter(item.id || "", source, targetTab);
   if (state.tab !== targetTab) {
     setTab(targetTab);
