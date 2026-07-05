@@ -154,6 +154,9 @@ const GATEWAY_PLATFORM_FALLBACK_CREDITS = Math.max(1, creditsAmount(process.env.
 const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
 const GENERATION_SUBMIT_STALE_MS = Math.max(5 * 60 * 1000, Number(process.env.GENERATION_SUBMIT_STALE_MS || 10 * 60 * 1000) || 10 * 60 * 1000);
 const GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS = Math.max(60 * 1000, Number(process.env.GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS || 60 * 1000) || 60 * 1000);
+const GENERATION_ACTIVE_SCAN_INTERVAL_MS = Math.max(30 * 1000, Number(process.env.GENERATION_ACTIVE_SCAN_INTERVAL_MS || 60 * 1000) || 60 * 1000);
+const GENERATION_ACTIVE_SCAN_BATCH_SIZE = Math.max(1, Math.min(20, Number(process.env.GENERATION_ACTIVE_SCAN_BATCH_SIZE || 8) || 8));
+const GENERATION_ACTIVE_SCAN_MAX_AGE_MS = Math.max(30 * 60 * 1000, Number(process.env.GENERATION_ACTIVE_SCAN_MAX_AGE_MS || 24 * 60 * 60 * 1000) || 24 * 60 * 60 * 1000);
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
 const DEFAULT_CREDITS_PER_USD = clampNumber(process.env.CREDITS_PER_USD || process.env.CREDITS_PER_USDT, 100, 0.0001, 100000);
@@ -22249,6 +22252,56 @@ function startStaleSubmitGenerationRecordScheduler() {
   setInterval(() => scanStalePreSubmitGenerationRecords("timer"), GENERATION_STALE_SUBMIT_SCAN_INTERVAL_MS).unref?.();
 }
 
+let activeGenerationScanRunning = false;
+
+function isActiveGenerationRecordForScan(record = {}) {
+  if (!record?.taskId) return false;
+  const status = String(record.status || "").toLowerCase();
+  if (isSucceededStatus(status) || isFailedStatus(status)) return false;
+  if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
+  const upstreamTaskId = String(record.upstreamTaskId || record.taskId || "");
+  if (!upstreamTaskId || upstreamTaskId.startsWith("demo-")) return false;
+  const time = generationRecordTime(record);
+  if (time && Date.now() - time > GENERATION_ACTIVE_SCAN_MAX_AGE_MS) return false;
+  return shouldRefreshGenerationRecord(record);
+}
+
+async function scanActiveGenerationRecords(reason = "timer") {
+  if (activeGenerationScanRunning) return;
+  activeGenerationScanRunning = true;
+  try {
+    const records = await readGenerationRecords();
+    const activeRecords = records
+      .filter((record) => isActiveGenerationRecordForScan(record))
+      .sort((a, b) => generationRecordTime(a) - generationRecordTime(b))
+      .slice(0, GENERATION_ACTIVE_SCAN_BATCH_SIZE);
+    if (!activeRecords.length) return;
+    const refreshed = [];
+    for (const record of activeRecords) {
+      try {
+        const nextRecord = await refreshGenerationRecordStatus(record);
+        if (nextRecord && nextRecord.status !== record.status) {
+          refreshed.push(`${record.taskId}:${record.status}->${nextRecord.status}`);
+        }
+      } catch (error) {
+        console.warn("[active-generation-record-refresh-failed]", record.taskId, error.message || error);
+      }
+    }
+    if (refreshed.length) {
+      console.log("[active-generation-records-refreshed]", { reason, count: refreshed.length, records: refreshed });
+    }
+  } catch (error) {
+    console.warn("[active-generation-record-scan-failed]", error.message || error);
+  } finally {
+    activeGenerationScanRunning = false;
+  }
+}
+
+function startActiveGenerationRecordScheduler() {
+  setTimeout(() => scanActiveGenerationRecords("startup"), 15000).unref?.();
+  setInterval(() => scanActiveGenerationRecords("timer"), GENERATION_ACTIVE_SCAN_INTERVAL_MS).unref?.();
+}
+
 async function bootstrap() {
   if (dbEnabled()) {
     await migrateFileDataToDb({
@@ -22266,6 +22319,7 @@ async function bootstrap() {
   }
   startWalletScanScheduler();
   startStaleSubmitGenerationRecordScheduler();
+  startActiveGenerationRecordScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
