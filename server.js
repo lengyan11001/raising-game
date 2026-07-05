@@ -1671,8 +1671,13 @@ async function appendGeoIndexNowHistory(snapshot, result = {}) {
 
 const GEO_CRAWLER_STATS_KEY = "geo_crawler_stats";
 const GEO_VISITOR_STATS_KEY = "geo_visitor_stats";
+const GEO_CHARACTER_VISIT_STATS_KEY = "geo_character_visit_stats";
 const GEO_INDEXNOW_HISTORY_KEY = "geo_indexnow_history";
 const GEO_AI_PROBES_KEY = "geo_ai_probes";
+const GEO_CHARACTER_VISIT_DAYS = 90;
+const GEO_CHARACTER_RECENT_LIMIT = 80;
+const GEO_CHARACTER_UV_BITS = 1024;
+const GEO_CHARACTER_UV_BYTES = GEO_CHARACTER_UV_BITS / 8;
 const GEO_CRAWLERS = [
   { id: "OAI-SearchBot", pattern: /OAI-SearchBot/i },
   { id: "ChatGPT-User", pattern: /ChatGPT-User/i },
@@ -1766,6 +1771,221 @@ async function readGeoVisitorStats() {
     byCountry: stats.byCountry && typeof stats.byCountry === "object" ? stats.byCountry : {},
     recent: Array.isArray(stats.recent) ? stats.recent.slice(0, 80) : [],
     lastSeen: stats.lastSeen || "",
+  };
+}
+
+function isoDateKey(value = new Date()) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
+  return d.toISOString().slice(0, 10);
+}
+
+function cutoffDateKey(days = GEO_CHARACTER_VISIT_DAYS) {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - Math.max(1, Number(days || GEO_CHARACTER_VISIT_DAYS)));
+  return isoDateKey(d);
+}
+
+function geoUvBuffer(encoded = "") {
+  try {
+    const buf = Buffer.from(String(encoded || ""), "base64");
+    if (buf.length === GEO_CHARACTER_UV_BYTES) return Buffer.from(buf);
+  } catch {}
+  return Buffer.alloc(GEO_CHARACTER_UV_BYTES);
+}
+
+function geoUvBitmapSet(encoded = "", hash = "") {
+  const buf = geoUvBuffer(encoded);
+  const raw = String(hash || "");
+  if (!raw) return { encoded: buf.toString("base64"), changed: false, uv: geoUvEstimate(buf) };
+  const idx = Number.parseInt(raw.slice(0, 8), 16) % GEO_CHARACTER_UV_BITS;
+  const byteIndex = Math.floor(idx / 8);
+  const mask = 1 << (idx % 8);
+  const changed = (buf[byteIndex] & mask) === 0;
+  buf[byteIndex] |= mask;
+  return { encoded: buf.toString("base64"), changed, uv: geoUvEstimate(buf) };
+}
+
+function geoUvBitmapOr(encodedList = []) {
+  const buf = Buffer.alloc(GEO_CHARACTER_UV_BYTES);
+  encodedList.forEach((encoded) => {
+    const next = geoUvBuffer(encoded);
+    for (let i = 0; i < GEO_CHARACTER_UV_BYTES; i += 1) buf[i] |= next[i];
+  });
+  return buf.toString("base64");
+}
+
+function geoUvEstimate(bufferOrEncoded = "") {
+  const buf = Buffer.isBuffer(bufferOrEncoded) ? bufferOrEncoded : geoUvBuffer(bufferOrEncoded);
+  let zero = 0;
+  for (const byte of buf) {
+    for (let bit = 0; bit < 8; bit += 1) {
+      if ((byte & (1 << bit)) === 0) zero += 1;
+    }
+  }
+  if (zero >= GEO_CHARACTER_UV_BITS) return 0;
+  if (zero <= 0) return GEO_CHARACTER_UV_BITS;
+  return Math.max(1, Math.round(GEO_CHARACTER_UV_BITS * Math.log(GEO_CHARACTER_UV_BITS / zero)));
+}
+
+async function readGeoCharacterVisitStats() {
+  const stats = await getKv(GEO_CHARACTER_VISIT_STATS_KEY, {});
+  return {
+    version: 1,
+    updatedAt: stats.updatedAt || "",
+    total: Number(stats.total || 0),
+    byCharacter: stats.byCharacter && typeof stats.byCharacter === "object" ? stats.byCharacter : {},
+    recent: Array.isArray(stats.recent) ? stats.recent.slice(0, GEO_CHARACTER_RECENT_LIMIT) : [],
+  };
+}
+
+function trimGeoCharacterVisitStats(stats = {}) {
+  const cutoff = cutoffDateKey();
+  const entries = Object.entries(stats.byCharacter || {})
+    .map(([id, entry]) => {
+      const days = {};
+      Object.entries(entry.days || {}).forEach(([day, row]) => {
+        if (String(day) >= cutoff) days[day] = row;
+      });
+      const totals = Object.values(days).reduce((sum, row) => ({
+        pv: sum.pv + Number(row.pv ?? row.total ?? 0),
+        home: sum.home + Number(row.home || 0),
+        direct: sum.direct + Number(row.direct || 0),
+        external: sum.external + Number(row.external || 0),
+      }), { pv: 0, home: 0, direct: 0, external: 0 });
+      const uvBitmap = geoUvBitmapOr(Object.values(days).map((row) => row.uvBitmap || ""));
+      const uv = geoUvEstimate(uvBitmap);
+      return [id, {
+        ...entry,
+        ...totals,
+        total: totals.pv,
+        uv,
+        uvBitmap,
+        days,
+      }];
+    })
+    .filter(([, entry]) => Number(entry.pv ?? entry.total ?? 0) > 0)
+    .sort((a, b) => String(b[1].lastSeen || "").localeCompare(String(a[1].lastSeen || "")))
+    .slice(0, 2000);
+  const byCharacter = Object.fromEntries(entries);
+  const recent = (Array.isArray(stats.recent) ? stats.recent : []).slice(0, GEO_CHARACTER_RECENT_LIMIT);
+  const pv = Object.values(byCharacter).reduce((sum, entry) => sum + Number(entry.pv ?? entry.total ?? 0), 0);
+  const uv = Object.values(byCharacter).reduce((sum, entry) => sum + Number(entry.uv || 0), 0);
+  return { version: 1, updatedAt: stats.updatedAt || "", total: pv, pv, uv, byCharacter, recent };
+}
+
+function sameOriginReferer(req, ref = "") {
+  if (!ref) return null;
+  try {
+    const parsed = new URL(ref);
+    const origin = new URL(publicOriginFromRequest(req));
+    return parsed.host === origin.host ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function characterVisitSourceFromRequest(req, url) {
+  const explicit = String(url?.searchParams?.get("from") || url?.searchParams?.get("source") || url?.searchParams?.get("src") || "").trim().toLowerCase();
+  if (["home", "gallery", "explore"].includes(explicit)) return "home";
+  if (["direct", "external"].includes(explicit)) return explicit;
+  const ref = String(req.headers.referer || req.headers.referrer || "").trim();
+  const same = sameOriginReferer(req, ref);
+  if (!ref) return "direct";
+  if (same) {
+    const pathname = same.pathname || "/";
+    if (pathname === "/" || pathname === "/index.html" || pathname === "/platform.html") return "home";
+    return "direct";
+  }
+  return "external";
+}
+
+async function recordGeoCharacterVisit({ req, url, character, source = "" } = {}) {
+  try {
+    if (!character?.id) return;
+    if (req && req.method !== "GET" && req.method !== "HEAD" && req.method !== "POST") return;
+    if (req && isLikelyAutomatedGeoRequest(req)) return;
+    const now = new Date().toISOString();
+    const day = isoDateKey(now);
+    const normalizedSource = ["home", "direct", "external"].includes(source) ? source : "direct";
+    const stats = await readGeoCharacterVisitStats();
+    const byCharacter = stats.byCharacter && typeof stats.byCharacter === "object" ? stats.byCharacter : {};
+    const existing = byCharacter[character.id] || {};
+    const days = existing.days && typeof existing.days === "object" ? existing.days : {};
+    const row = days[day] || { pv: 0, total: 0, uv: 0, uvBitmap: "", home: 0, direct: 0, external: 0 };
+    row.pv = Number(row.pv ?? row.total ?? 0) + 1;
+    row.total = row.pv;
+    row[normalizedSource] = Number(row[normalizedSource] || 0) + 1;
+    const uvResult = geoUvBitmapSet(row.uvBitmap || "", req ? ipHashForStats(requestIpForStats(req)) : "");
+    row.uvBitmap = uvResult.encoded;
+    row.uv = uvResult.uv;
+    days[day] = row;
+    byCharacter[character.id] = {
+      ...existing,
+      id: character.id,
+      name: character.name || character.title || character.id,
+      posterUrl: characterPosterForGeo(character),
+      path: characterPublicPath(character),
+      pv: Number(existing.pv ?? existing.total ?? 0) + 1,
+      total: Number(existing.pv ?? existing.total ?? 0) + 1,
+      home: Number(existing.home || 0) + (normalizedSource === "home" ? 1 : 0),
+      direct: Number(existing.direct || 0) + (normalizedSource === "direct" ? 1 : 0),
+      external: Number(existing.external || 0) + (normalizedSource === "external" ? 1 : 0),
+      lastSeen: now,
+      days,
+    };
+    const next = trimGeoCharacterVisitStats({
+      ...stats,
+      updatedAt: now,
+      byCharacter,
+      recent: [
+        {
+          characterId: character.id,
+          name: character.name || character.title || character.id,
+          source: normalizedSource,
+          path: url?.pathname || characterPublicPath(character),
+          at: now,
+          ip: req ? maskIpForStats(requestIpForStats(req)) : "",
+        },
+        ...(stats.recent || []),
+      ],
+    });
+    await setKv(GEO_CHARACTER_VISIT_STATS_KEY, next);
+  } catch (error) {
+    console.warn("Failed to record character visit stats:", error.message || error);
+  }
+}
+
+function adminCharacterVisitDashboardStats(items = [], stats = {}) {
+  const itemMap = new Map((items || []).filter(Boolean).map((item) => [String(item.id || ""), item]));
+  const rows = Object.values(stats.byCharacter || {})
+    .filter((entry) => itemMap.has(String(entry.id || "")))
+    .map((entry) => {
+      const item = itemMap.get(String(entry.id || ""));
+      const direct = Number(entry.direct || 0) + Number(entry.external || 0);
+      return {
+        id: entry.id,
+        name: item?.name || entry.name || entry.id,
+        path: entry.path || characterPublicPath(item || entry),
+        pv: Number(entry.pv ?? entry.total ?? 0),
+        total: Number(entry.pv ?? entry.total ?? 0),
+        uv: Number(entry.uv || 0),
+        home: Number(entry.home || 0),
+        direct,
+        external: Number(entry.external || 0),
+        lastSeen: entry.lastSeen || "",
+      };
+    })
+    .sort((a, b) => b.pv - a.pv || String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")));
+  return {
+    pv: rows.reduce((sum, row) => sum + row.pv, 0),
+    total: rows.reduce((sum, row) => sum + row.pv, 0),
+    uv: rows.reduce((sum, row) => sum + row.uv, 0),
+    home: rows.reduce((sum, row) => sum + row.home, 0),
+    direct: rows.reduce((sum, row) => sum + row.direct, 0),
+    external: rows.reduce((sum, row) => sum + row.external, 0),
+    updatedAt: stats.updatedAt || "",
+    rows: rows.slice(0, 20),
   };
 }
 
@@ -2800,7 +3020,32 @@ async function handleCharacterGeoPage(req, res, characterId) {
     String(candidate.id || "") === decoded
   ));
   if (!item) return sendText(res, 404, "Character not found");
+  if (req.method === "GET") {
+    await recordGeoCharacterVisit({
+      req,
+      url: new URL(req.url || characterPublicPath(item), publicOriginFromRequest(req)),
+      character: item,
+      source: characterVisitSourceFromRequest(req, new URL(req.url || characterPublicPath(item), publicOriginFromRequest(req))),
+    });
+  }
   return sendHtml(res, 200, renderCharacterGeoHtml(snapshot, item), { head: req.method === "HEAD" });
+}
+
+async function handleTrackCharacterView(req, res) {
+  if (req.method !== "POST") return sendJson(res, 405, { ok: false, message: "Method not allowed." });
+  const body = await readJson(req).catch(() => ({}));
+  const characterId = String(body.characterId || body.id || "").trim();
+  if (!characterId) return sendJson(res, 400, { ok: false, message: "Missing characterId." });
+  const config = await readAppConfig();
+  const homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const item = (homeVideo.items || []).find((candidate) => String(candidate?.id || "") === characterId && !isSoftDeleted(candidate));
+  if (!item) return sendJson(res, 404, { ok: false, message: "Character not found." });
+  const url = new URL(req.url || "/api/analytics/character-view", publicOriginFromRequest(req));
+  const source = ["home", "direct", "external"].includes(String(body.source || "").trim().toLowerCase())
+    ? String(body.source || "").trim().toLowerCase()
+    : characterVisitSourceFromRequest(req, url);
+  await recordGeoCharacterVisit({ req, url, character: item, source });
+  return sendJson(res, 200, { ok: true });
 }
 
 async function handleGeoTagPage(req, res, tagId) {
@@ -19588,10 +19833,18 @@ async function handleAdminUploadHomeImage(req, res) {
   await fs.writeFile(localPath, bytes);
 
   const config = await readAppConfig();
+  const description = String(body.description || body.summary || "").trim().slice(0, 1200);
+  const tags = Array.isArray(body.tags) ? body.tags : String(body.tags || "").split(/[,，\n]/);
+  const cleanTags = tags.map((tag) => compactPlainText(tag, 32)).filter(Boolean).slice(0, 12);
+  const category = compactPlainText(body.category || "", 48);
+  const internalPrompt = typeof body.prompt === "string" ? body.prompt : typeof body.internalPrompt === "string" ? body.internalPrompt : "";
   const item = {
     id: makeHomeVideoItemId(),
-    name: String(body.name || "新角色").trim() || "新角色",
-    title: String(body.title || "待生成").trim() || "待生成",
+    name: String(body.name || "新角色").trim().slice(0, 40) || "新角色",
+    title: String(body.title || description || "系统角色").trim().slice(0, 80) || "系统角色",
+    description,
+    tags: cleanTags,
+    category,
     posterUrl: `/assets/admin/home/${fileName}`,
     localImageUrl: `/assets/admin/home/${fileName}`,
     sourceImageUrl: `/assets/admin/home/${fileName}`,
@@ -19606,7 +19859,8 @@ async function handleAdminUploadHomeImage(req, res) {
     localVideoUrl: "",
     taskId: "",
     status: "image_uploaded",
-    prompt: typeof body.prompt === "string" ? body.prompt : "",
+    prompt: internalPrompt,
+    internalPrompt,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -20467,12 +20721,12 @@ async function handleAdminDashboard(req, res) {
   const config = await readAppConfig();
   const records = await readGenerationRecords();
   const items = Array.isArray(config.homeVideo?.items) ? config.homeVideo.items : [];
+  const characterVisits = adminCharacterVisitDashboardStats(items, trimGeoCharacterVisitStats(await readGeoCharacterVisitStats()));
   const sceneBindCount = items.reduce((sum, item) => sum + Object.keys(item.sceneVideos || {}).length, 0);
   const userCharacters = Array.isArray(auth.db.userCharacters) ? auth.db.userCharacters : [];
   const userSceneCount = userCharacters.reduce((sum, c) => sum + Object.keys(c.sceneVideos || {}).length, 0);
   const totalCredits = (auth.db.users || []).reduce((sum, u) => sum + Number(u.credits || 0), 0);
   const pendingOrders = (auth.db.walletOrders || []).filter((o) => o.status === "pending").length;
-  const recentRecords = records.slice(0, 5);
   return sendJson(res, 200, {
     ok: true,
     stats: {
@@ -20491,7 +20745,7 @@ async function handleAdminDashboard(req, res) {
       scenes: Array.isArray(config.scenes) ? config.scenes.length : 0,
     },
     activeHomeItemId: config.homeVideo?.activeItemId || "",
-    recentRecords,
+    characterVisits,
   });
 }
 
@@ -21789,6 +22043,10 @@ async function handleRequest(req, res) {
       config = await refreshCompletedHomeVideoItems(config);
       const auth = await getAuth(req);
       return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/analytics/character-view") {
+      return await handleTrackCharacterView(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/game/feed") {

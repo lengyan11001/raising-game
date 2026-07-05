@@ -613,14 +613,15 @@ async function renderDashboard() {
   const dashboard = await api("/api/admin/dashboard");
   if (!isActiveRoute("dashboard")) return;
   const s = dashboard.stats || {};
-  const recent = dashboard.recentRecords || [];
+  const visits = dashboard.characterVisits || {};
+  const visitRows = visits.rows || [];
 
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
         <div>
           <h2>仪表盘</h2>
-          <p class="adm-muted">用户、角色、视频与订单的关键指标。</p>
+          <p class="adm-muted">用户、角色、充值和系统角色访问的关键指标。</p>
         </div>
         <div class="adm-page-actions">
           <button class="adm-btn adm-btn-ghost" data-act="refresh"><i data-lucide="refresh-cw"></i>刷新</button>
@@ -629,35 +630,36 @@ async function renderDashboard() {
 
       <div class="adm-grid adm-grid-4">
         ${statCard("用户总数", s.users, `${s.admins || 0} 名管理员`, "users-round", "rose")}
-        ${statCard("预设角色", s.adminCharacters, `${s.sceneBindings || 0} 个场景已绑定`, "user-round", "violet")}
-        ${statCard("用户自定义角色", s.userCharacters, `${s.userSceneVideos || 0} 个用户场景视频`, "user-plus", "mint")}
-        ${statCard("钱包订单", s.walletOrders, `${s.pendingOrders || 0} 待确认`, "wallet", "amber")}
-        ${statCard("生成历史", s.generationRecords, "Seedance / Apiz 任务记录", "history", "rose")}
-        ${statCard("活跃场景", s.scenes, "用户端可用场景数量", "map-pinned", "violet")}
-        ${statCard("流通爱心币", s.totalCredits, "全部用户余额合计", "gem", "mint")}
+        ${statCard("系统角色", s.adminCharacters, "后台创建角色数量", "user-round", "violet")}
+        ${statCard("角色 PV", visits.pv || visits.total || 0, `${visits.home || 0} 首页进入`, "eye", "mint")}
+        ${statCard("角色 UV", visits.uv || 0, "90 天哈希位图估算", "users", "amber")}
+        ${statCard("用户自定义角色", s.userCharacters, `${s.userSceneVideos || 0} 个用户场景视频`, "user-plus", "rose")}
+        ${statCard("钱包订单", s.walletOrders, `${s.pendingOrders || 0} 待确认`, "wallet", "violet")}
+        ${statCard("生成历史", s.generationRecords, "任务记录总数", "history", "mint")}
         ${statCard("用户素材库", s.userAssets, "上传图片素材数量", "images", "amber")}
       </div>
 
       <div class="adm-card">
         <header class="adm-card-head">
-          <h3>最近 5 条生成记录</h3>
-          <a class="adm-btn adm-btn-ghost adm-btn-sm" href="#/records"><i data-lucide="arrow-up-right"></i>查看记录</a>
+          <h3>系统角色访问统计</h3>
+          <a class="adm-btn adm-btn-ghost adm-btn-sm" href="#/characters"><i data-lucide="arrow-up-right"></i>查看角色</a>
         </header>
         <div class="adm-card-body adm-table-wrap">
-          ${recent.length ? `
+          ${visitRows.length ? `
             <table class="adm-table adm-dashboard-table">
-              <thead><tr><th>任务 ID</th><th>状态</th><th>本地视频</th><th>错误</th><th>时间</th></tr></thead>
+              <thead><tr><th>角色</th><th>PV</th><th>UV</th><th>首页进入</th><th>直接/外部</th><th>最后访问</th></tr></thead>
               <tbody>
-                ${recent.map((r) => `
+                ${visitRows.map((row) => `
                   <tr>
-                    <td class="adm-mono">${escapeHtml((r.taskId || "").slice(0, 32))}</td>
-                    <td>${statusPill(r.status)}</td>
-                    <td>${r.localVideoUrl ? `<a class="adm-mono" href="${escapeHtml(r.localVideoUrl)}" target="_blank" rel="noopener">${escapeHtml(r.localVideoUrl.slice(-32))}</a>` : "—"}</td>
-                    <td class="adm-truncate">${escapeHtml((r.error || "").slice(0, 80))}</td>
-                    <td>${fmtRelative(r.updatedAt || r.createdAt)}</td>
+                    <td><strong>${escapeHtml(row.name || row.id)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(row.id || "")}</span></td>
+                    <td>${escapeHtml(row.pv ?? row.total ?? 0)}</td>
+                    <td>${escapeHtml(row.uv || 0)}</td>
+                    <td>${escapeHtml(row.home || 0)}</td>
+                    <td>${escapeHtml(row.direct || 0)}</td>
+                    <td>${fmtRelative(row.lastSeen)}</td>
                   </tr>`).join("")}
               </tbody>
-            </table>` : '<div class="adm-empty"><i data-lucide="inbox"></i><p>暂无生成记录</p></div>'}
+            </table>` : '<div class="adm-empty"><i data-lucide="bar-chart-3"></i><p>暂无系统角色访问数据。</p></div>'}
         </div>
       </div>
     </section>
@@ -826,57 +828,6 @@ function statusText(status) {
     reference_failed: "参考失败",
   };
   return map[String(status).toLowerCase()] || status;
-}
-
-function openCreatePresetDialog() {
-  const tpl = document.createElement("div");
-  tpl.innerHTML = `
-    <label class="adm-upload">
-      <input id="presetFile" type="file" accept="image/png,image/jpeg,image/webp" />
-      <i data-lucide="image-up"></i>
-      <span>点击或拖拽上传角色图（建议竖版 9:16，全身）</span>
-      <img id="presetPreview" hidden />
-    </label>
-    <div class="adm-form-row adm-mt"><span>角色名</span><input id="presetName" type="text" maxlength="20" placeholder="例如 暮悠悠" /></div>
-    <div class="adm-form-row"><span>短剧标题</span><input id="presetTitle" type="text" maxlength="20" placeholder="例如 雨夜套房" /></div>
-    <div class="adm-form-row"><span>Prompt（保存后生成视频时原样使用）</span><textarea id="presetPrompt" placeholder="可留空。填写后只作为视频 prompt 保存，不会附加到参考图 prompt。"></textarea></div>
-  `;
-  let dataUrl = "";
-  setTimeout(() => {
-    const file = tpl.querySelector("#presetFile");
-    const preview = tpl.querySelector("#presetPreview");
-    file.addEventListener("change", () => {
-      const f = file.files?.[0];
-      if (!f) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        dataUrl = String(reader.result || "");
-        preview.src = dataUrl;
-        preview.hidden = false;
-      };
-      reader.readAsDataURL(f);
-    });
-    refreshIcons();
-  }, 0);
-  openDialog({
-    title: "新建后台预设角色",
-    body: tpl,
-    confirmText: "保存为新角色",
-    onConfirm: async () => {
-      const name = tpl.querySelector("#presetName").value.trim();
-      const title = tpl.querySelector("#presetTitle").value.trim();
-      const prompt = tpl.querySelector("#presetPrompt").value;
-      if (!dataUrl) { toast("请先选择一张角色图。", "error"); return false; }
-      if (!name || !title) { toast("请填写角色名和短剧标题。", "error"); return false; }
-      await api("/api/admin/home-image", {
-        method: "POST",
-        body: { dataUrl, name, title, prompt },
-      });
-      toast("角色已保存。可以在卡片上点「重新生成」生成视频。", "success");
-      state.config = null;
-      renderCharacters();
-    },
-  });
 }
 
 async function openEditPresetDialog(itemId) {
@@ -1132,6 +1083,64 @@ function userCharCard(c) {
       </div>
     </article>
   `;
+}
+
+function openCreatePresetDialog() {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <label class="adm-upload">
+      <input id="presetFile" type="file" accept="image/png,image/jpeg,image/webp" />
+      <i data-lucide="image-up"></i>
+      <span>点击或拖拽上传角色图（建议竖版 9:16，全身）</span>
+      <img id="presetPreview" hidden />
+    </label>
+    <div class="adm-form-row adm-mt"><span>角色名</span><input id="presetName" type="text" maxlength="40" placeholder="例如 Ava" /></div>
+    <div class="adm-form-row"><span>角色描述</span><textarea id="presetDescription" rows="4" maxlength="1200" placeholder="用于详情页和后台查看，不直接当生成视频提示词。"></textarea></div>
+    <div class="adm-form-row"><span>标签</span><input id="presetTags" type="text" maxlength="180" placeholder="用逗号分隔，例如 Blonde, Cosplay, Realistic" /></div>
+    <div class="adm-form-row"><span>分类</span><input id="presetCategory" type="text" maxlength="48" placeholder="例如 Featured" /></div>
+    <details class="adm-detail-json adm-mt">
+      <summary>高级：内部参考 Prompt</summary>
+      <div class="adm-form-row adm-mt"><span>内部 Prompt</span><textarea id="presetPrompt" rows="5" placeholder="可留空。仅作为内部参考，不在卡片上展示。"></textarea></div>
+    </details>
+  `;
+  let dataUrl = "";
+  setTimeout(() => {
+    const file = tpl.querySelector("#presetFile");
+    const preview = tpl.querySelector("#presetPreview");
+    file.addEventListener("change", () => {
+      const f = file.files?.[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        dataUrl = String(reader.result || "");
+        preview.src = dataUrl;
+        preview.hidden = false;
+      };
+      reader.readAsDataURL(f);
+    });
+    refreshIcons();
+  }, 0);
+  openDialog({
+    title: "新建系统角色",
+    body: tpl,
+    confirmText: "保存角色",
+    onConfirm: async () => {
+      const name = tpl.querySelector("#presetName").value.trim();
+      const description = tpl.querySelector("#presetDescription").value.trim();
+      const tags = tpl.querySelector("#presetTags").value;
+      const category = tpl.querySelector("#presetCategory").value.trim();
+      const prompt = tpl.querySelector("#presetPrompt").value;
+      if (!dataUrl) { toast("请先选择一张角色图。", "error"); return false; }
+      if (!name) { toast("请填写角色名。", "error"); return false; }
+      await api("/api/admin/home-image", {
+        method: "POST",
+        body: { dataUrl, name, description, tags, category, prompt },
+      });
+      toast("系统角色已保存。", "success");
+      state.config = null;
+      renderCharacters();
+    },
+  });
 }
 
 function adminCharacterDescription(item = {}) {
