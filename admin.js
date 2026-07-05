@@ -1526,13 +1526,28 @@ function recordResultPosterUrl(record = {}) {
 }
 
 function recordMediaAssetPreviewUrl(asset = {}) {
-  return asset.imageUrl || asset.localUrl || asset.url || asset.sourceImageUrl || "";
+  return asset.imageUrl || asset.sourceImageUrl || asset.localImageUrl || asset.thumbnailUrl || asset.posterUrl || "";
+}
+
+function isInternalAssetUrl(url = "") {
+  return /^asset:\/\//i.test(String(url || "").trim());
+}
+
+function isPreviewableImageUrl(url = "") {
+  const value = String(url || "").trim();
+  return Boolean(value) && !isInternalAssetUrl(value) && !isVideoUrl(value);
+}
+
+function isPreviewableVideoUrl(url = "") {
+  const value = String(url || "").trim();
+  return Boolean(value) && !isInternalAssetUrl(value) && isVideoUrl(value);
 }
 
 function recordMediaAssetLabel(asset = {}, index = 0) {
   if (asset.type === "first_frame" || asset.key === "firstFrame") return "First frame";
   if (asset.type === "last_frame" || asset.key === "lastFrame") return "Last frame";
   if (asset.type === "reference_image") return `Reference ${index + 1}`;
+  if (asset.type === "reference_video") return `Reference video ${index + 1}`;
   return String(asset.type || asset.key || `Image ${index + 1}`).replace(/_/g, " ");
 }
 
@@ -1541,20 +1556,40 @@ function recordImageAssets(record = {}) {
   const seen = new Set();
   const pushImage = (asset = {}, fallbackLabel = "") => {
     const url = recordMediaAssetPreviewUrl(asset);
-    if (!url || seen.has(url)) return;
+    if (!isPreviewableImageUrl(url) || seen.has(url)) return;
     seen.add(url);
     images.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, images.length) });
   };
   (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
-    .filter((asset) => !["driving_audio", "first_clip"].includes(asset.type))
+    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
     .forEach((asset) => pushImage(asset));
   const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
   upstreamMedia
-    .filter((asset) => !["driving_audio", "first_clip"].includes(asset.type))
+    .filter((asset) => !["driving_audio", "first_clip", "reference_video"].includes(asset.type))
     .forEach((asset) => pushImage(asset));
   pushImage({ imageUrl: record.imageUrl, type: "reference_image" }, "Reference");
   pushImage({ imageUrl: record.sourceImageUrl, type: "source_image" }, "Source image");
   return images;
+}
+
+function recordReferenceVideoAssets(record = {}) {
+  const videos = [];
+  const seen = new Set();
+  const pushVideo = (asset = {}, fallbackLabel = "") => {
+    const url = recordMediaAssetVideoUrl(asset);
+    if (!isPreviewableVideoUrl(url) || seen.has(url)) return;
+    seen.add(url);
+    videos.push({ ...asset, label: asset.label || fallbackLabel || recordMediaAssetLabel(asset, videos.length) });
+  };
+  (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+    .filter((asset) => ["reference_video", "first_clip"].includes(asset.type) || String(asset.mime || "").startsWith("video/"))
+    .forEach((asset) => pushVideo(asset));
+  const upstreamMedia = Array.isArray(record.upstreamPayload?.input?.media) ? record.upstreamPayload.input.media : [];
+  upstreamMedia
+    .filter((asset) => ["reference_video", "first_clip"].includes(asset.type) || String(asset.mime || "").startsWith("video/"))
+    .forEach((asset) => pushVideo(asset));
+  pushVideo({ url: record.imageUrl, type: "reference_video" }, "Reference video");
+  return videos;
 }
 
 function recordPrimaryImageUrl(record = {}) {
@@ -1586,12 +1621,19 @@ function recordInputVideoPosterUrl(record = {}) {
 
 function recordImageAssetsHtml(record = {}) {
   const images = recordImageAssets(record);
-  if (!images.length) return "";
+  const videos = recordReferenceVideoAssets(record);
+  if (!images.length && !videos.length) return "";
   return `
     <div class="adm-record-reference-grid">
       ${images.map((asset) => `
         <figure>
           <img src="${escapeHtml(recordMediaAssetPreviewUrl(asset))}" alt="" />
+          <figcaption>${escapeHtml(asset.label || "")}</figcaption>
+        </figure>
+      `).join("")}
+      ${videos.map((asset) => `
+        <figure>
+          <video src="${escapeHtml(recordMediaAssetVideoUrl(asset))}" controls muted playsinline preload="metadata"></video>
           <figcaption>${escapeHtml(asset.label || "")}</figcaption>
         </figure>
       `).join("")}
@@ -1828,6 +1870,7 @@ function generationRecordRowHtml(record, index) {
   const canPromote = Boolean(video || remoteVideo);
   const label = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "任务";
   const ratioStyle = recordRatioStyle(record);
+  const statusIssue = record.error || record.statusQueryError || "";
   const resultCell = video
     ? (poster ? `<img class="adm-record-thumb" src="${escapeHtml(poster)}" alt="" loading="lazy" style="${escapeHtml(ratioStyle)}" />` : `<span class="adm-record-video-chip" style="${escapeHtml(ratioStyle)}"><i data-lucide="video"></i></span>`)
     : imageResult ? `<img class="adm-record-thumb" src="${escapeHtml(imageResult)}" alt="" loading="lazy" />`
@@ -1838,7 +1881,7 @@ function generationRecordRowHtml(record, index) {
       <td><span class="adm-mono">${escapeHtml(fmtDate(record.createdAt).slice(5))}</span><span class="adm-block adm-muted">${escapeHtml(fmtRelative(record.updatedAt || record.createdAt))}</span></td>
       <td><strong>${escapeHtml(recordOwnerText(record))}</strong><span class="adm-block adm-mono adm-record-id">${escapeHtml((record.userId || "").slice(0, 12))}</span></td>
       <td><span class="adm-pill">${escapeHtml(record.provider || "n/a")}</span><span class="adm-block adm-muted">${escapeHtml(record.kind || record.source || "")}</span><span class="adm-block adm-truncate" title="${escapeHtml(label)}">${escapeHtml(label)}</span></td>
-      <td>${statusPill(record.status)}${record.error ? `<span class="adm-block adm-error-text" title="${escapeHtml(record.error)}">${escapeHtml(shortText(record.error, 54))}</span>` : ""}</td>
+      <td>${statusPill(record.status)}${statusIssue ? `<span class="adm-block adm-error-text" title="${escapeHtml(statusIssue)}">${escapeHtml(shortText(statusIssue, 54))}</span>` : ""}</td>
       <td><span class="adm-mono">${escapeHtml(recordBillingText(record))}</span><span class="adm-block adm-muted">${escapeHtml(record.billing?.status || "")}</span></td>
       <td><span class="adm-mono adm-truncate" title="${escapeHtml(record.taskId)}">${escapeHtml(shortText(record.taskId, 24))}</span><span class="adm-block adm-muted">${escapeHtml(record.model || "")}</span></td>
       <td class="adm-record-prompt-cell" title="${escapeHtml(record.finalPrompt || record.prompt || "")}">${escapeHtml(shortText(record.finalPrompt || record.prompt || "", 150))}</td>
@@ -2135,6 +2178,7 @@ async function openGenerationRecordDetail(record) {
       ${imageResult ? `<div class="adm-record-line"><span>图片结果</span><a href="${escapeHtml(imageResult)}" target="_blank" rel="noopener">${escapeHtml(imageResult)}</a></div>` : ""}
       ${!video && remoteVideo ? `<div class="adm-record-line"><span>远程结果</span><a href="${escapeHtml(remoteVideo)}" target="_blank" rel="noopener">${escapeHtml(remoteVideo)}</a></div>` : ""}
       ${record.error ? `<div class="adm-record-line"><span>错误</span><code>${escapeHtml(record.error)}</code></div>` : ""}
+      ${record.statusQueryError ? `<div class="adm-record-line"><span>状态查询</span><code>${escapeHtml(record.statusQueryError)}</code></div>` : ""}
       <section class="adm-record-section">
         <header><strong>Prompt</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="prompt"><i data-lucide="copy"></i>复制</button></header>
         <pre>${escapeHtml(record.finalPrompt || record.prompt || "")}</pre>

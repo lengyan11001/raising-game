@@ -10156,6 +10156,9 @@ function adminGenerationRecordView(record = {}, userMap = new Map()) {
     queryResponse: record.queryResponse || null,
     createReportedCredits: record.createReportedCredits === undefined ? null : record.createReportedCredits,
     billingError: String(record.billingError || ""),
+    statusQueryError: String(record.statusQueryError || ""),
+    statusQueryStatusCode: record.statusQueryStatusCode || 0,
+    statusQueryCheckedAt: String(record.statusQueryCheckedAt || ""),
     partnerReferenceAssetUri: String(record.partnerReferenceAssetUri || ""),
   };
 }
@@ -10478,7 +10481,14 @@ async function refreshGenerationRecordStatus(record = {}) {
     if (needsSeedanceFailureRefund(record) || (seedanceUsesTokenPricing(record) && isSucceededStatus(record.status) && !record.billingSettledAt)) {
       return settleSeedanceGenerationRecord(record, "refresh-fallback");
     }
-    return record;
+    return upsertGenerationRecord({
+      taskId: record.taskId,
+      statusQueryError: error.message || "Failed to query upstream task status.",
+      statusQueryStatusCode: error.statusCode || 0,
+      statusQueryPayload: error.payload || null,
+      statusQueryCheckedAt: new Date().toISOString(),
+      lastUpdateReason: "status-query-failed",
+    });
   }
 }
 
