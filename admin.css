@@ -1253,11 +1253,40 @@ a { color: inherit; text-decoration: none; }
 .adm-record-filters select { min-height: 34px; padding: 7px 10px; font-size: 0.82rem; }
 .adm-record-summary { min-height: 48px; }
 .adm-record-table-wrap { max-height: calc(100vh - 255px); overflow: auto; }
-.adm-record-table { min-width: 1220px; font-size: 0.78rem; }
+.adm-record-table { min-width: 1320px; font-size: 0.78rem; }
 .adm-record-table th,
 .adm-record-table td { padding: 7px 9px; vertical-align: top; }
 .adm-record-table th { top: 0; z-index: 1; }
 .adm-record-id { max-width: 92px; opacity: 0.72; }
+.adm-record-task-cell {
+  min-width: 210px;
+  display: grid;
+  gap: 3px;
+}
+.adm-record-task-cell span {
+  color: var(--adm-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.adm-record-task-cell code {
+  display: block;
+  max-width: 260px;
+  color: var(--adm-text);
+  font: 0.76rem/1.25 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.adm-record-task-cell em {
+  max-width: 260px;
+  color: var(--adm-muted);
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .adm-record-prompt-cell {
   max-width: 360px;
   color: rgba(245, 240, 250, 0.86);
