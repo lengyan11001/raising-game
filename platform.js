@@ -397,13 +397,62 @@ function advancedCreateUploadAcceptValue(mode = state.advancedCreateMode) {
   return "image/*";
 }
 
+const CHARACTER_ROUTE_PARAM_NAMES = ["characterId", "character", "itemId", "id"];
+
+function platformHashParts(value = "") {
+  const raw = String(value || "").trim().replace(/^#\/?/, "");
+  const [tab = "", query = ""] = raw.split("?");
+  return { tab, params: new URLSearchParams(query || "") };
+}
+
+function characterRouteParamFrom(params = new URLSearchParams()) {
+  for (const name of CHARACTER_ROUTE_PARAM_NAMES) {
+    const value = String(params.get(name) || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function currentCharacterRouteParams({ includeSearch = true } = {}) {
+  const hash = platformHashParts(window.location.hash || "");
+  const search = includeSearch ? new URLSearchParams(window.location.search || "") : new URLSearchParams();
+  const characterId = characterRouteParamFrom(hash.params) || characterRouteParamFrom(search);
+  const source = String(hash.params.get("source") || search.get("source") || "").trim().toLowerCase();
+  return { characterId, source };
+}
+
+function sanitizedSearchWithoutCharacterParams() {
+  const params = new URLSearchParams(window.location.search || "");
+  CHARACTER_ROUTE_PARAM_NAMES.forEach((name) => params.delete(name));
+  params.delete("source");
+  const next = params.toString();
+  return next ? `?${next}` : "";
+}
+
+function characterDetailHash(tab = DEFAULT_PLATFORM_TAB, characterId = "", source = "") {
+  const id = String(characterId || "").trim();
+  if (!id) return tab === DEFAULT_PLATFORM_TAB ? "" : `#${tab}`;
+  const params = new URLSearchParams({ characterId: id });
+  if (source) params.set("source", source);
+  return `#${tab || DEFAULT_PLATFORM_TAB}?${params.toString()}`;
+}
+
+function replacePlatformUrlForCharacter(characterId = "", source = "", tab = state.tab) {
+  const hash = characterDetailHash(tab, characterId, source);
+  const nextUrl = `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${hash}`;
+  window.history.replaceState(null, "", nextUrl);
+}
+
 function normalizePlatformTab(value = "") {
-  const normalized = String(value || "").trim().replace(/^#\/?/, "");
+  const normalized = platformHashParts(value).tab;
   return ALL_TABS.has(normalized) ? normalized : DEFAULT_PLATFORM_TAB;
 }
 
 function initialPlatformTab() {
   if (window.location.hash) return normalizePlatformTab(window.location.hash);
+  const searchParams = new URLSearchParams(window.location.search || "");
+  const searchTab = searchParams.get("tab") || searchParams.get("view") || "";
+  if (searchTab) return normalizePlatformTab(searchTab);
   return normalizePlatformTab(localStorage.getItem(TAB_KEY) || "");
 }
 
@@ -420,6 +469,8 @@ const state = {
   category: "all",
   homeCharacters: [],
   activeGalleryCharacterId: "",
+  routeCharacterId: currentCharacterRouteParams().characterId,
+  routeCharacterSource: currentCharacterRouteParams().source,
   visibleCharacterCount: CHARACTER_PAGE_SIZE,
   characterLoadObserver: null,
   myCharacters: [],
@@ -6298,13 +6349,29 @@ function trackAnalyticsEvent(eventName, params = {}) {
 }
 
 function setTab(tab) {
+  const hashRoute = platformHashParts(tab);
+  const routeCharacterId = characterRouteParamFrom(hashRoute.params);
+  if (routeCharacterId) {
+    state.routeCharacterId = routeCharacterId;
+    state.routeCharacterSource = String(hashRoute.params.get("source") || "").trim().toLowerCase();
+  } else if (String(tab || "").trim().startsWith("#")) {
+    state.routeCharacterId = "";
+    state.routeCharacterSource = "";
+    state.activeGalleryCharacterId = "";
+  }
   let nextTab = normalizePlatformTab(tab);
   if (!isTabAllowed(nextTab)) nextTab = DEFAULT_PLATFORM_TAB;
+  if ((nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters") && state.routeCharacterId) {
+    applyRouteCharacterDetail({ allowTabSwitch: true });
+    nextTab = state.tab || nextTab;
+  }
   state.tab = nextTab;
   localStorage.setItem(TAB_KEY, nextTab);
-  const nextHash = nextTab === DEFAULT_PLATFORM_TAB ? "" : `#${nextTab}`;
+  const nextHash = state.routeCharacterId && (nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters")
+    ? characterDetailHash(nextTab, state.routeCharacterId, state.routeCharacterSource)
+    : nextTab === DEFAULT_PLATFORM_TAB ? "" : `#${nextTab}`;
   if (window.location.hash !== nextHash) {
-    const nextUrl = `${window.location.pathname}${window.location.search}${nextHash}`;
+    const nextUrl = `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`;
     window.history.replaceState(null, "", nextUrl);
   }
   if (nextTab !== "history") {
@@ -6337,6 +6404,7 @@ function setTab(tab) {
     else renderAssets([]);
   }
   if (nextTab === "characters") {
+    applyRouteCharacterDetail({ allowTabSwitch: false });
     renderGalleryCharacters(els.characterGrid);
     bindCharacterCreator();
     loadGalleryUnlocks();
@@ -6361,8 +6429,56 @@ function setCategory(category) {
 
 function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
   state.galleryMode = normalizeGalleryMode(mode || DEFAULT_GALLERY_MODE);
+  state.routeCharacterId = "";
+  state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
+  replacePlatformUrlForCharacter("", "", state.tab);
   renderTemplates();
+}
+
+function galleryCharacterItemsForSource(source = "system") {
+  return source === "custom"
+    ? customCharacterItems()
+    : state.homeCharacters.filter((item) => item && !item.deletedAt);
+}
+
+function characterSourceForId(characterId = "") {
+  const id = String(characterId || "");
+  if (!id) return "";
+  if (state.homeCharacters.some((item) => String(item?.id || "") === id)) return "system";
+  if (customCharacterItems().some((item) => String(item?.id || "") === id)) return "custom";
+  if (id.startsWith("custom:") || id.startsWith("mychar")) return "custom";
+  return "";
+}
+
+function findGalleryCharacterInSource(characterId = "", source = "") {
+  const id = String(characterId || "");
+  if (!id) return null;
+  const preferredSource = source || characterSourceForId(id) || "system";
+  return galleryCharacterItemsForSource(preferredSource).find((item) => String(item?.id || "") === id) || null;
+}
+
+function applyRouteCharacterDetail({ allowTabSwitch = true } = {}) {
+  const liveRoute = currentCharacterRouteParams({ includeSearch: true });
+  if (liveRoute.characterId) {
+    state.routeCharacterId = liveRoute.characterId;
+    state.routeCharacterSource = liveRoute.source || state.routeCharacterSource || "";
+  }
+  const characterId = String(state.routeCharacterId || "").trim();
+  if (!characterId) return false;
+  const source = state.routeCharacterSource === "custom" || state.routeCharacterSource === "system"
+    ? state.routeCharacterSource
+    : characterSourceForId(characterId);
+  if (!source) return false;
+  const targetTab = source === "custom" ? "characters" : DEFAULT_PLATFORM_TAB;
+  if (allowTabSwitch && state.tab !== targetTab) {
+    state.tab = targetTab;
+    localStorage.setItem(TAB_KEY, targetTab);
+  }
+  state.characterSource = source;
+  state.activeGalleryCharacterId = characterId;
+  state.routeCharacterSource = source;
+  return true;
 }
 
 function renderCategories() {
@@ -6486,7 +6602,12 @@ function bindHoverPreviewCard({ card, video, cover, fallbackCover = DEFAULT_TEMP
 function renderTemplates() {
   activeHoverPreviewStop?.();
   activeHoverPreviewStop = null;
+  applyRouteCharacterDetail({ allowTabSwitch: true });
   renderGalleryModeTabs();
+  if (state.tab === "characters") {
+    renderGalleryCharacters(els.characterGrid);
+    return;
+  }
   if (state.galleryMode === "characters") {
     state.characterSource = "system";
     renderGalleryCharacters(els.templateGrid);
@@ -6530,6 +6651,17 @@ function renderGalleryCharacters(root = els.templateGrid) {
     : null;
   if (activeCharacter) {
     renderGalleryCharacterDetail(activeCharacter, root);
+    return;
+  }
+  if (
+    state.routeCharacterId &&
+    String(state.routeCharacterId) === String(state.activeGalleryCharacterId || "") &&
+    source === "custom" &&
+    state.user &&
+    !state.myCharactersLoaded
+  ) {
+    root.className = "template-grid character-grid character-grid-main";
+    root.innerHTML = `<div class="job-note character-filter-empty">Loading character...</div>`;
     return;
   }
   state.activeGalleryCharacterId = "";
@@ -6988,7 +7120,10 @@ function renderCharacterSourceTabs() {
   els.characterSourceTabs.querySelectorAll("[data-character-source]").forEach((button) => {
     button.addEventListener("click", () => {
       state.characterSource = button.dataset.characterSource === "custom" ? "custom" : "system";
+      state.routeCharacterId = "";
+      state.routeCharacterSource = "";
       state.activeGalleryCharacterId = "";
+      replacePlatformUrlForCharacter("", "", state.tab);
       renderGalleryCharacters(els.characterGrid);
       if (state.characterSource === "custom" && state.user) loadUserAssets(state.userAssetsPage || 1).catch(() => {});
     });
@@ -7086,6 +7221,7 @@ async function loadMyCharacters({ silent = false } = {}) {
   state.myCharacters = payload.characters || [];
   state.myCharactersLoaded = true;
   scheduleMyCharacterProgressRefreshes();
+  if (state.routeCharacterId) applyRouteCharacterDetail({ allowTabSwitch: true });
   if (!silent && els.characterCreateStatus) els.characterCreateStatus.textContent = "";
   if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
   return state.myCharacters;
@@ -7580,10 +7716,20 @@ async function openSystemCharacterModifyDialog(characterId = "") {
   });
 }
 
-function openGalleryCharacter(characterId = "") {
-  const item = state.homeCharacters.find((entry) => String(entry.id || "") === String(characterId || ""));
+function openGalleryCharacter(characterId = "", { updateRoute = true } = {}) {
+  const source = characterSourceForId(characterId) || (state.tab === "characters" ? "custom" : "system");
+  const item = findGalleryCharacterInSource(characterId, source);
   if (!item) return;
+  const targetTab = source === "custom" ? "characters" : DEFAULT_PLATFORM_TAB;
+  state.characterSource = source;
   state.activeGalleryCharacterId = item.id || "";
+  state.routeCharacterId = item.id || "";
+  state.routeCharacterSource = source;
+  if (updateRoute) replacePlatformUrlForCharacter(item.id || "", source, targetTab);
+  if (state.tab !== targetTab) {
+    setTab(targetTab);
+    return;
+  }
   if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
   else renderTemplates();
   if (state.user) loadGalleryUnlocks();
@@ -7937,7 +8083,10 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
     ${renderCharacterVideoSection(t("gallery.character.sceneVideos"), videos, item)}
   `;
   root.querySelector("[data-character-back]")?.addEventListener("click", () => {
+    state.routeCharacterId = "";
+    state.routeCharacterSource = "";
     state.activeGalleryCharacterId = "";
+    replacePlatformUrlForCharacter("", "", state.tab);
     if (state.tab === "characters") renderGalleryCharacters(root);
     else renderTemplates();
   });
@@ -12823,6 +12972,7 @@ async function bootstrap() {
   state.categories = platform.categories || [];
   state.advancedCases = platform.advanced?.cases || [];
   state.homeCharacters = payload.config?.homeVideo?.items || [];
+  applyRouteCharacterDetail({ allowTabSwitch: true });
   els.brandName.textContent = platform.brand || "Vipeak AI";
   await loadAdvancedPresets();
   applyTenantFeatures();
@@ -12850,6 +13000,9 @@ async function startPlatform() {
 document.addEventListener("click", (event) => {
   const button = event.target.closest("[data-tab]");
   if (!button) return;
+  state.routeCharacterId = "";
+  state.routeCharacterSource = "";
+  state.activeGalleryCharacterId = "";
   setTab(button.dataset.tab);
 });
 window.addEventListener("hashchange", () => setTab(window.location.hash));
