@@ -9867,6 +9867,30 @@ function mergeAdvancedResultRecord(record = {}) {
   state.advancedResultRecords = [record, ...existing.filter((item) => item.taskId !== record.taskId)].slice(0, 6);
 }
 
+function advancedResultPendingTaskIds() {
+  const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  const recordById = new Map(records.map((record) => [String(record.taskId || ""), record]));
+  const taskIds = [];
+  const pushTaskId = (taskId, record = null) => {
+    const id = String(taskId || "").trim();
+    if (!id || id.startsWith("pending-") || taskIds.includes(id)) return;
+    const current = record || recordById.get(id);
+    if (current && isTerminalGenerationStatus(current.status)) return;
+    taskIds.push(id);
+  };
+  pushTaskId(state.advancedResultTaskId);
+  records.forEach((record) => {
+    if (!isTerminalGenerationStatus(record.status)) pushTaskId(record.taskId, record);
+  });
+  return taskIds.slice(0, 6);
+}
+
+function syncAdvancedResultTaskId() {
+  const pendingTaskIds = advancedResultPendingTaskIds();
+  state.advancedResultTaskId = pendingTaskIds[0] || "";
+  return pendingTaskIds;
+}
+
 function renderAdvancedResultPanel() {
   if (!els.advancedResultList) return;
   const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
@@ -9937,8 +9961,8 @@ function stopAdvancedResultRefresh() {
 }
 
 function scheduleAdvancedResultRefresh({ delayMs = 5000, force = false } = {}) {
-  if (!state.advancedResultTaskId || state.tab !== "advanced") return;
-  if (String(state.advancedResultTaskId).startsWith("pending-")) return;
+  if (state.tab !== "advanced") return;
+  if (!advancedResultPendingTaskIds().length) return;
   if (state.advancedResultTimer && !force) return;
   stopAdvancedResultRefresh();
   state.advancedResultTimer = window.setTimeout(() => {
@@ -9948,31 +9972,45 @@ function scheduleAdvancedResultRefresh({ delayMs = 5000, force = false } = {}) {
 }
 
 async function refreshAdvancedResultRecord() {
-  const taskId = state.advancedResultTaskId || state.advancedResultRecords.find((record) => !String(record.taskId || "").startsWith("pending-"))?.taskId || "";
-  if (String(taskId).startsWith("pending-")) return;
-  if (!taskId || state.advancedResultLoading || state.tab !== "advanced") return;
+  const taskIds = advancedResultPendingTaskIds();
+  if (!taskIds.length || state.advancedResultLoading || state.tab !== "advanced") return;
   state.advancedResultLoading = true;
+  let rendered = false;
+  let firstError = "";
   try {
-    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
-    const record = payload.record || payload.generation || null;
-    if (record?.taskId) {
-      mergeAdvancedResultRecord(record);
-      renderAdvancedResultPanel();
-      if (isTerminalGenerationStatus(record.status)) {
-        if (state.advancedResultTaskId === record.taskId) state.advancedResultTaskId = "";
-      } else {
-        state.advancedResultTaskId = record.taskId;
-        scheduleAdvancedResultRefresh({ delayMs: 5000, force: true });
+    const results = await Promise.allSettled(
+      taskIds.map((taskId) => requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`)),
+    );
+    results.forEach((result) => {
+      if (result.status !== "fulfilled") {
+        firstError = firstError || (result.reason?.message || String(result.reason));
+        return;
       }
+      const payload = result.value || {};
+      const record = payload.record || payload.generation || null;
+      if (record?.taskId) {
+        mergeAdvancedResultRecord(record);
+        rendered = true;
+      }
+      if (payload.user) setUser(payload.user);
+    });
+    syncAdvancedResultTaskId();
+    if (rendered) {
+      state.advancedResultLastError = "";
+      renderAdvancedResultPanel();
+    } else if (firstError && state.advancedResultLastError !== firstError && els.advancedResultList) {
+      state.advancedResultLastError = firstError;
+      els.advancedResultList.insertAdjacentHTML("afterbegin", `<div class="job-note history-action-note">${escapeHtml(firstError)}</div>`);
     }
-    if (payload.user) setUser(payload.user);
   } catch (error) {
-    if (String(taskId).startsWith("pending-")) return;
-    if (els.advancedResultList) {
-      els.advancedResultList.insertAdjacentHTML("afterbegin", `<div class="job-note history-action-note">${escapeHtml(error.message || String(error))}</div>`);
+    const message = error.message || String(error);
+    if (message && state.advancedResultLastError !== message && els.advancedResultList) {
+      state.advancedResultLastError = message;
+      els.advancedResultList.insertAdjacentHTML("afterbegin", `<div class="job-note history-action-note">${escapeHtml(message)}</div>`);
     }
   } finally {
     state.advancedResultLoading = false;
+    if (advancedResultPendingTaskIds().length) scheduleAdvancedResultRefresh({ delayMs: 5000, force: true });
   }
 }
 
