@@ -2685,6 +2685,30 @@ function renderCharacterGeoHtml(snapshot, item = {}) {
       </section>
       ${relatedCards ? `<section class="related" aria-label="Related characters"><h2>Related characters</h2><div class="related-grid">${relatedCards}</div></section>` : ""}
     </main>
+    <script>
+      (() => {
+        const characterId = ${JSON.stringify(String(item.id || ""))};
+        if (!characterId) return;
+        let source = "direct";
+        try {
+          if (document.referrer) {
+            const ref = new URL(document.referrer);
+            if (ref.host === window.location.host) {
+              source = ["/", "/index.html", "/platform.html"].includes(ref.pathname || "/") ? "home" : "direct";
+            } else {
+              source = "external";
+            }
+          }
+        } catch {}
+        const payload = JSON.stringify({ characterId, source });
+        const url = "/api/analytics/character-view";
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(url, new Blob([payload], { type: "application/json" }));
+        } else {
+          fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: payload, keepalive: true }).catch(() => {});
+        }
+      })();
+    </script>
   </body>
 </html>`;
 }
@@ -3020,14 +3044,6 @@ async function handleCharacterGeoPage(req, res, characterId) {
     String(candidate.id || "") === decoded
   ));
   if (!item) return sendText(res, 404, "Character not found");
-  if (req.method === "GET") {
-    await recordGeoCharacterVisit({
-      req,
-      url: new URL(req.url || characterPublicPath(item), publicOriginFromRequest(req)),
-      character: item,
-      source: characterVisitSourceFromRequest(req, new URL(req.url || characterPublicPath(item), publicOriginFromRequest(req))),
-    });
-  }
   return sendHtml(res, 200, renderCharacterGeoHtml(snapshot, item), { head: req.method === "HEAD" });
 }
 
