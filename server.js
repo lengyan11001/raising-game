@@ -144,7 +144,6 @@ const APIZ_SEEDANCE_ENABLED_USER_KEYS = new Set(
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean),
 );
-const APIZ_SEEDANCE_ASSET_GROUP_CACHE = new Map();
 const APIZ_SEEDANCE_ASSET_URI_CACHE = new Map();
 const UPSTREAM_MODE = String(process.env.UPSTREAM_MODE || "direct").trim().toLowerCase();
 const USE_GATEWAY_UPSTREAM = ["gateway", "proxy", "api"].includes(UPSTREAM_MODE);
@@ -7893,53 +7892,34 @@ function normalizeApizAssetUri(value = "") {
   return match ? `Asset://${match[1]}` : "";
 }
 
-function apizSeedanceAssetGroupCacheKey(user = {}) {
+function apizSeedanceAssetCacheKey(user = {}) {
   const userKey = String(user?.id || user?.username || user?.email || "default").trim().toLowerCase() || "default";
   return `${String(APIZ_SEEDANCE_MODEL_ID || "seedance").trim().toLowerCase()}:${userKey}`;
 }
 
-async function apizSeedanceAssetGroupForUser(user = {}) {
-  const key = apizSeedanceAssetGroupCacheKey(user);
-  const cached = APIZ_SEEDANCE_ASSET_GROUP_CACHE.get(key);
-  if (cached) return cached;
-  const safeUser = String(user?.username || user?.id || "user").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 48) || "user";
-  const groupName = `vipeak-${safeUser}`;
-  try {
-    const list = await apizSeedanceRequest("/api/v3/assets/groups", null, { method: "GET" });
-    const items = Array.isArray(list?.items) ? list.items : Array.isArray(list?.data?.items) ? list.data.items : [];
-    const existing = items.find((item) => String(item?.name || "").trim() === groupName && String(item?.group_id || item?.id || "").trim());
-    if (existing) {
-      const groupId = String(existing.group_id || existing.id).trim();
-      APIZ_SEEDANCE_ASSET_GROUP_CACHE.set(key, groupId);
-      return groupId;
-    }
-  } catch (error) {
-    console.warn("[apiz-seedance-asset-groups-list-failed]", error.message || error);
-  }
-  const raw = await apizSeedanceRequest("/api/v3/assets/groups", {
-    name: groupName,
-    description: "Vipeak reusable Seedance references",
-  });
-  const groupId = String(raw?.group_id || raw?.id || raw?.data?.group_id || raw?.data?.id || "").trim();
-  if (!groupId) {
-    const error = new Error(`APIZ Seedance did not return asset group id: ${JSON.stringify(raw || {})}`);
-    error.statusCode = 502;
-    error.code = "APIZ_SEEDANCE_ASSET_GROUP_FAILED";
-    throw error;
-  }
-  APIZ_SEEDANCE_ASSET_GROUP_CACHE.set(key, groupId);
-  return groupId;
+function apizSeedanceServiceAssetUrl(assetId = "", taskId = "") {
+  const id = encodeURIComponent(String(assetId || "").trim());
+  if (!id) return "";
+  const task = String(taskId || "").trim();
+  return `/api/v3/service-inference/assets/${id}${task ? `?task_id=${encodeURIComponent(task)}` : ""}`;
 }
 
-async function waitForApizSeedanceAsset(assetId = "") {
+function apizSeedanceAssetStatusPayload(raw = {}) {
+  return raw?.data && typeof raw.data === "object" ? raw.data : raw;
+}
+
+async function waitForApizSeedanceAsset(assetId = "", taskId = "") {
   const id = String(assetId || "").trim();
   if (!id) return null;
   let last = null;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     if (attempt) await delay(Math.min(1000 + attempt * 500, 3500));
-    last = await apizSeedanceRequest(`/api/v3/assets/${encodeURIComponent(id)}`, null, { method: "GET" });
-    const status = String(firstPresent(last?.sync_status, last?.status, last?.data?.sync_status, last?.data?.status, "")).toLowerCase();
-    const assetError = firstPresent(last?.sync_error, last?.error?.message, last?.error, last?.data?.sync_error, last?.data?.error?.message, last?.data?.error, "");
+    const queryPath = apizSeedanceServiceAssetUrl(id, taskId);
+    console.log("[apiz-seedance-service-asset-query]", JSON.stringify({ path: queryPath, assetId: id, taskId: taskId || "" }));
+    last = await apizSeedanceRequest(queryPath, null, { method: "GET" });
+    const data = apizSeedanceAssetStatusPayload(last);
+    const status = String(firstPresent(data?.sync_status, data?.status, data?.state, last?.sync_status, last?.status, "")).toLowerCase();
+    const assetError = firstPresent(data?.sync_error, data?.error?.message, data?.error, last?.sync_error, last?.error?.message, last?.error, "");
     if (["active", "completed", "complete", "success", "succeeded", "ready"].includes(status)) return last;
     if (["failed", "fail", "error"].includes(status) || assetError) {
       const error = new Error(assetError || `APIZ Seedance asset upload failed: ${id}`);
@@ -7962,17 +7942,25 @@ async function uploadApizSeedanceAsset({ user = {}, url = "", assetType = "Image
   const existingAssetUri = normalizeApizAssetUri(sourceUrl);
   if (existingAssetUri) return existingAssetUri;
   const normalizedType = String(assetType || "Image").trim();
-  const cacheKey = `${apizSeedanceAssetGroupCacheKey(user)}:${normalizedType.toLowerCase()}:${sourceUrl}`;
+  const cacheKey = `${apizSeedanceAssetCacheKey(user)}:${normalizedType.toLowerCase()}:${sourceUrl}`;
   const cachedAssetUri = APIZ_SEEDANCE_ASSET_URI_CACHE.get(cacheKey);
   if (cachedAssetUri) return cachedAssetUri;
-  const groupId = await apizSeedanceAssetGroupForUser(user);
   const mediaKey = normalizedType.toLowerCase() === "video" ? "video_url" : normalizedType.toLowerCase() === "audio" ? "audio_url" : "image_url";
-  const raw = await apizSeedanceRequest("/api/v3/assets", {
-    group_id: groupId,
+  const uploadPayload = {
     [mediaKey]: sourceUrl,
+    asset_type: normalizedType,
     name,
-  });
-  const assetId = String(raw?.asset_id || raw?.id || raw?.data?.asset_id || raw?.data?.id || "").trim();
+  };
+  console.log("[apiz-seedance-service-asset-upload]", JSON.stringify({
+    path: "/api/v3/service-inference/assets",
+    assetType: normalizedType,
+    mediaKey,
+    name,
+    sourceUrl,
+  }));
+  const raw = await apizSeedanceRequest("/api/v3/service-inference/assets", uploadPayload);
+  const assetId = String(raw?.asset_id || raw?.id || raw?.assetId || raw?.data?.asset_id || raw?.data?.id || raw?.data?.assetId || "").trim();
+  const taskId = String(raw?.task_id || raw?.taskId || raw?.upload_task_id || raw?.uploadTaskId || raw?.data?.task_id || raw?.data?.taskId || raw?.data?.upload_task_id || raw?.data?.uploadTaskId || "").trim();
   const assetUri = normalizeApizAssetUri(firstPresent(raw?.asset_uri, raw?.data?.asset_uri, raw?.intl_asset_uri, raw?.data?.intl_asset_uri, ""));
   if (!assetId && !assetUri) {
     const error = new Error(`APIZ Seedance did not return asset id: ${JSON.stringify(raw || {})}`);
@@ -7980,12 +7968,18 @@ async function uploadApizSeedanceAsset({ user = {}, url = "", assetType = "Image
     error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
     throw error;
   }
+  console.log("[apiz-seedance-service-asset-upload-result]", JSON.stringify({
+    assetId,
+    taskId,
+    assetUri,
+  }));
   if (assetId) {
     try {
-      await waitForApizSeedanceAsset(assetId);
+      await waitForApizSeedanceAsset(assetId, taskId);
     } catch (error) {
       error.sourceUrl = sourceUrl;
       error.assetId = assetId;
+      error.taskId = taskId;
       error.assetUri = assetUri;
       throw error;
     }
