@@ -3270,6 +3270,9 @@ async function renderPricingLegacy() {
 function pricingRowTitle(row = {}) {
   const key = String(row.key || "");
   const provider = String(row.provider || "").toLowerCase();
+  if (row.providerLabel) return row.providerLabel;
+  if (key.startsWith("seedance-fast-video-input")) return "Seedance Fast 视频输入加收";
+  if (key.startsWith("seedance-fast")) return "Seedance Fast";
   if (key.startsWith("seedance-video-input")) return "Seedance 视频输入加收";
   if (provider === "seedance") return "Seedance 基础生成";
   return row.providerLabel || row.provider || "模型";

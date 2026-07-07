@@ -220,17 +220,17 @@ const GENERATION_PRICE_MARKUP = 1.2;
 const ADVANCED_SEEDANCE_FPS = clampNumber(process.env.ADVANCED_SEEDANCE_FPS, 24, 1, 120);
 const ADVANCED_SEEDANCE_720P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_720P_USD_PER_MILLION_TOKENS, 7, 0.0001, 100000);
 const ADVANCED_SEEDANCE_1080P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_1080P_USD_PER_MILLION_TOKENS, 7.7, 0.0001, 100000);
-const ADVANCED_SEEDANCE_4K_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_4K_USD_PER_MILLION_TOKENS, ADVANCED_SEEDANCE_1080P_USD_PER_MILLION_TOKENS, 0.0001, 100000);
+const ADVANCED_SEEDANCE_4K_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_4K_USD_PER_MILLION_TOKENS, 4, 0.0001, 100000);
 const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_720P_USD_PER_MILLION_TOKENS, 4.3, 0.0001, 100000);
 const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_USD_PER_MILLION_TOKENS, 4.7, 0.0001, 100000);
-const ADVANCED_SEEDANCE_VIDEO_INPUT_4K_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_4K_USD_PER_MILLION_TOKENS, ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_USD_PER_MILLION_TOKENS, 0.0001, 100000);
+const ADVANCED_SEEDANCE_VIDEO_INPUT_4K_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_4K_USD_PER_MILLION_TOKENS, 2.4, 0.0001, 100000);
 const ADVANCED_SEEDANCE_FAST_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_FAST_USD_PER_MILLION_TOKENS, 5.6, 0.0001, 100000);
 const ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_USD_PER_MILLION_TOKENS = clampNumber(process.env.ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_USD_PER_MILLION_TOKENS, 3.3, 0.0001, 100000);
 const ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION = {
   "480p": clampNumber(process.env.ADVANCED_SEEDANCE_480P_EXAMPLE_USD_PER_5S, 0.35, 0.0001, 100000),
   "720p": clampNumber(process.env.ADVANCED_SEEDANCE_720P_EXAMPLE_USD_PER_5S, 0.76, 0.0001, 100000),
   "1080p": clampNumber(process.env.ADVANCED_SEEDANCE_1080P_EXAMPLE_USD_PER_5S, 1.87, 0.0001, 100000),
-  "4k": clampNumber(process.env.ADVANCED_SEEDANCE_4K_EXAMPLE_USD_PER_5S, 7.48, 0.0001, 100000),
+  "4k": clampNumber(process.env.ADVANCED_SEEDANCE_4K_EXAMPLE_USD_PER_5S, 3.89, 0.0001, 100000),
 };
 const ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION = {
   "480p": [
@@ -246,17 +246,21 @@ const ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION = {
     clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_MAX_EXAMPLE_USD_PER_5S, 4.57, 0.0001, 100000),
   ],
   "4k": [
-    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_4K_MIN_EXAMPLE_USD_PER_5S, 8.24, 0.0001, 100000),
-    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_4K_MAX_EXAMPLE_USD_PER_5S, 18.28, 0.0001, 100000),
+    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_4K_MIN_EXAMPLE_USD_PER_5S, 4.2, 0.0001, 100000),
+    clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_INPUT_4K_MAX_EXAMPLE_USD_PER_5S, 9.33, 0.0001, 100000),
   ],
 };
 const ADVANCED_CREDITS_PER_CNY = pricingNumber(DEFAULT_CREDITS_PER_USD / INTERNAL_CNY_PER_USD, 20, 0.0001, 6);
-const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 150;
-const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 300;
-const ADVANCED_SEEDANCE_4K_CREDITS_PER_SECOND = 1200;
-const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 100;
-const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 200;
-const ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND = 800;
+const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 30;
+const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 60;
+const ADVANCED_SEEDANCE_4K_CREDITS_PER_SECOND = 120;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 20;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 40;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND = 80;
+const ADVANCED_SEEDANCE_FAST_480P_CREDITS_PER_SECOND = 12;
+const ADVANCED_SEEDANCE_FAST_720P_CREDITS_PER_SECOND = 24;
+const ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_480P_CREDITS_PER_SECOND = 8;
+const ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 16;
 const ADVANCED_SEEDANCE_FAST_DISCOUNT = clampNumber(process.env.ADVANCED_SEEDANCE_FAST_DISCOUNT, 0.8, 0.01, 1);
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
@@ -280,6 +284,14 @@ const DEFAULT_ADVANCED_PRICING = {
     "720p": ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND,
     "4k": ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND,
+  },
+  seedanceFastCreditsPerSecondByResolution: {
+    "480p": ADVANCED_SEEDANCE_FAST_480P_CREDITS_PER_SECOND,
+    "720p": ADVANCED_SEEDANCE_FAST_720P_CREDITS_PER_SECOND,
+  },
+  seedanceFastVideoInputCreditsPerSecondByResolution: {
+    "480p": ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_480P_CREDITS_PER_SECOND,
+    "720p": ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_720P_CREDITS_PER_SECOND,
   },
   wan27CreditsPerSecondByResolution: {
     "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
@@ -1125,6 +1137,12 @@ function normalizeAdvancedPricing(pricing = {}) {
   const seedanceVideoInput = source.seedanceVideoInputCreditsPerSecondByResolution && typeof source.seedanceVideoInputCreditsPerSecondByResolution === "object"
     ? source.seedanceVideoInputCreditsPerSecondByResolution
     : {};
+  const seedanceFast = source.seedanceFastCreditsPerSecondByResolution && typeof source.seedanceFastCreditsPerSecondByResolution === "object"
+    ? source.seedanceFastCreditsPerSecondByResolution
+    : {};
+  const seedanceFastVideoInput = source.seedanceFastVideoInputCreditsPerSecondByResolution && typeof source.seedanceFastVideoInputCreditsPerSecondByResolution === "object"
+    ? source.seedanceFastVideoInputCreditsPerSecondByResolution
+    : {};
   const wan27 = source.wan27CreditsPerSecondByResolution && typeof source.wan27CreditsPerSecondByResolution === "object"
     ? source.wan27CreditsPerSecondByResolution
     : {};
@@ -1175,6 +1193,14 @@ function normalizeAdvancedPricing(pricing = {}) {
       "1080p": normalizeStoredCredits(seedanceVideoInput["1080p"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["1080p"]),
       "4k": normalizeStoredCredits(seedanceVideoInput["4k"], DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["4k"]),
     },
+    seedanceFastCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(seedanceFast["480p"], DEFAULT_ADVANCED_PRICING.seedanceFastCreditsPerSecondByResolution["480p"]),
+      "720p": normalizeStoredCredits(seedanceFast["720p"], DEFAULT_ADVANCED_PRICING.seedanceFastCreditsPerSecondByResolution["720p"]),
+    },
+    seedanceFastVideoInputCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(seedanceFastVideoInput["480p"], DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["480p"]),
+      "720p": normalizeStoredCredits(seedanceFastVideoInput["720p"], DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["720p"]),
+    },
     wan27CreditsPerSecondByResolution: {
       "720p": normalizeStoredCredits(wan27["720p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"]),
       "1080p": normalizeStoredCredits(wan27["1080p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["1080p"]),
@@ -1207,6 +1233,8 @@ function publicAdvancedPricingView(pricing = {}) {
     creditsPerUsd: normalized.creditsPerUsd || DEFAULT_CREDITS_PER_USD,
     seedanceCreditsPerSecondByResolution: { ...normalized.seedanceCreditsPerSecondByResolution },
     seedanceVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceVideoInputCreditsPerSecondByResolution },
+    seedanceFastCreditsPerSecondByResolution: { ...normalized.seedanceFastCreditsPerSecondByResolution },
+    seedanceFastVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceFastVideoInputCreditsPerSecondByResolution },
     wan27CreditsPerSecondByResolution: { ...normalized.wan27CreditsPerSecondByResolution },
     vipeak1Image: {
       model: imagePricing.model || WAN27_IMAGE_PRO_MODEL,
@@ -5116,12 +5144,10 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   const minDuration = normalizedProvider === "seedance" && options.allowFourSecondSeedance === true ? 4 : bounds.min;
   const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, minDuration, bounds.max);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
-  const priceTable = normalizedProvider === "wan27"
-    ? advancedPricing.wan27CreditsPerSecondByResolution
-    : advancedPricing.seedanceCreditsPerSecondByResolution;
   if (normalizedProvider === "wan27") {
     const resolution = normalizeWan27Resolution(options.resolution);
     const publicResolution = normalizeAdvancedResolution(resolution);
+    const priceTable = advancedPricing.wan27CreditsPerSecondByResolution;
     const creditsPerSecond = priceTable[publicResolution] || DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"];
     const credits = creditsAmount(duration * creditsPerSecond);
     return {
@@ -5141,16 +5167,28 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   const resolution = normalizeAdvancedResolution(options.resolution);
   const ratio = normalizeVideoRatio(options.ratio || options.aspect_ratio || "16:9");
   const seedanceTier = normalizeSeedanceTier(options.seedanceTier);
-  const tierDiscount = seedanceTier === "fast" ? ADVANCED_SEEDANCE_FAST_DISCOUNT : 1;
-  const creditsPerSecond = priceTable[resolution] || DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"];
+  const isFast = seedanceTier === "fast";
+  const priceTable = isFast
+    ? advancedPricing.seedanceFastCreditsPerSecondByResolution
+    : advancedPricing.seedanceCreditsPerSecondByResolution;
+  const fallbackPriceTable = isFast
+    ? DEFAULT_ADVANCED_PRICING.seedanceFastCreditsPerSecondByResolution
+    : DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution;
+  const tierDiscount = 1;
+  const creditsPerSecond = priceTable[resolution] || fallbackPriceTable[resolution] || DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"];
   const videoInputSeconds = durationSecondsFromValue(firstPresent(
     options.videoInputSeconds,
     options.inputVideoSeconds,
     options.referenceVideoDurationSeconds,
     options.referenceVideoSeconds,
   ));
-  const videoInputTable = advancedPricing.seedanceVideoInputCreditsPerSecondByResolution || {};
-  const videoInputCreditsPerSecond = videoInputTable[resolution] || DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["720p"];
+  const videoInputTable = isFast
+    ? advancedPricing.seedanceFastVideoInputCreditsPerSecondByResolution || {}
+    : advancedPricing.seedanceVideoInputCreditsPerSecondByResolution || {};
+  const fallbackVideoInputTable = isFast
+    ? DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution
+    : DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution;
+  const videoInputCreditsPerSecond = videoInputTable[resolution] || fallbackVideoInputTable[resolution] || DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["720p"];
   const outputCredits = creditsAmount(duration * creditsPerSecond * tierDiscount);
   const videoInputCredits = creditsAmount(videoInputSeconds * videoInputCreditsPerSecond * tierDiscount);
   const credits = creditsAmount(outputCredits + videoInputCredits);
@@ -19534,14 +19572,18 @@ async function handleAdminGetConfig(req, res) {
 }
 
 const ADVANCED_PRICING_ROWS = [
-  { key: "seedance-480p", provider: "seedance", providerLabel: "Seedance", resolution: "480p", rateKind: "output", unit: "output_second" },
-  { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance", resolution: "720p", rateKind: "output", unit: "output_second" },
-  { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance", resolution: "1080p", rateKind: "output", unit: "output_second" },
-  { key: "seedance-4k", provider: "seedance", providerLabel: "Seedance", resolution: "4k", rateKind: "output", unit: "output_second" },
-  { key: "seedance-video-input-480p", provider: "seedance", providerLabel: "Seedance 视频输入加收", resolution: "480p", rateKind: "video_input", unit: "input_second" },
-  { key: "seedance-video-input-720p", provider: "seedance", providerLabel: "Seedance 视频输入加收", resolution: "720p", rateKind: "video_input", unit: "input_second" },
-  { key: "seedance-video-input-1080p", provider: "seedance", providerLabel: "Seedance 视频输入加收", resolution: "1080p", rateKind: "video_input", unit: "input_second" },
-  { key: "seedance-video-input-4k", provider: "seedance", providerLabel: "Seedance 视频输入加收", resolution: "4k", rateKind: "video_input", unit: "input_second" },
+  { key: "seedance-480p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "480p", rateKind: "output", unit: "output_second" },
+  { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "720p", rateKind: "output", unit: "output_second" },
+  { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "1080p", rateKind: "output", unit: "output_second" },
+  { key: "seedance-4k", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "4k", rateKind: "output", unit: "output_second" },
+  { key: "seedance-fast-480p", provider: "seedance", providerLabel: "Seedance Fast", seedanceTier: "fast", resolution: "480p", rateKind: "output", unit: "output_second" },
+  { key: "seedance-fast-720p", provider: "seedance", providerLabel: "Seedance Fast", seedanceTier: "fast", resolution: "720p", rateKind: "output", unit: "output_second" },
+  { key: "seedance-video-input-480p", provider: "seedance", providerLabel: "Seedance Standard 视频输入加收", seedanceTier: "standard", resolution: "480p", rateKind: "video_input", unit: "input_second" },
+  { key: "seedance-video-input-720p", provider: "seedance", providerLabel: "Seedance Standard 视频输入加收", seedanceTier: "standard", resolution: "720p", rateKind: "video_input", unit: "input_second" },
+  { key: "seedance-video-input-1080p", provider: "seedance", providerLabel: "Seedance Standard 视频输入加收", seedanceTier: "standard", resolution: "1080p", rateKind: "video_input", unit: "input_second" },
+  { key: "seedance-video-input-4k", provider: "seedance", providerLabel: "Seedance Standard 视频输入加收", seedanceTier: "standard", resolution: "4k", rateKind: "video_input", unit: "input_second" },
+  { key: "seedance-fast-video-input-480p", provider: "seedance", providerLabel: "Seedance Fast 视频输入加收", seedanceTier: "fast", resolution: "480p", rateKind: "video_input", unit: "input_second" },
+  { key: "seedance-fast-video-input-720p", provider: "seedance", providerLabel: "Seedance Fast 视频输入加收", seedanceTier: "fast", resolution: "720p", rateKind: "video_input", unit: "input_second" },
   { key: "wan27-720p", provider: "wan27", providerLabel: "Wan2.7", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "wan27-1080p", provider: "wan27", providerLabel: "Wan2.7", resolution: "1080p", rateKind: "output", unit: "output_second" },
 ];
@@ -19569,6 +19611,9 @@ function advancedPricingRowKey(row = {}) {
   const resolution = normalizeAdvancedResolution(row.resolution);
   const rateKindRaw = String(row.rateKind || row.unit || "").toLowerCase();
   const isVideoInput = rateKindRaw === "video_input" || rateKindRaw === "input_second" || String(row.key || "").includes("video-input");
+  const isFast = String(row.seedanceTier || "").toLowerCase() === "fast";
+  if (provider === "seedance" && isFast && isVideoInput) return `seedance-fast-video-input-${resolution}`;
+  if (provider === "seedance" && isFast) return `seedance-fast-${resolution}`;
   if (provider === "seedance" && isVideoInput) return `seedance-video-input-${resolution}`;
   return `${provider}-${resolution}`;
 }
@@ -19607,10 +19652,15 @@ function yuanPerSecondRangeFromCredits(creditsPerSecondRange, creditsPerCny) {
   return creditsPerSecondRange.slice(0, 2).map((value) => yuanPerSecondFromCredits(value, creditsPerCny));
 }
 
-function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provider = "seedance", resolution = "720p", rateKind = "output") {
+function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard") {
   const normalized = normalizeAdvancedPricing(pricing);
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  const table = normalizedProvider === "seedance" && rateKind === "video_input"
+  const isFast = normalizedProvider === "seedance" && normalizeSeedanceTier(seedanceTier) === "fast";
+  const table = normalizedProvider === "seedance" && isFast && rateKind === "video_input"
+    ? normalized.seedanceFastVideoInputCreditsPerSecondByResolution
+    : normalizedProvider === "seedance" && isFast
+    ? normalized.seedanceFastCreditsPerSecondByResolution
+    : normalizedProvider === "seedance" && rateKind === "video_input"
     ? normalized.seedanceVideoInputCreditsPerSecondByResolution
     : normalizedProvider === "wan27"
     ? normalized.wan27CreditsPerSecondByResolution
@@ -19623,18 +19673,34 @@ function advancedSaleImageCredits(pricing = DEFAULT_ADVANCED_PRICING) {
   return pricingNumber(Number(normalized.wan27ImagePro.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6);
 }
 
-async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output") {
+function seedanceOfficialExampleUsdPerSecond(resolution = "720p", seedanceTier = "standard") {
+  const publicResolution = normalizeAdvancedResolution(resolution);
+  const exampleUsd = ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION[publicResolution] || ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION["720p"];
+  const standardRate = seedanceUsdPerMillionTokens(publicResolution, { seedanceTier: "standard" });
+  const targetRate = seedanceUsdPerMillionTokens(publicResolution, { seedanceTier });
+  const ratio = Number(standardRate || 0) > 0 ? Number(targetRate || 0) / Number(standardRate) : 1;
+  return pricingNumber((exampleUsd / 5) * ratio, exampleUsd / 5, 0, 6);
+}
+
+function seedanceOfficialInputUsdPerSecond(resolution = "720p", seedanceTier = "standard") {
+  const publicResolution = normalizeAdvancedResolution(resolution);
+  const baseUsdPerSecond = seedanceOfficialExampleUsdPerSecond(publicResolution, seedanceTier);
+  const noVideoRate = seedanceUsdPerMillionTokens(publicResolution, { seedanceTier, rateKind: "output" });
+  const withVideoRate = seedanceUsdPerMillionTokens(publicResolution, { seedanceTier, rateKind: "video_input" });
+  const ratio = Number(noVideoRate || 0) > 0 ? Number(withVideoRate || 0) / Number(noVideoRate) : 1;
+  return pricingNumber(baseUsdPerSecond * ratio, baseUsdPerSecond, 0, 6);
+}
+
+async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
   if (normalizedProvider === "seedance" && rateKind === "video_input") {
-    const range = ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION[publicResolution] || ADVANCED_SEEDANCE_VIDEO_INPUT_EXAMPLE_USD_RANGE_BY_RESOLUTION["720p"];
-    const creditsPerSecondRange = range.map((value) => pricingNumber((Number(value || 0) * UPSTREAM_USD_CNY_RATE * ADVANCED_CREDITS_PER_CNY) / duration, 0));
+    const usdPerSecond = seedanceOfficialInputUsdPerSecond(publicResolution, seedanceTier);
     return {
-      creditsPerSecond: null,
-      creditsPerSecondRange,
-      source: "byteplus_official_video_example_pricing",
-      message: `BytePlus official 5s 16:9 input-with-video example: ${range[0]}-${range[1]} USD/video. Internal upstream rate: ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens and minimum-token rules.`,
+      creditsPerSecond: pricingNumber(usdPerSecond * UPSTREAM_USD_CNY_RATE * ADVANCED_CREDITS_PER_CNY, 0),
+      source: "byteplus_official_token_pricing",
+      message: `BytePlus official token pricing. This row is the video-input add-on only: output price/s x video-input token-rate ratio. Internal upstream rate: ${UPSTREAM_USD_CNY_RATE}.`,
     };
   }
   if (USE_GATEWAY_UPSTREAM && typeof gatewayAdvancedEstimate === "function") {
@@ -19657,11 +19723,12 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
     }
   }
   if (normalizedProvider === "seedance") {
-    const exampleUsd = ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION[publicResolution] || ADVANCED_SEEDANCE_EXAMPLE_USD_BY_RESOLUTION["720p"];
+    const exampleUsdPerSecond = seedanceOfficialExampleUsdPerSecond(publicResolution, seedanceTier);
+    const exampleUsd = pricingNumber(exampleUsdPerSecond * duration, 0, 0, 6);
     return {
-      creditsPerSecond: pricingNumber((exampleUsd * UPSTREAM_USD_CNY_RATE * ADVANCED_CREDITS_PER_CNY) / duration, 0),
+      creditsPerSecond: pricingNumber(exampleUsdPerSecond * UPSTREAM_USD_CNY_RATE * ADVANCED_CREDITS_PER_CNY, 0),
       source: "byteplus_official_video_example_pricing",
-      message: `BytePlus official 5s 16:9 example: ${exampleUsd} USD/video. Internal upstream rate: ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens returned by the API.`,
+      message: `BytePlus official 5s 16:9 example${normalizeSeedanceTier(seedanceTier) === "fast" ? " scaled by fast endpoint token rate" : ""}: ${exampleUsd} USD/video. Internal upstream rate: ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens returned by the API.`,
     };
   }
   const wan27PurchaseCnyPerSecond = publicResolution === "1080p"
@@ -19677,8 +19744,8 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
 async function adminAdvancedPricingView(config = {}) {
   const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
   const rows = await Promise.all(ADVANCED_PRICING_ROWS.map(async (row) => {
-    const saleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind);
-    const purchase = await advancedPurchaseCreditsPerSecond(row.provider, row.resolution, row.rateKind);
+    const saleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind, row.seedanceTier);
+    const purchase = await advancedPurchaseCreditsPerSecond(row.provider, row.resolution, row.rateKind, row.seedanceTier);
     return {
       ...row,
       purchaseCreditsPerSecond: purchase.creditsPerSecond,
@@ -19745,10 +19812,14 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     else if (key === "seedance-video-input-720p") next.seedanceVideoInputCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance-video-input-1080p") next.seedanceVideoInputCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance-video-input-4k") next.seedanceVideoInputCreditsPerSecondByResolution["4k"] = credits;
+    else if (key === "seedance-fast-video-input-480p") next.seedanceFastVideoInputCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "seedance-fast-video-input-720p") next.seedanceFastVideoInputCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance-480p") next.seedanceCreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance-720p") next.seedanceCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance-1080p") next.seedanceCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance-4k") next.seedanceCreditsPerSecondByResolution["4k"] = credits;
+    else if (key === "seedance-fast-480p") next.seedanceFastCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "seedance-fast-720p") next.seedanceFastCreditsPerSecondByResolution["720p"] = credits;
   }
   const seedance720 = next.seedanceCreditsPerSecondByResolution["720p"];
   const seedanceVideo720 = next.seedanceVideoInputCreditsPerSecondByResolution["720p"];
@@ -19757,6 +19828,18 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
   }
   if (!seen.has("seedance-video-input-480p")) {
     next.seedanceVideoInputCreditsPerSecondByResolution["480p"] = pricingNumber(seedanceVideo720 * 0.5, DEFAULT_ADVANCED_PRICING.seedanceVideoInputCreditsPerSecondByResolution["480p"]);
+  }
+  if (!seen.has("seedance-fast-480p")) {
+    next.seedanceFastCreditsPerSecondByResolution["480p"] = DEFAULT_ADVANCED_PRICING.seedanceFastCreditsPerSecondByResolution["480p"];
+  }
+  if (!seen.has("seedance-fast-720p")) {
+    next.seedanceFastCreditsPerSecondByResolution["720p"] = DEFAULT_ADVANCED_PRICING.seedanceFastCreditsPerSecondByResolution["720p"];
+  }
+  if (!seen.has("seedance-fast-video-input-480p")) {
+    next.seedanceFastVideoInputCreditsPerSecondByResolution["480p"] = DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["480p"];
+  }
+  if (!seen.has("seedance-fast-video-input-720p")) {
+    next.seedanceFastVideoInputCreditsPerSecondByResolution["720p"] = DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["720p"];
   }
   return normalizeAdvancedPricing(next);
 }
