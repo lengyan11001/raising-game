@@ -3,6 +3,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 const { buildRegistry, buildDedupeKeys } = require("./ourdream-character-registry");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -318,6 +319,27 @@ async function downloadFile(url, filePath) {
   fs.writeFileSync(filePath, buffer);
 }
 
+function captureVideoPosterFrame(videoPath, posterPath) {
+  try {
+    fs.mkdirSync(path.dirname(posterPath), { recursive: true });
+    execFileSync("ffmpeg", [
+      "-y",
+      "-ss",
+      "00:00:00.500",
+      "-i",
+      videoPath,
+      "-frames:v",
+      "1",
+      "-q:v",
+      "3",
+      posterPath,
+    ], { stdio: "ignore", timeout: 60000 });
+    return fs.existsSync(posterPath) && fs.statSync(posterPath).size > 0;
+  } catch {
+    return false;
+  }
+}
+
 function homeVideoEntry(candidate, index, slug, videoIndex, url, localUrl, posterUrl) {
   const key = `od-${String(index).padStart(3, "0")}-${String(videoIndex).padStart(2, "0")}`;
   return {
@@ -427,21 +449,27 @@ async function downloadBatch(limit) {
     await downloadFile(candidate.imageUrls[0], coverPath);
     const localBase = `/assets/ourdream/characters/${slug}`;
     const coverUrl = `${localBase}/cover${coverExt}`;
-    const posterUrls = [];
-    const imageSources = candidate.imageUrls.length ? candidate.imageUrls : [candidate.imageUrls[0]];
-    for (let i = 0; i < 4; i += 1) {
-      const source = imageSources[i] || imageSources[0];
-      const ext = sourceUrlToFileExt(source, ".jpg");
-      const fileName = `poster-${String(i + 1).padStart(2, "0")}${ext}`;
-      await downloadFile(source, path.join(dir, fileName));
-      posterUrls.push(`${localBase}/${fileName}`);
-    }
     const videoUrls = [];
+    const videoPaths = [];
     for (let i = 0; i < 4; i += 1) {
       const source = candidate.videoUrls[i];
       const fileName = `video-${String(i + 1).padStart(2, "0")}.mp4`;
-      await downloadFile(source, path.join(dir, fileName));
+      const videoPath = path.join(dir, fileName);
+      await downloadFile(source, videoPath);
       videoUrls.push(`${localBase}/${fileName}`);
+      videoPaths.push(videoPath);
+    }
+    const posterUrls = [];
+    const imageSources = candidate.imageUrls.length ? candidate.imageUrls : [candidate.imageUrls[0]];
+    for (let i = 0; i < 4; i += 1) {
+      const fileName = `poster-${String(i + 1).padStart(2, "0")}.jpg`;
+      const posterPath = path.join(dir, fileName);
+      const captured = captureVideoPosterFrame(videoPaths[i], posterPath);
+      if (!captured) {
+        const source = imageSources[i] || imageSources[0];
+        await downloadFile(source, posterPath);
+      }
+      posterUrls.push(`${localBase}/${fileName}`);
     }
     const item = buildHomeItem(candidate, nextIndex, slug, coverUrl, posterUrls, videoUrls);
     homeItems.push(item);

@@ -510,6 +510,7 @@ const state = {
   advancedPresetsLoaded: false,
   advancedPresetsLoading: false,
   advancedPresetDialogSlot: "",
+  advancedPresetCharacterSource: "system",
   advancedPresetCategory: "All",
   advancedPresetSearch: "",
   advancedSelectedPresets: {},
@@ -4566,6 +4567,12 @@ function applyTenantFeatures() {
 function applyLanguage() {
   applyStaticTranslations();
   applyTenantFeatures();
+  if (!state.config) {
+    renderAccountMenu();
+    renderTopupSummary();
+    renderTokenDisplays();
+    return;
+  }
   renderCategories();
   renderTemplates();
   bindCharacterCreator();
@@ -5487,7 +5494,7 @@ function advancedPresetSet(slot = "") {
 
 function advancedCharacterPresetFromItem(item = {}, source = "system") {
   const imageUrl = characterReferenceImageUrl(item) || characterUsableImage(item);
-  if (!item?.id || !imageUrl) return null;
+  if (!item?.id || !imageUrl || isGenericCharacterPoster(imageUrl)) return null;
   const sourceLabel = source === "custom" ? t("characters.customTab") : t("characters.systemTab");
   const label = item.name || item.title || "Character";
   return {
@@ -5507,7 +5514,7 @@ function advancedCharacterPresetFromItem(item = {}, source = "system") {
   };
 }
 
-function advancedCharacterPresetItems() {
+function advancedCharacterPresetItems(source = state.advancedPresetCharacterSource || "system") {
   const systemItems = (state.homeCharacters || [])
     .filter((item) => item && !item.deletedAt)
     .map((item) => advancedCharacterPresetFromItem(item, "system"))
@@ -5517,7 +5524,8 @@ function advancedCharacterPresetItems() {
     .map((item) => advancedCharacterPresetFromItem(item, "custom"))
     .filter(Boolean);
   const seen = new Set();
-  return [...systemItems, ...customItems].filter((item) => {
+  const pool = source === "custom" ? customItems : systemItems;
+  return pool.filter((item) => {
     const key = `${item.sourceType}:${item.id}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -5721,6 +5729,9 @@ function advancedPresetCategoriesForSlot(slot = "") {
 function openAdvancedPresetDialog(slot = "") {
   if (!slot || !els.advancedPresetDialog) return;
   state.advancedPresetDialogSlot = slot;
+  if (slot === "character" && !["system", "custom"].includes(state.advancedPresetCharacterSource)) {
+    state.advancedPresetCharacterSource = "system";
+  }
   state.advancedPresetCategory = "All";
   state.advancedPresetSearch = "";
   if (els.advancedPresetSearch) els.advancedPresetSearch.value = "";
@@ -5749,11 +5760,30 @@ function renderAdvancedPresetDialog() {
   if (!slot || !els.advancedPresetGrid) return;
   const categories = advancedPresetCategoriesForSlot(slot);
   if (els.advancedPresetCategories) {
-    els.advancedPresetCategories.innerHTML = categories.map((category) => `
+    const sourceTabs = slot === "character" ? `
+      <div class="advanced-preset-source-tabs" role="tablist" aria-label="${escapeHtml(t("advancedPreset.choose", { slot: advancedPresetLabel(slot) }))}">
+        ${[
+          { id: "system", label: t("characters.systemTab"), count: advancedCharacterPresetItems("system").length },
+          { id: "custom", label: t("characters.customTab"), count: advancedCharacterPresetItems("custom").length },
+        ].map((source) => `
+          <button class="advanced-preset-source-tab ${state.advancedPresetCharacterSource === source.id ? "is-active" : ""}" type="button" data-advanced-preset-source="${escapeHtml(source.id)}">
+            ${escapeHtml(source.label)}<span>${escapeHtml(String(source.count))}</span>
+          </button>
+        `).join("")}
+      </div>
+    ` : "";
+    els.advancedPresetCategories.innerHTML = `${sourceTabs}${categories.map((category) => `
       <button class="advanced-preset-category ${category === state.advancedPresetCategory ? "is-active" : ""}" type="button" data-advanced-preset-category="${escapeHtml(category)}">
         ${escapeHtml(category)}
       </button>
-    `).join("");
+    `).join("")}`;
+    els.advancedPresetCategories.querySelectorAll("[data-advanced-preset-source]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.advancedPresetCharacterSource = button.dataset.advancedPresetSource === "custom" ? "custom" : "system";
+        state.advancedPresetCategory = "All";
+        renderAdvancedPresetDialog();
+      });
+    });
     els.advancedPresetCategories.querySelectorAll("[data-advanced-preset-category]").forEach((button) => {
       button.addEventListener("click", () => {
         state.advancedPresetCategory = button.dataset.advancedPresetCategory || "All";
@@ -6769,6 +6799,16 @@ function renderGalleryCharacters(root = els.templateGrid) {
   }
   const source = myCharactersOnly || state.characterSource === "custom" ? "custom" : "system";
   const characters = source === "custom" ? customCharacterItems() : state.homeCharacters.filter((item) => item && !item.deletedAt);
+  if (!state.config && source === "system") {
+    root.className = "template-grid character-grid character-grid-main";
+    root.innerHTML = "";
+    return;
+  }
+  if (source === "custom" && state.user && !state.myCharactersLoaded) {
+    root.className = "template-grid character-grid character-grid-main";
+    root.innerHTML = "";
+    return;
+  }
   const activeCharacter = state.activeGalleryCharacterId
     ? characters.find((item) => String(item.id || "") === String(state.activeGalleryCharacterId || ""))
     : null;
@@ -6920,7 +6960,16 @@ function bindGalleryCharacterCards(root = els.templateGrid) {
 }
 
 function characterUsableImage(item = {}) {
-  return item.posterUrl || item.localImageUrl || item.sourceImageUrl || item.publicImageUrl || item.imageUrl || "";
+  return uniqueTruthy([
+    item.localImageUrl,
+    item.posterUrl,
+    item.syntheticReferenceLocalUrl,
+    item.publicImageUrl,
+    item.imageUrl,
+    item.coverUrl,
+    item.thumbnailUrl,
+    item.sourceImageUrl,
+  ]).find((value) => !isVideoMediaUrl(value) && !isGenericCharacterPoster(value)) || "";
 }
 
 function isMyCharacterGenerating(item = {}) {
@@ -8019,7 +8068,6 @@ function videoPosterCandidates(videoUrl = "") {
 function characterPosterUrl(item = {}) {
   const mainVideo = characterMainVideoUrl(item);
   const imageCandidates = [
-    item.sourceImageUrl,
     item.localImageUrl,
     item.posterUrl,
     item.syntheticReferenceLocalUrl,
@@ -8027,6 +8075,7 @@ function characterPosterUrl(item = {}) {
     item.imageUrl,
     item.coverUrl,
     item.thumbnailUrl,
+    item.sourceImageUrl,
   ];
   const imagePoster = uniqueTruthy(imageCandidates).find((value) => !isVideoMediaUrl(value) && !isGenericCharacterPoster(value));
   if (imagePoster) return imagePoster;
@@ -8054,7 +8103,6 @@ function characterListPosterUrl(item = {}) {
 
 function characterReferenceImageUrl(item = {}) {
   const candidates = [
-    item.sourceImageUrl,
     item.localImageUrl,
     item.posterUrl,
     item.syntheticReferenceLocalUrl,
@@ -8062,8 +8110,9 @@ function characterReferenceImageUrl(item = {}) {
     item.imageUrl,
     item.coverUrl,
     item.thumbnailUrl,
+    item.sourceImageUrl,
   ];
-  return uniqueTruthy(candidates).find((value) => !isVideoMediaUrl(value)) || characterPosterUrl(item) || DEFAULT_TEMPLATE_COVER;
+  return uniqueTruthy(candidates).find((value) => !isVideoMediaUrl(value) && !isGenericCharacterPoster(value)) || characterPosterUrl(item) || "";
 }
 
 function characterMainVideoUrl(item = {}) {
@@ -8153,6 +8202,7 @@ function characterVideoPoster(video = {}, character = {}) {
     video.outputPosterUrl,
     video.resultPosterUrl,
     video.localPosterUrl,
+    video.posterUrl,
     video.coverUrl,
     video.thumbnailUrl,
     ...videoPosterCandidates(videoUrl),
@@ -8160,7 +8210,7 @@ function characterVideoPoster(video = {}, character = {}) {
   const poster = uniqueTruthy(candidates).find((value) => !isGenericCharacterPoster(value));
   if (poster) return poster;
   if (videoUrl) return "";
-  return uniqueTruthy([video.posterUrl, characterPosterUrl(character), DEFAULT_TEMPLATE_COVER]).find(Boolean) || DEFAULT_TEMPLATE_COVER;
+  return uniqueTruthy([characterPosterUrl(character), DEFAULT_TEMPLATE_COVER]).find(Boolean) || DEFAULT_TEMPLATE_COVER;
 }
 
 function renderSmartCoverMedia({ className = "", posterUrl = "", videoUrl = "", fallbackUrl = DEFAULT_TEMPLATE_COVER, alt = "", eager = false, defer = false } = {}) {

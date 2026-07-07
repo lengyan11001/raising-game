@@ -3915,8 +3915,13 @@ function characterUnlockedByRecord(db = {}, userId = "", itemId = "") {
 function publicCharacterSceneVideo(entry = {}, { playable = false, locked = true, price = CHARACTER_UNLOCK_COST_CREDITS } = {}) {
   const video = publicSceneVideo(entry) || publicUnlockVideo(entry, entry.sceneId || "");
   if (!video) return null;
+  const posterUrl = String(video.posterUrl || video.localPosterUrl || video.coverUrl || video.thumbnailUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
   return {
     ...video,
+    posterUrl,
+    localPosterUrl: String(video.localPosterUrl || entry.localPosterUrl || posterUrl || "").trim(),
+    coverUrl: String(video.coverUrl || entry.coverUrl || posterUrl || "").trim(),
+    thumbnailUrl: String(video.thumbnailUrl || entry.thumbnailUrl || posterUrl || "").trim(),
     videoUrl: playable ? String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim() : "",
     locked: Boolean(locked),
     price,
@@ -4165,13 +4170,17 @@ function normalizeUnlockVideo(entry = {}, videoKey = "") {
 function publicUnlockVideo(entry = {}, videoKey = "") {
   const normalized = normalizeUnlockVideo(entry, videoKey);
   if (!normalized) return null;
+  const posterUrl = String(normalized.posterUrl || normalized.localPosterUrl || normalized.coverUrl || normalized.thumbnailUrl || "").trim();
   return {
     sceneId: normalized.sceneId,
     sceneName: normalized.sceneName || "",
     sceneEntryId: normalized.sceneEntryId || "default",
     sceneEntryName: normalized.sceneEntryName || "",
     title: normalized.title || "Unlocked video",
-    posterUrl: normalized.posterUrl || "",
+    posterUrl,
+    localPosterUrl: normalized.localPosterUrl || posterUrl || "",
+    coverUrl: normalized.coverUrl || posterUrl || "",
+    thumbnailUrl: normalized.thumbnailUrl || posterUrl || "",
     videoUrl: "",
     taskId: normalized.taskId || "",
     status: normalized.status || "",
@@ -6936,11 +6945,15 @@ function publicSceneVideo(entry = {}) {
   const videoUrl = entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "";
   const savedPrompt = String(entry.userPrompt || "").trim();
   if (!videoUrl && !entry.taskId && !savedPrompt) return null;
+  const posterUrl = String(entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
   return {
     sceneId: entry.sceneId || "",
     sceneName: entry.sceneName || "",
     videoUrl,
-    posterUrl: entry.posterUrl || "",
+    posterUrl,
+    localPosterUrl: entry.localPosterUrl || posterUrl || "",
+    coverUrl: entry.coverUrl || posterUrl || "",
+    thumbnailUrl: entry.thumbnailUrl || posterUrl || "",
     taskId: entry.taskId || "",
     status: entry.status || "",
     sceneEntryId: entry.sceneEntryId || "default",
