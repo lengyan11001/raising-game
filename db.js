@@ -995,6 +995,93 @@ async function upsertUserUnlockInDb(unlock = {}) {
   return unlock;
 }
 
+async function listAdminHomeItemsFromDb({ includeDeleted = false } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_admin_home_items
+      ${includeDeleted ? "" : "WHERE deleted_at IS NULL"}
+      ORDER BY updated_at DESC, created_at DESC
+    `,
+  );
+  return rows.map(recordFromPayloadRow);
+}
+
+async function upsertAdminHomeItemInDb(item = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(item.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const payload = { ...item };
+  await query(
+    `
+      INSERT INTO app_admin_home_items(id, payload, deleted_at, created_at, updated_at)
+      VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz, $5::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        payload = EXCLUDED.payload,
+        deleted_at = EXCLUDED.deleted_at,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      JSON.stringify(payload),
+      deletedAtOrNull(payload),
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return item;
+}
+
+async function replaceAdminHomeItemsInDb(items = []) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const normalized = (Array.isArray(items) ? items : [])
+    .filter((item) => item && String(item.id || "").trim())
+    .map((item) => ({ ...item }));
+  for (const item of normalized) {
+    await upsertAdminHomeItemInDb(item);
+  }
+  const activeIds = normalized.map((item) => String(item.id || "").trim()).filter(Boolean);
+  const now = new Date().toISOString();
+  await query(
+    `
+      UPDATE app_admin_home_items
+      SET deleted_at = COALESCE(deleted_at, $2::timestamptz),
+          payload = payload || jsonb_build_object('deletedAt', COALESCE(payload->>'deletedAt', $2::text), 'updatedAt', $2::text),
+          updated_at = $2::timestamptz
+      WHERE NOT (id = ANY($1::text[]))
+        AND deleted_at IS NULL
+    `,
+    [activeIds, now],
+  );
+  return normalized;
+}
+
+async function softDeleteAdminHomeItemInDb(itemId = "", deletedAt = new Date().toISOString()) {
+  if (!dbEnabled()) return null;
+  const id = String(itemId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_admin_home_items WHERE id = $1`, [id]);
+  const current = rows[0] ? recordFromPayloadRow(rows[0]) : null;
+  if (!current) return null;
+  const payload = { ...current, deletedAt, updatedAt: deletedAt };
+  await query(
+    `
+      UPDATE app_admin_home_items
+      SET payload = $2::jsonb,
+          deleted_at = $3::timestamptz,
+          updated_at = $3::timestamptz
+      WHERE id = $1
+    `,
+    [id, JSON.stringify(payload), deletedAt],
+  );
+  return payload;
+}
+
 async function findUserUnlockInDb({ userId = "", itemId = "", sceneId = "", sceneEntryId = "default" } = {}) {
   if (!dbEnabled()) return null;
   const cleanUserId = String(userId || "").trim();
@@ -1801,6 +1888,10 @@ module.exports = {
   upsertUserAssetInDb,
   upsertUserCharacterInDb,
   upsertUserUnlockInDb,
+  listAdminHomeItemsFromDb,
+  upsertAdminHomeItemInDb,
+  replaceAdminHomeItemsInDb,
+  softDeleteAdminHomeItemInDb,
   findUserUnlockInDb,
   normalizeApiSubtokenRecord,
   listApiSubtokensFromDb,
