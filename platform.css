@@ -2670,6 +2670,42 @@ main {
   scrollbar-width: none;
 }
 .advanced-preset-categories::-webkit-scrollbar { display: none; }
+.advanced-preset-source-tabs {
+  flex: 1 0 100%;
+  display: inline-flex;
+  gap: 8px;
+  margin-bottom: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.advanced-preset-source-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 14px;
+  color: rgba(255,255,255,.72);
+  background: rgba(255,255,255,.07);
+  font-weight: 900;
+  cursor: pointer;
+}
+.advanced-preset-source-tab span {
+  min-width: 20px;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: rgba(255,255,255,.7);
+  background: rgba(255,255,255,.1);
+  font-size: .78rem;
+}
+.advanced-preset-source-tab.is-active {
+  color: #111;
+  background: #fff;
+}
+.advanced-preset-source-tab.is-active span {
+  color: #fff;
+  background: #111;
+}
 .advanced-preset-category {
   flex: 0 0 auto;
   border: 0;
