@@ -5480,7 +5480,48 @@ function advancedPresetSet(slot = "") {
   return (state.advancedPresetData?.sets || []).find((set) => set.slot === slot) || { slot, items: [] };
 }
 
+function advancedCharacterPresetFromItem(item = {}, source = "system") {
+  const imageUrl = characterReferenceImageUrl(item) || characterUsableImage(item);
+  if (!item?.id || !imageUrl) return null;
+  const sourceLabel = source === "custom" ? t("characters.customTab") : t("characters.systemTab");
+  const label = item.name || item.title || "Character";
+  return {
+    id: String(item.id || ""),
+    label,
+    category: item.category || sourceLabel,
+    section: sourceLabel,
+    prompt: item.prompt || item.description || item.title || `Use ${label} as the main subject.`,
+    description: item.description || item.title || "",
+    imageUrl,
+    referenceImageUrl: imageUrl,
+    tags: Array.isArray(item.tags) ? item.tags : [],
+    assetId: item.assetId || "",
+    sourceType: source,
+    characterId: item.id || "",
+    myCharacter: source === "custom",
+  };
+}
+
+function advancedCharacterPresetItems() {
+  const systemItems = (state.homeCharacters || [])
+    .filter((item) => item && !item.deletedAt)
+    .map((item) => advancedCharacterPresetFromItem(item, "system"))
+    .filter(Boolean);
+  const customItems = customCharacterItems()
+    .filter((item) => item && !item.deletedAt && characterUsableImage(item))
+    .map((item) => advancedCharacterPresetFromItem(item, "custom"))
+    .filter(Boolean);
+  const seen = new Set();
+  return [...systemItems, ...customItems].filter((item) => {
+    const key = `${item.sourceType}:${item.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function advancedPresetItems(slot = "") {
+  if (slot === "character") return advancedCharacterPresetItems();
   return Array.isArray(advancedPresetSet(slot).items) ? advancedPresetSet(slot).items : [];
 }
 
@@ -5685,6 +5726,17 @@ function openAdvancedPresetDialog(slot = "") {
   renderAdvancedPresetDialog();
   els.advancedPresetDialog.showModal();
   window.setTimeout(() => els.advancedPresetSearch?.focus(), 80);
+  if (slot === "character" && state.user) {
+    Promise.allSettled([
+      state.myCharactersLoaded ? Promise.resolve() : loadMyCharacters({ silent: true }),
+      loadUserAssets(state.userAssetsPage || 1),
+    ]).then(() => {
+      if (state.advancedPresetDialogSlot === "character" && els.advancedPresetDialog?.open) {
+        renderAdvancedPresetDialog();
+      }
+      renderAdvancedPresetBuilder();
+    });
+  }
 }
 
 function renderAdvancedPresetDialog() {
@@ -5746,11 +5798,14 @@ function applyAdvancedCharacterPreset(preset = {}) {
   const url = preset.referenceImageUrl || preset.imageUrl || "";
   if (!url) return;
   const ref = {
+    assetId: preset.assetId || "",
     dataUrl: url,
     url,
     fileName: `${preset.id || "character"}.jpg`,
     name: preset.label || "Character",
     fromPreset: true,
+    sourceType: preset.sourceType || "",
+    characterId: preset.characterId || preset.id || "",
   };
   const provider = currentAdvancedProvider();
   if (provider === "wan27-image-edit") {
@@ -10397,17 +10452,16 @@ function updateAdvancedModelControls() {
   });
   renderAdvancedAssetTargets();
   if (els.advancedUploadBox) {
-    const hidePresetReferenceUpload = advancedCreateModeUsesCharacterPresetReference();
     const uploadIsVideo = advancedCreateUploadIsVideo();
     const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
     if (els.advancedImage) {
       els.advancedImage.accept = advancedCreateUploadAcceptValue();
       els.advancedImage.multiple = !uploadIsVideo && !advancedCreateModeNeedsReplacePair();
     }
-    els.advancedUploadBox.hidden = hidePresetReferenceUpload || (!simpleAction && !advancedCreateModeNeedsVideoUpload() && (
+    els.advancedUploadBox.hidden = !simpleAction && !advancedCreateModeNeedsVideoUpload() && (
       (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
       (provider === "seedance" && seedanceMode === "text_to_video")
-    ));
+    );
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
@@ -10612,10 +10666,6 @@ async function submitAdvancedGenerate() {
   const promptInput = els.advancedPrompt?.value.trim() || "";
   const usingPresetFlow = state.advancedCreateKind !== "custom";
   const autoPrompt = advancedCreateModeUsesAutoPrompt();
-  if (usingPresetFlow && nonCustomAdvancedNeedsCharacterImage() && !selectedAdvancedPreset("character")) {
-    if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.characterRequired");
-    return;
-  }
   if (usingPresetFlow && !autoPrompt && !selectedAdvancedPreset("action")) {
     if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.actionRequired");
     return;

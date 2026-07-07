@@ -28,6 +28,10 @@ const {
   upsertUserAssetInDb,
   upsertUserCharacterInDb,
   upsertUserUnlockInDb,
+  listAdminHomeItemsFromDb,
+  upsertAdminHomeItemInDb,
+  replaceAdminHomeItemsInDb,
+  softDeleteAdminHomeItemInDb,
   findUserUnlockInDb,
   getKv,
   setKv,
@@ -93,7 +97,6 @@ const CHARACTER_UNLOCK_COST_CREDITS = 750;
 const REFERRAL_REWARD_CREDITS = 750;
 const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
 const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
-const OURDREAM_HOME_ITEMS_PATH = path.join(ROOT, "assets", "ourdream", "home-items.json");
 const ADMIN_ADVANCED_CASE_DIR = path.join(ROOT, "assets", "admin", "advanced-cases");
 const ADMIN_PLATFORM_TEMPLATE_DIR = path.join(ROOT, "assets", "admin", "platform-templates");
 const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
@@ -450,7 +453,6 @@ const DEFAULT_DB = {
   userAssets: [],
   userCharacters: [],
   userUnlocks: [],
-  adminHomeItems: [],
   apiSubtokens: [],
   supportMessages: [],
 };
@@ -478,64 +480,6 @@ function decorateFullBodyLegPrompt(corePrompt, extraDirection = "") {
     `Negative constraints: ${FULL_BODY_LEG_NEGATIVES}`,
   ].filter(Boolean).join(" ");
 }
-
-const DEFAULT_ADMIN_HOME_ITEMS = [
-  {
-    id: "suite-seductive-demo",
-    name: "Aria",
-    title: "Rainy Suite",
-    posterUrl: "/assets/admin/home/default-hero.jpg",
-    localImageUrl: "/assets/admin/home/default-hero.jpg",
-    sourceImageUrl: "/assets/admin/home/default-hero.jpg",
-    imageMime: "image/jpeg",
-    sourceImageMime: "image/jpeg",
-    syntheticReferenceLocalUrl: "/assets/admin/home/default-hero.jpg",
-    syntheticReferenceTaskId: "demo-seed",
-    referenceAssetUri: "asset://asset-20260429190434-6plrk",
-    videoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
-    localVideoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
-    taskId: "cgt-20260502191234-jdb6s",
-    status: "succeeded",
-    createdAt: "2026-05-02T11:17:48.000Z",
-    sceneVideos: {},
-  },
-  {
-    id: "pink-1777738973553-a9cfba",
-    name: "Rose",
-    title: "Morning Studio",
-    posterUrl: "/assets/admin/home/pink-upload-synthetic-reference.png",
-    localImageUrl: "/assets/admin/home/pink-upload-synthetic-reference.png",
-    sourceImageUrl: "/assets/admin/home/pink-1777738973553-a9cfba.png",
-    imageMime: "image/png",
-    sourceImageMime: "image/png",
-    referenceAssetUri: "",
-    videoUrl: "",
-    localVideoUrl: "",
-    taskId: "",
-    status: "draft",
-    createdAt: "2026-05-03T13:54:33.753Z",
-    sceneVideos: {},
-  },
-  {
-    id: "demo-aria-vintage",
-    name: "Mira",
-    title: "Velvet Muse",
-    posterUrl: "/assets/admin/home/demo-aria-reference.png",
-    localImageUrl: "/assets/admin/home/demo-aria-reference.png",
-    sourceImageUrl: "/assets/admin/home/demo-aria-reference.png",
-    imageMime: "image/png",
-    sourceImageMime: "image/png",
-    syntheticReferenceLocalUrl: "/assets/admin/home/demo-aria-reference.png",
-    syntheticReferenceTaskId: "demo-clean-frame",
-    referenceAssetUri: "asset://asset-20260429190434-6plrk",
-    videoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
-    localVideoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
-    taskId: "cgt-20260502191234-jdb6s",
-    status: "succeeded",
-    createdAt: "2026-05-02T11:17:48.000Z",
-    sceneVideos: {},
-  },
-];
 
 const DEFAULT_CONFIG = {
   defaultCompanionId: "aria",
@@ -1040,7 +984,6 @@ async function readDb() {
     userAssets: Array.isArray(db.userAssets) ? db.userAssets : [],
     userCharacters: Array.isArray(db.userCharacters) ? db.userCharacters : [],
     userUnlocks: Array.isArray(db.userUnlocks) ? db.userUnlocks : [],
-    adminHomeItems: Array.isArray(db.adminHomeItems) ? db.adminHomeItems : [],
     apiSubtokens: Array.isArray(db.apiSubtokens) ? db.apiSubtokens : [],
     supportMessages: Array.isArray(db.supportMessages) ? db.supportMessages : [],
   };
@@ -1056,11 +999,49 @@ async function writeDb(db) {
   ));
 }
 
+async function readAdminHomeItemsStore() {
+  if (!dbEnabled()) return [];
+  return (await listAdminHomeItemsFromDb()) || [];
+}
+
+async function replaceAdminHomeItemsStore(items = []) {
+  const normalized = (Array.isArray(items) ? items : []).filter((item) => item && String(item.id || "").trim());
+  if (!dbEnabled()) return normalized;
+  await replaceAdminHomeItemsInDb(normalized);
+  return normalized;
+}
+
+async function upsertAdminHomeItemStore(item = {}) {
+  if (!item?.id) return null;
+  if (!dbEnabled()) return null;
+  return await upsertAdminHomeItemInDb(item);
+}
+
+async function softDeleteAdminHomeItemStore(itemId = "") {
+  const id = String(itemId || "").trim();
+  if (!id) return null;
+  const nowIso = new Date().toISOString();
+  if (!dbEnabled()) return null;
+  return await softDeleteAdminHomeItemInDb(id, nowIso);
+}
+
 async function readAppConfig() {
   const saved = await getKv("app_config", DEFAULT_CONFIG);
   const bySceneId = new Map(DEFAULT_CONFIG.scenes.map((scene) => [scene.id, scene]));
   const scenes = Array.isArray(saved.scenes) ? saved.scenes : DEFAULT_CONFIG.scenes;
-  const mergedHomeVideo = normalizeHomeVideo(await seedSystemHomeVideoItems({ ...DEFAULT_CONFIG.homeVideo, ...(saved.homeVideo || {}) }));
+  let storedHomeItems = await readAdminHomeItemsStore();
+  const savedHomeItems = Array.isArray(saved.homeVideo?.items) ? saved.homeVideo.items.filter((item) => item && !isSoftDeleted(item)) : [];
+  const storedHomeIds = new Set(storedHomeItems.map((item) => String(item.id || "")));
+  const missingSavedHomeItems = savedHomeItems.filter((item) => item?.id && !storedHomeIds.has(String(item.id)));
+  if (missingSavedHomeItems.length) {
+    await replaceAdminHomeItemsStore([...storedHomeItems, ...missingSavedHomeItems]);
+    storedHomeItems = await readAdminHomeItemsStore();
+  }
+  const mergedHomeVideo = normalizeHomeVideo({
+    ...DEFAULT_CONFIG.homeVideo,
+    ...(saved.homeVideo || {}),
+    items: storedHomeItems,
+  });
   return {
     ...DEFAULT_CONFIG,
     ...saved,
@@ -1076,18 +1057,12 @@ async function readAppConfig() {
 }
 
 async function writeAppConfig(config) {
-  return withAppStateWriteLock(() => setKv("app_config", config));
-}
-
-async function readSystemHomeVideoItems() {
-  try {
-    const raw = await fs.readFile(OURDREAM_HOME_ITEMS_PATH, "utf8");
-    const items = JSON.parse(raw);
-    if (Array.isArray(items) && items.length) return items.filter((item) => item && typeof item === "object");
-  } catch (error) {
-    if (error.code !== "ENOENT") console.warn("[system-home-items-read-failed]", error.message || error);
+  const next = { ...config };
+  if (Array.isArray(next.homeVideo?.items)) {
+    await replaceAdminHomeItemsStore(next.homeVideo.items);
+    next.homeVideo = { ...next.homeVideo, items: [] };
   }
-  return DEFAULT_ADMIN_HOME_ITEMS;
+  return withAppStateWriteLock(() => setKv("app_config", next));
 }
 
 async function ensureSceneEntriesPersisted(config) {
@@ -4055,31 +4030,9 @@ function publicGameHomeVideoItem(item, auth = null) {
   };
 }
 
-function legacyHomeItem(homeVideo = {}) {
-  return {
-    id: homeVideo.activeItemId || "home-default",
-    name: homeVideo.name || "Featured",
-    title: homeVideo.title || "Featured drama",
-    posterUrl: homeVideo.posterUrl || homeVideo.localImageUrl || "",
-    localImageUrl: homeVideo.localImageUrl || homeVideo.posterUrl || "",
-    imageMime: homeVideo.imageMime || "",
-    publicImageUrl: homeVideo.publicImageUrl || "",
-    referenceAssetUri: homeVideo.referenceAssetUri || "",
-    videoUrl: homeVideo.videoUrl || homeVideo.localVideoUrl || "",
-    localVideoUrl: homeVideo.localVideoUrl || homeVideo.videoUrl || "",
-    remoteVideoUrl: homeVideo.remoteVideoUrl || "",
-    localVideoPath: homeVideo.localVideoPath || "",
-    taskId: homeVideo.taskId || "",
-    status: homeVideo.status || "",
-    prompt: homeVideo.prompt || "",
-    createdAt: homeVideo.createdAt || "",
-    updatedAt: homeVideo.updatedAt || "",
-  };
-}
-
 function normalizeHomeVideo(homeVideo = {}) {
   const items = Array.isArray(homeVideo.items) ? homeVideo.items.filter(Boolean) : [];
-  const normalized = (items.length ? items : [legacyHomeItem(homeVideo)].filter((item) => item.posterUrl || item.videoUrl))
+  const normalized = items
     .filter((item) => !isSoftDeleted(item))
     .map((item) => ({
       ...item,
@@ -4414,34 +4367,6 @@ function replaceHomeVideoItem(homeVideo = {}, item) {
     return { ...next, ...item };
   });
   return syncHomeVideoActiveFields(found ? { ...normalized, items } : normalized);
-}
-
-function mergeSystemHomeVideoItem(systemItem = {}, savedItem = {}) {
-  const merged = { ...structuredClone(systemItem), ...(savedItem || {}) };
-  if (systemItem.source === "ourdream-import") {
-    const savedScenes = savedItem.homeSceneVideos && typeof savedItem.homeSceneVideos === "object" ? savedItem.homeSceneVideos : {};
-    const cleanSavedScenes = Object.fromEntries(Object.entries(savedScenes).filter(([, entry]) => entry?.source !== "legacy-home-video"));
-    merged.homeSceneVideos = { ...(systemItem.homeSceneVideos || {}), ...cleanSavedScenes };
-  }
-  return merged;
-}
-
-async function seedSystemHomeVideoItems(homeVideo = {}) {
-  const normalized = normalizeHomeVideo(homeVideo);
-  const systemItems = await readSystemHomeVideoItems();
-  const savedItems = normalized.items || [];
-  const savedById = new Map(savedItems.map((item) => [item.id, item]));
-  const systemIds = new Set(systemItems.map((item) => item.id).filter(Boolean));
-  const items = systemItems.map((item) => mergeSystemHomeVideoItem(item, savedById.get(item.id)));
-  if (!systemItems.some((item) => item.source === "ourdream-import")) {
-    savedItems.forEach((item) => {
-      if (!systemIds.has(item.id)) items.push(item);
-    });
-  }
-  return {
-    ...normalized,
-    items,
-  };
 }
 
 function userView(user) {
