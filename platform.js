@@ -11,11 +11,15 @@ const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_480P_CREDITS_PER_SECOND = 15;
 const ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND = 30;
 const ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND = 60;
-const ADVANCED_SEEDANCE_4K_CREDITS_PER_SECOND = 240;
+const ADVANCED_SEEDANCE_4K_CREDITS_PER_SECOND = 120;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND = 10;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 20;
 const ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND = 40;
-const ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND = 160;
+const ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND = 80;
+const ADVANCED_SEEDANCE_FAST_480P_CREDITS_PER_SECOND = 12;
+const ADVANCED_SEEDANCE_FAST_720P_CREDITS_PER_SECOND = 24;
+const ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_480P_CREDITS_PER_SECOND = 8;
+const ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 16;
 const ADVANCED_SEEDANCE_FAST_DISCOUNT = 0.8;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 20;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 50;
@@ -5404,8 +5408,16 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   }
   const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
   const normalizedRatio = normalizeVideoRatio(ratio);
-  const byResolution = configPricing.seedanceCreditsPerSecondByResolution || {};
-  const fallbackPerSecond = normalizedResolution === "4k"
+  const seedanceTier = String(options.seedanceTier || "").trim().toLowerCase() === "fast" ? "fast" : "standard";
+  const isFast = seedanceTier === "fast";
+  const byResolution = isFast
+    ? (configPricing.seedanceFastCreditsPerSecondByResolution || {})
+    : (configPricing.seedanceCreditsPerSecondByResolution || {});
+  const fallbackPerSecond = isFast
+    ? normalizedResolution === "480p"
+      ? ADVANCED_SEEDANCE_FAST_480P_CREDITS_PER_SECOND
+      : ADVANCED_SEEDANCE_FAST_720P_CREDITS_PER_SECOND
+    : normalizedResolution === "4k"
     ? ADVANCED_SEEDANCE_4K_CREDITS_PER_SECOND
     : normalizedResolution === "1080p"
     ? ADVANCED_SEEDANCE_1080P_CREDITS_PER_SECOND
@@ -5414,8 +5426,14 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     : ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND;
   const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
   const videoInputSeconds = positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0);
-  const videoInputByResolution = configPricing.seedanceVideoInputCreditsPerSecondByResolution || {};
-  const fallbackVideoInputPerSecond = normalizedResolution === "4k"
+  const videoInputByResolution = isFast
+    ? (configPricing.seedanceFastVideoInputCreditsPerSecondByResolution || {})
+    : (configPricing.seedanceVideoInputCreditsPerSecondByResolution || {});
+  const fallbackVideoInputPerSecond = isFast
+    ? normalizedResolution === "480p"
+      ? ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_480P_CREDITS_PER_SECOND
+      : ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_720P_CREDITS_PER_SECOND
+    : normalizedResolution === "4k"
     ? ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND
     : normalizedResolution === "1080p"
     ? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND
@@ -5423,8 +5441,7 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     ? ADVANCED_SEEDANCE_VIDEO_INPUT_480P_CREDITS_PER_SECOND
     : ADVANCED_SEEDANCE_VIDEO_INPUT_720P_CREDITS_PER_SECOND;
   const videoInputCreditsPerSecond = Number(videoInputByResolution[normalizedResolution] || fallbackVideoInputPerSecond) || fallbackVideoInputPerSecond;
-  const seedanceTier = String(options.seedanceTier || "").trim().toLowerCase() === "fast" ? "fast" : "standard";
-  const seedanceDiscount = seedanceTier === "fast" ? ADVANCED_SEEDANCE_FAST_DISCOUNT : 1;
+  const seedanceDiscount = 1;
   const outputCredits = creditsAmount(seconds * perSecond * seedanceDiscount);
   const videoInputCredits = creditsAmount(videoInputSeconds * videoInputCreditsPerSecond * seedanceDiscount);
   const originalCredits = creditsAmount(outputCredits + videoInputCredits);
@@ -6165,10 +6182,17 @@ function pricingCreditLabel(value) {
   return t("cost.credits", { credits: formatCredits(creditsAmount(value)) });
 }
 
-function seedanceInputCreditsPerSecond(resolution = "720p") {
+function seedanceInputCreditsPerSecond(resolution = "720p", seedanceTier = "standard") {
   const normalizedResolution = normalizeAdvancedResolution(resolution, "seedance");
-  const byResolution = state.config?.platform?.advancedPricing?.seedanceVideoInputCreditsPerSecondByResolution || {};
-  const fallback = normalizedResolution === "4k"
+  const isFast = String(seedanceTier || "").trim().toLowerCase() === "fast";
+  const byResolution = isFast
+    ? (state.config?.platform?.advancedPricing?.seedanceFastVideoInputCreditsPerSecondByResolution || {})
+    : (state.config?.platform?.advancedPricing?.seedanceVideoInputCreditsPerSecondByResolution || {});
+  const fallback = isFast
+    ? normalizedResolution === "480p"
+      ? ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_480P_CREDITS_PER_SECOND
+      : ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_720P_CREDITS_PER_SECOND
+    : normalizedResolution === "4k"
     ? ADVANCED_SEEDANCE_VIDEO_INPUT_4K_CREDITS_PER_SECOND
     : normalizedResolution === "1080p"
     ? ADVANCED_SEEDANCE_VIDEO_INPUT_1080P_CREDITS_PER_SECOND
@@ -6220,11 +6244,11 @@ function renderPricing() {
     ];
   });
   const inputRows = seedanceResolutions.map((resolution) => {
-    const inputPerSecond = seedanceInputCreditsPerSecond(resolution);
+    const inputPerSecond = seedanceInputCreditsPerSecond(resolution, "standard");
     const standard = inputPerSecond * userPricingMultiplier();
     const fast = ["1080p", "4k"].includes(resolution)
       ? t("pricing.notSupported")
-      : pricingCreditLabel(inputPerSecond * ADVANCED_SEEDANCE_FAST_DISCOUNT * userPricingMultiplier());
+      : pricingCreditLabel(seedanceInputCreditsPerSecond(resolution, "fast") * userPricingMultiplier());
     return [
       `<strong>${escapeHtml(resolution)}</strong>`,
       pricingCreditLabel(standard),
