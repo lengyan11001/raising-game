@@ -479,6 +479,11 @@ const state = {
   characterCreator: { ...CHARACTER_CREATOR_DEFAULT },
   category: "all",
   homeCharacters: [],
+  homeCharactersPage: 1,
+  homeCharactersLimit: CHARACTER_PAGE_SIZE,
+  homeCharactersTotal: 0,
+  homeCharactersTotalPages: 1,
+  homeCharactersLoadingMore: false,
   activeGalleryCharacterId: "",
   routeCharacterId: currentCharacterRouteParams().characterId,
   routeCharacterSource: currentCharacterRouteParams().source,
@@ -6509,6 +6514,44 @@ function galleryCharacterItemsForSource(source = "system") {
     : state.homeCharacters.filter((item) => item && !item.deletedAt);
 }
 
+function mergeHomeCharacters(items = []) {
+  const byId = new Map((state.homeCharacters || [])
+    .filter((item) => item && item.id)
+    .map((item) => [String(item.id), item]));
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    if (!item?.id) return;
+    byId.set(String(item.id), item);
+  });
+  state.homeCharacters = Array.from(byId.values());
+}
+
+async function loadMoreHomeCharacters() {
+  if (state.homeCharactersLoadingMore) return;
+  if (Number(state.homeCharactersTotal || 0) && state.homeCharacters.length >= Number(state.homeCharactersTotal || 0)) return;
+  state.homeCharactersLoadingMore = true;
+  try {
+    const nextPage = Number(state.homeCharactersPage || 1) + 1;
+    const limit = Number(state.homeCharactersLimit || CHARACTER_PAGE_SIZE) || CHARACTER_PAGE_SIZE;
+    const payload = await requestJson(`/api/public/characters?page=${encodeURIComponent(String(nextPage))}&limit=${encodeURIComponent(String(limit))}`);
+    mergeHomeCharacters(payload.items || []);
+    state.homeCharactersPage = Number(payload.page || nextPage) || nextPage;
+    state.homeCharactersLimit = Number(payload.limit || limit) || limit;
+    state.homeCharactersTotal = Number(payload.total || state.homeCharacters.length) || state.homeCharacters.length;
+    state.homeCharactersTotalPages = Number(payload.totalPages || state.homeCharactersTotalPages || 1) || 1;
+  } finally {
+    state.homeCharactersLoadingMore = false;
+  }
+}
+
+async function ensureRouteHomeCharacterLoaded() {
+  const id = String(state.routeCharacterId || "").trim();
+  const source = String(state.routeCharacterSource || "").trim();
+  if (!id || source === "custom" || id.startsWith("custom:") || id.startsWith("mychar")) return;
+  if (state.homeCharacters.some((item) => String(item?.id || "") === id)) return;
+  const payload = await requestJson(`/api/public/characters?id=${encodeURIComponent(id)}&limit=1`);
+  mergeHomeCharacters(payload.items || []);
+}
+
 function characterSourceForId(characterId = "") {
   const id = String(characterId || "");
   if (!id) return "";
@@ -6749,20 +6792,23 @@ function renderGalleryCharacters(root = els.templateGrid) {
   root.className = "template-grid character-grid character-grid-main";
   const filteredCharacters = filterGalleryCharacters(characters);
   const filterBar = source === "system" ? renderCharacterFilterBar(characters, filteredCharacters.length) : "";
+  const serverTotal = source === "system" ? Math.max(Number(state.homeCharactersTotal || 0), filteredCharacters.length) : filteredCharacters.length;
   const emptyMessage = !state.user && source === "custom"
     ? t("characters.customLogin")
     : characters.length && !filteredCharacters.length
     ? "No characters match these filters."
     : source === "custom" ? t("characters.customEmpty") : t("gallery.character.empty");
-  const visibleCount = Math.max(CHARACTER_PAGE_SIZE, Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE));
-  const visibleCharacters = filteredCharacters.slice(0, visibleCount);
+  const visibleCount = source === "system"
+    ? filteredCharacters.length
+    : Math.max(CHARACTER_PAGE_SIZE, Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE));
+  const visibleCharacters = source === "system" ? filteredCharacters : filteredCharacters.slice(0, visibleCount);
   root.innerHTML = `${filterBar}${
     visibleCharacters.length
-      ? `${visibleCharacters.map((item, index) => renderGalleryCharacterCard(item, index)).join("")}${renderCharacterLoadMore(visibleCharacters.length, filteredCharacters.length)}`
+      ? `${visibleCharacters.map((item, index) => renderGalleryCharacterCard(item, index)).join("")}${renderCharacterLoadMore(visibleCharacters.length, serverTotal, source)}`
       : `<div class="job-note character-filter-empty">${escapeHtml(emptyMessage)}</div>`
   }`;
   bindCharacterFilterActions(root);
-  bindCharacterLoadMore(root, filteredCharacters.length);
+  bindCharacterLoadMore(root, serverTotal, source);
   bindGalleryImageFallbacks(root);
   bindGalleryCharacterCards(root);
   refreshIcons();
@@ -6776,33 +6822,40 @@ function resetCharacterPagination() {
   }
 }
 
-function renderCharacterLoadMore(visibleCount = 0, totalCount = 0) {
+function renderCharacterLoadMore(visibleCount = 0, totalCount = 0, source = "system") {
   if (!totalCount || visibleCount >= totalCount) return "";
+  const loading = source === "system" && state.homeCharactersLoadingMore;
   return `
     <div class="character-load-more" data-character-load-more>
       <span>${escapeHtml(String(visibleCount))} / ${escapeHtml(String(totalCount))} characters</span>
-      <button class="ghost-button" data-character-load-more-button type="button"><i data-lucide="chevrons-down"></i>Load more</button>
+      <button class="ghost-button" data-character-load-more-button type="button" ${loading ? "disabled" : ""}><i data-lucide="${loading ? "loader-circle" : "chevrons-down"}"></i>${loading ? "Loading" : "Load more"}</button>
       <i class="character-load-sentinel" data-character-load-sentinel aria-hidden="true"></i>
     </div>
   `;
 }
 
-function bindCharacterLoadMore(root = els.templateGrid, totalCount = 0) {
+function bindCharacterLoadMore(root = els.templateGrid, totalCount = 0, source = "system") {
   if (state.characterLoadObserver) {
     state.characterLoadObserver.disconnect();
     state.characterLoadObserver = null;
   }
-  const loadMore = () => {
+  const loadMore = async () => {
+    if (source === "system") {
+      if (state.homeCharactersLoadingMore || state.homeCharacters.length >= totalCount) return;
+      await loadMoreHomeCharacters();
+      renderGalleryCharacters(root);
+      return;
+    }
     if (Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE) >= totalCount) return;
     state.visibleCharacterCount = Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE) + CHARACTER_PAGE_SIZE;
     renderGalleryCharacters(root);
   };
-  root.querySelector("[data-character-load-more-button]")?.addEventListener("click", loadMore);
+  root.querySelector("[data-character-load-more-button]")?.addEventListener("click", () => loadMore().catch((error) => console.warn("load more characters failed", error.message || error)));
   const sentinel = root.querySelector("[data-character-load-sentinel]");
   if (!sentinel) return;
   if (!("IntersectionObserver" in window)) return;
   state.characterLoadObserver = new IntersectionObserver((entries) => {
-    if (entries.some((entry) => entry.isIntersecting)) loadMore();
+    if (entries.some((entry) => entry.isIntersecting)) loadMore().catch((error) => console.warn("load more characters failed", error.message || error));
   }, { rootMargin: "220px 0px", threshold: 0.01 });
   state.characterLoadObserver.observe(sentinel);
 }
@@ -7205,7 +7258,8 @@ function renderCharacterSourceTabs() {
       state.routeCharacterSource = "";
       state.activeGalleryCharacterId = "";
       replacePlatformUrlForCharacter("", "", state.tab);
-      renderGalleryCharacters(els.characterGrid);
+      resetCharacterPagination();
+      renderGalleryCharacters(els.templateGrid);
       if (state.characterSource === "custom" && state.user) loadUserAssets(state.userAssetsPage || 1).catch(() => {});
     });
   });
@@ -13091,7 +13145,13 @@ async function bootstrap() {
   state.templates = platform.templates || [];
   state.categories = platform.categories || [];
   state.advancedCases = platform.advanced?.cases || [];
-  state.homeCharacters = payload.config?.homeVideo?.items || [];
+  const homeVideo = payload.config?.homeVideo || {};
+  state.homeCharacters = homeVideo.items || [];
+  state.homeCharactersPage = Number(homeVideo.page || 1) || 1;
+  state.homeCharactersLimit = Number(homeVideo.limit || CHARACTER_PAGE_SIZE) || CHARACTER_PAGE_SIZE;
+  state.homeCharactersTotal = Number(homeVideo.total || state.homeCharacters.length) || state.homeCharacters.length;
+  state.homeCharactersTotalPages = Number(homeVideo.totalPages || 1) || 1;
+  await ensureRouteHomeCharacterLoaded().catch((error) => console.warn("route character preload failed", error.message || error));
   applyRouteCharacterDetail({ allowTabSwitch: true });
   els.brandName.textContent = platform.brand || "Vipeak AI";
   await loadAdvancedPresets();

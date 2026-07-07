@@ -94,6 +94,7 @@ const GENERATION_RECORDS_PATH = path.join(ROOT, "data", "generation-records.json
 const APP_DB_PATH = path.join(ROOT, "data", "app-db.json");
 const APP_CONFIG_PATH = path.join(ROOT, "data", "app-config.json");
 const CHARACTER_UNLOCK_COST_CREDITS = 750;
+const PUBLIC_CHARACTER_PAGE_SIZE = 20;
 const REFERRAL_REWARD_CREDITS = 750;
 const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
 const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
@@ -1219,8 +1220,46 @@ function publicAdvancedPricingView(pricing = {}) {
   };
 }
 
+function publicCharacterPageFromItems(items = [], auth = null, paging = {}) {
+  const list = (Array.isArray(items) ? items : []).filter((item) => item && !isSoftDeleted(item));
+  let filtered = list;
+  const q = String(paging.q || "").trim().toLowerCase();
+  const characterId = String(paging.characterId || "").trim();
+  if (characterId) {
+    filtered = filtered.filter((item) => String(item.id || "") === characterId);
+  } else if (q) {
+    filtered = filtered.filter((item) => [
+      item.id,
+      item.name,
+      item.title,
+      item.description,
+      item.gender,
+      item.style,
+      item.model,
+      item.creatorUsername,
+      ...(Array.isArray(item.tags) ? item.tags : []),
+    ].some((value) => String(value || "").toLowerCase().includes(q)));
+  }
+  const paged = pagedResponse(filtered, {
+    page: paging.page || 1,
+    limit: paging.limit || PUBLIC_CHARACTER_PAGE_SIZE,
+  });
+  return {
+    items: paged.items.map((item) => publicHomeVideoItem(item, auth)),
+    page: paged.page,
+    limit: paged.limit,
+    total: paged.total,
+    totalPages: paged.totalPages,
+    hasMore: paged.page < paged.totalPages,
+  };
+}
+
 function publicConfig(config, origin = "", auth = null) {
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const characterPage = publicCharacterPageFromItems(homeVideo.items, auth, {
+    page: 1,
+    limit: PUBLIC_CHARACTER_PAGE_SIZE,
+  });
   const platform = normalizePlatformConfig(config.platform || {});
   const tenantPublic = isTenantPublicOrigin(origin);
   const walletOptions = publicWalletOptions(config.wallet || {}, { tenantPublic });
@@ -1279,7 +1318,12 @@ function publicConfig(config, origin = "", auth = null) {
       referenceAssetUri: homeVideo.referenceAssetUri || "",
       activeItemId: homeVideo.activeItemId || "",
       characterUnlockCost: CHARACTER_UNLOCK_COST_CREDITS,
-      items: homeVideo.items.map((item) => publicHomeVideoItem(item, auth)),
+      items: characterPage.items,
+      page: characterPage.page,
+      limit: characterPage.limit,
+      total: characterPage.total,
+      totalPages: characterPage.totalPages,
+      hasMore: characterPage.hasMore,
     },
     platform: publicPlatform,
     characterImage: config.characterImage,
@@ -1290,6 +1334,23 @@ function publicConfig(config, origin = "", auth = null) {
         return publicScene;
       }),
   };
+}
+
+async function handlePublicCharacters(req, res, url) {
+  let config = await readAppConfig();
+  config = await refreshCompletedHomeVideoItems(config);
+  const auth = await getAuth(req);
+  const homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const paging = pagingFromUrl(url || new URL("http://localhost"), {
+    defaultLimit: PUBLIC_CHARACTER_PAGE_SIZE,
+    maxLimit: 50,
+  });
+  const page = publicCharacterPageFromItems(homeVideo.items, auth?.user ? auth : null, {
+    ...paging,
+    q: url?.searchParams?.get("q") || "",
+    characterId: url?.searchParams?.get("id") || url?.searchParams?.get("characterId") || "",
+  });
+  return sendJson(res, 200, { ok: true, ...page });
 }
 
 function compactPlainText(value = "", maxLength = 220) {
@@ -21978,6 +22039,10 @@ async function handleRequest(req, res) {
       config = await refreshCompletedHomeVideoItems(config);
       const auth = await getAuth(req);
       return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null) });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/public/characters") {
+      return await handlePublicCharacters(req, res, url);
     }
 
     if (req.method === "POST" && url.pathname === "/api/analytics/character-view") {
