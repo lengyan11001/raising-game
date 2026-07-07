@@ -161,6 +161,7 @@ async function mapLimit(items, limit, fn) {
 async function processItem(item, { dryRun = false } = {}) {
   const entries = videoEntries(item);
   const changes = [];
+  const version = Date.now().toString(36);
   for (const info of entries) {
     const { field, key, entry, index } = info;
     const posterUrl = posterUrlForEntry(entry, index);
@@ -178,11 +179,12 @@ async function processItem(item, { dryRun = false } = {}) {
         continue;
       }
     }
-    entry.posterUrl = posterUrl;
-    entry.localPosterUrl = posterUrl;
-    entry.coverUrl = posterUrl;
-    entry.thumbnailUrl = posterUrl;
-    changes.push({ key, field, posterUrl });
+    const publicPosterUrl = `${posterUrl}?v=${version}`;
+    entry.posterUrl = publicPosterUrl;
+    entry.localPosterUrl = publicPosterUrl;
+    entry.coverUrl = publicPosterUrl;
+    entry.thumbnailUrl = publicPosterUrl;
+    changes.push({ key, field, posterUrl: publicPosterUrl });
   }
   return { item, changes };
 }
