@@ -371,6 +371,17 @@ function advancedCreateModeAcceptsImageUpload(mode = state.advancedCreateMode) {
   return !(state.advancedCreateKind === "video" && ["video-edit", "video-extend"].includes(mode));
 }
 
+function currentAdvancedSeedanceUploadMode() {
+  return normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || advancedCreateModePreferredSeedanceMode(advancedCreateModeConfig()) || "text_to_video");
+}
+
+function advancedCreateUploadIsVideo(mode = state.advancedCreateMode) {
+  const provider = currentAdvancedProvider();
+  const seedanceMode = currentAdvancedSeedanceUploadMode();
+  if (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode) && !advancedCreateModeNeedsReplacePair(mode)) return true;
+  return advancedCreateModeAcceptsVideoUpload(mode) && !advancedCreateModeAcceptsImageUpload(mode);
+}
+
 function advancedCreateModePreferredSeedanceMode(config = advancedCreateModeConfig()) {
   const configured = normalizeSeedanceMediaMode(config.seedanceMode || "text_to_video");
   if (advancedCreateModeUsesCharacterPresetReference(config.id)) return "reference_images";
@@ -393,7 +404,7 @@ function advancedCreateUploadAcceptValue(mode = state.advancedCreateMode) {
   if (advancedCreateModeAcceptsVideoUpload(mode) && advancedCreateModeAcceptsImageUpload(mode)) {
     return "image/*,video/mp4,video/webm,video/quicktime,video/*";
   }
-  if (advancedCreateModeNeedsVideoUpload()) return "video/mp4,video/webm,video/quicktime,video/*";
+  if (advancedCreateUploadIsVideo(mode)) return "video/mp4,video/webm,video/quicktime,video/*";
   return "image/*";
 }
 
@@ -5958,7 +5969,7 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
   }
   if (els.advancedImage) {
     els.advancedImage.accept = advancedCreateUploadAcceptValue(config.id);
-    els.advancedImage.multiple = !advancedCreateModeAcceptsVideoUpload(config.id) && !advancedCreateModeNeedsReplacePair(config.id);
+    els.advancedImage.multiple = !advancedCreateUploadIsVideo(config.id) && !advancedCreateModeNeedsReplacePair(config.id);
   }
   renderAdvancedPresetBuilder();
 }
@@ -10387,6 +10398,12 @@ function updateAdvancedModelControls() {
   renderAdvancedAssetTargets();
   if (els.advancedUploadBox) {
     const hidePresetReferenceUpload = advancedCreateModeUsesCharacterPresetReference();
+    const uploadIsVideo = advancedCreateUploadIsVideo();
+    const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
+    if (els.advancedImage) {
+      els.advancedImage.accept = advancedCreateUploadAcceptValue();
+      els.advancedImage.multiple = !uploadIsVideo && !advancedCreateModeNeedsReplacePair();
+    }
     els.advancedUploadBox.hidden = hidePresetReferenceUpload || (!simpleAction && !advancedCreateModeNeedsVideoUpload() && (
       (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
       (provider === "seedance" && seedanceMode === "text_to_video")
@@ -10394,14 +10411,13 @@ function updateAdvancedModelControls() {
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
-    els.advancedUploadBox.classList.toggle("is-video-upload", advancedCreateModeAcceptsVideoUpload());
+    els.advancedUploadBox.classList.toggle("is-video-upload", uploadIsVideo);
     const label = els.advancedUploadBox.querySelector("span");
     if (label) {
-      const seedanceLabel = seedanceModeNeedsFirstFrame(seedanceMode) ? t("advanced.firstFrame") : t("advanced.uploadReference");
       const imageEditLabel = t("advanced.assetTargetSourceImages");
       const videoEditLabel = t("advanced.assetTargetVideo");
-      const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
-      label.innerHTML = `<i data-lucide="${advancedCreateModeAcceptsVideoUpload() ? "video" : "image-up"}"></i>${escapeHtml(mixedUpload ? t("advanced.uploadImageVideo") : advancedCreateModeNeedsVideoUpload() ? videoEditLabel : isImageEdit ? imageEditLabel : provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel)}`;
+      const seedanceLabel = seedanceModeNeedsFirstFrame(seedanceMode) ? t("advanced.firstFrame") : t("advanced.uploadReference");
+      label.innerHTML = `<i data-lucide="${uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel)}`;
     }
   }
   renderAdvancedReferencePreviews();
@@ -13074,7 +13090,8 @@ els.advancedImage?.addEventListener("change", async () => {
   const firstFile = files[0];
   const firstFileIsVideo = String(firstFile.type || "").startsWith("video/");
   const firstFileIsImage = String(firstFile.type || "").startsWith("image/");
-  if (advancedCreateModeAcceptsVideoUpload() && firstFileIsVideo) {
+  const uploadIsVideo = advancedCreateUploadIsVideo();
+  if (uploadIsVideo && firstFileIsVideo) {
     try {
       if (state.advancedCreateMode === "video-extend") {
         await captureAdvancedExtendFrameFromSource(firstFile, `${firstFile.name || "video"}-last-frame.jpg`);
@@ -13088,7 +13105,7 @@ els.advancedImage?.addEventListener("change", async () => {
     }
     return;
   }
-  if (advancedCreateModeNeedsVideoUpload()) {
+  if (uploadIsVideo) {
     els.advancedImage.value = "";
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceVideoRequired");
     updateAdvancedModelControls();
@@ -13354,7 +13371,8 @@ els.advancedWanMediaMode?.addEventListener("change", () => {
   updateAdvancedModelControls();
 });
 els.advancedSeedanceMediaMode?.addEventListener("change", () => {
-  state.advancedAssetTarget = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "") === "reference_images" ? "referenceImages" : "primary";
+  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
+  state.advancedAssetTarget = seedanceMode === "reference_images" ? "referenceImages" : seedanceMode === "reference_video" && !advancedCreateModeNeedsReplacePair() ? "video" : "primary";
   updateAdvancedModelControls();
 });
 els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
@@ -13363,7 +13381,7 @@ els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelC
 els.advancedUploadBox?.addEventListener("click", () => {
   const provider = currentAdvancedProvider();
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
-  setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : provider === "seedance" && seedanceMode === "reference_images" ? "referenceImages" : "primary");
+  setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : advancedCreateUploadIsVideo() ? "video" : provider === "seedance" && seedanceMode === "reference_images" ? "referenceImages" : "primary");
 });
 document.querySelectorAll("[data-remove-advanced-slot]").forEach((button) => {
   button.addEventListener("click", (event) => {
