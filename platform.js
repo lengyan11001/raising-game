@@ -6985,6 +6985,10 @@ function bindGalleryCharacterCards(root = els.templateGrid) {
 }
 
 function characterUsableImage(item = {}) {
+  return characterAppearanceImageUrl(item);
+}
+
+function characterAppearanceImageUrl(item = {}) {
   return uniqueTruthy([
     item.localImageUrl,
     item.posterUrl,
@@ -7340,7 +7344,7 @@ function renderCharacterSourceTabs() {
 
 function renderGalleryCharacterCard(item = {}, index = 0) {
   const videoUrl = characterMainVideoUrl(item);
-  const poster = characterListPosterUrl(item);
+  const poster = characterAppearanceImageUrl(item) || DEFAULT_TEMPLATE_COVER;
   const fallbackPoster = DEFAULT_TEMPLATE_COVER;
   const videoCount = item.videoCount || characterAllVideos(item).length;
   const custom = item.custom === true;
@@ -7369,7 +7373,7 @@ function renderGalleryCharacterCard(item = {}, index = 0) {
   return `
     <article class="character-card explore-character-card" data-character-id="${escapeHtml(item.id || "")}">
       <div class="character-card-media">
-        ${renderSmartCoverMedia({ className: "character-cover-media", posterUrl: poster, videoUrl, alt: item.name || "", fallbackUrl: fallbackPoster, eager: index < 6, defer: index >= 6 })}
+        ${renderSmartCoverMedia({ className: "character-cover-media", posterUrl: poster, videoUrl: "", alt: item.name || "", fallbackUrl: fallbackPoster, eager: index < 6, defer: index >= 6 })}
         ${videoUrl ? `<span class="character-card-video-mark"><i data-lucide="radio"></i>LIVE</span>` : ""}
         ${mine ? `<span class="character-card-status ${generating ? "is-pending" : imageReady ? "is-ready" : "is-failed"}">${escapeHtml(myCharacterStatusLabel(item))}</span>` : ""}
         <div class="character-card-meta">
@@ -8127,17 +8131,7 @@ function characterListPosterUrl(item = {}) {
 }
 
 function characterReferenceImageUrl(item = {}) {
-  const candidates = [
-    item.localImageUrl,
-    item.posterUrl,
-    item.syntheticReferenceLocalUrl,
-    item.publicImageUrl,
-    item.imageUrl,
-    item.coverUrl,
-    item.thumbnailUrl,
-    item.sourceImageUrl,
-  ];
-  return uniqueTruthy(candidates).find((value) => !isVideoMediaUrl(value) && !isGenericCharacterPoster(value)) || characterPosterUrl(item) || "";
+  return characterAppearanceImageUrl(item);
 }
 
 function characterMainVideoUrl(item = {}) {
