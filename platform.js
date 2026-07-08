@@ -10578,14 +10578,15 @@ function updateAdvancedModelControls() {
   if (els.advancedUploadBox) {
     const uploadIsVideo = advancedCreateUploadIsVideo();
     const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
+    const presetCharacterFlow = state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference();
     if (els.advancedImage) {
       els.advancedImage.accept = advancedCreateUploadAcceptValue();
       els.advancedImage.multiple = !uploadIsVideo && !advancedCreateModeNeedsReplacePair();
     }
-    els.advancedUploadBox.hidden = !simpleAction && !advancedCreateModeNeedsVideoUpload() && (
+    els.advancedUploadBox.hidden = presetCharacterFlow || (!simpleAction && !advancedCreateModeNeedsVideoUpload() && (
       (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
       (provider === "seedance" && seedanceMode === "text_to_video")
-    );
+    ));
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
