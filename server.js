@@ -32,6 +32,7 @@ const {
   upsertAdminHomeItemInDb,
   replaceAdminHomeItemsInDb,
   softDeleteAdminHomeItemInDb,
+  listWorkflowPresetsFromDb,
   findUserUnlockInDb,
   getKv,
   setKv,
@@ -1355,6 +1356,29 @@ async function handlePublicCharacters(req, res, url) {
     characterId: url?.searchParams?.get("id") || url?.searchParams?.get("characterId") || "",
   });
   return sendJson(res, 200, { ok: true, ...page });
+}
+
+function publicWorkflowPresetView(preset = {}) {
+  return {
+    id: String(preset.id || "").trim(),
+    label: String(preset.label || preset.name || "").trim(),
+    prompt: String(preset.prompt || preset.defaultPrompt || "").trim(),
+    previewUrl: String(preset.previewUrl || "").trim(),
+    posterUrl: String(preset.posterUrl || "").trim(),
+    category: String(preset.category || "PlayFlux").trim() || "PlayFlux",
+    source: String(preset.source || "").trim(),
+    sourceId: String(preset.sourceId || "").trim(),
+    sortOrder: Number(preset.sortOrder || 0) || 0,
+  };
+}
+
+async function handleWorkflowPresets(req, res) {
+  const presets = await listWorkflowPresetsFromDb({ includeDeleted: false }) || [];
+  const list = presets
+    .map(publicWorkflowPresetView)
+    .filter((preset) => preset.id && preset.label && preset.prompt && preset.previewUrl)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label));
+  return sendJson(res, 200, { ok: true, presets: list });
 }
 
 function compactPlainText(value = "", maxLength = 220) {
@@ -20997,6 +21021,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/public/characters") {
       return await handlePublicCharacters(req, res, url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/workflow/presets") {
+      return await handleWorkflowPresets(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/analytics/character-view") {

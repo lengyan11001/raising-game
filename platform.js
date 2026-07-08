@@ -622,6 +622,11 @@ const state = {
   workflowSelectedNodeId: "video-1",
   workflowShowPhysics: false,
   workflowModelSearch: "",
+  workflowPickerNodeId: "",
+  workflowPickerSearch: "",
+  workflowPresets: [],
+  workflowPresetsLoaded: false,
+  workflowPresetsLoading: false,
   workflowLogs: [],
   workflowPollTimers: {},
   advancedAssetTarget: "primary",
@@ -4699,6 +4704,12 @@ function setUser(user, { refreshHistory = false } = {}) {
     state.advancedAssetPage = 1;
     state.advancedAssetTotal = 0;
     state.advancedAssetTotalPages = 1;
+    state.workflow = null;
+    state.workflowSelectedNodeId = "video-1";
+    state.workflowPickerNodeId = "";
+    state.workflowPickerSearch = "";
+    state.workflowMessage = "";
+    state.workflowLogs = [];
   }
   const accountLabel = state.user
     ? state.user.username
@@ -6644,14 +6655,41 @@ function cloneWorkflowDefault() {
   };
 }
 
+function normalizeWorkflowPreset(preset = {}) {
+  const id = String(preset.id || preset.sourceId || "").trim();
+  const label = String(preset.label || preset.name || id || "Workflow preset").trim();
+  return {
+    id: id || label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+    label,
+    prompt: String(preset.prompt || preset.defaultPrompt || "").trim(),
+    previewUrl: String(preset.previewUrl || preset.demoUrl || "").trim(),
+    posterUrl: String(preset.posterUrl || "").trim(),
+    category: String(preset.category || "PlayFlux").trim() || "PlayFlux",
+    sourceId: String(preset.sourceId || "").trim(),
+  };
+}
+
+function workflowPresetLibrary() {
+  const remote = (state.workflowPresets || []).map(normalizeWorkflowPreset).filter((preset) => preset.id && preset.label);
+  return remote.length ? remote : WORKFLOW_MODEL_LIBRARY;
+}
+
 function workflowModelById(modelId = "") {
-  return WORKFLOW_MODEL_LIBRARY.find((model) => model.id === modelId) || WORKFLOW_MODEL_LIBRARY[0];
+  const library = workflowPresetLibrary();
+  return library.find((model) => model.id === modelId) || library[0] || WORKFLOW_MODEL_LIBRARY[0];
+}
+
+function workflowUserStorageKey() {
+  const userId = String(state.user?.id || "").trim();
+  const username = String(state.user?.username || "").trim().toLowerCase();
+  const fallback = state.token ? `token:${String(state.token).slice(-16)}` : "guest";
+  return `${WORKFLOW_STORAGE_KEY}:${userId || username || fallback}`;
 }
 
 function ensureWorkflowState() {
   if (state.workflow?.nodes?.length) return state.workflow;
   try {
-    const saved = JSON.parse(localStorage.getItem(WORKFLOW_STORAGE_KEY) || "null");
+    const saved = JSON.parse(localStorage.getItem(workflowUserStorageKey()) || "null");
     if (saved?.nodes?.length) {
       state.workflow = {
         nodes: saved.nodes.map((node) => ({ ...node, data: { ...(node.data || {}) } })),
@@ -6669,7 +6707,7 @@ function ensureWorkflowState() {
 function persistWorkflowState() {
   try {
     const workflow = ensureWorkflowState();
-    localStorage.setItem(WORKFLOW_STORAGE_KEY, JSON.stringify({
+    localStorage.setItem(workflowUserStorageKey(), JSON.stringify({
       nodes: workflow.nodes,
       edges: workflow.edges,
       physics: workflow.physics,
@@ -6701,6 +6739,21 @@ function workflowLog(message = "") {
   if (!text) return;
   state.workflowLogs = [{ time: new Date().toLocaleTimeString(), message: text }, ...(state.workflowLogs || [])].slice(0, 12);
   renderWorkflowPanel();
+}
+
+async function loadWorkflowPresets() {
+  if (state.workflowPresetsLoaded || state.workflowPresetsLoading) return;
+  state.workflowPresetsLoading = true;
+  try {
+    const payload = await requestJson("/api/workflow/presets");
+    state.workflowPresets = (payload.presets || []).map(normalizeWorkflowPreset).filter((preset) => preset.id && preset.label);
+    state.workflowPresetsLoaded = true;
+  } catch (_) {
+    state.workflowPresetsLoaded = true;
+  } finally {
+    state.workflowPresetsLoading = false;
+    if (state.tab === "workflow") renderWorkflowPanel();
+  }
 }
 
 function workflowNodeStatusText(node = {}) {
@@ -6737,6 +6790,11 @@ function workflowCostLabel(node = {}) {
     seedanceTier: "standard",
     inputVideoSeconds: 0,
   }).credits);
+}
+
+function workflowPromptPreview(model = {}, customPrompt = "") {
+  const custom = String(customPrompt || "").trim();
+  return custom || model.prompt || "";
 }
 
 function workflowReferenceImagePayload(sourceImage = "") {
@@ -6824,6 +6882,10 @@ function renderWorkflowNode(node = {}) {
     `;
   }
   const model = workflowModelById(node.data?.modelId);
+  const promptPreview = workflowPromptPreview(model, node.data?.prompt);
+  const modelPreview = model.previewUrl
+    ? `<video src="${escapeHtml(model.previewUrl)}" ${model.posterUrl ? `poster="${escapeHtml(model.posterUrl)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>`
+    : `<i data-lucide="clapperboard"></i>`;
   return `
     <article class="workflow-node workflow-node-video ${selected ? "is-selected" : ""} is-${escapeHtml(statusClassName)}" style="${style}" data-workflow-node="${escapeHtml(node.id)}">
       <header>
@@ -6832,15 +6894,18 @@ function renderWorkflowNode(node = {}) {
         <button type="button" data-workflow-delete="${escapeHtml(node.id)}" aria-label="Delete"><i data-lucide="trash-2"></i></button>
       </header>
       <div class="workflow-node-media">${renderWorkflowMediaPreview(node)}</div>
+      <button class="workflow-model-card" type="button" data-workflow-open-picker="${escapeHtml(node.id)}">
+        <span class="workflow-model-thumb">${modelPreview}</span>
+        <span class="workflow-model-copy">
+          <em>Scene / action</em>
+          <strong>${escapeHtml(model.label)}</strong>
+          <small>${escapeHtml(promptPreview)}</small>
+        </span>
+        <i data-lucide="chevron-down"></i>
+      </button>
       <label class="workflow-field">
-        <span>Model</span>
-        <select data-workflow-model="${escapeHtml(node.id)}">
-          ${WORKFLOW_MODEL_LIBRARY.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === model.id ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
-        </select>
-      </label>
-      <label class="workflow-field">
-        <span>Prompt</span>
-        <textarea rows="3" data-workflow-prompt="${escapeHtml(node.id)}">${escapeHtml(node.data?.prompt || "")}</textarea>
+        <span>Custom prompt</span>
+        <textarea rows="3" data-workflow-prompt="${escapeHtml(node.id)}" placeholder="${escapeHtml(model.prompt)}">${escapeHtml(node.data?.prompt || "")}</textarea>
       </label>
       <div class="workflow-inline-fields">
         <label><span>Duration</span><select data-workflow-duration="${escapeHtml(node.id)}">${[5, 8, 10, 15].map((value) => `<option value="${value}" ${Number(node.data?.duration || 5) === value ? "selected" : ""}>${value}s</option>`).join("")}</select></label>
@@ -6870,15 +6935,62 @@ function renderWorkflowEdges() {
   }).join("");
 }
 
+function renderWorkflowPicker() {
+  const node = workflowNodeById(state.workflowPickerNodeId || "");
+  if (!node || node.type !== "video") return "";
+  const selectedModel = workflowModelById(node.data?.modelId);
+  const search = String(state.workflowPickerSearch || "").trim().toLowerCase();
+  const presets = workflowPresetLibrary()
+    .map(normalizeWorkflowPreset)
+    .filter((preset) => {
+      if (!search) return true;
+      return preset.label.toLowerCase().includes(search)
+        || preset.id.toLowerCase().includes(search)
+        || preset.category.toLowerCase().includes(search)
+        || preset.prompt.toLowerCase().includes(search);
+    });
+  return `
+    <div class="workflow-picker-backdrop" data-workflow-close-picker>
+      <section class="workflow-picker" aria-modal="true" role="dialog" aria-label="Choose workflow scene" data-workflow-picker>
+        <header>
+          <div>
+            <span>Scene / action</span>
+            <strong>Choose preview</strong>
+          </div>
+          <button type="button" data-workflow-close-picker aria-label="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="workflow-picker-search">
+          <i data-lucide="search"></i>
+          <input type="search" value="${escapeHtml(state.workflowPickerSearch || "")}" placeholder="Search..." data-workflow-picker-search />
+        </div>
+        <div class="workflow-picker-grid">
+          ${presets.map((preset) => {
+            const active = selectedModel.id === preset.id;
+            const media = preset.previewUrl
+              ? `<video src="${escapeHtml(preset.previewUrl)}" ${preset.posterUrl ? `poster="${escapeHtml(preset.posterUrl)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>`
+              : `<span class="workflow-picker-empty"><i data-lucide="clapperboard"></i></span>`;
+            return `
+              <button class="workflow-picker-card ${active ? "is-active" : ""}" type="button" data-workflow-select-model="${escapeHtml(preset.id)}">
+                <span class="workflow-picker-media">${media}</span>
+                <span class="workflow-picker-title">${escapeHtml(preset.label)}</span>
+                <span class="workflow-picker-category">${escapeHtml(preset.category || "Preset")}</span>
+                <span class="workflow-picker-prompt">${escapeHtml(preset.prompt || "")}</span>
+              </button>
+            `;
+          }).join("")}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function renderWorkflowPanel() {
   if (!els.workflowRoot) return;
   const workflow = ensureWorkflowState();
   const selected = selectedWorkflowNode();
   const selectedModel = workflowModelById(selected?.data?.modelId);
   const activePhysics = new Set(workflow.physics || []);
-  const search = String(state.workflowModelSearch || "").trim().toLowerCase();
-  const modelItems = WORKFLOW_MODEL_LIBRARY
-    .filter((model) => !search || model.label.toLowerCase().includes(search) || model.id.includes(search));
+  const selectedPrompt = workflowPromptPreview(selectedModel, selected?.data?.prompt);
   els.workflowRoot.innerHTML = `
     <div class="workflow-toolbar">
       <button class="workflow-run" type="button" data-workflow-action="run" ${state.workflowRunning ? "disabled" : ""}><i data-lucide="${state.workflowRunning ? "loader-circle" : "play"}"></i>${state.workflowRunning ? "Running" : "Run"}</button>
@@ -6920,14 +7032,11 @@ function renderWorkflowPanel() {
             <strong>${escapeHtml(selected?.type === "video" ? selectedModel.label : selected?.title || "Workflow")}</strong>
             <span>${escapeHtml(selected?.type || "")}</span>
           </div>
-          ${selected?.type === "video" ? `<p>${escapeHtml(workflowCostLabel(selected))} credits · ${escapeHtml(selected.data?.resolution || "720p")} · ${escapeHtml(String(selected.data?.duration || 5))}s</p>` : ""}
-        </section>
-        <section>
-          <div class="workflow-side-head"><strong>Models</strong><span>${WORKFLOW_MODEL_LIBRARY.length}</span></div>
-          <input class="workflow-search" type="search" value="${escapeHtml(state.workflowModelSearch || "")}" placeholder="Search model..." data-workflow-model-search />
-          <div class="workflow-model-list">
-            ${modelItems.map((model) => `<button type="button" class="${selectedModel.id === model.id ? "is-active" : ""}" data-workflow-pick-model="${escapeHtml(model.id)}">${escapeHtml(model.label)}</button>`).join("")}
-          </div>
+          ${selected?.type === "video" ? `
+            <p>${escapeHtml(workflowCostLabel(selected))} credits - ${escapeHtml(selected.data?.resolution || "720p")} - ${escapeHtml(String(selected.data?.duration || 5))}s</p>
+            <button class="workflow-change-preset" type="button" data-workflow-open-picker="${escapeHtml(selected.id)}"><i data-lucide="layout-grid"></i>Choose scene</button>
+            <div class="workflow-prompt-preview">${escapeHtml(selectedPrompt || selectedModel.prompt || "")}</div>
+          ` : ""}
         </section>
         <section>
           <div class="workflow-side-head"><strong>Quick nodes</strong></div>
@@ -6943,20 +7052,16 @@ function renderWorkflowPanel() {
         </section>
       </aside>
     </div>
+    ${renderWorkflowPicker()}
   `;
   refreshIcons();
 }
 
 function updateWorkflowNodeFromControl(control) {
-  const nodeId = control.dataset.workflowModel || control.dataset.workflowPrompt || control.dataset.workflowDuration || control.dataset.workflowResolution || "";
+  const nodeId = control.dataset.workflowPrompt || control.dataset.workflowDuration || control.dataset.workflowResolution || "";
   const node = workflowNodeById(nodeId);
   if (!node) return;
-  if (control.dataset.workflowModel) {
-    const model = workflowModelById(control.value);
-    node.data.modelId = model.id;
-    node.title = model.label;
-    if (!String(node.data.prompt || "").trim()) node.data.prompt = "";
-  } else if (control.dataset.workflowPrompt) {
+  if (control.dataset.workflowPrompt) {
     node.data.prompt = control.value || "";
   } else if (control.dataset.workflowDuration) {
     node.data.duration = Number(control.value || 5);
@@ -7155,6 +7260,37 @@ function resetWorkflow() {
 }
 
 function handleWorkflowClick(event) {
+  const openPickerButton = event.target.closest("[data-workflow-open-picker]");
+  if (openPickerButton) {
+    event.stopPropagation();
+    state.workflowPickerNodeId = openPickerButton.dataset.workflowOpenPicker || "";
+    state.workflowPickerSearch = "";
+    renderWorkflowPanel();
+    return;
+  }
+  const selectModelButton = event.target.closest("[data-workflow-select-model]");
+  if (selectModelButton) {
+    event.stopPropagation();
+    const node = workflowNodeById(state.workflowPickerNodeId || "");
+    if (node?.type === "video") {
+      const model = workflowModelById(selectModelButton.dataset.workflowSelectModel || "");
+      node.data.modelId = model.id;
+      node.title = model.label;
+      state.workflowSelectedNodeId = node.id;
+      state.workflowPickerNodeId = "";
+      state.workflowPickerSearch = "";
+      persistWorkflowState();
+      renderWorkflowPanel();
+    }
+    return;
+  }
+  const closePicker = event.target.closest("[data-workflow-close-picker]");
+  if (closePicker && (!event.target.closest("[data-workflow-picker]") || closePicker.tagName === "BUTTON")) {
+    state.workflowPickerNodeId = "";
+    state.workflowPickerSearch = "";
+    renderWorkflowPanel();
+    return;
+  }
   const previewButton = event.target.closest("[data-workflow-preview]");
   if (previewButton) {
     const node = workflowNodeById(previewButton.dataset.workflowPreview || "");
@@ -7206,23 +7342,12 @@ function handleWorkflowClick(event) {
   }
   const templateButton = event.target.closest("[data-workflow-template]");
   if (templateButton) applyWorkflowTemplate(templateButton.dataset.workflowTemplate || "");
-  const modelButton = event.target.closest("[data-workflow-pick-model]");
-  if (modelButton) {
-    const node = selectedWorkflowNode();
-    if (node?.type === "video") {
-      const model = workflowModelById(modelButton.dataset.workflowPickModel || "");
-      node.data.modelId = model.id;
-      node.title = model.label;
-      persistWorkflowState();
-      renderWorkflowPanel();
-    }
-  }
 }
 
 function handleWorkflowInput(event) {
   const target = event.target;
-  if (target.matches("[data-workflow-model-search]")) {
-    state.workflowModelSearch = target.value || "";
+  if (target.matches("[data-workflow-picker-search]")) {
+    state.workflowPickerSearch = target.value || "";
     renderWorkflowPanel();
     return;
   }
@@ -7239,7 +7364,7 @@ function handleWorkflowInput(event) {
     }
     return;
   }
-  if (target.matches("[data-workflow-model], [data-workflow-prompt], [data-workflow-duration], [data-workflow-resolution]")) {
+  if (target.matches("[data-workflow-prompt], [data-workflow-duration], [data-workflow-resolution]")) {
     updateWorkflowNodeFromControl(target);
   }
 }
@@ -7344,7 +7469,10 @@ function setTab(tab) {
     renderAdvancedResultPanel();
     if (state.advancedSideTab === "result" && state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1000, force: true });
   }
-  if (nextTab === "workflow") renderWorkflowPanel();
+  if (nextTab === "workflow") {
+    renderWorkflowPanel();
+    loadWorkflowPresets();
+  }
   closeAccountMenu();
   trackGooglePageView();
 }
@@ -7428,8 +7556,9 @@ function trackSystemCharacterView(characterId = "", source = "") {
   const id = String(characterId || "").trim();
   if (!id || characterSourceForId(id) !== "system") return;
   const normalizedSource = ["home", "direct", "external"].includes(source) ? source : "";
-  if (state.characterViewTrackKeys?.has(id)) return;
-  state.characterViewTrackKeys?.add(id);
+  const key = id;
+  if (state.characterViewTrackKeys?.has(key)) return;
+  state.characterViewTrackKeys?.add(key);
   requestJson("/api/analytics/character-view", {
     method: "POST",
     body: { characterId: id, source: normalizedSource },
