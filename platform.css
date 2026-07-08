@@ -2803,6 +2803,19 @@ main {
   border: 1px dashed rgba(255,255,255,.14);
   border-radius: 8px;
 }
+.advanced-preset-load-more {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 52px;
+  color: rgba(247,247,251,.68);
+  font-weight: 900;
+}
+.advanced-preset-load-more .ghost-button {
+  min-width: 136px;
+}
 .advanced-case-panel {
   min-height: auto;
   background: rgba(255,255,255,.54);
