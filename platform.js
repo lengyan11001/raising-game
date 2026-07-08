@@ -749,6 +749,9 @@ const els = {
   advancedRatio: document.querySelector("#advancedRatio"),
   advancedResolution: document.querySelector("#advancedResolution"),
   advancedDuration: document.querySelector("#advancedDuration"),
+  advancedVideoSettings: document.querySelector("#advancedVideoSettings"),
+  advancedVideoResolutionChoices: document.querySelector("#advancedVideoResolutionChoices"),
+  advancedVideoDurationChoices: document.querySelector("#advancedVideoDurationChoices"),
   advancedPreprocessReference: document.querySelector("#advancedPreprocessReference"),
   advancedSeedanceMediaMode: document.querySelector("#advancedSeedanceMediaMode"),
   advancedSeedanceLastFrame: document.querySelector("#advancedSeedanceLastFrame"),
@@ -852,6 +855,7 @@ const I18N = {
     "field.ratio": "Ratio",
     "field.resolution": "Resolution",
     "field.duration": "Duration",
+    "advanced.videoSettings": "Advanced options",
     "hero.gallery.eyebrow": "Gallery",
     "copy.galleryTitle": "Create AI videos",
     "copy.gallerySubtitle": "Choose a template, upload an image or enter text, and create a new video.",
@@ -5482,7 +5486,67 @@ function currentSeedanceTier() {
 }
 
 function currentAdvancedResolution() {
-  return normalizeAdvancedResolution(els.advancedResolution?.value || "720p", currentAdvancedProvider());
+  const provider = currentAdvancedProvider();
+  const fallback = normalizeAdvancedProvider(provider) === "seedance" ? "480p" : "720p";
+  return normalizeAdvancedResolution(els.advancedResolution?.value || fallback, provider);
+}
+
+function advancedVideoSettingsVisible() {
+  return state.advancedCreateKind === "video";
+}
+
+function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
+  return normalizeAdvancedProvider(provider) === "seedance"
+    ? ["480p", "720p", "1080p", "4k"]
+    : ["720p", "1080p"];
+}
+
+function advancedVideoDurationOptions(provider = currentAdvancedProvider()) {
+  const bounds = advancedDurationBounds(provider);
+  const base = [bounds.min, 5, 8, 10, bounds.max]
+    .filter((value, index, list) => Number.isFinite(value) && value >= bounds.min && value <= bounds.max && list.indexOf(value) === index);
+  const current = Number(els.advancedDuration?.value || bounds.min);
+  if (Number.isFinite(current) && current >= bounds.min && current <= bounds.max && !base.includes(current)) base.push(current);
+  return base.sort((a, b) => a - b);
+}
+
+function advancedVideoResolutionLabel(value = "") {
+  return String(value || "").toLowerCase() === "4k" ? "4K" : String(value || "");
+}
+
+function syncAdvancedVideoSettingsControls() {
+  const visible = advancedVideoSettingsVisible();
+  if (els.advancedVideoSettings) els.advancedVideoSettings.hidden = !visible;
+  if (!visible) return;
+  const provider = currentAdvancedProvider();
+  const resolutionOptions = advancedVideoResolutionOptions(provider);
+  const currentResolution = currentAdvancedResolution();
+  if (els.advancedResolution && !resolutionOptions.includes(currentResolution)) {
+    els.advancedResolution.value = resolutionOptions[0];
+  }
+  const selectedResolution = currentAdvancedResolution();
+  if (els.advancedVideoResolutionChoices) {
+    els.advancedVideoResolutionChoices.innerHTML = resolutionOptions.map((value) => `
+      <button class="advanced-video-choice ${value === selectedResolution ? "is-active" : ""}" type="button" data-advanced-video-resolution="${escapeHtml(value)}">
+        ${escapeHtml(advancedVideoResolutionLabel(value))}
+      </button>
+    `).join("");
+  }
+
+  const bounds = advancedDurationBounds(provider);
+  const rawDuration = Number(els.advancedDuration?.value || bounds.min);
+  const selectedDuration = Math.min(bounds.max, Math.max(bounds.min, Number.isFinite(rawDuration) ? rawDuration : bounds.min));
+  if (els.advancedDuration && Number(els.advancedDuration.value) !== selectedDuration) {
+    els.advancedDuration.value = String(selectedDuration);
+  }
+  if (els.advancedVideoDurationChoices) {
+    els.advancedVideoDurationChoices.innerHTML = advancedVideoDurationOptions(provider).map((value) => `
+      <button class="advanced-video-choice ${value === selectedDuration ? "is-active" : ""}" type="button" data-advanced-video-duration="${escapeHtml(value)}">
+        ${escapeHtml(value)}s
+      </button>
+    `).join("");
+  }
+  refreshIcons();
 }
 
 function imageCreateHasReferences() {
@@ -6067,9 +6131,20 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
       if (clearMedia || !targetIds.includes(state.advancedAssetTarget)) state.advancedAssetTarget = config.assetTarget;
     }
     if (els.advancedRatio) els.advancedRatio.value = "9:16";
-    if (els.advancedResolution) els.advancedResolution.value = kind === "image" ? "2K" : "720p";
-    if (kind === "image" && els.advancedDuration) els.advancedDuration.value = "1";
-    if (kind === "video" && els.advancedDuration && Number(els.advancedDuration.value || 0) < 4) els.advancedDuration.value = "5";
+    if (kind === "image") {
+      if (els.advancedResolution) els.advancedResolution.value = "2K";
+      if (els.advancedDuration) els.advancedDuration.value = "1";
+    }
+    if (kind === "video") {
+      const videoResolutions = advancedVideoResolutionOptions(config.provider || "seedance");
+      const currentResolution = normalizeAdvancedResolution(els.advancedResolution?.value || videoResolutions[0], config.provider || "seedance");
+      if (els.advancedResolution && !videoResolutions.includes(currentResolution)) els.advancedResolution.value = videoResolutions[0];
+      const bounds = advancedDurationBounds(config.provider || "seedance");
+      const currentDuration = Number(els.advancedDuration?.value || 0);
+      if (els.advancedDuration && (!Number.isFinite(currentDuration) || currentDuration < bounds.min || currentDuration > bounds.max)) {
+        els.advancedDuration.value = String(bounds.min);
+      }
+    }
   }
   if (els.advancedPrompt) {
     els.advancedPrompt.setAttribute("placeholder", t(config.placeholderKey || "advanced.promptPlaceholder"));
@@ -10556,6 +10631,7 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-duration-field").forEach((item) => {
     item.hidden = isImageEdit;
   });
+  syncAdvancedVideoSettingsControls();
   document.querySelectorAll(".wan-first-frame").forEach((item) => {
     item.hidden = provider !== "wan27" || !wanModeNeedsFirstFrame(wanMode);
   });
@@ -13539,7 +13615,10 @@ els.advancedPresetDialog?.addEventListener("close", () => {
   state.advancedPresetSearch = "";
   if (els.advancedPresetSearch) els.advancedPresetSearch.value = "";
 });
-els.advancedDuration?.addEventListener("input", updateAdvancedButtonCost);
+els.advancedDuration?.addEventListener("input", () => {
+  syncAdvancedVideoSettingsControls();
+  updateAdvancedButtonCost();
+});
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
   updateAdvancedModelControls();
@@ -13557,7 +13636,23 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
   updateAdvancedModelControls();
 });
 els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
-els.advancedResolution?.addEventListener("change", updateAdvancedButtonCost);
+els.advancedResolution?.addEventListener("change", () => {
+  syncAdvancedVideoSettingsControls();
+  updateAdvancedButtonCost();
+});
+els.advancedVideoResolutionChoices?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-advanced-video-resolution]");
+  if (!button || !els.advancedResolution) return;
+  els.advancedResolution.value = button.dataset.advancedVideoResolution || "480p";
+  updateAdvancedModelControls();
+});
+els.advancedVideoDurationChoices?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-advanced-video-duration]");
+  if (!button || !els.advancedDuration) return;
+  els.advancedDuration.value = button.dataset.advancedVideoDuration || "4";
+  syncAdvancedVideoSettingsControls();
+  updateAdvancedButtonCost();
+});
 els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelControls);
 els.advancedUploadBox?.addEventListener("click", () => {
   const provider = currentAdvancedProvider();
