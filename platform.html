@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=667-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=667-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-194" />
+    <link rel="stylesheet" href="./platform.css?v=ai-195" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -53,6 +53,7 @@
         <button class="top-tab is-active" data-tab="gallery" data-i18n="nav.gallery" type="button">Gallery</button>
         <button class="top-tab" data-tab="characters" data-i18n="characters.createTitle" type="button">Create character</button>
         <button class="top-tab" data-tab="advanced" data-i18n="nav.advanced" type="button">Advanced</button>
+        <button class="top-tab" data-tab="workflow" data-i18n="nav.workflow" type="button">Workflow</button>
         <button class="top-tab" data-tab="referral" data-i18n="nav.referral" type="button">Referral</button>
         <button class="top-tab" data-tab="access" data-i18n="nav.access" type="button">API Access</button>
         <button class="top-tab" data-tab="history" data-i18n="nav.history" type="button">History</button>
@@ -318,6 +319,10 @@
             </div>
           </section>
         </div>
+      </section>
+
+      <section class="workflow-panel" data-panel="workflow" hidden>
+        <div class="workflow-shell" id="workflowRoot"></div>
       </section>
 
       <section class="asset-panel" data-panel="assets" hidden>
@@ -770,6 +775,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-214"></script>
+    <script src="./platform.js?v=ai-215"></script>
   </body>
 </html>
