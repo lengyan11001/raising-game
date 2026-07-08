@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=667-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=667-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-191" />
+    <link rel="stylesheet" href="./platform.css?v=ai-192" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -147,6 +147,19 @@
               <span data-i18n="field.prompt">Prompt</span>
               <textarea id="advancedPrompt" rows="5" placeholder="Describe the video you want..." data-i18n-placeholder="advanced.promptPlaceholder"></textarea>
             </label>
+            <details class="advanced-video-settings" id="advancedVideoSettings">
+              <summary><i data-lucide="sliders-horizontal"></i><span data-i18n="advanced.videoSettings">Advanced options</span></summary>
+              <div class="advanced-video-settings-grid">
+                <div class="advanced-video-setting">
+                  <span data-i18n="field.resolution">Resolution</span>
+                  <div class="advanced-video-choice-row" id="advancedVideoResolutionChoices"></div>
+                </div>
+                <div class="advanced-video-setting">
+                  <span data-i18n="field.duration">Duration</span>
+                  <div class="advanced-video-choice-row" id="advancedVideoDurationChoices"></div>
+                </div>
+              </div>
+            </details>
             <label class="upload-box advanced-upload-box" id="advancedUploadBox" hidden>
               <input id="advancedImage" type="file" accept="image/*" multiple />
               <div class="advanced-upload-previews" id="advancedUploadPreview"></div>
@@ -243,7 +256,7 @@
               <label class="field advanced-seedance-option advanced-tier-field" hidden><span>Vipeak 2 tier</span><select id="advancedSeedanceTier"><option value="standard">Standard</option><option value="fast">Fast</option></select></label>
               <label class="field advanced-setting-field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
               <label class="field advanced-setting-field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
-              <label class="field advanced-duration-field"><span data-i18n="field.duration">Duration</span><input id="advancedDuration" type="number" min="2" max="15" value="5" /></label>
+              <label class="field advanced-duration-field"><span data-i18n="field.duration">Duration</span><input id="advancedDuration" type="number" min="2" max="15" value="4" /></label>
               <input id="advancedPreprocessReference" type="hidden" value="no" />
               <label class="field advanced-wan-option advanced-seed-field" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="0" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
             </div>
@@ -746,6 +759,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-210"></script>
+    <script src="./platform.js?v=ai-211"></script>
   </body>
 </html>
