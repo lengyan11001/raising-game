@@ -13654,6 +13654,12 @@ els.advancedPresetSearch?.addEventListener("input", () => {
   state.advancedPresetSearch = els.advancedPresetSearch.value || "";
   renderAdvancedPresetDialog();
 });
+els.advancedPresetGrid?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-advanced-preset-load-more]");
+  if (!button) return;
+  event.preventDefault();
+  loadMoreAdvancedPresetCharacters().catch((error) => console.warn("load more preset characters failed", error.message || error));
+});
 els.advancedPresetDialog?.addEventListener("close", () => {
   state.advancedPresetDialogSlot = "";
   state.advancedPresetSearch = "";
