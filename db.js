@@ -265,6 +265,25 @@ async function ensureSchema() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_admin_home_items_created_idx ON app_admin_home_items (created_at DESC);`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_workflow_presets (
+      id TEXT PRIMARY KEY,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      deleted_at TIMESTAMPTZ,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_workflow_presets
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_workflow_presets_sort_idx ON app_workflow_presets (sort_order ASC, updated_at DESC);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_support_messages (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -1082,6 +1101,77 @@ async function softDeleteAdminHomeItemInDb(itemId = "", deletedAt = new Date().t
   return payload;
 }
 
+async function listWorkflowPresetsFromDb({ includeDeleted = false } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_workflow_presets
+      ${includeDeleted ? "" : "WHERE deleted_at IS NULL"}
+      ORDER BY sort_order ASC, updated_at DESC, created_at DESC
+    `,
+  );
+  return rows.map(recordFromPayloadRow);
+}
+
+async function upsertWorkflowPresetInDb(preset = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(preset.id || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const payload = {
+    ...preset,
+    id,
+    createdAt: preset.createdAt || now,
+    updatedAt: preset.updatedAt || now,
+  };
+  await query(
+    `
+      INSERT INTO app_workflow_presets(id, payload, deleted_at, sort_order, created_at, updated_at)
+      VALUES ($1, $2::jsonb, $3::timestamptz, $4::int, $5::timestamptz, $6::timestamptz)
+      ON CONFLICT (id) DO UPDATE SET
+        payload = EXCLUDED.payload,
+        deleted_at = EXCLUDED.deleted_at,
+        sort_order = EXCLUDED.sort_order,
+        updated_at = EXCLUDED.updated_at
+    `,
+    [
+      id,
+      JSON.stringify(payload),
+      deletedAtOrNull(payload),
+      Number(payload.sortOrder || 0) || 0,
+      payloadCreatedAt(payload),
+      payloadUpdatedAt(payload),
+    ],
+  );
+  return payload;
+}
+
+async function replaceWorkflowPresetsInDb(presets = []) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const normalized = (Array.isArray(presets) ? presets : [])
+    .filter((preset) => preset && String(preset.id || "").trim())
+    .map((preset, index) => ({ ...preset, sortOrder: Number(preset.sortOrder ?? index) || 0 }));
+  for (const preset of normalized) await upsertWorkflowPresetInDb(preset);
+  const activeIds = normalized.map((preset) => String(preset.id || "").trim()).filter(Boolean);
+  const now = new Date().toISOString();
+  await query(
+    `
+      UPDATE app_workflow_presets
+      SET deleted_at = COALESCE(deleted_at, $2::timestamptz),
+          payload = payload || jsonb_build_object('deletedAt', COALESCE(payload->>'deletedAt', $2::text), 'updatedAt', $2::text),
+          updated_at = $2::timestamptz
+      WHERE NOT (id = ANY($1::text[]))
+        AND deleted_at IS NULL
+    `,
+    [activeIds, now],
+  );
+  return normalized;
+}
+
 async function findUserUnlockInDb({ userId = "", itemId = "", sceneId = "", sceneEntryId = "default" } = {}) {
   if (!dbEnabled()) return null;
   const cleanUserId = String(userId || "").trim();
@@ -1892,6 +1982,9 @@ module.exports = {
   upsertAdminHomeItemInDb,
   replaceAdminHomeItemsInDb,
   softDeleteAdminHomeItemInDb,
+  listWorkflowPresetsFromDb,
+  upsertWorkflowPresetInDb,
+  replaceWorkflowPresetsInDb,
   findUserUnlockInDb,
   normalizeApiSubtokenRecord,
   listApiSubtokensFromDb,
