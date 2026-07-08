@@ -6989,14 +6989,16 @@ function characterUsableImage(item = {}) {
 
 function characterAppearanceImageUrl(item = {}) {
   return uniqueTruthy([
+    item.characterImageUrl,
+    item.referenceImageUrl,
+    item.sourceImageUrl,
     item.localImageUrl,
-    item.posterUrl,
     item.syntheticReferenceLocalUrl,
     item.publicImageUrl,
     item.imageUrl,
-    item.coverUrl,
-    item.thumbnailUrl,
-    item.sourceImageUrl,
+    item.assetImageUrl,
+    item.params?.characterImageUrl,
+    item.params?.sourceImageUrl,
   ]).find((value) => !isVideoMediaUrl(value) && !isGenericCharacterPoster(value)) || "";
 }
 

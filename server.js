@@ -3995,6 +3995,7 @@ function publicHomeVideoItem(item, auth = null) {
   const hasSynth = Boolean(item.syntheticReferenceLocalUrl || item.syntheticReferenceUrl);
   const hasAsset = Boolean(item.referenceAssetUri);
   const characterVideos = publicCharacterVideoMaps(item, auth);
+  const characterImageUrl = item.sourceImageUrl || item.localImageUrl || item.syntheticReferenceLocalUrl || item.publicImageUrl || item.imageUrl || "";
   let referenceState = "missing";
   if (hasSynth && hasAsset) referenceState = "ready";
   else if (hasSynth) referenceState = "asset_pending";
@@ -4004,8 +4005,10 @@ function publicHomeVideoItem(item, auth = null) {
     id: item.id || "",
     name: item.name || "Featured",
     title: item.title || "Featured drama",
-    posterUrl: item.posterUrl || item.localImageUrl || item.syntheticReferenceLocalUrl || item.sourceImageUrl || item.publicImageUrl || item.coverUrl || "",
-    localImageUrl: item.localImageUrl || item.posterUrl || "",
+    posterUrl: item.posterUrl || characterImageUrl || item.coverUrl || "",
+    localImageUrl: item.localImageUrl || "",
+    characterImageUrl,
+    referenceImageUrl: characterImageUrl,
     syntheticReferenceLocalUrl: item.syntheticReferenceLocalUrl || "",
     sourceImageUrl: item.sourceImageUrl || "",
     publicImageUrl: item.publicImageUrl || "",
