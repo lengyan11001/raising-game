@@ -2402,8 +2402,8 @@ function renderCharacterVideoAttachOptions(selectEl, items = [], selectedId = ""
   }
   selectEl.innerHTML = items.map((item) => {
     const id = String(item.id || "");
-    const label = [item.name, item.title, id].filter(Boolean).join(" · ");
-    return `<option value="${escapeHtml(id)}" ${id === selectedId ? "selected" : ""}>${escapeHtml(shortText(label, 120))}</option>`;
+    const label = String(item.name || id || "未命名角色").trim();
+    return `<option value="${escapeHtml(id)}" ${id === selectedId ? "selected" : ""}>${escapeHtml(shortText(label, 48))}</option>`;
   }).join("");
 }
 
