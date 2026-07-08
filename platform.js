@@ -5619,6 +5619,44 @@ function advancedPresetItems(slot = "") {
   return Array.isArray(advancedPresetSet(slot).items) ? advancedPresetSet(slot).items : [];
 }
 
+function hasMoreSystemCharacterPresets() {
+  const total = Number(state.homeCharactersTotal || 0) || 0;
+  if (!total) return false;
+  return advancedCharacterPresetItems("system").length < total;
+}
+
+function systemCharacterPresetTotal() {
+  return Math.max(
+    Number(state.homeCharactersTotal || 0) || 0,
+    advancedCharacterPresetItems("system").length,
+  );
+}
+
+function renderAdvancedPresetCharacterPager() {
+  if (state.advancedPresetDialogSlot !== "character" || state.advancedPresetCharacterSource === "custom") return "";
+  const loaded = advancedCharacterPresetItems("system").length;
+  const total = systemCharacterPresetTotal();
+  if (!total || loaded >= total) return "";
+  const loading = state.homeCharactersLoadingMore;
+  return `
+    <div class="advanced-preset-load-more">
+      <span>${escapeHtml(String(loaded))} / ${escapeHtml(String(total))}</span>
+      <button class="ghost-button" type="button" data-advanced-preset-load-more ${loading ? "disabled" : ""}>
+        <i data-lucide="${loading ? "loader-circle" : "chevrons-down"}"></i>${escapeHtml(loading ? "Loading" : "Load more")}
+      </button>
+    </div>
+  `;
+}
+
+async function loadMoreAdvancedPresetCharacters() {
+  if (state.advancedPresetDialogSlot !== "character" || state.advancedPresetCharacterSource === "custom") return;
+  if (!hasMoreSystemCharacterPresets()) return;
+  renderAdvancedPresetDialog();
+  await loadMoreHomeCharacters();
+  if (state.advancedPresetDialogSlot === "character" && els.advancedPresetDialog?.open) renderAdvancedPresetDialog();
+  renderAdvancedPresetBuilder();
+}
+
 function selectedAdvancedPreset(slot = "") {
   return state.advancedSelectedPresets?.[slot] || null;
 }
@@ -5844,7 +5882,7 @@ function renderAdvancedPresetDialog() {
     const sourceTabs = slot === "character" ? `
       <div class="advanced-preset-source-tabs" role="tablist" aria-label="${escapeHtml(t("advancedPreset.choose", { slot: advancedPresetLabel(slot) }))}">
         ${[
-          { id: "system", label: t("characters.systemTab"), count: advancedCharacterPresetItems("system").length },
+          { id: "system", label: t("characters.systemTab"), count: systemCharacterPresetTotal() },
           { id: "custom", label: t("characters.customTab"), count: advancedCharacterPresetItems("custom").length },
         ].map((source) => `
           <button class="advanced-preset-source-tab ${state.advancedPresetCharacterSource === source.id ? "is-active" : ""}" type="button" data-advanced-preset-source="${escapeHtml(source.id)}">
@@ -5881,10 +5919,14 @@ function renderAdvancedPresetDialog() {
     return categoryOk && (!query || haystack.includes(query));
   });
   if (!items.length) {
-    els.advancedPresetGrid.innerHTML = `<div class="advanced-preset-empty">${escapeHtml(t("advancedPreset.none"))}</div>`;
+    els.advancedPresetGrid.innerHTML = `<div class="advanced-preset-empty">${escapeHtml(t("advancedPreset.none"))}</div>${renderAdvancedPresetCharacterPager()}`;
+    els.advancedPresetGrid.querySelector("[data-advanced-preset-load-more]")?.addEventListener("click", () => {
+      loadMoreAdvancedPresetCharacters().catch((error) => console.warn("load more preset characters failed", error.message || error));
+    });
+    refreshIcons();
     return;
   }
-  els.advancedPresetGrid.innerHTML = items.map((item) => {
+  els.advancedPresetGrid.innerHTML = `${items.map((item) => {
     const image = presetImageUrl(item);
     const active = selectedAdvancedPreset(slot)?.id === item.id;
     return `
@@ -5893,9 +5935,12 @@ function renderAdvancedPresetDialog() {
         <strong>${escapeHtml(item.label || "")}</strong>
       </button>
     `;
-  }).join("");
+  }).join("")}${renderAdvancedPresetCharacterPager()}`;
   els.advancedPresetGrid.querySelectorAll("[data-advanced-preset-id]").forEach((button) => {
     button.addEventListener("click", () => selectAdvancedPreset(slot, button.dataset.advancedPresetId || ""));
+  });
+  els.advancedPresetGrid.querySelector("[data-advanced-preset-load-more]")?.addEventListener("click", () => {
+    loadMoreAdvancedPresetCharacters().catch((error) => console.warn("load more preset characters failed", error.message || error));
   });
   refreshIcons();
 }
