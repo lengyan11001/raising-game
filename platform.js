@@ -647,7 +647,12 @@ function tenantFeature(name, fallback = true) {
   return Boolean(features[name]);
 }
 
+function isWorkflowTester() {
+  return String(state.user?.username || "").trim().toLowerCase() === "test01";
+}
+
 function isTabAllowed(tab) {
+  if (tab === "workflow") return isWorkflowTester();
   return tab !== "assets" || tenantFeature("assetLibrary", true);
 }
 
@@ -4618,6 +4623,7 @@ function applyStaticTranslations() {
 
 function applyTenantFeatures() {
   const assetEnabled = tenantFeature("assetLibrary", true);
+  const workflowEnabled = isWorkflowTester();
   const accountMenuEnabled = true;
   document.querySelectorAll(".tenant-menu-only").forEach((element) => {
     element.hidden = !accountMenuEnabled;
@@ -4630,6 +4636,9 @@ function applyTenantFeatures() {
   });
   document.querySelectorAll("[data-tab='assets']").forEach((element) => {
     element.hidden = !assetEnabled;
+  });
+  document.querySelectorAll("[data-tab='workflow']").forEach((element) => {
+    element.hidden = !workflowEnabled;
   });
 }
 
@@ -4695,6 +4704,8 @@ function setUser(user, { refreshHistory = false } = {}) {
     ? state.user.username
     : t("nav.login");
   if (els.accountMenuLabel) els.accountMenuLabel.textContent = accountLabel;
+  applyTenantFeatures();
+  if (!isTabAllowed(state.tab)) setTab(DEFAULT_PLATFORM_TAB);
   renderTokenDisplays();
   renderTopupSummary();
   renderPricing();
