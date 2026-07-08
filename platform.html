@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=667-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=667-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-192" />
+    <link rel="stylesheet" href="./platform.css?v=ai-193" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -152,11 +152,22 @@
               <div class="advanced-video-settings-grid">
                 <div class="advanced-video-setting">
                   <span data-i18n="field.resolution">Resolution</span>
-                  <div class="advanced-video-choice-row" id="advancedVideoResolutionChoices"></div>
+                  <div class="advanced-video-choice-row" id="advancedVideoResolutionChoices">
+                    <button class="advanced-video-choice is-active" type="button" data-advanced-video-resolution="480p">480p</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-resolution="720p">720p</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-resolution="1080p">1080p</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-resolution="4k">4K</button>
+                  </div>
                 </div>
                 <div class="advanced-video-setting">
                   <span data-i18n="field.duration">Duration</span>
-                  <div class="advanced-video-choice-row" id="advancedVideoDurationChoices"></div>
+                  <div class="advanced-video-choice-row" id="advancedVideoDurationChoices">
+                    <button class="advanced-video-choice is-active" type="button" data-advanced-video-duration="4">4s</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-duration="5">5s</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-duration="8">8s</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-duration="10">10s</button>
+                    <button class="advanced-video-choice" type="button" data-advanced-video-duration="15">15s</button>
+                  </div>
                 </div>
               </div>
             </details>
@@ -759,6 +770,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-211"></script>
+    <script src="./platform.js?v=ai-212"></script>
   </body>
 </html>
