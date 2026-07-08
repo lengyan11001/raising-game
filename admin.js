@@ -2090,6 +2090,16 @@ function renderGenerationRecordTable(records, payload = {}, load = null) {
       }
     });
   });
+  pane.querySelectorAll("[data-act='attach-character-video']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        const record = records[Number(button.dataset.index || 0)];
+        if (record) promoteRecordToCharacterVideo(await fetchAdminGenerationRecordDetail(record), button, load);
+      } catch (error) {
+        toast(error.message || "加载详情失败。", "error");
+      }
+    });
+  });
   bindAdminPager(pane, payload, ({ page, limit }) => {
     if (typeof load === "function") load({ page, limit }).catch((err) => renderRouteError("records", err));
   });
@@ -2130,6 +2140,7 @@ function generationRecordRowHtml(record, index) {
       <td class="adm-record-actions">
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>详情</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-record" data-index="${index}"><i data-lucide="copy"></i>Prompt</button>
+        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="attach-character-video" data-index="${index}"><i data-lucide="list-video"></i>角色视频</button>` : ""}
         ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="promote-platform" data-index="${index}"><i data-lucide="layout-template"></i>广场</button>` : ""}
         ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="promote-advanced" data-index="${index}"><i data-lucide="wand-sparkles"></i>高级案例</button>` : ""}
       </td>
@@ -2373,6 +2384,106 @@ async function promoteRecordToPlatformGallery(record = {}, button = null) {
       refreshIcons();
     }
   }
+}
+
+async function fetchCharacterVideoAttachOptions(query = "") {
+  const params = new URLSearchParams({ page: "1", limit: "100" });
+  const q = String(query || "").trim();
+  if (q) params.set("q", q);
+  const payload = await api(`/api/admin/home-items?${params.toString()}`);
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
+function renderCharacterVideoAttachOptions(selectEl, items = [], selectedId = "") {
+  if (!selectEl) return;
+  if (!items.length) {
+    selectEl.innerHTML = '<option value="">没有匹配角色</option>';
+    return;
+  }
+  selectEl.innerHTML = items.map((item) => {
+    const id = String(item.id || "");
+    const label = [item.name, item.title, id].filter(Boolean).join(" · ");
+    return `<option value="${escapeHtml(id)}" ${id === selectedId ? "selected" : ""}>${escapeHtml(shortText(label, 120))}</option>`;
+  }).join("");
+}
+
+async function promoteRecordToCharacterVideo(record = {}, button = null, load = null) {
+  const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
+  if (!sourceVideoUrl) {
+    toast("该记录没有可用视频，不能加入角色视频。", "error");
+    return;
+  }
+  const defaultTitle = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "Generated video";
+  let searchTimer = 0;
+  const result = await openDialog({
+    title: "加入角色视频",
+    confirmText: "加入",
+    body: `
+      <div class="adm-form-row">
+        <span>搜索角色</span>
+        <input id="attachCharacterSearch" placeholder="输入角色名或 ID，例如 evening8" autocomplete="off" />
+      </div>
+      <div class="adm-form-row">
+        <span>选择角色</span>
+        <select id="attachCharacterSelect"><option value="">加载中...</option></select>
+      </div>
+      <div class="adm-form-row">
+        <span>视频标题</span>
+        <input id="attachCharacterVideoTitle" value="${escapeHtml(defaultTitle)}" maxlength="80" />
+      </div>
+      <p class="adm-muted">会把这条生成结果加入所选角色的视频列表。重复加入同一个 task 会更新原条目，不会重复插入。</p>
+    `,
+    onOpen: (bodyEl) => {
+      const searchEl = bodyEl.querySelector("#attachCharacterSearch");
+      const selectEl = bodyEl.querySelector("#attachCharacterSelect");
+      const loadOptions = async () => {
+        const previous = selectEl.value;
+        selectEl.innerHTML = '<option value="">加载中...</option>';
+        try {
+          const items = await fetchCharacterVideoAttachOptions(searchEl.value);
+          renderCharacterVideoAttachOptions(selectEl, items, previous);
+        } catch (error) {
+          selectEl.innerHTML = '<option value="">加载失败</option>';
+          toast(error.message || "加载角色失败。", "error");
+        }
+      };
+      searchEl.addEventListener("input", () => {
+        clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(loadOptions, 250);
+      });
+      loadOptions();
+    },
+    onConfirm: async () => {
+      const characterId = els.dialogBody.querySelector("#attachCharacterSelect")?.value || "";
+      const title = els.dialogBody.querySelector("#attachCharacterVideoTitle")?.value.trim() || defaultTitle;
+      if (!characterId) {
+        toast("请选择角色。", "error");
+        return false;
+      }
+      const originalHtml = button?.innerHTML || "";
+      if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i data-lucide="loader-circle"></i>保存中';
+        refreshIcons();
+      }
+      try {
+        const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}/attach-character-video`, {
+          method: "POST",
+          body: { characterId, title },
+        });
+        if (payload.homeVideo && state.config) state.config = { ...state.config, homeVideo: payload.homeVideo };
+        toast("已加入角色视频列表。", "success");
+        if (typeof load === "function") load({ silent: true }).catch((err) => renderRouteError("records", err));
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.innerHTML = originalHtml;
+          refreshIcons();
+        }
+      }
+    },
+  });
+  clearTimeout(searchTimer);
 }
 
 async function fetchAdminGenerationRecordDetail(record = {}) {

@@ -13580,6 +13580,98 @@ async function handleAdminPromoteRecordToPlatform(req, res, taskId) {
   return sendJson(res, 200, { ok: true, template: nextTemplate, config: nextConfig });
 }
 
+function characterVideoEntryFromGenerationRecord(record = {}, body = {}, item = {}) {
+  const videoUrl = generationRecordVideoUrl(record);
+  const posterUrl = String(
+    record.localPosterUrl ||
+    record.posterUrl ||
+    record.coverUrl ||
+    record.thumbnailUrl ||
+    record.cdnCoverUrl ||
+    record.localCoverUrl ||
+    record.imageUrl ||
+    record.localImageUrl ||
+    item.posterUrl ||
+    item.localImageUrl ||
+    "",
+  ).trim();
+  const taskId = String(record.taskId || "").trim();
+  const baseId = storagePathSegment(taskId || record.upstreamTaskId || Date.now(), "video");
+  const title = String(body.title || record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || "Generated video").trim().slice(0, 80);
+  const sceneId = String(body.sceneId || `record-${baseId}`).trim().slice(0, 80);
+  const sceneEntryId = String(body.sceneEntryId || "default").trim() || "default";
+  const nowIso = new Date().toISOString();
+  return {
+    sceneId,
+    sceneName: title,
+    sceneEntryId,
+    sceneEntryName: title,
+    title,
+    posterUrl,
+    coverUrl: posterUrl,
+    thumbnailUrl: posterUrl,
+    prompt: record.prompt || "",
+    finalPrompt: record.finalPrompt || record.prompt || "",
+    provider: record.provider || "",
+    model: record.model || "",
+    ratio: record.ratio || record.params?.ratio || record.params?.aspect_ratio || "",
+    resolution: record.resolution || record.params?.resolution || "",
+    duration: Number(record.duration || record.params?.duration || 0),
+    taskId,
+    upstreamTaskId: record.upstreamTaskId || "",
+    status: record.status || "succeeded",
+    videoUrl,
+    localVideoUrl: record.localVideoUrl || "",
+    remoteVideoUrl: record.remoteVideoUrl || record.videoUrl || "",
+    source: "admin-generation-record",
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+}
+
+async function handleAdminAttachRecordToCharacterVideo(req, res, taskId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const characterId = String(body.characterId || body.itemId || "").trim();
+  if (!characterId) return sendJson(res, 400, { ok: false, message: "Character is required." });
+  const record = await getGenerationRecord(decodeURIComponent(taskId));
+  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  const sourceVideoUrl = generationRecordVideoUrl(record);
+  if (!sourceVideoUrl) return sendJson(res, 400, { ok: false, message: "This record has no video result." });
+
+  const config = await readAppConfig();
+  config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
+  const item = findHomeVideoItem(config.homeVideo, characterId);
+  if (!item) return sendJson(res, 404, { ok: false, message: "Character not found." });
+
+  const entry = characterVideoEntryFromGenerationRecord(record, body, item);
+  const currentVideos = item.unlockVideos && typeof item.unlockVideos === "object" ? item.unlockVideos : {};
+  const existingKey = Object.entries(currentVideos).find(([, value]) => (
+    String(value?.taskId || "") === String(record.taskId || "")
+    || String(value?.videoUrl || value?.localVideoUrl || value?.remoteVideoUrl || "") === sourceVideoUrl
+  ))?.[0];
+  let videoKey = existingKey || makeSceneVideoKey(entry.sceneId, entry.sceneEntryId);
+  if (!existingKey && currentVideos[videoKey]) {
+    videoKey = `${videoKey}-${String(Date.now()).slice(-6)}`;
+  }
+  const nextUnlockVideos = { [videoKey]: entry };
+  Object.entries(currentVideos).forEach(([key, value]) => {
+    if (key !== videoKey) nextUnlockVideos[key] = value;
+  });
+  const nextItem = {
+    ...item,
+    unlockVideos: nextUnlockVideos,
+    videoCount: Object.keys(normalizeHomeSceneVideosForItem(item)).length
+      + Object.keys(item.sceneVideos || {}).length
+      + Object.keys(nextUnlockVideos).length,
+    updatedAt: new Date().toISOString(),
+  };
+  config.homeVideo = replaceHomeVideoItem(config.homeVideo, nextItem);
+  await writeAppConfig(config);
+  return sendJson(res, 200, { ok: true, item: nextItem, videoKey, video: entry, homeVideo: config.homeVideo });
+}
+
 async function makePlatformEstimate(template, overrides = {}, user = null) {
   const prompt =
     typeof overrides.prompt === "string" && overrides.prompt.trim()
@@ -21302,6 +21394,10 @@ async function handleRequest(req, res) {
     const adminPromotePlatformMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)\/promote-platform$/);
     if (adminPromotePlatformMatch && req.method === "POST") {
       return await handleAdminPromoteRecordToPlatform(req, res, decodeURIComponent(adminPromotePlatformMatch[1]));
+    }
+    const adminAttachCharacterVideoMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)\/attach-character-video$/);
+    if (adminAttachCharacterVideoMatch && req.method === "POST") {
+      return await handleAdminAttachRecordToCharacterVideo(req, res, decodeURIComponent(adminAttachCharacterVideoMatch[1]));
     }
 
     if (req.method === "POST" && url.pathname === "/api/my/characters/draft") {
