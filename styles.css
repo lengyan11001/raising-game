@@ -36,6 +36,17 @@ body {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+body.age-gate-locked .game-topbar,
+body.age-gate-locked .game-screen {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body.age-gate-accepted .age-gate,
+body.age-gate-denied .age-gate {
+  display: none;
+}
+
 .app-loading {
   position: fixed;
   inset: 0;
@@ -64,6 +75,91 @@ body {
   font-size: 0.86rem;
   color: var(--muted);
   letter-spacing: 0.04em;
+}
+
+.age-gate,
+.age-forbidden {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: radial-gradient(120% 120% at 50% 20%, rgba(240, 68, 117, 0.18), rgba(8, 6, 10, 0.98) 52%);
+  backdrop-filter: blur(10px);
+}
+
+.age-gate-card,
+.age-forbidden-card {
+  width: min(100%, 420px);
+  padding: 28px 24px 22px;
+  border: 1px solid rgba(255, 244, 247, 0.14);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(30, 18, 28, 0.96), rgba(16, 10, 15, 0.96));
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.age-gate-pill,
+.age-forbidden-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(240, 68, 117, 0.16);
+  color: var(--rose-dark);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.age-gate-card h1,
+.age-forbidden-card strong {
+  display: block;
+  margin: 18px 0 10px;
+  font-size: 1.35rem;
+  line-height: 1.25;
+}
+
+.age-gate-card p,
+.age-forbidden-card p,
+.age-forbidden-card small {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.age-gate-actions {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.age-gate-secondary,
+.age-gate-primary {
+  width: 100%;
+  justify-content: center;
+}
+
+.age-forbidden-card {
+  display: grid;
+  gap: 10px;
+}
+
+.age-forbidden-card strong {
+  margin-top: 12px;
+}
+
+body:not(.age-gate-denied) .age-forbidden {
+  display: none;
+}
+
+body.age-gate-denied .age-gate,
+body.age-gate-denied .app-loading,
+body.age-gate-denied .game-topbar,
+body.age-gate-denied .game-screen {
+  display: none !important;
 }
 
 @keyframes app-spin {

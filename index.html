@@ -4,14 +4,45 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>After Dark Girlfriend Demo</title>
-    <link rel="stylesheet" href="./styles.css?v=home-en17" />
+    <link rel="stylesheet" href="./styles.css?v=home-en19" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
-  <body class="is-loading">
+  <body class="is-loading age-gate-locked">
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem("raisingGameAgeGateAccepted") === "1") {
+            document.body.classList.add("age-gate-accepted");
+            document.body.classList.remove("age-gate-locked");
+          }
+        } catch (error) {}
+      })();
+    </script>
     <div id="appLoading" class="app-loading" aria-live="polite" aria-busy="true">
       <div class="app-loading-spinner" aria-hidden="true"></div>
       <p class="app-loading-tip">Loading…</p>
     </div>
+
+    <section id="ageGate" class="age-gate" role="dialog" aria-modal="true" aria-labelledby="ageGateTitle">
+      <div class="age-gate-card">
+        <span class="age-gate-pill">18+</span>
+        <h1 id="ageGateTitle">仅限 18 岁及以上访问</h1>
+        <p>进入前请确认你已年满 18 岁。未满 18 岁请直接退出。</p>
+        <div class="age-gate-actions">
+          <button id="ageGateDeclineBtn" class="secondary-btn age-gate-secondary" type="button">未满 18 岁，退出</button>
+          <button id="ageGateConfirmBtn" class="primary-btn age-gate-primary" type="button">我已年满 18 岁，进入</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="ageForbidden" class="age-forbidden" hidden aria-live="polite">
+      <div class="age-forbidden-card">
+        <span class="age-forbidden-code">403</span>
+        <strong>Access denied</strong>
+        <p>Only users aged 18 or older can enter.</p>
+        <small>Refresh the page to see the age prompt again.</small>
+      </div>
+    </section>
 
     <header class="game-topbar">
       <div class="game-title">
@@ -499,6 +530,6 @@
     </template>
 
     <script src="./assets/vendor/three.min.js"></script>
-    <script src="./app.js?v=home-en25"></script>
+    <script src="./app.js?v=home-en27"></script>
   </body>
 </html>

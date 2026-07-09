@@ -4,6 +4,7 @@ const PHOTO_COST = 18;
 const DATE_VIDEO_COST = 25;
 const UNLOCK_VIDEO_COST = 18;
 const ASSET_VERSION = "official-2d-1";
+const AGE_GATE_ACCEPTED_KEY = "raisingGameAgeGateAccepted";
 
 const frameSet = (folder) => Array.from(
   { length: 8 },
@@ -245,6 +246,7 @@ const state = {
   homeHeroStarted: false,
   awaitingSoundUnlock: false,
   welcomePromptShown: false,
+  ageGateDecision: null,
   userAssets: [],
   selectedUserAssetId: "",
   selectedScenePartnerId: "",
@@ -313,6 +315,10 @@ const els = {
   payDialog: document.querySelector("#payDialog"),
   welcomeDialog: document.querySelector("#welcomeDialog"),
   welcomeStartBtn: document.querySelector("#welcomeStartBtn"),
+  ageGate: document.querySelector("#ageGate"),
+  ageGateConfirmBtn: document.querySelector("#ageGateConfirmBtn"),
+  ageGateDeclineBtn: document.querySelector("#ageGateDeclineBtn"),
+  ageForbidden: document.querySelector("#ageForbidden"),
   presetGrid: document.querySelector("#presetGrid"),
   presetTemplate: document.querySelector("#presetTemplate"),
   sceneOrbit: document.querySelector("#sceneOrbit"),
@@ -393,6 +399,64 @@ function refreshIcons() {
   if (window.lucide) {
     window.lucide.createIcons();
   }
+}
+
+function showAgeForbidden() {
+  state.ageGateDecision = "denied";
+  document.body.classList.add("age-gate-denied");
+  document.body.classList.remove("age-gate-accepted", "age-gate-locked");
+  if (els.ageGate) els.ageGate.hidden = true;
+  if (els.ageForbidden) els.ageForbidden.hidden = false;
+}
+
+function ensureAgeGate() {
+  if (!els.ageGate || !els.ageGateConfirmBtn || !els.ageGateDeclineBtn) {
+    return Promise.resolve(true);
+  }
+  try {
+    if (localStorage.getItem(AGE_GATE_ACCEPTED_KEY) === "1") {
+      state.ageGateDecision = "accepted";
+      document.body.classList.add("age-gate-accepted");
+      document.body.classList.remove("age-gate-denied", "age-gate-locked");
+      els.ageGate.hidden = true;
+      if (els.ageForbidden) els.ageForbidden.hidden = true;
+      return Promise.resolve(true);
+    }
+  } catch (error) {}
+  if (state.ageGateDecision === "accepted") return Promise.resolve(true);
+  if (state.ageGateDecision === "denied") return Promise.resolve(false);
+
+  els.ageGate.hidden = false;
+  if (els.ageForbidden) els.ageForbidden.hidden = true;
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      els.ageGateConfirmBtn.removeEventListener("click", onConfirm);
+      els.ageGateDeclineBtn.removeEventListener("click", onDecline);
+    };
+
+    const onConfirm = () => {
+      state.ageGateDecision = "accepted";
+      try {
+        localStorage.setItem(AGE_GATE_ACCEPTED_KEY, "1");
+      } catch (error) {}
+      document.body.classList.add("age-gate-accepted");
+      document.body.classList.remove("age-gate-denied", "age-gate-locked");
+      els.ageGate.hidden = true;
+      if (els.ageForbidden) els.ageForbidden.hidden = true;
+      cleanup();
+      resolve(true);
+    };
+
+    const onDecline = () => {
+      cleanup();
+      showAgeForbidden();
+      resolve(false);
+    };
+
+    els.ageGateConfirmBtn.addEventListener("click", onConfirm, { once: true });
+    els.ageGateDeclineBtn.addEventListener("click", onDecline, { once: true });
+  });
 }
 
 function clamp(value) {
@@ -3323,6 +3387,7 @@ function waitForHomeHeroReady(timeoutMs = 1800) {
 
 function revealApp() {
   const body = document.body;
+  if (state.ageGateDecision !== "accepted") return;
   if (!body.classList.contains("is-loading")) return;
   body.classList.remove("is-loading");
   setTimeout(() => {
@@ -3332,6 +3397,8 @@ function revealApp() {
 
 async function init() {
   try {
+    const ageAllowed = await ensureAgeGate();
+    if (!ageAllowed) return;
     state.intimacy = loadIntimacyMap();
     renderSoundToggle();
     bindEvents();
@@ -3355,10 +3422,12 @@ async function init() {
   } catch (err) {
     console.error("[init] failed", err);
   } finally {
-    revealApp();
+    if (state.ageGateDecision === "accepted") revealApp();
   }
 }
 
-setTimeout(() => revealApp(), 8000);
+setTimeout(() => {
+  if (state.ageGateDecision === "accepted") revealApp();
+}, 8000);
 
 init();
