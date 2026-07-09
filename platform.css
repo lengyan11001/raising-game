@@ -4187,7 +4187,7 @@ select option:checked {
     linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px),
     #070709;
   background-size: auto, 32px 32px, 32px 32px, auto;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .workflow-edges {
@@ -4206,6 +4206,17 @@ select option:checked {
   stroke-dasharray: 7 7;
 }
 
+.workflow-edges .workflow-edge-draft {
+  stroke: #ff47ad;
+  stroke-width: 2.5;
+  stroke-dasharray: 10 8;
+  filter: drop-shadow(0 0 9px rgba(255,71,173,.48));
+}
+
+.workflow-edges .workflow-edge-draft[hidden] {
+  display: none;
+}
+
 .workflow-node {
   position: absolute;
   z-index: 2;
@@ -4221,6 +4232,59 @@ select option:checked {
 .workflow-node.is-selected {
   border-color: rgba(255,71,173,.96);
   box-shadow: 0 0 0 1px rgba(139,65,255,.62), 0 22px 54px rgba(86,52,205,.2);
+}
+
+.workflow-node.is-connection-target {
+  border-color: rgba(255,196,54,.95);
+  box-shadow: 0 0 0 1px rgba(255,196,54,.7), 0 22px 54px rgba(255,71,173,.24);
+}
+
+.workflow-node-connect {
+  position: absolute;
+  top: 50%;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,.34);
+  border-radius: 999px;
+  background: #1f2024;
+  box-shadow: 0 0 0 4px rgba(7,7,9,.9), 0 0 18px rgba(255,71,173,.26);
+  cursor: crosshair;
+  transform: translateY(-50%);
+  touch-action: none;
+}
+
+.workflow-node-connect::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: inherit;
+  background: rgba(255,255,255,.8);
+}
+
+.workflow-node-connect:hover,
+.workflow-node-connect:focus-visible,
+.workflow-shell.is-connecting .workflow-node-connect-in {
+  border-color: #ff47ad;
+  background: #32152a;
+  outline: none;
+}
+
+.workflow-node-connect:hover::after,
+.workflow-node-connect:focus-visible::after,
+.workflow-shell.is-connecting .workflow-node-connect-in::after {
+  background: #ff47ad;
+}
+
+.workflow-node-connect-in {
+  left: -8px;
+}
+
+.workflow-node-connect-out {
+  right: -8px;
 }
 
 .workflow-node header {

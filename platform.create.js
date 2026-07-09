@@ -1,0 +1,3463 @@
+function renderAdvanced() {
+  if (!els.advancedGate || !els.advancedWorkspace) return;
+  if (!state.user) {
+    els.advancedWorkspace.hidden = false;
+    els.advancedGate.innerHTML = `
+      <div class="permission-card permission-card-inline">
+        <span class="copy-kicker"><i data-lucide="lock-keyhole"></i>${escapeHtml(t("advanced.approvalRequired"))}</span>
+        <h2>${escapeHtml(t("advanced.inviteOnly"))}</h2>
+        <p>${escapeHtml(t("advanced.loginFirst"))}</p>
+        <button class="generate-btn" id="advancedLoginBtn" type="button">${escapeHtml(t("nav.login"))}</button>
+      </div>
+    `;
+    document.querySelector("#advancedLoginBtn")?.addEventListener("click", openLogin);
+    renderAdvancedCreateControls();
+    renderAdvancedAssets([]);
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
+    refreshIcons();
+    return;
+  }
+  els.advancedGate.innerHTML = "";
+  els.advancedWorkspace.hidden = false;
+  renderAdvancedCreateControls();
+  renderAdvancedAssets();
+  setAdvancedSideTab(state.advancedSideTab || "assets", { silent: true });
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+function setAdvancedSideTab(tab = "assets", { silent = false } = {}) {
+  const next = tab === "result" ? "result" : "assets";
+  state.advancedSideTab = next;
+  if (els.advancedAssetsView) els.advancedAssetsView.hidden = next !== "assets";
+  if (els.advancedResultView) els.advancedResultView.hidden = next !== "result";
+  els.advancedSideTabs?.querySelectorAll("[data-advanced-side-tab]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.advancedSideTab === next);
+  });
+  if (next === "result") {
+    renderAdvancedResultPanel();
+    const current = state.advancedResultRecords.find((record) => record.taskId === state.advancedResultTaskId);
+    if (state.advancedResultTaskId && (!current || !isTerminalGenerationStatus(current.status))) {
+      scheduleAdvancedResultRefresh({ delayMs: silent ? 1200 : 0, force: true });
+    }
+  }
+  refreshIcons();
+}
+
+function advancedAssetTargetItems() {
+  const provider = currentAdvancedProvider();
+  const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
+  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+  const targets = [];
+  if (provider === "wan27-image-edit") {
+    targets.push({ id: "sourceImages", label: t("advanced.assetTargetSourceImages"), type: "image" });
+  } else if (provider === "wan27") {
+    if (wanModeNeedsFirstFrame(wanMode)) targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+    if (wanModeNeedsClip(wanMode)) targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
+    if (wanModeNeedsLastFrame(wanMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
+    if (wanModeNeedsAudio(wanMode)) targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
+  } else {
+    if (advancedCreateModeNeedsReplacePair()) {
+      targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+    } else if (advancedCreateModeUsesAutoPrompt()) {
+      targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
+    } else if (seedanceModeNeedsReferenceImages(seedanceMode)) {
+      targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
+    } else if (seedanceMode !== "text_to_video" && !seedanceModeNeedsReferenceVideo(seedanceMode)) {
+      targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+    }
+    if (seedanceModeNeedsLastFrame(seedanceMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
+    if (seedanceModeNeedsReferenceVideo(seedanceMode)) {
+      targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
+      targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
+    }
+  }
+  if (!targets.length && provider === "seedance" && seedanceMode === "text_to_video") return [];
+  return targets.length ? targets : [{ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" }];
+}
+
+function activeAdvancedAssetTarget() {
+  const targets = advancedAssetTargetItems();
+  return targets.find((target) => target.id === state.advancedAssetTarget) || targets[0] || null;
+}
+
+function preferredAdvancedAssetTargetForAsset(asset = {}) {
+  if (advancedCreateModeNeedsReplacePair()) {
+    if (isImageAsset(asset)) return "primary";
+  }
+  if (advancedCreateModeUsesAutoPrompt()) {
+    if (isVideoAsset(asset)) return "video";
+  }
+  return "";
+}
+
+function advancedSourceImageAssetId() {
+  return state.advancedSourceImageAssetId || state.advancedFirstFrameAssetId || "";
+}
+
+function selectedAdvancedImageAsset() {
+  const id = advancedSourceImageAssetId();
+  if (!id) return null;
+  return (state.advancedAssets || []).find((asset) => asset.id === id)
+    || (state.userAssets || []).find((asset) => asset.id === id)
+    || null;
+}
+
+async function ensureAdvancedImageEditAssets() {
+  const references = selectedAdvancedReferenceImages("wan27-image-edit").slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  if (!references.length) return { assets: [], imageUrls: [] };
+  const resolved = [];
+  const imageUrls = [];
+  const nextRefs = [];
+  for (const reference of references) {
+    let asset = reference.assetId
+      ? ((state.advancedAssets || []).find((item) => item.id === reference.assetId)
+        || (state.userAssets || []).find((item) => item.id === reference.assetId)
+        || null)
+      : null;
+    if (!asset?.id && reference.dataUrl?.startsWith("data:")) {
+      const payload = await requestJson("/api/user-assets", {
+        method: "POST",
+        body: {
+          dataUrl: reference.dataUrl,
+          name: reference.name || reference.fileName || "Image edit source",
+          fileName: reference.fileName || reference.name || "image.png",
+        },
+      });
+      asset = payload.asset || null;
+      if (asset?.id) {
+        state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+        state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+      }
+    }
+    if (asset?.id && isImageAsset(asset)) {
+      resolved.push(asset);
+      nextRefs.push({
+        assetId: asset.id,
+        dataUrl: assetPreviewUrl(asset),
+        fileName: asset.name || reference.fileName || "",
+        name: asset.name || reference.name || "",
+        fromLibrary: true,
+      });
+      continue;
+    }
+    const imageUrl = absoluteHttpUrl(reference.url || reference.imageUrl || reference.dataUrl || reference.previewUrl || "");
+    if (imageUrl) {
+      imageUrls.push(imageUrl);
+      nextRefs.push({
+        assetId: "",
+        dataUrl: imageUrl,
+        url: imageUrl,
+        fileName: reference.fileName || "",
+        name: reference.name || reference.fileName || "",
+        fromLibrary: false,
+      });
+    }
+  }
+  state.advancedReferenceImages = nextRefs.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  state.advancedSourceImageAssetId = state.advancedReferenceImages[0]?.assetId || "";
+  state.advancedFirstFrameAssetId = "";
+  state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+  renderAdvancedAssets();
+  renderAdvancedReferencePreviews();
+  return { assets: resolved, imageUrls: [...new Set(imageUrls)] };
+}
+
+function setAdvancedAssetTarget(target = "primary") {
+  const targets = advancedAssetTargetItems();
+  const next = targets.find((item) => item.id === target)?.id || targets[0]?.id || "";
+  state.advancedAssetTarget = next;
+  renderAdvancedAssetTargets();
+}
+
+function renderAdvancedAssetTargets() {
+  if (!els.advancedAssetTargets) return;
+  const targets = advancedAssetTargetItems();
+  if (!targets.length) {
+    state.advancedAssetTarget = "";
+    els.advancedAssetTargets.innerHTML = "";
+    return;
+  }
+  if (!targets.some((item) => item.id === state.advancedAssetTarget)) state.advancedAssetTarget = targets[0]?.id || "";
+  els.advancedAssetTargets.innerHTML = `
+    <span>${escapeHtml(t("advanced.assetTargets"))}</span>
+    ${targets.map((target) => `
+      <button class="advanced-asset-target ${state.advancedAssetTarget === target.id ? "is-active" : ""}" type="button" data-advanced-asset-target="${escapeHtml(target.id)}">
+        ${escapeHtml(target.label)}
+      </button>
+    `).join("")}
+  `;
+  els.advancedAssetTargets.querySelectorAll("[data-advanced-asset-target]").forEach((button) => {
+    button.addEventListener("click", () => setAdvancedAssetTarget(button.dataset.advancedAssetTarget || "primary"));
+  });
+}
+
+function renderAdvancedAssets(assets) {
+  if (!els.advancedAssetGrid) return;
+  renderAdvancedAssetTargets();
+  const list = Array.isArray(assets)
+    ? assets
+    : (state.advancedAssetsLoaded ? state.advancedAssets : state.userAssets) || [];
+  if (!state.user) {
+    if (els.advancedAssetPager) els.advancedAssetPager.innerHTML = "";
+    els.advancedAssetGrid.innerHTML = `
+      <div class="advanced-asset-empty">
+        <strong>${escapeHtml(t("assets.loginRequired"))}</strong>
+        <button class="generate-btn" type="button" data-login-advanced-assets>${escapeHtml(t("history.login"))}</button>
+      </div>
+    `;
+    els.advancedAssetGrid.querySelector("[data-login-advanced-assets]")?.addEventListener("click", openLogin);
+    refreshIcons();
+    return;
+  }
+  if (!list.length) {
+    const emptyText = state.advancedAssetsLoaded ? t("assets.emptyTitle") : t("assets.loading");
+    els.advancedAssetGrid.innerHTML = `<div class="advanced-asset-empty"><strong>${escapeHtml(emptyText)}</strong></div>`;
+    if (state.advancedAssetTotal > 0) {
+      renderSimplePager(els.advancedAssetPager, {
+        page: state.advancedAssetPage,
+        totalPages: state.advancedAssetTotalPages,
+        total: state.advancedAssetTotal,
+      }, loadAdvancedAssets);
+    } else if (els.advancedAssetPager) {
+      els.advancedAssetPager.innerHTML = "";
+    }
+    refreshIcons();
+    return;
+  }
+  els.advancedAssetGrid.innerHTML = list.map((asset) => {
+    const url = assetPreviewUrl(asset);
+    const video = isVideoAsset(asset);
+    const audio = isAudioAsset(asset);
+    const typeLabel = video ? t("assets.video") : audio ? t("assets.audio") : t("assets.image");
+    return `
+      <article class="advanced-asset-card">
+        <div class="advanced-asset-preview ${audio ? "is-audio" : ""}" ${!audio ? `data-advanced-asset-preview="${escapeHtml(asset.id)}"` : ""}>
+          ${video
+            ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video><span class="advanced-case-video-mark"><i data-lucide="play"></i></span>`
+            : audio
+              ? `<div class="audio-asset-preview"><i data-lucide="audio-lines"></i></div>`
+              : `<img src="${escapeHtml(url)}" alt="${escapeHtml(asset.name || "")}" loading="lazy" />`}
+        </div>
+        <div class="advanced-asset-meta">
+          <strong>${escapeHtml(asset.name || asset.id)}</strong>
+          <span>${escapeHtml(typeLabel)}</span>
+        </div>
+        <div class="advanced-asset-actions">
+          <button class="copy-btn" type="button" data-advanced-asset-add="${escapeHtml(asset.id)}">${escapeHtml(t("advanced.assetAdd"))}</button>
+          ${!video && !audio ? `<button class="ghost-button" type="button" data-advanced-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
+          <button class="ghost-button danger" type="button" data-advanced-asset-delete="${escapeHtml(asset.id)}">${escapeHtml(t("assets.delete"))}</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+  els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-add]").forEach((button) => {
+    button.addEventListener("click", () => addAssetToAdvancedTarget(button.dataset.advancedAssetAdd || ""));
+  });
+  els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-modify]").forEach((button) => {
+    button.addEventListener("click", () => useAssetInAdvanced(list.find((asset) => asset.id === button.dataset.advancedAssetModify), "modify"));
+  });
+  els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-delete]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteUserAsset(button.dataset.advancedAssetDelete || "", { source: "advanced", button });
+    });
+  });
+  els.advancedAssetGrid.querySelectorAll("[data-advanced-asset-preview]").forEach((node) => {
+    node.addEventListener("click", (event) => {
+      if (event.target.closest("button, audio, video")) return;
+      const asset = list.find((item) => item.id === node.dataset.advancedAssetPreview);
+      if (!asset) return;
+      const previewUrl = assetPreviewUrl(asset);
+      if (isVideoAsset(asset)) {
+        playPreview({ title: asset.name || asset.id, previewUrl, ratio: "16:9" });
+      } else if (!isAudioAsset(asset)) {
+        previewImage({ title: asset.name || asset.id, imageUrl: previewUrl });
+      }
+    });
+  });
+  renderSimplePager(els.advancedAssetPager, {
+    page: state.advancedAssetPage,
+    totalPages: state.advancedAssetTotalPages,
+    total: state.advancedAssetTotal,
+  }, loadAdvancedAssets);
+  refreshIcons();
+}
+
+function mergeAdvancedResultRecord(record = {}) {
+  if (!record?.taskId) return;
+  const existing = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  state.advancedResultRecords = [record, ...existing.filter((item) => item.taskId !== record.taskId)].slice(0, 6);
+}
+
+function advancedResultPendingTaskIds() {
+  const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  const recordById = new Map(records.map((record) => [String(record.taskId || ""), record]));
+  const taskIds = [];
+  const pushTaskId = (taskId, record = null) => {
+    const id = String(taskId || "").trim();
+    if (!id || id.startsWith("pending-") || taskIds.includes(id)) return;
+    const current = record || recordById.get(id);
+    if (current && isTerminalGenerationStatus(current.status)) return;
+    taskIds.push(id);
+  };
+  pushTaskId(state.advancedResultTaskId);
+  records.forEach((record) => {
+    if (!isTerminalGenerationStatus(record.status)) pushTaskId(record.taskId, record);
+  });
+  return taskIds.slice(0, 6);
+}
+
+function syncAdvancedResultTaskId() {
+  const pendingTaskIds = advancedResultPendingTaskIds();
+  state.advancedResultTaskId = pendingTaskIds[0] || "";
+  return pendingTaskIds;
+}
+
+function renderAdvancedResultPanel() {
+  if (!els.advancedResultList) return;
+  const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  if (!records.length) {
+    els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>No generation yet</strong><p>Click Generate to track progress here.</p></div>`;
+    refreshIcons();
+    return;
+  }
+  els.advancedResultList.innerHTML = records.map((record, index) => {
+    const isSucceeded = isSucceededGenerationStatus(record.status);
+    const videoUrl = isSucceeded ? generationVideoUrl(record) : "";
+    const imageUrl = isSucceeded ? generationImageResultUrl(record) : "";
+    const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
+    const status = statusLabel(record.status);
+    const taskId = record.taskId || "";
+    const visibleTaskId = String(taskId).startsWith("pending-") ? "" : taskId;
+    const ratio = record.ratio || record.params?.ratio || "16:9";
+    const media = videoUrl
+      ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
+      : imageUrl
+        ? `<button class="advanced-result-media" type="button" data-advanced-result-image="${escapeHtml(String(index))}"><img src="${escapeHtml(imageUrl)}" alt="" loading="lazy" decoding="async" /></button>`
+        : `<div class="advanced-result-media is-placeholder"><i data-lucide="${statusClass(record.status) === "failed" ? "circle-alert" : "loader-circle"}"></i><span>${escapeHtml(status)}</span></div>`;
+    return `
+      <article class="advanced-result-card is-${escapeHtml(statusClass(record.status))}">
+        ${media}
+        <div class="advanced-result-meta">
+          <strong>${escapeHtml(publicModelText(record.templateTitle || record.sceneName || record.model || "Generation"))}</strong>
+          <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
+          ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
+          <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
+            <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
+          </button>
+        </div>
+      </article>
+    `;
+  }).join("");
+  els.advancedResultList.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = state.advancedResultRecords[Number(button.dataset.advancedResultVideo || 0)];
+      const videoUrl = isSucceededGenerationStatus(record?.status) ? generationVideoUrl(record) : "";
+      if (!videoUrl) return;
+      playPreview({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
+    });
+  });
+  els.advancedResultList.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = state.advancedResultRecords[Number(button.dataset.advancedResultImage || 0)];
+      const imageUrl = isSucceededGenerationStatus(record?.status) ? generationImageResultUrl(record) : "";
+      if (!imageUrl) return;
+      previewImage({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), imageUrl });
+    });
+  });
+  els.advancedResultList.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = state.advancedResultRecords[Number(button.dataset.advancedResultRegenerate || 0)];
+      button.disabled = true;
+      button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
+      refreshIcons();
+      restoreRecordToAdvancedCreate(record, button);
+    });
+  });
+  refreshIcons();
+}
+
+function stopAdvancedResultRefresh() {
+  if (state.advancedResultTimer) window.clearTimeout(state.advancedResultTimer);
+  state.advancedResultTimer = 0;
+}
+
+function scheduleAdvancedResultRefresh({ delayMs = 5000, force = false } = {}) {
+  if (state.tab !== "advanced") return;
+  if (!advancedResultPendingTaskIds().length) return;
+  if (state.advancedResultTimer && !force) return;
+  stopAdvancedResultRefresh();
+  state.advancedResultTimer = window.setTimeout(() => {
+    state.advancedResultTimer = 0;
+    refreshAdvancedResultRecord();
+  }, delayMs);
+}
+
+async function refreshAdvancedResultRecord() {
+  const taskIds = advancedResultPendingTaskIds();
+  if (!taskIds.length || state.advancedResultLoading || state.tab !== "advanced") return;
+  state.advancedResultLoading = true;
+  let rendered = false;
+  let firstError = "";
+  try {
+    const results = await Promise.allSettled(
+      taskIds.map((taskId) => requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`)),
+    );
+    results.forEach((result) => {
+      if (result.status !== "fulfilled") {
+        firstError = firstError || (result.reason?.message || String(result.reason));
+        return;
+      }
+      const payload = result.value || {};
+      const record = payload.record || payload.generation || null;
+      if (record?.taskId) {
+        mergeAdvancedResultRecord(record);
+        rendered = true;
+      }
+      if (payload.user) setUser(payload.user);
+    });
+    syncAdvancedResultTaskId();
+    if (rendered) {
+      state.advancedResultLastError = "";
+      renderAdvancedResultPanel();
+    } else if (firstError && state.advancedResultLastError !== firstError && els.advancedResultList) {
+      state.advancedResultLastError = firstError;
+      els.advancedResultList.insertAdjacentHTML("afterbegin", `<div class="job-note history-action-note">${escapeHtml(firstError)}</div>`);
+    }
+  } catch (error) {
+    const message = error.message || String(error);
+    if (message && state.advancedResultLastError !== message && els.advancedResultList) {
+      state.advancedResultLastError = message;
+      els.advancedResultList.insertAdjacentHTML("afterbegin", `<div class="job-note history-action-note">${escapeHtml(message)}</div>`);
+    }
+  } finally {
+    state.advancedResultLoading = false;
+    if (advancedResultPendingTaskIds().length) scheduleAdvancedResultRefresh({ delayMs: 5000, force: true });
+  }
+}
+
+async function loadAdvancedAssets(page = state.advancedAssetPage || 1) {
+  if (!els.advancedAssetGrid) return;
+  if (!state.user) {
+    renderAdvancedAssets([]);
+    return;
+  }
+  if (state.userAssets?.length && !els.advancedAssetSearch?.value && !els.advancedAssetTypeFilter?.value) {
+    state.advancedAssets = state.userAssets;
+    state.advancedAssetsLoaded = true;
+    state.advancedAssetTotal = state.userAssetsTotal || state.userAssets.length;
+    state.advancedAssetTotalPages = state.userAssetsTotalPages || 1;
+    renderAdvancedAssets(state.userAssets);
+  }
+  const params = new URLSearchParams();
+  if (els.advancedAssetSearch?.value) params.set("q", els.advancedAssetSearch.value);
+  if (els.advancedAssetTypeFilter?.value) params.set("type", els.advancedAssetTypeFilter.value);
+  params.set("page", String(page));
+  params.set("limit", String(state.advancedAssetLimit || 8));
+  if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("assets.loading");
+  try {
+    const payload = await requestJson(`/api/user-assets?${params.toString()}`);
+    state.advancedAssets = payload.assets || [];
+    state.userAssets = payload.assets || [];
+    state.userAssetsPage = payload.page || page;
+    state.userAssetsLimit = payload.limit || state.userAssetsLimit || 8;
+    state.userAssetsTotal = payload.total || 0;
+    state.userAssetsTotalPages = payload.totalPages || 1;
+    state.advancedAssetsLoaded = true;
+    state.advancedAssetPage = payload.page || page;
+    state.advancedAssetLimit = payload.limit || state.advancedAssetLimit || 8;
+    state.advancedAssetTotal = payload.total || 0;
+    state.advancedAssetTotalPages = payload.totalPages || 1;
+    if (els.advancedAssetNote) els.advancedAssetNote.textContent = "";
+    renderAdvancedAssets();
+  } catch (error) {
+    state.advancedAssetsLoaded = true;
+    if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("assets.loadFailed", { message: error.message || String(error) });
+    els.advancedAssetGrid.innerHTML = `<div class="advanced-asset-empty"><strong>${escapeHtml(t("assets.loadFailed", { message: error.message || String(error) }))}</strong></div>`;
+  }
+}
+
+async function uploadAdvancedAssets(files = []) {
+  if (!state.user) return openLogin();
+  const selected = Array.from(files || []);
+  if (!selected.length) return;
+  if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("assets.uploading");
+  let uploaded = 0;
+  try {
+    for (const file of selected) {
+      const dataUrl = await readFileAsDataUrl(file);
+      const durationSeconds = file.type.startsWith("video/") || file.type.startsWith("audio/")
+        ? await readVideoDuration(file).catch(() => 0)
+        : 0;
+      await requestJson("/api/user-assets", {
+        method: "POST",
+        body: { dataUrl, name: file.name || "Upload", fileName: file.name || "", durationSeconds },
+      });
+      uploaded += 1;
+    }
+    if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("assets.uploaded", { count: uploaded });
+    await loadAdvancedAssets(1);
+    if (state.tab === "assets") await loadUserAssets(1);
+  } catch (error) {
+    if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("assets.uploadFailed", { message: error.message || String(error) });
+  } finally {
+    if (els.advancedAssetUploadInput) els.advancedAssetUploadInput.value = "";
+    updateFilePickerLabel(els.advancedAssetUploadInput);
+  }
+}
+
+async function uploadAdvancedVideoReference(file) {
+  if (!state.user) {
+    openLogin();
+    return null;
+  }
+  if (!file) return null;
+  if (!String(file.type || "").startsWith("video/")) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceVideoRequired");
+    return null;
+  }
+  if (file.size > ADVANCED_WAN_CLIP_MAX_BYTES) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLarge");
+    return null;
+  }
+  if (els.advancedNote) els.advancedNote.textContent = t("assets.uploading");
+  const durationSeconds = await readVideoDuration(file).catch(() => 0);
+  const payload = await requestJson("/api/user-assets", {
+    method: "POST",
+    body: {
+      dataUrl: await readFileAsDataUrl(file),
+      name: file.name || "Video reference",
+      fileName: file.name || "",
+      durationSeconds,
+    },
+  });
+  const asset = payload.asset || null;
+  if (!asset?.id || !isVideoAsset(asset)) throw new Error(t("assets.uploadFailed", { message: "Invalid video asset" }));
+  state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+  state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+  state.advancedSeedanceVideoAssetId = asset.id;
+  state.advancedSeedanceVideoPreviewUrl = assetPreviewUrl(asset);
+  if (!advancedCreateModeNeedsReplacePair()) {
+    state.advancedReferenceImages = [];
+    state.advancedUploadDataUrl = "";
+    state.advancedFirstFrameAssetId = "";
+    state.advancedSourceImageAssetId = "";
+  }
+  if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
+  if (els.advancedNote) els.advancedNote.textContent = "";
+  renderAdvancedAssets();
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  return asset;
+}
+
+function setAdvancedExtendFrameReference(dataUrl = "", fileName = "video-last-frame.jpg") {
+  if (!dataUrl) return;
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "first_frame";
+  state.activeAdvancedCaseId = "";
+  state.advancedFirstFrameAssetId = "";
+  state.advancedSourceImageAssetId = "";
+  state.advancedReferenceImages = [{
+    dataUrl,
+    fileName,
+    name: fileName,
+  }];
+  state.advancedUploadDataUrl = dataUrl;
+  state.advancedSeedanceVideoAssetId = "";
+  state.advancedSeedanceVideoPreviewUrl = "";
+  state.advancedAudioAssetId = "";
+  if (els.advancedImage) els.advancedImage.value = "";
+  if (els.advancedNote) els.advancedNote.textContent = "";
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+async function captureAdvancedExtendFrameFromSource(source, fileName = "video-last-frame.jpg") {
+  if (els.advancedNote) els.advancedNote.textContent = t("advanced.extractingLastFrame", {}, "Preparing video frame...");
+  const frameDataUrl = await captureLastFrameDataUrl(source);
+  setAdvancedExtendFrameReference(frameDataUrl, fileName);
+}
+
+function assetTargetTypeLabel(type = "image") {
+  if (type === "video") return t("assets.video");
+  if (type === "audio") return t("assets.audio");
+  return t("assets.image");
+}
+
+function assetMatchesTarget(asset = {}, target = activeAdvancedAssetTarget()) {
+  if (target.type === "video") return isVideoAsset(asset);
+  if (target.type === "audio") return isAudioAsset(asset);
+  return isImageAsset(asset);
+}
+
+async function addAssetToAdvancedTarget(assetId = "") {
+  if (!state.user) return openLogin();
+  const asset = (state.advancedAssets || []).find((item) => item.id === assetId)
+    || (state.userAssets || []).find((item) => item.id === assetId);
+  if (!asset) return;
+  const preferredTarget = preferredAdvancedAssetTargetForAsset(asset);
+  if (preferredTarget) state.advancedAssetTarget = preferredTarget;
+  const target = activeAdvancedAssetTarget();
+  if (!target) {
+    if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("advanced.assetSelectTarget");
+    return;
+  }
+  if (!assetMatchesTarget(asset, target)) {
+    if (els.advancedAssetNote) {
+      els.advancedAssetNote.textContent = t("advanced.assetWrongType", {
+        target: target.label,
+        type: assetTargetTypeLabel(target.type),
+      });
+    }
+    return;
+  }
+  const provider = currentAdvancedProvider();
+  const url = assetPreviewUrl(asset);
+  state.activeAdvancedCaseId = "";
+  if (target.id === "primary" || target.id === "sourceImage" || target.id === "sourceImages" || target.id === "referenceImages") {
+    if (!isImageAsset(asset)) return;
+    if (target.id === "sourceImage" || target.id === "sourceImages") state.advancedSourceImageAssetId = asset.id;
+    else state.advancedFirstFrameAssetId = asset.id;
+    state.advancedUploadDataUrl = url;
+    if (provider === "seedance") {
+      if (advancedCreateModeNeedsReplacePair()) {
+        if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+      } else if (advancedCreateModeUsesAutoPrompt()) {
+        if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "first_frame";
+      }
+      const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+      if (!advancedCreateModeUsesAutoPrompt() && (target.id === "referenceImages" || seedanceMode === "text_to_video") && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
+      const ref = { assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true };
+      if (advancedCreateModeNeedsReplacePair()) {
+        state.advancedReferenceImages = [ref];
+      } else if (target.id === "referenceImages") {
+        state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+      } else if (seedanceModeNeedsFirstFrame(seedanceMode)) {
+        state.advancedReferenceImages = [ref];
+      } else {
+        state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+      }
+      if (!advancedCreateModeNeedsReplacePair()) {
+        state.advancedSeedanceVideoAssetId = "";
+        state.advancedSeedanceVideoPreviewUrl = "";
+      }
+      if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
+      state.advancedAudioAssetId = "";
+    } else if (provider === "wan27-image-edit") {
+      const ref = { assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true };
+      state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+      state.advancedSourceImageAssetId = state.advancedReferenceImages[0]?.assetId || "";
+      state.advancedFirstFrameAssetId = "";
+      state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || url;
+    } else {
+      state.advancedReferenceImages = [{ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true }];
+    }
+    if (els.advancedImage) els.advancedImage.value = "";
+  } else if (target.id === "lastFrame") {
+    if (!isImageAsset(asset)) return;
+    if (provider === "seedance") {
+      state.advancedSeedanceLastFrameAssetId = asset.id;
+      state.advancedSeedanceLastFrameDataUrl = url;
+      if (els.advancedSeedanceLastFrame) els.advancedSeedanceLastFrame.value = "";
+    } else {
+      state.advancedWanLastFrameAssetId = asset.id;
+      state.advancedWanLastFrameDataUrl = url;
+      if (els.advancedWanLastFrame) els.advancedWanLastFrame.value = "";
+      if (els.advancedWanLastFramePreview) {
+        els.advancedWanLastFramePreview.src = url;
+        els.advancedWanLastFramePreview.classList.add("is-visible");
+        els.advancedWanLastFrame?.closest(".wan-frame-upload")?.classList.add("has-image");
+      }
+    }
+  } else if (target.id === "video") {
+    if (!isVideoAsset(asset)) return;
+    if (provider === "seedance") {
+      if (state.advancedCreateMode === "video-extend") {
+        try {
+          await captureAdvancedExtendFrameFromSource(url, `${asset.id || "video"}-last-frame.jpg`);
+          if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("advanced.assetAdded", { target: target.label });
+        } catch (error) {
+          if (els.advancedAssetNote) els.advancedAssetNote.textContent = error.message || String(error);
+        }
+        return;
+      }
+      if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+      state.advancedSeedanceVideoAssetId = asset.id;
+      state.advancedSeedanceVideoPreviewUrl = url;
+      if (!advancedCreateModeNeedsReplacePair()) {
+        state.advancedReferenceImages = [];
+        state.advancedUploadDataUrl = "";
+        state.advancedFirstFrameAssetId = "";
+        state.advancedSourceImageAssetId = "";
+      } else {
+        state.advancedAssetTarget = "primary";
+      }
+    } else {
+      if (els.advancedWanMediaMode && !wanModeNeedsClip(els.advancedWanMediaMode.value)) els.advancedWanMediaMode.value = "first_clip";
+      state.advancedWanClipAssetId = asset.id;
+      state.advancedWanClipDataUrl = "";
+      state.advancedWanClipFileName = asset.name || "";
+      if (els.advancedWanClipFile) els.advancedWanClipFile.value = "";
+      if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = "";
+      if (els.advancedWanClipPreview) {
+        els.advancedWanClipPreview.src = url;
+        els.advancedWanClipPreview.classList.add("is-visible");
+        els.advancedWanClipFile?.closest(".wan-frame-upload")?.classList.add("has-image");
+      }
+    }
+  } else if (target.id === "audio") {
+    if (!isAudioAsset(asset)) return;
+    state.advancedAudioAssetId = asset.id;
+    if (provider === "seedance") {
+      if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+    } else if (els.advancedWanAudioUrl) {
+      els.advancedWanAudioUrl.value = "";
+    }
+  }
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("advanced.assetAdded", { target: target.label });
+}
+
+function updateAdvancedModelControls() {
+  applyAdvancedCreateMode();
+  const provider = currentAdvancedProvider();
+  const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
+  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+  const bounds = advancedDurationBounds(provider);
+  const isImageEdit = provider === "wan27-image-edit";
+  const simpleAction = state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt();
+  if (els.advancedDuration) {
+    els.advancedDuration.min = String(bounds.min);
+    els.advancedDuration.max = String(bounds.max);
+    els.advancedDuration.value = isImageEdit ? "1" : String(Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration.value || bounds.fallback))));
+  }
+  if (els.advancedResolution) {
+    const imageEditOptions = imageCreateResolutionOptions();
+    const videoOptions = provider === "seedance" ? ["480p", "720p", "1080p", "4k"] : ["720p", "1080p"];
+    const options = isImageEdit ? imageEditOptions : videoOptions;
+    const current = normalizeAdvancedResolution(els.advancedResolution.value, provider);
+    els.advancedResolution.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
+    if (!options.includes(current)) els.advancedResolution.value = options[0];
+  }
+  if (els.advancedSeedanceTier) {
+    const active = provider === "seedance";
+    els.advancedSeedanceTier.closest(".field")?.toggleAttribute("hidden", !active);
+    if (!active) els.advancedSeedanceTier.value = "standard";
+    if (active && ["1080p", "4k"].includes(currentAdvancedResolution()) && currentSeedanceTier() === "fast") {
+      els.advancedSeedanceTier.value = "standard";
+    }
+  }
+  if (els.advancedRatio) {
+    const imageRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
+    const videoRatios = ["9:16", "16:9", "1:1"];
+    const options = isImageEdit ? imageRatios : videoRatios;
+    const current = normalizeVideoRatio(els.advancedRatio.value || "9:16");
+    els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
+    if (!options.includes(current)) els.advancedRatio.value = isImageEdit ? "9:16" : "9:16";
+  }
+  document.querySelectorAll(".advanced-wan-option").forEach((item) => {
+    item.hidden = simpleAction || provider !== "wan27";
+  });
+  document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
+    item.hidden = simpleAction || provider !== "seedance";
+  });
+  document.querySelectorAll(".advanced-fields").forEach((item) => {
+    item.hidden = simpleAction;
+  });
+  document.querySelectorAll(".advanced-prompt-field").forEach((item) => {
+    item.hidden = simpleAction;
+  });
+  document.querySelectorAll(".advanced-duration-field").forEach((item) => {
+    item.hidden = isImageEdit;
+  });
+  syncAdvancedVideoSettingsControls();
+  document.querySelectorAll(".wan-first-frame").forEach((item) => {
+    item.hidden = provider !== "wan27" || !wanModeNeedsFirstFrame(wanMode);
+  });
+  document.querySelectorAll(".wan-last-frame").forEach((item) => {
+    item.hidden = provider !== "wan27" || !wanModeNeedsLastFrame(wanMode);
+  });
+  document.querySelectorAll(".wan-audio").forEach((item) => {
+    item.hidden = provider !== "wan27" || !wanModeNeedsAudio(wanMode);
+  });
+  document.querySelectorAll(".wan-clip").forEach((item) => {
+    item.hidden = provider !== "wan27" || !wanModeNeedsClip(wanMode);
+  });
+  document.querySelectorAll(".seedance-last-frame").forEach((item) => {
+    item.hidden = provider !== "seedance" || !seedanceModeNeedsLastFrame(seedanceMode);
+  });
+  document.querySelectorAll(".seedance-video-field").forEach((item) => {
+    item.hidden = provider !== "seedance" || !seedanceModeNeedsReferenceVideo(seedanceMode);
+  });
+  renderAdvancedAssetTargets();
+  if (els.advancedUploadBox) {
+    const uploadIsVideo = advancedCreateUploadIsVideo();
+    const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
+    const presetCharacterFlow = state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference();
+    if (els.advancedImage) {
+      els.advancedImage.accept = advancedCreateUploadAcceptValue();
+      els.advancedImage.multiple = !uploadIsVideo && !advancedCreateModeNeedsReplacePair();
+    }
+    els.advancedUploadBox.hidden = presetCharacterFlow || (!simpleAction && !advancedCreateModeNeedsVideoUpload() && (
+      (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
+      (provider === "seedance" && seedanceMode === "text_to_video")
+    ));
+    els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
+    els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
+    els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
+    els.advancedUploadBox.classList.toggle("is-video-upload", uploadIsVideo);
+    const label = els.advancedUploadBox.querySelector("span");
+    if (label) {
+      const imageEditLabel = t("advanced.assetTargetSourceImages");
+      const videoEditLabel = t("advanced.assetTargetVideo");
+      const seedanceLabel = seedanceModeNeedsFirstFrame(seedanceMode) ? t("advanced.firstFrame") : t("advanced.uploadReference");
+      label.innerHTML = `<i data-lucide="${uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel)}`;
+    }
+  }
+  renderAdvancedReferencePreviews();
+  updateAdvancedReferenceSummary();
+  if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
+  if (els.advancedNote && (state.advancedUploadDataUrl || state.advancedSeedanceVideoAssetId)) els.advancedNote.textContent = "";
+  updateAdvancedButtonCost();
+}
+
+function renderAdvancedCases() {
+  if (!els.advancedCaseGrid) return;
+  activeHoverPreviewStop?.();
+  activeHoverPreviewStop = null;
+  const cases = state.advancedCases.filter((item) => item.enabled !== false);
+  state.activeAdvancedCaseTab = normalizeAdvancedCaseTab(state.activeAdvancedCaseTab);
+  const activeTab = state.activeAdvancedCaseTab;
+  const visibleCases = cases
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === activeTab);
+  const pageSize = ADVANCED_CASE_PAGE_SIZE[activeTab] || 9;
+  const totalPages = Math.max(1, Math.ceil(visibleCases.length / pageSize));
+  const currentPage = Math.min(totalPages, Math.max(1, Number(state.advancedCasePages?.[activeTab] || 1)));
+  state.advancedCasePages = { ...state.advancedCasePages, [activeTab]: currentPage };
+  const pageCases = visibleCases.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const tabs = `
+    <div class="advanced-case-tabs" role="tablist" aria-label="${escapeHtml(t("advanced.cases"))}">
+      ${ADVANCED_CASE_TABS.map((tab) => {
+        const count = cases.filter((item) => normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === tab.id).length;
+        return `<button class="advanced-case-tab ${tab.id === activeTab ? "is-active" : ""}" data-case-tab="${escapeHtml(tab.id)}" type="button" role="tab" aria-selected="${tab.id === activeTab ? "true" : "false"}">${escapeHtml(advancedCaseTabLabel(tab.id))}<span>${count}</span></button>`;
+      }).join("")}
+    </div>
+  `;
+  const caseMarkup = pageCases.length
+    ? pageCases.map((entry) => (activeTab === "hot" ? renderAdvancedCaseCard(entry) : renderAdvancedCaseRow(entry))).join("")
+    : `<div class="job-note advanced-case-empty">${escapeHtml(t("advanced.noCases"))}</div>`;
+  els.advancedCaseGrid.classList.toggle("is-case-list", activeTab !== "hot");
+  els.advancedCaseGrid.innerHTML = `${tabs}${caseMarkup}${renderAdvancedCasePager(activeTab, currentPage, totalPages)}`;
+  els.advancedCaseGrid.querySelectorAll("[data-case-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeAdvancedCaseTab = normalizeAdvancedCaseTab(button.dataset.caseTab);
+      state.advancedCasePages = { ...state.advancedCasePages, [state.activeAdvancedCaseTab]: state.advancedCasePages?.[state.activeAdvancedCaseTab] || 1 };
+      renderAdvancedCases();
+    });
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-case-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.advancedCasePages = {
+        ...state.advancedCasePages,
+        [activeTab]: Math.min(totalPages, Math.max(1, Number(button.dataset.casePage || 1))),
+      };
+      renderAdvancedCases();
+    });
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-case-index]").forEach((card) => {
+    if (!card.classList.contains("advanced-case-row")) {
+      card.addEventListener("click", () => fillAdvancedCase(cases[Number(card.dataset.caseIndex || 0)]));
+    }
+    const isCaseRow = card.classList.contains("advanced-case-row");
+    bindHoverPreviewCard({
+      card,
+      video: isCaseRow ? null : card.querySelector(".advanced-case-hover-video"),
+      cover: isCaseRow ? null : card.querySelector(".advanced-case-cover"),
+    });
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-advanced-fill-prompt-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      fillAdvancedCasePrompt(advancedCaseById(button.dataset.advancedFillPromptId));
+    });
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-advanced-row-preview-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openAdvancedRowPreview(button.dataset.advancedRowPreviewId, button.dataset.advancedRowPreviewKind || "output");
+    });
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-advanced-preview-index]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openAdvancedPreview(button.dataset.advancedPreviewIndex);
+    });
+  });
+  refreshIcons();
+}
+
+function fillAdvancedCase(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  const provider = advancedCaseProvider(item);
+  state.advancedCreateKind = "custom";
+  state.advancedCreateMode = ADVANCED_CUSTOM_MODE.id;
+  renderAdvancedCreateControls();
+  state.activeAdvancedCaseId = item.id || "";
+  if (els.advancedProvider) els.advancedProvider.value = provider;
+  if (els.advancedPrompt) els.advancedPrompt.value = item.prompt || params.prompt || "";
+  if (els.advancedRatio) els.advancedRatio.value = params.ratio || params.aspect_ratio || item.ratio || "9:16";
+  if (els.advancedResolution) els.advancedResolution.value = params.resolution || item.resolution || "720p";
+  if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
+  if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
+  if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || "";
+  state.advancedSourceImageAssetId = "";
+  state.advancedFirstFrameAssetId = "";
+  state.advancedSeedanceLastFrameAssetId = "";
+  state.advancedWanLastFrameAssetId = "";
+  state.advancedWanClipAssetId = "";
+  state.advancedAudioAssetId = "";
+  if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = normalizeWanMediaMode(params.mediaMode || item.mediaMode || "first_frame");
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = normalizeSeedanceMediaMode(params.seedanceMode || params.mediaMode || item.mediaMode || (provider === "seedance" ? "reference_images" : "text_to_video"));
+  if (els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = params.drivingAudioUrl || params.driving_audio_url || "";
+  if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = params.firstClipUrl || params.first_clip_url || "";
+  if (els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = [
+    ...splitUrlList(params.referenceVideoUrls || params.referenceVideos || ""),
+    ...arrayFrom(params.reference_videos).map((item) => (typeof item === "string" ? item : item?.url || item?.videoUrl || item?.video_url || item?.assetUri || "")).filter(Boolean),
+  ].join(", ");
+  if (els.advancedSeedanceAudioUrls) els.advancedSeedanceAudioUrls.value = [
+    ...splitUrlList(params.referenceAudioUrls || params.referenceAudios || ""),
+    ...arrayFrom(params.reference_audios).map((item) => (typeof item === "string" ? item : item?.url || item?.audioUrl || item?.audio_url || item?.assetUri || "")).filter(Boolean),
+  ].join(", ");
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  if (els.advancedNote) {
+    els.advancedNote.textContent = t("advanced.loadedCase", {
+      title: item.title || t("advanced.defaultCase"),
+      cost: advancedCostLabel(advancedCaseDuration(item), provider, params.resolution, params.ratio || params.aspect_ratio),
+    });
+  }
+}
+
+function clearAdvancedCreationInputs() {
+  state.activeAdvancedCaseId = "";
+  state.advancedUploadDataUrl = "";
+  state.advancedSourceImageAssetId = "";
+  state.advancedFirstFrameAssetId = "";
+  state.advancedReferenceImages = [];
+  state.advancedSeedanceLastFrameDataUrl = "";
+  state.advancedSeedanceLastFrameAssetId = "";
+  state.advancedSeedanceVideoAssetId = "";
+  state.advancedSeedanceVideoPreviewUrl = "";
+  state.advancedWanLastFrameDataUrl = "";
+  state.advancedWanLastFrameAssetId = "";
+  state.advancedWanClipDataUrl = "";
+  state.advancedWanClipFileName = "";
+  state.advancedWanClipAssetId = "";
+  state.advancedAudioAssetId = "";
+  state.advancedAssetTarget = "primary";
+
+  [
+    els.advancedPrompt,
+    els.advancedSeedanceVideoUrls,
+    els.advancedSeedanceAudioUrls,
+    els.advancedWanSeed,
+    els.advancedWanAudioUrl,
+    els.advancedWanClipUrl,
+  ].forEach((input) => {
+    if (input) input.value = "";
+  });
+  [
+    els.advancedImage,
+    els.advancedSeedanceLastFrame,
+    els.advancedWanLastFrame,
+    els.advancedWanClipFile,
+  ].forEach((input) => {
+    if (input) input.value = "";
+  });
+  [
+    [els.advancedWanFirstFramePreview, els.advancedImage],
+    [els.advancedSeedanceLastFramePreview, els.advancedSeedanceLastFrame],
+    [els.advancedWanLastFramePreview, els.advancedWanLastFrame],
+    [els.advancedWanClipPreview, els.advancedWanClipFile],
+  ].forEach(([preview, input]) => {
+    preview?.removeAttribute("src");
+    preview?.classList.remove("is-visible");
+    input?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  });
+  if (els.advancedUploadPreview) els.advancedUploadPreview.innerHTML = "";
+  els.advancedUploadBox?.classList.remove("has-image");
+  updateAdvancedModelControls();
+}
+
+async function requestAdvancedAccess() {
+  if (!state.user) return openLogin();
+  try {
+    const payload = await requestJson("/api/advanced/request-access", { method: "POST" });
+    if (payload.user) setUser(payload.user);
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.requestSubmitted");
+  } catch (error) {
+    if (els.advancedNote) els.advancedNote.textContent = error.message;
+  }
+}
+
+async function submitAdvancedGenerate() {
+  if (!state.user) return openLogin();
+  const promptInput = els.advancedPrompt?.value.trim() || "";
+  const usingPresetFlow = state.advancedCreateKind !== "custom";
+  const autoPrompt = advancedCreateModeUsesAutoPrompt();
+  if (usingPresetFlow && !autoPrompt && !selectedAdvancedPreset("action")) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.actionRequired");
+    return;
+  }
+  if (usingPresetFlow && nonCustomAdvancedNeedsCharacterImage() && !hasAdvancedCharacterImage()) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.characterRequired");
+    return;
+  }
+  const basePrompt = autoPrompt ? advancedCreateModeDefaultPrompt() : promptInput;
+  const prompt = advancedEffectivePrompt(basePrompt);
+  if (!prompt) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.promptRequired");
+    return;
+  }
+  const currentCase = state.advancedCases.find((item) => item.id === state.activeAdvancedCaseId);
+  if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
+  els.advancedSubmitBtn.disabled = true;
+  const provider = currentAdvancedProvider();
+  const seedanceTier = currentSeedanceTier();
+  const advancedPresetSelection = usingPresetFlow ? advancedPresetSelectionPayload() : undefined;
+  if (provider === "wan27-image-edit") {
+    const pendingTaskId = `pending-image-${Date.now().toString(36)}`;
+    mergeAdvancedResultRecord({
+      taskId: pendingTaskId,
+      status: "submitting",
+      model: advancedProviderLabel(provider),
+      provider,
+      source: "asset-image-modify",
+      kind: "asset-image",
+      prompt,
+      presets: advancedPresetSelection,
+      params: {
+        createKind: state.advancedCreateKind,
+        createMode: state.advancedCreateMode,
+        presets: advancedPresetSelection,
+      },
+      ratio: currentAdvancedRatio(),
+      resolution: currentAdvancedResolution(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    state.advancedResultTaskId = pendingTaskId;
+    setAdvancedSideTab("result");
+    renderAdvancedResultPanel();
+    if (els.advancedNote) els.advancedNote.textContent = "";
+    try {
+      const { assets, imageUrls } = await ensureAdvancedImageEditAssets();
+      renderAdvancedResultPanel();
+      const payload = await requestJson("/api/wan27/image-edit", {
+        method: "POST",
+        body: {
+          prompt,
+          imageAssetIds: assets.map((asset) => asset.id),
+          imageUrls,
+          ratio: currentAdvancedRatio(),
+          resolution: currentAdvancedResolution(),
+          params: {
+            createKind: state.advancedCreateKind,
+            createMode: state.advancedCreateMode,
+            presets: advancedPresetSelection,
+          },
+          async: true,
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== pendingTaskId);
+      if (payload.record) {
+        state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
+        mergeAdvancedResultRecord(payload.record);
+      }
+      state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
+      clearAdvancedCreationInputs();
+      if (els.advancedNote) els.advancedNote.textContent = "";
+      setAdvancedSideTab("result");
+      renderAdvancedResultPanel();
+      if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
+      await loadHistory({ silent: true }).catch(() => {});
+    } catch (error) {
+      state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
+        record.taskId === pendingTaskId
+          ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
+          : record
+      ));
+      if (state.advancedResultTaskId === pendingTaskId) state.advancedResultTaskId = "";
+      renderAdvancedResultPanel();
+      if (els.advancedNote) els.advancedNote.textContent = "";
+    } finally {
+      els.advancedSubmitBtn.disabled = false;
+      updateAdvancedButtonCost();
+    }
+    return;
+  }
+  const bounds = advancedDurationBounds(provider);
+  const duration = Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration?.value || bounds.fallback)));
+  const resolution = currentAdvancedResolution();
+  const preprocessReference = false;
+  const mediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
+  const rawSeedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+  const presetReferenceImages = usingPresetFlow && provider === "seedance" ? advancedPresetReferenceImages() : [];
+  const presetReferenceMode = provider === "seedance"
+    && usingPresetFlow
+    && advancedCreateModeUsesCharacterPresetReference()
+    && presetReferenceImages.length > 0;
+  const seedanceMode = presetReferenceMode ? "reference_images" : rawSeedanceMode;
+  if (presetReferenceMode && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
+  const referenceImages = presetReferenceMode
+    ? dedupeAdvancedReferenceImages([
+        ...presetReferenceImages,
+        ...(Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []),
+      ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT)
+    : selectedAdvancedReferenceImages();
+  const caseVideoUrl = provider === "seedance" && advancedCreateModeNeedsReplacePair()
+    ? absoluteHttpUrl(advancedCaseInputVideo(currentCase || {}))
+    : "";
+  const seedanceVideoUrls = splitUrlList(els.advancedSeedanceVideoUrls?.value || "");
+  const effectiveSeedanceVideoUrls = seedanceVideoUrls.length ? seedanceVideoUrls : (caseVideoUrl ? [caseVideoUrl] : []);
+  const seedanceAudioUrls = splitUrlList(els.advancedSeedanceAudioUrls?.value || "");
+  const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0;
+  if (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !referenceImages.length) {
+    els.advancedSubmitBtn.disabled = false;
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
+    return;
+  }
+  if (provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameDataUrl && !state.advancedSeedanceLastFrameAssetId) {
+    els.advancedSubmitBtn.disabled = false;
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceLastRequired");
+    return;
+  }
+  if (provider === "seedance" && seedanceModeNeedsReferenceImages(seedanceMode) && !referenceImages.length) {
+    els.advancedSubmitBtn.disabled = false;
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
+    return;
+  }
+  if (provider === "seedance" && advancedCreateModeNeedsReplacePair() && !referenceImages.length) {
+    els.advancedSubmitBtn.disabled = false;
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
+    return;
+  }
+  if (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode) && !state.advancedSeedanceVideoAssetId && !effectiveSeedanceVideoUrls.length) {
+    els.advancedSubmitBtn.disabled = false;
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceVideoRequired");
+    return;
+  }
+  if (provider === "seedance" && seedanceTier === "fast" && ["1080p", "4k"].includes(resolution)) {
+    els.advancedSubmitBtn.disabled = false;
+    if (els.advancedNote) els.advancedNote.textContent = `${advancedProviderLabel(provider)} Fast does not support ${resolution === "4k" ? "4K" : "1080p"}.`;
+    return;
+  }
+  if (provider === "wan27") {
+    if (wanModeNeedsFirstFrame(mediaMode) && !state.advancedUploadDataUrl && !state.advancedFirstFrameAssetId) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "First frame image is required.";
+      return;
+    }
+    if (wanModeNeedsLastFrame(mediaMode) && !state.advancedWanLastFrameDataUrl && !state.advancedWanLastFrameAssetId) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Last frame image is required.";
+      return;
+    }
+    if (wanModeNeedsAudio(mediaMode) && !String(els.advancedWanAudioUrl?.value || "").trim() && !state.advancedAudioAssetId) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Driving audio URL is required.";
+      return;
+    }
+    if (wanModeNeedsClip(mediaMode) && !state.advancedWanClipDataUrl && !String(els.advancedWanClipUrl?.value || "").trim() && !state.advancedWanClipAssetId) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipRequired");
+      return;
+    }
+  }
+  if (provider === "seedance" && autoPrompt) {
+    const confirmed = await confirmAdvancedSimpleActionCost(advancedSimpleActionCostLabel(provider, duration, resolution, currentAdvancedRatio()));
+    if (!confirmed) {
+      els.advancedSubmitBtn.disabled = false;
+      updateAdvancedButtonCost();
+      return;
+    }
+  }
+  const pendingTaskId = `pending-video-${Date.now().toString(36)}`;
+  mergeAdvancedResultRecord({
+    taskId: pendingTaskId,
+    status: "submitting",
+    model: advancedProviderLabel(provider),
+    provider,
+    source: provider === "seedance" ? "advanced-seedance" : "advanced-wan27",
+    kind: "advanced-video",
+    prompt,
+    presets: advancedPresetSelection,
+    params: {
+      createKind: state.advancedCreateKind,
+      createMode: state.advancedCreateMode,
+      presets: advancedPresetSelection,
+    },
+    ratio: els.advancedRatio?.value || "9:16",
+    resolution,
+    duration,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  state.advancedResultTaskId = pendingTaskId;
+  setAdvancedSideTab("result");
+  renderAdvancedResultPanel();
+  if (els.advancedNote) els.advancedNote.textContent = "";
+  try {
+    const firstFrameDataUrl = dataUrlValue(state.advancedUploadDataUrl);
+    const firstFrameUrl = absoluteHttpUrl(state.advancedUploadDataUrl);
+    const seedanceLastFrameDataUrl = dataUrlValue(state.advancedSeedanceLastFrameDataUrl);
+    const seedanceLastFrameUrl = absoluteHttpUrl(state.advancedSeedanceLastFrameDataUrl);
+    const wanLastFrameDataUrl = dataUrlValue(state.advancedWanLastFrameDataUrl);
+    const wanLastFrameUrl = absoluteHttpUrl(state.advancedWanLastFrameDataUrl);
+    const wanClipDataUrl = dataUrlValue(selectedWanClipData(mediaMode));
+    const wanClipUrl = selectedWanClipUrl(mediaMode) || absoluteHttpUrl(selectedWanClipData(mediaMode));
+    const payload = await requestJson("/api/advanced/generate", {
+      method: "POST",
+      body: {
+        caseId: state.activeAdvancedCaseId,
+        provider,
+        seedanceTier: provider === "seedance" ? seedanceTier : undefined,
+        prompt,
+        dataUrl: provider === "wan27" && !state.advancedFirstFrameAssetId ? firstFrameDataUrl : undefined,
+        seedanceMode: provider === "seedance" ? seedanceMode : undefined,
+        imageAssetId: provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) ? (state.advancedFirstFrameAssetId || "") : undefined,
+        firstFrameAssetId: provider === "wan27" || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode)) ? (state.advancedFirstFrameAssetId || "") : undefined,
+        firstFrameDataUrl: (provider === "wan27" || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode))) && !state.advancedFirstFrameAssetId ? firstFrameDataUrl : undefined,
+        firstFrameUrl: (provider === "wan27" || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode))) && !state.advancedFirstFrameAssetId ? firstFrameUrl : undefined,
+        imageUrl: provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !state.advancedFirstFrameAssetId ? firstFrameUrl : undefined,
+        endImageAssetId: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : undefined,
+        lastFrameAssetId: provider === "wan27" ? (state.advancedWanLastFrameAssetId || "") : provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : "",
+        endImageDataUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameDataUrl : undefined,
+        endImageUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameUrl : undefined,
+        referenceImages: provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode)
+          ? referenceImages.map(seedanceImageRefPayload)
+          : undefined,
+        referenceVideoAssetId: provider === "seedance" ? (state.advancedSeedanceVideoAssetId || "") : undefined,
+        referenceAudioAssetId: provider === "seedance" ? (state.advancedAudioAssetId || "") : undefined,
+        referenceVideoUrls: provider === "seedance" ? effectiveSeedanceVideoUrls : undefined,
+        inputVideoSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
+        referenceVideoDurationSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
+        referenceAudioUrls: provider === "seedance" ? seedanceAudioUrls : undefined,
+        lastFrameDataUrl: !state.advancedWanLastFrameAssetId ? wanLastFrameDataUrl : "",
+        lastFrameUrl: !state.advancedWanLastFrameAssetId ? wanLastFrameUrl : "",
+        drivingAudioUrl: els.advancedWanAudioUrl?.value.trim() || "",
+        drivingAudioAssetId: provider === "wan27" ? (state.advancedAudioAssetId || "") : undefined,
+        firstClipDataUrl: wanClipDataUrl,
+        firstClipFileName: selectedWanClipFileName(mediaMode),
+        firstClipAssetId: provider === "wan27" ? (state.advancedWanClipAssetId || "") : undefined,
+        firstClipUrl: wanClipUrl,
+        mediaMode,
+        fileName: referenceImages[0]?.fileName || els.advancedImage?.files?.[0]?.name || "",
+        lastFrameFileName: els.advancedWanLastFrame?.files?.[0]?.name || "",
+        ratio: els.advancedRatio?.value || "9:16",
+        resolution: els.advancedResolution?.value || "720p",
+        duration,
+        preprocessReference,
+        seed: els.advancedWanSeed?.value || "",
+        params: {
+          createKind: state.advancedCreateKind,
+          createMode: state.advancedCreateMode,
+          presets: advancedPresetSelection,
+        },
+      },
+    });
+    if (payload.user) setUser(payload.user);
+    const taskId = payload.taskId || payload.task?.taskId || payload.record?.taskId || "";
+    const submittedRecord = payload.record || payload.generation || {
+      taskId,
+      status: payload.task?.status || "submitted",
+      provider,
+      source: provider === "seedance" ? "advanced-seedance" : "advanced-wan27",
+      kind: "advanced-video",
+      prompt,
+      presets: advancedPresetSelection,
+      params: {
+        createKind: state.advancedCreateKind,
+        createMode: state.advancedCreateMode,
+        presets: advancedPresetSelection,
+      },
+      ratio: els.advancedRatio?.value || "9:16",
+      resolution: els.advancedResolution?.value || "720p",
+      duration,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== pendingTaskId);
+    if (taskId) {
+      state.advancedResultTaskId = taskId;
+      mergeAdvancedResultRecord(submittedRecord);
+    }
+    if (els.advancedNote) els.advancedNote.textContent = "";
+    clearAdvancedCreationInputs();
+    setAdvancedSideTab("result");
+    renderAdvancedResultPanel();
+    scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
+    scheduleHistoryRefresh({ delayMs: 8000, force: true });
+  } catch (error) {
+    state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
+      record.taskId === pendingTaskId
+        ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
+        : record
+    ));
+    if (state.advancedResultTaskId === pendingTaskId) state.advancedResultTaskId = "";
+    renderAdvancedResultPanel();
+    if (els.advancedNote) els.advancedNote.textContent = "";
+  } finally {
+    els.advancedSubmitBtn.disabled = false;
+    updateAdvancedButtonCost();
+  }
+}
+
+function openTemplate(templateId) {
+  const template = state.templates.find((item) => item.id === templateId);
+  if (!template) return;
+  setTab("advanced");
+  state.advancedCreateKind = "video";
+  state.advancedCreateMode = template.type === "text-to-video" ? "video-text" : "video-image";
+  if (template.advancedCaseId) {
+    const matched = state.advancedCases.find((item) => item.id === template.advancedCaseId);
+    if (matched) {
+      fillAdvancedCase(matched);
+      return;
+    }
+  }
+  state.activeAdvancedCaseId = "";
+  if (els.advancedProvider) els.advancedProvider.value = "seedance";
+  if (els.advancedPrompt) els.advancedPrompt.value = template.prompt || template.description || "";
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = template.type === "text-to-video" ? "text_to_video" : "reference_images";
+  updateAdvancedModelControls();
+  setAdvancedSideTab("assets");
+  refreshIcons();
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error(t("modal.readImageFailed")));
+    reader.readAsDataURL(file);
+  });
+}
+
+function pastedImageFilesFromEvent(event) {
+  const items = Array.from(event?.clipboardData?.items || []);
+  return items
+    .filter((item) => String(item.type || "").startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter(Boolean);
+}
+
+function advancedPromptPasteTargetIsReferenceImages() {
+  if (state.advancedCreateKind !== "custom") return false;
+  if (currentAdvancedProvider() !== "seedance") return false;
+  return seedanceModeNeedsReferenceImages(els.advancedSeedanceMediaMode?.value || "");
+}
+
+async function handleAdvancedPromptPaste(event) {
+  const files = pastedImageFilesFromEvent(event);
+  if (!files.length || !advancedPromptPasteTargetIsReferenceImages()) return;
+  event.preventDefault();
+  const validFiles = files.filter((file) => file.size <= ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES);
+  if (validFiles.length !== files.length && els.advancedNote) {
+    els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
+  }
+  const existing = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
+  const roomLeft = Math.max(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT - existing.length);
+  if (!roomLeft) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: ADVANCED_SEEDANCE_REFERENCE_LIMIT });
+    updateAdvancedModelControls();
+    return;
+  }
+  const selectedFiles = validFiles.slice(0, roomLeft);
+  if (!selectedFiles.length) {
+    updateAdvancedModelControls();
+    return;
+  }
+  const addedImages = await Promise.all(selectedFiles.map(async (file, index) => ({
+    dataUrl: await readFileAsDataUrl(file),
+    fileName: file.name || `pasted-reference-${Date.now()}-${index + 1}.png`,
+  })));
+  state.activeAdvancedCaseId = "";
+  state.advancedReferenceImages = [...existing, ...addedImages].slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+  state.advancedFirstFrameAssetId = "";
+  state.advancedSourceImageAssetId = "";
+  state.advancedSeedanceVideoAssetId = "";
+  state.advancedSeedanceVideoPreviewUrl = "";
+  state.advancedWanClipAssetId = "";
+  if (els.advancedImage) els.advancedImage.value = "";
+  if (validFiles.length > selectedFiles.length && els.advancedNote) {
+    els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: ADVANCED_SEEDANCE_REFERENCE_LIMIT });
+  } else if (els.advancedNote && validFiles.length === files.length) {
+    els.advancedNote.textContent = "";
+  }
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+function readVideoDuration(file) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    const cleanup = () => URL.revokeObjectURL(url);
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      const duration = Number(video.duration || 0);
+      cleanup();
+      resolve(duration);
+    };
+    video.onerror = () => {
+      cleanup();
+      reject(new Error(t("modal.readImageFailed")));
+    };
+    video.src = url;
+  });
+}
+
+function scaledCanvasSize(width = 0, height = 0, maxPixels = ADVANCED_SEEDANCE_MAX_PIXELS) {
+  const w = Math.max(1, Number(width) || 1);
+  const h = Math.max(1, Number(height) || 1);
+  const pixels = w * h;
+  if (pixels <= maxPixels) return { width: Math.round(w), height: Math.round(h) };
+  const scale = Math.sqrt(maxPixels / pixels);
+  return {
+    width: Math.max(1, Math.floor(w * scale)),
+    height: Math.max(1, Math.floor(h * scale)),
+  };
+}
+
+function videoSourceObjectUrl(source) {
+  if (source instanceof Blob) {
+    const url = URL.createObjectURL(source);
+    return Promise.resolve({ url, cleanup: () => URL.revokeObjectURL(url) });
+  }
+  const url = String(source || "").trim();
+  if (!url) return Promise.reject(new Error(t("advanced.seedanceVideoRequired")));
+  return fetch(url, { credentials: "same-origin" })
+    .then((response) => {
+      if (!response.ok) throw new Error(t("advanced.seedanceVideoRequired"));
+      return response.blob();
+    })
+    .then((blob) => {
+      const objectUrl = URL.createObjectURL(blob);
+      return { url: objectUrl, cleanup: () => URL.revokeObjectURL(objectUrl) };
+    });
+}
+
+async function captureLastFrameDataUrl(source) {
+  const { url, cleanup } = await videoSourceObjectUrl(source);
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  try {
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = resolve;
+      video.onerror = () => reject(new Error(t("modal.readImageFailed")));
+      video.src = url;
+      video.load?.();
+    });
+    const duration = Number.isFinite(video.duration) ? video.duration : 0;
+    const targetTime = Math.max(0, duration - 0.08);
+    await new Promise((resolve, reject) => {
+      video.onseeked = resolve;
+      video.onerror = () => reject(new Error(t("modal.readImageFailed")));
+      video.currentTime = targetTime;
+    });
+    const width = video.videoWidth || 1;
+    const height = video.videoHeight || 1;
+    const size = scaledCanvasSize(width, height);
+    const canvas = document.createElement("canvas");
+    canvas.width = size.width;
+    canvas.height = size.height;
+    canvas.getContext("2d").drawImage(video, 0, 0, size.width, size.height);
+    return canvas.toDataURL("image/jpeg", 0.9);
+  } finally {
+    cleanup();
+    video.removeAttribute("src");
+    video.load?.();
+  }
+}
+
+function isVideoAsset(asset = {}) {
+  return asset.kind === "video" || String(asset.mime || "").toLowerCase().startsWith("video/");
+}
+
+function isImageAsset(asset = {}) {
+  return asset.kind === "image" || String(asset.mime || "").toLowerCase().startsWith("image/");
+}
+
+function isAudioAsset(asset = {}) {
+  return asset.kind === "audio" || String(asset.mime || "").toLowerCase().startsWith("audio/");
+}
+
+function assetPreviewUrl(asset = {}) {
+  return asset.previewUrl || asset.localUrl || asset.publicUrl || "";
+}
+
+function absoluteHttpUrl(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw || raw.startsWith("data:") || raw.startsWith("asset://")) return "";
+  try {
+    return new URL(raw, window.location.origin || API_ORIGIN || undefined).href;
+  } catch (_error) {
+    return "";
+  }
+}
+
+function dataUrlValue(value = "") {
+  const raw = String(value || "").trim();
+  return raw.startsWith("data:") ? raw : "";
+}
+
+function advancedSeedanceImageRefsFromState() {
+  return selectedAdvancedReferenceImages("seedance").filter((item) => item && (item.dataUrl || item.assetId || item.assetUri || item.referenceAssetUri || item.url));
+}
+
+function seedanceImageRefPayload(item = {}) {
+  if (item.assetId) return { assetId: item.assetId, dataUrl: "", url: "", fileName: item.fileName || "", name: item.name || "" };
+  const meta = {
+    fileName: item.fileName || "",
+    name: item.name || "",
+    presetId: item.presetId || "",
+    presetSlot: item.presetSlot || "",
+    fromPreset: Boolean(item.fromPreset),
+    sourceUrl: item.sourceUrl || item.url || item.imageUrl || item.dataUrl || "",
+  };
+  if (item.assetUri || item.referenceAssetUri) {
+    const assetUri = item.assetUri || item.referenceAssetUri;
+    return { assetUri, referenceAssetUri: assetUri, dataUrl: "", url: "", ...meta };
+  }
+  if (item.url || item.imageUrl) return { url: absoluteHttpUrl(item.url || item.imageUrl), dataUrl: "", ...meta };
+  const imageUrl = absoluteHttpUrl(item.dataUrl || item.previewUrl || "");
+  if (imageUrl) return { url: imageUrl, dataUrl: "", ...meta };
+  return { dataUrl: item.dataUrl || "", url: "", ...meta };
+}
+
+function recordParams(record = {}) {
+  return record.params && typeof record.params === "object" && !Array.isArray(record.params) ? record.params : {};
+}
+
+function restoreMediaUrl(item = {}) {
+  return item.dataUrl || item.localUrl || item.imageUrl || item.videoUrl || item.audioUrl || item.url || item.sourceImageUrl || item.previewUrl || "";
+}
+
+function restoreMediaAssetUri(item = {}) {
+  const direct = String(item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || "").trim();
+  if (direct) return direct;
+  const url = String(item.url || item.imageUrl || item.sourceImageUrl || "").trim();
+  return url.startsWith("asset://") ? url : "";
+}
+
+function restoreMediaAssetId(item = {}) {
+  return String(item.userAssetId || item.assetId || item.id || "").trim();
+}
+
+function restoreReferenceFromMedia(item = {}, index = 0) {
+  const assetId = restoreMediaAssetId(item);
+  const assetUri = restoreMediaAssetUri(item);
+  const url = restoreMediaUrl(item);
+  if (!assetId && !assetUri && !url) return null;
+  return {
+    assetId,
+    assetUri,
+    referenceAssetUri: assetUri,
+    dataUrl: url && !String(url).startsWith("asset://") ? url : "",
+    url: assetId || assetUri ? "" : url,
+    fileName: item.fileName || item.name || item.label || `image-${index + 1}`,
+    name: item.name || item.label || `Image ${index + 1}`,
+    fromLibrary: Boolean(assetId),
+  };
+}
+
+function restoreRecordProvider(record = {}) {
+  const params = recordParams(record);
+  const source = String(record.source || record.provider || params.provider || "").toLowerCase();
+  if (source.includes("image") || source.includes("wan27-image")) return "wan27-image-edit";
+  return normalizeAdvancedProvider(record.provider || params.provider || (source.includes("wan") ? "wan27" : "seedance"));
+}
+
+function restoreSeedanceMode(record = {}, references = [], videos = [], audios = []) {
+  const params = recordParams(record);
+  const mediaMode = String(record.mediaMode || params.seedanceMode || params.mediaMode || "").trim();
+  if (mediaMode) return normalizeSeedanceMediaMode(mediaMode);
+  if (videos.length || audios.length) return "reference_video";
+  if (references.length > 1) return "reference_images";
+  if (references.length) return "first_frame";
+  return "text_to_video";
+}
+
+function restoreWanMode(record = {}, videos = [], audios = []) {
+  const params = recordParams(record);
+  const mediaMode = String(record.mediaMode || params.mediaMode || "").trim();
+  if (mediaMode) return normalizeWanMediaMode(mediaMode);
+  if (videos.length) return "first_clip";
+  if (audios.length) return "first_frame_audio";
+  return "first_frame";
+}
+
+function restoreRecordMedia(record = {}) {
+  const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const imageAssets = mediaAssets.filter((item) => {
+    const type = String(item.type || item.key || "").toLowerCase();
+    return !type.includes("audio") && !type.includes("video") && !type.includes("clip") && (restoreMediaUrl(item) || restoreMediaAssetUri(item));
+  });
+  const references = imageAssets.map(restoreReferenceFromMedia).filter(Boolean);
+  const videos = mediaAssets
+    .filter((item) => String(item.type || item.key || "").toLowerCase().includes("video") && restoreMediaUrl(item))
+    .map((item) => ({ ...item, assetId: restoreMediaAssetId(item), url: restoreMediaUrl(item) }));
+  const audios = mediaAssets
+    .filter((item) => String(item.type || item.key || "").toLowerCase().includes("audio") && restoreMediaUrl(item))
+    .map((item) => ({ ...item, assetId: restoreMediaAssetId(item), url: restoreMediaUrl(item) }));
+  if (!references.length) {
+    recordImageAssets(record).forEach((item, index) => {
+      const ref = restoreReferenceFromMedia(item, index);
+      if (ref) references.push(ref);
+    });
+  }
+  return { references: dedupeAdvancedReferenceImages(references).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT), videos, audios };
+}
+
+function restoreRecordToAdvancedCreate(record = {}, button = null) {
+  if (!record?.taskId && !record?.prompt && !record?.params) return;
+  const params = recordParams(record);
+  const provider = restoreRecordProvider(record);
+  const { references, videos, audios } = restoreRecordMedia(record);
+  const seedanceMode = restoreSeedanceMode(record, references, videos, audios);
+  const wanMode = restoreWanMode(record, videos, audios);
+  const ratio = normalizeVideoRatio(record.ratio || params.ratio || params.aspect_ratio || "9:16");
+  const resolution = normalizeAdvancedResolution(record.resolution || params.resolution || (provider === "wan27-image-edit" ? "2K" : "720p"), provider);
+  const duration = record.duration || params.duration || params.durationSeconds || (provider === "wan27" ? 2 : 5);
+  const restoredPresetFlow = hydrateAdvancedPresetsFromParams(params);
+  const restoredKind = ADVANCED_CREATE_KINDS.some((item) => item.id === params.createKind) ? params.createKind : "";
+  const restoredMode = restoredKind && advancedCreateModesForKind(restoredKind).some((item) => item.id === params.createMode) ? params.createMode : "";
+  setTab("advanced");
+  state.advancedCreateKind = restoredPresetFlow && restoredKind ? restoredKind : "custom";
+  state.advancedCreateMode = state.advancedCreateKind === "custom" ? ADVANCED_CUSTOM_MODE.id : (restoredMode || advancedCreateModesForKind(state.advancedCreateKind)[0]?.id || ADVANCED_CUSTOM_MODE.id);
+  renderAdvancedCreateControls();
+  clearAdvancedCreationInputs();
+  if (restoredPresetFlow) hydrateAdvancedPresetsFromParams(params);
+  state.activeAdvancedCaseId = "";
+  if (els.advancedProvider) els.advancedProvider.value = provider;
+  if (els.advancedPrompt) {
+    const rawPrompt = record.finalPrompt || record.prompt || params.prompt || "";
+    els.advancedPrompt.value = restoredPresetFlow ? promptWithoutPresetParts(rawPrompt, params) : rawPrompt;
+  }
+  if (els.advancedRatio) els.advancedRatio.value = ratio;
+  if (els.advancedResolution) els.advancedResolution.value = resolution;
+  if (els.advancedDuration) els.advancedDuration.value = duration;
+  if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || params.parameters?.seed || "";
+  if (els.advancedSeedanceTier) {
+    const model = String(record.model || params.model || "").toLowerCase();
+    els.advancedSeedanceTier.value = model.includes("fast") || params.seedanceTier === "fast" ? "fast" : "standard";
+  }
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = seedanceMode;
+  if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = wanMode;
+  state.advancedReferenceImages = references;
+  state.advancedUploadDataUrl = references[0]?.dataUrl || "";
+  if (provider === "wan27-image-edit") {
+    state.advancedSourceImageAssetId = references[0]?.assetId || "";
+    state.advancedFirstFrameAssetId = "";
+  } else {
+    state.advancedFirstFrameAssetId = references[0]?.assetId || "";
+    state.advancedSourceImageAssetId = provider === "seedance" && seedanceMode === "reference_images" ? (references[0]?.assetId || "") : "";
+  }
+  const firstLastFrame = references.find((item) => /last|end/i.test(`${item.name || ""} ${item.fileName || ""} ${item.label || ""}`));
+  const lastFrameRef = firstLastFrame || (seedanceModeNeedsLastFrame(seedanceMode) ? references[1] : null);
+  if (provider === "seedance" && lastFrameRef) {
+    state.advancedSeedanceLastFrameAssetId = lastFrameRef.assetId || "";
+    state.advancedSeedanceLastFrameDataUrl = lastFrameRef.dataUrl || "";
+  } else if (provider === "wan27" && wanModeNeedsLastFrame(wanMode) && references[1]) {
+    state.advancedWanLastFrameAssetId = references[1].assetId || "";
+    state.advancedWanLastFrameDataUrl = references[1].dataUrl || "";
+  }
+  const firstVideo = videos[0];
+  if (provider === "seedance" && firstVideo) {
+    state.advancedSeedanceVideoAssetId = firstVideo.assetId || "";
+    state.advancedSeedanceVideoPreviewUrl = firstVideo.url || "";
+    if (els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = firstVideo.assetId ? "" : firstVideo.url || "";
+  } else if (provider === "wan27" && firstVideo) {
+    state.advancedWanClipAssetId = firstVideo.assetId || "";
+    state.advancedWanClipDataUrl = firstVideo.assetId ? "" : firstVideo.url || "";
+    state.advancedWanClipFileName = firstVideo.fileName || firstVideo.name || "";
+    if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = firstVideo.assetId ? "" : firstVideo.url || "";
+  }
+  const firstAudio = audios[0];
+  if (firstAudio) {
+    state.advancedAudioAssetId = firstAudio.assetId || "";
+    if (provider === "seedance" && els.advancedSeedanceAudioUrls) els.advancedSeedanceAudioUrls.value = firstAudio.assetId ? "" : firstAudio.url || "";
+    if (provider === "wan27" && els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = firstAudio.assetId ? "" : firstAudio.url || "";
+  }
+  renderAdvancedPresetBuilder();
+  renderAdvancedReferencePreviews();
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  setAdvancedSideTab("assets");
+  if (els.advancedNote) els.advancedNote.textContent = t("history.regenerateSubmitted");
+  if (button) {
+    button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.regenerateSubmitted"))}`;
+    button.disabled = false;
+    refreshIcons();
+  }
+}
+
+function splitUrlList(value = "") {
+  return String(value || "")
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function arrayFrom(value) {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function imageAssetOptions(selectedId = "") {
+  const images = (state.assetImageChoices?.length ? state.assetImageChoices : state.userAssets || []).filter(isImageAsset);
+  return images.length
+    ? images.map((asset) => `<option value="${escapeHtml(asset.id)}" ${asset.id === selectedId ? "selected" : ""}>${escapeHtml(asset.name || asset.id)}</option>`).join("")
+    : `<option value="">${escapeHtml(t("assets.noImageAssets"))}</option>`;
+}
+
+async function ensureAssetImageChoices() {
+  if (!state.user) return [];
+  const payload = await requestJson("/api/user-assets?type=image&page=1&limit=50");
+  state.assetImageChoices = payload.assets || [];
+  return state.assetImageChoices;
+}
+
+async function ensureAssetAudioChoices() {
+  if (!state.user) return [];
+  const payload = await requestJson("/api/user-assets?type=audio&page=1&limit=50");
+  state.assetAudioChoices = payload.assets || [];
+  return state.assetAudioChoices;
+}
+
+function assetGenerateDialogBody({ mode = "extend", imageAssetId = "" } = {}) {
+  const isReplace = mode === "replace";
+  const prompt = isReplace ? "Replace the lady in [Video 1] with the lady in [Image 1]" : "Extend [Image 1]";
+  return `
+    <div class="asset-generate-form">
+      ${isReplace ? `
+        <div class="asset-replace-source">
+          <span>${escapeHtml(t("assets.imageSource"))}</span>
+          <div class="asset-source-toggle" role="radiogroup" aria-label="${escapeHtml(t("assets.imageSource"))}">
+            <label><input type="radio" name="assetReplaceImageSource" value="asset" checked />${escapeHtml(t("assets.sourceAssets"))}</label>
+            <label><input type="radio" name="assetReplaceImageSource" value="upload" />${escapeHtml(t("assets.sourceUpload"))}</label>
+          </div>
+        </div>
+        <label class="field asset-replace-asset-field" data-replace-source-field="asset"><span>${escapeHtml(t("assets.pickAssetImage"))}</span><select id="assetGenerateImageAsset">${imageAssetOptions(imageAssetId)}</select></label>
+        <label class="field file-picker-field asset-replace-upload-field" data-replace-source-field="upload" hidden>
+          <span>${escapeHtml(t("assets.uploadReplaceImage"))}</span>
+          <span class="file-picker-control">
+            <input id="assetGenerateImageUpload" type="file" accept="image/*" />
+            <span class="file-picker-button"><i data-lucide="image-up"></i>${escapeHtml(t("file.chooseImage"))}</span>
+            <span class="file-picker-name" data-file-name-for="assetGenerateImageUpload">${escapeHtml(t("file.none"))}</span>
+          </span>
+        </label>
+        <p class="job-note asset-source-note">${escapeHtml(t("assets.uploadOverridesAsset"))}</p>
+      ` : ""}
+      <label class="field"><span>${escapeHtml(t("field.prompt"))}</span><textarea id="assetGeneratePrompt" rows="4">${escapeHtml(prompt)}</textarea></label>
+      <div class="asset-generate-grid">
+        <label class="field"><span>${escapeHtml(t("field.duration"))}</span><input id="assetGenerateDuration" type="number" min="4" max="15" value="5" /></label>
+        <label class="field"><span>${escapeHtml(t("field.resolution"))}</span><select id="assetGenerateResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+      </div>
+      <p class="job-note" id="assetGenerateCost"></p>
+      <p class="job-note" id="assetGenerateStatus"></p>
+    </div>
+  `;
+}
+
+function assetVideoExtendDialogBody() {
+  return `
+    <div class="asset-generate-form">
+      <label class="field"><span>${escapeHtml(t("field.prompt"))}</span><textarea id="assetGeneratePrompt" rows="4">${escapeHtml("Extend [Video 1] smoothly with the same subject, scene, motion, lighting and cinematic style.")}</textarea></label>
+      <div class="asset-generate-grid">
+        <label class="field"><span>${escapeHtml(t("field.duration"))}</span><input id="assetGenerateDuration" type="number" min="4" max="15" value="5" /></label>
+        <label class="field"><span>${escapeHtml(t("field.resolution"))}</span><select id="assetGenerateResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+      </div>
+      <p class="job-note" id="assetGenerateCost"></p>
+      <p class="job-note" id="assetGenerateStatus"></p>
+    </div>
+  `;
+}
+
+function bindAssetGenerateCost(root, options = {}) {
+  const durationInput = root.querySelector("#assetGenerateDuration");
+  const resolutionInput = root.querySelector("#assetGenerateResolution");
+  const cost = root.querySelector("#assetGenerateCost");
+  const syncReplaceSource = () => {
+    const source = root.querySelector("input[name='assetReplaceImageSource']:checked")?.value || "asset";
+    root.querySelectorAll("[data-replace-source-field]").forEach((field) => {
+      field.hidden = field.dataset.replaceSourceField !== source;
+    });
+  };
+  root.querySelectorAll("input[name='assetReplaceImageSource']").forEach((input) => {
+    input.addEventListener("change", syncReplaceSource);
+  });
+  syncReplaceSource();
+  root.querySelectorAll("input[type='file']").forEach((input) => {
+    updateFilePickerLabel(input);
+    input.addEventListener("change", () => updateFilePickerLabel(input));
+  });
+  const update = () => {
+    const duration = Number(durationInput?.value || 5);
+    const resolution = resolutionInput?.value || "720p";
+    const inputVideoSeconds = typeof options.inputVideoSeconds === "function"
+      ? positiveDurationSeconds(options.inputVideoSeconds(duration, resolution), 0)
+      : positiveDurationSeconds(options.inputVideoSeconds, 0);
+    const label = advancedCostLabel(duration, "seedance", resolution, "16:9", { inputVideoSeconds });
+    if (cost) cost.textContent = label;
+    if (els.inlineDialogConfirm) {
+      els.inlineDialogConfirm.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: label }))}`;
+      refreshIcons();
+    }
+  };
+  durationInput?.addEventListener("input", update);
+  resolutionInput?.addEventListener("change", update);
+  update();
+}
+
+async function readOptionalImageUpload(root) {
+  const file = root.querySelector("#assetGenerateImageUpload")?.files?.[0];
+  if (!file) return null;
+  if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) throw new Error(t("advanced.referenceImageTooLarge"));
+  return { dataUrl: await readFileAsDataUrl(file), fileName: file.name || "", name: file.name || "" };
+}
+
+async function selectedReplaceImageReference(root) {
+  const source = root.querySelector("input[name='assetReplaceImageSource']:checked")?.value || "asset";
+  if (source === "upload") {
+    const uploadRef = await readOptionalImageUpload(root);
+    if (!uploadRef) throw new Error(t("assets.selectImageRequired"));
+    return uploadRef;
+  }
+  const selectedImageAssetId = root.querySelector("#assetGenerateImageAsset")?.value || "";
+  if (!selectedImageAssetId) throw new Error(t("assets.selectImageRequired"));
+  return { assetId: selectedImageAssetId };
+}
+
+function assetModifyDialogBody(asset = {}) {
+  const options = state.config?.assetImageModify || {};
+  const ratios = Array.isArray(options.ratios) && options.ratios.length ? options.ratios : ["1:1", "3:4", "4:3", "9:16", "16:9"];
+  const defaultRatio = options.defaultRatio || "9:16";
+  const resolutions = Array.isArray(options.resolutions) && options.resolutions.length ? options.resolutions : ["1K", "2K"];
+  const defaultResolution = options.defaultResolution || "2K";
+  return `
+    <div class="asset-generate-form asset-modify-form">
+      <div class="asset-modify-preview">
+        <img src="${escapeHtml(assetPreviewUrl(asset))}" alt="${escapeHtml(asset.name || "")}" />
+      </div>
+      <label class="field"><span>${escapeHtml(t("field.prompt"))}</span><textarea id="assetModifyPrompt" rows="4" placeholder="${escapeHtml(t("assets.modifyPromptPlaceholder"))}"></textarea></label>
+      <label class="field"><span>${escapeHtml(t("field.ratio"))}</span><select id="assetModifyRatio">${ratios.map((ratio) => `<option value="${escapeHtml(ratio)}" ${ratio === defaultRatio ? "selected" : ""}>${escapeHtml(ratio)}</option>`).join("")}</select></label>
+      <label class="field"><span>${escapeHtml(t("field.resolution"))}</span><select id="assetModifyResolution">${resolutions.map((resolution) => `<option value="${escapeHtml(resolution)}" ${resolution === defaultResolution ? "selected" : ""}>${escapeHtml(resolution)}</option>`).join("")}</select></label>
+      <p class="job-note">${escapeHtml(t("assets.modifyHint"))}</p>
+      <p class="job-note" id="assetModifyCost"></p>
+      <p class="job-note" id="assetModifyStatus"></p>
+    </div>
+  `;
+}
+
+function bindAssetModifyCost(root) {
+  const cost = root.querySelector("#assetModifyCost");
+  const update = () => {
+    const label = assetImageModifyCostLabel();
+    if (cost) cost.textContent = label;
+    if (els.inlineDialogConfirm) {
+      els.inlineDialogConfirm.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("template.generate", { cost: label }))}`;
+      refreshIcons();
+    }
+  };
+  root.querySelector("#assetModifyRatio")?.addEventListener("change", update);
+  root.querySelector("#assetModifyResolution")?.addEventListener("change", update);
+  update();
+}
+
+async function openAssetModifyDialog(asset = {}) {
+  if (!asset?.id || !isImageAsset(asset)) return;
+  if (!state.user) return openLogin();
+  let shouldRefreshHistory = false;
+  const result = await showInlineDialog({
+    title: t("assets.modifyTitle"),
+    body: assetModifyDialogBody(asset),
+    confirmText: t("common.generate"),
+    dialogClass: "is-media-action",
+    onOpen: bindAssetModifyCost,
+    onConfirm: async (root) => {
+      const prompt = root.querySelector("#assetModifyPrompt")?.value.trim() || "";
+      if (!prompt) throw new Error(t("advanced.promptRequired"));
+      const status = root.querySelector("#assetModifyStatus");
+      if (status) status.textContent = t("assets.generating");
+      let payload;
+      try {
+        payload = await requestJson(`/api/user-assets/${encodeURIComponent(asset.id)}/modify`, {
+          method: "POST",
+          body: {
+            prompt,
+            ratio: root.querySelector("#assetModifyRatio")?.value || "9:16",
+            resolution: root.querySelector("#assetModifyResolution")?.value || "2K",
+          },
+        });
+      } catch (error) {
+        shouldRefreshHistory = true;
+        window.setTimeout(() => loadHistory({ silent: true }), 300);
+        throw error;
+      }
+      shouldRefreshHistory = true;
+      if (payload.user) setUser(payload.user);
+      if (payload.record) {
+        state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
+      }
+      if (status) status.textContent = t("assets.modified");
+    },
+  });
+  if (result === "confirm") {
+    await loadHistory({ silent: true });
+  } else if (shouldRefreshHistory) {
+    await loadHistory({ silent: true });
+  }
+}
+
+async function openAssetExtendDialog(asset = {}) {
+  if (!asset?.id) return;
+  if (!state.user) return openLogin();
+  if (isVideoAsset(asset)) return openAssetVideoExtendDialog(asset);
+  const duration = 5;
+  const resolution = "720p";
+  const ratio = "16:9";
+  const cost = advancedButtonCostLabel(duration, "seedance", resolution, ratio, { seedanceTier: "standard", inputVideoSeconds: 0 });
+  const result = await showInlineDialog({
+    title: t("assets.extendTitle"),
+    body: `
+      <p class="job-note asset-simple-cost">${escapeHtml(t("advanced.confirmCostOnly", { cost }, cost))}</p>
+      <p class="job-note" id="assetGenerateStatus"></p>
+    `,
+    confirmText: t("common.generate"),
+    onConfirm: async (root) => {
+      const status = root.querySelector("#assetGenerateStatus");
+      if (status) status.textContent = t("assets.generating");
+      const payload = await requestJson("/api/advanced/generate", {
+        method: "POST",
+        body: {
+          provider: "seedance",
+          prompt: "Extend [Image 1] smoothly with the same subject, scene, lighting and cinematic style.",
+          referenceImages: [{ assetId: asset.id, name: asset.name || "" }],
+          ratio,
+          resolution,
+          duration,
+          params: { createKind: "video", createMode: "video-extend" },
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      if (status) status.textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
+    },
+  });
+  if (result === "confirm") {
+    scheduleHistoryRefresh({ delayMs: 8000, force: true });
+  }
+}
+
+async function openAssetVideoExtendDialog(videoAsset = {}) {
+  if (!videoAsset?.id) return;
+  if (!state.user) return openLogin();
+  const duration = 5;
+  const resolution = "720p";
+  const ratio = "16:9";
+  const cost = advancedButtonCostLabel(duration, "seedance", resolution, ratio, { seedanceTier: "standard", inputVideoSeconds: 0 });
+  const result = await showInlineDialog({
+    title: t("assets.extendTitle"),
+    body: `
+      <p class="job-note asset-simple-cost">${escapeHtml(t("advanced.confirmCostOnly", { cost }, cost))}</p>
+      <p class="job-note" id="assetGenerateStatus"></p>
+    `,
+    confirmText: t("common.generate"),
+    onConfirm: async (root) => {
+      const status = root.querySelector("#assetGenerateStatus");
+      if (status) status.textContent = t("advanced.extractingLastFrame", {}, "Preparing video frame...");
+      const frameDataUrl = await captureLastFrameDataUrl(assetPreviewUrl(videoAsset));
+      if (status) status.textContent = t("assets.generating");
+      const payload = await requestJson("/api/advanced/generate", {
+        method: "POST",
+        body: {
+          provider: "seedance",
+          seedanceMode: "first_frame",
+          prompt: advancedCreateModeDefaultPrompt("video-extend"),
+          firstFrameDataUrl: frameDataUrl,
+          ratio,
+          resolution,
+          duration,
+          params: { createKind: "video", createMode: "video-extend" },
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      if (status) status.textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
+    },
+  });
+  if (result === "confirm") {
+    scheduleHistoryRefresh({ delayMs: 8000, force: true });
+  }
+}
+
+async function openAssetReplaceDialog(videoAsset = {}) {
+  if (!videoAsset?.id) return;
+  if (!state.user) return openLogin();
+  const duration = 5;
+  const resolution = "720p";
+  const ratio = "16:9";
+  const inputVideoSeconds = positiveDurationSeconds(videoAsset.durationSeconds || videoAsset.duration, duration);
+  const cost = advancedButtonCostLabel(duration, "seedance", resolution, ratio, { seedanceTier: "standard", inputVideoSeconds });
+  const result = await showInlineDialog({
+    title: t("assets.replaceTitle"),
+    body: `
+      <label class="field file-picker-field asset-replace-upload-field">
+        <span>${escapeHtml(t("assets.replaceImage"))}</span>
+        <div class="file-picker-control">
+          <input id="assetReplaceUploadImage" type="file" accept="image/*" />
+          <span class="file-picker-button"><i data-lucide="image-up"></i>${escapeHtml(t("assets.sourceUpload"))}</span>
+        </div>
+        <img class="asset-upload-preview" id="assetReplaceUploadPreview" alt="" hidden />
+      </label>
+      <p class="job-note asset-simple-cost">${escapeHtml(t("advanced.confirmCostOnly", { cost }, cost))}</p>
+      <p class="job-note" id="assetGenerateStatus"></p>
+    `,
+    confirmText: t("common.generate"),
+    dialogClass: "is-media-action",
+    onOpen: (root) => {
+      const input = root.querySelector("#assetReplaceUploadImage");
+      const preview = root.querySelector("#assetReplaceUploadPreview");
+      input?.addEventListener("change", async () => {
+        const file = input.files?.[0];
+        if (!file || !preview) return;
+        preview.src = await readFileAsDataUrl(file);
+        preview.hidden = false;
+      });
+      refreshIcons();
+    },
+    onConfirm: async (root) => {
+      const file = root.querySelector("#assetReplaceUploadImage")?.files?.[0];
+      if (!file) throw new Error(t("assets.replaceImageRequired"));
+      const status = root.querySelector("#assetGenerateStatus");
+      if (status) status.textContent = t("assets.uploading");
+      const dataUrl = await readFileAsDataUrl(file);
+      const uploaded = await requestJson("/api/user-assets", {
+        method: "POST",
+        body: { dataUrl, name: file.name || "Replacement image", fileName: file.name || "replacement.png" },
+      });
+      if (status) status.textContent = t("assets.generating");
+      const payload = await requestJson("/api/advanced/generate", {
+        method: "POST",
+        body: {
+          provider: "seedance",
+          seedanceMode: "reference_video",
+          prompt: advancedCreateModeDefaultPrompt("video-replace"),
+          referenceVideoAssetId: videoAsset.id,
+          referenceImages: [{ assetId: uploaded.asset?.id || "" }],
+          inputVideoSeconds,
+          referenceVideoDurationSeconds: inputVideoSeconds,
+          ratio,
+          resolution,
+          duration,
+          params: { createKind: "video", createMode: "video-replace" },
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      if (status) status.textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
+    },
+  });
+  if (result === "confirm") {
+    scheduleHistoryRefresh({ delayMs: 8000, force: true });
+  }
+}
+
+function captureFrameFromVideo(video) {
+  if (!video || !video.videoWidth || !video.videoHeight) throw new Error("Video frame is not ready.");
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
+async function openAssetFrameDialog(asset = {}) {
+  const url = assetPreviewUrl(asset);
+  if (!url) return;
+  await showInlineDialog({
+    title: t("assets.frameTitle"),
+    dialogClass: "is-media-action is-frame-action",
+    body: `
+      <div class="asset-frame-form">
+        <video id="assetFrameVideo" src="${escapeHtml(url)}" controls playsinline preload="metadata"></video>
+        <p class="job-note">${escapeHtml(t("assets.frameHint"))}</p>
+        <p class="job-note" id="assetFrameStatus"></p>
+      </div>
+    `,
+    confirmText: t("assets.selectFrame"),
+    onOpen: (root) => {
+      const video = root.querySelector("#assetFrameVideo");
+      const syncRatio = () => {
+        if (!video?.videoWidth || !video.videoHeight) return;
+        const ratio = video.videoWidth / video.videoHeight;
+        video.style.setProperty("--asset-frame-ratio", `${video.videoWidth} / ${video.videoHeight}`);
+        video.style.setProperty("--asset-frame-ratio-value", String(ratio));
+      };
+      video?.addEventListener("loadedmetadata", syncRatio);
+      if (video?.readyState >= 1) syncRatio();
+    },
+    onConfirm: async (root) => {
+      const video = root.querySelector("#assetFrameVideo");
+      const dataUrl = captureFrameFromVideo(video);
+      root.querySelector("#assetFrameStatus").textContent = t("assets.uploading");
+      await requestJson("/api/user-assets", {
+        method: "POST",
+        body: { dataUrl, name: `${asset.name || "video"} frame`, fileName: `${asset.id || "frame"}.jpg` },
+      });
+      root.querySelector("#assetFrameStatus").textContent = t("assets.frameSaved");
+      await loadUserAssets(state.userAssetsPage || 1);
+    },
+  });
+}
+
+function useAssetInAdvanced(asset = {}, action = "use") {
+  if (!asset) return;
+  if (!state.user) return openLogin();
+  state.advancedCreateKind = action === "modify" ? "image" : "video";
+  state.advancedCreateMode = action === "modify"
+    ? "image-edit"
+    : action === "replace"
+      ? "video-replace"
+      : action === "extend"
+        ? "video-extend"
+        : isVideoAsset(asset)
+          ? "video-edit"
+          : "video-image";
+  if (els.advancedProvider) els.advancedProvider.value = action === "modify" ? "wan27-image-edit" : "seedance";
+  state.activeAdvancedCaseId = "";
+  if (isImageAsset(asset)) {
+    if (action === "modify") {
+      state.advancedSourceImageAssetId = asset.id;
+      state.advancedFirstFrameAssetId = "";
+    } else {
+      state.advancedFirstFrameAssetId = asset.id;
+      state.advancedSourceImageAssetId = "";
+    }
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = action === "extend" ? "first_frame" : "reference_images";
+    const ref = {
+      assetId: asset.id,
+      dataUrl: assetPreviewUrl(asset),
+      fileName: asset.name || "",
+      name: asset.name || "",
+      fromLibrary: true,
+    };
+    const existing = action === "replace" || action === "modify" ? advancedSeedanceImageRefsFromState().filter((item) => item.assetId !== asset.id) : [];
+    const imageLimit = action === "replace" ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+    state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ref]).slice(0, imageLimit);
+    state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+    if (action !== "replace") {
+      state.advancedSeedanceVideoAssetId = "";
+      state.advancedSeedanceVideoPreviewUrl = "";
+    }
+    if (action === "modify" && els.advancedPrompt) els.advancedPrompt.value = "";
+  }
+  if (isVideoAsset(asset)) {
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+    state.advancedSeedanceVideoAssetId = asset.id;
+    state.advancedSeedanceVideoPreviewUrl = assetPreviewUrl(asset);
+    if (action !== "replace") {
+      state.advancedReferenceImages = [];
+      state.advancedUploadDataUrl = "";
+    }
+  }
+  setTab("advanced");
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  if (els.advancedNote) {
+    els.advancedNote.textContent = action === "extend"
+      ? t("assets.extended")
+      : action === "replace"
+        ? t("assets.replaced")
+        : action === "modify"
+          ? t("assets.modify")
+          : t("assets.used");
+  }
+}
+
+function selectedWanClipData(mediaMode = "first_frame") {
+  return wanModeNeedsClip(mediaMode) && !state.advancedWanClipAssetId ? state.advancedWanClipDataUrl : "";
+}
+
+function selectedWanClipFileName(mediaMode = "first_frame") {
+  return wanModeNeedsClip(mediaMode) && !state.advancedWanClipAssetId ? state.advancedWanClipFileName : "";
+}
+
+function selectedWanClipUrl(mediaMode = "first_frame") {
+  return wanModeNeedsClip(mediaMode) && !state.advancedWanClipAssetId ? (els.advancedWanClipUrl?.value.trim() || "") : "";
+}
+
+function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
+  const images = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "wan27-image-edit") return images.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  if (normalizedProvider !== "seedance") return images.slice(0, 1);
+  const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+  if (seedanceModeNeedsFirstFrame(mode)) return images.slice(0, 1);
+  return images;
+}
+
+function dedupeAdvancedReferenceImages(images = []) {
+  const seen = new Set();
+  return images.filter((item) => {
+    const assetUri = item?.assetUri || item?.referenceAssetUri || "";
+    const sourceUrl = item?.sourceUrl || "";
+    const key = item?.assetId ? `asset:${item.assetId}` : assetUri ? `asset-uri:${assetUri}` : sourceUrl ? `source:${sourceUrl}` : item?.url ? `url:${item.url}` : `${item?.fileName || ""}::${item?.dataUrl || ""}`;
+    if ((!item?.dataUrl && !item?.assetId && !assetUri && !item?.url) || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function removeAdvancedReferenceImage(index = -1) {
+  const images = Array.isArray(state.advancedReferenceImages) ? [...state.advancedReferenceImages] : [];
+  if (index < 0 || index >= images.length) return;
+  images.splice(index, 1);
+  const provider = currentAdvancedProvider();
+  state.advancedReferenceImages = images;
+  state.advancedUploadDataUrl = images[0]?.dataUrl || "";
+  if (provider === "wan27-image-edit") {
+    state.advancedFirstFrameAssetId = "";
+    state.advancedSourceImageAssetId = images[0]?.assetId || "";
+  } else {
+    state.advancedFirstFrameAssetId = images[0]?.assetId || "";
+    state.advancedSourceImageAssetId = "";
+  }
+  if (!images.length && els.advancedImage) els.advancedImage.value = "";
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+function removeAdvancedSeedanceVideoReference() {
+  state.advancedSeedanceVideoAssetId = "";
+  state.advancedSeedanceVideoPreviewUrl = "";
+  if (els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = "";
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+function removeAdvancedMediaSlot(slot = "") {
+  if (slot === "seedanceLastFrame") {
+    state.advancedSeedanceLastFrameAssetId = "";
+    state.advancedSeedanceLastFrameDataUrl = "";
+    if (els.advancedSeedanceLastFrame) els.advancedSeedanceLastFrame.value = "";
+    els.advancedSeedanceLastFramePreview?.removeAttribute("src");
+    els.advancedSeedanceLastFramePreview?.classList.remove("is-visible");
+    els.advancedSeedanceLastFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  } else if (slot === "wanLastFrame") {
+    state.advancedWanLastFrameAssetId = "";
+    state.advancedWanLastFrameDataUrl = "";
+    if (els.advancedWanLastFrame) els.advancedWanLastFrame.value = "";
+    els.advancedWanLastFramePreview?.removeAttribute("src");
+    els.advancedWanLastFramePreview?.classList.remove("is-visible");
+    els.advancedWanLastFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  } else if (slot === "wanClip") {
+    state.advancedWanClipAssetId = "";
+    state.advancedWanClipDataUrl = "";
+    state.advancedWanClipFileName = "";
+    if (els.advancedWanClipFile) els.advancedWanClipFile.value = "";
+    if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = "";
+    els.advancedWanClipPreview?.removeAttribute("src");
+    els.advancedWanClipPreview?.classList.remove("is-visible");
+    els.advancedWanClipFile?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  }
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+function renderAdvancedReferencePreviews() {
+  if (!els.advancedUploadPreview) return;
+  const provider = currentAdvancedProvider();
+  const images = selectedAdvancedReferenceImages();
+  els.advancedUploadPreview.innerHTML = images.map((item, index) => `
+      <figure>
+        <button class="advanced-preview-remove" type="button" data-remove-advanced-ref="${index}" aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>
+        ${item.dataUrl || item.previewUrl ? `<img src="${escapeHtml(item.dataUrl || item.previewUrl || "")}" alt="" />` : `<div class="history-placeholder"><i data-lucide="image"></i></div>`}
+      </figure>
+  `).join("");
+  els.advancedUploadPreview.querySelectorAll("[data-remove-advanced-ref]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeAdvancedReferenceImage(Number(button.dataset.removeAdvancedRef));
+    });
+  });
+  els.advancedUploadBox?.classList.toggle("has-image", images.length > 0);
+  if (els.advancedWanFirstFramePreview) {
+    const firstFrame = images[0]?.dataUrl || state.advancedUploadDataUrl || "";
+    if ((provider === "wan27" || provider === "wan27-image-edit") && firstFrame) {
+      els.advancedWanFirstFramePreview.src = firstFrame;
+      els.advancedWanFirstFramePreview.classList.add("is-visible");
+    } else {
+      els.advancedWanFirstFramePreview.removeAttribute("src");
+      els.advancedWanFirstFramePreview.classList.remove("is-visible");
+    }
+  }
+  const videoPreview = state.advancedSeedanceVideoPreviewUrl || "";
+  if (provider === "seedance" && videoPreview) {
+    els.advancedUploadPreview.insertAdjacentHTML("afterbegin", `
+      <figure>
+        <button class="advanced-preview-remove" type="button" data-remove-seedance-video aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>
+        <video src="${escapeHtml(videoPreview)}" muted playsinline preload="metadata"></video>
+      </figure>
+    `);
+    els.advancedUploadPreview.querySelector("[data-remove-seedance-video]")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeAdvancedSeedanceVideoReference();
+    });
+    els.advancedUploadBox?.classList.add("has-image");
+  }
+  if (els.advancedSeedanceLastFramePreview) {
+    if (provider === "seedance" && state.advancedSeedanceLastFrameDataUrl) {
+      els.advancedSeedanceLastFramePreview.src = state.advancedSeedanceLastFrameDataUrl;
+      els.advancedSeedanceLastFramePreview.classList.add("is-visible");
+    } else {
+      els.advancedSeedanceLastFramePreview.removeAttribute("src");
+      els.advancedSeedanceLastFramePreview.classList.remove("is-visible");
+    }
+  }
+}
+
+function updateAdvancedReferenceSummary() {
+  if (!els.advancedReferenceSummary) return;
+  els.advancedReferenceSummary.textContent = "";
+}
+
+function renderAssets(assets = state.userAssets || []) {
+  if (!els.assetGrid) return;
+  if (!state.user) {
+    if (els.assetPager) els.assetPager.innerHTML = "";
+    els.assetGrid.innerHTML = `
+      <div class="history-empty-card">
+        <strong>${escapeHtml(t("assets.loginRequired"))}</strong>
+        <p>${escapeHtml(t("assets.loginDesc"))}</p>
+        <button class="generate-btn" type="button" data-login-assets>${escapeHtml(t("history.login"))}</button>
+      </div>
+    `;
+    els.assetGrid.querySelector("[data-login-assets]")?.addEventListener("click", openLogin);
+    return;
+  }
+  if (!assets.length) {
+    els.assetGrid.innerHTML = `<div class="history-empty-card"><strong>${escapeHtml(t("assets.emptyTitle"))}</strong><p>${escapeHtml(t("assets.emptyDesc"))}</p></div>`;
+    renderSimplePager(els.assetPager, {
+      page: state.userAssetsPage,
+      totalPages: state.userAssetsTotalPages,
+      total: state.userAssetsTotal,
+    }, loadUserAssets);
+    return;
+  }
+  els.assetGrid.innerHTML = assets.map((asset) => {
+    const url = assetPreviewUrl(asset);
+    const video = isVideoAsset(asset);
+    const audio = isAudioAsset(asset);
+    const typeLabel = video ? t("assets.video") : audio ? t("assets.audio") : t("assets.image");
+    return `
+      <article class="asset-card">
+        <div class="asset-preview ${audio ? "is-audio" : ""}" ${!audio ? `data-asset-preview="${escapeHtml(asset.id)}"` : ""}>
+          ${video
+            ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata" controls></video>`
+            : audio
+              ? `<div class="audio-asset-preview"><i data-lucide="audio-lines"></i><audio src="${escapeHtml(url)}" controls preload="metadata"></audio></div>`
+              : `<img src="${escapeHtml(url)}" alt="${escapeHtml(asset.name || "")}" loading="lazy" />`}
+        </div>
+        <div class="asset-info">
+          <strong>${escapeHtml(asset.name || asset.id)}</strong>
+          <span>${escapeHtml(typeLabel)}</span>
+        </div>
+        <div class="asset-actions">
+          ${!video && !audio ? `<button class="ghost-button" type="button" data-asset-use="${escapeHtml(asset.id)}">${escapeHtml(t("assets.use"))}</button>` : ""}
+          ${!video && !audio ? `<button class="copy-btn" type="button" data-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
+          ${!video && !audio ? `<button class="ghost-button" type="button" data-asset-extend="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extend"))}</button>` : ""}
+          ${video ? `<button class="copy-btn" type="button" data-asset-replace="${escapeHtml(asset.id)}">${escapeHtml(t("assets.replace"))}</button>` : ""}
+          ${video ? `<button class="ghost-button" type="button" data-asset-frame="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extractFrame"))}</button>` : ""}
+          <button class="ghost-button danger" type="button" data-asset-delete="${escapeHtml(asset.id)}">${escapeHtml(t("assets.delete"))}</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+  els.assetGrid.querySelectorAll("[data-asset-use]").forEach((button) => {
+    button.addEventListener("click", () => useAssetInAdvanced(state.userAssets.find((asset) => asset.id === button.dataset.assetUse), "use"));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-modify]").forEach((button) => {
+    button.addEventListener("click", () => openAssetModifyDialog(state.userAssets.find((asset) => asset.id === button.dataset.assetModify)));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-extend]").forEach((button) => {
+    button.addEventListener("click", () => openAssetExtendDialog(state.userAssets.find((asset) => asset.id === button.dataset.assetExtend)));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-replace]").forEach((button) => {
+    button.addEventListener("click", () => openAssetReplaceDialog(state.userAssets.find((asset) => asset.id === button.dataset.assetReplace)));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-frame]").forEach((button) => {
+    button.addEventListener("click", () => openAssetFrameDialog(state.userAssets.find((asset) => asset.id === button.dataset.assetFrame)));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-delete]").forEach((button) => {
+    button.addEventListener("click", () => deleteUserAsset(button.dataset.assetDelete || "", { source: "assets", button }));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-preview]").forEach((node) => {
+    node.addEventListener("click", (event) => {
+      if (event.target.closest("button, audio, video")) return;
+      const asset = state.userAssets.find((item) => item.id === node.dataset.assetPreview);
+      if (!asset) return;
+      const previewUrl = assetPreviewUrl(asset);
+      if (isVideoAsset(asset)) {
+        playPreview({ title: asset.name || asset.id, previewUrl, ratio: "16:9" });
+      } else if (!isAudioAsset(asset)) {
+        previewImage({ title: asset.name || asset.id, imageUrl: previewUrl });
+      }
+    });
+  });
+  renderSimplePager(els.assetPager, {
+    page: state.userAssetsPage,
+    totalPages: state.userAssetsTotalPages,
+    total: state.userAssetsTotal,
+  }, loadUserAssets);
+  refreshIcons();
+}
+
+async function loadUserAssets(page = state.userAssetsPage || 1) {
+  if (!els.assetGrid) return;
+  if (!state.user) {
+    renderAssets([]);
+    return;
+  }
+  const params = new URLSearchParams();
+  if (els.assetSearch?.value) params.set("q", els.assetSearch.value);
+  if (els.assetTypeFilter?.value) params.set("type", els.assetTypeFilter.value);
+  params.set("page", String(page));
+  params.set("limit", String(state.userAssetsLimit || 8));
+  if (els.assetNote) els.assetNote.textContent = t("assets.loading");
+  try {
+    const payload = await requestJson(`/api/user-assets?${params.toString()}`);
+    state.userAssets = payload.assets || [];
+    state.userAssetsPage = payload.page || page;
+    state.userAssetsLimit = payload.limit || state.userAssetsLimit || 8;
+    state.userAssetsTotal = payload.total || 0;
+    state.userAssetsTotalPages = payload.totalPages || 1;
+    if (els.assetNote) els.assetNote.textContent = "";
+    renderAssets();
+    if (state.tab === "characters" && state.characterSource === "custom") renderGalleryCharacters(els.characterGrid);
+  } catch (error) {
+    if (els.assetNote) els.assetNote.textContent = t("assets.loadFailed", { message: error.message || String(error) });
+  }
+}
+
+async function uploadUserAssets(files = []) {
+  if (!state.user) return openLogin();
+  const selected = Array.from(files || []);
+  if (!selected.length) return;
+  if (els.assetNote) els.assetNote.textContent = t("assets.uploading");
+  let uploaded = 0;
+  try {
+    for (const file of selected) {
+      const dataUrl = await readFileAsDataUrl(file);
+      const durationSeconds = file.type.startsWith("video/") || file.type.startsWith("audio/")
+        ? await readVideoDuration(file).catch(() => 0)
+        : 0;
+      await requestJson("/api/user-assets", {
+        method: "POST",
+        body: { dataUrl, name: file.name || "Upload", fileName: file.name || "", durationSeconds },
+      });
+      uploaded += 1;
+    }
+    if (els.assetNote) els.assetNote.textContent = t("assets.uploaded", { count: uploaded });
+    await loadUserAssets(1);
+  } catch (error) {
+    if (els.assetNote) els.assetNote.textContent = t("assets.uploadFailed", { message: error.message || String(error) });
+  } finally {
+    if (els.assetUploadInput) els.assetUploadInput.value = "";
+    updateFilePickerLabel(els.assetUploadInput);
+  }
+}
+
+function clearDeletedAdvancedAssetReference(assetId = "") {
+  if (!assetId) return;
+  let changed = false;
+  const images = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
+  const nextImages = images.filter((item) => item?.assetId !== assetId);
+  if (nextImages.length !== images.length) {
+    state.advancedReferenceImages = nextImages;
+    state.advancedUploadDataUrl = nextImages[0]?.dataUrl || "";
+    if (state.advancedFirstFrameAssetId === assetId) state.advancedFirstFrameAssetId = nextImages[0]?.assetId || "";
+    if (state.advancedSourceImageAssetId === assetId) state.advancedSourceImageAssetId = nextImages[0]?.assetId || "";
+    if (!nextImages.length && els.advancedImage) els.advancedImage.value = "";
+    changed = true;
+  }
+  if (state.advancedFirstFrameAssetId === assetId) {
+    state.advancedFirstFrameAssetId = "";
+    state.advancedUploadDataUrl = nextImages[0]?.dataUrl || "";
+    changed = true;
+  }
+  if (state.advancedSourceImageAssetId === assetId) {
+    state.advancedSourceImageAssetId = "";
+    state.advancedUploadDataUrl = nextImages[0]?.dataUrl || "";
+    changed = true;
+  }
+  if (state.advancedSeedanceLastFrameAssetId === assetId) {
+    removeAdvancedMediaSlot("seedanceLastFrame");
+    changed = true;
+  }
+  if (state.advancedWanLastFrameAssetId === assetId) {
+    removeAdvancedMediaSlot("wanLastFrame");
+    changed = true;
+  }
+  if (state.advancedWanClipAssetId === assetId) {
+    removeAdvancedMediaSlot("wanClip");
+    changed = true;
+  }
+  if (state.advancedSeedanceVideoAssetId === assetId) {
+    state.advancedSeedanceVideoAssetId = "";
+    state.advancedSeedanceVideoPreviewUrl = "";
+    changed = true;
+  }
+  if (state.advancedAudioAssetId === assetId) {
+    state.advancedAudioAssetId = "";
+    changed = true;
+  }
+  if (!changed) return;
+  renderAdvancedReferencePreviews();
+  updateAdvancedReferenceSummary();
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
+async function deleteUserAsset(assetId = "", options = {}) {
+  if (!assetId) return;
+  const source = options?.source || "assets";
+  const button = options?.button || null;
+  if (button) button.disabled = true;
+  try {
+    await requestJson(`/api/user-assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
+    clearDeletedAdvancedAssetReference(assetId);
+    if (Array.isArray(state.userAssets)) state.userAssets = state.userAssets.filter((asset) => asset.id !== assetId);
+    if (Array.isArray(state.advancedAssets)) state.advancedAssets = state.advancedAssets.filter((asset) => asset.id !== assetId);
+    if (state.tab === "assets") await loadUserAssets(state.userAssetsPage || 1);
+    if (source === "advanced" || state.tab === "advanced") {
+      await loadAdvancedAssets(state.advancedAssetPage || 1);
+    } else if (state.advancedAssetsLoaded) {
+      renderAdvancedAssets();
+    }
+  } catch (error) {
+    const note = source === "advanced" ? els.advancedAssetNote : els.assetNote;
+    if (note) note.textContent = error.message || String(error);
+    if (button) button.disabled = false;
+  }
+}
+
+async function submitTemplate() {
+  if (!state.activeTemplate) return;
+  const template = state.activeTemplate;
+  if (els.templateDialog?.open) els.templateDialog.close();
+  setTab("advanced");
+  state.advancedCreateKind = "video";
+  state.advancedCreateMode = template.type === "text-to-video" ? "video-text" : "video-image";
+  state.activeTemplate = null;
+  state.activeAdvancedCaseId = "";
+  if (els.advancedProvider) els.advancedProvider.value = "seedance";
+  if (els.advancedPrompt) els.advancedPrompt.value = els.templatePrompt?.value || template.prompt || template.description || "";
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = template.type === "text-to-video" ? "text_to_video" : "reference_images";
+  if (state.uploadDataUrl) {
+    state.advancedReferenceImages = [{ dataUrl: state.uploadDataUrl, fileName: "reference.png" }];
+    state.advancedUploadDataUrl = state.uploadDataUrl;
+  }
+  updateAdvancedModelControls();
+  setAdvancedSideTab("assets");
+}
+
+function renderHistory(records = []) {
+  if (!els.historyList) return;
+  const sortedRecords = [...records].sort((left, right) => new Date(right.createdAt || right.updatedAt || 0) - new Date(left.createdAt || left.updatedAt || 0));
+  const expiryNotice = `
+    <div class="history-expiry-note">
+      <i data-lucide="download"></i>
+      <span>${escapeHtml(t("history.expiryNotice"))}</span>
+    </div>
+  `;
+  if (!state.user) {
+    if (els.historyPager) els.historyPager.innerHTML = "";
+    els.historyList.innerHTML = `
+      ${expiryNotice}
+      <div class="history-empty-card">
+        <strong>${escapeHtml(t("history.loginRequired"))}</strong>
+        <p>${escapeHtml(t("history.loginDesc"))}</p>
+        <button class="generate-btn" type="button" data-login-history>${escapeHtml(t("history.login"))}</button>
+      </div>
+    `;
+    els.historyList.querySelector("[data-login-history]")?.addEventListener("click", openLogin);
+    refreshIcons();
+    return;
+  }
+  if (!sortedRecords.length) {
+    els.historyList.innerHTML = `${expiryNotice}<div class="history-empty-card"><strong>${escapeHtml(t("history.emptyTitle"))}</strong><p>${escapeHtml(t("history.emptyDesc"))}</p></div>`;
+    renderSimplePager(els.historyPager, {
+      page: state.historyRecordsPage,
+      totalPages: state.historyRecordsTotalPages,
+      total: state.historyRecordsTotal,
+    }, (page) => loadHistory({ page }));
+    refreshIcons();
+    return;
+  }
+  state.historyRecords = sortedRecords;
+  els.historyList.innerHTML = `${expiryNotice}${sortedRecords.map((record, index) => {
+    const isSucceeded = isSucceededGenerationStatus(record.status);
+    const videoUrl = isSucceeded ? generationVideoUrl(record) : "";
+    const imageResultUrl = isSucceeded ? generationImageResultUrl(record) : "";
+    const taskId = record.taskId || "";
+    const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
+    const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio;
+    const mediaStyle = ratioStyle(recordRatio);
+    const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
+    return `
+      <article class="history-item is-${escapeHtml(statusClass(record.status))}">
+        <div class="history-media" style="${escapeHtml(mediaStyle)}">
+          ${videoUrl ? `
+            <button class="history-poster" type="button" data-history-load-video="${escapeHtml(mediaKey)}" aria-label="${escapeHtml(t("common.preview"))}">
+              ${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(statusLabel(record.status))}</span>`}
+              <i data-lucide="play"></i>
+            </button>
+            <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
+          ` : imageResultUrl ? `<img class="history-result-image" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
+        </div>
+        <div class="history-card-actions">
+          <div class="history-record-actions${taskId || videoUrl ? "" : " history-record-actions-empty"}">
+            ${taskId ? `
+              <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
+                <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
+              </button>
+            ` : ""}
+            ${taskId && (videoUrl || imageResultUrl) ? `
+              <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
+                <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
+              </button>
+            ` : ""}
+            ${taskId && videoUrl ? `
+              <button class="history-download history-extend" type="button" data-history-extend="${escapeHtml(taskId)}">
+                <i data-lucide="stretch-horizontal"></i>${escapeHtml(t("assets.extend"))}
+              </button>
+              <button class="history-download history-replace" type="button" data-history-replace="${escapeHtml(taskId)}">
+                <i data-lucide="replace"></i>${escapeHtml(t("assets.replace"))}
+              </button>
+              <button class="history-download history-frame" type="button" data-history-frame="${escapeHtml(taskId)}">
+                <i data-lucide="scan-line"></i>${escapeHtml(t("assets.extractFrame"))}
+              </button>
+            ` : ""}
+          </div>
+          <button class="history-download history-params" type="button" data-history-detail="${index}">
+            <i data-lucide="sliders-horizontal"></i>${escapeHtml(t("history.viewParameters"))}
+          </button>
+          ${taskId ? `
+            <button class="history-download history-delete" type="button" data-history-delete="${escapeHtml(taskId)}">
+              <i data-lucide="trash-2"></i>${escapeHtml(t("history.delete"))}
+            </button>
+          ` : ""}
+        </div>
+      </article>
+    `;
+  }).join("")}`;
+  els.historyList.querySelectorAll("[data-history-load-video]").forEach((button) => {
+    const showVideo = () => {
+      const key = button.dataset.historyLoadVideo || "";
+      const escapedKey = window.CSS?.escape ? CSS.escape(key) : key.replace(/["\\]/g, "\\$&");
+      const video = els.historyList.querySelector(`[data-history-video="${escapedKey}"]`);
+      if (!video) return;
+      if (!video.src) video.src = video.dataset.src || "";
+      video.muted = true;
+      video.loop = true;
+      video.controls = false;
+      video.hidden = false;
+      button.hidden = true;
+      video.play?.().catch(() => {});
+    };
+    const openModalPreview = () => {
+      const key = button.dataset.historyLoadVideo || "";
+      const escapedKey = window.CSS?.escape ? CSS.escape(key) : key.replace(/["\\]/g, "\\$&");
+      const video = els.historyList.querySelector(`[data-history-video="${escapedKey}"]`);
+      const previewUrl = video?.dataset?.src || video?.src || "";
+      const index = Number(button.closest(".history-item")?.querySelector("[data-history-detail]")?.dataset.historyDetail || -1);
+      const record = Number.isInteger(index) && index >= 0 ? sortedRecords[index] : null;
+      if (!previewUrl) return;
+      playPreview({
+        title: record?.templateTitle || record?.sceneName || record?.taskId || t("common.preview"),
+        previewUrl,
+        ratio: record?.ratio || record?.params?.ratio || record?.params?.aspect_ratio || "16:9",
+      });
+    };
+    button.addEventListener("mouseenter", showVideo, { once: true });
+    button.addEventListener("focus", showVideo, { once: true });
+    button.addEventListener("click", openModalPreview);
+  });
+  els.historyList.querySelectorAll(".history-result-image").forEach((image, index) => {
+    image.addEventListener("click", () => {
+      const record = sortedRecords[index];
+      const previewUrl = image.getAttribute("src") || generationImageResultUrl(record);
+      if (!previewUrl) return;
+      previewImage({
+        title: record?.templateTitle || record?.sceneName || record?.taskId || t("common.preview"),
+        imageUrl: previewUrl,
+      });
+    });
+  });
+  els.historyList.querySelectorAll("[data-history-regenerate]").forEach((button) => {
+    button.addEventListener("click", () => regenerateHistoryRecord(button.dataset.historyRegenerate || "", button));
+  });
+  els.historyList.querySelectorAll("[data-history-add-asset]").forEach((button) => {
+    button.addEventListener("click", () => addHistoryRecordToAssets(button.dataset.historyAddAsset || "", button));
+  });
+  els.historyList.querySelectorAll("[data-history-replace]").forEach((button) => {
+    button.addEventListener("click", () => openHistoryRecordAssetAction(button.dataset.historyReplace || "", "replace", button));
+  });
+  els.historyList.querySelectorAll("[data-history-extend]").forEach((button) => {
+    button.addEventListener("click", () => openHistoryRecordAssetAction(button.dataset.historyExtend || "", "extend", button));
+  });
+  els.historyList.querySelectorAll("[data-history-frame]").forEach((button) => {
+    button.addEventListener("click", () => openHistoryRecordAssetAction(button.dataset.historyFrame || "", "frame", button));
+  });
+  els.historyList.querySelectorAll("[data-history-detail]").forEach((button) => {
+    button.addEventListener("click", () => openHistoryDetail(button.dataset.historyDetail || 0));
+  });
+  els.historyList.querySelectorAll("[data-history-delete]").forEach((button) => {
+    button.addEventListener("click", () => deleteHistoryRecord(button.dataset.historyDelete || "", button));
+  });
+  renderSimplePager(els.historyPager, {
+    page: state.historyRecordsPage,
+    totalPages: state.historyRecordsTotalPages,
+    total: state.historyRecordsTotal,
+  }, (page) => loadHistory({ page }));
+  refreshIcons();
+}
+
+async function regenerateHistoryRecord(taskId, button) {
+  if (!taskId || !button) return;
+  const originalHtml = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
+  refreshIcons();
+  try {
+    let record = (state.historyRecords || []).find((item) => String(item.taskId || "") === String(taskId));
+    if (!record) {
+      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
+      record = payload.record || payload.generation || null;
+      if (payload.user) setUser(payload.user);
+    }
+    if (!record) throw new Error(t("history.loadFailed", { message: "record not found" }));
+    restoreRecordToAdvancedCreate(record, button);
+    button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.regenerateSubmitted"))}`;
+    refreshIcons();
+  } catch (error) {
+    button.innerHTML = `<i data-lucide="alert-circle"></i>${escapeHtml(error.message || String(error))}`;
+    refreshIcons();
+    window.setTimeout(() => {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }, 2500);
+    return;
+  }
+  button.disabled = false;
+}
+
+async function addHistoryRecordToAssets(taskId, button) {
+  if (!taskId || !button) return;
+  const originalHtml = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.addingAsset"))}`;
+  refreshIcons();
+  try {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/add-asset`, { method: "POST" });
+    if (payload.asset) {
+      state.userAssets = [payload.asset, ...(state.userAssets || []).filter((asset) => asset.id !== payload.asset.id)];
+    }
+    button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.assetAdded"))}`;
+    refreshIcons();
+    window.setTimeout(() => {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }, 1800);
+  } catch (error) {
+    button.disabled = false;
+    button.innerHTML = originalHtml;
+    if (els.historyList) {
+      const note = document.createElement("div");
+      note.className = "job-note history-action-note";
+      note.textContent = error.message || String(error);
+      els.historyList.prepend(note);
+      window.setTimeout(() => note.remove(), 5000);
+    }
+    refreshIcons();
+  }
+}
+
+async function historyRecordToVideoAsset(taskId, button) {
+  if (!taskId) return null;
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.addingAsset"))}`;
+    refreshIcons();
+  }
+  try {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/add-asset`, { method: "POST" });
+    if (payload.asset) {
+      state.userAssets = [payload.asset, ...(state.userAssets || []).filter((asset) => asset.id !== payload.asset.id)];
+      state.userAssetsTotal += 1;
+    }
+    return payload.asset || null;
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }
+  }
+}
+
+async function openHistoryRecordAssetAction(taskId, action = "replace", button = null) {
+  const videoAsset = await historyRecordToVideoAsset(taskId, button).catch((error) => {
+    if (els.historyList) {
+      const note = document.createElement("div");
+      note.className = "job-note history-action-note";
+      note.textContent = error.message || String(error);
+      els.historyList.prepend(note);
+      window.setTimeout(() => note.remove(), 5000);
+    }
+    refreshIcons();
+    return null;
+  });
+  if (!videoAsset) return;
+  if (action === "frame") return openAssetFrameDialog(videoAsset);
+  if (action === "extend") return openAssetVideoExtendDialog(videoAsset);
+  if (action === "replace") return openAssetReplaceDialog(videoAsset);
+}
+
+async function deleteHistoryRecord(taskId = "", button = null) {
+  if (!taskId) return;
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.deleting"))}`;
+    refreshIcons();
+  }
+  try {
+    await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+    state.historyRecords = (state.historyRecords || []).filter((record) => String(record.taskId || "") !== String(taskId));
+    state.historyRecordsTotal = Math.max(0, Number(state.historyRecordsTotal || 0) - 1);
+    historyRecordsSignature = "";
+    await loadHistory({ silent: true, page: state.historyRecordsPage || 1 });
+  } catch (error) {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }
+    if (els.historyList) {
+      const note = document.createElement("div");
+      note.className = "job-note history-action-note";
+      note.textContent = t("history.deleteFailed", { message: error.message || String(error) });
+      els.historyList.prepend(note);
+      window.setTimeout(() => note.remove(), 5000);
+    }
+  }
+}
+
+function isPendingGenerationRecord(record = {}) {
+  if (generationVideoUrl(record)) return false;
+  if (generationImageResultUrl(record)) return false;
+  return !["succeeded", "success", "done", "completed", "failed", "error", "cancelled", "canceled", "reference_failed", "rejected", "refunded", "deleted", "hidden"]
+    .includes(String(record.status || "").toLowerCase().trim());
+}
+
+function generationRecordTime(record = {}) {
+  const value = Date.parse(record.updatedAt || record.createdAt || "");
+  return Number.isFinite(value) ? value : 0;
+}
+
+function isRecentPendingGenerationRecord(record = {}) {
+  if (!isPendingGenerationRecord(record) || !record.taskId) return false;
+  const time = generationRecordTime(record);
+  return !time || Date.now() - time <= HISTORY_PENDING_REFRESH_MAX_AGE_MS;
+}
+
+function canRefreshHistoryRecordDetail(record = {}) {
+  if (!isRecentPendingGenerationRecord(record)) return false;
+  const taskId = String(record.taskId || "");
+  if (!taskId || historyDetailRefreshInFlight.has(taskId)) return false;
+  const lastRefreshAt = historyDetailRefreshAt.get(taskId) || 0;
+  return Date.now() - lastRefreshAt >= HISTORY_DETAIL_REFRESH_COOLDOWN_MS;
+}
+
+async function refreshPendingHistoryRecords(records = []) {
+  if (state.tab !== "history" || !state.user) return;
+  const candidates = records
+    .filter(canRefreshHistoryRecordDetail)
+    .sort((left, right) => generationRecordTime(right) - generationRecordTime(left))
+    .slice(0, HISTORY_DETAIL_REFRESH_LIMIT);
+  if (!candidates.length) return;
+
+  const startedAt = Date.now();
+  candidates.forEach((record) => {
+    const taskId = String(record.taskId || "");
+    historyDetailRefreshAt.set(taskId, startedAt);
+    historyDetailRefreshInFlight.add(taskId);
+  });
+
+  const settled = await Promise.allSettled(candidates.map((record) => (
+    requestJson(`/api/generation-records/${encodeURIComponent(record.taskId)}`)
+  )));
+
+  candidates.forEach((record) => historyDetailRefreshInFlight.delete(String(record.taskId || "")));
+  if (state.tab !== "history" || !state.user) return;
+  if (settled.some((result) => result.status === "fulfilled")) {
+    window.setTimeout(() => loadHistory({ silent: true }), 500);
+  }
+}
+
+async function requestVideoFullscreen(video) {
+  if (!video) return;
+  try {
+    if (video.requestFullscreen) await video.requestFullscreen();
+    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+    else if (video.webkitRequestFullscreen) await video.webkitRequestFullscreen();
+    await video.play().catch(() => {});
+  } catch {
+    video.controls = true;
+  }
+}
+
+function stopHistoryRefresh() {
+  if (historyRefreshTimer) window.clearTimeout(historyRefreshTimer);
+  historyRefreshTimer = null;
+}
+
+function scheduleHistoryRefresh({ delayMs = 15000, force = false } = {}) {
+  if (historyRefreshTimer && !force) return;
+  stopHistoryRefresh();
+  if (state.tab !== "history" || !state.user) return;
+  historyRefreshTimer = window.setTimeout(() => {
+    historyRefreshTimer = null;
+    if (state.tab === "history") loadHistory({ silent: true, refresh: true });
+  }, delayMs);
+}
+
+async function loadHistory({ silent = false, refresh = false, page = state.historyRecordsPage || 1 } = {}) {
+  if (!els.historyList) return;
+  if (!state.user) {
+    stopHistoryRefresh();
+    historyRecordsSignature = "";
+    renderHistory([]);
+    return;
+  }
+  if (historyLoading || historyRefreshInFlight) {
+    scheduleHistoryRefresh({ delayMs: 5000, force: true });
+    return;
+  }
+  historyLoading = true;
+  historyRefreshInFlight = true;
+  const previousScrollTop = els.historyList.scrollTop || 0;
+  const requestedPage = Math.max(1, Number(page || 1) || 1);
+  if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
+  try {
+    const historyUrl = `/api/generation-records?page=${encodeURIComponent(requestedPage)}&limit=${encodeURIComponent(state.historyRecordsLimit || 8)}${refresh ? "&refresh=1" : ""}`;
+    const payload = await requestJson(historyUrl);
+    if (payload.user) setUser(payload.user);
+    const records = payload.records || [];
+    state.historyRecordsPage = payload.page || requestedPage;
+    state.historyRecordsLimit = payload.limit || state.historyRecordsLimit || 8;
+    state.historyRecordsTotal = payload.total || records.length;
+    state.historyRecordsTotalPages = payload.totalPages || 1;
+    const nextSignature = generationRecordsSignature(records);
+    if (!silent || nextSignature !== historyRecordsSignature) {
+      renderHistory(records);
+      historyRecordsSignature = nextSignature;
+      els.historyList.scrollTop = previousScrollTop;
+    }
+    refreshPendingHistoryRecords(records);
+    if (records.some(isRecentPendingGenerationRecord)) scheduleHistoryRefresh();
+    else stopHistoryRefresh();
+  } catch (error) {
+    if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loadFailed", { message: error.message || String(error) }))}</div>`;
+    scheduleHistoryRefresh({ delayMs: 30000, force: true });
+  } finally {
+    historyLoading = false;
+    historyRefreshInFlight = false;
+  }
+}
+
+function ledgerLoginCard() {
+  return `
+    <div class="history-empty-card">
+      <strong>${escapeHtml(t("ledger.loginRequired"))}</strong>
+      <p>${escapeHtml(t("ledger.loginDesc"))}</p>
+      <button class="generate-btn" type="button" data-login-ledger>${escapeHtml(t("history.login"))}</button>
+    </div>
+  `;
+}
+
+function ledgerParams(kind, page = 1, exportCsv = false) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(kind === "topups" ? state.topupRecords.limit : state.spendingRecords.limit),
+  });
+  const controls = kind === "topups"
+    ? {
+        q: els.topupSearch?.value,
+        status: els.topupStatus?.value,
+        from: els.topupFrom?.value,
+        to: els.topupTo?.value,
+      }
+    : {
+        q: els.spendingSearch?.value,
+        type: els.spendingType?.value,
+        from: els.spendingFrom?.value,
+        to: els.spendingTo?.value,
+      };
+  Object.entries(controls).forEach(([key, value]) => {
+    const text = String(value || "").trim();
+    if (text) params.set(key, text);
+  });
+  if (exportCsv) params.set("export", "csv");
+  return params;
+}
+
+function renderLedgerPager(kind) {
+  const data = kind === "topups" ? state.topupRecords : state.spendingRecords;
+  const holder = kind === "topups" ? els.topupPager : els.spendingPager;
+  if (!holder) return;
+  holder.innerHTML = `
+    <button class="ghost-button" type="button" data-page="prev" ${data.page <= 1 ? "disabled" : ""}>${escapeHtml(t("ledger.prev"))}</button>
+    <span>${escapeHtml(t("ledger.page", { page: data.page, totalPages: data.totalPages, total: data.total }))}</span>
+    <button class="ghost-button" type="button" data-page="next" ${data.page >= data.totalPages ? "disabled" : ""}>${escapeHtml(t("ledger.next"))}</button>
+  `;
+  holder.querySelector('[data-page="prev"]')?.addEventListener("click", () => {
+    if (data.page > 1) (kind === "topups" ? loadTopupRecords : loadSpendingRecords)(data.page - 1);
+  });
+  holder.querySelector('[data-page="next"]')?.addEventListener("click", () => {
+    if (data.page < data.totalPages) (kind === "topups" ? loadTopupRecords : loadSpendingRecords)(data.page + 1);
+  });
+}
+
+function renderTopupRecords() {
+  if (!els.topupTable) return;
+  if (!state.user) {
+    els.topupTable.innerHTML = ledgerLoginCard();
+    els.topupPager.innerHTML = "";
+    els.topupTable.querySelector("[data-login-ledger]")?.addEventListener("click", openLogin);
+    refreshIcons();
+    return;
+  }
+  const records = state.topupRecords.records || [];
+  if (!records.length) {
+    els.topupTable.innerHTML = `<div class="history-empty-card"><strong>${escapeHtml(t("ledger.empty"))}</strong></div>`;
+    renderLedgerPager("topups");
+    return;
+  }
+  els.topupTable.innerHTML = `
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>${escapeHtml(t("ledger.orderId"))}</th>
+          <th>${escapeHtml(t("ledger.status"))}</th>
+          <th>${escapeHtml(t("ledger.amount"))}</th>
+          <th>${escapeHtml(t("ledger.payable"))}</th>
+          <th>${escapeHtml(t("ledger.credits"))}</th>
+          <th>${escapeHtml(t("ledger.createdAt"))}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${records.map((order) => `
+          <tr>
+            <td data-label="${escapeHtml(t("ledger.orderId"))}"><code>${escapeHtml(order.id)}</code></td>
+            <td data-label="${escapeHtml(t("ledger.status"))}"><span class="ledger-badge">${escapeHtml(order.status || "")}</span></td>
+            <td data-label="${escapeHtml(t("ledger.amount"))}">${escapeHtml(formatCredits(order.amount))} ${escapeHtml(order.asset || "USDT")}</td>
+            <td data-label="${escapeHtml(t("ledger.payable"))}"><strong>${escapeHtml(order.payableAmountText || order.payableAmount || "")}</strong><small>${escapeHtml([order.network, order.paymentProvider === "paypal" ? order.paypalOrderId : ""].filter(Boolean).join(" · "))}</small></td>
+            <td data-label="${escapeHtml(t("ledger.credits"))}">${escapeHtml(formatCredits(order.creditAmount))}</td>
+            <td data-label="${escapeHtml(t("ledger.createdAt"))}">${escapeHtml(formatDateTime(order.createdAt))}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+  renderLedgerPager("topups");
+}
+
+function renderReferral() {
+  const referral = state.referral || null;
+  const loggedIn = Boolean(state.user);
+  const invitedCount = Number(referral?.invitedCount || 0);
+  const remainingRewards = Math.max(0, Number(referral?.remainingRewards ?? 1));
+  const maxRewards = Math.max(1, Number(referral?.maxRewards || 1));
+  const rewardCount = Math.max(0, maxRewards - remainingRewards);
+  const progress = Math.max(0, Math.min(100, (rewardCount / maxRewards) * 100));
+  if (els.referralLink) els.referralLink.textContent = loggedIn ? (referral?.inviteUrl || "") : t("referral.login");
+  if (els.referralProgressFill) els.referralProgressFill.style.width = `${progress}%`;
+  if (els.referralInvitedCount) els.referralInvitedCount.textContent = t("referral.invitedCount", { count: invitedCount });
+  if (els.referralRewardStatus) {
+    els.referralRewardStatus.textContent = remainingRewards > 0
+      ? t("referral.rewardAvailable", { count: remainingRewards })
+      : t("referral.rewardUsed");
+  }
+  if (els.referralNote) els.referralNote.textContent = loggedIn ? t("referral.rules") : t("referral.login");
+  if (els.copyReferralBtn) els.copyReferralBtn.disabled = !loggedIn || !referral?.inviteUrl;
+  refreshIcons();
+}
+
+async function loadReferralSummary() {
+  if (!state.user) {
+    state.referral = null;
+    renderReferral();
+    return;
+  }
+  try {
+    const payload = await requestJson("/api/referral");
+    state.referral = payload.referral || null;
+    if (payload.user) setUser(payload.user);
+  } catch (error) {
+    if (els.referralNote) els.referralNote.textContent = error.message || String(error);
+  }
+  renderReferral();
+}
+
+function renderSpendingTypeOptions(types = []) {
+  if (!els.spendingType) return;
+  const current = els.spendingType.value;
+  els.spendingType.innerHTML = `<option value="">${escapeHtml(t("ledger.allTypes"))}</option>${types.map((type) => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`).join("")}`;
+  if (types.includes(current)) els.spendingType.value = current;
+}
+
+function renderSpendingRecords() {
+  if (!els.spendingTable) return;
+  if (!state.user) {
+    els.spendingTable.innerHTML = ledgerLoginCard();
+    els.spendingPager.innerHTML = "";
+    els.spendingTable.querySelector("[data-login-ledger]")?.addEventListener("click", openLogin);
+    refreshIcons();
+    return;
+  }
+  const records = state.spendingRecords.records || [];
+  renderSpendingTypeOptions(state.spendingRecords.types || []);
+  if (!records.length) {
+    els.spendingTable.innerHTML = `<div class="history-empty-card"><strong>${escapeHtml(t("ledger.empty"))}</strong></div>`;
+    renderLedgerPager("spending");
+    return;
+  }
+  els.spendingTable.innerHTML = `
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>${escapeHtml(t("ledger.createdAt"))}</th>
+          <th>${escapeHtml(t("ledger.type"))}</th>
+          <th>${escapeHtml(t("ledger.title"))}</th>
+          <th>${escapeHtml(t("ledger.credits"))}</th>
+          <th>${escapeHtml(t("ledger.balanceAfter"))}</th>
+          <th>${escapeHtml(t("ledger.taskId"))}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${records.map((entry) => `
+          <tr>
+            <td data-label="${escapeHtml(t("ledger.createdAt"))}">${escapeHtml(formatDateTime(entry.createdAt))}</td>
+            <td data-label="${escapeHtml(t("ledger.type"))}"><span class="ledger-badge">${escapeHtml(entry.type || "")}</span></td>
+            <td data-label="${escapeHtml(t("ledger.title"))}"><strong>${escapeHtml(entry.title || entry.type || "")}</strong><small>${[entry.resolution, entry.duration ? `${entry.duration}s` : ""].filter(Boolean).join(" / ")}</small></td>
+            <td data-label="${escapeHtml(t("ledger.credits"))}" class="ledger-negative">-${escapeHtml(formatCredits(entry.amount))}</td>
+            <td data-label="${escapeHtml(t("ledger.balanceAfter"))}">${escapeHtml(formatCredits(entry.balanceAfter))}</td>
+            <td data-label="${escapeHtml(t("ledger.taskId"))}"><code>${escapeHtml(entry.taskId || entry.id || "")}</code></td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+  renderLedgerPager("spending");
+}
+
+async function loadTopupRecords(page = state.topupRecords.page || 1) {
+  if (!els.topupTable) return;
+  if (!state.user) {
+    renderTopupRecords();
+    return;
+  }
+  els.topupTable.innerHTML = `<div class="job-note">${escapeHtml(t("ledger.loading"))}</div>`;
+  try {
+    const payload = await requestJson(`/api/billing/topups?${ledgerParams("topups", page).toString()}`);
+    if (payload.user) setUser(payload.user);
+    state.topupRecords = {
+      ...state.topupRecords,
+      records: payload.records || [],
+      page: payload.page || page,
+      limit: payload.limit || state.topupRecords.limit,
+      total: payload.total || 0,
+      totalPages: payload.totalPages || 1,
+    };
+    renderTopupRecords();
+  } catch (error) {
+    els.topupTable.innerHTML = `<div class="job-note">${escapeHtml(t("ledger.loadFailed", { message: error.message || String(error) }))}</div>`;
+  }
+  refreshIcons();
+}
+
+function shouldAutoRefreshTopups() {
+  return Boolean(
+    state.user &&
+    !document.hidden &&
+    (state.tab === "topups" || els.topupQrDialog?.open)
+  );
+}
+
+async function refreshTopupsQuietly() {
+  if (!shouldAutoRefreshTopups() || state.topupRefreshInFlight) return;
+  state.topupRefreshInFlight = true;
+  try {
+    const page = state.tab === "topups" ? (state.topupRecords.page || 1) : 1;
+    const payload = await requestJson(`/api/billing/topups?${ledgerParams("topups", page).toString()}`);
+    if (payload.user) setUser(payload.user);
+    state.topupRecords = {
+      ...state.topupRecords,
+      records: payload.records || [],
+      page: payload.page || page,
+      limit: payload.limit || state.topupRecords.limit,
+      total: payload.total || 0,
+      totalPages: payload.totalPages || 1,
+    };
+    if (state.tab === "topups") renderTopupRecords();
+    refreshIcons();
+  } catch {
+    // Keep the current table visible; the next interval can recover.
+  } finally {
+    state.topupRefreshInFlight = false;
+  }
+}
+
+function syncTopupAutoRefresh() {
+  const active = shouldAutoRefreshTopups();
+  if (active && !state.topupRefreshTimer) {
+    state.topupRefreshTimer = window.setInterval(refreshTopupsQuietly, TOPUP_RECORDS_AUTO_REFRESH_MS);
+  } else if (!active && state.topupRefreshTimer) {
+    window.clearInterval(state.topupRefreshTimer);
+    state.topupRefreshTimer = 0;
+  }
+}
+
+async function loadSpendingRecords(page = state.spendingRecords.page || 1) {
+  if (!els.spendingTable) return;
+  if (!state.user) {
+    renderSpendingRecords();
+    return;
+  }
+  els.spendingTable.innerHTML = `<div class="job-note">${escapeHtml(t("ledger.loading"))}</div>`;
+  try {
+    const payload = await requestJson(`/api/billing/spending?${ledgerParams("spending", page).toString()}`);
+    if (payload.user) setUser(payload.user);
+    state.spendingRecords = {
+      ...state.spendingRecords,
+      records: payload.records || [],
+      types: payload.types || state.spendingRecords.types || [],
+      page: payload.page || page,
+      limit: payload.limit || state.spendingRecords.limit,
+      total: payload.total || 0,
+      totalPages: payload.totalPages || 1,
+    };
+    renderSpendingRecords();
+  } catch (error) {
+    els.spendingTable.innerHTML = `<div class="job-note">${escapeHtml(t("ledger.loadFailed", { message: error.message || String(error) }))}</div>`;
+  }
+  refreshIcons();
+}
+
+async function exportLedger(kind) {
+  if (!state.user) return openLogin();
+  const endpoint = kind === "topups" ? "/api/billing/topups" : "/api/billing/spending";
+  const params = ledgerParams(kind, 1, true);
+  const button = kind === "topups" ? els.exportTopupsBtn : els.exportSpendingBtn;
+  const table = kind === "topups" ? els.topupTable : els.spendingTable;
+  const filename = kind === "topups" ? "topup-records.csv" : "spending-records.csv";
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch(`${endpoint}?${params.toString()}`, {
+      headers: state.token ? { authorization: `Bearer ${state.token}` } : {},
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.message || `Export failed: ${response.status}`);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    if (table) {
+      table.insertAdjacentHTML("afterbegin", `<div class="job-note">${escapeHtml(error.message || String(error))}</div>`);
+    }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function openLogin() {
+  if (state.user) return openAccount();
+  renderLoginMode();
+  els.loginDialog.showModal();
+}
+
+function openAccount() {
+  renderTokenDisplays();
+  els.accountDialog?.showModal();
+  refreshIcons();
+}
+
+function logout() {
+  state.token = "";
+  state.user = null;
+  state.showAccessToken = false;
+  state.showAccountToken = false;
+  state.apiSubtokens = [];
+  state.apiSubtokensLoaded = false;
+  state.apiSubtokenMessage = "";
+  state.createdApiSubtoken = null;
+  localStorage.removeItem(TOKEN_KEY);
+  els.accountDialog?.close();
+  closeAccountMenu();
+  setUser(null);
+  if (state.tab === "history") renderHistory([]);
+  if (state.tab === "topups") renderTopupRecords();
+  if (state.tab === "spending") renderSpendingRecords();
+  if (state.tab === "assets") renderAssets([]);
+  if (state.tab === "access") renderApiSubtokens();
+  if (state.tab === "referral") renderReferral();
+  syncTopupAutoRefresh();
+}
+
+function renderLoginMode() {
+  const isRegister = state.loginMode === "register";
+  els.loginTitle.textContent = isRegister ? t("auth.createAccount") : t("auth.login");
+  els.loginSubmit.textContent = isRegister ? t("auth.createAndLogin") : t("auth.login");
+  els.toggleLoginMode.textContent = isRegister ? t("auth.alreadyAccount") : t("auth.createAccount");
+  els.loginMessage.textContent = "";
+}
+
+async function submitLogin() {
+  const username = els.loginUsername.value.trim();
+  const password = els.loginPassword.value;
+  if (!username || password.length < 6) {
+    els.loginMessage.textContent = t("auth.invalid");
+    return;
+  }
+  const endpoint = state.loginMode === "register" ? "/api/auth/register" : "/api/auth/login";
+  const referralCode = localStorage.getItem(REFERRAL_CODE_KEY) || "";
+  try {
+    const payload = await requestJson(endpoint, {
+      method: "POST",
+      body: { username, password, referralCode: state.loginMode === "register" ? referralCode : "" },
+    });
+    state.token = payload.token;
+    setUser(payload.user);
+    localStorage.setItem(TOKEN_KEY, payload.token);
+    els.loginDialog.close();
+    if (state.tab === "access") renderAccessGuides();
+    if (state.tab === "access") loadApiSubtokens({ force: true });
+    if (state.tab === "history") loadHistory();
+    if (state.tab === "topups") loadTopupRecords(1);
+    if (state.tab === "spending") loadSpendingRecords(1);
+    if (state.tab === "assets") loadUserAssets();
+    if (state.tab === "referral") loadReferralSummary();
+  } catch (error) {
+    els.loginMessage.textContent = error.message;
+  }
+}
+
+async function loadMe() {
+  if (!state.token) return;
+  try {
+    const payload = await requestJson("/api/auth/me");
+    setUser(payload.user);
+  } catch {
+    state.token = "";
+    localStorage.removeItem(TOKEN_KEY);
+    setUser(null);
+  }
+}
+
+async function loadPlatformEstimates() {
+  if (!state.templates.length) return;
+  try {
+    const payload = await requestJson("/api/platform/estimates");
+    state.estimates = {};
+    (payload.estimates || []).forEach((estimate) => {
+      if (estimate?.templateId) state.estimates[estimate.templateId] = estimate;
+    });
+  } catch (error) {
+    state.estimates = Object.fromEntries(state.templates.map((template) => [
+      template.id,
+      { templateId: template.id, available: false, credits: null, message: error.message },
+    ]));
+  }
+  renderTemplates();
+  updateSubmitButtonCost();
+}
+
+function captureReferralCodeFromUrl() {
+  const params = new URLSearchParams(window.location.search || "");
+  const ref = String(params.get("ref") || params.get("referral") || "").trim();
+  if (ref) localStorage.setItem(REFERRAL_CODE_KEY, ref);
+}
+
+async function bootstrap() {
+  captureReferralCodeFromUrl();
+  await loadMe();
+  const payload = await requestJson("/api/config/public");
+  const platform = payload.config?.platform || {};
+  initGoogleAnalytics(platform.analytics?.googleMeasurementId || platform.googleMeasurementId || "");
+  state.config = payload.config;
+  state.wallet = payload.config?.wallet || null;
+  ensureSelectedWalletOption();
+  state.templates = platform.templates || [];
+  state.categories = platform.categories || [];
+  state.advancedCases = platform.advanced?.cases || [];
+  const homeVideo = payload.config?.homeVideo || {};
+  state.homeCharacters = homeVideo.items || [];
+  state.homeCharactersPage = Number(homeVideo.page || 1) || 1;
+  state.homeCharactersLimit = Number(homeVideo.limit || CHARACTER_PAGE_SIZE) || CHARACTER_PAGE_SIZE;
+  state.homeCharactersTotal = Number(homeVideo.total || state.homeCharacters.length) || state.homeCharacters.length;
+  state.homeCharactersTotalPages = Number(homeVideo.totalPages || 1) || 1;
+  await ensureRouteHomeCharacterLoaded().catch((error) => console.warn("route character preload failed", error.message || error));
+  applyRouteCharacterDetail({ allowTabSwitch: true });
+  els.brandName.textContent = platform.brand || "Vipeak AI";
+  await loadAdvancedPresets();
+  applyTenantFeatures();
+  if (!isTabAllowed(state.tab)) state.tab = DEFAULT_PLATFORM_TAB;
+  renderCategories();
+  renderTemplates();
+  renderAccessGuides();
+  renderAdvanced();
+  renderAssets();
+  renderAccountMenu();
+  renderTopupSummary();
+  renderPricing();
+  renderTokenDisplays();
+  setTab(state.tab);
+  refreshIcons();
+  loadPlatformEstimates();
+}
+
