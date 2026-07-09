@@ -4502,7 +4502,8 @@ function userView(user) {
     role: user.role || "user",
     credits: Number(user.credits || 0),
     apiToken: String(user.apiToken || ""),
-    pricingMultiplier: normalizeUserPricingMultiplier(user),
+    pricingMultiplier: normalizeUserPricingMultiplier(user, { channel: "web" }),
+    apiPricingMultiplier: normalizeUserPricingMultiplier(user, { channel: "api" }),
     advancedAccess: user.advancedAccess === true,
     advancedAccessLevel: user.advancedAccess === true ? "advanced" : "platform",
     advancedAccessRequestedAt: user.advancedAccessRequestedAt || "",
@@ -4617,28 +4618,48 @@ function roundCredits(value, digits = 6) {
   return Math.round(next * scale) / scale;
 }
 
-function normalizeUserPricingMultiplier(userOrValue = 1) {
+function normalizePricingChannel(value = "web") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "api" || normalized === "interface" || normalized === "bearer" ? "api" : "web";
+}
+
+function pricingContextForAuth(auth = {}) {
+  const tokenSource = String(auth?.tokenSource || "").toLowerCase();
+  return { channel: tokenSource === "api_token" || tokenSource === "subtoken" || auth?.isApiToken === true ? "api" : "web" };
+}
+
+function pricingContextForRecord(record = {}) {
+  const source = String(record.apiTokenSource || record.tokenSource || "").toLowerCase();
+  return { channel: source === "api_token" || source === "subtoken" ? "api" : "web" };
+}
+
+function normalizeUserPricingMultiplier(userOrValue = 1, options = {}) {
+  const channel = normalizePricingChannel(options.channel);
   const raw = userOrValue && typeof userOrValue === "object"
-    ? (userOrValue.pricingMultiplier ?? userOrValue.priceMultiplier ?? userOrValue.discountMultiplier ?? userOrValue.discount)
+    ? channel === "api"
+      ? (userOrValue.apiPricingMultiplier ?? userOrValue.apiPriceMultiplier ?? userOrValue.apiDiscountMultiplier ?? userOrValue.apiDiscount ?? 1)
+      : (userOrValue.pricingMultiplier ?? userOrValue.priceMultiplier ?? userOrValue.discountMultiplier ?? userOrValue.discount)
     : userOrValue;
   const next = Number(raw);
   if (!Number.isFinite(next) || next <= 0) return 1;
   return Math.round(Math.max(0.01, Math.min(100, next)) * 10000) / 10000;
 }
 
-function applyUserPricingMultiplierToCredits(credits, userOrValue = 1) {
-  const multiplier = normalizeUserPricingMultiplier(userOrValue);
+function applyUserPricingMultiplierToCredits(credits, userOrValue = 1, options = {}) {
+  const multiplier = normalizeUserPricingMultiplier(userOrValue, options);
   return creditsAmount(Number(credits || 0) * multiplier);
 }
 
-function pricingMultiplierView(userOrValue = 1) {
+function pricingMultiplierView(userOrValue = 1, options = {}) {
   return {
-    multiplier: normalizeUserPricingMultiplier(userOrValue),
+    multiplier: normalizeUserPricingMultiplier(userOrValue, options),
+    channel: normalizePricingChannel(options.channel),
   };
 }
 
-function applyUserPricingToEstimate(estimate = {}, userOrValue = 1) {
-  const multiplier = normalizeUserPricingMultiplier(userOrValue);
+function applyUserPricingToEstimate(estimate = {}, userOrValue = 1, options = {}) {
+  const channel = normalizePricingChannel(options.channel);
+  const multiplier = normalizeUserPricingMultiplier(userOrValue, { channel });
   const originalCredits = creditsAmount(estimate.credits || 0);
   const originalBaseCredits = estimate.baseCredits === undefined || estimate.baseCredits === null
     ? originalCredits
@@ -4650,6 +4671,7 @@ function applyUserPricingToEstimate(estimate = {}, userOrValue = 1) {
     originalCredits,
     userPricingMultiplier: multiplier,
     pricingMultiplier: multiplier,
+    pricingChannel: channel,
   };
 }
 
@@ -8601,7 +8623,7 @@ async function handleVolcengineCreateGenerationTask(req, res) {
     advancedPricing: config.platform?.advancedPricing,
     allowFourSecondSeedance: true,
   });
-  const pricing = applyUserPricingToEstimate(rawPricing, auth.user);
+  const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, { error: { code: "INSUFFICIENT_CREDITS", message: insufficientCreditsMessage(cost, auth.user.credits) }, cost, credits: creditsAmount(auth.user.credits) });
@@ -12556,7 +12578,7 @@ async function settleApizGenerationRecord(record = {}, task = {}, reason = "quer
   let delta = 0;
   let billingStatus = "settled";
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
-  const pricingMultiplier = normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? (db.users || []).find((user) => user.id === record.userId));
+  const pricingMultiplier = normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? (db.users || []).find((user) => user.id === record.userId), pricingContextForRecord(record));
 
   if (isFailedStatus(status)) {
     finalCredits = 0;
@@ -13237,7 +13259,7 @@ async function handlePlatformGenerate(req, res) {
     overrides: body.params,
   });
   const rawPricingEstimate = await estimatePlatformPreDeductCredits(upstreamPayload.model, upstreamPayload.params, template);
-  const pricingEstimate = applyUserPricingToEstimate(rawPricingEstimate, auth.user);
+  const pricingEstimate = applyUserPricingToEstimate(rawPricingEstimate, auth.user, pricingContextForAuth(auth));
   const preDeductedCredits = pricingEstimate.credits;
   if (auth.user.credits < preDeductedCredits) {
     return sendJson(res, 402, insufficientCreditsPayload(preDeductedCredits, auth.user.credits));
@@ -14255,7 +14277,7 @@ async function handleAdvancedGenerate(req, res) {
     ...requestParams,
     advancedPricing: config.platform?.advancedPricing,
   });
-  const pricing = applyUserPricingToEstimate(rawPricing, auth.user);
+  const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -14811,7 +14833,7 @@ async function handleAdminAttachRecordToCharacterVideo(req, res, taskId) {
   return sendJson(res, 200, { ok: true, item: nextItem, videoKey, video: entry, homeVideo: config.homeVideo });
 }
 
-async function makePlatformEstimate(template, overrides = {}, user = null) {
+async function makePlatformEstimate(template, overrides = {}, user = null, options = {}) {
   const prompt =
     typeof overrides.prompt === "string" && overrides.prompt.trim()
       ? overrides.prompt
@@ -14823,14 +14845,14 @@ async function makePlatformEstimate(template, overrides = {}, user = null) {
     overrides: overrides.params,
   });
   const rawPricingEstimate = await estimatePlatformPreDeductCredits(upstreamPayload.model, upstreamPayload.params, template);
-  const pricingEstimate = user ? applyUserPricingToEstimate(rawPricingEstimate, user) : rawPricingEstimate;
+  const pricingEstimate = user ? applyUserPricingToEstimate(rawPricingEstimate, user, options) : rawPricingEstimate;
   const durationSeconds = durationSecondsFromParams(upstreamPayload.params) || apizPricingNumber(pricingEstimate.pricing?._default_duration_seconds) || 0;
   return {
     templateId: template.id,
     credits: creditsAmount(pricingEstimate.credits),
     baseCredits: creditsAmount(pricingEstimate.baseCredits ?? pricingEstimate.credits),
     originalCredits: pricingEstimate.originalCredits === undefined || pricingEstimate.originalCredits === null ? null : creditsAmount(pricingEstimate.originalCredits),
-    userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? normalizeUserPricingMultiplier(user || 1),
+    userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? normalizeUserPricingMultiplier(user || 1, options),
     markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
     source: pricingEstimate.source,
     model: upstreamPayload.model,
@@ -14861,7 +14883,7 @@ async function handlePlatformEstimates(req, res, url) {
 
   const estimates = await Promise.all(templates.map(async (template) => {
     try {
-      return await makePlatformEstimate(template, requestedTemplateId === template.id ? body : {}, auth.user);
+      return await makePlatformEstimate(template, requestedTemplateId === template.id ? body : {}, auth.user, pricingContextForAuth(auth));
     } catch (error) {
       return {
         templateId: template.id,
@@ -14876,7 +14898,7 @@ async function handlePlatformEstimates(req, res, url) {
 
   return sendJson(res, 200, {
     ok: true,
-    userPricing: pricingMultiplierView(auth.user || 1),
+    userPricing: pricingMultiplierView(auth.user || 1, pricingContextForAuth(auth)),
     estimates,
   });
 }
@@ -15055,10 +15077,10 @@ function tenantDocsPricingView(pricing = {}) {
     };
 }
 
-async function buildUserAdvancedEstimate(provider = "seedance", params = {}, user = null) {
+async function buildUserAdvancedEstimate(provider = "seedance", params = {}, user = null, options = {}) {
   const config = await readAppConfig();
   if (isWan27ImageProvider(provider)) {
-    return wan27ImageModifyPricing(config, user || null);
+    return wan27ImageModifyPricing(config, user || null, options);
   }
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const inputVideoSeconds = normalizedProvider === "seedance"
@@ -15073,7 +15095,7 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
     advancedPricing: config.platform?.advancedPricing,
     allowFourSecondSeedance: params.allowFourSecondSeedance === true,
   });
-  return applyUserPricingToEstimate(rawPricing, user || 1);
+  return applyUserPricingToEstimate(rawPricing, user || 1, options);
 }
 
 async function handleAdvancedEstimate(req, res) {
@@ -15100,7 +15122,7 @@ async function handleAdvancedEstimate(req, res) {
     url.searchParams.get("referenceVideoDurationSeconds"),
   );
   params.allowFourSecondSeedance = body.allowFourSecondSeedance === true || url.searchParams.get("allowFourSecondSeedance") === "true";
-  const pricing = await buildUserAdvancedEstimate(provider, params, auth.user);
+  const pricing = await buildUserAdvancedEstimate(provider, params, auth.user, pricingContextForAuth(auth));
   const publicPricing = tenantPublic
     ? {
       provider: publicProviderId(pricing.provider),
@@ -15112,7 +15134,7 @@ async function handleAdvancedEstimate(req, res) {
     : publicPricingValue(pricing);
   return sendJson(res, 200, {
     ok: true,
-    userPricing: pricingMultiplierView(auth.user || 1),
+    userPricing: pricingMultiplierView(auth.user || 1, pricingContextForAuth(auth)),
     pricing: publicPricing,
   });
 }
@@ -15127,7 +15149,7 @@ async function buildTemplateModelDoc(template, origin, user = null, options = {}
   });
   let estimate;
   try {
-    estimate = await makePlatformEstimate(template, {}, user);
+    estimate = await makePlatformEstimate(template, {}, user, { channel: "api" });
   } catch (error) {
     estimate = {
       available: false,
@@ -15191,7 +15213,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
     advancedPricing: options.advancedPricing,
-  }), user || 1);
+  }), user || 1, { channel: "api" });
   const pricingView = {
     available: true,
     credits: pricing.credits,
@@ -15298,7 +15320,7 @@ async function buildModelDocs(req) {
     title: `${platform.brand || "Vipeak AI"} Model Guide`,
     baseUrl: origin,
     updatedAt: new Date().toISOString(),
-    userPricing: pricingMultiplierView(auth.user || 1),
+    userPricing: pricingMultiplierView(auth.user || 1, { channel: "api" }),
     billing: tenantPublic ? {
       unit: "credits",
       note: "Credits are deducted according to the selected model, resolution, duration, and your account pricing.",
@@ -15905,6 +15927,8 @@ async function handleRegister(req, res) {
     passwordHash: hashPassword(password),
     role: db.users.length === 0 ? "admin" : "user",
     credits: 0,
+    pricingMultiplier: 1,
+    apiPricingMultiplier: 1,
     apiToken: makeUniqueApiToken(db),
     createdAt: now,
     updatedAt: now,
@@ -17728,7 +17752,7 @@ function publicUserAsset(asset = {}) {
   };
 }
 
-function wan27ImageModifyPricing(config = {}, user = null) {
+function wan27ImageModifyPricing(config = {}, user = null, options = {}) {
   const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
   const imagePricing = pricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
   const raw = fixedCnyPricingEstimate(imagePricing.saleCnyPerImage, "wan27_image_modify", {
@@ -17736,7 +17760,7 @@ function wan27ImageModifyPricing(config = {}, user = null) {
     saleCnyPerImage: imagePricing.saleCnyPerImage,
     model: imagePricing.model || WAN27_IMAGE_PRO_MODEL,
   }, pricing.creditsPerCny);
-  return user ? applyUserPricingToEstimate(raw, user) : raw;
+  return user ? applyUserPricingToEstimate(raw, user, options) : raw;
 }
 
 function composeWan27CharacterPrompt(userPrompt = "", { mode = "create" } = {}) {
@@ -17819,7 +17843,7 @@ async function handleGenerateUserCharacterImage(req, res) {
     defaultResolution: pricingConfig.defaultResolution || "2K",
   });
   const { ratio, resolution, model } = imageOptions;
-  const pricing = wan27ImageModifyPricing(config, auth.user);
+  const pricing = wan27ImageModifyPricing(config, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;
   if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   try {
@@ -17996,7 +18020,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
   if (resolution === "4K") {
     return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Vipeak 1 Image 4K is only available for text-to-image without reference images." });
   }
-  const pricing = wan27ImageModifyPricing(config, auth.user);
+  const pricing = wan27ImageModifyPricing(config, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;
   if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   try {
@@ -18227,7 +18251,7 @@ async function handleWan27ImageEdit(req, res) {
   if (resolution === "4K" && sourceAssets.length + externalImageUrls.length > 0) {
     return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Vipeak 1 Image 4K is only available for text-to-image without reference images." });
   }
-  const pricing = wan27ImageModifyPricing(config, auth.user);
+  const pricing = wan27ImageModifyPricing(config, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -18533,7 +18557,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
   if (resolution === "4K") {
     return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Vipeak 1 Image 4K is only available for text-to-image without reference images." });
   }
-  const pricing = wan27ImageModifyPricing(config, auth.user);
+  const pricing = wan27ImageModifyPricing(config, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -21050,6 +21074,19 @@ async function handleAdminUpdateUser(req, res, userId) {
       return sendJson(res, 400, { ok: false, message: "价格折扣比例必须大于 0，且不超过 100。" });
     }
     user.pricingMultiplier = normalizeUserPricingMultiplier(nextMultiplier);
+    changed = true;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(body, "apiPricingMultiplier") ||
+    Object.prototype.hasOwnProperty.call(body, "apiPriceMultiplier") ||
+    Object.prototype.hasOwnProperty.call(body, "apiDiscount")
+  ) {
+    const rawMultiplier = body.apiPricingMultiplier ?? body.apiPriceMultiplier ?? body.apiDiscount;
+    const nextMultiplier = Number(rawMultiplier);
+    if (!Number.isFinite(nextMultiplier) || nextMultiplier <= 0 || nextMultiplier > 100) {
+      return sendJson(res, 400, { ok: false, message: "API 价格折扣比例必须大于 0，且不超过 100。" });
+    }
+    user.apiPricingMultiplier = normalizeUserPricingMultiplier(nextMultiplier);
     changed = true;
   }
   if (body.regenerateApiToken === true) {
