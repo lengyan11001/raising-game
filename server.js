@@ -12077,6 +12077,204 @@ async function captureVideoPosterFrame(videoPath, posterPath) {
   }
 }
 
+async function probeLocalVideoDurationSeconds(videoPath = "") {
+  if (!videoPath) return 0;
+  try {
+    const result = await execFileJson("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "json",
+      videoPath,
+    ], { timeout: VIDEO_DURATION_PROBE_TIMEOUT_MS });
+    return durationSecondsFromValue(result?.format?.duration);
+  } catch {
+    return 0;
+  }
+}
+
+async function captureVideoFrameAt(videoPath, imagePath, seekSeconds = 0.5) {
+  try {
+    await execFileQuiet("ffmpeg", [
+      "-y",
+      "-ss",
+      String(Math.max(0, Number(seekSeconds || 0))).replace(",", "."),
+      "-i",
+      videoPath,
+      "-frames:v",
+      "1",
+      "-q:v",
+      "3",
+      imagePath,
+    ], { timeout: 60000 });
+    await fs.access(imagePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function localAssetPathFromPublicValue(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  let pathname = "";
+  if (text.startsWith("/assets/")) {
+    pathname = text.split("?")[0];
+  } else if (isPublicHttpUrl(text)) {
+    try {
+      const parsed = new URL(text);
+      const base = configuredPublicBaseUrl();
+      const baseHost = base ? new URL(base).host : "";
+      if (baseHost && parsed.host === baseHost && parsed.pathname.startsWith("/assets/")) {
+        pathname = parsed.pathname;
+      }
+    } catch {}
+  }
+  if (!pathname) return "";
+  const filePath = path.normalize(path.join(ROOT, pathname.replace(/^\/+/, "")));
+  const assetsRoot = path.normalize(path.join(ROOT, "assets"));
+  if (!filePath.startsWith(assetsRoot)) return "";
+  return filePath;
+}
+
+async function workflowVideoFileFromInput(auth = {}, { taskId = "", videoUrl = "", index = 0 } = {}) {
+  const cleanTaskId = String(taskId || "").trim();
+  const record = cleanTaskId ? await getGenerationRecord(cleanTaskId) : null;
+  if (record?.taskId) {
+    if (String(record.userId || "") !== String(auth.user?.id || "")) {
+      const error = new Error("Workflow video does not belong to the current user.");
+      error.statusCode = 403;
+      throw error;
+    }
+    const recordPath = record.localVideoPath || localAssetPathFromPublicValue(record.localVideoUrl || record.videoUrl || "");
+    if (recordPath) {
+      try {
+        await fs.access(recordPath);
+        return { filePath: recordPath, record };
+      } catch {}
+    }
+    const remote = generationRecordProviderVideoUrl(record) || record.remoteVideoUrl || String(videoUrl || "");
+    if (remote && isPublicHttpUrl(remote)) {
+      const downloaded = await downloadGeneratedVideo(record.taskId, remote);
+      return { filePath: downloaded.localVideoPath, record };
+    }
+  }
+  const localPath = localAssetPathFromPublicValue(videoUrl);
+  if (localPath) {
+    try {
+      await fs.access(localPath);
+      return { filePath: localPath, record: null };
+    } catch {}
+  }
+  if (!isPublicHttpUrl(videoUrl)) {
+    const error = new Error("Workflow video URL is not accessible.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const downloaded = await downloadRemoteFileToBuffer(videoUrl, { label: "workflow video", maxBytes: 300 * 1024 * 1024 });
+  const ext = videoExtFromMime(downloaded.mime, videoUrl) || ".mp4";
+  await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
+  const fileName = `${storagePathSegment(cleanTaskId || `workflow-${index}`)}-source-${Date.now()}${ext}`;
+  const filePath = path.join(GENERATED_VIDEO_DIR, fileName);
+  await fs.writeFile(filePath, downloaded.bytes);
+  return { filePath, record: null };
+}
+
+async function handleWorkflowExtractFrame(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  try {
+    const taskId = String(body.taskId || "").trim();
+    const videoUrl = String(body.videoUrl || "").trim();
+    const resolved = await workflowVideoFileFromInput(auth, { taskId, videoUrl });
+    const duration = await probeLocalVideoDurationSeconds(resolved.filePath) || durationSecondsFromValue(body.duration) || 5;
+    const seek = Math.max(0.2, Number(duration || 5) - 0.28);
+    await fs.mkdir(GENERATED_IMAGE_DIR, { recursive: true });
+    const safeId = storagePathSegment(taskId || randomId("workflow-frame"));
+    const fileName = `${safeId}-last-frame.jpg`;
+    const localFramePath = path.join(GENERATED_IMAGE_DIR, fileName);
+    const localFrameUrl = `/assets/generated/images/${fileName}`;
+    const captured = await captureVideoFrameAt(resolved.filePath, localFramePath, seek);
+    if (!captured) {
+      return sendJson(res, 502, { ok: false, message: "Failed to extract workflow tail frame." });
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      frameUrl: localFrameUrl,
+      localFrameUrl,
+      publicFrameUrl: publicUrlForAssetPath(localFrameUrl),
+      duration,
+      seek,
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 500, { ok: false, message: error.message || "Failed to extract workflow frame." });
+  }
+}
+
+async function handleWorkflowCompose(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const taskIds = arrayFromBody(body.taskIds).map((value) => String(value || "").trim()).filter(Boolean);
+  const videoUrls = arrayFromBody(body.videoUrls).map((value) => String(value || "").trim()).filter(Boolean);
+  const count = Math.max(taskIds.length, videoUrls.length);
+  if (!count) return sendJson(res, 400, { ok: false, message: "No workflow videos to compose." });
+  if (count > 12) return sendJson(res, 400, { ok: false, message: "Workflow compose supports up to 12 videos." });
+  try {
+    const inputs = [];
+    for (let index = 0; index < count; index += 1) {
+      const resolved = await workflowVideoFileFromInput(auth, {
+        taskId: taskIds[index] || "",
+        videoUrl: videoUrls[index] || "",
+        index,
+      });
+      inputs.push(resolved.filePath);
+    }
+    await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
+    const outputId = randomId("workflow");
+    const listPath = path.join(GENERATED_VIDEO_DIR, `${outputId}.txt`);
+    const localVideoPath = path.join(GENERATED_VIDEO_DIR, `${outputId}.mp4`);
+    const localVideoUrl = `/assets/generated/videos/${outputId}.mp4`;
+    const concatList = inputs.map((filePath) => `file '${String(filePath).replace(/'/g, "'\\''")}'`).join("\n");
+    await fs.writeFile(listPath, concatList, "utf8");
+    await execFileQuiet("ffmpeg", [
+      "-y",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      listPath,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "20",
+      "-c:a",
+      "aac",
+      "-movflags",
+      "+faststart",
+      localVideoPath,
+    ], { timeout: 15 * 60 * 1000 });
+    const poster = await createGeneratedVideoPoster(outputId, localVideoPath);
+    return sendJson(res, 200, {
+      ok: true,
+      videoUrl: localVideoUrl,
+      localVideoUrl,
+      posterUrl: poster.localPosterUrl || "",
+      localPosterUrl: poster.localPosterUrl || "",
+      taskId: outputId,
+      count,
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 500, { ok: false, message: error.message || "Failed to compose workflow output." });
+  }
+}
+
 async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } = {}) {
   const sourceVideoUrl = requireHttpUrl(videoUrl, "Video URL");
   const sourceCoverUrl = String(coverUrl || "").trim() ? requireHttpUrl(coverUrl, "Cover URL") : "";
@@ -22299,6 +22497,14 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/workflow/presets") {
       return await handleWorkflowPresets(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/workflow/extract-frame") {
+      return await handleWorkflowExtractFrame(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/workflow/compose") {
+      return await handleWorkflowCompose(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/analytics/character-view") {

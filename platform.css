@@ -4424,6 +4424,12 @@ select option:checked {
   background: rgba(255,255,255,.18);
 }
 
+.workflow-upload-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .workflow-upload-slot,
 .workflow-node-media {
   display: grid;
@@ -4433,6 +4439,15 @@ select option:checked {
   border-radius: 12px;
   background: rgba(255,255,255,.06);
   overflow: hidden;
+}
+
+.workflow-upload-slot.is-primary {
+  grid-column: 1 / -1;
+  min-height: 190px;
+}
+
+.workflow-upload-slot.is-small {
+  min-height: 118px;
 }
 
 .workflow-upload-slot input {
@@ -4446,6 +4461,19 @@ select option:checked {
   color: rgba(255,255,255,.72);
   font-size: .82rem;
   font-weight: 900;
+}
+
+.workflow-upload-empty {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  min-height: inherit;
+}
+
+.workflow-upload-empty svg {
+  width: 24px;
+  height: 24px;
+  opacity: .72;
 }
 
 .workflow-upload-preview img,

@@ -2553,15 +2553,20 @@ function workflowZoom() {
 const WORKFLOW_CANVAS_BASE_WIDTH = 1980;
 const WORKFLOW_CANVAS_BASE_HEIGHT = 720;
 const WORKFLOW_CANVAS_PADDING = 140;
+const WORKFLOW_CANVAS_MAX_WIDTH = 6000;
+const WORKFLOW_CANVAS_MAX_HEIGHT = 2400;
 
 function workflowCanvasLogicalSize() {
   const canvas = els.workflowRoot?.querySelector(".workflow-canvas");
   const zoom = workflowZoom();
   const visibleWidth = canvas ? Math.ceil(canvas.clientWidth / zoom) : WORKFLOW_CANVAS_BASE_WIDTH;
   const visibleHeight = canvas ? Math.ceil(canvas.clientHeight / zoom) : WORKFLOW_CANVAS_BASE_HEIGHT;
+  const nodes = state.workflow?.nodes || [];
+  const nodeMaxX = nodes.reduce((max, node) => Math.max(max, Number(node.x || 0) + WORKFLOW_NODE_WIDTH + WORKFLOW_CANVAS_PADDING), 0);
+  const nodeMaxY = nodes.reduce((max, node) => Math.max(max, Number(node.y || 0) + 420 + WORKFLOW_CANVAS_PADDING), 0);
   return {
-    width: Math.max(WORKFLOW_CANVAS_BASE_WIDTH, visibleWidth + WORKFLOW_CANVAS_PADDING),
-    height: Math.max(WORKFLOW_CANVAS_BASE_HEIGHT, visibleHeight + WORKFLOW_CANVAS_PADDING),
+    width: Math.min(WORKFLOW_CANVAS_MAX_WIDTH, Math.max(WORKFLOW_CANVAS_BASE_WIDTH, visibleWidth + WORKFLOW_CANVAS_PADDING, nodeMaxX)),
+    height: Math.min(WORKFLOW_CANVAS_MAX_HEIGHT, Math.max(WORKFLOW_CANVAS_BASE_HEIGHT, visibleHeight + WORKFLOW_CANVAS_PADDING, nodeMaxY)),
   };
 }
 
@@ -2658,7 +2663,7 @@ function workflowNodeResultVideo(node = {}) {
 }
 
 function workflowNodePoster(node = {}) {
-  return node.data?.posterUrl || generationPosterUrl(node.data?.record || {}) || node.data?.sourceImage || "";
+  return node.data?.posterUrl || node.data?.lastFrameUrl || generationPosterUrl(node.data?.record || {}) || node.data?.sourceImage || "";
 }
 
 function workflowPhysicsPrompt() {
@@ -2699,6 +2704,35 @@ function workflowReferenceImagePayload(sourceImage = "") {
   }];
 }
 
+function workflowReferenceImageItems(images = []) {
+  return images.filter(Boolean).map((image, index) => ({
+    dataUrl: dataUrlValue(image) || undefined,
+    imageUrl: absoluteHttpUrl(image) || (String(image || "").startsWith("/") ? image : undefined),
+    fileName: `workflow-reference-${index + 1}.png`,
+  }));
+}
+
+function workflowImageRequestFields(value = "", prefix = "first") {
+  const dataUrl = dataUrlValue(value);
+  const publicUrl = absoluteHttpUrl(value) || (String(value || "").startsWith("/") ? value : "");
+  if (prefix === "end") {
+    return dataUrl
+      ? { endImageDataUrl: dataUrl, endImageFileName: "workflow-end.png" }
+      : publicUrl
+        ? { endImageUrl: publicUrl }
+        : {};
+  }
+  return dataUrl
+    ? { firstFrameDataUrl: dataUrl, firstFrameFileName: "workflow-start.png" }
+    : publicUrl
+      ? { firstFrameUrl: publicUrl }
+      : {};
+}
+
+function workflowFacePrompt(faceImage = "") {
+  return faceImage ? "Preserve the same adult face identity and facial features consistently across all clips." : "";
+}
+
 function workflowRecordFromPayload(payload = {}, fallback = {}) {
   const taskId = payload.taskId || payload.task?.taskId || payload.record?.taskId || payload.generation?.taskId || "";
   return payload.record || payload.generation || {
@@ -2728,6 +2762,20 @@ function workflowSetNodeData(nodeId = "", patch = {}) {
 
 function workflowNodeActiveTab(node = {}) {
   return node.type === "video" && node.data?.activeTab === "params" ? "params" : "preview";
+}
+
+function renderWorkflowUploadSlot(node = {}, field = "startImage", label = "Start", icon = "image") {
+  const value = node.data?.[field] || "";
+  return `
+    <label class="workflow-upload-slot ${field === "startImage" ? "is-primary" : "is-small"}">
+      <input type="file" accept="image/*" data-workflow-file="${escapeHtml(field)}" data-node-id="${escapeHtml(node.id)}" />
+      <div class="workflow-upload-preview">
+        ${value
+          ? `<img src="${escapeHtml(value)}" alt="" loading="lazy" decoding="async" />`
+          : `<span class="workflow-upload-empty"><i data-lucide="${escapeHtml(icon)}"></i><strong>${escapeHtml(label)}</strong></span>`}
+      </div>
+    </label>
+  `;
 }
 
 function renderWorkflowMediaPreview(node = {}, model = null) {
@@ -2814,23 +2862,31 @@ function renderWorkflowNode(node = {}) {
       <article class="workflow-node workflow-node-upload ${selected ? "is-selected" : ""}" style="${style}" data-workflow-node="${escapeHtml(node.id)}">
         ${renderWorkflowConnectors(node)}
         <header><i data-lucide="image"></i><strong>${escapeHtml(node.title || "Image Upload")}</strong></header>
-        <label class="workflow-upload-slot">
-          <input type="file" accept="image/*" data-workflow-file="startImage" data-node-id="${escapeHtml(node.id)}" />
-          <div class="workflow-upload-preview">${renderWorkflowMediaPreview(node)}</div>
-        </label>
-        <div class="workflow-small-slots">
-          <label><span>End</span><input type="file" accept="image/*" data-workflow-file="endImage" data-node-id="${escapeHtml(node.id)}" /></label>
-          <label><span>Face</span><input type="file" accept="image/*" data-workflow-file="faceImage" data-node-id="${escapeHtml(node.id)}" /></label>
+        <div class="workflow-upload-grid">
+          ${renderWorkflowUploadSlot(node, "startImage", "Start", "image-up")}
+          ${renderWorkflowUploadSlot(node, "endImage", "End", "image")}
+          ${renderWorkflowUploadSlot(node, "faceImage", "Face", "scan-face")}
         </div>
       </article>
     `;
   }
   if (node.type === "output") {
     const completedVideos = workflowVideoNodes().filter((item) => workflowNodeResultVideo(item));
+    const finalVideoUrl = workflowNodeResultVideo(node);
+    const finalPosterUrl = workflowNodePoster(node);
     return `
       <article class="workflow-node workflow-node-output ${selected ? "is-selected" : ""}" style="${style}" data-workflow-node="${escapeHtml(node.id)}">
         ${renderWorkflowConnectors(node)}
         <header><i data-lucide="sparkles"></i><strong>${escapeHtml(node.title || "Final Output")}</strong></header>
+        ${finalVideoUrl ? `
+          <div class="workflow-node-media">
+            <button class="workflow-node-preview-button" type="button" data-workflow-preview="${escapeHtml(node.id)}">
+              <video src="${escapeHtml(finalVideoUrl)}" ${finalPosterUrl ? `poster="${escapeHtml(finalPosterUrl)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>
+              <span class="workflow-node-preview-play"><i data-lucide="play"></i></span>
+              <span class="workflow-node-demo-badge">Final</span>
+            </button>
+          </div>
+        ` : ""}
         <div class="workflow-output-box">
           ${completedVideos.length
             ? completedVideos.map((item) => `<button type="button" data-workflow-preview="${escapeHtml(item.id)}">${escapeHtml(workflowModelById(item.data?.modelId).label)}</button>`).join("")
@@ -2915,15 +2971,7 @@ function renderWorkflowPicker() {
   if (!node || node.type !== "video") return "";
   const selectedModel = workflowModelById(node.data?.modelId);
   const search = String(state.workflowPickerSearch || "").trim().toLowerCase();
-  const presets = workflowPresetLibrary()
-    .map(normalizeWorkflowPreset)
-    .filter((preset) => {
-      if (!search) return true;
-      return preset.label.toLowerCase().includes(search)
-        || preset.id.toLowerCase().includes(search)
-        || preset.category.toLowerCase().includes(search)
-        || preset.prompt.toLowerCase().includes(search);
-    });
+  const presets = workflowFilteredPresets(search);
   return `
     <div class="workflow-picker-backdrop" data-workflow-close-picker>
       <section class="workflow-picker" aria-modal="true" role="dialog" aria-label="Choose workflow scene" data-workflow-picker>
@@ -2938,25 +2986,40 @@ function renderWorkflowPicker() {
           <i data-lucide="search"></i>
           <input type="search" value="${escapeHtml(state.workflowPickerSearch || "")}" placeholder="Search..." data-workflow-picker-search />
         </div>
-        <div class="workflow-picker-grid">
-          ${presets.map((preset) => {
-            const active = selectedModel.id === preset.id;
-            const media = preset.previewUrl
-              ? `<video src="${escapeHtml(preset.previewUrl)}" ${preset.posterUrl ? `poster="${escapeHtml(preset.posterUrl)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>`
-              : `<span class="workflow-picker-empty"><i data-lucide="clapperboard"></i></span>`;
-            return `
-              <button class="workflow-picker-card ${active ? "is-active" : ""}" type="button" data-workflow-select-model="${escapeHtml(preset.id)}">
-                <span class="workflow-picker-media">${media}</span>
-                <span class="workflow-picker-title">${escapeHtml(preset.label)}</span>
-                <span class="workflow-picker-category">${escapeHtml(preset.category || "Preset")}</span>
-                <span class="workflow-picker-prompt">${escapeHtml(preset.prompt || "")}</span>
-              </button>
-            `;
-          }).join("")}
-        </div>
+        <div class="workflow-picker-grid">${renderWorkflowPickerCards(presets, selectedModel)}</div>
       </section>
     </div>
   `;
+}
+
+function workflowFilteredPresets(searchText = "") {
+  const search = String(searchText || "").trim().toLowerCase();
+  return workflowPresetLibrary()
+    .map(normalizeWorkflowPreset)
+    .filter((preset) => {
+      if (!search) return true;
+      return preset.label.toLowerCase().includes(search)
+        || preset.id.toLowerCase().includes(search)
+        || preset.category.toLowerCase().includes(search)
+        || preset.prompt.toLowerCase().includes(search);
+    });
+}
+
+function renderWorkflowPickerCards(presets = [], selectedModel = {}) {
+  return presets.map((preset) => {
+    const active = selectedModel.id === preset.id;
+    const media = preset.previewUrl
+      ? `<video src="${escapeHtml(preset.previewUrl)}" ${preset.posterUrl ? `poster="${escapeHtml(preset.posterUrl)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>`
+      : `<span class="workflow-picker-empty"><i data-lucide="clapperboard"></i></span>`;
+    return `
+      <button class="workflow-picker-card ${active ? "is-active" : ""}" type="button" data-workflow-select-model="${escapeHtml(preset.id)}">
+        <span class="workflow-picker-media">${media}</span>
+        <span class="workflow-picker-title">${escapeHtml(preset.label)}</span>
+        <span class="workflow-picker-category">${escapeHtml(preset.category || "Preset")}</span>
+        <span class="workflow-picker-prompt">${escapeHtml(preset.prompt || "")}</span>
+      </button>
+    `;
+  }).join("");
 }
 
 function renderWorkflowPanel() {
@@ -3172,6 +3235,8 @@ async function runWorkflow() {
   const workflow = ensureWorkflowState();
   const upload = workflowUploadNode();
   const sourceImage = upload?.data?.startImage || "";
+  const endImage = upload?.data?.endImage || "";
+  const faceImage = upload?.data?.faceImage || "";
   const nodes = workflowOrderedVideoNodes();
   if (!nodes.length) {
     state.workflowMessage = "Add a video node first.";
@@ -3186,26 +3251,57 @@ async function runWorkflow() {
   state.workflowRunning = true;
   state.workflowMessage = "Running workflow...";
   renderWorkflowPanel();
+  let previousFrameUrl = "";
   let previousVideoUrl = "";
   let currentRunNode = null;
+  const completedTaskIds = [];
+  const completedVideoUrls = [];
   try {
     for (const node of nodes) {
       currentRunNode = node;
       const model = workflowModelById(node.data?.modelId);
       const duration = Number(node.data?.duration || 5);
       const resolution = node.data?.resolution || "720p";
-      const prompt = workflowEffectivePrompt(node);
-      workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", resultVideoUrl: "", posterUrl: "" });
+      const prompt = [workflowEffectivePrompt(node), workflowFacePrompt(faceImage)].filter(Boolean).join(". ");
+      const firstNode = completedTaskIds.length === 0;
+      workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", resultVideoUrl: "", posterUrl: "", lastFrameUrl: "" });
       workflowLog(`Submitting ${model.label}.`);
+      const continuationPrompt = previousFrameUrl || previousVideoUrl
+        ? "Continue naturally from the previous clip's final frame, preserving subject identity, pose continuity, lighting, and camera direction."
+        : "";
+      const finalPrompt = [prompt, continuationPrompt].filter(Boolean).join(". ");
+      const mediaBody = previousFrameUrl
+        ? {
+          seedanceMode: "first_frame",
+          ...workflowImageRequestFields(previousFrameUrl, "first"),
+        }
+        : previousVideoUrl
+          ? {
+            seedanceMode: "reference_video",
+            referenceVideoUrls: [previousVideoUrl],
+            inputVideoSeconds: duration,
+            referenceVideoDurationSeconds: duration,
+          }
+          : endImage
+            ? {
+              seedanceMode: "first_last_frame",
+              ...workflowImageRequestFields(sourceImage, "first"),
+              ...workflowImageRequestFields(endImage, "end"),
+            }
+            : faceImage
+              ? {
+                seedanceMode: "reference_images",
+                referenceImages: workflowReferenceImageItems([sourceImage, faceImage]),
+              }
+            : {
+              seedanceMode: "first_frame",
+              ...workflowImageRequestFields(sourceImage, "first"),
+            };
       const body = {
         provider: "seedance",
         seedanceTier: "standard",
-        prompt,
-        seedanceMode: previousVideoUrl ? "reference_video" : "reference_images",
-        referenceImages: previousVideoUrl ? undefined : workflowReferenceImagePayload(sourceImage),
-        referenceVideoUrls: previousVideoUrl ? [previousVideoUrl] : undefined,
-        inputVideoSeconds: previousVideoUrl ? duration : 0,
-        referenceVideoDurationSeconds: previousVideoUrl ? duration : 0,
+        prompt: finalPrompt,
+        ...mediaBody,
         ratio: node.data?.ratio || "9:16",
         resolution,
         duration,
@@ -3215,13 +3311,16 @@ async function runWorkflow() {
           workflowNodeId: node.id,
           workflowModelId: model.id,
           workflowModelLabel: model.label,
+          workflowInputMode: mediaBody.seedanceMode,
+          workflowUsesEndFrame: firstNode && Boolean(endImage),
+          workflowUsesFaceReference: Boolean(faceImage),
           physics: workflow.physics || [],
         },
       };
       const payload = await requestJson("/api/advanced/generate", { method: "POST", body });
       if (payload.user) setUser(payload.user);
       const record = workflowRecordFromPayload(payload, {
-        prompt,
+        prompt: finalPrompt,
         model: model.label,
         resolution,
         duration,
@@ -3236,7 +3335,41 @@ async function runWorkflow() {
         throw new Error(finalRecord?.error || `${model.label} failed.`);
       }
       previousVideoUrl = generationVideoUrl(finalRecord);
+      if (previousVideoUrl) completedVideoUrls.push(previousVideoUrl);
+      if (taskId) completedTaskIds.push(taskId);
+      try {
+        const framePayload = await requestJson("/api/workflow/extract-frame", {
+          method: "POST",
+          body: { taskId, videoUrl: previousVideoUrl, duration },
+        });
+        previousFrameUrl = framePayload.frameUrl || framePayload.localFrameUrl || "";
+        if (previousFrameUrl) workflowSetNodeData(node.id, { lastFrameUrl: previousFrameUrl, posterUrl: previousFrameUrl });
+      } catch (frameError) {
+        previousFrameUrl = "";
+        workflowLog(`Tail frame skipped: ${frameError.message || frameError}`);
+      }
       workflowLog(`${model.label} completed.`);
+    }
+    const output = workflowNodeByType("output");
+    if (output && completedVideoUrls.length) {
+      workflowSetNodeData(output.id, { status: "processing", resultVideoUrl: "", posterUrl: "", taskIds: completedTaskIds });
+      try {
+        const composed = await requestJson("/api/workflow/compose", {
+          method: "POST",
+          body: { taskIds: completedTaskIds, videoUrls: completedVideoUrls },
+        });
+        workflowSetNodeData(output.id, {
+          status: "succeeded",
+          resultVideoUrl: composed.videoUrl || composed.localVideoUrl || "",
+          posterUrl: composed.posterUrl || composed.localPosterUrl || "",
+          videoUrls: completedVideoUrls,
+          taskIds: completedTaskIds,
+        });
+        workflowLog("Final output composed.");
+      } catch (composeError) {
+        workflowSetNodeData(output.id, { status: "failed", error: composeError.message || String(composeError), videoUrls: completedVideoUrls, taskIds: completedTaskIds });
+        workflowLog(`Compose skipped: ${composeError.message || composeError}`);
+      }
     }
     state.workflowMessage = "Workflow completed.";
   } catch (error) {
@@ -3375,10 +3508,9 @@ function workflowControlInteractionTarget(target) {
 }
 
 function clampWorkflowNodePosition(x = 0, y = 0) {
-  const size = workflowCanvasLogicalSize();
   return {
-    x: Math.max(0, Math.min(Math.round(x), size.width - WORKFLOW_NODE_WIDTH)),
-    y: Math.max(0, Math.min(Math.round(y), size.height - 100)),
+    x: Math.max(0, Math.min(Math.round(x), WORKFLOW_CANVAS_MAX_WIDTH - WORKFLOW_NODE_WIDTH)),
+    y: Math.max(0, Math.min(Math.round(y), WORKFLOW_CANVAS_MAX_HEIGHT - 100)),
   };
 }
 
@@ -3422,6 +3554,7 @@ function updateWorkflowNodeDrag(event) {
   node.y = next.y;
   nodeEl.style.left = `${next.x}px`;
   nodeEl.style.top = `${next.y}px`;
+  syncWorkflowCanvasStageSize();
   updateWorkflowRenderedEdges();
 }
 
@@ -3703,7 +3836,12 @@ function handleWorkflowInput(event) {
   const target = event.target;
   if (target.matches("[data-workflow-picker-search]")) {
     state.workflowPickerSearch = target.value || "";
-    renderWorkflowPanel();
+    const node = workflowNodeById(state.workflowPickerNodeId || "");
+    const grid = els.workflowRoot?.querySelector(".workflow-picker-grid");
+    if (grid) {
+      grid.innerHTML = renderWorkflowPickerCards(workflowFilteredPresets(state.workflowPickerSearch), workflowModelById(node?.data?.modelId));
+      refreshIcons();
+    }
     return;
   }
   if (target.matches("[data-workflow-director]")) {
