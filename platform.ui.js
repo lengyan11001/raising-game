@@ -2436,6 +2436,7 @@ function cloneWorkflowDefault() {
     edges: WORKFLOW_DEFAULT_EDGES.map(([from, to]) => ({ from, to })),
     physics: [],
     directorPrompt: "",
+    zoom: 1,
     layoutVersion: WORKFLOW_NODE_LAYOUT_VERSION,
   };
 }
@@ -2507,6 +2508,7 @@ function ensureWorkflowState() {
         edges: Array.isArray(saved.edges) ? saved.edges : [],
         physics: Array.isArray(saved.physics) ? saved.physics : [],
         directorPrompt: saved.directorPrompt || "",
+        zoom: normalizeWorkflowZoom(saved.zoom),
         layoutVersion: Number(saved.layoutVersion || 0),
       };
       normalizeWorkflowLayout(state.workflow);
@@ -2526,6 +2528,7 @@ function persistWorkflowState() {
       edges: workflow.edges,
       physics: workflow.physics,
       directorPrompt: workflow.directorPrompt || "",
+      zoom: normalizeWorkflowZoom(workflow.zoom),
       layoutVersion: workflow.layoutVersion || WORKFLOW_NODE_LAYOUT_VERSION,
     }));
   } catch (_) {}
@@ -2533,6 +2536,18 @@ function persistWorkflowState() {
 
 function workflowNodeById(nodeId = "") {
   return ensureWorkflowState().nodes.find((node) => node.id === nodeId) || null;
+}
+
+function normalizeWorkflowZoom(value = 1) {
+  const numeric = Number(value || 1);
+  if (!Number.isFinite(numeric)) return 1;
+  return Math.max(0.55, Math.min(1.8, Math.round(numeric * 100) / 100));
+}
+
+function workflowZoom() {
+  const workflow = ensureWorkflowState();
+  workflow.zoom = normalizeWorkflowZoom(workflow.zoom);
+  return workflow.zoom;
 }
 
 function workflowVideoNodes() {
@@ -2949,11 +2964,13 @@ function renderWorkflowPanel() {
     ` : ""}
     <div class="workflow-layout">
       <section class="workflow-canvas" aria-label="Workflow canvas">
-        <svg class="workflow-edges" viewBox="0 0 1980 720" preserveAspectRatio="none">
-          ${renderWorkflowEdges()}
-          <path class="workflow-edge-draft" data-workflow-draft-edge hidden />
-        </svg>
-        ${workflow.nodes.map(renderWorkflowNode).join("")}
+        <div class="workflow-canvas-stage" style="--workflow-zoom:${workflowZoom()}">
+          <svg class="workflow-edges" viewBox="0 0 1980 720" preserveAspectRatio="none">
+            ${renderWorkflowEdges()}
+            <path class="workflow-edge-draft" data-workflow-draft-edge hidden />
+          </svg>
+          ${workflow.nodes.map(renderWorkflowNode).join("")}
+        </div>
         <div class="workflow-minimap">
           ${workflow.nodes.map((node) => `<span style="left:${Math.max(0, Number(node.x || 0) / 14)}px;top:${Math.max(0, Number(node.y || 0) / 12)}px"></span>`).join("")}
         </div>
@@ -3213,9 +3230,10 @@ function workflowCanvasPointFromEvent(event) {
   const canvas = els.workflowRoot?.querySelector(".workflow-canvas");
   const rect = canvas?.getBoundingClientRect();
   if (!rect) return { x: 0, y: 0 };
+  const zoom = workflowZoom();
   return {
-    x: Math.max(0, Math.round(event.clientX - rect.left)),
-    y: Math.max(0, Math.round(event.clientY - rect.top)),
+    x: Math.max(0, Math.round((event.clientX - rect.left) / zoom)),
+    y: Math.max(0, Math.round((event.clientY - rect.top) / zoom)),
   };
 }
 
@@ -3355,8 +3373,9 @@ function updateWorkflowNodeDrag(event) {
   const nodeEl = Array.from(els.workflowRoot?.querySelectorAll("[data-workflow-node]") || [])
     .find((item) => item.dataset.workflowNode === activeWorkflowNodeDrag.nodeId);
   if (!node || !nodeEl) return;
-  const dx = event.clientX - activeWorkflowNodeDrag.startClientX;
-  const dy = event.clientY - activeWorkflowNodeDrag.startClientY;
+  const zoom = workflowZoom();
+  const dx = (event.clientX - activeWorkflowNodeDrag.startClientX) / zoom;
+  const dy = (event.clientY - activeWorkflowNodeDrag.startClientY) / zoom;
   if (Math.abs(dx) > 2 || Math.abs(dy) > 2) activeWorkflowNodeDrag.moved = true;
   const next = clampWorkflowNodePosition(activeWorkflowNodeDrag.originX + dx, activeWorkflowNodeDrag.originY + dy);
   node.x = next.x;
@@ -3364,6 +3383,22 @@ function updateWorkflowNodeDrag(event) {
   nodeEl.style.left = `${next.x}px`;
   nodeEl.style.top = `${next.y}px`;
   updateWorkflowRenderedEdges();
+}
+
+function handleWorkflowWheel(event) {
+  const canvas = event.target.closest?.(".workflow-canvas");
+  if (!canvas) return;
+  const workflow = ensureWorkflowState();
+  const current = workflowZoom();
+  const direction = event.deltaY > 0 ? -1 : 1;
+  const multiplier = direction > 0 ? 1.08 : 0.92;
+  const nextZoom = normalizeWorkflowZoom(current * multiplier);
+  if (nextZoom === current) return;
+  event.preventDefault();
+  workflow.zoom = nextZoom;
+  persistWorkflowState();
+  const stage = canvas.querySelector(".workflow-canvas-stage");
+  if (stage) stage.style.setProperty("--workflow-zoom", String(nextZoom));
 }
 
 function stopWorkflowNodeDrag({ commit = true } = {}) {

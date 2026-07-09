@@ -4193,6 +4193,15 @@ select option:checked {
   overflow: hidden;
 }
 
+.workflow-canvas-stage {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 1980px;
+  height: 720px;
+  transform: scale(var(--workflow-zoom, 1));
+  transform-origin: 0 0;
+}
+
 .workflow-edges {
   position: absolute;
   inset: 0;
