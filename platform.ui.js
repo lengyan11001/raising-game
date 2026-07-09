@@ -2541,8 +2541,40 @@ function workflowVideoNodes() {
     .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
 }
 
+function workflowNodeByType(type = "") {
+  return ensureWorkflowState().nodes.find((node) => node.type === type) || null;
+}
+
+function workflowOutgoingEdges(nodeId = "") {
+  return ensureWorkflowState().edges.filter((edge) => edge.from === nodeId);
+}
+
+function workflowIncomingEdges(nodeId = "") {
+  return ensureWorkflowState().edges.filter((edge) => edge.to === nodeId);
+}
+
+function workflowOrderedVideoNodes() {
+  const workflow = ensureWorkflowState();
+  const upload = workflowUploadNode();
+  if (!upload) return workflowVideoNodes();
+  const nodeById = new Map(workflow.nodes.map((node) => [node.id, node]));
+  const ordered = [];
+  const visited = new Set([upload.id]);
+  let currentId = upload.id;
+  for (let guard = 0; guard < workflow.nodes.length + 4; guard += 1) {
+    const nextEdge = workflow.edges.find((edge) => edge.from === currentId && !visited.has(edge.to));
+    if (!nextEdge) break;
+    const next = nodeById.get(nextEdge.to);
+    if (!next || next.type === "output") break;
+    visited.add(next.id);
+    if (next.type === "video") ordered.push(next);
+    currentId = next.id;
+  }
+  return ordered.length ? ordered : workflowVideoNodes();
+}
+
 function workflowUploadNode() {
-  return ensureWorkflowState().nodes.find((node) => node.type === "upload") || null;
+  return workflowNodeByType("upload");
 }
 
 function selectedWorkflowNode() {
@@ -2694,6 +2726,8 @@ function renderWorkflowMediaPreview(node = {}, model = null) {
 }
 
 let activeWorkflowConnection = null;
+let activeWorkflowNodeDrag = null;
+let suppressWorkflowClickUntil = 0;
 
 function workflowNodeAcceptsInput(node = null) {
   return Boolean(node && node.type !== "upload");
@@ -2977,7 +3011,15 @@ function addWorkflowVideoNode(modelId = "") {
   const workflow = ensureWorkflowState();
   const videoNodes = workflowVideoNodes();
   const index = videoNodes.length + 1;
-  const previous = videoNodes[videoNodes.length - 1] || workflowUploadNode();
+  const output = workflowNodeByType("output");
+  const selected = selectedWorkflowNode();
+  const outputIncoming = output ? workflowIncomingEdges(output.id)[0] : null;
+  const outputPrevious = workflowNodeById(outputIncoming?.from || "");
+  const previous = (selected?.type === "video" || selected?.type === "upload")
+    ? selected
+    : (outputPrevious?.type === "video" || outputPrevious?.type === "upload")
+      ? outputPrevious
+      : videoNodes[videoNodes.length - 1] || workflowUploadNode();
   const model = workflowModelById(modelId || WORKFLOW_MODEL_LIBRARY[index % WORKFLOW_MODEL_LIBRARY.length]?.id || "");
   const node = {
     id: `video-${Date.now().toString(36)}`,
@@ -2988,18 +3030,19 @@ function addWorkflowVideoNode(modelId = "") {
     data: { modelId: model.id, duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview" },
   };
   workflow.nodes.splice(Math.max(1, workflow.nodes.length - 1), 0, node);
-  const output = workflow.nodes.find((item) => item.type === "output");
-  workflow.edges = workflow.edges.filter((edge) => edge.to !== output?.id);
-  const ordered = workflowVideoNodes();
-  if (output) {
-    output.x = 30 + (WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP) * (ordered.length + 1);
-    output.y = 150;
+  const displacedTargets = previous ? workflowOutgoingEdges(previous.id).map((edge) => edge.to).filter((toId) => toId !== node.id) : [];
+  if (previous) {
+    workflow.edges = workflow.edges.filter((edge) => edge.from !== previous.id && edge.to !== node.id);
+    workflow.edges.push({ from: previous.id, to: node.id });
   }
-  workflow.edges = [{ from: workflowUploadNode()?.id || "upload-1", to: ordered[0]?.id || node.id }];
-  ordered.forEach((item, itemIndex) => {
-    const next = ordered[itemIndex + 1] || output;
-    if (next) workflow.edges.push({ from: item.id, to: next.id });
+  const nextTargets = displacedTargets.length ? displacedTargets : output ? [output.id] : [];
+  nextTargets.forEach((toId) => {
+    if (toId && toId !== node.id) workflow.edges.push({ from: node.id, to: toId });
   });
+  workflow.edges = workflow.edges.filter((edge, edgeIndex, edges) => (
+    edge.from && edge.to && edge.from !== edge.to
+    && edges.findIndex((item) => item.from === edge.from && item.to === edge.to) === edgeIndex
+  ));
   state.workflowSelectedNodeId = node.id;
   persistWorkflowState();
   renderWorkflowPanel();
@@ -3071,7 +3114,7 @@ async function runWorkflow() {
   const workflow = ensureWorkflowState();
   const upload = workflowUploadNode();
   const sourceImage = upload?.data?.startImage || "";
-  const nodes = workflowVideoNodes();
+  const nodes = workflowOrderedVideoNodes();
   if (!nodes.length) {
     state.workflowMessage = "Add a video node first.";
     renderWorkflowPanel();
@@ -3223,15 +3266,95 @@ function stopWorkflowConnectionDrag() {
   els.workflowRoot?.classList.remove("is-connecting");
 }
 
+function updateWorkflowRenderedEdges() {
+  const svg = els.workflowRoot?.querySelector(".workflow-edges");
+  if (!svg) return;
+  const draft = workflowDraftEdgeElement();
+  const draftD = draft?.getAttribute("d") || "";
+  const draftHidden = !draft || draft.hasAttribute("hidden");
+  svg.innerHTML = `
+    ${renderWorkflowEdges()}
+    <path class="workflow-edge-draft" data-workflow-draft-edge ${draftHidden ? "hidden" : ""} ${draftD ? `d="${escapeHtml(draftD)}"` : ""} />
+  `;
+}
+
+function workflowNodeDragBlockedTarget(target) {
+  return Boolean(target.closest("button, input, textarea, select, label, a, [data-workflow-connect], [data-workflow-preview], [data-workflow-open-picker], [data-workflow-delete], .workflow-node-tabs, .workflow-model-card"));
+}
+
+function clampWorkflowNodePosition(x = 0, y = 0) {
+  return {
+    x: Math.max(0, Math.min(Math.round(x), 1980 - WORKFLOW_NODE_WIDTH)),
+    y: Math.max(0, Math.min(Math.round(y), 620)),
+  };
+}
+
+function startWorkflowNodeDrag(event) {
+  if (event.button !== undefined && event.button !== 0) return false;
+  if (workflowNodeDragBlockedTarget(event.target)) return false;
+  const nodeEl = event.target.closest("[data-workflow-node]");
+  const node = workflowNodeById(nodeEl?.dataset.workflowNode || "");
+  if (!node) return false;
+  activeWorkflowNodeDrag = {
+    nodeId: node.id,
+    pointerId: event.pointerId,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    originX: Number(node.x || 0),
+    originY: Number(node.y || 0),
+    moved: false,
+  };
+  state.workflowSelectedNodeId = node.id;
+  nodeEl.classList.add("is-dragging");
+  els.workflowRoot?.classList.add("is-dragging-node");
+  event.preventDefault();
+  event.stopPropagation();
+  nodeEl.setPointerCapture?.(event.pointerId);
+  return true;
+}
+
+function updateWorkflowNodeDrag(event) {
+  if (!activeWorkflowNodeDrag) return;
+  const node = workflowNodeById(activeWorkflowNodeDrag.nodeId);
+  const nodeEl = els.workflowRoot?.querySelector(`[data-workflow-node="${CSS.escape(activeWorkflowNodeDrag.nodeId)}"]`);
+  if (!node || !nodeEl) return;
+  const dx = event.clientX - activeWorkflowNodeDrag.startClientX;
+  const dy = event.clientY - activeWorkflowNodeDrag.startClientY;
+  if (Math.abs(dx) > 2 || Math.abs(dy) > 2) activeWorkflowNodeDrag.moved = true;
+  const next = clampWorkflowNodePosition(activeWorkflowNodeDrag.originX + dx, activeWorkflowNodeDrag.originY + dy);
+  node.x = next.x;
+  node.y = next.y;
+  nodeEl.style.left = `${next.x}px`;
+  nodeEl.style.top = `${next.y}px`;
+  updateWorkflowRenderedEdges();
+}
+
+function stopWorkflowNodeDrag({ commit = true } = {}) {
+  if (!activeWorkflowNodeDrag) return;
+  const didMove = activeWorkflowNodeDrag.moved;
+  els.workflowRoot?.querySelectorAll(".workflow-node.is-dragging").forEach((node) => node.classList.remove("is-dragging"));
+  els.workflowRoot?.classList.remove("is-dragging-node");
+  activeWorkflowNodeDrag = null;
+  if (didMove) {
+    suppressWorkflowClickUntil = Date.now() + 250;
+    setTimeout(() => {
+      if (Date.now() >= suppressWorkflowClickUntil) suppressWorkflowClickUntil = 0;
+    }, 260);
+  }
+  if (commit && didMove) {
+    persistWorkflowState();
+    renderWorkflowPanel();
+  }
+}
+
 function connectWorkflowNodes(fromId = "", toId = "") {
   const workflow = ensureWorkflowState();
   const from = workflow.nodes.find((node) => node.id === fromId);
   const to = workflow.nodes.find((node) => node.id === toId);
   if (!workflowNodeAcceptsOutput(from) || !workflowNodeAcceptsInput(to) || fromId === toId) return false;
-  if (!workflow.edges.some((edge) => edge.from === fromId && edge.to === toId)) {
-    workflow.edges.push({ from: fromId, to: toId });
-  }
-  state.workflowSelectedNodeId = toId;
+  workflow.edges = workflow.edges.filter((edge) => edge.from !== fromId && edge.to !== toId);
+  workflow.edges.push({ from: fromId, to: toId });
+  state.workflowSelectedNodeId = to.type === "output" ? fromId : toId;
   persistWorkflowState();
   renderWorkflowPanel();
   return true;
@@ -3239,7 +3362,10 @@ function connectWorkflowNodes(fromId = "", toId = "") {
 
 function handleWorkflowPointerDown(event) {
   const handle = event.target.closest('[data-workflow-connect="out"]');
-  if (!handle) return;
+  if (!handle) {
+    startWorkflowNodeDrag(event);
+    return;
+  }
   const fromId = handle.dataset.nodeId || "";
   const from = workflowNodeById(fromId);
   if (!workflowNodeAcceptsOutput(from)) return;
@@ -3259,6 +3385,11 @@ function handleWorkflowPointerDown(event) {
 }
 
 function handleWorkflowPointerMove(event) {
+  if (activeWorkflowNodeDrag && activeWorkflowNodeDrag.pointerId === event.pointerId) {
+    event.preventDefault();
+    updateWorkflowNodeDrag(event);
+    return;
+  }
   if (!activeWorkflowConnection || activeWorkflowConnection.pointerId !== event.pointerId) return;
   event.preventDefault();
   updateWorkflowDraftEdge(event);
@@ -3266,6 +3397,11 @@ function handleWorkflowPointerMove(event) {
 }
 
 function handleWorkflowPointerUp(event) {
+  if (activeWorkflowNodeDrag && activeWorkflowNodeDrag.pointerId === event.pointerId) {
+    event.preventDefault();
+    stopWorkflowNodeDrag();
+    return;
+  }
   if (!activeWorkflowConnection || activeWorkflowConnection.pointerId !== event.pointerId) return;
   event.preventDefault();
   const fromId = activeWorkflowConnection.fromId;
@@ -3275,11 +3411,20 @@ function handleWorkflowPointerUp(event) {
 }
 
 function handleWorkflowPointerCancel(event) {
+  if (activeWorkflowNodeDrag && activeWorkflowNodeDrag.pointerId === event.pointerId) {
+    stopWorkflowNodeDrag();
+    return;
+  }
   if (!activeWorkflowConnection || activeWorkflowConnection.pointerId !== event.pointerId) return;
   stopWorkflowConnectionDrag();
 }
 
 function handleWorkflowClick(event) {
+  if (Date.now() < suppressWorkflowClickUntil) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   if (event.target.closest("[data-workflow-connect]")) {
     event.preventDefault();
     return;
