@@ -1017,7 +1017,8 @@ function generationRecordsSignature(records = []) {
 function statusLabel(status) {
   const value = String(status || "").toLowerCase();
   if (["succeeded", "success", "done", "completed"].includes(value)) return t("status.completed");
-  if (["failed", "error", "cancelled", "canceled"].includes(value)) return t("status.failed");
+  if (["cancelled", "canceled"].includes(value)) return "Canceled";
+  if (["failed", "error"].includes(value)) return t("status.failed");
   if (["running", "processing", "in_progress", "preparing", "submitting", "queued"].includes(value)) return t("status.processing");
   return status || t("status.submitted");
 }
@@ -2702,6 +2703,72 @@ function workflowNodeStatusText(node = {}) {
   return node.data?.status ? statusLabel(node.data.status) : "Ready";
 }
 
+function workflowNodeHasSuccessfulResult(node = {}) {
+  const status = node.data?.status || node.data?.record?.status || "";
+  return Boolean(workflowNodeResultVideo(node)) && isSucceededGenerationStatus(status || "succeeded");
+}
+
+function workflowExecutionClearPatch() {
+  return {
+    status: "",
+    taskId: "",
+    record: null,
+    resultVideoUrl: "",
+    posterUrl: "",
+    lastFrameUrl: "",
+    error: "",
+    videoUrls: [],
+    taskIds: [],
+  };
+}
+
+function workflowClearNodeExecution(node = null) {
+  if (!node) return;
+  node.data = { ...(node.data || {}), ...workflowExecutionClearPatch() };
+}
+
+function clearWorkflowExecutionResults({ fromNodeId = "", message = "Execution cleared.", render = true } = {}) {
+  const ordered = workflowOrderedVideoNodes();
+  const startIndex = fromNodeId ? ordered.findIndex((node) => node.id === fromNodeId) : 0;
+  ordered.slice(Math.max(0, startIndex)).forEach(workflowClearNodeExecution);
+  workflowClearNodeExecution(workflowNodeByType("output"));
+  state.workflowCancelRequested = false;
+  state.workflowActiveNodeId = "";
+  state.workflowMessage = message;
+  persistWorkflowState();
+  if (render) renderWorkflowPanel();
+}
+
+function workflowNodeRunState(node = {}) {
+  const active = state.workflowRunning && state.workflowActiveNodeId === node.id;
+  if (active) {
+    return { canRun: false, disabled: true, icon: "loader-circle", label: "Running", reason: "This node is running." };
+  }
+  if (state.workflowRunning) {
+    return { canRun: false, disabled: true, icon: "play", label: "Run", reason: "Workflow is running." };
+  }
+  const upload = workflowUploadNode();
+  if (!upload?.data?.startImage) {
+    return { canRun: false, disabled: true, icon: "play", label: "Run", reason: "Upload a start image first." };
+  }
+  const ordered = workflowOrderedVideoNodes();
+  const index = ordered.findIndex((item) => item.id === node.id);
+  if (index < 0) {
+    return { canRun: false, disabled: true, icon: "play", label: "Run", reason: "Connect this node into the workflow first." };
+  }
+  const previous = index > 0 ? ordered[index - 1] : null;
+  if (previous && !workflowNodeHasSuccessfulResult(previous)) {
+    return { canRun: false, disabled: true, icon: "play", label: "Run", reason: "Run the previous node first." };
+  }
+  return {
+    canRun: true,
+    disabled: false,
+    icon: "play",
+    label: workflowNodeHasSuccessfulResult(node) ? "Run again" : "Run",
+    reason: "Run this node.",
+  };
+}
+
 function workflowNodeResultVideo(node = {}) {
   return node.data?.resultVideoUrl || generationVideoUrl(node.data?.record || {}) || "";
 }
@@ -2942,6 +3009,7 @@ function renderWorkflowNode(node = {}) {
   const model = workflowModelById(node.data?.modelId);
   const promptPreview = workflowPromptPreview(model, node.data?.prompt);
   const activeTab = workflowNodeActiveTab(node);
+  const runState = workflowNodeRunState(node);
   const modelPreview = model.previewUrl
     ? `<video src="${escapeHtml(model.previewUrl)}" ${model.posterUrl ? `poster="${escapeHtml(model.posterUrl)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>`
     : `<i data-lucide="clapperboard"></i>`;
@@ -2985,6 +3053,9 @@ function renderWorkflowNode(node = {}) {
       <footer>
         <span>${escapeHtml(workflowNodeStatusText(node))}${node.data?.taskId ? ` - ${escapeHtml(node.data.taskId)}` : ""}</span>
         <strong>${escapeHtml(workflowCostLabel(node))} credits</strong>
+        <button class="workflow-node-run ${state.workflowActiveNodeId === node.id ? "is-running" : ""}" type="button" data-workflow-run-node="${escapeHtml(node.id)}" title="${escapeHtml(runState.reason)}" ${runState.disabled ? "disabled" : ""}>
+          <i data-lucide="${escapeHtml(runState.icon)}"></i>${escapeHtml(runState.label)}
+        </button>
       </footer>
     </article>
   `;
@@ -3075,7 +3146,8 @@ function renderWorkflowPanel() {
   const selectedPrompt = workflowPromptPreview(selectedModel, selected?.data?.prompt);
   els.workflowRoot.innerHTML = `
     <div class="workflow-toolbar">
-      <button class="workflow-run" type="button" data-workflow-action="run" ${state.workflowRunning ? "disabled" : ""}><i data-lucide="${state.workflowRunning ? "loader-circle" : "play"}"></i>${state.workflowRunning ? "Running" : "Run"}</button>
+      <button class="workflow-run ${state.workflowRunning ? "is-cancel" : ""}" type="button" data-workflow-action="${state.workflowRunning ? "cancel" : "run"}"><i data-lucide="${state.workflowRunning ? "square" : "play"}"></i>${state.workflowRunning ? "Cancel" : "Run all"}</button>
+      <button type="button" data-workflow-action="clear-results" ${state.workflowRunning ? "disabled" : ""}><i data-lucide="eraser"></i>Clear results</button>
       <button type="button" data-workflow-action="add-video"><i data-lucide="plus"></i>Video</button>
       <button type="button" data-workflow-action="add-branch"><i data-lucide="git-branch"></i>Branch</button>
       <button type="button" data-workflow-action="physics" class="${state.workflowShowPhysics ? "is-active" : ""}"><i data-lucide="zap"></i>Physics</button>
@@ -3254,10 +3326,44 @@ function applyWorkflowDirectorPrompt() {
   renderWorkflowPanel();
 }
 
+function workflowCanceledError() {
+  const error = new Error("Workflow canceled.");
+  error.workflowCanceled = true;
+  return error;
+}
+
+function workflowThrowIfCancelled() {
+  if (state.workflowCancelRequested) throw workflowCanceledError();
+}
+
+function requestWorkflowCancel() {
+  if (!state.workflowRunning) return;
+  state.workflowCancelRequested = true;
+  state.workflowMessage = "Canceling workflow...";
+  renderWorkflowPanel();
+}
+
+function workflowHandleExecutionError(error = {}) {
+  const activeNode = workflowNodeById(state.workflowActiveNodeId || "");
+  if (error.workflowCanceled) {
+    state.workflowMessage = "Workflow canceled.";
+    if (activeNode && !workflowNodeHasSuccessfulResult(activeNode)) {
+      workflowSetNodeData(activeNode.id, { status: "canceled", error: "Canceled locally." });
+    }
+    workflowLog("Workflow canceled.");
+    return;
+  }
+  state.workflowMessage = error.message || String(error);
+  if (activeNode?.id) workflowSetNodeData(activeNode.id, { status: "failed", error: state.workflowMessage });
+  workflowLog(state.workflowMessage);
+}
+
 async function pollWorkflowTask(nodeId = "", taskId = "") {
   let lastRecord = null;
   for (let attempt = 0; attempt < 150; attempt += 1) {
+    workflowThrowIfCancelled();
     await new Promise((resolve) => setTimeout(resolve, attempt ? 4000 : 1200));
+    workflowThrowIfCancelled();
     const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}`);
     const record = payload.record || payload.generation || null;
     if (!record?.taskId) continue;
@@ -3274,13 +3380,223 @@ async function pollWorkflowTask(nodeId = "", taskId = "") {
   return lastRecord;
 }
 
-async function runWorkflow() {
-  if (!state.user) return openLogin();
+async function workflowExtractTailFrame(node = {}, taskId = "", videoUrl = "", duration = 5) {
+  if (!taskId || !videoUrl) return "";
+  workflowThrowIfCancelled();
+  const framePayload = await requestJson("/api/workflow/extract-frame", {
+    method: "POST",
+    body: { taskId, videoUrl, duration },
+  });
+  const frameUrl = framePayload.frameUrl || framePayload.localFrameUrl || "";
+  if (frameUrl && node?.id) workflowSetNodeData(node.id, { lastFrameUrl: frameUrl, posterUrl: frameUrl });
+  return frameUrl;
+}
+
+async function workflowContinuationFromPrevious(previousNode = null) {
+  if (!previousNode) return { previousFrameUrl: "", previousVideoUrl: "" };
+  const previousVideoUrl = workflowNodeResultVideo(previousNode);
+  let previousFrameUrl = previousNode.data?.lastFrameUrl || "";
+  if (!previousFrameUrl && previousVideoUrl && previousNode.data?.taskId) {
+    try {
+      workflowLog("Preparing previous tail frame.");
+      previousFrameUrl = await workflowExtractTailFrame(previousNode, previousNode.data.taskId, previousVideoUrl, Number(previousNode.data?.duration || 5));
+    } catch (frameError) {
+      previousFrameUrl = "";
+      workflowLog(`Tail frame skipped: ${frameError.message || frameError}`);
+    }
+  }
+  return { previousFrameUrl, previousVideoUrl };
+}
+
+async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideoUrl = "", firstNode = false } = {}) {
   const workflow = ensureWorkflowState();
   const upload = workflowUploadNode();
   const sourceImage = upload?.data?.startImage || "";
   const endImage = upload?.data?.endImage || "";
   const faceImage = upload?.data?.faceImage || "";
+  if (!node?.id) throw new Error("Video node not found.");
+  if (!sourceImage) throw new Error("Upload a start image first.");
+
+  const model = workflowModelById(node.data?.modelId);
+  const duration = Number(node.data?.duration || 5);
+  const resolution = node.data?.resolution || "720p";
+  const prompt = [workflowEffectivePrompt(node), workflowFacePrompt(faceImage)].filter(Boolean).join(". ");
+  const continuationPrompt = previousFrameUrl || previousVideoUrl
+    ? "Continue naturally from the previous clip's final frame, preserving subject identity, pose continuity, lighting, and camera direction."
+    : "";
+  const finalPrompt = [prompt, continuationPrompt].filter(Boolean).join(". ");
+  const mediaBody = previousFrameUrl
+    ? {
+      seedanceMode: "first_frame",
+      ...workflowImageRequestFields(previousFrameUrl, "first"),
+    }
+    : previousVideoUrl
+      ? {
+        seedanceMode: "reference_video",
+        referenceVideoUrls: [previousVideoUrl],
+        inputVideoSeconds: duration,
+        referenceVideoDurationSeconds: duration,
+      }
+      : endImage
+        ? {
+          seedanceMode: "first_last_frame",
+          ...workflowImageRequestFields(sourceImage, "first"),
+          ...workflowImageRequestFields(endImage, "end"),
+        }
+        : faceImage
+          ? {
+            seedanceMode: "reference_images",
+            referenceImages: workflowReferenceImageItems([sourceImage, faceImage]),
+          }
+        : {
+          seedanceMode: "first_frame",
+          ...workflowImageRequestFields(sourceImage, "first"),
+        };
+
+  state.workflowActiveNodeId = node.id;
+  state.workflowSelectedNodeId = node.id;
+  state.workflowMessage = `Running ${model.label}...`;
+  workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", record: null, resultVideoUrl: "", posterUrl: "", lastFrameUrl: "" });
+  workflowLog(`Submitting ${model.label}.`);
+  workflowThrowIfCancelled();
+
+  const body = {
+    provider: "seedance",
+    seedanceTier: "standard",
+    prompt: finalPrompt,
+    ...mediaBody,
+    ratio: node.data?.ratio || "9:16",
+    resolution,
+    duration,
+    generateAudio: true,
+    params: {
+      createKind: "workflow",
+      workflowNodeId: node.id,
+      workflowModelId: model.id,
+      workflowModelLabel: model.label,
+      workflowInputMode: mediaBody.seedanceMode,
+      workflowUsesEndFrame: firstNode && Boolean(endImage),
+      workflowUsesFaceReference: Boolean(faceImage),
+      physics: workflow.physics || [],
+    },
+  };
+  const payload = await requestJson("/api/advanced/generate", { method: "POST", body });
+  if (payload.user) setUser(payload.user);
+  const record = workflowRecordFromPayload(payload, {
+    prompt: finalPrompt,
+    model: model.label,
+    resolution,
+    duration,
+    ratio: node.data?.ratio || "9:16",
+  });
+  const taskId = record.taskId || payload.taskId || "";
+  if (!taskId) throw new Error("Upstream did not return task id.");
+  workflowSetNodeData(node.id, { status: record.status || "submitted", record, taskId });
+  mergeAdvancedResultRecord(record);
+
+  const finalRecord = await pollWorkflowTask(node.id, taskId);
+  if (!finalRecord || !isSucceededGenerationStatus(finalRecord.status)) {
+    throw new Error(finalRecord?.error || `${model.label} failed.`);
+  }
+  const videoUrl = generationVideoUrl(finalRecord);
+  if (!videoUrl) throw new Error(`${model.label} completed without a result video.`);
+
+  let frameUrl = "";
+  try {
+    frameUrl = await workflowExtractTailFrame(node, taskId, videoUrl, duration);
+  } catch (frameError) {
+    workflowLog(`Tail frame skipped: ${frameError.message || frameError}`);
+  }
+  workflowLog(`${model.label} completed.`);
+  return { taskId, videoUrl, frameUrl, record: finalRecord, model };
+}
+
+function workflowCompletedRunData(nodes = workflowOrderedVideoNodes()) {
+  const taskIds = [];
+  const videoUrls = [];
+  let allComplete = Boolean(nodes.length);
+  nodes.forEach((node) => {
+    const videoUrl = workflowNodeResultVideo(node);
+    const taskId = node.data?.taskId || node.data?.record?.taskId || "";
+    if (!workflowNodeHasSuccessfulResult(node) || !videoUrl) {
+      allComplete = false;
+      return;
+    }
+    videoUrls.push(videoUrl);
+    if (taskId) taskIds.push(taskId);
+  });
+  return { allComplete, taskIds, videoUrls };
+}
+
+async function composeWorkflowOutput(taskIds = [], videoUrls = []) {
+  const output = workflowNodeByType("output");
+  if (!output || !videoUrls.length) return false;
+  workflowThrowIfCancelled();
+  workflowSetNodeData(output.id, { status: "processing", resultVideoUrl: "", posterUrl: "", taskIds });
+  try {
+    const composed = await requestJson("/api/workflow/compose", {
+      method: "POST",
+      body: { taskIds, videoUrls },
+    });
+    workflowSetNodeData(output.id, {
+      status: "succeeded",
+      resultVideoUrl: composed.videoUrl || composed.localVideoUrl || "",
+      posterUrl: composed.posterUrl || composed.localPosterUrl || "",
+      videoUrls,
+      taskIds,
+    });
+    workflowLog("Final output composed.");
+    return true;
+  } catch (composeError) {
+    workflowSetNodeData(output.id, { status: "failed", error: composeError.message || String(composeError), videoUrls, taskIds });
+    workflowLog(`Compose skipped: ${composeError.message || composeError}`);
+    return false;
+  }
+}
+
+async function runWorkflowSingleNode(nodeId = "") {
+  if (!state.user) return openLogin();
+  const nodes = workflowOrderedVideoNodes();
+  const node = nodes.find((item) => item.id === nodeId);
+  const runState = workflowNodeRunState(node || {});
+  if (!node || !runState.canRun) {
+    state.workflowMessage = runState.reason || "This node cannot run yet.";
+    renderWorkflowPanel();
+    return;
+  }
+  const nodeIndex = nodes.findIndex((item) => item.id === node.id);
+  state.workflowRunning = true;
+  state.workflowCancelRequested = false;
+  state.workflowActiveNodeId = node.id;
+  clearWorkflowExecutionResults({ fromNodeId: node.id, message: "Running node...", render: false });
+  renderWorkflowPanel();
+  try {
+    const previous = nodeIndex > 0 ? nodes[nodeIndex - 1] : null;
+    const context = await workflowContinuationFromPrevious(previous);
+    workflowThrowIfCancelled();
+    await runWorkflowNode(node, { ...context, firstNode: nodeIndex === 0 });
+    const completed = workflowCompletedRunData();
+    if (completed.allComplete) {
+      await composeWorkflowOutput(completed.taskIds, completed.videoUrls);
+      state.workflowMessage = "Workflow completed.";
+    } else {
+      state.workflowMessage = "Node completed. Run the next node.";
+    }
+  } catch (error) {
+    workflowHandleExecutionError(error);
+  } finally {
+    state.workflowRunning = false;
+    state.workflowCancelRequested = false;
+    state.workflowActiveNodeId = "";
+    persistWorkflowState();
+    renderWorkflowPanel();
+  }
+}
+
+async function runWorkflow() {
+  if (!state.user) return openLogin();
+  const upload = workflowUploadNode();
+  const sourceImage = upload?.data?.startImage || "";
   const nodes = workflowOrderedVideoNodes();
   if (!nodes.length) {
     state.workflowMessage = "Add a video node first.";
@@ -3293,136 +3609,37 @@ async function runWorkflow() {
     return;
   }
   state.workflowRunning = true;
-  state.workflowMessage = "Running workflow...";
+  state.workflowCancelRequested = false;
+  state.workflowActiveNodeId = "";
+  clearWorkflowExecutionResults({ message: "Running workflow...", render: false });
   renderWorkflowPanel();
   let previousFrameUrl = "";
   let previousVideoUrl = "";
-  let currentRunNode = null;
   const completedTaskIds = [];
   const completedVideoUrls = [];
   try {
     workflowLog(`Run order: ${nodes.map((node) => workflowModelById(node.data?.modelId).label).join(" -> ")}`);
     for (const node of nodes) {
-      currentRunNode = node;
-      const model = workflowModelById(node.data?.modelId);
-      const duration = Number(node.data?.duration || 5);
-      const resolution = node.data?.resolution || "720p";
-      const prompt = [workflowEffectivePrompt(node), workflowFacePrompt(faceImage)].filter(Boolean).join(". ");
-      const firstNode = completedTaskIds.length === 0;
-      workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", resultVideoUrl: "", posterUrl: "", lastFrameUrl: "" });
-      workflowLog(`Submitting ${model.label}.`);
-      const continuationPrompt = previousFrameUrl || previousVideoUrl
-        ? "Continue naturally from the previous clip's final frame, preserving subject identity, pose continuity, lighting, and camera direction."
-        : "";
-      const finalPrompt = [prompt, continuationPrompt].filter(Boolean).join(". ");
-      const mediaBody = previousFrameUrl
-        ? {
-          seedanceMode: "first_frame",
-          ...workflowImageRequestFields(previousFrameUrl, "first"),
-        }
-        : previousVideoUrl
-          ? {
-            seedanceMode: "reference_video",
-            referenceVideoUrls: [previousVideoUrl],
-            inputVideoSeconds: duration,
-            referenceVideoDurationSeconds: duration,
-          }
-          : endImage
-            ? {
-              seedanceMode: "first_last_frame",
-              ...workflowImageRequestFields(sourceImage, "first"),
-              ...workflowImageRequestFields(endImage, "end"),
-            }
-            : faceImage
-              ? {
-                seedanceMode: "reference_images",
-                referenceImages: workflowReferenceImageItems([sourceImage, faceImage]),
-              }
-            : {
-              seedanceMode: "first_frame",
-              ...workflowImageRequestFields(sourceImage, "first"),
-            };
-      const body = {
-        provider: "seedance",
-        seedanceTier: "standard",
-        prompt: finalPrompt,
-        ...mediaBody,
-        ratio: node.data?.ratio || "9:16",
-        resolution,
-        duration,
-        generateAudio: true,
-        params: {
-          createKind: "workflow",
-          workflowNodeId: node.id,
-          workflowModelId: model.id,
-          workflowModelLabel: model.label,
-          workflowInputMode: mediaBody.seedanceMode,
-          workflowUsesEndFrame: firstNode && Boolean(endImage),
-          workflowUsesFaceReference: Boolean(faceImage),
-          physics: workflow.physics || [],
-        },
-      };
-      const payload = await requestJson("/api/advanced/generate", { method: "POST", body });
-      if (payload.user) setUser(payload.user);
-      const record = workflowRecordFromPayload(payload, {
-        prompt: finalPrompt,
-        model: model.label,
-        resolution,
-        duration,
-        ratio: node.data?.ratio || "9:16",
+      workflowThrowIfCancelled();
+      const result = await runWorkflowNode(node, {
+        previousFrameUrl,
+        previousVideoUrl,
+        firstNode: completedTaskIds.length === 0,
       });
-      const taskId = record.taskId || payload.taskId || "";
-      if (!taskId) throw new Error("Upstream did not return task id.");
-      workflowSetNodeData(node.id, { status: record.status || "submitted", record, taskId });
-      mergeAdvancedResultRecord(record);
-      const finalRecord = await pollWorkflowTask(node.id, taskId);
-      if (!finalRecord || !isSucceededGenerationStatus(finalRecord.status)) {
-        throw new Error(finalRecord?.error || `${model.label} failed.`);
-      }
-      previousVideoUrl = generationVideoUrl(finalRecord);
-      if (previousVideoUrl) completedVideoUrls.push(previousVideoUrl);
-      if (taskId) completedTaskIds.push(taskId);
-      try {
-        const framePayload = await requestJson("/api/workflow/extract-frame", {
-          method: "POST",
-          body: { taskId, videoUrl: previousVideoUrl, duration },
-        });
-        previousFrameUrl = framePayload.frameUrl || framePayload.localFrameUrl || "";
-        if (previousFrameUrl) workflowSetNodeData(node.id, { lastFrameUrl: previousFrameUrl, posterUrl: previousFrameUrl });
-      } catch (frameError) {
-        previousFrameUrl = "";
-        workflowLog(`Tail frame skipped: ${frameError.message || frameError}`);
-      }
-      workflowLog(`${model.label} completed.`);
+      previousFrameUrl = result.frameUrl || "";
+      previousVideoUrl = result.videoUrl || "";
+      if (result.videoUrl) completedVideoUrls.push(result.videoUrl);
+      if (result.taskId) completedTaskIds.push(result.taskId);
     }
-    const output = workflowNodeByType("output");
-    if (output && completedVideoUrls.length) {
-      workflowSetNodeData(output.id, { status: "processing", resultVideoUrl: "", posterUrl: "", taskIds: completedTaskIds });
-      try {
-        const composed = await requestJson("/api/workflow/compose", {
-          method: "POST",
-          body: { taskIds: completedTaskIds, videoUrls: completedVideoUrls },
-        });
-        workflowSetNodeData(output.id, {
-          status: "succeeded",
-          resultVideoUrl: composed.videoUrl || composed.localVideoUrl || "",
-          posterUrl: composed.posterUrl || composed.localPosterUrl || "",
-          videoUrls: completedVideoUrls,
-          taskIds: completedTaskIds,
-        });
-        workflowLog("Final output composed.");
-      } catch (composeError) {
-        workflowSetNodeData(output.id, { status: "failed", error: composeError.message || String(composeError), videoUrls: completedVideoUrls, taskIds: completedTaskIds });
-        workflowLog(`Compose skipped: ${composeError.message || composeError}`);
-      }
-    }
+    workflowThrowIfCancelled();
+    await composeWorkflowOutput(completedTaskIds, completedVideoUrls);
     state.workflowMessage = "Workflow completed.";
   } catch (error) {
-    state.workflowMessage = error.message || String(error);
-    if (currentRunNode?.id) workflowSetNodeData(currentRunNode.id, { status: "failed", error: state.workflowMessage });
-    workflowLog(state.workflowMessage);
+    workflowHandleExecutionError(error);
   } finally {
     state.workflowRunning = false;
+    state.workflowCancelRequested = false;
+    state.workflowActiveNodeId = "";
     persistWorkflowState();
     renderWorkflowPanel();
   }
@@ -3831,6 +4048,12 @@ function handleWorkflowClick(event) {
     }
     return;
   }
+  const runNodeButton = event.target.closest("[data-workflow-run-node]");
+  if (runNodeButton) {
+    event.stopPropagation();
+    if (!runNodeButton.disabled) runWorkflowSingleNode(runNodeButton.dataset.workflowRunNode || "");
+    return;
+  }
   const previewButton = event.target.closest("[data-workflow-preview]");
   if (previewButton) {
     const node = workflowNodeById(previewButton.dataset.workflowPreview || "");
@@ -3843,25 +4066,32 @@ function handleWorkflowClick(event) {
     event.stopPropagation();
     return;
   }
+  const action = event.target.closest("[data-workflow-action]")?.dataset.workflowAction || "";
+  if (action) {
+    event.stopPropagation();
+    if (action === "run") runWorkflow();
+    if (action === "cancel") requestWorkflowCancel();
+    if (action === "clear-results") clearWorkflowExecutionResults();
+    if (action === "add-video" || action === "add-branch") addWorkflowVideoNode();
+    if (action === "physics") {
+      state.workflowShowPhysics = !state.workflowShowPhysics;
+      renderWorkflowPanel();
+    }
+    if (action === "refiner") addWorkflowVideoNode("imagine-realistic");
+    if (action === "director") {
+      const input = els.workflowRoot?.querySelector("[data-workflow-director]");
+      input?.focus();
+    }
+    if (action === "director-build") applyWorkflowDirectorPrompt();
+    if (action === "reset") resetWorkflow();
+    return;
+  }
   const nodeEl = event.target.closest("[data-workflow-node]");
   if (nodeEl) {
     state.workflowSelectedNodeId = nodeEl.dataset.workflowNode || "";
     renderWorkflowPanel();
+    return;
   }
-  const action = event.target.closest("[data-workflow-action]")?.dataset.workflowAction || "";
-  if (action === "run") runWorkflow();
-  if (action === "add-video" || action === "add-branch") addWorkflowVideoNode();
-  if (action === "physics") {
-    state.workflowShowPhysics = !state.workflowShowPhysics;
-    renderWorkflowPanel();
-  }
-  if (action === "refiner") addWorkflowVideoNode("imagine-realistic");
-  if (action === "director") {
-    const input = els.workflowRoot?.querySelector("[data-workflow-director]");
-    input?.focus();
-  }
-  if (action === "director-build") applyWorkflowDirectorPrompt();
-  if (action === "reset") resetWorkflow();
   const physicsButton = event.target.closest("[data-workflow-physics]");
   if (physicsButton) {
     const workflow = ensureWorkflowState();

@@ -621,8 +621,10 @@ const state = {
   advancedResultLoading: false,
   workflow: null,
   workflowRunning: false,
+  workflowCancelRequested: false,
   workflowMessage: "",
   workflowSelectedNodeId: "video-1",
+  workflowActiveNodeId: "",
   workflowShowPhysics: false,
   workflowModelSearch: "",
   workflowPickerNodeId: "",
@@ -884,4 +886,3 @@ const els = {
 function currentTopupCreditsEls() {
   return [els.topupTriggerCredits].filter(Boolean);
 }
-
