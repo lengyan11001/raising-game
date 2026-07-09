@@ -4123,6 +4123,11 @@ select option:checked {
   color: #fff;
 }
 
+.workflow-toolbar .workflow-run.is-cancel {
+  border-color: rgba(255,98,98,.82);
+  background: linear-gradient(135deg, #ff6969, #c92749);
+}
+
 .workflow-toolbar button:disabled {
   opacity: .58;
   cursor: progress;
@@ -4716,6 +4721,8 @@ select option:checked {
 
 .workflow-node footer {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 8px;
   margin-top: 10px;
@@ -4724,12 +4731,46 @@ select option:checked {
   font-weight: 900;
 }
 
+.workflow-node footer span {
+  flex: 1 1 130px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workflow-node footer strong {
   color: #ff5fbd;
 }
 
+.workflow-node-run {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255,71,173,.62);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(255,71,173,.16);
+  font-size: .74rem;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.workflow-node-run:hover:not(:disabled) {
+  border-color: rgba(255,71,173,.95);
+  background: rgba(255,71,173,.28);
+}
+
+.workflow-node-run:disabled {
+  opacity: .46;
+  cursor: not-allowed;
+}
+
 .workflow-node.is-running .workflow-node-media svg,
-.workflow-toolbar button:disabled svg {
+.workflow-node-run.is-running svg {
   animation: workflow-spin 1s linear infinite;
 }
 
