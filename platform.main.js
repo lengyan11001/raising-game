@@ -208,6 +208,7 @@ els.advancedSideTabs?.querySelectorAll("[data-advanced-side-tab]").forEach((butt
 els.refreshAdvancedResultBtn?.addEventListener("click", () => refreshAdvancedResultRecord());
 els.workflowRoot?.addEventListener("click", handleWorkflowClick);
 els.workflowRoot?.addEventListener("pointerdown", handleWorkflowPointerDown);
+els.workflowRoot?.addEventListener("wheel", handleWorkflowWheel, { passive: false });
 els.workflowRoot?.addEventListener("input", handleWorkflowInput);
 els.workflowRoot?.addEventListener("change", (event) => {
   const input = event.target.closest("[data-workflow-file]");
