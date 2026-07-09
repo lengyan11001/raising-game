@@ -2853,7 +2853,14 @@ function renderWorkflowEdges() {
     if (!from || !to) return "";
     const fromPoint = workflowNodeAnchor(from, "out");
     const toPoint = workflowNodeAnchor(to, "in");
-    return `<path class="workflow-edge-path" d="${workflowConnectionPath(fromPoint.x, fromPoint.y, toPoint.x, toPoint.y)}" />`;
+    const path = workflowConnectionPath(fromPoint.x, fromPoint.y, toPoint.x, toPoint.y);
+    const edgeAttrs = `data-edge-from="${escapeHtml(edge.from)}" data-edge-to="${escapeHtml(edge.to)}"`;
+    return `
+      <path class="workflow-edge-hit" d="${path}" data-workflow-edge-drag="to" ${edgeAttrs} />
+      <path class="workflow-edge-path" d="${path}" />
+      <circle class="workflow-edge-handle workflow-edge-handle-out" cx="${fromPoint.x}" cy="${fromPoint.y}" r="8" data-workflow-edge-handle="from" ${edgeAttrs} />
+      <circle class="workflow-edge-handle workflow-edge-handle-in" cx="${toPoint.x}" cy="${toPoint.y}" r="8" data-workflow-edge-handle="to" ${edgeAttrs} />
+    `;
   }).join("");
 }
 
@@ -3217,8 +3224,9 @@ function workflowDraftEdgeElement() {
 }
 
 function clearWorkflowConnectionTarget() {
-  els.workflowRoot?.querySelectorAll(".workflow-node.is-connection-target").forEach((node) => {
+  els.workflowRoot?.querySelectorAll(".workflow-node.is-connection-target, .workflow-node.is-connection-source").forEach((node) => {
     node.classList.remove("is-connection-target");
+    node.classList.remove("is-connection-source");
   });
 }
 
@@ -3241,8 +3249,33 @@ function workflowConnectionTargetFromPoint(event) {
   return { handle, node };
 }
 
+function workflowConnectionSourceFromPoint(event) {
+  const target = document.elementFromPoint(event.clientX, event.clientY);
+  let handle = target?.closest?.('[data-workflow-connect="out"]') || null;
+  if (!handle) {
+    handle = Array.from(els.workflowRoot?.querySelectorAll('[data-workflow-connect="out"]') || []).find((item) => {
+      const rect = item.getBoundingClientRect();
+      const hitPadding = 18;
+      return event.clientX >= rect.left - hitPadding
+        && event.clientX <= rect.right + hitPadding
+        && event.clientY >= rect.top - hitPadding
+        && event.clientY <= rect.bottom + hitPadding;
+    }) || null;
+  }
+  const nodeId = handle?.dataset.nodeId || "";
+  const node = workflowNodeById(nodeId);
+  if (!workflowNodeAcceptsOutput(node) || nodeId === activeWorkflowConnection?.toId) return null;
+  return { handle, node };
+}
+
 function updateWorkflowConnectionTarget(event) {
   clearWorkflowConnectionTarget();
+  if (activeWorkflowConnection?.mode === "edge-from") {
+    const source = workflowConnectionSourceFromPoint(event);
+    if (!source) return;
+    source.handle.closest("[data-workflow-node]")?.classList.add("is-connection-source");
+    return;
+  }
   const target = workflowConnectionTargetFromPoint(event);
   if (!target) return;
   target.handle.closest("[data-workflow-node]")?.classList.add("is-connection-target");
@@ -3253,7 +3286,10 @@ function updateWorkflowDraftEdge(event) {
   const path = workflowDraftEdgeElement();
   if (!path) return;
   const point = workflowCanvasPointFromEvent(event);
-  path.setAttribute("d", workflowConnectionPath(activeWorkflowConnection.x1, activeWorkflowConnection.y1, point.x, point.y));
+  const d = activeWorkflowConnection.mode === "edge-from"
+    ? workflowConnectionPath(point.x, point.y, activeWorkflowConnection.x2, activeWorkflowConnection.y2)
+    : workflowConnectionPath(activeWorkflowConnection.x1, activeWorkflowConnection.y1, point.x, point.y);
+  path.setAttribute("d", d);
   path.removeAttribute("hidden");
 }
 
@@ -3316,7 +3352,8 @@ function startWorkflowNodeDrag(event) {
 function updateWorkflowNodeDrag(event) {
   if (!activeWorkflowNodeDrag) return;
   const node = workflowNodeById(activeWorkflowNodeDrag.nodeId);
-  const nodeEl = els.workflowRoot?.querySelector(`[data-workflow-node="${CSS.escape(activeWorkflowNodeDrag.nodeId)}"]`);
+  const nodeEl = Array.from(els.workflowRoot?.querySelectorAll("[data-workflow-node]") || [])
+    .find((item) => item.dataset.workflowNode === activeWorkflowNodeDrag.nodeId);
   if (!node || !nodeEl) return;
   const dx = event.clientX - activeWorkflowNodeDrag.startClientX;
   const dy = event.clientY - activeWorkflowNodeDrag.startClientY;
@@ -3360,7 +3397,51 @@ function connectWorkflowNodes(fromId = "", toId = "") {
   return true;
 }
 
+function reconnectWorkflowEdge(oldFromId = "", oldToId = "", nextFromId = "", nextToId = "") {
+  const workflow = ensureWorkflowState();
+  const from = workflow.nodes.find((node) => node.id === nextFromId);
+  const to = workflow.nodes.find((node) => node.id === nextToId);
+  if (!workflowNodeAcceptsOutput(from) || !workflowNodeAcceptsInput(to) || nextFromId === nextToId) return false;
+  workflow.edges = workflow.edges.filter((edge) => !(edge.from === oldFromId && edge.to === oldToId));
+  return connectWorkflowNodes(nextFromId, nextToId);
+}
+
+function startWorkflowEdgeDrag(event, edgeEl) {
+  const edgeFrom = edgeEl.dataset.edgeFrom || "";
+  const edgeTo = edgeEl.dataset.edgeTo || "";
+  const from = workflowNodeById(edgeFrom);
+  const to = workflowNodeById(edgeTo);
+  if (!from || !to) return false;
+  const fromPoint = workflowNodeAnchor(from, "out");
+  const toPoint = workflowNodeAnchor(to, "in");
+  const handle = edgeEl.dataset.workflowEdgeHandle || edgeEl.dataset.workflowEdgeDrag || "to";
+  activeWorkflowConnection = {
+    mode: handle === "from" ? "edge-from" : "edge-to",
+    edgeFrom,
+    edgeTo,
+    fromId: edgeFrom,
+    toId: edgeTo,
+    pointerId: event.pointerId,
+    x1: fromPoint.x,
+    y1: fromPoint.y,
+    x2: toPoint.x,
+    y2: toPoint.y,
+  };
+  event.preventDefault();
+  event.stopPropagation();
+  els.workflowRoot?.classList.add("is-connecting");
+  updateWorkflowDraftEdge(event);
+  updateWorkflowConnectionTarget(event);
+  edgeEl.setPointerCapture?.(event.pointerId);
+  return true;
+}
+
 function handleWorkflowPointerDown(event) {
+  const edgeEl = event.target.closest?.("[data-workflow-edge-handle], [data-workflow-edge-drag]");
+  if (edgeEl) {
+    startWorkflowEdgeDrag(event, edgeEl);
+    return;
+  }
   const handle = event.target.closest('[data-workflow-connect="out"]');
   if (!handle) {
     startWorkflowNodeDrag(event);
@@ -3371,6 +3452,7 @@ function handleWorkflowPointerDown(event) {
   if (!workflowNodeAcceptsOutput(from)) return;
   const anchor = workflowNodeAnchor(from, "out");
   activeWorkflowConnection = {
+    mode: "from-node",
     fromId,
     pointerId: event.pointerId,
     x1: anchor.x,
@@ -3404,10 +3486,20 @@ function handleWorkflowPointerUp(event) {
   }
   if (!activeWorkflowConnection || activeWorkflowConnection.pointerId !== event.pointerId) return;
   event.preventDefault();
-  const fromId = activeWorkflowConnection.fromId;
-  const target = workflowConnectionTargetFromPoint(event);
+  const connection = activeWorkflowConnection;
+  const target = connection.mode === "edge-from" ? null : workflowConnectionTargetFromPoint(event);
+  const source = connection.mode === "edge-from" ? workflowConnectionSourceFromPoint(event) : null;
   stopWorkflowConnectionDrag();
-  if (target?.node?.id) connectWorkflowNodes(fromId, target.node.id);
+  if (connection.mode === "edge-from") {
+    if (source?.node?.id) reconnectWorkflowEdge(connection.edgeFrom, connection.edgeTo, source.node.id, connection.edgeTo);
+    return;
+  }
+  if (!target?.node?.id) return;
+  if (connection.edgeFrom && connection.edgeTo) {
+    reconnectWorkflowEdge(connection.edgeFrom, connection.edgeTo, connection.fromId, target.node.id);
+  } else {
+    connectWorkflowNodes(connection.fromId, target.node.id);
+  }
 }
 
 function handleWorkflowPointerCancel(event) {
