@@ -2609,19 +2609,63 @@ function workflowOrderedVideoNodes() {
   const upload = workflowUploadNode();
   if (!upload) return workflowVideoNodes();
   const nodeById = new Map(workflow.nodes.map((node) => [node.id, node]));
-  const ordered = [];
-  const visited = new Set([upload.id]);
-  let currentId = upload.id;
-  for (let guard = 0; guard < workflow.nodes.length + 4; guard += 1) {
-    const nextEdge = workflow.edges.find((edge) => edge.from === currentId && !visited.has(edge.to));
-    if (!nextEdge) break;
-    const next = nodeById.get(nextEdge.to);
-    if (!next || next.type === "output") break;
-    visited.add(next.id);
-    if (next.type === "video") ordered.push(next);
-    currentId = next.id;
+  const videoNodes = workflowVideoNodes();
+  const reachableIds = new Set();
+  const queue = [upload.id];
+  for (let guard = 0; queue.length && guard < workflow.nodes.length * 4 + 8; guard += 1) {
+    const currentId = queue.shift();
+    workflow.edges
+      .filter((edge) => edge.from === currentId)
+      .sort((left, right) => Number(nodeById.get(left.to)?.x || 0) - Number(nodeById.get(right.to)?.x || 0))
+      .forEach((edge) => {
+        const next = nodeById.get(edge.to);
+        if (!next || next.type === "output" || reachableIds.has(next.id)) return;
+        if (next.type === "video") reachableIds.add(next.id);
+        queue.push(next.id);
+      });
   }
-  return ordered.length ? ordered : workflowVideoNodes();
+  const candidates = reachableIds.size === videoNodes.length
+    ? videoNodes.filter((node) => reachableIds.has(node.id))
+    : videoNodes;
+  if (!candidates.length) return [];
+
+  const candidateIds = new Set(candidates.map((node) => node.id));
+  const incomingCounts = new Map(candidates.map((node) => [node.id, 0]));
+  workflow.edges.forEach((edge) => {
+    if (candidateIds.has(edge.from) && candidateIds.has(edge.to)) {
+      incomingCounts.set(edge.to, (incomingCounts.get(edge.to) || 0) + 1);
+    }
+  });
+  const ordered = [];
+  const ready = candidates
+    .filter((node) => (incomingCounts.get(node.id) || 0) === 0)
+    .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
+  while (ready.length) {
+    const node = ready.shift();
+    if (!node || ordered.some((item) => item.id === node.id)) continue;
+    ordered.push(node);
+    workflow.edges
+      .filter((edge) => edge.from === node.id && candidateIds.has(edge.to))
+      .forEach((edge) => {
+        incomingCounts.set(edge.to, Math.max(0, (incomingCounts.get(edge.to) || 0) - 1));
+        if ((incomingCounts.get(edge.to) || 0) === 0) {
+          const next = nodeById.get(edge.to);
+          if (next && !ordered.some((item) => item.id === next.id) && !ready.some((item) => item.id === next.id)) {
+            ready.push(next);
+            ready.sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
+          }
+        }
+      });
+  }
+  const missing = candidates.filter((node) => !ordered.some((item) => item.id === node.id));
+  return [...ordered, ...missing].sort((left, right) => {
+    const leftIndex = ordered.findIndex((node) => node.id === left.id);
+    const rightIndex = ordered.findIndex((node) => node.id === right.id);
+    if (leftIndex >= 0 && rightIndex >= 0) return leftIndex - rightIndex;
+    if (leftIndex >= 0) return -1;
+    if (rightIndex >= 0) return 1;
+    return Number(left.x || 0) - Number(right.x || 0);
+  });
 }
 
 function workflowUploadNode() {
@@ -3257,6 +3301,7 @@ async function runWorkflow() {
   const completedTaskIds = [];
   const completedVideoUrls = [];
   try {
+    workflowLog(`Run order: ${nodes.map((node) => workflowModelById(node.data?.modelId).label).join(" -> ")}`);
     for (const node of nodes) {
       currentRunNode = node;
       const model = workflowModelById(node.data?.modelId);
