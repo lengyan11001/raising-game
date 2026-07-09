@@ -76,6 +76,7 @@ async function ensureSchema() {
       password_hash TEXT NOT NULL DEFAULT '',
       credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
       pricing_multiplier NUMERIC(12, 6) NOT NULL DEFAULT 1,
+      api_pricing_multiplier NUMERIC(12, 6) NOT NULL DEFAULT 1,
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -90,6 +91,7 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
       ADD COLUMN IF NOT EXISTS pricing_multiplier NUMERIC(12, 6) NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS api_pricing_multiplier NUMERIC(12, 6) NOT NULL DEFAULT 1,
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -416,6 +418,7 @@ function userFromRow(row = {}) {
     passwordHash: String(row.password_hash || payload.passwordHash || ""),
     credits: creditNumber(row.credits ?? payload.credits ?? 0),
     pricingMultiplier: creditNumber(row.pricing_multiplier ?? payload.pricingMultiplier ?? 1, 1),
+    apiPricingMultiplier: creditNumber(row.api_pricing_multiplier ?? payload.apiPricingMultiplier ?? payload.apiPriceMultiplier ?? payload.apiDiscount ?? 1, 1),
     deletedAt: row.deleted_at ? new Date(row.deleted_at).toISOString() : (payload.deletedAt || ""),
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
@@ -593,14 +596,15 @@ async function replaceAppDbTables(db = {}, options = {}) {
     for (const user of Array.isArray(db.users) ? db.users : []) {
       await client.query(
         `
-          INSERT INTO app_users(id, username, api_token, role, password_hash, credits, pricing_multiplier, payload, deleted_at, created_at, updated_at)
-          VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::numeric, $7::numeric, $8::jsonb, $9::timestamptz, $10::timestamptz, $11::timestamptz)
+          INSERT INTO app_users(id, username, api_token, role, password_hash, credits, pricing_multiplier, api_pricing_multiplier, payload, deleted_at, created_at, updated_at)
+          VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::numeric, $7::numeric, $8::numeric, $9::jsonb, $10::timestamptz, $11::timestamptz, $12::timestamptz)
           ON CONFLICT (id) DO UPDATE SET
             username = EXCLUDED.username,
             api_token = EXCLUDED.api_token,
             role = EXCLUDED.role,
             password_hash = EXCLUDED.password_hash,
             pricing_multiplier = EXCLUDED.pricing_multiplier,
+            api_pricing_multiplier = EXCLUDED.api_pricing_multiplier,
             payload = EXCLUDED.payload,
             deleted_at = EXCLUDED.deleted_at,
             updated_at = EXCLUDED.updated_at
@@ -613,6 +617,7 @@ async function replaceAppDbTables(db = {}, options = {}) {
           String(user.passwordHash || ""),
           creditNumber(user.credits || 0),
           creditNumber(user.pricingMultiplier ?? user.priceMultiplier ?? user.discount ?? 1, 1),
+          creditNumber(user.apiPricingMultiplier ?? user.apiPriceMultiplier ?? user.apiDiscount ?? 1, 1),
           JSON.stringify(user),
           deletedAtOrNull(user),
           payloadCreatedAt(user),
@@ -900,8 +905,8 @@ async function updateUserInDb(user = {}) {
   const payload = { ...user };
   await query(
     `
-      INSERT INTO app_users(id, username, api_token, role, password_hash, credits, pricing_multiplier, payload, deleted_at, created_at, updated_at)
-      VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::numeric, $7::numeric, $8::jsonb, $9::timestamptz, $10::timestamptz, $11::timestamptz)
+      INSERT INTO app_users(id, username, api_token, role, password_hash, credits, pricing_multiplier, api_pricing_multiplier, payload, deleted_at, created_at, updated_at)
+      VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::numeric, $7::numeric, $8::numeric, $9::jsonb, $10::timestamptz, $11::timestamptz, $12::timestamptz)
       ON CONFLICT (id) DO UPDATE SET
         username = EXCLUDED.username,
         api_token = EXCLUDED.api_token,
@@ -909,6 +914,7 @@ async function updateUserInDb(user = {}) {
         password_hash = EXCLUDED.password_hash,
         credits = EXCLUDED.credits,
         pricing_multiplier = EXCLUDED.pricing_multiplier,
+        api_pricing_multiplier = EXCLUDED.api_pricing_multiplier,
         payload = EXCLUDED.payload,
         deleted_at = EXCLUDED.deleted_at,
         updated_at = EXCLUDED.updated_at
@@ -921,6 +927,7 @@ async function updateUserInDb(user = {}) {
       String(user.passwordHash || ""),
       creditNumber(user.credits || 0),
       creditNumber(user.pricingMultiplier ?? user.priceMultiplier ?? user.discount ?? 1, 1),
+      creditNumber(user.apiPricingMultiplier ?? user.apiPriceMultiplier ?? user.apiDiscount ?? 1, 1),
       JSON.stringify(payload),
       deletedAtOrNull(payload),
       payloadCreatedAt(payload),

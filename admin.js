@@ -2794,7 +2794,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-user-table">
-            <thead><tr><th>账号</th><th>角色</th><th>积分</th><th>API Token</th><th>折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
+            <thead><tr><th>账号</th><th>角色</th><th>积分</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
                 <tr data-id="${escapeHtml(u.id)}">
@@ -2803,6 +2803,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
                   <td><strong>${escapeHtml(u.credits)}</strong></td>
                   <td><span class="adm-muted adm-mono">${escapeHtml(maskMiddle(u.apiToken || ""))}</span></td>
                   <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.pricingMultiplier))}</span></td>
+                  <td><span class="adm-mono">${escapeHtml(pricingMultiplierText(u.apiPricingMultiplier))}</span></td>
                   <td>${escapeHtml(u.customCharacters || 0)}</td>
                   <td>${escapeHtml(u.walletOrders || 0)}</td>
                   <td>${fmtDate(u.createdAt)}</td>
@@ -2861,7 +2862,8 @@ function openEditUserDialog(id, users) {
     <div class="adm-form-row"><span>积分（直接设定）</span><input id="editCredits" type="number" min="0" value="${escapeHtml(user.credits)}" /></div>
     <div class="adm-form-row"><span>积分增减（可选）</span><input id="editCreditsDelta" type="number" placeholder="例如 +50 或 -10" /></div>
     <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
-    <div class="adm-form-row"><span>价格折扣比例</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">1 = 原价，0.9 = 九折，1.1 = 加价 10%。用于高级生成和首页广场生成的展示与最终扣费。</small></div>
+    <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
+    <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
   `;
   openDialog({
     title: `编辑用户：${user.username}`,
@@ -2872,14 +2874,20 @@ function openEditUserDialog(id, users) {
       const credits = Number(tpl.querySelector("#editCredits").value);
       const delta = Number(tpl.querySelector("#editCreditsDelta").value);
       const pricingMultiplier = Number(tpl.querySelector("#editPricingMultiplier").value);
+      const apiPricingMultiplier = Number(tpl.querySelector("#editApiPricingMultiplier").value);
       if (!Number.isFinite(pricingMultiplier) || pricingMultiplier <= 0 || pricingMultiplier > 100) {
-        toast("价格折扣比例必须大于 0，且不超过 100。", "error");
+        toast("前端价格折扣比例必须大于 0，且不超过 100。", "error");
+        return false;
+      }
+      if (!Number.isFinite(apiPricingMultiplier) || apiPricingMultiplier <= 0 || apiPricingMultiplier > 100) {
+        toast("API价格折扣比例必须大于 0，且不超过 100。", "error");
         return false;
       }
       const body = { role };
       if (Number.isFinite(delta) && delta !== 0) body.creditsDelta = delta;
       else if (Number.isFinite(credits)) body.credits = credits;
       body.pricingMultiplier = pricingMultiplier;
+      body.apiPricingMultiplier = apiPricingMultiplier;
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
       toast("已更新。", "success");
       renderUsers();
