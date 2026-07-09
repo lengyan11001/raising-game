@@ -4193,8 +4193,8 @@ select option:checked {
 .workflow-canvas-stage {
   position: absolute;
   inset: 0 auto auto 0;
-  width: 1980px;
-  height: 720px;
+  width: var(--workflow-stage-width, 1980px);
+  height: var(--workflow-stage-height, 720px);
   transform: scale(var(--workflow-zoom, 1));
   transform-origin: 0 0;
 }
@@ -4202,8 +4202,8 @@ select option:checked {
 .workflow-edges {
   position: absolute;
   inset: 0;
-  width: 1980px;
-  height: 720px;
+  width: var(--workflow-stage-width, 1980px);
+  height: var(--workflow-stage-height, 720px);
   pointer-events: none;
   z-index: 1;
 }
@@ -6605,7 +6605,7 @@ select:focus,
   .advanced-fields { grid-template-columns: 1fr; }
   .workflow-node { width: min(414px, calc(100vw - 44px)); }
   .workflow-canvas { min-height: 700px; }
-  .workflow-edges { width: 1980px; }
+  .workflow-edges { width: var(--workflow-stage-width, 1980px); }
 }
 
 @media (max-width: 460px) {
