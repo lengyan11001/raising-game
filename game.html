@@ -6,10 +6,20 @@
     <title>Vipeak AI Game</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./game.css?v=game-3" />
+    <link rel="stylesheet" href="./game.css?v=game-4" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
-  <body>
+  <body class="age-gate-locked">
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem("raisingGameAgeGateAccepted") === "1") {
+            document.body.classList.add("age-gate-accepted");
+            document.body.classList.remove("age-gate-locked");
+          }
+        } catch (error) {}
+      })();
+    </script>
     <section id="ageGate" class="age-gate" role="dialog" aria-modal="true" aria-labelledby="ageGateTitle" hidden>
       <div class="age-card">
         <span>18+</span>
@@ -128,6 +138,6 @@
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="./game.js?v=game-6"></script>
+    <script src="./game.js?v=game-7"></script>
   </body>
 </html>

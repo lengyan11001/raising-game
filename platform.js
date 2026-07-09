@@ -61,7 +61,7 @@ const WORKFLOW_MODEL_LIBRARY = WORKFLOW_MODEL_LABELS.map((label) => ({
   prompt: `Adult cinematic shot. Keep the same consenting adult subject and identity. Scene action: ${label}. Smooth camera motion, realistic lighting, no subtitles, no watermark.`,
 }));
 const WORKFLOW_QUICK_TEMPLATES = [
-  { id: "nude", label: "Undress Intro", modelId: "nude-video" },
+  { id: "nude", label: "Undress Intro", modelId: "nude-v3-kling" },
   { id: "deepthroat", label: "Deep Throat", modelId: "deepthroat-v2-1" },
   { id: "cumshot", label: "Cumshot", modelId: "cumshot-v2" },
   { id: "ahegao", label: "Ahegao Finish", modelId: "ahegao-v2" },
@@ -74,11 +74,14 @@ const WORKFLOW_PHYSICS_MODULES = [
   { id: "better-dick", label: "Better Detail", prompt: "more coherent explicit detail when relevant" },
   { id: "bouncing-boobs", label: "Bouncing Boobs", prompt: "stronger natural bounce and secondary motion" },
 ];
+const WORKFLOW_NODE_LAYOUT_VERSION = 2;
+const WORKFLOW_NODE_WIDTH = 414;
+const WORKFLOW_NODE_GAP = 56;
 const WORKFLOW_DEFAULT_NODES = [
   { id: "upload-1", type: "upload", title: "Image Upload", x: 30, y: 150, data: { startImage: "", endImage: "", faceImage: "" } },
-  { id: "video-1", type: "video", title: "Nude Video", x: 390, y: 150, data: { modelId: "nude-video", duration: 5, resolution: "720p", ratio: "9:16", prompt: "" } },
-  { id: "video-2", type: "video", title: "Deepthroat", x: 750, y: 150, data: { modelId: "deepthroat-v2-1", duration: 5, resolution: "720p", ratio: "9:16", prompt: "" } },
-  { id: "output-1", type: "output", title: "Final Output", x: 1110, y: 150, data: {} },
+  { id: "video-1", type: "video", title: "Nude V3 (Kling)", x: 500, y: 150, data: { modelId: "nude-v3-kling", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview" } },
+  { id: "video-2", type: "video", title: "Deepthroat", x: 970, y: 150, data: { modelId: "deepthroat-v2-1", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview" } },
+  { id: "output-1", type: "output", title: "Final Output", x: 1440, y: 150, data: {} },
 ];
 const WORKFLOW_DEFAULT_EDGES = [
   ["upload-1", "video-1"],
@@ -6652,7 +6655,34 @@ function cloneWorkflowDefault() {
     edges: WORKFLOW_DEFAULT_EDGES.map(([from, to]) => ({ from, to })),
     physics: [],
     directorPrompt: "",
+    layoutVersion: WORKFLOW_NODE_LAYOUT_VERSION,
   };
+}
+
+function normalizeWorkflowLayout(workflow = {}) {
+  if (!workflow || !Array.isArray(workflow.nodes)) return workflow;
+  const step = WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP;
+  const upload = workflow.nodes.find((node) => node.type === "upload");
+  const output = workflow.nodes.find((node) => node.type === "output");
+  const videoNodes = workflow.nodes.filter((node) => node.type === "video");
+  videoNodes.forEach((node) => {
+    node.data = { ...(node.data || {}), activeTab: node.data?.activeTab || "preview" };
+  });
+  if (Number(workflow.layoutVersion || 0) >= WORKFLOW_NODE_LAYOUT_VERSION) return workflow;
+  if (upload) {
+    upload.x = 30;
+    upload.y = 150;
+  }
+  videoNodes.forEach((node, index) => {
+    node.x = 30 + step * (index + 1);
+    node.y = 150 + Math.max(0, index - 1) * 24;
+  });
+  if (output) {
+    output.x = 30 + step * (videoNodes.length + 1);
+    output.y = 150;
+  }
+  workflow.layoutVersion = WORKFLOW_NODE_LAYOUT_VERSION;
+  return workflow;
 }
 
 function normalizeWorkflowPreset(preset = {}) {
@@ -6696,11 +6726,14 @@ function ensureWorkflowState() {
         edges: Array.isArray(saved.edges) ? saved.edges : [],
         physics: Array.isArray(saved.physics) ? saved.physics : [],
         directorPrompt: saved.directorPrompt || "",
+        layoutVersion: Number(saved.layoutVersion || 0),
       };
+      normalizeWorkflowLayout(state.workflow);
       return state.workflow;
     }
   } catch (_) {}
   state.workflow = cloneWorkflowDefault();
+  normalizeWorkflowLayout(state.workflow);
   return state.workflow;
 }
 
@@ -6712,6 +6745,7 @@ function persistWorkflowState() {
       edges: workflow.edges,
       physics: workflow.physics,
       directorPrompt: workflow.directorPrompt || "",
+      layoutVersion: workflow.layoutVersion || WORKFLOW_NODE_LAYOUT_VERSION,
     }));
   } catch (_) {}
 }
@@ -6833,7 +6867,11 @@ function workflowSetNodeData(nodeId = "", patch = {}) {
   return node;
 }
 
-function renderWorkflowMediaPreview(node = {}) {
+function workflowNodeActiveTab(node = {}) {
+  return node.type === "video" && node.data?.activeTab === "params" ? "params" : "preview";
+}
+
+function renderWorkflowMediaPreview(node = {}, model = null) {
   if (node.type === "upload") {
     const image = node.data?.startImage || "";
     return image
@@ -6842,11 +6880,36 @@ function renderWorkflowMediaPreview(node = {}) {
   }
   const videoUrl = workflowNodeResultVideo(node);
   const posterUrl = workflowNodePoster(node);
-  if (videoUrl) {
-    return `<button class="workflow-node-preview-button" type="button" data-workflow-preview="${escapeHtml(node.id)}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : ""}<i data-lucide="play"></i></button>`;
+  const preset = model || workflowModelById(node.data?.modelId);
+  const previewUrl = videoUrl || preset.previewUrl || "";
+  const previewPoster = videoUrl ? posterUrl : (preset.posterUrl || posterUrl || "");
+  const badge = videoUrl ? "Result" : "Demo";
+  if (previewUrl) {
+    return `
+      <button class="workflow-node-preview-button" type="button" data-workflow-preview="${escapeHtml(node.id)}">
+        <video src="${escapeHtml(previewUrl)}" ${previewPoster ? `poster="${escapeHtml(previewPoster)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>
+        <span class="workflow-node-preview-play"><i data-lucide="play"></i></span>
+        <span class="workflow-node-demo-badge">${escapeHtml(badge)}</span>
+      </button>
+    `;
   }
-  if (posterUrl) return `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />`;
-  return `<i data-lucide="${node.data?.status === "running" ? "loader-circle" : "clapperboard"}"></i><span>${escapeHtml(workflowNodeStatusText(node))}</span>`;
+  if (previewPoster) {
+    return `
+      <button class="workflow-node-preview-button" type="button" data-workflow-preview="${escapeHtml(node.id)}">
+        <img src="${escapeHtml(previewPoster)}" alt="" loading="lazy" decoding="async" />
+        <span class="workflow-node-preview-play"><i data-lucide="play"></i></span>
+        <span class="workflow-node-demo-badge">${escapeHtml(badge)}</span>
+      </button>
+    `;
+  }
+  const fallbackBadge = node.data?.status ? workflowNodeStatusText(node) : "Preview";
+  return `
+    <div class="workflow-node-preview-fallback">
+      <img src="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" alt="" loading="lazy" decoding="async" />
+      <span class="workflow-node-preview-play"><i data-lucide="${node.data?.status === "running" ? "loader-circle" : "play"}"></i></span>
+      <span class="workflow-node-demo-badge">${escapeHtml(fallbackBadge)}</span>
+    </div>
+  `;
 }
 
 function renderWorkflowNode(node = {}) {
@@ -6883,34 +6946,46 @@ function renderWorkflowNode(node = {}) {
   }
   const model = workflowModelById(node.data?.modelId);
   const promptPreview = workflowPromptPreview(model, node.data?.prompt);
+  const activeTab = workflowNodeActiveTab(node);
   const modelPreview = model.previewUrl
     ? `<video src="${escapeHtml(model.previewUrl)}" ${model.posterUrl ? `poster="${escapeHtml(model.posterUrl)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>`
     : `<i data-lucide="clapperboard"></i>`;
   return `
     <article class="workflow-node workflow-node-video ${selected ? "is-selected" : ""} is-${escapeHtml(statusClassName)}" style="${style}" data-workflow-node="${escapeHtml(node.id)}">
       <header>
-        <i data-lucide="video"></i>
+        <span class="workflow-node-title-icon"><i data-lucide="video"></i></span>
         <strong>${escapeHtml(node.title || model.label)}</strong>
         <button type="button" data-workflow-delete="${escapeHtml(node.id)}" aria-label="Delete"><i data-lucide="trash-2"></i></button>
       </header>
-      <div class="workflow-node-media">${renderWorkflowMediaPreview(node)}</div>
-      <button class="workflow-model-card" type="button" data-workflow-open-picker="${escapeHtml(node.id)}">
-        <span class="workflow-model-thumb">${modelPreview}</span>
-        <span class="workflow-model-copy">
-          <em>Scene / action</em>
-          <strong>${escapeHtml(model.label)}</strong>
-          <small>${escapeHtml(promptPreview)}</small>
-        </span>
-        <i data-lucide="chevron-down"></i>
-      </button>
-      <label class="workflow-field">
-        <span>Custom prompt</span>
-        <textarea rows="3" data-workflow-prompt="${escapeHtml(node.id)}" placeholder="${escapeHtml(model.prompt)}">${escapeHtml(node.data?.prompt || "")}</textarea>
-      </label>
-      <div class="workflow-inline-fields">
-        <label><span>Duration</span><select data-workflow-duration="${escapeHtml(node.id)}">${[5, 8, 10, 15].map((value) => `<option value="${value}" ${Number(node.data?.duration || 5) === value ? "selected" : ""}>${value}s</option>`).join("")}</select></label>
-        <label><span>Quality</span><select data-workflow-resolution="${escapeHtml(node.id)}">${["480p", "720p", "1080p", "4k"].map((value) => `<option value="${value}" ${String(node.data?.resolution || "720p").toLowerCase() === value ? "selected" : ""}>${escapeHtml(advancedVideoResolutionLabel(value))}</option>`).join("")}</select></label>
+      <div class="workflow-node-tabs" role="tablist" aria-label="Video node view">
+        <button class="${activeTab === "preview" ? "is-active" : ""}" type="button" data-workflow-node-tab="preview" data-node-id="${escapeHtml(node.id)}" aria-label="Preview" title="Preview"><i data-lucide="video"></i></button>
+        <button class="${activeTab === "params" ? "is-active" : ""}" type="button" data-workflow-node-tab="params" data-node-id="${escapeHtml(node.id)}" aria-label="Params" title="Params"><i data-lucide="sliders-horizontal"></i></button>
       </div>
+      ${activeTab === "preview" ? `
+        <div class="workflow-node-tab-panel workflow-node-preview-panel">
+          <div class="workflow-node-media">${renderWorkflowMediaPreview(node, model)}</div>
+        </div>
+      ` : `
+        <div class="workflow-node-tab-panel workflow-node-params-panel">
+          <button class="workflow-model-card" type="button" data-workflow-open-picker="${escapeHtml(node.id)}">
+            <span class="workflow-model-thumb">${modelPreview}</span>
+            <span class="workflow-model-copy">
+              <em>Scene / action</em>
+              <strong>${escapeHtml(model.label)}</strong>
+              <small>${escapeHtml(promptPreview)}</small>
+            </span>
+            <i data-lucide="chevron-down"></i>
+          </button>
+          <label class="workflow-field">
+            <span>Custom prompt</span>
+            <textarea rows="3" data-workflow-prompt="${escapeHtml(node.id)}" placeholder="${escapeHtml(model.prompt)}">${escapeHtml(node.data?.prompt || "")}</textarea>
+          </label>
+          <div class="workflow-inline-fields">
+            <label><span>Duration</span><select data-workflow-duration="${escapeHtml(node.id)}">${[5, 8, 10, 15].map((value) => `<option value="${value}" ${Number(node.data?.duration || 5) === value ? "selected" : ""}>${value}s</option>`).join("")}</select></label>
+            <label><span>Quality</span><select data-workflow-resolution="${escapeHtml(node.id)}">${["480p", "720p", "1080p", "4k"].map((value) => `<option value="${value}" ${String(node.data?.resolution || "720p").toLowerCase() === value ? "selected" : ""}>${escapeHtml(advancedVideoResolutionLabel(value))}</option>`).join("")}</select></label>
+          </div>
+        </div>
+      `}
       <footer>
         <span>${escapeHtml(workflowNodeStatusText(node))}${node.data?.taskId ? ` - ${escapeHtml(node.data.taskId)}` : ""}</span>
         <strong>${escapeHtml(workflowCostLabel(node))} credits</strong>
@@ -6926,10 +7001,10 @@ function renderWorkflowEdges() {
     const from = nodeById.get(edge.from);
     const to = nodeById.get(edge.to);
     if (!from || !to) return "";
-    const x1 = Number(from.x || 0) + 286;
-    const y1 = Number(from.y || 0) + 92;
+    const x1 = Number(from.x || 0) + WORKFLOW_NODE_WIDTH;
+    const y1 = Number(from.y || 0) + (from.type === "video" ? 186 : 92);
     const x2 = Number(to.x || 0) + 8;
-    const y2 = Number(to.y || 0) + 92;
+    const y2 = Number(to.y || 0) + (to.type === "video" ? 186 : 92);
     const mid = Math.max(20, Math.round((x2 - x1) / 2));
     return `<path d="M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}" />`;
   }).join("");
@@ -7020,7 +7095,7 @@ function renderWorkflowPanel() {
     ` : ""}
     <div class="workflow-layout">
       <section class="workflow-canvas" aria-label="Workflow canvas">
-        <svg class="workflow-edges" viewBox="0 0 1420 620" preserveAspectRatio="none">${renderWorkflowEdges()}</svg>
+        <svg class="workflow-edges" viewBox="0 0 1980 720" preserveAspectRatio="none">${renderWorkflowEdges()}</svg>
         ${workflow.nodes.map(renderWorkflowNode).join("")}
         <div class="workflow-minimap">
           ${workflow.nodes.map((node) => `<span style="left:${Math.max(0, Number(node.x || 0) / 14)}px;top:${Math.max(0, Number(node.y || 0) / 12)}px"></span>`).join("")}
@@ -7092,14 +7167,18 @@ function addWorkflowVideoNode(modelId = "") {
     id: `video-${Date.now().toString(36)}`,
     type: "video",
     title: model.label,
-    x: Math.min(1040, Number(previous?.x || 30) + 360),
+    x: Number(previous?.x || 30) + WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP,
     y: 150 + Math.max(0, index - 2) * 38,
-    data: { modelId: model.id, duration: 5, resolution: "720p", ratio: "9:16", prompt: "" },
+    data: { modelId: model.id, duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview" },
   };
   workflow.nodes.splice(Math.max(1, workflow.nodes.length - 1), 0, node);
   const output = workflow.nodes.find((item) => item.type === "output");
   workflow.edges = workflow.edges.filter((edge) => edge.to !== output?.id);
   const ordered = workflowVideoNodes();
+  if (output) {
+    output.x = 30 + (WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP) * (ordered.length + 1);
+    output.y = 150;
+  }
   workflow.edges = [{ from: workflowUploadNode()?.id || "upload-1", to: ordered[0]?.id || node.id }];
   ordered.forEach((item, itemIndex) => {
     const next = ordered[itemIndex + 1] || output;
@@ -7130,11 +7209,15 @@ function applyWorkflowDirectorPrompt() {
       id: `video-${Date.now().toString(36)}-${index}`,
       type: "video",
       title: model.label,
-      x: 390 + index * 330,
+      x: 30 + (WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP) * (index + 1),
       y: 150 + index * 16,
-      data: { modelId: model.id, prompt: part, duration: 5, resolution: "720p", ratio: "9:16" },
+      data: { modelId: model.id, prompt: part, duration: 5, resolution: "720p", ratio: "9:16", activeTab: "preview" },
     };
   }), output].filter(Boolean);
+  if (output) {
+    output.x = 30 + (WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP) * (parts.length + 1);
+    output.y = 150;
+  }
   const ordered = workflowVideoNodes();
   workflow.edges = [];
   if (upload && ordered[0]) workflow.edges.push({ from: upload.id, to: ordered[0].id });
@@ -7252,6 +7335,7 @@ async function runWorkflow() {
 
 function resetWorkflow() {
   state.workflow = cloneWorkflowDefault();
+  normalizeWorkflowLayout(state.workflow);
   state.workflowSelectedNodeId = "video-1";
   state.workflowMessage = "";
   state.workflowLogs = [];
@@ -7291,18 +7375,6 @@ function handleWorkflowClick(event) {
     renderWorkflowPanel();
     return;
   }
-  const previewButton = event.target.closest("[data-workflow-preview]");
-  if (previewButton) {
-    const node = workflowNodeById(previewButton.dataset.workflowPreview || "");
-    const videoUrl = workflowNodeResultVideo(node || {});
-    if (videoUrl) playPreview({ title: node?.title || "Workflow result", previewUrl: videoUrl, ratio: node?.data?.ratio || "9:16" });
-    return;
-  }
-  const nodeEl = event.target.closest("[data-workflow-node]");
-  if (nodeEl) {
-    state.workflowSelectedNodeId = nodeEl.dataset.workflowNode || "";
-    renderWorkflowPanel();
-  }
   const deleteButton = event.target.closest("[data-workflow-delete]");
   if (deleteButton) {
     event.stopPropagation();
@@ -7314,6 +7386,31 @@ function handleWorkflowClick(event) {
     persistWorkflowState();
     renderWorkflowPanel();
     return;
+  }
+  const nodeTabButton = event.target.closest("[data-workflow-node-tab]");
+  if (nodeTabButton) {
+    event.stopPropagation();
+    const node = workflowNodeById(nodeTabButton.dataset.nodeId || "");
+    if (node?.type === "video") {
+      node.data = { ...(node.data || {}), activeTab: nodeTabButton.dataset.workflowNodeTab === "params" ? "params" : "preview" };
+      state.workflowSelectedNodeId = node.id;
+      persistWorkflowState();
+      renderWorkflowPanel();
+    }
+    return;
+  }
+  const previewButton = event.target.closest("[data-workflow-preview]");
+  if (previewButton) {
+    const node = workflowNodeById(previewButton.dataset.workflowPreview || "");
+    const model = workflowModelById(node?.data?.modelId);
+    const videoUrl = workflowNodeResultVideo(node || {}) || model.previewUrl || "";
+    if (videoUrl) playPreview({ title: node?.title || model.label || "Workflow preview", previewUrl: videoUrl, ratio: node?.data?.ratio || "9:16" });
+    return;
+  }
+  const nodeEl = event.target.closest("[data-workflow-node]");
+  if (nodeEl) {
+    state.workflowSelectedNodeId = nodeEl.dataset.workflowNode || "";
+    renderWorkflowPanel();
   }
   const action = event.target.closest("[data-workflow-action]")?.dataset.workflowAction || "";
   if (action === "run") runWorkflow();

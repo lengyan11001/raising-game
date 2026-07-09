@@ -88,7 +88,13 @@ function refreshIcons() {
 }
 
 function ensureAgeGate() {
-  if (localStorage.getItem(AGE_GATE_ACCEPTED_KEY) === "1") return Promise.resolve(true);
+  try {
+    if (localStorage.getItem(AGE_GATE_ACCEPTED_KEY) === "1") {
+      document.body.classList.add("age-gate-accepted");
+      document.body.classList.remove("age-gate-denied", "age-gate-locked");
+      return Promise.resolve(true);
+    }
+  } catch (error) {}
   if (!els.ageGate || !els.ageConfirmBtn || !els.ageDeclineBtn) return Promise.resolve(true);
   els.ageGate.hidden = false;
   if (els.ageForbidden) els.ageForbidden.hidden = true;
@@ -98,12 +104,19 @@ function ensureAgeGate() {
       els.ageDeclineBtn.removeEventListener("click", onDecline);
     };
     const onConfirm = () => {
-      localStorage.setItem(AGE_GATE_ACCEPTED_KEY, "1");
+      try {
+        localStorage.setItem(AGE_GATE_ACCEPTED_KEY, "1");
+      } catch (error) {}
+      document.body.classList.add("age-gate-accepted");
+      document.body.classList.remove("age-gate-denied", "age-gate-locked");
       els.ageGate.hidden = true;
+      if (els.ageForbidden) els.ageForbidden.hidden = true;
       cleanup();
       resolve(true);
     };
     const onDecline = () => {
+      document.body.classList.add("age-gate-denied");
+      document.body.classList.remove("age-gate-accepted", "age-gate-locked");
       els.ageGate.hidden = true;
       if (els.ageForbidden) els.ageForbidden.hidden = false;
       cleanup();
