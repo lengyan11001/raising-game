@@ -2550,6 +2550,37 @@ function workflowZoom() {
   return workflow.zoom;
 }
 
+const WORKFLOW_CANVAS_BASE_WIDTH = 1980;
+const WORKFLOW_CANVAS_BASE_HEIGHT = 720;
+const WORKFLOW_CANVAS_PADDING = 140;
+
+function workflowCanvasLogicalSize() {
+  const canvas = els.workflowRoot?.querySelector(".workflow-canvas");
+  const zoom = workflowZoom();
+  const visibleWidth = canvas ? Math.ceil(canvas.clientWidth / zoom) : WORKFLOW_CANVAS_BASE_WIDTH;
+  const visibleHeight = canvas ? Math.ceil(canvas.clientHeight / zoom) : WORKFLOW_CANVAS_BASE_HEIGHT;
+  return {
+    width: Math.max(WORKFLOW_CANVAS_BASE_WIDTH, visibleWidth + WORKFLOW_CANVAS_PADDING),
+    height: Math.max(WORKFLOW_CANVAS_BASE_HEIGHT, visibleHeight + WORKFLOW_CANVAS_PADDING),
+  };
+}
+
+function workflowCanvasStageStyle() {
+  const size = workflowCanvasLogicalSize();
+  return `--workflow-zoom:${workflowZoom()};--workflow-stage-width:${size.width}px;--workflow-stage-height:${size.height}px`;
+}
+
+function syncWorkflowCanvasStageSize() {
+  const size = workflowCanvasLogicalSize();
+  const stage = els.workflowRoot?.querySelector(".workflow-canvas-stage");
+  if (stage) {
+    stage.style.setProperty("--workflow-stage-width", `${size.width}px`);
+    stage.style.setProperty("--workflow-stage-height", `${size.height}px`);
+  }
+  const svg = els.workflowRoot?.querySelector(".workflow-edges");
+  if (svg) svg.setAttribute("viewBox", `0 0 ${size.width} ${size.height}`);
+}
+
 function workflowVideoNodes() {
   return ensureWorkflowState().nodes
     .filter((node) => node.type === "video")
@@ -2964,8 +2995,8 @@ function renderWorkflowPanel() {
     ` : ""}
     <div class="workflow-layout">
       <section class="workflow-canvas" aria-label="Workflow canvas">
-        <div class="workflow-canvas-stage" style="--workflow-zoom:${workflowZoom()}">
-          <svg class="workflow-edges" viewBox="0 0 1980 720" preserveAspectRatio="none">
+        <div class="workflow-canvas-stage" style="${workflowCanvasStageStyle()}">
+          <svg class="workflow-edges" viewBox="0 0 ${workflowCanvasLogicalSize().width} ${workflowCanvasLogicalSize().height}" preserveAspectRatio="none">
             ${renderWorkflowEdges()}
             <path class="workflow-edge-draft" data-workflow-draft-edge hidden />
           </svg>
@@ -3018,7 +3049,10 @@ function updateWorkflowNodeFromControl(control) {
     node.data.resolution = control.value || "720p";
   }
   persistWorkflowState();
-  renderWorkflowPanel();
+  const nodeEl = Array.from(els.workflowRoot?.querySelectorAll("[data-workflow-node]") || [])
+    .find((item) => item.dataset.workflowNode === node.id);
+  const costEl = nodeEl?.querySelector("footer strong");
+  if (costEl) costEl.textContent = `${workflowCostLabel(node)} credits`;
 }
 
 async function handleWorkflowFileInput(input) {
@@ -3336,10 +3370,15 @@ function workflowNodeDragBlockedTarget(target) {
   return Boolean(target.closest("button, input, textarea, select, label, a, [data-workflow-connect], [data-workflow-preview], [data-workflow-open-picker], [data-workflow-delete], .workflow-node-tabs, .workflow-model-card"));
 }
 
+function workflowControlInteractionTarget(target) {
+  return Boolean(target.closest("input, textarea, select, label, [contenteditable], .workflow-field, .workflow-inline-fields"));
+}
+
 function clampWorkflowNodePosition(x = 0, y = 0) {
+  const size = workflowCanvasLogicalSize();
   return {
-    x: Math.max(0, Math.min(Math.round(x), 1980 - WORKFLOW_NODE_WIDTH)),
-    y: Math.max(0, Math.min(Math.round(y), 620)),
+    x: Math.max(0, Math.min(Math.round(x), size.width - WORKFLOW_NODE_WIDTH)),
+    y: Math.max(0, Math.min(Math.round(y), size.height - 100)),
   };
 }
 
@@ -3377,6 +3416,7 @@ function updateWorkflowNodeDrag(event) {
   const dx = (event.clientX - activeWorkflowNodeDrag.startClientX) / zoom;
   const dy = (event.clientY - activeWorkflowNodeDrag.startClientY) / zoom;
   if (Math.abs(dx) > 2 || Math.abs(dy) > 2) activeWorkflowNodeDrag.moved = true;
+  syncWorkflowCanvasStageSize();
   const next = clampWorkflowNodePosition(activeWorkflowNodeDrag.originX + dx, activeWorkflowNodeDrag.originY + dy);
   node.x = next.x;
   node.y = next.y;
@@ -3399,6 +3439,8 @@ function handleWorkflowWheel(event) {
   persistWorkflowState();
   const stage = canvas.querySelector(".workflow-canvas-stage");
   if (stage) stage.style.setProperty("--workflow-zoom", String(nextZoom));
+  syncWorkflowCanvasStageSize();
+  updateWorkflowRenderedEdges();
 }
 
 function stopWorkflowNodeDrag({ commit = true } = {}) {
@@ -3617,6 +3659,10 @@ function handleWorkflowClick(event) {
     const model = workflowModelById(node?.data?.modelId);
     const videoUrl = workflowNodeResultVideo(node || {}) || model.previewUrl || "";
     if (videoUrl) playPreview({ title: node?.title || model.label || "Workflow preview", previewUrl: videoUrl, ratio: node?.data?.ratio || "9:16" });
+    return;
+  }
+  if (workflowControlInteractionTarget(event.target)) {
+    event.stopPropagation();
     return;
   }
   const nodeEl = event.target.closest("[data-workflow-node]");
