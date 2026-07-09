@@ -4206,6 +4206,32 @@ select option:checked {
   stroke-dasharray: 7 7;
 }
 
+.workflow-edges .workflow-edge-hit {
+  stroke: transparent;
+  stroke-width: 24;
+  stroke-dasharray: none;
+  pointer-events: stroke;
+  cursor: crosshair;
+}
+
+.workflow-edges .workflow-edge-handle {
+  fill: #202126;
+  stroke: rgba(255,255,255,.58);
+  stroke-width: 2;
+  pointer-events: all;
+  cursor: grab;
+  filter: drop-shadow(0 0 7px rgba(255,71,173,.3));
+}
+
+.workflow-edges .workflow-edge-handle:hover {
+  fill: #ff47ad;
+  stroke: #fff;
+}
+
+.workflow-edges .workflow-edge-path {
+  pointer-events: none;
+}
+
 .workflow-edges .workflow-edge-draft {
   stroke: #ff47ad;
   stroke-width: 2.5;
@@ -4246,6 +4272,11 @@ select option:checked {
 .workflow-node.is-connection-target {
   border-color: rgba(255,196,54,.95);
   box-shadow: 0 0 0 1px rgba(255,196,54,.7), 0 22px 54px rgba(255,71,173,.24);
+}
+
+.workflow-node.is-connection-source {
+  border-color: rgba(75,214,255,.95);
+  box-shadow: 0 0 0 1px rgba(75,214,255,.68), 0 22px 54px rgba(75,214,255,.18);
 }
 
 .workflow-node-connect {
