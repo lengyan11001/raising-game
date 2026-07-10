@@ -4195,7 +4195,8 @@ select option:checked {
     linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px),
     #070709;
   background-size: auto, 32px 32px, 32px 32px, auto;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .workflow-canvas-stage {
@@ -4263,14 +4264,17 @@ select option:checked {
 .workflow-node {
   position: absolute;
   z-index: 2;
+  display: flex;
+  flex-direction: column;
   width: 414px;
-  min-height: 178px;
+  height: 368px;
   padding: 14px;
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 18px;
   background: rgba(18,18,20,.94);
   box-shadow: 0 18px 42px rgba(0,0,0,.28);
   cursor: grab;
+  overflow: hidden;
   user-select: none;
   touch-action: none;
 }
@@ -4294,6 +4298,14 @@ select option:checked {
 .workflow-node.is-connection-source {
   border-color: rgba(75,214,255,.95);
   box-shadow: 0 0 0 1px rgba(75,214,255,.68), 0 22px 54px rgba(75,214,255,.18);
+}
+
+.workflow-node-upload {
+  height: 390px;
+}
+
+.workflow-node-output {
+  height: 270px;
 }
 
 .workflow-node-connect {
@@ -4345,6 +4357,7 @@ select option:checked {
 }
 
 .workflow-node header {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -4435,6 +4448,7 @@ select option:checked {
 }
 
 .workflow-node-tabs {
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0;
@@ -4464,16 +4478,20 @@ select option:checked {
 }
 
 .workflow-upload-grid {
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-template-rows: 126px 92px;
+  grid-auto-rows: 92px;
   gap: 8px;
 }
 
 .workflow-upload-slot,
 .workflow-node-media {
+  position: relative;
   display: grid;
   place-items: center;
-  min-height: 112px;
+  min-height: 0;
   border: 1px dashed rgba(255,255,255,.18);
   border-radius: 12px;
   background: rgba(255,255,255,.06);
@@ -4482,23 +4500,35 @@ select option:checked {
 
 .workflow-upload-slot.is-primary {
   grid-column: 1 / -1;
-  min-height: 190px;
+  height: 100%;
+  min-height: 0;
 }
 
 .workflow-upload-slot.is-small {
-  min-height: 118px;
+  height: 100%;
+  min-height: 0;
+}
+
+.workflow-upload-pick {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
 }
 
 .workflow-upload-prepared {
+  flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 8px;
 }
 
-.workflow-upload-prepared figure {
+.workflow-upload-prepared figure,
+.workflow-prepared-thumb {
   position: relative;
-  min-height: 132px;
+  height: 76px;
+  min-height: 0;
   margin: 0;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.16);
@@ -4506,15 +4536,24 @@ select option:checked {
   background: rgba(255,255,255,.06);
 }
 
-.workflow-upload-prepared img {
+.workflow-prepared-thumb {
+  display: block;
+  padding: 0;
+  color: #fff;
+  cursor: zoom-in;
+}
+
+.workflow-upload-prepared img,
+.workflow-prepared-thumb img {
   width: 100%;
   height: 100%;
-  min-height: 132px;
+  min-height: 0;
   object-fit: cover;
   display: block;
 }
 
-.workflow-upload-prepared span {
+.workflow-upload-prepared span,
+.workflow-prepared-thumb span {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -4526,12 +4565,29 @@ select option:checked {
   font-weight: 900;
 }
 
+.workflow-prepared-thumb em {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(16,16,22,.58);
+  font-style: normal;
+}
+
 .workflow-upload-slot input {
   display: none;
 }
 
 .workflow-upload-preview,
 .workflow-node-media {
+  display: grid;
+  place-items: center;
   width: 100%;
   height: 100%;
   color: rgba(255,255,255,.72);
@@ -4543,7 +4599,8 @@ select option:checked {
   display: grid;
   place-items: center;
   gap: 6px;
-  min-height: inherit;
+  width: 100%;
+  height: 100%;
 }
 
 .workflow-upload-empty svg {
@@ -4557,9 +4614,26 @@ select option:checked {
 .workflow-node-media video {
   width: 100%;
   height: 100%;
-  min-height: 112px;
+  min-height: 0;
   object-fit: cover;
   display: block;
+}
+
+.workflow-upload-preview-open {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255,255,255,.24);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(15,15,20,.62);
+  box-shadow: 0 10px 20px rgba(0,0,0,.28);
+  cursor: zoom-in;
 }
 
 .workflow-node-preview-button,
@@ -4567,8 +4641,8 @@ select option:checked {
   position: relative;
   display: block;
   width: 100%;
-  height: 294px;
-  min-height: 294px;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -4628,19 +4702,35 @@ select option:checked {
 }
 
 .workflow-node-video .workflow-node-media {
-  height: 294px;
-  min-height: 294px;
+  height: 176px;
+  min-height: 176px;
   border-style: solid;
   border-color: rgba(255,255,255,.08);
   background: rgba(0,0,0,.34);
 }
 
+.workflow-node-output .workflow-node-media {
+  height: 92px;
+  min-height: 92px;
+}
+
+.workflow-node-tab-panel {
+  min-height: 0;
+}
+
 .workflow-node-preview-panel {
   display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .workflow-node-params-panel {
   display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .workflow-node-params-panel .workflow-model-card {
@@ -4894,7 +4984,7 @@ select option:checked {
 .workflow-output-box {
   display: grid;
   gap: 8px;
-  min-height: 128px;
+  min-height: 92px;
   place-items: center;
   border-radius: 12px;
   background: rgba(255,255,255,.06);

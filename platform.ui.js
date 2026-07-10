@@ -3162,17 +3162,53 @@ function workflowNodeActiveTab(node = {}) {
   return node.type === "video" && node.data?.activeTab === "params" ? "params" : "preview";
 }
 
+function workflowPreviewKindFromUrl(url = "", fallback = "video") {
+  const value = String(url || "");
+  if (/^data:image\//i.test(value) || /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i.test(value)) return "image";
+  if (/^data:video\//i.test(value) || /\.(?:m4v|mov|mp4|webm)(?:[?#].*)?$/i.test(value)) return "video";
+  return fallback;
+}
+
+function workflowPreviewAttrs({ url = "", kind = "", title = "", ratio = "9:16" } = {}) {
+  if (!url) return "";
+  return `data-workflow-preview-url="${escapeHtml(url)}" data-workflow-preview-kind="${escapeHtml(kind || workflowPreviewKindFromUrl(url))}" data-workflow-preview-title="${escapeHtml(title || "Workflow preview")}" data-workflow-preview-ratio="${escapeHtml(ratio || "9:16")}"`;
+}
+
+function renderWorkflowPreviewThumb({ url = "", poster = "", title = "", kind = "", badge = "", ratio = "9:16", icon = "play", className = "" } = {}) {
+  const mediaKind = kind || workflowPreviewKindFromUrl(url);
+  const previewAttrs = workflowPreviewAttrs({ url, kind: mediaKind, title, ratio });
+  const media = url
+    ? mediaKind === "image"
+      ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />`
+      : `<video src="${escapeHtml(url)}" ${poster ? `poster="${escapeHtml(poster)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>`
+    : `<img src="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" alt="" loading="lazy" decoding="async" />`;
+  return `
+    <button class="workflow-node-preview-button ${escapeHtml(className)}" type="button" ${previewAttrs} ${url ? "" : "disabled"}>
+      ${media}
+      <span class="workflow-node-preview-play"><i data-lucide="${escapeHtml(icon)}"></i></span>
+      ${badge ? `<span class="workflow-node-demo-badge">${escapeHtml(badge)}</span>` : ""}
+    </button>
+  `;
+}
+
 function renderWorkflowUploadSlot(node = {}, field = "startImage", label = "Start", icon = "image") {
   const value = node.data?.[field] || "";
   return `
-    <label class="workflow-upload-slot ${field === "startImage" ? "is-primary" : "is-small"}">
-      <input type="file" accept="image/*" data-workflow-file="${escapeHtml(field)}" data-node-id="${escapeHtml(node.id)}" />
-      <div class="workflow-upload-preview">
-        ${value
-          ? `<img src="${escapeHtml(value)}" alt="" loading="lazy" decoding="async" />`
-          : `<span class="workflow-upload-empty"><i data-lucide="${escapeHtml(icon)}"></i><strong>${escapeHtml(label)}</strong></span>`}
-      </div>
-    </label>
+    <div class="workflow-upload-slot ${field === "startImage" ? "is-primary" : "is-small"}">
+      <label class="workflow-upload-pick">
+        <input type="file" accept="image/*" data-workflow-file="${escapeHtml(field)}" data-node-id="${escapeHtml(node.id)}" />
+        <span class="workflow-upload-preview">
+          ${value
+            ? `<img src="${escapeHtml(value)}" alt="" loading="lazy" decoding="async" />`
+            : `<span class="workflow-upload-empty"><i data-lucide="${escapeHtml(icon)}"></i><strong>${escapeHtml(label)}</strong></span>`}
+        </span>
+      </label>
+      ${value ? `
+        <button class="workflow-upload-preview-open" type="button" ${workflowPreviewAttrs({ url: value, kind: "image", title: label, ratio: "1:1" })} aria-label="Preview ${escapeHtml(label)}">
+          <i data-lucide="maximize-2"></i>
+        </button>
+      ` : ""}
+    </div>
   `;
 }
 
@@ -3181,10 +3217,11 @@ function renderWorkflowUploadPreparedPreview(node = {}) {
   const targetUrl = node.data?.stripTargetImageUrl || "";
   if (!keyframeUrl && !targetUrl) return "";
   const item = (url, label) => url ? `
-    <figure>
+    <button class="workflow-prepared-thumb" type="button" ${workflowPreviewAttrs({ url, kind: "image", title: label, ratio: "9:16" })}>
       <img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />
       <span>${escapeHtml(label)}</span>
-    </figure>
+      <em><i data-lucide="maximize-2"></i></em>
+    </button>
   ` : "";
   return `
     <div class="workflow-upload-prepared">
@@ -3198,7 +3235,7 @@ function renderWorkflowMediaPreview(node = {}, model = null) {
   if (node.type === "upload") {
     const image = node.data?.startImage || "";
     return image
-      ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" decoding="async" />`
+      ? renderWorkflowPreviewThumb({ url: image, title: node.title || "Start image", kind: "image", badge: "Start", ratio: "1:1", icon: "maximize-2" })
       : `<i data-lucide="image-up"></i><span>Start image</span>`;
   }
   const videoUrl = workflowNodeResultVideo(node);
@@ -3210,33 +3247,31 @@ function renderWorkflowMediaPreview(node = {}, model = null) {
   const preparedBadge = node.data?.stripTargetImageUrl ? "Target" : "Keyframe";
   const badge = videoUrl ? "Result" : preparedImageUrl ? preparedBadge : "Demo";
   if (previewUrl) {
-    return `
-      <button class="workflow-node-preview-button" type="button" data-workflow-preview="${escapeHtml(node.id)}">
-        ${preparedImageUrl
-          ? `<img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async" />`
-          : `<video src="${escapeHtml(previewUrl)}" ${previewPoster ? `poster="${escapeHtml(previewPoster)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>`}
-        <span class="workflow-node-preview-play"><i data-lucide="play"></i></span>
-        <span class="workflow-node-demo-badge">${escapeHtml(badge)}</span>
-      </button>
-    `;
+    return renderWorkflowPreviewThumb({
+      url: previewUrl,
+      poster: previewPoster,
+      title: node.title || preset.label || "Workflow preview",
+      kind: preparedImageUrl ? "image" : "video",
+      badge,
+      ratio: node.data?.ratio || "9:16",
+      icon: preparedImageUrl ? "maximize-2" : "play",
+    });
   }
   if (previewPoster) {
-    return `
-      <button class="workflow-node-preview-button" type="button" data-workflow-preview="${escapeHtml(node.id)}">
-        <img src="${escapeHtml(previewPoster)}" alt="" loading="lazy" decoding="async" />
-        <span class="workflow-node-preview-play"><i data-lucide="play"></i></span>
-        <span class="workflow-node-demo-badge">${escapeHtml(badge)}</span>
-      </button>
-    `;
+    return renderWorkflowPreviewThumb({
+      url: previewPoster,
+      title: node.title || preset.label || "Workflow preview",
+      kind: "image",
+      badge,
+      ratio: node.data?.ratio || "9:16",
+      icon: "maximize-2",
+    });
   }
   const fallbackBadge = node.data?.status ? workflowNodeStatusText(node) : "Preview";
-  return `
-    <div class="workflow-node-preview-fallback">
-      <img src="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" alt="" loading="lazy" decoding="async" />
-      <span class="workflow-node-preview-play"><i data-lucide="${node.data?.status === "running" ? "loader-circle" : "play"}"></i></span>
-      <span class="workflow-node-demo-badge">${escapeHtml(fallbackBadge)}</span>
-    </div>
-  `;
+  return renderWorkflowPreviewThumb({
+    badge: fallbackBadge,
+    icon: node.data?.status === "running" ? "loader-circle" : "play",
+  });
 }
 
 let activeWorkflowConnection = null;
@@ -4191,7 +4226,7 @@ function updateWorkflowRenderedEdges() {
 }
 
 function workflowNodeDragBlockedTarget(target) {
-  return Boolean(target.closest("button, input, textarea, select, label, a, [data-workflow-connect], [data-workflow-preview], [data-workflow-open-picker], [data-workflow-delete], .workflow-node-tabs, .workflow-model-card"));
+  return Boolean(target.closest("button, input, textarea, select, label, a, [data-workflow-connect], [data-workflow-preview], [data-workflow-preview-url], [data-workflow-open-picker], [data-workflow-delete], .workflow-node-tabs, .workflow-model-card"));
 }
 
 function workflowControlInteractionTarget(target) {
@@ -4483,12 +4518,29 @@ function handleWorkflowClick(event) {
     if (!runNodeButton.disabled) runWorkflowSingleNode(runNodeButton.dataset.workflowRunNode || "");
     return;
   }
+  const directPreviewButton = event.target.closest("[data-workflow-preview-url]");
+  if (directPreviewButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const url = directPreviewButton.dataset.workflowPreviewUrl || "";
+    const kind = directPreviewButton.dataset.workflowPreviewKind || workflowPreviewKindFromUrl(url);
+    const title = directPreviewButton.dataset.workflowPreviewTitle || "Workflow preview";
+    const ratio = directPreviewButton.dataset.workflowPreviewRatio || "9:16";
+    if (!url) return;
+    if (kind === "image") previewImage({ title, imageUrl: url });
+    else playPreview({ title, previewUrl: url, ratio });
+    return;
+  }
   const previewButton = event.target.closest("[data-workflow-preview]");
   if (previewButton) {
+    event.preventDefault();
+    event.stopPropagation();
     const node = workflowNodeById(previewButton.dataset.workflowPreview || "");
     const model = workflowModelById(node?.data?.modelId);
     const videoUrl = workflowNodeResultVideo(node || {}) || model.previewUrl || "";
+    const imageUrl = node?.data?.stripTargetImageUrl || node?.data?.keyframeImageUrl || node?.data?.startImage || "";
     if (videoUrl) playPreview({ title: node?.title || model.label || "Workflow preview", previewUrl: videoUrl, ratio: node?.data?.ratio || "9:16" });
+    else if (imageUrl) previewImage({ title: node?.title || model.label || "Workflow preview", imageUrl });
     return;
   }
   if (workflowControlInteractionTarget(event.target)) {
