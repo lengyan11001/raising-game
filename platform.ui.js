@@ -2747,6 +2747,10 @@ function workflowExecutionClearPatch() {
     resultVideoUrl: "",
     posterUrl: "",
     lastFrameUrl: "",
+    stripTargetImageUrl: "",
+    stripTargetTaskId: "",
+    stripTargetRecord: null,
+    stripTargetSourceKey: "",
     error: "",
     videoUrls: [],
     taskIds: [],
@@ -2837,6 +2841,15 @@ function workflowEffectivePrompt(node = {}) {
   return [base, physics].filter(Boolean).join(". ");
 }
 
+function workflowImageKey(value = "") {
+  const text = String(value || "");
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+  }
+  return `${text.length}:${Math.abs(hash)}`;
+}
+
 function workflowCostLabel(node = {}) {
   const duration = Number(node.data?.duration || 5);
   const resolution = node.data?.resolution || "720p";
@@ -2896,6 +2909,86 @@ function workflowNodeOptionEnabled(node = {}, key = "") {
 function workflowStripPrompt(node = {}) {
   if (!workflowNodeOptionEnabled(node, "stripFirst")) return "";
   return "Strip Her Nude First is enabled: begin with the provided clothed first frame, then make the same consenting adult subject visibly remove clothing and transition into a nude state before continuing the selected action. Preserve the same face, body, pose continuity, lighting, and camera direction.";
+}
+
+function workflowStripImagePrompt(node = {}) {
+  const action = workflowEffectivePrompt(node);
+  return [
+    "Use Image 1 as the exact same consenting adult subject, face, hairstyle, body type, camera angle, lighting, and background.",
+    "Create one photorealistic target frame after the subject has removed clothing and is nude.",
+    "Keep identity and framing consistent with Image 1; do not redesign the person, scene, pose, face, or body.",
+    action ? `The target frame should be suitable as the end frame for this video action: ${action}` : "",
+    "No text, no watermark, no collage, no split screen.",
+  ].filter(Boolean).join(" ");
+}
+
+async function workflowEnsureImageEditSource(value = "", nodeId = "") {
+  const dataUrl = dataUrlValue(value);
+  if (dataUrl) {
+    const payload = await requestJson("/api/user-assets", {
+      method: "POST",
+      body: {
+        dataUrl,
+        name: "Workflow strip source",
+        fileName: `${nodeId || "workflow"}-strip-source.png`,
+      },
+    });
+    const asset = payload.asset || null;
+    if (!asset?.id) throw new Error("Failed to prepare workflow source image.");
+    state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+    state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+    return { imageAssetIds: [asset.id] };
+  }
+  const imageUrl = absoluteHttpUrl(value) || (String(value || "").startsWith("/") ? absoluteHttpUrl(value) : "");
+  if (imageUrl) return { imageUrls: [imageUrl] };
+  throw new Error("Workflow source image is not accessible.");
+}
+
+async function workflowPrepareStripTargetImage(node = {}, sourceImage = "", model = {}) {
+  const sourceKey = workflowImageKey(sourceImage);
+  if (node.data?.stripTargetImageUrl && node.data?.stripTargetSourceKey === sourceKey) {
+    return node.data.stripTargetImageUrl;
+  }
+  workflowSetNodeData(node.id, {
+    status: "preparing",
+    error: "",
+    stripTargetImageUrl: "",
+    stripTargetTaskId: "",
+    stripTargetRecord: null,
+    stripTargetSourceKey: sourceKey,
+  });
+  state.workflowMessage = `Preparing target frame for ${model.label || "workflow"}...`;
+  workflowLog(`Preparing target frame for ${model.label || "workflow"}.`);
+  workflowThrowIfCancelled();
+  const source = await workflowEnsureImageEditSource(sourceImage, node.id);
+  workflowThrowIfCancelled();
+  const payload = await requestJson("/api/wan27/image-edit", {
+    method: "POST",
+    body: {
+      ...source,
+      prompt: workflowStripImagePrompt(node),
+      ratio: node.data?.ratio || "9:16",
+      resolution: "2K",
+      params: {
+        createKind: "workflow",
+        workflowNodeId: node.id,
+        workflowModelId: model.id || "",
+        workflowStep: "strip_target_image",
+      },
+    },
+  });
+  if (payload.user) setUser(payload.user);
+  const record = payload.record || null;
+  const imageUrl = payload.imageUrl || record?.imageResultUrl || record?.localImageUrl || record?.cdnImageUrl || "";
+  if (!imageUrl) throw new Error("Target frame generation returned no image.");
+  workflowSetNodeData(node.id, {
+    stripTargetImageUrl: imageUrl,
+    stripTargetTaskId: payload.taskId || record?.taskId || "",
+    stripTargetRecord: record,
+    stripTargetSourceKey: sourceKey,
+  });
+  workflowLog("Target frame ready.");
+  return imageUrl;
 }
 
 function workflowRecordFromPayload(payload = {}, fallback = {}) {
@@ -3502,7 +3595,25 @@ async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideo
   const model = workflowModelById(node.data?.modelId);
   const duration = Number(node.data?.duration || 5);
   const resolution = node.data?.resolution || "720p";
-  const prompt = [workflowEffectivePrompt(node), workflowStripPrompt(node), workflowFacePrompt(faceImage)].filter(Boolean).join(". ");
+
+  state.workflowActiveNodeId = node.id;
+  state.workflowSelectedNodeId = node.id;
+  state.workflowMessage = `Preparing ${model.label}...`;
+  workflowSetNodeData(node.id, { status: "preparing", error: "", taskId: "", record: null, resultVideoUrl: "", posterUrl: "", lastFrameUrl: "" });
+  workflowThrowIfCancelled();
+
+  const shouldPrepareStripTarget = firstNode
+    && workflowNodeOptionEnabled(node, "stripFirst")
+    && !endImage
+    && !previousFrameUrl
+    && !previousVideoUrl;
+  const stripTargetImage = shouldPrepareStripTarget
+    ? await workflowPrepareStripTargetImage(node, sourceImage, model)
+    : "";
+  const stripPrompt = stripTargetImage
+    ? "Use the provided first and last frames as the required transformation path: start from the clothed first frame, transition naturally toward the nude target end frame, then continue the selected action with the same adult identity."
+    : workflowStripPrompt(node);
+  const prompt = [workflowEffectivePrompt(node), stripPrompt, workflowFacePrompt(faceImage)].filter(Boolean).join(". ");
   const continuationPrompt = previousFrameUrl || previousVideoUrl
     ? "Continue naturally from the previous clip's final frame, preserving subject identity, pose continuity, lighting, and camera direction."
     : "";
@@ -3519,6 +3630,12 @@ async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideo
         inputVideoSeconds: duration,
         referenceVideoDurationSeconds: duration,
       }
+      : stripTargetImage
+        ? {
+          seedanceMode: "first_last_frame",
+          ...workflowImageRequestFields(sourceImage, "first"),
+          ...workflowImageRequestFields(stripTargetImage, "end"),
+        }
       : faceImage && endImage
         ? {
           seedanceMode: "reference_images",
@@ -3540,8 +3657,6 @@ async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideo
           ...workflowImageRequestFields(sourceImage, "first"),
         };
 
-  state.workflowActiveNodeId = node.id;
-  state.workflowSelectedNodeId = node.id;
   state.workflowMessage = `Running ${model.label}...`;
   workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", record: null, resultVideoUrl: "", posterUrl: "", lastFrameUrl: "" });
   workflowLog(`Submitting ${model.label}.`);
@@ -3562,7 +3677,10 @@ async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideo
       workflowModelId: model.id,
       workflowModelLabel: model.label,
       workflowInputMode: mediaBody.seedanceMode,
+      workflowStripTargetImageUrl: stripTargetImage || "",
+      workflowStripTargetTaskId: node.data?.stripTargetTaskId || "",
       workflowUsesEndFrame: firstNode && Boolean(endImage) && mediaBody.seedanceMode === "first_last_frame",
+      workflowUsesGeneratedEndFrame: firstNode && Boolean(stripTargetImage) && mediaBody.seedanceMode === "first_last_frame",
       workflowUsesEndReference: Boolean(endImage) && mediaBody.seedanceMode === "reference_images",
       workflowUsesFaceReference: Boolean(faceImage) && mediaBody.seedanceMode === "reference_images",
       workflowStripFirst: workflowNodeOptionEnabled(node, "stripFirst"),
