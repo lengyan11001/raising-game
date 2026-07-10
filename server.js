@@ -128,7 +128,7 @@ const PIVOX_API_KEY = String(process.env.PIVOX_API_KEY || process.env.PIVOXAPI_A
 const PIVOX_SEEDANCE_QUALITY_MODEL = String(process.env.PIVOX_SEEDANCE_QUALITY_MODEL || "dreamina-seedance-2-0-ep").trim();
 const PIVOX_SEEDANCE_FAST_MODEL = String(process.env.PIVOX_SEEDANCE_FAST_MODEL || "dreamina-seedance-2-0-fast-ep").trim();
 const PIVOX_ENABLED_USER_KEYS = new Set(
-  String(process.env.PIVOX_ENABLED_USERS || "test01")
+  String(process.env.PIVOX_ENABLED_USERS || "")
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean),
@@ -143,8 +143,9 @@ const APIZ_SEEDANCE_API_KEY = String(process.env.APIZ_SEEDANCE_API_KEY || "").tr
 const APIZ_SEEDANCE_MODEL_ID = String(process.env.APIZ_SEEDANCE_MODEL_ID || "service-inference/seedance-2.0").trim();
 const APIZ_SEEDANCE_QUALITY_MODEL = String(process.env.APIZ_SEEDANCE_QUALITY_MODEL || "dreamina-seedance-2-0-ep").trim();
 const APIZ_SEEDANCE_FAST_MODEL = String(process.env.APIZ_SEEDANCE_FAST_MODEL || "dreamina-seedance-2-0-fast-ep").trim();
+const APIZ_SEEDANCE_ENABLED = ["1", "true", "yes", "on"].includes(String(process.env.APIZ_SEEDANCE_ENABLED || "").trim().toLowerCase());
 const APIZ_SEEDANCE_ENABLED_USER_KEYS = new Set(
-  String(process.env.APIZ_SEEDANCE_ENABLED_USERS || "test01")
+  String(process.env.APIZ_SEEDANCE_ENABLED_USERS || "")
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean),
@@ -4868,6 +4869,7 @@ function seedancePivoxEnabledForUser(user = {}) {
 }
 
 function seedanceApizEnabledForUser(user = {}) {
+  if (!APIZ_SEEDANCE_ENABLED) return false;
   if (!APIZ_SEEDANCE_API_KEY || !APIZ_SEEDANCE_MODEL_ID) return false;
   return seedanceUpstreamEnabledForUser(user, APIZ_SEEDANCE_ENABLED_USER_KEYS);
 }
