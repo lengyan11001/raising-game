@@ -4298,7 +4298,8 @@ select option:checked {
 }
 
 .workflow-node-upload {
-  height: 236px;
+  height: auto;
+  min-height: 174px;
 }
 
 .workflow-node-output {
@@ -4477,9 +4478,10 @@ select option:checked {
 .workflow-upload-grid {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-template-rows: 78px;
-  grid-auto-rows: 78px;
+  grid-template-columns: repeat(3, 48px);
+  grid-template-rows: 86px;
+  grid-auto-rows: 86px;
+  justify-content: start;
   gap: 8px;
 }
 
@@ -4516,7 +4518,8 @@ select option:checked {
 .workflow-upload-prepared {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, 48px);
+  justify-content: start;
   gap: 8px;
   margin-top: 8px;
 }
@@ -4524,7 +4527,7 @@ select option:checked {
 .workflow-upload-prepared figure,
 .workflow-prepared-thumb {
   position: relative;
-  height: 58px;
+  height: 86px;
   min-height: 0;
   margin: 0;
   overflow: hidden;
@@ -5209,8 +5212,9 @@ select option:checked {
 
 .workflow-picker-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 84px));
+  justify-content: start;
+  gap: 8px;
   min-height: 0;
   overflow: auto;
   padding: 0 20px 20px;
@@ -5221,7 +5225,7 @@ select option:checked {
   display: block;
   aspect-ratio: 9 / 16;
   min-width: 0;
-  padding: 5px;
+  padding: 4px;
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 14px;
   color: #fff;
