@@ -4750,6 +4750,70 @@ select option:checked {
   gap: 5px;
 }
 
+.workflow-node-toggles {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.workflow-node-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 12px;
+  background: rgba(255,255,255,.06);
+  cursor: pointer;
+}
+
+.workflow-node-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workflow-node-toggle-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: rgba(255,255,255,.62);
+  background: rgba(255,255,255,.09);
+}
+
+.workflow-node-toggle input:checked + .workflow-node-toggle-icon {
+  color: #fff;
+  background: linear-gradient(135deg, #ff62bf, #7b4dff);
+}
+
+.workflow-node-toggle-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workflow-node-toggle-copy strong {
+  overflow: hidden;
+  color: #fff;
+  font-size: .82rem;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-node-toggle-copy small {
+  overflow: hidden;
+  color: rgba(255,255,255,.55);
+  font-size: .7rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workflow-node footer {
   display: flex;
   align-items: center;

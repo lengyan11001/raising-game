@@ -40,8 +40,16 @@ const ADVANCED_PRESET_SLOT_META = {
   scene: { labelKey: "advancedPreset.scene", icon: "image", required: false },
 };
 const WORKFLOW_STORAGE_KEY = "raisingGameWorkflowState";
+const WORKFLOW_NUDE_PROMPT = "Adult cinematic undress video. Keep the same consenting adult subject and identity. The subject naturally removes clothing during the shot. Smooth camera motion, realistic lighting, no subtitles, no watermark.";
+const WORKFLOW_MODEL_PROMPTS = {
+  nude: WORKFLOW_NUDE_PROMPT,
+  "nude-video": `${WORKFLOW_NUDE_PROMPT} Continue the previous clip naturally and preserve the same identity, body, lighting, and camera direction.`,
+};
+const WORKFLOW_MODEL_ALIASES = {
+  "nude-v3-kling": "nude",
+};
 const WORKFLOW_MODEL_LABELS = [
-  "Nude V3 (Kling)", "Nude Video", "Sexier Nude Video", "Blowbang", "POV Dick Sucking", "Cumshot", "AI Talking Porn", "AI Talking Porn V2",
+  "Nude", "Nude Video", "Sexier Nude Video", "Blowbang", "POV Dick Sucking", "Cumshot", "AI Talking Porn", "AI Talking Porn V2",
   "Thick Cum V2", "Suck 2 Dicks", "Cumshot V2", "Endless Cumming", "Face Fuck", "Really Deep Deepthroat", "Cinematic Oral", "Blowjob",
   "Such Big Dick!", "Handjob", "BBC", "Missionary V2", "Missionary", "Bouncing Boobs", "Dirty Talk", "Breast Play", "Suck My Dick",
   "Penis Play", "Mouthful", "Ahegao", "Kissing", "Shake That Ass", "Lesbian Kissing", "Instant Sex", "Titfuck V3", "Middle Finger",
@@ -55,13 +63,16 @@ const WORKFLOW_MODEL_LABELS = [
   "Imagine Realistic", "Imagine Instagram", "Imagine KPop Girl", "Side View Missionary", "POV FaceSitting", "Pull Her Closer",
   "Desk Jerk Off", "Paid Escort V1", "Push Her Down", "Dub Video",
 ];
-const WORKFLOW_MODEL_LIBRARY = WORKFLOW_MODEL_LABELS.map((label) => ({
-  id: label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
-  label,
-  prompt: `Adult cinematic shot. Keep the same consenting adult subject and identity. Scene action: ${label}. Smooth camera motion, realistic lighting, no subtitles, no watermark.`,
-}));
+const WORKFLOW_MODEL_LIBRARY = WORKFLOW_MODEL_LABELS.map((label) => {
+  const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return {
+    id,
+    label,
+    prompt: WORKFLOW_MODEL_PROMPTS[id] || `Adult cinematic shot. Keep the same consenting adult subject and identity. Scene action: ${label}. Smooth camera motion, realistic lighting, no subtitles, no watermark.`,
+  };
+});
 const WORKFLOW_QUICK_TEMPLATES = [
-  { id: "nude", label: "Undress Intro", modelId: "nude-v3-kling" },
+  { id: "nude", label: "Undress Intro", modelId: "nude" },
   { id: "deepthroat", label: "Deep Throat", modelId: "deepthroat-v2-1" },
   { id: "cumshot", label: "Cumshot", modelId: "cumshot-v2" },
   { id: "ahegao", label: "Ahegao Finish", modelId: "ahegao-v2" },
@@ -74,13 +85,13 @@ const WORKFLOW_PHYSICS_MODULES = [
   { id: "better-dick", label: "Better Detail", prompt: "more coherent explicit detail when relevant" },
   { id: "bouncing-boobs", label: "Bouncing Boobs", prompt: "stronger natural bounce and secondary motion" },
 ];
-const WORKFLOW_NODE_LAYOUT_VERSION = 2;
+const WORKFLOW_NODE_LAYOUT_VERSION = 3;
 const WORKFLOW_NODE_WIDTH = 414;
 const WORKFLOW_NODE_GAP = 56;
 const WORKFLOW_DEFAULT_NODES = [
   { id: "upload-1", type: "upload", title: "Image Upload", x: 30, y: 150, data: { startImage: "", endImage: "", faceImage: "" } },
-  { id: "video-1", type: "video", title: "Nude V3 (Kling)", x: 500, y: 150, data: { modelId: "nude-v3-kling", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview" } },
-  { id: "video-2", type: "video", title: "Deepthroat", x: 970, y: 150, data: { modelId: "deepthroat-v2-1", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview" } },
+  { id: "video-1", type: "video", title: "Nude", x: 500, y: 150, data: { modelId: "nude", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview", stripFirst: true, faceSwapMode: true, addSound: true } },
+  { id: "video-2", type: "video", title: "Nude Video", x: 970, y: 150, data: { modelId: "nude-video", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview", stripFirst: true, faceSwapMode: true, addSound: true } },
   { id: "output-1", type: "output", title: "Final Output", x: 1440, y: 150, data: {} },
 ];
 const WORKFLOW_DEFAULT_EDGES = [
