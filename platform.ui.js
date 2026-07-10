@@ -3019,6 +3019,9 @@ function renderWorkflowNode(node = {}) {
       <header>
         <span class="workflow-node-title-icon"><i data-lucide="video"></i></span>
         <strong>${escapeHtml(node.title || model.label)}</strong>
+        <button class="workflow-node-header-run ${state.workflowActiveNodeId === node.id ? "is-running" : ""}" type="button" data-workflow-run-node="${escapeHtml(node.id)}" title="${escapeHtml(runState.reason)}" ${runState.disabled ? "disabled" : ""}>
+          <i data-lucide="${escapeHtml(runState.icon)}"></i><span>${escapeHtml(runState.label)}</span>
+        </button>
         <button type="button" data-workflow-delete="${escapeHtml(node.id)}" aria-label="Delete"><i data-lucide="trash-2"></i></button>
       </header>
       <div class="workflow-node-tabs" role="tablist" aria-label="Video node view">
@@ -3053,9 +3056,6 @@ function renderWorkflowNode(node = {}) {
       <footer>
         <span>${escapeHtml(workflowNodeStatusText(node))}${node.data?.taskId ? ` - ${escapeHtml(node.data.taskId)}` : ""}</span>
         <strong>${escapeHtml(workflowCostLabel(node))} credits</strong>
-        <button class="workflow-node-run ${state.workflowActiveNodeId === node.id ? "is-running" : ""}" type="button" data-workflow-run-node="${escapeHtml(node.id)}" title="${escapeHtml(runState.reason)}" ${runState.disabled ? "disabled" : ""}>
-          <i data-lucide="${escapeHtml(runState.icon)}"></i>${escapeHtml(runState.label)}
-        </button>
       </footer>
     </article>
   `;
