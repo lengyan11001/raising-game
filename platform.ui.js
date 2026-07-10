@@ -2669,6 +2669,10 @@ function workflowOrderedVideoNodes() {
   });
 }
 
+function workflowFirstVideoNode() {
+  return workflowOrderedVideoNodes()[0] || null;
+}
+
 function workflowUploadNode() {
   return workflowNodeByType("upload");
 }
@@ -2750,6 +2754,20 @@ function workflowNodeRunState(node = {}) {
   const upload = workflowUploadNode();
   if (!upload?.data?.startImage) {
     return { canRun: false, disabled: true, icon: "play", label: "Run", reason: "Upload a start image first." };
+  }
+  if (node.type === "upload") {
+    const firstVideo = workflowFirstVideoNode();
+    if (!firstVideo) {
+      return { canRun: false, disabled: true, icon: "play", label: "Run first", reason: "Connect a video node first." };
+    }
+    const model = workflowModelById(firstVideo.data?.modelId);
+    return {
+      canRun: true,
+      disabled: false,
+      icon: "play",
+      label: workflowNodeHasSuccessfulResult(firstVideo) ? "Run first again" : "Run first",
+      reason: `Run ${model.label} from this input.`,
+    };
   }
   const ordered = workflowOrderedVideoNodes();
   const index = ordered.findIndex((item) => item.id === node.id);
@@ -2969,10 +2987,17 @@ function renderWorkflowNode(node = {}) {
   const statusClassName = statusClass(node.data?.status || "ready");
   const style = `left:${Number(node.x || 0)}px;top:${Number(node.y || 0)}px`;
   if (node.type === "upload") {
+    const runState = workflowNodeRunState(node);
     return `
       <article class="workflow-node workflow-node-upload ${selected ? "is-selected" : ""}" style="${style}" data-workflow-node="${escapeHtml(node.id)}">
         ${renderWorkflowConnectors(node)}
-        <header><i data-lucide="image"></i><strong>${escapeHtml(node.title || "Image Upload")}</strong></header>
+        <header>
+          <span class="workflow-node-title-icon"><i data-lucide="image"></i></span>
+          <strong>${escapeHtml(node.title || "Image Upload")}</strong>
+          <button class="workflow-node-header-run ${state.workflowActiveNodeId === node.id ? "is-running" : ""}" type="button" data-workflow-run-node="${escapeHtml(node.id)}" title="${escapeHtml(runState.reason)}" ${runState.disabled ? "disabled" : ""}>
+            <i data-lucide="${escapeHtml(runState.icon)}"></i><span>${escapeHtml(runState.label)}</span>
+          </button>
+        </header>
         <div class="workflow-upload-grid">
           ${renderWorkflowUploadSlot(node, "startImage", "Start", "image-up")}
           ${renderWorkflowUploadSlot(node, "endImage", "End", "image")}
@@ -3555,6 +3580,25 @@ async function composeWorkflowOutput(taskIds = [], videoUrls = []) {
 }
 
 async function runWorkflowSingleNode(nodeId = "") {
+  const requestedNode = workflowNodeById(nodeId);
+  if (requestedNode?.type === "upload") {
+    const runState = workflowNodeRunState(requestedNode);
+    if (!runState.canRun) {
+      state.workflowMessage = runState.reason || "Upload a start image first.";
+      renderWorkflowPanel();
+      return;
+    }
+    const firstVideo = workflowFirstVideoNode();
+    if (!firstVideo) {
+      state.workflowMessage = "Connect a video node first.";
+      renderWorkflowPanel();
+      return;
+    }
+    state.workflowSelectedNodeId = firstVideo.id;
+    persistWorkflowState();
+    await runWorkflowSingleNode(firstVideo.id);
+    return;
+  }
   if (!state.user) return openLogin();
   const nodes = workflowOrderedVideoNodes();
   const node = nodes.find((item) => item.id === nodeId);
