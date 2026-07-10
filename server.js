@@ -5850,9 +5850,7 @@ async function requireAdmin(req, res) {
 
 function makeUniquePaymentAmount(baseAmount, suffixDigits) {
   const amount = Math.max(1, Math.round(Number(baseAmount || 0)));
-  const max = 10 ** suffixDigits;
-  const suffixNumber = crypto.randomInt(1, max);
-  const suffix = String(suffixNumber).padStart(suffixDigits, "0");
+  const suffix = `00${String(crypto.randomInt(1, 10000)).padStart(4, "0")}`;
   const payableAmountText = `${amount}.${suffix}`;
   const payableAmount = Number(payableAmountText);
   return { amount, suffix, payableAmount, payableAmountText };
