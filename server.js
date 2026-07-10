@@ -7552,6 +7552,92 @@ function makeInteractiveSceneVideoPrompt(scene = {}, primaryName = "", partnerNa
   return [userPrompt || base, interaction].filter(Boolean).join(" ");
 }
 
+const DEFAULT_VIDEO_NEGATIVE_PROMPT = [
+  "extra fingers",
+  "missing fingers",
+  "fused fingers",
+  "malformed hands",
+  "distorted hands",
+  "extra arms",
+  "extra legs",
+  "extra limbs",
+  "missing limbs",
+  "duplicated body parts",
+  "multiple hands on one arm",
+  "deformed anatomy",
+  "bad anatomy",
+  "distorted face",
+  "duplicate person unless explicitly requested",
+  "unintended extra people",
+  "mutation",
+  "warped body",
+  "broken joints",
+  "unnatural fingers",
+].join(", ");
+
+function videoNegativePromptFromBody(body = {}) {
+  return String(firstPresent(
+    body.negativePrompt,
+    body.negative_prompt,
+    body.params?.negativePrompt,
+    body.params?.negative_prompt,
+    body.parameters?.negativePrompt,
+    body.parameters?.negative_prompt,
+    "",
+  ) || "").trim();
+}
+
+function appendDefaultVideoNegativePrompt(prompt = "", body = {}) {
+  const base = String(prompt || "").trim();
+  if (!base) return "";
+  const customNegative = videoNegativePromptFromBody(body);
+  const negative = [DEFAULT_VIDEO_NEGATIVE_PROMPT, customNegative]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .filter((item, index, list) => list.findIndex((value) => value.toLowerCase() === item.toLowerCase()) === index)
+    .join(", ");
+  if (!negative) return base;
+  const marker = "Negative prompt:";
+  if (base.toLowerCase().includes(marker.toLowerCase())) {
+    const lower = base.toLowerCase();
+    const index = lower.lastIndexOf(marker.toLowerCase());
+    const before = base.slice(0, index).trim();
+    const existing = base.slice(index + marker.length).trim();
+    const merged = [existing, negative]
+      .join(", ")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .filter((item, itemIndex, list) => list.findIndex((value) => value.toLowerCase() === item.toLowerCase()) === itemIndex)
+      .join(", ");
+    return [before, `${marker} ${merged}`].filter(Boolean).join("\n");
+  }
+  return [base, `${marker} ${negative}`].filter(Boolean).join("\n");
+}
+
+function applyDefaultVideoNegativePromptToSeedancePayload(payload = {}, body = {}) {
+  if (!payload || typeof payload !== "object") return payload;
+  if (typeof payload.prompt === "string" && payload.prompt.trim()) {
+    payload.prompt = appendDefaultVideoNegativePrompt(payload.prompt, body);
+  }
+  if (Array.isArray(payload.content)) {
+    let hasText = false;
+    payload.content = payload.content.map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+      if (item.type === "text" || item.text !== undefined) {
+        hasText = true;
+        return { ...item, text: appendDefaultVideoNegativePrompt(item.text || payload.prompt || "", body) };
+      }
+      return item;
+    });
+    if (!hasText) {
+      const text = appendDefaultVideoNegativePrompt(payload.prompt || "", body);
+      if (text) payload.content.unshift({ type: "text", text });
+    }
+  }
+  return payload;
+}
+
 function seedanceContentFromReferences({
   prompt = "",
   referenceAssetUri = "",
@@ -7563,7 +7649,7 @@ function seedanceContentFromReferences({
   referenceAudioAssetUris = [],
   body = {},
 } = {}) {
-  const content = [{ type: "text", text: String(prompt || "") }];
+  const content = [{ type: "text", text: appendDefaultVideoNegativePrompt(prompt, body) }];
   if (firstFrameAssetUri) {
     content.push({
       type: "image_url",
@@ -7684,7 +7770,7 @@ function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body 
     )).filter(Boolean);
   }
   if (!Array.isArray(payload.content) || !payload.content.length) payload.content = [{ type: "text", text: String(prompt || "") }];
-  return payload;
+  return applyDefaultVideoNegativePromptToSeedancePayload(payload, source);
 }
 
 async function submitSeedanceVideoTask({
@@ -7882,7 +7968,7 @@ async function prepareOfficialSeedancePayloadForArk(db, user, body = {}, { prepa
       if (!item || typeof item !== "object" || Array.isArray(item)) return item;
       return Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined));
     });
-    return payload;
+    return applyDefaultVideoNegativePromptToSeedancePayload(payload, source);
   }
 
   if (typeof payload.image_url === "string") {
@@ -7920,7 +8006,7 @@ async function prepareOfficialSeedancePayloadForArk(db, user, body = {}, { prepa
     return Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined));
   });
   stripSeedanceCompatibilityAliases(payload);
-  return payload;
+  return applyDefaultVideoNegativePromptToSeedancePayload(payload, source);
 }
 
 function validateOfficialSeedancePayloadBeforeCharge(payload = {}) {
@@ -8371,7 +8457,7 @@ async function submitWan27VideoTask({ prompt, imageUrl = "", media = [], body = 
     model: String(firstPresent(source.model, ALIYUN_WAN27_MODEL)),
     input: {
       ...inputExtras,
-      prompt,
+      prompt: appendDefaultVideoNegativePrompt(prompt, source),
       media: normalizedMedia,
     },
     parameters,
@@ -21549,10 +21635,11 @@ async function handleCreateSceneVideo(req, res) {
   const finalPrompt = partnerReferenceAssetUri
     ? makeInteractiveSceneVideoPrompt(sceneConfig, resolvedCompanionName || body.companionName || "", partnerCharacterName, userPrompt)
     : prompt;
+  const submittedFinalPrompt = appendDefaultVideoNegativePrompt(finalPrompt, body);
 
   const payload = {
     model,
-    content: [{ type: "text", text: finalPrompt }],
+    content: [{ type: "text", text: submittedFinalPrompt }],
     generate_audio: true,
     ratio: body.ratio || config.video.ratio || "9:16",
     resolution: body.resolution || config.video.resolution || "720p",
@@ -21619,7 +21706,7 @@ async function handleCreateSceneVideo(req, res) {
     partnerCharacterName,
     partnerReferenceAssetUri,
     prompt: body.prompt || "",
-    finalPrompt,
+    finalPrompt: submittedFinalPrompt,
     ratio: payload.ratio,
     resolution: payload.resolution,
     duration: payload.duration,
