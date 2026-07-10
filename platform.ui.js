@@ -2827,7 +2827,13 @@ function workflowNodeResultVideo(node = {}) {
 }
 
 function workflowNodePoster(node = {}) {
-  return node.data?.posterUrl || node.data?.lastFrameUrl || generationPosterUrl(node.data?.record || {}) || node.data?.sourceImage || "";
+  return node.data?.posterUrl
+    || node.data?.lastFrameUrl
+    || node.data?.stripTargetImageUrl
+    || node.data?.keyframeImageUrl
+    || generationPosterUrl(node.data?.record || {})
+    || node.data?.sourceImage
+    || "";
 }
 
 function workflowPhysicsPrompt() {
@@ -3148,13 +3154,17 @@ function renderWorkflowMediaPreview(node = {}, model = null) {
   const videoUrl = workflowNodeResultVideo(node);
   const posterUrl = workflowNodePoster(node);
   const preset = model || workflowModelById(node.data?.modelId);
-  const previewUrl = videoUrl || preset.previewUrl || "";
+  const preparedImageUrl = !videoUrl ? (node.data?.stripTargetImageUrl || node.data?.keyframeImageUrl || "") : "";
+  const previewUrl = videoUrl || preparedImageUrl || preset.previewUrl || "";
   const previewPoster = videoUrl ? posterUrl : (preset.posterUrl || posterUrl || "");
-  const badge = videoUrl ? "Result" : "Demo";
+  const preparedBadge = node.data?.stripTargetImageUrl ? "Target" : "Keyframe";
+  const badge = videoUrl ? "Result" : preparedImageUrl ? preparedBadge : "Demo";
   if (previewUrl) {
     return `
       <button class="workflow-node-preview-button" type="button" data-workflow-preview="${escapeHtml(node.id)}">
-        <video src="${escapeHtml(previewUrl)}" ${previewPoster ? `poster="${escapeHtml(previewPoster)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>
+        ${preparedImageUrl
+          ? `<img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async" />`
+          : `<video src="${escapeHtml(previewUrl)}" ${previewPoster ? `poster="${escapeHtml(previewPoster)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>`}
         <span class="workflow-node-preview-play"><i data-lucide="play"></i></span>
         <span class="workflow-node-demo-badge">${escapeHtml(badge)}</span>
       </button>
@@ -3517,7 +3527,15 @@ async function handleWorkflowFileInput(input) {
   const file = input.files?.[0];
   if (!file) return;
   const dataUrl = await readFileAsDataUrl(file);
-  workflowSetNodeData(nodeId, { [field]: dataUrl });
+  const node = workflowNodeById(nodeId);
+  if (node) {
+    node.data = { ...(node.data || {}), [field]: dataUrl };
+    clearWorkflowExecutionResults({ message: "Input updated. Run the first video again.", render: false });
+    persistWorkflowState();
+    renderWorkflowPanel();
+  } else {
+    workflowSetNodeData(nodeId, { [field]: dataUrl });
+  }
   if (field === "startImage") workflowLog("Source image ready.");
 }
 
@@ -3855,6 +3873,7 @@ async function composeWorkflowOutput(taskIds = [], videoUrls = []) {
 async function runWorkflowSingleNode(nodeId = "") {
   const requestedNode = workflowNodeById(nodeId);
   if (requestedNode?.type === "upload") {
+    if (!state.user) return openLogin();
     const runState = workflowNodeRunState(requestedNode);
     if (!runState.canRun) {
       state.workflowMessage = runState.reason || "Upload a start image first.";
@@ -3868,7 +3887,9 @@ async function runWorkflowSingleNode(nodeId = "") {
       return;
     }
     state.workflowSelectedNodeId = firstVideo.id;
+    state.workflowMessage = "Running first video from uploaded image...";
     persistWorkflowState();
+    renderWorkflowPanel();
     await runWorkflowSingleNode(firstVideo.id);
     return;
   }
