@@ -2895,7 +2895,7 @@ function workflowNodeOptionEnabled(node = {}, key = "") {
 
 function workflowStripPrompt(node = {}) {
   if (!workflowNodeOptionEnabled(node, "stripFirst")) return "";
-  return "If the selected action starts from a clothed source, first transition naturally into the requested adult state before continuing the action.";
+  return "Strip Her Nude First is enabled: begin with the provided clothed first frame, then make the same consenting adult subject visibly remove clothing and transition into a nude state before continuing the selected action. Preserve the same face, body, pose continuity, lighting, and camera direction.";
 }
 
 function workflowRecordFromPayload(payload = {}, fallback = {}) {
