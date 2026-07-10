@@ -10933,7 +10933,7 @@ async function prepareSeedanceVideoAsset(db, userAsset) {
 }
 
 async function createSeedanceReferenceVideoAssetFromUrl(db, user, videoUrl = "", index = 0) {
-  const url = String(videoUrl || "").trim();
+  const url = publicHttpUrlForUpstream(videoUrl) || String(videoUrl || "").trim();
   if (!url) return null;
   if (isAllowedInlineMediaDataUrl(url, "video")) {
     return await createUserWanMediaAssetFromDataUrl(db, user, {
