@@ -2769,6 +2769,7 @@ function workflowClearNodeExecution(node = null) {
 function clearWorkflowExecutionResults({ fromNodeId = "", message = "Execution cleared.", render = true } = {}) {
   const ordered = workflowOrderedVideoNodes();
   const startIndex = fromNodeId ? ordered.findIndex((node) => node.id === fromNodeId) : 0;
+  if (!fromNodeId) workflowClearNodeExecution(workflowUploadNode());
   ordered.slice(Math.max(0, startIndex)).forEach(workflowClearNodeExecution);
   workflowClearNodeExecution(workflowNodeByType("output"));
   state.workflowCancelRequested = false;
@@ -2800,8 +2801,8 @@ function workflowNodeRunState(node = {}) {
       canRun: true,
       disabled: false,
       icon: "play",
-      label: workflowNodeHasSuccessfulResult(firstVideo) ? "Run first video again" : "Run first video",
-      reason: `Run ${model.label} from this input.`,
+      label: node.data?.keyframeImageUrl ? "Prepare again" : "Prepare",
+      reason: `Prepare ${model.label} keyframe from this input.`,
     };
   }
   const ordered = workflowOrderedVideoNodes();
@@ -2997,12 +2998,13 @@ async function workflowEnsureImageEditSources(images = [], nodeId = "", label = 
   return { imageAssetIds };
 }
 
-async function workflowPrepareNodeKeyframe(node = {}, { baseImage = "", faceImage = "", model = {}, firstNode = false } = {}) {
+async function workflowPrepareNodeKeyframe(node = {}, { baseImage = "", faceImage = "", model = {}, firstNode = false, storageNode = null } = {}) {
+  const targetNode = storageNode || node;
   const sourceKey = workflowKeyframeSourceKey(node, baseImage, faceImage, { firstNode });
-  if (node.data?.keyframeImageUrl && node.data?.keyframeSourceKey === sourceKey) {
-    return node.data.keyframeImageUrl;
+  if (targetNode.data?.keyframeImageUrl && targetNode.data?.keyframeSourceKey === sourceKey) {
+    return targetNode.data.keyframeImageUrl;
   }
-  workflowSetNodeData(node.id, {
+  workflowSetNodeData(targetNode.id, {
     status: "preparing",
     error: "",
     keyframeImageUrl: "",
@@ -3042,7 +3044,7 @@ async function workflowPrepareNodeKeyframe(node = {}, { baseImage = "", faceImag
   const record = payload.record || null;
   const imageUrl = payload.imageUrl || record?.imageResultUrl || record?.localImageUrl || record?.cdnImageUrl || "";
   if (!imageUrl) throw new Error("Keyframe generation returned no image.");
-  workflowSetNodeData(node.id, {
+  workflowSetNodeData(targetNode.id, {
     keyframeImageUrl: imageUrl,
     keyframeTaskId: payload.taskId || record?.taskId || "",
     keyframeRecord: record,
@@ -3052,12 +3054,13 @@ async function workflowPrepareNodeKeyframe(node = {}, { baseImage = "", faceImag
   return imageUrl;
 }
 
-async function workflowPrepareStripTargetImage(node = {}, keyframeImage = "", model = {}) {
+async function workflowPrepareStripTargetImage(node = {}, keyframeImage = "", model = {}, { storageNode = null } = {}) {
+  const targetNode = storageNode || node;
   const sourceKey = workflowStripSourceKey(node, keyframeImage);
-  if (node.data?.stripTargetImageUrl && node.data?.stripTargetSourceKey === sourceKey) {
-    return node.data.stripTargetImageUrl;
+  if (targetNode.data?.stripTargetImageUrl && targetNode.data?.stripTargetSourceKey === sourceKey) {
+    return targetNode.data.stripTargetImageUrl;
   }
-  workflowSetNodeData(node.id, {
+  workflowSetNodeData(targetNode.id, {
     status: "preparing",
     error: "",
     stripTargetImageUrl: "",
@@ -3089,7 +3092,7 @@ async function workflowPrepareStripTargetImage(node = {}, keyframeImage = "", mo
   const record = payload.record || null;
   const imageUrl = payload.imageUrl || record?.imageResultUrl || record?.localImageUrl || record?.cdnImageUrl || "";
   if (!imageUrl) throw new Error("Target frame generation returned no image.");
-  workflowSetNodeData(node.id, {
+  workflowSetNodeData(targetNode.id, {
     stripTargetImageUrl: imageUrl,
     stripTargetTaskId: payload.taskId || record?.taskId || "",
     stripTargetRecord: record,
@@ -3141,6 +3144,24 @@ function renderWorkflowUploadSlot(node = {}, field = "startImage", label = "Star
           : `<span class="workflow-upload-empty"><i data-lucide="${escapeHtml(icon)}"></i><strong>${escapeHtml(label)}</strong></span>`}
       </div>
     </label>
+  `;
+}
+
+function renderWorkflowUploadPreparedPreview(node = {}) {
+  const keyframeUrl = node.data?.keyframeImageUrl || "";
+  const targetUrl = node.data?.stripTargetImageUrl || "";
+  if (!keyframeUrl && !targetUrl) return "";
+  const item = (url, label) => url ? `
+    <figure>
+      <img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />
+      <span>${escapeHtml(label)}</span>
+    </figure>
+  ` : "";
+  return `
+    <div class="workflow-upload-prepared">
+      ${item(keyframeUrl, "Keyframe")}
+      ${item(targetUrl, "Target")}
+    </div>
   `;
 }
 
@@ -3244,6 +3265,7 @@ function renderWorkflowNode(node = {}) {
           ${renderWorkflowUploadSlot(node, "endImage", "End", "image")}
           ${renderWorkflowUploadSlot(node, "faceImage", "Face", "scan-face")}
         </div>
+        ${renderWorkflowUploadPreparedPreview(node)}
       </article>
     `;
   }
@@ -3723,11 +3745,13 @@ async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideo
   workflowThrowIfCancelled();
 
   const continuityImage = previousFrameUrl || sourceImage;
+  const keyframeStorageNode = firstNode ? upload : node;
   const keyframeImage = await workflowPrepareNodeKeyframe(node, {
     baseImage: continuityImage,
     faceImage,
     model,
     firstNode,
+    storageNode: keyframeStorageNode,
   });
   workflowThrowIfCancelled();
 
@@ -3736,7 +3760,7 @@ async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideo
     && !endImage
     && !previousVideoUrl;
   const stripTargetImage = shouldPrepareStripTarget
-    ? await workflowPrepareStripTargetImage(node, keyframeImage, model)
+    ? await workflowPrepareStripTargetImage(node, keyframeImage, model, { storageNode: firstNode ? upload : node })
     : "";
   const stripPrompt = stripTargetImage
     ? "Use the provided first and last frames as the required transformation path: start from the prepared keyframe, transition naturally toward the nude target end frame, then continue the selected action with the same adult identity."
@@ -3784,9 +3808,9 @@ async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideo
       workflowModelLabel: model.label,
       workflowInputMode: mediaBody.seedanceMode,
       workflowKeyframeImageUrl: keyframeImage || "",
-      workflowKeyframeTaskId: node.data?.keyframeTaskId || "",
+      workflowKeyframeTaskId: keyframeStorageNode?.data?.keyframeTaskId || "",
       workflowStripTargetImageUrl: stripTargetImage || "",
-      workflowStripTargetTaskId: node.data?.stripTargetTaskId || "",
+      workflowStripTargetTaskId: (firstNode ? upload : node).data?.stripTargetTaskId || "",
       workflowUsesEndFrame: firstNode && Boolean(endImage) && mediaBody.seedanceMode === "first_last_frame",
       workflowUsesGeneratedEndFrame: firstNode && Boolean(stripTargetImage) && mediaBody.seedanceMode === "first_last_frame",
       workflowUsesEndReference: Boolean(endImage) && mediaBody.seedanceMode === "reference_images",
@@ -3870,27 +3894,60 @@ async function composeWorkflowOutput(taskIds = [], videoUrls = []) {
   }
 }
 
+async function runWorkflowUploadPreprocess(uploadNode = null) {
+  const upload = uploadNode || workflowUploadNode();
+  if (!state.user) return openLogin();
+  if (!upload?.data?.startImage) {
+    state.workflowMessage = "Upload a start image first.";
+    renderWorkflowPanel();
+    return;
+  }
+  const firstVideo = workflowFirstVideoNode();
+  if (!firstVideo) {
+    state.workflowMessage = "Connect a video node first.";
+    renderWorkflowPanel();
+    return;
+  }
+  const model = workflowModelById(firstVideo.data?.modelId);
+  const faceImage = workflowNodeOptionEnabled(firstVideo, "faceSwapMode") ? (upload.data?.faceImage || "") : "";
+  const sourceKey = workflowKeyframeSourceKey(firstVideo, upload.data.startImage, faceImage, { firstNode: true });
+  const needsNewKeyframe = upload.data?.keyframeSourceKey !== sourceKey || !upload.data?.keyframeImageUrl;
+  if (needsNewKeyframe) clearWorkflowExecutionResults({ fromNodeId: firstVideo.id, message: "Preparing first video keyframe...", render: false });
+  state.workflowRunning = true;
+  state.workflowCancelRequested = false;
+  state.workflowActiveNodeId = upload.id;
+  state.workflowSelectedNodeId = upload.id;
+  renderWorkflowPanel();
+  try {
+    const keyframeImage = await workflowPrepareNodeKeyframe(firstVideo, {
+      baseImage: upload.data.startImage,
+      faceImage,
+      model,
+      firstNode: true,
+      storageNode: upload,
+    });
+    if (workflowNodeOptionEnabled(firstVideo, "stripFirst") && !upload.data?.endImage) {
+      await workflowPrepareStripTargetImage(firstVideo, keyframeImage, model, { storageNode: upload });
+    } else {
+      workflowSetNodeData(upload.id, { stripTargetImageUrl: "", stripTargetTaskId: "", stripTargetRecord: null, stripTargetSourceKey: "" });
+    }
+    state.workflowMessage = "Preprocess ready. Run the first video node when you are ready.";
+    workflowLog("First video preprocess ready.");
+  } catch (error) {
+    workflowHandleExecutionError(error);
+  } finally {
+    state.workflowRunning = false;
+    state.workflowCancelRequested = false;
+    state.workflowActiveNodeId = "";
+    persistWorkflowState();
+    renderWorkflowPanel();
+  }
+}
+
 async function runWorkflowSingleNode(nodeId = "") {
   const requestedNode = workflowNodeById(nodeId);
   if (requestedNode?.type === "upload") {
-    if (!state.user) return openLogin();
-    const runState = workflowNodeRunState(requestedNode);
-    if (!runState.canRun) {
-      state.workflowMessage = runState.reason || "Upload a start image first.";
-      renderWorkflowPanel();
-      return;
-    }
-    const firstVideo = workflowFirstVideoNode();
-    if (!firstVideo) {
-      state.workflowMessage = "Connect a video node first.";
-      renderWorkflowPanel();
-      return;
-    }
-    state.workflowSelectedNodeId = firstVideo.id;
-    state.workflowMessage = "Running first video from uploaded image...";
-    persistWorkflowState();
-    renderWorkflowPanel();
-    await runWorkflowSingleNode(firstVideo.id);
+    await runWorkflowUploadPreprocess(requestedNode);
     return;
   }
   if (!state.user) return openLogin();
