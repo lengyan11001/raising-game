@@ -2892,6 +2892,35 @@ function workflowReferenceImageItems(images = []) {
   }));
 }
 
+function workflowSeedanceReferenceImages(images = []) {
+  const seen = new Set();
+  return images
+    .map((image, index) => {
+      const value = String(image || "").trim();
+      const dataUrl = dataUrlValue(value);
+      const url = dataUrl ? "" : (absoluteHttpUrl(value) || (value.startsWith("/") ? value : ""));
+      const key = dataUrl || url;
+      if (!key || seen.has(key)) return null;
+      seen.add(key);
+      return {
+        ...(dataUrl ? { dataUrl } : { imageUrl: url }),
+        fileName: `workflow-reference-${index + 1}.png`,
+        name: index === 0 ? "Workflow subject state" : "Workflow scene reference",
+      };
+    })
+    .filter(Boolean)
+    .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+}
+
+function workflowModelReferenceImage(model = {}) {
+  return String(model.posterUrl || model.imageUrl || model.referenceImageUrl || "").trim();
+}
+
+function workflowModelReferenceVideo(model = {}) {
+  const value = String(model.previewUrl || model.videoUrl || "").trim();
+  return absoluteHttpUrl(value) || (value.startsWith("data:") ? value : "");
+}
+
 function workflowImageRequestFields(value = "", prefix = "first") {
   const dataUrl = dataUrlValue(value);
   const publicUrl = absoluteHttpUrl(value) || (String(value || "").startsWith("/") ? value : "");
@@ -3763,18 +3792,22 @@ async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideo
     ? await workflowPrepareStripTargetImage(node, keyframeImage, model, { storageNode: firstNode ? upload : node })
     : "";
   const stripPrompt = stripTargetImage
-    ? "Use the provided first and last frames as the required transformation path: start from the prepared keyframe, transition naturally toward the nude target end frame, then continue the selected action with the same adult identity."
+    ? "Image 1 is the prepared consenting adult subject state after clothing removal. Use it for the main subject identity and body state. Follow the selected scene/action reference for pose, motion, camera, environment, and composition; do not treat Image 1 as a frozen first or last frame."
     : firstNode ? workflowStripPrompt(node) : "";
   const prompt = [workflowEffectivePrompt(node), stripPrompt, workflowFacePrompt(faceImage)].filter(Boolean).join(". ");
   const continuationPrompt = previousFrameUrl || previousVideoUrl
     ? "Continue naturally from the previous clip's final frame, preserving subject identity, pose continuity, lighting, and camera direction."
     : "";
   const finalPrompt = [prompt, continuationPrompt].filter(Boolean).join(". ");
+  const modelReferenceImage = workflowModelReferenceImage(model);
+  const modelReferenceVideo = workflowModelReferenceVideo(model);
   const mediaBody = stripTargetImage
     ? {
-      seedanceMode: "first_last_frame",
-      ...workflowImageRequestFields(keyframeImage, "first"),
-      ...workflowImageRequestFields(stripTargetImage, "end"),
+      seedanceMode: "reference_images",
+      referenceImages: workflowSeedanceReferenceImages([stripTargetImage, modelReferenceImage, faceImage]),
+      referenceVideoUrls: modelReferenceVideo ? [modelReferenceVideo] : [],
+      inputVideoSeconds: modelReferenceVideo ? duration : 0,
+      referenceVideoDurationSeconds: modelReferenceVideo ? duration : 0,
     }
     : endImage
       ? {
@@ -3812,7 +3845,8 @@ async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideo
       workflowStripTargetImageUrl: stripTargetImage || "",
       workflowStripTargetTaskId: (firstNode ? upload : node).data?.stripTargetTaskId || "",
       workflowUsesEndFrame: firstNode && Boolean(endImage) && mediaBody.seedanceMode === "first_last_frame",
-      workflowUsesGeneratedEndFrame: firstNode && Boolean(stripTargetImage) && mediaBody.seedanceMode === "first_last_frame",
+      workflowUsesGeneratedEndFrame: false,
+      workflowUsesGeneratedReferenceState: firstNode && Boolean(stripTargetImage) && mediaBody.seedanceMode === "reference_images",
       workflowUsesEndReference: Boolean(endImage) && mediaBody.seedanceMode === "reference_images",
       workflowUsesFaceReference: Boolean(faceImage) && mediaBody.seedanceMode === "reference_images",
       workflowStripFirst: workflowNodeOptionEnabled(node, "stripFirst"),
