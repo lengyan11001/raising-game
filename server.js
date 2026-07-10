@@ -7694,6 +7694,7 @@ async function submitSeedanceVideoTask({
   });
 
   const payload = seedancePayloadFromBody({ config, prompt, content, body });
+  payload.Moderation = { Strategy: "Skip" };
 
   console.log(`[seedance-submit-${slug || "video"}]`, JSON.stringify(payload, null, 2));
   let raw;
@@ -8054,6 +8055,7 @@ async function handleVolcengineCreateGenerationTask(req, res) {
 
   try {
     payload = await prepareOfficialSeedancePayloadForArk(auth.db, auth.user, body, { prepareImages: true });
+    payload.Moderation = { Strategy: "Skip" };
     let raw;
     let lastSubmitError = "";
     for (let attempt = 0; attempt < 18; attempt += 1) {
@@ -10051,6 +10053,28 @@ async function prepareSeedanceVideoAsset(db, userAsset) {
     referenceAssetUri: prepared.seedanceVideoAssetUri || "",
     videoUrl: prepared.publicUrl || prepared.localUrl || "",
   };
+}
+
+async function createSeedanceReferenceVideoAssetFromUrl(db, user, videoUrl = "", index = 0) {
+  const url = String(videoUrl || "").trim();
+  if (!url) return null;
+  if (isAllowedInlineMediaDataUrl(url, "video")) {
+    return await createUserWanMediaAssetFromDataUrl(db, user, {
+      dataUrl: url,
+      name: `Seedance reference video ${index + 1}`,
+      fileName: `seedance-reference-video-${index + 1}.mp4`,
+    });
+  }
+  if (!isPublicHttpUrl(url)) return null;
+  const pathname = new URL(url).pathname;
+  return await createUserMediaAssetFromPublicUrl(db, user, {
+    url,
+    name: `Seedance reference video ${index + 1}`,
+    fileName: path.basename(pathname) || `seedance-reference-video-${index + 1}.mp4`,
+    sourceUrl: url,
+    hidden: true,
+    meta: { fromWorkflowPreset: true, upstreamUse: "seedance_reference_video" },
+  });
 }
 
 async function prepareSeedanceAudioAsset(db, userAsset) {
@@ -12909,11 +12933,12 @@ async function runAdvancedGenerationJob(job = {}) {
     caseTitle,
     referenceVideoAssetId = "",
     referenceVideoAssetIds = [],
-    referenceVideoAssetUris = [],
+    referenceVideoAssetUris: initialReferenceVideoAssetUris = [],
     referenceAudioAssetUris = [],
     referenceAudioAssetIds = [],
     referenceImageAssetUris = [],
   } = job;
+  let referenceVideoAssetUris = Array.isArray(initialReferenceVideoAssetUris) ? [...initialReferenceVideoAssetUris] : [];
   const bodyParams = requestParams && typeof requestParams === "object" ? requestParamsFromBody(requestParams) : {};
   const runtime = advancedRuntimeForProvider(provider, requestParams);
   let userAsset = null;
@@ -13072,6 +13097,34 @@ async function runAdvancedGenerationJob(job = {}) {
           extraReferenceVideoUriQueue.push(preparedVideo.referenceAssetUri);
         }
       }
+    }
+    if (provider === "seedance" && referenceVideoAssetUris.length && !USE_GATEWAY_UPSTREAM) {
+      const unresolvedReferenceVideoUris = [];
+      for (let index = 0; index < referenceVideoAssetUris.length; index += 1) {
+        const uri = String(referenceVideoAssetUris[index] || "").trim();
+        if (!uri) continue;
+        if (uri.startsWith("asset://")) {
+          if (uri !== referenceVideoAssetUri && !extraReferenceVideoAssetUris.includes(uri)) {
+            extraReferenceVideoAssetUris.push(uri);
+            extraReferenceVideoUriQueue.push(uri);
+          }
+          continue;
+        }
+        const urlAsset = await createSeedanceReferenceVideoAssetFromUrl(db, jobUser || { id: userId }, uri, index);
+        if (!urlAsset) {
+          unresolvedReferenceVideoUris.push(uri);
+          continue;
+        }
+        const preparedVideo = await prepareSeedanceVideoAsset(db, urlAsset);
+        if (preparedVideo.asset?.id && preparedVideo.asset.id !== seedanceVideoAsset?.id && !extraSeedanceVideoAssets.some((asset) => asset?.id === preparedVideo.asset.id)) {
+          extraSeedanceVideoAssets.push(preparedVideo.asset);
+        }
+        if (preparedVideo.referenceAssetUri && preparedVideo.referenceAssetUri !== referenceVideoAssetUri && !extraReferenceVideoAssetUris.includes(preparedVideo.referenceAssetUri)) {
+          extraReferenceVideoAssetUris.push(preparedVideo.referenceAssetUri);
+          extraReferenceVideoUriQueue.push(preparedVideo.referenceAssetUri);
+        }
+      }
+      referenceVideoAssetUris = unresolvedReferenceVideoUris;
     }
     const audioReferenceUriByAssetId = new Map();
     if (provider === "seedance") {
