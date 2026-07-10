@@ -4079,20 +4079,20 @@ select option:checked {
 }
 
 .workflow-toolbar {
-  position: sticky;
-  top: 76px;
-  z-index: 12;
+  position: relative;
+  z-index: 4;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  width: max-content;
+  width: 100%;
   max-width: 100%;
   padding: 8px;
   border: 1px solid rgba(255,255,255,.1);
   border-radius: 24px;
   background: rgba(10,10,12,.92);
   box-shadow: 0 18px 44px rgba(0,0,0,.28);
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .workflow-toolbar button,
@@ -4301,7 +4301,7 @@ select option:checked {
 }
 
 .workflow-node-upload {
-  height: 390px;
+  height: 320px;
 }
 
 .workflow-node-output {
@@ -4481,8 +4481,8 @@ select option:checked {
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: 126px 92px;
-  grid-auto-rows: 92px;
+  grid-template-rows: 84px 68px;
+  grid-auto-rows: 68px;
   gap: 8px;
 }
 
@@ -4527,7 +4527,7 @@ select option:checked {
 .workflow-upload-prepared figure,
 .workflow-prepared-thumb {
   position: relative;
-  height: 76px;
+  height: 58px;
   min-height: 0;
   margin: 0;
   overflow: hidden;
@@ -4626,8 +4626,8 @@ select option:checked {
   z-index: 3;
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border: 1px solid rgba(255,255,255,.24);
   border-radius: 999px;
   color: #fff;
