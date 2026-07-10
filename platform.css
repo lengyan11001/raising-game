@@ -4301,7 +4301,7 @@ select option:checked {
 }
 
 .workflow-node-upload {
-  height: 320px;
+  height: 236px;
 }
 
 .workflow-node-output {
@@ -4480,9 +4480,9 @@ select option:checked {
 .workflow-upload-grid {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 84px 68px;
-  grid-auto-rows: 68px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: 78px;
+  grid-auto-rows: 78px;
   gap: 8px;
 }
 
@@ -4499,7 +4499,7 @@ select option:checked {
 }
 
 .workflow-upload-slot.is-primary {
-  grid-column: 1 / -1;
+  grid-column: auto;
   height: 100%;
   min-height: 0;
 }
