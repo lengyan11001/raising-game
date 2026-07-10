@@ -6055,6 +6055,10 @@ function walletScanConfirmations(chain = "") {
   return WALLET_EVM_CONFIRMATIONS;
 }
 
+function walletUsdtDecimals(chain = "") {
+  return normalizeWalletChain(chain) === "bnb" ? 18 : 6;
+}
+
 function tokenUnitAmount(value, decimals = 6) {
   const text = String(value ?? "").trim();
   if (!text) return null;
@@ -6102,6 +6106,30 @@ function normalizeTokenUnits(units, fromDecimals = 6, toDecimals = 6) {
 
 function orderExpectedUnits(order = {}) {
   return tokenUnitAmount(order.payableAmountText || order.payableAmount || order.baseAmount, 6);
+}
+
+function walletOrderSubmittedHash(order = {}) {
+  return normalizeSubmittedTxHash(order.confirmationHash || order.transactionHash || order.txHash || order.hash || "").toLowerCase();
+}
+
+function walletConfirmedHashMatchesOrder(order = {}, tx = {}) {
+  const submitted = walletOrderSubmittedHash(order);
+  return Boolean(submitted && tx.hash && submitted === normalizeSubmittedTxHash(tx.hash).toLowerCase());
+}
+
+function walletOrderAmountMatches(order = {}, tx = {}) {
+  const expected = orderExpectedUnits(order);
+  if (expected === null || tx.amountUnits === undefined || tx.amountUnits === null) return false;
+  let amount;
+  try {
+    amount = typeof tx.amountUnits === "bigint" ? tx.amountUnits : BigInt(String(tx.amountUnits || "0"));
+  } catch {
+    return false;
+  }
+  if (amount === expected) return true;
+  if (!walletConfirmedHashMatchesOrder(order, tx)) return false;
+  const diff = expected > amount ? expected - amount : amount - expected;
+  return diff <= 10n;
 }
 
 function walletTransactionKey(chain = "", hash = "") {
@@ -6285,14 +6313,15 @@ async function scanEvmUsdtTransfersByRpc(chain, address) {
     .map((log) => {
       const blockNumber = Number(evmHexToBigInt(log.blockNumber || "0x0"));
       const value = evmHexToBigInt(log.data || "0x0");
+      const decimals = walletUsdtDecimals(chain);
       return {
         chain,
         hash: String(log.transactionHash || ""),
         to: evmAddressFromTopic(log.topics?.[2] || ""),
         from: evmAddressFromTopic(log.topics?.[1] || ""),
-        amountUnits: normalizeTokenUnits(value, 6, 6),
-        amountText: tokenAmountFromUnits(value, 6),
-        decimals: 6,
+        amountUnits: normalizeTokenUnits(value, decimals, 6),
+        amountText: tokenAmountFromUnits(value, decimals),
+        decimals,
         confirmations: currentBlock && blockNumber ? Math.max(0, currentBlock - blockNumber + 1) : 0,
         blockNumber,
         timestamp: "",
@@ -6471,15 +6500,7 @@ function walletTransferMatchesOrder(order = {}, tx = {}, usedKeys = new Set()) {
   if (!chain || tx.chain !== chain) return false;
   if (!tx.hash || usedKeys.has(walletTransactionKey(chain, tx.hash))) return false;
   if (!sameWalletAddress(tx.to, order.address, chain)) return false;
-  const expected = orderExpectedUnits(order);
-  if (expected === null || tx.amountUnits === undefined || tx.amountUnits === null) return false;
-  let amount;
-  try {
-    amount = typeof tx.amountUnits === "bigint" ? tx.amountUnits : BigInt(String(tx.amountUnits || "0"));
-  } catch {
-    return false;
-  }
-  if (amount !== expected) return false;
+  if (!walletOrderAmountMatches(order, tx)) return false;
   if (Number(tx.confirmations || 0) < walletScanConfirmations(chain)) return false;
   const createdAt = new Date(order.createdAt || "").getTime();
   const txTime = new Date(tx.timestamp || "").getTime();
