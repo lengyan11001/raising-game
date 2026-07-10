@@ -774,8 +774,8 @@ async function createManualWalletOrderInDb({ order = {}, suffixDigits = 6, maxAt
   if (!dbEnabled()) return order;
   let lastOrder = order;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const suffixNumber = Math.floor(Math.random() * (10 ** suffixDigits - 1)) + 1;
-    const suffix = String(suffixNumber).padStart(suffixDigits, "0");
+    const suffixNumber = Math.floor(Math.random() * 9999) + 1;
+    const suffix = `00${String(suffixNumber).padStart(4, "0")}`;
     const baseAmount = Math.max(1, Math.round(Number(order.baseAmount || 0)));
     const payableAmountText = `${baseAmount}.${suffix}`;
     const next = {
