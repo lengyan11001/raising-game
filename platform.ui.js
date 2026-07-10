@@ -3498,11 +3498,8 @@ function renderWorkflowPickerCards(presets = [], selectedModel = {}) {
       ? `<video src="${escapeHtml(preset.previewUrl)}" ${preset.posterUrl ? `poster="${escapeHtml(preset.posterUrl)}"` : ""} muted loop playsinline autoplay preload="metadata"></video>`
       : `<span class="workflow-picker-empty"><i data-lucide="clapperboard"></i></span>`;
     return `
-      <button class="workflow-picker-card ${active ? "is-active" : ""}" type="button" data-workflow-select-model="${escapeHtml(preset.id)}">
+      <button class="workflow-picker-card ${active ? "is-active" : ""}" type="button" data-workflow-select-model="${escapeHtml(preset.id)}" aria-label="${escapeHtml(preset.label || "Workflow action")}" title="${escapeHtml(preset.label || "Workflow action")}">
         <span class="workflow-picker-media">${media}</span>
-        <span class="workflow-picker-title">${escapeHtml(preset.label)}</span>
-        <span class="workflow-picker-category">${escapeHtml(preset.category || "Preset")}</span>
-        <span class="workflow-picker-prompt">${escapeHtml(preset.prompt || "")}</span>
       </button>
     `;
   }).join("");
