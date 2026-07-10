@@ -13125,10 +13125,11 @@ async function runAdvancedGenerationJob(job = {}) {
         }
       }
       referenceVideoAssetUris = unresolvedReferenceVideoUris;
-      requestParams.reference_videos = unresolvedReferenceVideoUris;
-      requestParams.referenceVideos = [];
-      requestParams.referenceVideoUrls = [];
-      requestParams.videoUrls = [];
+      if (unresolvedReferenceVideoUris.length) requestParams.reference_videos = unresolvedReferenceVideoUris;
+      else delete requestParams.reference_videos;
+      delete requestParams.referenceVideos;
+      delete requestParams.referenceVideoUrls;
+      delete requestParams.videoUrls;
     }
     const audioReferenceUriByAssetId = new Map();
     if (provider === "seedance") {
