@@ -2747,6 +2747,10 @@ function workflowExecutionClearPatch() {
     resultVideoUrl: "",
     posterUrl: "",
     lastFrameUrl: "",
+    keyframeImageUrl: "",
+    keyframeTaskId: "",
+    keyframeRecord: null,
+    keyframeSourceKey: "",
     stripTargetImageUrl: "",
     stripTargetTaskId: "",
     stripTargetRecord: null,
@@ -2911,41 +2915,139 @@ function workflowStripPrompt(node = {}) {
   return "Strip Her Nude First is enabled: begin with the provided clothed first frame, then make the same consenting adult subject visibly remove clothing and transition into a nude state before continuing the selected action. Preserve the same face, body, pose continuity, lighting, and camera direction.";
 }
 
+function workflowKeyframeSourceKey(node = {}, baseImage = "", faceImage = "", { firstNode = false } = {}) {
+  return [
+    workflowImageKey(baseImage),
+    workflowImageKey(faceImage),
+    node.data?.modelId || "",
+    workflowEffectivePrompt(node),
+    node.data?.ratio || "9:16",
+    firstNode ? "first" : "next",
+    workflowNodeOptionEnabled(node, "stripFirst") ? "strip" : "no-strip",
+  ].join("|");
+}
+
+function workflowStripSourceKey(node = {}, keyframeImage = "") {
+  return [
+    workflowImageKey(keyframeImage),
+    node.data?.modelId || "",
+    workflowEffectivePrompt(node),
+    node.data?.ratio || "9:16",
+  ].join("|");
+}
+
+function workflowKeyframePrompt(node = {}, { hasFaceReference = false, firstNode = false } = {}) {
+  const action = workflowEffectivePrompt(node);
+  const stripFirst = firstNode && workflowNodeOptionEnabled(node, "stripFirst");
+  return [
+    "Use Image 1 as the exact same consenting adult subject identity reference.",
+    hasFaceReference ? "Use Image 2 as the face identity reference and preserve facial features closely." : "",
+    stripFirst
+      ? "Create the opening keyframe before clothing removal. Keep the clothing and outfit from Image 1, while setting up the scene, pose, camera angle, and action context."
+      : firstNode
+      ? "Create the opening keyframe for this workflow video segment."
+      : "Create the next keyframe for this workflow video segment, continuing from Image 1 while changing only what the segment requires.",
+    "Render one photorealistic full-frame image that already contains the intended scene, pose, action setup, camera angle, lighting, and composition.",
+    "Keep the same person, face, hairstyle, body type, and visual continuity. Do not invent a different character.",
+    action ? `Segment direction: ${action}` : "",
+    "Do not create a collage, split screen, storyboard, text, subtitles, watermark, UI, or multiple frames.",
+  ].filter(Boolean).join(" ");
+}
+
 function workflowStripImagePrompt(node = {}) {
   const action = workflowEffectivePrompt(node);
   return [
-    "Use Image 1 as the exact same consenting adult subject, face, hairstyle, body type, camera angle, lighting, and background.",
-    "Create one photorealistic target frame after the subject has removed clothing and is nude.",
-    "Keep identity and framing consistent with Image 1; do not redesign the person, scene, pose, face, or body.",
+    "Use Image 1 as the exact same keyframe, consenting adult subject, face, hairstyle, body type, camera angle, lighting, and background.",
+    "Create one photorealistic target frame in the same scene and composition after the subject has removed clothing and is nude.",
+    "Keep identity, framing, pose continuity, scene, camera direction, and lighting consistent with Image 1. Do not redesign the person or scene.",
     action ? `The target frame should be suitable as the end frame for this video action: ${action}` : "",
     "No text, no watermark, no collage, no split screen.",
   ].filter(Boolean).join(" ");
 }
 
-async function workflowEnsureImageEditSource(value = "", nodeId = "") {
-  const dataUrl = dataUrlValue(value);
-  if (dataUrl) {
+async function workflowEnsureImageEditSources(images = [], nodeId = "", label = "Workflow keyframe source") {
+  const imageAssetIds = [];
+  for (let index = 0; index < images.length; index += 1) {
+    const value = String(images[index] || "").trim();
+    if (!value) continue;
+    const dataUrl = dataUrlValue(value);
+    const url = dataUrl ? "" : (absoluteHttpUrl(value) || (value.startsWith("/") ? absoluteHttpUrl(value) : ""));
+    if (!dataUrl && !url) throw new Error("Workflow source image is not accessible.");
     const payload = await requestJson("/api/user-assets", {
       method: "POST",
       body: {
-        dataUrl,
-        name: "Workflow strip source",
-        fileName: `${nodeId || "workflow"}-strip-source.png`,
+          ...(dataUrl ? { dataUrl } : { url }),
+          name: label,
+          fileName: `${nodeId || "workflow"}-${index + 1}.png`,
       },
     });
     const asset = payload.asset || null;
     if (!asset?.id) throw new Error("Failed to prepare workflow source image.");
     state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
     state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
-    return { imageAssetIds: [asset.id] };
+    imageAssetIds.push(asset.id);
   }
-  const imageUrl = absoluteHttpUrl(value) || (String(value || "").startsWith("/") ? absoluteHttpUrl(value) : "");
-  if (imageUrl) return { imageUrls: [imageUrl] };
-  throw new Error("Workflow source image is not accessible.");
+  if (!imageAssetIds.length) throw new Error("Workflow source image is not accessible.");
+  return { imageAssetIds };
 }
 
-async function workflowPrepareStripTargetImage(node = {}, sourceImage = "", model = {}) {
-  const sourceKey = workflowImageKey(sourceImage);
+async function workflowPrepareNodeKeyframe(node = {}, { baseImage = "", faceImage = "", model = {}, firstNode = false } = {}) {
+  const sourceKey = workflowKeyframeSourceKey(node, baseImage, faceImage, { firstNode });
+  if (node.data?.keyframeImageUrl && node.data?.keyframeSourceKey === sourceKey) {
+    return node.data.keyframeImageUrl;
+  }
+  workflowSetNodeData(node.id, {
+    status: "preparing",
+    error: "",
+    keyframeImageUrl: "",
+    keyframeTaskId: "",
+    keyframeRecord: null,
+    keyframeSourceKey: sourceKey,
+    stripTargetImageUrl: "",
+    stripTargetTaskId: "",
+    stripTargetRecord: null,
+    stripTargetSourceKey: "",
+  });
+  state.workflowMessage = `Preparing keyframe for ${model.label || "workflow"}...`;
+  workflowLog(`Preparing keyframe for ${model.label || "workflow"}.`);
+  workflowThrowIfCancelled();
+  const source = await workflowEnsureImageEditSources(
+    [baseImage, faceImage].filter(Boolean),
+    `${node.id}-keyframe`,
+    "Workflow keyframe source",
+  );
+  workflowThrowIfCancelled();
+  const payload = await requestJson("/api/wan27/image-edit", {
+    method: "POST",
+    body: {
+      ...source,
+      prompt: workflowKeyframePrompt(node, { hasFaceReference: Boolean(faceImage), firstNode }),
+      ratio: node.data?.ratio || "9:16",
+      resolution: "2K",
+      params: {
+        createKind: "workflow",
+        workflowNodeId: node.id,
+        workflowModelId: model.id || "",
+        workflowStep: "node_keyframe",
+      },
+    },
+  });
+  if (payload.user) setUser(payload.user);
+  const record = payload.record || null;
+  const imageUrl = payload.imageUrl || record?.imageResultUrl || record?.localImageUrl || record?.cdnImageUrl || "";
+  if (!imageUrl) throw new Error("Keyframe generation returned no image.");
+  workflowSetNodeData(node.id, {
+    keyframeImageUrl: imageUrl,
+    keyframeTaskId: payload.taskId || record?.taskId || "",
+    keyframeRecord: record,
+    keyframeSourceKey: sourceKey,
+  });
+  workflowLog("Keyframe ready.");
+  return imageUrl;
+}
+
+async function workflowPrepareStripTargetImage(node = {}, keyframeImage = "", model = {}) {
+  const sourceKey = workflowStripSourceKey(node, keyframeImage);
   if (node.data?.stripTargetImageUrl && node.data?.stripTargetSourceKey === sourceKey) {
     return node.data.stripTargetImageUrl;
   }
@@ -2960,7 +3062,7 @@ async function workflowPrepareStripTargetImage(node = {}, sourceImage = "", mode
   state.workflowMessage = `Preparing target frame for ${model.label || "workflow"}...`;
   workflowLog(`Preparing target frame for ${model.label || "workflow"}.`);
   workflowThrowIfCancelled();
-  const source = await workflowEnsureImageEditSource(sourceImage, node.id);
+  const source = await workflowEnsureImageEditSources([keyframeImage], `${node.id}-target`, "Workflow target frame source");
   workflowThrowIfCancelled();
   const payload = await requestJson("/api/wan27/image-edit", {
     method: "POST",
@@ -3602,60 +3704,46 @@ async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideo
   workflowSetNodeData(node.id, { status: "preparing", error: "", taskId: "", record: null, resultVideoUrl: "", posterUrl: "", lastFrameUrl: "" });
   workflowThrowIfCancelled();
 
+  const continuityImage = previousFrameUrl || sourceImage;
+  const keyframeImage = await workflowPrepareNodeKeyframe(node, {
+    baseImage: continuityImage,
+    faceImage,
+    model,
+    firstNode,
+  });
+  workflowThrowIfCancelled();
+
   const shouldPrepareStripTarget = firstNode
     && workflowNodeOptionEnabled(node, "stripFirst")
     && !endImage
-    && !previousFrameUrl
     && !previousVideoUrl;
   const stripTargetImage = shouldPrepareStripTarget
-    ? await workflowPrepareStripTargetImage(node, sourceImage, model)
+    ? await workflowPrepareStripTargetImage(node, keyframeImage, model)
     : "";
   const stripPrompt = stripTargetImage
-    ? "Use the provided first and last frames as the required transformation path: start from the clothed first frame, transition naturally toward the nude target end frame, then continue the selected action with the same adult identity."
-    : workflowStripPrompt(node);
+    ? "Use the provided first and last frames as the required transformation path: start from the prepared keyframe, transition naturally toward the nude target end frame, then continue the selected action with the same adult identity."
+    : firstNode ? workflowStripPrompt(node) : "";
   const prompt = [workflowEffectivePrompt(node), stripPrompt, workflowFacePrompt(faceImage)].filter(Boolean).join(". ");
   const continuationPrompt = previousFrameUrl || previousVideoUrl
     ? "Continue naturally from the previous clip's final frame, preserving subject identity, pose continuity, lighting, and camera direction."
     : "";
   const finalPrompt = [prompt, continuationPrompt].filter(Boolean).join(". ");
-  const mediaBody = previousFrameUrl
+  const mediaBody = stripTargetImage
     ? {
-      seedanceMode: "first_frame",
-      ...workflowImageRequestFields(previousFrameUrl, "first"),
+      seedanceMode: "first_last_frame",
+      ...workflowImageRequestFields(keyframeImage, "first"),
+      ...workflowImageRequestFields(stripTargetImage, "end"),
     }
-    : previousVideoUrl
+    : endImage
       ? {
-        seedanceMode: "reference_video",
-        referenceVideoUrls: [previousVideoUrl],
-        inputVideoSeconds: duration,
-        referenceVideoDurationSeconds: duration,
+        seedanceMode: "first_last_frame",
+        ...workflowImageRequestFields(keyframeImage, "first"),
+        ...workflowImageRequestFields(endImage, "end"),
       }
-      : stripTargetImage
-        ? {
-          seedanceMode: "first_last_frame",
-          ...workflowImageRequestFields(sourceImage, "first"),
-          ...workflowImageRequestFields(stripTargetImage, "end"),
-        }
-      : faceImage && endImage
-        ? {
-          seedanceMode: "reference_images",
-          referenceImages: workflowReferenceImageItems([sourceImage, endImage, faceImage]),
-        }
-      : endImage
-        ? {
-          seedanceMode: "first_last_frame",
-          ...workflowImageRequestFields(sourceImage, "first"),
-          ...workflowImageRequestFields(endImage, "end"),
-        }
-        : faceImage
-          ? {
-            seedanceMode: "reference_images",
-            referenceImages: workflowReferenceImageItems([sourceImage, faceImage]),
-          }
-        : {
-          seedanceMode: "first_frame",
-          ...workflowImageRequestFields(sourceImage, "first"),
-        };
+      : {
+        seedanceMode: "first_frame",
+        ...workflowImageRequestFields(keyframeImage, "first"),
+      };
 
   state.workflowMessage = `Running ${model.label}...`;
   workflowSetNodeData(node.id, { status: "submitting", error: "", taskId: "", record: null, resultVideoUrl: "", posterUrl: "", lastFrameUrl: "" });
@@ -3677,6 +3765,8 @@ async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideo
       workflowModelId: model.id,
       workflowModelLabel: model.label,
       workflowInputMode: mediaBody.seedanceMode,
+      workflowKeyframeImageUrl: keyframeImage || "",
+      workflowKeyframeTaskId: node.data?.keyframeTaskId || "",
       workflowStripTargetImageUrl: stripTargetImage || "",
       workflowStripTargetTaskId: node.data?.stripTargetTaskId || "",
       workflowUsesEndFrame: firstNode && Boolean(endImage) && mediaBody.seedanceMode === "first_last_frame",
