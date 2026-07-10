@@ -4838,6 +4838,84 @@ function normalizeVideoRatio(value = "") {
   return "16:9";
 }
 
+function advancedValidationError(code = "INVALID_ADVANCED_REQUEST", message = "Invalid advanced generation request.", details = {}) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.code = code;
+  if (details && Object.keys(details).length) error.details = details;
+  return error;
+}
+
+function sendAdvancedValidationError(res, error, fallback = "Invalid advanced generation request.") {
+  return sendJson(res, error.statusCode || 400, {
+    ok: false,
+    code: error.code || "INVALID_ADVANCED_REQUEST",
+    message: publicModelText(error.message || fallback),
+    ...(error.details ? { details: publicDocsValue(error.details) } : {}),
+  });
+}
+
+function isExplicitAdvancedProvider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (!normalized) return true;
+  if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized)) return true;
+  if (["seedance", "vipeak2", "vp2"].includes(normalized)) return true;
+  return normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1") || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina");
+}
+
+function assertExplicitAdvancedProvider(value = "") {
+  if (value === undefined || value === null || value === "") return;
+  if (!isExplicitAdvancedProvider(value)) {
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan27/vipeak1 or seedance/vipeak2.", { provider: value });
+  }
+}
+
+function assertAdvancedDurationInput(provider = "seedance", value) {
+  if (value === undefined || value === null || value === "") return;
+  const bounds = advancedDurationBounds(provider);
+  const duration = Number(value);
+  if (!Number.isFinite(duration) || !Number.isInteger(duration) || duration < bounds.min || duration > bounds.max) {
+    throw advancedValidationError(
+      "INVALID_DURATION",
+      `${publicProviderLabel(provider)} duration must be an integer from ${bounds.min} to ${bounds.max} seconds.`,
+      { duration: value, min: bounds.min, max: bounds.max },
+    );
+  }
+}
+
+function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceTier = "standard" } = {}) {
+  if (value === undefined || value === null || value === "") return;
+  const raw = String(value || "").trim().toLowerCase();
+  if (normalizeAdvancedProvider(provider) === "wan27") {
+    if (!["720p", "1080p"].includes(raw)) {
+      throw advancedValidationError("INVALID_RESOLUTION", "Vipeak 1 video resolution must be 720p or 1080p.", { resolution: value, allowed: ["720p", "1080p"] });
+    }
+    return;
+  }
+  const normalized = normalizeAdvancedResolution(value);
+  const allowed = normalizeSeedanceTier(seedanceTier) === "fast" ? ["480p", "720p"] : ["480p", "720p", "1080p", "4k"];
+  if (!["480p", "720p", "1080p", "4k", "2160p"].includes(raw) || !allowed.includes(normalized)) {
+    throw advancedValidationError("INVALID_RESOLUTION", `Vipeak 2 ${normalizeSeedanceTier(seedanceTier)} resolution must be one of: ${allowed.join(", ")}.`, { resolution: value, allowed });
+  }
+}
+
+function assertAdvancedRatioInput(value) {
+  if (value === undefined || value === null || value === "") return;
+  const normalized = String(value || "").trim().replace(/[锛歺X]/g, ":");
+  if (!/^\d+\s*:\s*\d+$/.test(normalized)) {
+    throw advancedValidationError("INVALID_RATIO", "ratio must use width:height format, for example 9:16, 16:9, or 1:1.", { ratio: value });
+  }
+  const [width, height] = normalized.split(":").map((part) => Number(part.trim()));
+  const ratio = width / height;
+  if (!Number.isFinite(ratio) || ratio < SEEDANCE_IMAGE_ASPECT_RATIO_MIN || ratio > SEEDANCE_IMAGE_ASPECT_RATIO_MAX) {
+    throw advancedValidationError("INVALID_RATIO", `ratio must be between ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN} and ${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`, {
+      ratio: value,
+      min: SEEDANCE_IMAGE_ASPECT_RATIO_MIN,
+      max: SEEDANCE_IMAGE_ASPECT_RATIO_MAX,
+    });
+  }
+}
+
 function plainObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -4891,6 +4969,25 @@ function nestedMediaUrl(value) {
     }
   }
   return "";
+}
+
+function isProviderAssetUri(value = "") {
+  return String(value || "").trim().startsWith("asset://");
+}
+
+function isAllowedInlineMediaDataUrl(value = "", kind = "") {
+  const text = String(value || "").trim();
+  if (kind === "image") return /^data:image\/(?:png|jpeg|jpg|webp|bmp);base64,/i.test(text);
+  if (kind === "video") return /^data:video\/(?:mp4|webm|quicktime|x-m4v);base64,/i.test(text);
+  if (kind === "audio") return /^data:audio\/(?:mpeg|mp3|wav|x-wav|mp4|aac|ogg|webm);base64,/i.test(text);
+  return /^data:(?:image|video|audio)\//i.test(text);
+}
+
+function assertSeedanceMediaUrl(value = "", label = "Seedance media", { kind = "" } = {}) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (isProviderAssetUri(text) || isPublicHttpUrl(text) || isAllowedInlineMediaDataUrl(text, kind)) return text;
+  throw advancedValidationError("INVALID_MEDIA_URL", `${label} must be a public http(s) URL, asset:// URI, or supported data URL.`, { value: text });
 }
 
 function normalizeSeedanceContentItem(item = {}) {
@@ -6596,9 +6693,9 @@ async function safeSettleWalletOrderPayment(db, order, config, meta = {}) {
 }
 
 function decodeDataUrl(dataUrl) {
-  const match = String(dataUrl || "").match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,([a-z0-9+/=]+)$/i);
+  const match = String(dataUrl || "").match(/^data:(image\/(?:png|jpeg|jpg|webp|bmp));base64,([a-z0-9+/=]+)$/i);
   if (!match) {
-    const error = new Error("Only PNG/JPG/WebP images are supported.");
+    const error = new Error("Only PNG/JPG/WebP/BMP images are supported.");
     error.statusCode = 400;
     throw error;
   }
@@ -6635,6 +6732,8 @@ function imageMimeFromKnownPath(filePath) {
 
 const SEEDANCE_IMAGE_ASPECT_RATIO_MIN = 0.4;
 const SEEDANCE_IMAGE_ASPECT_RATIO_MAX = 2.5;
+const SEEDANCE_IMAGE_DIMENSION_MIN = 300;
+const SEEDANCE_IMAGE_DIMENSION_MAX = 6000;
 
 function readLittleEndian24(buffer, offset) {
   return buffer[offset] + (buffer[offset + 1] << 8) + (buffer[offset + 2] << 16);
@@ -6695,6 +6794,25 @@ function assertSeedanceImageAspectRatio(dimensions, label = "Seedance image") {
     error.code = "SEEDANCE_IMAGE_DIMENSIONS_UNREADABLE";
     throw error;
   }
+  if (
+    dimensions.width < SEEDANCE_IMAGE_DIMENSION_MIN ||
+    dimensions.width > SEEDANCE_IMAGE_DIMENSION_MAX ||
+    dimensions.height < SEEDANCE_IMAGE_DIMENSION_MIN ||
+    dimensions.height > SEEDANCE_IMAGE_DIMENSION_MAX
+  ) {
+    const error = new Error(
+      `${label} width and height must each be between ${SEEDANCE_IMAGE_DIMENSION_MIN}px and ${SEEDANCE_IMAGE_DIMENSION_MAX}px. Current image is ${dimensions.width}x${dimensions.height}.`,
+    );
+    error.statusCode = 400;
+    error.code = "SEEDANCE_IMAGE_DIMENSIONS_INVALID";
+    error.details = {
+      width: dimensions.width,
+      height: dimensions.height,
+      min: SEEDANCE_IMAGE_DIMENSION_MIN,
+      max: SEEDANCE_IMAGE_DIMENSION_MAX,
+    };
+    throw error;
+  }
   const ratio = dimensions.width / dimensions.height;
   if (ratio < SEEDANCE_IMAGE_ASPECT_RATIO_MIN || ratio > SEEDANCE_IMAGE_ASPECT_RATIO_MAX) {
     const error = new Error(
@@ -6716,6 +6834,92 @@ function assertSeedanceImageAspectRatio(dimensions, label = "Seedance image") {
 
 function validateSeedanceImageBytes(bytes, label = "Seedance image") {
   return assertSeedanceImageAspectRatio(imageDimensionsFromBuffer(bytes), label);
+}
+
+function localPathForUserAsset(asset = {}) {
+  const localUrl = String(asset.localUrl || "").trim();
+  if (!localUrl) return "";
+  const localPath = path.resolve(ROOT, localUrl.replace(/^\/+/, ""));
+  const rootPath = path.resolve(ROOT);
+  const relative = path.relative(rootPath, localPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw advancedValidationError("INVALID_ASSET_PATH", "Asset path is invalid.", { assetId: asset.id || "" });
+  }
+  return localPath;
+}
+
+function storedImageDimensionsForAsset(asset = {}) {
+  const width = Number(firstPresent(asset.width, asset.imageWidth, asset.meta?.width, asset.meta?.imageWidth));
+  const height = Number(firstPresent(asset.height, asset.imageHeight, asset.meta?.height, asset.meta?.imageHeight));
+  if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+    return { width, height, type: asset.imageType || asset.meta?.imageType || "" };
+  }
+  return null;
+}
+
+async function validateSeedanceImageAssetForRequest(db, asset = {}, label = "Seedance image") {
+  if (!asset) return null;
+  validateWan27MediaKind(asset, "image", label);
+  const storedDimensions = storedImageDimensionsForAsset(asset);
+  if (storedDimensions) return assertSeedanceImageAspectRatio(storedDimensions, label);
+
+  let bytes = null;
+  const localPath = localPathForUserAsset(asset);
+  if (localPath) {
+    bytes = await fs.readFile(localPath);
+  } else if (isPublicHttpUrl(asset.publicUrl)) {
+    const downloaded = await downloadRemoteFileToBuffer(asset.publicUrl, {
+      label,
+      maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+      timeoutMs: 120000,
+    });
+    bytes = downloaded.bytes;
+  }
+  if (!bytes) {
+    throw advancedValidationError("SEEDANCE_IMAGE_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the image before using it with Vipeak 2.`, { assetId: asset.id || "" });
+  }
+  const dimensions = validateSeedanceImageBytes(bytes, label);
+  asset.width = dimensions.width;
+  asset.height = dimensions.height;
+  asset.imageType = dimensions.type || asset.imageType || "";
+  asset.updatedAt = new Date().toISOString();
+  db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(db);
+  return dimensions;
+}
+
+async function validateSeedanceImageAssetsForRequest(db, assets = []) {
+  const list = assets.filter(Boolean);
+  for (let index = 0; index < list.length; index += 1) {
+    await validateSeedanceImageAssetForRequest(db, list[index], `Seedance image ${index + 1}`);
+  }
+}
+
+async function validateSeedanceRawImageUrlsForRequest(urls = []) {
+  const uniqueUrls = [...new Set(urls.map((url) => String(url || "").trim()).filter(Boolean))];
+  for (let index = 0; index < uniqueUrls.length; index += 1) {
+    const url = uniqueUrls[index];
+    if (isProviderAssetUri(url)) continue;
+    if (isAllowedInlineMediaDataUrl(url, "image")) {
+      const { bytes } = decodeWanMediaDataUrl(url);
+      validateSeedanceImageBytes(bytes, `Seedance raw image ${index + 1}`);
+      continue;
+    }
+    if (!isPublicHttpUrl(url)) {
+      throw advancedValidationError("INVALID_IMAGE_URL", "Seedance image URL must be public http(s), asset://, or a supported image data URL.", { url });
+    }
+    const downloaded = await downloadRemoteFileToBuffer(url, {
+      label: `Seedance raw image ${index + 1}`,
+      maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+      timeoutMs: 120000,
+    });
+    const mime = String(downloaded.mime || imageMimeFromKnownPath(new URL(url).pathname) || "").replace("image/jpg", "image/jpeg");
+    if (mime && !["image/jpeg", "image/png", "image/webp", "image/bmp"].includes(mime)) {
+      throw advancedValidationError("INVALID_IMAGE_FORMAT", "Seedance image URL must point to a JPG, PNG, WebP, or BMP file.", { url, mime });
+    }
+    validateSeedanceImageBytes(downloaded.bytes, `Seedance raw image ${index + 1}`);
+  }
 }
 
 function videoExtFromMime(mime = "", fallbackPath = "") {
@@ -6809,6 +7013,7 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, storedFileName), bytes);
 
+  const imageDimensions = mime.startsWith("image/") ? imageDimensionsFromBuffer(bytes) : null;
   const displayName = String(fileName || name || "Upload")
     .split(/[\\/]/)
     .pop()
@@ -6821,6 +7026,9 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     localUrl: `/assets/user-uploads/${user.id}/${storedFileName}`,
     publicUrl: publicUrlForAssetPath(`/assets/user-uploads/${user.id}/${storedFileName}`),
     assetUri: "",
+    width: imageDimensions?.width || 0,
+    height: imageDimensions?.height || 0,
+    imageType: imageDimensions?.type || "",
     durationSeconds: mime.startsWith("video/") || mime.startsWith("audio/")
       ? durationSecondsFromValue(durationSeconds)
       : 0,
@@ -7711,6 +7919,14 @@ function validateOfficialSeedancePayloadBeforeCharge(payload = {}) {
   if (imageCount > ADVANCED_SEEDANCE_REFERENCE_LIMIT) errors.push(`Seedance supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs.`);
   if (videoCount > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) errors.push(`Seedance supports at most ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} video inputs.`);
   if (audioCount > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) errors.push(`Seedance supports at most ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audio inputs.`);
+  const hasFrameImage = content.some((item) => item && item.type === "image_url" && ["first_frame", "last_frame"].includes(String(item.role || "")));
+  const hasReferenceMedia = content.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    if (item.type === "video_url" || item.type === "audio_url") return true;
+    return item.type === "image_url" && !["first_frame", "last_frame"].includes(String(item.role || ""));
+  });
+  if (hasFrameImage && hasReferenceMedia) errors.push("first_frame/last_frame content cannot be mixed with reference image/video/audio content.");
+  if (audioCount > 0 && imageCount + videoCount < 1) errors.push("audio content must be combined with image or video content.");
   const missingMedia = content.find((item) => {
     if (!item || typeof item !== "object") return false;
     if (item.type === "image_url") return !mediaUrlFromOfficialItem(item, "image_url");
@@ -8832,8 +9048,7 @@ function normalizeSeedanceMode(value = "", body = {}) {
     merged.firstFrameAssetId,
   )) return "first_frame";
   if (
-    seedanceReferenceVideoAssetIdsFromBody(merged).length ||
-    seedanceReferenceVideoUrlInputsFromBody(merged).length ||
+    seedanceReferenceVideoInputCountFromBody(merged) > 0 ||
     Array.isArray(merged.reference_videos)
   ) return "reference_video";
   if (
@@ -9075,10 +9290,10 @@ function seedanceReferenceVideoUrlInputsFromBody(body = {}) {
     error.statusCode = 400;
     throw error;
   }
-  return inputs.map((item) => {
+  return inputs.map((item, index) => {
     if (typeof item === "string") return item.trim();
     return String(item.url || item.videoUrl || item.video_url || item.assetUri || "").trim();
-  }).filter(Boolean);
+  }).filter(Boolean).map((url, index) => assertSeedanceMediaUrl(url, `Seedance reference video ${index + 1}`, { kind: "video" }));
 }
 
 function durationSecondsFromValue(value, fallback = 0) {
@@ -9254,7 +9469,154 @@ function seedanceReferenceAudioInputsFromBody(body = {}) {
   return inputs.map((item) => {
     if (typeof item === "string") return item.trim();
     return String(item.url || item.audioUrl || item.audio_url || item.assetUri || "").trim();
-  }).filter(Boolean);
+  }).filter(Boolean).map((url, index) => assertSeedanceMediaUrl(url, `Seedance reference audio ${index + 1}`, { kind: "audio" }));
+}
+
+function seedanceRawArrayUrls(value, kind = "image", label = "Seedance media") {
+  return arrayFromBody(value)
+    .map((item) => nestedMediaUrl(item))
+    .filter(Boolean)
+    .map((url, index) => assertSeedanceMediaUrl(url, `${label} ${index + 1}`, { kind }));
+}
+
+function seedanceContentMediaSummary(content = []) {
+  const summary = {
+    firstImages: [],
+    lastImages: [],
+    referenceImages: [],
+    videos: [],
+    audios: [],
+  };
+  for (const item of (Array.isArray(content) ? content : [])) {
+    const normalized = normalizeSeedanceContentItem(item);
+    if (!normalized || typeof normalized !== "object" || Array.isArray(normalized)) continue;
+    const type = String(normalized.type || "").trim();
+    if (!type || type === "text") continue;
+    if (!["image_url", "video_url", "audio_url"].includes(type)) {
+      throw advancedValidationError("INVALID_CONTENT_TYPE", `Unsupported Seedance content type: ${type}.`, { type });
+    }
+    const kind = type === "image_url" ? "image" : type === "video_url" ? "video" : "audio";
+    const url = assertSeedanceMediaUrl(nestedMediaUrl(normalized[type]), `Seedance content ${type}`, { kind });
+    if (!url) {
+      throw advancedValidationError("MISSING_MEDIA_URL", `${type} content requires a url.`, { type });
+    }
+    const role = String(normalized.role || "").trim().toLowerCase();
+    if (type === "image_url" && role === "first_frame") summary.firstImages.push(url);
+    else if (type === "image_url" && role === "last_frame") summary.lastImages.push(url);
+    else if (type === "image_url") summary.referenceImages.push(url);
+    else if (type === "video_url") summary.videos.push(url);
+    else if (type === "audio_url") summary.audios.push(url);
+  }
+  return summary;
+}
+
+async function validateSeedanceAdvancedMediaRules({
+  requestParams = {},
+  seedanceMode = "",
+  seedanceFirstFrameAsset = null,
+  seedanceEndFrameAsset = null,
+  userAsset = null,
+  extraUserAssets = [],
+  referenceImageAssetUris = [],
+  referenceVideoAssetIds = [],
+  referenceVideoAssetUris = [],
+  referenceAudioAssetIds = [],
+  referenceAudioAssetUris = [],
+} = {}) {
+  const mode = normalizeSeedanceMode(seedanceMode);
+  const contentSummary = seedanceContentMediaSummary(requestParams.content);
+  const rawFirstFrameUrls = [
+    firstPresent(requestParams.image_url, requestParams.firstFrameUrl, requestParams.imageUrl),
+    ...contentSummary.firstImages,
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  const rawLastFrameUrls = [
+    firstPresent(requestParams.end_image_url, requestParams.lastFrameUrl, requestParams.endImageUrl),
+    ...contentSummary.lastImages,
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  rawFirstFrameUrls.forEach((url, index) => assertSeedanceMediaUrl(url, `Seedance first frame ${index + 1}`, { kind: "image" }));
+  rawLastFrameUrls.forEach((url, index) => assertSeedanceMediaUrl(url, `Seedance last frame ${index + 1}`, { kind: "image" }));
+
+  const rawReferenceImageUrls = [
+    ...seedanceRawArrayUrls(requestParams.reference_images, "image", "Seedance reference image"),
+    ...contentSummary.referenceImages,
+  ];
+  const rawReferenceVideoUrls = [
+    ...seedanceRawArrayUrls(requestParams.reference_videos, "video", "Seedance reference video"),
+    ...contentSummary.videos,
+  ];
+  const rawReferenceAudioUrls = [
+    ...seedanceRawArrayUrls(requestParams.reference_audios, "audio", "Seedance reference audio"),
+    ...contentSummary.audios,
+  ];
+  await validateSeedanceRawImageUrlsForRequest([
+    ...rawFirstFrameUrls,
+    ...rawLastFrameUrls,
+    ...rawReferenceImageUrls,
+  ]);
+
+  const firstFrameCount = seedanceFirstFrameAsset || rawFirstFrameUrls.length ? 1 : 0;
+  const lastFrameCount = seedanceEndFrameAsset || rawLastFrameUrls.length ? 1 : 0;
+  const referenceImageRefs = new Set([
+    ...(userAsset ? [`asset:${userAsset.id}`] : []),
+    ...extraUserAssets.map((asset) => `asset:${asset.id}`),
+    ...arrayFromBody(referenceImageAssetUris).map((uri) => String(uri || "").trim()).filter(Boolean),
+    ...rawReferenceImageUrls,
+  ]);
+  const referenceVideoRefs = new Set([
+    ...arrayFromBody(referenceVideoAssetIds).map((id) => `asset:${id}`),
+    ...arrayFromBody(referenceVideoAssetUris).map((uri) => String(uri || "").trim()).filter(Boolean),
+    ...rawReferenceVideoUrls,
+  ]);
+  const referenceAudioRefs = new Set([
+    ...arrayFromBody(referenceAudioAssetIds).map((id) => `asset:${id}`),
+    ...arrayFromBody(referenceAudioAssetUris).map((uri) => String(uri || "").trim()).filter(Boolean),
+    ...rawReferenceAudioUrls,
+  ]);
+  const referenceImageCount = [...referenceImageRefs].filter(Boolean).length;
+  const referenceVideoCount = [...referenceVideoRefs].filter(Boolean).length;
+  const referenceAudioCount = [...referenceAudioRefs].filter(Boolean).length;
+  const totalImageInputs = firstFrameCount + lastFrameCount + referenceImageCount;
+
+  if (totalImageInputs > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+    throw advancedValidationError("TOO_MANY_SEEDANCE_IMAGES", `Vipeak 2 supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs total.`, {
+      totalImageInputs,
+      max: ADVANCED_SEEDANCE_REFERENCE_LIMIT,
+    });
+  }
+  if (referenceVideoCount > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
+    throw advancedValidationError("TOO_MANY_SEEDANCE_VIDEOS", `Vipeak 2 supports at most ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} reference videos.`, {
+      referenceVideoCount,
+      max: ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT,
+    });
+  }
+  if (referenceAudioCount > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
+    throw advancedValidationError("TOO_MANY_SEEDANCE_AUDIOS", `Vipeak 2 supports at most ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} reference audios.`, {
+      referenceAudioCount,
+      max: ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT,
+    });
+  }
+  if (seedanceModeNeedsFirstFrame(mode) && !firstFrameCount) {
+    throw advancedValidationError("MISSING_FIRST_FRAME", "Vipeak 2 first-frame mode requires imageUrl, firstFrameUrl, imageAssetId, firstFrameAssetId, or dataUrl.");
+  }
+  if (seedanceModeNeedsEndFrame(mode) && !lastFrameCount) {
+    throw advancedValidationError("MISSING_LAST_FRAME", "Vipeak 2 first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl.");
+  }
+  const hasReferenceMedia = referenceImageCount > 0 || referenceVideoCount > 0 || referenceAudioCount > 0;
+  if (seedanceModeNeedsFirstFrame(mode) && hasReferenceMedia) {
+    throw advancedValidationError("MIXED_FRAME_AND_REFERENCE_MEDIA", "Vipeak 2 first-frame/first-last-frame modes cannot be mixed with referenceImages, referenceVideos, or referenceAudios. Use reference_images/reference_video mode instead.");
+  }
+  if (mode === "text_to_video" && hasReferenceMedia) {
+    throw advancedValidationError("TEXT_MODE_WITH_REFERENCE_MEDIA", "Vipeak 2 text_to_video cannot include reference media. Use seedanceMode reference_images or reference_video.");
+  }
+  if (mode === "reference_images" && referenceImageCount < 1) {
+    throw advancedValidationError("MISSING_REFERENCE_IMAGE", "Vipeak 2 reference_images mode requires at least one reference image.");
+  }
+  if (mode === "reference_video" && referenceVideoCount < 1) {
+    throw advancedValidationError("MISSING_REFERENCE_VIDEO", "Vipeak 2 reference_video mode requires at least one reference video.");
+  }
+  if (referenceAudioCount > 0 && firstFrameCount + lastFrameCount + referenceImageCount + referenceVideoCount < 1) {
+    throw advancedValidationError("AUDIO_REQUIRES_VISUAL_MEDIA", "Vipeak 2 audio references must be combined with an image or video reference.");
+  }
 }
 
 async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "Reference" } = {}) {
@@ -9564,9 +9926,17 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   const cacheField = seedanceAssetCacheField(userAsset);
   if (userAsset[cacheField] && (!localPublicAssetStorageEnabled() || !userAsset.localUrl || isLocalPublicAssetUrl(userAsset.publicUrl))) return userAsset;
 
-  const localPath = path.join(ROOT, userAsset.localUrl.replace(/^\//, ""));
+  const localPath = localPathForUserAsset(userAsset);
+  if (!localPath) {
+    throw advancedValidationError("ASSET_FILE_MISSING", "Asset local file is missing. Re-upload the asset before using it with Vipeak 2.", { assetId: userAsset.id || "" });
+  }
   const bytes = await fs.readFile(localPath);
-  if (assetType === "Image") validateSeedanceImageBytes(bytes, "Seedance image asset");
+  if (assetType === "Image") {
+    const dimensions = validateSeedanceImageBytes(bytes, "Seedance image asset");
+    userAsset.width = dimensions.width;
+    userAsset.height = dimensions.height;
+    userAsset.imageType = dimensions.type || userAsset.imageType || "";
+  }
   const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
   let uploaded = { publicUrl: localPublicUrl, key: "" };
   if (!uploaded.publicUrl) {
@@ -13108,6 +13478,11 @@ async function handleAdvancedGenerate(req, res) {
     providerHint,
     seedanceModelAliasKind(requestedModel) ? "seedance" : "",
   ));
+  try {
+    assertExplicitAdvancedProvider(providerHint);
+  } catch (error) {
+    return sendAdvancedValidationError(res, error);
+  }
   if (USE_GATEWAY_UPSTREAM && !UPSTREAM_API_TOKEN) {
     return sendJson(res, 503, { ok: false, code: "GATEWAY_TOKEN_NOT_CONFIGURED", message: "Gateway upstream token is not configured." });
   }
@@ -13125,6 +13500,16 @@ async function handleAdvancedGenerate(req, res) {
     ...plainObject(bodyParams.parameters),
     ...plainObject(body.parameters),
   };
+  const rawDurationInput = firstPresent(body.duration, body.durationSeconds, bodyParams.duration, bodyParams.durationSeconds, mergedProviderParameters.duration, caseParams.duration);
+  const rawResolutionInput = firstPresent(body.resolution, bodyParams.resolution, mergedProviderParameters.resolution, caseParams.resolution);
+  const rawRatioInput = firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio);
+  try {
+    assertAdvancedDurationInput(provider, rawDurationInput);
+    assertAdvancedResolutionInput(provider, rawResolutionInput, { seedanceTier: requestedSeedanceTier });
+    assertAdvancedRatioInput(rawRatioInput);
+  } catch (error) {
+    return sendAdvancedValidationError(res, error);
+  }
 
   const requestParams = {
     ...caseParams,
@@ -13134,7 +13519,7 @@ async function handleAdvancedGenerate(req, res) {
     ratio: firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, config.video.ratio, "9:16"),
     resolution: firstPresent(body.resolution, bodyParams.resolution, mergedProviderParameters.resolution, caseParams.resolution, config.video.resolution, "720p"),
     duration: clampNumber(
-      firstPresent(body.duration, body.durationSeconds, bodyParams.duration, bodyParams.durationSeconds, mergedProviderParameters.duration, caseParams.duration),
+      rawDurationInput,
       config.video.duration || durationBounds.fallback,
       durationBounds.min,
       durationBounds.max,
@@ -13312,6 +13697,29 @@ async function handleAdvancedGenerate(req, res) {
     }
     extraUserAssets = extraUserAssets.slice(0, Math.max(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT - 1));
     extraUserAssetIds = extraUserAssets.map((asset) => asset.id);
+    try {
+      await validateSeedanceImageAssetsForRequest(auth.db, [
+        seedanceFirstFrameAsset,
+        seedanceEndFrameAsset,
+        userAsset,
+        ...extraUserAssets,
+      ]);
+      await validateSeedanceAdvancedMediaRules({
+        requestParams,
+        seedanceMode,
+        seedanceFirstFrameAsset,
+        seedanceEndFrameAsset,
+        userAsset,
+        extraUserAssets,
+        referenceImageAssetUris,
+        referenceVideoAssetIds,
+        referenceVideoAssetUris,
+        referenceAudioAssetIds,
+        referenceAudioAssetUris,
+      });
+    } catch (error) {
+      return sendAdvancedValidationError(res, error, "Vipeak 2 media input is invalid.");
+    }
   } else {
     const firstFrameDataUrl = firstPresent(body.firstFrameDataUrl, body.first_frame_data_url, body.dataUrl, bodyParams.firstFrameDataUrl, bodyParams.first_frame_data_url, bodyParams.dataUrl);
     if (firstFrameDataUrl) {
@@ -14021,7 +14429,6 @@ function docsAdvancedExampleBody(item = {}) {
     caseId: item.id || "case-id",
     provider,
     prompt: item.prompt || params.prompt || "your prompt",
-    dataUrl: "data:image/png;base64,...",
     ratio: params.ratio || params.aspect_ratio || "9:16",
     resolution: params.resolution || "720p",
     duration: durationSecondsFromParams(params) || 5,
@@ -14045,7 +14452,12 @@ function docsAdvancedExampleBody(item = {}) {
         seed: params.seed || 123456,
       },
   };
+  if (provider === "wan27") body.dataUrl = "data:image/png;base64,...";
   if (provider === "seedance") {
+    body.model = normalizeSeedanceTier(params.seedanceTier) === "fast"
+      ? "dreamina-seedance-2-0-fast-260128"
+      : "dreamina-seedance-2-0-260128";
+    body.seedanceMode = normalizeSeedanceMode(params.seedanceMode || params.mediaMode || item.mediaMode || "reference_images");
     body.referenceImages = [
       { url: "https://example.com/image1.png", fileName: "image1.png" },
       { url: "https://example.com/image2.png", fileName: "image2.png" },
@@ -14056,6 +14468,78 @@ function docsAdvancedExampleBody(item = {}) {
     }
   }
   return body;
+}
+
+function advancedGenerateConstraintsDoc() {
+  return {
+    common: {
+      route: "/api/advanced/generate",
+      auth: "Authorization: Bearer <user-token>",
+      prompt: "Required non-empty string.",
+      ratio: {
+        format: "width:height",
+        minAspectRatio: SEEDANCE_IMAGE_ASPECT_RATIO_MIN,
+        maxAspectRatio: SEEDANCE_IMAGE_ASPECT_RATIO_MAX,
+        examples: ["9:16", "16:9", "1:1"],
+      },
+      errorShape: { ok: false, code: "INVALID_DURATION", message: "Human readable error.", details: {} },
+    },
+    seedance: {
+      provider: "seedance",
+      model: {
+        standard: "dreamina-seedance-2-0-260128",
+        fast: "dreamina-seedance-2-0-fast-260128",
+      },
+      seedanceMode: ["text_to_video", "first_frame", "first_last_frame", "reference_images", "reference_video"],
+      durationSeconds: { integer: true, min: advancedDurationBounds("seedance").min, max: advancedDurationBounds("seedance").max },
+      resolution: {
+        standard: ["480p", "720p", "1080p", "4k"],
+        fast: ["480p", "720p"],
+      },
+      imageInput: {
+        formats: ["JPG", "PNG", "WebP", "BMP"],
+        maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+        widthPx: { min: SEEDANCE_IMAGE_DIMENSION_MIN, max: SEEDANCE_IMAGE_DIMENSION_MAX },
+        heightPx: { min: SEEDANCE_IMAGE_DIMENSION_MIN, max: SEEDANCE_IMAGE_DIMENSION_MAX },
+        aspectRatio: { min: SEEDANCE_IMAGE_ASPECT_RATIO_MIN, max: SEEDANCE_IMAGE_ASPECT_RATIO_MAX },
+        maxTotalImages: ADVANCED_SEEDANCE_REFERENCE_LIMIT,
+      },
+      referenceLimits: {
+        images: ADVANCED_SEEDANCE_REFERENCE_LIMIT,
+        videos: ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT,
+        audios: ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT,
+      },
+      modeRules: {
+        text_to_video: "Prompt only. Do not send referenceImages/referenceVideos/referenceAudios.",
+        first_frame: "Requires exactly a first-frame image input. Do not mix with reference media.",
+        first_last_frame: "Requires first-frame and last-frame image inputs. Do not mix with reference media.",
+        reference_images: "Requires at least one reference image.",
+        reference_video: "Requires at least one reference video. Images/audio can be combined as references when needed.",
+      },
+      mediaUrl: "Use public http(s) URLs, data URLs accepted by this API, asset ids from /api/user-assets, or provider asset:// URIs where explicitly documented.",
+    },
+    wan27Video: {
+      provider: "wan27",
+      durationSeconds: { integer: true, min: advancedDurationBounds("wan27").min, max: advancedDurationBounds("wan27").max },
+      resolution: ["720p", "1080p"],
+      mediaMode: ["first_frame", "first_last_frame", "first_frame_audio", "first_last_frame_audio", "first_clip", "first_clip_last_frame"],
+      mediaCombinations: [
+        "first_frame",
+        "first_frame + last_frame",
+        "first_frame + driving_audio",
+        "first_frame + last_frame + driving_audio",
+        "first_clip",
+        "first_clip + last_frame",
+      ],
+    },
+    wan27Image: {
+      route: "/api/wan27/image-edit",
+      imageAssetIds: { min: 0, max: 9 },
+      textToImageResolution: ["1K", "2K", "4K"],
+      referenceImageResolution: ["1K", "2K"],
+      note: "4K is only available for text-to-image without reference images.",
+    },
+  };
 }
 
 function externalAdvancedApiDoc(origin) {
@@ -14070,6 +14554,7 @@ function externalAdvancedApiDoc(origin) {
     routeChoice: {
       advancedGenerate: `Required for Create/Advanced-style external integrations, including Wan2.7 and Seedance through the site's pricing and record flow. Seedance standard uses ${SEEDANCE_QUALITY_ENDPOINT_ID}; fast uses ${SEEDANCE_FAST_ENDPOINT_ID}.`,
     },
+    constraints: advancedGenerateConstraintsDoc(),
     endpoints: {
       advancedGenerate,
       advancedEstimate,
@@ -14335,13 +14820,14 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "provider", type: "string", required: false, description: "`wan27` or `seedance`. Defaults to the saved case provider. Known Seedance model aliases also imply `seedance`, but explicit provider is recommended." },
       { name: "model", type: "string", required: provider === "seedance", description: provider === "seedance" ? `Use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. These map to ${SEEDANCE_QUALITY_ENDPOINT_ID} and ${SEEDANCE_FAST_ENDPOINT_ID}.` : "Wan2.7 model id. Defaults to wan2.7-i2v-2026-04-25." },
       { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
-      { name: "seedanceMode", type: "string", required: false, description: "Seedance only. text_to_video, first_frame, first_last_frame, reference_images, or reference_video." },
+      { name: "seedanceMode", type: "string", required: false, description: "Seedance only. text_to_video, first_frame, first_last_frame, reference_images, or reference_video. first_frame/first_last_frame cannot be mixed with referenceImages/referenceVideos/referenceAudios." },
       { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded base64 image. Required for Wan2.7 first-frame generation; accepted as Seedance first frame when seedanceMode is first_frame/first_last_frame." },
       { name: "imageUrl / firstFrameUrl", type: "string", required: false, description: "Seedance first-frame public URL. The server downloads it, uploads it to Ark assets, and sends upstream image_url." },
       { name: "imageAssetId / firstFrameAssetId", type: "string", required: false, description: "Seedance first-frame asset id returned by /api/user-assets." },
       { name: "endImageUrl / lastFrameUrl", type: "string", required: false, description: "Seedance last-frame public URL for first_last_frame. The server prepares it as upstream end_image_url." },
       { name: "endImageAssetId / lastFrameAssetId", type: "string", required: false, description: "Seedance last-frame asset id for first_last_frame." },
       { name: "referenceImages", type: "array", required: false, description: "Seedance reference_images mode. One or more images in the same field. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId." },
+      { name: "Seedance image rules", type: "constraint", required: false, description: `Every Seedance image input must be JPG/PNG/WebP/BMP, each side ${SEEDANCE_IMAGE_DIMENSION_MIN}-${SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}, and at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs total.` },
       { name: "referenceImages[].assetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI. Prefer assetId from /api/user-assets when possible.", default: "-" },
       { name: "seedanceReferenceAssetUri / seedanceCharacterAssetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI for callers that already have a provider asset URI.", default: "-" },
       { name: "referenceImageAssetUris / seedanceReferenceAssetUris", type: "array", required: false, description: "Advanced passthrough asset:// URI array for callers that already have provider asset URIs.", default: "[]" },
@@ -14356,8 +14842,8 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "extraReferenceDataUrls", type: "array", required: false, description: "Seedance compatibility field. Prefer referenceImages for new integrations; referenceImages now supports URL items." },
       { name: "extraReferenceAssetIds", type: "array", required: false, description: "Seedance only. Optional existing uploaded asset ids for additional references." },
       { name: "ratio", type: "string", required: false, description: "Video ratio, for example 9:16, 16:9, or 1:1." },
-      { name: "resolution", type: "string", required: false, description: "Seedance: 480p, 720p, 1080p, or 4k. Wan2.7 video: 720p or 1080p." },
-      { name: "duration", type: "number", required: false, description: "Duration in seconds. Seedance is clamped to 5-15; Wan2.7 is clamped to 2-15." },
+      { name: "resolution", type: "string", required: false, description: "Seedance standard: 480p, 720p, 1080p, or 4k. Seedance fast: 480p or 720p. Wan2.7 video: 720p or 1080p. Invalid values are rejected before charging." },
+      { name: "duration", type: "number", required: false, description: `Duration in seconds. Seedance must be an integer ${advancedDurationBounds("seedance").min}-${advancedDurationBounds("seedance").max}; Wan2.7 video must be an integer ${advancedDurationBounds("wan27").min}-${advancedDurationBounds("wan27").max}. Invalid values are rejected before charging.` },
       { name: "seed", type: "number", required: false, description: "Provider pass-through random seed. The API forwards it when supplied; upstream decides whether it takes effect." },
       { name: "params", type: "object", required: false, description: "Provider pass-through object. Seedance forwards model/content/reference_* fields; Wan2.7 forwards model plus input/parameters." },
       { name: "params.model", type: "string", required: false, description: "Compatibility alias for model. Prefer the top-level model field for new integrations." },
@@ -14479,10 +14965,44 @@ function advancedDocMarkdown(item) {
   lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 image assets. The order maps to Image 1, Image 2, and so on in the prompt; with no images it works as text-to-image through the same endpoint. Text-to-image supports `1K`, `2K`, and `4K`; requests with reference images support `1K` or `2K`. Results are saved to generation history first. Use the history Add asset action when the result should enter the asset library.");
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `seedanceMode` plus first-frame, last-frame, reference image/video/audio fields on `/api/advanced/generate`.");
   lines.push("", `Provider passthrough: Seedance accepts friendly fields on the Advanced body and also accepts provider-specific aliases in \`params\`. Fields such as \`model\`, \`image_url\`, \`end_image_url\`, \`generate_audio\`/\`generateAudio\`, \`reference_images\`/\`referenceImages\`, \`reference_videos\`/\`referenceVideos\`, \`reference_audios\`/\`referenceAudios\`, \`web_search\`/\`webSearch\`, \`watermark\`, \`seed\`, \`fps\`, \`camera_fixed\`, \`draft\`, and \`service_tier\` are forwarded or normalized into the upstream request. For Seedance, send \`model: "dreamina-seedance-2-0-260128"\` for standard or \`model: "dreamina-seedance-2-0-fast-260128"\` for fast. Standard maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`. Wan2.7 forwards \`params.input\` into DashScope \`input\` and \`params.parameters\` into DashScope \`parameters\`. Upstream decides whether each provider-specific field takes effect.`);
-  lines.push("", "Billing: Advanced calls are pre-deducted before upstream submission. Failed submissions and failed tasks are refunded. Seedance duration must be a 4-15 second integer; fast 1080p is rejected before charging.");
+  lines.push("", `Billing: Advanced calls are pre-deducted before upstream submission. Failed submissions and failed tasks are refunded. Seedance duration must be an integer ${advancedDurationBounds("seedance").min}-${advancedDurationBounds("seedance").max}; fast 1080p/4k is rejected before charging.`);
   lines.push("", "Task query: calls made through `/api/advanced/generate` should poll `/api/generation-records/<taskId>`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
+}
+
+function advancedConstraintsMarkdown(doc = {}) {
+  const constraints = doc.constraints || advancedGenerateConstraintsDoc();
+  const seedance = constraints.seedance || {};
+  const wan27Video = constraints.wan27Video || {};
+  const wan27Image = constraints.wan27Image || {};
+  return [
+    "**Preflight Parameter Rules**",
+    "",
+    "The service validates these rules before charging credits or submitting upstream. Validation errors return HTTP 400 with `ok: false`, `code`, `message`, and optional `details`.",
+    "",
+    "Seedance / Vipeak 2:",
+    "",
+    `- \`provider\`: \`seedance\`; \`model\`: \`${seedance.model?.standard || "dreamina-seedance-2-0-260128"}\` for standard, \`${seedance.model?.fast || "dreamina-seedance-2-0-fast-260128"}\` for fast.`,
+    `- \`seedanceMode\`: ${(seedance.seedanceMode || []).map((item) => `\`${item}\``).join(", ")}.`,
+    `- \`duration\`: integer ${seedance.durationSeconds?.min ?? advancedDurationBounds("seedance").min}-${seedance.durationSeconds?.max ?? advancedDurationBounds("seedance").max} seconds.`,
+    `- \`resolution\`: standard ${(seedance.resolution?.standard || []).map((item) => `\`${item}\``).join(", ")}; fast ${(seedance.resolution?.fast || []).map((item) => `\`${item}\``).join(", ")}.`,
+    `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((seedance.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, width and height each ${seedance.imageInput?.widthPx?.min ?? SEEDANCE_IMAGE_DIMENSION_MIN}-${seedance.imageInput?.widthPx?.max ?? SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${seedance.imageInput?.aspectRatio?.min ?? SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${seedance.imageInput?.aspectRatio?.max ?? SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`,
+    `- Max references: ${seedance.referenceLimits?.images ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT} images total, ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos, ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios.`,
+    "- `first_frame` and `first_last_frame` cannot be mixed with `referenceImages`, `referenceVideos`, `referenceAudios`, or raw reference `content`.",
+    "- Audio references must be combined with image or video references; audio-only generation is rejected.",
+    "",
+    "Wan2.7 / Vipeak 1 video:",
+    "",
+    `- \`provider\`: \`wan27\`; \`duration\`: integer ${wan27Video.durationSeconds?.min ?? advancedDurationBounds("wan27").min}-${wan27Video.durationSeconds?.max ?? advancedDurationBounds("wan27").max} seconds; \`resolution\`: ${(wan27Video.resolution || []).map((item) => `\`${item}\``).join(", ")}.`,
+    `- \`mediaMode\`: ${(wan27Video.mediaMode || []).map((item) => `\`${item}\``).join(", ")}.`,
+    "- Valid media combinations are first frame, first+last frame, first frame+audio, first+last frame+audio, first clip, or first clip+last frame.",
+    "",
+    "Wan2.7 / Vipeak 1 image:",
+    "",
+    `- Use \`${wan27Image.route || "/api/wan27/image-edit"}\`; \`imageAssetIds\` accepts 0-9 images. Text-to-image supports \`1K\`, \`2K\`, \`4K\`; reference-image generation supports \`1K\` or \`2K\` only.`,
+    "",
+  ].join("\n");
 }
 
 function externalAdvancedApiMarkdown(doc = {}) {
@@ -14529,6 +15049,8 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     "Optional: upload reusable image, video, or audio files first with `/api/user-assets`, then pass returned asset ids such as `imageAssetId`, `firstFrameAssetId`, `referenceVideoAssetIds`, or `referenceAudioAssetIds` to `/api/advanced/generate`.",
     "",
+    advancedConstraintsMarkdown(doc),
+    "",
   ].join("\n");
 }
 
@@ -14564,7 +15086,7 @@ function seedanceAdvancedExampleMarkdown(docs) {
     "Parameter ranges:",
     "",
     "- `resolution`: `480p`, `720p`, `1080p`, `4k`",
-    "- `duration`: integer `4` to `15`",
+    `- \`duration\`: integer \`${advancedDurationBounds("seedance").min}\` to \`${advancedDurationBounds("seedance").max}\``,
     "- `ratio`: UI-safe values `9:16`, `16:9`, `1:1`",
     "- Fast tier does not support `1080p` or `4k`",
     "",
@@ -14583,9 +15105,9 @@ function seedanceAdvancedExampleMarkdown(docs) {
       "Authorization: Bearer <user-token>",
     ].join("\n")),
     "",
-    "Supported media inputs: `imageUrl`/`firstFrameUrl`, `endImageUrl`/`lastFrameUrl`, `referenceImages`, `referenceVideoUrls`/`referenceVideoAssetIds`, and `referenceAudioUrls`/`referenceAudioAssetIds`. Use `seedanceMode` values such as `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, and `reference_video`. Include `referenceVideoDurationSeconds` when known; otherwise the server probes the URL and falls back conservatively for pre-deduction.",
+    "Supported media inputs: `imageUrl`/`firstFrameUrl`, `endImageUrl`/`lastFrameUrl`, `referenceImages`, `referenceVideoUrls`/`referenceVideoAssetIds`, and `referenceAudioUrls`/`referenceAudioAssetIds`. Use `seedanceMode` values such as `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, and `reference_video`. `first_frame` and `first_last_frame` cannot be mixed with reference media. Include `referenceVideoDurationSeconds` when known; otherwise the server probes the URL and falls back conservatively for pre-deduction.",
     "",
-    "Billing guardrails: `duration` must be an integer from 4 to 15 seconds. Seedance standard accepts `480p`, `720p`, `1080p`, and `4k`; the fast model accepts `480p` and `720p` only, so vip123 rejects unsupported combinations before charging.",
+    `Billing guardrails: \`duration\` must be an integer from ${advancedDurationBounds("seedance").min} to ${advancedDurationBounds("seedance").max} seconds. Seedance standard accepts \`480p\`, \`720p\`, \`1080p\`, and \`4k\`; the fast model accepts \`480p\` and \`720p\` only, so vip123 rejects unsupported combinations before charging. Seedance images must be JPG/PNG/WebP/BMP, each side ${SEEDANCE_IMAGE_DIMENSION_MIN}-${SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`,
     "",
   ].join("\n");
 }
