@@ -7990,7 +7990,10 @@ async function submitSeedanceVideoTask({
       break;
     } catch (error) {
       lastSubmitError = error.message || String(error);
-      if (!/asset is still processing|not available yet/i.test(lastSubmitError)) throw error;
+      if (!/asset is still processing|not available yet/i.test(lastSubmitError)) {
+        error.upstreamPayload = payload;
+        throw error;
+      }
       await delay(10000);
     }
   }
@@ -14580,6 +14583,7 @@ async function runAdvancedGenerationJob(job = {}) {
       referenceAssetUri,
       mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (seedanceMode || (referenceVideoAssetUri ? "reference_video" : extraReferenceAssetUris.length ? "multi_reference" : "text_to_video")),
       mediaAssets: provider === "wan27" ? resolvedWan27Media : seedanceMediaAssets,
+      params: requestParams,
       upstreamPayload: payload,
       ratio: payload?.ratio || requestParams.ratio || "",
       resolution: payload?.resolution || payload?.parameters?.resolution || requestParams.resolution || "",
@@ -14605,6 +14609,8 @@ async function runAdvancedGenerationJob(job = {}) {
         source: runtime.recordSource,
         model: runtime.model,
         kind: "advanced-video",
+        params: requestParams,
+        upstreamPayload: error.upstreamPayload || payload || null,
         pricingEstimate: pricing,
         preDeductedCredits: cost,
         originalPreDeductedCredits: pricing?.originalCredits ?? cost,
