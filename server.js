@@ -6832,6 +6832,8 @@ const SEEDANCE_IMAGE_ASPECT_RATIO_MIN = 0.4;
 const SEEDANCE_IMAGE_ASPECT_RATIO_MAX = 2.5;
 const SEEDANCE_IMAGE_DIMENSION_MIN = 300;
 const SEEDANCE_IMAGE_DIMENSION_MAX = 6000;
+const SEEDANCE_VIDEO_PIXEL_COUNT_MIN = 409600;
+const SEEDANCE_VIDEO_PIXEL_COUNT_MAX = 8847360;
 
 function readLittleEndian24(buffer, offset) {
   return buffer[offset] + (buffer[offset + 1] << 8) + (buffer[offset + 2] << 16);
@@ -6934,6 +6936,59 @@ function validateSeedanceImageBytes(bytes, label = "Seedance image") {
   return assertSeedanceImageAspectRatio(imageDimensionsFromBuffer(bytes), label);
 }
 
+function assertSeedanceVideoPixelCount(dimensions, label = "Seedance video") {
+  const width = Number(dimensions?.width || 0);
+  const height = Number(dimensions?.height || 0);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw advancedValidationError(
+      "SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE",
+      `${label} dimensions could not be read. Re-upload the video before using it with Vipeak 2.`,
+    );
+  }
+  const pixelCount = width * height;
+  if (pixelCount < SEEDANCE_VIDEO_PIXEL_COUNT_MIN || pixelCount > SEEDANCE_VIDEO_PIXEL_COUNT_MAX) {
+    throw advancedValidationError(
+      "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID",
+      `${label} pixel count must be between ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN} and ${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}. Current video is ${width}x${height} (${pixelCount} pixels).`,
+      {
+        width,
+        height,
+        pixelCount,
+        minPixelCount: SEEDANCE_VIDEO_PIXEL_COUNT_MIN,
+        maxPixelCount: SEEDANCE_VIDEO_PIXEL_COUNT_MAX,
+      },
+    );
+  }
+  return { ...dimensions, width, height, pixelCount };
+}
+
+async function probeLocalVideoDimensions(videoPath = "") {
+  if (!videoPath) return null;
+  try {
+    const result = await execFileJson("ffprobe", [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height,duration",
+      "-of",
+      "json",
+      videoPath,
+    ], { timeout: VIDEO_DURATION_PROBE_TIMEOUT_MS });
+    const stream = Array.isArray(result?.streams) ? result.streams[0] : null;
+    if (!stream) return null;
+    return {
+      width: Number(stream.width || 0),
+      height: Number(stream.height || 0),
+      durationSeconds: durationSecondsFromValue(stream.duration),
+    };
+  } catch (error) {
+    console.warn("[video-dimensions-probe-failed]", videoPath, error.message || error);
+    return null;
+  }
+}
+
 function localPathForUserAsset(asset = {}) {
   const localUrl = String(asset.localUrl || "").trim();
   if (!localUrl) return "";
@@ -6992,6 +7047,40 @@ async function validateSeedanceImageAssetsForRequest(db, assets = []) {
   for (let index = 0; index < list.length; index += 1) {
     await validateSeedanceImageAssetForRequest(db, list[index], `Seedance image ${index + 1}`);
   }
+}
+
+function storedVideoDimensionsForAsset(asset = {}) {
+  const width = Number(firstPresent(asset.videoWidth, asset.width, asset.meta?.videoWidth, asset.meta?.width));
+  const height = Number(firstPresent(asset.videoHeight, asset.height, asset.meta?.videoHeight, asset.meta?.height));
+  if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+    return {
+      width,
+      height,
+      durationSeconds: durationSecondsFromValue(firstPresent(asset.durationSeconds, asset.meta?.durationSeconds)),
+    };
+  }
+  return null;
+}
+
+async function validateSeedanceVideoAssetForRequest(db, asset = {}, label = "Seedance video") {
+  if (!asset) return null;
+  validateWan27MediaKind(asset, "video", label);
+  const storedDimensions = storedVideoDimensionsForAsset(asset);
+  if (storedDimensions) return assertSeedanceVideoPixelCount(storedDimensions, label);
+
+  const localPath = localPathForUserAsset(asset);
+  if (!localPath) {
+    throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Vipeak 2.`, { assetId: asset.id || "" });
+  }
+  const dimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(localPath), label);
+  asset.videoWidth = dimensions.width;
+  asset.videoHeight = dimensions.height;
+  asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
+  asset.updatedAt = new Date().toISOString();
+  db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(db);
+  return dimensions;
 }
 
 async function validateSeedanceRawImageUrlsForRequest(urls = []) {
@@ -7108,10 +7197,12 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
   const fallbackExt = mime.startsWith("image/") ? imageExtFromMime(mime) : ".bin";
   const storedFileName = `${assetId}${mediaExtFromMime(mime, fileName) || fallbackExt}`;
   const dir = path.join(USER_UPLOAD_DIR, user.id);
+  const localPath = path.join(dir, storedFileName);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, storedFileName), bytes);
+  await fs.writeFile(localPath, bytes);
 
   const imageDimensions = mime.startsWith("image/") ? imageDimensionsFromBuffer(bytes) : null;
+  const videoDimensions = mime.startsWith("video/") ? await probeLocalVideoDimensions(localPath) : null;
   const displayName = String(fileName || name || "Upload")
     .split(/[\\/]/)
     .pop()
@@ -7126,9 +7217,11 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     assetUri: "",
     width: imageDimensions?.width || 0,
     height: imageDimensions?.height || 0,
+    videoWidth: videoDimensions?.width || 0,
+    videoHeight: videoDimensions?.height || 0,
     imageType: imageDimensions?.type || "",
     durationSeconds: mime.startsWith("video/") || mime.startsWith("audio/")
-      ? durationSecondsFromValue(durationSeconds)
+      ? durationSecondsFromValue(durationSeconds || videoDimensions?.durationSeconds)
       : 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -7212,6 +7305,7 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
     )) || null;
   }
   if (existing) {
+    existing = await refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, existing, mediaUrl);
     if (!hidden && existing.hidden) {
       existing.hidden = false;
       existing.updatedAt = new Date().toISOString();
@@ -7269,6 +7363,40 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
   asset.hidden = Boolean(hidden);
   const currentMeta = asset.meta && typeof asset.meta === "object" && !Array.isArray(asset.meta) ? asset.meta : {};
   asset.meta = { ...currentMeta, ...(meta || {}) };
+  asset.updatedAt = new Date().toISOString();
+  db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(db);
+  return asset;
+}
+
+async function refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, asset = {}, sourceUrl = "") {
+  if (!asset || !String(asset.mime || "").toLowerCase().startsWith("video/")) return asset;
+  const meta = asset.meta && typeof asset.meta === "object" && !Array.isArray(asset.meta) ? asset.meta : {};
+  const isSeedancePreset = asset.hidden && (meta.fromWorkflowPreset || meta.upstreamUse === "seedance_reference_video");
+  if (!isSeedancePreset) return asset;
+  try {
+    await validateSeedanceVideoAssetForRequest(db, asset, "Seedance reference video");
+    return asset;
+  } catch (error) {
+    if (!["SEEDANCE_VIDEO_PIXEL_COUNT_INVALID", "SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE"].includes(error.code)) throw error;
+  }
+
+  const sourcePath = localAssetPathFromPublicValue(sourceUrl || asset.sourceUrl || asset.originalUrl || "");
+  const targetPath = localPathForUserAsset(asset);
+  if (!sourcePath || !targetPath) return asset;
+  const sourceDimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(sourcePath), "Seedance reference video source");
+  const samePath = path.resolve(sourcePath) === path.resolve(targetPath);
+  if (!samePath) {
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.copyFile(sourcePath, targetPath);
+  }
+  asset.videoWidth = sourceDimensions.width;
+  asset.videoHeight = sourceDimensions.height;
+  asset.durationSeconds = sourceDimensions.durationSeconds || asset.durationSeconds || 0;
+  asset.seedanceVideoAssetId = "";
+  asset.seedanceVideoAssetUri = "";
+  asset.publicUrl = publicUrlForAssetPath(asset.localUrl) || asset.publicUrl || "";
   asset.updatedAt = new Date().toISOString();
   db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
   if (dbEnabled()) await upsertUserAssetInDb(asset);
@@ -10923,6 +11051,11 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     userAsset.width = dimensions.width;
     userAsset.height = dimensions.height;
     userAsset.imageType = dimensions.type || userAsset.imageType || "";
+  } else if (assetType === "Video") {
+    const dimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(localPath), "Seedance video asset");
+    userAsset.videoWidth = dimensions.width;
+    userAsset.videoHeight = dimensions.height;
+    userAsset.durationSeconds = dimensions.durationSeconds || userAsset.durationSeconds || 0;
   }
   const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
   let uploaded = { publicUrl: localPublicUrl, key: "" };
@@ -15790,6 +15923,12 @@ function advancedGenerateConstraintsDoc() {
         aspectRatio: { min: SEEDANCE_IMAGE_ASPECT_RATIO_MIN, max: SEEDANCE_IMAGE_ASPECT_RATIO_MAX },
         maxTotalImages: ADVANCED_SEEDANCE_REFERENCE_LIMIT,
       },
+      videoInput: {
+        formats: ["MP4", "WebM", "MOV", "M4V"],
+        maxBytes: MEDIA_UPLOAD_MAX_BYTES,
+        pixelCount: { min: SEEDANCE_VIDEO_PIXEL_COUNT_MIN, max: SEEDANCE_VIDEO_PIXEL_COUNT_MAX },
+        maxTotalVideos: ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT,
+      },
       referenceLimits: {
         images: ADVANCED_SEEDANCE_REFERENCE_LIMIT,
         videos: ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT,
@@ -16117,9 +16256,9 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "referenceImages[].assetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI. Prefer assetId from /api/user-assets when possible.", default: "-" },
       { name: "seedanceReferenceAssetUri / seedanceCharacterAssetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI for callers that already have a provider asset URI.", default: "-" },
       { name: "referenceImageAssetUris / seedanceReferenceAssetUris", type: "array", required: false, description: "Advanced passthrough asset:// URI array for callers that already have provider asset URIs.", default: "[]" },
-      { name: "referenceVideos / referenceVideoUrls", type: "array", required: false, description: "Seedance reference_video/edit/extend public video URLs. Up to 3 URLs." },
+      { name: "referenceVideos / referenceVideoUrls", type: "array", required: false, description: `Seedance reference_video/edit/extend public video URLs. Up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} URLs. Each video must have pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}.` },
       { name: "referenceVideoAssetId", type: "string", required: false, description: "Seedance reference_video mode. Existing uploaded video asset id." },
-      { name: "referenceVideoAssetIds", type: "array", required: false, description: "Seedance multimodal/edit/extend. Up to 3 existing uploaded video asset ids." },
+      { name: "referenceVideoAssetIds", type: "array", required: false, description: `Seedance multimodal/edit/extend. Up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} existing uploaded video asset ids. Each video must have pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}.` },
       { name: "inputVideoSeconds / referenceVideoDurationSeconds", type: "number", required: false, description: "Total input video duration for Seedance reference-video/edit/extend billing. The server pre-deducts output seconds plus this input-video branch before submitting upstream. If omitted for a video input, the output duration is used as a conservative fallback.", default: "0" },
       { name: "referenceAudios / referenceAudioUrls", type: "array", required: false, description: "Seedance multimodal reference audio public URLs. Up to 3 URLs; text+audio without image/video is not supported upstream." },
       { name: "referenceAudioAssetId / referenceAudioAssetIds", type: "string|array", required: false, description: "Seedance multimodal audio references from /api/user-assets. Up to 3 audio assets." },
@@ -16274,6 +16413,7 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- \`duration\`: integer ${seedance.durationSeconds?.min ?? advancedDurationBounds("seedance").min}-${seedance.durationSeconds?.max ?? advancedDurationBounds("seedance").max} seconds.`,
     `- \`resolution\`: standard ${(seedance.resolution?.standard || []).map((item) => `\`${item}\``).join(", ")}; fast ${(seedance.resolution?.fast || []).map((item) => `\`${item}\``).join(", ")}.`,
     `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((seedance.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, width and height each ${seedance.imageInput?.widthPx?.min ?? SEEDANCE_IMAGE_DIMENSION_MIN}-${seedance.imageInput?.widthPx?.max ?? SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${seedance.imageInput?.aspectRatio?.min ?? SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${seedance.imageInput?.aspectRatio?.max ?? SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`,
+    `- Video inputs: MP4/WebM/MOV/M4V, max ${Math.round((seedance.videoInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, pixel count ${seedance.videoInput?.pixelCount?.min ?? SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${seedance.videoInput?.pixelCount?.max ?? SEEDANCE_VIDEO_PIXEL_COUNT_MAX}. For 9:16 video, 480x854 is the smallest safe size.`,
     `- Max references: ${seedance.referenceLimits?.images ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT} images total, ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos, ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios.`,
     "- `first_frame` and `first_last_frame` cannot be mixed with `referenceImages`, `referenceVideos`, `referenceAudios`, or raw reference `content`.",
     "- Audio references must be combined with image or video references; audio-only generation is rejected.",
@@ -16393,7 +16533,7 @@ function seedanceAdvancedExampleMarkdown(docs) {
     "",
     "Supported media inputs: `imageUrl`/`firstFrameUrl`, `endImageUrl`/`lastFrameUrl`, `referenceImages`, `referenceVideoUrls`/`referenceVideoAssetIds`, and `referenceAudioUrls`/`referenceAudioAssetIds`. Use `seedanceMode` values such as `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, and `reference_video`. `first_frame` and `first_last_frame` cannot be mixed with reference media. Include `referenceVideoDurationSeconds` when known; otherwise the server probes the URL and falls back conservatively for pre-deduction.",
     "",
-    `Billing guardrails: \`duration\` must be an integer from ${advancedDurationBounds("seedance").min} to ${advancedDurationBounds("seedance").max} seconds. Seedance standard accepts \`480p\`, \`720p\`, \`1080p\`, and \`4k\`; the fast model accepts \`480p\` and \`720p\` only, so vip123 rejects unsupported combinations before charging. Seedance images must be JPG/PNG/WebP/BMP, each side ${SEEDANCE_IMAGE_DIMENSION_MIN}-${SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`,
+    `Billing guardrails: \`duration\` must be an integer from ${advancedDurationBounds("seedance").min} to ${advancedDurationBounds("seedance").max} seconds. Seedance standard accepts \`480p\`, \`720p\`, \`1080p\`, and \`4k\`; the fast model accepts \`480p\` and \`720p\` only, so vip123 rejects unsupported combinations before charging. Seedance images must be JPG/PNG/WebP/BMP, each side ${SEEDANCE_IMAGE_DIMENSION_MIN}-${SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}. Seedance video references must be MP4/WebM/MOV/M4V and pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}; for 9:16 video, use at least 480x854.`,
     "",
   ].join("\n");
 }

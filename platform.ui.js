@@ -413,6 +413,7 @@ function applyStaticTranslations() {
 function applyTenantFeatures() {
   const assetEnabled = tenantFeature("assetLibrary", true);
   const workflowEnabled = isWorkflowTester();
+  const animeEnabled = canUseAnimeTemplates();
   const accountMenuEnabled = true;
   document.querySelectorAll(".tenant-menu-only").forEach((element) => {
     element.hidden = !accountMenuEnabled;
@@ -428,6 +429,9 @@ function applyTenantFeatures() {
   });
   document.querySelectorAll("[data-tab='workflow']").forEach((element) => {
     element.hidden = !workflowEnabled;
+  });
+  document.querySelectorAll("[data-gallery-shortcut='playflux-anime']").forEach((element) => {
+    element.hidden = !animeEnabled;
   });
 }
 

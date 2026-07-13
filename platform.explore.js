@@ -31,7 +31,8 @@ function trackAnalyticsEvent(eventName, params = {}) {
 
 function setTab(tab) {
   const hashRoute = platformHashParts(tab);
-  const routeGalleryMode = galleryModeFromPlatformRoute(tab);
+  let routeGalleryMode = galleryModeFromPlatformRoute(tab);
+  if (routeGalleryMode === "playflux-anime" && !canUseAnimeTemplates()) routeGalleryMode = "";
   const routeCharacterId = characterRouteParamFrom(hashRoute.params);
   if (routeCharacterId) {
     state.routeCharacterId = routeCharacterId;
@@ -123,23 +124,26 @@ function galleryModeHash(mode = state.galleryMode) {
   const normalized = normalizeGalleryMode(mode);
   if (normalized === "playflux-video") return "#video";
   if (normalized === "playflux-image") return "#image";
-  if (normalized === "playflux-anime") return "#anime";
+  if (normalized === "playflux-anime" && canUseAnimeTemplates()) return "#anime";
   return "";
 }
 
 function playfluxTabFromGalleryMode(mode = state.galleryMode) {
   const normalized = normalizeGalleryMode(mode);
   if (normalized === "playflux-image") return "image";
-  if (normalized === "playflux-anime") return "anime";
+  if (normalized === "playflux-anime" && canUseAnimeTemplates()) return "anime";
   return "video";
 }
 
 function isPlayfluxGalleryMode(mode = state.galleryMode) {
-  return ["playflux-video", "playflux-image", "playflux-anime"].includes(normalizeGalleryMode(mode));
+  const normalized = normalizeGalleryMode(mode);
+  if (normalized === "playflux-anime") return canUseAnimeTemplates();
+  return ["playflux-video", "playflux-image"].includes(normalized);
 }
 
 function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
-  state.galleryMode = normalizeGalleryMode(mode || DEFAULT_GALLERY_MODE);
+  const normalized = normalizeGalleryMode(mode || DEFAULT_GALLERY_MODE);
+  state.galleryMode = normalized === "playflux-anime" && !canUseAnimeTemplates() ? DEFAULT_GALLERY_MODE : normalized;
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
@@ -3201,11 +3205,13 @@ function advancedCaseInputVideoPoster(item = {}) {
 function syncGalleryShortcutNav() {
   document.querySelectorAll("[data-gallery-shortcut]").forEach((button) => {
     const mode = normalizeGalleryMode(button.dataset.galleryShortcut || "");
+    const disabled = button.dataset.galleryShortcut === "playflux-anime" && !canUseAnimeTemplates();
+    button.hidden = disabled;
     const active = state.tab === DEFAULT_PLATFORM_TAB && mode === normalizeGalleryMode(state.galleryMode);
     button.classList.toggle("is-active", active);
     const countEl = button.querySelector("[data-gallery-shortcut-count]");
     if (countEl) {
-      countEl.textContent = isPlayfluxGalleryMode(mode) ? String(PLAYFLUX_TEMPLATES.filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
+      countEl.textContent = !disabled && isPlayfluxGalleryMode(mode) ? String(PLAYFLUX_TEMPLATES.filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
     }
   });
 }
@@ -3369,6 +3375,7 @@ function normalizeAdvancedCaseTab(value = "") {
 
 function normalizeGalleryMode(value = "") {
   const raw = String(value || "").trim().toLowerCase();
+  if (raw === "playflux-anime" && !canUseAnimeTemplates()) return DEFAULT_GALLERY_MODE;
   return GALLERY_MODE_TABS.some((tab) => tab.id === raw) ? raw : DEFAULT_GALLERY_MODE;
 }
 

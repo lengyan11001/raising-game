@@ -5602,6 +5602,10 @@ function isWorkflowTester() {
   return String(state.user?.username || "").trim().toLowerCase() === "test01";
 }
 
+function canUseAnimeTemplates() {
+  return isWorkflowTester();
+}
+
 function isTabAllowed(tab) {
   if (tab === "workflow") return isWorkflowTester();
   return tab !== "assets" || tenantFeature("assetLibrary", true);
