@@ -5470,6 +5470,8 @@ const state = {
   playfluxTemplateTab: "video",
   characterSource: "custom",
   characterFilters: { sort: "recommended", tag: "", gender: "", style: "", age: "", q: "" },
+  characterFiltersExpanded: false,
+  characterFilterSearchTimer: null,
   characterCreator: { ...CHARACTER_CREATOR_DEFAULT },
   category: "all",
   homeCharacters: [],

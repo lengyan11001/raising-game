@@ -1544,6 +1544,8 @@ function renderCharacterFilterBar(characters = [], filteredCount = 0) {
   const sort = CHARACTER_SORT_OPTIONS.find((item) => item.id === filters.sort) || CHARACTER_SORT_OPTIONS[0];
   const activeTag = options.tags.find((item) => normalizeCharacterFilterValue(item.label) === normalizeCharacterFilterValue(filters.tag));
   const hasFilters = Boolean(filters.tag || filters.gender || filters.style || filters.age || filters.q || (filters.sort && filters.sort !== "recommended"));
+  const hasAdvancedFilters = Boolean(filters.tag || filters.gender || filters.style || filters.age);
+  const advancedOpen = Boolean(state.characterFiltersExpanded || hasAdvancedFilters);
   const tagButtons = [
     characterFilterButton({ type: "tag", value: "", label: "All", active: !filters.tag }),
     ...options.tags.map((tag) => characterFilterButton({
@@ -1586,6 +1588,10 @@ function renderCharacterFilterBar(characters = [], filteredCount = 0) {
   return `
     <section class="character-filter-bar">
       <div class="character-filter-top">
+        <div class="character-selected-filter ${activeTag ? "has-tag" : ""}">
+          ${activeTag ? `<button class="character-selected-tag" data-character-filter="tag" data-character-filter-value="" type="button">${escapeHtml(activeTag.label)} <i data-lucide="x"></i></button>` : ""}
+          <input id="characterFilterSearch" data-character-filter-search type="search" value="${escapeHtml(filters.q || "")}" placeholder="${escapeHtml(activeTag ? "Search within tag..." : "Search within all characters")}" autocomplete="off" />
+        </div>
         <div class="character-sort-menu">
           <button class="character-filter-chip is-active" data-character-menu-toggle="sort" type="button">
             <span>${escapeHtml(sort.label)}</span><i data-lucide="chevron-down"></i>
@@ -1599,10 +1605,17 @@ function renderCharacterFilterBar(characters = [], filteredCount = 0) {
             })).join("")}
           </div>
         </div>
-        <div class="character-selected-filter ${activeTag ? "has-tag" : ""}">
-          ${activeTag ? `<button class="character-selected-tag" data-character-filter="tag" data-character-filter-value="" type="button">${escapeHtml(activeTag.label)} <i data-lucide="x"></i></button>` : ""}
-          <input id="characterFilterSearch" data-character-filter-search type="search" value="${escapeHtml(filters.q || "")}" placeholder="${escapeHtml(activeTag ? "Search within tag..." : "Search within all characters")}" autocomplete="off" />
+      </div>
+      <div class="character-filter-summary">
+        <span>${escapeHtml(String(filteredCount))} characters</span>
+        <div class="character-filter-summary-actions">
+          <button class="character-filter-clear" data-character-filter-clear type="button" ${hasFilters ? "" : "hidden"}>${escapeHtml(t("gallery.character.clearFilters"))}</button>
+          <button class="character-filter-advanced-toggle ${advancedOpen ? "is-open" : ""}" data-character-filter-advanced-toggle type="button" aria-expanded="${advancedOpen ? "true" : "false"}">
+            <i data-lucide="sliders-horizontal"></i><span>${escapeHtml(t(advancedOpen ? "gallery.character.hideFilters" : "gallery.character.advancedQuery"))}</span>
+          </button>
         </div>
+      </div>
+      <div class="character-filter-advanced ${advancedOpen ? "is-open" : ""}" ${advancedOpen ? "" : "hidden"}>
         <div class="character-filter-dropdowns">
           <div class="character-sort-menu">
             <button class="character-filter-chip" data-character-menu-toggle="gender" type="button"><span>${escapeHtml(filters.gender || "Any gender")}</span><i data-lucide="chevron-down"></i></button>
@@ -1617,11 +1630,7 @@ function renderCharacterFilterBar(characters = [], filteredCount = 0) {
             <div class="character-filter-menu" data-character-menu="age">${ageOptions}</div>
           </div>
         </div>
-      </div>
-      <div class="character-filter-tags">${tagButtons}</div>
-      <div class="character-filter-summary">
-        <span>${escapeHtml(String(filteredCount))} characters</span>
-        <button class="character-filter-clear" data-character-filter-clear type="button" ${hasFilters ? "" : "hidden"}>Clear</button>
+        <div class="character-filter-tags">${tagButtons}</div>
       </div>
     </section>
   `;
@@ -1654,18 +1663,35 @@ function bindCharacterFilterActions(root = els.templateGrid) {
   });
   root.querySelector("[data-character-filter-clear]")?.addEventListener("click", (event) => {
     event.stopPropagation();
+    window.clearTimeout(state.characterFilterSearchTimer);
     state.characterFilters = { sort: "recommended", tag: "", gender: "", style: "", age: "", q: "" };
+    state.characterFiltersExpanded = false;
     resetCharacterPagination();
     renderGalleryCharacters(root);
   });
+  root.querySelector("[data-character-filter-advanced-toggle]")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    state.characterFiltersExpanded = !state.characterFiltersExpanded;
+    renderGalleryCharacters(root);
+  });
   root.querySelector("[data-character-filter-search]")?.addEventListener("input", (event) => {
+    const value = event.currentTarget.value || "";
     state.characterFilters = {
       ...(state.characterFilters || {}),
-      q: event.currentTarget.value || "",
+      q: value,
     };
-    resetCharacterPagination();
-    renderGalleryCharacters(root);
-    root.querySelector("[data-character-filter-search]")?.focus();
+    window.clearTimeout(state.characterFilterSearchTimer);
+    state.characterFilterSearchTimer = window.setTimeout(() => {
+      resetCharacterPagination();
+      renderGalleryCharacters(root);
+      const nextInput = root.querySelector("[data-character-filter-search]");
+      if (nextInput) {
+        nextInput.focus();
+        try {
+          nextInput.setSelectionRange(value.length, value.length);
+        } catch (error) {}
+      }
+    }, 260);
   });
 }
 
@@ -2619,6 +2645,7 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
   const poster = characterPosterUrl(item);
   const tags = characterTags(item, 6);
   const profileLine = characterProfileLine(item);
+  const description = String(item.description || item.title || "").trim();
   const stats = uniqueTruthy([
     `${compactNumber(item.likeCount)} likes`,
     `${compactNumber(item.estimatedMessageCount)} chats`,
@@ -2632,9 +2659,9 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
       <div class="character-detail-profile">
         ${renderSmartCoverMedia({ className: "character-detail-cover-media", posterUrl: poster, videoUrl: characterMainVideoUrl(item), alt: item.name || "", fallbackUrl: DEFAULT_TEMPLATE_COVER })}
         <div class="character-detail-copy">
-          <span>${escapeHtml(profileLine || item.status || "Public profile")}</span>
-          <h3>${escapeHtml(item.name || "Character")}</h3>
-          <p>${escapeHtml(item.description || item.title || "")}</p>
+          <span title="${escapeHtml(profileLine || item.status || "Public profile")}">${escapeHtml(profileLine || item.status || "Public profile")}</span>
+          <h3 title="${escapeHtml(item.name || "Character")}">${escapeHtml(item.name || "Character")}</h3>
+          <p title="${escapeHtml(description)}">${escapeHtml(description)}</p>
           ${tags.length ? `<div class="character-detail-tags">${tags.map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>` : ""}
           <div class="character-detail-stats">
             <strong>${escapeHtml(stats || "Ready")}</strong>
@@ -2723,7 +2750,7 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
         <span class="character-video-chip">${escapeHtml(meta || "Video")}</span>
       </button>
       <div class="character-video-info">
-        <strong>${escapeHtml(title)}</strong>
+        <strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong>
         ${action}
       </div>
     </article>
