@@ -1,25 +1,16 @@
 function renderAdvanced() {
   if (!els.advancedGate || !els.advancedWorkspace) return;
+  els.advancedGate.innerHTML = "";
+  els.advancedWorkspace.hidden = false;
   if (!state.user) {
-    els.advancedWorkspace.hidden = false;
-    els.advancedGate.innerHTML = `
-      <div class="permission-card permission-card-inline">
-        <span class="copy-kicker"><i data-lucide="lock-keyhole"></i>${escapeHtml(t("advanced.approvalRequired"))}</span>
-        <h2>${escapeHtml(t("advanced.inviteOnly"))}</h2>
-        <p>${escapeHtml(t("advanced.loginFirst"))}</p>
-        <button class="generate-btn" id="advancedLoginBtn" type="button">${escapeHtml(t("nav.login"))}</button>
-      </div>
-    `;
-    document.querySelector("#advancedLoginBtn")?.addEventListener("click", openLogin);
     renderAdvancedCreateControls();
     renderAdvancedAssets([]);
+    setAdvancedSideTab(state.advancedSideTab || "assets", { silent: true });
     updateAdvancedModelControls();
     updateAdvancedButtonCost();
     refreshIcons();
     return;
   }
-  els.advancedGate.innerHTML = "";
-  els.advancedWorkspace.hidden = false;
   renderAdvancedCreateControls();
   renderAdvancedAssets();
   setAdvancedSideTab(state.advancedSideTab || "assets", { silent: true });
@@ -203,11 +194,9 @@ function renderAdvancedAssets(assets) {
     if (els.advancedAssetPager) els.advancedAssetPager.innerHTML = "";
     els.advancedAssetGrid.innerHTML = `
       <div class="advanced-asset-empty">
-        <strong>${escapeHtml(t("assets.loginRequired"))}</strong>
-        <button class="generate-btn" type="button" data-login-advanced-assets>${escapeHtml(t("history.login"))}</button>
+        <strong>${escapeHtml(t("assets.emptyTitle"))}</strong>
       </div>
     `;
-    els.advancedAssetGrid.querySelector("[data-login-advanced-assets]")?.addEventListener("click", openLogin);
     refreshIcons();
     return;
   }

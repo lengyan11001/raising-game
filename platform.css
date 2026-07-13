@@ -7458,6 +7458,10 @@ select:focus,
   .advanced-asset-toolbar input[type="search"] { flex-basis: 180px; }
   .advanced-asset-toolbar select { flex-basis: 126px; }
   .advanced-asset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .advanced-result-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .advanced-result-empty { grid-column: 1 / -1; }
+  .advanced-result-media { min-height: 126px; }
+  .advanced-result-media.is-placeholder { min-height: 126px; }
   .advanced-preset-toolbar { grid-template-columns: 1fr; }
   .advanced-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .advanced-preset-slot { min-height: 164px; }
@@ -7509,7 +7513,7 @@ select:focus,
   .ledger-table code { font-size: .76rem; }
   .ledger-pager { align-items: stretch; flex-direction: column; }
   .access-tabs { grid-template-columns: 1fr; }
-  .advanced-fields { grid-template-columns: 1fr; }
+  .advanced-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workflow-node { width: min(414px, calc(100vw - 44px)); }
   .workflow-canvas { min-height: 700px; }
   .workflow-edges { width: var(--workflow-stage-width, 1980px); }
@@ -7552,13 +7556,24 @@ select:focus,
   .advanced-asset-toolbar input[type="search"] { flex: 1 1 0; min-width: 0; }
   .advanced-asset-toolbar select { flex: 0 0 104px; min-width: 104px; }
   .advanced-preset-builder,
-  .advanced-preset-grid { grid-template-columns: 1fr; }
+  .advanced-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .advanced-preset-slot { min-height: 142px; }
   .subtoken-actions { grid-template-columns: 1fr; }
   .character-detail-profile { grid-template-columns: 1fr; }
   .character-detail-profile img,
   .character-detail-profile video,
   .character-detail-cover-media { width: 100%; max-width: 160px; }
   .history-panel .history-list { grid-template-columns: 1fr; }
-  .advanced-asset-grid { grid-template-columns: 1fr; }
+  .advanced-asset-grid,
+  .advanced-result-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .advanced-result-empty,
+  .advanced-asset-empty { grid-column: 1 / -1; }
+  .advanced-result-card,
+  .advanced-asset-card { padding: 8px; }
+  .advanced-result-media,
+  .advanced-result-media.is-placeholder { min-height: 112px; }
+  .advanced-result-meta strong,
+  .advanced-asset-meta strong { font-size: .82rem; }
+  .advanced-result-regenerate { width: 100%; justify-content: center; }
   .asset-grid { grid-template-columns: 1fr; }
 }
