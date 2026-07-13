@@ -350,6 +350,10 @@ function renderTemplates() {
     renderGalleryCharacters(els.templateGrid);
     return;
   }
+  if (state.galleryMode === "playflux") {
+    renderPlayfluxTemplateGallery();
+    return;
+  }
   renderGalleryCases();
 }
 
@@ -367,6 +371,224 @@ function renderGalleryCases() {
     : `<div class="job-note">${escapeHtml(t("gallery.noTemplates"))}</div>`;
   bindGalleryCaseActions();
   refreshIcons();
+}
+
+function playfluxTemplateTabMeta(tab = state.playfluxTemplateTab || "video") {
+  return PLAYFLUX_TEMPLATE_TABS.find((item) => item.id === tab) || PLAYFLUX_TEMPLATE_TABS[0];
+}
+
+function playfluxTemplateById(templateId = "") {
+  const id = String(templateId || "");
+  return PLAYFLUX_TEMPLATES.find((item) => item.id === id) || null;
+}
+
+function playfluxTemplatesForActiveTab() {
+  const activeTab = playfluxTemplateTabMeta().id;
+  return PLAYFLUX_TEMPLATES.filter((item) => item.tab === activeTab);
+}
+
+function renderPlayfluxTemplateGallery() {
+  if (!els.templateGrid) return;
+  const activeTab = playfluxTemplateTabMeta().id;
+  const templates = playfluxTemplatesForActiveTab();
+  els.templateGrid.className = "template-grid playflux-template-shell";
+  els.templateGrid.innerHTML = `
+    <section class="playflux-template-page">
+      <div class="playflux-template-tabs" role="tablist" aria-label="Video templates">
+        ${PLAYFLUX_TEMPLATE_TABS.map((tab) => {
+          const count = PLAYFLUX_TEMPLATES.filter((item) => item.tab === tab.id).length;
+          return `
+            <button class="playflux-template-tab ${activeTab === tab.id ? "is-active" : ""}" type="button" role="tab" aria-selected="${activeTab === tab.id ? "true" : "false"}" data-playflux-tab="${escapeHtml(tab.id)}">
+              <i data-lucide="${escapeHtml(tab.icon)}"></i>
+              <span>${escapeHtml(tab.label)}</span>
+              <small>${escapeHtml(String(count))}</small>
+            </button>
+          `;
+        }).join("")}
+      </div>
+      <div class="playflux-card-grid">
+        ${templates.map(renderPlayfluxTemplateCard).join("")}
+      </div>
+    </section>
+  `;
+  els.templateGrid.querySelectorAll("[data-playflux-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.playfluxTemplateTab = button.dataset.playfluxTab || "video";
+      renderPlayfluxTemplateGallery();
+    });
+  });
+  els.templateGrid.querySelectorAll("[data-playflux-template]").forEach((button) => {
+    button.addEventListener("click", () => openPlayfluxTemplateDialog(button.dataset.playfluxTemplate || ""));
+  });
+  refreshIcons();
+}
+
+function renderPlayfluxTemplateCard(template = {}) {
+  const isVideo = template.previewType === "video";
+  return `
+    <button class="playflux-template-card" type="button" data-playflux-template="${escapeHtml(template.id || "")}">
+      <span class="playflux-template-media">
+        ${isVideo
+          ? `<video src="${escapeHtml(template.previewUrl || "")}" ${template.posterUrl ? `poster="${escapeHtml(template.posterUrl)}"` : ""} muted loop autoplay playsinline preload="metadata"></video>`
+          : `<img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(template.title || "")}" loading="lazy" />`}
+        <span class="playflux-template-shade"></span>
+        ${template.badge ? `<small class="playflux-template-badge">${escapeHtml(template.badge)}</small>` : ""}
+        <span class="playflux-template-fav"><i data-lucide="heart"></i></span>
+        ${isVideo ? `<span class="playflux-template-play"><i data-lucide="play"></i></span>` : ""}
+      </span>
+      <strong>${escapeHtml(template.title || "")}</strong>
+    </button>
+  `;
+}
+
+function playfluxTemplateDialogMedia(template = {}) {
+  if (template.previewType === "video") {
+    return `<video src="${escapeHtml(template.previewUrl || "")}" ${template.posterUrl ? `poster="${escapeHtml(template.posterUrl)}"` : ""} muted loop autoplay playsinline controls preload="metadata"></video>`;
+  }
+  return `<img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(template.title || "")}" loading="lazy" />`;
+}
+
+function playfluxTemplatePromptBlock(template = {}) {
+  const prompt = String(template.prompt || "").trim();
+  const negative = String(template.negativePrompt || "").trim();
+  return `
+    <details class="playflux-template-advanced">
+      <summary><i data-lucide="settings"></i><span>高级</span></summary>
+      ${prompt ? `
+        <label class="field">
+          <span>Prompt</span>
+          <textarea rows="5" readonly>${escapeHtml(prompt)}</textarea>
+        </label>
+      ` : ""}
+      ${negative ? `
+        <label class="field">
+          <span>Negative prompt</span>
+          <textarea rows="4" readonly>${escapeHtml(negative)}</textarea>
+        </label>
+      ` : ""}
+      <div class="playflux-template-meta">
+        <span>Resolution: ${escapeHtml(template.ratio || "9:16")}</span>
+        <span>${escapeHtml(formatCredits(template.credits || 0))}</span>
+      </div>
+    </details>
+  `;
+}
+
+function openPlayfluxTemplateDialog(templateId = "") {
+  const template = playfluxTemplateById(templateId);
+  if (!template) return;
+  const tab = playfluxTemplateTabMeta(template.tab);
+  showInlineDialog({
+    title: template.title || "Template",
+    body: `
+      <div class="playflux-template-dialog">
+        <div class="playflux-template-kicker"><i data-lucide="${escapeHtml(tab.icon)}"></i>${escapeHtml(tab.label)}</div>
+        <div class="playflux-template-flow">
+          <div class="playflux-source-panel">
+            <button class="ghost-button playflux-upload-btn" type="button" data-playflux-template-upload="${escapeHtml(template.id || "")}">
+              <i data-lucide="upload"></i><span>上传</span>
+            </button>
+            <button class="playflux-character-pick" type="button" data-playflux-template-character="${escapeHtml(template.id || "")}">
+              <span class="playflux-character-thumb"><i data-lucide="user-round"></i></span>
+              <strong>PICK A CHARACTER</strong>
+            </button>
+          </div>
+          <span class="playflux-flow-arrow"><i data-lucide="arrow-right"></i></span>
+          <button class="playflux-preview-panel" type="button" data-playflux-template-preview="${escapeHtml(template.id || "")}">
+            ${playfluxTemplateDialogMedia(template)}
+            <span>预览</span>
+          </button>
+        </div>
+        ${template.previewType === "video" ? `
+          <div class="playflux-source-modes" aria-label="Seedance source mode">
+            ${[
+              { id: "reference_images", label: "参考" },
+              { id: "first_last_frame", label: "首/尾帧" },
+              { id: "reference_video", label: "参考视频" },
+            ].map((mode) => `
+              <button class="${(template.seedanceMode || "reference_images") === mode.id ? "is-active" : ""}" type="button" data-playflux-source-mode="${escapeHtml(mode.id)}">
+                ${escapeHtml(mode.label)}
+              </button>
+            `).join("")}
+          </div>
+        ` : ""}
+        ${playfluxTemplatePromptBlock(template)}
+        <p class="job-note">All generations must be consensual. Illegal or underage content is prohibited.</p>
+      </div>
+    `,
+    confirmText: template.sourceRequired ? "Add Source First" : "Use this template",
+    dialogClass: "is-media-action is-playflux-template",
+    onOpen: (root) => {
+      root.querySelectorAll("[data-playflux-source-mode]").forEach((button) => {
+        button.addEventListener("click", () => {
+          root.querySelectorAll("[data-playflux-source-mode]").forEach((item) => item.classList.remove("is-active"));
+          button.classList.add("is-active");
+        });
+      });
+      root.querySelector("[data-playflux-template-preview]")?.addEventListener("click", () => {
+        if (template.previewType === "video") playPreview({ title: template.title, previewUrl: template.previewUrl, ratio: template.ratio || "9:16" });
+        else previewImage({ title: template.title, imageUrl: template.previewUrl });
+      });
+      root.querySelector("[data-playflux-template-character]")?.addEventListener("click", () => {
+        const sourceMode = root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || "";
+        els.inlineDialog?.close("character");
+        applyPlayfluxTemplateToCreate(template, { openCharacter: true, sourceMode });
+      });
+      root.querySelector("[data-playflux-template-upload]")?.addEventListener("click", () => {
+        const sourceMode = root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || "";
+        els.inlineDialog?.close("upload");
+        applyPlayfluxTemplateToCreate(template, { openUpload: true, sourceMode });
+      });
+    },
+    onConfirm: (root) => {
+      const sourceMode = root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || "";
+      applyPlayfluxTemplateToCreate(template, { sourceMode });
+    },
+  });
+}
+
+function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, openUpload = false, sourceMode = "" } = {}) {
+  if (!template?.id) return;
+  state.activeTemplate = null;
+  state.activeAdvancedCaseId = "";
+  state.advancedSelectedPresets = {};
+  state.advancedReferenceImages = [];
+  state.advancedUploadDataUrl = "";
+  state.advancedSourceImageAssetId = "";
+  state.advancedFirstFrameAssetId = "";
+  state.advancedSeedanceVideoAssetId = "";
+  state.advancedSeedanceVideoPreviewUrl = "";
+  if (template.tab === "video") {
+    state.advancedCreateKind = "video";
+    state.advancedCreateMode = "video-image";
+    if (els.advancedProvider) els.advancedProvider.value = "seedance";
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = normalizeSeedanceMediaMode(sourceMode || template.seedanceMode || "reference_images");
+    if (els.advancedDuration) els.advancedDuration.value = String(template.duration || 5);
+    if (els.advancedResolution) els.advancedResolution.value = template.resolution || "720p";
+    if (els.advancedRatio) els.advancedRatio.value = normalizeVideoRatio(template.ratio || "9:16");
+    if (els.advancedSeedanceTier) els.advancedSeedanceTier.value = "standard";
+  } else {
+    state.advancedCreateKind = "image";
+    state.advancedCreateMode = template.createMode || (template.sourceRequired ? "image-edit" : "image-create");
+    if (els.advancedProvider) els.advancedProvider.value = "wan27-image-edit";
+    if (els.advancedResolution) els.advancedResolution.value = "1K";
+    if (els.advancedRatio) els.advancedRatio.value = "9:16";
+  }
+  if (els.advancedPrompt) els.advancedPrompt.value = template.prompt || "";
+  setTab("advanced");
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  setAdvancedSideTab("assets");
+  if (els.advancedNote) {
+    els.advancedNote.textContent = template.sourceRequired || template.tab === "video"
+      ? "Template loaded. Add a source image or character before generating."
+      : "Template loaded. Review the prompt, then generate.";
+  }
+  if (openCharacter) {
+    window.setTimeout(() => openAdvancedPresetDialog("character"), 120);
+  } else if (openUpload) {
+    window.setTimeout(() => els.advancedImage?.click(), 120);
+  }
 }
 
 function renderGalleryCharacters(root = els.templateGrid) {
@@ -2467,9 +2689,11 @@ function renderGalleryModeTabs() {
   const modes = [
     ...GALLERY_MODE_TABS.map((tab) => ({
       id: tab.id,
-      label: advancedCaseTabLabel(tab.id),
+      label: t(tab.labelKey, {}, tab.fallback || tab.id),
       count: tab.id === "characters"
         ? state.homeCharacters.filter((item) => item && !item.deletedAt).length
+        : tab.id === "playflux"
+          ? PLAYFLUX_TEMPLATES.length
         : state.advancedCases.filter((item) => item.enabled !== false && normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === tab.id).length,
     })),
   ];
@@ -3338,4 +3562,3 @@ function renderAccessGuides() {
 function userHasAdvancedAccess() {
   return Boolean(state.user);
 }
-
