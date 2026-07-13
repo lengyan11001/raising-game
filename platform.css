@@ -7534,10 +7534,10 @@ select:focus,
     flex-direction: column;
   }
   .topup-selected-package strong { text-align: left; }
-  .template-grid { grid-template-columns: 1fr; }
+  .template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gallery-advanced-grid,
   .character-grid,
-  .character-grid-main { grid-template-columns: 1fr; }
+  .character-grid-main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .playflux-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .playflux-template-card strong {
     right: 38px;
