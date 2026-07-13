@@ -4302,7 +4302,7 @@ select option:checked {
 
 .workflow-node-upload {
   height: auto;
-  min-height: 250px;
+  min-height: 272px;
 }
 
 .workflow-node-output {
@@ -4481,11 +4481,48 @@ select option:checked {
 .workflow-upload-grid {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(2, 86px);
-  grid-template-rows: 153px 48px;
-  grid-auto-rows: 48px;
+  grid-template-columns: repeat(2, 132px);
   justify-content: start;
-  gap: 8px;
+  gap: 10px 12px;
+}
+
+.workflow-upload-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.workflow-upload-field.is-face {
+  grid-column: 1 / -1;
+}
+
+.workflow-upload-label {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  font-size: .66rem;
+  line-height: 1;
+}
+
+.workflow-upload-label strong {
+  color: #30f08f;
+  font-size: .68rem;
+  font-weight: 950;
+}
+
+.workflow-upload-field.is-end .workflow-upload-label strong {
+  color: #bf67ff;
+}
+
+.workflow-upload-field.is-face .workflow-upload-label strong {
+  color: #ffae42;
+}
+
+.workflow-upload-label span {
+  color: rgba(255,255,255,.42);
+  font-size: .62rem;
+  font-weight: 800;
 }
 
 .workflow-upload-slot,
@@ -4494,25 +4531,29 @@ select option:checked {
   display: grid;
   place-items: center;
   min-height: 0;
-  border: 1px dashed rgba(255,255,255,.18);
-  border-radius: 12px;
-  background: rgba(255,255,255,.06);
+  border: 1px dashed rgba(255,255,255,.16);
+  border-radius: 11px;
+  background: rgba(255,255,255,.045);
   overflow: hidden;
 }
 
 .workflow-upload-slot.is-primary {
   grid-column: auto;
-  height: 100%;
+  width: 132px;
+  height: 88px;
   min-height: 0;
 }
 
 .workflow-upload-slot.is-small {
-  height: 100%;
+  width: 132px;
+  height: 88px;
   min-height: 0;
 }
 
 .workflow-upload-slot.is-face {
-  grid-column: 1 / -1;
+  grid-column: auto;
+  width: 276px;
+  height: 46px;
 }
 
 .workflow-upload-pick {
@@ -4522,69 +4563,36 @@ select option:checked {
   cursor: pointer;
 }
 
-.workflow-upload-prepared {
+.workflow-upload-ready-row {
   flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: repeat(2, 86px);
+  display: flex;
+  align-items: center;
   justify-content: start;
   gap: 8px;
-  margin-top: 8px;
+  width: 276px;
+  margin-top: 10px;
 }
 
-.workflow-upload-prepared figure,
-.workflow-prepared-thumb {
-  position: relative;
-  height: 153px;
-  min-height: 0;
-  margin: 0;
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,.16);
-  border-radius: 12px;
-  background: rgba(255,255,255,.06);
-}
-
-.workflow-prepared-thumb {
-  display: block;
-  padding: 0;
-  color: #fff;
+.workflow-upload-ready-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 5px 10px;
+  border: 1px solid rgba(46,220,127,.42);
+  border-radius: 999px;
+  color: #111b13;
+  background: linear-gradient(135deg, #3bed98, #2fca7a);
+  font-size: .66rem;
+  font-weight: 950;
+  box-shadow: 0 8px 20px rgba(47,202,122,.18);
   cursor: zoom-in;
 }
 
-.workflow-upload-prepared img,
-.workflow-prepared-thumb img {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  object-fit: cover;
-  display: block;
-}
-
-.workflow-upload-prepared span,
-.workflow-prepared-thumb span {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  padding: 7px 9px;
-  border-radius: 999px;
-  color: rgba(255,255,255,.86);
-  background: rgba(28,28,31,.74);
-  font-size: .7rem;
-  font-weight: 900;
-}
-
-.workflow-prepared-thumb em {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  z-index: 3;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  color: #fff;
-  background: rgba(16,16,22,.58);
-  font-style: normal;
+.workflow-upload-ready-pill svg {
+  width: 12px;
+  height: 12px;
 }
 
 .workflow-upload-slot input {
@@ -4603,17 +4611,38 @@ select option:checked {
 }
 
 .workflow-upload-empty {
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
   width: 100%;
   height: 100%;
+  padding: 0 8px;
+  color: rgba(255,255,255,.5);
+  font-size: .62rem;
+  font-weight: 800;
 }
 
 .workflow-upload-empty svg {
-  width: 24px;
-  height: 24px;
-  opacity: .72;
+  width: 15px;
+  height: 15px;
+  opacity: .62;
+}
+
+.workflow-upload-empty em {
+  overflow: hidden;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-upload-empty b {
+  padding: 3px 7px;
+  border-radius: 6px;
+  color: rgba(255,255,255,.7);
+  background: rgba(255,255,255,.1);
+  font-size: .58rem;
+  font-weight: 900;
 }
 
 .workflow-upload-preview img,
@@ -4628,13 +4657,13 @@ select option:checked {
 
 .workflow-upload-preview-open {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  right: 6px;
+  bottom: 6px;
   z-index: 3;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: 1px solid rgba(255,255,255,.24);
   border-radius: 999px;
   color: #fff;
