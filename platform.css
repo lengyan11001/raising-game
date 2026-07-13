@@ -7395,11 +7395,11 @@ select:focus,
   .side-rail {
     inset: 0 auto 0 0;
     z-index: 70;
-    width: clamp(224px, 72vw, 268px);
+    width: clamp(196px, 62vw, 230px);
     min-height: 100vh;
     grid-template-rows: auto minmax(0, 1fr) auto auto;
-    gap: 14px;
-    padding: 14px 14px calc(18px + env(safe-area-inset-bottom));
+    gap: 12px;
+    padding: 12px 10px calc(16px + env(safe-area-inset-bottom));
     border-right: 1px solid rgba(255,255,255,.12);
     border-bottom: 0;
     box-shadow: 22px 0 48px rgba(0,0,0,.42);
@@ -7446,16 +7446,24 @@ select:focus,
     display: grid;
     overflow: visible;
     padding-bottom: 0;
-    gap: 8px;
+    gap: 7px;
     scrollbar-width: auto;
   }
   .top-tabs::-webkit-scrollbar { display: none; }
   .access-mode-tabs { width: 100%; }
   .top-tab {
-    min-height: 38px;
-    padding: 8px 10px;
+    min-height: 36px;
+    gap: 7px;
+    padding: 7px 9px;
     text-align: left;
-    font-size: .88rem;
+    font-size: .84rem;
+  }
+  .top-tab svg {
+    width: 15px;
+    height: 15px;
+  }
+  .top-tab[data-gallery-shortcut] strong {
+    display: none;
   }
   .top-tab-child {
     margin: 0 0 0 16px;
@@ -7466,12 +7474,18 @@ select:focus,
     padding: 2px 6px;
   }
   .side-utility-nav {
-    padding-top: 12px;
+    gap: 6px;
+    padding-top: 10px;
+  }
+  .side-utility-link {
+    min-height: 34px;
+    padding: 7px 9px;
+    font-size: .84rem;
   }
   .mobile-drawer-account {
     display: grid;
-    gap: 8px;
-    padding-top: 12px;
+    gap: 7px;
+    padding-top: 10px;
     border-top: 1px solid rgba(255,255,255,.12);
   }
   .mobile-drawer-user {
@@ -7480,7 +7494,7 @@ select:focus,
     min-width: 0;
     border: 1px solid rgba(255,255,255,.1);
     border-radius: 10px;
-    padding: 10px 12px;
+    padding: 8px 10px;
     background: rgba(255,255,255,.05);
   }
   .mobile-drawer-user span {
@@ -7498,6 +7512,8 @@ select:focus,
   .mobile-drawer-topup,
   .mobile-drawer-login {
     width: 100%;
+    min-height: 36px;
+    padding: 7px 10px;
     justify-content: center;
   }
   .site-foot {

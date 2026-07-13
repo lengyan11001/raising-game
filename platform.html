@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-253" />
+    <link rel="stylesheet" href="./platform.css?v=ai-254" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -54,7 +54,10 @@
         <strong id="brandName">Vipeak AI</strong>
       </a>
       <nav class="top-tabs" aria-label="Main sections">
-        <button class="top-tab is-active" data-tab="gallery" data-i18n="nav.gallery" type="button">Gallery</button>
+        <button class="top-tab is-active" data-tab="gallery" type="button">
+          <i data-lucide="compass"></i>
+          <span data-i18n="nav.gallery">Gallery</span>
+        </button>
         <button class="top-tab" data-gallery-shortcut="playflux-video" type="button">
           <i data-lucide="film"></i>
           <span data-i18n="playflux.videoTab">Video</span>
@@ -70,12 +73,30 @@
           <span data-i18n="playflux.animeTab">Anime</span>
           <strong data-gallery-shortcut-count>0</strong>
         </button>
-        <button class="top-tab" data-tab="characters" data-i18n="characters.createTitle" type="button">Create character</button>
-        <button class="top-tab" data-tab="advanced" data-i18n="nav.advanced" type="button">Advanced</button>
-        <button class="top-tab" data-tab="workflow" data-i18n="nav.workflow" type="button" hidden>Workflow</button>
-        <button class="top-tab" data-tab="referral" data-i18n="nav.referral" type="button">Referral</button>
-        <button class="top-tab" data-tab="access" data-i18n="nav.access" type="button">API Access</button>
-        <button class="top-tab" data-tab="history" data-i18n="nav.history" type="button">History</button>
+        <button class="top-tab" data-tab="characters" type="button">
+          <i data-lucide="user-round-plus"></i>
+          <span data-i18n="characters.createTitle">Create character</span>
+        </button>
+        <button class="top-tab" data-tab="advanced" type="button">
+          <i data-lucide="wand-sparkles"></i>
+          <span data-i18n="nav.advanced">Advanced</span>
+        </button>
+        <button class="top-tab" data-tab="workflow" type="button" hidden>
+          <i data-lucide="workflow"></i>
+          <span data-i18n="nav.workflow">Workflow</span>
+        </button>
+        <button class="top-tab" data-tab="referral" type="button">
+          <i data-lucide="share-2"></i>
+          <span data-i18n="nav.referral">Referral</span>
+        </button>
+        <button class="top-tab" data-tab="access" type="button">
+          <i data-lucide="key-round"></i>
+          <span data-i18n="nav.access">API Access</span>
+        </button>
+        <button class="top-tab" data-tab="history" type="button">
+          <i data-lucide="history"></i>
+          <span data-i18n="nav.history">History</span>
+        </button>
       </nav>
       <nav class="side-utility-nav" aria-label="Community and support">
         <a class="side-utility-link" href="https://t.me/VipeakAILab" target="_blank" rel="noopener noreferrer" data-direct-url="https://t.me/VipeakAILab" data-analytics-event="telegram_channel_click" data-analytics-location="side_nav">
@@ -805,6 +826,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-253"></script>
+    <script src="./platform.js?v=ai-254"></script>
   </body>
 </html>
