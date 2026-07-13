@@ -10208,6 +10208,10 @@ function seedanceModeNeedsEndFrame(mode) {
   return normalizeSeedanceMode(mode) === "first_last_frame";
 }
 
+function seedanceModeNeedsReferenceVideo(mode) {
+  return normalizeSeedanceMode(mode) === "reference_video";
+}
+
 function seedanceFirstFrameInputFromBody(body = {}, { includeDataUrlFallback = false, includeUserAssetId = false } = {}) {
   const assetId = String(firstPresent(body.firstFrameAssetId, body.first_frame_asset_id, body.imageAssetId, body.image_asset_id, includeUserAssetId ? body.userAssetId : "") || "").trim();
   if (assetId) return { assetId, name: "Seedance first frame" };

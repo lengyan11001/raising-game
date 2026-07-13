@@ -620,7 +620,7 @@ function playfluxTemplateRequiredSourceCount(template = {}) {
 
 function playfluxTemplateDefaultSourceMode(template = {}) {
   if (template.tab !== "video") return "";
-  return normalizeSeedanceMediaMode(template.seedanceMode || "reference_images");
+  return playfluxNormalizeSeedanceMediaMode(template.seedanceMode || "reference_images");
 }
 
 function playfluxTemplateSelectedSource(root) {
@@ -702,6 +702,32 @@ function playfluxTemplatePrompt(template = {}) {
     .join("\n\n");
 }
 
+function playfluxNormalizeSeedanceMediaMode(mode = "") {
+  if (typeof window.normalizeSeedanceMediaMode === "function") return window.normalizeSeedanceMediaMode(mode);
+  const normalized = String(mode || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["text", "t2v", "text_video", "text_to_video"].includes(normalized)) return "text_to_video";
+  if (["image", "i2v", "first", "first_image", "first_frame", "image_to_video"].includes(normalized)) return "first_frame";
+  if (["first_last", "first_last_frame", "first_and_last", "start_end", "last_frame"].includes(normalized)) return "first_last_frame";
+  if (["reference", "references", "reference_images", "multi_reference"].includes(normalized)) return "reference_images";
+  if (["reference_video", "video_reference", "video"].includes(normalized)) return "reference_video";
+  return "text_to_video";
+}
+
+function playfluxSeedanceModeNeedsFirstFrame(mode = "") {
+  if (typeof window.seedanceModeNeedsFirstFrame === "function") return window.seedanceModeNeedsFirstFrame(mode);
+  return ["first_frame", "first_last_frame"].includes(playfluxNormalizeSeedanceMediaMode(mode));
+}
+
+function playfluxSeedanceModeNeedsReferenceImages(mode = "") {
+  if (typeof window.seedanceModeNeedsReferenceImages === "function") return window.seedanceModeNeedsReferenceImages(mode);
+  return playfluxNormalizeSeedanceMediaMode(mode) === "reference_images";
+}
+
+function playfluxSeedanceModeNeedsReferenceVideo(mode = "") {
+  if (typeof window.seedanceModeNeedsReferenceVideo === "function") return window.seedanceModeNeedsReferenceVideo(mode);
+  return playfluxNormalizeSeedanceMediaMode(mode) === "reference_video";
+}
+
 function playfluxTemplateVideoPrompt(template = {}, { usesReferenceVideo = false, hasSourceImage = false } = {}) {
   const basePrompt = String(template.prompt || "").trim();
   const negative = String(template.negativePrompt || "").trim();
@@ -756,7 +782,7 @@ function playfluxTemplateCostLabel(template = {}) {
     const duration = Number(template.duration || 5);
     const resolution = template.resolution || "720p";
     const ratio = template.ratio || "9:16";
-    const inputVideoSeconds = seedanceModeNeedsReferenceVideo(template.seedanceMode)
+    const inputVideoSeconds = playfluxSeedanceModeNeedsReferenceVideo(template.seedanceMode)
       ? Number(template.referenceVideoDurationSeconds || duration)
       : 0;
     const pricing = advancedPricing(duration, "seedance", resolution, ratio, {
@@ -856,11 +882,11 @@ async function submitPlayfluxTemplate(template = {}, root) {
   const isAnime = effectiveTemplate.tab === "anime";
   const provider = isVideo ? "seedance" : "wan27-image-edit";
   const selectedVideoSourceMode = isVideo
-    ? normalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images")
+    ? playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images")
     : "";
   const selectedVideoPrompt = isVideo
     ? playfluxTemplateVideoPrompt(effectiveTemplate, {
-        usesReferenceVideo: seedanceModeNeedsReferenceVideo(selectedVideoSourceMode),
+        usesReferenceVideo: playfluxSeedanceModeNeedsReferenceVideo(selectedVideoSourceMode),
         hasSourceImage: files.length > 0,
       })
     : "";
@@ -877,7 +903,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
       const resolution = effectiveTemplate.resolution || "720p";
       const ratio = normalizeVideoRatio(effectiveTemplate.ratio || "9:16");
       const reference = dataUrl ? { dataUrl, fileName: file.name || "", name: file.name || "Template source image" } : null;
-      const usesReferenceVideo = seedanceModeNeedsReferenceVideo(sourceMode);
+      const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(sourceMode);
       const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "") : "";
       const referenceVideoSeconds = usesReferenceVideo ? Number(effectiveTemplate.referenceVideoDurationSeconds || duration) : 0;
       const videoPrompt = playfluxTemplateVideoPrompt(effectiveTemplate, {
@@ -892,9 +918,9 @@ async function submitPlayfluxTemplate(template = {}, root) {
           seedanceTier: "standard",
           prompt: videoPrompt,
           seedanceMode: sourceMode,
-          referenceImages: (seedanceModeNeedsReferenceImages(sourceMode) || usesReferenceVideo) && reference ? [seedanceImageRefPayload(reference)] : undefined,
+          referenceImages: (playfluxSeedanceModeNeedsReferenceImages(sourceMode) || usesReferenceVideo) && reference ? [seedanceImageRefPayload(reference)] : undefined,
           referenceVideoUrls: referenceVideoUrl ? [referenceVideoUrl] : undefined,
-          firstFrameDataUrl: seedanceModeNeedsFirstFrame(sourceMode) && reference ? dataUrl : undefined,
+          firstFrameDataUrl: playfluxSeedanceModeNeedsFirstFrame(sourceMode) && reference ? dataUrl : undefined,
           firstFrameUrl: "",
           ratio,
           resolution,
@@ -1117,7 +1143,7 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
     state.advancedCreateKind = "video";
     state.advancedCreateMode = "video-image";
     if (els.advancedProvider) els.advancedProvider.value = "seedance";
-    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = normalizeSeedanceMediaMode(sourceMode || template.seedanceMode || "reference_images");
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = playfluxNormalizeSeedanceMediaMode(sourceMode || template.seedanceMode || "reference_images");
     if (els.advancedDuration) els.advancedDuration.value = String(template.duration || 5);
     if (els.advancedResolution) els.advancedResolution.value = template.resolution || "720p";
     if (els.advancedRatio) els.advancedRatio.value = normalizeVideoRatio(template.ratio || "9:16");
