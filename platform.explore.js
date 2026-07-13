@@ -652,6 +652,7 @@ function playfluxTemplatePrompt(template = {}) {
 
 function playfluxTemplateShouldUsePreviewImageReference(template = {}, sourceImageCount = 0) {
   if (template.tab === "video" || !template.previewUrl) return false;
+  if (sourceImageCount < 1) return false;
   const requiredCount = Number(template.sourceCount || 0);
   return requiredCount <= 1 && sourceImageCount <= 1;
 }
@@ -661,8 +662,8 @@ function playfluxTemplateImagePrompt(template = {}, sourceImageCount = 0, previe
   if (!previewImageUrl) return prompt;
   const previewIndex = Math.max(0, Number(sourceImageCount || 0)) + 1;
   const guide = sourceImageCount > 0
-    ? `Use Image 1 as the user's source subject. Use Image ${previewIndex} only as the template preview reference for pose, composition, camera angle, style, and scene intent. Do not copy the identity, face, watermark, text, or artifacts from Image ${previewIndex}; keep the user's source identity dominant.`
-    : `Use Image ${previewIndex} as the template preview reference for pose, composition, camera angle, style, and scene intent. Create a new result from the prompt; do not copy watermark, text, or artifacts from the preview image.`;
+    ? `CRITICAL: Image 1 is the user's selected character/source and must be the dominant subject. Preserve Image 1 identity, face, body type, skin tone, hair, and main visual features. Image ${previewIndex} is NOT the target result and NOT a character reference; use it only as a loose reference for pose, composition, camera angle, scene intent, and general style. Do not copy the person, face, body, clothing, background, watermark, text, colors, or artifacts from Image ${previewIndex}. If Image 1 conflicts with Image ${previewIndex}, Image 1 always wins. The final result must look like a transformed version of Image 1, not a copy of Image ${previewIndex}.`
+    : "";
   return [guide, prompt].filter(Boolean).join("\n\n");
 }
 
