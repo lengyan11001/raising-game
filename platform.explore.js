@@ -49,7 +49,6 @@ function setTab(tab) {
   }
   state.tab = nextTab;
   if (routeGalleryMode) state.galleryMode = routeGalleryMode;
-  else if (nextTab === DEFAULT_PLATFORM_TAB && !state.routeCharacterId) state.galleryMode = DEFAULT_GALLERY_MODE;
   localStorage.setItem(TAB_KEY, nextTab);
   const nextHash = state.routeCharacterId && (nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters")
     ? characterDetailHash(nextTab, state.routeCharacterId, state.routeCharacterSource)

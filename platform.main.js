@@ -19,6 +19,7 @@ document.addEventListener("click", (event) => {
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
+  if (button.dataset.tab === DEFAULT_PLATFORM_TAB) state.galleryMode = DEFAULT_GALLERY_MODE;
   setTab(button.dataset.tab);
 });
 els.mobileDrawerToggle?.addEventListener("click", toggleMobileDrawer);
