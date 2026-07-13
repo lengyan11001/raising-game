@@ -557,7 +557,13 @@ function openPlayfluxTemplateDialog(templateId = "") {
 }
 
 function playfluxTemplateNeedsSource(template = {}) {
-  return template.tab === "video" || Boolean(template.sourceRequired);
+  return playfluxTemplateRequiredSourceCount(template) > 0;
+}
+
+function playfluxTemplateRequiredSourceCount(template = {}) {
+  if (template.tab === "video") return 1;
+  if (!template.sourceRequired) return 0;
+  return Math.max(1, Math.min(9, Number(template.sourceCount || 1)));
 }
 
 function playfluxTemplateDefaultSourceMode(template = {}) {
@@ -566,36 +572,55 @@ function playfluxTemplateDefaultSourceMode(template = {}) {
 }
 
 function playfluxTemplateSelectedSource(root) {
-  const input = root?.querySelector("#playfluxTemplateImageInput");
-  return input?.files?.[0] || null;
+  return playfluxTemplateSelectedSources(root)[0] || null;
 }
 
-function updatePlayfluxTemplateSourcePreview(root, file = null) {
+function playfluxTemplateSelectedSources(root) {
+  const input = root?.querySelector("#playfluxTemplateImageInput");
+  return Array.from(input?.files || []).slice(0, 9);
+}
+
+function updatePlayfluxTemplateSourcePreview(root, files = []) {
+  const selected = Array.isArray(files) ? files : (files ? [files] : []);
   const preview = root?.querySelector("[data-playflux-source-preview]");
   const label = root?.querySelector("[data-playflux-source-name]");
   const clearButton = root?.querySelector("[data-playflux-source-clear]");
   if (!preview) return;
-  const objectUrl = preview.dataset.objectUrl || "";
-  if (objectUrl) URL.revokeObjectURL(objectUrl);
-  preview.dataset.objectUrl = "";
-  if (!file) {
+  let objectUrls = [];
+  try {
+    objectUrls = JSON.parse(preview.dataset.objectUrls || "[]");
+  } catch (error) {
+    objectUrls = [];
+  }
+  objectUrls.forEach((url) => URL.revokeObjectURL(url));
+  preview.dataset.objectUrls = "[]";
+  if (!selected.length) {
     preview.innerHTML = `<i data-lucide="image-up"></i>`;
     if (label) label.textContent = "Upload local image";
     if (clearButton) clearButton.hidden = true;
     refreshIcons();
     return;
   }
-  const url = URL.createObjectURL(file);
-  preview.dataset.objectUrl = url;
-  preview.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
-  if (label) label.textContent = file.name || "Local image";
+  const urls = selected.slice(0, 4).map((file) => URL.createObjectURL(file));
+  preview.dataset.objectUrls = JSON.stringify(urls);
+  preview.innerHTML = `
+    <span class="playflux-source-stack is-count-${Math.min(urls.length, 4)}">
+      ${urls.map((url) => `<img src="${escapeHtml(url)}" alt="" />`).join("")}
+    </span>
+  `;
+  if (label) label.textContent = selected.length === 1 ? (selected[0].name || "Local image") : `${selected.length} local images`;
   if (clearButton) clearButton.hidden = false;
 }
 
 function cleanupPlayfluxTemplateSourcePreview(root) {
   const preview = root?.querySelector("[data-playflux-source-preview]");
-  const objectUrl = preview?.dataset.objectUrl || "";
-  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  let objectUrls = [];
+  try {
+    objectUrls = JSON.parse(preview?.dataset.objectUrls || "[]");
+  } catch (error) {
+    objectUrls = [];
+  }
+  objectUrls.forEach((url) => URL.revokeObjectURL(url));
 }
 
 function playfluxTemplateStatus(root, message = "") {
@@ -630,13 +655,26 @@ function playfluxTemplateCostLabel(template = {}) {
     const duration = Number(template.duration || 5);
     const resolution = template.resolution || "720p";
     const ratio = template.ratio || "9:16";
+    const inputVideoSeconds = seedanceModeNeedsReferenceVideo(template.seedanceMode)
+      ? Number(template.referenceVideoDurationSeconds || duration)
+      : 0;
     const pricing = advancedPricing(duration, "seedance", resolution, ratio, {
       seedanceTier: "standard",
-      inputVideoSeconds: 0,
+      inputVideoSeconds,
     });
     return t("cost.credits", { credits: formatCredits(pricing.credits) });
   }
   return assetImageModifyCostLabel();
+}
+
+function playfluxTemplateAbsoluteUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    return new URL(text, window.location.origin).toString();
+  } catch (error) {
+    return text;
+  }
 }
 
 function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seedance") {
@@ -654,6 +692,11 @@ function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seed
       templateId: template.id || "",
       templateTitle: template.title || "",
       templateTab: template.tab || "",
+      sourceModelId: template.sourceModelId || "",
+      sourceCount: Number(template.sourceCount || 0),
+      usePreviewAsReference: Boolean(template.usePreviewAsReference),
+      referenceVideoUrl: template.referenceVideoUrl || "",
+      animePositionId: template.animePositionId || "",
       source: "playflux",
     },
     ratio: template.ratio || "9:16",
@@ -682,14 +725,25 @@ async function uploadPlayfluxTemplateImageAsset(file) {
   return { asset, dataUrl };
 }
 
+async function uploadPlayfluxTemplateImageAssets(files = []) {
+  const uploaded = [];
+  for (const file of files) {
+    uploaded.push(await uploadPlayfluxTemplateImageAsset(file));
+  }
+  return uploaded;
+}
+
 async function submitPlayfluxTemplate(template = {}, root) {
   if (!state.user) {
     openLogin();
     throw new Error("Log in first.");
   }
-  const file = playfluxTemplateSelectedSource(root);
-  if (playfluxTemplateNeedsSource(template) && !file) throw new Error("Upload a local image first.");
-  if (file && !String(file.type || "").startsWith("image/")) throw new Error("Please upload an image file.");
+  const files = playfluxTemplateSelectedSources(root);
+  const requiredSourceCount = playfluxTemplateRequiredSourceCount(template);
+  if (files.length < requiredSourceCount) {
+    throw new Error(requiredSourceCount > 1 ? `Upload ${requiredSourceCount} local images first.` : "Upload a local image first.");
+  }
+  if (files.some((file) => !String(file.type || "").startsWith("image/"))) throw new Error("Please upload image files only.");
   playfluxTemplateStatus(root, "Submitting...");
   const isVideo = template.tab === "video";
   const provider = isVideo ? "seedance" : "wan27-image-edit";
@@ -699,12 +753,16 @@ async function submitPlayfluxTemplate(template = {}, root) {
   renderAdvancedResultPanel();
   try {
     if (isVideo) {
+      const file = files[0] || null;
       const dataUrl = file ? await readFileAsDataUrl(file) : "";
       const sourceMode = normalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || template.seedanceMode || "reference_images");
       const duration = Number(template.duration || 5);
       const resolution = template.resolution || "720p";
       const ratio = normalizeVideoRatio(template.ratio || "9:16");
       const reference = dataUrl ? { dataUrl, fileName: file.name || "", name: file.name || "Template source image" } : null;
+      const usesReferenceVideo = seedanceModeNeedsReferenceVideo(sourceMode);
+      const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(template.referenceVideoUrl || template.previewUrl || "") : "";
+      const referenceVideoSeconds = usesReferenceVideo ? Number(template.referenceVideoDurationSeconds || duration) : 0;
       const payload = await requestJson("/api/advanced/generate", {
         method: "POST",
         body: {
@@ -712,15 +770,19 @@ async function submitPlayfluxTemplate(template = {}, root) {
           seedanceTier: "standard",
           prompt: playfluxTemplatePrompt(template),
           seedanceMode: sourceMode,
-          referenceImages: seedanceModeNeedsReferenceImages(sourceMode) && reference ? [seedanceImageRefPayload(reference)] : undefined,
+          referenceImages: (seedanceModeNeedsReferenceImages(sourceMode) || usesReferenceVideo) && reference ? [seedanceImageRefPayload(reference)] : undefined,
+          referenceVideoUrls: referenceVideoUrl ? [referenceVideoUrl] : undefined,
           firstFrameDataUrl: seedanceModeNeedsFirstFrame(sourceMode) && reference ? dataUrl : undefined,
           firstFrameUrl: "",
           ratio,
           resolution,
           duration,
-          inputVideoSeconds: 0,
-          referenceVideoDurationSeconds: 0,
-          params: playfluxTemplateRecordBase(template, "", provider).params,
+          inputVideoSeconds: referenceVideoSeconds,
+          referenceVideoDurationSeconds: referenceVideoSeconds,
+          params: {
+            ...playfluxTemplateRecordBase(template, "", provider).params,
+            reference_videos: referenceVideoUrl ? [referenceVideoUrl] : [],
+          },
         },
       });
       if (payload.user) setUser(payload.user);
@@ -747,12 +809,12 @@ async function submitPlayfluxTemplate(template = {}, root) {
       return;
     }
 
-    const uploaded = file ? await uploadPlayfluxTemplateImageAsset(file) : { asset: null };
+    const uploaded = await uploadPlayfluxTemplateImageAssets(files);
     const payload = await requestJson("/api/wan27/image-edit", {
       method: "POST",
       body: {
         prompt: playfluxTemplatePrompt(template),
-        imageAssetIds: uploaded.asset?.id ? [uploaded.asset.id] : [],
+        imageAssetIds: uploaded.map((item) => item.asset?.id).filter(Boolean),
         imageUrls: [],
         ratio: template.ratio || "9:16",
         resolution: template.resolution || "1K",
@@ -791,6 +853,8 @@ function openPlayfluxTemplateDialog(templateId = "") {
   if (!template) return;
   const tab = playfluxTemplateTabMeta(template.tab);
   const needsSource = playfluxTemplateNeedsSource(template);
+  const requiredSourceCount = playfluxTemplateRequiredSourceCount(template);
+  const sourceHint = requiredSourceCount > 1 ? `Required: ${requiredSourceCount} images` : (needsSource ? "Required" : "Optional");
   showInlineDialog({
     title: template.title || "Template",
     body: `
@@ -798,11 +862,11 @@ function openPlayfluxTemplateDialog(templateId = "") {
         <div class="playflux-template-kicker"><i data-lucide="${escapeHtml(tab.icon)}"></i>${escapeHtml(tab.label)}</div>
         <div class="playflux-template-flow">
           <div class="playflux-source-panel">
-            <input id="playfluxTemplateImageInput" type="file" accept="image/*" hidden />
+            <input id="playfluxTemplateImageInput" type="file" accept="image/*" ${template.tab === "video" ? "" : "multiple"} hidden />
             <button class="playflux-local-source" type="button" data-playflux-template-upload="${escapeHtml(template.id || "")}">
               <span class="playflux-local-source-media" data-playflux-source-preview><i data-lucide="image-up"></i></span>
               <strong data-playflux-source-name>Upload local image</strong>
-              <small>${escapeHtml(needsSource ? "Required" : "Optional")}</small>
+              <small>${escapeHtml(sourceHint)}</small>
             </button>
             <button class="ghost-button playflux-source-clear" type="button" data-playflux-source-clear hidden>Remove</button>
           </div>
@@ -815,7 +879,8 @@ function openPlayfluxTemplateDialog(templateId = "") {
         ${template.previewType === "video" ? `
           <div class="playflux-source-modes" aria-label="Seedance source mode">
             ${[
-              { id: "reference_images", label: "Reference" },
+              { id: "reference_video", label: "Preview video" },
+              { id: "reference_images", label: "Image only" },
               { id: "first_frame", label: "First frame" },
             ].map((mode) => `
               <button class="${playfluxTemplateDefaultSourceMode(template) === mode.id ? "is-active" : ""}" type="button" data-playflux-source-mode="${escapeHtml(mode.id)}">
@@ -848,7 +913,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
         root.querySelector("#playfluxTemplateImageInput")?.click();
       });
       root.querySelector("#playfluxTemplateImageInput")?.addEventListener("change", () => {
-        updatePlayfluxTemplateSourcePreview(root, playfluxTemplateSelectedSource(root));
+        updatePlayfluxTemplateSourcePreview(root, playfluxTemplateSelectedSources(root));
         playfluxTemplateStatus(root, "");
       });
       root.querySelector("[data-playflux-source-clear]")?.addEventListener("click", () => {
