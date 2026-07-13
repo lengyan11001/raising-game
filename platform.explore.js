@@ -49,6 +49,7 @@ function setTab(tab) {
   }
   state.tab = nextTab;
   if (routeGalleryMode) state.galleryMode = routeGalleryMode;
+  else if (nextTab === DEFAULT_PLATFORM_TAB && !state.routeCharacterId) state.galleryMode = DEFAULT_GALLERY_MODE;
   localStorage.setItem(TAB_KEY, nextTab);
   const nextHash = state.routeCharacterId && (nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters")
     ? characterDetailHash(nextTab, state.routeCharacterId, state.routeCharacterSource)
@@ -75,7 +76,9 @@ function setTab(tab) {
     panel.hidden = panel.dataset.panel !== nextTab;
   });
   document.querySelectorAll("[data-tab]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.tab === nextTab);
+    const active = button.dataset.tab === nextTab
+      && (button.dataset.tab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
+    button.classList.toggle("is-active", active);
   });
   syncGalleryShortcutNav();
   if (nextTab === "history") loadHistory();
@@ -2710,32 +2713,8 @@ function syncGalleryShortcutNav() {
 
 function renderGalleryModeTabs() {
   if (!els.galleryModeTabs) return;
-  const activeMode = normalizeGalleryMode(state.galleryMode);
-  const modes = [
-    ...GALLERY_MODE_TABS.map((tab) => ({
-      id: tab.id,
-      label: t(tab.labelKey, {}, tab.fallback || tab.id),
-      count: tab.id === "characters"
-        ? state.homeCharacters.filter((item) => item && !item.deletedAt).length
-        : isPlayfluxGalleryMode(tab.id)
-          ? PLAYFLUX_TEMPLATES.filter((item) => item.tab === playfluxTabFromGalleryMode(tab.id)).length
-        : state.advancedCases.filter((item) => item.enabled !== false && normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === tab.id).length,
-    })),
-  ];
-  if (modes.length <= 1) {
-    els.galleryModeTabs.hidden = true;
-    els.galleryModeTabs.innerHTML = "";
-    return;
-  }
-  els.galleryModeTabs.hidden = false;
-  els.galleryModeTabs.innerHTML = modes.map((mode) => `
-    <button class="gallery-mode-tab ${activeMode === mode.id ? "is-active" : ""}" data-gallery-mode="${escapeHtml(mode.id)}" type="button">
-      ${escapeHtml(mode.label)}<span>${escapeHtml(String(mode.count))}</span>
-    </button>
-  `).join("");
-  els.galleryModeTabs.querySelectorAll("[data-gallery-mode]").forEach((button) => {
-    button.addEventListener("click", () => setGalleryMode(button.dataset.galleryMode));
-  });
+  els.galleryModeTabs.hidden = true;
+  els.galleryModeTabs.innerHTML = "";
   syncGalleryShortcutNav();
 }
 
