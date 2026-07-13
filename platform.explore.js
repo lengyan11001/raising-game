@@ -1949,9 +1949,6 @@ function characterCreatorFieldLabel(field = "") {
 
 function characterCreatorCopy(key = "") {
   const copy = {
-    eyebrow: ["Create character", "创建角色"],
-    title: ["Dream AI character", "创建你的梦想 AI 角色"],
-    subtitle: ["Choose the look and details, then generate a reusable character image.", "选择外观和细节，生成可复用角色图。"],
     next: ["Next", "下一步"],
     back: ["Back", "上一步"],
     generate: ["Generate", "生成角色"],
@@ -2107,11 +2104,6 @@ function renderCharacterCreator() {
   const isFirst = currentIndex <= 0;
   const isLast = currentIndex >= CHARACTER_CREATOR_STEPS.length - 1;
   els.characterCreatorRoot.innerHTML = `
-    <div class="character-creator-head">
-      <span class="copy-kicker"><i data-lucide="sparkles"></i>${escapeHtml(characterCreatorCopy("eyebrow"))}</span>
-      <h3>${escapeHtml(characterCreatorCopy("title"))}</h3>
-      <p>${escapeHtml(characterCreatorCopy("subtitle"))}</p>
-    </div>
     ${renderCharacterCreatorSteps()}
     <div class="character-creator-body">${renderCharacterCreatorStepBody()}</div>
     <p class="job-note" id="characterCreateCost">${escapeHtml(assetImageModifyCostLabel())}</p>
