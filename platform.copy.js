@@ -220,6 +220,8 @@ const I18N = {
     "advancedPreset.loadFailed": "Preset library failed to load.",
     "advancedPreset.actionRequired": "Choose an action first.",
     "advancedPreset.characterRequired": "Choose or upload a character image first.",
+    "advancedPreset.uploadLocalImage": "Upload local image",
+    "advancedPreset.localImage": "Local image",
     "advanced.uploadReference": "Upload reference image(s)",
     "advanced.uploadImageVideo": "Upload image/video",
     "advanced.wanMode": "Vipeak 1 input",
@@ -3328,6 +3330,10 @@ Object.assign(I18N.zh, {
   "pricing.notSupported": "不支持",
   "pricing.perImage": "每张",
   "pricing.perCharacter": "每个角色",
+});
+Object.assign(I18N.zh, {
+  "advancedPreset.uploadLocalImage": "上传本机图片",
+  "advancedPreset.localImage": "本机图片",
 });
 const SUPPORTED_LANGS = new Set(Object.keys(I18N));
 if (!SUPPORTED_LANGS.has(state.lang)) state.lang = "en";
