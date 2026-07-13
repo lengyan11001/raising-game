@@ -1390,7 +1390,7 @@ function currentAdvancedResolution() {
 }
 
 function advancedVideoSettingsVisible() {
-  return state.advancedCreateKind === "video";
+  return state.advancedCreateKind === "video" && !advancedCreateModeIsSimpleEdit();
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
@@ -1639,7 +1639,7 @@ function advancedPresetReferenceImage(slot = "", item = selectedAdvancedPreset(s
 }
 
 function advancedPresetReferenceImages() {
-  return ADVANCED_PRESET_SLOT_ORDER
+  return advancedCreateModeActivePresetSlots()
     .map((slot) => advancedPresetReferenceImage(slot))
     .filter(Boolean)
     .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
@@ -1711,7 +1711,8 @@ function advancedPresetImageRolePrompt() {
 
 function renderAdvancedPresetBuilder() {
   if (!els.advancedPresetBuilder) return;
-  const hidden = state.advancedCreateKind === "custom";
+  const slots = advancedCreateModeActivePresetSlots();
+  const hidden = state.advancedCreateKind === "custom" || !slots.length;
   els.advancedPresetBuilder.hidden = hidden;
   if (hidden) {
     els.advancedPresetBuilder.innerHTML = "";
@@ -1721,7 +1722,7 @@ function renderAdvancedPresetBuilder() {
     els.advancedPresetBuilder.innerHTML = `<div class="advanced-preset-status">${escapeHtml(t("advancedPreset.loading"))}</div>`;
     return;
   }
-  els.advancedPresetBuilder.innerHTML = ADVANCED_PRESET_SLOT_ORDER.map((slot) => {
+  els.advancedPresetBuilder.innerHTML = slots.map((slot) => {
     const meta = advancedPresetMeta(slot);
     const selected = selectedAdvancedPreset(slot);
     const image = presetImageUrl(selected || {});
@@ -1934,20 +1935,19 @@ function applyAdvancedCharacterPreset(preset = {}) {
 }
 
 function advancedPresetPromptParts() {
-  const character = selectedAdvancedPreset("character");
-  const action = selectedAdvancedPreset("action");
-  const outfit = selectedAdvancedPreset("outfit");
-  const scene = selectedAdvancedPreset("scene");
   const parts = [advancedPresetImageRolePrompt()];
-  if (character) parts.push(`Character: ${character.label}. ${presetPromptText(character)}`);
-  if (action) parts.push(`Action: ${presetPromptText(action)}`);
-  if (outfit) parts.push(`Outfit: ${presetPromptText(outfit)}`);
-  if (scene) parts.push(`Scene: ${presetPromptText(scene)}`);
+  advancedCreateModeActivePresetSlots().forEach((slot) => {
+    const item = selectedAdvancedPreset(slot);
+    if (!item) return;
+    const label = advancedPresetLabel(slot);
+    const prompt = presetPromptText(item);
+    parts.push(`${label}: ${slot === "character" ? `${item.label}. ` : ""}${prompt}`);
+  });
   return parts.map((part) => part.trim()).filter(Boolean);
 }
 
 function advancedPresetSelectionPayload() {
-  return Object.fromEntries(ADVANCED_PRESET_SLOT_ORDER.map((slot) => {
+  return Object.fromEntries(advancedCreateModeActivePresetSlots().map((slot) => {
     const item = selectedAdvancedPreset(slot);
     return [slot, item ? {
       id: item.id,
@@ -2017,8 +2017,8 @@ function advancedEffectivePrompt(basePrompt = "") {
 function nonCustomAdvancedNeedsCharacterImage() {
   if (state.advancedCreateKind === "custom") return false;
   const provider = currentAdvancedProvider();
-  if (provider === "wan27-image-edit") return state.advancedCreateMode === "image-edit";
-  return provider === "seedance" && ["video-text", "video-image"].includes(state.advancedCreateMode);
+  if (provider === "wan27-image-edit") return false;
+  return provider === "seedance" && advancedCreateModeActivePresetSlots().includes("character");
 }
 
 function hasAdvancedCharacterImage() {
@@ -2107,6 +2107,7 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
     els.advancedWorkspace.classList.toggle("is-create-video", kind === "video");
     els.advancedWorkspace.classList.toggle("is-create-custom-kind", kind === "custom");
     els.advancedWorkspace.classList.toggle("is-create-auto-prompt", !custom && advancedCreateModeUsesAutoPrompt(config.id));
+    els.advancedWorkspace.classList.toggle("is-create-simple-edit", !custom && advancedCreateModeIsSimpleEdit(config.id));
     Object.values(ADVANCED_CREATE_MODES).flat().forEach((mode) => {
       els.advancedWorkspace.classList.toggle(`is-create-${mode.id}`, mode.id === config.id);
     });
@@ -2141,7 +2142,7 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
   }
   if (els.advancedImage) {
     els.advancedImage.accept = advancedCreateUploadAcceptValue(config.id);
-    els.advancedImage.multiple = !advancedCreateUploadIsVideo(config.id) && !advancedCreateModeNeedsReplacePair(config.id);
+    els.advancedImage.multiple = !advancedCreateUploadIsVideo(config.id) && !advancedCreateModeUsesSingleUpload(config.id);
   }
   renderAdvancedPresetBuilder();
 }

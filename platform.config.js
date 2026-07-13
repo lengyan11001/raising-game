@@ -5301,8 +5301,8 @@ const ADVANCED_CREATE_MODES = {
   video: [
     { id: "video-text", labelKey: "advanced.modeVideoText", icon: "type", provider: "seedance", seedanceMode: "text_to_video", assetTarget: "primary", placeholderKey: "advanced.promptVideoText" },
     { id: "video-image", labelKey: "advanced.modeVideoImage", icon: "image-up", provider: "seedance", seedanceMode: "first_frame", assetTarget: "primary", placeholderKey: "advanced.promptVideoImage" },
-    { id: "video-extend", labelKey: "advanced.modeVideoExtend", icon: "stretch-horizontal", provider: "seedance", seedanceMode: "first_frame", assetTarget: "video", placeholderKey: "advanced.promptVideoExtend" },
-    { id: "video-replace", labelKey: "advanced.modeVideoReplace", icon: "replace", provider: "seedance", seedanceMode: "reference_video", assetTarget: "primary", placeholderKey: "advanced.promptVideoReplace" },
+    { id: "video-extend", labelKey: "advanced.modeVideoExtend", icon: "stretch-horizontal", provider: "seedance", seedanceMode: "reference_images", assetTarget: "primary", placeholderKey: "advanced.promptVideoExtend" },
+    { id: "video-replace", labelKey: "advanced.modeVideoReplace", icon: "replace", provider: "seedance", seedanceMode: "reference_images", assetTarget: "primary", placeholderKey: "advanced.promptVideoReplace" },
     { id: "video-edit", labelKey: "advanced.modeVideoEdit", icon: "film", provider: "seedance", seedanceMode: "reference_video", assetTarget: "video", placeholderKey: "advanced.promptVideoEdit" },
   ],
   custom: [ADVANCED_CUSTOM_MODE],
@@ -5338,24 +5338,46 @@ function advancedCreateModeUsesAutoPrompt(mode = state.advancedCreateMode) {
   return ["video-extend", "video-replace"].includes(mode);
 }
 
+function advancedCreateModeIsSimpleEdit(mode = state.advancedCreateMode) {
+  return ["image-edit", "video-edit"].includes(mode);
+}
+
+function advancedCreateModeUsesSingleUpload(mode = state.advancedCreateMode) {
+  return ["image-edit", "video-edit", "video-extend", "video-replace"].includes(mode);
+}
+
+function advancedCreateModeActivePresetSlots(mode = state.advancedCreateMode) {
+  if (advancedCreateModeIsSimpleEdit(mode)) return [];
+  if (["video-extend", "video-replace"].includes(mode)) return ["character", "action"];
+  return ADVANCED_PRESET_SLOT_ORDER;
+}
+
+function advancedCreateModeUsesPresetBuilder(mode = state.advancedCreateMode) {
+  return state.advancedCreateKind !== "custom" && advancedCreateModeActivePresetSlots(mode).length > 0;
+}
+
+function advancedCreateModeRequiresActionPreset(mode = state.advancedCreateMode) {
+  return advancedCreateModeActivePresetSlots(mode).includes("action");
+}
+
 function advancedCreateModeNeedsReplacePair(mode = state.advancedCreateMode) {
   return mode === "video-replace";
 }
 
 function advancedCreateModeNeedsVideoUpload() {
-  return state.advancedCreateKind === "video" && ["video-edit", "video-extend"].includes(state.advancedCreateMode);
+  return state.advancedCreateKind === "video" && state.advancedCreateMode === "video-edit";
 }
 
 function advancedCreateModeUsesCharacterPresetReference(mode = state.advancedCreateMode) {
-  return state.advancedCreateKind === "video" && ["video-text", "video-image"].includes(mode);
+  return state.advancedCreateKind === "video" && ["video-text", "video-image", "video-extend", "video-replace"].includes(mode);
 }
 
 function advancedCreateModeAcceptsVideoUpload(mode = state.advancedCreateMode) {
-  return state.advancedCreateKind === "video" && ["video-edit", "video-extend"].includes(mode);
+  return state.advancedCreateKind === "video" && mode === "video-edit";
 }
 
 function advancedCreateModeAcceptsImageUpload(mode = state.advancedCreateMode) {
-  return !(state.advancedCreateKind === "video" && ["video-edit", "video-extend"].includes(mode));
+  return !(state.advancedCreateKind === "video" && mode === "video-edit");
 }
 
 function currentAdvancedSeedanceUploadMode() {
@@ -5381,9 +5403,9 @@ function advancedCreateModePreferredSeedanceMode(config = advancedCreateModeConf
 
 function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
   if (mode === "video-extend") {
-    return "Extend [Image 1] smoothly with the same subject, scene, motion, lighting and cinematic style.";
+    return "Generate a cinematic video using Image 1 as the main adult character and Image 2 as the action reference. Preserve Image 1 identity, face, hairstyle, body type, and overall character consistency. Follow the selected action reference for pose and motion. No subtitles, no watermark, stable hands, stable anatomy.";
   }
-  if (mode === "video-replace") return "Replace the main person in [Video 1] with the person in [Image 1], preserving the original motion, camera, scene, and lighting.";
+  if (mode === "video-replace") return "Replace the subject of the selected action reference with Image 1 as the main adult character. Preserve Image 1 identity, face, hairstyle, body type, and overall character consistency. Follow the selected action reference for pose and motion. No subtitles, no watermark, stable hands, stable anatomy.";
   return "";
 }
 

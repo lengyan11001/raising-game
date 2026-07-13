@@ -74,16 +74,16 @@ els.advancedImage?.addEventListener("change", async () => {
   }
   if (provider === "seedance" || provider === "wan27-image-edit") {
     let existing = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
-    if (provider === "seedance" && advancedCreateModeNeedsReplacePair() && els.advancedSeedanceMediaMode) {
-      els.advancedSeedanceMediaMode.value = "reference_video";
+    if (provider === "seedance" && state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference() && els.advancedSeedanceMediaMode) {
+      els.advancedSeedanceMediaMode.value = "reference_images";
     } else if (provider === "seedance" && advancedCreateModeUsesAutoPrompt() && els.advancedSeedanceMediaMode) {
       els.advancedSeedanceMediaMode.value = "first_frame";
-    } else if (provider === "seedance" && state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference() && els.advancedSeedanceMediaMode) {
-      els.advancedSeedanceMediaMode.value = "reference_images";
     }
     const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
     const localCharacterUpload = provider === "seedance" && state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference();
-    const limit = provider === "wan27-image-edit" ? ADVANCED_SEEDANCE_REFERENCE_LIMIT : (seedanceModeNeedsFirstFrame(seedanceMode) || advancedCreateModeNeedsReplacePair()) ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+    const limit = provider === "wan27-image-edit"
+      ? (advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT)
+      : (advancedCreateModeUsesSingleUpload() || seedanceModeNeedsFirstFrame(seedanceMode) || advancedCreateModeNeedsReplacePair()) ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
     if (limit === 1 || localCharacterUpload) existing = [];
     const roomLeft = Math.max(0, limit - existing.length);
     if (!roomLeft) {

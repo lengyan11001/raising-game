@@ -51,6 +51,8 @@ function advancedAssetTargetItems() {
   } else {
     if (advancedCreateModeNeedsReplacePair()) {
       targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+    } else if (advancedCreateModeUsesAutoPrompt() && advancedCreateModeUsesCharacterPresetReference()) {
+      targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
     } else if (advancedCreateModeUsesAutoPrompt()) {
       targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
     } else if (seedanceModeNeedsReferenceImages(seedanceMode)) {
@@ -77,7 +79,7 @@ function preferredAdvancedAssetTargetForAsset(asset = {}) {
   if (advancedCreateModeNeedsReplacePair()) {
     if (isImageAsset(asset)) return "primary";
   }
-  if (advancedCreateModeUsesAutoPrompt()) {
+  if (advancedCreateModeNeedsVideoUpload()) {
     if (isVideoAsset(asset)) return "video";
   }
   return "";
@@ -96,7 +98,7 @@ function selectedAdvancedImageAsset() {
 }
 
 async function ensureAdvancedImageEditAssets() {
-  const references = selectedAdvancedReferenceImages("wan27-image-edit").slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  const references = selectedAdvancedReferenceImages("wan27-image-edit").slice(0, advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (!references.length) return { assets: [], imageUrls: [] };
   const resolved = [];
   const imageUrls = [];
@@ -612,8 +614,8 @@ async function addAssetToAdvancedTarget(assetId = "") {
     else state.advancedFirstFrameAssetId = asset.id;
     state.advancedUploadDataUrl = url;
     if (provider === "seedance") {
-      if (advancedCreateModeNeedsReplacePair()) {
-        if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+      if (advancedCreateModeUsesCharacterPresetReference()) {
+        if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
       } else if (advancedCreateModeUsesAutoPrompt()) {
         if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "first_frame";
       }
@@ -637,7 +639,8 @@ async function addAssetToAdvancedTarget(assetId = "") {
       state.advancedAudioAssetId = "";
     } else if (provider === "wan27-image-edit") {
       const ref = { assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true };
-      state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+      const imageLimit = advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+      state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(imageLimit === 1 ? [] : (state.advancedReferenceImages || [])), ref]).slice(0, imageLimit);
       state.advancedSourceImageAssetId = state.advancedReferenceImages[0]?.assetId || "";
       state.advancedFirstFrameAssetId = "";
       state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || url;
@@ -718,6 +721,7 @@ function updateAdvancedModelControls() {
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const bounds = advancedDurationBounds(provider);
   const isImageEdit = provider === "wan27-image-edit";
+  const simpleEdit = advancedCreateModeIsSimpleEdit();
   const simpleAction = state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt();
   if (els.advancedDuration) {
     els.advancedDuration.min = String(bounds.min);
@@ -749,10 +753,10 @@ function updateAdvancedModelControls() {
     if (!options.includes(current)) els.advancedRatio.value = isImageEdit ? "9:16" : "9:16";
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
-    item.hidden = simpleAction || provider !== "wan27";
+    item.hidden = simpleAction || simpleEdit || provider !== "wan27";
   });
   document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
-    item.hidden = simpleAction || provider !== "seedance";
+    item.hidden = simpleAction || simpleEdit || provider !== "seedance";
   });
   document.querySelectorAll(".advanced-fields").forEach((item) => {
     item.hidden = simpleAction;
@@ -761,7 +765,7 @@ function updateAdvancedModelControls() {
     item.hidden = simpleAction;
   });
   document.querySelectorAll(".advanced-duration-field").forEach((item) => {
-    item.hidden = isImageEdit;
+    item.hidden = isImageEdit || simpleEdit;
   });
   syncAdvancedVideoSettingsControls();
   document.querySelectorAll(".wan-first-frame").forEach((item) => {
@@ -788,9 +792,10 @@ function updateAdvancedModelControls() {
     const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
     if (els.advancedImage) {
       els.advancedImage.accept = advancedCreateUploadAcceptValue();
-      els.advancedImage.multiple = !uploadIsVideo && !advancedCreateModeNeedsReplacePair();
+      els.advancedImage.multiple = !uploadIsVideo && !advancedCreateModeUsesSingleUpload();
     }
-    els.advancedUploadBox.hidden = !simpleAction && !advancedCreateModeNeedsVideoUpload() && (
+    const forceUpload = simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload();
+    els.advancedUploadBox.hidden = !forceUpload && (
       (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
       (provider === "seedance" && seedanceMode === "text_to_video")
     );
@@ -803,7 +808,8 @@ function updateAdvancedModelControls() {
       const imageEditLabel = t("advanced.assetTargetSourceImages");
       const videoEditLabel = t("advanced.assetTargetVideo");
       const seedanceLabel = seedanceModeNeedsFirstFrame(seedanceMode) ? t("advanced.firstFrame") : t("advanced.uploadReference");
-      label.innerHTML = `<i data-lucide="${uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel)}`;
+      const uploadLabel = simpleEdit && isImageEdit ? imageEditLabel : simpleEdit && uploadIsVideo ? videoEditLabel : mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel;
+      label.innerHTML = `<i data-lucide="${uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(uploadLabel)}`;
     }
   }
   renderAdvancedReferencePreviews();
@@ -826,7 +832,7 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "" } = {}) {
   }
   updateAdvancedModelControls();
   els.advancedImage.accept = "image/*";
-  els.advancedImage.multiple = provider === "seedance" && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "") && !advancedCreateModeNeedsReplacePair();
+  els.advancedImage.multiple = provider === "seedance" && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "") && !advancedCreateModeUsesSingleUpload();
   els.advancedImage.click();
 }
 
@@ -1013,9 +1019,9 @@ async function requestAdvancedAccess() {
 async function submitAdvancedGenerate() {
   if (!state.user) return openLogin();
   const promptInput = els.advancedPrompt?.value.trim() || "";
-  const usingPresetFlow = state.advancedCreateKind !== "custom";
+  const usingPresetFlow = advancedCreateModeUsesPresetBuilder();
   const autoPrompt = advancedCreateModeUsesAutoPrompt();
-  if (usingPresetFlow && !autoPrompt && !selectedAdvancedPreset("action")) {
+  if (usingPresetFlow && advancedCreateModeRequiresActionPreset() && !selectedAdvancedPreset("action")) {
     if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.actionRequired");
     return;
   }
@@ -1028,6 +1034,16 @@ async function submitAdvancedGenerate() {
   if (!prompt) {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.promptRequired");
     return;
+  }
+  if (advancedCreateModeIsSimpleEdit()) {
+    if (state.advancedCreateMode === "image-edit" && !selectedAdvancedReferenceImages("wan27-image-edit").length) {
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.editImageRequired", {}, "Upload one image first.");
+      return;
+    }
+    if (state.advancedCreateMode === "video-edit" && !state.advancedSeedanceVideoAssetId) {
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.editVideoRequired", {}, "Upload one video first.");
+      return;
+    }
   }
   const currentCase = state.advancedCases.find((item) => item.id === state.activeAdvancedCaseId);
   if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
@@ -1130,7 +1146,9 @@ async function submitAdvancedGenerate() {
     ? absoluteHttpUrl(advancedCaseInputVideo(currentCase || {}))
     : "";
   const seedanceVideoUrls = splitUrlList(els.advancedSeedanceVideoUrls?.value || "");
-  const effectiveSeedanceVideoUrls = seedanceVideoUrls.length ? seedanceVideoUrls : (caseVideoUrl ? [caseVideoUrl] : []);
+  const effectiveSeedanceVideoUrls = advancedCreateModeIsSimpleEdit()
+    ? []
+    : (seedanceVideoUrls.length ? seedanceVideoUrls : (caseVideoUrl ? [caseVideoUrl] : []));
   const seedanceAudioUrls = splitUrlList(els.advancedSeedanceAudioUrls?.value || "");
   const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0;
   if (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !referenceImages.length) {
@@ -2158,7 +2176,7 @@ function useAssetInAdvanced(asset = {}, action = "use") {
       state.advancedFirstFrameAssetId = asset.id;
       state.advancedSourceImageAssetId = "";
     }
-    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = action === "extend" ? "first_frame" : "reference_images";
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
     const ref = {
       assetId: asset.id,
       dataUrl: assetPreviewUrl(asset),
@@ -2214,7 +2232,7 @@ function selectedWanClipUrl(mediaMode = "first_frame") {
 function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   const images = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (normalizedProvider === "wan27-image-edit") return images.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  if (normalizedProvider === "wan27-image-edit") return images.slice(0, advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (normalizedProvider !== "seedance") return images.slice(0, 1);
   const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   if (seedanceModeNeedsFirstFrame(mode)) return images.slice(0, 1);
