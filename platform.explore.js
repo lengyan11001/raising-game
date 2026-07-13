@@ -560,7 +560,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
             <span>预览</span>
           </button>
         </div>
-        ${template.previewType === "video" ? `
+        ${false && template.previewType === "video" ? `
           <div class="playflux-source-modes" aria-label="Seedance source mode">
             ${[
               { id: "reference_images", label: "参考" },
@@ -1075,7 +1075,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
             </button>
           </div>
         `}
-        ${!isAnime && template.previewType === "video" ? `
+        ${false && !isAnime && template.previewType === "video" ? `
           <div class="playflux-source-modes" aria-label="Seedance source mode">
             ${[
               { id: "reference_video", label: "Preview video" },
