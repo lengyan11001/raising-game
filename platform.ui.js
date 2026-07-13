@@ -450,7 +450,7 @@ function applyLanguage() {
   renderAccessGuides();
   renderAdvanced();
   renderAssets();
-  if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+  if (state.tab === "characters") renderCharactersPanel({ forceCreator: true });
   renderAccountMenu();
   renderTopupSummary();
   renderPricing();
@@ -523,6 +523,8 @@ function setUser(user, { refreshHistory = false } = {}) {
     else renderReferral();
   }
   if (state.tab === "characters") {
+    renderCharactersPanel();
+    if (state.user) loadMyCharacters({ silent: true }).catch(() => {});
     loadUserAssets(state.userAssetsPage || 1).catch(() => {});
     if (state.activeGalleryCharacterId) loadGalleryUnlocks();
   }

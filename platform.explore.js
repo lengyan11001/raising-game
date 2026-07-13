@@ -30,6 +30,7 @@ function trackAnalyticsEvent(eventName, params = {}) {
 }
 
 function setTab(tab) {
+  const previousTab = state.tab;
   const hashRoute = platformHashParts(tab);
   let routeGalleryMode = galleryModeFromPlatformRoute(tab);
   if (routeGalleryMode === "playflux-anime" && !canUseAnimeTemplates()) routeGalleryMode = "";
@@ -49,6 +50,11 @@ function setTab(tab) {
     nextTab = state.tab || nextTab;
   }
   state.tab = nextTab;
+  if (nextTab === "characters") {
+    state.characterPanelTab = state.routeCharacterId || state.activeGalleryCharacterId
+      ? "list"
+      : previousTab === "characters" ? normalizeCharacterPanelTab(state.characterPanelTab) : "create";
+  }
   if (routeGalleryMode) state.galleryMode = routeGalleryMode;
   localStorage.setItem(TAB_KEY, nextTab);
   const nextHash = state.routeCharacterId && (nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters")
@@ -93,8 +99,7 @@ function setTab(tab) {
   }
   if (nextTab === "characters") {
     applyRouteCharacterDetail({ allowTabSwitch: false });
-    renderGalleryCharacters(els.characterGrid);
-    bindCharacterCreator();
+    renderCharactersPanel();
     loadGalleryUnlocks();
     if (state.user) loadMyCharacters({ silent: true }).catch(() => {});
     if (state.user) loadUserAssets(state.userAssetsPage || 1).catch(() => {});
@@ -374,7 +379,7 @@ function renderTemplates() {
   applyRouteCharacterDetail({ allowTabSwitch: true });
   renderGalleryModeTabs();
   if (state.tab === "characters") {
-    renderGalleryCharacters(els.characterGrid);
+    renderCharactersPanel();
     return;
   }
   if (state.galleryMode === "characters") {
@@ -1172,6 +1177,53 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
   }
 }
 
+function normalizeCharacterPanelTab(value = "") {
+  return String(value || "").trim().toLowerCase() === "list" ? "list" : "create";
+}
+
+function renderCharacterPageTabs() {
+  if (!els.characterPageTabs) return;
+  const activeTab = normalizeCharacterPanelTab(state.characterPanelTab);
+  const tabs = [
+    { id: "create", label: t("characters.createTab"), icon: "sparkles" },
+    { id: "list", label: t("characters.listTab"), icon: "images", count: customCharacterItems().length },
+  ];
+  els.characterPageTabs.innerHTML = tabs.map((tab) => `
+    <button class="gallery-mode-tab ${activeTab === tab.id ? "is-active" : ""}" data-character-panel-tab="${escapeHtml(tab.id)}" type="button">
+      <i data-lucide="${escapeHtml(tab.icon)}"></i>${escapeHtml(tab.label)}${tab.count === undefined ? "" : `<span>${escapeHtml(String(tab.count))}</span>`}
+    </button>
+  `).join("");
+  els.characterPageTabs.querySelectorAll("[data-character-panel-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const nextTab = normalizeCharacterPanelTab(button.dataset.characterPanelTab || "create");
+      state.characterPanelTab = nextTab;
+      if (nextTab === "create") {
+        state.routeCharacterId = "";
+        state.routeCharacterSource = "";
+        state.activeGalleryCharacterId = "";
+        replacePlatformUrlForCharacter("", "", "characters");
+      }
+      renderCharactersPanel();
+      if (nextTab === "list" && state.user) loadMyCharacters({ silent: true }).catch(() => {});
+    });
+  });
+}
+
+function renderCharactersPanel({ forceCreator = false } = {}) {
+  if (state.routeCharacterId || state.activeGalleryCharacterId) state.characterPanelTab = "list";
+  state.characterPanelTab = normalizeCharacterPanelTab(state.characterPanelTab);
+  renderCharacterPageTabs();
+  const showCreate = state.characterPanelTab === "create";
+  if (els.characterCreatorCard) els.characterCreatorCard.hidden = !showCreate;
+  if (els.characterListPanel) els.characterListPanel.hidden = showCreate;
+  if (showCreate) {
+    bindCharacterCreator({ force: forceCreator });
+  } else {
+    renderGalleryCharacters(els.characterGrid);
+  }
+  refreshIcons();
+}
+
 function renderGalleryCharacters(root = els.templateGrid) {
   if (!root) return;
   const myCharactersOnly = root === els.characterGrid;
@@ -1799,7 +1851,7 @@ async function deleteCustomCharacter(characterId = "", button = null) {
       state.userAssets = (state.userAssets || []).filter((asset) => asset.id !== assetId);
       state.userAssetsTotal = Math.max(0, Number(state.userAssetsTotal || 0) - 1);
     }
-    renderGalleryCharacters(els.characterGrid);
+    renderCharactersPanel();
     if (state.tab === "assets") await loadUserAssets(state.userAssetsPage || 1);
   } catch (error) {
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.deleteFailed", { message: error.message || String(error) });
@@ -1815,7 +1867,7 @@ async function loadMyCharacters({ silent = false } = {}) {
   if (!state.user) {
     state.myCharacters = [];
     state.myCharactersLoaded = true;
-    if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+    if (state.tab === "characters") renderCharactersPanel();
     return [];
   }
   if (!silent && els.characterCreateStatus) els.characterCreateStatus.textContent = "Loading characters...";
@@ -1825,7 +1877,7 @@ async function loadMyCharacters({ silent = false } = {}) {
   scheduleMyCharacterProgressRefreshes();
   if (state.routeCharacterId) applyRouteCharacterDetail({ allowTabSwitch: true });
   if (!silent && els.characterCreateStatus) els.characterCreateStatus.textContent = "";
-  if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+  if (state.tab === "characters") renderCharactersPanel();
   return state.myCharacters;
 }
 
@@ -1854,7 +1906,7 @@ async function refreshMyCharacterImage(characterId = "", { render = false, resch
   if (!id) return null;
   const payload = await requestJson(`/api/my/characters/${encodeURIComponent(id)}/image`);
   if (payload.character) updateMyCharacterInState(payload.character);
-  if (render && state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+  if (render && state.tab === "characters") renderCharactersPanel();
   const item = payload.character ? myCharacterToGalleryItem(payload.character) : null;
   if (reschedule && item && isMyCharacterGenerating(item)) scheduleMyCharacterProgressRefreshes();
   return payload.character || null;
@@ -2074,6 +2126,7 @@ function renderCharacterCreator() {
   els.characterCreateBtn = els.characterCreatorRoot.querySelector("#characterCreateBtn");
   els.characterCreateCost = els.characterCreatorRoot.querySelector("#characterCreateCost");
   els.characterCreateStatus = els.characterCreatorRoot.querySelector("#characterCreateStatus");
+  els.characterCreatorRoot.dataset.rendered = "true";
   refreshIcons();
 }
 
@@ -2126,9 +2179,9 @@ function bindCharacterCreatorEvents() {
   });
 }
 
-function bindCharacterCreator() {
+function bindCharacterCreator({ force = false } = {}) {
   if (els.characterCreatorRoot) {
-    renderCharacterCreator();
+    if (force || els.characterCreatorRoot.dataset.rendered !== "true") renderCharacterCreator();
     bindCharacterCreatorEvents();
     return;
   }
@@ -2170,7 +2223,8 @@ async function createCharacterFromPrompt() {
     }
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = state.lang === "zh" ? "角色已加入我的角色，正在生成。" : "Character added. Generating image...";
     state.activeGalleryCharacterId = "";
-    renderGalleryCharacters(els.characterGrid);
+    state.characterPanelTab = "list";
+    renderCharactersPanel();
     scheduleMyCharacterProgressRefreshes();
   } catch (error) {
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.createFailed", { message: error.message || String(error) });
@@ -2327,13 +2381,14 @@ function openGalleryCharacter(characterId = "", { updateRoute = true } = {}) {
   state.activeGalleryCharacterId = item.id || "";
   state.routeCharacterId = item.id || "";
   state.routeCharacterSource = source;
+  if (targetTab === "characters") state.characterPanelTab = "list";
   if (source === "system") trackSystemCharacterView(item.id || "", "home");
   if (updateRoute) replacePlatformUrlForCharacter(item.id || "", source, targetTab);
   if (state.tab !== targetTab) {
     setTab(targetTab);
     return;
   }
-  if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+  if (state.tab === "characters") renderCharactersPanel();
   else renderTemplates();
   if (state.user) loadGalleryUnlocks();
   else {
@@ -2349,7 +2404,7 @@ async function loadGalleryUnlocks() {
     state.galleryUnlocksLoaded = false;
     state.galleryUnlockMessage = "";
     if (state.activeGalleryCharacterId && (state.tab === "gallery" || state.tab === "characters")) {
-      if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+      if (state.tab === "characters") renderCharactersPanel();
       else renderTemplates();
     }
     return;
@@ -2360,14 +2415,14 @@ async function loadGalleryUnlocks() {
     state.galleryUnlocksLoaded = true;
     state.galleryUnlockMessage = "";
     if (state.activeGalleryCharacterId && (state.tab === "gallery" || state.tab === "characters")) {
-      if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+      if (state.tab === "characters") renderCharactersPanel();
       else renderTemplates();
     }
   } catch (error) {
     state.galleryUnlockMessage = error.message || "";
     state.galleryUnlocksLoaded = false;
     if (state.activeGalleryCharacterId && (state.tab === "gallery" || state.tab === "characters")) {
-      if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+      if (state.tab === "characters") renderCharactersPanel();
       else renderTemplates();
     }
   }
@@ -2426,7 +2481,7 @@ async function unlockGallerySceneVideo(characterId = "") {
   });
   if (confirmed !== "confirm") return;
   const renderActiveCharacterView = () => {
-    if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+    if (state.tab === "characters") renderCharactersPanel();
     else renderTemplates();
   };
   const key = galleryCharacterUnlockKey(characterId);

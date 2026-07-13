@@ -574,18 +574,30 @@ main {
   box-shadow: none;
 }
 .gallery-panel { width: 100%; }
-.characters-layout {
+.characters-layout,
+.characters-page {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
-  gap: 18px;
+  grid-template-columns: 1fr;
+  gap: 14px;
   align-items: start;
 }
-.character-create-card {
-  position: sticky;
-  top: 82px;
+.character-page-tabs {
+  justify-content: flex-start;
+}
+.character-list-panel {
   display: grid;
   gap: 12px;
-  padding: 16px;
+}
+.character-create-card[hidden],
+.character-list-panel[hidden] {
+  display: none !important;
+}
+.character-create-card {
+  position: static;
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  padding: 18px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255,255,255,.78);
@@ -646,9 +658,7 @@ main {
 .character-creator-body {
   display: grid;
   gap: 14px;
-  max-height: min(58vh, 660px);
-  overflow: auto;
-  padding-right: 2px;
+  overflow: visible;
 }
 .creator-segment {
   display: grid;
@@ -689,7 +699,7 @@ main {
 }
 .creator-tile-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
 }
 .creator-tile {
@@ -6937,7 +6947,8 @@ input:focus {
 .advanced-gate,
 .advanced-workspace,
 .asset-panel,
-.characters-layout {
+.characters-layout,
+.characters-page {
   color: var(--text);
 }
 .permission-card,
