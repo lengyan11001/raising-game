@@ -417,17 +417,10 @@ function playfluxTemplatesForActiveTab() {
 
 function renderPlayfluxTemplateGallery() {
   if (!els.templateGrid) return;
-  const activeTab = playfluxTabFromGalleryMode();
   const templates = playfluxTemplatesForActiveTab();
-  const tab = playfluxTemplateTabMeta(activeTab);
   els.templateGrid.className = "template-grid playflux-template-shell";
   els.templateGrid.innerHTML = `
     <section class="playflux-template-page">
-      <div class="playflux-template-heading" aria-label="${escapeHtml(tab.label)}">
-        <i data-lucide="${escapeHtml(tab.icon)}"></i>
-        <strong>${escapeHtml(tab.label)}</strong>
-        <span>${escapeHtml(String(templates.length))}</span>
-      </div>
       <div class="playflux-card-grid">
         ${templates.map(renderPlayfluxTemplateCard).join("")}
       </div>
@@ -610,6 +603,22 @@ function playfluxTemplateStatus(root, message = "") {
   if (status) status.textContent = message;
 }
 
+function showPlayfluxSubmittedHistory(record = null) {
+  const taskId = record?.taskId || "";
+  if (record?.taskId) {
+    state.historyRecords = [record, ...(state.historyRecords || []).filter((item) => item.taskId !== record.taskId)];
+  }
+  state.historyRecordsPage = 1;
+  historyRecordsSignature = "";
+  els.inlineDialog?.close("submitted");
+  setTab("history");
+  if ((state.historyRecords || []).length) {
+    renderHistory((state.historyRecords || []).slice(0, state.historyRecordsLimit || 8));
+  }
+  loadHistory({ page: 1, refresh: true, silent: true }).catch(() => {});
+  if (taskId) scheduleHistoryRefresh({ delayMs: 3000, force: true });
+}
+
 function playfluxTemplatePrompt(template = {}) {
   return [template.prompt || "", template.negativePrompt ? `Negative prompt: ${template.negativePrompt}` : ""]
     .filter(Boolean)
@@ -730,7 +739,11 @@ async function submitPlayfluxTemplate(template = {}, root) {
       state.advancedResultTaskId = taskId || payload.record?.taskId || "";
       playfluxTemplateStatus(root, "Submitted.");
       if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
-      scheduleHistoryRefresh({ delayMs: 8000, force: true });
+      showPlayfluxSubmittedHistory(payload.record || (taskId ? {
+        ...playfluxTemplateRecordBase(template, taskId, provider),
+        status: payload.task?.status || "submitted",
+        updatedAt: new Date().toISOString(),
+      } : null));
       return;
     }
 
@@ -756,7 +769,11 @@ async function submitPlayfluxTemplate(template = {}, root) {
     state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
     playfluxTemplateStatus(root, "Submitted.");
     if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
-    await loadHistory({ silent: true }).catch(() => {});
+    showPlayfluxSubmittedHistory(payload.record || (state.advancedResultTaskId ? {
+      ...playfluxTemplateRecordBase(template, state.advancedResultTaskId, provider),
+      status: payload.task?.status || "submitted",
+      updatedAt: new Date().toISOString(),
+    } : null));
   } catch (error) {
     state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
       record.taskId === pendingTaskId

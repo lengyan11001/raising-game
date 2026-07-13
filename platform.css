@@ -7286,7 +7286,7 @@ select:focus,
   .side-rail {
     inset: 0 auto 0 0;
     z-index: 70;
-    width: min(310px, calc(100vw - 54px));
+    width: clamp(224px, 72vw, 268px);
     min-height: 100vh;
     grid-template-rows: auto minmax(0, 1fr) auto auto;
     gap: 14px;
@@ -7564,7 +7564,7 @@ select:focus,
   .character-detail-profile img,
   .character-detail-profile video,
   .character-detail-cover-media { width: 100%; max-width: 160px; }
-  .history-panel .history-list { grid-template-columns: 1fr; }
+  .history-panel .history-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .advanced-asset-grid,
   .advanced-result-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .advanced-result-empty,
