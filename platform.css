@@ -6550,6 +6550,96 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   font-size: .76rem;
   font-weight: 800;
 }
+.playflux-anime-direct {
+  display: grid;
+  gap: 10px;
+}
+.playflux-anime-selected,
+.playflux-anime-style {
+  min-height: 70px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 14px;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  color: #fff;
+  background: rgba(255,255,255,.055);
+}
+.playflux-anime-selected img,
+.playflux-anime-style-icon,
+.playflux-anime-style img {
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
+  object-fit: cover;
+  overflow: hidden;
+}
+.playflux-anime-style-icon {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(138,92,255,.9), rgba(214,58,255,.82));
+}
+.playflux-anime-style-icon svg {
+  width: 24px;
+  height: 24px;
+}
+.playflux-anime-selected small,
+.playflux-anime-style small {
+  display: block;
+  margin-bottom: 3px;
+  color: rgba(255,255,255,.56);
+  font-size: .72rem;
+  font-weight: 850;
+}
+.playflux-anime-selected strong,
+.playflux-anime-style strong {
+  display: block;
+  overflow: hidden;
+  color: #fff;
+  font-size: .92rem;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.playflux-anime-preview {
+  aspect-ratio: 16 / 10;
+  width: 100%;
+}
+.playflux-anime-prompt-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255,255,255,.04);
+}
+.playflux-anime-prompt-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: rgba(255,255,255,.72);
+  font-size: .78rem;
+  font-weight: 900;
+}
+.playflux-anime-prompt-head strong {
+  color: #fff;
+  white-space: nowrap;
+}
+.playflux-anime-prompt-panel .field {
+  margin: 0;
+}
+.playflux-anime-prompt-panel textarea {
+  min-height: 92px;
+  resize: vertical;
+  color: rgba(255,255,255,.88);
+  background: rgba(0,0,0,.2);
+}
+.playflux-anime-prompt-panel .playflux-template-meta {
+  padding: 0;
+}
 
 .character-grid,
 .character-grid-main {

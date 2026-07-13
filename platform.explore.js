@@ -460,19 +460,42 @@ function playfluxTemplateDialogMedia(template = {}) {
 function playfluxTemplatePromptBlock(template = {}) {
   const prompt = String(template.prompt || "").trim();
   const negative = String(template.negativePrompt || "").trim();
+  if (template.tab === "anime") {
+    return `
+      <div class="playflux-anime-prompt-panel">
+        <div class="playflux-anime-prompt-head">
+          <span>Add custom details...</span>
+          <strong>${escapeHtml(playfluxTemplateCostLabel(template))}</strong>
+        </div>
+        <label class="field">
+          <textarea rows="5" data-playflux-template-prompt>${escapeHtml(prompt)}</textarea>
+        </label>
+        <div class="playflux-template-meta">
+          <span>Resolution: ${escapeHtml(template.ratio || "9:16")}</span>
+          <span>Base style: ${escapeHtml(template.animeBaseStyleLabel || "Nova Anime XL")}</span>
+        </div>
+        ${negative ? `
+          <label class="field">
+            <span>Negative prompt</span>
+            <textarea rows="4" data-playflux-template-negative>${escapeHtml(negative)}</textarea>
+          </label>
+        ` : ""}
+      </div>
+    `;
+  }
   return `
     <details class="playflux-template-advanced">
       <summary><i data-lucide="settings"></i><span>高级</span></summary>
       ${prompt ? `
         <label class="field">
           <span>Prompt</span>
-          <textarea rows="5" readonly>${escapeHtml(prompt)}</textarea>
+          <textarea rows="5" readonly data-playflux-template-prompt>${escapeHtml(prompt)}</textarea>
         </label>
       ` : ""}
       ${negative ? `
         <label class="field">
           <span>Negative prompt</span>
-          <textarea rows="4" readonly>${escapeHtml(negative)}</textarea>
+          <textarea rows="4" readonly data-playflux-template-negative>${escapeHtml(negative)}</textarea>
         </label>
       ` : ""}
       <div class="playflux-template-meta">
@@ -480,6 +503,31 @@ function playfluxTemplatePromptBlock(template = {}) {
         <span>${escapeHtml(playfluxTemplateCostLabel(template))}</span>
       </div>
     </details>
+  `;
+}
+
+function playfluxTemplateAnimePanel(template = {}) {
+  return `
+    <div class="playflux-anime-direct">
+      <div class="playflux-anime-selected">
+        <img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(template.title || "")}" loading="lazy" />
+        <span>
+          <small>Anime action</small>
+          <strong>${escapeHtml(template.title || "")}</strong>
+        </span>
+      </div>
+      <div class="playflux-anime-style">
+        <span class="playflux-anime-style-icon"><i data-lucide="sparkles"></i></span>
+        <span>
+          <small>Base style</small>
+          <strong>${escapeHtml(template.animeBaseStyleLabel || "Nova Anime XL")}</strong>
+        </span>
+      </div>
+      <button class="playflux-preview-panel playflux-anime-preview" type="button" data-playflux-template-preview="${escapeHtml(template.id || "")}">
+        ${playfluxTemplateDialogMedia(template)}
+        <span>Preview</span>
+      </button>
+    </div>
   `;
 }
 
@@ -650,6 +698,17 @@ function playfluxTemplatePrompt(template = {}) {
     .join("\n\n");
 }
 
+function playfluxTemplateFromDialog(template = {}, root = null) {
+  if (template.tab !== "anime") return template;
+  const promptInput = root?.querySelector("[data-playflux-template-prompt]");
+  const negativeInput = root?.querySelector("[data-playflux-template-negative]");
+  return {
+    ...template,
+    prompt: String(promptInput?.value || template.prompt || "").trim(),
+    negativePrompt: String(negativeInput?.value || template.negativePrompt || "").trim(),
+  };
+}
+
 function playfluxTemplateShouldUsePreviewImageReference(template = {}, sourceImageCount = 0) {
   if (template.tab === "video" || !template.previewUrl) return false;
   if (sourceImageCount < 1) return false;
@@ -715,6 +774,9 @@ function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seed
       referenceVideoUrl: template.referenceVideoUrl || "",
       previewImageReferenceUrl: template.tab !== "video" ? (template.previewUrl || "") : "",
       animePositionId: template.animePositionId || "",
+      animeBaseStyleId: template.animeBaseStyleId || "",
+      animeBaseStyleLabel: template.animeBaseStyleLabel || "",
+      triggerWords: template.triggerWords || "",
       source: "playflux",
     },
     ratio: template.ratio || "9:16",
@@ -756,37 +818,39 @@ async function submitPlayfluxTemplate(template = {}, root) {
     openLogin();
     throw new Error("Log in first.");
   }
+  const effectiveTemplate = playfluxTemplateFromDialog(template, root);
   const files = playfluxTemplateSelectedSources(root);
-  const requiredSourceCount = playfluxTemplateRequiredSourceCount(template);
+  const requiredSourceCount = playfluxTemplateRequiredSourceCount(effectiveTemplate);
   if (files.length < requiredSourceCount) {
     throw new Error(requiredSourceCount > 1 ? `Upload ${requiredSourceCount} local images first.` : "Upload a local image first.");
   }
   if (files.some((file) => !String(file.type || "").startsWith("image/"))) throw new Error("Please upload image files only.");
   playfluxTemplateStatus(root, "Submitting...");
-  const isVideo = template.tab === "video";
+  const isVideo = effectiveTemplate.tab === "video";
+  const isAnime = effectiveTemplate.tab === "anime";
   const provider = isVideo ? "seedance" : "wan27-image-edit";
   const pendingTaskId = `pending-playflux-${Date.now().toString(36)}`;
-  mergeAdvancedResultRecord(playfluxTemplateRecordBase(template, pendingTaskId, provider));
+  mergeAdvancedResultRecord(playfluxTemplateRecordBase(effectiveTemplate, pendingTaskId, provider));
   state.advancedResultTaskId = pendingTaskId;
   renderAdvancedResultPanel();
   try {
     if (isVideo) {
       const file = files[0] || null;
       const dataUrl = file ? await readFileAsDataUrl(file) : "";
-      const sourceMode = normalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || template.seedanceMode || "reference_images");
-      const duration = Number(template.duration || 5);
-      const resolution = template.resolution || "720p";
-      const ratio = normalizeVideoRatio(template.ratio || "9:16");
+      const sourceMode = normalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images");
+      const duration = Number(effectiveTemplate.duration || 5);
+      const resolution = effectiveTemplate.resolution || "720p";
+      const ratio = normalizeVideoRatio(effectiveTemplate.ratio || "9:16");
       const reference = dataUrl ? { dataUrl, fileName: file.name || "", name: file.name || "Template source image" } : null;
       const usesReferenceVideo = seedanceModeNeedsReferenceVideo(sourceMode);
-      const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(template.referenceVideoUrl || template.previewUrl || "") : "";
-      const referenceVideoSeconds = usesReferenceVideo ? Number(template.referenceVideoDurationSeconds || duration) : 0;
+      const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "") : "";
+      const referenceVideoSeconds = usesReferenceVideo ? Number(effectiveTemplate.referenceVideoDurationSeconds || duration) : 0;
       const payload = await requestJson("/api/advanced/generate", {
         method: "POST",
         body: {
           provider: "seedance",
           seedanceTier: "standard",
-          prompt: playfluxTemplatePrompt(template),
+          prompt: playfluxTemplatePrompt(effectiveTemplate),
           seedanceMode: sourceMode,
           referenceImages: (seedanceModeNeedsReferenceImages(sourceMode) || usesReferenceVideo) && reference ? [seedanceImageRefPayload(reference)] : undefined,
           referenceVideoUrls: referenceVideoUrl ? [referenceVideoUrl] : undefined,
@@ -798,7 +862,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
           inputVideoSeconds: referenceVideoSeconds,
           referenceVideoDurationSeconds: referenceVideoSeconds,
           params: {
-            ...playfluxTemplateRecordBase(template, "", provider).params,
+            ...playfluxTemplateRecordBase(effectiveTemplate, "", provider).params,
             reference_videos: referenceVideoUrl ? [referenceVideoUrl] : [],
           },
         },
@@ -811,7 +875,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
         mergeAdvancedResultRecord(payload.record);
       } else if (taskId) {
         mergeAdvancedResultRecord({
-          ...playfluxTemplateRecordBase(template, taskId, provider),
+          ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider),
           status: payload.task?.status || "submitted",
           updatedAt: new Date().toISOString(),
         });
@@ -820,7 +884,47 @@ async function submitPlayfluxTemplate(template = {}, root) {
       playfluxTemplateStatus(root, "Submitted.");
       if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       showPlayfluxSubmittedHistory(payload.record || (taskId ? {
-        ...playfluxTemplateRecordBase(template, taskId, provider),
+        ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider),
+        status: payload.task?.status || "submitted",
+        updatedAt: new Date().toISOString(),
+      } : null));
+      return;
+    }
+
+    if (isAnime) {
+      const imagePrompt = playfluxTemplatePrompt(effectiveTemplate);
+      const payload = await requestJson("/api/wan27/image-edit", {
+        method: "POST",
+        body: {
+          prompt: imagePrompt,
+          imageAssetIds: [],
+          imageUrls: [],
+          ratio: effectiveTemplate.ratio || "9:16",
+          resolution: effectiveTemplate.resolution || "1K",
+          params: {
+            ...playfluxTemplateRecordBase(effectiveTemplate, "", provider).params,
+            createMode: "anime-text-image",
+            animeBaseStyleId: effectiveTemplate.animeBaseStyleId || "nova-anime-xl",
+            animeBaseStyleLabel: effectiveTemplate.animeBaseStyleLabel || "Nova Anime XL",
+            animePositionId: effectiveTemplate.animePositionId || "",
+            triggerWords: effectiveTemplate.triggerWords || "",
+            previewImageReferenceUrl: "",
+            previewImageReferenceIndex: 0,
+          },
+          async: true,
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== pendingTaskId);
+      if (payload.record) {
+        state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
+        mergeAdvancedResultRecord(payload.record);
+      }
+      state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
+      playfluxTemplateStatus(root, "Submitted.");
+      if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
+      showPlayfluxSubmittedHistory(payload.record || (state.advancedResultTaskId ? {
+        ...playfluxTemplateRecordBase(effectiveTemplate, state.advancedResultTaskId, provider),
         status: payload.task?.status || "submitted",
         updatedAt: new Date().toISOString(),
       } : null));
@@ -828,20 +932,20 @@ async function submitPlayfluxTemplate(template = {}, root) {
     }
 
     const uploaded = await uploadPlayfluxTemplateImageAssets(files);
-    const previewImageReferenceUrl = playfluxTemplateShouldUsePreviewImageReference(template, uploaded.length)
-      ? playfluxTemplateAbsoluteUrl(template.previewUrl || "")
+    const previewImageReferenceUrl = playfluxTemplateShouldUsePreviewImageReference(effectiveTemplate, uploaded.length)
+      ? playfluxTemplateAbsoluteUrl(effectiveTemplate.previewUrl || "")
       : "";
-    const imagePrompt = playfluxTemplateImagePrompt(template, uploaded.length, previewImageReferenceUrl);
+    const imagePrompt = playfluxTemplateImagePrompt(effectiveTemplate, uploaded.length, previewImageReferenceUrl);
     const payload = await requestJson("/api/wan27/image-edit", {
       method: "POST",
       body: {
         prompt: imagePrompt,
         imageAssetIds: uploaded.map((item) => item.asset?.id).filter(Boolean),
         imageUrls: previewImageReferenceUrl ? [previewImageReferenceUrl] : [],
-        ratio: template.ratio || "9:16",
-        resolution: template.resolution || "1K",
+        ratio: effectiveTemplate.ratio || "9:16",
+        resolution: effectiveTemplate.resolution || "1K",
         params: {
-          ...playfluxTemplateRecordBase(template, "", provider).params,
+          ...playfluxTemplateRecordBase(effectiveTemplate, "", provider).params,
           previewImageReferenceUrl,
           previewImageReferenceIndex: previewImageReferenceUrl ? uploaded.length + 1 : 0,
         },
@@ -858,7 +962,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
     playfluxTemplateStatus(root, "Submitted.");
     if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
     showPlayfluxSubmittedHistory(payload.record || (state.advancedResultTaskId ? {
-      ...playfluxTemplateRecordBase(template, state.advancedResultTaskId, provider),
+      ...playfluxTemplateRecordBase(effectiveTemplate, state.advancedResultTaskId, provider),
       status: payload.task?.status || "submitted",
       updatedAt: new Date().toISOString(),
     } : null));
@@ -878,6 +982,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
   const template = playfluxTemplateById(templateId);
   if (!template) return;
   const tab = playfluxTemplateTabMeta(template.tab);
+  const isAnime = template.tab === "anime";
   const needsSource = playfluxTemplateNeedsSource(template);
   const requiredSourceCount = playfluxTemplateRequiredSourceCount(template);
   const sourceHint = requiredSourceCount > 1 ? `Required: ${requiredSourceCount} images` : (needsSource ? "Required" : "Optional");
@@ -886,23 +991,25 @@ function openPlayfluxTemplateDialog(templateId = "") {
     body: `
       <div class="playflux-template-dialog">
         <div class="playflux-template-kicker"><i data-lucide="${escapeHtml(tab.icon)}"></i>${escapeHtml(tab.label)}</div>
-        <div class="playflux-template-flow">
-          <div class="playflux-source-panel">
-            <input id="playfluxTemplateImageInput" type="file" accept="image/*" ${template.tab === "video" ? "" : "multiple"} hidden />
-            <button class="playflux-local-source" type="button" data-playflux-template-upload="${escapeHtml(template.id || "")}">
-              <span class="playflux-local-source-media" data-playflux-source-preview><i data-lucide="image-up"></i></span>
-              <strong data-playflux-source-name>Upload local image</strong>
-              <small>${escapeHtml(sourceHint)}</small>
+        ${isAnime ? playfluxTemplateAnimePanel(template) : `
+          <div class="playflux-template-flow">
+            <div class="playflux-source-panel">
+              <input id="playfluxTemplateImageInput" type="file" accept="image/*" ${template.tab === "video" ? "" : "multiple"} hidden />
+              <button class="playflux-local-source" type="button" data-playflux-template-upload="${escapeHtml(template.id || "")}">
+                <span class="playflux-local-source-media" data-playflux-source-preview><i data-lucide="image-up"></i></span>
+                <strong data-playflux-source-name>Upload local image</strong>
+                <small>${escapeHtml(sourceHint)}</small>
+              </button>
+              <button class="ghost-button playflux-source-clear" type="button" data-playflux-source-clear hidden>Remove</button>
+            </div>
+            <span class="playflux-flow-arrow"><i data-lucide="arrow-right"></i></span>
+            <button class="playflux-preview-panel" type="button" data-playflux-template-preview="${escapeHtml(template.id || "")}">
+              ${playfluxTemplateDialogMedia(template)}
+              <span>Preview</span>
             </button>
-            <button class="ghost-button playflux-source-clear" type="button" data-playflux-source-clear hidden>Remove</button>
           </div>
-          <span class="playflux-flow-arrow"><i data-lucide="arrow-right"></i></span>
-          <button class="playflux-preview-panel" type="button" data-playflux-template-preview="${escapeHtml(template.id || "")}">
-            ${playfluxTemplateDialogMedia(template)}
-            <span>Preview</span>
-          </button>
-        </div>
-        ${template.previewType === "video" ? `
+        `}
+        ${!isAnime && template.previewType === "video" ? `
           <div class="playflux-source-modes" aria-label="Seedance source mode">
             ${[
               { id: "reference_video", label: "Preview video" },
@@ -916,7 +1023,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
           </div>
         ` : ""}
         ${playfluxTemplatePromptBlock(template)}
-        <p class="job-note">Cost: ${escapeHtml(playfluxTemplateCostLabel(template))}</p>
+        ${isAnime ? "" : `<p class="job-note">Cost: ${escapeHtml(playfluxTemplateCostLabel(template))}</p>`}
         <p class="job-note" data-playflux-template-status></p>
       </div>
     `,
@@ -924,7 +1031,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
     dialogClass: "is-media-action is-playflux-template",
     keepOpenOnConfirm: true,
     onOpen: (root) => {
-      updatePlayfluxTemplateSourcePreview(root, null);
+      if (!isAnime) updatePlayfluxTemplateSourcePreview(root, null);
       root.querySelectorAll("[data-playflux-source-mode]").forEach((button) => {
         button.addEventListener("click", () => {
           root.querySelectorAll("[data-playflux-source-mode]").forEach((item) => item.classList.remove("is-active"));
