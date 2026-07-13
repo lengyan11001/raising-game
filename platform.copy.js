@@ -1,6 +1,7 @@
 const I18N = {
   en: {
     "nav.gallery": "Explore",
+    "playflux.galleryTab": "Video templates",
     "nav.characters": "Characters",
     "nav.advanced": "Create",
     "nav.workflow": "Workflow",
@@ -2792,6 +2793,7 @@ Object.assign(I18N.en, {
 I18N.zh = {
   ...(I18N.en || {}),
   "nav.gallery": "探索",
+  "playflux.galleryTab": "视频模板",
   "nav.characters": "角色",
   "nav.advanced": "创建",
   "nav.workflow": "工作流",
@@ -3329,4 +3331,3 @@ Object.assign(I18N.zh, {
 });
 const SUPPORTED_LANGS = new Set(Object.keys(I18N));
 if (!SUPPORTED_LANGS.has(state.lang)) state.lang = "en";
-
