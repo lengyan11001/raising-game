@@ -4197,6 +4197,14 @@ select option:checked {
   background-size: auto, 32px 32px, 32px 32px, auto;
   overflow: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.workflow-canvas::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .workflow-canvas-stage {
