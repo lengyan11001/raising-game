@@ -7243,7 +7243,7 @@ select:focus,
     overscroll-behavior: contain;
   }
   body.mobile-drawer-open .side-rail {
-    transform: translateX(0);
+    transform: translateX(0) !important;
   }
   .site-head {
     position: fixed;
