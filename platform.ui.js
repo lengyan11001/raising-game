@@ -1836,6 +1836,18 @@ function renderAdvancedPresetDialog() {
   }
   const query = String(state.advancedPresetSearch || "").trim().toLowerCase();
   const selectedCategory = String(state.advancedPresetCategory || "All").toLowerCase();
+  const localUploadCard = slot === "character" && nonCustomAdvancedNeedsCharacterImage() ? `
+    <button class="advanced-preset-card advanced-preset-local-card" type="button" data-advanced-preset-local-upload>
+      <span><i data-lucide="image-up"></i></span>
+      <strong>${escapeHtml(t("advancedPreset.uploadLocalImage"))}</strong>
+    </button>
+  ` : "";
+  const bindLocalUploadCard = () => {
+    els.advancedPresetGrid.querySelector("[data-advanced-preset-local-upload]")?.addEventListener("click", () => {
+      els.advancedPresetDialog?.close();
+      triggerAdvancedLocalImageUpload({ sourceMode: "reference_images" });
+    });
+  };
   const items = advancedPresetItems(slot).filter((item) => {
     const tagList = (item.tags || []).map((tag) => String(tag || "").toLowerCase());
     const categoryOk = state.advancedPresetCategory === "All" || String(item.category || "").toLowerCase() === selectedCategory || tagList.includes(selectedCategory);
@@ -1843,14 +1855,15 @@ function renderAdvancedPresetDialog() {
     return categoryOk && (!query || haystack.includes(query));
   });
   if (!items.length) {
-    els.advancedPresetGrid.innerHTML = `<div class="advanced-preset-empty">${escapeHtml(t("advancedPreset.none"))}</div>${renderAdvancedPresetCharacterPager()}`;
+    els.advancedPresetGrid.innerHTML = `${localUploadCard}<div class="advanced-preset-empty">${escapeHtml(t("advancedPreset.none"))}</div>${renderAdvancedPresetCharacterPager()}`;
+    bindLocalUploadCard();
     els.advancedPresetGrid.querySelector("[data-advanced-preset-load-more]")?.addEventListener("click", () => {
       loadMoreAdvancedPresetCharacters().catch((error) => console.warn("load more preset characters failed", error.message || error));
     });
     refreshIcons();
     return;
   }
-  els.advancedPresetGrid.innerHTML = `${items.map((item) => {
+  els.advancedPresetGrid.innerHTML = `${localUploadCard}${items.map((item) => {
     const image = presetImageUrl(item);
     const active = selectedAdvancedPreset(slot)?.id === item.id;
     return `
@@ -1860,6 +1873,7 @@ function renderAdvancedPresetDialog() {
       </button>
     `;
   }).join("")}${renderAdvancedPresetCharacterPager()}`;
+  bindLocalUploadCard();
   els.advancedPresetGrid.querySelectorAll("[data-advanced-preset-id]").forEach((button) => {
     button.addEventListener("click", () => selectAdvancedPreset(slot, button.dataset.advancedPresetId || ""));
   });
