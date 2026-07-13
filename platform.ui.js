@@ -3193,26 +3193,40 @@ function renderWorkflowPreviewThumb({ url = "", poster = "", title = "", kind = 
 
 function renderWorkflowUploadSlot(node = {}, field = "startImage", label = "Start", icon = "image") {
   const value = node.data?.[field] || "";
+  const fieldClass = [
+    "workflow-upload-field",
+    field === "startImage" ? "is-start" : "",
+    field === "endImage" ? "is-end" : "",
+    field === "faceImage" ? "is-face" : "",
+  ].filter(Boolean).join(" ");
   const slotClass = [
     "workflow-upload-slot",
     field === "startImage" ? "is-primary" : "is-small",
     field === "faceImage" ? "is-face" : "",
   ].filter(Boolean).join(" ");
+  const hint = field === "startImage" ? "required" : field === "faceImage" ? "for face swap" : "optional";
+  const emptyText = field === "faceImage" ? "Drop face photo here" : "Drop here";
   return `
-    <div class="${slotClass}">
-      <label class="workflow-upload-pick">
-        <input type="file" accept="image/*" data-workflow-file="${escapeHtml(field)}" data-node-id="${escapeHtml(node.id)}" />
-        <span class="workflow-upload-preview">
-          ${value
-            ? `<img src="${escapeHtml(value)}" alt="" loading="lazy" decoding="async" />`
-            : `<span class="workflow-upload-empty"><i data-lucide="${escapeHtml(icon)}"></i><strong>${escapeHtml(label)}</strong></span>`}
-        </span>
-      </label>
-      ${value ? `
-        <button class="workflow-upload-preview-open" type="button" ${workflowPreviewAttrs({ url: value, kind: "image", title: label, ratio: "1:1" })} aria-label="Preview ${escapeHtml(label)}">
-          <i data-lucide="maximize-2"></i>
-        </button>
-      ` : ""}
+    <div class="${fieldClass}">
+      <div class="workflow-upload-label">
+        <strong>${escapeHtml(label)}</strong>
+        <span>${escapeHtml(hint)}</span>
+      </div>
+      <div class="${slotClass}">
+        <label class="workflow-upload-pick">
+          <input type="file" accept="image/*" data-workflow-file="${escapeHtml(field)}" data-node-id="${escapeHtml(node.id)}" />
+          <span class="workflow-upload-preview">
+            ${value
+              ? `<img src="${escapeHtml(value)}" alt="" loading="lazy" decoding="async" />`
+              : `<span class="workflow-upload-empty"><i data-lucide="${escapeHtml(icon)}"></i><em>${escapeHtml(emptyText)}</em><b>Browse</b></span>`}
+          </span>
+        </label>
+        ${value ? `
+          <button class="workflow-upload-preview-open" type="button" ${workflowPreviewAttrs({ url: value, kind: "image", title: label, ratio: "1:1" })} aria-label="Preview ${escapeHtml(label)}">
+            <i data-lucide="maximize-2"></i>
+          </button>
+        ` : ""}
+      </div>
     </div>
   `;
 }
@@ -3222,15 +3236,13 @@ function renderWorkflowUploadPreparedPreview(node = {}) {
   const targetUrl = node.data?.stripTargetImageUrl || "";
   if (!keyframeUrl && !targetUrl) return "";
   const item = (url, label) => url ? `
-    <button class="workflow-prepared-thumb" type="button" ${workflowPreviewAttrs({ url, kind: "image", title: label, ratio: "9:16" })}>
-      <img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />
-      <span>${escapeHtml(label)}</span>
-      <em><i data-lucide="maximize-2"></i></em>
+    <button class="workflow-upload-ready-pill" type="button" ${workflowPreviewAttrs({ url, kind: "image", title: label, ratio: "9:16" })}>
+      <i data-lucide="check"></i>${escapeHtml(label)} Ready
     </button>
   ` : "";
   return `
-    <div class="workflow-upload-prepared">
-      ${item(keyframeUrl, "Keyframe")}
+    <div class="workflow-upload-ready-row">
+      ${item(keyframeUrl, "Start Frame")}
       ${item(targetUrl, "Target")}
     </div>
   `;
