@@ -2,6 +2,9 @@ const I18N = {
   en: {
     "nav.gallery": "Explore",
     "playflux.galleryTab": "Video templates",
+    "playflux.videoTab": "Video",
+    "playflux.imageTab": "Image",
+    "playflux.animeTab": "Anime",
     "nav.characters": "Characters",
     "nav.advanced": "Create",
     "nav.workflow": "Workflow",
@@ -3334,6 +3337,9 @@ Object.assign(I18N.zh, {
 Object.assign(I18N.zh, {
   "advancedPreset.uploadLocalImage": "上传本机图片",
   "advancedPreset.localImage": "本机图片",
+  "playflux.videoTab": "视频",
+  "playflux.imageTab": "图片",
+  "playflux.animeTab": "动漫",
 });
 const SUPPORTED_LANGS = new Set(Object.keys(I18N));
 if (!SUPPORTED_LANGS.has(state.lang)) state.lang = "en";

@@ -19,8 +19,11 @@ document.addEventListener("click", (event) => {
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
+  if (button.dataset.tab === DEFAULT_PLATFORM_TAB) state.galleryMode = DEFAULT_GALLERY_MODE;
   setTab(button.dataset.tab);
 });
+els.mobileDrawerToggle?.addEventListener("click", toggleMobileDrawer);
+els.mobileDrawerBackdrop?.addEventListener("click", closeMobileDrawer);
 window.addEventListener("hashchange", () => setTab(window.location.hash));
 els.templateImage?.addEventListener("change", async () => {
   const file = els.templateImage.files?.[0];
@@ -443,6 +446,7 @@ document.querySelectorAll("[data-analytics-event]").forEach((element) => {
     trackAnalyticsEvent(element.dataset.analyticsEvent, {
       event_location: element.dataset.analyticsLocation || "platform",
     });
+    closeMobileDrawer();
     const directUrl = String(element.dataset.directUrl || "").trim();
     if (directUrl) {
       event.preventDefault();
@@ -452,6 +456,14 @@ document.querySelectorAll("[data-analytics-event]").forEach((element) => {
 });
 els.supportFab?.addEventListener("click", openSupportDialog);
 els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
+els.mobileDrawerTopupBtn?.addEventListener("click", () => {
+  closeMobileDrawer();
+  openTopupDialog();
+});
+els.mobileDrawerLoginBtn?.addEventListener("click", () => {
+  closeMobileDrawer();
+  openLogin();
+});
 els.menuCopyTokenBtn?.addEventListener("click", async () => {
   if (!state.token || !state.user?.apiToken) return openLogin();
   await navigator.clipboard.writeText(state.user.apiToken);

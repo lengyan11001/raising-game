@@ -885,6 +885,11 @@ function renderTokenDisplays() {
   if (els.accountName) els.accountName.textContent = state.user?.username || t("account.title");
   if (els.accountCredits) els.accountCredits.textContent = String(Number(state.user?.credits || 0));
   if (els.menuBalanceValue) els.menuBalanceValue.textContent = String(Number(state.user?.credits || 0));
+  if (els.mobileDrawerUserName) els.mobileDrawerUserName.textContent = state.user?.username || t("nav.login");
+  if (els.mobileDrawerCredits) {
+    els.mobileDrawerCredits.hidden = !state.user;
+    els.mobileDrawerCredits.textContent = state.user ? `${Number(state.user?.credits || 0)} credits` : "";
+  }
   if (els.accountRole) els.accountRole.textContent = state.user?.role || "user";
   if (els.accountToken) els.accountToken.textContent = currentTokenLabel(state.showAccountToken);
   if (els.toggleAccountTokenBtn) {
@@ -901,6 +906,8 @@ function renderAccountMenu() {
   if (els.menuBalance) els.menuBalance.hidden = !loggedIn;
   if (els.topupHeadBtn) els.topupHeadBtn.hidden = !loggedIn;
   if (els.topupTriggerBtn) els.topupTriggerBtn.hidden = !loggedIn;
+  if (els.mobileDrawerTopupBtn) els.mobileDrawerTopupBtn.hidden = !loggedIn;
+  if (els.mobileDrawerLoginBtn) els.mobileDrawerLoginBtn.hidden = loggedIn;
   document.querySelectorAll(".account-menu [data-tab]").forEach((button) => {
     button.hidden = !loggedIn && button.dataset.tab !== "pricing";
   });
@@ -1021,6 +1028,23 @@ function statusLabel(status) {
   if (["failed", "error"].includes(value)) return t("status.failed");
   if (["running", "processing", "in_progress", "preparing", "submitting", "queued"].includes(value)) return t("status.processing");
   return status || t("status.submitted");
+}
+
+function openMobileDrawer() {
+  document.body.classList.add("mobile-drawer-open");
+  if (els.mobileDrawerToggle) els.mobileDrawerToggle.setAttribute("aria-expanded", "true");
+  if (els.mobileDrawerBackdrop) els.mobileDrawerBackdrop.hidden = false;
+}
+
+function closeMobileDrawer() {
+  document.body.classList.remove("mobile-drawer-open");
+  if (els.mobileDrawerToggle) els.mobileDrawerToggle.setAttribute("aria-expanded", "false");
+  if (els.mobileDrawerBackdrop) els.mobileDrawerBackdrop.hidden = true;
+}
+
+function toggleMobileDrawer() {
+  if (document.body.classList.contains("mobile-drawer-open")) closeMobileDrawer();
+  else openMobileDrawer();
 }
 
 function statusClass(status) {

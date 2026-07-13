@@ -114,10 +114,23 @@ const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
 const TRON_USDT_CONTRACT = "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj";
 const DEFAULT_PLATFORM_TAB = "gallery";
 const DEFAULT_GALLERY_MODE = "characters";
-const PLAYFLUX_GALLERY_HASHES = new Set(["templates", "video-templates", "explore-templates", "playflux"]);
+const PLAYFLUX_GALLERY_MODE_BY_HASH = {
+  templates: "playflux-video",
+  "video-templates": "playflux-video",
+  "image-templates": "playflux-image",
+  "anime-templates": "playflux-anime",
+  "explore-templates": "playflux-video",
+  playflux: "playflux-video",
+  video: "playflux-video",
+  image: "playflux-image",
+  anime: "playflux-anime",
+};
+const PLAYFLUX_GALLERY_HASHES = new Set(Object.keys(PLAYFLUX_GALLERY_MODE_BY_HASH));
 const GALLERY_MODE_TABS = [
   { id: "characters", labelKey: "nav.gallery" },
-  { id: "playflux", labelKey: "playflux.galleryTab", fallback: "Video templates" },
+  { id: "playflux-video", labelKey: "playflux.videoTab", fallback: "Video" },
+  { id: "playflux-image", labelKey: "playflux.imageTab", fallback: "Image" },
+  { id: "playflux-anime", labelKey: "playflux.animeTab", fallback: "Anime" },
 ];
 const PLAYFLUX_TEMPLATE_ASSET_BASE = "/assets/playflux/templates/";
 const PLAYFLUX_TEMPLATE_TABS = [
@@ -433,6 +446,35 @@ const PLAYFLUX_TEMPLATES = [
     prompt: "Create an adult group oral themed image edit inspired by the preview while preserving the uploaded source identity and stable anatomy.",
     negativePrompt: PLAYFLUX_NEGATIVE_PROMPT,
   },
+  ...[
+    ["pf-image-pov-missionary-v3", "POV Missionary V3", "pov-missionary-v3.jpeg", "NEW"],
+    ["pf-image-ai-nude-v2", "AI Nude V2", "ai-nude-v2.webp", ""],
+    ["pf-image-classic-face-swap", "Classic Face Swap", "classic-face-swap.jpeg", ""],
+    ["pf-image-futanari", "Futanari", "futanari.jpg", ""],
+    ["pf-image-cowgirl", "Cowgirl Image", "cowgirl-image.jpg", ""],
+    ["pf-image-ruined-face", "Ruined Face", "ruined-face.jpg", ""],
+    ["pf-image-flat-chest", "Flat Chest", "flat-chest.jpg", ""],
+    ["pf-image-muscle-man", "Muscle Man", "muscle-man.jpeg", "NEW"],
+    ["pf-image-ahegao", "Ahegao", "ahegao-image.jpg", ""],
+    ["pf-image-wet-clothes", "Wet Clothes", "wet-clothes.jpg", ""],
+    ["pf-image-manga-color", "Manga Color", "manga-color.jpg", "NEW"],
+    ["pf-image-uncensor-manga-v1", "Uncensor Manga V1", "uncensor-manga-v1.webp", "NEW"],
+    ["pf-image-hold-her", "Hold Her", "hold-her.jpg", "NEW"],
+    ["pf-image-happy-nude", "Happy Nude", "happy-nude.jpg", "NEW"],
+    ["pf-image-peace-nude", "Peace and Nude", "peace-nude.jpg", ""],
+  ].map(([id, title, file, badge]) => ({
+    id,
+    tab: "image",
+    title,
+    badge,
+    previewType: "image",
+    previewUrl: `${PLAYFLUX_TEMPLATE_ASSET_BASE}image/${file}`,
+    credits: 200,
+    createMode: "image-edit",
+    sourceRequired: true,
+    prompt: `Create an adult image edit in the ${title} style. Preserve the uploaded adult subject's identity, face, pose, camera angle, framing, lighting, and background consistency unless the selected style explicitly changes them.`,
+    negativePrompt: PLAYFLUX_NEGATIVE_PROMPT,
+  })),
   {
     id: "pf-anime-expressiveh",
     tab: "anime",
@@ -598,6 +640,33 @@ const PLAYFLUX_TEMPLATES = [
     prompt: "masterpiece, best quality, 1girl, CG_LD, adult anime pose, close-up composition, clean line art, detailed expression, high quality",
     negativePrompt: PLAYFLUX_ANIME_NEGATIVE_PROMPT,
   },
+  ...[
+    ["pf-anime-boob-sucking-dp", "Boob Sucking + DP / 乳吸い+二穴", "boob-sucking-dp.jpeg"],
+    ["pf-anime-pronebone", "Pronebone / 寝バック", "pronebone-poses-xl.jpeg"],
+    ["pf-anime-restrained-magic", "Restrained by Magic / 魔法拘束", "restrained-by-magic.jpeg"],
+    ["pf-anime-amazon-position", "Amazon Position / アマゾン", "pov-amazon-position.jpeg"],
+    ["pf-anime-sumata", "Sumata / 素股", "pov-sumata-grinding.jpeg"],
+    ["pf-anime-couch-pov", "On Couch POV / ソファー", "pov-on-couch-pose.jpeg"],
+    ["pf-anime-against-glass", "Against Glass / ガラス越し", "against-glass-xl.jpeg"],
+    ["pf-anime-feet-pose", "Feet Pose / 足マンコ", "feet-pose.jpeg"],
+    ["pf-anime-body-bridge", "Body Bridge / ブリッジ", "body-bridge.jpeg"],
+    ["pf-anime-bent-over", "Bent Over Blowjob / 前屈み", "bent-over-blowjob.jpeg"],
+    ["pf-anime-kissy-face", "Kissy Face / キス顔", "kissy-face-pose.jpeg"],
+    ["pf-anime-cowgirl-sex", "Cowgirl Sex / 騎乗位セックス", "cowgirl-sex.jpeg"],
+    ["pf-anime-chair-behind", "Chair From Behind / 椅子バック", "chair-from-behind.jpeg"],
+    ["pf-anime-lap-femdom", "Lap Femdom / 膝上フェムドム", "lap-femdom.jpeg"],
+    ["pf-anime-self-wedgie", "Self Wedgie / セルフウェッジー", "self-wedgie.jpeg"],
+  ].map(([id, title, file]) => ({
+    id,
+    tab: "anime",
+    title,
+    previewType: "image",
+    previewUrl: `${PLAYFLUX_TEMPLATE_ASSET_BASE}anime/${file}`,
+    credits: 140,
+    createMode: "image-create",
+    prompt: `masterpiece, best quality, CG_LD, adult anime illustration, ${title}, clean line art, stable anatomy, detailed face, polished lighting, high detail`,
+    negativePrompt: PLAYFLUX_ANIME_NEGATIVE_PROMPT,
+  })),
 ];
 const CHARACTER_PAGE_SIZE = 20;
 const CHARACTER_FILTER_TAGS = [
@@ -1007,8 +1076,8 @@ function normalizePlatformTab(value = "") {
 }
 
 function galleryModeFromPlatformRoute(value = "") {
-  const normalized = platformHashParts(value).tab;
-  return PLAYFLUX_GALLERY_HASHES.has(String(normalized || "").toLowerCase()) ? "playflux" : "";
+  const normalized = String(platformHashParts(value).tab || "").toLowerCase();
+  return PLAYFLUX_GALLERY_MODE_BY_HASH[normalized] || "";
 }
 
 function initialPlatformTab() {
@@ -1357,6 +1426,12 @@ const els = {
   legalDialog: document.querySelector("#legalDialog"),
   legalTitle: document.querySelector("#legalTitle"),
   legalBody: document.querySelector("#legalBody"),
+  mobileDrawerToggle: document.querySelector("#mobileDrawerToggle"),
+  mobileDrawerBackdrop: document.querySelector("#mobileDrawerBackdrop"),
+  mobileDrawerUserName: document.querySelector("#mobileDrawerUserName"),
+  mobileDrawerCredits: document.querySelector("#mobileDrawerCredits"),
+  mobileDrawerTopupBtn: document.querySelector("#mobileDrawerTopupBtn"),
+  mobileDrawerLoginBtn: document.querySelector("#mobileDrawerLoginBtn"),
   accountMenuWrap: document.querySelector("#accountMenuWrap"),
   accountMenuBtn: document.querySelector("#accountMenuBtn"),
   accountMenuLabel: document.querySelector("#accountMenuLabel"),

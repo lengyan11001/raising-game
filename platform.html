@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-237" />
+    <link rel="stylesheet" href="./platform.css?v=ai-242" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -23,11 +23,11 @@
     <section id="ageGate" class="age-gate" role="dialog" aria-modal="true" aria-labelledby="ageGateTitle">
       <div class="age-gate-card">
         <span class="age-gate-pill">18+</span>
-        <h1 id="ageGateTitle">浠呴檺 18 宀佸強浠ヤ笂璁块棶</h1>
-        <p>杩涘叆鍓嶈纭浣犲凡骞存弧 18 宀併€傛湭婊?18 宀佽鐩存帴閫€鍑恒€?/p>
+        <h1 id="ageGateTitle">&#20165;&#38480; 18 &#23681;&#21450;&#20197;&#19978;&#35775;&#38382;</h1>
+        <p>&#36827;&#20837;&#21069;&#35831;&#30830;&#35748;&#20320;&#24050;&#24180;&#28385; 18 &#23681;&#12290;&#26410;&#28385; 18 &#23681;&#35831;&#30452;&#25509;&#36864;&#20986;&#12290;</p>
         <div class="age-gate-actions">
-          <button id="ageGateDeclineBtn" class="secondary-btn age-gate-secondary" type="button">鏈弧 18 宀侊紝閫€鍑?/button>
-          <button id="ageGateConfirmBtn" class="primary-btn age-gate-primary" type="button">鎴戝凡骞存弧 18 宀侊紝杩涘叆</button>
+          <button id="ageGateDeclineBtn" class="secondary-btn age-gate-secondary" type="button">&#26410;&#28385; 18 &#23681;&#65292;&#36864;&#20986;</button>
+          <button id="ageGateConfirmBtn" class="primary-btn age-gate-primary" type="button">&#25105;&#24050;&#24180;&#28385; 18 &#23681;&#65292;&#36827;&#20837;</button>
         </div>
       </div>
     </section>
@@ -35,14 +35,18 @@
     <section id="ageForbidden" class="age-forbidden" hidden aria-live="polite">
       <div class="age-forbidden-card">
         <span class="age-forbidden-code">403</span>
-        <strong>璁块棶宸叉嫆缁?/strong>
-        <p>浠呴檺 18 宀佸強浠ヤ笂鐢ㄦ埛杩涘叆銆?/p>
-        <small>鍒锋柊椤甸潰浼氬啀娆″嚭鐜板勾榫勭‘璁ゃ€?/small>
+        <strong>&#35775;&#38382;&#24050;&#25298;&#32477;</strong>
+        <p>&#20165;&#38480; 18 &#23681;&#21450;&#20197;&#19978;&#29992;&#25143;&#36827;&#20837;&#12290;</p>
+        <small>&#21047;&#26032;&#39029;&#38754;&#20250;&#20877;&#27425;&#20986;&#29616;&#24180;&#40836;&#30830;&#35748;&#12290;</small>
       </div>
     </section>
 
     <div class="aurora aurora-a"></div>
     <div class="aurora aurora-b"></div>
+    <button class="mobile-drawer-toggle" id="mobileDrawerToggle" type="button" aria-label="Open menu" aria-expanded="false">
+      <i data-lucide="menu"></i>
+    </button>
+    <button class="mobile-drawer-backdrop" id="mobileDrawerBackdrop" type="button" aria-label="Close menu" hidden></button>
 
     <aside class="side-rail" aria-label="Workspace navigation">
       <a class="brand" href="/">
@@ -51,9 +55,19 @@
       </a>
       <nav class="top-tabs" aria-label="Main sections">
         <button class="top-tab is-active" data-tab="gallery" data-i18n="nav.gallery" type="button">Gallery</button>
-        <button class="top-tab top-tab-child" data-gallery-shortcut="playflux" type="button">
+        <button class="top-tab" data-gallery-shortcut="playflux-video" type="button">
           <i data-lucide="film"></i>
-          <span data-i18n="playflux.galleryTab">Video templates</span>
+          <span data-i18n="playflux.videoTab">Video</span>
+          <strong data-gallery-shortcut-count>0</strong>
+        </button>
+        <button class="top-tab" data-gallery-shortcut="playflux-image" type="button">
+          <i data-lucide="image"></i>
+          <span data-i18n="playflux.imageTab">Image</span>
+          <strong data-gallery-shortcut-count>0</strong>
+        </button>
+        <button class="top-tab" data-gallery-shortcut="playflux-anime" type="button">
+          <i data-lucide="sparkles"></i>
+          <span data-i18n="playflux.animeTab">Anime</span>
           <strong data-gallery-shortcut-count>0</strong>
         </button>
         <button class="top-tab" data-tab="characters" data-i18n="characters.createTitle" type="button">Create character</button>
@@ -73,6 +87,17 @@
           <span>X</span>
         </a>
       </nav>
+      <div class="mobile-drawer-account">
+        <div class="mobile-drawer-user">
+          <span id="mobileDrawerUserName">Login / Sign up</span>
+          <strong id="mobileDrawerCredits" hidden>0</strong>
+        </div>
+        <button class="topup-trigger mobile-drawer-topup" id="mobileDrawerTopupBtn" type="button">
+          <i data-lucide="coins"></i>
+          <span data-i18n="topup.buyCoins">Buy credits</span>
+        </button>
+        <button class="ghost-button mobile-drawer-login" id="mobileDrawerLoginBtn" type="button" data-i18n="nav.login">Login / Sign up</button>
+      </div>
     </aside>
 
     <header class="site-head">
@@ -780,6 +805,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-237"></script>
+    <script src="./platform.js?v=ai-242"></script>
   </body>
 </html>
