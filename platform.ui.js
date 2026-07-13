@@ -3193,8 +3193,13 @@ function renderWorkflowPreviewThumb({ url = "", poster = "", title = "", kind = 
 
 function renderWorkflowUploadSlot(node = {}, field = "startImage", label = "Start", icon = "image") {
   const value = node.data?.[field] || "";
+  const slotClass = [
+    "workflow-upload-slot",
+    field === "startImage" ? "is-primary" : "is-small",
+    field === "faceImage" ? "is-face" : "",
+  ].filter(Boolean).join(" ");
   return `
-    <div class="workflow-upload-slot ${field === "startImage" ? "is-primary" : "is-small"}">
+    <div class="${slotClass}">
       <label class="workflow-upload-pick">
         <input type="file" accept="image/*" data-workflow-file="${escapeHtml(field)}" data-node-id="${escapeHtml(node.id)}" />
         <span class="workflow-upload-preview">

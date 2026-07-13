@@ -4299,7 +4299,7 @@ select option:checked {
 
 .workflow-node-upload {
   height: auto;
-  min-height: 174px;
+  min-height: 250px;
 }
 
 .workflow-node-output {
@@ -4478,9 +4478,9 @@ select option:checked {
 .workflow-upload-grid {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(3, 48px);
-  grid-template-rows: 86px;
-  grid-auto-rows: 86px;
+  grid-template-columns: repeat(2, 86px);
+  grid-template-rows: 153px 48px;
+  grid-auto-rows: 48px;
   justify-content: start;
   gap: 8px;
 }
@@ -4508,6 +4508,10 @@ select option:checked {
   min-height: 0;
 }
 
+.workflow-upload-slot.is-face {
+  grid-column: 1 / -1;
+}
+
 .workflow-upload-pick {
   display: block;
   width: 100%;
@@ -4518,7 +4522,7 @@ select option:checked {
 .workflow-upload-prepared {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(2, 48px);
+  grid-template-columns: repeat(2, 86px);
   justify-content: start;
   gap: 8px;
   margin-top: 8px;
@@ -4527,7 +4531,7 @@ select option:checked {
 .workflow-upload-prepared figure,
 .workflow-prepared-thumb {
   position: relative;
-  height: 86px;
+  height: 153px;
   min-height: 0;
   margin: 0;
   overflow: hidden;
