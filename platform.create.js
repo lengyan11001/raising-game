@@ -790,15 +790,16 @@ function updateAdvancedModelControls() {
   if (els.advancedUploadBox) {
     const uploadIsVideo = advancedCreateUploadIsVideo();
     const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
+    const hidePresetUploadBox = state.advancedCreateKind !== "custom" && provider === "seedance" && advancedCreateModeUsesCharacterPresetReference();
     if (els.advancedImage) {
       els.advancedImage.accept = advancedCreateUploadAcceptValue();
       els.advancedImage.multiple = !uploadIsVideo && !advancedCreateModeUsesSingleUpload();
     }
     const forceUpload = simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload();
-    els.advancedUploadBox.hidden = !forceUpload && (
+    els.advancedUploadBox.hidden = hidePresetUploadBox || (!forceUpload && (
       (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
       (provider === "seedance" && seedanceMode === "text_to_video")
-    );
+    ));
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
