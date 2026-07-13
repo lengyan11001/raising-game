@@ -1603,7 +1603,8 @@ function advancedPresetReferenceImage(slot = "", item = selectedAdvancedPreset(s
     presetId: item.id || "",
     presetSlot: slot,
     fromPreset: true,
-    sourceUrl: url,
+    localUpload: Boolean(item.localUpload),
+    sourceUrl: item.localUpload ? "" : url,
   };
 }
 
@@ -1612,6 +1613,23 @@ function advancedPresetReferenceImages() {
     .map((slot) => advancedPresetReferenceImage(slot))
     .filter(Boolean)
     .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+}
+
+function setAdvancedLocalCharacterPreset(ref = {}) {
+  const url = ref.dataUrl || ref.url || ref.imageUrl || ref.previewUrl || "";
+  if (!url) return;
+  state.advancedSelectedPresets = {
+    ...(state.advancedSelectedPresets || {}),
+    character: {
+      id: "local-upload-character",
+      label: t("advancedPreset.localImage"),
+      category: t("advancedPreset.character"),
+      prompt: "Use the uploaded image as the main consenting adult subject. Preserve identity, face, hairstyle, body type, and overall character consistency.",
+      imageUrl: url,
+      referenceImageUrl: url,
+      localUpload: true,
+    },
+  };
 }
 
 function advancedPresetSupplementalReferenceImages(seedanceMode = "") {
@@ -1677,6 +1695,7 @@ function renderAdvancedPresetBuilder() {
     const meta = advancedPresetMeta(slot);
     const selected = selectedAdvancedPreset(slot);
     const image = presetImageUrl(selected || {});
+    const localUpload = slot === "character" && nonCustomAdvancedNeedsCharacterImage();
     return `
       <button class="advanced-preset-slot ${selected ? "has-preset" : ""}" type="button" data-advanced-preset-slot="${escapeHtml(slot)}">
         <span class="advanced-preset-slot-media">
@@ -1686,13 +1705,26 @@ function renderAdvancedPresetBuilder() {
           <strong>${escapeHtml(selected?.label || advancedPresetLabel(slot))}</strong>
           <small>${escapeHtml(selected ? advancedPresetLabel(slot) : t(meta.required ? "advancedPreset.required" : "advancedPreset.optional"))}</small>
         </span>
+        ${localUpload ? `<span class="advanced-preset-upload" role="button" tabindex="0" data-advanced-preset-upload="${escapeHtml(slot)}"><i data-lucide="image-up"></i>${escapeHtml(t("advancedPreset.uploadLocalImage"))}</span>` : ""}
         ${selected ? `<span class="advanced-preset-clear" data-advanced-preset-clear="${escapeHtml(slot)}" aria-label="${escapeHtml(t("advancedPreset.clear"))}">&times;</span>` : ""}
       </button>
     `;
   }).join("");
+  els.advancedPresetBuilder.querySelectorAll("[data-advanced-preset-upload]").forEach((button) => {
+    const openUpload = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      triggerAdvancedLocalImageUpload({ sourceMode: "reference_images" });
+    };
+    button.addEventListener("click", openUpload);
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") openUpload(event);
+    });
+  });
   els.advancedPresetBuilder.querySelectorAll("[data-advanced-preset-slot]").forEach((button) => {
     button.addEventListener("click", (event) => {
       if (event.target.closest("[data-advanced-preset-clear]")) return;
+      if (event.target.closest("[data-advanced-preset-upload]")) return;
       openAdvancedPresetDialog(button.dataset.advancedPresetSlot || "");
     });
   });
@@ -1878,7 +1910,8 @@ function advancedPresetSelectionPayload() {
       label: item.label,
       category: item.category || "",
       prompt: presetPromptText(item),
-      imageUrl: presetImageUrl(item),
+      imageUrl: item.localUpload ? "" : presetImageUrl(item),
+      sourceType: item.localUpload ? "local" : item.sourceType || "",
     } : null];
   }));
 }

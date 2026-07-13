@@ -489,7 +489,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
         <div class="playflux-template-kicker"><i data-lucide="${escapeHtml(tab.icon)}"></i>${escapeHtml(tab.label)}</div>
         <div class="playflux-template-flow">
           <div class="playflux-source-panel">
-            <button class="ghost-button playflux-upload-btn" type="button" data-playflux-template-upload="${escapeHtml(template.id || "")}">
+            <button class="ghost-button playflux-upload-btn" type="button" aria-label="${escapeHtml(t("advancedPreset.uploadLocalImage"))}" data-playflux-template-upload="${escapeHtml(template.id || "")}">
               <i data-lucide="upload"></i><span>上传</span>
             </button>
             <button class="playflux-character-pick" type="button" data-playflux-template-character="${escapeHtml(template.id || "")}">
@@ -591,7 +591,7 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
   if (openCharacter) {
     window.setTimeout(() => openAdvancedPresetDialog("character"), 120);
   } else if (openUpload) {
-    window.setTimeout(() => els.advancedImage?.click(), 120);
+    triggerAdvancedLocalImageUpload({ sourceMode: sourceMode === "first_last_frame" ? "first_last_frame" : "reference_images" });
   }
 }
 

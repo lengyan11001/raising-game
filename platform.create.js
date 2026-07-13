@@ -797,15 +797,14 @@ function updateAdvancedModelControls() {
   if (els.advancedUploadBox) {
     const uploadIsVideo = advancedCreateUploadIsVideo();
     const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
-    const presetCharacterFlow = state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference();
     if (els.advancedImage) {
       els.advancedImage.accept = advancedCreateUploadAcceptValue();
       els.advancedImage.multiple = !uploadIsVideo && !advancedCreateModeNeedsReplacePair();
     }
-    els.advancedUploadBox.hidden = presetCharacterFlow || (!simpleAction && !advancedCreateModeNeedsVideoUpload() && (
+    els.advancedUploadBox.hidden = !simpleAction && !advancedCreateModeNeedsVideoUpload() && (
       (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
       (provider === "seedance" && seedanceMode === "text_to_video")
-    ));
+    );
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
@@ -823,6 +822,23 @@ function updateAdvancedModelControls() {
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
   if (els.advancedNote && (state.advancedUploadDataUrl || state.advancedSeedanceVideoAssetId)) els.advancedNote.textContent = "";
   updateAdvancedButtonCost();
+}
+
+function triggerAdvancedLocalImageUpload({ sourceMode = "" } = {}) {
+  if (!els.advancedImage) return;
+  const provider = currentAdvancedProvider();
+  if (provider === "seedance" && els.advancedSeedanceMediaMode) {
+    let mode = normalizeSeedanceMediaMode(sourceMode || els.advancedSeedanceMediaMode.value || "reference_images");
+    if (mode === "text_to_video" || seedanceModeNeedsReferenceVideo(mode)) mode = "reference_images";
+    els.advancedSeedanceMediaMode.value = mode;
+    state.advancedAssetTarget = seedanceModeNeedsReferenceImages(mode) ? "referenceImages" : "primary";
+  } else if (provider === "wan27-image-edit") {
+    state.advancedAssetTarget = "sourceImages";
+  }
+  updateAdvancedModelControls();
+  els.advancedImage.accept = "image/*";
+  els.advancedImage.multiple = provider === "seedance" && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "") && !advancedCreateModeNeedsReplacePair();
+  els.advancedImage.click();
 }
 
 function renderAdvancedCases() {
@@ -2221,8 +2237,9 @@ function dedupeAdvancedReferenceImages(images = []) {
   return images.filter((item) => {
     const assetUri = item?.assetUri || item?.referenceAssetUri || "";
     const sourceUrl = item?.sourceUrl || "";
-    const key = item?.assetId ? `asset:${item.assetId}` : assetUri ? `asset-uri:${assetUri}` : sourceUrl ? `source:${sourceUrl}` : item?.url ? `url:${item.url}` : `${item?.fileName || ""}::${item?.dataUrl || ""}`;
-    if ((!item?.dataUrl && !item?.assetId && !assetUri && !item?.url) || seen.has(key)) return false;
+    const dataUrl = item?.dataUrl || "";
+    const key = item?.assetId ? `asset:${item.assetId}` : assetUri ? `asset-uri:${assetUri}` : dataUrl ? `data:${dataUrl}` : sourceUrl ? `source:${sourceUrl}` : item?.url ? `url:${item.url}` : `${item?.fileName || ""}::`;
+    if ((!dataUrl && !item?.assetId && !assetUri && !sourceUrl && !item?.url) || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
@@ -3460,4 +3477,3 @@ async function bootstrap() {
   refreshIcons();
   loadPlatformEstimates();
 }
-
