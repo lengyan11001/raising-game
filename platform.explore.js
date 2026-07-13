@@ -702,6 +702,27 @@ function playfluxTemplatePrompt(template = {}) {
     .join("\n\n");
 }
 
+function playfluxTemplateVideoPrompt(template = {}, { usesReferenceVideo = false, hasSourceImage = false } = {}) {
+  const basePrompt = String(template.prompt || "").trim();
+  const negative = String(template.negativePrompt || "").trim();
+  if (!usesReferenceVideo) {
+    return [basePrompt, negative ? `Negative prompt: ${negative}` : ""].filter(Boolean).join("\n\n");
+  }
+  const guide = [
+    hasSourceImage
+      ? "CRITICAL: Image 1 is the user's selected character/source image. Preserve Image 1 identity, face, hairstyle, body type, skin tone, outfit direction, and main visual features."
+      : "",
+    "CRITICAL: Video 1 is the reference motion video. Match Video 1 closely: action type, pose sequence, body positions, interaction timing, camera angle, framing, shot rhythm, motion direction, and start/end composition.",
+    hasSourceImage
+      ? "Use Video 1 only for motion, action, camera, and composition. Do not copy identity, face, body, clothing, background, watermark, text, colors, or artifacts from Video 1. If Image 1 conflicts with Video 1, Image 1 always wins."
+      : "Use Video 1 as the primary action, camera, and composition guide.",
+    "Generate one continuous cinematic shot with the same action rhythm as Video 1, coherent anatomy, stable hands, and no subtitles or watermark.",
+  ].filter(Boolean).join(" ");
+  return [guide, basePrompt, negative ? `Negative prompt: ${negative}` : ""]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function playfluxTemplateFromDialog(template = {}, root = null) {
   if (template.tab !== "anime") return template;
   const promptInput = root?.querySelector("[data-playflux-template-prompt]");
@@ -757,7 +778,8 @@ function playfluxTemplateAbsoluteUrl(value = "") {
   }
 }
 
-function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seedance") {
+function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seedance", options = {}) {
+  const prompt = String(options.prompt || "").trim() || playfluxTemplatePrompt(template);
   return {
     taskId,
     status: "submitting",
@@ -765,7 +787,7 @@ function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seed
     provider,
     source: "playflux-template",
     kind: template.tab === "video" ? "advanced-video" : "asset-image",
-    prompt: playfluxTemplatePrompt(template),
+    prompt,
     params: {
       createKind: template.tab === "video" ? "video" : "image",
       createMode: template.tab === "video" ? "playflux-video" : (template.createMode || (template.sourceRequired ? "image-edit" : "image-create")),
@@ -833,15 +855,24 @@ async function submitPlayfluxTemplate(template = {}, root) {
   const isVideo = effectiveTemplate.tab === "video";
   const isAnime = effectiveTemplate.tab === "anime";
   const provider = isVideo ? "seedance" : "wan27-image-edit";
+  const selectedVideoSourceMode = isVideo
+    ? normalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images")
+    : "";
+  const selectedVideoPrompt = isVideo
+    ? playfluxTemplateVideoPrompt(effectiveTemplate, {
+        usesReferenceVideo: seedanceModeNeedsReferenceVideo(selectedVideoSourceMode),
+        hasSourceImage: files.length > 0,
+      })
+    : "";
   const pendingTaskId = `pending-playflux-${Date.now().toString(36)}`;
-  mergeAdvancedResultRecord(playfluxTemplateRecordBase(effectiveTemplate, pendingTaskId, provider));
+  mergeAdvancedResultRecord(playfluxTemplateRecordBase(effectiveTemplate, pendingTaskId, provider, selectedVideoPrompt ? { prompt: selectedVideoPrompt } : {}));
   state.advancedResultTaskId = pendingTaskId;
   renderAdvancedResultPanel();
   try {
     if (isVideo) {
       const file = files[0] || null;
       const dataUrl = file ? await readFileAsDataUrl(file) : "";
-      const sourceMode = normalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images");
+      const sourceMode = selectedVideoSourceMode;
       const duration = Number(effectiveTemplate.duration || 5);
       const resolution = effectiveTemplate.resolution || "720p";
       const ratio = normalizeVideoRatio(effectiveTemplate.ratio || "9:16");
@@ -849,12 +880,17 @@ async function submitPlayfluxTemplate(template = {}, root) {
       const usesReferenceVideo = seedanceModeNeedsReferenceVideo(sourceMode);
       const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "") : "";
       const referenceVideoSeconds = usesReferenceVideo ? Number(effectiveTemplate.referenceVideoDurationSeconds || duration) : 0;
+      const videoPrompt = playfluxTemplateVideoPrompt(effectiveTemplate, {
+        usesReferenceVideo,
+        hasSourceImage: Boolean(reference),
+      });
+      const recordBase = playfluxTemplateRecordBase(effectiveTemplate, "", provider, { prompt: videoPrompt });
       const payload = await requestJson("/api/advanced/generate", {
         method: "POST",
         body: {
           provider: "seedance",
           seedanceTier: "standard",
-          prompt: playfluxTemplatePrompt(effectiveTemplate),
+          prompt: videoPrompt,
           seedanceMode: sourceMode,
           referenceImages: (seedanceModeNeedsReferenceImages(sourceMode) || usesReferenceVideo) && reference ? [seedanceImageRefPayload(reference)] : undefined,
           referenceVideoUrls: referenceVideoUrl ? [referenceVideoUrl] : undefined,
@@ -866,7 +902,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
           inputVideoSeconds: referenceVideoSeconds,
           referenceVideoDurationSeconds: referenceVideoSeconds,
           params: {
-            ...playfluxTemplateRecordBase(effectiveTemplate, "", provider).params,
+            ...recordBase.params,
             reference_videos: referenceVideoUrl ? [referenceVideoUrl] : [],
           },
         },
@@ -879,7 +915,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
         mergeAdvancedResultRecord(payload.record);
       } else if (taskId) {
         mergeAdvancedResultRecord({
-          ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider),
+          ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider, { prompt: videoPrompt }),
           status: payload.task?.status || "submitted",
           updatedAt: new Date().toISOString(),
         });
@@ -888,7 +924,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
       playfluxTemplateStatus(root, "Submitted.");
       if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       showPlayfluxSubmittedHistory(payload.record || (taskId ? {
-        ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider),
+        ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider, { prompt: videoPrompt }),
         status: payload.task?.status || "submitted",
         updatedAt: new Date().toISOString(),
       } : null));

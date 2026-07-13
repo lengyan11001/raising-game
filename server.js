@@ -7822,6 +7822,26 @@ function appendDefaultVideoNegativePrompt(prompt = "", body = {}) {
   return [base, `${marker} ${negative}`].filter(Boolean).join("\n");
 }
 
+function enhancePlayfluxReferenceVideoPrompt(prompt = "", { hasReferenceImage = false, hasReferenceVideo = false } = {}) {
+  const base = String(prompt || "").trim();
+  if (!base || !hasReferenceVideo) return base;
+  const lower = base.toLowerCase();
+  if (lower.includes("video 1 is the reference motion video") || lower.includes("video 1 is the motion reference")) {
+    return base;
+  }
+  const guide = [
+    hasReferenceImage
+      ? "CRITICAL: Image 1 is the user's selected character/source image. Preserve Image 1 identity, face, hairstyle, body type, skin tone, outfit direction, and main visual features."
+      : "",
+    "CRITICAL: Video 1 is the reference motion video. Match Video 1 closely: action type, pose sequence, body positions, interaction timing, camera angle, framing, shot rhythm, motion direction, and start/end composition.",
+    hasReferenceImage
+      ? "Use Video 1 only for motion, action, camera, and composition. Do not copy identity, face, body, clothing, background, watermark, text, colors, or artifacts from Video 1. If Image 1 conflicts with Video 1, Image 1 always wins."
+      : "Use Video 1 as the primary action, camera, and composition guide.",
+    "Generate one continuous cinematic shot with the same action rhythm as Video 1, coherent anatomy, stable hands, and no subtitles or watermark.",
+  ].filter(Boolean).join(" ");
+  return [guide, base].filter(Boolean).join("\n\n");
+}
+
 function applyDefaultVideoNegativePromptToSeedancePayload(payload = {}, body = {}) {
   if (!payload || typeof payload !== "object") return payload;
   if (typeof payload.prompt === "string" && payload.prompt.trim()) {
@@ -14938,7 +14958,7 @@ async function handleAdvancedGenerate(req, res) {
   if (!USE_GATEWAY_UPSTREAM && provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Vipeak 1 generation is not configured." });
   }
-  const prompt = String(firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
+  let prompt = String(firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   const durationBounds = advancedDurationBounds(provider);
   const mergedProviderParameters = {
@@ -15208,6 +15228,16 @@ async function handleAdvancedGenerate(req, res) {
       requestParams,
       assets: seedanceVideoAssets,
       assetIds: referenceVideoAssetIds,
+    });
+  }
+  const isPlayfluxVideoReferenceRequest = provider === "seedance"
+    && String(firstPresent(requestParams.source, bodyParams.source, body.params?.source, "") || "").trim().toLowerCase() === "playflux"
+    && String(firstPresent(requestParams.templateTab, bodyParams.templateTab, body.params?.templateTab, "") || "").trim().toLowerCase() === "video"
+    && seedanceModeNeedsReferenceVideo(seedanceMode);
+  if (isPlayfluxVideoReferenceRequest) {
+    prompt = enhancePlayfluxReferenceVideoPrompt(prompt, {
+      hasReferenceImage: Boolean(userAsset || extraUserAssets.length || referenceImageAssetUris.length),
+      hasReferenceVideo: Boolean(referenceVideoAssetIds.length || referenceVideoAssetUris.length),
     });
   }
   const rawPricing = advancedModelPricing(provider, {
