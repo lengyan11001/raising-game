@@ -650,6 +650,22 @@ function playfluxTemplatePrompt(template = {}) {
     .join("\n\n");
 }
 
+function playfluxTemplateShouldUsePreviewImageReference(template = {}, sourceImageCount = 0) {
+  if (template.tab === "video" || !template.previewUrl) return false;
+  const requiredCount = Number(template.sourceCount || 0);
+  return requiredCount <= 1 && sourceImageCount <= 1;
+}
+
+function playfluxTemplateImagePrompt(template = {}, sourceImageCount = 0, previewImageUrl = "") {
+  const prompt = playfluxTemplatePrompt(template);
+  if (!previewImageUrl) return prompt;
+  const previewIndex = Math.max(0, Number(sourceImageCount || 0)) + 1;
+  const guide = sourceImageCount > 0
+    ? `Use Image 1 as the user's source subject. Use Image ${previewIndex} only as the template preview reference for pose, composition, camera angle, style, and scene intent. Do not copy the identity, face, watermark, text, or artifacts from Image ${previewIndex}; keep the user's source identity dominant.`
+    : `Use Image ${previewIndex} as the template preview reference for pose, composition, camera angle, style, and scene intent. Create a new result from the prompt; do not copy watermark, text, or artifacts from the preview image.`;
+  return [guide, prompt].filter(Boolean).join("\n\n");
+}
+
 function playfluxTemplateCostLabel(template = {}) {
   if (template.tab === "video") {
     const duration = Number(template.duration || 5);
@@ -696,6 +712,7 @@ function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seed
       sourceCount: Number(template.sourceCount || 0),
       usePreviewAsReference: Boolean(template.usePreviewAsReference),
       referenceVideoUrl: template.referenceVideoUrl || "",
+      previewImageReferenceUrl: template.tab !== "video" ? (template.previewUrl || "") : "",
       animePositionId: template.animePositionId || "",
       source: "playflux",
     },
@@ -810,15 +827,23 @@ async function submitPlayfluxTemplate(template = {}, root) {
     }
 
     const uploaded = await uploadPlayfluxTemplateImageAssets(files);
+    const previewImageReferenceUrl = playfluxTemplateShouldUsePreviewImageReference(template, uploaded.length)
+      ? playfluxTemplateAbsoluteUrl(template.previewUrl || "")
+      : "";
+    const imagePrompt = playfluxTemplateImagePrompt(template, uploaded.length, previewImageReferenceUrl);
     const payload = await requestJson("/api/wan27/image-edit", {
       method: "POST",
       body: {
-        prompt: playfluxTemplatePrompt(template),
+        prompt: imagePrompt,
         imageAssetIds: uploaded.map((item) => item.asset?.id).filter(Boolean),
-        imageUrls: [],
+        imageUrls: previewImageReferenceUrl ? [previewImageReferenceUrl] : [],
         ratio: template.ratio || "9:16",
         resolution: template.resolution || "1K",
-        params: playfluxTemplateRecordBase(template, "", provider).params,
+        params: {
+          ...playfluxTemplateRecordBase(template, "", provider).params,
+          previewImageReferenceUrl,
+          previewImageReferenceIndex: previewImageReferenceUrl ? uploaded.length + 1 : 0,
+        },
         async: true,
       },
     });
