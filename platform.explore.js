@@ -80,6 +80,7 @@ function setTab(tab) {
     button.classList.toggle("is-active", active);
   });
   syncGalleryShortcutNav();
+  if (nextTab === DEFAULT_PLATFORM_TAB) renderTemplates();
   if (nextTab === "history") loadHistory();
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();
