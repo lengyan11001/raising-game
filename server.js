@@ -11185,10 +11185,37 @@ async function createSeedanceReferenceVideoAssetFromUrl(db, user, videoUrl = "",
   }
   if (!isPublicHttpUrl(url)) return null;
   const pathname = new URL(url).pathname;
+  const fileName = path.basename(pathname) || `seedance-reference-video-${index + 1}.mp4`;
+  const existing = findUserAssetBySourceUrl(db, user, url);
+  if (existing) return await refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, existing, url);
+  const localSourcePath = localAssetPathFromPublicValue(url);
+  if (localSourcePath) {
+    const dimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(localSourcePath), `Seedance reference video ${index + 1}`);
+    const bytes = await fs.readFile(localSourcePath);
+    const asset = await createUserMediaAssetFromBytes(db, user, {
+      bytes,
+      mime: videoMimeFromPath(localSourcePath),
+      name: `Seedance reference video ${index + 1}`,
+      fileName,
+      maxBytes: MEDIA_UPLOAD_MAX_BYTES,
+      durationSeconds: dimensions.durationSeconds,
+    });
+    asset.sourceUrl = normalizedAssetSourceUrl(url);
+    asset.hidden = true;
+    asset.videoWidth = dimensions.width;
+    asset.videoHeight = dimensions.height;
+    asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
+    asset.meta = { fromWorkflowPreset: true, upstreamUse: "seedance_reference_video" };
+    asset.updatedAt = new Date().toISOString();
+    db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+    if (dbEnabled()) await upsertUserAssetInDb(asset);
+    else await writeDb(db);
+    return asset;
+  }
   return await createUserMediaAssetFromPublicUrl(db, user, {
     url,
     name: `Seedance reference video ${index + 1}`,
-    fileName: path.basename(pathname) || `seedance-reference-video-${index + 1}.mp4`,
+    fileName,
     sourceUrl: url,
     hidden: true,
     meta: { fromWorkflowPreset: true, upstreamUse: "seedance_reference_video" },
