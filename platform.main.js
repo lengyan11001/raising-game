@@ -222,6 +222,9 @@ els.refreshAdvancedAssetsBtn?.addEventListener("click", () => loadAdvancedAssets
 els.advancedSideTabs?.querySelectorAll("[data-advanced-side-tab]").forEach((button) => {
   button.addEventListener("click", () => setAdvancedSideTab(button.dataset.advancedSideTab || "assets"));
 });
+els.advancedMobileTabs?.querySelectorAll("[data-advanced-mobile-tab]").forEach((button) => {
+  button.addEventListener("click", () => setAdvancedMobileTab(button.dataset.advancedMobileTab || "create"));
+});
 els.refreshAdvancedResultBtn?.addEventListener("click", () => refreshAdvancedResultRecord());
 els.workflowRoot?.addEventListener("click", handleWorkflowClick);
 els.workflowRoot?.addEventListener("pointerdown", handleWorkflowPointerDown);

@@ -2964,6 +2964,32 @@ main {
 .advanced-asset-panel {
   gap: 12px;
 }
+.advanced-mobile-tabs {
+  display: none;
+}
+.advanced-mobile-tab {
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--muted);
+  background: rgba(255,255,255,.7);
+  font-weight: 900;
+  cursor: pointer;
+}
+.advanced-mobile-tab svg {
+  width: 16px;
+  height: 16px;
+}
+.advanced-mobile-tab.is-active {
+  color: #fff;
+  border-color: #111827;
+  background: #111827;
+}
 .advanced-side-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6990,6 +7016,7 @@ input:focus {
   color: var(--muted);
 }
 .copy-kicker,
+.advanced-mobile-tab,
 .advanced-side-tab,
 .advanced-asset-target,
 .category-chip,
@@ -7001,6 +7028,7 @@ input:focus {
   color: var(--muted);
   background: #1d1d22;
 }
+.advanced-mobile-tab.is-active,
 .advanced-side-tab.is-active,
 .advanced-asset-target.is-active,
 .access-mode-tab.is-active,
@@ -7330,10 +7358,12 @@ select:focus,
   background: linear-gradient(135deg, rgba(255,79,163,.95), rgba(255,51,175,.82));
   box-shadow: 0 10px 24px rgba(255,79,163,.24);
 }
+.advanced-mobile-tab,
 .advanced-side-tab,
 .advanced-asset-target {
   border-radius: 999px;
 }
+.advanced-mobile-tab.is-active,
 .advanced-side-tab.is-active,
 .advanced-asset-target.is-active {
   border-color: rgba(255,255,255,.12);
@@ -7423,6 +7453,34 @@ select:focus,
   body {
     padding-left: 0;
     padding-top: 54px;
+  }
+  .advanced-mobile-tabs {
+    position: sticky;
+    top: 54px;
+    z-index: 12;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    padding: 6px;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 14px;
+    background: rgba(15,15,18,.92);
+    backdrop-filter: blur(10px);
+  }
+  .advanced-mobile-tab {
+    display: inline-flex;
+    min-height: 38px;
+    padding: 7px 6px;
+    font-size: .82rem;
+  }
+  .advanced-workspace[data-advanced-mobile-tab="create"] .advanced-side-panel,
+  .advanced-workspace[data-advanced-mobile-tab="assets"] .advanced-form-card,
+  .advanced-workspace[data-advanced-mobile-tab="result"] .advanced-form-card {
+    display: none !important;
+  }
+  .advanced-workspace[data-advanced-mobile-tab="assets"] .advanced-side-tabs,
+  .advanced-workspace[data-advanced-mobile-tab="result"] .advanced-side-tabs {
+    display: none !important;
   }
   body.mobile-drawer-open {
     overflow: hidden;

@@ -6,6 +6,7 @@ function renderAdvanced() {
     renderAdvancedCreateControls();
     renderAdvancedAssets([]);
     setAdvancedSideTab(state.advancedSideTab || "assets", { silent: true });
+    setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true });
     updateAdvancedModelControls();
     updateAdvancedButtonCost();
     refreshIcons();
@@ -14,11 +15,27 @@ function renderAdvanced() {
   renderAdvancedCreateControls();
   renderAdvancedAssets();
   setAdvancedSideTab(state.advancedSideTab || "assets", { silent: true });
+  setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true });
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }
 
-function setAdvancedSideTab(tab = "assets", { silent = false } = {}) {
+function setAdvancedMobileTab(tab = "create", { silent = false, skipSideTab = false } = {}) {
+  const next = ["assets", "result"].includes(tab) ? tab : "create";
+  state.advancedMobileTab = next;
+  if (els.advancedWorkspace) els.advancedWorkspace.dataset.advancedMobileTab = next;
+  els.advancedMobileTabs?.querySelectorAll("[data-advanced-mobile-tab]").forEach((button) => {
+    const active = button.dataset.advancedMobileTab === next;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (!skipSideTab && (next === "assets" || next === "result")) {
+    setAdvancedSideTab(next, { silent });
+  }
+  refreshIcons();
+}
+
+function setAdvancedSideTab(tab = "assets", { silent = false, syncMobile = false } = {}) {
   const next = tab === "result" ? "result" : "assets";
   state.advancedSideTab = next;
   if (els.advancedAssetsView) els.advancedAssetsView.hidden = next !== "assets";
@@ -33,6 +50,7 @@ function setAdvancedSideTab(tab = "assets", { silent = false } = {}) {
       scheduleAdvancedResultRefresh({ delayMs: silent ? 1200 : 0, force: true });
     }
   }
+  if (syncMobile) setAdvancedMobileTab(next, { silent: true, skipSideTab: true });
   refreshIcons();
 }
 
@@ -1074,7 +1092,7 @@ async function submitAdvancedGenerate() {
       updatedAt: new Date().toISOString(),
     });
     state.advancedResultTaskId = pendingTaskId;
-    setAdvancedSideTab("result");
+    setAdvancedSideTab("result", { syncMobile: true });
     renderAdvancedResultPanel();
     if (els.advancedNote) els.advancedNote.textContent = "";
     try {
@@ -1105,7 +1123,7 @@ async function submitAdvancedGenerate() {
       state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
       clearAdvancedCreationInputs();
       if (els.advancedNote) els.advancedNote.textContent = "";
-      setAdvancedSideTab("result");
+      setAdvancedSideTab("result", { syncMobile: true });
       renderAdvancedResultPanel();
       if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       await loadHistory({ silent: true }).catch(() => {});
@@ -1234,7 +1252,7 @@ async function submitAdvancedGenerate() {
     updatedAt: new Date().toISOString(),
   });
   state.advancedResultTaskId = pendingTaskId;
-  setAdvancedSideTab("result");
+  setAdvancedSideTab("result", { syncMobile: true });
   renderAdvancedResultPanel();
   if (els.advancedNote) els.advancedNote.textContent = "";
   try {
@@ -1324,7 +1342,7 @@ async function submitAdvancedGenerate() {
     }
     if (els.advancedNote) els.advancedNote.textContent = "";
     clearAdvancedCreationInputs();
-    setAdvancedSideTab("result");
+    setAdvancedSideTab("result", { syncMobile: true });
     renderAdvancedResultPanel();
     scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
     scheduleHistoryRefresh({ delayMs: 8000, force: true });
