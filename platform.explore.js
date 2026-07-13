@@ -484,7 +484,7 @@ function playfluxTemplatePromptBlock(template = {}) {
       ` : ""}
       <div class="playflux-template-meta">
         <span>Resolution: ${escapeHtml(template.ratio || "9:16")}</span>
-        <span>${escapeHtml(formatCredits(template.credits || 0))}</span>
+        <span>${escapeHtml(playfluxTemplateCostLabel(template))}</span>
       </div>
     </details>
   `;
@@ -614,6 +614,20 @@ function playfluxTemplatePrompt(template = {}) {
   return [template.prompt || "", template.negativePrompt ? `Negative prompt: ${template.negativePrompt}` : ""]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function playfluxTemplateCostLabel(template = {}) {
+  if (template.tab === "video") {
+    const duration = Number(template.duration || 5);
+    const resolution = template.resolution || "720p";
+    const ratio = template.ratio || "9:16";
+    const pricing = advancedPricing(duration, "seedance", resolution, ratio, {
+      seedanceTier: "standard",
+      inputVideoSeconds: 0,
+    });
+    return t("cost.credits", { credits: formatCredits(pricing.credits) });
+  }
+  return assetImageModifyCostLabel();
 }
 
 function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seedance") {
@@ -794,7 +808,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
           </div>
         ` : ""}
         ${playfluxTemplatePromptBlock(template)}
-        <p class="job-note">Cost: ${escapeHtml(formatCredits(template.credits || 0))} credits</p>
+        <p class="job-note">Cost: ${escapeHtml(playfluxTemplateCostLabel(template))}</p>
         <p class="job-note" data-playflux-template-status></p>
       </div>
     `,
