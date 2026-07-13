@@ -346,6 +346,19 @@ const TOS = {
   publicDomain: process.env.TOS_PUBLIC_DOMAIN,
 };
 const DISABLE_TOS_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_TOS_STORAGE || ""));
+const R2 = {
+  accessKey: process.env.R2_ACCESS_KEY_ID || process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
+  secretKey: process.env.R2_SECRET_ACCESS_KEY || process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+  endpoint: process.env.R2_ENDPOINT || process.env.CLOUDFLARE_R2_ENDPOINT,
+  region: process.env.R2_REGION || process.env.CLOUDFLARE_R2_REGION || "auto",
+  bucket: process.env.R2_BUCKET || process.env.CLOUDFLARE_R2_BUCKET,
+  publicDomain:
+    process.env.R2_PUBLIC_BASE_URL ||
+    process.env.R2_PUBLIC_DOMAIN ||
+    process.env.CLOUDFLARE_R2_PUBLIC_BASE_URL ||
+    process.env.CLOUDFLARE_R2_PUBLIC_DOMAIN,
+};
+const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
 const SITE_STORAGE_SLUG = storagePathSegment(
   process.env.SITE_STORAGE_SLUG || process.env.TENANT_SLUG || defaultStorageSlug(),
   "raising-game",
@@ -3961,9 +3974,9 @@ function publicCharacterVideoList(item = {}) {
     const raw = entry || {};
     const sceneId = raw.sceneId || sceneIdFromVideoKey(key);
     const sceneEntryId = raw.sceneEntryId || "default";
-    const videoUrl = String(raw.videoUrl || raw.localVideoUrl || raw.remoteVideoUrl || "").trim();
+    const videoUrl = String(raw.cdnVideoUrl || raw.videoUrl || raw.localVideoUrl || raw.remoteVideoUrl || "").trim();
     const taskId = String(raw.taskId || "").trim();
-    const posterUrl = String(raw.posterUrl || raw.coverUrl || raw.thumbnailUrl || "").trim();
+    const posterUrl = String(raw.cdnPosterUrl || raw.posterUrl || raw.coverUrl || raw.thumbnailUrl || "").trim();
     if (!sceneId || (!videoUrl && !taskId && !posterUrl)) continue;
     const dedupeKey = [sceneId, sceneEntryId, taskId, videoUrl, key].join("|");
     if (seen.has(dedupeKey)) continue;
@@ -3997,14 +4010,14 @@ function characterUnlockedByRecord(db = {}, userId = "", itemId = "") {
 function publicCharacterSceneVideo(entry = {}, { playable = false, locked = true, price = CHARACTER_UNLOCK_COST_CREDITS } = {}) {
   const video = publicSceneVideo(entry) || publicUnlockVideo(entry, entry.sceneId || "");
   if (!video) return null;
-  const posterUrl = String(video.posterUrl || video.localPosterUrl || video.coverUrl || video.thumbnailUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
+  const posterUrl = String(video.cdnPosterUrl || video.posterUrl || video.localPosterUrl || video.coverUrl || video.thumbnailUrl || entry.cdnPosterUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
   return {
     ...video,
     posterUrl,
     localPosterUrl: String(video.localPosterUrl || entry.localPosterUrl || posterUrl || "").trim(),
     coverUrl: String(video.coverUrl || entry.coverUrl || posterUrl || "").trim(),
     thumbnailUrl: String(video.thumbnailUrl || entry.thumbnailUrl || posterUrl || "").trim(),
-    videoUrl: playable ? String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim() : "",
+    videoUrl: playable ? String(entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim() : "",
     locked: Boolean(locked),
     price,
   };
@@ -4049,7 +4062,8 @@ function publicHomeVideoItem(item, auth = null) {
   const hasSynth = Boolean(item.syntheticReferenceLocalUrl || item.syntheticReferenceUrl);
   const hasAsset = Boolean(item.referenceAssetUri);
   const characterVideos = publicCharacterVideoMaps(item, auth);
-  const characterImageUrl = item.sourceImageUrl || item.localImageUrl || item.syntheticReferenceLocalUrl || item.publicImageUrl || item.imageUrl || "";
+  const characterImageUrl = item.publicImageUrl || item.cdnImageUrl || item.cdnPosterUrl || item.sourceImageUrl || item.localImageUrl || item.syntheticReferenceLocalUrl || item.imageUrl || "";
+  const posterUrl = item.cdnPosterUrl || item.cdnImageUrl || item.publicImageUrl || item.posterUrl || characterImageUrl || item.coverUrl || "";
   let referenceState = "missing";
   if (hasSynth && hasAsset) referenceState = "ready";
   else if (hasSynth) referenceState = "asset_pending";
@@ -4059,13 +4073,15 @@ function publicHomeVideoItem(item, auth = null) {
     id: item.id || "",
     name: item.name || "Featured",
     title: item.title || "Featured drama",
-    posterUrl: item.posterUrl || characterImageUrl || item.coverUrl || "",
+    posterUrl,
     localImageUrl: item.localImageUrl || "",
     characterImageUrl,
     referenceImageUrl: characterImageUrl,
     syntheticReferenceLocalUrl: item.syntheticReferenceLocalUrl || "",
-    sourceImageUrl: item.sourceImageUrl || "",
+    sourceImageUrl: item.publicImageUrl || item.cdnImageUrl || item.sourceImageUrl || "",
     publicImageUrl: item.publicImageUrl || "",
+    cdnImageUrl: item.cdnImageUrl || "",
+    cdnPosterUrl: item.cdnPosterUrl || "",
     coverUrl: item.coverUrl || "",
     thumbnailUrl: item.thumbnailUrl || "",
     thumbUrl: item.thumbUrl || "",
@@ -4168,14 +4184,17 @@ function normalizeHomeVideo(homeVideo = {}) {
     ...homeVideo,
     activeItemId: active.id || activeItemId,
     items: normalized,
-    posterUrl: active.posterUrl || active.localImageUrl || homeVideo.posterUrl || "",
+    posterUrl: active.cdnPosterUrl || active.cdnImageUrl || active.publicImageUrl || active.posterUrl || active.localImageUrl || homeVideo.posterUrl || "",
     localImageUrl: active.localImageUrl || active.posterUrl || homeVideo.localImageUrl || "",
     imageMime: active.imageMime || homeVideo.imageMime || "",
-    publicImageUrl: active.publicImageUrl || homeVideo.publicImageUrl || "",
+    publicImageUrl: active.publicImageUrl || active.cdnImageUrl || homeVideo.publicImageUrl || "",
+    cdnImageUrl: active.cdnImageUrl || homeVideo.cdnImageUrl || "",
+    cdnPosterUrl: active.cdnPosterUrl || homeVideo.cdnPosterUrl || "",
     referenceAssetUri: active.referenceAssetUri || homeVideo.referenceAssetUri || "",
-    videoUrl: active.videoUrl || active.localVideoUrl || homeVideo.videoUrl || "",
+    videoUrl: active.cdnVideoUrl || active.videoUrl || active.localVideoUrl || homeVideo.videoUrl || "",
     localVideoUrl: active.localVideoUrl || active.videoUrl || homeVideo.localVideoUrl || "",
     remoteVideoUrl: active.remoteVideoUrl || homeVideo.remoteVideoUrl || "",
+    cdnVideoUrl: active.cdnVideoUrl || homeVideo.cdnVideoUrl || "",
     localVideoPath: active.localVideoPath || homeVideo.localVideoPath || "",
     taskId: active.taskId || homeVideo.taskId || "",
     status: active.status || homeVideo.status || "",
@@ -4233,7 +4252,7 @@ function findHomeVideoItem(homeVideo = {}, itemId = "") {
 function normalizeUnlockVideo(entry = {}, videoKey = "") {
   if (!entry || typeof entry !== "object") return null;
   const sceneId = String(entry.sceneId || sceneIdFromVideoKey(videoKey) || "").trim();
-  const videoUrl = String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
+  const videoUrl = String(entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
   const taskId = String(entry.taskId || "").trim();
   if (!sceneId || (!videoUrl && !taskId)) return null;
   return {
@@ -4245,6 +4264,7 @@ function normalizeUnlockVideo(entry = {}, videoKey = "") {
     title: String(entry.title || entry.sceneEntryName || entry.sceneName || "Unlocked video").trim(),
     price: clampNumber(entry.price, DEFAULT_CONFIG.prices.unlockVideo, 0, 9999),
     videoUrl,
+    cdnVideoUrl: entry.cdnVideoUrl || "",
     localVideoUrl: entry.localVideoUrl || "",
     remoteVideoUrl: entry.remoteVideoUrl || "",
     taskId,
@@ -4255,7 +4275,7 @@ function normalizeUnlockVideo(entry = {}, videoKey = "") {
 function publicUnlockVideo(entry = {}, videoKey = "") {
   const normalized = normalizeUnlockVideo(entry, videoKey);
   if (!normalized) return null;
-  const posterUrl = String(normalized.posterUrl || normalized.localPosterUrl || normalized.coverUrl || normalized.thumbnailUrl || "").trim();
+  const posterUrl = String(normalized.cdnPosterUrl || normalized.posterUrl || normalized.localPosterUrl || normalized.coverUrl || normalized.thumbnailUrl || "").trim();
   return {
     sceneId: normalized.sceneId,
     sceneName: normalized.sceneName || "",
@@ -4263,6 +4283,7 @@ function publicUnlockVideo(entry = {}, videoKey = "") {
     sceneEntryName: normalized.sceneEntryName || "",
     title: normalized.title || "Unlocked video",
     posterUrl,
+    cdnPosterUrl: normalized.cdnPosterUrl || "",
     localPosterUrl: normalized.localPosterUrl || posterUrl || "",
     coverUrl: normalized.coverUrl || posterUrl || "",
     thumbnailUrl: normalized.thumbnailUrl || posterUrl || "",
@@ -4434,7 +4455,7 @@ function parseUnlockStreamToken(token = "") {
 }
 
 function getUnlockVideoUrl(entry = {}) {
-  return String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
+  return String(entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
 }
 
 function secureUnlockVideoUrl({ userId, itemId, sceneId, sceneEntryId = "default", videoKey = "" }) {
@@ -7203,6 +7224,8 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
 
   const imageDimensions = mime.startsWith("image/") ? imageDimensionsFromBuffer(bytes) : null;
   const videoDimensions = mime.startsWith("video/") ? await probeLocalVideoDimensions(localPath) : null;
+  const localUrl = `/assets/user-uploads/${user.id}/${storedFileName}`;
+  const objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
   const displayName = String(fileName || name || "Upload")
     .split(/[\\/]/)
     .pop()
@@ -7212,8 +7235,11 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     userId: user.id,
     name: displayName || "Upload",
     mime,
-    localUrl: `/assets/user-uploads/${user.id}/${storedFileName}`,
-    publicUrl: publicUrlForAssetPath(`/assets/user-uploads/${user.id}/${storedFileName}`),
+    localUrl,
+    publicUrl: objectStorage.publicUrl || publicUrlForAssetPath(localUrl),
+    cdnUrl: objectStorage.publicUrl || "",
+    objectStorageKey: objectStorage.key || "",
+    objectStorageError: objectStorage.error || "",
     assetUri: "",
     width: imageDimensions?.width || 0,
     height: imageDimensions?.height || 0,
@@ -7396,7 +7422,12 @@ async function refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, asset = {},
   asset.durationSeconds = sourceDimensions.durationSeconds || asset.durationSeconds || 0;
   asset.seedanceVideoAssetId = "";
   asset.seedanceVideoAssetUri = "";
-  asset.publicUrl = publicUrlForAssetPath(asset.localUrl) || asset.publicUrl || "";
+  const refreshedBytes = await fs.readFile(targetPath);
+  const mirror = await uploadLocalAssetMirrorToObjectStorage({ localUrl: asset.localUrl, bytes: refreshedBytes, mime: asset.mime || videoMimeFromPath(targetPath) });
+  asset.publicUrl = mirror.publicUrl || publicUrlForAssetPath(asset.localUrl) || asset.publicUrl || "";
+  asset.cdnUrl = mirror.publicUrl || asset.cdnUrl || "";
+  asset.objectStorageKey = mirror.key || asset.objectStorageKey || "";
+  asset.objectStorageError = mirror.error || asset.objectStorageError || "";
   asset.updatedAt = new Date().toISOString();
   db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
   if (dbEnabled()) await upsertUserAssetInDb(asset);
@@ -7463,15 +7494,17 @@ function findSceneConfig(config, sceneId) {
 
 function publicSceneVideo(entry = {}) {
   if (!entry || typeof entry !== "object") return null;
-  const videoUrl = entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "";
+  const videoUrl = entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "";
   const savedPrompt = String(entry.userPrompt || "").trim();
   if (!videoUrl && !entry.taskId && !savedPrompt) return null;
-  const posterUrl = String(entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
+  const posterUrl = String(entry.cdnPosterUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
   return {
     sceneId: entry.sceneId || "",
     sceneName: entry.sceneName || "",
     videoUrl,
     posterUrl,
+    cdnVideoUrl: entry.cdnVideoUrl || "",
+    cdnPosterUrl: entry.cdnPosterUrl || "",
     localPosterUrl: entry.localPosterUrl || posterUrl || "",
     coverUrl: entry.coverUrl || posterUrl || "",
     thumbnailUrl: entry.thumbnailUrl || posterUrl || "",
@@ -7537,6 +7570,10 @@ function signKey(secret, date, region, service) {
   return hmac(hmac(hmac(hmac(secret, date), region), service), "request");
 }
 
+function signAwsKey(secret, date, region, service) {
+  return hmac(hmac(hmac(hmac(`AWS4${secret}`, date), region), service), "aws4_request");
+}
+
 function amzDate() {
   const value = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   return { xDate: value, date: value.slice(0, 8) };
@@ -7580,6 +7617,45 @@ function makeTosAuth({ method, key, body, contentType }) {
   };
 }
 
+function r2EndpointUrl() {
+  const endpoint = String(R2.endpoint || "").trim().replace(/\/+$/, "");
+  if (!endpoint) return null;
+  return new URL(/^https?:\/\//i.test(endpoint) ? endpoint : `https://${endpoint}`);
+}
+
+function makeR2Auth({ method, key, body, contentType }) {
+  const endpoint = r2EndpointUrl();
+  if (!endpoint) {
+    const error = new Error("Missing R2_ENDPOINT");
+    error.statusCode = 503;
+    throw error;
+  }
+  const { xDate, date } = amzDate();
+  const payloadHash = sha256Hex(body);
+  const canonicalUri = `/${encodeURIComponent(R2.bucket)}/${encodePathname(key)}`;
+  const headers = {
+    "content-type": contentType,
+    host: endpoint.host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": xDate,
+  };
+  const sortedKeys = Object.keys(headers).sort();
+  const signedHeaders = sortedKeys.join(";");
+  const canonicalHeaders = sortedKeys.map((header) => `${header}:${headers[header]}\n`).join("");
+  const canonicalRequest = [method, canonicalUri, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const scope = `${date}/${R2.region || "auto"}/s3/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", xDate, scope, sha256Hex(canonicalRequest)].join("\n");
+  const signature = hmac(signAwsKey(R2.secretKey, date, R2.region || "auto", "s3"), stringToSign, "hex");
+
+  return {
+    url: `${endpoint.protocol}//${endpoint.host}${canonicalUri}`,
+    headers: {
+      ...headers,
+      authorization: `AWS4-HMAC-SHA256 Credential=${R2.accessKey}/${scope},SignedHeaders=${signedHeaders},Signature=${signature}`,
+    },
+  };
+}
+
 function makeArkOpenApiAuth({ action, body }) {
   const { xDate, date } = amzDate();
   const query = new URLSearchParams({ Action: action, Version: ARK_OPENAPI.version }).toString();
@@ -7608,6 +7684,14 @@ function makeArkOpenApiAuth({ action, body }) {
 }
 
 async function uploadBufferToTos({ userId, assetId, bytes, mime, extension = "" }) {
+  if (r2Enabled()) {
+    const fileName = `${storagePathSegment(assetId, "asset")}-${Date.now()}${extension || mediaExtFromMime(mime) || imageExtFromMime(mime)}`;
+    return uploadStaticAssetToR2({
+      key: tosStorageKey("users", userId, fileName),
+      bytes,
+      mime,
+    });
+  }
   requireValue("TOS_ACCESS_KEY_ID", TOS.accessKey);
   requireValue("TOS_SECRET_ACCESS_KEY", TOS.secretKey);
   requireValue("TOS_ENDPOINT", TOS.endpoint);
@@ -7639,8 +7723,17 @@ function tosEnabled() {
   return Boolean(TOS.accessKey && TOS.secretKey && TOS.endpoint && TOS.region && TOS.bucket && TOS.publicDomain);
 }
 
+function r2Enabled() {
+  if (DISABLE_R2_STORAGE) return false;
+  return Boolean(R2.accessKey && R2.secretKey && R2.endpoint && R2.bucket && R2.publicDomain);
+}
+
+function objectStorageEnabled() {
+  return r2Enabled() || tosEnabled();
+}
+
 function localPublicAssetStorageEnabled() {
-  return DISABLE_TOS_STORAGE || !tosEnabled();
+  return !objectStorageEnabled();
 }
 
 async function uploadStaticAssetToTos({ key, bytes, mime }) {
@@ -7663,6 +7756,51 @@ async function uploadStaticAssetToTos({ key, bytes, mime }) {
     tosUrl: url,
     publicUrl: `${TOS.publicDomain.replace(/\/$/, "")}/${key}`,
   };
+}
+
+async function uploadStaticAssetToR2({ key, bytes, mime }) {
+  requireValue("R2_ACCESS_KEY_ID", R2.accessKey);
+  requireValue("R2_SECRET_ACCESS_KEY", R2.secretKey);
+  requireValue("R2_ENDPOINT", R2.endpoint);
+  requireValue("R2_BUCKET", R2.bucket);
+  requireValue("R2_PUBLIC_BASE_URL", R2.publicDomain);
+
+  const auth = makeR2Auth({ method: "PUT", key, body: bytes, contentType: mime || "application/octet-stream" });
+  const response = await fetch(auth.url, { method: "PUT", headers: auth.headers, body: bytes });
+  const text = await response.text();
+  if (!response.ok) {
+    const error = new Error(`R2 upload failed: ${response.status} ${text}`);
+    error.statusCode = 502;
+    throw error;
+  }
+  return {
+    key,
+    r2Url: auth.url,
+    publicUrl: `${R2.publicDomain.replace(/\/$/, "")}/${key}`,
+  };
+}
+
+async function uploadStaticAssetToObjectStorage({ key, bytes, mime }) {
+  if (r2Enabled()) return uploadStaticAssetToR2({ key, bytes, mime });
+  return uploadStaticAssetToTos({ key, bytes, mime });
+}
+
+function localAssetMirrorKey(localUrl = "") {
+  const value = String(localUrl || "").trim().split("?")[0];
+  if (!value.startsWith("/assets/")) return "";
+  return value.replace(/^\/+/, "").split("/").map((part) => storagePathSegment(decodeURIComponent(part), "asset")).join("/");
+}
+
+async function uploadLocalAssetMirrorToObjectStorage({ localUrl = "", bytes, mime = "application/octet-stream" } = {}) {
+  if (!objectStorageEnabled()) return { publicUrl: "", key: "", error: "" };
+  const key = localAssetMirrorKey(localUrl);
+  if (!key) return { publicUrl: "", key: "", error: "" };
+  try {
+    const upload = await uploadStaticAssetToObjectStorage({ key, bytes, mime });
+    return { publicUrl: upload.publicUrl || "", key: upload.key || key, error: "" };
+  } catch (error) {
+    return { publicUrl: "", key, error: error.message || "Object storage upload failed" };
+  }
 }
 
 function makeHomeSyntheticReferencePrompt(item = {}) {
@@ -12111,7 +12249,7 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (isImageGenerationRecord(record)) return false;
   if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
-  if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) return true;
+  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) return true;
   const status = String(record.status || "").toLowerCase();
   if (isFailedStatus(status)) return false;
   if (isSucceededStatus(status)) {
@@ -12173,7 +12311,7 @@ function generationRecordTime(record = {}) {
 function shouldRefreshGenerationRecordFromList(record = {}) {
   if (isStalePreSubmitGenerationRecord(record)) return true;
   if (!shouldRefreshGenerationRecord(record)) return false;
-  if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) return true;
+  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) return true;
   const time = generationRecordTime(record);
   return !time || Date.now() - time <= GENERATION_LIST_REFRESH_MAX_AGE_MS;
 }
@@ -12197,7 +12335,7 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
     localPosterPath = poster.localPosterPath || localPosterPath;
     localPosterUrl = poster.localPosterUrl || localPosterUrl;
   }
-  if (tosEnabled() && (!cdnVideoUrl || (localPosterPath && !cdnPosterUrl))) {
+  if (objectStorageEnabled() && (!cdnVideoUrl || (localPosterPath && !cdnPosterUrl))) {
     const cdn = await uploadGeneratedMediaToTos({ taskId: record.taskId, localVideoPath, localPosterPath });
     cdnVideoUrl = cdn.cdnVideoUrl || cdnVideoUrl;
     cdnPosterUrl = cdn.cdnPosterUrl || cdnPosterUrl;
@@ -12345,7 +12483,7 @@ async function refreshGenerationRecordStatus(record = {}) {
   if (isStalePreSubmitGenerationRecord(record)) {
     return failStalePreSubmitGenerationRecord(record, "refresh-stale-submit");
   }
-  if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) {
+  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) {
     try {
       return await ensureGenerationRecordMediaOptimized(record);
     } catch (error) {
@@ -12563,12 +12701,12 @@ async function createGeneratedVideoPoster(taskId, videoPath) {
 
 async function uploadGeneratedMediaToTos({ taskId, localVideoPath, localPosterPath = "" } = {}) {
   const result = { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
-  if (!tosEnabled()) return result;
+  if (!objectStorageEnabled()) return result;
   try {
     if (localVideoPath) {
       const videoBytes = await fs.readFile(localVideoPath);
       const videoExt = path.extname(localVideoPath) || ".mp4";
-      const videoUpload = await uploadStaticAssetToTos({
+      const videoUpload = await uploadStaticAssetToObjectStorage({
         key: tosStorageKey("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
         bytes: videoBytes,
         mime: videoMimeFromPath(localVideoPath),
@@ -12577,7 +12715,7 @@ async function uploadGeneratedMediaToTos({ taskId, localVideoPath, localPosterPa
     }
     if (localPosterPath) {
       const posterBytes = await fs.readFile(localPosterPath);
-      const posterUpload = await uploadStaticAssetToTos({
+      const posterUpload = await uploadStaticAssetToObjectStorage({
         key: tosStorageKey("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
         bytes: posterBytes,
         mime: "image/jpeg",
@@ -12626,7 +12764,7 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
       const existingVideoPath = existing.localVideoPath || path.join(ROOT, existing.localVideoUrl.replace(/^\//, ""));
       await fs.access(existingVideoPath);
       let optimized = existing;
-      if (!existing.localPosterUrl || (tosEnabled() && !existing.cdnVideoUrl)) {
+      if (!existing.localPosterUrl || (objectStorageEnabled() && !existing.cdnVideoUrl)) {
         optimized = await ensureGenerationRecordMediaOptimized(existing);
       }
       return {
@@ -12687,9 +12825,9 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png") {
     cdnImageUrl: "",
     cdnError: "",
   };
-  if (tosEnabled()) {
+  if (objectStorageEnabled()) {
     try {
-      const upload = await uploadStaticAssetToTos({
+      const upload = await uploadStaticAssetToObjectStorage({
         key: tosStorageKey("generated", "images", fileName),
         bytes,
         mime: imageMime,
@@ -13021,14 +13159,14 @@ async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } 
     coverUrl: localCoverUrl,
     cdnVideoUrl: "",
     cdnCoverUrl: "",
-    cdnEnabled: tosEnabled(),
+    cdnEnabled: objectStorageEnabled(),
     cdnError: "",
   };
 
-  if (tosEnabled()) {
+  if (objectStorageEnabled()) {
     try {
       const baseKey = tosStorageKey("admin", "advanced-cases", safeId, Date.now());
-      const videoUpload = await uploadStaticAssetToTos({
+      const videoUpload = await uploadStaticAssetToObjectStorage({
         key: `${baseKey}${videoExt}`,
         bytes: videoDownload.bytes,
         mime: videoDownload.mime && videoDownload.mime.startsWith("video/") ? videoDownload.mime : videoMimeFromPath(videoName),
@@ -13036,7 +13174,7 @@ async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } 
       result.cdnVideoUrl = videoUpload.publicUrl;
       result.previewUrl = videoUpload.publicUrl;
       if (coverBytes && localCoverUrl) {
-        const coverUpload = await uploadStaticAssetToTos({
+        const coverUpload = await uploadStaticAssetToObjectStorage({
           key: `${baseKey}-cover${path.extname(coverPath) || ".jpg"}`,
           bytes: coverBytes,
           mime: coverMime || "image/jpeg",
@@ -13111,14 +13249,14 @@ async function ingestPlatformTemplateMedia({ videoUrl, coverUrl = "", templateId
     coverUrl: localCoverUrl,
     cdnVideoUrl: "",
     cdnCoverUrl: "",
-    cdnEnabled: tosEnabled(),
+    cdnEnabled: objectStorageEnabled(),
     cdnError: "",
   };
 
-  if (tosEnabled()) {
+  if (objectStorageEnabled()) {
     try {
       const baseKey = tosStorageKey("admin", "platform-templates", safeId, stamp);
-      const videoUpload = await uploadStaticAssetToTos({
+      const videoUpload = await uploadStaticAssetToObjectStorage({
         key: `${baseKey}${videoExt}`,
         bytes: videoDownload.bytes,
         mime: videoDownload.mime && videoDownload.mime.startsWith("video/") ? videoDownload.mime : videoMimeFromPath(videoName),
@@ -13126,7 +13264,7 @@ async function ingestPlatformTemplateMedia({ videoUrl, coverUrl = "", templateId
       result.cdnVideoUrl = videoUpload.publicUrl;
       result.previewUrl = videoUpload.publicUrl;
       if (coverBytes && localCoverUrl) {
-        const coverUpload = await uploadStaticAssetToTos({
+        const coverUpload = await uploadStaticAssetToObjectStorage({
           key: `${baseKey}-cover${path.extname(coverPath) || ".jpg"}`,
           bytes: coverBytes,
           mime: coverMime || "image/jpeg",
@@ -15600,8 +15738,16 @@ async function handleAdminUploadPlatformCover(req, res) {
   const safeName = String(body.name || "platform-cover").trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 50) || "platform-cover";
   const fileName = `${safeName}-${Date.now()}${imageExtFromMime(mime)}`;
   await fs.mkdir(ADMIN_HOME_DIR, { recursive: true });
+  const localUrl = `/assets/admin/home/${fileName}`;
   await fs.writeFile(path.join(ADMIN_HOME_DIR, fileName), bytes);
-  return sendJson(res, 200, { ok: true, url: `/assets/admin/home/${fileName}` });
+  const mirror = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
+  return sendJson(res, 200, {
+    ok: true,
+    url: mirror.publicUrl || localUrl,
+    localUrl,
+    cdnUrl: mirror.publicUrl || "",
+    objectStorageError: mirror.error || "",
+  });
 }
 
 async function handleAdminIngestAdvancedCaseMedia(req, res) {
@@ -16766,7 +16912,15 @@ async function downloadGeneratedCharacterSheet(taskId, imageUrl) {
   const localUrl = `/assets/generated/characters/apiz/${taskId}/${fileName}`;
   try {
     await fs.access(localPath);
-    return { localPath, localUrl };
+    const existingBytes = objectStorageEnabled() ? await fs.readFile(localPath) : null;
+    const mirror = existingBytes ? await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes: existingBytes, mime: imageMimeFromPath(localPath) }) : {};
+    return {
+      localPath,
+      localUrl,
+      cdnImageUrl: mirror.publicUrl || "",
+      objectStorageKey: mirror.key || "",
+      cdnError: mirror.error || "",
+    };
   } catch {
     // Continue and download.
   }
@@ -16779,7 +16933,14 @@ async function downloadGeneratedCharacterSheet(taskId, imageUrl) {
   }
   const bytes = Buffer.from(await response.arrayBuffer());
   await fs.writeFile(localPath, bytes);
-  return { localPath, localUrl };
+  const mirror = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime: imageMimeFromPath(localPath) });
+  return {
+    localPath,
+    localUrl,
+    cdnImageUrl: mirror.publicUrl || "",
+    objectStorageKey: mirror.key || "",
+    cdnError: mirror.error || "",
+  };
 }
 
 async function downloadGeneratedPanorama(taskId, imageUrl, slug = "panorama") {
@@ -19880,17 +20041,22 @@ const USER_CHARACTER_DIR = path.join(ROOT, "assets", "user-characters");
 
 function publicUserCharacter(character) {
   if (!character) return null;
+  const posterUrl = character.publicImageUrl || character.cdnImageUrl || character.posterUrl || character.localImageUrl || "";
+  const sourceImageUrl = character.publicImageUrl || character.cdnImageUrl || character.sourceImageUrl || character.localImageUrl || character.posterUrl || "";
+  const videoUrl = character.cdnVideoUrl || character.videoUrl || character.localVideoUrl || "";
   return {
     id: character.id,
     name: character.name || "My character",
     title: character.title || "My drama",
-    posterUrl: character.posterUrl || character.localImageUrl || "",
+    posterUrl,
     localImageUrl: character.localImageUrl || "",
-    sourceImageUrl: character.sourceImageUrl || character.localImageUrl || character.posterUrl || "",
+    sourceImageUrl,
     publicImageUrl: character.publicImageUrl || "",
+    cdnImageUrl: character.cdnImageUrl || "",
     imageTaskId: character.imageTaskId || "",
     imageRemoteUrl: character.imageRemoteUrl || "",
-    videoUrl: character.videoUrl || character.localVideoUrl || "",
+    videoUrl,
+    cdnVideoUrl: character.cdnVideoUrl || "",
     taskId: character.taskId || "",
     status: character.status || "",
     error: character.error || "",
@@ -19956,6 +20122,10 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
     record.posterUrl = local.localUrl;
     record.localImageUrl = local.localUrl;
     record.sourceImageUrl = local.localUrl;
+    record.publicImageUrl = local.cdnImageUrl || record.publicImageUrl || "";
+    record.cdnImageUrl = local.cdnImageUrl || record.cdnImageUrl || "";
+    record.objectStorageKey = local.objectStorageKey || record.objectStorageKey || "";
+    record.objectStorageError = local.cdnError || record.objectStorageError || "";
     record.imageRemoteUrl = imageUrls[0];
     record.imageTaskResponse = task;
     record.status = "image_ready";
@@ -20190,6 +20360,7 @@ async function handleSaveMyCharacterDraft(req, res) {
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, fileName), bytes);
   const localUrl = `/assets/user-characters/${auth.user.id}/${fileName}`;
+  const objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
 
   const nowIso = new Date().toISOString();
   const record = {
@@ -20202,7 +20373,10 @@ async function handleSaveMyCharacterDraft(req, res) {
     sourceImageUrl: localUrl,
     imageMime: mime,
     sourceImageMime: mime,
-    publicImageUrl: "",
+    publicImageUrl: objectStorage.publicUrl || "",
+    cdnImageUrl: objectStorage.publicUrl || "",
+    objectStorageKey: objectStorage.key || "",
+    objectStorageError: objectStorage.error || "",
     referenceAssetUri: "",
     syntheticReferenceLocalUrl: "",
     syntheticReferenceUrl: "",
@@ -20340,6 +20514,7 @@ async function handleCreateMyCharacter(req, res) {
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, fileName), bytes);
   const localUrl = `/assets/user-characters/${auth.user.id}/${fileName}`;
+  const objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
 
   const nowIso = new Date().toISOString();
   const record = {
@@ -20352,7 +20527,10 @@ async function handleCreateMyCharacter(req, res) {
     sourceImageUrl: localUrl,
     imageMime: mime,
     sourceImageMime: mime,
-    publicImageUrl: "",
+    publicImageUrl: objectStorage.publicUrl || "",
+    cdnImageUrl: objectStorage.publicUrl || "",
+    objectStorageKey: objectStorage.key || "",
+    objectStorageError: objectStorage.error || "",
     referenceAssetUri: "",
     syntheticReferenceLocalUrl: "",
     syntheticReferenceUrl: "",
@@ -20552,22 +20730,33 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
   const task = normalizeTask(raw);
   let localVideoUrl = "";
   let localVideoPath = "";
+  let cdnVideoUrl = record.cdnVideoUrl || "";
+  let cdnPosterUrl = record.cdnPosterUrl || "";
+  let cdnError = record.cdnError || "";
   let downloadError = "";
   if (isSucceededStatus(task.status) && task.videoUrl) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, task.videoUrl);
       localVideoUrl = localVideo.localVideoUrl;
       localVideoPath = localVideo.localVideoPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
+      cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+      cdnError = localVideo.cdnError || cdnError;
     } catch (error) {
       downloadError = error.message || "Failed to download character video.";
     }
   }
 
   record.status = task.status;
-  record.videoUrl = localVideoUrl || task.videoUrl || record.videoUrl || "";
+  record.videoUrl = localPublicAssetStorageEnabled()
+    ? (localVideoUrl || cdnVideoUrl || task.videoUrl || record.videoUrl || "")
+    : (cdnVideoUrl || localVideoUrl || task.videoUrl || record.videoUrl || "");
   record.localVideoUrl = localVideoUrl || record.localVideoUrl || "";
   record.localVideoPath = localVideoPath || record.localVideoPath || "";
   record.remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
+  record.cdnVideoUrl = cdnVideoUrl || "";
+  record.cdnPosterUrl = cdnPosterUrl || "";
+  record.cdnError = cdnError || "";
   record.error = task.error || downloadError || "";
   record.updatedAt = new Date().toISOString();
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
@@ -20580,6 +20769,9 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl,
     localVideoPath,
+    cdnVideoUrl,
+    cdnPosterUrl,
+    cdnError,
     error: task.error || downloadError || "",
     queryResponse: raw,
   }, "character-main-query");
@@ -20754,12 +20946,18 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
   const task = normalizeTask(raw);
   let localVideoUrl = "";
   let localVideoPath = "";
+  let cdnVideoUrl = "";
+  let cdnPosterUrl = "";
+  let cdnError = "";
   let downloadError = "";
   if (isSucceededStatus(task.status) && task.videoUrl) {
     try {
       const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
       localVideoUrl = localVideo.localVideoUrl;
       localVideoPath = localVideo.localVideoPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || "";
+      cdnPosterUrl = localVideo.cdnPosterUrl || "";
+      cdnError = localVideo.cdnError || "";
     } catch (error) {
       downloadError = error.message || "Failed to download scene video.";
     }
@@ -20773,10 +20971,15 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
     sceneId: previous.sceneId || matchedSceneBaseId,
     taskId: task.taskId || taskId,
     status: task.status,
-    videoUrl: localVideoUrl || task.videoUrl || previous.videoUrl || "",
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (localVideoUrl || cdnVideoUrl || task.videoUrl || previous.videoUrl || "")
+      : (cdnVideoUrl || localVideoUrl || task.videoUrl || previous.videoUrl || ""),
     localVideoUrl: localVideoUrl || previous.localVideoUrl || "",
     localVideoPath: localVideoPath || previous.localVideoPath || "",
     remoteVideoUrl: task.videoUrl || previous.remoteVideoUrl || "",
+    cdnVideoUrl: cdnVideoUrl || previous.cdnVideoUrl || "",
+    cdnPosterUrl: cdnPosterUrl || previous.cdnPosterUrl || "",
+    cdnError: cdnError || previous.cdnError || "",
     error: task.error || downloadError || "",
     updatedAt: nowIso,
   };
@@ -20792,6 +20995,9 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl,
     localVideoPath,
+    cdnVideoUrl,
+    cdnPosterUrl,
+    cdnError,
     error: task.error || downloadError || "",
     queryResponse: raw,
   }, "character-scene-query");
@@ -21764,20 +21970,31 @@ async function refreshCompletedHomeVideoItems(config) {
 
       let localVideoUrl = "";
       let localVideoPath = "";
+      let cdnVideoUrl = "";
+      let cdnPosterUrl = "";
+      let cdnError = "";
       try {
         const localVideo = await downloadGeneratedVideo(task.taskId || sceneTaskId, task.videoUrl);
         localVideoUrl = localVideo.localVideoUrl;
         localVideoPath = localVideo.localVideoPath;
+        cdnVideoUrl = localVideo.cdnVideoUrl || "";
+        cdnPosterUrl = localVideo.cdnPosterUrl || "";
+        cdnError = localVideo.cdnError || "";
       } catch {}
 
       const nextEntry = {
         ...entry,
         taskId: task.taskId || sceneTaskId,
         status: task.status,
-        videoUrl: localVideoUrl || task.videoUrl || entry.videoUrl || "",
+        videoUrl: localPublicAssetStorageEnabled()
+          ? (localVideoUrl || cdnVideoUrl || task.videoUrl || entry.videoUrl || "")
+          : (cdnVideoUrl || localVideoUrl || task.videoUrl || entry.videoUrl || ""),
         localVideoUrl: localVideoUrl || entry.localVideoUrl || "",
         localVideoPath: localVideoPath || entry.localVideoPath || "",
         remoteVideoUrl: task.videoUrl || entry.remoteVideoUrl || "",
+        cdnVideoUrl: cdnVideoUrl || entry.cdnVideoUrl || "",
+        cdnPosterUrl: cdnPosterUrl || entry.cdnPosterUrl || "",
+        cdnError: cdnError || entry.cdnError || "",
         updatedAt: new Date().toISOString(),
         error: "",
       };
@@ -21801,6 +22018,9 @@ async function refreshCompletedHomeVideoItems(config) {
         remoteVideoUrl: task.videoUrl || "",
         localVideoUrl,
         localVideoPath,
+        cdnVideoUrl,
+        cdnPosterUrl,
+        cdnError,
         error: "",
         source: "admin-home-scene",
       }, "home-config-refresh");
@@ -21822,20 +22042,31 @@ async function refreshCompletedHomeVideoItems(config) {
 
     let localVideoUrl = "";
     let localVideoPath = "";
+    let cdnVideoUrl = "";
+    let cdnPosterUrl = "";
+    let cdnError = "";
     try {
       const localVideo = await downloadGeneratedVideo(task.taskId || taskId, task.videoUrl);
       localVideoUrl = localVideo.localVideoUrl;
       localVideoPath = localVideo.localVideoPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || "";
+      cdnPosterUrl = localVideo.cdnPosterUrl || "";
+      cdnError = localVideo.cdnError || "";
     } catch {}
 
     const legacyUpdatedItem = {
       ...item,
       taskId: task.taskId || taskId,
       status: task.status,
-      videoUrl: localVideoUrl || task.videoUrl || item.videoUrl || "",
+      videoUrl: localPublicAssetStorageEnabled()
+        ? (localVideoUrl || cdnVideoUrl || task.videoUrl || item.videoUrl || "")
+        : (cdnVideoUrl || localVideoUrl || task.videoUrl || item.videoUrl || ""),
       localVideoUrl: localVideoUrl || item.localVideoUrl || "",
       localVideoPath: localVideoPath || item.localVideoPath || "",
       remoteVideoUrl: task.videoUrl || item.remoteVideoUrl || "",
+      cdnVideoUrl: cdnVideoUrl || item.cdnVideoUrl || "",
+      cdnPosterUrl: cdnPosterUrl || item.cdnPosterUrl || "",
+      cdnError: cdnError || item.cdnError || "",
       updatedAt: new Date().toISOString(),
       error: "",
     };
@@ -21846,6 +22077,9 @@ async function refreshCompletedHomeVideoItems(config) {
       remoteVideoUrl: task.videoUrl || "",
       localVideoUrl,
       localVideoPath,
+      cdnVideoUrl,
+      cdnPosterUrl,
+      cdnError,
       error: "",
     }, "home-config-refresh");
     changed = true;
@@ -21864,6 +22098,9 @@ async function refreshCompletedHomeVideoItems(config) {
 function adminMyCharacterView(record, userMap) {
   if (!record) return null;
   const user = userMap?.get(record.userId);
+  const posterUrl = record.publicImageUrl || record.cdnImageUrl || record.posterUrl || record.localImageUrl || "";
+  const sourceImageUrl = record.publicImageUrl || record.cdnImageUrl || record.sourceImageUrl || "";
+  const videoUrl = record.cdnVideoUrl || record.videoUrl || record.localVideoUrl || "";
   return {
     id: record.id,
     userId: record.userId,
@@ -21872,9 +22109,12 @@ function adminMyCharacterView(record, userMap) {
     title: record.title || "",
     description: record.description || record.summary || record.bio || record.prompt || record.finalPrompt || "",
     prompt: record.prompt || record.finalPrompt || "",
-    posterUrl: record.posterUrl || record.localImageUrl || "",
-    sourceImageUrl: record.sourceImageUrl || "",
-    videoUrl: record.videoUrl || record.localVideoUrl || "",
+    posterUrl,
+    sourceImageUrl,
+    publicImageUrl: record.publicImageUrl || "",
+    cdnImageUrl: record.cdnImageUrl || "",
+    videoUrl,
+    cdnVideoUrl: record.cdnVideoUrl || "",
     localVideoUrl: record.localVideoUrl || "",
     taskId: record.taskId || "",
     status: record.status || "",
@@ -22028,13 +22268,15 @@ function adminRechargeLedgerSummary(records = []) {
 function adminUserAssetView(asset, userMap) {
   if (!asset) return null;
   const user = userMap?.get(asset.userId);
+  const publicUrl = asset.cdnUrl || asset.publicUrl || "";
   return {
     id: asset.id,
     userId: asset.userId,
     username: user?.username || "",
     url: asset.url || "",
     localUrl: asset.localUrl || "",
-    publicUrl: asset.publicUrl || "",
+    publicUrl,
+    cdnUrl: asset.cdnUrl || "",
     mime: asset.mime || "",
     createdAt: asset.createdAt,
     updatedAt: asset.updatedAt || "",
