@@ -52,7 +52,7 @@ function setTab(tab) {
   localStorage.setItem(TAB_KEY, nextTab);
   const nextHash = state.routeCharacterId && (nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters")
     ? characterDetailHash(nextTab, state.routeCharacterId, state.routeCharacterSource)
-    : nextTab === DEFAULT_PLATFORM_TAB ? (normalizeGalleryMode(state.galleryMode) === "playflux" ? "#templates" : "") : `#${nextTab}`;
+    : nextTab === DEFAULT_PLATFORM_TAB ? galleryModeHash(state.galleryMode) : `#${nextTab}`;
   if (window.location.hash !== nextHash) {
     const nextUrl = `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`;
     window.history.replaceState(null, "", nextUrl);
@@ -106,6 +106,7 @@ function setTab(tab) {
     loadWorkflowPresets();
   }
   closeAccountMenu();
+  closeMobileDrawer();
   trackGooglePageView();
 }
 
@@ -115,14 +116,34 @@ function setCategory(category) {
   renderTemplates();
 }
 
+function galleryModeHash(mode = state.galleryMode) {
+  const normalized = normalizeGalleryMode(mode);
+  if (normalized === "playflux-video") return "#video";
+  if (normalized === "playflux-image") return "#image";
+  if (normalized === "playflux-anime") return "#anime";
+  return "";
+}
+
+function playfluxTabFromGalleryMode(mode = state.galleryMode) {
+  const normalized = normalizeGalleryMode(mode);
+  if (normalized === "playflux-image") return "image";
+  if (normalized === "playflux-anime") return "anime";
+  return "video";
+}
+
+function isPlayfluxGalleryMode(mode = state.galleryMode) {
+  return ["playflux-video", "playflux-image", "playflux-anime"].includes(normalizeGalleryMode(mode));
+}
+
 function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
   state.galleryMode = normalizeGalleryMode(mode || DEFAULT_GALLERY_MODE);
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
-  const nextHash = state.tab === DEFAULT_PLATFORM_TAB && state.galleryMode === "playflux" ? "#templates" : "";
+  const nextHash = galleryModeHash(state.galleryMode);
   window.history.replaceState(null, "", `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`);
   renderTemplates();
+  closeMobileDrawer();
 }
 
 function galleryCharacterItemsForSource(source = "system") {
@@ -354,7 +375,7 @@ function renderTemplates() {
     renderGalleryCharacters(els.templateGrid);
     return;
   }
-  if (state.galleryMode === "playflux") {
+  if (isPlayfluxGalleryMode()) {
     renderPlayfluxTemplateGallery();
     return;
   }
@@ -377,7 +398,7 @@ function renderGalleryCases() {
   refreshIcons();
 }
 
-function playfluxTemplateTabMeta(tab = state.playfluxTemplateTab || "video") {
+function playfluxTemplateTabMeta(tab = playfluxTabFromGalleryMode()) {
   return PLAYFLUX_TEMPLATE_TABS.find((item) => item.id === tab) || PLAYFLUX_TEMPLATE_TABS[0];
 }
 
@@ -393,34 +414,22 @@ function playfluxTemplatesForActiveTab() {
 
 function renderPlayfluxTemplateGallery() {
   if (!els.templateGrid) return;
-  const activeTab = playfluxTemplateTabMeta().id;
+  const activeTab = playfluxTabFromGalleryMode();
   const templates = playfluxTemplatesForActiveTab();
+  const tab = playfluxTemplateTabMeta(activeTab);
   els.templateGrid.className = "template-grid playflux-template-shell";
   els.templateGrid.innerHTML = `
     <section class="playflux-template-page">
-      <div class="playflux-template-tabs" role="tablist" aria-label="Video templates">
-        ${PLAYFLUX_TEMPLATE_TABS.map((tab) => {
-          const count = PLAYFLUX_TEMPLATES.filter((item) => item.tab === tab.id).length;
-          return `
-            <button class="playflux-template-tab ${activeTab === tab.id ? "is-active" : ""}" type="button" role="tab" aria-selected="${activeTab === tab.id ? "true" : "false"}" data-playflux-tab="${escapeHtml(tab.id)}">
-              <i data-lucide="${escapeHtml(tab.icon)}"></i>
-              <span>${escapeHtml(tab.label)}</span>
-              <small>${escapeHtml(String(count))}</small>
-            </button>
-          `;
-        }).join("")}
+      <div class="playflux-template-heading" aria-label="${escapeHtml(tab.label)}">
+        <i data-lucide="${escapeHtml(tab.icon)}"></i>
+        <strong>${escapeHtml(tab.label)}</strong>
+        <span>${escapeHtml(String(templates.length))}</span>
       </div>
       <div class="playflux-card-grid">
         ${templates.map(renderPlayfluxTemplateCard).join("")}
       </div>
     </section>
   `;
-  els.templateGrid.querySelectorAll("[data-playflux-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.playfluxTemplateTab = button.dataset.playfluxTab || "video";
-      renderPlayfluxTemplateGallery();
-    });
-  });
   els.templateGrid.querySelectorAll("[data-playflux-template]").forEach((button) => {
     button.addEventListener("click", () => openPlayfluxTemplateDialog(button.dataset.playfluxTemplate || ""));
   });
@@ -2694,7 +2703,7 @@ function syncGalleryShortcutNav() {
     button.classList.toggle("is-active", active);
     const countEl = button.querySelector("[data-gallery-shortcut-count]");
     if (countEl) {
-      countEl.textContent = mode === "playflux" ? String(PLAYFLUX_TEMPLATES.length) : "";
+      countEl.textContent = isPlayfluxGalleryMode(mode) ? String(PLAYFLUX_TEMPLATES.filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
     }
   });
 }
@@ -2708,8 +2717,8 @@ function renderGalleryModeTabs() {
       label: t(tab.labelKey, {}, tab.fallback || tab.id),
       count: tab.id === "characters"
         ? state.homeCharacters.filter((item) => item && !item.deletedAt).length
-        : tab.id === "playflux"
-          ? PLAYFLUX_TEMPLATES.length
+        : isPlayfluxGalleryMode(tab.id)
+          ? PLAYFLUX_TEMPLATES.filter((item) => item.tab === playfluxTabFromGalleryMode(tab.id)).length
         : state.advancedCases.filter((item) => item.enabled !== false && normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === tab.id).length,
     })),
   ];
