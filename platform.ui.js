@@ -119,7 +119,7 @@ function renderSimplePager(holder, data, onPage) {
 
 function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass = "", keepOpenOnConfirm = false, onOpen, onConfirm } = {}) {
   if (!els.inlineDialog || !els.inlineDialogForm || !els.inlineDialogBody) return Promise.resolve("close");
-  els.inlineDialog.classList.remove("is-media-action", "is-frame-action");
+  els.inlineDialog.classList.remove("is-media-action", "is-frame-action", "is-playflux-template");
   String(dialogClass || "")
     .split(/\s+/)
     .filter(Boolean)
@@ -139,7 +139,7 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
       els.inlineDialogClose?.removeEventListener("click", closeHandler);
       els.inlineDialogCancel?.removeEventListener("click", closeHandler);
       els.inlineDialog.removeEventListener("close", dialogCloseHandler);
-      els.inlineDialog.classList.remove("is-media-action", "is-frame-action");
+      els.inlineDialog.classList.remove("is-media-action", "is-frame-action", "is-playflux-template");
     };
     const closeHandler = () => els.inlineDialog.close("close");
     const dialogCloseHandler = () => {
