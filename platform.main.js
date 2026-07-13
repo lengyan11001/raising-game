@@ -5,6 +5,15 @@ async function startPlatform() {
 }
 
 document.addEventListener("click", (event) => {
+  const galleryShortcut = event.target.closest("[data-gallery-shortcut]");
+  if (galleryShortcut) {
+    state.routeCharacterId = "";
+    state.routeCharacterSource = "";
+    state.activeGalleryCharacterId = "";
+    setTab(DEFAULT_PLATFORM_TAB);
+    setGalleryMode(galleryShortcut.dataset.galleryShortcut || DEFAULT_GALLERY_MODE);
+    return;
+  }
   const button = event.target.closest("[data-tab]");
   if (!button) return;
   state.routeCharacterId = "";

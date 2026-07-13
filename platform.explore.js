@@ -31,6 +31,7 @@ function trackAnalyticsEvent(eventName, params = {}) {
 
 function setTab(tab) {
   const hashRoute = platformHashParts(tab);
+  const routeGalleryMode = galleryModeFromPlatformRoute(tab);
   const routeCharacterId = characterRouteParamFrom(hashRoute.params);
   if (routeCharacterId) {
     state.routeCharacterId = routeCharacterId;
@@ -40,17 +41,18 @@ function setTab(tab) {
     state.routeCharacterSource = "";
     state.activeGalleryCharacterId = "";
   }
-  let nextTab = normalizePlatformTab(tab);
+  let nextTab = routeGalleryMode ? DEFAULT_PLATFORM_TAB : normalizePlatformTab(tab);
   if (!isTabAllowed(nextTab)) nextTab = DEFAULT_PLATFORM_TAB;
   if ((nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters") && state.routeCharacterId) {
     applyRouteCharacterDetail({ allowTabSwitch: true });
     nextTab = state.tab || nextTab;
   }
   state.tab = nextTab;
+  if (routeGalleryMode) state.galleryMode = routeGalleryMode;
   localStorage.setItem(TAB_KEY, nextTab);
   const nextHash = state.routeCharacterId && (nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters")
     ? characterDetailHash(nextTab, state.routeCharacterId, state.routeCharacterSource)
-    : nextTab === DEFAULT_PLATFORM_TAB ? "" : `#${nextTab}`;
+    : nextTab === DEFAULT_PLATFORM_TAB ? (normalizeGalleryMode(state.galleryMode) === "playflux" ? "#templates" : "") : `#${nextTab}`;
   if (window.location.hash !== nextHash) {
     const nextUrl = `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`;
     window.history.replaceState(null, "", nextUrl);
@@ -75,6 +77,7 @@ function setTab(tab) {
   document.querySelectorAll("[data-tab]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.tab === nextTab);
   });
+  syncGalleryShortcutNav();
   if (nextTab === "history") loadHistory();
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();
@@ -117,7 +120,8 @@ function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
-  replacePlatformUrlForCharacter("", "", state.tab);
+  const nextHash = state.tab === DEFAULT_PLATFORM_TAB && state.galleryMode === "playflux" ? "#templates" : "";
+  window.history.replaceState(null, "", `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`);
   renderTemplates();
 }
 
@@ -2683,6 +2687,18 @@ function advancedCaseInputVideoPoster(item = {}) {
   return candidates.map((value) => String(value || "").trim()).find(Boolean) || item.sourceCoverUrl || item.localCoverUrl || item.coverUrl || item.inputImageUrl || item.sourceImageUrl || DEFAULT_TEMPLATE_COVER;
 }
 
+function syncGalleryShortcutNav() {
+  document.querySelectorAll("[data-gallery-shortcut]").forEach((button) => {
+    const mode = normalizeGalleryMode(button.dataset.galleryShortcut || "");
+    const active = state.tab === DEFAULT_PLATFORM_TAB && mode === normalizeGalleryMode(state.galleryMode);
+    button.classList.toggle("is-active", active);
+    const countEl = button.querySelector("[data-gallery-shortcut-count]");
+    if (countEl) {
+      countEl.textContent = mode === "playflux" ? String(PLAYFLUX_TEMPLATES.length) : "";
+    }
+  });
+}
+
 function renderGalleryModeTabs() {
   if (!els.galleryModeTabs) return;
   const activeMode = normalizeGalleryMode(state.galleryMode);
@@ -2711,6 +2727,7 @@ function renderGalleryModeTabs() {
   els.galleryModeTabs.querySelectorAll("[data-gallery-mode]").forEach((button) => {
     button.addEventListener("click", () => setGalleryMode(button.dataset.galleryMode));
   });
+  syncGalleryShortcutNav();
 }
 
 function advancedCaseOutputVideo(item = {}) {

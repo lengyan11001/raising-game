@@ -1,12 +1,12 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Vipeak AI</title>
-    <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=667-brand-1" />
-    <link rel="shortcut icon" href="/favicon.ico?v=667-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-235" />
+    <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
+    <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
+    <link rel="stylesheet" href="./platform.css?v=ai-236" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -23,11 +23,11 @@
     <section id="ageGate" class="age-gate" role="dialog" aria-modal="true" aria-labelledby="ageGateTitle">
       <div class="age-gate-card">
         <span class="age-gate-pill">18+</span>
-        <h1 id="ageGateTitle">仅限 18 岁及以上访问</h1>
-        <p>进入前请确认你已年满 18 岁。未满 18 岁请直接退出。</p>
+        <h1 id="ageGateTitle">浠呴檺 18 宀佸強浠ヤ笂璁块棶</h1>
+        <p>杩涘叆鍓嶈纭浣犲凡骞存弧 18 宀併€傛湭婊?18 宀佽鐩存帴閫€鍑恒€?/p>
         <div class="age-gate-actions">
-          <button id="ageGateDeclineBtn" class="secondary-btn age-gate-secondary" type="button">未满 18 岁，退出</button>
-          <button id="ageGateConfirmBtn" class="primary-btn age-gate-primary" type="button">我已年满 18 岁，进入</button>
+          <button id="ageGateDeclineBtn" class="secondary-btn age-gate-secondary" type="button">鏈弧 18 宀侊紝閫€鍑?/button>
+          <button id="ageGateConfirmBtn" class="primary-btn age-gate-primary" type="button">鎴戝凡骞存弧 18 宀侊紝杩涘叆</button>
         </div>
       </div>
     </section>
@@ -35,9 +35,9 @@
     <section id="ageForbidden" class="age-forbidden" hidden aria-live="polite">
       <div class="age-forbidden-card">
         <span class="age-forbidden-code">403</span>
-        <strong>访问已拒绝</strong>
-        <p>仅限 18 岁及以上用户进入。</p>
-        <small>刷新页面会再次出现年龄确认。</small>
+        <strong>璁块棶宸叉嫆缁?/strong>
+        <p>浠呴檺 18 宀佸強浠ヤ笂鐢ㄦ埛杩涘叆銆?/p>
+        <small>鍒锋柊椤甸潰浼氬啀娆″嚭鐜板勾榫勭‘璁ゃ€?/small>
       </div>
     </section>
 
@@ -46,11 +46,16 @@
 
     <aside class="side-rail" aria-label="Workspace navigation">
       <a class="brand" href="/">
-        <span class="brand-mark"><img src="/assets/brand/logo-mark.svg?v=667-brand-1" alt="" /></span>
+        <span class="brand-mark"><img src="/assets/brand/logo-mark.svg?v=old-brand-1" alt="" /></span>
         <strong id="brandName">Vipeak AI</strong>
       </a>
       <nav class="top-tabs" aria-label="Main sections">
         <button class="top-tab is-active" data-tab="gallery" data-i18n="nav.gallery" type="button">Gallery</button>
+        <button class="top-tab top-tab-child" data-gallery-shortcut="playflux" type="button">
+          <i data-lucide="film"></i>
+          <span data-i18n="playflux.galleryTab">Video templates</span>
+          <strong data-gallery-shortcut-count>0</strong>
+        </button>
         <button class="top-tab" data-tab="characters" data-i18n="characters.createTitle" type="button">Create character</button>
         <button class="top-tab" data-tab="advanced" data-i18n="nav.advanced" type="button">Advanced</button>
         <button class="top-tab" data-tab="workflow" data-i18n="nav.workflow" type="button" hidden>Workflow</button>
@@ -629,7 +634,7 @@
             <div class="topup-qr-panel">
             <img id="topupWalletQr" alt="USDT TRC20 payment QR" loading="lazy" />
             <div class="topup-qr-details">
-              <span id="topupWalletNetwork">USDT · TRC20</span>
+              <span id="topupWalletNetwork">USDT 路 TRC20</span>
               <code id="topupWalletAddress"></code>
               <div class="topup-qr-actions">
                 <button class="ghost-button" id="topupQrCopyBtn" type="button"><i data-lucide="copy"></i><span data-i18n="topup.copyAddress">Copy address</span></button>
@@ -775,6 +780,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-235"></script>
+    <script src="./platform.js?v=ai-236"></script>
   </body>
 </html>
