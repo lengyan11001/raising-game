@@ -961,7 +961,7 @@ function publicUrlForAssetPath(localUrl = "") {
 
 function shouldKeepLocalAssetField(key = "") {
   const name = String(key || "");
-  return /^local/i.test(name) || name === "syntheticReferenceLocalUrl" || /(?:Path|Key)$/i.test(name);
+  return /(?:Path|Key)$/i.test(name);
 }
 
 function publicAssetUrlsForClient(value, key = "") {
