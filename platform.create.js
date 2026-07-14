@@ -3205,18 +3205,31 @@ function renderReferral() {
   refreshIcons();
 }
 
-async function loadReferralSummary() {
+async function loadReferralSummary({ force = false } = {}) {
   if (!state.user) {
     state.referral = null;
+    state.referralLoadedUserId = "";
+    state.referralLoadedAt = 0;
     renderReferral();
     return;
   }
+  const userId = state.user.id || state.user.username || "";
+  if (state.referralLoading) return;
+  if (!force && state.referralLoadedUserId === userId && Number(state.referralLoadedAt || 0) > 0) {
+    renderReferral();
+    return;
+  }
+  state.referralLoading = true;
   try {
     const payload = await requestJson("/api/referral");
     state.referral = payload.referral || null;
-    if (payload.user) setUser(payload.user);
+    state.referralLoadedUserId = userId;
+    state.referralLoadedAt = Date.now();
+    if (payload.user) setUser(payload.user, { skipReferralRefresh: true });
   } catch (error) {
     if (els.referralNote) els.referralNote.textContent = error.message || String(error);
+  } finally {
+    state.referralLoading = false;
   }
   renderReferral();
 }

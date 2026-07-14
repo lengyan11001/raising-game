@@ -477,7 +477,7 @@ function setLanguage(lang) {
   applyLanguage();
 }
 
-function setUser(user, { refreshHistory = false } = {}) {
+function setUser(user, { refreshHistory = false, skipReferralRefresh = false } = {}) {
   const previousMultiplier = Number(state.user?.pricingMultiplier || 1);
   const previousUserId = state.user?.id || "";
   state.user = user || null;
@@ -487,6 +487,8 @@ function setUser(user, { refreshHistory = false } = {}) {
     state.galleryUnlocksLoaded = false;
     state.galleryUnlockMessage = "";
     state.referral = null;
+    state.referralLoadedUserId = "";
+    state.referralLoadedAt = 0;
     state.advancedAssets = [];
     state.advancedAssetsLoaded = false;
     state.advancedAssetPage = 1;
@@ -518,10 +520,7 @@ function setUser(user, { refreshHistory = false } = {}) {
   if (state.tab === "assets") loadUserAssets();
   if (state.tab === "advanced") loadAdvancedAssets();
   if (state.tab === "access") loadApiSubtokens({ force: true });
-  if (state.tab === "referral") {
-    if (state.user) loadReferralSummary();
-    else renderReferral();
-  }
+  if (state.tab === "referral" && !state.user) renderReferral();
   if (state.tab === "characters") {
     renderCharactersPanel();
     if (state.user) loadMyCharacters({ silent: true }).catch(() => {});

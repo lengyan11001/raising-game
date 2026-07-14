@@ -91,7 +91,7 @@ function setTab(tab) {
   if (nextTab === "history") loadHistory();
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();
-  if (nextTab === "referral") loadReferralSummary();
+  if (nextTab === "referral") loadReferralSummary({ force: true });
   if (nextTab === "pricing") renderPricing();
   if (nextTab === "assets") {
     if (state.user) loadUserAssets();
