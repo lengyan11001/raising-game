@@ -23117,6 +23117,90 @@ function generationRecordDownloadTarget(record = {}) {
   return null;
 }
 
+function awsQueryEncode(value = "") {
+  return encodeURIComponent(String(value)).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function awsCanonicalQuery(params = []) {
+  return params
+    .map(([key, value]) => [awsQueryEncode(key), awsQueryEncode(value)])
+    .sort((left, right) => (left[0] === right[0] ? left[1].localeCompare(right[1]) : left[0].localeCompare(right[0])))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
+}
+
+function r2KeyFromPublicDownloadUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text || !R2.publicDomain) return "";
+  try {
+    const publicBase = new URL(String(R2.publicDomain || "").replace(/\/+$/, ""));
+    const parsed = new URL(text, configuredPublicBaseUrl() || "https://123vips.com");
+    if (parsed.host === publicBase.host) return decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+    const siteBase = configuredPublicBaseUrl();
+    if (siteBase) {
+      const site = new URL(siteBase);
+      if (parsed.host === site.host && parsed.pathname.startsWith("/assets/")) return decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+    }
+  } catch {
+    if (text.startsWith("/assets/")) return text.replace(/^\/+/, "");
+  }
+  if (text.startsWith("/assets/")) return text.replace(/^\/+/, "");
+  return "";
+}
+
+function makeR2PresignedDownloadUrl({ key, fileName, contentType = "application/octet-stream", expiresSeconds = 600 }) {
+  if (!r2Enabled() || !key) return "";
+  const endpoint = r2EndpointUrl();
+  const { xDate, date } = amzDate();
+  const canonicalUri = `/${encodeURIComponent(R2.bucket)}/${encodePathname(key)}`;
+  const scope = `${date}/${R2.region || "auto"}/s3/aws4_request`;
+  const signedHeaders = "host";
+  const queryParams = [
+    ["X-Amz-Algorithm", "AWS4-HMAC-SHA256"],
+    ["X-Amz-Credential", `${R2.accessKey}/${scope}`],
+    ["X-Amz-Date", xDate],
+    ["X-Amz-Expires", String(Math.max(60, Math.min(3600, Number(expiresSeconds) || 600)))],
+    ["X-Amz-SignedHeaders", signedHeaders],
+    ["response-content-disposition", attachmentDisposition(fileName)],
+    ["response-content-type", contentType || "application/octet-stream"],
+  ];
+  const canonicalQuery = awsCanonicalQuery(queryParams);
+  const canonicalHeaders = `host:${endpoint.host}\n`;
+  const canonicalRequest = ["GET", canonicalUri, canonicalQuery, canonicalHeaders, signedHeaders, "UNSIGNED-PAYLOAD"].join("\n");
+  const stringToSign = ["AWS4-HMAC-SHA256", xDate, scope, sha256Hex(canonicalRequest)].join("\n");
+  const signature = hmac(signAwsKey(R2.secretKey, date, R2.region || "auto", "s3"), stringToSign, "hex");
+  return `${endpoint.protocol}//${endpoint.host}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
+}
+
+function generationRecordDownloadUrlPayload(target = {}) {
+  const key = r2KeyFromPublicDownloadUrl(target.url);
+  const signedUrl = key ? makeR2PresignedDownloadUrl({
+    key,
+    fileName: target.fileName,
+    contentType: target.mime,
+  }) : "";
+  return {
+    url: signedUrl || target.url || "",
+    fileName: target.fileName || "generation",
+    expiresIn: signedUrl ? 600 : 0,
+    source: signedUrl ? "r2_signed" : "public_url",
+  };
+}
+
+async function handleGenerationRecordDownloadUrl(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const record = await getGenerationRecord(taskId);
+  if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
+    return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  }
+  const target = generationRecordDownloadTarget(record);
+  if (!target?.url && !target?.localPath) {
+    return sendJson(res, 404, { ok: false, message: "Generated media is not available." });
+  }
+  return sendJson(res, 200, { ok: true, ...generationRecordDownloadUrlPayload(target) });
+}
+
 async function handleDownloadGenerationRecord(req, res, taskId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -24255,6 +24339,11 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/generation-records") {
       return await handleListGenerationRecords(req, res, url);
+    }
+
+    const downloadUrlGenerationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/download-url$/);
+    if (req.method === "GET" && downloadUrlGenerationRecordMatch) {
+      return await handleGenerationRecordDownloadUrl(req, res, decodeURIComponent(downloadUrlGenerationRecordMatch[1]));
     }
 
     const downloadGenerationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/download$/);

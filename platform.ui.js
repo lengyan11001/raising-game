@@ -974,17 +974,63 @@ function canDownloadGenerationRecord(record = {}) {
   return Boolean(generationRecordDownloadHref(record) && (generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl));
 }
 
-function downloadGenerationRecord(record = {}) {
-  const href = generationRecordDownloadHref(record);
-  if (!href) return;
+function triggerBrowserDownload(href, fileName, options = {}) {
   const link = document.createElement("a");
   link.href = href;
-  link.download = generationRecordDownloadName(record);
+  link.download = fileName;
   link.rel = "noopener";
-  if (/^https?:\/\//i.test(href)) link.target = "_blank";
+  if (options.newTab) link.target = "_blank";
   document.body.appendChild(link);
   link.click();
   link.remove();
+}
+
+function generationRecordDownloadFetchHref(href = "") {
+  const value = String(href || "");
+  if (!/^https:\/\/media\.123vips\.com\//i.test(value)) return value;
+  try {
+    const url = new URL(value);
+    url.searchParams.set("download", "1");
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+async function downloadGenerationRecord(record = {}) {
+  let href = generationRecordDownloadHref(record);
+  if (!href) return;
+  let fileName = generationRecordDownloadName(record);
+  const taskId = String(record?.taskId || "").trim();
+  if (taskId && !taskId.startsWith("pending-")) {
+    try {
+      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url`);
+      if (payload.url) {
+        href = payload.url;
+        fileName = payload.fileName || fileName;
+        triggerBrowserDownload(href, fileName);
+        return;
+      }
+    } catch {
+      // Fall through to the public URL or legacy download endpoint.
+    }
+  }
+  try {
+    const headers = {};
+    if (state.token && href.startsWith("/api/")) headers.authorization = `Bearer ${state.token}`;
+    const fetchHref = generationRecordDownloadFetchHref(href);
+    const response = await fetch(fetchHref, {
+      headers,
+      credentials: fetchHref.startsWith("/") ? "same-origin" : "omit",
+    });
+    if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    triggerBrowserDownload(objectUrl, fileName);
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+  } catch {
+    triggerBrowserDownload(href, fileName, { newTab: /^https?:\/\//i.test(href) });
+  }
 }
 
 function stripModelParams(value) {
