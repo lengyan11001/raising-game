@@ -45,9 +45,6 @@ function setAdvancedSideTab(tab = "assets", { silent = false, syncMobile = false
   });
   if (next === "result") {
     renderAdvancedResultPanel();
-    if (state.user && !state.advancedResultRecords?.length && !state.historyRecords?.length) {
-      loadHistory({ silent: true, page: 1 });
-    }
     const current = state.advancedResultRecords.find((record) => record.taskId === state.advancedResultTaskId);
     if (state.advancedResultTaskId && (!current || !isTerminalGenerationStatus(current.status))) {
       scheduleAdvancedResultRefresh({ delayMs: silent ? 1200 : 0, force: true });
@@ -327,15 +324,9 @@ function syncAdvancedResultTaskId() {
   return pendingTaskIds;
 }
 
-function advancedResultVisibleRecords() {
-  const current = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
-  if (current.length) return current;
-  return (Array.isArray(state.historyRecords) ? state.historyRecords : []).slice(0, 1);
-}
-
 function renderAdvancedResultPanel() {
   if (!els.advancedResultList) return;
-  const records = advancedResultVisibleRecords();
+  const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
   if (!records.length) {
     els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>No generation yet</strong><p>Click Generate to track progress here.</p></div>`;
     refreshIcons();
@@ -377,7 +368,7 @@ function renderAdvancedResultPanel() {
   }).join("");
   els.advancedResultList.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultVideo || 0)];
+      const record = state.advancedResultRecords[Number(button.dataset.advancedResultVideo || 0)];
       const videoUrl = isSucceededGenerationStatus(record?.status) ? generationVideoUrl(record) : "";
       if (!videoUrl) return;
       playPreview({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
@@ -385,7 +376,7 @@ function renderAdvancedResultPanel() {
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultImage || 0)];
+      const record = state.advancedResultRecords[Number(button.dataset.advancedResultImage || 0)];
       const imageUrl = isSucceededGenerationStatus(record?.status) ? generationImageResultUrl(record) : "";
       if (!imageUrl) return;
       previewImage({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), imageUrl });
@@ -393,13 +384,13 @@ function renderAdvancedResultPanel() {
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-download]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultDownload || 0)];
+      const record = state.advancedResultRecords[Number(button.dataset.advancedResultDownload || 0)];
       downloadGenerationRecord(record);
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultRegenerate || 0)];
+      const record = state.advancedResultRecords[Number(button.dataset.advancedResultRegenerate || 0)];
       button.disabled = true;
       button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
       refreshIcons();
@@ -3066,9 +3057,6 @@ async function loadHistory({ silent = false, refresh = false, page = state.histo
       renderHistory(records);
       historyRecordsSignature = nextSignature;
       els.historyList.scrollTop = previousScrollTop;
-    }
-    if (state.tab === "advanced" && state.advancedSideTab === "result" && !state.advancedResultRecords?.length) {
-      renderAdvancedResultPanel();
     }
     refreshPendingHistoryRecords(records);
     if (records.some(isRecentPendingGenerationRecord)) scheduleHistoryRefresh();

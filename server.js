@@ -978,10 +978,19 @@ function shouldKeepLocalAssetField(key = "") {
   return /(?:Path|Key)$/i.test(name);
 }
 
+function shouldRewritePublicAssetField(key = "", value = "") {
+  if (shouldKeepLocalAssetField(key)) return false;
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (text.startsWith("/assets/")) return true;
+  if (isPublicHttpUrl(text)) return true;
+  return /(?:Url|URL|Uri|URI|Href|href|Src|src)$/i.test(String(key || ""));
+}
+
 function publicAssetUrlsForClient(value, key = "") {
   if (typeof value === "string") {
     const text = value.trim();
-    if (!shouldKeepLocalAssetField(key)) {
+    if (shouldRewritePublicAssetField(key, text)) {
       const publicUrl = publicUrlForAssetPath(text);
       if (publicUrl && publicUrl !== text) return publicUrl;
     }
