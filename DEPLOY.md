@@ -50,7 +50,6 @@ The Git repo should contain code and stable static assets only.
 Keep these on the server and out of Git:
 
 - `.env.local`
-- `data/`
 - `logs/`
 - `tmp/`
 - `assets/user-uploads/`
@@ -72,7 +71,8 @@ git reset --hard origin/codex/site-667zui
 systemctl restart raising-game-667zui
 ```
 
-This avoids overwriting runtime data like `data/app-config.json` and `data/app-db.json`.
+Runtime data must live in PostgreSQL through `DATABASE_URL`; do not use JSON files
+as an alternate data store or deployment target.
 
 From the local machine, use the helper only after pushing:
 

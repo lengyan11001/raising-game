@@ -1,12 +1,4 @@
-const fs = require("node:fs/promises");
-const path = require("node:path");
 const { Pool } = require("pg");
-
-const ROOT = __dirname;
-const APP_DB_PATH = path.join(ROOT, "data", "app-db.json");
-const APP_CONFIG_PATH = path.join(ROOT, "data", "app-config.json");
-const GENERATION_RECORDS_PATH = path.join(ROOT, "data", "generation-records.json");
-const CHARACTER_ASSETS_PATH = path.join(ROOT, "data", "character-assets.json");
 
 function dbEnabled() {
   return Boolean(process.env.DATABASE_URL);
@@ -14,17 +6,6 @@ function dbEnabled() {
 
 function clone(value) {
   return structuredClone(value);
-}
-
-async function readJsonFile(filePath, fallback) {
-  try {
-    const data = await fs.readFile(filePath, "utf8");
-    const parsed = JSON.parse(data.replace(/^\uFEFF/, ""));
-    if (Array.isArray(fallback)) return Array.isArray(parsed) ? parsed : clone(fallback);
-    return parsed && typeof parsed === "object" ? parsed : clone(fallback);
-  } catch {
-    return clone(fallback);
-  }
 }
 
 let pool;
@@ -474,7 +455,6 @@ function ledgerFromRow(row = {}) {
 }
 
 async function getKv(key, fallback) {
-  if (!dbEnabled()) return readJsonFile(filePathForKey(key), fallback);
   await ensureSchema();
   const { rows } = await query(`SELECT value FROM app_kv WHERE key = $1`, [key]);
   if (!rows.length) return clone(fallback);
@@ -482,7 +462,6 @@ async function getKv(key, fallback) {
 }
 
 async function setKv(key, value) {
-  if (!dbEnabled()) return writeJsonFile(filePathForKey(key), value);
   await ensureSchema();
   await query(
     `
@@ -1325,9 +1304,6 @@ async function migrateGenerationRecordsKvToTable() {
   await ensureSchema();
   const existing = await generationRecordsTableCount();
   let records = await getKv("generation_records", []);
-  if (!Array.isArray(records) || !records.length) {
-    records = await readJsonFile(GENERATION_RECORDS_PATH, []);
-  }
   if (!Array.isArray(records) || !records.length) return { migrated: 0, existing };
   let migrated = 0;
   for (const record of records) {
@@ -1870,99 +1846,6 @@ function normalizeApiSubtokenUsageRecord(record = {}) {
   };
 }
 
-async function writeJsonFile(filePath, payload) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`);
-}
-
-function filePathForKey(key) {
-  switch (key) {
-    case "app_db":
-      return APP_DB_PATH;
-    case "app_config":
-      return APP_CONFIG_PATH;
-    case "generation_records":
-      return GENERATION_RECORDS_PATH;
-    case "character_assets":
-      return CHARACTER_ASSETS_PATH;
-    default:
-      return path.join(ROOT, "data", `${key}.json`);
-  }
-}
-
-async function migrateFileDataToDb({ defaultDb, defaultConfig }) {
-  if (!dbEnabled()) return;
-  await ensureSchema();
-
-  const pairs = [
-    ["app_db", await readJsonFile(APP_DB_PATH, defaultDb)],
-    ["app_config", await readJsonFile(APP_CONFIG_PATH, defaultConfig)],
-    ["generation_records", await readJsonFile(GENERATION_RECORDS_PATH, [])],
-    ["character_assets", await readJsonFile(CHARACTER_ASSETS_PATH, {})],
-  ];
-
-  for (const [key, fallback] of pairs) {
-    const { rows } = await query(`SELECT 1 FROM app_kv WHERE key = $1`, [key]);
-    if (!rows.length) {
-      await setKv(key, fallback);
-    }
-  }
-  const counts = await tableCounts();
-  const appDb = await getKv("app_db", defaultDb || {});
-  if (Array.isArray(appDb.users) && appDb.users.length && (counts.users || 0) === 0) {
-    await replaceAppDbTables(appDb, { replaceAll: true });
-  } else if (shouldBackfillAppDbTables(appDb, counts)) {
-    const currentDb = await readAppDbFromTables(defaultDb || {}) || {};
-    await replaceAppDbTables(mergeAppDbRecords(appDb, currentDb), { replaceAll: true });
-  }
-}
-
-function shouldBackfillAppDbTables(appDb = {}, counts = {}) {
-  const checks = [
-    ["users", "users"],
-    ["sessions", "sessions"],
-    ["walletOrders", "wallet_orders"],
-    ["creditLedger", "credit_ledger"],
-    ["userAssets", "user_assets"],
-    ["userCharacters", "user_characters"],
-    ["userUnlocks", "user_unlocks"],
-    ["adminHomeItems", "admin_home_items"],
-  ];
-  return checks.some(([sourceKey, countKey]) => {
-    const sourceCount = Array.isArray(appDb[sourceKey]) ? appDb[sourceKey].length : 0;
-    return sourceCount > 0 && (counts[countKey] || 0) < sourceCount;
-  });
-}
-
-function mergeRecordArrays(sourceRecords = [], currentRecords = [], idKey = "id") {
-  const merged = new Map();
-  for (const record of Array.isArray(sourceRecords) ? sourceRecords : []) {
-    const id = String(record?.[idKey] || "").trim();
-    if (id) merged.set(id, record);
-  }
-  for (const record of Array.isArray(currentRecords) ? currentRecords : []) {
-    const id = String(record?.[idKey] || "").trim();
-    if (id && !merged.has(id)) merged.set(id, record);
-  }
-  return Array.from(merged.values());
-}
-
-function mergeAppDbRecords(sourceDb = {}, currentDb = {}) {
-  return {
-    ...sourceDb,
-    users: mergeRecordArrays(sourceDb.users, currentDb.users),
-    sessions: mergeRecordArrays(sourceDb.sessions, currentDb.sessions, "token"),
-    walletOrders: mergeRecordArrays(sourceDb.walletOrders, currentDb.walletOrders),
-    creditLedger: mergeRecordArrays(sourceDb.creditLedger, currentDb.creditLedger),
-    userAssets: mergeRecordArrays(sourceDb.userAssets, currentDb.userAssets),
-    userCharacters: mergeRecordArrays(sourceDb.userCharacters, currentDb.userCharacters),
-    userUnlocks: mergeRecordArrays(sourceDb.userUnlocks, currentDb.userUnlocks),
-    adminHomeItems: mergeRecordArrays(sourceDb.adminHomeItems, currentDb.adminHomeItems),
-    apiSubtokens: mergeRecordArrays(sourceDb.apiSubtokens, currentDb.apiSubtokens),
-    supportMessages: mergeRecordArrays(sourceDb.supportMessages, currentDb.supportMessages),
-  };
-}
-
 module.exports = {
   dbEnabled,
   ensureSchema,
@@ -2003,7 +1886,6 @@ module.exports = {
   recordApiSubtokenUsageInDb,
   getKv,
   setKv,
-  migrateFileDataToDb,
   migrateGenerationRecordsKvToTable,
   getGenerationRecordsFromDb,
   getGenerationRecordFromDb,

@@ -3518,6 +3518,7 @@ async function bootstrap() {
   state.wallet = payload.config?.wallet || null;
   ensureSelectedWalletOption();
   state.templates = platform.templates || [];
+  state.playfluxTemplates = Array.isArray(payload.config?.playfluxTemplates) ? payload.config.playfluxTemplates : [];
   state.categories = platform.categories || [];
   state.advancedCases = platform.advanced?.cases || [];
   const homeVideo = payload.config?.homeVideo || {};
