@@ -969,7 +969,6 @@ function generationRecordDownloadName(record = {}) {
 }
 
 function canDownloadGenerationRecord(record = {}) {
-  if (!isSucceededGenerationStatus(record?.status)) return false;
   return Boolean(generationRecordDownloadHref(record) && (generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl));
 }
 

@@ -45,6 +45,9 @@ function setAdvancedSideTab(tab = "assets", { silent = false, syncMobile = false
   });
   if (next === "result") {
     renderAdvancedResultPanel();
+    if (state.user && !state.advancedResultRecords?.length && !advancedResultHistoryFallbackRecords().length) {
+      loadHistory({ silent: true, refresh: true, page: 1 });
+    }
     const current = state.advancedResultRecords.find((record) => record.taskId === state.advancedResultTaskId);
     if (state.advancedResultTaskId && (!current || !isTerminalGenerationStatus(current.status))) {
       scheduleAdvancedResultRefresh({ delayMs: silent ? 1200 : 0, force: true });
@@ -324,19 +327,30 @@ function syncAdvancedResultTaskId() {
   return pendingTaskIds;
 }
 
+function advancedResultHistoryFallbackRecords() {
+  return (Array.isArray(state.historyRecords) ? state.historyRecords : [])
+    .filter((record) => generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl)
+    .slice(0, 1);
+}
+
+function advancedResultVisibleRecords() {
+  const current = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  return current.length ? current : advancedResultHistoryFallbackRecords();
+}
+
 function renderAdvancedResultPanel() {
   if (!els.advancedResultList) return;
-  const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  const records = advancedResultVisibleRecords();
   if (!records.length) {
     els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>No generation yet</strong><p>Click Generate to track progress here.</p></div>`;
     refreshIcons();
     return;
   }
   els.advancedResultList.innerHTML = records.map((record, index) => {
-    const isSucceeded = isSucceededGenerationStatus(record.status);
-    const videoUrl = isSucceeded ? generationVideoUrl(record) : "";
-    const imageUrl = isSucceeded ? generationImageResultUrl(record) : "";
-    const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
+    const videoUrl = generationVideoUrl(record);
+    const imageUrl = generationImageResultUrl(record);
+    const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageUrl);
+    const posterUrl = videoUrl || imageUrl ? generationPosterUrl(record) : "";
     const status = statusLabel(record.status);
     const taskId = record.taskId || "";
     const visibleTaskId = String(taskId).startsWith("pending-") ? "" : taskId;
@@ -368,29 +382,29 @@ function renderAdvancedResultPanel() {
   }).join("");
   els.advancedResultList.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = state.advancedResultRecords[Number(button.dataset.advancedResultVideo || 0)];
-      const videoUrl = isSucceededGenerationStatus(record?.status) ? generationVideoUrl(record) : "";
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultVideo || 0)];
+      const videoUrl = generationVideoUrl(record);
       if (!videoUrl) return;
       playPreview({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = state.advancedResultRecords[Number(button.dataset.advancedResultImage || 0)];
-      const imageUrl = isSucceededGenerationStatus(record?.status) ? generationImageResultUrl(record) : "";
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultImage || 0)];
+      const imageUrl = generationImageResultUrl(record);
       if (!imageUrl) return;
       previewImage({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), imageUrl });
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-download]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = state.advancedResultRecords[Number(button.dataset.advancedResultDownload || 0)];
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultDownload || 0)];
       downloadGenerationRecord(record);
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = state.advancedResultRecords[Number(button.dataset.advancedResultRegenerate || 0)];
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultRegenerate || 0)];
       button.disabled = true;
       button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
       refreshIcons();
@@ -2673,9 +2687,9 @@ function renderHistory(records = []) {
   }
   state.historyRecords = sortedRecords;
   els.historyList.innerHTML = `${expiryNotice}${sortedRecords.map((record, index) => {
-    const isSucceeded = isSucceededGenerationStatus(record.status);
-    const videoUrl = isSucceeded ? generationVideoUrl(record) : "";
-    const imageResultUrl = isSucceeded ? generationImageResultUrl(record) : "";
+    const videoUrl = generationVideoUrl(record);
+    const imageResultUrl = generationImageResultUrl(record);
+    const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageResultUrl);
     const taskId = record.taskId || "";
     const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
     const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio;
@@ -3057,6 +3071,9 @@ async function loadHistory({ silent = false, refresh = false, page = state.histo
       renderHistory(records);
       historyRecordsSignature = nextSignature;
       els.historyList.scrollTop = previousScrollTop;
+    }
+    if (state.tab === "advanced" && state.advancedSideTab === "result" && !state.advancedResultRecords?.length) {
+      renderAdvancedResultPanel();
     }
     refreshPendingHistoryRecords(records);
     if (records.some(isRecentPendingGenerationRecord)) scheduleHistoryRefresh();
