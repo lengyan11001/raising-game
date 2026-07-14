@@ -6,6 +6,7 @@ function renderAdvanced() {
     renderAdvancedCreateControls();
     renderAdvancedAssets([]);
     setAdvancedSideTab(state.advancedSideTab || "assets", { silent: true });
+    setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true });
     updateAdvancedModelControls();
     updateAdvancedButtonCost();
     refreshIcons();
@@ -14,11 +15,27 @@ function renderAdvanced() {
   renderAdvancedCreateControls();
   renderAdvancedAssets();
   setAdvancedSideTab(state.advancedSideTab || "assets", { silent: true });
+  setAdvancedMobileTab(state.advancedMobileTab || "create", { silent: true });
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }
 
-function setAdvancedSideTab(tab = "assets", { silent = false } = {}) {
+function setAdvancedMobileTab(tab = "create", { silent = false, skipSideTab = false } = {}) {
+  const next = ["assets", "result"].includes(tab) ? tab : "create";
+  state.advancedMobileTab = next;
+  if (els.advancedWorkspace) els.advancedWorkspace.dataset.advancedMobileTab = next;
+  els.advancedMobileTabs?.querySelectorAll("[data-advanced-mobile-tab]").forEach((button) => {
+    const active = button.dataset.advancedMobileTab === next;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (!skipSideTab && (next === "assets" || next === "result")) {
+    setAdvancedSideTab(next, { silent });
+  }
+  refreshIcons();
+}
+
+function setAdvancedSideTab(tab = "assets", { silent = false, syncMobile = false } = {}) {
   const next = tab === "result" ? "result" : "assets";
   state.advancedSideTab = next;
   if (els.advancedAssetsView) els.advancedAssetsView.hidden = next !== "assets";
@@ -28,11 +45,15 @@ function setAdvancedSideTab(tab = "assets", { silent = false } = {}) {
   });
   if (next === "result") {
     renderAdvancedResultPanel();
+    if (state.user && !state.advancedResultRecords?.length && !advancedResultHistoryFallbackRecords().length) {
+      loadHistory({ silent: true, refresh: true, page: 1 });
+    }
     const current = state.advancedResultRecords.find((record) => record.taskId === state.advancedResultTaskId);
     if (state.advancedResultTaskId && (!current || !isTerminalGenerationStatus(current.status))) {
       scheduleAdvancedResultRefresh({ delayMs: silent ? 1200 : 0, force: true });
     }
   }
+  if (syncMobile) setAdvancedMobileTab(next, { silent: true, skipSideTab: true });
   refreshIcons();
 }
 
@@ -50,6 +71,8 @@ function advancedAssetTargetItems() {
     if (wanModeNeedsAudio(wanMode)) targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
   } else {
     if (advancedCreateModeNeedsReplacePair()) {
+      targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+    } else if (advancedCreateModeUsesAutoPrompt() && advancedCreateModeUsesCharacterPresetReference()) {
       targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
     } else if (advancedCreateModeUsesAutoPrompt()) {
       targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
@@ -77,7 +100,7 @@ function preferredAdvancedAssetTargetForAsset(asset = {}) {
   if (advancedCreateModeNeedsReplacePair()) {
     if (isImageAsset(asset)) return "primary";
   }
-  if (advancedCreateModeUsesAutoPrompt()) {
+  if (advancedCreateModeNeedsVideoUpload()) {
     if (isVideoAsset(asset)) return "video";
   }
   return "";
@@ -96,7 +119,7 @@ function selectedAdvancedImageAsset() {
 }
 
 async function ensureAdvancedImageEditAssets() {
-  const references = selectedAdvancedReferenceImages("wan27-image-edit").slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  const references = selectedAdvancedReferenceImages("wan27-image-edit").slice(0, advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (!references.length) return { assets: [], imageUrls: [] };
   const resolved = [];
   const imageUrls = [];
@@ -304,23 +327,35 @@ function syncAdvancedResultTaskId() {
   return pendingTaskIds;
 }
 
+function advancedResultHistoryFallbackRecords() {
+  return (Array.isArray(state.historyRecords) ? state.historyRecords : [])
+    .filter((record) => generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl)
+    .slice(0, 1);
+}
+
+function advancedResultVisibleRecords() {
+  const current = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  return current.length ? current : advancedResultHistoryFallbackRecords();
+}
+
 function renderAdvancedResultPanel() {
   if (!els.advancedResultList) return;
-  const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  const records = advancedResultVisibleRecords();
   if (!records.length) {
     els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>No generation yet</strong><p>Click Generate to track progress here.</p></div>`;
     refreshIcons();
     return;
   }
   els.advancedResultList.innerHTML = records.map((record, index) => {
-    const isSucceeded = isSucceededGenerationStatus(record.status);
-    const videoUrl = isSucceeded ? generationVideoUrl(record) : "";
-    const imageUrl = isSucceeded ? generationImageResultUrl(record) : "";
-    const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
+    const videoUrl = generationVideoUrl(record);
+    const imageUrl = generationImageResultUrl(record);
+    const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageUrl);
+    const posterUrl = videoUrl || imageUrl ? generationPosterUrl(record) : "";
     const status = statusLabel(record.status);
     const taskId = record.taskId || "";
     const visibleTaskId = String(taskId).startsWith("pending-") ? "" : taskId;
     const ratio = record.ratio || record.params?.ratio || "16:9";
+    const canDownload = canDownloadGenerationRecord(record);
     const media = videoUrl
       ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
       : imageUrl
@@ -333,6 +368,11 @@ function renderAdvancedResultPanel() {
           <strong>${escapeHtml(publicModelText(record.templateTitle || record.sceneName || record.model || "Generation"))}</strong>
           <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
           ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
+          ${canDownload ? `
+            <button class="history-download advanced-result-download" type="button" data-advanced-result-download="${escapeHtml(String(index))}">
+              <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+            </button>
+          ` : ""}
           <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
             <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
           </button>
@@ -342,23 +382,29 @@ function renderAdvancedResultPanel() {
   }).join("");
   els.advancedResultList.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = state.advancedResultRecords[Number(button.dataset.advancedResultVideo || 0)];
-      const videoUrl = isSucceededGenerationStatus(record?.status) ? generationVideoUrl(record) : "";
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultVideo || 0)];
+      const videoUrl = generationVideoUrl(record);
       if (!videoUrl) return;
       playPreview({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = state.advancedResultRecords[Number(button.dataset.advancedResultImage || 0)];
-      const imageUrl = isSucceededGenerationStatus(record?.status) ? generationImageResultUrl(record) : "";
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultImage || 0)];
+      const imageUrl = generationImageResultUrl(record);
       if (!imageUrl) return;
       previewImage({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), imageUrl });
     });
   });
+  els.advancedResultList.querySelectorAll("[data-advanced-result-download]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultDownload || 0)];
+      downloadGenerationRecord(record);
+    });
+  });
   els.advancedResultList.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = state.advancedResultRecords[Number(button.dataset.advancedResultRegenerate || 0)];
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultRegenerate || 0)];
       button.disabled = true;
       button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
       refreshIcons();
@@ -612,8 +658,8 @@ async function addAssetToAdvancedTarget(assetId = "") {
     else state.advancedFirstFrameAssetId = asset.id;
     state.advancedUploadDataUrl = url;
     if (provider === "seedance") {
-      if (advancedCreateModeNeedsReplacePair()) {
-        if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+      if (advancedCreateModeUsesCharacterPresetReference()) {
+        if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
       } else if (advancedCreateModeUsesAutoPrompt()) {
         if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "first_frame";
       }
@@ -637,7 +683,8 @@ async function addAssetToAdvancedTarget(assetId = "") {
       state.advancedAudioAssetId = "";
     } else if (provider === "wan27-image-edit") {
       const ref = { assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true };
-      state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+      const imageLimit = advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+      state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(imageLimit === 1 ? [] : (state.advancedReferenceImages || [])), ref]).slice(0, imageLimit);
       state.advancedSourceImageAssetId = state.advancedReferenceImages[0]?.assetId || "";
       state.advancedFirstFrameAssetId = "";
       state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || url;
@@ -718,6 +765,7 @@ function updateAdvancedModelControls() {
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const bounds = advancedDurationBounds(provider);
   const isImageEdit = provider === "wan27-image-edit";
+  const simpleEdit = advancedCreateModeIsSimpleEdit();
   const simpleAction = state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt();
   if (els.advancedDuration) {
     els.advancedDuration.min = String(bounds.min);
@@ -749,10 +797,10 @@ function updateAdvancedModelControls() {
     if (!options.includes(current)) els.advancedRatio.value = isImageEdit ? "9:16" : "9:16";
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
-    item.hidden = simpleAction || provider !== "wan27";
+    item.hidden = simpleAction || simpleEdit || provider !== "wan27";
   });
   document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
-    item.hidden = simpleAction || provider !== "seedance";
+    item.hidden = simpleAction || simpleEdit || provider !== "seedance";
   });
   document.querySelectorAll(".advanced-fields").forEach((item) => {
     item.hidden = simpleAction;
@@ -761,7 +809,7 @@ function updateAdvancedModelControls() {
     item.hidden = simpleAction;
   });
   document.querySelectorAll(".advanced-duration-field").forEach((item) => {
-    item.hidden = isImageEdit;
+    item.hidden = isImageEdit || simpleEdit;
   });
   syncAdvancedVideoSettingsControls();
   document.querySelectorAll(".wan-first-frame").forEach((item) => {
@@ -786,14 +834,16 @@ function updateAdvancedModelControls() {
   if (els.advancedUploadBox) {
     const uploadIsVideo = advancedCreateUploadIsVideo();
     const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
+    const hidePresetUploadBox = state.advancedCreateKind !== "custom" && provider === "seedance" && advancedCreateModeUsesCharacterPresetReference();
     if (els.advancedImage) {
       els.advancedImage.accept = advancedCreateUploadAcceptValue();
-      els.advancedImage.multiple = !uploadIsVideo && !advancedCreateModeNeedsReplacePair();
+      els.advancedImage.multiple = !uploadIsVideo && !advancedCreateModeUsesSingleUpload();
     }
-    els.advancedUploadBox.hidden = !simpleAction && !advancedCreateModeNeedsVideoUpload() && (
+    const forceUpload = simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload();
+    els.advancedUploadBox.hidden = hidePresetUploadBox || (!forceUpload && (
       (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
       (provider === "seedance" && seedanceMode === "text_to_video")
-    );
+    ));
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
@@ -803,7 +853,8 @@ function updateAdvancedModelControls() {
       const imageEditLabel = t("advanced.assetTargetSourceImages");
       const videoEditLabel = t("advanced.assetTargetVideo");
       const seedanceLabel = seedanceModeNeedsFirstFrame(seedanceMode) ? t("advanced.firstFrame") : t("advanced.uploadReference");
-      label.innerHTML = `<i data-lucide="${uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel)}`;
+      const uploadLabel = simpleEdit && isImageEdit ? imageEditLabel : simpleEdit && uploadIsVideo ? videoEditLabel : mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel;
+      label.innerHTML = `<i data-lucide="${uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(uploadLabel)}`;
     }
   }
   renderAdvancedReferencePreviews();
@@ -826,7 +877,7 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "" } = {}) {
   }
   updateAdvancedModelControls();
   els.advancedImage.accept = "image/*";
-  els.advancedImage.multiple = provider === "seedance" && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "") && !advancedCreateModeNeedsReplacePair();
+  els.advancedImage.multiple = provider === "seedance" && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "") && !advancedCreateModeUsesSingleUpload();
   els.advancedImage.click();
 }
 
@@ -1013,9 +1064,9 @@ async function requestAdvancedAccess() {
 async function submitAdvancedGenerate() {
   if (!state.user) return openLogin();
   const promptInput = els.advancedPrompt?.value.trim() || "";
-  const usingPresetFlow = state.advancedCreateKind !== "custom";
+  const usingPresetFlow = advancedCreateModeUsesPresetBuilder();
   const autoPrompt = advancedCreateModeUsesAutoPrompt();
-  if (usingPresetFlow && !autoPrompt && !selectedAdvancedPreset("action")) {
+  if (usingPresetFlow && advancedCreateModeRequiresActionPreset() && !selectedAdvancedPreset("action")) {
     if (els.advancedNote) els.advancedNote.textContent = t("advancedPreset.actionRequired");
     return;
   }
@@ -1028,6 +1079,16 @@ async function submitAdvancedGenerate() {
   if (!prompt) {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.promptRequired");
     return;
+  }
+  if (advancedCreateModeIsSimpleEdit()) {
+    if (state.advancedCreateMode === "image-edit" && !selectedAdvancedReferenceImages("wan27-image-edit").length) {
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.editImageRequired", {}, "Upload one image first.");
+      return;
+    }
+    if (state.advancedCreateMode === "video-edit" && !state.advancedSeedanceVideoAssetId) {
+      if (els.advancedNote) els.advancedNote.textContent = t("advanced.editVideoRequired", {}, "Upload one video first.");
+      return;
+    }
   }
   const currentCase = state.advancedCases.find((item) => item.id === state.activeAdvancedCaseId);
   if (currentCase?.prompt && currentCase.prompt !== prompt) state.activeAdvancedCaseId = "";
@@ -1057,7 +1118,7 @@ async function submitAdvancedGenerate() {
       updatedAt: new Date().toISOString(),
     });
     state.advancedResultTaskId = pendingTaskId;
-    setAdvancedSideTab("result");
+    setAdvancedSideTab("result", { syncMobile: true });
     renderAdvancedResultPanel();
     if (els.advancedNote) els.advancedNote.textContent = "";
     try {
@@ -1088,7 +1149,7 @@ async function submitAdvancedGenerate() {
       state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
       clearAdvancedCreationInputs();
       if (els.advancedNote) els.advancedNote.textContent = "";
-      setAdvancedSideTab("result");
+      setAdvancedSideTab("result", { syncMobile: true });
       renderAdvancedResultPanel();
       if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       await loadHistory({ silent: true }).catch(() => {});
@@ -1130,7 +1191,9 @@ async function submitAdvancedGenerate() {
     ? absoluteHttpUrl(advancedCaseInputVideo(currentCase || {}))
     : "";
   const seedanceVideoUrls = splitUrlList(els.advancedSeedanceVideoUrls?.value || "");
-  const effectiveSeedanceVideoUrls = seedanceVideoUrls.length ? seedanceVideoUrls : (caseVideoUrl ? [caseVideoUrl] : []);
+  const effectiveSeedanceVideoUrls = advancedCreateModeIsSimpleEdit()
+    ? []
+    : (seedanceVideoUrls.length ? seedanceVideoUrls : (caseVideoUrl ? [caseVideoUrl] : []));
   const seedanceAudioUrls = splitUrlList(els.advancedSeedanceAudioUrls?.value || "");
   const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0;
   if (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !referenceImages.length) {
@@ -1215,7 +1278,7 @@ async function submitAdvancedGenerate() {
     updatedAt: new Date().toISOString(),
   });
   state.advancedResultTaskId = pendingTaskId;
-  setAdvancedSideTab("result");
+  setAdvancedSideTab("result", { syncMobile: true });
   renderAdvancedResultPanel();
   if (els.advancedNote) els.advancedNote.textContent = "";
   try {
@@ -1305,7 +1368,7 @@ async function submitAdvancedGenerate() {
     }
     if (els.advancedNote) els.advancedNote.textContent = "";
     clearAdvancedCreationInputs();
-    setAdvancedSideTab("result");
+    setAdvancedSideTab("result", { syncMobile: true });
     renderAdvancedResultPanel();
     scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
     scheduleHistoryRefresh({ delayMs: 8000, force: true });
@@ -2158,7 +2221,7 @@ function useAssetInAdvanced(asset = {}, action = "use") {
       state.advancedFirstFrameAssetId = asset.id;
       state.advancedSourceImageAssetId = "";
     }
-    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = action === "extend" ? "first_frame" : "reference_images";
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
     const ref = {
       assetId: asset.id,
       dataUrl: assetPreviewUrl(asset),
@@ -2214,7 +2277,7 @@ function selectedWanClipUrl(mediaMode = "first_frame") {
 function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   const images = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (normalizedProvider === "wan27-image-edit") return images.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  if (normalizedProvider === "wan27-image-edit") return images.slice(0, advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (normalizedProvider !== "seedance") return images.slice(0, 1);
   const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   if (seedanceModeNeedsFirstFrame(mode)) return images.slice(0, 1);
@@ -2624,14 +2687,15 @@ function renderHistory(records = []) {
   }
   state.historyRecords = sortedRecords;
   els.historyList.innerHTML = `${expiryNotice}${sortedRecords.map((record, index) => {
-    const isSucceeded = isSucceededGenerationStatus(record.status);
-    const videoUrl = isSucceeded ? generationVideoUrl(record) : "";
-    const imageResultUrl = isSucceeded ? generationImageResultUrl(record) : "";
+    const videoUrl = generationVideoUrl(record);
+    const imageResultUrl = generationImageResultUrl(record);
+    const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageResultUrl);
     const taskId = record.taskId || "";
     const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
     const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio;
     const mediaStyle = ratioStyle(recordRatio);
     const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
+    const canDownload = canDownloadGenerationRecord(record);
     return `
       <article class="history-item is-${escapeHtml(statusClass(record.status))}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">
@@ -2651,6 +2715,11 @@ function renderHistory(records = []) {
               </button>
             ` : ""}
             ${taskId && (videoUrl || imageResultUrl) ? `
+              ${canDownload ? `
+                <button class="history-download history-download-file" type="button" data-history-download="${escapeHtml(String(index))}">
+                  <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+                </button>
+              ` : ""}
               <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
                 <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
               </button>
@@ -2727,6 +2796,12 @@ function renderHistory(records = []) {
   });
   els.historyList.querySelectorAll("[data-history-add-asset]").forEach((button) => {
     button.addEventListener("click", () => addHistoryRecordToAssets(button.dataset.historyAddAsset || "", button));
+  });
+  els.historyList.querySelectorAll("[data-history-download]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = sortedRecords[Number(button.dataset.historyDownload || 0)];
+      downloadGenerationRecord(record);
+    });
   });
   els.historyList.querySelectorAll("[data-history-replace]").forEach((button) => {
     button.addEventListener("click", () => openHistoryRecordAssetAction(button.dataset.historyReplace || "", "replace", button));
@@ -2990,11 +3065,15 @@ async function loadHistory({ silent = false, refresh = false, page = state.histo
     state.historyRecordsLimit = payload.limit || state.historyRecordsLimit || 8;
     state.historyRecordsTotal = payload.total || records.length;
     state.historyRecordsTotalPages = payload.totalPages || 1;
+    state.historyRecords = records;
     const nextSignature = generationRecordsSignature(records);
     if (!silent || nextSignature !== historyRecordsSignature) {
       renderHistory(records);
       historyRecordsSignature = nextSignature;
       els.historyList.scrollTop = previousScrollTop;
+    }
+    if (state.tab === "advanced" && state.advancedSideTab === "result" && !state.advancedResultRecords?.length) {
+      renderAdvancedResultPanel();
     }
     refreshPendingHistoryRecords(records);
     if (records.some(isRecentPendingGenerationRecord)) scheduleHistoryRefresh();

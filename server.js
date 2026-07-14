@@ -5,6 +5,7 @@ const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
+const { Readable } = require("node:stream");
 const { URL } = require("node:url");
 const {
   dbEnabled,
@@ -321,6 +322,19 @@ const TOS = {
   publicDomain: process.env.TOS_PUBLIC_DOMAIN,
 };
 const DISABLE_TOS_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_TOS_STORAGE || ""));
+const R2 = {
+  accessKey: process.env.R2_ACCESS_KEY_ID || process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
+  secretKey: process.env.R2_SECRET_ACCESS_KEY || process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+  endpoint: process.env.R2_ENDPOINT || process.env.CLOUDFLARE_R2_ENDPOINT,
+  region: process.env.R2_REGION || process.env.CLOUDFLARE_R2_REGION || "auto",
+  bucket: process.env.R2_BUCKET || process.env.CLOUDFLARE_R2_BUCKET,
+  publicDomain:
+    process.env.R2_PUBLIC_BASE_URL ||
+    process.env.R2_PUBLIC_DOMAIN ||
+    process.env.CLOUDFLARE_R2_PUBLIC_BASE_URL ||
+    process.env.CLOUDFLARE_R2_PUBLIC_DOMAIN,
+};
+const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
 const SITE_STORAGE_SLUG = storagePathSegment(
   process.env.SITE_STORAGE_SLUG || process.env.TENANT_SLUG || defaultStorageSlug(),
   "raising-game",
@@ -912,10 +926,61 @@ function configuredPublicBaseUrl() {
 function publicUrlForAssetPath(localUrl = "") {
   const value = String(localUrl || "").trim();
   if (!value) return "";
-  if (isPublicHttpUrl(value)) return value;
+  const r2BaseUrl = !DISABLE_R2_STORAGE && R2.publicDomain ? String(R2.publicDomain || "").replace(/\/+$/, "") : "";
+  if (isPublicHttpUrl(value)) {
+    try {
+      const parsed = new URL(value);
+      const publicBase = configuredPublicBaseUrl();
+      const publicHost = publicBase ? new URL(publicBase).host : "";
+      if (r2BaseUrl && parsed.pathname.startsWith("/assets/") && (!publicHost || parsed.host === publicHost || parsed.hostname === "123vips.com")) {
+        return `${r2BaseUrl}${parsed.pathname}${parsed.search || ""}`;
+      }
+    } catch {
+      return value;
+    }
+    return value;
+  }
+  if (value.startsWith("/assets/") && r2BaseUrl) {
+    return `${r2BaseUrl}/${value.replace(/^\/+/, "")}`;
+  }
   const baseUrl = configuredPublicBaseUrl();
   if (!baseUrl) return "";
   return `${baseUrl}/${value.replace(/^\/+/, "")}`;
+}
+
+function shouldKeepLocalAssetField(key = "") {
+  const name = String(key || "");
+  return /(?:Path|Key)$/i.test(name);
+}
+
+function shouldRewritePublicAssetField(key = "", value = "") {
+  if (shouldKeepLocalAssetField(key)) return false;
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (text.startsWith("/assets/")) return true;
+  if (isPublicHttpUrl(text)) return true;
+  return /(?:Url|URL|Uri|URI|Href|href|Src|src)$/i.test(String(key || ""));
+}
+
+function publicAssetUrlsForClient(value, key = "") {
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (shouldRewritePublicAssetField(key, text)) {
+      const publicUrl = publicUrlForAssetPath(text);
+      if (publicUrl && publicUrl !== text) return publicUrl;
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => publicAssetUrlsForClient(item, key));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => [
+      entryKey,
+      publicAssetUrlsForClient(entryValue, entryKey),
+    ]));
+  }
+  return value;
 }
 
 function absoluteUrlFromBase(value = "", baseUrl = "") {
@@ -1285,7 +1350,7 @@ function publicConfig(config, origin = "", auth = null) {
   const normalizedAdvancedPricing = normalizeAdvancedPricing(publicPlatform.advancedPricing);
   const assetImageModifyPricing = normalizedAdvancedPricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
   publicPlatform.advancedPricing = publicAdvancedPricingView(normalizedAdvancedPricing);
-  return {
+  const view = {
     defaultCompanionId: config.defaultCompanionId,
     prices: { ...config.prices, unlockVideo: CHARACTER_UNLOCK_COST_CREDITS },
     tenantFeatures: {
@@ -1339,6 +1404,7 @@ function publicConfig(config, origin = "", auth = null) {
         return publicScene;
       }),
   };
+  return publicAssetUrlsForClient(view);
 }
 
 async function handlePublicCharacters(req, res, url) {
@@ -1355,11 +1421,11 @@ async function handlePublicCharacters(req, res, url) {
     q: url?.searchParams?.get("q") || "",
     characterId: url?.searchParams?.get("id") || url?.searchParams?.get("characterId") || "",
   });
-  return sendJson(res, 200, { ok: true, ...page });
+  return sendJson(res, 200, publicAssetUrlsForClient({ ok: true, ...page }));
 }
 
 function publicWorkflowPresetView(preset = {}) {
-  return {
+  return publicAssetUrlsForClient({
     id: String(preset.id || "").trim(),
     label: String(preset.label || preset.name || "").trim(),
     prompt: String(preset.prompt || preset.defaultPrompt || "").trim(),
@@ -1369,7 +1435,7 @@ function publicWorkflowPresetView(preset = {}) {
     source: String(preset.source || "").trim(),
     sourceId: String(preset.sourceId || "").trim(),
     sortOrder: Number(preset.sortOrder || 0) || 0,
-  };
+  });
 }
 
 async function handleWorkflowPresets(req, res) {
@@ -3931,9 +3997,9 @@ function publicCharacterVideoList(item = {}) {
     const raw = entry || {};
     const sceneId = raw.sceneId || sceneIdFromVideoKey(key);
     const sceneEntryId = raw.sceneEntryId || "default";
-    const videoUrl = String(raw.videoUrl || raw.localVideoUrl || raw.remoteVideoUrl || "").trim();
+    const videoUrl = String(raw.cdnVideoUrl || raw.videoUrl || raw.localVideoUrl || raw.remoteVideoUrl || "").trim();
     const taskId = String(raw.taskId || "").trim();
-    const posterUrl = String(raw.posterUrl || raw.coverUrl || raw.thumbnailUrl || "").trim();
+    const posterUrl = String(raw.cdnPosterUrl || raw.posterUrl || raw.coverUrl || raw.thumbnailUrl || "").trim();
     if (!sceneId || (!videoUrl && !taskId && !posterUrl)) continue;
     const dedupeKey = [sceneId, sceneEntryId, taskId, videoUrl, key].join("|");
     if (seen.has(dedupeKey)) continue;
@@ -3967,14 +4033,14 @@ function characterUnlockedByRecord(db = {}, userId = "", itemId = "") {
 function publicCharacterSceneVideo(entry = {}, { playable = false, locked = true, price = CHARACTER_UNLOCK_COST_CREDITS } = {}) {
   const video = publicSceneVideo(entry) || publicUnlockVideo(entry, entry.sceneId || "");
   if (!video) return null;
-  const posterUrl = String(video.posterUrl || video.localPosterUrl || video.coverUrl || video.thumbnailUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
+  const posterUrl = String(video.cdnPosterUrl || video.posterUrl || video.localPosterUrl || video.coverUrl || video.thumbnailUrl || entry.cdnPosterUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
   return {
     ...video,
     posterUrl,
     localPosterUrl: String(video.localPosterUrl || entry.localPosterUrl || posterUrl || "").trim(),
     coverUrl: String(video.coverUrl || entry.coverUrl || posterUrl || "").trim(),
     thumbnailUrl: String(video.thumbnailUrl || entry.thumbnailUrl || posterUrl || "").trim(),
-    videoUrl: playable ? String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim() : "",
+    videoUrl: playable ? String(entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim() : "",
     locked: Boolean(locked),
     price,
   };
@@ -4019,7 +4085,8 @@ function publicHomeVideoItem(item, auth = null) {
   const hasSynth = Boolean(item.syntheticReferenceLocalUrl || item.syntheticReferenceUrl);
   const hasAsset = Boolean(item.referenceAssetUri);
   const characterVideos = publicCharacterVideoMaps(item, auth);
-  const characterImageUrl = item.sourceImageUrl || item.localImageUrl || item.syntheticReferenceLocalUrl || item.publicImageUrl || item.imageUrl || "";
+  const characterImageUrl = item.publicImageUrl || item.cdnImageUrl || item.cdnPosterUrl || item.sourceImageUrl || item.localImageUrl || item.syntheticReferenceLocalUrl || item.imageUrl || "";
+  const posterUrl = item.cdnPosterUrl || item.cdnImageUrl || item.publicImageUrl || item.posterUrl || characterImageUrl || item.coverUrl || "";
   let referenceState = "missing";
   if (hasSynth && hasAsset) referenceState = "ready";
   else if (hasSynth) referenceState = "asset_pending";
@@ -4029,13 +4096,15 @@ function publicHomeVideoItem(item, auth = null) {
     id: item.id || "",
     name: item.name || "Featured",
     title: item.title || "Featured drama",
-    posterUrl: item.posterUrl || characterImageUrl || item.coverUrl || "",
+    posterUrl,
     localImageUrl: item.localImageUrl || "",
     characterImageUrl,
     referenceImageUrl: characterImageUrl,
     syntheticReferenceLocalUrl: item.syntheticReferenceLocalUrl || "",
-    sourceImageUrl: item.sourceImageUrl || "",
+    sourceImageUrl: item.publicImageUrl || item.cdnImageUrl || item.sourceImageUrl || "",
     publicImageUrl: item.publicImageUrl || "",
+    cdnImageUrl: item.cdnImageUrl || "",
+    cdnPosterUrl: item.cdnPosterUrl || "",
     coverUrl: item.coverUrl || "",
     thumbnailUrl: item.thumbnailUrl || "",
     thumbUrl: item.thumbUrl || "",
@@ -4138,14 +4207,17 @@ function normalizeHomeVideo(homeVideo = {}) {
     ...homeVideo,
     activeItemId: active.id || activeItemId,
     items: normalized,
-    posterUrl: active.posterUrl || active.localImageUrl || homeVideo.posterUrl || "",
+    posterUrl: active.cdnPosterUrl || active.cdnImageUrl || active.publicImageUrl || active.posterUrl || active.localImageUrl || homeVideo.posterUrl || "",
     localImageUrl: active.localImageUrl || active.posterUrl || homeVideo.localImageUrl || "",
     imageMime: active.imageMime || homeVideo.imageMime || "",
-    publicImageUrl: active.publicImageUrl || homeVideo.publicImageUrl || "",
+    publicImageUrl: active.publicImageUrl || active.cdnImageUrl || homeVideo.publicImageUrl || "",
+    cdnImageUrl: active.cdnImageUrl || homeVideo.cdnImageUrl || "",
+    cdnPosterUrl: active.cdnPosterUrl || homeVideo.cdnPosterUrl || "",
     referenceAssetUri: active.referenceAssetUri || homeVideo.referenceAssetUri || "",
-    videoUrl: active.videoUrl || active.localVideoUrl || homeVideo.videoUrl || "",
+    videoUrl: active.cdnVideoUrl || active.videoUrl || active.localVideoUrl || homeVideo.videoUrl || "",
     localVideoUrl: active.localVideoUrl || active.videoUrl || homeVideo.localVideoUrl || "",
     remoteVideoUrl: active.remoteVideoUrl || homeVideo.remoteVideoUrl || "",
+    cdnVideoUrl: active.cdnVideoUrl || homeVideo.cdnVideoUrl || "",
     localVideoPath: active.localVideoPath || homeVideo.localVideoPath || "",
     taskId: active.taskId || homeVideo.taskId || "",
     status: active.status || homeVideo.status || "",
@@ -4203,7 +4275,7 @@ function findHomeVideoItem(homeVideo = {}, itemId = "") {
 function normalizeUnlockVideo(entry = {}, videoKey = "") {
   if (!entry || typeof entry !== "object") return null;
   const sceneId = String(entry.sceneId || sceneIdFromVideoKey(videoKey) || "").trim();
-  const videoUrl = String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
+  const videoUrl = String(entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
   const taskId = String(entry.taskId || "").trim();
   if (!sceneId || (!videoUrl && !taskId)) return null;
   return {
@@ -4215,6 +4287,7 @@ function normalizeUnlockVideo(entry = {}, videoKey = "") {
     title: String(entry.title || entry.sceneEntryName || entry.sceneName || "Unlocked video").trim(),
     price: clampNumber(entry.price, DEFAULT_CONFIG.prices.unlockVideo, 0, 9999),
     videoUrl,
+    cdnVideoUrl: entry.cdnVideoUrl || "",
     localVideoUrl: entry.localVideoUrl || "",
     remoteVideoUrl: entry.remoteVideoUrl || "",
     taskId,
@@ -4225,7 +4298,7 @@ function normalizeUnlockVideo(entry = {}, videoKey = "") {
 function publicUnlockVideo(entry = {}, videoKey = "") {
   const normalized = normalizeUnlockVideo(entry, videoKey);
   if (!normalized) return null;
-  const posterUrl = String(normalized.posterUrl || normalized.localPosterUrl || normalized.coverUrl || normalized.thumbnailUrl || "").trim();
+  const posterUrl = String(normalized.cdnPosterUrl || normalized.posterUrl || normalized.localPosterUrl || normalized.coverUrl || normalized.thumbnailUrl || "").trim();
   return {
     sceneId: normalized.sceneId,
     sceneName: normalized.sceneName || "",
@@ -4233,6 +4306,7 @@ function publicUnlockVideo(entry = {}, videoKey = "") {
     sceneEntryName: normalized.sceneEntryName || "",
     title: normalized.title || "Unlocked video",
     posterUrl,
+    cdnPosterUrl: normalized.cdnPosterUrl || "",
     localPosterUrl: normalized.localPosterUrl || posterUrl || "",
     coverUrl: normalized.coverUrl || posterUrl || "",
     thumbnailUrl: normalized.thumbnailUrl || posterUrl || "",
@@ -4404,7 +4478,7 @@ function parseUnlockStreamToken(token = "") {
 }
 
 function getUnlockVideoUrl(entry = {}) {
-  return String(entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
+  return String(entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "").trim();
 }
 
 function secureUnlockVideoUrl({ userId, itemId, sceneId, sceneEntryId = "default", videoKey = "" }) {
@@ -6753,6 +6827,8 @@ const SEEDANCE_IMAGE_ASPECT_RATIO_MIN = 0.4;
 const SEEDANCE_IMAGE_ASPECT_RATIO_MAX = 2.5;
 const SEEDANCE_IMAGE_DIMENSION_MIN = 300;
 const SEEDANCE_IMAGE_DIMENSION_MAX = 6000;
+const SEEDANCE_VIDEO_PIXEL_COUNT_MIN = 409600;
+const SEEDANCE_VIDEO_PIXEL_COUNT_MAX = 8847360;
 
 function readLittleEndian24(buffer, offset) {
   return buffer[offset] + (buffer[offset + 1] << 8) + (buffer[offset + 2] << 16);
@@ -6855,6 +6931,59 @@ function validateSeedanceImageBytes(bytes, label = "Seedance image") {
   return assertSeedanceImageAspectRatio(imageDimensionsFromBuffer(bytes), label);
 }
 
+function assertSeedanceVideoPixelCount(dimensions, label = "Seedance video") {
+  const width = Number(dimensions?.width || 0);
+  const height = Number(dimensions?.height || 0);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw advancedValidationError(
+      "SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE",
+      `${label} dimensions could not be read. Re-upload the video before using it with Vipeak 2.`,
+    );
+  }
+  const pixelCount = width * height;
+  if (pixelCount < SEEDANCE_VIDEO_PIXEL_COUNT_MIN || pixelCount > SEEDANCE_VIDEO_PIXEL_COUNT_MAX) {
+    throw advancedValidationError(
+      "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID",
+      `${label} pixel count must be between ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN} and ${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}. Current video is ${width}x${height} (${pixelCount} pixels).`,
+      {
+        width,
+        height,
+        pixelCount,
+        minPixelCount: SEEDANCE_VIDEO_PIXEL_COUNT_MIN,
+        maxPixelCount: SEEDANCE_VIDEO_PIXEL_COUNT_MAX,
+      },
+    );
+  }
+  return { ...dimensions, width, height, pixelCount };
+}
+
+async function probeLocalVideoDimensions(videoPath = "") {
+  if (!videoPath) return null;
+  try {
+    const result = await execFileJson("ffprobe", [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height,duration",
+      "-of",
+      "json",
+      videoPath,
+    ], { timeout: VIDEO_DURATION_PROBE_TIMEOUT_MS });
+    const stream = Array.isArray(result?.streams) ? result.streams[0] : null;
+    if (!stream) return null;
+    return {
+      width: Number(stream.width || 0),
+      height: Number(stream.height || 0),
+      durationSeconds: durationSecondsFromValue(stream.duration),
+    };
+  } catch (error) {
+    console.warn("[video-dimensions-probe-failed]", videoPath, error.message || error);
+    return null;
+  }
+}
+
 function localPathForUserAsset(asset = {}) {
   const localUrl = String(asset.localUrl || "").trim();
   if (!localUrl) return "";
@@ -6913,6 +7042,40 @@ async function validateSeedanceImageAssetsForRequest(db, assets = []) {
   for (let index = 0; index < list.length; index += 1) {
     await validateSeedanceImageAssetForRequest(db, list[index], `Seedance image ${index + 1}`);
   }
+}
+
+function storedVideoDimensionsForAsset(asset = {}) {
+  const width = Number(firstPresent(asset.videoWidth, asset.width, asset.meta?.videoWidth, asset.meta?.width));
+  const height = Number(firstPresent(asset.videoHeight, asset.height, asset.meta?.videoHeight, asset.meta?.height));
+  if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+    return {
+      width,
+      height,
+      durationSeconds: durationSecondsFromValue(firstPresent(asset.durationSeconds, asset.meta?.durationSeconds)),
+    };
+  }
+  return null;
+}
+
+async function validateSeedanceVideoAssetForRequest(db, asset = {}, label = "Seedance video") {
+  if (!asset) return null;
+  validateWan27MediaKind(asset, "video", label);
+  const storedDimensions = storedVideoDimensionsForAsset(asset);
+  if (storedDimensions) return assertSeedanceVideoPixelCount(storedDimensions, label);
+
+  const localPath = localPathForUserAsset(asset);
+  if (!localPath) {
+    throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Vipeak 2.`, { assetId: asset.id || "" });
+  }
+  const dimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(localPath), label);
+  asset.videoWidth = dimensions.width;
+  asset.videoHeight = dimensions.height;
+  asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
+  asset.updatedAt = new Date().toISOString();
+  db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(db);
+  return dimensions;
 }
 
 async function validateSeedanceRawImageUrlsForRequest(urls = []) {
@@ -7029,10 +7192,14 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
   const fallbackExt = mime.startsWith("image/") ? imageExtFromMime(mime) : ".bin";
   const storedFileName = `${assetId}${mediaExtFromMime(mime, fileName) || fallbackExt}`;
   const dir = path.join(USER_UPLOAD_DIR, user.id);
+  const localPath = path.join(dir, storedFileName);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, storedFileName), bytes);
+  await fs.writeFile(localPath, bytes);
 
   const imageDimensions = mime.startsWith("image/") ? imageDimensionsFromBuffer(bytes) : null;
+  const videoDimensions = mime.startsWith("video/") ? await probeLocalVideoDimensions(localPath) : null;
+  const localUrl = `/assets/user-uploads/${user.id}/${storedFileName}`;
+  const objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
   const displayName = String(fileName || name || "Upload")
     .split(/[\\/]/)
     .pop()
@@ -7042,14 +7209,19 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     userId: user.id,
     name: displayName || "Upload",
     mime,
-    localUrl: `/assets/user-uploads/${user.id}/${storedFileName}`,
-    publicUrl: publicUrlForAssetPath(`/assets/user-uploads/${user.id}/${storedFileName}`),
+    localUrl,
+    publicUrl: objectStorage.publicUrl || publicUrlForAssetPath(localUrl),
+    cdnUrl: objectStorage.publicUrl || "",
+    objectStorageKey: objectStorage.key || "",
+    objectStorageError: objectStorage.error || "",
     assetUri: "",
     width: imageDimensions?.width || 0,
     height: imageDimensions?.height || 0,
+    videoWidth: videoDimensions?.width || 0,
+    videoHeight: videoDimensions?.height || 0,
     imageType: imageDimensions?.type || "",
     durationSeconds: mime.startsWith("video/") || mime.startsWith("audio/")
-      ? durationSecondsFromValue(durationSeconds)
+      ? durationSecondsFromValue(durationSeconds || videoDimensions?.durationSeconds)
       : 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -7133,6 +7305,7 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
     )) || null;
   }
   if (existing) {
+    existing = await refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, existing, mediaUrl);
     if (!hidden && existing.hidden) {
       existing.hidden = false;
       existing.updatedAt = new Date().toISOString();
@@ -7190,6 +7363,45 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
   asset.hidden = Boolean(hidden);
   const currentMeta = asset.meta && typeof asset.meta === "object" && !Array.isArray(asset.meta) ? asset.meta : {};
   asset.meta = { ...currentMeta, ...(meta || {}) };
+  asset.updatedAt = new Date().toISOString();
+  db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(db);
+  return asset;
+}
+
+async function refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, asset = {}, sourceUrl = "") {
+  if (!asset || !String(asset.mime || "").toLowerCase().startsWith("video/")) return asset;
+  const meta = asset.meta && typeof asset.meta === "object" && !Array.isArray(asset.meta) ? asset.meta : {};
+  const isSeedancePreset = asset.hidden && (meta.fromWorkflowPreset || meta.upstreamUse === "seedance_reference_video");
+  if (!isSeedancePreset) return asset;
+  try {
+    await validateSeedanceVideoAssetForRequest(db, asset, "Seedance reference video");
+    return asset;
+  } catch (error) {
+    if (!["SEEDANCE_VIDEO_PIXEL_COUNT_INVALID", "SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE"].includes(error.code)) throw error;
+  }
+
+  const sourcePath = localAssetPathFromPublicValue(sourceUrl || asset.sourceUrl || asset.originalUrl || "");
+  const targetPath = localPathForUserAsset(asset);
+  if (!sourcePath || !targetPath) return asset;
+  const sourceDimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(sourcePath), "Seedance reference video source");
+  const samePath = path.resolve(sourcePath) === path.resolve(targetPath);
+  if (!samePath) {
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.copyFile(sourcePath, targetPath);
+  }
+  asset.videoWidth = sourceDimensions.width;
+  asset.videoHeight = sourceDimensions.height;
+  asset.durationSeconds = sourceDimensions.durationSeconds || asset.durationSeconds || 0;
+  asset.seedanceVideoAssetId = "";
+  asset.seedanceVideoAssetUri = "";
+  const refreshedBytes = await fs.readFile(targetPath);
+  const mirror = await uploadLocalAssetMirrorToObjectStorage({ localUrl: asset.localUrl, bytes: refreshedBytes, mime: asset.mime || videoMimeFromPath(targetPath) });
+  asset.publicUrl = mirror.publicUrl || publicUrlForAssetPath(asset.localUrl) || asset.publicUrl || "";
+  asset.cdnUrl = mirror.publicUrl || asset.cdnUrl || "";
+  asset.objectStorageKey = mirror.key || asset.objectStorageKey || "";
+  asset.objectStorageError = mirror.error || asset.objectStorageError || "";
   asset.updatedAt = new Date().toISOString();
   db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
   if (dbEnabled()) await upsertUserAssetInDb(asset);
@@ -7256,15 +7468,17 @@ function findSceneConfig(config, sceneId) {
 
 function publicSceneVideo(entry = {}) {
   if (!entry || typeof entry !== "object") return null;
-  const videoUrl = entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "";
+  const videoUrl = entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "";
   const savedPrompt = String(entry.userPrompt || "").trim();
   if (!videoUrl && !entry.taskId && !savedPrompt) return null;
-  const posterUrl = String(entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
+  const posterUrl = String(entry.cdnPosterUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
   return {
     sceneId: entry.sceneId || "",
     sceneName: entry.sceneName || "",
     videoUrl,
     posterUrl,
+    cdnVideoUrl: entry.cdnVideoUrl || "",
+    cdnPosterUrl: entry.cdnPosterUrl || "",
     localPosterUrl: entry.localPosterUrl || posterUrl || "",
     coverUrl: entry.coverUrl || posterUrl || "",
     thumbnailUrl: entry.thumbnailUrl || posterUrl || "",
@@ -7330,6 +7544,10 @@ function signKey(secret, date, region, service) {
   return hmac(hmac(hmac(hmac(secret, date), region), service), "request");
 }
 
+function signAwsKey(secret, date, region, service) {
+  return hmac(hmac(hmac(hmac(`AWS4${secret}`, date), region), service), "aws4_request");
+}
+
 function amzDate() {
   const value = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   return { xDate: value, date: value.slice(0, 8) };
@@ -7373,6 +7591,45 @@ function makeTosAuth({ method, key, body, contentType }) {
   };
 }
 
+function r2EndpointUrl() {
+  const endpoint = String(R2.endpoint || "").trim().replace(/\/+$/, "");
+  if (!endpoint) return null;
+  return new URL(/^https?:\/\//i.test(endpoint) ? endpoint : `https://${endpoint}`);
+}
+
+function makeR2Auth({ method, key, body, contentType }) {
+  const endpoint = r2EndpointUrl();
+  if (!endpoint) {
+    const error = new Error("Missing R2_ENDPOINT");
+    error.statusCode = 503;
+    throw error;
+  }
+  const { xDate, date } = amzDate();
+  const payloadHash = sha256Hex(body);
+  const canonicalUri = `/${encodeURIComponent(R2.bucket)}/${encodePathname(key)}`;
+  const headers = {
+    "content-type": contentType,
+    host: endpoint.host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": xDate,
+  };
+  const sortedKeys = Object.keys(headers).sort();
+  const signedHeaders = sortedKeys.join(";");
+  const canonicalHeaders = sortedKeys.map((header) => `${header}:${headers[header]}\n`).join("");
+  const canonicalRequest = [method, canonicalUri, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const scope = `${date}/${R2.region || "auto"}/s3/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", xDate, scope, sha256Hex(canonicalRequest)].join("\n");
+  const signature = hmac(signAwsKey(R2.secretKey, date, R2.region || "auto", "s3"), stringToSign, "hex");
+
+  return {
+    url: `${endpoint.protocol}//${endpoint.host}${canonicalUri}`,
+    headers: {
+      ...headers,
+      authorization: `AWS4-HMAC-SHA256 Credential=${R2.accessKey}/${scope},SignedHeaders=${signedHeaders},Signature=${signature}`,
+    },
+  };
+}
+
 function makeArkOpenApiAuth({ action, body }) {
   const { xDate, date } = amzDate();
   const query = new URLSearchParams({ Action: action, Version: ARK_OPENAPI.version }).toString();
@@ -7401,6 +7658,14 @@ function makeArkOpenApiAuth({ action, body }) {
 }
 
 async function uploadBufferToTos({ userId, assetId, bytes, mime, extension = "" }) {
+  if (r2Enabled()) {
+    const fileName = `${storagePathSegment(assetId, "asset")}-${Date.now()}${extension || mediaExtFromMime(mime) || imageExtFromMime(mime)}`;
+    return uploadStaticAssetToR2({
+      key: tosStorageKey("users", userId, fileName),
+      bytes,
+      mime,
+    });
+  }
   requireValue("TOS_ACCESS_KEY_ID", TOS.accessKey);
   requireValue("TOS_SECRET_ACCESS_KEY", TOS.secretKey);
   requireValue("TOS_ENDPOINT", TOS.endpoint);
@@ -7432,8 +7697,17 @@ function tosEnabled() {
   return Boolean(TOS.accessKey && TOS.secretKey && TOS.endpoint && TOS.region && TOS.bucket && TOS.publicDomain);
 }
 
+function r2Enabled() {
+  if (DISABLE_R2_STORAGE) return false;
+  return Boolean(R2.accessKey && R2.secretKey && R2.endpoint && R2.bucket && R2.publicDomain);
+}
+
+function objectStorageEnabled() {
+  return r2Enabled() || tosEnabled();
+}
+
 function localPublicAssetStorageEnabled() {
-  return DISABLE_TOS_STORAGE || !tosEnabled();
+  return !objectStorageEnabled();
 }
 
 async function uploadStaticAssetToTos({ key, bytes, mime }) {
@@ -7456,6 +7730,51 @@ async function uploadStaticAssetToTos({ key, bytes, mime }) {
     tosUrl: url,
     publicUrl: `${TOS.publicDomain.replace(/\/$/, "")}/${key}`,
   };
+}
+
+async function uploadStaticAssetToR2({ key, bytes, mime }) {
+  requireValue("R2_ACCESS_KEY_ID", R2.accessKey);
+  requireValue("R2_SECRET_ACCESS_KEY", R2.secretKey);
+  requireValue("R2_ENDPOINT", R2.endpoint);
+  requireValue("R2_BUCKET", R2.bucket);
+  requireValue("R2_PUBLIC_BASE_URL", R2.publicDomain);
+
+  const auth = makeR2Auth({ method: "PUT", key, body: bytes, contentType: mime || "application/octet-stream" });
+  const response = await fetch(auth.url, { method: "PUT", headers: auth.headers, body: bytes });
+  const text = await response.text();
+  if (!response.ok) {
+    const error = new Error(`R2 upload failed: ${response.status} ${text}`);
+    error.statusCode = 502;
+    throw error;
+  }
+  return {
+    key,
+    r2Url: auth.url,
+    publicUrl: `${R2.publicDomain.replace(/\/$/, "")}/${key}`,
+  };
+}
+
+async function uploadStaticAssetToObjectStorage({ key, bytes, mime }) {
+  if (r2Enabled()) return uploadStaticAssetToR2({ key, bytes, mime });
+  return uploadStaticAssetToTos({ key, bytes, mime });
+}
+
+function localAssetMirrorKey(localUrl = "") {
+  const value = String(localUrl || "").trim().split("?")[0];
+  if (!value.startsWith("/assets/")) return "";
+  return value.replace(/^\/+/, "").split("/").map((part) => storagePathSegment(decodeURIComponent(part), "asset")).join("/");
+}
+
+async function uploadLocalAssetMirrorToObjectStorage({ localUrl = "", bytes, mime = "application/octet-stream" } = {}) {
+  if (!objectStorageEnabled()) return { publicUrl: "", key: "", error: "" };
+  const key = localAssetMirrorKey(localUrl);
+  if (!key) return { publicUrl: "", key: "", error: "" };
+  try {
+    const upload = await uploadStaticAssetToObjectStorage({ key, bytes, mime });
+    return { publicUrl: upload.publicUrl || "", key: upload.key || key, error: "" };
+  } catch (error) {
+    return { publicUrl: "", key, error: error.message || "Object storage upload failed" };
+  }
 }
 
 function makeHomeSyntheticReferencePrompt(item = {}) {
@@ -7613,6 +7932,26 @@ function appendDefaultVideoNegativePrompt(prompt = "", body = {}) {
     return [before, `${marker} ${merged}`].filter(Boolean).join("\n");
   }
   return [base, `${marker} ${negative}`].filter(Boolean).join("\n");
+}
+
+function enhancePlayfluxReferenceVideoPrompt(prompt = "", { hasReferenceImage = false, hasReferenceVideo = false } = {}) {
+  const base = String(prompt || "").trim();
+  if (!base || !hasReferenceVideo) return base;
+  const lower = base.toLowerCase();
+  if (lower.includes("video 1 is the reference motion video") || lower.includes("video 1 is the motion reference")) {
+    return base;
+  }
+  const guide = [
+    hasReferenceImage
+      ? "CRITICAL: Image 1 is the user's selected character/source image. Preserve Image 1 identity, face, hairstyle, body type, skin tone, outfit direction, and main visual features."
+      : "",
+    "CRITICAL: Video 1 is the reference motion video. Match Video 1 closely: action type, pose sequence, body positions, interaction timing, camera angle, framing, shot rhythm, motion direction, and start/end composition.",
+    hasReferenceImage
+      ? "Use Video 1 only for motion, action, camera, and composition. Do not copy identity, face, body, clothing, background, watermark, text, colors, or artifacts from Video 1. If Image 1 conflicts with Video 1, Image 1 always wins."
+      : "Use Video 1 as the primary action, camera, and composition guide.",
+    "Generate one continuous cinematic shot with the same action rhythm as Video 1, coherent anatomy, stable hands, and no subtitles or watermark.",
+  ].filter(Boolean).join(" ");
+  return [guide, base].filter(Boolean).join("\n\n");
 }
 
 function applyDefaultVideoNegativePromptToSeedancePayload(payload = {}, body = {}) {
@@ -9183,6 +9522,10 @@ function seedanceModeNeedsEndFrame(mode) {
   return normalizeSeedanceMode(mode) === "first_last_frame";
 }
 
+function seedanceModeNeedsReferenceVideo(mode) {
+  return normalizeSeedanceMode(mode) === "reference_video";
+}
+
 function seedanceFirstFrameInputFromBody(body = {}, { includeDataUrlFallback = false, includeUserAssetId = false } = {}) {
   const assetId = String(firstPresent(body.firstFrameAssetId, body.first_frame_asset_id, body.imageAssetId, body.image_asset_id, includeUserAssetId ? body.userAssetId : "") || "").trim();
   if (assetId) return { assetId, name: "Seedance first frame" };
@@ -10046,6 +10389,11 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     userAsset.width = dimensions.width;
     userAsset.height = dimensions.height;
     userAsset.imageType = dimensions.type || userAsset.imageType || "";
+  } else if (assetType === "Video") {
+    const dimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(localPath), "Seedance video asset");
+    userAsset.videoWidth = dimensions.width;
+    userAsset.videoHeight = dimensions.height;
+    userAsset.durationSeconds = dimensions.durationSeconds || userAsset.durationSeconds || 0;
   }
   const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
   let uploaded = { publicUrl: localPublicUrl, key: "" };
@@ -10175,10 +10523,37 @@ async function createSeedanceReferenceVideoAssetFromUrl(db, user, videoUrl = "",
   }
   if (!isPublicHttpUrl(url)) return null;
   const pathname = new URL(url).pathname;
+  const fileName = path.basename(pathname) || `seedance-reference-video-${index + 1}.mp4`;
+  const existing = findUserAssetBySourceUrl(db, user, url);
+  if (existing) return await refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, existing, url);
+  const localSourcePath = localAssetPathFromPublicValue(url);
+  if (localSourcePath) {
+    const dimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(localSourcePath), `Seedance reference video ${index + 1}`);
+    const bytes = await fs.readFile(localSourcePath);
+    const asset = await createUserMediaAssetFromBytes(db, user, {
+      bytes,
+      mime: videoMimeFromPath(localSourcePath),
+      name: `Seedance reference video ${index + 1}`,
+      fileName,
+      maxBytes: MEDIA_UPLOAD_MAX_BYTES,
+      durationSeconds: dimensions.durationSeconds,
+    });
+    asset.sourceUrl = normalizedAssetSourceUrl(url);
+    asset.hidden = true;
+    asset.videoWidth = dimensions.width;
+    asset.videoHeight = dimensions.height;
+    asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
+    asset.meta = { fromWorkflowPreset: true, upstreamUse: "seedance_reference_video" };
+    asset.updatedAt = new Date().toISOString();
+    db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+    if (dbEnabled()) await upsertUserAssetInDb(asset);
+    else await writeDb(db);
+    return asset;
+  }
   return await createUserMediaAssetFromPublicUrl(db, user, {
     url,
     name: `Seedance reference video ${index + 1}`,
-    fileName: path.basename(pathname) || `seedance-reference-video-${index + 1}.mp4`,
+    fileName,
     sourceUrl: url,
     hidden: true,
     meta: { fromWorkflowPreset: true, upstreamUse: "seedance_reference_video" },
@@ -10914,6 +11289,7 @@ function publicGenerationRecord(record = {}, options = {}) {
   const providerOnlyImageUrl = options.providerOnlyImageUrl === true;
   const publicImageUrl = providerOnlyImageUrl ? providerImageUrl : generationRecordImageUrl(record);
   const includeStoredImageUrls = options.includeStoredImageUrls !== false;
+  const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
   const publicRecord = {
     taskId: String(record.taskId || ""),
     upstreamTaskId: String(record.upstreamTaskId || ""),
@@ -10950,7 +11326,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     duration: record.duration || "",
     quality: String(record.quality || ""),
     videoUrl: publicVideoUrl,
-    downloadUrl: providerOnlyVideoUrl ? providerVideoUrl : (providerVideoUrl || publicVideoUrl),
+    downloadUrl: publicDownloadUrl,
     providerVideoUrl,
     upstreamVideoUrl: providerVideoUrl,
     remoteVideoUrl: String(record.remoteVideoUrl || ""),
@@ -11059,7 +11435,7 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (isImageGenerationRecord(record)) return false;
   if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
-  if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) return true;
+  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) return true;
   const status = String(record.status || "").toLowerCase();
   if (isFailedStatus(status)) return false;
   if (isSucceededStatus(status)) {
@@ -11121,7 +11497,7 @@ function generationRecordTime(record = {}) {
 function shouldRefreshGenerationRecordFromList(record = {}) {
   if (isStalePreSubmitGenerationRecord(record)) return true;
   if (!shouldRefreshGenerationRecord(record)) return false;
-  if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) return true;
+  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) return true;
   const time = generationRecordTime(record);
   return !time || Date.now() - time <= GENERATION_LIST_REFRESH_MAX_AGE_MS;
 }
@@ -11145,7 +11521,7 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
     localPosterPath = poster.localPosterPath || localPosterPath;
     localPosterUrl = poster.localPosterUrl || localPosterUrl;
   }
-  if (tosEnabled() && (!cdnVideoUrl || (localPosterPath && !cdnPosterUrl))) {
+  if (objectStorageEnabled() && (!cdnVideoUrl || (localPosterPath && !cdnPosterUrl))) {
     const cdn = await uploadGeneratedMediaToTos({ taskId: record.taskId, localVideoPath, localPosterPath });
     cdnVideoUrl = cdn.cdnVideoUrl || cdnVideoUrl;
     cdnPosterUrl = cdn.cdnPosterUrl || cdnPosterUrl;
@@ -11187,7 +11563,7 @@ async function refreshGenerationRecordStatus(record = {}) {
   if (isStalePreSubmitGenerationRecord(record)) {
     return failStalePreSubmitGenerationRecord(record, "refresh-stale-submit");
   }
-  if (record.localVideoUrl && (!record.localPosterUrl || (tosEnabled() && !record.cdnVideoUrl))) {
+  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) {
     try {
       return await ensureGenerationRecordMediaOptimized(record);
     } catch (error) {
@@ -11387,12 +11763,12 @@ async function createGeneratedVideoPoster(taskId, videoPath) {
 
 async function uploadGeneratedMediaToTos({ taskId, localVideoPath, localPosterPath = "" } = {}) {
   const result = { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
-  if (!tosEnabled()) return result;
+  if (!objectStorageEnabled()) return result;
   try {
     if (localVideoPath) {
       const videoBytes = await fs.readFile(localVideoPath);
       const videoExt = path.extname(localVideoPath) || ".mp4";
-      const videoUpload = await uploadStaticAssetToTos({
+      const videoUpload = await uploadStaticAssetToObjectStorage({
         key: tosStorageKey("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
         bytes: videoBytes,
         mime: videoMimeFromPath(localVideoPath),
@@ -11401,7 +11777,7 @@ async function uploadGeneratedMediaToTos({ taskId, localVideoPath, localPosterPa
     }
     if (localPosterPath) {
       const posterBytes = await fs.readFile(localPosterPath);
-      const posterUpload = await uploadStaticAssetToTos({
+      const posterUpload = await uploadStaticAssetToObjectStorage({
         key: tosStorageKey("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
         bytes: posterBytes,
         mime: "image/jpeg",
@@ -11450,7 +11826,7 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
       const existingVideoPath = existing.localVideoPath || path.join(ROOT, existing.localVideoUrl.replace(/^\//, ""));
       await fs.access(existingVideoPath);
       let optimized = existing;
-      if (!existing.localPosterUrl || (tosEnabled() && !existing.cdnVideoUrl)) {
+      if (!existing.localPosterUrl || (objectStorageEnabled() && !existing.cdnVideoUrl)) {
         optimized = await ensureGenerationRecordMediaOptimized(existing);
       }
       return {
@@ -11511,9 +11887,9 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png") {
     cdnImageUrl: "",
     cdnError: "",
   };
-  if (tosEnabled()) {
+  if (objectStorageEnabled()) {
     try {
-      const upload = await uploadStaticAssetToTos({
+      const upload = await uploadStaticAssetToObjectStorage({
         key: tosStorageKey("generated", "images", fileName),
         bytes,
         mime: imageMime,
@@ -11845,14 +12221,14 @@ async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } 
     coverUrl: localCoverUrl,
     cdnVideoUrl: "",
     cdnCoverUrl: "",
-    cdnEnabled: tosEnabled(),
+    cdnEnabled: objectStorageEnabled(),
     cdnError: "",
   };
 
-  if (tosEnabled()) {
+  if (objectStorageEnabled()) {
     try {
       const baseKey = tosStorageKey("admin", "advanced-cases", safeId, Date.now());
-      const videoUpload = await uploadStaticAssetToTos({
+      const videoUpload = await uploadStaticAssetToObjectStorage({
         key: `${baseKey}${videoExt}`,
         bytes: videoDownload.bytes,
         mime: videoDownload.mime && videoDownload.mime.startsWith("video/") ? videoDownload.mime : videoMimeFromPath(videoName),
@@ -11860,7 +12236,7 @@ async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } 
       result.cdnVideoUrl = videoUpload.publicUrl;
       result.previewUrl = videoUpload.publicUrl;
       if (coverBytes && localCoverUrl) {
-        const coverUpload = await uploadStaticAssetToTos({
+        const coverUpload = await uploadStaticAssetToObjectStorage({
           key: `${baseKey}-cover${path.extname(coverPath) || ".jpg"}`,
           bytes: coverBytes,
           mime: coverMime || "image/jpeg",
@@ -11935,14 +12311,14 @@ async function ingestPlatformTemplateMedia({ videoUrl, coverUrl = "", templateId
     coverUrl: localCoverUrl,
     cdnVideoUrl: "",
     cdnCoverUrl: "",
-    cdnEnabled: tosEnabled(),
+    cdnEnabled: objectStorageEnabled(),
     cdnError: "",
   };
 
-  if (tosEnabled()) {
+  if (objectStorageEnabled()) {
     try {
       const baseKey = tosStorageKey("admin", "platform-templates", safeId, stamp);
-      const videoUpload = await uploadStaticAssetToTos({
+      const videoUpload = await uploadStaticAssetToObjectStorage({
         key: `${baseKey}${videoExt}`,
         bytes: videoDownload.bytes,
         mime: videoDownload.mime && videoDownload.mime.startsWith("video/") ? videoDownload.mime : videoMimeFromPath(videoName),
@@ -11950,7 +12326,7 @@ async function ingestPlatformTemplateMedia({ videoUrl, coverUrl = "", templateId
       result.cdnVideoUrl = videoUpload.publicUrl;
       result.previewUrl = videoUpload.publicUrl;
       if (coverBytes && localCoverUrl) {
-        const coverUpload = await uploadStaticAssetToTos({
+        const coverUpload = await uploadStaticAssetToObjectStorage({
           key: `${baseKey}-cover${path.extname(coverPath) || ".jpg"}`,
           bytes: coverBytes,
           mime: coverMime || "image/jpeg",
@@ -13661,7 +14037,7 @@ async function handleAdvancedGenerate(req, res) {
   if (!USE_GATEWAY_UPSTREAM && provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Vipeak 1 generation is not configured." });
   }
-  const prompt = String(firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
+  let prompt = String(firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   const durationBounds = advancedDurationBounds(provider);
   const mergedProviderParameters = {
@@ -13931,6 +14307,16 @@ async function handleAdvancedGenerate(req, res) {
       requestParams,
       assets: seedanceVideoAssets,
       assetIds: referenceVideoAssetIds,
+    });
+  }
+  const isPlayfluxVideoReferenceRequest = provider === "seedance"
+    && String(firstPresent(requestParams.source, bodyParams.source, body.params?.source, "") || "").trim().toLowerCase() === "playflux"
+    && String(firstPresent(requestParams.templateTab, bodyParams.templateTab, body.params?.templateTab, "") || "").trim().toLowerCase() === "video"
+    && seedanceModeNeedsReferenceVideo(seedanceMode);
+  if (isPlayfluxVideoReferenceRequest) {
+    prompt = enhancePlayfluxReferenceVideoPrompt(prompt, {
+      hasReferenceImage: Boolean(userAsset || extraUserAssets.length || referenceImageAssetUris.length),
+      hasReferenceVideo: Boolean(referenceVideoAssetIds.length || referenceVideoAssetUris.length),
     });
   }
   const rawPricing = advancedModelPricing(provider, {
@@ -14289,8 +14675,16 @@ async function handleAdminUploadPlatformCover(req, res) {
   const safeName = String(body.name || "platform-cover").trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 50) || "platform-cover";
   const fileName = `${safeName}-${Date.now()}${imageExtFromMime(mime)}`;
   await fs.mkdir(ADMIN_HOME_DIR, { recursive: true });
+  const localUrl = `/assets/admin/home/${fileName}`;
   await fs.writeFile(path.join(ADMIN_HOME_DIR, fileName), bytes);
-  return sendJson(res, 200, { ok: true, url: `/assets/admin/home/${fileName}` });
+  const mirror = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
+  return sendJson(res, 200, {
+    ok: true,
+    url: mirror.publicUrl || localUrl,
+    localUrl,
+    cdnUrl: mirror.publicUrl || "",
+    objectStorageError: mirror.error || "",
+  });
 }
 
 async function handleAdminIngestAdvancedCaseMedia(req, res) {
@@ -14673,6 +15067,12 @@ function advancedGenerateConstraintsDoc() {
         aspectRatio: { min: SEEDANCE_IMAGE_ASPECT_RATIO_MIN, max: SEEDANCE_IMAGE_ASPECT_RATIO_MAX },
         maxTotalImages: ADVANCED_SEEDANCE_REFERENCE_LIMIT,
       },
+      videoInput: {
+        formats: ["MP4", "WebM", "MOV", "M4V"],
+        maxBytes: MEDIA_UPLOAD_MAX_BYTES,
+        pixelCount: { min: SEEDANCE_VIDEO_PIXEL_COUNT_MIN, max: SEEDANCE_VIDEO_PIXEL_COUNT_MAX },
+        maxTotalVideos: ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT,
+      },
       referenceLimits: {
         images: ADVANCED_SEEDANCE_REFERENCE_LIMIT,
         videos: ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT,
@@ -15000,9 +15400,9 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "referenceImages[].assetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI. Prefer assetId from /api/user-assets when possible.", default: "-" },
       { name: "seedanceReferenceAssetUri / seedanceCharacterAssetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI for callers that already have a provider asset URI.", default: "-" },
       { name: "referenceImageAssetUris / seedanceReferenceAssetUris", type: "array", required: false, description: "Advanced passthrough asset:// URI array for callers that already have provider asset URIs.", default: "[]" },
-      { name: "referenceVideos / referenceVideoUrls", type: "array", required: false, description: "Seedance reference_video/edit/extend public video URLs. Up to 3 URLs." },
+      { name: "referenceVideos / referenceVideoUrls", type: "array", required: false, description: `Seedance reference_video/edit/extend public video URLs. Up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} URLs. Each video must have pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}.` },
       { name: "referenceVideoAssetId", type: "string", required: false, description: "Seedance reference_video mode. Existing uploaded video asset id." },
-      { name: "referenceVideoAssetIds", type: "array", required: false, description: "Seedance multimodal/edit/extend. Up to 3 existing uploaded video asset ids." },
+      { name: "referenceVideoAssetIds", type: "array", required: false, description: `Seedance multimodal/edit/extend. Up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} existing uploaded video asset ids. Each video must have pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}.` },
       { name: "inputVideoSeconds / referenceVideoDurationSeconds", type: "number", required: false, description: "Total input video duration for Seedance reference-video/edit/extend billing. The server pre-deducts output seconds plus this input-video branch before submitting upstream. If omitted for a video input, the output duration is used as a conservative fallback.", default: "0" },
       { name: "referenceAudios / referenceAudioUrls", type: "array", required: false, description: "Seedance multimodal reference audio public URLs. Up to 3 URLs; text+audio without image/video is not supported upstream." },
       { name: "referenceAudioAssetId / referenceAudioAssetIds", type: "string|array", required: false, description: "Seedance multimodal audio references from /api/user-assets. Up to 3 audio assets." },
@@ -15157,6 +15557,7 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- \`duration\`: integer ${seedance.durationSeconds?.min ?? advancedDurationBounds("seedance").min}-${seedance.durationSeconds?.max ?? advancedDurationBounds("seedance").max} seconds.`,
     `- \`resolution\`: standard ${(seedance.resolution?.standard || []).map((item) => `\`${item}\``).join(", ")}; fast ${(seedance.resolution?.fast || []).map((item) => `\`${item}\``).join(", ")}.`,
     `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((seedance.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, width and height each ${seedance.imageInput?.widthPx?.min ?? SEEDANCE_IMAGE_DIMENSION_MIN}-${seedance.imageInput?.widthPx?.max ?? SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${seedance.imageInput?.aspectRatio?.min ?? SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${seedance.imageInput?.aspectRatio?.max ?? SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`,
+    `- Video inputs: MP4/WebM/MOV/M4V, max ${Math.round((seedance.videoInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, pixel count ${seedance.videoInput?.pixelCount?.min ?? SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${seedance.videoInput?.pixelCount?.max ?? SEEDANCE_VIDEO_PIXEL_COUNT_MAX}. For 9:16 video, 480x854 is the smallest safe size.`,
     `- Max references: ${seedance.referenceLimits?.images ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT} images total, ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos, ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios.`,
     "- `first_frame` and `first_last_frame` cannot be mixed with `referenceImages`, `referenceVideos`, `referenceAudios`, or raw reference `content`.",
     "- Audio references must be combined with image or video references; audio-only generation is rejected.",
@@ -15276,7 +15677,7 @@ function seedanceAdvancedExampleMarkdown(docs) {
     "",
     "Supported media inputs: `imageUrl`/`firstFrameUrl`, `endImageUrl`/`lastFrameUrl`, `referenceImages`, `referenceVideoUrls`/`referenceVideoAssetIds`, and `referenceAudioUrls`/`referenceAudioAssetIds`. Use `seedanceMode` values such as `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, and `reference_video`. `first_frame` and `first_last_frame` cannot be mixed with reference media. Include `referenceVideoDurationSeconds` when known; otherwise the server probes the URL and falls back conservatively for pre-deduction.",
     "",
-    `Billing guardrails: \`duration\` must be an integer from ${advancedDurationBounds("seedance").min} to ${advancedDurationBounds("seedance").max} seconds. Seedance standard accepts \`480p\`, \`720p\`, \`1080p\`, and \`4k\`; the fast model accepts \`480p\` and \`720p\` only, so vip123 rejects unsupported combinations before charging. Seedance images must be JPG/PNG/WebP/BMP, each side ${SEEDANCE_IMAGE_DIMENSION_MIN}-${SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`,
+    `Billing guardrails: \`duration\` must be an integer from ${advancedDurationBounds("seedance").min} to ${advancedDurationBounds("seedance").max} seconds. Seedance standard accepts \`480p\`, \`720p\`, \`1080p\`, and \`4k\`; the fast model accepts \`480p\` and \`720p\` only, so vip123 rejects unsupported combinations before charging. Seedance images must be JPG/PNG/WebP/BMP, each side ${SEEDANCE_IMAGE_DIMENSION_MIN}-${SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}. Seedance video references must be MP4/WebM/MOV/M4V and pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}; for 9:16 video, use at least 480x854.`,
     "",
   ].join("\n");
 }
@@ -15448,7 +15849,15 @@ async function downloadGeneratedCharacterSheet(taskId, imageUrl) {
   const localUrl = `/assets/generated/characters/apiz/${taskId}/${fileName}`;
   try {
     await fs.access(localPath);
-    return { localPath, localUrl };
+    const existingBytes = objectStorageEnabled() ? await fs.readFile(localPath) : null;
+    const mirror = existingBytes ? await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes: existingBytes, mime: imageMimeFromPath(localPath) }) : {};
+    return {
+      localPath,
+      localUrl,
+      cdnImageUrl: mirror.publicUrl || "",
+      objectStorageKey: mirror.key || "",
+      cdnError: mirror.error || "",
+    };
   } catch {
     // Continue and download.
   }
@@ -15461,7 +15870,14 @@ async function downloadGeneratedCharacterSheet(taskId, imageUrl) {
   }
   const bytes = Buffer.from(await response.arrayBuffer());
   await fs.writeFile(localPath, bytes);
-  return { localPath, localUrl };
+  const mirror = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime: imageMimeFromPath(localPath) });
+  return {
+    localPath,
+    localUrl,
+    cdnImageUrl: mirror.publicUrl || "",
+    objectStorageKey: mirror.key || "",
+    cdnError: mirror.error || "",
+  };
 }
 
 async function downloadGeneratedPanorama(taskId, imageUrl, slug = "panorama") {
@@ -16795,7 +17211,7 @@ async function handleGameFeed(req, res) {
   const auth = await getAuth(req);
   const publicView = publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null);
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
-  const items = homeVideo.items.map((item) => publicGameHomeVideoItem(item, auth?.user ? auth : null));
+  const items = publicAssetUrlsForClient(homeVideo.items.map((item) => publicGameHomeVideoItem(item, auth?.user ? auth : null)));
   publicView.homeVideo.items = items;
   return sendJson(res, 200, {
     ok: true,
@@ -18452,17 +18868,22 @@ const USER_CHARACTER_DIR = path.join(ROOT, "assets", "user-characters");
 
 function publicUserCharacter(character) {
   if (!character) return null;
+  const posterUrl = character.publicImageUrl || character.cdnImageUrl || character.posterUrl || character.localImageUrl || "";
+  const sourceImageUrl = character.publicImageUrl || character.cdnImageUrl || character.sourceImageUrl || character.localImageUrl || character.posterUrl || "";
+  const videoUrl = character.cdnVideoUrl || character.videoUrl || character.localVideoUrl || "";
   return {
     id: character.id,
     name: character.name || "My character",
     title: character.title || "My drama",
-    posterUrl: character.posterUrl || character.localImageUrl || "",
+    posterUrl,
     localImageUrl: character.localImageUrl || "",
-    sourceImageUrl: character.sourceImageUrl || character.localImageUrl || character.posterUrl || "",
+    sourceImageUrl,
     publicImageUrl: character.publicImageUrl || "",
+    cdnImageUrl: character.cdnImageUrl || "",
     imageTaskId: character.imageTaskId || "",
     imageRemoteUrl: character.imageRemoteUrl || "",
-    videoUrl: character.videoUrl || character.localVideoUrl || "",
+    videoUrl,
+    cdnVideoUrl: character.cdnVideoUrl || "",
     taskId: character.taskId || "",
     status: character.status || "",
     error: character.error || "",
@@ -18528,6 +18949,10 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
     record.posterUrl = local.localUrl;
     record.localImageUrl = local.localUrl;
     record.sourceImageUrl = local.localUrl;
+    record.publicImageUrl = local.cdnImageUrl || record.publicImageUrl || "";
+    record.cdnImageUrl = local.cdnImageUrl || record.cdnImageUrl || "";
+    record.objectStorageKey = local.objectStorageKey || record.objectStorageKey || "";
+    record.objectStorageError = local.cdnError || record.objectStorageError || "";
     record.imageRemoteUrl = imageUrls[0];
     record.imageTaskResponse = task;
     record.status = "image_ready";
@@ -18762,6 +19187,7 @@ async function handleSaveMyCharacterDraft(req, res) {
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, fileName), bytes);
   const localUrl = `/assets/user-characters/${auth.user.id}/${fileName}`;
+  const objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
 
   const nowIso = new Date().toISOString();
   const record = {
@@ -18774,7 +19200,10 @@ async function handleSaveMyCharacterDraft(req, res) {
     sourceImageUrl: localUrl,
     imageMime: mime,
     sourceImageMime: mime,
-    publicImageUrl: "",
+    publicImageUrl: objectStorage.publicUrl || "",
+    cdnImageUrl: objectStorage.publicUrl || "",
+    objectStorageKey: objectStorage.key || "",
+    objectStorageError: objectStorage.error || "",
     referenceAssetUri: "",
     syntheticReferenceLocalUrl: "",
     syntheticReferenceUrl: "",
@@ -18912,6 +19341,7 @@ async function handleCreateMyCharacter(req, res) {
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, fileName), bytes);
   const localUrl = `/assets/user-characters/${auth.user.id}/${fileName}`;
+  const objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
 
   const nowIso = new Date().toISOString();
   const record = {
@@ -18924,7 +19354,10 @@ async function handleCreateMyCharacter(req, res) {
     sourceImageUrl: localUrl,
     imageMime: mime,
     sourceImageMime: mime,
-    publicImageUrl: "",
+    publicImageUrl: objectStorage.publicUrl || "",
+    cdnImageUrl: objectStorage.publicUrl || "",
+    objectStorageKey: objectStorage.key || "",
+    objectStorageError: objectStorage.error || "",
     referenceAssetUri: "",
     syntheticReferenceLocalUrl: "",
     syntheticReferenceUrl: "",
@@ -19124,22 +19557,33 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
   const task = normalizeTask(raw);
   let localVideoUrl = "";
   let localVideoPath = "";
+  let cdnVideoUrl = record.cdnVideoUrl || "";
+  let cdnPosterUrl = record.cdnPosterUrl || "";
+  let cdnError = record.cdnError || "";
   let downloadError = "";
   if (isSucceededStatus(task.status) && task.videoUrl) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, task.videoUrl);
       localVideoUrl = localVideo.localVideoUrl;
       localVideoPath = localVideo.localVideoPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
+      cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+      cdnError = localVideo.cdnError || cdnError;
     } catch (error) {
       downloadError = error.message || "Failed to download character video.";
     }
   }
 
   record.status = task.status;
-  record.videoUrl = localVideoUrl || task.videoUrl || record.videoUrl || "";
+  record.videoUrl = localPublicAssetStorageEnabled()
+    ? (localVideoUrl || cdnVideoUrl || task.videoUrl || record.videoUrl || "")
+    : (cdnVideoUrl || localVideoUrl || task.videoUrl || record.videoUrl || "");
   record.localVideoUrl = localVideoUrl || record.localVideoUrl || "";
   record.localVideoPath = localVideoPath || record.localVideoPath || "";
   record.remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
+  record.cdnVideoUrl = cdnVideoUrl || "";
+  record.cdnPosterUrl = cdnPosterUrl || "";
+  record.cdnError = cdnError || "";
   record.error = task.error || downloadError || "";
   record.updatedAt = new Date().toISOString();
   auth.db.userCharacters = auth.db.userCharacters.map((entry) => (entry.id === record.id ? record : entry));
@@ -19152,6 +19596,9 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl,
     localVideoPath,
+    cdnVideoUrl,
+    cdnPosterUrl,
+    cdnError,
     error: task.error || downloadError || "",
     queryResponse: raw,
   }, "character-main-query");
@@ -19326,12 +19773,18 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
   const task = normalizeTask(raw);
   let localVideoUrl = "";
   let localVideoPath = "";
+  let cdnVideoUrl = "";
+  let cdnPosterUrl = "";
+  let cdnError = "";
   let downloadError = "";
   if (isSucceededStatus(task.status) && task.videoUrl) {
     try {
       const localVideo = await downloadGeneratedVideo(taskId, task.videoUrl);
       localVideoUrl = localVideo.localVideoUrl;
       localVideoPath = localVideo.localVideoPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || "";
+      cdnPosterUrl = localVideo.cdnPosterUrl || "";
+      cdnError = localVideo.cdnError || "";
     } catch (error) {
       downloadError = error.message || "Failed to download scene video.";
     }
@@ -19345,10 +19798,15 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
     sceneId: previous.sceneId || matchedSceneBaseId,
     taskId: task.taskId || taskId,
     status: task.status,
-    videoUrl: localVideoUrl || task.videoUrl || previous.videoUrl || "",
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (localVideoUrl || cdnVideoUrl || task.videoUrl || previous.videoUrl || "")
+      : (cdnVideoUrl || localVideoUrl || task.videoUrl || previous.videoUrl || ""),
     localVideoUrl: localVideoUrl || previous.localVideoUrl || "",
     localVideoPath: localVideoPath || previous.localVideoPath || "",
     remoteVideoUrl: task.videoUrl || previous.remoteVideoUrl || "",
+    cdnVideoUrl: cdnVideoUrl || previous.cdnVideoUrl || "",
+    cdnPosterUrl: cdnPosterUrl || previous.cdnPosterUrl || "",
+    cdnError: cdnError || previous.cdnError || "",
     error: task.error || downloadError || "",
     updatedAt: nowIso,
   };
@@ -19364,6 +19822,9 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl,
     localVideoPath,
+    cdnVideoUrl,
+    cdnPosterUrl,
+    cdnError,
     error: task.error || downloadError || "",
     queryResponse: raw,
   }, "character-scene-query");
@@ -20336,20 +20797,31 @@ async function refreshCompletedHomeVideoItems(config) {
 
       let localVideoUrl = "";
       let localVideoPath = "";
+      let cdnVideoUrl = "";
+      let cdnPosterUrl = "";
+      let cdnError = "";
       try {
         const localVideo = await downloadGeneratedVideo(task.taskId || sceneTaskId, task.videoUrl);
         localVideoUrl = localVideo.localVideoUrl;
         localVideoPath = localVideo.localVideoPath;
+        cdnVideoUrl = localVideo.cdnVideoUrl || "";
+        cdnPosterUrl = localVideo.cdnPosterUrl || "";
+        cdnError = localVideo.cdnError || "";
       } catch {}
 
       const nextEntry = {
         ...entry,
         taskId: task.taskId || sceneTaskId,
         status: task.status,
-        videoUrl: localVideoUrl || task.videoUrl || entry.videoUrl || "",
+        videoUrl: localPublicAssetStorageEnabled()
+          ? (localVideoUrl || cdnVideoUrl || task.videoUrl || entry.videoUrl || "")
+          : (cdnVideoUrl || localVideoUrl || task.videoUrl || entry.videoUrl || ""),
         localVideoUrl: localVideoUrl || entry.localVideoUrl || "",
         localVideoPath: localVideoPath || entry.localVideoPath || "",
         remoteVideoUrl: task.videoUrl || entry.remoteVideoUrl || "",
+        cdnVideoUrl: cdnVideoUrl || entry.cdnVideoUrl || "",
+        cdnPosterUrl: cdnPosterUrl || entry.cdnPosterUrl || "",
+        cdnError: cdnError || entry.cdnError || "",
         updatedAt: new Date().toISOString(),
         error: "",
       };
@@ -20373,6 +20845,9 @@ async function refreshCompletedHomeVideoItems(config) {
         remoteVideoUrl: task.videoUrl || "",
         localVideoUrl,
         localVideoPath,
+        cdnVideoUrl,
+        cdnPosterUrl,
+        cdnError,
         error: "",
         source: "admin-home-scene",
       }, "home-config-refresh");
@@ -20394,20 +20869,31 @@ async function refreshCompletedHomeVideoItems(config) {
 
     let localVideoUrl = "";
     let localVideoPath = "";
+    let cdnVideoUrl = "";
+    let cdnPosterUrl = "";
+    let cdnError = "";
     try {
       const localVideo = await downloadGeneratedVideo(task.taskId || taskId, task.videoUrl);
       localVideoUrl = localVideo.localVideoUrl;
       localVideoPath = localVideo.localVideoPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || "";
+      cdnPosterUrl = localVideo.cdnPosterUrl || "";
+      cdnError = localVideo.cdnError || "";
     } catch {}
 
     const legacyUpdatedItem = {
       ...item,
       taskId: task.taskId || taskId,
       status: task.status,
-      videoUrl: localVideoUrl || task.videoUrl || item.videoUrl || "",
+      videoUrl: localPublicAssetStorageEnabled()
+        ? (localVideoUrl || cdnVideoUrl || task.videoUrl || item.videoUrl || "")
+        : (cdnVideoUrl || localVideoUrl || task.videoUrl || item.videoUrl || ""),
       localVideoUrl: localVideoUrl || item.localVideoUrl || "",
       localVideoPath: localVideoPath || item.localVideoPath || "",
       remoteVideoUrl: task.videoUrl || item.remoteVideoUrl || "",
+      cdnVideoUrl: cdnVideoUrl || item.cdnVideoUrl || "",
+      cdnPosterUrl: cdnPosterUrl || item.cdnPosterUrl || "",
+      cdnError: cdnError || item.cdnError || "",
       updatedAt: new Date().toISOString(),
       error: "",
     };
@@ -20418,6 +20904,9 @@ async function refreshCompletedHomeVideoItems(config) {
       remoteVideoUrl: task.videoUrl || "",
       localVideoUrl,
       localVideoPath,
+      cdnVideoUrl,
+      cdnPosterUrl,
+      cdnError,
       error: "",
     }, "home-config-refresh");
     changed = true;
@@ -20436,6 +20925,9 @@ async function refreshCompletedHomeVideoItems(config) {
 function adminMyCharacterView(record, userMap) {
   if (!record) return null;
   const user = userMap?.get(record.userId);
+  const posterUrl = record.publicImageUrl || record.cdnImageUrl || record.posterUrl || record.localImageUrl || "";
+  const sourceImageUrl = record.publicImageUrl || record.cdnImageUrl || record.sourceImageUrl || "";
+  const videoUrl = record.cdnVideoUrl || record.videoUrl || record.localVideoUrl || "";
   return {
     id: record.id,
     userId: record.userId,
@@ -20444,9 +20936,12 @@ function adminMyCharacterView(record, userMap) {
     title: record.title || "",
     description: record.description || record.summary || record.bio || record.prompt || record.finalPrompt || "",
     prompt: record.prompt || record.finalPrompt || "",
-    posterUrl: record.posterUrl || record.localImageUrl || "",
-    sourceImageUrl: record.sourceImageUrl || "",
-    videoUrl: record.videoUrl || record.localVideoUrl || "",
+    posterUrl,
+    sourceImageUrl,
+    publicImageUrl: record.publicImageUrl || "",
+    cdnImageUrl: record.cdnImageUrl || "",
+    videoUrl,
+    cdnVideoUrl: record.cdnVideoUrl || "",
     localVideoUrl: record.localVideoUrl || "",
     taskId: record.taskId || "",
     status: record.status || "",
@@ -20600,13 +21095,15 @@ function adminRechargeLedgerSummary(records = []) {
 function adminUserAssetView(asset, userMap) {
   if (!asset) return null;
   const user = userMap?.get(asset.userId);
+  const publicUrl = asset.cdnUrl || asset.publicUrl || "";
   return {
     id: asset.id,
     userId: asset.userId,
     username: user?.username || "",
     url: asset.url || "",
     localUrl: asset.localUrl || "",
-    publicUrl: asset.publicUrl || "",
+    publicUrl,
+    cdnUrl: asset.cdnUrl || "",
     mime: asset.mime || "",
     createdAt: asset.createdAt,
     updatedAt: asset.updatedAt || "",
@@ -21335,6 +21832,182 @@ async function handleGetGenerationRecord(req, res, taskId) {
   });
 }
 
+function attachmentDisposition(fileName = "generation.mp4") {
+  const safeName = String(fileName || "generation.mp4").replace(/[^a-z0-9._-]/gi, "-") || "generation.mp4";
+  return `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
+
+function localDownloadPathFromRecord(record = {}, isVideo = true, url = "") {
+  const candidates = isVideo
+    ? [record.localVideoPath, localAssetPathFromPublicValue(record.localVideoUrl || record.videoUrl || url)]
+    : [record.localImagePath, localAssetPathFromPublicValue(record.localImageUrl || record.imageResultUrl || url)];
+  for (const candidate of candidates) {
+    const text = String(candidate || "").trim();
+    if (!text) continue;
+    const filePath = path.normalize(path.isAbsolute(text) ? text : path.join(ROOT, text.replace(/^\/+/, "")));
+    const relative = path.relative(ROOT, filePath);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) continue;
+    return filePath;
+  }
+  return "";
+}
+
+function generationRecordDownloadTarget(record = {}) {
+  const videoUrl = generationRecordVideoUrl(record, { preferProviderVideoUrl: false });
+  if (videoUrl) {
+    const mime = videoMimeFromKnownPath(videoUrl) || "video/mp4";
+    const ext = videoExtFromMime(mime, videoUrl);
+    return {
+      url: videoUrl,
+      localPath: localDownloadPathFromRecord(record, true, videoUrl),
+      mime,
+      fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
+    };
+  }
+  const imageUrl = generationRecordImageUrl(record);
+  if (imageUrl) {
+    const mime = imageMimeFromKnownPath(imageUrl) || "image/png";
+    const ext = imageExtFromMime(mime);
+    return {
+      url: imageUrl,
+      localPath: localDownloadPathFromRecord(record, false, imageUrl),
+      mime,
+      fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
+    };
+  }
+  return null;
+}
+
+function awsQueryEncode(value = "") {
+  return encodeURIComponent(String(value)).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function awsCanonicalQuery(params = []) {
+  return params
+    .map(([key, value]) => [awsQueryEncode(key), awsQueryEncode(value)])
+    .sort((left, right) => (left[0] === right[0] ? left[1].localeCompare(right[1]) : left[0].localeCompare(right[0])))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
+}
+
+function r2KeyFromPublicDownloadUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text || !R2.publicDomain) return "";
+  try {
+    const publicBase = new URL(String(R2.publicDomain || "").replace(/\/+$/, ""));
+    const parsed = new URL(text, configuredPublicBaseUrl() || "https://123vips.com");
+    if (parsed.host === publicBase.host) return decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+    const siteBase = configuredPublicBaseUrl();
+    if (siteBase) {
+      const site = new URL(siteBase);
+      if (parsed.host === site.host && parsed.pathname.startsWith("/assets/")) return decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+    }
+  } catch {
+    if (text.startsWith("/assets/")) return text.replace(/^\/+/, "");
+  }
+  if (text.startsWith("/assets/")) return text.replace(/^\/+/, "");
+  return "";
+}
+
+function makeR2PresignedDownloadUrl({ key, fileName, contentType = "application/octet-stream", expiresSeconds = 600 }) {
+  if (!r2Enabled() || !key) return "";
+  const endpoint = r2EndpointUrl();
+  const { xDate, date } = amzDate();
+  const canonicalUri = `/${encodeURIComponent(R2.bucket)}/${encodePathname(key)}`;
+  const scope = `${date}/${R2.region || "auto"}/s3/aws4_request`;
+  const signedHeaders = "host";
+  const queryParams = [
+    ["X-Amz-Algorithm", "AWS4-HMAC-SHA256"],
+    ["X-Amz-Credential", `${R2.accessKey}/${scope}`],
+    ["X-Amz-Date", xDate],
+    ["X-Amz-Expires", String(Math.max(60, Math.min(3600, Number(expiresSeconds) || 600)))],
+    ["X-Amz-SignedHeaders", signedHeaders],
+    ["response-content-disposition", attachmentDisposition(fileName)],
+    ["response-content-type", contentType || "application/octet-stream"],
+  ];
+  const canonicalQuery = awsCanonicalQuery(queryParams);
+  const canonicalHeaders = `host:${endpoint.host}\n`;
+  const canonicalRequest = ["GET", canonicalUri, canonicalQuery, canonicalHeaders, signedHeaders, "UNSIGNED-PAYLOAD"].join("\n");
+  const stringToSign = ["AWS4-HMAC-SHA256", xDate, scope, sha256Hex(canonicalRequest)].join("\n");
+  const signature = hmac(signAwsKey(R2.secretKey, date, R2.region || "auto", "s3"), stringToSign, "hex");
+  return `${endpoint.protocol}//${endpoint.host}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
+}
+
+function generationRecordDownloadUrlPayload(target = {}) {
+  const key = r2KeyFromPublicDownloadUrl(target.url);
+  const signedUrl = key ? makeR2PresignedDownloadUrl({
+    key,
+    fileName: target.fileName,
+    contentType: target.mime,
+  }) : "";
+  return {
+    url: signedUrl || target.url || "",
+    fileName: target.fileName || "generation",
+    expiresIn: signedUrl ? 600 : 0,
+    source: signedUrl ? "r2_signed" : "public_url",
+  };
+}
+
+async function handleGenerationRecordDownloadUrl(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const record = await getGenerationRecord(taskId);
+  if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
+    return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  }
+  const target = generationRecordDownloadTarget(record);
+  if (!target?.url && !target?.localPath) {
+    return sendJson(res, 404, { ok: false, message: "Generated media is not available." });
+  }
+  return sendJson(res, 200, { ok: true, ...generationRecordDownloadUrlPayload(target) });
+}
+
+async function handleDownloadGenerationRecord(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const record = await getGenerationRecord(taskId);
+  if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
+    return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  }
+  const target = generationRecordDownloadTarget(record);
+  if (!target?.url && !target?.localPath) {
+    return sendJson(res, 404, { ok: false, message: "Generated media is not available." });
+  }
+
+  const headers = {
+    "content-type": target.mime || "application/octet-stream",
+    "content-disposition": attachmentDisposition(target.fileName),
+    "cache-control": "private, no-store",
+  };
+  if (target.localPath) {
+    try {
+      const stat = await fs.stat(target.localPath);
+      headers["content-length"] = stat.size;
+      res.writeHead(200, headers);
+      if (req.method === "HEAD") return res.end();
+      return pipeFileStream(res, target.localPath);
+    } catch {
+      // Fall through to the public URL copy below.
+    }
+  }
+
+  if (!isPublicHttpUrl(target.url)) {
+    return sendJson(res, 404, { ok: false, message: "Generated media file is missing." });
+  }
+
+  const response = await fetch(target.url, { redirect: "follow", signal: AbortSignal.timeout(15 * 60 * 1000) });
+  if (!response.ok || !response.body) {
+    return sendJson(res, 502, { ok: false, message: `Failed to download generated media: ${response.status}` });
+  }
+  const remoteMime = String(response.headers.get("content-type") || "").split(";")[0].trim();
+  if (remoteMime) headers["content-type"] = remoteMime;
+  const contentLength = response.headers.get("content-length");
+  if (contentLength) headers["content-length"] = contentLength;
+  res.writeHead(200, headers);
+  if (req.method === "HEAD") return res.end();
+  return Readable.fromWeb(response.body).pipe(res);
+}
+
 async function handleDeleteGenerationRecord(req, res, taskId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -21795,6 +22468,14 @@ async function serveStatic(req, res, url) {
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (await isProtectedUnlockAssetPath(pathname)) {
     return sendText(res, 403, "Unlock required");
+  }
+  if ((req.method === "GET" || req.method === "HEAD") && pathname.startsWith("/assets/") && !DISABLE_R2_STORAGE && R2.publicDomain) {
+    const target = `${String(R2.publicDomain || "").replace(/\/+$/, "")}${pathname}${url.search || ""}`;
+    res.writeHead(302, {
+      location: target,
+      "cache-control": "public, max-age=300",
+    });
+    return res.end();
   }
   const filePath = path.normalize(path.join(ROOT, pathname));
 
@@ -22419,6 +23100,16 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/generation-records") {
       return await handleListGenerationRecords(req, res, url);
+    }
+
+    const downloadUrlGenerationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/download-url$/);
+    if (req.method === "GET" && downloadUrlGenerationRecordMatch) {
+      return await handleGenerationRecordDownloadUrl(req, res, decodeURIComponent(downloadUrlGenerationRecordMatch[1]));
+    }
+
+    const downloadGenerationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/download$/);
+    if ((req.method === "GET" || req.method === "HEAD") && downloadGenerationRecordMatch) {
+      return await handleDownloadGenerationRecord(req, res, decodeURIComponent(downloadGenerationRecordMatch[1]));
     }
 
     const generationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)$/);

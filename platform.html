@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-247" />
+    <link rel="stylesheet" href="./platform.css?v=ai-265" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -54,15 +54,17 @@
         <strong id="brandName">Vipeak AI</strong>
       </a>
       <nav class="top-tabs" aria-label="Main sections">
-        <button class="top-tab is-active" data-tab="gallery" data-i18n="nav.gallery" type="button">Gallery</button>
+        <button class="top-tab is-active" data-tab="gallery" type="button">
+          <i data-lucide="compass"></i>
+          <span data-i18n="nav.gallery">Explore</span>
+        </button>
+        <button class="top-tab" data-tab="characters" type="button">
+          <i data-lucide="user-round-plus"></i>
+          <span data-i18n="nav.characters">Characters</span>
+        </button>
         <button class="top-tab" data-gallery-shortcut="playflux-video" type="button">
           <i data-lucide="film"></i>
           <span data-i18n="playflux.videoTab">Video</span>
-          <strong data-gallery-shortcut-count>0</strong>
-        </button>
-        <button class="top-tab" data-gallery-shortcut="playflux-image" type="button">
-          <i data-lucide="image"></i>
-          <span data-i18n="playflux.imageTab">Image</span>
           <strong data-gallery-shortcut-count>0</strong>
         </button>
         <button class="top-tab" data-gallery-shortcut="playflux-anime" type="button">
@@ -70,12 +72,31 @@
           <span data-i18n="playflux.animeTab">Anime</span>
           <strong data-gallery-shortcut-count>0</strong>
         </button>
-        <button class="top-tab" data-tab="characters" data-i18n="characters.createTitle" type="button">Create character</button>
-        <button class="top-tab" data-tab="advanced" data-i18n="nav.advanced" type="button">Advanced</button>
-        <button class="top-tab" data-tab="workflow" data-i18n="nav.workflow" type="button" hidden>Workflow</button>
-        <button class="top-tab" data-tab="referral" data-i18n="nav.referral" type="button">Referral</button>
-        <button class="top-tab" data-tab="access" data-i18n="nav.access" type="button">API Access</button>
-        <button class="top-tab" data-tab="history" data-i18n="nav.history" type="button">History</button>
+        <button class="top-tab" data-gallery-shortcut="playflux-image" type="button">
+          <i data-lucide="image"></i>
+          <span data-i18n="playflux.imageTab">Image</span>
+          <strong data-gallery-shortcut-count>0</strong>
+        </button>
+        <button class="top-tab" data-tab="advanced" type="button">
+          <i data-lucide="wand-sparkles"></i>
+          <span data-i18n="nav.advanced">Advanced</span>
+        </button>
+        <button class="top-tab" data-tab="workflow" type="button" hidden>
+          <i data-lucide="workflow"></i>
+          <span data-i18n="nav.workflow">Workflow</span>
+        </button>
+        <button class="top-tab" data-tab="referral" type="button">
+          <i data-lucide="share-2"></i>
+          <span data-i18n="nav.referral">Referral</span>
+        </button>
+        <button class="top-tab" data-tab="access" type="button">
+          <i data-lucide="key-round"></i>
+          <span data-i18n="nav.access">API Access</span>
+        </button>
+        <button class="top-tab" data-tab="history" type="button">
+          <i data-lucide="history"></i>
+          <span data-i18n="nav.history">History</span>
+        </button>
       </nav>
       <nav class="side-utility-nav" aria-label="Community and support">
         <a class="side-utility-link" href="https://t.me/VipeakAILab" target="_blank" rel="noopener noreferrer" data-direct-url="https://t.me/VipeakAILab" data-analytics-event="telegram_channel_click" data-analytics-location="side_nav">
@@ -147,27 +168,36 @@
       </section>
 
       <section class="characters-panel" data-panel="characters" hidden>
-        <div class="characters-layout">
-          <section>
-            <div class="section-head compact">
-              <div>
-                <p class="eyebrow" data-i18n="characters.eyebrow">My characters</p>
-                <h2 data-i18n="characters.title">My characters</h2>
-                <p data-i18n="characters.subtitle">Create and manage your own character images.</p>
-              </div>
+        <div class="characters-page">
+          <div class="section-head compact">
+            <div>
+              <h2 data-i18n="characters.title">Characters</h2>
             </div>
-            <div class="gallery-mode-tabs character-source-tabs" id="characterSourceTabs"></div>
+          </div>
+          <div class="gallery-mode-tabs character-page-tabs" id="characterPageTabs"></div>
+          <section class="character-create-card" id="characterCreatorCard" data-character-page-panel="create">
+            <div id="characterCreatorRoot"></div>
+          </section>
+          <section class="character-list-panel" id="characterListPanel" data-character-page-panel="list" hidden>
             <div class="template-grid character-grid character-grid-main" id="characterGrid"></div>
           </section>
-          <aside class="character-create-card" id="characterCreatorCard">
-            <div id="characterCreatorRoot"></div>
-          </aside>
         </div>
       </section>
 
       <section class="advanced-panel" data-panel="advanced" hidden>
         <div class="advanced-gate" id="advancedGate"></div>
         <div class="advanced-workspace" id="advancedWorkspace" hidden>
+          <div class="advanced-mobile-tabs" id="advancedMobileTabs" role="tablist" aria-label="Advanced sections">
+            <button class="advanced-mobile-tab is-active" type="button" data-advanced-mobile-tab="create" role="tab" aria-selected="true">
+              <i data-lucide="sparkles"></i><span data-i18n="characters.createTab">Create</span>
+            </button>
+            <button class="advanced-mobile-tab" type="button" data-advanced-mobile-tab="assets" role="tab" aria-selected="false">
+              <i data-lucide="folder"></i><span data-i18n="advanced.assets">Assets</span>
+            </button>
+            <button class="advanced-mobile-tab" type="button" data-advanced-mobile-tab="result" role="tab" aria-selected="false">
+              <i data-lucide="play-circle"></i><span data-i18n="history.result">Result</span>
+            </button>
+          </div>
           <section class="advanced-form-card">
             <div class="advanced-create-switch">
               <div class="advanced-create-kind-tabs" id="advancedCreateKindTabs" role="tablist" aria-label="Create type"></div>
@@ -805,6 +835,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-247"></script>
+    <script src="./platform.js?v=ai-265"></script>
   </body>
 </html>

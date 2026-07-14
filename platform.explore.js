@@ -30,8 +30,10 @@ function trackAnalyticsEvent(eventName, params = {}) {
 }
 
 function setTab(tab) {
+  const previousTab = state.tab;
   const hashRoute = platformHashParts(tab);
-  const routeGalleryMode = galleryModeFromPlatformRoute(tab);
+  let routeGalleryMode = galleryModeFromPlatformRoute(tab);
+  if (routeGalleryMode === "playflux-anime" && !canUseAnimeTemplates()) routeGalleryMode = "";
   const routeCharacterId = characterRouteParamFrom(hashRoute.params);
   if (routeCharacterId) {
     state.routeCharacterId = routeCharacterId;
@@ -48,6 +50,11 @@ function setTab(tab) {
     nextTab = state.tab || nextTab;
   }
   state.tab = nextTab;
+  if (nextTab === "characters") {
+    state.characterPanelTab = state.routeCharacterId || state.activeGalleryCharacterId
+      ? "list"
+      : previousTab === "characters" ? normalizeCharacterPanelTab(state.characterPanelTab) : "create";
+  }
   if (routeGalleryMode) state.galleryMode = routeGalleryMode;
   localStorage.setItem(TAB_KEY, nextTab);
   const nextHash = state.routeCharacterId && (nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters")
@@ -92,8 +99,7 @@ function setTab(tab) {
   }
   if (nextTab === "characters") {
     applyRouteCharacterDetail({ allowTabSwitch: false });
-    renderGalleryCharacters(els.characterGrid);
-    bindCharacterCreator();
+    renderCharactersPanel();
     loadGalleryUnlocks();
     if (state.user) loadMyCharacters({ silent: true }).catch(() => {});
     if (state.user) loadUserAssets(state.userAssetsPage || 1).catch(() => {});
@@ -123,23 +129,26 @@ function galleryModeHash(mode = state.galleryMode) {
   const normalized = normalizeGalleryMode(mode);
   if (normalized === "playflux-video") return "#video";
   if (normalized === "playflux-image") return "#image";
-  if (normalized === "playflux-anime") return "#anime";
+  if (normalized === "playflux-anime" && canUseAnimeTemplates()) return "#anime";
   return "";
 }
 
 function playfluxTabFromGalleryMode(mode = state.galleryMode) {
   const normalized = normalizeGalleryMode(mode);
   if (normalized === "playflux-image") return "image";
-  if (normalized === "playflux-anime") return "anime";
+  if (normalized === "playflux-anime" && canUseAnimeTemplates()) return "anime";
   return "video";
 }
 
 function isPlayfluxGalleryMode(mode = state.galleryMode) {
-  return ["playflux-video", "playflux-image", "playflux-anime"].includes(normalizeGalleryMode(mode));
+  const normalized = normalizeGalleryMode(mode);
+  if (normalized === "playflux-anime") return canUseAnimeTemplates();
+  return ["playflux-video", "playflux-image"].includes(normalized);
 }
 
 function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
-  state.galleryMode = normalizeGalleryMode(mode || DEFAULT_GALLERY_MODE);
+  const normalized = normalizeGalleryMode(mode || DEFAULT_GALLERY_MODE);
+  state.galleryMode = normalized === "playflux-anime" && !canUseAnimeTemplates() ? DEFAULT_GALLERY_MODE : normalized;
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
@@ -370,7 +379,7 @@ function renderTemplates() {
   applyRouteCharacterDetail({ allowTabSwitch: true });
   renderGalleryModeTabs();
   if (state.tab === "characters") {
-    renderGalleryCharacters(els.characterGrid);
+    renderCharactersPanel();
     return;
   }
   if (state.galleryMode === "characters") {
@@ -460,19 +469,42 @@ function playfluxTemplateDialogMedia(template = {}) {
 function playfluxTemplatePromptBlock(template = {}) {
   const prompt = String(template.prompt || "").trim();
   const negative = String(template.negativePrompt || "").trim();
+  if (template.tab === "anime") {
+    return `
+      <div class="playflux-anime-prompt-panel">
+        <div class="playflux-anime-prompt-head">
+          <span>Add custom details...</span>
+          <strong>${escapeHtml(playfluxTemplateCostLabel(template))}</strong>
+        </div>
+        <label class="field">
+          <textarea rows="5" data-playflux-template-prompt>${escapeHtml(prompt)}</textarea>
+        </label>
+        <div class="playflux-template-meta">
+          <span>Resolution: ${escapeHtml(template.ratio || "9:16")}</span>
+          <span>Base style: ${escapeHtml(template.animeBaseStyleLabel || "Nova Anime XL")}</span>
+        </div>
+        ${negative ? `
+          <label class="field">
+            <span>Negative prompt</span>
+            <textarea rows="4" data-playflux-template-negative>${escapeHtml(negative)}</textarea>
+          </label>
+        ` : ""}
+      </div>
+    `;
+  }
   return `
     <details class="playflux-template-advanced">
       <summary><i data-lucide="settings"></i><span>高级</span></summary>
       ${prompt ? `
         <label class="field">
           <span>Prompt</span>
-          <textarea rows="5" readonly>${escapeHtml(prompt)}</textarea>
+          <textarea rows="5" readonly data-playflux-template-prompt>${escapeHtml(prompt)}</textarea>
         </label>
       ` : ""}
       ${negative ? `
         <label class="field">
           <span>Negative prompt</span>
-          <textarea rows="4" readonly>${escapeHtml(negative)}</textarea>
+          <textarea rows="4" readonly data-playflux-template-negative>${escapeHtml(negative)}</textarea>
         </label>
       ` : ""}
       <div class="playflux-template-meta">
@@ -480,6 +512,31 @@ function playfluxTemplatePromptBlock(template = {}) {
         <span>${escapeHtml(playfluxTemplateCostLabel(template))}</span>
       </div>
     </details>
+  `;
+}
+
+function playfluxTemplateAnimePanel(template = {}) {
+  return `
+    <div class="playflux-anime-direct">
+      <div class="playflux-anime-selected">
+        <img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(template.title || "")}" loading="lazy" />
+        <span>
+          <small>Anime action</small>
+          <strong>${escapeHtml(template.title || "")}</strong>
+        </span>
+      </div>
+      <div class="playflux-anime-style">
+        <span class="playflux-anime-style-icon"><i data-lucide="sparkles"></i></span>
+        <span>
+          <small>Base style</small>
+          <strong>${escapeHtml(template.animeBaseStyleLabel || "Nova Anime XL")}</strong>
+        </span>
+      </div>
+      <button class="playflux-preview-panel playflux-anime-preview" type="button" data-playflux-template-preview="${escapeHtml(template.id || "")}">
+        ${playfluxTemplateDialogMedia(template)}
+        <span>Preview</span>
+      </button>
+    </div>
   `;
 }
 
@@ -508,7 +565,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
             <span>预览</span>
           </button>
         </div>
-        ${template.previewType === "video" ? `
+        ${false && template.previewType === "video" ? `
           <div class="playflux-source-modes" aria-label="Seedance source mode">
             ${[
               { id: "reference_images", label: "参考" },
@@ -557,45 +614,70 @@ function openPlayfluxTemplateDialog(templateId = "") {
 }
 
 function playfluxTemplateNeedsSource(template = {}) {
-  return template.tab === "video" || Boolean(template.sourceRequired);
+  return playfluxTemplateRequiredSourceCount(template) > 0;
+}
+
+function playfluxTemplateRequiredSourceCount(template = {}) {
+  if (template.tab === "video") return 1;
+  if (!template.sourceRequired) return 0;
+  return Math.max(1, Math.min(9, Number(template.sourceCount || 1)));
 }
 
 function playfluxTemplateDefaultSourceMode(template = {}) {
   if (template.tab !== "video") return "";
-  return normalizeSeedanceMediaMode(template.seedanceMode || "reference_images");
+  return playfluxNormalizeSeedanceMediaMode(template.seedanceMode || "reference_images");
 }
 
 function playfluxTemplateSelectedSource(root) {
-  const input = root?.querySelector("#playfluxTemplateImageInput");
-  return input?.files?.[0] || null;
+  return playfluxTemplateSelectedSources(root)[0] || null;
 }
 
-function updatePlayfluxTemplateSourcePreview(root, file = null) {
+function playfluxTemplateSelectedSources(root) {
+  const input = root?.querySelector("#playfluxTemplateImageInput");
+  return Array.from(input?.files || []).slice(0, 9);
+}
+
+function updatePlayfluxTemplateSourcePreview(root, files = []) {
+  const selected = Array.isArray(files) ? files : (files ? [files] : []);
   const preview = root?.querySelector("[data-playflux-source-preview]");
   const label = root?.querySelector("[data-playflux-source-name]");
   const clearButton = root?.querySelector("[data-playflux-source-clear]");
   if (!preview) return;
-  const objectUrl = preview.dataset.objectUrl || "";
-  if (objectUrl) URL.revokeObjectURL(objectUrl);
-  preview.dataset.objectUrl = "";
-  if (!file) {
+  let objectUrls = [];
+  try {
+    objectUrls = JSON.parse(preview.dataset.objectUrls || "[]");
+  } catch (error) {
+    objectUrls = [];
+  }
+  objectUrls.forEach((url) => URL.revokeObjectURL(url));
+  preview.dataset.objectUrls = "[]";
+  if (!selected.length) {
     preview.innerHTML = `<i data-lucide="image-up"></i>`;
     if (label) label.textContent = "Upload local image";
     if (clearButton) clearButton.hidden = true;
     refreshIcons();
     return;
   }
-  const url = URL.createObjectURL(file);
-  preview.dataset.objectUrl = url;
-  preview.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
-  if (label) label.textContent = file.name || "Local image";
+  const urls = selected.slice(0, 4).map((file) => URL.createObjectURL(file));
+  preview.dataset.objectUrls = JSON.stringify(urls);
+  preview.innerHTML = `
+    <span class="playflux-source-stack is-count-${Math.min(urls.length, 4)}">
+      ${urls.map((url) => `<img src="${escapeHtml(url)}" alt="" />`).join("")}
+    </span>
+  `;
+  if (label) label.textContent = selected.length === 1 ? (selected[0].name || "Local image") : `${selected.length} local images`;
   if (clearButton) clearButton.hidden = false;
 }
 
 function cleanupPlayfluxTemplateSourcePreview(root) {
   const preview = root?.querySelector("[data-playflux-source-preview]");
-  const objectUrl = preview?.dataset.objectUrl || "";
-  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  let objectUrls = [];
+  try {
+    objectUrls = JSON.parse(preview?.dataset.objectUrls || "[]");
+  } catch (error) {
+    objectUrls = [];
+  }
+  objectUrls.forEach((url) => URL.revokeObjectURL(url));
 }
 
 function playfluxTemplateStatus(root, message = "") {
@@ -625,21 +707,110 @@ function playfluxTemplatePrompt(template = {}) {
     .join("\n\n");
 }
 
+function playfluxNormalizeSeedanceMediaMode(mode = "") {
+  if (typeof window.normalizeSeedanceMediaMode === "function") return window.normalizeSeedanceMediaMode(mode);
+  const normalized = String(mode || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["text", "t2v", "text_video", "text_to_video"].includes(normalized)) return "text_to_video";
+  if (["image", "i2v", "first", "first_image", "first_frame", "image_to_video"].includes(normalized)) return "first_frame";
+  if (["first_last", "first_last_frame", "first_and_last", "start_end", "last_frame"].includes(normalized)) return "first_last_frame";
+  if (["reference", "references", "reference_images", "multi_reference"].includes(normalized)) return "reference_images";
+  if (["reference_video", "video_reference", "video"].includes(normalized)) return "reference_video";
+  return "text_to_video";
+}
+
+function playfluxSeedanceModeNeedsFirstFrame(mode = "") {
+  if (typeof window.seedanceModeNeedsFirstFrame === "function") return window.seedanceModeNeedsFirstFrame(mode);
+  return ["first_frame", "first_last_frame"].includes(playfluxNormalizeSeedanceMediaMode(mode));
+}
+
+function playfluxSeedanceModeNeedsReferenceImages(mode = "") {
+  if (typeof window.seedanceModeNeedsReferenceImages === "function") return window.seedanceModeNeedsReferenceImages(mode);
+  return playfluxNormalizeSeedanceMediaMode(mode) === "reference_images";
+}
+
+function playfluxSeedanceModeNeedsReferenceVideo(mode = "") {
+  if (typeof window.seedanceModeNeedsReferenceVideo === "function") return window.seedanceModeNeedsReferenceVideo(mode);
+  return playfluxNormalizeSeedanceMediaMode(mode) === "reference_video";
+}
+
+function playfluxTemplateVideoPrompt(template = {}, { usesReferenceVideo = false, hasSourceImage = false } = {}) {
+  const basePrompt = String(template.prompt || "").trim();
+  const negative = String(template.negativePrompt || "").trim();
+  if (!usesReferenceVideo) {
+    return [basePrompt, negative ? `Negative prompt: ${negative}` : ""].filter(Boolean).join("\n\n");
+  }
+  const guide = [
+    hasSourceImage
+      ? "CRITICAL: Image 1 is the user's selected character/source image. Preserve Image 1 identity, face, hairstyle, body type, skin tone, outfit direction, and main visual features."
+      : "",
+    "CRITICAL: Video 1 is the reference motion video. Match Video 1 closely: action type, pose sequence, body positions, interaction timing, camera angle, framing, shot rhythm, motion direction, and start/end composition.",
+    hasSourceImage
+      ? "Use Video 1 only for motion, action, camera, and composition. Do not copy identity, face, body, clothing, background, watermark, text, colors, or artifacts from Video 1. If Image 1 conflicts with Video 1, Image 1 always wins."
+      : "Use Video 1 as the primary action, camera, and composition guide.",
+    "Generate one continuous cinematic shot with the same action rhythm as Video 1, coherent anatomy, stable hands, and no subtitles or watermark.",
+  ].filter(Boolean).join(" ");
+  return [guide, basePrompt, negative ? `Negative prompt: ${negative}` : ""]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function playfluxTemplateFromDialog(template = {}, root = null) {
+  if (template.tab !== "anime") return template;
+  const promptInput = root?.querySelector("[data-playflux-template-prompt]");
+  const negativeInput = root?.querySelector("[data-playflux-template-negative]");
+  return {
+    ...template,
+    prompt: String(promptInput?.value || template.prompt || "").trim(),
+    negativePrompt: String(negativeInput?.value || template.negativePrompt || "").trim(),
+  };
+}
+
+function playfluxTemplateShouldUsePreviewImageReference(template = {}, sourceImageCount = 0) {
+  if (template.tab === "video" || !template.previewUrl) return false;
+  if (sourceImageCount < 1) return false;
+  const requiredCount = Number(template.sourceCount || 0);
+  return requiredCount <= 1 && sourceImageCount <= 1;
+}
+
+function playfluxTemplateImagePrompt(template = {}, sourceImageCount = 0, previewImageUrl = "") {
+  const prompt = playfluxTemplatePrompt(template);
+  if (!previewImageUrl) return prompt;
+  const previewIndex = Math.max(0, Number(sourceImageCount || 0)) + 1;
+  const guide = sourceImageCount > 0
+    ? `CRITICAL: Image 1 is the user's selected character/source and must be the dominant subject. Preserve Image 1 identity, face, body type, skin tone, hair, and main visual features. Image ${previewIndex} is NOT the target result and NOT a character reference; use it only as a loose reference for pose, composition, camera angle, scene intent, and general style. Do not copy the person, face, body, clothing, background, watermark, text, colors, or artifacts from Image ${previewIndex}. If Image 1 conflicts with Image ${previewIndex}, Image 1 always wins. The final result must look like a transformed version of Image 1, not a copy of Image ${previewIndex}.`
+    : "";
+  return [guide, prompt].filter(Boolean).join("\n\n");
+}
+
 function playfluxTemplateCostLabel(template = {}) {
   if (template.tab === "video") {
     const duration = Number(template.duration || 5);
     const resolution = template.resolution || "720p";
     const ratio = template.ratio || "9:16";
+    const inputVideoSeconds = playfluxSeedanceModeNeedsReferenceVideo(template.seedanceMode)
+      ? Number(template.referenceVideoDurationSeconds || duration)
+      : 0;
     const pricing = advancedPricing(duration, "seedance", resolution, ratio, {
       seedanceTier: "standard",
-      inputVideoSeconds: 0,
+      inputVideoSeconds,
     });
     return t("cost.credits", { credits: formatCredits(pricing.credits) });
   }
   return assetImageModifyCostLabel();
 }
 
-function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seedance") {
+function playfluxTemplateAbsoluteUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    return new URL(text, window.location.origin).toString();
+  } catch (error) {
+    return text;
+  }
+}
+
+function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seedance", options = {}) {
+  const prompt = String(options.prompt || "").trim() || playfluxTemplatePrompt(template);
   return {
     taskId,
     status: "submitting",
@@ -647,13 +818,22 @@ function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seed
     provider,
     source: "playflux-template",
     kind: template.tab === "video" ? "advanced-video" : "asset-image",
-    prompt: playfluxTemplatePrompt(template),
+    prompt,
     params: {
       createKind: template.tab === "video" ? "video" : "image",
       createMode: template.tab === "video" ? "playflux-video" : (template.createMode || (template.sourceRequired ? "image-edit" : "image-create")),
       templateId: template.id || "",
       templateTitle: template.title || "",
       templateTab: template.tab || "",
+      sourceModelId: template.sourceModelId || "",
+      sourceCount: Number(template.sourceCount || 0),
+      usePreviewAsReference: Boolean(template.usePreviewAsReference),
+      referenceVideoUrl: template.referenceVideoUrl || "",
+      previewImageReferenceUrl: template.tab !== "video" ? (template.previewUrl || "") : "",
+      animePositionId: template.animePositionId || "",
+      animeBaseStyleId: template.animeBaseStyleId || "",
+      animeBaseStyleLabel: template.animeBaseStyleLabel || "",
+      triggerWords: template.triggerWords || "",
       source: "playflux",
     },
     ratio: template.ratio || "9:16",
@@ -682,45 +862,80 @@ async function uploadPlayfluxTemplateImageAsset(file) {
   return { asset, dataUrl };
 }
 
+async function uploadPlayfluxTemplateImageAssets(files = []) {
+  const uploaded = [];
+  for (const file of files) {
+    uploaded.push(await uploadPlayfluxTemplateImageAsset(file));
+  }
+  return uploaded;
+}
+
 async function submitPlayfluxTemplate(template = {}, root) {
   if (!state.user) {
     openLogin();
     throw new Error("Log in first.");
   }
-  const file = playfluxTemplateSelectedSource(root);
-  if (playfluxTemplateNeedsSource(template) && !file) throw new Error("Upload a local image first.");
-  if (file && !String(file.type || "").startsWith("image/")) throw new Error("Please upload an image file.");
+  const effectiveTemplate = playfluxTemplateFromDialog(template, root);
+  const files = playfluxTemplateSelectedSources(root);
+  const requiredSourceCount = playfluxTemplateRequiredSourceCount(effectiveTemplate);
+  if (files.length < requiredSourceCount) {
+    throw new Error(requiredSourceCount > 1 ? `Upload ${requiredSourceCount} local images first.` : "Upload a local image first.");
+  }
+  if (files.some((file) => !String(file.type || "").startsWith("image/"))) throw new Error("Please upload image files only.");
   playfluxTemplateStatus(root, "Submitting...");
-  const isVideo = template.tab === "video";
+  const isVideo = effectiveTemplate.tab === "video";
+  const isAnime = effectiveTemplate.tab === "anime";
   const provider = isVideo ? "seedance" : "wan27-image-edit";
+  const selectedVideoSourceMode = isVideo
+    ? playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images")
+    : "";
+  const selectedVideoPrompt = isVideo
+    ? playfluxTemplateVideoPrompt(effectiveTemplate, {
+        usesReferenceVideo: playfluxSeedanceModeNeedsReferenceVideo(selectedVideoSourceMode),
+        hasSourceImage: files.length > 0,
+      })
+    : "";
   const pendingTaskId = `pending-playflux-${Date.now().toString(36)}`;
-  mergeAdvancedResultRecord(playfluxTemplateRecordBase(template, pendingTaskId, provider));
+  mergeAdvancedResultRecord(playfluxTemplateRecordBase(effectiveTemplate, pendingTaskId, provider, selectedVideoPrompt ? { prompt: selectedVideoPrompt } : {}));
   state.advancedResultTaskId = pendingTaskId;
   renderAdvancedResultPanel();
   try {
     if (isVideo) {
+      const file = files[0] || null;
       const dataUrl = file ? await readFileAsDataUrl(file) : "";
-      const sourceMode = normalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || template.seedanceMode || "reference_images");
-      const duration = Number(template.duration || 5);
-      const resolution = template.resolution || "720p";
-      const ratio = normalizeVideoRatio(template.ratio || "9:16");
+      const sourceMode = selectedVideoSourceMode;
+      const duration = Number(effectiveTemplate.duration || 5);
+      const resolution = effectiveTemplate.resolution || "720p";
+      const ratio = normalizeVideoRatio(effectiveTemplate.ratio || "9:16");
       const reference = dataUrl ? { dataUrl, fileName: file.name || "", name: file.name || "Template source image" } : null;
+      const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(sourceMode);
+      const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "") : "";
+      const referenceVideoSeconds = usesReferenceVideo ? Number(effectiveTemplate.referenceVideoDurationSeconds || duration) : 0;
+      const videoPrompt = playfluxTemplateVideoPrompt(effectiveTemplate, {
+        usesReferenceVideo,
+        hasSourceImage: Boolean(reference),
+      });
+      const recordBase = playfluxTemplateRecordBase(effectiveTemplate, "", provider, { prompt: videoPrompt });
       const payload = await requestJson("/api/advanced/generate", {
         method: "POST",
         body: {
           provider: "seedance",
           seedanceTier: "standard",
-          prompt: playfluxTemplatePrompt(template),
+          prompt: videoPrompt,
           seedanceMode: sourceMode,
-          referenceImages: seedanceModeNeedsReferenceImages(sourceMode) && reference ? [seedanceImageRefPayload(reference)] : undefined,
-          firstFrameDataUrl: seedanceModeNeedsFirstFrame(sourceMode) && reference ? dataUrl : undefined,
+          referenceImages: (playfluxSeedanceModeNeedsReferenceImages(sourceMode) || usesReferenceVideo) && reference ? [seedanceImageRefPayload(reference)] : undefined,
+          referenceVideoUrls: referenceVideoUrl ? [referenceVideoUrl] : undefined,
+          firstFrameDataUrl: playfluxSeedanceModeNeedsFirstFrame(sourceMode) && reference ? dataUrl : undefined,
           firstFrameUrl: "",
           ratio,
           resolution,
           duration,
-          inputVideoSeconds: 0,
-          referenceVideoDurationSeconds: 0,
-          params: playfluxTemplateRecordBase(template, "", provider).params,
+          inputVideoSeconds: referenceVideoSeconds,
+          referenceVideoDurationSeconds: referenceVideoSeconds,
+          params: {
+            ...recordBase.params,
+            reference_videos: referenceVideoUrl ? [referenceVideoUrl] : [],
+          },
         },
       });
       if (payload.user) setUser(payload.user);
@@ -731,7 +946,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
         mergeAdvancedResultRecord(payload.record);
       } else if (taskId) {
         mergeAdvancedResultRecord({
-          ...playfluxTemplateRecordBase(template, taskId, provider),
+          ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider, { prompt: videoPrompt }),
           status: payload.task?.status || "submitted",
           updatedAt: new Date().toISOString(),
         });
@@ -740,23 +955,71 @@ async function submitPlayfluxTemplate(template = {}, root) {
       playfluxTemplateStatus(root, "Submitted.");
       if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       showPlayfluxSubmittedHistory(payload.record || (taskId ? {
-        ...playfluxTemplateRecordBase(template, taskId, provider),
+        ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider, { prompt: videoPrompt }),
         status: payload.task?.status || "submitted",
         updatedAt: new Date().toISOString(),
       } : null));
       return;
     }
 
-    const uploaded = file ? await uploadPlayfluxTemplateImageAsset(file) : { asset: null };
+    if (isAnime) {
+      const imagePrompt = playfluxTemplatePrompt(effectiveTemplate);
+      const payload = await requestJson("/api/wan27/image-edit", {
+        method: "POST",
+        body: {
+          prompt: imagePrompt,
+          imageAssetIds: [],
+          imageUrls: [],
+          ratio: effectiveTemplate.ratio || "9:16",
+          resolution: effectiveTemplate.resolution || "1K",
+          params: {
+            ...playfluxTemplateRecordBase(effectiveTemplate, "", provider).params,
+            createMode: "anime-text-image",
+            animeBaseStyleId: effectiveTemplate.animeBaseStyleId || "nova-anime-xl",
+            animeBaseStyleLabel: effectiveTemplate.animeBaseStyleLabel || "Nova Anime XL",
+            animePositionId: effectiveTemplate.animePositionId || "",
+            triggerWords: effectiveTemplate.triggerWords || "",
+            previewImageReferenceUrl: "",
+            previewImageReferenceIndex: 0,
+          },
+          async: true,
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== pendingTaskId);
+      if (payload.record) {
+        state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
+        mergeAdvancedResultRecord(payload.record);
+      }
+      state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
+      playfluxTemplateStatus(root, "Submitted.");
+      if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
+      showPlayfluxSubmittedHistory(payload.record || (state.advancedResultTaskId ? {
+        ...playfluxTemplateRecordBase(effectiveTemplate, state.advancedResultTaskId, provider),
+        status: payload.task?.status || "submitted",
+        updatedAt: new Date().toISOString(),
+      } : null));
+      return;
+    }
+
+    const uploaded = await uploadPlayfluxTemplateImageAssets(files);
+    const previewImageReferenceUrl = playfluxTemplateShouldUsePreviewImageReference(effectiveTemplate, uploaded.length)
+      ? playfluxTemplateAbsoluteUrl(effectiveTemplate.previewUrl || "")
+      : "";
+    const imagePrompt = playfluxTemplateImagePrompt(effectiveTemplate, uploaded.length, previewImageReferenceUrl);
     const payload = await requestJson("/api/wan27/image-edit", {
       method: "POST",
       body: {
-        prompt: playfluxTemplatePrompt(template),
-        imageAssetIds: uploaded.asset?.id ? [uploaded.asset.id] : [],
-        imageUrls: [],
-        ratio: template.ratio || "9:16",
-        resolution: template.resolution || "1K",
-        params: playfluxTemplateRecordBase(template, "", provider).params,
+        prompt: imagePrompt,
+        imageAssetIds: uploaded.map((item) => item.asset?.id).filter(Boolean),
+        imageUrls: previewImageReferenceUrl ? [previewImageReferenceUrl] : [],
+        ratio: effectiveTemplate.ratio || "9:16",
+        resolution: effectiveTemplate.resolution || "1K",
+        params: {
+          ...playfluxTemplateRecordBase(effectiveTemplate, "", provider).params,
+          previewImageReferenceUrl,
+          previewImageReferenceIndex: previewImageReferenceUrl ? uploaded.length + 1 : 0,
+        },
         async: true,
       },
     });
@@ -770,7 +1033,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
     playfluxTemplateStatus(root, "Submitted.");
     if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
     showPlayfluxSubmittedHistory(payload.record || (state.advancedResultTaskId ? {
-      ...playfluxTemplateRecordBase(template, state.advancedResultTaskId, provider),
+      ...playfluxTemplateRecordBase(effectiveTemplate, state.advancedResultTaskId, provider),
       status: payload.task?.status || "submitted",
       updatedAt: new Date().toISOString(),
     } : null));
@@ -790,32 +1053,38 @@ function openPlayfluxTemplateDialog(templateId = "") {
   const template = playfluxTemplateById(templateId);
   if (!template) return;
   const tab = playfluxTemplateTabMeta(template.tab);
+  const isAnime = template.tab === "anime";
   const needsSource = playfluxTemplateNeedsSource(template);
+  const requiredSourceCount = playfluxTemplateRequiredSourceCount(template);
+  const sourceHint = requiredSourceCount > 1 ? `Required: ${requiredSourceCount} images` : (needsSource ? "Required" : "Optional");
   showInlineDialog({
     title: template.title || "Template",
     body: `
       <div class="playflux-template-dialog">
         <div class="playflux-template-kicker"><i data-lucide="${escapeHtml(tab.icon)}"></i>${escapeHtml(tab.label)}</div>
-        <div class="playflux-template-flow">
-          <div class="playflux-source-panel">
-            <input id="playfluxTemplateImageInput" type="file" accept="image/*" hidden />
-            <button class="playflux-local-source" type="button" data-playflux-template-upload="${escapeHtml(template.id || "")}">
-              <span class="playflux-local-source-media" data-playflux-source-preview><i data-lucide="image-up"></i></span>
-              <strong data-playflux-source-name>Upload local image</strong>
-              <small>${escapeHtml(needsSource ? "Required" : "Optional")}</small>
+        ${isAnime ? playfluxTemplateAnimePanel(template) : `
+          <div class="playflux-template-flow">
+            <div class="playflux-source-panel">
+              <input id="playfluxTemplateImageInput" type="file" accept="image/*" ${template.tab === "video" ? "" : "multiple"} hidden />
+              <button class="playflux-local-source" type="button" data-playflux-template-upload="${escapeHtml(template.id || "")}">
+                <span class="playflux-local-source-media" data-playflux-source-preview><i data-lucide="image-up"></i></span>
+                <strong data-playflux-source-name>Upload local image</strong>
+                <small>${escapeHtml(sourceHint)}</small>
+              </button>
+              <button class="ghost-button playflux-source-clear" type="button" data-playflux-source-clear hidden>Remove</button>
+            </div>
+            <span class="playflux-flow-arrow"><i data-lucide="arrow-right"></i></span>
+            <button class="playflux-preview-panel" type="button" data-playflux-template-preview="${escapeHtml(template.id || "")}">
+              ${playfluxTemplateDialogMedia(template)}
+              <span>Preview</span>
             </button>
-            <button class="ghost-button playflux-source-clear" type="button" data-playflux-source-clear hidden>Remove</button>
           </div>
-          <span class="playflux-flow-arrow"><i data-lucide="arrow-right"></i></span>
-          <button class="playflux-preview-panel" type="button" data-playflux-template-preview="${escapeHtml(template.id || "")}">
-            ${playfluxTemplateDialogMedia(template)}
-            <span>Preview</span>
-          </button>
-        </div>
-        ${template.previewType === "video" ? `
+        `}
+        ${false && !isAnime && template.previewType === "video" ? `
           <div class="playflux-source-modes" aria-label="Seedance source mode">
             ${[
-              { id: "reference_images", label: "Reference" },
+              { id: "reference_video", label: "Preview video" },
+              { id: "reference_images", label: "Image only" },
               { id: "first_frame", label: "First frame" },
             ].map((mode) => `
               <button class="${playfluxTemplateDefaultSourceMode(template) === mode.id ? "is-active" : ""}" type="button" data-playflux-source-mode="${escapeHtml(mode.id)}">
@@ -825,7 +1094,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
           </div>
         ` : ""}
         ${playfluxTemplatePromptBlock(template)}
-        <p class="job-note">Cost: ${escapeHtml(playfluxTemplateCostLabel(template))}</p>
+        ${isAnime ? "" : `<p class="job-note">Cost: ${escapeHtml(playfluxTemplateCostLabel(template))}</p>`}
         <p class="job-note" data-playflux-template-status></p>
       </div>
     `,
@@ -833,7 +1102,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
     dialogClass: "is-media-action is-playflux-template",
     keepOpenOnConfirm: true,
     onOpen: (root) => {
-      updatePlayfluxTemplateSourcePreview(root, null);
+      if (!isAnime) updatePlayfluxTemplateSourcePreview(root, null);
       root.querySelectorAll("[data-playflux-source-mode]").forEach((button) => {
         button.addEventListener("click", () => {
           root.querySelectorAll("[data-playflux-source-mode]").forEach((item) => item.classList.remove("is-active"));
@@ -848,7 +1117,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
         root.querySelector("#playfluxTemplateImageInput")?.click();
       });
       root.querySelector("#playfluxTemplateImageInput")?.addEventListener("change", () => {
-        updatePlayfluxTemplateSourcePreview(root, playfluxTemplateSelectedSource(root));
+        updatePlayfluxTemplateSourcePreview(root, playfluxTemplateSelectedSources(root));
         playfluxTemplateStatus(root, "");
       });
       root.querySelector("[data-playflux-source-clear]")?.addEventListener("click", () => {
@@ -879,7 +1148,7 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
     state.advancedCreateKind = "video";
     state.advancedCreateMode = "video-image";
     if (els.advancedProvider) els.advancedProvider.value = "seedance";
-    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = normalizeSeedanceMediaMode(sourceMode || template.seedanceMode || "reference_images");
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = playfluxNormalizeSeedanceMediaMode(sourceMode || template.seedanceMode || "reference_images");
     if (els.advancedDuration) els.advancedDuration.value = String(template.duration || 5);
     if (els.advancedResolution) els.advancedResolution.value = template.resolution || "720p";
     if (els.advancedRatio) els.advancedRatio.value = normalizeVideoRatio(template.ratio || "9:16");
@@ -906,6 +1175,53 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
   } else if (openUpload) {
     triggerAdvancedLocalImageUpload({ sourceMode: sourceMode === "first_last_frame" ? "first_last_frame" : "reference_images" });
   }
+}
+
+function normalizeCharacterPanelTab(value = "") {
+  return String(value || "").trim().toLowerCase() === "list" ? "list" : "create";
+}
+
+function renderCharacterPageTabs() {
+  if (!els.characterPageTabs) return;
+  const activeTab = normalizeCharacterPanelTab(state.characterPanelTab);
+  const tabs = [
+    { id: "create", label: t("characters.createTab"), icon: "sparkles" },
+    { id: "list", label: t("characters.listTab"), icon: "images", count: customCharacterItems().length },
+  ];
+  els.characterPageTabs.innerHTML = tabs.map((tab) => `
+    <button class="gallery-mode-tab ${activeTab === tab.id ? "is-active" : ""}" data-character-panel-tab="${escapeHtml(tab.id)}" type="button">
+      <i data-lucide="${escapeHtml(tab.icon)}"></i>${escapeHtml(tab.label)}${tab.count === undefined ? "" : `<span>${escapeHtml(String(tab.count))}</span>`}
+    </button>
+  `).join("");
+  els.characterPageTabs.querySelectorAll("[data-character-panel-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const nextTab = normalizeCharacterPanelTab(button.dataset.characterPanelTab || "create");
+      state.characterPanelTab = nextTab;
+      if (nextTab === "create") {
+        state.routeCharacterId = "";
+        state.routeCharacterSource = "";
+        state.activeGalleryCharacterId = "";
+        replacePlatformUrlForCharacter("", "", "characters");
+      }
+      renderCharactersPanel();
+      if (nextTab === "list" && state.user) loadMyCharacters({ silent: true }).catch(() => {});
+    });
+  });
+}
+
+function renderCharactersPanel({ forceCreator = false } = {}) {
+  if (state.routeCharacterId || state.activeGalleryCharacterId) state.characterPanelTab = "list";
+  state.characterPanelTab = normalizeCharacterPanelTab(state.characterPanelTab);
+  renderCharacterPageTabs();
+  const showCreate = state.characterPanelTab === "create";
+  if (els.characterCreatorCard) els.characterCreatorCard.hidden = !showCreate;
+  if (els.characterListPanel) els.characterListPanel.hidden = showCreate;
+  if (showCreate) {
+    bindCharacterCreator({ force: forceCreator });
+  } else {
+    renderGalleryCharacters(els.characterGrid);
+  }
+  refreshIcons();
 }
 
 function renderGalleryCharacters(root = els.templateGrid) {
@@ -1280,6 +1596,8 @@ function renderCharacterFilterBar(characters = [], filteredCount = 0) {
   const sort = CHARACTER_SORT_OPTIONS.find((item) => item.id === filters.sort) || CHARACTER_SORT_OPTIONS[0];
   const activeTag = options.tags.find((item) => normalizeCharacterFilterValue(item.label) === normalizeCharacterFilterValue(filters.tag));
   const hasFilters = Boolean(filters.tag || filters.gender || filters.style || filters.age || filters.q || (filters.sort && filters.sort !== "recommended"));
+  const hasAdvancedFilters = Boolean(filters.tag || filters.gender || filters.style || filters.age);
+  const advancedOpen = Boolean(state.characterFiltersExpanded || hasAdvancedFilters);
   const tagButtons = [
     characterFilterButton({ type: "tag", value: "", label: "All", active: !filters.tag }),
     ...options.tags.map((tag) => characterFilterButton({
@@ -1322,6 +1640,10 @@ function renderCharacterFilterBar(characters = [], filteredCount = 0) {
   return `
     <section class="character-filter-bar">
       <div class="character-filter-top">
+        <div class="character-selected-filter ${activeTag ? "has-tag" : ""}">
+          ${activeTag ? `<button class="character-selected-tag" data-character-filter="tag" data-character-filter-value="" type="button">${escapeHtml(activeTag.label)} <i data-lucide="x"></i></button>` : ""}
+          <input id="characterFilterSearch" data-character-filter-search type="search" value="${escapeHtml(filters.q || "")}" placeholder="${escapeHtml(activeTag ? "Search within tag..." : "Search within all characters")}" autocomplete="off" />
+        </div>
         <div class="character-sort-menu">
           <button class="character-filter-chip is-active" data-character-menu-toggle="sort" type="button">
             <span>${escapeHtml(sort.label)}</span><i data-lucide="chevron-down"></i>
@@ -1335,10 +1657,17 @@ function renderCharacterFilterBar(characters = [], filteredCount = 0) {
             })).join("")}
           </div>
         </div>
-        <div class="character-selected-filter ${activeTag ? "has-tag" : ""}">
-          ${activeTag ? `<button class="character-selected-tag" data-character-filter="tag" data-character-filter-value="" type="button">${escapeHtml(activeTag.label)} <i data-lucide="x"></i></button>` : ""}
-          <input id="characterFilterSearch" data-character-filter-search type="search" value="${escapeHtml(filters.q || "")}" placeholder="${escapeHtml(activeTag ? "Search within tag..." : "Search within all characters")}" autocomplete="off" />
+      </div>
+      <div class="character-filter-summary">
+        <span>${escapeHtml(String(filteredCount))} characters</span>
+        <div class="character-filter-summary-actions">
+          <button class="character-filter-clear" data-character-filter-clear type="button" ${hasFilters ? "" : "hidden"}>${escapeHtml(t("gallery.character.clearFilters"))}</button>
+          <button class="character-filter-advanced-toggle ${advancedOpen ? "is-open" : ""}" data-character-filter-advanced-toggle type="button" aria-expanded="${advancedOpen ? "true" : "false"}">
+            <i data-lucide="sliders-horizontal"></i><span>${escapeHtml(t(advancedOpen ? "gallery.character.hideFilters" : "gallery.character.advancedQuery"))}</span>
+          </button>
         </div>
+      </div>
+      <div class="character-filter-advanced ${advancedOpen ? "is-open" : ""}" ${advancedOpen ? "" : "hidden"}>
         <div class="character-filter-dropdowns">
           <div class="character-sort-menu">
             <button class="character-filter-chip" data-character-menu-toggle="gender" type="button"><span>${escapeHtml(filters.gender || "Any gender")}</span><i data-lucide="chevron-down"></i></button>
@@ -1353,11 +1682,7 @@ function renderCharacterFilterBar(characters = [], filteredCount = 0) {
             <div class="character-filter-menu" data-character-menu="age">${ageOptions}</div>
           </div>
         </div>
-      </div>
-      <div class="character-filter-tags">${tagButtons}</div>
-      <div class="character-filter-summary">
-        <span>${escapeHtml(String(filteredCount))} characters</span>
-        <button class="character-filter-clear" data-character-filter-clear type="button" ${hasFilters ? "" : "hidden"}>Clear</button>
+        <div class="character-filter-tags">${tagButtons}</div>
       </div>
     </section>
   `;
@@ -1390,18 +1715,35 @@ function bindCharacterFilterActions(root = els.templateGrid) {
   });
   root.querySelector("[data-character-filter-clear]")?.addEventListener("click", (event) => {
     event.stopPropagation();
+    window.clearTimeout(state.characterFilterSearchTimer);
     state.characterFilters = { sort: "recommended", tag: "", gender: "", style: "", age: "", q: "" };
+    state.characterFiltersExpanded = false;
     resetCharacterPagination();
     renderGalleryCharacters(root);
   });
+  root.querySelector("[data-character-filter-advanced-toggle]")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    state.characterFiltersExpanded = !state.characterFiltersExpanded;
+    renderGalleryCharacters(root);
+  });
   root.querySelector("[data-character-filter-search]")?.addEventListener("input", (event) => {
+    const value = event.currentTarget.value || "";
     state.characterFilters = {
       ...(state.characterFilters || {}),
-      q: event.currentTarget.value || "",
+      q: value,
     };
-    resetCharacterPagination();
-    renderGalleryCharacters(root);
-    root.querySelector("[data-character-filter-search]")?.focus();
+    window.clearTimeout(state.characterFilterSearchTimer);
+    state.characterFilterSearchTimer = window.setTimeout(() => {
+      resetCharacterPagination();
+      renderGalleryCharacters(root);
+      const nextInput = root.querySelector("[data-character-filter-search]");
+      if (nextInput) {
+        nextInput.focus();
+        try {
+          nextInput.setSelectionRange(value.length, value.length);
+        } catch (error) {}
+      }
+    }, 260);
   });
 }
 
@@ -1509,7 +1851,7 @@ async function deleteCustomCharacter(characterId = "", button = null) {
       state.userAssets = (state.userAssets || []).filter((asset) => asset.id !== assetId);
       state.userAssetsTotal = Math.max(0, Number(state.userAssetsTotal || 0) - 1);
     }
-    renderGalleryCharacters(els.characterGrid);
+    renderCharactersPanel();
     if (state.tab === "assets") await loadUserAssets(state.userAssetsPage || 1);
   } catch (error) {
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.deleteFailed", { message: error.message || String(error) });
@@ -1525,7 +1867,7 @@ async function loadMyCharacters({ silent = false } = {}) {
   if (!state.user) {
     state.myCharacters = [];
     state.myCharactersLoaded = true;
-    if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+    if (state.tab === "characters") renderCharactersPanel();
     return [];
   }
   if (!silent && els.characterCreateStatus) els.characterCreateStatus.textContent = "Loading characters...";
@@ -1535,7 +1877,7 @@ async function loadMyCharacters({ silent = false } = {}) {
   scheduleMyCharacterProgressRefreshes();
   if (state.routeCharacterId) applyRouteCharacterDetail({ allowTabSwitch: true });
   if (!silent && els.characterCreateStatus) els.characterCreateStatus.textContent = "";
-  if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+  if (state.tab === "characters") renderCharactersPanel();
   return state.myCharacters;
 }
 
@@ -1564,7 +1906,7 @@ async function refreshMyCharacterImage(characterId = "", { render = false, resch
   if (!id) return null;
   const payload = await requestJson(`/api/my/characters/${encodeURIComponent(id)}/image`);
   if (payload.character) updateMyCharacterInState(payload.character);
-  if (render && state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+  if (render && state.tab === "characters") renderCharactersPanel();
   const item = payload.character ? myCharacterToGalleryItem(payload.character) : null;
   if (reschedule && item && isMyCharacterGenerating(item)) scheduleMyCharacterProgressRefreshes();
   return payload.character || null;
@@ -1607,9 +1949,6 @@ function characterCreatorFieldLabel(field = "") {
 
 function characterCreatorCopy(key = "") {
   const copy = {
-    eyebrow: ["Create character", "创建角色"],
-    title: ["Dream AI character", "创建你的梦想 AI 角色"],
-    subtitle: ["Choose the look and details, then generate a reusable character image.", "选择外观和细节，生成可复用角色图。"],
     next: ["Next", "下一步"],
     back: ["Back", "上一步"],
     generate: ["Generate", "生成角色"],
@@ -1765,11 +2104,6 @@ function renderCharacterCreator() {
   const isFirst = currentIndex <= 0;
   const isLast = currentIndex >= CHARACTER_CREATOR_STEPS.length - 1;
   els.characterCreatorRoot.innerHTML = `
-    <div class="character-creator-head">
-      <span class="copy-kicker"><i data-lucide="sparkles"></i>${escapeHtml(characterCreatorCopy("eyebrow"))}</span>
-      <h3>${escapeHtml(characterCreatorCopy("title"))}</h3>
-      <p>${escapeHtml(characterCreatorCopy("subtitle"))}</p>
-    </div>
     ${renderCharacterCreatorSteps()}
     <div class="character-creator-body">${renderCharacterCreatorStepBody()}</div>
     <p class="job-note" id="characterCreateCost">${escapeHtml(assetImageModifyCostLabel())}</p>
@@ -1784,6 +2118,7 @@ function renderCharacterCreator() {
   els.characterCreateBtn = els.characterCreatorRoot.querySelector("#characterCreateBtn");
   els.characterCreateCost = els.characterCreatorRoot.querySelector("#characterCreateCost");
   els.characterCreateStatus = els.characterCreatorRoot.querySelector("#characterCreateStatus");
+  els.characterCreatorRoot.dataset.rendered = "true";
   refreshIcons();
 }
 
@@ -1836,9 +2171,9 @@ function bindCharacterCreatorEvents() {
   });
 }
 
-function bindCharacterCreator() {
+function bindCharacterCreator({ force = false } = {}) {
   if (els.characterCreatorRoot) {
-    renderCharacterCreator();
+    if (force || els.characterCreatorRoot.dataset.rendered !== "true") renderCharacterCreator();
     bindCharacterCreatorEvents();
     return;
   }
@@ -1880,7 +2215,8 @@ async function createCharacterFromPrompt() {
     }
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = state.lang === "zh" ? "角色已加入我的角色，正在生成。" : "Character added. Generating image...";
     state.activeGalleryCharacterId = "";
-    renderGalleryCharacters(els.characterGrid);
+    state.characterPanelTab = "list";
+    renderCharactersPanel();
     scheduleMyCharacterProgressRefreshes();
   } catch (error) {
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = t("characters.createFailed", { message: error.message || String(error) });
@@ -2037,13 +2373,14 @@ function openGalleryCharacter(characterId = "", { updateRoute = true } = {}) {
   state.activeGalleryCharacterId = item.id || "";
   state.routeCharacterId = item.id || "";
   state.routeCharacterSource = source;
+  if (targetTab === "characters") state.characterPanelTab = "list";
   if (source === "system") trackSystemCharacterView(item.id || "", "home");
   if (updateRoute) replacePlatformUrlForCharacter(item.id || "", source, targetTab);
   if (state.tab !== targetTab) {
     setTab(targetTab);
     return;
   }
-  if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+  if (state.tab === "characters") renderCharactersPanel();
   else renderTemplates();
   if (state.user) loadGalleryUnlocks();
   else {
@@ -2059,7 +2396,7 @@ async function loadGalleryUnlocks() {
     state.galleryUnlocksLoaded = false;
     state.galleryUnlockMessage = "";
     if (state.activeGalleryCharacterId && (state.tab === "gallery" || state.tab === "characters")) {
-      if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+      if (state.tab === "characters") renderCharactersPanel();
       else renderTemplates();
     }
     return;
@@ -2070,14 +2407,14 @@ async function loadGalleryUnlocks() {
     state.galleryUnlocksLoaded = true;
     state.galleryUnlockMessage = "";
     if (state.activeGalleryCharacterId && (state.tab === "gallery" || state.tab === "characters")) {
-      if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+      if (state.tab === "characters") renderCharactersPanel();
       else renderTemplates();
     }
   } catch (error) {
     state.galleryUnlockMessage = error.message || "";
     state.galleryUnlocksLoaded = false;
     if (state.activeGalleryCharacterId && (state.tab === "gallery" || state.tab === "characters")) {
-      if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+      if (state.tab === "characters") renderCharactersPanel();
       else renderTemplates();
     }
   }
@@ -2136,7 +2473,7 @@ async function unlockGallerySceneVideo(characterId = "") {
   });
   if (confirmed !== "confirm") return;
   const renderActiveCharacterView = () => {
-    if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+    if (state.tab === "characters") renderCharactersPanel();
     else renderTemplates();
   };
   const key = galleryCharacterUnlockKey(characterId);
@@ -2197,10 +2534,12 @@ function videoPosterCandidates(videoUrl = "") {
 function characterPosterUrl(item = {}) {
   const mainVideo = characterMainVideoUrl(item);
   const imageCandidates = [
+    item.cdnImageUrl,
+    item.cdnPosterUrl,
+    item.publicImageUrl,
     item.localImageUrl,
     item.posterUrl,
     item.syntheticReferenceLocalUrl,
-    item.publicImageUrl,
     item.imageUrl,
     item.coverUrl,
     item.thumbnailUrl,
@@ -2221,6 +2560,9 @@ function characterPosterUrl(item = {}) {
 
 function characterListPosterUrl(item = {}) {
   const candidates = [
+    item.cdnPosterUrl,
+    item.cdnImageUrl,
+    item.publicImageUrl,
     item.thumbnailUrl,
     item.thumbUrl,
     item.listPosterUrl,
@@ -2236,11 +2578,14 @@ function characterReferenceImageUrl(item = {}) {
 
 function characterMainVideoUrl(item = {}) {
   const candidates = [
+    item.cdnVideoUrl,
     item.videoUrl,
     item.localVideoUrl,
     item.remoteVideoUrl,
-    item.homeSceneVideos && Object.values(item.homeSceneVideos).find((entry) => entry?.videoUrl)?.videoUrl,
-    item.sceneVideos && Object.values(item.sceneVideos).find((entry) => entry?.videoUrl)?.videoUrl,
+    item.homeSceneVideos && Object.values(item.homeSceneVideos).find((entry) => entry?.cdnVideoUrl || entry?.videoUrl)?.cdnVideoUrl,
+    item.homeSceneVideos && Object.values(item.homeSceneVideos).find((entry) => entry?.cdnVideoUrl || entry?.videoUrl)?.videoUrl,
+    item.sceneVideos && Object.values(item.sceneVideos).find((entry) => entry?.cdnVideoUrl || entry?.videoUrl)?.cdnVideoUrl,
+    item.sceneVideos && Object.values(item.sceneVideos).find((entry) => entry?.cdnVideoUrl || entry?.videoUrl)?.videoUrl,
   ];
   return candidates.map((value) => String(value || "").trim()).find(Boolean) || "";
 }
@@ -2316,8 +2661,10 @@ function characterVideoTitle(video = {}, fallback = "") {
 }
 
 function characterVideoPoster(video = {}, character = {}) {
-  const videoUrl = video.videoUrl || video.localVideoUrl || video.remoteVideoUrl || "";
+  const videoUrl = video.cdnVideoUrl || video.videoUrl || video.localVideoUrl || video.remoteVideoUrl || "";
   const candidates = [
+    video.cdnPosterUrl,
+    video.cdnCoverUrl,
     video.outputPosterUrl,
     video.resultPosterUrl,
     video.localPosterUrl,
@@ -2355,6 +2702,7 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
   const poster = characterPosterUrl(item);
   const tags = characterTags(item, 6);
   const profileLine = characterProfileLine(item);
+  const description = String(item.description || item.title || "").trim();
   const stats = uniqueTruthy([
     `${compactNumber(item.likeCount)} likes`,
     `${compactNumber(item.estimatedMessageCount)} chats`,
@@ -2368,9 +2716,9 @@ function renderGalleryCharacterDetail(item = {}, root = els.templateGrid) {
       <div class="character-detail-profile">
         ${renderSmartCoverMedia({ className: "character-detail-cover-media", posterUrl: poster, videoUrl: characterMainVideoUrl(item), alt: item.name || "", fallbackUrl: DEFAULT_TEMPLATE_COVER })}
         <div class="character-detail-copy">
-          <span>${escapeHtml(profileLine || item.status || "Public profile")}</span>
-          <h3>${escapeHtml(item.name || "Character")}</h3>
-          <p>${escapeHtml(item.description || item.title || "")}</p>
+          <span title="${escapeHtml(profileLine || item.status || "Public profile")}">${escapeHtml(profileLine || item.status || "Public profile")}</span>
+          <h3 title="${escapeHtml(item.name || "Character")}">${escapeHtml(item.name || "Character")}</h3>
+          <p title="${escapeHtml(description)}">${escapeHtml(description)}</p>
           ${tags.length ? `<div class="character-detail-tags">${tags.map((tag) => `<small>${escapeHtml(tag)}</small>`).join("")}</div>` : ""}
           <div class="character-detail-stats">
             <strong>${escapeHtml(stats || "Ready")}</strong>
@@ -2459,7 +2807,7 @@ function renderCharacterVideoCard(video = {}, character = {}, { locked = false, 
         <span class="character-video-chip">${escapeHtml(meta || "Video")}</span>
       </button>
       <div class="character-video-info">
-        <strong>${escapeHtml(title)}</strong>
+        <strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong>
         ${action}
       </div>
     </article>
@@ -2875,7 +3223,7 @@ function historyDetailPayload(record = {}) {
     billing: record.billing || null,
     error: record.error || "",
     poster: generationPosterUrl(record) || "",
-    result: generationVideoUrl(record) || "",
+    result: generationVideoUrl(record) || generationImageResultUrl(record) || "",
     createdAt: record.createdAt || "",
     updatedAt: record.updatedAt || "",
   };
@@ -2895,9 +3243,11 @@ function openHistoryDetail(index) {
   if (!record || !els.historyDetailDialog || !els.historyDetailBody) return;
   const title = publicModelText(record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle"));
   const videoUrl = generationVideoUrl(record);
+  const imageResultUrl = generationImageResultUrl(record);
   const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
   const images = recordImageAssets(record);
   const videos = recordVideoAssets(record);
+  const canDownload = canDownloadGenerationRecord(record);
   els.historyDetailTitle.textContent = title || t("history.detailTitle");
   els.historyDetailBody.innerHTML = `
     <section class="history-detail-section">
@@ -2927,12 +3277,29 @@ function openHistoryDetail(index) {
       <pre>${escapeHtml(JSON.stringify(historyDetailPayload(record), null, 2))}</pre>
     </section>
     <section class="history-detail-section">
-      <header><strong>${escapeHtml(t("history.result"))}</strong></header>
+      <header>
+        <strong>${escapeHtml(t("history.result"))}</strong>
+        ${canDownload ? `
+          <button class="history-download history-detail-download" type="button" data-history-detail-download>
+            <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+          </button>
+        ` : ""}
+      </header>
       ${videoUrl ? `
         <video src="${escapeHtml(videoUrl)}" ${generationPosterUrl(record) ? `poster="${escapeHtml(generationPosterUrl(record))}"` : ""} controls playsinline preload="metadata" style="${escapeHtml(ratioStyle(recordRatio))}"></video>
+      ` : imageResultUrl ? `
+        <div class="history-detail-images">
+          <figure>
+            <img src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" />
+            <figcaption>${escapeHtml(t("history.result"))}</figcaption>
+          </figure>
+        </div>
       ` : `<pre>${escapeHtml(record.error || statusLabel(record.status))}</pre>`}
     </section>
   `;
+  els.historyDetailBody.querySelector("[data-history-detail-download]")?.addEventListener("click", () => {
+    downloadGenerationRecord(record);
+  });
   if (!els.historyDetailDialog.open) els.historyDetailDialog.showModal();
   refreshIcons();
 }
@@ -3003,11 +3370,13 @@ function advancedCaseInputVideoPoster(item = {}) {
 function syncGalleryShortcutNav() {
   document.querySelectorAll("[data-gallery-shortcut]").forEach((button) => {
     const mode = normalizeGalleryMode(button.dataset.galleryShortcut || "");
+    const disabled = button.dataset.galleryShortcut === "playflux-anime" && !canUseAnimeTemplates();
+    button.hidden = disabled;
     const active = state.tab === DEFAULT_PLATFORM_TAB && mode === normalizeGalleryMode(state.galleryMode);
     button.classList.toggle("is-active", active);
     const countEl = button.querySelector("[data-gallery-shortcut-count]");
     if (countEl) {
-      countEl.textContent = isPlayfluxGalleryMode(mode) ? String(PLAYFLUX_TEMPLATES.filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
+      countEl.textContent = !disabled && isPlayfluxGalleryMode(mode) ? String(PLAYFLUX_TEMPLATES.filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
     }
   });
 }
@@ -3171,6 +3540,7 @@ function normalizeAdvancedCaseTab(value = "") {
 
 function normalizeGalleryMode(value = "") {
   const raw = String(value || "").trim().toLowerCase();
+  if (raw === "playflux-anime" && !canUseAnimeTemplates()) return DEFAULT_GALLERY_MODE;
   return GALLERY_MODE_TABS.some((tab) => tab.id === raw) ? raw : DEFAULT_GALLERY_MODE;
 }
 

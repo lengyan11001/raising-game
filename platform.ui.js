@@ -413,6 +413,7 @@ function applyStaticTranslations() {
 function applyTenantFeatures() {
   const assetEnabled = tenantFeature("assetLibrary", true);
   const workflowEnabled = isWorkflowTester();
+  const animeEnabled = canUseAnimeTemplates();
   const accountMenuEnabled = true;
   document.querySelectorAll(".tenant-menu-only").forEach((element) => {
     element.hidden = !accountMenuEnabled;
@@ -428,6 +429,9 @@ function applyTenantFeatures() {
   });
   document.querySelectorAll("[data-tab='workflow']").forEach((element) => {
     element.hidden = !workflowEnabled;
+  });
+  document.querySelectorAll("[data-gallery-shortcut='playflux-anime']").forEach((element) => {
+    element.hidden = !animeEnabled;
   });
 }
 
@@ -446,7 +450,7 @@ function applyLanguage() {
   renderAccessGuides();
   renderAdvanced();
   renderAssets();
-  if (state.tab === "characters") renderGalleryCharacters(els.characterGrid);
+  if (state.tab === "characters") renderCharactersPanel({ forceCreator: true });
   renderAccountMenu();
   renderTopupSummary();
   renderPricing();
@@ -519,6 +523,8 @@ function setUser(user, { refreshHistory = false } = {}) {
     else renderReferral();
   }
   if (state.tab === "characters") {
+    renderCharactersPanel();
+    if (state.user) loadMyCharacters({ silent: true }).catch(() => {});
     loadUserAssets(state.userAssetsPage || 1).catch(() => {});
     if (state.activeGalleryCharacterId) loadGalleryUnlocks();
   }
@@ -944,6 +950,98 @@ function generationImageResultUrl(record) {
 
 function generationPosterUrl(record) {
   return record?.cdnPosterUrl || record?.posterUrl || record?.localPosterUrl || generationImageResultUrl(record) || "";
+}
+
+function generationRecordDownloadHref(record = {}) {
+  const cdnUrl = record?.cdnVideoUrl || record?.cdnImageUrl || "";
+  const mediaUrl = cdnUrl || generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl || "";
+  if (mediaUrl) return mediaUrl;
+  const taskId = String(record?.taskId || "").trim();
+  return taskId && !taskId.startsWith("pending-")
+    ? `/api/generation-records/${encodeURIComponent(taskId)}/download`
+    : "";
+}
+
+function generationRecordDownloadName(record = {}) {
+  const taskId = String(record?.taskId || "generation").replace(/[^a-z0-9_-]/gi, "_") || "generation";
+  const resultUrl = generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl || "";
+  const cleanPath = String(resultUrl || "").split("?")[0].toLowerCase();
+  const match = cleanPath.match(/\.(mp4|webm|mov|m4v|png|jpe?g|webp|bmp)$/i);
+  return `${taskId}${match ? match[0] : (generationVideoUrl(record) ? ".mp4" : ".png")}`;
+}
+
+function canDownloadGenerationRecord(record = {}) {
+  return Boolean(generationRecordDownloadHref(record) && (generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl));
+}
+
+function triggerBrowserDownload(href, fileName, options = {}) {
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = fileName;
+  link.rel = "noopener";
+  if (options.newTab) link.target = "_blank";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function generationRecordDownloadFetchHref(href = "") {
+  const value = String(href || "");
+  if (!/^https:\/\/media\.123vips\.com\//i.test(value)) return value;
+  try {
+    const url = new URL(value);
+    url.searchParams.set("download", "1");
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+async function saveDownloadFromFetch(href = "", fileName = "generation") {
+  const headers = {};
+  if (state.token && href.startsWith("/api/")) headers.authorization = `Bearer ${state.token}`;
+  const fetchHref = generationRecordDownloadFetchHref(href);
+  const response = await fetch(fetchHref, {
+    headers,
+    credentials: fetchHref.startsWith("/") ? "same-origin" : "omit",
+  });
+  if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  triggerBrowserDownload(objectUrl, fileName);
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+}
+
+async function downloadGenerationRecord(record = {}) {
+  let href = generationRecordDownloadHref(record);
+  if (!href) return;
+  let fileName = generationRecordDownloadName(record);
+  const taskId = String(record?.taskId || "").trim();
+  const legacyHref = taskId && !taskId.startsWith("pending-")
+    ? `/api/generation-records/${encodeURIComponent(taskId)}/download`
+    : "";
+  if (taskId && !taskId.startsWith("pending-")) {
+    try {
+      const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url`);
+      if (payload.url) {
+        href = payload.url;
+        fileName = payload.fileName || fileName;
+      }
+    } catch {
+      // Fall through to the public URL or legacy download endpoint.
+    }
+  }
+  try {
+    await saveDownloadFromFetch(href, fileName);
+  } catch {
+    if (legacyHref && legacyHref !== href) {
+      try {
+        await saveDownloadFromFetch(legacyHref, fileName);
+      } catch {
+        // Keep the click on the current page; do not open a preview tab.
+      }
+    }
+  }
 }
 
 function stripModelParams(value) {
@@ -1384,7 +1482,7 @@ function currentAdvancedResolution() {
 }
 
 function advancedVideoSettingsVisible() {
-  return state.advancedCreateKind === "video";
+  return state.advancedCreateKind === "video" && !advancedCreateModeIsSimpleEdit();
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
@@ -1633,7 +1731,7 @@ function advancedPresetReferenceImage(slot = "", item = selectedAdvancedPreset(s
 }
 
 function advancedPresetReferenceImages() {
-  return ADVANCED_PRESET_SLOT_ORDER
+  return advancedCreateModeActivePresetSlots()
     .map((slot) => advancedPresetReferenceImage(slot))
     .filter(Boolean)
     .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
@@ -1705,7 +1803,8 @@ function advancedPresetImageRolePrompt() {
 
 function renderAdvancedPresetBuilder() {
   if (!els.advancedPresetBuilder) return;
-  const hidden = state.advancedCreateKind === "custom";
+  const slots = advancedCreateModeActivePresetSlots();
+  const hidden = state.advancedCreateKind === "custom" || !slots.length;
   els.advancedPresetBuilder.hidden = hidden;
   if (hidden) {
     els.advancedPresetBuilder.innerHTML = "";
@@ -1715,7 +1814,7 @@ function renderAdvancedPresetBuilder() {
     els.advancedPresetBuilder.innerHTML = `<div class="advanced-preset-status">${escapeHtml(t("advancedPreset.loading"))}</div>`;
     return;
   }
-  els.advancedPresetBuilder.innerHTML = ADVANCED_PRESET_SLOT_ORDER.map((slot) => {
+  els.advancedPresetBuilder.innerHTML = slots.map((slot) => {
     const meta = advancedPresetMeta(slot);
     const selected = selectedAdvancedPreset(slot);
     const image = presetImageUrl(selected || {});
@@ -1928,20 +2027,19 @@ function applyAdvancedCharacterPreset(preset = {}) {
 }
 
 function advancedPresetPromptParts() {
-  const character = selectedAdvancedPreset("character");
-  const action = selectedAdvancedPreset("action");
-  const outfit = selectedAdvancedPreset("outfit");
-  const scene = selectedAdvancedPreset("scene");
   const parts = [advancedPresetImageRolePrompt()];
-  if (character) parts.push(`Character: ${character.label}. ${presetPromptText(character)}`);
-  if (action) parts.push(`Action: ${presetPromptText(action)}`);
-  if (outfit) parts.push(`Outfit: ${presetPromptText(outfit)}`);
-  if (scene) parts.push(`Scene: ${presetPromptText(scene)}`);
+  advancedCreateModeActivePresetSlots().forEach((slot) => {
+    const item = selectedAdvancedPreset(slot);
+    if (!item) return;
+    const label = advancedPresetLabel(slot);
+    const prompt = presetPromptText(item);
+    parts.push(`${label}: ${slot === "character" ? `${item.label}. ` : ""}${prompt}`);
+  });
   return parts.map((part) => part.trim()).filter(Boolean);
 }
 
 function advancedPresetSelectionPayload() {
-  return Object.fromEntries(ADVANCED_PRESET_SLOT_ORDER.map((slot) => {
+  return Object.fromEntries(advancedCreateModeActivePresetSlots().map((slot) => {
     const item = selectedAdvancedPreset(slot);
     return [slot, item ? {
       id: item.id,
@@ -2011,8 +2109,8 @@ function advancedEffectivePrompt(basePrompt = "") {
 function nonCustomAdvancedNeedsCharacterImage() {
   if (state.advancedCreateKind === "custom") return false;
   const provider = currentAdvancedProvider();
-  if (provider === "wan27-image-edit") return state.advancedCreateMode === "image-edit";
-  return provider === "seedance" && ["video-text", "video-image"].includes(state.advancedCreateMode);
+  if (provider === "wan27-image-edit") return false;
+  return provider === "seedance" && advancedCreateModeActivePresetSlots().includes("character");
 }
 
 function hasAdvancedCharacterImage() {
@@ -2101,6 +2199,7 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
     els.advancedWorkspace.classList.toggle("is-create-video", kind === "video");
     els.advancedWorkspace.classList.toggle("is-create-custom-kind", kind === "custom");
     els.advancedWorkspace.classList.toggle("is-create-auto-prompt", !custom && advancedCreateModeUsesAutoPrompt(config.id));
+    els.advancedWorkspace.classList.toggle("is-create-simple-edit", !custom && advancedCreateModeIsSimpleEdit(config.id));
     Object.values(ADVANCED_CREATE_MODES).flat().forEach((mode) => {
       els.advancedWorkspace.classList.toggle(`is-create-${mode.id}`, mode.id === config.id);
     });
@@ -2135,7 +2234,7 @@ function applyAdvancedCreateMode({ clearMedia = false } = {}) {
   }
   if (els.advancedImage) {
     els.advancedImage.accept = advancedCreateUploadAcceptValue(config.id);
-    els.advancedImage.multiple = !advancedCreateUploadIsVideo(config.id) && !advancedCreateModeNeedsReplacePair(config.id);
+    els.advancedImage.multiple = !advancedCreateUploadIsVideo(config.id) && !advancedCreateModeUsesSingleUpload(config.id);
   }
   renderAdvancedPresetBuilder();
 }
