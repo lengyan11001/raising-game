@@ -997,39 +997,50 @@ function generationRecordDownloadFetchHref(href = "") {
   }
 }
 
+async function saveDownloadFromFetch(href = "", fileName = "generation") {
+  const headers = {};
+  if (state.token && href.startsWith("/api/")) headers.authorization = `Bearer ${state.token}`;
+  const fetchHref = generationRecordDownloadFetchHref(href);
+  const response = await fetch(fetchHref, {
+    headers,
+    credentials: fetchHref.startsWith("/") ? "same-origin" : "omit",
+  });
+  if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  triggerBrowserDownload(objectUrl, fileName);
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+}
+
 async function downloadGenerationRecord(record = {}) {
   let href = generationRecordDownloadHref(record);
   if (!href) return;
   let fileName = generationRecordDownloadName(record);
   const taskId = String(record?.taskId || "").trim();
+  const legacyHref = taskId && !taskId.startsWith("pending-")
+    ? `/api/generation-records/${encodeURIComponent(taskId)}/download`
+    : "";
   if (taskId && !taskId.startsWith("pending-")) {
     try {
       const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/download-url`);
       if (payload.url) {
         href = payload.url;
         fileName = payload.fileName || fileName;
-        triggerBrowserDownload(href, fileName);
-        return;
       }
     } catch {
       // Fall through to the public URL or legacy download endpoint.
     }
   }
   try {
-    const headers = {};
-    if (state.token && href.startsWith("/api/")) headers.authorization = `Bearer ${state.token}`;
-    const fetchHref = generationRecordDownloadFetchHref(href);
-    const response = await fetch(fetchHref, {
-      headers,
-      credentials: fetchHref.startsWith("/") ? "same-origin" : "omit",
-    });
-    if (!response.ok) throw new Error(`Download failed: ${response.status}`);
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    triggerBrowserDownload(objectUrl, fileName);
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+    await saveDownloadFromFetch(href, fileName);
   } catch {
-    triggerBrowserDownload(href, fileName, { newTab: /^https?:\/\//i.test(href) });
+    if (legacyHref && legacyHref !== href) {
+      try {
+        await saveDownloadFromFetch(legacyHref, fileName);
+      } catch {
+        // Keep the click on the current page; do not open a preview tab.
+      }
+    }
   }
 }
 
