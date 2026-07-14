@@ -953,11 +953,13 @@ function generationPosterUrl(record) {
 }
 
 function generationRecordDownloadHref(record = {}) {
+  const cdnUrl = record?.cdnVideoUrl || record?.cdnImageUrl || "";
+  const mediaUrl = cdnUrl || generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl || "";
+  if (mediaUrl) return mediaUrl;
   const taskId = String(record?.taskId || "").trim();
-  if (taskId && !taskId.startsWith("pending-")) {
-    return `/api/generation-records/${encodeURIComponent(taskId)}/download`;
-  }
-  return record?.downloadUrl || generationVideoUrl(record) || generationImageResultUrl(record) || "";
+  return taskId && !taskId.startsWith("pending-")
+    ? `/api/generation-records/${encodeURIComponent(taskId)}/download`
+    : "";
 }
 
 function generationRecordDownloadName(record = {}) {
@@ -979,6 +981,7 @@ function downloadGenerationRecord(record = {}) {
   link.href = href;
   link.download = generationRecordDownloadName(record);
   link.rel = "noopener";
+  if (/^https?:\/\//i.test(href)) link.target = "_blank";
   document.body.appendChild(link);
   link.click();
   link.remove();

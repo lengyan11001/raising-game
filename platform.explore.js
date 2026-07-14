@@ -3223,7 +3223,7 @@ function historyDetailPayload(record = {}) {
     billing: record.billing || null,
     error: record.error || "",
     poster: generationPosterUrl(record) || "",
-    result: generationVideoUrl(record) || "",
+    result: generationVideoUrl(record) || generationImageResultUrl(record) || "",
     createdAt: record.createdAt || "",
     updatedAt: record.updatedAt || "",
   };

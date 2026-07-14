@@ -12166,6 +12166,7 @@ function publicGenerationRecord(record = {}, options = {}) {
   const providerOnlyImageUrl = options.providerOnlyImageUrl === true;
   const publicImageUrl = providerOnlyImageUrl ? providerImageUrl : generationRecordImageUrl(record);
   const includeStoredImageUrls = options.includeStoredImageUrls !== false;
+  const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
   const publicRecord = {
     taskId: String(record.taskId || ""),
     upstreamTaskId: String(record.upstreamTaskId || ""),
@@ -12202,7 +12203,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     duration: record.duration || "",
     quality: String(record.quality || ""),
     videoUrl: publicVideoUrl,
-    downloadUrl: providerOnlyVideoUrl ? providerVideoUrl : (providerVideoUrl || publicVideoUrl),
+    downloadUrl: publicDownloadUrl,
     providerVideoUrl,
     upstreamVideoUrl: providerVideoUrl,
     remoteVideoUrl: String(record.remoteVideoUrl || ""),
