@@ -50,6 +50,8 @@ const dryRun = process.argv.includes("--dry-run");
 const uploadAllAssets = process.argv.includes("--all-assets");
 const limitArg = process.argv.find((arg) => arg.startsWith("--limit="));
 const maxUploads = limitArg ? Math.max(0, Number(limitArg.split("=")[1]) || 0) : 0;
+const concurrencyArg = process.argv.find((arg) => arg.startsWith("--concurrency="));
+const uploadConcurrency = Math.max(1, Math.min(32, concurrencyArg ? Number(concurrencyArg.split("=")[1]) || 8 : 8));
 const uploadCache = new Map();
 let uploadCount = 0;
 
@@ -152,7 +154,17 @@ function makeR2Auth({ method, key, body, contentType }) {
   };
 }
 
-async function uploadLocalAsset(localUrl = "") {
+async function remoteObjectExists(publicUrl = "") {
+  if (!publicUrl || dryRun) return false;
+  try {
+    const response = await fetch(publicUrl, { method: "HEAD" });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function uploadLocalAsset(localUrl = "", options = {}) {
   const cleanUrl = String(localUrl || "").split("?")[0];
   if (!cleanUrl.startsWith("/assets/")) return "";
   if (uploadCache.has(cleanUrl)) return uploadCache.get(cleanUrl);
@@ -169,6 +181,11 @@ async function uploadLocalAsset(localUrl = "") {
   }
 
   const publicUrl = publicUrlForKey(key);
+  if (options.skipExisting && await remoteObjectExists(publicUrl)) {
+    uploadCache.set(cleanUrl, publicUrl);
+    console.log(`[exists] ${cleanUrl} -> ${publicUrl}`);
+    return publicUrl;
+  }
   if (!dryRun) {
     const bytes = await fs.readFile(filePath);
     const mime = mimeTypes.get(path.extname(filePath).toLowerCase()) || "application/octet-stream";
@@ -323,19 +340,25 @@ async function walkFiles(dirPath) {
       out.push(fullPath);
     }
   }
-  return out;
+  return out.sort();
 }
 
 async function uploadAllStaticAssets() {
   const assetsRoot = path.join(ROOT, "assets");
   const files = await walkFiles(assetsRoot);
   let changedCount = 0;
-  for (const filePath of files) {
-    const relative = path.relative(ROOT, filePath).split(path.sep).join("/");
-    if (!relative.startsWith("assets/")) continue;
-    const publicUrl = await uploadLocalAsset(`/${relative}`);
-    if (publicUrl) changedCount += 1;
-  }
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(uploadConcurrency, Math.max(files.length, 1)) }, async () => {
+    while (cursor < files.length) {
+      const filePath = files[cursor];
+      cursor += 1;
+      const relative = path.relative(ROOT, filePath).split(path.sep).join("/");
+      if (!relative.startsWith("assets/")) continue;
+      const publicUrl = await uploadLocalAsset(`/${relative}`, { skipExisting: true });
+      if (publicUrl) changedCount += 1;
+    }
+  });
+  await Promise.all(workers);
   return changedCount;
 }
 
