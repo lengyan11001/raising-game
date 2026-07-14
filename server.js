@@ -951,6 +951,9 @@ function publicUrlForAssetPath(localUrl = "") {
   const value = String(localUrl || "").trim();
   if (!value) return "";
   if (isPublicHttpUrl(value)) return value;
+  if (value.startsWith("/assets/") && !DISABLE_R2_STORAGE && R2.publicDomain) {
+    return `${String(R2.publicDomain || "").replace(/\/+$/, "")}/${value.replace(/^\/+/, "")}`;
+  }
   const baseUrl = configuredPublicBaseUrl();
   if (!baseUrl) return "";
   return `${baseUrl}/${value.replace(/^\/+/, "")}`;
@@ -23477,6 +23480,14 @@ async function serveStatic(req, res, url) {
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (await isProtectedUnlockAssetPath(pathname)) {
     return sendText(res, 403, "Unlock required");
+  }
+  if ((req.method === "GET" || req.method === "HEAD") && pathname.startsWith("/assets/") && !DISABLE_R2_STORAGE && R2.publicDomain) {
+    const target = `${String(R2.publicDomain || "").replace(/\/+$/, "")}${pathname}${url.search || ""}`;
+    res.writeHead(302, {
+      location: target,
+      "cache-control": "public, max-age=300",
+    });
+    return res.end();
   }
   const filePath = path.normalize(path.join(ROOT, pathname));
 

@@ -2534,10 +2534,12 @@ function videoPosterCandidates(videoUrl = "") {
 function characterPosterUrl(item = {}) {
   const mainVideo = characterMainVideoUrl(item);
   const imageCandidates = [
+    item.cdnImageUrl,
+    item.cdnPosterUrl,
+    item.publicImageUrl,
     item.localImageUrl,
     item.posterUrl,
     item.syntheticReferenceLocalUrl,
-    item.publicImageUrl,
     item.imageUrl,
     item.coverUrl,
     item.thumbnailUrl,
@@ -2558,6 +2560,9 @@ function characterPosterUrl(item = {}) {
 
 function characterListPosterUrl(item = {}) {
   const candidates = [
+    item.cdnPosterUrl,
+    item.cdnImageUrl,
+    item.publicImageUrl,
     item.thumbnailUrl,
     item.thumbUrl,
     item.listPosterUrl,
@@ -2573,11 +2578,14 @@ function characterReferenceImageUrl(item = {}) {
 
 function characterMainVideoUrl(item = {}) {
   const candidates = [
+    item.cdnVideoUrl,
     item.videoUrl,
     item.localVideoUrl,
     item.remoteVideoUrl,
-    item.homeSceneVideos && Object.values(item.homeSceneVideos).find((entry) => entry?.videoUrl)?.videoUrl,
-    item.sceneVideos && Object.values(item.sceneVideos).find((entry) => entry?.videoUrl)?.videoUrl,
+    item.homeSceneVideos && Object.values(item.homeSceneVideos).find((entry) => entry?.cdnVideoUrl || entry?.videoUrl)?.cdnVideoUrl,
+    item.homeSceneVideos && Object.values(item.homeSceneVideos).find((entry) => entry?.cdnVideoUrl || entry?.videoUrl)?.videoUrl,
+    item.sceneVideos && Object.values(item.sceneVideos).find((entry) => entry?.cdnVideoUrl || entry?.videoUrl)?.cdnVideoUrl,
+    item.sceneVideos && Object.values(item.sceneVideos).find((entry) => entry?.cdnVideoUrl || entry?.videoUrl)?.videoUrl,
   ];
   return candidates.map((value) => String(value || "").trim()).find(Boolean) || "";
 }
@@ -2653,8 +2661,10 @@ function characterVideoTitle(video = {}, fallback = "") {
 }
 
 function characterVideoPoster(video = {}, character = {}) {
-  const videoUrl = video.videoUrl || video.localVideoUrl || video.remoteVideoUrl || "";
+  const videoUrl = video.cdnVideoUrl || video.videoUrl || video.localVideoUrl || video.remoteVideoUrl || "";
   const candidates = [
+    video.cdnPosterUrl,
+    video.cdnCoverUrl,
     video.outputPosterUrl,
     video.resultPosterUrl,
     video.localPosterUrl,

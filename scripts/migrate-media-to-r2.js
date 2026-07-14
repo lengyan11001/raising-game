@@ -47,6 +47,7 @@ const R2 = {
 };
 
 const dryRun = process.argv.includes("--dry-run");
+const uploadAllAssets = process.argv.includes("--all-assets");
 const limitArg = process.argv.find((arg) => arg.startsWith("--limit="));
 const maxUploads = limitArg ? Math.max(0, Number(limitArg.split("=")[1]) || 0) : 0;
 const uploadCache = new Map();
@@ -306,6 +307,38 @@ async function migrateDbPayloadTable(table, idColumn = "id") {
   return changedCount;
 }
 
+async function walkFiles(dirPath) {
+  const out = [];
+  let entries = [];
+  try {
+    entries = await fs.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...await walkFiles(fullPath));
+    } else if (entry.isFile()) {
+      out.push(fullPath);
+    }
+  }
+  return out;
+}
+
+async function uploadAllStaticAssets() {
+  const assetsRoot = path.join(ROOT, "assets");
+  const files = await walkFiles(assetsRoot);
+  let changedCount = 0;
+  for (const filePath of files) {
+    const relative = path.relative(ROOT, filePath).split(path.sep).join("/");
+    if (!relative.startsWith("assets/")) continue;
+    const publicUrl = await uploadLocalAsset(`/${relative}`);
+    if (publicUrl) changedCount += 1;
+  }
+  return changedCount;
+}
+
 async function main() {
   required("R2_ACCESS_KEY_ID", R2.accessKey);
   required("R2_SECRET_ACCESS_KEY", R2.secretKey);
@@ -313,8 +346,9 @@ async function main() {
   required("R2_BUCKET", R2.bucket);
   required("R2_PUBLIC_BASE_URL", R2.publicDomain);
 
-  const summary = { appConfig: 0, characterAssets: 0, appDb: 0, userAssets: 0, userCharacters: 0, adminHomeItems: 0, generationRecords: 0, uploads: 0 };
+  const summary = { appConfig: 0, characterAssets: 0, appDb: 0, userAssets: 0, userCharacters: 0, adminHomeItems: 0, generationRecords: 0, staticAssets: 0, uploads: 0 };
   if (dbEnabled()) await ensureSchema();
+  if (uploadAllAssets) summary.staticAssets = await uploadAllStaticAssets();
   summary.appConfig = await migrateAppConfig();
   summary.characterAssets = await migrateCharacterAssetsKv();
   if (dbEnabled()) {
