@@ -9,7 +9,6 @@ const { Readable } = require("node:stream");
 const { URL } = require("node:url");
 const {
   dbEnabled,
-  migrateFileDataToDb,
   migrateGenerationRecordsKvToTable,
   readAppDbFromTables,
   replaceAppDbTables,
@@ -92,9 +91,6 @@ const TELEGRAM_SUPPORT_WEBHOOK_SECRET = String(process.env.TELEGRAM_SUPPORT_WEBH
 const VIPEAK_X_URL = "https://x.com/VipeakAI";
 const VIPEAK_TELEGRAM_CHANNEL_URL = "https://t.me/VipeakAILab";
 const VIPEAK_TELEGRAM_SUPPORT_URL = "https://t.me/VipeakSupportBot";
-const GENERATION_RECORDS_PATH = path.join(ROOT, "data", "generation-records.json");
-const APP_DB_PATH = path.join(ROOT, "data", "app-db.json");
-const APP_CONFIG_PATH = path.join(ROOT, "data", "app-config.json");
 const CHARACTER_UNLOCK_COST_CREDITS = 750;
 const PUBLIC_CHARACTER_PAGE_SIZE = 20;
 const REFERRAL_REWARD_CREDITS = 750;
@@ -648,6 +644,7 @@ const DEFAULT_CONFIG = {
       },
     ],
   },
+  playfluxTemplates: [],
   homeVideo: {
     provider: "seedance",
     posterUrl: "/assets/admin/home/default-hero.jpg",
@@ -1036,26 +1033,8 @@ function isTenantPublicOrigin(origin = "") {
   }
 }
 
-async function readJsonFile(filePath, fallback) {
-  try {
-    const data = await fs.readFile(filePath, "utf8");
-    const parsed = JSON.parse(data.replace(/^\uFEFF/, ""));
-    if (Array.isArray(fallback)) return Array.isArray(parsed) ? parsed : fallback;
-    return parsed && typeof parsed === "object" ? parsed : fallback;
-  } catch {
-    return structuredClone(fallback);
-  }
-}
-
-async function writeJsonFile(filePath, payload) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`);
-}
-
 async function readDb() {
-  const db = dbEnabled()
-    ? (await readAppDbFromTables(DEFAULT_DB) || DEFAULT_DB)
-    : await getKv("app_db", DEFAULT_DB);
+  const db = (await readAppDbFromTables(DEFAULT_DB)) || DEFAULT_DB;
   return {
     users: Array.isArray(db.users) ? db.users : [],
     sessions: Array.isArray(db.sessions) ? db.sessions : [],
@@ -1074,26 +1053,21 @@ function isSoftDeleted(record) {
 }
 
 async function writeDb(db) {
-  return withAppStateWriteLock(() => (
-    dbEnabled() ? replaceAppDbTables(db) : setKv("app_db", db)
-  ));
+  return withAppStateWriteLock(() => replaceAppDbTables(db));
 }
 
 async function readAdminHomeItemsStore() {
-  if (!dbEnabled()) return [];
   return (await listAdminHomeItemsFromDb()) || [];
 }
 
 async function replaceAdminHomeItemsStore(items = []) {
   const normalized = (Array.isArray(items) ? items : []).filter((item) => item && String(item.id || "").trim());
-  if (!dbEnabled()) return normalized;
   await replaceAdminHomeItemsInDb(normalized);
   return normalized;
 }
 
 async function upsertAdminHomeItemStore(item = {}) {
   if (!item?.id) return null;
-  if (!dbEnabled()) return null;
   return await upsertAdminHomeItemInDb(item);
 }
 
@@ -1101,7 +1075,6 @@ async function softDeleteAdminHomeItemStore(itemId = "") {
   const id = String(itemId || "").trim();
   if (!id) return null;
   const nowIso = new Date().toISOString();
-  if (!dbEnabled()) return null;
   return await softDeleteAdminHomeItemInDb(id, nowIso);
 }
 
@@ -1404,6 +1377,7 @@ function publicConfig(config, origin = "", auth = null) {
       topupPackages: publicTopupPackages(),
     },
     video: config.video,
+    playfluxTemplates: Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [],
     homeVideo: {
       provider: homeVideo.provider || "seedance",
       posterUrl: homeVideo.posterUrl || "",
@@ -24503,15 +24477,12 @@ function startActiveGenerationRecordScheduler() {
 }
 
 async function bootstrap() {
-  if (dbEnabled()) {
-    await migrateFileDataToDb({
-      defaultDb: DEFAULT_DB,
-      defaultConfig: DEFAULT_CONFIG,
-    });
-    const generationRecordMigration = await migrateGenerationRecordsKvToTable();
-    if (generationRecordMigration?.migrated) {
-      console.log(`Generation records migrated to table: ${generationRecordMigration.migrated}`);
-    }
+  if (!dbEnabled()) {
+    throw new Error("DATABASE_URL is required. Runtime data must be stored in PostgreSQL, not JSON files.");
+  }
+  const generationRecordMigration = await migrateGenerationRecordsKvToTable();
+  if (generationRecordMigration?.migrated) {
+    console.log(`Generation records migrated to table: ${generationRecordMigration.migrated}`);
   }
   const apiTokensMigrated = await ensureAllUsersApiTokens();
   if (apiTokensMigrated) {

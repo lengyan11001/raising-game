@@ -261,19 +261,6 @@ async function patchMediaObject(obj) {
   return changed;
 }
 
-async function readJson(filePath, fallback) {
-  try {
-    return JSON.parse(await fs.readFile(filePath, "utf8"));
-  } catch {
-    return fallback;
-  }
-}
-
-async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
-}
-
 async function migrateAppConfig() {
   const config = await getKv("app_config", {});
   const changed = await patchMediaObject(config);
@@ -286,25 +273,6 @@ async function migrateCharacterAssetsKv() {
   const changed = await patchMediaObject(assets);
   if (changed && !dryRun) await setKv("character_assets", assets);
   return changed ? 1 : 0;
-}
-
-async function migrateJsonAppDb() {
-  const filePath = path.join(ROOT, "data", "app-db.json");
-  const db = await readJson(filePath, {});
-  const changed = await patchMediaObject(db);
-  if (changed && !dryRun) await writeJson(filePath, db);
-  return changed ? 1 : 0;
-}
-
-async function migrateJsonGenerationRecords() {
-  const filePath = path.join(ROOT, "data", "generation-records.json");
-  const records = await readJson(filePath, []);
-  let changedCount = 0;
-  for (const record of Array.isArray(records) ? records : []) {
-    if (await patchMediaObject(record)) changedCount += 1;
-  }
-  if (changedCount && !dryRun) await writeJson(filePath, records);
-  return changedCount;
 }
 
 async function migrateDbPayloadTable(table, idColumn = "id") {
@@ -368,21 +336,17 @@ async function main() {
   required("R2_ENDPOINT", R2.endpoint);
   required("R2_BUCKET", R2.bucket);
   required("R2_PUBLIC_BASE_URL", R2.publicDomain);
+  if (!dbEnabled()) throw new Error("DATABASE_URL is required. Media URL migration updates database records only.");
 
-  const summary = { appConfig: 0, characterAssets: 0, appDb: 0, userAssets: 0, userCharacters: 0, adminHomeItems: 0, generationRecords: 0, staticAssets: 0, uploads: 0 };
-  if (dbEnabled()) await ensureSchema();
+  const summary = { appConfig: 0, characterAssets: 0, userAssets: 0, userCharacters: 0, adminHomeItems: 0, generationRecords: 0, staticAssets: 0, uploads: 0 };
+  await ensureSchema();
   if (uploadAllAssets) summary.staticAssets = await uploadAllStaticAssets();
   summary.appConfig = await migrateAppConfig();
   summary.characterAssets = await migrateCharacterAssetsKv();
-  if (dbEnabled()) {
-    summary.userAssets = await migrateDbPayloadTable("app_user_assets");
-    summary.userCharacters = await migrateDbPayloadTable("app_user_characters");
-    summary.adminHomeItems = await migrateDbPayloadTable("app_admin_home_items");
-    summary.generationRecords = await migrateDbPayloadTable("app_generation_records", "task_id");
-  } else {
-    summary.appDb = await migrateJsonAppDb();
-    summary.generationRecords = await migrateJsonGenerationRecords();
-  }
+  summary.userAssets = await migrateDbPayloadTable("app_user_assets");
+  summary.userCharacters = await migrateDbPayloadTable("app_user_characters");
+  summary.adminHomeItems = await migrateDbPayloadTable("app_admin_home_items");
+  summary.generationRecords = await migrateDbPayloadTable("app_generation_records", "task_id");
   summary.uploads = uploadCount;
   console.log(JSON.stringify(summary, null, 2));
 }

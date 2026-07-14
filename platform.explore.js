@@ -414,14 +414,19 @@ function playfluxTemplateTabMeta(tab = playfluxTabFromGalleryMode()) {
   return PLAYFLUX_TEMPLATE_TABS.find((item) => item.id === tab) || PLAYFLUX_TEMPLATE_TABS[0];
 }
 
+function allPlayfluxTemplates() {
+  return (Array.isArray(state.playfluxTemplates) ? state.playfluxTemplates : [])
+    .filter((item) => item && item.id && item.tab);
+}
+
 function playfluxTemplateById(templateId = "") {
   const id = String(templateId || "");
-  return PLAYFLUX_TEMPLATES.find((item) => item.id === id) || null;
+  return allPlayfluxTemplates().find((item) => item.id === id) || null;
 }
 
 function playfluxTemplatesForActiveTab() {
   const activeTab = playfluxTemplateTabMeta().id;
-  return PLAYFLUX_TEMPLATES.filter((item) => item.tab === activeTab);
+  return allPlayfluxTemplates().filter((item) => item.tab === activeTab);
 }
 
 function renderPlayfluxTemplateGallery() {
@@ -3376,7 +3381,7 @@ function syncGalleryShortcutNav() {
     button.classList.toggle("is-active", active);
     const countEl = button.querySelector("[data-gallery-shortcut-count]");
     if (countEl) {
-      countEl.textContent = !disabled && isPlayfluxGalleryMode(mode) ? String(PLAYFLUX_TEMPLATES.filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
+      countEl.textContent = !disabled && isPlayfluxGalleryMode(mode) ? String(allPlayfluxTemplates().filter((item) => item.tab === playfluxTabFromGalleryMode(mode)).length) : "";
     }
   });
 }
