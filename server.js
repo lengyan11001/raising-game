@@ -959,6 +959,31 @@ function publicUrlForAssetPath(localUrl = "") {
   return `${baseUrl}/${value.replace(/^\/+/, "")}`;
 }
 
+function shouldKeepLocalAssetField(key = "") {
+  const name = String(key || "");
+  return /^local/i.test(name) || name === "syntheticReferenceLocalUrl" || /(?:Path|Key)$/i.test(name);
+}
+
+function publicAssetUrlsForClient(value, key = "") {
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (text.startsWith("/assets/") && !shouldKeepLocalAssetField(key)) {
+      return publicUrlForAssetPath(text) || value;
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => publicAssetUrlsForClient(item, key));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => [
+      entryKey,
+      publicAssetUrlsForClient(entryValue, entryKey),
+    ]));
+  }
+  return value;
+}
+
 function absoluteUrlFromBase(value = "", baseUrl = "") {
   const text = String(value || "").trim();
   if (!text || isPublicHttpUrl(text)) return text;
@@ -1326,7 +1351,7 @@ function publicConfig(config, origin = "", auth = null) {
   const normalizedAdvancedPricing = normalizeAdvancedPricing(publicPlatform.advancedPricing);
   const assetImageModifyPricing = normalizedAdvancedPricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
   publicPlatform.advancedPricing = publicAdvancedPricingView(normalizedAdvancedPricing);
-  return {
+  const view = {
     defaultCompanionId: config.defaultCompanionId,
     prices: { ...config.prices, unlockVideo: CHARACTER_UNLOCK_COST_CREDITS },
     tenantFeatures: {
@@ -1380,6 +1405,7 @@ function publicConfig(config, origin = "", auth = null) {
         return publicScene;
       }),
   };
+  return publicAssetUrlsForClient(view);
 }
 
 async function handlePublicCharacters(req, res, url) {
@@ -1396,11 +1422,11 @@ async function handlePublicCharacters(req, res, url) {
     q: url?.searchParams?.get("q") || "",
     characterId: url?.searchParams?.get("id") || url?.searchParams?.get("characterId") || "",
   });
-  return sendJson(res, 200, { ok: true, ...page });
+  return sendJson(res, 200, publicAssetUrlsForClient({ ok: true, ...page }));
 }
 
 function publicWorkflowPresetView(preset = {}) {
-  return {
+  return publicAssetUrlsForClient({
     id: String(preset.id || "").trim(),
     label: String(preset.label || preset.name || "").trim(),
     prompt: String(preset.prompt || preset.defaultPrompt || "").trim(),
@@ -1410,7 +1436,7 @@ function publicWorkflowPresetView(preset = {}) {
     source: String(preset.source || "").trim(),
     sourceId: String(preset.sourceId || "").trim(),
     sortOrder: Number(preset.sortOrder || 0) || 0,
-  };
+  });
 }
 
 async function handleWorkflowPresets(req, res) {
@@ -18387,7 +18413,7 @@ async function handleGameFeed(req, res) {
   const auth = await getAuth(req);
   const publicView = publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null);
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
-  const items = homeVideo.items.map((item) => publicGameHomeVideoItem(item, auth?.user ? auth : null));
+  const items = publicAssetUrlsForClient(homeVideo.items.map((item) => publicGameHomeVideoItem(item, auth?.user ? auth : null)));
   publicView.homeVideo.items = items;
   return sendJson(res, 200, {
     ok: true,
