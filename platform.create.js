@@ -45,6 +45,9 @@ function setAdvancedSideTab(tab = "assets", { silent = false, syncMobile = false
   });
   if (next === "result") {
     renderAdvancedResultPanel();
+    if (state.user && !state.advancedResultRecords?.length && !state.historyRecords?.length) {
+      loadHistory({ silent: true, page: 1 });
+    }
     const current = state.advancedResultRecords.find((record) => record.taskId === state.advancedResultTaskId);
     if (state.advancedResultTaskId && (!current || !isTerminalGenerationStatus(current.status))) {
       scheduleAdvancedResultRefresh({ delayMs: silent ? 1200 : 0, force: true });
@@ -324,9 +327,15 @@ function syncAdvancedResultTaskId() {
   return pendingTaskIds;
 }
 
+function advancedResultVisibleRecords() {
+  const current = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  if (current.length) return current;
+  return (Array.isArray(state.historyRecords) ? state.historyRecords : []).slice(0, 1);
+}
+
 function renderAdvancedResultPanel() {
   if (!els.advancedResultList) return;
-  const records = Array.isArray(state.advancedResultRecords) ? state.advancedResultRecords : [];
+  const records = advancedResultVisibleRecords();
   if (!records.length) {
     els.advancedResultList.innerHTML = `<div class="advanced-result-empty"><strong>No generation yet</strong><p>Click Generate to track progress here.</p></div>`;
     refreshIcons();
@@ -341,6 +350,7 @@ function renderAdvancedResultPanel() {
     const taskId = record.taskId || "";
     const visibleTaskId = String(taskId).startsWith("pending-") ? "" : taskId;
     const ratio = record.ratio || record.params?.ratio || "16:9";
+    const canDownload = canDownloadGenerationRecord(record);
     const media = videoUrl
       ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
       : imageUrl
@@ -353,6 +363,11 @@ function renderAdvancedResultPanel() {
           <strong>${escapeHtml(publicModelText(record.templateTitle || record.sceneName || record.model || "Generation"))}</strong>
           <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
           ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
+          ${canDownload ? `
+            <button class="history-download advanced-result-download" type="button" data-advanced-result-download="${escapeHtml(String(index))}">
+              <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+            </button>
+          ` : ""}
           <button class="history-download advanced-result-regenerate" type="button" data-advanced-result-regenerate="${escapeHtml(String(index))}">
             <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
           </button>
@@ -362,7 +377,7 @@ function renderAdvancedResultPanel() {
   }).join("");
   els.advancedResultList.querySelectorAll("[data-advanced-result-video]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = state.advancedResultRecords[Number(button.dataset.advancedResultVideo || 0)];
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultVideo || 0)];
       const videoUrl = isSucceededGenerationStatus(record?.status) ? generationVideoUrl(record) : "";
       if (!videoUrl) return;
       playPreview({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), previewUrl: videoUrl, ratio: record.ratio || "16:9" });
@@ -370,15 +385,21 @@ function renderAdvancedResultPanel() {
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-image]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = state.advancedResultRecords[Number(button.dataset.advancedResultImage || 0)];
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultImage || 0)];
       const imageUrl = isSucceededGenerationStatus(record?.status) ? generationImageResultUrl(record) : "";
       if (!imageUrl) return;
       previewImage({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), imageUrl });
     });
   });
+  els.advancedResultList.querySelectorAll("[data-advanced-result-download]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultDownload || 0)];
+      downloadGenerationRecord(record);
+    });
+  });
   els.advancedResultList.querySelectorAll("[data-advanced-result-regenerate]").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = state.advancedResultRecords[Number(button.dataset.advancedResultRegenerate || 0)];
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultRegenerate || 0)];
       button.disabled = true;
       button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.regenerating"))}`;
       refreshIcons();
@@ -2669,6 +2690,7 @@ function renderHistory(records = []) {
     const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio;
     const mediaStyle = ratioStyle(recordRatio);
     const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
+    const canDownload = canDownloadGenerationRecord(record);
     return `
       <article class="history-item is-${escapeHtml(statusClass(record.status))}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">
@@ -2688,6 +2710,11 @@ function renderHistory(records = []) {
               </button>
             ` : ""}
             ${taskId && (videoUrl || imageResultUrl) ? `
+              ${canDownload ? `
+                <button class="history-download history-download-file" type="button" data-history-download="${escapeHtml(String(index))}">
+                  <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+                </button>
+              ` : ""}
               <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
                 <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
               </button>
@@ -2764,6 +2791,12 @@ function renderHistory(records = []) {
   });
   els.historyList.querySelectorAll("[data-history-add-asset]").forEach((button) => {
     button.addEventListener("click", () => addHistoryRecordToAssets(button.dataset.historyAddAsset || "", button));
+  });
+  els.historyList.querySelectorAll("[data-history-download]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = sortedRecords[Number(button.dataset.historyDownload || 0)];
+      downloadGenerationRecord(record);
+    });
   });
   els.historyList.querySelectorAll("[data-history-replace]").forEach((button) => {
     button.addEventListener("click", () => openHistoryRecordAssetAction(button.dataset.historyReplace || "", "replace", button));
@@ -3027,11 +3060,15 @@ async function loadHistory({ silent = false, refresh = false, page = state.histo
     state.historyRecordsLimit = payload.limit || state.historyRecordsLimit || 8;
     state.historyRecordsTotal = payload.total || records.length;
     state.historyRecordsTotalPages = payload.totalPages || 1;
+    state.historyRecords = records;
     const nextSignature = generationRecordsSignature(records);
     if (!silent || nextSignature !== historyRecordsSignature) {
       renderHistory(records);
       historyRecordsSignature = nextSignature;
       els.historyList.scrollTop = previousScrollTop;
+    }
+    if (state.tab === "advanced" && state.advancedSideTab === "result" && !state.advancedResultRecords?.length) {
+      renderAdvancedResultPanel();
     }
     refreshPendingHistoryRecords(records);
     if (records.some(isRecentPendingGenerationRecord)) scheduleHistoryRefresh();

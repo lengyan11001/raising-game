@@ -3243,9 +3243,11 @@ function openHistoryDetail(index) {
   if (!record || !els.historyDetailDialog || !els.historyDetailBody) return;
   const title = publicModelText(record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle"));
   const videoUrl = generationVideoUrl(record);
+  const imageResultUrl = generationImageResultUrl(record);
   const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
   const images = recordImageAssets(record);
   const videos = recordVideoAssets(record);
+  const canDownload = canDownloadGenerationRecord(record);
   els.historyDetailTitle.textContent = title || t("history.detailTitle");
   els.historyDetailBody.innerHTML = `
     <section class="history-detail-section">
@@ -3275,12 +3277,29 @@ function openHistoryDetail(index) {
       <pre>${escapeHtml(JSON.stringify(historyDetailPayload(record), null, 2))}</pre>
     </section>
     <section class="history-detail-section">
-      <header><strong>${escapeHtml(t("history.result"))}</strong></header>
+      <header>
+        <strong>${escapeHtml(t("history.result"))}</strong>
+        ${canDownload ? `
+          <button class="history-download history-detail-download" type="button" data-history-detail-download>
+            <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+          </button>
+        ` : ""}
+      </header>
       ${videoUrl ? `
         <video src="${escapeHtml(videoUrl)}" ${generationPosterUrl(record) ? `poster="${escapeHtml(generationPosterUrl(record))}"` : ""} controls playsinline preload="metadata" style="${escapeHtml(ratioStyle(recordRatio))}"></video>
+      ` : imageResultUrl ? `
+        <div class="history-detail-images">
+          <figure>
+            <img src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" />
+            <figcaption>${escapeHtml(t("history.result"))}</figcaption>
+          </figure>
+        </div>
       ` : `<pre>${escapeHtml(record.error || statusLabel(record.status))}</pre>`}
     </section>
   `;
+  els.historyDetailBody.querySelector("[data-history-detail-download]")?.addEventListener("click", () => {
+    downloadGenerationRecord(record);
+  });
   if (!els.historyDetailDialog.open) els.historyDetailDialog.showModal();
   refreshIcons();
 }

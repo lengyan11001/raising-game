@@ -5,6 +5,7 @@ const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
+const { Readable } = require("node:stream");
 const { URL } = require("node:url");
 const {
   dbEnabled,
@@ -23060,6 +23061,98 @@ async function handleGetGenerationRecord(req, res, taskId) {
   });
 }
 
+function attachmentDisposition(fileName = "generation.mp4") {
+  const safeName = String(fileName || "generation.mp4").replace(/[^a-z0-9._-]/gi, "-") || "generation.mp4";
+  return `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
+
+function localDownloadPathFromRecord(record = {}, isVideo = true, url = "") {
+  const candidates = isVideo
+    ? [record.localVideoPath, localAssetPathFromPublicValue(record.localVideoUrl || record.videoUrl || url)]
+    : [record.localImagePath, localAssetPathFromPublicValue(record.localImageUrl || record.imageResultUrl || url)];
+  for (const candidate of candidates) {
+    const text = String(candidate || "").trim();
+    if (!text) continue;
+    const filePath = path.normalize(path.isAbsolute(text) ? text : path.join(ROOT, text.replace(/^\/+/, "")));
+    const relative = path.relative(ROOT, filePath);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) continue;
+    return filePath;
+  }
+  return "";
+}
+
+function generationRecordDownloadTarget(record = {}) {
+  const videoUrl = generationRecordVideoUrl(record, { preferProviderVideoUrl: false });
+  if (videoUrl) {
+    const mime = videoMimeFromKnownPath(videoUrl) || "video/mp4";
+    const ext = videoExtFromMime(mime, videoUrl);
+    return {
+      url: videoUrl,
+      localPath: localDownloadPathFromRecord(record, true, videoUrl),
+      mime,
+      fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
+    };
+  }
+  const imageUrl = generationRecordImageUrl(record);
+  if (imageUrl) {
+    const mime = imageMimeFromKnownPath(imageUrl) || "image/png";
+    const ext = imageExtFromMime(mime);
+    return {
+      url: imageUrl,
+      localPath: localDownloadPathFromRecord(record, false, imageUrl),
+      mime,
+      fileName: `${storagePathSegment(record.taskId || "generation", "generation")}${ext}`,
+    };
+  }
+  return null;
+}
+
+async function handleDownloadGenerationRecord(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const record = await getGenerationRecord(taskId);
+  if (!record || record.userId !== auth.user.id || !isUserVisibleGenerationRecord(record)) {
+    return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  }
+  const target = generationRecordDownloadTarget(record);
+  if (!target?.url && !target?.localPath) {
+    return sendJson(res, 404, { ok: false, message: "Generated media is not available." });
+  }
+
+  const headers = {
+    "content-type": target.mime || "application/octet-stream",
+    "content-disposition": attachmentDisposition(target.fileName),
+    "cache-control": "private, no-store",
+  };
+  if (target.localPath) {
+    try {
+      const stat = await fs.stat(target.localPath);
+      headers["content-length"] = stat.size;
+      res.writeHead(200, headers);
+      if (req.method === "HEAD") return res.end();
+      return pipeFileStream(res, target.localPath);
+    } catch {
+      // Fall through to the public URL copy below.
+    }
+  }
+
+  if (!isPublicHttpUrl(target.url)) {
+    return sendJson(res, 404, { ok: false, message: "Generated media file is missing." });
+  }
+
+  const response = await fetch(target.url, { redirect: "follow", signal: AbortSignal.timeout(15 * 60 * 1000) });
+  if (!response.ok || !response.body) {
+    return sendJson(res, 502, { ok: false, message: `Failed to download generated media: ${response.status}` });
+  }
+  const remoteMime = String(response.headers.get("content-type") || "").split(";")[0].trim();
+  if (remoteMime) headers["content-type"] = remoteMime;
+  const contentLength = response.headers.get("content-length");
+  if (contentLength) headers["content-length"] = contentLength;
+  res.writeHead(200, headers);
+  if (req.method === "HEAD") return res.end();
+  return Readable.fromWeb(response.body).pipe(res);
+}
+
 async function handleDeleteGenerationRecord(req, res, taskId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -24152,6 +24245,11 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/generation-records") {
       return await handleListGenerationRecords(req, res, url);
+    }
+
+    const downloadGenerationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/download$/);
+    if ((req.method === "GET" || req.method === "HEAD") && downloadGenerationRecordMatch) {
+      return await handleDownloadGenerationRecord(req, res, decodeURIComponent(downloadGenerationRecordMatch[1]));
     }
 
     const generationRecordMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)$/);

@@ -952,6 +952,39 @@ function generationPosterUrl(record) {
   return record?.cdnPosterUrl || record?.posterUrl || record?.localPosterUrl || generationImageResultUrl(record) || "";
 }
 
+function generationRecordDownloadHref(record = {}) {
+  const taskId = String(record?.taskId || "").trim();
+  if (taskId && !taskId.startsWith("pending-")) {
+    return `/api/generation-records/${encodeURIComponent(taskId)}/download`;
+  }
+  return record?.downloadUrl || generationVideoUrl(record) || generationImageResultUrl(record) || "";
+}
+
+function generationRecordDownloadName(record = {}) {
+  const taskId = String(record?.taskId || "generation").replace(/[^a-z0-9_-]/gi, "_") || "generation";
+  const resultUrl = generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl || "";
+  const cleanPath = String(resultUrl || "").split("?")[0].toLowerCase();
+  const match = cleanPath.match(/\.(mp4|webm|mov|m4v|png|jpe?g|webp|bmp)$/i);
+  return `${taskId}${match ? match[0] : (generationVideoUrl(record) ? ".mp4" : ".png")}`;
+}
+
+function canDownloadGenerationRecord(record = {}) {
+  if (!isSucceededGenerationStatus(record?.status)) return false;
+  return Boolean(generationRecordDownloadHref(record) && (generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl));
+}
+
+function downloadGenerationRecord(record = {}) {
+  const href = generationRecordDownloadHref(record);
+  if (!href) return;
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = generationRecordDownloadName(record);
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 function stripModelParams(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value || null;
   const next = { ...value };
