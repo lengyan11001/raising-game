@@ -950,9 +950,22 @@ function configuredPublicBaseUrl() {
 function publicUrlForAssetPath(localUrl = "") {
   const value = String(localUrl || "").trim();
   if (!value) return "";
-  if (isPublicHttpUrl(value)) return value;
-  if (value.startsWith("/assets/") && !DISABLE_R2_STORAGE && R2.publicDomain) {
-    return `${String(R2.publicDomain || "").replace(/\/+$/, "")}/${value.replace(/^\/+/, "")}`;
+  const r2BaseUrl = !DISABLE_R2_STORAGE && R2.publicDomain ? String(R2.publicDomain || "").replace(/\/+$/, "") : "";
+  if (isPublicHttpUrl(value)) {
+    try {
+      const parsed = new URL(value);
+      const publicBase = configuredPublicBaseUrl();
+      const publicHost = publicBase ? new URL(publicBase).host : "";
+      if (r2BaseUrl && parsed.pathname.startsWith("/assets/") && (!publicHost || parsed.host === publicHost || parsed.hostname === "123vips.com")) {
+        return `${r2BaseUrl}${parsed.pathname}${parsed.search || ""}`;
+      }
+    } catch {
+      return value;
+    }
+    return value;
+  }
+  if (value.startsWith("/assets/") && r2BaseUrl) {
+    return `${r2BaseUrl}/${value.replace(/^\/+/, "")}`;
   }
   const baseUrl = configuredPublicBaseUrl();
   if (!baseUrl) return "";
@@ -967,8 +980,9 @@ function shouldKeepLocalAssetField(key = "") {
 function publicAssetUrlsForClient(value, key = "") {
   if (typeof value === "string") {
     const text = value.trim();
-    if (text.startsWith("/assets/") && !shouldKeepLocalAssetField(key)) {
-      return publicUrlForAssetPath(text) || value;
+    if (!shouldKeepLocalAssetField(key)) {
+      const publicUrl = publicUrlForAssetPath(text);
+      if (publicUrl && publicUrl !== text) return publicUrl;
     }
     return value;
   }
