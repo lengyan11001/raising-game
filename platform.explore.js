@@ -91,7 +91,7 @@ function setTab(tab) {
   if (nextTab === "history") loadHistory();
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();
-  if (nextTab === "referral") loadReferralSummary();
+  if (nextTab === "referral") loadReferralSummary({ force: true });
   if (nextTab === "pricing") renderPricing();
   if (nextTab === "assets") {
     if (state.user) loadUserAssets();
@@ -176,9 +176,10 @@ function mergeHomeCharacters(items = []) {
 }
 
 async function loadMoreHomeCharacters() {
-  if (state.homeCharactersLoadingMore) return;
-  if (Number(state.homeCharactersTotal || 0) && state.homeCharacters.length >= Number(state.homeCharactersTotal || 0)) return;
+  if (state.homeCharactersLoadingMore) return false;
+  if (Number(state.homeCharactersTotal || 0) && state.homeCharacters.length >= Number(state.homeCharactersTotal || 0)) return false;
   state.homeCharactersLoadingMore = true;
+  state.homeCharactersLoadMessage = "";
   try {
     const nextPage = Number(state.homeCharactersPage || 1) + 1;
     const limit = Number(state.homeCharactersLimit || CHARACTER_PAGE_SIZE) || CHARACTER_PAGE_SIZE;
@@ -188,6 +189,10 @@ async function loadMoreHomeCharacters() {
     state.homeCharactersLimit = Number(payload.limit || limit) || limit;
     state.homeCharactersTotal = Number(payload.total || state.homeCharacters.length) || state.homeCharacters.length;
     state.homeCharactersTotalPages = Number(payload.totalPages || state.homeCharactersTotalPages || 1) || 1;
+    return true;
+  } catch (error) {
+    state.homeCharactersLoadMessage = error.message || "Load failed.";
+    throw error;
   } finally {
     state.homeCharactersLoadingMore = false;
   }
@@ -1299,33 +1304,59 @@ function renderGalleryCharacters(root = els.templateGrid) {
 
 function resetCharacterPagination() {
   state.visibleCharacterCount = CHARACTER_PAGE_SIZE;
+  state.characterLoadAutoArmed = true;
+  clearCharacterLoadTriggers();
+}
+
+function clearCharacterLoadTriggers() {
   if (state.characterLoadObserver) {
     state.characterLoadObserver.disconnect();
     state.characterLoadObserver = null;
   }
+  if (state.characterLoadScrollHandler) {
+    window.removeEventListener("scroll", state.characterLoadScrollHandler);
+    window.removeEventListener("resize", state.characterLoadScrollHandler);
+    state.characterLoadScrollHandler = null;
+  }
+  if (state.characterLoadScrollTimer) {
+    window.clearTimeout(state.characterLoadScrollTimer);
+    state.characterLoadScrollTimer = 0;
+  }
+}
+
+function characterLoadTargetNearViewport(root = els.templateGrid) {
+  const marker = root?.querySelector?.("[data-character-load-more]") || root;
+  if (!marker?.getBoundingClientRect) return false;
+  const rect = marker.getBoundingClientRect();
+  return rect.top < window.innerHeight + 420 && rect.bottom > -120;
 }
 
 function renderCharacterLoadMore(visibleCount = 0, totalCount = 0, source = "system") {
   if (!totalCount || visibleCount >= totalCount) return "";
   const loading = source === "system" && state.homeCharactersLoadingMore;
+  const message = source === "system" ? String(state.homeCharactersLoadMessage || "") : "";
   return `
     <div class="character-load-more" data-character-load-more>
       <span>${escapeHtml(String(visibleCount))} / ${escapeHtml(String(totalCount))} characters</span>
       <button class="ghost-button" data-character-load-more-button type="button" ${loading ? "disabled" : ""}><i data-lucide="${loading ? "loader-circle" : "chevrons-down"}"></i>${loading ? "Loading" : "Load more"}</button>
+      ${message ? `<small class="character-load-message">${escapeHtml(message)}</small>` : ""}
       <i class="character-load-sentinel" data-character-load-sentinel aria-hidden="true"></i>
     </div>
   `;
 }
 
 function bindCharacterLoadMore(root = els.templateGrid, totalCount = 0, source = "system") {
-  if (state.characterLoadObserver) {
-    state.characterLoadObserver.disconnect();
-    state.characterLoadObserver = null;
-  }
+  clearCharacterLoadTriggers();
   const loadMore = async () => {
     if (source === "system") {
       if (state.homeCharactersLoadingMore || state.homeCharacters.length >= totalCount) return;
-      await loadMoreHomeCharacters();
+      const promise = loadMoreHomeCharacters();
+      renderGalleryCharacters(root);
+      try {
+        await promise;
+      } catch (error) {
+        console.warn("load more characters failed", error.message || error);
+      }
       renderGalleryCharacters(root);
       return;
     }
@@ -1333,14 +1364,34 @@ function bindCharacterLoadMore(root = els.templateGrid, totalCount = 0, source =
     state.visibleCharacterCount = Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE) + CHARACTER_PAGE_SIZE;
     renderGalleryCharacters(root);
   };
-  root.querySelector("[data-character-load-more-button]")?.addEventListener("click", () => loadMore().catch((error) => console.warn("load more characters failed", error.message || error)));
+  root.querySelector("[data-character-load-more-button]")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    loadMore();
+  });
   const sentinel = root.querySelector("[data-character-load-sentinel]");
   if (!sentinel) return;
-  if (!("IntersectionObserver" in window)) return;
-  state.characterLoadObserver = new IntersectionObserver((entries) => {
-    if (entries.some((entry) => entry.isIntersecting)) loadMore().catch((error) => console.warn("load more characters failed", error.message || error));
-  }, { rootMargin: "220px 0px", threshold: 0.01 });
-  state.characterLoadObserver.observe(sentinel);
+  const checkNearEnd = () => {
+    if (!document.body.contains(root) || !characterLoadTargetNearViewport(root)) return;
+    if (!state.characterLoadAutoArmed) return;
+    state.characterLoadAutoArmed = false;
+    loadMore();
+  };
+  if ("IntersectionObserver" in window) {
+    state.characterLoadObserver = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting) || !state.characterLoadAutoArmed) return;
+      state.characterLoadAutoArmed = false;
+      loadMore();
+    }, { rootMargin: "420px 0px", threshold: 0.01 });
+    state.characterLoadObserver.observe(sentinel);
+  }
+  state.characterLoadScrollHandler = () => {
+    state.characterLoadAutoArmed = true;
+    if (state.characterLoadScrollTimer) window.clearTimeout(state.characterLoadScrollTimer);
+    state.characterLoadScrollTimer = window.setTimeout(checkNearEnd, 80);
+  };
+  window.addEventListener("scroll", state.characterLoadScrollHandler, { passive: true });
+  window.addEventListener("resize", state.characterLoadScrollHandler, { passive: true });
+  window.requestAnimationFrame(checkNearEnd);
 }
 
 function bindGalleryCharacterCards(root = els.templateGrid) {

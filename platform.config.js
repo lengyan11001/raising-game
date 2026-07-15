@@ -26,6 +26,8 @@ const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 50;
 const ADVANCED_GENERATION_MARKUP = 1.5;
 const DEFAULT_ADVANCED_PROVIDER = "wan27";
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 9;
+const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = 3;
+const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = 3;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 20 * 1024 * 1024;
 const ADVANCED_SEEDANCE_MAX_PIXELS = 2086876;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
@@ -396,10 +398,10 @@ const ADVANCED_CREATE_MODES = {
     { id: "image-edit", labelKey: "advanced.modeImageEdit", icon: "wand-sparkles", provider: "wan27-image-edit", assetTarget: "sourceImages", placeholderKey: "advanced.promptImageEdit" },
   ],
   video: [
-    { id: "video-text", labelKey: "advanced.modeVideoText", icon: "type", provider: "seedance", seedanceMode: "text_to_video", assetTarget: "primary", placeholderKey: "advanced.promptVideoText" },
-    { id: "video-image", labelKey: "advanced.modeVideoImage", icon: "image-up", provider: "seedance", seedanceMode: "first_frame", assetTarget: "primary", placeholderKey: "advanced.promptVideoImage" },
-    { id: "video-extend", labelKey: "advanced.modeVideoExtend", icon: "stretch-horizontal", provider: "seedance", seedanceMode: "reference_images", assetTarget: "primary", placeholderKey: "advanced.promptVideoExtend" },
-    { id: "video-replace", labelKey: "advanced.modeVideoReplace", icon: "replace", provider: "seedance", seedanceMode: "reference_images", assetTarget: "primary", placeholderKey: "advanced.promptVideoReplace" },
+    { id: "video-text", labelKey: "advanced.modeVideoText", icon: "type", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoText" },
+    { id: "video-image", labelKey: "advanced.modeVideoImage", icon: "image-up", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoImage" },
+    { id: "video-extend", labelKey: "advanced.modeVideoExtend", icon: "stretch-horizontal", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoExtend" },
+    { id: "video-replace", labelKey: "advanced.modeVideoReplace", icon: "replace", provider: "seedance", seedanceMode: "reference_video", assetTarget: "referenceImages", placeholderKey: "advanced.promptVideoReplace" },
     { id: "video-edit", labelKey: "advanced.modeVideoEdit", icon: "film", provider: "seedance", seedanceMode: "reference_video", assetTarget: "video", placeholderKey: "advanced.promptVideoEdit" },
   ],
   custom: [ADVANCED_CUSTOM_MODE],
@@ -407,16 +409,14 @@ const ADVANCED_CREATE_MODES = {
 
 function normalizeSeedanceMediaMode(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-  if (["text", "t2v", "text_video", "text_to_video"].includes(normalized)) return "text_to_video";
-  if (["image", "i2v", "first", "first_image", "first_frame", "image_to_video"].includes(normalized)) return "first_frame";
+  if (["text", "t2v", "text_video", "text_to_video", "reference", "references", "reference_images", "multi_reference", "multimodal", "multi_modal", "reference_video", "video_reference", "video"].includes(normalized)) return "reference_video";
+  if (["image", "i2v", "first", "first_image", "first_frame", "image_to_video"].includes(normalized)) return "first_last_frame";
   if (["first_last", "first_last_frame", "first_and_last", "start_end", "last_frame"].includes(normalized)) return "first_last_frame";
-  if (["reference", "references", "reference_images", "multi_reference"].includes(normalized)) return "reference_images";
-  if (["reference_video", "video_reference", "video"].includes(normalized)) return "reference_video";
-  return "text_to_video";
+  return "reference_video";
 }
 
 function seedanceModeNeedsFirstFrame(mode = "") {
-  return ["first_frame", "first_last_frame"].includes(normalizeSeedanceMediaMode(mode));
+  return normalizeSeedanceMediaMode(mode) === "first_last_frame";
 }
 
 function seedanceModeNeedsLastFrame(mode = "") {
@@ -424,7 +424,7 @@ function seedanceModeNeedsLastFrame(mode = "") {
 }
 
 function seedanceModeNeedsReferenceImages(mode = "") {
-  return normalizeSeedanceMediaMode(mode) === "reference_images";
+  return normalizeSeedanceMediaMode(mode) === "reference_video";
 }
 
 function seedanceModeNeedsReferenceVideo(mode = "") {
@@ -478,22 +478,20 @@ function advancedCreateModeAcceptsImageUpload(mode = state.advancedCreateMode) {
 }
 
 function currentAdvancedSeedanceUploadMode() {
-  return normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || advancedCreateModePreferredSeedanceMode(advancedCreateModeConfig()) || "text_to_video");
+  return normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || advancedCreateModePreferredSeedanceMode(advancedCreateModeConfig()) || "reference_video");
 }
 
 function advancedCreateUploadIsVideo(mode = state.advancedCreateMode) {
   const provider = currentAdvancedProvider();
-  const seedanceMode = currentAdvancedSeedanceUploadMode();
-  if (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode) && !advancedCreateModeNeedsReplacePair(mode)) return true;
+  if (provider === "seedance") return false;
   return advancedCreateModeAcceptsVideoUpload(mode) && !advancedCreateModeAcceptsImageUpload(mode);
 }
 
 function advancedCreateModePreferredSeedanceMode(config = advancedCreateModeConfig()) {
-  const configured = normalizeSeedanceMediaMode(config.seedanceMode || "text_to_video");
-  if (advancedCreateModeUsesCharacterPresetReference(config.id)) return "reference_images";
+  const configured = normalizeSeedanceMediaMode(config.seedanceMode || "reference_video");
+  if (advancedCreateModeUsesCharacterPresetReference(config.id)) return "reference_video";
   if (advancedCreateModeUsesAutoPrompt(config.id)) {
-    if (advancedCreateModeNeedsReplacePair(config.id)) return "reference_video";
-    return "first_frame";
+    return "reference_video";
   }
   return configured;
 }
@@ -507,8 +505,8 @@ function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
 }
 
 function advancedCreateUploadAcceptValue(mode = state.advancedCreateMode) {
-  if (advancedCreateModeAcceptsVideoUpload(mode) && advancedCreateModeAcceptsImageUpload(mode)) {
-    return "image/*,video/mp4,video/webm,video/quicktime,video/*";
+  if (["seedance", "wan27"].includes(currentAdvancedProvider())) {
+    return "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*";
   }
   if (advancedCreateUploadIsVideo(mode)) return "video/mp4,video/webm,video/quicktime,video/*";
   return "image/*";
@@ -601,12 +599,16 @@ const state = {
   homeCharactersTotal: 0,
   homeCharactersTotalPages: 1,
   homeCharactersLoadingMore: false,
+  homeCharactersLoadMessage: "",
   activeGalleryCharacterId: "",
   routeCharacterId: currentCharacterRouteParams().characterId,
   routeCharacterSource: currentCharacterRouteParams().source,
   characterViewTrackKeys: new Set(),
   visibleCharacterCount: CHARACTER_PAGE_SIZE,
   characterLoadObserver: null,
+  characterLoadScrollHandler: null,
+  characterLoadScrollTimer: 0,
+  characterLoadAutoArmed: true,
   myCharacters: [],
   myCharactersLoaded: false,
   myCharacterRefreshTimers: {},
@@ -648,6 +650,11 @@ const state = {
   advancedSourceImageAssetId: "",
   advancedFirstFrameAssetId: "",
   advancedReferenceImages: [],
+  advancedSeedanceVideoReferences: [],
+  advancedSeedanceAudioReferences: [],
+  advancedReferenceOrderCounter: 0,
+  advancedSeedanceFirstFrameDataUrl: "",
+  advancedSeedanceFirstFrameAssetId: "",
   advancedSeedanceLastFrameDataUrl: "",
   advancedSeedanceLastFrameAssetId: "",
   advancedWanLastFrameDataUrl: "",
@@ -655,6 +662,10 @@ const state = {
   advancedWanClipDataUrl: "",
   advancedWanClipFileName: "",
   advancedWanClipAssetId: "",
+  advancedWanClipOrder: 0,
+  advancedAudioPreviewUrl: "",
+  advancedAudioFileName: "",
+  advancedAudioOrder: 0,
   wallet: null,
   selectedWalletOptionId: "",
   topupMethod: "paypal",
@@ -672,6 +683,9 @@ const state = {
   topupRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [] },
   spendingRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [], types: [] },
   referral: null,
+  referralLoading: false,
+  referralLoadedUserId: "",
+  referralLoadedAt: 0,
   historyRecords: [],
   historyRecordsPage: 1,
   historyRecordsLimit: 8,
@@ -896,6 +910,8 @@ const els = {
   advancedVideoDurationChoices: document.querySelector("#advancedVideoDurationChoices"),
   advancedPreprocessReference: document.querySelector("#advancedPreprocessReference"),
   advancedSeedanceMediaMode: document.querySelector("#advancedSeedanceMediaMode"),
+  advancedSeedanceFirstFrame: document.querySelector("#advancedSeedanceFirstFrame"),
+  advancedSeedanceFirstFramePreview: document.querySelector("#advancedSeedanceFirstFramePreview"),
   advancedSeedanceLastFrame: document.querySelector("#advancedSeedanceLastFrame"),
   advancedSeedanceLastFramePreview: document.querySelector("#advancedSeedanceLastFramePreview"),
   advancedSeedanceVideoUrls: document.querySelector("#advancedSeedanceVideoUrls"),

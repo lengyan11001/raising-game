@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-265" />
+    <link rel="stylesheet" href="./platform.css?v=ai-272" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -233,9 +233,9 @@
               </div>
             </details>
             <label class="upload-box advanced-upload-box" id="advancedUploadBox" hidden>
-              <input id="advancedImage" type="file" accept="image/*" multiple />
+              <input id="advancedImage" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*" multiple />
               <div class="advanced-upload-previews" id="advancedUploadPreview"></div>
-              <span data-i18n="advanced.uploadReference"><i data-lucide="image-up"></i>Upload reference image(s)</span>
+              <span data-i18n="advanced.uploadReference"><i data-lucide="plus"></i>Upload reference content</span>
             </label>
             <p class="job-note advanced-reference-summary" id="advancedReferenceSummary"></p>
             <div class="wan-media-panel advanced-seedance-option" id="advancedSeedanceMediaPanel" hidden>
@@ -246,15 +246,21 @@
                 </div>
                 <label class="field wan-mode-field">
                   <select id="advancedSeedanceMediaMode">
-                    <option value="text_to_video" data-i18n="advanced.seedanceModeText">Text only</option>
-                    <option value="first_frame" data-i18n="advanced.seedanceModeFirst">First frame image</option>
-                    <option value="first_last_frame" data-i18n="advanced.seedanceModeFirstLast">First + last image</option>
-                    <option value="reference_images" data-i18n="advanced.seedanceModeReference">Reference images</option>
-                    <option value="reference_video" data-i18n="advanced.seedanceModeVideo">Reference video/audio</option>
+                    <option value="reference_video" data-i18n="advanced.seedanceModeMultimodal">Multimodal references</option>
+                    <option value="first_last_frame" data-i18n="advanced.seedanceModeFirstLast">First + last frame</option>
                   </select>
                 </label>
               </div>
               <div class="wan-media-grid">
+                <label class="field seedance-extra seedance-first-frame">
+                  <span data-i18n="advanced.firstFrame">First frame</span>
+                  <div class="wan-frame-upload">
+                    <input id="advancedSeedanceFirstFrame" type="file" accept="image/*" />
+                    <img class="wan-frame-preview" id="advancedSeedanceFirstFramePreview" alt="Vipeak 2 first frame preview" />
+                    <span><i data-lucide="image-up"></i><span data-i18n="advanced.firstFrame">First frame</span></span>
+                    <button class="wan-frame-remove" type="button" data-remove-advanced-slot="seedanceFirstFrame" aria-label="Remove">&times;</button>
+                  </div>
+                </label>
                 <label class="field seedance-extra seedance-last-frame">
                   <span data-i18n="advanced.lastFrame">Last frame image</span>
                   <div class="wan-frame-upload">
@@ -282,12 +288,8 @@
                 </div>
                 <label class="field wan-mode-field">
                   <select id="advancedWanMediaMode">
-                    <option value="first_frame" data-i18n="advanced.wanModeFirst">Single image</option>
+                    <option value="multimodal" data-i18n="advanced.seedanceModeMultimodal">Multimodal references</option>
                     <option value="first_last_frame" data-i18n="advanced.wanModeFirstLast">First + last image</option>
-                    <option value="first_frame_audio" data-i18n="advanced.wanModeFirstAudio">Image + audio</option>
-                    <option value="first_last_frame_audio" data-i18n="advanced.wanModeFirstLastAudio">First + last image + audio</option>
-                    <option value="first_clip" data-i18n="advanced.wanModeClip">Video continuation</option>
-                    <option value="first_clip_last_frame" data-i18n="advanced.wanModeClipLast">Video continuation + last image</option>
                   </select>
                 </label>
               </div>
@@ -835,6 +837,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-265"></script>
+    <script src="./platform.js?v=ai-272"></script>
   </body>
 </html>

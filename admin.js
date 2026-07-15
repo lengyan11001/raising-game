@@ -456,7 +456,7 @@ function hasPollableGenerationRecords(records = []) {
 }
 
 function recordPreviewUrl(record = {}) {
-  return record.localVideoUrl || record.videoUrl || record.remoteVideoUrl || "";
+  return recordVideoUrl(record) || recordRemoteVideoUrl(record) || recordImageResultUrl(record) || "";
 }
 
 function generationRecordSignature(record = {}) {
@@ -1741,11 +1741,19 @@ function historyRecordHtml(r, idx) {
 
 /* ============ GENERATION RECORDS ============ */
 function recordVideoUrl(record) {
-  return record.localVideoUrl || "";
+  return toAbsoluteHttpUrl(
+    record.cdnVideoUrl ||
+    record.localVideoUrl ||
+    record.videoUrl ||
+    record.remoteVideoUrl ||
+    "",
+  );
 }
 
 function recordRemoteVideoUrl(record) {
-  return record.remoteVideoUrl || record.videoUrl || "";
+  const remote = toAbsoluteHttpUrl(record.remoteVideoUrl || record.providerVideoUrl || record.upstreamVideoUrl || "");
+  const primary = recordVideoUrl(record);
+  return remote && remote !== primary ? remote : "";
 }
 
 function recordImageResultUrl(record) {
@@ -1881,6 +1889,19 @@ function toAbsoluteHttpUrl(value = "") {
   return "";
 }
 
+function adminPreviewMediaUrl(value = "") {
+  const url = toAbsoluteHttpUrl(value);
+  if (!url) return "";
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.origin === window.location.origin && parsed.pathname.startsWith("/assets/generated/")) {
+      parsed.searchParams.set("admPreview", "adm-76");
+      return parsed.toString();
+    }
+  } catch {}
+  return url;
+}
+
 function recordRatioStyle(record = {}) {
   const ratio = normalizeVideoRatio(record.ratio || record.params?.ratio || record.params?.aspect_ratio || record.upstreamPayload?.ratio || record.upstreamPayload?.aspect_ratio);
   const [width, height] = ratio.split(":").map((part) => Math.max(1, Number(part) || 1));
@@ -1888,10 +1909,10 @@ function recordRatioStyle(record = {}) {
 }
 
 function recordPreviewHtml(record) {
-  const localVideo = recordVideoUrl(record);
+  const localVideo = adminPreviewMediaUrl(recordVideoUrl(record));
   const remoteVideo = recordRemoteVideoUrl(record);
-  const imageResult = recordImageResultUrl(record);
-  const poster = recordResultPosterUrl(record);
+  const imageResult = adminPreviewMediaUrl(recordImageResultUrl(record));
+  const poster = adminPreviewMediaUrl(recordResultPosterUrl(record));
   const posterAttr = poster ? ` poster="${escapeHtml(poster)}"` : "";
   if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="auto" playsinline${posterAttr} style="${escapeHtml(recordRatioStyle(record))}"></video>`;
   if (imageResult) return `<img src="${escapeHtml(imageResult)}" alt="" />`;
@@ -2503,6 +2524,8 @@ async function openGenerationRecordDetail(record) {
   const video = recordVideoUrl(record);
   const remoteVideo = recordRemoteVideoUrl(record);
   const imageResult = recordImageResultUrl(record);
+  const videoHref = adminPreviewMediaUrl(video) || video;
+  const imageResultHref = adminPreviewMediaUrl(imageResult) || imageResult;
   const paramsText = jsonPretty(record.params);
   const upstreamText = jsonPretty(record.upstreamPayload);
   const createText = jsonPretty(record.createResponse);
@@ -2526,8 +2549,8 @@ async function openGenerationRecordDetail(record) {
       </div>
       ${record.referenceAssetUri ? `<div class="adm-record-line"><span>参考素材</span><code>${escapeHtml(record.referenceAssetUri)}</code></div>` : ""}
       ${record.imageUrl ? `<div class="adm-record-line"><span>图片</span><a href="${escapeHtml(record.imageUrl)}" target="_blank" rel="noopener">${escapeHtml(record.imageUrl)}</a></div>` : ""}
-      ${video ? `<div class="adm-record-line"><span>结果</span><a href="${escapeHtml(video)}" target="_blank" rel="noopener">${escapeHtml(video)}</a></div>` : ""}
-      ${imageResult ? `<div class="adm-record-line"><span>图片结果</span><a href="${escapeHtml(imageResult)}" target="_blank" rel="noopener">${escapeHtml(imageResult)}</a></div>` : ""}
+      ${video ? `<div class="adm-record-line"><span>结果</span><a href="${escapeHtml(videoHref)}" target="_blank" rel="noopener">${escapeHtml(video)}</a></div>` : ""}
+      ${imageResult ? `<div class="adm-record-line"><span>图片结果</span><a href="${escapeHtml(imageResultHref)}" target="_blank" rel="noopener">${escapeHtml(imageResult)}</a></div>` : ""}
       ${!video && remoteVideo ? `<div class="adm-record-line"><span>远程结果</span><a href="${escapeHtml(remoteVideo)}" target="_blank" rel="noopener">${escapeHtml(remoteVideo)}</a></div>` : ""}
       ${record.error ? `<div class="adm-record-line"><span>错误</span><code>${escapeHtml(record.error)}</code></div>` : ""}
       ${record.statusQueryError ? `<div class="adm-record-line"><span>状态查询</span><code>${escapeHtml(record.statusQueryError)}</code></div>` : ""}

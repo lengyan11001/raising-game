@@ -477,7 +477,7 @@ function setLanguage(lang) {
   applyLanguage();
 }
 
-function setUser(user, { refreshHistory = false } = {}) {
+function setUser(user, { refreshHistory = false, skipReferralRefresh = false } = {}) {
   const previousMultiplier = Number(state.user?.pricingMultiplier || 1);
   const previousUserId = state.user?.id || "";
   state.user = user || null;
@@ -487,6 +487,8 @@ function setUser(user, { refreshHistory = false } = {}) {
     state.galleryUnlocksLoaded = false;
     state.galleryUnlockMessage = "";
     state.referral = null;
+    state.referralLoadedUserId = "";
+    state.referralLoadedAt = 0;
     state.advancedAssets = [];
     state.advancedAssetsLoaded = false;
     state.advancedAssetPage = 1;
@@ -518,10 +520,7 @@ function setUser(user, { refreshHistory = false } = {}) {
   if (state.tab === "assets") loadUserAssets();
   if (state.tab === "advanced") loadAdvancedAssets();
   if (state.tab === "access") loadApiSubtokens({ force: true });
-  if (state.tab === "referral") {
-    if (state.user) loadReferralSummary();
-    else renderReferral();
-  }
+  if (state.tab === "referral" && !state.user) renderReferral();
   if (state.tab === "characters") {
     renderCharactersPanel();
     if (state.user) loadMyCharacters({ silent: true }).catch(() => {});
@@ -1352,10 +1351,12 @@ function currentSeedanceVideoInputSeconds(duration = 5, provider = currentAdvanc
   if (normalizeAdvancedProvider(provider) !== "seedance") return 0;
   const videoUrlCount = splitUrlList(els.advancedSeedanceVideoUrls?.value || "").length;
   const hasVideoUrl = videoUrlCount > 0;
+  const videoRefs = typeof advancedSeedanceVideoReferences === "function" ? advancedSeedanceVideoReferences() : [];
   const selectedAsset = selectedSeedanceVideoAsset();
-  if (!selectedAsset && !hasVideoUrl && !seedanceModeNeedsReferenceVideo(els.advancedSeedanceMediaMode?.value || "")) return 0;
-  const assetSeconds = positiveDurationSeconds(selectedAsset?.durationSeconds || selectedAsset?.duration);
-  const assetCount = selectedAsset ? 1 : 0;
+  const refs = videoRefs.length ? videoRefs : (selectedAsset ? [selectedAsset] : []);
+  if (!refs.length && !hasVideoUrl) return 0;
+  const assetSeconds = refs.reduce((sum, item) => sum + positiveDurationSeconds(item?.durationSeconds || item?.duration), 0);
+  const assetCount = refs.length;
   const fallbackSeconds = positiveDurationSeconds(duration, 5);
   return assetSeconds + (assetCount && !assetSeconds ? fallbackSeconds : 0) + (hasVideoUrl ? fallbackSeconds * videoUrlCount : 0) || fallbackSeconds;
 }
@@ -1641,8 +1642,9 @@ function renderAdvancedPresetCharacterPager() {
 async function loadMoreAdvancedPresetCharacters() {
   if (state.advancedPresetDialogSlot !== "character" || state.advancedPresetCharacterSource === "custom") return;
   if (!hasMoreSystemCharacterPresets()) return;
+  const promise = loadMoreHomeCharacters();
   renderAdvancedPresetDialog();
-  await loadMoreHomeCharacters();
+  await promise;
   if (state.advancedPresetDialogSlot === "character" && els.advancedPresetDialog?.open) renderAdvancedPresetDialog();
   renderAdvancedPresetBuilder();
 }
@@ -1837,7 +1839,7 @@ function renderAdvancedPresetBuilder() {
     const openUpload = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      triggerAdvancedLocalImageUpload({ sourceMode: "reference_images" });
+      triggerAdvancedLocalImageUpload({ sourceMode: "reference_video" });
     };
     button.addEventListener("click", openUpload);
     button.addEventListener("keydown", (event) => {
@@ -1944,7 +1946,7 @@ function renderAdvancedPresetDialog() {
   const bindLocalUploadCard = () => {
     els.advancedPresetGrid.querySelector("[data-advanced-preset-local-upload]")?.addEventListener("click", () => {
       els.advancedPresetDialog?.close();
-      triggerAdvancedLocalImageUpload({ sourceMode: "reference_images" });
+      triggerAdvancedLocalImageUpload({ sourceMode: "reference_video" });
     });
   };
   const items = advancedPresetItems(slot).filter((item) => {
@@ -1995,7 +1997,7 @@ function selectAdvancedPreset(slot = "", presetId = "") {
 function applyAdvancedCharacterPreset(preset = {}) {
   const url = preset.referenceImageUrl || preset.imageUrl || "";
   if (!url) return;
-  const ref = {
+  const rawRef = {
     assetId: preset.assetId || "",
     dataUrl: url,
     url,
@@ -2005,6 +2007,7 @@ function applyAdvancedCharacterPreset(preset = {}) {
     sourceType: preset.sourceType || "",
     characterId: preset.characterId || preset.id || "",
   };
+  const ref = typeof stampAdvancedReferenceOrder === "function" ? stampAdvancedReferenceOrder(rawRef) : rawRef;
   const provider = currentAdvancedProvider();
   if (provider === "wan27-image-edit") {
     state.advancedSourceImageAssetId = "";
@@ -2016,12 +2019,10 @@ function applyAdvancedCharacterPreset(preset = {}) {
     state.advancedReferenceImages = [ref];
     if (provider === "seedance" && els.advancedSeedanceMediaMode) {
       const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode.value || "");
-      if (mode === "text_to_video") els.advancedSeedanceMediaMode.value = "first_frame";
+      if (!seedanceModeNeedsFirstFrame(mode)) els.advancedSeedanceMediaMode.value = "reference_video";
     }
   }
   state.advancedUploadDataUrl = url;
-  state.advancedSeedanceVideoAssetId = "";
-  state.advancedSeedanceVideoPreviewUrl = "";
   if (els.advancedImage) els.advancedImage.value = "";
   updateAdvancedModelControls();
 }
@@ -2100,10 +2101,28 @@ function promptWithoutPresetParts(prompt = "", params = {}) {
 }
 
 function advancedEffectivePrompt(basePrompt = "") {
-  if (state.advancedCreateKind === "custom") return String(basePrompt || "").trim();
-  return [...advancedPresetPromptParts(), String(basePrompt || "").trim()]
+  const prompt = String(basePrompt || "").trim();
+  const mediaGuide = advancedMediaOrderPrompt();
+  if (state.advancedCreateKind === "custom") return [mediaGuide, prompt].filter(Boolean).join("\n");
+  return [mediaGuide, ...advancedPresetPromptParts(), prompt]
     .filter(Boolean)
     .join("\n");
+}
+
+function advancedMediaOrderPrompt() {
+  if (currentAdvancedProvider() !== "seedance") return "";
+  const refs = typeof advancedReferenceDisplayItems === "function" ? advancedReferenceDisplayItems("seedance") : [];
+  const lines = refs.map((ref) => {
+    if (ref.kind === "video") return `${ref.label}: reference video; use it for motion, timing, camera, action, and composition guidance.`;
+    if (ref.kind === "audio") return `${ref.label}: reference audio.`;
+    return `${ref.label}: reference image.`;
+  });
+  if (!lines.length) return "";
+  return [
+    "Use the uploaded references by their labels. The reference strip order is exactly:",
+    ...lines,
+    "When references conflict, preserve the user's selected subject/image identity first, then follow video/audio references for motion, rhythm, and sound.",
+  ].join(" ");
 }
 
 function nonCustomAdvancedNeedsCharacterImage() {
@@ -2116,6 +2135,8 @@ function nonCustomAdvancedNeedsCharacterImage() {
 function hasAdvancedCharacterImage() {
   return Boolean(
     state.advancedUploadDataUrl ||
+    state.advancedSeedanceFirstFrameDataUrl ||
+    state.advancedSeedanceFirstFrameAssetId ||
     state.advancedFirstFrameAssetId ||
     state.advancedSourceImageAssetId ||
     selectedAdvancedReferenceImages("seedance").length ||
@@ -2144,6 +2165,10 @@ function clearAdvancedMediaInputs() {
   state.advancedSourceImageAssetId = "";
   state.advancedFirstFrameAssetId = "";
   state.advancedReferenceImages = [];
+  state.advancedSeedanceVideoReferences = [];
+  state.advancedSeedanceAudioReferences = [];
+  state.advancedSeedanceFirstFrameDataUrl = "";
+  state.advancedSeedanceFirstFrameAssetId = "";
   state.advancedSeedanceLastFrameDataUrl = "";
   state.advancedSeedanceLastFrameAssetId = "";
   state.advancedSeedanceVideoAssetId = "";
@@ -2153,7 +2178,11 @@ function clearAdvancedMediaInputs() {
   state.advancedWanClipDataUrl = "";
   state.advancedWanClipFileName = "";
   state.advancedWanClipAssetId = "";
+  state.advancedWanClipOrder = 0;
   state.advancedAudioAssetId = "";
+  state.advancedAudioPreviewUrl = "";
+  state.advancedAudioFileName = "";
+  state.advancedAudioOrder = 0;
   resetAdvancedPresets();
   [
     els.advancedSeedanceVideoUrls,
@@ -2165,6 +2194,7 @@ function clearAdvancedMediaInputs() {
   });
   [
     els.advancedImage,
+    els.advancedSeedanceFirstFrame,
     els.advancedSeedanceLastFrame,
     els.advancedWanLastFrame,
     els.advancedWanClipFile,
@@ -2173,6 +2203,7 @@ function clearAdvancedMediaInputs() {
   });
   [
     [els.advancedWanFirstFramePreview, els.advancedImage],
+    [els.advancedSeedanceFirstFramePreview, els.advancedSeedanceFirstFrame],
     [els.advancedSeedanceLastFramePreview, els.advancedSeedanceLastFrame],
     [els.advancedWanLastFramePreview, els.advancedWanLastFrame],
     [els.advancedWanClipPreview, els.advancedWanClipFile],
@@ -2293,12 +2324,12 @@ function setAdvancedCreateMode(mode = "") {
 
 function normalizeWanMediaMode(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-  const allowed = new Set(["first_frame", "first_last_frame", "first_frame_audio", "first_last_frame_audio", "first_clip", "first_clip_last_frame"]);
-  return allowed.has(normalized) ? normalized : "first_frame";
+  const allowed = new Set(["multimodal", "first_frame", "first_last_frame", "first_frame_audio", "first_last_frame_audio", "first_clip", "first_clip_last_frame"]);
+  return allowed.has(normalized) ? normalized : "multimodal";
 }
 
 function wanModeNeedsFirstFrame(mode) {
-  return ["first_frame", "first_last_frame", "first_frame_audio", "first_last_frame_audio"].includes(normalizeWanMediaMode(mode));
+  return ["multimodal", "first_frame", "first_last_frame", "first_frame_audio", "first_last_frame_audio"].includes(normalizeWanMediaMode(mode));
 }
 
 function wanModeNeedsLastFrame(mode) {
@@ -2306,11 +2337,11 @@ function wanModeNeedsLastFrame(mode) {
 }
 
 function wanModeNeedsAudio(mode) {
-  return ["first_frame_audio", "first_last_frame_audio"].includes(normalizeWanMediaMode(mode));
+  return ["multimodal", "first_frame_audio", "first_last_frame_audio"].includes(normalizeWanMediaMode(mode));
 }
 
 function wanModeNeedsClip(mode) {
-  return ["first_clip", "first_clip_last_frame"].includes(normalizeWanMediaMode(mode));
+  return ["multimodal", "first_clip", "first_clip_last_frame"].includes(normalizeWanMediaMode(mode));
 }
 
 function advancedCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
