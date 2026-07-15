@@ -7,6 +7,7 @@
 - Base branch: `old-site`
 - Public domain: `https://667zui.video`
 - Target server IP: `198.200.37.82`
+- SSH port: `42607`
 - Suggested remote root: `/opt/raising-game-667zui`
 - Suggested service: `raising-game-667zui`
 
@@ -77,6 +78,7 @@ The current production target is:
 
 ```text
 667zui.video -> 198.200.37.82
+ssh root@198.200.37.82 -p 42607
 ```
 
 Older DNS records checked earlier showed:
@@ -91,11 +93,10 @@ The root domain `667zui.video` still needed a root A record at that time:
 667zui.video -> 198.200.37.82
 ```
 
-The target IP responded to ping, but ports `80` and `443` were not open from
-the local check. Before deployment, open:
+Required ports:
 
 ```text
-22/tcp
+42607/tcp
 80/tcp
 443/tcp
 ```

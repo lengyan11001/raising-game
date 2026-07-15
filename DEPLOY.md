@@ -86,6 +86,7 @@ Fixed production target:
 - site: `new2`
 - domain: `https://667zui.video`
 - host: `198.200.37.82`
+- SSH port: `42607`
 - branch: `codex/site-667zui`
 - remote root: `/opt/raising-game-667zui`
 - service: `raising-game-667zui`
