@@ -75,8 +75,19 @@ echo
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     print(f"[ssh] connecting {USER}@{HOST}:{args.port}")
-    client.connect(HOST, port=args.port, username=USER, password=PASSWORD, timeout=20)
-    rc, out, err = remote_run(client, command, timeout=240)
+    try:
+        client.connect(HOST, port=args.port, username=USER, password=PASSWORD, timeout=20)
+        rc, out, err = remote_run(client, command, timeout=240)
+    except paramiko.SSHException as exc:
+        client.close()
+        message = str(exc)
+        hint = ""
+        if "Error reading SSH protocol banner" in message:
+            hint = " Host/port accepted TCP but did not present SSH; check sshd, firewall/security group, and DEPLOY_PORT."
+        raise SystemExit(f"SSH connection failed: {message}.{hint}") from None
+    except Exception as exc:
+        client.close()
+        raise SystemExit(f"SSH connection failed: {exc}") from None
     client.close()
     print(out)
     if err.strip():
