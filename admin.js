@@ -1895,7 +1895,7 @@ function adminPreviewMediaUrl(value = "") {
   try {
     const parsed = new URL(url, window.location.origin);
     if (parsed.origin === window.location.origin && parsed.pathname.startsWith("/assets/generated/")) {
-      parsed.searchParams.set("admPreview", "adm-75");
+      parsed.searchParams.set("admPreview", "adm-76");
       return parsed.toString();
     }
   } catch {}
@@ -2524,6 +2524,8 @@ async function openGenerationRecordDetail(record) {
   const video = recordVideoUrl(record);
   const remoteVideo = recordRemoteVideoUrl(record);
   const imageResult = recordImageResultUrl(record);
+  const videoHref = adminPreviewMediaUrl(video) || video;
+  const imageResultHref = adminPreviewMediaUrl(imageResult) || imageResult;
   const paramsText = jsonPretty(record.params);
   const upstreamText = jsonPretty(record.upstreamPayload);
   const createText = jsonPretty(record.createResponse);
@@ -2547,8 +2549,8 @@ async function openGenerationRecordDetail(record) {
       </div>
       ${record.referenceAssetUri ? `<div class="adm-record-line"><span>参考素材</span><code>${escapeHtml(record.referenceAssetUri)}</code></div>` : ""}
       ${record.imageUrl ? `<div class="adm-record-line"><span>图片</span><a href="${escapeHtml(record.imageUrl)}" target="_blank" rel="noopener">${escapeHtml(record.imageUrl)}</a></div>` : ""}
-      ${video ? `<div class="adm-record-line"><span>结果</span><a href="${escapeHtml(video)}" target="_blank" rel="noopener">${escapeHtml(video)}</a></div>` : ""}
-      ${imageResult ? `<div class="adm-record-line"><span>图片结果</span><a href="${escapeHtml(imageResult)}" target="_blank" rel="noopener">${escapeHtml(imageResult)}</a></div>` : ""}
+      ${video ? `<div class="adm-record-line"><span>结果</span><a href="${escapeHtml(videoHref)}" target="_blank" rel="noopener">${escapeHtml(video)}</a></div>` : ""}
+      ${imageResult ? `<div class="adm-record-line"><span>图片结果</span><a href="${escapeHtml(imageResultHref)}" target="_blank" rel="noopener">${escapeHtml(imageResult)}</a></div>` : ""}
       ${!video && remoteVideo ? `<div class="adm-record-line"><span>远程结果</span><a href="${escapeHtml(remoteVideo)}" target="_blank" rel="noopener">${escapeHtml(remoteVideo)}</a></div>` : ""}
       ${record.error ? `<div class="adm-record-line"><span>错误</span><code>${escapeHtml(record.error)}</code></div>` : ""}
       ${record.statusQueryError ? `<div class="adm-record-line"><span>状态查询</span><code>${escapeHtml(record.statusQueryError)}</code></div>` : ""}
