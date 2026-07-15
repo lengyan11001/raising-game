@@ -36,6 +36,139 @@ els.advancedImage?.addEventListener("change", async () => {
   const provider = currentAdvancedProvider();
   const files = Array.from(els.advancedImage.files || []);
   if (!files.length) return;
+  if (provider === "seedance") {
+    try {
+      let skippedWrongType = false;
+      let skippedTooLarge = false;
+      let skippedTooMany = false;
+      for (const file of files) {
+        const mime = String(file.type || "").toLowerCase();
+        if (mime.startsWith("image/")) {
+          if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) {
+            skippedTooLarge = true;
+            continue;
+          }
+          const existingImages = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
+          if (existingImages.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+            skippedTooMany = true;
+            continue;
+          }
+          const ref = stampAdvancedReferenceOrder({
+            dataUrl: await readFileAsDataUrl(file),
+            fileName: file.name || "",
+            name: file.name || "",
+          });
+          state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existingImages, ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+          state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+          state.advancedSourceImageAssetId = "";
+          if (!seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "")) {
+            state.advancedFirstFrameAssetId = "";
+            state.advancedSeedanceFirstFrameAssetId = "";
+          }
+        } else if (mime.startsWith("video/")) {
+          if (advancedSeedanceVideoReferences().length >= ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
+            skippedTooMany = true;
+            continue;
+          }
+          await uploadAdvancedMediaReference(file, "video");
+        } else if (mime.startsWith("audio/")) {
+          if (advancedSeedanceAudioReferences().length >= ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
+            skippedTooMany = true;
+            continue;
+          }
+          await uploadAdvancedMediaReference(file, "audio");
+        } else {
+          skippedWrongType = true;
+        }
+      }
+      if (skippedWrongType && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: "image / video / audio" });
+      }
+      if (skippedTooLarge && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
+      }
+      if (skippedTooMany && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.referenceMediaTooMany", {}, "Too many reference media files.");
+      }
+      if (!seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "")) syncSeedanceReferenceMode();
+      state.activeAdvancedCaseId = "";
+      renderAdvancedPresetBuilder();
+      updateAdvancedModelControls();
+      updateAdvancedButtonCost();
+    } catch (error) {
+      if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+    } finally {
+      els.advancedImage.value = "";
+    }
+    return;
+  }
+  if (provider === "wan27") {
+    try {
+      let skippedWrongType = false;
+      let skippedTooLarge = false;
+      let skippedTooLong = false;
+      for (const file of files) {
+        const mime = String(file.type || "").toLowerCase();
+        if (mime.startsWith("image/")) {
+          if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) {
+            skippedTooLarge = true;
+            continue;
+          }
+          const ref = stampAdvancedReferenceOrder({
+            dataUrl: await readFileAsDataUrl(file),
+            fileName: file.name || "",
+            name: file.name || "",
+          });
+          state.advancedReferenceImages = [ref];
+          state.advancedUploadDataUrl = ref.dataUrl || "";
+          state.advancedFirstFrameAssetId = "";
+          state.advancedSourceImageAssetId = "";
+        } else if (mime.startsWith("video/")) {
+          if (file.size > ADVANCED_WAN_CLIP_MAX_BYTES) {
+            skippedTooLarge = true;
+            continue;
+          }
+          const clipDuration = await readVideoDuration(file).catch(() => 0);
+          if (!clipDuration || clipDuration > ADVANCED_WAN_CLIP_MAX_SECONDS) {
+            skippedTooLong = true;
+            continue;
+          }
+          state.advancedWanClipDataUrl = await readFileAsDataUrl(file);
+          state.advancedWanClipFileName = file.name || "";
+          state.advancedWanClipAssetId = "";
+          state.advancedWanClipOrder = nextAdvancedReferenceOrder();
+          if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = "";
+          if (els.advancedWanClipPreview) {
+            els.advancedWanClipPreview.src = state.advancedWanClipDataUrl;
+            els.advancedWanClipPreview.classList.add("is-visible");
+            els.advancedWanClipFile?.closest(".wan-frame-upload")?.classList.add("has-image");
+          }
+        } else if (mime.startsWith("audio/")) {
+          await uploadAdvancedWanAudioReference(file);
+        } else {
+          skippedWrongType = true;
+        }
+      }
+      if (skippedWrongType && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: "image / video / audio" });
+      }
+      if (skippedTooLarge && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.referenceMediaTooMany", {}, "Some media files are too large.");
+      }
+      if (skippedTooLong && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.clipTooLong");
+      }
+      state.activeAdvancedCaseId = "";
+      renderAdvancedPresetBuilder();
+      updateAdvancedModelControls();
+      updateAdvancedButtonCost();
+    } catch (error) {
+      if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+    } finally {
+      els.advancedImage.value = "";
+    }
+    return;
+  }
   const firstFile = files[0];
   const firstFileIsVideo = String(firstFile.type || "").startsWith("video/");
   const firstFileIsImage = String(firstFile.type || "").startsWith("image/");
@@ -72,14 +205,9 @@ els.advancedImage?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
-  if (provider === "seedance" || provider === "wan27-image-edit") {
+  if (provider === "wan27-image-edit") {
     let existing = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
-    if (provider === "seedance" && state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference() && els.advancedSeedanceMediaMode) {
-      els.advancedSeedanceMediaMode.value = "reference_images";
-    } else if (provider === "seedance" && advancedCreateModeUsesAutoPrompt() && els.advancedSeedanceMediaMode) {
-      els.advancedSeedanceMediaMode.value = "first_frame";
-    }
-    const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+    const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
     const localCharacterUpload = provider === "seedance" && state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference();
     const limit = provider === "wan27-image-edit"
       ? (advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT)
@@ -135,6 +263,22 @@ els.advancedImage?.addEventListener("change", async () => {
   els.advancedImage.value = "";
   updateAdvancedModelControls();
 });
+els.advancedSeedanceFirstFrame?.addEventListener("change", async () => {
+  const file = els.advancedSeedanceFirstFrame.files?.[0];
+  if (!file) return;
+  if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES || !String(file.type || "").startsWith("image/")) {
+    els.advancedSeedanceFirstFrame.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
+    updateAdvancedModelControls();
+    return;
+  }
+  state.advancedSeedanceFirstFrameDataUrl = await readFileAsDataUrl(file);
+  state.advancedSeedanceFirstFrameAssetId = "";
+  state.advancedFirstFrameAssetId = "";
+  state.advancedUploadDataUrl = state.advancedSeedanceFirstFrameDataUrl;
+  els.advancedSeedanceFirstFrame.value = "";
+  updateAdvancedModelControls();
+});
 els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
   const file = els.advancedSeedanceLastFrame.files?.[0];
   if (!file) return;
@@ -186,6 +330,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
     state.advancedWanClipDataUrl = "";
     state.advancedWanClipFileName = "";
     state.advancedWanClipAssetId = "";
+    state.advancedWanClipOrder = 0;
     els.advancedWanClipFile.value = "";
     els.advancedWanClipPreview?.removeAttribute("src");
     els.advancedWanClipPreview?.classList.remove("is-visible");
@@ -198,6 +343,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
     state.advancedWanClipDataUrl = "";
     state.advancedWanClipFileName = "";
     state.advancedWanClipAssetId = "";
+    state.advancedWanClipOrder = 0;
     els.advancedWanClipFile.value = "";
     els.advancedWanClipPreview?.removeAttribute("src");
     els.advancedWanClipPreview?.classList.remove("is-visible");
@@ -208,6 +354,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
   state.advancedWanClipDataUrl = await readFileAsDataUrl(file);
   state.advancedWanClipFileName = file.name || "";
   state.advancedWanClipAssetId = "";
+  state.advancedWanClipOrder = nextAdvancedReferenceOrder();
   if (els.advancedWanClipPreview) {
     els.advancedWanClipPreview.src = state.advancedWanClipDataUrl;
     els.advancedWanClipPreview.classList.add("is-visible");
@@ -356,7 +503,7 @@ els.advancedWanMediaMode?.addEventListener("change", () => {
 });
 els.advancedSeedanceMediaMode?.addEventListener("change", () => {
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
-  state.advancedAssetTarget = seedanceMode === "reference_images" ? "referenceImages" : seedanceMode === "reference_video" && !advancedCreateModeNeedsReplacePair() ? "video" : "primary";
+  state.advancedAssetTarget = seedanceModeNeedsFirstFrame(seedanceMode) ? "primary" : "referenceImages";
   updateAdvancedModelControls();
 });
 els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
@@ -381,7 +528,7 @@ els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelC
 els.advancedUploadBox?.addEventListener("click", () => {
   const provider = currentAdvancedProvider();
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
-  setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : advancedCreateUploadIsVideo() ? "video" : provider === "seedance" && seedanceMode === "reference_images" ? "referenceImages" : "primary");
+  setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? "referenceImages" : advancedCreateUploadIsVideo() ? "video" : "primary");
 });
 document.querySelectorAll("[data-remove-advanced-slot]").forEach((button) => {
   button.addEventListener("click", (event) => {
@@ -391,6 +538,7 @@ document.querySelectorAll("[data-remove-advanced-slot]").forEach((button) => {
   });
 });
 els.advancedSeedanceLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
+els.advancedSeedanceFirstFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("primary"));
 els.advancedWanLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
 els.advancedWanClipFile?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("video"));
 els.advancedWanAudioUrl?.addEventListener("input", updateAdvancedButtonCost);

@@ -580,7 +580,7 @@ const DEFAULT_CONFIG = {
     heroSubtitle: "Choose a template, upload an image or enter text, and create a new video.",
     notice: "Generated results are saved in history. Video links may expire after 24 hours, so download and save them in time.",
     accessCopy:
-      "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"model\":\"dreamina-seedance-2-0-260128\",\"prompt\":\"Use Image 1 as the character reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_images\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>\n\nmodel dreamina-seedance-2-0-260128 routes to ep-20260429142513-zg667; model dreamina-seedance-2-0-fast-260128 routes to ep-20260429142538-fkm9d.",
+      "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"model\":\"dreamina-seedance-2-0-260128\",\"prompt\":\"Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_video\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"referenceVideoUrls\":[\"https://example.com/video1.mp4\"],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>\n\nmodel dreamina-seedance-2-0-260128 routes to ep-20260429142513-zg667; model dreamina-seedance-2-0-fast-260128 routes to ep-20260429142538-fkm9d.",
     advancedPricing: DEFAULT_ADVANCED_PRICING,
     analytics: {
       googleMeasurementId: "",
@@ -8340,18 +8340,7 @@ async function preparePivoxSeedancePayloadAssets(payload = {}, { user = {} } = {
 }
 
 function avoidPivoxMixedFrameReferenceContent(content = []) {
-  const hasFrameImage = content.some((item) => item?.type === "image_url" && ["first_frame", "last_frame"].includes(String(item.role || "")));
-  const hasReferenceMedia = content.some((item) => {
-    const role = String(item?.role || "");
-    return role === "reference_image" || item?.type === "video_url";
-  });
-  if (!hasFrameImage || !hasReferenceMedia) return content;
-  return content.map((item) => {
-    if (item?.type === "image_url" && ["first_frame", "last_frame"].includes(String(item.role || ""))) {
-      return { ...item, role: "reference_image" };
-    }
-    return item;
-  });
+  return content;
 }
 
 function pivoxSeedancePayloadFromBody({ config = {}, prompt = "", content = [], body = {} } = {}) {
@@ -8571,14 +8560,8 @@ function apizSeedanceParamsFromPayload(payload = {}, { prompt = "", body = {} } 
     }
   });
 
-  const hasReferenceMedia = referenceImages.length || referenceVideos.length || referenceAudios.length;
-  if (hasReferenceMedia) {
-    addApizSeedanceUrl(referenceImages, firstFrameUrl, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
-    addApizSeedanceUrl(referenceImages, lastFrameUrl, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
-  } else {
-    if (firstFrameUrl) params.image_url = firstFrameUrl;
-    if (lastFrameUrl) params.end_image_url = lastFrameUrl;
-  }
+  if (firstFrameUrl) params.image_url = firstFrameUrl;
+  if (lastFrameUrl) params.end_image_url = lastFrameUrl;
   if (referenceImages.length) params.reference_images = referenceImages;
   if (referenceVideos.length) params.reference_videos = referenceVideos;
   if (referenceAudios.length) params.reference_audios = referenceAudios;
@@ -9169,7 +9152,6 @@ function validateOfficialSeedancePayloadBeforeCharge(payload = {}) {
     if (item.type === "video_url" || item.type === "audio_url") return true;
     return item.type === "image_url" && !["first_frame", "last_frame"].includes(String(item.role || ""));
   });
-  if (hasFrameImage && hasReferenceMedia) errors.push("first_frame/last_frame content cannot be mixed with reference image/video/audio content.");
   if (audioCount > 0 && imageCount + videoCount < 1) errors.push("audio content must be combined with image or video content.");
   const missingMedia = content.find((item) => {
     if (!item || typeof item !== "object") return false;
@@ -10906,18 +10888,6 @@ async function validateSeedanceAdvancedMediaRules({
     throw advancedValidationError("MISSING_LAST_FRAME", "Vipeak 2 first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl.");
   }
   const hasReferenceMedia = referenceImageCount > 0 || referenceVideoCount > 0 || referenceAudioCount > 0;
-  if (seedanceModeNeedsFirstFrame(mode) && hasReferenceMedia) {
-    throw advancedValidationError("MIXED_FRAME_AND_REFERENCE_MEDIA", "Vipeak 2 first-frame/first-last-frame modes cannot be mixed with referenceImages, referenceVideos, or referenceAudios. Use reference_images/reference_video mode instead.");
-  }
-  if (mode === "text_to_video" && hasReferenceMedia) {
-    throw advancedValidationError("TEXT_MODE_WITH_REFERENCE_MEDIA", "Vipeak 2 text_to_video cannot include reference media. Use seedanceMode reference_images or reference_video.");
-  }
-  if (mode === "reference_images" && referenceImageCount < 1) {
-    throw advancedValidationError("MISSING_REFERENCE_IMAGE", "Vipeak 2 reference_images mode requires at least one reference image.");
-  }
-  if (mode === "reference_video" && referenceVideoCount < 1) {
-    throw advancedValidationError("MISSING_REFERENCE_VIDEO", "Vipeak 2 reference_video mode requires at least one reference video.");
-  }
   if (referenceAudioCount > 0 && firstFrameCount + lastFrameCount + referenceImageCount + referenceVideoCount < 1) {
     throw advancedValidationError("AUDIO_REQUIRES_VISUAL_MEDIA", "Vipeak 2 audio references must be combined with an image or video reference.");
   }
@@ -15287,10 +15257,6 @@ async function handleAdvancedGenerate(req, res) {
     if (referenceAudioAssetUris.length) {
       requestParams.reference_audios = referenceAudioAssetUris;
     }
-    if (referenceVideoAssetIds.length || referenceVideoAssetUris.length) {
-      seedanceMode = "reference_video";
-      requestParams.seedanceMode = seedanceMode;
-    }
     const referenceInputs = seedanceReferenceInputsFromBody(mergedBody, { includeDataUrlFallback: !seedanceModeNeedsFirstFrame(seedanceMode) });
     const createdReferenceAssets = await createUserImageAssetsFromInputs(auth.db, auth.user, referenceInputs, {
       name: selectedCase?.title || "Advanced reference",
@@ -16111,7 +16077,7 @@ function docsAdvancedExampleBody(item = {}) {
     body.model = normalizeSeedanceTier(params.seedanceTier) === "fast"
       ? "dreamina-seedance-2-0-fast-260128"
       : "dreamina-seedance-2-0-260128";
-    body.seedanceMode = normalizeSeedanceMode(params.seedanceMode || params.mediaMode || item.mediaMode || "reference_images");
+    body.seedanceMode = normalizeSeedanceMode(params.seedanceMode || params.mediaMode || item.mediaMode || "reference_video");
     body.referenceImages = [
       { url: "https://example.com/image1.png", fileName: "image1.png" },
       { url: "https://example.com/image2.png", fileName: "image2.png" },
@@ -16144,7 +16110,7 @@ function advancedGenerateConstraintsDoc() {
         standard: "dreamina-seedance-2-0-260128",
         fast: "dreamina-seedance-2-0-fast-260128",
       },
-      seedanceMode: ["text_to_video", "first_frame", "first_last_frame", "reference_images", "reference_video"],
+      seedanceMode: ["reference_video", "first_last_frame"],
       durationSeconds: { integer: true, min: advancedDurationBounds("seedance").min, max: advancedDurationBounds("seedance").max },
       resolution: {
         standard: ["480p", "720p", "1080p", "4k"],
@@ -16170,11 +16136,8 @@ function advancedGenerateConstraintsDoc() {
         audios: ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT,
       },
       modeRules: {
-        text_to_video: "Prompt only. Do not send referenceImages/referenceVideos/referenceAudios.",
-        first_frame: "Requires exactly a first-frame image input. Do not mix with reference media.",
-        first_last_frame: "Requires first-frame and last-frame image inputs. Do not mix with reference media.",
-        reference_images: "Requires at least one reference image.",
-        reference_video: "Requires at least one reference video. Images/audio can be combined as references when needed.",
+        reference_video: "Multimodal references. Send any supported mix of referenceImages, referenceVideoUrls/referenceVideoAssetIds, and referenceAudioUrls/referenceAudioAssetIds; refer to them in the prompt as Image 1, Video 1, Audio 1, etc.",
+        first_last_frame: "Requires first-frame and last-frame image inputs. Additional image/video/audio references may still be sent and should be described in the prompt by their labels.",
       },
       mediaUrl: "Use public http(s) URLs, data URLs accepted by this API, asset ids from /api/user-assets, or provider asset:// URIs where explicitly documented.",
     },
@@ -16182,7 +16145,7 @@ function advancedGenerateConstraintsDoc() {
       provider: "wan27",
       durationSeconds: { integer: true, min: advancedDurationBounds("wan27").min, max: advancedDurationBounds("wan27").max },
       resolution: ["720p", "1080p"],
-      mediaMode: ["first_frame", "first_last_frame", "first_frame_audio", "first_last_frame_audio", "first_clip", "first_clip_last_frame"],
+      mediaMode: ["multimodal", "first_last_frame"],
       mediaCombinations: [
         "first_frame",
         "first_frame + last_frame",
@@ -16230,9 +16193,10 @@ function externalAdvancedApiDoc(origin) {
       },
       body: {
         provider: "seedance",
-        prompt: "Create a cinematic 5 second product promo video.",
-        seedanceMode: "first_frame",
-        imageUrl: "https://example.com/first-frame.jpg",
+        prompt: "Use Image 1 as the subject reference and Video 1 as motion reference. Create a cinematic 5 second product promo video.",
+        seedanceMode: "reference_video",
+        referenceImages: [{ url: "https://example.com/image1.jpg", fileName: "image1.jpg" }],
+        referenceVideoUrls: ["https://example.com/video1.mp4"],
         ratio: "9:16",
         resolution: "720p",
         duration: 5,
@@ -16480,25 +16444,25 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       { name: "provider", type: "string", required: false, description: "`wan27` or `seedance`. Defaults to the saved case provider. Known Seedance model aliases also imply `seedance`, but explicit provider is recommended." },
       { name: "model", type: "string", required: provider === "seedance", description: provider === "seedance" ? `Use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. These map to ${SEEDANCE_QUALITY_ENDPOINT_ID} and ${SEEDANCE_FAST_ENDPOINT_ID}.` : "Wan2.7 model id. Defaults to wan2.7-i2v-2026-04-25." },
       { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
-      { name: "seedanceMode", type: "string", required: false, description: "Seedance only. text_to_video, first_frame, first_last_frame, reference_images, or reference_video. first_frame/first_last_frame cannot be mixed with referenceImages/referenceVideos/referenceAudios." },
-      { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded base64 image. Required for Wan2.7 first-frame generation; accepted as Seedance first frame when seedanceMode is first_frame/first_last_frame." },
+      { name: "seedanceMode", type: "string", required: false, description: "Seedance only. Use reference_video for multimodal references or first_last_frame when you want explicit first and last frame controls. Legacy aliases are accepted but new callers should use these two values." },
+      { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded base64 image. Required for Wan2.7 first-frame generation; accepted as a Seedance first frame only when seedanceMode is first_last_frame." },
       { name: "imageUrl / firstFrameUrl", type: "string", required: false, description: "Seedance first-frame public URL. The server downloads it, uploads it to Ark assets, and sends upstream image_url." },
       { name: "imageAssetId / firstFrameAssetId", type: "string", required: false, description: "Seedance first-frame asset id returned by /api/user-assets." },
       { name: "endImageUrl / lastFrameUrl", type: "string", required: false, description: "Seedance last-frame public URL for first_last_frame. The server prepares it as upstream end_image_url." },
       { name: "endImageAssetId / lastFrameAssetId", type: "string", required: false, description: "Seedance last-frame asset id for first_last_frame." },
-      { name: "referenceImages", type: "array", required: false, description: "Seedance reference_images mode. One or more images in the same field. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId." },
+      { name: "referenceImages", type: "array", required: false, description: "Seedance multimodal references. One or more images in the same order shown to the user. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId." },
       { name: "Seedance image rules", type: "constraint", required: false, description: `Every Seedance image input must be JPG/PNG/WebP/BMP, each side ${SEEDANCE_IMAGE_DIMENSION_MIN}-${SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}, and at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs total.` },
       { name: "referenceImages[].assetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI. Prefer assetId from /api/user-assets when possible.", default: "-" },
       { name: "seedanceReferenceAssetUri / seedanceCharacterAssetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI for callers that already have a provider asset URI.", default: "-" },
       { name: "referenceImageAssetUris / seedanceReferenceAssetUris", type: "array", required: false, description: "Advanced passthrough asset:// URI array for callers that already have provider asset URIs.", default: "[]" },
-      { name: "referenceVideos / referenceVideoUrls", type: "array", required: false, description: `Seedance reference_video/edit/extend public video URLs. Up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} URLs. Each video must have pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}.` },
-      { name: "referenceVideoAssetId", type: "string", required: false, description: "Seedance reference_video mode. Existing uploaded video asset id." },
+      { name: "referenceVideos / referenceVideoUrls", type: "array", required: false, description: `Seedance multimodal public video URLs. Up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} URLs. Each video must have pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}.` },
+      { name: "referenceVideoAssetId", type: "string", required: false, description: "Seedance multimodal existing uploaded video asset id." },
       { name: "referenceVideoAssetIds", type: "array", required: false, description: `Seedance multimodal/edit/extend. Up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} existing uploaded video asset ids. Each video must have pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}.` },
       { name: "inputVideoSeconds / referenceVideoDurationSeconds", type: "number", required: false, description: "Total input video duration for Seedance reference-video/edit/extend billing. The server pre-deducts output seconds plus this input-video branch before submitting upstream. If omitted for a video input, the output duration is used as a conservative fallback.", default: "0" },
       { name: "referenceAudios / referenceAudioUrls", type: "array", required: false, description: "Seedance multimodal reference audio public URLs. Up to 3 URLs; text+audio without image/video is not supported upstream." },
       { name: "referenceAudioAssetId / referenceAudioAssetIds", type: "string|array", required: false, description: "Seedance multimodal audio references from /api/user-assets. Up to 3 audio assets." },
       { name: "prompt asset labels", type: "string", required: false, description: "When referencing materials in prompt text, use Image 1, Video 1, or Audio 1. Do not write raw asset ids in the prompt." },
-      { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. For Seedance first_frame it is the first frame; otherwise it is a reference image." },
+      { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. For new Seedance callers prefer firstFrameAssetId for first/last-frame mode or referenceImages[].assetId for multimodal references." },
       { name: "extraReferenceDataUrls", type: "array", required: false, description: "Seedance compatibility field. Prefer referenceImages for new integrations; referenceImages now supports URL items." },
       { name: "extraReferenceAssetIds", type: "array", required: false, description: "Seedance only. Optional existing uploaded asset ids for additional references." },
       { name: "ratio", type: "string", required: false, description: "Video ratio, for example 9:16, 16:9, or 1:1." },
@@ -16650,14 +16614,14 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((seedance.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, width and height each ${seedance.imageInput?.widthPx?.min ?? SEEDANCE_IMAGE_DIMENSION_MIN}-${seedance.imageInput?.widthPx?.max ?? SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${seedance.imageInput?.aspectRatio?.min ?? SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${seedance.imageInput?.aspectRatio?.max ?? SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`,
     `- Video inputs: MP4/WebM/MOV/M4V, max ${Math.round((seedance.videoInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, pixel count ${seedance.videoInput?.pixelCount?.min ?? SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${seedance.videoInput?.pixelCount?.max ?? SEEDANCE_VIDEO_PIXEL_COUNT_MAX}. For 9:16 video, 480x854 is the smallest safe size.`,
     `- Max references: ${seedance.referenceLimits?.images ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT} images total, ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos, ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios.`,
-    "- `first_frame` and `first_last_frame` cannot be mixed with `referenceImages`, `referenceVideos`, `referenceAudios`, or raw reference `content`.",
+    "- Public UI modes are `reference_video` for multimodal references and `first_last_frame` for explicit start/end frames. In first/last-frame mode, extra reference images, videos, and audio may still be sent.",
     "- Audio references must be combined with image or video references; audio-only generation is rejected.",
     "",
     "Wan2.7 / Vipeak 1 video:",
     "",
     `- \`provider\`: \`wan27\`; \`duration\`: integer ${wan27Video.durationSeconds?.min ?? advancedDurationBounds("wan27").min}-${wan27Video.durationSeconds?.max ?? advancedDurationBounds("wan27").max} seconds; \`resolution\`: ${(wan27Video.resolution || []).map((item) => `\`${item}\``).join(", ")}.`,
     `- \`mediaMode\`: ${(wan27Video.mediaMode || []).map((item) => `\`${item}\``).join(", ")}.`,
-    "- Valid media combinations are first frame, first+last frame, first frame+audio, first+last frame+audio, first clip, or first clip+last frame.",
+    "- Public UI modes are `multimodal` and `first_last_frame`; legacy mode aliases are still normalized for compatibility.",
     "",
     "Wan2.7 / Vipeak 1 image:",
     "",
@@ -16721,11 +16685,12 @@ function seedanceAdvancedExampleMarkdown(docs) {
   const request = {
     provider: "seedance",
     model: "dreamina-seedance-2-0-260128",
-    prompt: "Use Image 1 as the character reference. Generate a cinematic 5 second shot, no subtitles, no watermark.",
-    seedanceMode: "reference_images",
+    prompt: "Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot, no subtitles, no watermark.",
+    seedanceMode: "reference_video",
     referenceImages: [
       { url: "https://example.com/image1.png", fileName: "image1.png" },
     ],
+    referenceVideoUrls: ["https://example.com/video1.mp4"],
     ratio: "9:16",
     resolution: "720p",
     duration: 5,
@@ -16766,7 +16731,7 @@ function seedanceAdvancedExampleMarkdown(docs) {
       "Authorization: Bearer <user-token>",
     ].join("\n")),
     "",
-    "Supported media inputs: `imageUrl`/`firstFrameUrl`, `endImageUrl`/`lastFrameUrl`, `referenceImages`, `referenceVideoUrls`/`referenceVideoAssetIds`, and `referenceAudioUrls`/`referenceAudioAssetIds`. Use `seedanceMode` values such as `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, and `reference_video`. `first_frame` and `first_last_frame` cannot be mixed with reference media. Include `referenceVideoDurationSeconds` when known; otherwise the server probes the URL and falls back conservatively for pre-deduction.",
+    "Supported media inputs: `imageUrl`/`firstFrameUrl`, `endImageUrl`/`lastFrameUrl`, `referenceImages`, `referenceVideoUrls`/`referenceVideoAssetIds`, and `referenceAudioUrls`/`referenceAudioAssetIds`. New callers should use `seedanceMode: \"reference_video\"` for multimodal references or `seedanceMode: \"first_last_frame\"` for explicit first/last frames. First/last-frame mode can still include extra reference images, videos, or audio. Include `referenceVideoDurationSeconds` when known; otherwise the server probes the URL and falls back conservatively for pre-deduction.",
     "",
     `Billing guardrails: \`duration\` must be an integer from ${advancedDurationBounds("seedance").min} to ${advancedDurationBounds("seedance").max} seconds. Seedance standard accepts \`480p\`, \`720p\`, \`1080p\`, and \`4k\`; the fast model accepts \`480p\` and \`720p\` only, so vip123 rejects unsupported combinations before charging. Seedance images must be JPG/PNG/WebP/BMP, each side ${SEEDANCE_IMAGE_DIMENSION_MIN}-${SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}. Seedance video references must be MP4/WebM/MOV/M4V and pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}; for 9:16 video, use at least 480x854.`,
     "",
@@ -16852,7 +16817,7 @@ function buildModelDocsMarkdown(docs) {
       '  "provider": "seedance",',
       '  "model": "dreamina-seedance-2-0-260128",',
       '  "prompt": "Use Image 1 as the main character. Keep the same face, hairstyle, body shape, and outfit. Create a cinematic 5 second shot.",',
-      '  "seedanceMode": "reference_images",',
+      '  "seedanceMode": "reference_video",',
       '  "referenceImages": [',
       '    {"assetId": "asset-id-from-upload"}',
       "  ],",
@@ -18842,7 +18807,7 @@ async function handleUploadSeedanceCharacter(req, res) {
     }],
     generateRequest: {
       provider: "seedance",
-      seedanceMode: "reference_images",
+      seedanceMode: "reference_video",
       prompt: "Use Image 1 as the main character. Keep the same identity and generate a cinematic shot.",
       referenceImages: [{ assetId: reference.assetId, fileName: reference.fileName }],
       ratio: "9:16",

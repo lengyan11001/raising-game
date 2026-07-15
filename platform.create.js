@@ -59,8 +59,8 @@ function setAdvancedSideTab(tab = "assets", { silent = false, syncMobile = false
 
 function advancedAssetTargetItems() {
   const provider = currentAdvancedProvider();
-  const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
-  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+  const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
+  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
   const targets = [];
   if (provider === "wan27-image-edit") {
     targets.push({ id: "sourceImages", label: t("advanced.assetTargetSourceImages"), type: "image" });
@@ -70,24 +70,14 @@ function advancedAssetTargetItems() {
     if (wanModeNeedsLastFrame(wanMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
     if (wanModeNeedsAudio(wanMode)) targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
   } else {
-    if (advancedCreateModeNeedsReplacePair()) {
+    if (seedanceModeNeedsFirstFrame(seedanceMode)) {
       targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
-    } else if (advancedCreateModeUsesAutoPrompt() && advancedCreateModeUsesCharacterPresetReference()) {
-      targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
-    } else if (advancedCreateModeUsesAutoPrompt()) {
-      targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
-    } else if (seedanceModeNeedsReferenceImages(seedanceMode)) {
-      targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
-    } else if (seedanceMode !== "text_to_video" && !seedanceModeNeedsReferenceVideo(seedanceMode)) {
-      targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+      targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
     }
-    if (seedanceModeNeedsLastFrame(seedanceMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
-    if (seedanceModeNeedsReferenceVideo(seedanceMode)) {
-      targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
-      targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
-    }
+    targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
+    targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
+    targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
   }
-  if (!targets.length && provider === "seedance" && seedanceMode === "text_to_video") return [];
   return targets.length ? targets : [{ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" }];
 }
 
@@ -524,7 +514,7 @@ async function uploadAdvancedAssets(files = []) {
     for (const file of selected) {
       const dataUrl = await readFileAsDataUrl(file);
       const durationSeconds = file.type.startsWith("video/") || file.type.startsWith("audio/")
-        ? await readVideoDuration(file).catch(() => 0)
+        ? await readMediaDuration(file).catch(() => 0)
         : 0;
       await requestJson("/api/user-assets", {
         method: "POST",
@@ -573,14 +563,7 @@ async function uploadAdvancedVideoReference(file) {
   state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
   state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
-  state.advancedSeedanceVideoAssetId = asset.id;
-  state.advancedSeedanceVideoPreviewUrl = assetPreviewUrl(asset);
-  if (!advancedCreateModeNeedsReplacePair()) {
-    state.advancedReferenceImages = [];
-    state.advancedUploadDataUrl = "";
-    state.advancedFirstFrameAssetId = "";
-    state.advancedSourceImageAssetId = "";
-  }
+  addAdvancedSeedanceMediaReference(asset, "video");
   if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
   if (els.advancedNote) els.advancedNote.textContent = "";
   renderAdvancedAssets();
@@ -589,9 +572,229 @@ async function uploadAdvancedVideoReference(file) {
   return asset;
 }
 
+function advancedSeedanceVideoReferences() {
+  const refs = Array.isArray(state.advancedSeedanceVideoReferences) ? [...state.advancedSeedanceVideoReferences] : [];
+  if (state.advancedSeedanceVideoAssetId || state.advancedSeedanceVideoPreviewUrl) {
+    const legacy = {
+      assetId: state.advancedSeedanceVideoAssetId || "",
+      url: state.advancedSeedanceVideoPreviewUrl || "",
+      previewUrl: state.advancedSeedanceVideoPreviewUrl || "",
+      name: "Video reference",
+    };
+    if (!refs.some((item) => item.assetId === legacy.assetId && item.url === legacy.url)) refs.unshift(legacy);
+  }
+  return refs.filter((item) => item && (item.assetId || item.url || item.previewUrl)).slice(0, ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT);
+}
+
+function setAdvancedSeedanceVideoReferences(refs = []) {
+  const next = refs.filter((item) => item && (item.assetId || item.url || item.previewUrl)).slice(0, ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT);
+  state.advancedSeedanceVideoReferences = next;
+  state.advancedSeedanceVideoAssetId = next[0]?.assetId || "";
+  state.advancedSeedanceVideoPreviewUrl = next[0]?.previewUrl || next[0]?.url || "";
+}
+
+function advancedSeedanceAudioReferences() {
+  const refs = Array.isArray(state.advancedSeedanceAudioReferences) ? [...state.advancedSeedanceAudioReferences] : [];
+  if (state.advancedAudioAssetId) {
+    const legacy = {
+      assetId: state.advancedAudioAssetId || "",
+      name: "Audio reference",
+    };
+    if (!refs.some((item) => item.assetId === legacy.assetId)) refs.unshift(legacy);
+  }
+  return refs.filter((item) => item && (item.assetId || item.url || item.previewUrl)).slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
+}
+
+function setAdvancedSeedanceAudioReferences(refs = []) {
+  const next = refs.filter((item) => item && (item.assetId || item.url || item.previewUrl)).slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
+  state.advancedSeedanceAudioReferences = next;
+  state.advancedAudioAssetId = next[0]?.assetId || "";
+}
+
+function syncSeedanceReferenceMode() {
+  if (currentAdvancedProvider() === "seedance" && els.advancedSeedanceMediaMode && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode.value)) {
+    els.advancedSeedanceMediaMode.value = "reference_video";
+  }
+}
+
+function advancedReferenceOrderValue(item = {}, fallback = 0) {
+  const value = Number(item.order ?? item.referenceOrder ?? item.createdOrder ?? 0);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function nextAdvancedReferenceOrder() {
+  const imageOrders = (Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [])
+    .map((item, index) => advancedReferenceOrderValue(item, index + 1));
+  const videoOrders = advancedSeedanceVideoReferences()
+    .map((item, index) => advancedReferenceOrderValue(item, index + 1));
+  const audioOrders = advancedSeedanceAudioReferences()
+    .map((item, index) => advancedReferenceOrderValue(item, index + 1));
+  const current = Math.max(Number(state.advancedReferenceOrderCounter || 0), 0, ...imageOrders, ...videoOrders, ...audioOrders);
+  state.advancedReferenceOrderCounter = current + 1;
+  return state.advancedReferenceOrderCounter;
+}
+
+function stampAdvancedReferenceOrder(ref = {}) {
+  return {
+    ...ref,
+    order: advancedReferenceOrderValue(ref) || nextAdvancedReferenceOrder(),
+  };
+}
+
+async function readMediaDuration(file) {
+  if (!file) return 0;
+  const tag = String(file.type || "").startsWith("audio/") ? "audio" : "video";
+  const media = document.createElement(tag);
+  const url = URL.createObjectURL(file);
+  return await new Promise((resolve) => {
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      media.removeAttribute("src");
+      media.load?.();
+    };
+    media.preload = "metadata";
+    media.onloadedmetadata = () => {
+      const duration = Number(media.duration || 0);
+      cleanup();
+      resolve(Number.isFinite(duration) ? duration : 0);
+    };
+    media.onerror = () => {
+      cleanup();
+      resolve(0);
+    };
+    media.src = url;
+  });
+}
+
+async function uploadAdvancedMediaReference(file, kind = "video") {
+  if (!state.user) {
+    openLogin();
+    return null;
+  }
+  if (!file) return null;
+  const mime = String(file.type || "").toLowerCase();
+  const expectedPrefix = kind === "audio" ? "audio/" : "video/";
+  if (!mime.startsWith(expectedPrefix)) {
+    if (els.advancedNote) els.advancedNote.textContent = kind === "audio" ? t("advanced.seedanceAudioRequired", {}, "Reference audio is required.") : t("advanced.seedanceVideoRequired");
+    return null;
+  }
+  if (file.size > ADVANCED_WAN_CLIP_MAX_BYTES) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLarge");
+    return null;
+  }
+  if (els.advancedNote) els.advancedNote.textContent = t("assets.uploading");
+  const durationSeconds = await readMediaDuration(file);
+  const payload = await requestJson("/api/user-assets", {
+    method: "POST",
+    body: {
+      dataUrl: await readFileAsDataUrl(file),
+      name: file.name || (kind === "audio" ? "Audio reference" : "Video reference"),
+      fileName: file.name || "",
+      durationSeconds,
+    },
+  });
+  const asset = payload.asset || null;
+  if (!asset?.id || (kind === "audio" ? !isAudioAsset(asset) : !isVideoAsset(asset))) {
+    throw new Error(t("assets.uploadFailed", { message: `Invalid ${kind} asset` }));
+  }
+  state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+  state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+  addAdvancedSeedanceMediaReference(asset, kind);
+  if (els.advancedNote) els.advancedNote.textContent = "";
+  renderAdvancedAssets();
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  return asset;
+}
+
+async function uploadAdvancedWanAudioReference(file) {
+  if (!state.user) {
+    openLogin();
+    return null;
+  }
+  if (!file) return null;
+  if (!String(file.type || "").toLowerCase().startsWith("audio/")) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceAudioRequired", {}, "Reference audio is required.");
+    return null;
+  }
+  if (file.size > ADVANCED_WAN_CLIP_MAX_BYTES) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLarge");
+    return null;
+  }
+  if (els.advancedNote) els.advancedNote.textContent = t("assets.uploading");
+  const durationSeconds = await readMediaDuration(file);
+  const payload = await requestJson("/api/user-assets", {
+    method: "POST",
+    body: {
+      dataUrl: await readFileAsDataUrl(file),
+      name: file.name || "Driving audio",
+      fileName: file.name || "",
+      durationSeconds,
+    },
+  });
+  const asset = payload.asset || null;
+  if (!asset?.id || !isAudioAsset(asset)) throw new Error(t("assets.uploadFailed", { message: "Invalid audio asset" }));
+  state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+  state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+  state.advancedAudioAssetId = asset.id;
+  state.advancedAudioPreviewUrl = assetPreviewUrl(asset);
+  state.advancedAudioFileName = asset.fileName || asset.name || file.name || "";
+  state.advancedAudioOrder = nextAdvancedReferenceOrder();
+  if (els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = "";
+  if (els.advancedNote) els.advancedNote.textContent = "";
+  renderAdvancedAssets();
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+  return asset;
+}
+
+function addAdvancedSeedanceMediaReference(asset = {}, kind = "video") {
+  const ref = {
+    assetId: asset.id || asset.assetId || "",
+    url: assetPreviewUrl(asset),
+    previewUrl: assetPreviewUrl(asset),
+    name: asset.name || asset.fileName || (kind === "audio" ? "Audio reference" : "Video reference"),
+    fileName: asset.fileName || asset.name || "",
+    durationSeconds: asset.durationSeconds || asset.duration || 0,
+    fromLibrary: true,
+  };
+  const orderedRef = stampAdvancedReferenceOrder(ref);
+  if (kind === "audio") {
+    setAdvancedSeedanceAudioReferences(dedupeAdvancedMediaReferences([...advancedSeedanceAudioReferences(), orderedRef]).slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT));
+  } else {
+    setAdvancedSeedanceVideoReferences(dedupeAdvancedMediaReferences([...advancedSeedanceVideoReferences(), orderedRef]).slice(0, ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT));
+  }
+  syncSeedanceReferenceMode();
+}
+
+function dedupeAdvancedMediaReferences(refs = []) {
+  const seen = new Set();
+  return refs.filter((item) => {
+    const key = item?.assetId ? `asset:${item.assetId}` : item?.url ? `url:${item.url}` : item?.previewUrl ? `preview:${item.previewUrl}` : "";
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function removeAdvancedSeedanceMediaReference(kind = "video", index = -1) {
+  if (kind === "audio") {
+    const refs = advancedSeedanceAudioReferences();
+    refs.splice(index, 1);
+    setAdvancedSeedanceAudioReferences(refs);
+  } else {
+    const refs = advancedSeedanceVideoReferences();
+    refs.splice(index, 1);
+    setAdvancedSeedanceVideoReferences(refs);
+    if (!advancedSeedanceVideoReferences().length && els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = "";
+  }
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+}
+
 function setAdvancedExtendFrameReference(dataUrl = "", fileName = "video-last-frame.jpg") {
   if (!dataUrl) return;
-  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "first_frame";
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
   state.activeAdvancedCaseId = "";
   state.advancedFirstFrameAssetId = "";
   state.advancedSourceImageAssetId = "";
@@ -599,11 +802,8 @@ function setAdvancedExtendFrameReference(dataUrl = "", fileName = "video-last-fr
     dataUrl,
     fileName,
     name: fileName,
-  }];
+  }].map(stampAdvancedReferenceOrder);
   state.advancedUploadDataUrl = dataUrl;
-  state.advancedSeedanceVideoAssetId = "";
-  state.advancedSeedanceVideoPreviewUrl = "";
-  state.advancedAudioAssetId = "";
   if (els.advancedImage) els.advancedImage.value = "";
   if (els.advancedNote) els.advancedNote.textContent = "";
   updateAdvancedModelControls();
@@ -658,38 +858,34 @@ async function addAssetToAdvancedTarget(assetId = "") {
     else state.advancedFirstFrameAssetId = asset.id;
     state.advancedUploadDataUrl = url;
     if (provider === "seedance") {
-      if (advancedCreateModeUsesCharacterPresetReference()) {
-        if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
-      } else if (advancedCreateModeUsesAutoPrompt()) {
-        if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "first_frame";
-      }
+      if (advancedCreateModeUsesCharacterPresetReference() && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
       const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
-      if (!advancedCreateModeUsesAutoPrompt() && (target.id === "referenceImages" || seedanceMode === "text_to_video") && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
-      const ref = { assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true };
-      if (advancedCreateModeNeedsReplacePair()) {
-        state.advancedReferenceImages = [ref];
+      const ref = stampAdvancedReferenceOrder({ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true });
+      if (target.id === "primary" && seedanceModeNeedsFirstFrame(seedanceMode)) {
+        state.advancedSeedanceFirstFrameAssetId = asset.id;
+        state.advancedSeedanceFirstFrameDataUrl = url;
+        state.advancedFirstFrameAssetId = asset.id;
+        state.advancedUploadDataUrl = url;
       } else if (target.id === "referenceImages") {
         state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
-      } else if (seedanceModeNeedsFirstFrame(seedanceMode)) {
-        state.advancedReferenceImages = [ref];
+        state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
       } else {
         state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
-      }
-      if (!advancedCreateModeNeedsReplacePair()) {
-        state.advancedSeedanceVideoAssetId = "";
-        state.advancedSeedanceVideoPreviewUrl = "";
+        state.advancedUploadDataUrl = seedanceModeNeedsFirstFrame(seedanceMode)
+          ? (state.advancedSeedanceFirstFrameDataUrl || "")
+          : (state.advancedReferenceImages[0]?.dataUrl || "");
+        syncSeedanceReferenceMode();
       }
       if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
-      state.advancedAudioAssetId = "";
     } else if (provider === "wan27-image-edit") {
-      const ref = { assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true };
+      const ref = stampAdvancedReferenceOrder({ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true });
       const imageLimit = advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
       state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(imageLimit === 1 ? [] : (state.advancedReferenceImages || [])), ref]).slice(0, imageLimit);
       state.advancedSourceImageAssetId = state.advancedReferenceImages[0]?.assetId || "";
       state.advancedFirstFrameAssetId = "";
       state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || url;
     } else {
-      state.advancedReferenceImages = [{ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true }];
+      state.advancedReferenceImages = [stampAdvancedReferenceOrder({ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true })];
     }
     if (els.advancedImage) els.advancedImage.value = "";
   } else if (target.id === "lastFrame") {
@@ -711,31 +907,14 @@ async function addAssetToAdvancedTarget(assetId = "") {
   } else if (target.id === "video") {
     if (!isVideoAsset(asset)) return;
     if (provider === "seedance") {
-      if (state.advancedCreateMode === "video-extend") {
-        try {
-          await captureAdvancedExtendFrameFromSource(url, `${asset.id || "video"}-last-frame.jpg`);
-          if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("advanced.assetAdded", { target: target.label });
-        } catch (error) {
-          if (els.advancedAssetNote) els.advancedAssetNote.textContent = error.message || String(error);
-        }
-        return;
-      }
-      if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
-      state.advancedSeedanceVideoAssetId = asset.id;
-      state.advancedSeedanceVideoPreviewUrl = url;
-      if (!advancedCreateModeNeedsReplacePair()) {
-        state.advancedReferenceImages = [];
-        state.advancedUploadDataUrl = "";
-        state.advancedFirstFrameAssetId = "";
-        state.advancedSourceImageAssetId = "";
-      } else {
-        state.advancedAssetTarget = "primary";
-      }
+      addAdvancedSeedanceMediaReference(asset, "video");
+      if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
     } else {
       if (els.advancedWanMediaMode && !wanModeNeedsClip(els.advancedWanMediaMode.value)) els.advancedWanMediaMode.value = "first_clip";
       state.advancedWanClipAssetId = asset.id;
       state.advancedWanClipDataUrl = "";
       state.advancedWanClipFileName = asset.name || "";
+      state.advancedWanClipOrder = nextAdvancedReferenceOrder();
       if (els.advancedWanClipFile) els.advancedWanClipFile.value = "";
       if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = "";
       if (els.advancedWanClipPreview) {
@@ -746,10 +925,13 @@ async function addAssetToAdvancedTarget(assetId = "") {
     }
   } else if (target.id === "audio") {
     if (!isAudioAsset(asset)) return;
-    state.advancedAudioAssetId = asset.id;
     if (provider === "seedance") {
-      if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+      addAdvancedSeedanceMediaReference(asset, "audio");
     } else if (els.advancedWanAudioUrl) {
+      state.advancedAudioAssetId = asset.id;
+      state.advancedAudioPreviewUrl = assetPreviewUrl(asset);
+      state.advancedAudioFileName = asset.name || asset.fileName || "";
+      state.advancedAudioOrder = nextAdvancedReferenceOrder();
       els.advancedWanAudioUrl.value = "";
     }
   }
@@ -827,23 +1009,23 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".seedance-last-frame").forEach((item) => {
     item.hidden = provider !== "seedance" || !seedanceModeNeedsLastFrame(seedanceMode);
   });
+  document.querySelectorAll(".seedance-first-frame").forEach((item) => {
+    item.hidden = provider !== "seedance" || !seedanceModeNeedsFirstFrame(seedanceMode);
+  });
   document.querySelectorAll(".seedance-video-field").forEach((item) => {
-    item.hidden = provider !== "seedance" || !seedanceModeNeedsReferenceVideo(seedanceMode);
+    item.hidden = true;
   });
   renderAdvancedAssetTargets();
   if (els.advancedUploadBox) {
     const uploadIsVideo = advancedCreateUploadIsVideo();
     const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
-    const hidePresetUploadBox = state.advancedCreateKind !== "custom" && provider === "seedance" && advancedCreateModeUsesCharacterPresetReference();
+    const hidePresetUploadBox = false;
     if (els.advancedImage) {
       els.advancedImage.accept = advancedCreateUploadAcceptValue();
-      els.advancedImage.multiple = !uploadIsVideo && !advancedCreateModeUsesSingleUpload();
+      els.advancedImage.multiple = provider === "seedance" || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload());
     }
     const forceUpload = simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload();
-    els.advancedUploadBox.hidden = hidePresetUploadBox || (!forceUpload && (
-      (provider === "wan27" && !wanModeNeedsFirstFrame(wanMode)) ||
-      (provider === "seedance" && seedanceMode === "text_to_video")
-    ));
+    els.advancedUploadBox.hidden = hidePresetUploadBox || (provider !== "seedance" && !forceUpload && provider === "wan27" && !wanModeNeedsFirstFrame(wanMode));
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
@@ -852,15 +1034,15 @@ function updateAdvancedModelControls() {
     if (label) {
       const imageEditLabel = t("advanced.assetTargetSourceImages");
       const videoEditLabel = t("advanced.assetTargetVideo");
-      const seedanceLabel = seedanceModeNeedsFirstFrame(seedanceMode) ? t("advanced.firstFrame") : t("advanced.uploadReference");
-      const uploadLabel = simpleEdit && isImageEdit ? imageEditLabel : simpleEdit && uploadIsVideo ? videoEditLabel : mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : provider === "wan27" ? t("advanced.firstFrame") : seedanceLabel;
-      label.innerHTML = `<i data-lucide="${uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(uploadLabel)}`;
+      const seedanceLabel = t("advanced.uploadReference");
+      const uploadLabel = provider === "seedance" || provider === "wan27" ? seedanceLabel : simpleEdit && isImageEdit ? imageEditLabel : simpleEdit && uploadIsVideo ? videoEditLabel : mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : seedanceLabel;
+      label.innerHTML = `<i data-lucide="${provider === "seedance" || provider === "wan27" ? "plus" : uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(uploadLabel)}`;
     }
   }
   renderAdvancedReferencePreviews();
   updateAdvancedReferenceSummary();
   if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
-  if (els.advancedNote && (state.advancedUploadDataUrl || state.advancedSeedanceVideoAssetId)) els.advancedNote.textContent = "";
+  if (els.advancedNote && (state.advancedUploadDataUrl || state.advancedSeedanceFirstFrameDataUrl || advancedSeedanceVideoReferences().length || advancedSeedanceAudioReferences().length)) els.advancedNote.textContent = "";
   updateAdvancedButtonCost();
 }
 
@@ -868,16 +1050,16 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "" } = {}) {
   if (!els.advancedImage) return;
   const provider = currentAdvancedProvider();
   if (provider === "seedance" && els.advancedSeedanceMediaMode) {
-    let mode = normalizeSeedanceMediaMode(sourceMode || els.advancedSeedanceMediaMode.value || "reference_images");
-    if (mode === "text_to_video" || seedanceModeNeedsReferenceVideo(mode)) mode = "reference_images";
+    let mode = normalizeSeedanceMediaMode(sourceMode || els.advancedSeedanceMediaMode.value || "reference_video");
+    if (!seedanceModeNeedsFirstFrame(mode)) mode = "reference_video";
     els.advancedSeedanceMediaMode.value = mode;
-    state.advancedAssetTarget = seedanceModeNeedsReferenceImages(mode) ? "referenceImages" : "primary";
+    state.advancedAssetTarget = seedanceModeNeedsFirstFrame(mode) ? "primary" : "referenceImages";
   } else if (provider === "wan27-image-edit") {
     state.advancedAssetTarget = "sourceImages";
   }
   updateAdvancedModelControls();
-  els.advancedImage.accept = "image/*";
-  els.advancedImage.multiple = provider === "seedance" && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "") && !advancedCreateModeUsesSingleUpload();
+  els.advancedImage.accept = provider === "seedance" ? advancedCreateUploadAcceptValue() : "image/*";
+  els.advancedImage.multiple = provider === "seedance" || (!advancedCreateModeUsesSingleUpload() && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || ""));
   els.advancedImage.click();
 }
 
@@ -977,8 +1159,8 @@ function fillAdvancedCase(item = {}) {
   state.advancedWanLastFrameAssetId = "";
   state.advancedWanClipAssetId = "";
   state.advancedAudioAssetId = "";
-  if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = normalizeWanMediaMode(params.mediaMode || item.mediaMode || "first_frame");
-  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = normalizeSeedanceMediaMode(params.seedanceMode || params.mediaMode || item.mediaMode || (provider === "seedance" ? "reference_images" : "text_to_video"));
+  if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = normalizeWanMediaMode(params.mediaMode || item.mediaMode || "multimodal");
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = normalizeSeedanceMediaMode(params.seedanceMode || params.mediaMode || item.mediaMode || "reference_video");
   if (els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = params.drivingAudioUrl || params.driving_audio_url || "";
   if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = params.firstClipUrl || params.first_clip_url || "";
   if (els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = [
@@ -1005,6 +1187,10 @@ function clearAdvancedCreationInputs() {
   state.advancedSourceImageAssetId = "";
   state.advancedFirstFrameAssetId = "";
   state.advancedReferenceImages = [];
+  state.advancedSeedanceVideoReferences = [];
+  state.advancedSeedanceAudioReferences = [];
+  state.advancedSeedanceFirstFrameDataUrl = "";
+  state.advancedSeedanceFirstFrameAssetId = "";
   state.advancedSeedanceLastFrameDataUrl = "";
   state.advancedSeedanceLastFrameAssetId = "";
   state.advancedSeedanceVideoAssetId = "";
@@ -1014,7 +1200,11 @@ function clearAdvancedCreationInputs() {
   state.advancedWanClipDataUrl = "";
   state.advancedWanClipFileName = "";
   state.advancedWanClipAssetId = "";
+  state.advancedWanClipOrder = 0;
   state.advancedAudioAssetId = "";
+  state.advancedAudioPreviewUrl = "";
+  state.advancedAudioFileName = "";
+  state.advancedAudioOrder = 0;
   state.advancedAssetTarget = "primary";
 
   [
@@ -1029,6 +1219,7 @@ function clearAdvancedCreationInputs() {
   });
   [
     els.advancedImage,
+    els.advancedSeedanceFirstFrame,
     els.advancedSeedanceLastFrame,
     els.advancedWanLastFrame,
     els.advancedWanClipFile,
@@ -1037,6 +1228,7 @@ function clearAdvancedCreationInputs() {
   });
   [
     [els.advancedWanFirstFramePreview, els.advancedImage],
+    [els.advancedSeedanceFirstFramePreview, els.advancedSeedanceFirstFrame],
     [els.advancedSeedanceLastFramePreview, els.advancedSeedanceLastFrame],
     [els.advancedWanLastFramePreview, els.advancedWanLastFrame],
     [els.advancedWanClipPreview, els.advancedWanClipFile],
@@ -1172,15 +1364,16 @@ async function submitAdvancedGenerate() {
   const duration = Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration?.value || bounds.fallback)));
   const resolution = currentAdvancedResolution();
   const preprocessReference = false;
-  const mediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
-  const rawSeedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+  const rawWanMediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
+  const mediaMode = provider === "wan27" ? resolvedWanSubmitMediaMode(rawWanMediaMode) : rawWanMediaMode;
+  const rawSeedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
   const presetReferenceImages = usingPresetFlow && provider === "seedance" ? advancedPresetReferenceImages() : [];
   const presetReferenceMode = provider === "seedance"
     && usingPresetFlow
     && advancedCreateModeUsesCharacterPresetReference()
     && presetReferenceImages.length > 0;
-  const seedanceMode = presetReferenceMode ? "reference_images" : rawSeedanceMode;
-  if (presetReferenceMode && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
+  const seedanceMode = presetReferenceMode ? "reference_video" : rawSeedanceMode;
+  if (presetReferenceMode && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
   const referenceImages = presetReferenceMode
     ? dedupeAdvancedReferenceImages([
         ...presetReferenceImages,
@@ -1190,13 +1383,21 @@ async function submitAdvancedGenerate() {
   const caseVideoUrl = provider === "seedance" && advancedCreateModeNeedsReplacePair()
     ? absoluteHttpUrl(advancedCaseInputVideo(currentCase || {}))
     : "";
+  const seedanceVideoRefs = provider === "seedance" ? advancedSeedanceVideoReferences() : [];
+  const seedanceAudioRefs = provider === "seedance" ? advancedSeedanceAudioReferences() : [];
+  const seedanceVideoAssetIds = seedanceVideoRefs.map((item) => item.assetId || "").filter(Boolean);
+  const seedanceAudioAssetIds = seedanceAudioRefs.map((item) => item.assetId || "").filter(Boolean);
+  const seedanceVideoRefUrls = seedanceVideoRefs.filter((item) => !item.assetId).map((item) => item.url || item.previewUrl || "").filter(Boolean);
+  const seedanceAudioRefUrls = seedanceAudioRefs.filter((item) => !item.assetId).map((item) => item.url || item.previewUrl || "").filter(Boolean);
   const seedanceVideoUrls = splitUrlList(els.advancedSeedanceVideoUrls?.value || "");
   const effectiveSeedanceVideoUrls = advancedCreateModeIsSimpleEdit()
     ? []
-    : (seedanceVideoUrls.length ? seedanceVideoUrls : (caseVideoUrl ? [caseVideoUrl] : []));
-  const seedanceAudioUrls = splitUrlList(els.advancedSeedanceAudioUrls?.value || "");
+    : [...seedanceVideoRefUrls, ...seedanceVideoUrls, ...(caseVideoUrl ? [caseVideoUrl] : [])];
+  const seedanceAudioUrls = [...seedanceAudioRefUrls, ...splitUrlList(els.advancedSeedanceAudioUrls?.value || "")];
   const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0;
-  if (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !referenceImages.length) {
+  const seedanceFirstFrameAssetId = state.advancedSeedanceFirstFrameAssetId || state.advancedFirstFrameAssetId || "";
+  const seedanceFirstFrameData = state.advancedSeedanceFirstFrameDataUrl || "";
+  if (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameData && !seedanceFirstFrameAssetId) {
     els.advancedSubmitBtn.disabled = false;
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
     return;
@@ -1206,19 +1407,9 @@ async function submitAdvancedGenerate() {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceLastRequired");
     return;
   }
-  if (provider === "seedance" && seedanceModeNeedsReferenceImages(seedanceMode) && !referenceImages.length) {
-    els.advancedSubmitBtn.disabled = false;
-    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
-    return;
-  }
   if (provider === "seedance" && advancedCreateModeNeedsReplacePair() && !referenceImages.length) {
     els.advancedSubmitBtn.disabled = false;
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
-    return;
-  }
-  if (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode) && !state.advancedSeedanceVideoAssetId && !effectiveSeedanceVideoUrls.length) {
-    els.advancedSubmitBtn.disabled = false;
-    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceVideoRequired");
     return;
   }
   if (provider === "seedance" && seedanceTier === "fast" && ["1080p", "4k"].includes(resolution)) {
@@ -1282,8 +1473,9 @@ async function submitAdvancedGenerate() {
   renderAdvancedResultPanel();
   if (els.advancedNote) els.advancedNote.textContent = "";
   try {
-    const firstFrameDataUrl = dataUrlValue(state.advancedUploadDataUrl);
-    const firstFrameUrl = absoluteHttpUrl(state.advancedUploadDataUrl);
+    const firstFrameSource = provider === "seedance" ? state.advancedSeedanceFirstFrameDataUrl : state.advancedUploadDataUrl;
+    const firstFrameDataUrl = dataUrlValue(firstFrameSource);
+    const firstFrameUrl = absoluteHttpUrl(firstFrameSource);
     const seedanceLastFrameDataUrl = dataUrlValue(state.advancedSeedanceLastFrameDataUrl);
     const seedanceLastFrameUrl = absoluteHttpUrl(state.advancedSeedanceLastFrameDataUrl);
     const wanLastFrameDataUrl = dataUrlValue(state.advancedWanLastFrameDataUrl);
@@ -1299,20 +1491,22 @@ async function submitAdvancedGenerate() {
         prompt,
         dataUrl: provider === "wan27" && !state.advancedFirstFrameAssetId ? firstFrameDataUrl : undefined,
         seedanceMode: provider === "seedance" ? seedanceMode : undefined,
-        imageAssetId: provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) ? (state.advancedFirstFrameAssetId || "") : undefined,
-        firstFrameAssetId: provider === "wan27" || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode)) ? (state.advancedFirstFrameAssetId || "") : undefined,
-        firstFrameDataUrl: (provider === "wan27" || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode))) && !state.advancedFirstFrameAssetId ? firstFrameDataUrl : undefined,
-        firstFrameUrl: (provider === "wan27" || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode))) && !state.advancedFirstFrameAssetId ? firstFrameUrl : undefined,
-        imageUrl: provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !state.advancedFirstFrameAssetId ? firstFrameUrl : undefined,
+        imageAssetId: provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) ? seedanceFirstFrameAssetId : undefined,
+        firstFrameAssetId: provider === "wan27" ? (state.advancedFirstFrameAssetId || "") : provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) ? seedanceFirstFrameAssetId : undefined,
+        firstFrameDataUrl: (provider === "wan27" && !state.advancedFirstFrameAssetId) || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId) ? firstFrameDataUrl : undefined,
+        firstFrameUrl: (provider === "wan27" && !state.advancedFirstFrameAssetId) || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId) ? firstFrameUrl : undefined,
+        imageUrl: provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId ? firstFrameUrl : undefined,
         endImageAssetId: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : undefined,
         lastFrameAssetId: provider === "wan27" ? (state.advancedWanLastFrameAssetId || "") : provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : "",
         endImageDataUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameDataUrl : undefined,
         endImageUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameUrl : undefined,
-        referenceImages: provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode)
+        referenceImages: provider === "seedance"
           ? referenceImages.map(seedanceImageRefPayload)
           : undefined,
-        referenceVideoAssetId: provider === "seedance" ? (state.advancedSeedanceVideoAssetId || "") : undefined,
-        referenceAudioAssetId: provider === "seedance" ? (state.advancedAudioAssetId || "") : undefined,
+        referenceVideoAssetId: provider === "seedance" ? (seedanceVideoAssetIds[0] || "") : undefined,
+        referenceVideoAssetIds: provider === "seedance" ? seedanceVideoAssetIds : undefined,
+        referenceAudioAssetId: provider === "seedance" ? (seedanceAudioAssetIds[0] || "") : undefined,
+        referenceAudioAssetIds: provider === "seedance" ? seedanceAudioAssetIds : undefined,
         referenceVideoUrls: provider === "seedance" ? effectiveSeedanceVideoUrls : undefined,
         inputVideoSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
         referenceVideoDurationSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
@@ -1403,7 +1597,7 @@ function openTemplate(templateId) {
   state.activeAdvancedCaseId = "";
   if (els.advancedProvider) els.advancedProvider.value = "seedance";
   if (els.advancedPrompt) els.advancedPrompt.value = template.prompt || template.description || "";
-  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = template.type === "text-to-video" ? "text_to_video" : "reference_images";
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
   updateAdvancedModelControls();
   setAdvancedSideTab("assets");
   refreshIcons();
@@ -1457,12 +1651,10 @@ async function handleAdvancedPromptPaste(event) {
     fileName: file.name || `pasted-reference-${Date.now()}-${index + 1}.png`,
   })));
   state.activeAdvancedCaseId = "";
-  state.advancedReferenceImages = [...existing, ...addedImages].slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  state.advancedReferenceImages = [...existing, ...addedImages.map(stampAdvancedReferenceOrder)].slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
   state.advancedFirstFrameAssetId = "";
   state.advancedSourceImageAssetId = "";
-  state.advancedSeedanceVideoAssetId = "";
-  state.advancedSeedanceVideoPreviewUrl = "";
   state.advancedWanClipAssetId = "";
   if (els.advancedImage) els.advancedImage.value = "";
   if (validFiles.length > selectedFiles.length && els.advancedNote) {
@@ -1646,6 +1838,7 @@ function restoreReferenceFromMedia(item = {}, index = 0) {
     fileName: item.fileName || item.name || item.label || `image-${index + 1}`,
     name: item.name || item.label || `Image ${index + 1}`,
     fromLibrary: Boolean(assetId),
+    order: advancedReferenceOrderValue(item, index + 1),
   };
 }
 
@@ -1661,9 +1854,8 @@ function restoreSeedanceMode(record = {}, references = [], videos = [], audios =
   const mediaMode = String(record.mediaMode || params.seedanceMode || params.mediaMode || "").trim();
   if (mediaMode) return normalizeSeedanceMediaMode(mediaMode);
   if (videos.length || audios.length) return "reference_video";
-  if (references.length > 1) return "reference_images";
-  if (references.length) return "first_frame";
-  return "text_to_video";
+  if (references.length) return "reference_video";
+  return "reference_video";
 }
 
 function restoreWanMode(record = {}, videos = [], audios = []) {
@@ -1683,11 +1875,13 @@ function restoreRecordMedia(record = {}) {
   });
   const references = imageAssets.map(restoreReferenceFromMedia).filter(Boolean);
   const videos = mediaAssets
-    .filter((item) => String(item.type || item.key || "").toLowerCase().includes("video") && restoreMediaUrl(item))
-    .map((item) => ({ ...item, assetId: restoreMediaAssetId(item), url: restoreMediaUrl(item) }));
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => String(item.type || item.key || "").toLowerCase().includes("video") && restoreMediaUrl(item))
+    .map(({ item, index }) => ({ ...item, assetId: restoreMediaAssetId(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) }));
   const audios = mediaAssets
-    .filter((item) => String(item.type || item.key || "").toLowerCase().includes("audio") && restoreMediaUrl(item))
-    .map((item) => ({ ...item, assetId: restoreMediaAssetId(item), url: restoreMediaUrl(item) }));
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => String(item.type || item.key || "").toLowerCase().includes("audio") && restoreMediaUrl(item))
+    .map(({ item, index }) => ({ ...item, assetId: restoreMediaAssetId(item), url: restoreMediaUrl(item), order: advancedReferenceOrderValue(item, index + 1) }));
   if (!references.length) {
     recordImageAssets(record).forEach((item, index) => {
       const ref = restoreReferenceFromMedia(item, index);
@@ -1732,14 +1926,17 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   }
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = seedanceMode;
   if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = wanMode;
-  state.advancedReferenceImages = references;
-  state.advancedUploadDataUrl = references[0]?.dataUrl || "";
+  const restoredSeedanceFirstFrame = provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) ? (references[0] || null) : null;
+  state.advancedReferenceImages = restoredSeedanceFirstFrame ? references.slice(1) : references;
+  state.advancedUploadDataUrl = restoredSeedanceFirstFrame ? "" : (references[0]?.dataUrl || "");
   if (provider === "wan27-image-edit") {
     state.advancedSourceImageAssetId = references[0]?.assetId || "";
     state.advancedFirstFrameAssetId = "";
   } else {
-    state.advancedFirstFrameAssetId = references[0]?.assetId || "";
-    state.advancedSourceImageAssetId = provider === "seedance" && seedanceMode === "reference_images" ? (references[0]?.assetId || "") : "";
+    state.advancedFirstFrameAssetId = restoredSeedanceFirstFrame?.assetId || references[0]?.assetId || "";
+    state.advancedSeedanceFirstFrameAssetId = restoredSeedanceFirstFrame?.assetId || "";
+    state.advancedSeedanceFirstFrameDataUrl = restoredSeedanceFirstFrame?.dataUrl || "";
+    state.advancedSourceImageAssetId = "";
   }
   const firstLastFrame = references.find((item) => /last|end/i.test(`${item.name || ""} ${item.fileName || ""} ${item.label || ""}`));
   const lastFrameRef = firstLastFrame || (seedanceModeNeedsLastFrame(seedanceMode) ? references[1] : null);
@@ -1752,18 +1949,39 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   }
   const firstVideo = videos[0];
   if (provider === "seedance" && firstVideo) {
-    state.advancedSeedanceVideoAssetId = firstVideo.assetId || "";
-    state.advancedSeedanceVideoPreviewUrl = firstVideo.url || "";
+    setAdvancedSeedanceVideoReferences(videos.map((item) => ({
+      assetId: item.assetId || "",
+      url: item.url || "",
+      previewUrl: item.url || "",
+      name: item.name || item.label || item.fileName || "Video reference",
+      durationSeconds: item.durationSeconds || item.duration || 0,
+      order: advancedReferenceOrderValue(item),
+    })));
     if (els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = firstVideo.assetId ? "" : firstVideo.url || "";
   } else if (provider === "wan27" && firstVideo) {
     state.advancedWanClipAssetId = firstVideo.assetId || "";
     state.advancedWanClipDataUrl = firstVideo.assetId ? "" : firstVideo.url || "";
     state.advancedWanClipFileName = firstVideo.fileName || firstVideo.name || "";
+    state.advancedWanClipOrder = advancedReferenceOrderValue(firstVideo);
     if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = firstVideo.assetId ? "" : firstVideo.url || "";
   }
   const firstAudio = audios[0];
   if (firstAudio) {
-    state.advancedAudioAssetId = firstAudio.assetId || "";
+    if (provider === "seedance") {
+      setAdvancedSeedanceAudioReferences(audios.map((item) => ({
+        assetId: item.assetId || "",
+        url: item.url || "",
+        previewUrl: item.url || "",
+        name: item.name || item.label || item.fileName || "Audio reference",
+        durationSeconds: item.durationSeconds || item.duration || 0,
+        order: advancedReferenceOrderValue(item),
+      })));
+    } else {
+      state.advancedAudioAssetId = firstAudio.assetId || "";
+      state.advancedAudioPreviewUrl = firstAudio.url || "";
+      state.advancedAudioFileName = firstAudio.fileName || firstAudio.name || "";
+      state.advancedAudioOrder = advancedReferenceOrderValue(firstAudio);
+    }
     if (provider === "seedance" && els.advancedSeedanceAudioUrls) els.advancedSeedanceAudioUrls.value = firstAudio.assetId ? "" : firstAudio.url || "";
     if (provider === "wan27" && els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = firstAudio.assetId ? "" : firstAudio.url || "";
   }
@@ -2221,32 +2439,23 @@ function useAssetInAdvanced(asset = {}, action = "use") {
       state.advancedFirstFrameAssetId = asset.id;
       state.advancedSourceImageAssetId = "";
     }
-    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_images";
-    const ref = {
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+    const ref = stampAdvancedReferenceOrder({
       assetId: asset.id,
       dataUrl: assetPreviewUrl(asset),
       fileName: asset.name || "",
       name: asset.name || "",
       fromLibrary: true,
-    };
+    });
     const existing = action === "replace" || action === "modify" ? advancedSeedanceImageRefsFromState().filter((item) => item.assetId !== asset.id) : [];
     const imageLimit = action === "replace" ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
     state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existing, ref]).slice(0, imageLimit);
     state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
-    if (action !== "replace") {
-      state.advancedSeedanceVideoAssetId = "";
-      state.advancedSeedanceVideoPreviewUrl = "";
-    }
     if (action === "modify" && els.advancedPrompt) els.advancedPrompt.value = "";
   }
   if (isVideoAsset(asset)) {
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
-    state.advancedSeedanceVideoAssetId = asset.id;
-    state.advancedSeedanceVideoPreviewUrl = assetPreviewUrl(asset);
-    if (action !== "replace") {
-      state.advancedReferenceImages = [];
-      state.advancedUploadDataUrl = "";
-    }
+    addAdvancedSeedanceMediaReference(asset, "video");
   }
   setTab("advanced");
   updateAdvancedModelControls();
@@ -2274,13 +2483,22 @@ function selectedWanClipUrl(mediaMode = "first_frame") {
   return wanModeNeedsClip(mediaMode) && !state.advancedWanClipAssetId ? (els.advancedWanClipUrl?.value.trim() || "") : "";
 }
 
+function resolvedWanSubmitMediaMode(rawMode = "first_frame") {
+  const mode = normalizeWanMediaMode(rawMode);
+  if (mode !== "multimodal") return mode;
+  const hasClip = Boolean(state.advancedWanClipAssetId || state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim());
+  const hasAudio = Boolean(state.advancedAudioAssetId || String(els.advancedWanAudioUrl?.value || "").trim());
+  const hasLast = Boolean(state.advancedWanLastFrameAssetId || state.advancedWanLastFrameDataUrl);
+  if (hasClip) return hasLast ? "first_clip_last_frame" : "first_clip";
+  if (hasAudio) return hasLast ? "first_last_frame_audio" : "first_frame_audio";
+  return hasLast ? "first_last_frame" : "first_frame";
+}
+
 function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   const images = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "wan27-image-edit") return images.slice(0, advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (normalizedProvider !== "seedance") return images.slice(0, 1);
-  const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
-  if (seedanceModeNeedsFirstFrame(mode)) return images.slice(0, 1);
   return images;
 }
 
@@ -2317,15 +2535,23 @@ function removeAdvancedReferenceImage(index = -1) {
 }
 
 function removeAdvancedSeedanceVideoReference() {
-  state.advancedSeedanceVideoAssetId = "";
-  state.advancedSeedanceVideoPreviewUrl = "";
+  setAdvancedSeedanceVideoReferences([]);
   if (els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = "";
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }
 
 function removeAdvancedMediaSlot(slot = "") {
-  if (slot === "seedanceLastFrame") {
+  if (slot === "seedanceFirstFrame") {
+    state.advancedSeedanceFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameDataUrl = "";
+    state.advancedFirstFrameAssetId = "";
+    state.advancedUploadDataUrl = selectedAdvancedReferenceImages()[0]?.dataUrl || "";
+    if (els.advancedSeedanceFirstFrame) els.advancedSeedanceFirstFrame.value = "";
+    els.advancedSeedanceFirstFramePreview?.removeAttribute("src");
+    els.advancedSeedanceFirstFramePreview?.classList.remove("is-visible");
+    els.advancedSeedanceFirstFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  } else if (slot === "seedanceLastFrame") {
     state.advancedSeedanceLastFrameAssetId = "";
     state.advancedSeedanceLastFrameDataUrl = "";
     if (els.advancedSeedanceLastFrame) els.advancedSeedanceLastFrame.value = "";
@@ -2343,26 +2569,92 @@ function removeAdvancedMediaSlot(slot = "") {
     state.advancedWanClipAssetId = "";
     state.advancedWanClipDataUrl = "";
     state.advancedWanClipFileName = "";
+    state.advancedWanClipOrder = 0;
     if (els.advancedWanClipFile) els.advancedWanClipFile.value = "";
     if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = "";
     els.advancedWanClipPreview?.removeAttribute("src");
     els.advancedWanClipPreview?.classList.remove("is-visible");
     els.advancedWanClipFile?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  } else if (slot === "wanAudio") {
+    state.advancedAudioAssetId = "";
+    state.advancedAudioPreviewUrl = "";
+    state.advancedAudioFileName = "";
+    state.advancedAudioOrder = 0;
+    if (els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = "";
   }
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
+}
+
+function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
+  const images = selectedAdvancedReferenceImages();
+  const seedanceVideos = provider === "seedance" ? advancedSeedanceVideoReferences() : [];
+  const seedanceAudios = provider === "seedance" ? advancedSeedanceAudioReferences() : [];
+  const wanClipUrl = provider === "wan27"
+    ? (state.advancedWanClipDataUrl || (state.advancedWanClipAssetId
+      ? assetPreviewUrl((state.advancedAssets || []).find((asset) => asset.id === state.advancedWanClipAssetId) || (state.userAssets || []).find((asset) => asset.id === state.advancedWanClipAssetId) || {})
+      : "") || String(els.advancedWanClipUrl?.value || "").trim())
+    : "";
+  const wanAudioUrl = provider === "wan27"
+    ? (state.advancedAudioPreviewUrl || (state.advancedAudioAssetId
+      ? assetPreviewUrl((state.advancedAssets || []).find((asset) => asset.id === state.advancedAudioAssetId) || (state.userAssets || []).find((asset) => asset.id === state.advancedAudioAssetId) || {})
+      : "") || String(els.advancedWanAudioUrl?.value || "").trim())
+    : "";
+  const imageItems = images.map((item, index) => ({
+    kind: "image",
+    index,
+    label: `Image ${index + 1}`,
+    item,
+    order: advancedReferenceOrderValue(item, index + 1),
+  }));
+  const videoSource = provider === "wan27" && wanClipUrl
+    ? [{ url: wanClipUrl, previewUrl: wanClipUrl, name: state.advancedWanClipFileName || "Video reference", order: state.advancedWanClipOrder || advancedReferenceOrderValue(images[0], images.length + 1) + 1 }]
+    : seedanceVideos;
+  const audioSource = provider === "wan27" && (state.advancedAudioAssetId || wanAudioUrl)
+    ? [{ assetId: state.advancedAudioAssetId || "", url: wanAudioUrl, previewUrl: wanAudioUrl, name: state.advancedAudioFileName || "Audio reference", order: state.advancedAudioOrder || advancedReferenceOrderValue(images[0], images.length + 2) + 1 }]
+    : seedanceAudios;
+  const videoItems = videoSource.map((item, index) => ({
+    kind: "video",
+    index,
+    label: `Video ${index + 1}`,
+    item,
+    order: advancedReferenceOrderValue(item, images.length + index + 1),
+  }));
+  const audioItems = audioSource.map((item, index) => ({
+    kind: "audio",
+    index,
+    label: `Audio ${index + 1}`,
+    item,
+    order: advancedReferenceOrderValue(item, images.length + seedanceVideos.length + index + 1),
+  }));
+  return [...imageItems, ...videoItems, ...audioItems].sort((left, right) => left.order - right.order);
 }
 
 function renderAdvancedReferencePreviews() {
   if (!els.advancedUploadPreview) return;
   const provider = currentAdvancedProvider();
   const images = selectedAdvancedReferenceImages();
-  els.advancedUploadPreview.innerHTML = images.map((item, index) => `
-      <figure>
-        <button class="advanced-preview-remove" type="button" data-remove-advanced-ref="${index}" aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>
-        ${item.dataUrl || item.previewUrl ? `<img src="${escapeHtml(item.dataUrl || item.previewUrl || "")}" alt="" />` : `<div class="history-placeholder"><i data-lucide="image"></i></div>`}
+  const refs = advancedReferenceDisplayItems(provider);
+  els.advancedUploadPreview.innerHTML = refs.map(({ kind, index, label, item }) => {
+    const url = item.dataUrl || item.previewUrl || item.url || "";
+    const removeAttr = kind === "image"
+      ? `data-remove-advanced-ref="${index}"`
+      : provider === "wan27"
+        ? `data-remove-wan-${kind}="${index}"`
+        : `data-remove-seedance-${kind}="${index}"`;
+    const media = kind === "video"
+      ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video>`
+      : kind === "audio"
+        ? `<div class="advanced-audio-ref"><i data-lucide="audio-lines"></i></div>`
+        : (url ? `<img src="${escapeHtml(url)}" alt="" />` : `<div class="history-placeholder"><i data-lucide="image"></i></div>`);
+    return `
+      <figure class="advanced-reference-chip is-${escapeHtml(kind)}" title="${escapeHtml(item.name || item.fileName || label)}">
+        <button class="advanced-preview-remove" type="button" ${removeAttr} aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>
+        <span class="advanced-reference-label">${escapeHtml(label)}</span>
+        ${media}
       </figure>
-  `).join("");
+    `;
+  }).join("");
   els.advancedUploadPreview.querySelectorAll("[data-remove-advanced-ref]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
@@ -2370,7 +2662,35 @@ function renderAdvancedReferencePreviews() {
       removeAdvancedReferenceImage(Number(button.dataset.removeAdvancedRef));
     });
   });
-  els.advancedUploadBox?.classList.toggle("has-image", images.length > 0);
+  els.advancedUploadPreview.querySelectorAll("[data-remove-seedance-video]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeAdvancedSeedanceMediaReference("video", Number(button.dataset.removeSeedanceVideo));
+    });
+  });
+  els.advancedUploadPreview.querySelectorAll("[data-remove-seedance-audio]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeAdvancedSeedanceMediaReference("audio", Number(button.dataset.removeSeedanceAudio));
+    });
+  });
+  els.advancedUploadPreview.querySelectorAll("[data-remove-wan-video]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeAdvancedMediaSlot("wanClip");
+    });
+  });
+  els.advancedUploadPreview.querySelectorAll("[data-remove-wan-audio]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeAdvancedMediaSlot("wanAudio");
+    });
+  });
+  els.advancedUploadBox?.classList.toggle("has-image", refs.length > 0);
   if (els.advancedWanFirstFramePreview) {
     const firstFrame = images[0]?.dataUrl || state.advancedUploadDataUrl || "";
     if ((provider === "wan27" || provider === "wan27-image-edit") && firstFrame) {
@@ -2381,20 +2701,17 @@ function renderAdvancedReferencePreviews() {
       els.advancedWanFirstFramePreview.classList.remove("is-visible");
     }
   }
-  const videoPreview = state.advancedSeedanceVideoPreviewUrl || "";
-  if (provider === "seedance" && videoPreview) {
-    els.advancedUploadPreview.insertAdjacentHTML("afterbegin", `
-      <figure>
-        <button class="advanced-preview-remove" type="button" data-remove-seedance-video aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>
-        <video src="${escapeHtml(videoPreview)}" muted playsinline preload="metadata"></video>
-      </figure>
-    `);
-    els.advancedUploadPreview.querySelector("[data-remove-seedance-video]")?.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      removeAdvancedSeedanceVideoReference();
-    });
-    els.advancedUploadBox?.classList.add("has-image");
+  if (els.advancedSeedanceFirstFramePreview) {
+    const firstFrame = state.advancedSeedanceFirstFrameDataUrl || "";
+    if (provider === "seedance" && seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "") && firstFrame) {
+      els.advancedSeedanceFirstFramePreview.src = firstFrame;
+      els.advancedSeedanceFirstFramePreview.classList.add("is-visible");
+      els.advancedSeedanceFirstFrame?.closest(".wan-frame-upload")?.classList.add("has-image");
+    } else {
+      els.advancedSeedanceFirstFramePreview.removeAttribute("src");
+      els.advancedSeedanceFirstFramePreview.classList.remove("is-visible");
+      els.advancedSeedanceFirstFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
+    }
   }
   if (els.advancedSeedanceLastFramePreview) {
     if (provider === "seedance" && state.advancedSeedanceLastFrameDataUrl) {
@@ -2576,6 +2893,10 @@ function clearDeletedAdvancedAssetReference(assetId = "") {
     state.advancedUploadDataUrl = nextImages[0]?.dataUrl || "";
     changed = true;
   }
+  if (state.advancedSeedanceFirstFrameAssetId === assetId) {
+    removeAdvancedMediaSlot("seedanceFirstFrame");
+    changed = true;
+  }
   if (state.advancedSourceImageAssetId === assetId) {
     state.advancedSourceImageAssetId = "";
     state.advancedUploadDataUrl = nextImages[0]?.dataUrl || "";
@@ -2594,12 +2915,12 @@ function clearDeletedAdvancedAssetReference(assetId = "") {
     changed = true;
   }
   if (state.advancedSeedanceVideoAssetId === assetId) {
-    state.advancedSeedanceVideoAssetId = "";
-    state.advancedSeedanceVideoPreviewUrl = "";
+    setAdvancedSeedanceVideoReferences(advancedSeedanceVideoReferences().filter((item) => item.assetId !== assetId));
     changed = true;
   }
   if (state.advancedAudioAssetId === assetId) {
-    state.advancedAudioAssetId = "";
+    setAdvancedSeedanceAudioReferences(advancedSeedanceAudioReferences().filter((item) => item.assetId !== assetId));
+    removeAdvancedMediaSlot("wanAudio");
     changed = true;
   }
   if (!changed) return;
@@ -2643,7 +2964,7 @@ async function submitTemplate() {
   state.activeAdvancedCaseId = "";
   if (els.advancedProvider) els.advancedProvider.value = "seedance";
   if (els.advancedPrompt) els.advancedPrompt.value = els.templatePrompt?.value || template.prompt || template.description || "";
-  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = template.type === "text-to-video" ? "text_to_video" : "reference_images";
+  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
   if (state.uploadDataUrl) {
     state.advancedReferenceImages = [{ dataUrl: state.uploadDataUrl, fileName: "reference.png" }];
     state.advancedUploadDataUrl = state.uploadDataUrl;

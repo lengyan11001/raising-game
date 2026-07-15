@@ -225,7 +225,7 @@ const I18N = {
     "advancedPreset.characterRequired": "Choose or upload a character image first.",
     "advancedPreset.uploadLocalImage": "Upload local image",
     "advancedPreset.localImage": "Local image",
-    "advanced.uploadReference": "Upload reference image(s)",
+    "advanced.uploadReference": "Upload reference content",
     "advanced.uploadImageVideo": "Upload image/video",
     "advanced.wanMode": "Vipeak 1 input",
     "advanced.wanModeFirst": "Single image",
@@ -244,16 +244,19 @@ const I18N = {
     "advanced.clipTooLong": "Source video must be 5 seconds or shorter.",
     "advanced.seedanceHandling": "Vipeak 2 image handling",
     "advanced.seedanceMode": "Vipeak 2 input",
+    "advanced.seedanceModeMultimodal": "Multimodal references",
     "advanced.seedanceModeText": "Text only",
     "advanced.seedanceModeFirst": "First frame image",
-    "advanced.seedanceModeFirstLast": "First + last image",
-    "advanced.seedanceModeReference": "Reference images",
-    "advanced.seedanceModeVideo": "Reference video/audio",
+    "advanced.seedanceModeFirstLast": "First + last frame",
+    "advanced.seedanceModeReference": "Reference content",
+    "advanced.seedanceModeVideo": "Multimodal references",
     "advanced.seedanceVideoUrls": "Reference video URLs",
     "advanced.seedanceAudioUrls": "Reference audio URLs",
     "advanced.seedanceFirstRequired": "First frame image is required for this mode.",
     "advanced.seedanceLastRequired": "Last frame image is required for this mode.",
     "advanced.seedanceVideoRequired": "Reference video is required for this mode.",
+    "advanced.seedanceAudioRequired": "Reference audio is required.",
+    "advanced.referenceMediaTooMany": "Too many reference media files.",
     "advanced.extractingLastFrame": "Preparing video frame...",
     "advanced.confirmCostOnly": "{cost}",
     "advanced.prepareReference": "Prepare safe reference",
@@ -1858,11 +1861,12 @@ Content-Type: application/json
 {
   "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Use Image 1 as the character reference. Generate a cinematic 5 second shot, no subtitles, no watermark.",
-  "seedanceMode": "reference_images",
+  "prompt": "Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot, no subtitles, no watermark.",
+  "seedanceMode": "reference_video",
   "referenceImages": [
     {"url": "https://example.com/image1.png", "fileName": "image1.png"}
   ],
+  "referenceVideoUrls": ["https://example.com/video1.mp4"],
   "ratio": "9:16",
   "resolution": "4k",
   "duration": 5,
@@ -1889,7 +1893,7 @@ Content-Type: application/json
   "model": "wan2.7-i2v-2026-04-25",
   "prompt": "Animate Image 1 into a cinematic 5 second shot, no subtitles, no watermark.",
   "firstFrameUrl": "https://example.com/first-frame.png",
-  "mediaMode": "first_frame",
+  "mediaMode": "multimodal",
   "ratio": "9:16",
   "resolution": "1080p",
   "duration": 5,
@@ -1950,7 +1954,7 @@ Content-Type: application/json
   "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
   "prompt": "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot.",
-  "seedanceMode": "reference_images",
+  "seedanceMode": "reference_video",
   "referenceImages": [
     {"assetId": "asset-id-from-step-1"}
   ],
@@ -1966,8 +1970,9 @@ You may also send a public image URL or base64 data URL directly:
   "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
   "prompt": "Animate Image 1 into a cinematic shot.",
-  "seedanceMode": "first_frame",
+  "seedanceMode": "first_last_frame",
   "firstFrameDataUrl": "data:image/png;base64,...",
+  "lastFrameUrl": "https://example.com/last-frame.png",
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5
@@ -1979,7 +1984,7 @@ const body = {
   provider: "seedance",
   model: "dreamina-seedance-2-0-260128",
   prompt: "Use Image 1 as the character reference. Generate a cinematic 5 second shot.",
-  seedanceMode: "reference_images",
+  seedanceMode: "reference_video",
   referenceImages: [
     { url: "https://example.com/image1.png", fileName: "image1.png" }
   ],
@@ -2015,7 +2020,7 @@ payload = {
     "provider": "seedance",
     "model": "dreamina-seedance-2-0-260128",
     "prompt": "Use Image 1 as the character reference. Generate a cinematic 5 second shot.",
-    "seedanceMode": "reference_images",
+    "seedanceMode": "reference_video",
     "referenceImages": [
         {"url": "https://example.com/image1.png", "fileName": "image1.png"},
     ],
@@ -2046,7 +2051,7 @@ print(task)
 const CLI_ACCESS_COPY = `curl -X POST "${apiUrl("/api/advanced/generate")}" \
   -H "Authorization: Bearer <user-token>" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"Use Image 1 as the character reference. Generate a cinematic 5 second shot.","seedanceMode":"reference_images","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true,"watermark":false}'
+  -d '{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot.","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true,"watermark":false}'
 
 curl -X GET "${apiUrl("/api/generation-records/<taskId>")}" \
   -H "Authorization: Bearer <user-token>"
@@ -2070,7 +2075,7 @@ const MCP_ACCESS_COPY = `Advanced generation wrapper target:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
-{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"string","seedanceMode":"reference_images","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"ratio":"9:16","resolution":"480p|720p|1080p|4k","duration":5,"generateAudio":true,"watermark":false,"seed":123456}
+{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"string","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"ratio":"9:16","resolution":"480p|720p|1080p|4k","duration":5,"generateAudio":true,"watermark":false,"seed":123456}
 
 Reusable asset upload target:
 POST ${apiUrl("/api/user-assets")}
@@ -2096,52 +2101,33 @@ Model routing:
 
 Prompt reference rule: describe uploaded materials as Image 1, Video 1, Audio 1. Do not put raw asset ids in the prompt text.
 
-Text to video:
-{
-  "provider": "seedance",
-  "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Describe the video. Dialogue can be quoted in the prompt.",
-  "seedanceMode": "text_to_video",
-  "ratio": "9:16",
-  "resolution": "720p",
-  "duration": 5,
-  "generateAudio": true
-}
-
-First-frame image to video:
-{
-  "provider": "seedance",
-  "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Animate Image 1 into a cinematic shot.",
-  "seedanceMode": "first_frame",
-  "imageUrl": "https://example.com/first-frame.png",
-  "ratio": "9:16",
-  "resolution": "720p",
-  "duration": 5
-}
-
 First + last frame:
 {
   "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Move smoothly from the first frame to the last frame.",
+  "prompt": "Move smoothly from the first frame to the last frame. Also use Image 1 and Video 1 as references if supplied.",
   "seedanceMode": "first_last_frame",
   "imageUrl": "https://example.com/first-frame.png",
   "endImageUrl": "https://example.com/last-frame.png",
+  "referenceImages": [
+    {"url": "https://example.com/image1.png", "fileName": "image1.png"}
+  ],
+  "referenceVideoUrls": ["https://example.com/video1.mp4"],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5
 }
 
-Reference images:
+Multimodal references:
 {
   "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Use Image 1 as the character reference and generate a cinematic shot.",
-  "seedanceMode": "reference_images",
+  "prompt": "Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic shot.",
+  "seedanceMode": "reference_video",
   "referenceImages": [
     {"url": "https://example.com/image1.png", "fileName": "image1.png"}
   ],
+  "referenceVideoUrls": ["https://example.com/video1.mp4"],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5,
@@ -2178,7 +2164,7 @@ Content-Type: application/json
   "model": "wan2.7-i2v-2026-04-25",
   "prompt": "Describe the video motion and camera.",
   "firstFrameUrl": "https://example.com/first-frame.png",
-  "mediaMode": "first_frame",
+  "mediaMode": "multimodal",
   "ratio": "9:16",
   "resolution": "1080p",
   "duration": 5,
@@ -2271,11 +2257,11 @@ Content-Type: application/json
       ["provider", "Use wan27 for Wan2.7 video or seedance for Seedance video. For compatibility, known Seedance model aliases also imply seedance, but explicit provider is recommended."],
       ["model", "For provider=wan27, use wan2.7-i2v-2026-04-25. For provider=seedance, use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast."],
       ["prompt", "Video prompt. Refer to materials as Image 1, Video 1, Audio 1 instead of raw asset ids."],
-      ["seedanceMode", "For provider=seedance: text_to_video, first_frame, first_last_frame, reference_images, or reference_video."],
-      ["imageUrl / firstFrameUrl / firstFrameDataUrl", "First-frame input for seedance first_frame/first_last_frame modes."],
+      ["seedanceMode", "For provider=seedance: reference_video for multimodal references or first_last_frame for explicit first/last frames. Legacy aliases are accepted for compatibility."],
+      ["imageUrl / firstFrameUrl / firstFrameDataUrl", "First-frame input for seedance first_last_frame mode."],
       ["endImageUrl / lastFrameUrl / endImageDataUrl", "Last-frame input for seedance first_last_frame mode."],
-      ["referenceImages", "Array for seedance reference_images/reference_video modes. Each item may use assetId, url/imageUrl + fileName, or dataUrl + fileName."],
-      ["referenceVideoUrls / referenceVideoAssetIds", "Video references for seedance reference_video/edit/extend. Include referenceVideoDurationSeconds when known for billing."],
+      ["referenceImages", "Array for seedance multimodal references. Each item may use assetId, url/imageUrl + fileName, or dataUrl + fileName."],
+      ["referenceVideoUrls / referenceVideoAssetIds", "Video references for seedance multimodal generation. Include referenceVideoDurationSeconds when known for billing."],
       ["referenceAudioUrls / referenceAudioAssetIds", "Optional audio references for multimodal seedance requests."],
       ["ratio", "9:16, 16:9, or 1:1."],
       ["resolution", "Wan2.7 video: 720p or 1080p. Seedance standard: 480p, 720p, 1080p, or 4k. Seedance fast: 480p or 720p."],
@@ -2303,14 +2289,14 @@ Content-Type: application/json
       { name: "/api/user-assets", type: "endpoint", required: "No", description: "Optional reusable upload endpoint. Send url/imageUrl/videoUrl/audioUrl or dataUrl; reuse the returned asset.id.", default: "-" },
       { name: "provider", type: "string", required: "Yes", description: "Use seedance for this endpoint route.", default: "seedance" },
       { name: "prompt", type: "string", required: "Yes", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
-      { name: "seedanceMode", type: "string", required: "No", description: "text_to_video, first_frame, first_last_frame, reference_images, or reference_video.", default: "text_to_video" },
+      { name: "seedanceMode", type: "string", required: "No", description: "reference_video for multimodal references or first_last_frame for explicit first/last frames. Legacy aliases are accepted for compatibility.", default: "reference_video" },
       { name: "seedanceTier", type: "string", required: "No", description: "standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d. Fast tier does not support 1080p or 4k.", default: "standard" },
       { name: "model", type: "string", required: "Yes", description: "Use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. These map to ep-20260429142513-zg667 and ep-20260429142538-fkm9d.", default: "dreamina-seedance-2-0-260128" },
       { name: "imageUrl / firstFrameUrl / firstFrameDataUrl", type: "string", required: "For first frame modes", description: "Public URL or base64 data URL for the first frame.", default: "-" },
       { name: "firstFrameAssetId / imageAssetId", type: "string", required: "No", description: "Existing uploaded image asset id for the first frame.", default: "-" },
       { name: "endImageUrl / lastFrameUrl / endImageDataUrl", type: "string", required: "For first_last_frame", description: "Public URL or base64 data URL for the last frame.", default: "-" },
       { name: "endImageAssetId / lastFrameAssetId", type: "string", required: "No", description: "Existing uploaded image asset id for the last frame.", default: "-" },
-      { name: "referenceImages", type: "array", required: "For reference_images/reference_video", description: "Image references. Each item may use assetId, url/imageUrl + fileName, or dataUrl + fileName.", default: "[]" },
+      { name: "referenceImages", type: "array", required: "For reference_video", description: "Image references. Each item may use assetId, url/imageUrl + fileName, or dataUrl + fileName.", default: "[]" },
       { name: "referenceVideoUrls", type: "array", required: "For reference_video without asset ids", description: "Public video URLs. Include referenceVideoDurationSeconds when known.", default: "[]" },
       { name: "referenceVideoAssetIds", type: "array", required: "No", description: "Existing uploaded video asset ids.", default: "[]" },
       { name: "referenceVideoDurationSeconds / inputVideoSeconds", type: "number", required: "No", description: "Total input video duration used for pre-deduction. If omitted, the server probes when possible, then falls back conservatively.", default: "0" },
@@ -2341,7 +2327,7 @@ Content-Type: application/json
       { name: "model", type: "string", required: "No", description: "Wan2.7 video model id. Allowed value: wan2.7-i2v-2026-04-25.", default: "wan2.7-i2v-2026-04-25" },
       { name: "prompt", type: "string", required: "Yes", description: "Video prompt.", default: "-" },
       { name: "dataUrl", type: "string", required: "Usually", description: "Base64 first-frame image. You can also use userAssetId or firstFrameAssetId.", default: "-" },
-      { name: "mediaMode", type: "string", required: "No", description: "Allowed values: first_frame, first_last_frame, first_frame_audio, first_last_frame_audio, first_clip, first_clip_last_frame.", default: "first_frame" },
+      { name: "mediaMode", type: "string", required: "No", description: "Use multimodal or first_last_frame in new integrations. Legacy aliases are accepted for compatibility.", default: "multimodal" },
       { name: "firstFrameUrl", type: "string", required: "No", description: "Public URL for the first frame if not using dataUrl/userAssetId.", default: "-" },
       { name: "lastFrameUrl", type: "string", required: "No", description: "Public URL for the last frame when mediaMode uses a last frame.", default: "-" },
       { name: "firstClipUrl", type: "string", required: "No", description: "Public video URL when mediaMode starts from a clip.", default: "-" },
@@ -3029,7 +3015,7 @@ I18N.zh = {
   "advanced.promptVideoExtend": "描述镜头如何继续...",
   "advanced.promptVideoReplace": "描述要替换的内容...",
   "advanced.promptVideoEdit": "描述要如何编辑视频...",
-  "advanced.uploadReference": "上传参考图片",
+  "advanced.uploadReference": "上传参考内容",
   "advanced.uploadImageVideo": "上传图片/视频",
   "advanced.wanMode": "Vipeak 1 输入",
   "advanced.wanModeFirst": "单张图片",
@@ -3048,16 +3034,19 @@ I18N.zh = {
   "advanced.clipTooLong": "源视频不能超过 5 秒。",
   "advanced.seedanceHandling": "Vipeak 2 图片处理",
   "advanced.seedanceMode": "Vipeak 2 输入",
+  "advanced.seedanceModeMultimodal": "多模态参考",
   "advanced.seedanceModeText": "仅文本",
   "advanced.seedanceModeFirst": "首帧图片",
-  "advanced.seedanceModeFirstLast": "首尾帧图片",
-  "advanced.seedanceModeReference": "参考图片",
-  "advanced.seedanceModeVideo": "参考视频/音频",
+  "advanced.seedanceModeFirstLast": "首尾帧",
+  "advanced.seedanceModeReference": "参考内容",
+  "advanced.seedanceModeVideo": "多模态参考",
   "advanced.seedanceVideoUrls": "参考视频 URL",
   "advanced.seedanceAudioUrls": "参考音频 URL",
   "advanced.seedanceFirstRequired": "此模式需要首帧图片。",
   "advanced.seedanceLastRequired": "此模式需要尾帧图片。",
   "advanced.seedanceVideoRequired": "此模式需要参考视频。",
+  "advanced.seedanceAudioRequired": "需要参考音频。",
+  "advanced.referenceMediaTooMany": "参考媒体文件太多。",
   "advanced.prepareReference": "准备安全参考图",
   "advanced.originalImage": "使用原图",
   "advanced.seedanceReferenceHint": "所选图片会作为参考图。",
