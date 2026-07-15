@@ -652,6 +652,7 @@ const state = {
   advancedReferenceImages: [],
   advancedSeedanceVideoReferences: [],
   advancedSeedanceAudioReferences: [],
+  advancedPendingReferences: [],
   advancedReferenceOrderCounter: 0,
   advancedSeedanceFirstFrameDataUrl: "",
   advancedSeedanceFirstFrameAssetId: "",
