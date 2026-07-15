@@ -120,7 +120,23 @@ These commits exist locally in the workspace history:
 
 ## Deployment Pattern Used In This Session
 
-### Normal deploy command
+### Current fixed deploy command
+
+Do not upload files directly. Push the branch first, then run:
+
+```powershell
+$env:OLD_SITE_SSH_PASSWORD = "<server-root-password>"
+python .\scripts\deploy_site.py --site old
+```
+
+Fixed target:
+
+- Branch: `old-site`
+- Remote root: `/opt/raising-game-demo`
+- Service: `raising-game-demo`
+- Health URL: `https://123vips.com/api/health`
+
+### Legacy command
 
 When git push is working:
 
@@ -131,11 +147,11 @@ $env:FYSHARK_SSH_PASSWORD = $matches[1]
 python .\scripts\deploy_pull.py --branch old-site --remote-root /opt/raising-game-demo --service raising-game-demo --health-url https://123vips.com/api/health
 ```
 
-### Fallback used here
+### Obsolete fallback used in that older session
 
-- Upload changed files directly with Paramiko
-- Restart `raising-game-demo`
-- Verify by grepping deployed files and checking `https://123vips.com/api/health`
+Direct file upload was used only because GitHub push was broken in that older
+session. It is no longer an accepted deploy path; it leaves the server worktree
+dirty and breaks future pulls.
 
 ## Known Follow-up Items
 

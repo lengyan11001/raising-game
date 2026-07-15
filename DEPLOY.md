@@ -18,13 +18,13 @@ Keep these on the server and out of Git:
 
 Recommended flow:
 
-1. Push code to `main` on GitHub.
+1. Push code to `old-site` on GitHub.
 2. On the server, inside `/opt/raising-game-demo`:
 
 ```bash
-git fetch origin main
-git checkout main
-git reset --hard origin/main
+git fetch origin old-site
+git checkout old-site
+git reset --hard origin/old-site
 systemctl restart raising-game-demo
 ```
 
@@ -34,9 +34,19 @@ as an alternate data store or deployment target.
 From the local machine, use the helper only after pushing:
 
 ```powershell
-$env:FYSHARK_SSH_PASSWORD="..."
-python .\scripts\deploy_pull.py
+$env:OLD_SITE_SSH_PASSWORD="..."
+python .\scripts\deploy_site.py --site old
 ```
+
+Fixed production target:
+
+- site: `old`
+- domain: `https://123vips.com`
+- host: `101.47.76.188`
+- branch: `old-site`
+- remote root: `/opt/raising-game-demo`
+- service: `raising-game-demo`
+- health URL: `https://123vips.com/api/health`
 
 The old SFTP upload deploy is intentionally removed. Do not deploy by copying
 files into `/opt/raising-game-demo`; that leaves Git unable to pull cleanly.
