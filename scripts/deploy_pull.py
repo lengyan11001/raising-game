@@ -13,10 +13,13 @@ This script intentionally does not upload files. The release flow is:
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 
 import paramiko
 
+
+logging.getLogger("paramiko.transport").setLevel(logging.CRITICAL)
 
 HOST = os.environ.get("FYSHARK_HOST", os.environ.get("DEPLOY_HOST", "101.47.76.188"))
 USER = os.environ.get("FYSHARK_USER", os.environ.get("DEPLOY_USER", "root"))
