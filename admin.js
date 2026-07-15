@@ -1889,6 +1889,19 @@ function toAbsoluteHttpUrl(value = "") {
   return "";
 }
 
+function adminPreviewMediaUrl(value = "") {
+  const url = toAbsoluteHttpUrl(value);
+  if (!url) return "";
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.origin === window.location.origin && parsed.pathname.startsWith("/assets/generated/")) {
+      parsed.searchParams.set("admPreview", "adm-75");
+      return parsed.toString();
+    }
+  } catch {}
+  return url;
+}
+
 function recordRatioStyle(record = {}) {
   const ratio = normalizeVideoRatio(record.ratio || record.params?.ratio || record.params?.aspect_ratio || record.upstreamPayload?.ratio || record.upstreamPayload?.aspect_ratio);
   const [width, height] = ratio.split(":").map((part) => Math.max(1, Number(part) || 1));
@@ -1896,10 +1909,10 @@ function recordRatioStyle(record = {}) {
 }
 
 function recordPreviewHtml(record) {
-  const localVideo = recordVideoUrl(record);
+  const localVideo = adminPreviewMediaUrl(recordVideoUrl(record));
   const remoteVideo = recordRemoteVideoUrl(record);
-  const imageResult = recordImageResultUrl(record);
-  const poster = recordResultPosterUrl(record);
+  const imageResult = adminPreviewMediaUrl(recordImageResultUrl(record));
+  const poster = adminPreviewMediaUrl(recordResultPosterUrl(record));
   const posterAttr = poster ? ` poster="${escapeHtml(poster)}"` : "";
   if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="auto" playsinline${posterAttr} style="${escapeHtml(recordRatioStyle(record))}"></video>`;
   if (imageResult) return `<img src="${escapeHtml(imageResult)}" alt="" />`;
