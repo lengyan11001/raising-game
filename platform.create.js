@@ -547,29 +547,35 @@ async function uploadAdvancedVideoReference(file) {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLarge");
     return null;
   }
-  if (els.advancedNote) els.advancedNote.textContent = t("assets.uploading");
-  const durationSeconds = await readVideoDuration(file).catch(() => 0);
-  const payload = await requestJson("/api/user-assets", {
-    method: "POST",
-    body: {
-      dataUrl: await readFileAsDataUrl(file),
-      name: file.name || "Video reference",
-      fileName: file.name || "",
-      durationSeconds,
-    },
-  });
-  const asset = payload.asset || null;
-  if (!asset?.id || !isVideoAsset(asset)) throw new Error(t("assets.uploadFailed", { message: "Invalid video asset" }));
-  state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
-  state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
-  if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
-  addAdvancedSeedanceMediaReference(asset, "video");
-  if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
-  if (els.advancedNote) els.advancedNote.textContent = "";
-  renderAdvancedAssets();
-  updateAdvancedModelControls();
-  updateAdvancedButtonCost();
-  return asset;
+  const pending = addAdvancedPendingReference("video", file);
+  try {
+    const durationSeconds = await readVideoDuration(file).catch(() => 0);
+    const payload = await requestJson("/api/user-assets", {
+      method: "POST",
+      body: {
+        dataUrl: await readFileAsDataUrl(file),
+        name: file.name || "Video reference",
+        fileName: file.name || "",
+        durationSeconds,
+      },
+    });
+    const asset = payload.asset || null;
+    if (!asset?.id || !isVideoAsset(asset)) throw new Error(t("assets.uploadFailed", { message: "Invalid video asset" }));
+    state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+    state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+    removeAdvancedPendingReference(pending.pendingId, { render: false });
+    addAdvancedSeedanceMediaReference(asset, "video", { order: pending.order });
+    if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
+    if (els.advancedNote) els.advancedNote.textContent = "";
+    renderAdvancedAssets();
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
+    return asset;
+  } catch (error) {
+    removeAdvancedPendingReference(pending.pendingId);
+    throw error;
+  }
 }
 
 function advancedSeedanceVideoReferences() {
@@ -634,6 +640,37 @@ function nextAdvancedReferenceOrder() {
   return state.advancedReferenceOrderCounter;
 }
 
+function advancedPendingReferences(provider = currentAdvancedProvider()) {
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  return (Array.isArray(state.advancedPendingReferences) ? state.advancedPendingReferences : [])
+    .filter((item) => item && (!item.provider || item.provider === normalizedProvider));
+}
+
+function addAdvancedPendingReference(kind = "image", file = {}, options = {}) {
+  const ref = {
+    pendingId: `pending-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    provider: normalizeAdvancedProvider(options.provider || currentAdvancedProvider()),
+    kind,
+    isPending: true,
+    name: file?.name || options.name || (kind === "audio" ? "Audio reference" : kind === "video" ? "Video reference" : "Image reference"),
+    fileName: file?.name || options.fileName || "",
+    order: options.order || nextAdvancedReferenceOrder(),
+  };
+  state.advancedPendingReferences = [...(state.advancedPendingReferences || []), ref];
+  renderAdvancedReferencePreviews();
+  refreshIcons();
+  return ref;
+}
+
+function removeAdvancedPendingReference(pendingId = "", { render = true } = {}) {
+  if (!pendingId) return;
+  state.advancedPendingReferences = (state.advancedPendingReferences || []).filter((item) => item?.pendingId !== pendingId);
+  if (render) {
+    renderAdvancedReferencePreviews();
+    refreshIcons();
+  }
+}
+
 function stampAdvancedReferenceOrder(ref = {}) {
   return {
     ...ref,
@@ -682,29 +719,35 @@ async function uploadAdvancedMediaReference(file, kind = "video") {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLarge");
     return null;
   }
-  if (els.advancedNote) els.advancedNote.textContent = t("assets.uploading");
-  const durationSeconds = await readMediaDuration(file);
-  const payload = await requestJson("/api/user-assets", {
-    method: "POST",
-    body: {
-      dataUrl: await readFileAsDataUrl(file),
-      name: file.name || (kind === "audio" ? "Audio reference" : "Video reference"),
-      fileName: file.name || "",
-      durationSeconds,
-    },
-  });
-  const asset = payload.asset || null;
-  if (!asset?.id || (kind === "audio" ? !isAudioAsset(asset) : !isVideoAsset(asset))) {
-    throw new Error(t("assets.uploadFailed", { message: `Invalid ${kind} asset` }));
+  const pending = addAdvancedPendingReference(kind, file);
+  try {
+    const durationSeconds = await readMediaDuration(file);
+    const payload = await requestJson("/api/user-assets", {
+      method: "POST",
+      body: {
+        dataUrl: await readFileAsDataUrl(file),
+        name: file.name || (kind === "audio" ? "Audio reference" : "Video reference"),
+        fileName: file.name || "",
+        durationSeconds,
+      },
+    });
+    const asset = payload.asset || null;
+    if (!asset?.id || (kind === "audio" ? !isAudioAsset(asset) : !isVideoAsset(asset))) {
+      throw new Error(t("assets.uploadFailed", { message: `Invalid ${kind} asset` }));
+    }
+    state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+    state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+    removeAdvancedPendingReference(pending.pendingId, { render: false });
+    addAdvancedSeedanceMediaReference(asset, kind, { order: pending.order });
+    if (els.advancedNote) els.advancedNote.textContent = "";
+    renderAdvancedAssets();
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
+    return asset;
+  } catch (error) {
+    removeAdvancedPendingReference(pending.pendingId);
+    throw error;
   }
-  state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
-  state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
-  addAdvancedSeedanceMediaReference(asset, kind);
-  if (els.advancedNote) els.advancedNote.textContent = "";
-  renderAdvancedAssets();
-  updateAdvancedModelControls();
-  updateAdvancedButtonCost();
-  return asset;
 }
 
 async function uploadAdvancedWanAudioReference(file) {
@@ -721,34 +764,40 @@ async function uploadAdvancedWanAudioReference(file) {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLarge");
     return null;
   }
-  if (els.advancedNote) els.advancedNote.textContent = t("assets.uploading");
-  const durationSeconds = await readMediaDuration(file);
-  const payload = await requestJson("/api/user-assets", {
-    method: "POST",
-    body: {
-      dataUrl: await readFileAsDataUrl(file),
-      name: file.name || "Driving audio",
-      fileName: file.name || "",
-      durationSeconds,
-    },
-  });
-  const asset = payload.asset || null;
-  if (!asset?.id || !isAudioAsset(asset)) throw new Error(t("assets.uploadFailed", { message: "Invalid audio asset" }));
-  state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
-  state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
-  state.advancedAudioAssetId = asset.id;
-  state.advancedAudioPreviewUrl = assetPreviewUrl(asset);
-  state.advancedAudioFileName = asset.fileName || asset.name || file.name || "";
-  state.advancedAudioOrder = nextAdvancedReferenceOrder();
-  if (els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = "";
-  if (els.advancedNote) els.advancedNote.textContent = "";
-  renderAdvancedAssets();
-  updateAdvancedModelControls();
-  updateAdvancedButtonCost();
-  return asset;
+  const pending = addAdvancedPendingReference("audio", file);
+  try {
+    const durationSeconds = await readMediaDuration(file);
+    const payload = await requestJson("/api/user-assets", {
+      method: "POST",
+      body: {
+        dataUrl: await readFileAsDataUrl(file),
+        name: file.name || "Driving audio",
+        fileName: file.name || "",
+        durationSeconds,
+      },
+    });
+    const asset = payload.asset || null;
+    if (!asset?.id || !isAudioAsset(asset)) throw new Error(t("assets.uploadFailed", { message: "Invalid audio asset" }));
+    state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+    state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+    removeAdvancedPendingReference(pending.pendingId, { render: false });
+    state.advancedAudioAssetId = asset.id;
+    state.advancedAudioPreviewUrl = assetPreviewUrl(asset);
+    state.advancedAudioFileName = asset.fileName || asset.name || file.name || "";
+    state.advancedAudioOrder = pending.order || nextAdvancedReferenceOrder();
+    if (els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = "";
+    renderAdvancedAssets();
+    updateAdvancedModelControls();
+    updateAdvancedButtonCost();
+    return asset;
+  } catch (error) {
+    removeAdvancedPendingReference(pending.pendingId);
+    throw error;
+  }
 }
 
-function addAdvancedSeedanceMediaReference(asset = {}, kind = "video") {
+function addAdvancedSeedanceMediaReference(asset = {}, kind = "video", options = {}) {
   const ref = {
     assetId: asset.id || asset.assetId || "",
     url: assetPreviewUrl(asset),
@@ -757,6 +806,7 @@ function addAdvancedSeedanceMediaReference(asset = {}, kind = "video") {
     fileName: asset.fileName || asset.name || "",
     durationSeconds: asset.durationSeconds || asset.duration || 0,
     fromLibrary: true,
+    order: options.order || 0,
   };
   const orderedRef = stampAdvancedReferenceOrder(ref);
   if (kind === "audio") {
@@ -792,7 +842,7 @@ function removeAdvancedSeedanceMediaReference(kind = "video", index = -1) {
   updateAdvancedButtonCost();
 }
 
-function setAdvancedExtendFrameReference(dataUrl = "", fileName = "video-last-frame.jpg") {
+function setAdvancedExtendFrameReference(dataUrl = "", fileName = "video-last-frame.jpg", order = 0) {
   if (!dataUrl) return;
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
   state.activeAdvancedCaseId = "";
@@ -802,6 +852,7 @@ function setAdvancedExtendFrameReference(dataUrl = "", fileName = "video-last-fr
     dataUrl,
     fileName,
     name: fileName,
+    order,
   }].map(stampAdvancedReferenceOrder);
   state.advancedUploadDataUrl = dataUrl;
   if (els.advancedImage) els.advancedImage.value = "";
@@ -811,9 +862,15 @@ function setAdvancedExtendFrameReference(dataUrl = "", fileName = "video-last-fr
 }
 
 async function captureAdvancedExtendFrameFromSource(source, fileName = "video-last-frame.jpg") {
-  if (els.advancedNote) els.advancedNote.textContent = t("advanced.extractingLastFrame", {}, "Preparing video frame...");
-  const frameDataUrl = await captureLastFrameDataUrl(source);
-  setAdvancedExtendFrameReference(frameDataUrl, fileName);
+  const pending = addAdvancedPendingReference("image", { name: fileName });
+  try {
+    const frameDataUrl = await captureLastFrameDataUrl(source);
+    removeAdvancedPendingReference(pending.pendingId, { render: false });
+    setAdvancedExtendFrameReference(frameDataUrl, fileName, pending.order);
+  } catch (error) {
+    removeAdvancedPendingReference(pending.pendingId);
+    throw error;
+  }
 }
 
 function assetTargetTypeLabel(type = "image") {
@@ -2588,6 +2645,7 @@ function removeAdvancedMediaSlot(slot = "") {
 
 function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
   const images = selectedAdvancedReferenceImages();
+  const pendingRefs = advancedPendingReferences(provider);
   const seedanceVideos = provider === "seedance" ? advancedSeedanceVideoReferences() : [];
   const seedanceAudios = provider === "seedance" ? advancedSeedanceAudioReferences() : [];
   const wanClipUrl = provider === "wan27"
@@ -2600,7 +2658,9 @@ function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
       ? assetPreviewUrl((state.advancedAssets || []).find((asset) => asset.id === state.advancedAudioAssetId) || (state.userAssets || []).find((asset) => asset.id === state.advancedAudioAssetId) || {})
       : "") || String(els.advancedWanAudioUrl?.value || "").trim())
     : "";
-  const imageItems = images.map((item, index) => ({
+  const displayImages = [...images, ...pendingRefs.filter((item) => item.kind === "image")]
+    .sort((left, right) => advancedReferenceOrderValue(left) - advancedReferenceOrderValue(right));
+  const imageItems = displayImages.map((item, index) => ({
     kind: "image",
     index,
     label: `Image ${index + 1}`,
@@ -2613,19 +2673,23 @@ function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
   const audioSource = provider === "wan27" && (state.advancedAudioAssetId || wanAudioUrl)
     ? [{ assetId: state.advancedAudioAssetId || "", url: wanAudioUrl, previewUrl: wanAudioUrl, name: state.advancedAudioFileName || "Audio reference", order: state.advancedAudioOrder || advancedReferenceOrderValue(images[0], images.length + 2) + 1 }]
     : seedanceAudios;
-  const videoItems = videoSource.map((item, index) => ({
+  const displayVideos = [...videoSource, ...pendingRefs.filter((item) => item.kind === "video")]
+    .sort((left, right) => advancedReferenceOrderValue(left) - advancedReferenceOrderValue(right));
+  const videoItems = displayVideos.map((item, index) => ({
     kind: "video",
     index,
     label: `Video ${index + 1}`,
     item,
-    order: advancedReferenceOrderValue(item, images.length + index + 1),
+    order: advancedReferenceOrderValue(item, displayImages.length + index + 1),
   }));
-  const audioItems = audioSource.map((item, index) => ({
+  const displayAudios = [...audioSource, ...pendingRefs.filter((item) => item.kind === "audio")]
+    .sort((left, right) => advancedReferenceOrderValue(left) - advancedReferenceOrderValue(right));
+  const audioItems = displayAudios.map((item, index) => ({
     kind: "audio",
     index,
     label: `Audio ${index + 1}`,
     item,
-    order: advancedReferenceOrderValue(item, images.length + seedanceVideos.length + index + 1),
+    order: advancedReferenceOrderValue(item, displayImages.length + displayVideos.length + index + 1),
   }));
   return [...imageItems, ...videoItems, ...audioItems].sort((left, right) => left.order - right.order);
 }
@@ -2636,20 +2700,24 @@ function renderAdvancedReferencePreviews() {
   const images = selectedAdvancedReferenceImages();
   const refs = advancedReferenceDisplayItems(provider);
   els.advancedUploadPreview.innerHTML = refs.map(({ kind, index, label, item }) => {
+    const pending = Boolean(item.isPending || item.pendingId);
     const url = item.dataUrl || item.previewUrl || item.url || "";
     const removeAttr = kind === "image"
       ? `data-remove-advanced-ref="${index}"`
       : provider === "wan27"
         ? `data-remove-wan-${kind}="${index}"`
         : `data-remove-seedance-${kind}="${index}"`;
-    const media = kind === "video"
+    const pendingText = t("advanced.uploadingReference", {}, "Uploading...");
+    const media = pending
+      ? `<div class="advanced-reference-pending"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div>`
+      : kind === "video"
       ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video>`
       : kind === "audio"
         ? `<div class="advanced-audio-ref"><i data-lucide="audio-lines"></i></div>`
         : (url ? `<img src="${escapeHtml(url)}" alt="" />` : `<div class="history-placeholder"><i data-lucide="image"></i></div>`);
     return `
-      <figure class="advanced-reference-chip is-${escapeHtml(kind)}" title="${escapeHtml(item.name || item.fileName || label)}">
-        <button class="advanced-preview-remove" type="button" ${removeAttr} aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>
+      <figure class="advanced-reference-chip is-${escapeHtml(kind)} ${pending ? "is-pending" : ""}" title="${escapeHtml(item.name || item.fileName || label)}">
+        ${pending ? "" : `<button class="advanced-preview-remove" type="button" ${removeAttr} aria-label="${escapeHtml(t("common.remove", {}, "Remove"))}">&times;</button>`}
         <span class="advanced-reference-label">${escapeHtml(label)}</span>
         ${media}
       </figure>
