@@ -2746,8 +2746,8 @@ main {
   border-radius: 999px;
   background: rgba(20,20,22,.74);
   color: #fff;
-  font-size: 1.05rem;
-  line-height: 1;
+  font-size: 0;
+  line-height: 0;
 }
 .modal.advanced-preset-modal {
   width: min(980px, calc(100vw - 32px));
@@ -3730,12 +3730,21 @@ select option:checked {
 }
 .modal header span { display:block; color: var(--cyan); font-size: .82rem; }
 .icon-btn {
+  display: inline-grid;
+  place-items: center;
   width: 38px;
   height: 38px;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--text);
   background: rgba(17,29,53,.04);
+  line-height: 0;
+}
+.icon-btn svg {
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 .modal-body {
   display: grid;
@@ -3839,7 +3848,7 @@ select option:checked {
   display: none;
   width: 100%;
   max-width: 100%;
-  grid-template-columns: repeat(auto-fill, minmax(74px, 92px));
+  grid-template-columns: repeat(auto-fill, minmax(82px, 100px));
   gap: 9px;
   align-items: start;
   justify-content: start;
@@ -3857,27 +3866,33 @@ select option:checked {
   box-shadow: 0 8px 22px rgba(7,16,31,.08);
 }
 .advanced-reference-chip {
-  display: grid;
-  grid-template-rows: 25px minmax(0, 1fr);
+  display: block;
 }
 .advanced-reference-label {
-  position: relative;
-  z-index: 2;
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  z-index: 4;
   display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   min-width: 0;
-  height: 25px;
-  padding: 0 30px 0 7px;
+  max-width: calc(100% - 36px);
+  height: 21px;
+  padding: 0 7px;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 999px;
   color: #fff;
-  background: rgba(8,13,24,.96);
-  font-size: .74rem;
-  font-weight: 900;
+  background: rgba(4,9,19,.9);
+  box-shadow: 0 6px 14px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.14);
+  backdrop-filter: blur(6px);
+  font-size: .68rem;
+  font-weight: 950;
   line-height: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 2px rgba(0,0,0,.45);
+  text-shadow: 0 1px 2px rgba(0,0,0,.7);
 }
 .advanced-preview-remove {
   position: absolute;
@@ -3894,9 +3909,10 @@ select option:checked {
   background: rgba(7,16,31,.78);
   box-shadow: 0 8px 18px rgba(7,16,31,.18);
   cursor: pointer;
-  font-size: 1rem;
+  padding: 0;
+  font-size: 0;
   font-weight: 900;
-  line-height: 1;
+  line-height: 0;
 }
 .advanced-preview-remove:hover {
   background: rgba(220,38,38,.9);
@@ -3915,9 +3931,21 @@ select option:checked {
   color: #fff;
   background: rgba(7,16,31,.78);
   cursor: pointer;
-  font-size: 1rem;
+  padding: 0;
+  font-size: 0;
   font-weight: 900;
-  line-height: 1;
+  line-height: 0;
+}
+.advanced-preview-remove::before,
+.wan-frame-remove::before,
+.advanced-preset-clear::before {
+  content: "";
+  display: block;
+  width: 10px;
+  height: 10px;
+  background:
+    linear-gradient(45deg, transparent calc(50% - 1px), currentColor calc(50% - 1px), currentColor calc(50% + 1px), transparent calc(50% + 1px)),
+    linear-gradient(-45deg, transparent calc(50% - 1px), currentColor calc(50% - 1px), currentColor calc(50% + 1px), transparent calc(50% + 1px));
 }
 .wan-frame-upload.has-image .wan-frame-remove {
   display: grid;
@@ -3941,20 +3969,20 @@ select option:checked {
 }
 .advanced-upload-previews img {
   width: 100%;
-  height: 82px;
+  height: 104px;
   object-fit: cover;
   display: block;
   padding: 0;
 }
 .advanced-upload-previews video {
   width: 100%;
-  height: 82px;
+  height: 104px;
   object-fit: cover;
   display: block;
   padding: 0;
 }
 .advanced-audio-ref {
-  height: 82px;
+  height: 104px;
   display: grid;
   place-items: center;
   color: #fff;
@@ -5425,11 +5453,19 @@ select option:checked {
   place-items: center;
   width: 40px;
   height: 40px;
+  padding: 0;
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 12px;
   color: #fff;
   background: rgba(255,255,255,.08);
   cursor: pointer;
+  line-height: 0;
+}
+
+.workflow-picker header button svg {
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 
 .workflow-picker-search {
