@@ -456,7 +456,7 @@ function hasPollableGenerationRecords(records = []) {
 }
 
 function recordPreviewUrl(record = {}) {
-  return record.localVideoUrl || record.videoUrl || record.remoteVideoUrl || "";
+  return recordVideoUrl(record) || recordRemoteVideoUrl(record) || recordImageResultUrl(record) || "";
 }
 
 function generationRecordSignature(record = {}) {
@@ -1741,11 +1741,19 @@ function historyRecordHtml(r, idx) {
 
 /* ============ GENERATION RECORDS ============ */
 function recordVideoUrl(record) {
-  return record.localVideoUrl || "";
+  return toAbsoluteHttpUrl(
+    record.cdnVideoUrl ||
+    record.localVideoUrl ||
+    record.videoUrl ||
+    record.remoteVideoUrl ||
+    "",
+  );
 }
 
 function recordRemoteVideoUrl(record) {
-  return record.remoteVideoUrl || record.videoUrl || "";
+  const remote = toAbsoluteHttpUrl(record.remoteVideoUrl || record.providerVideoUrl || record.upstreamVideoUrl || "");
+  const primary = recordVideoUrl(record);
+  return remote && remote !== primary ? remote : "";
 }
 
 function recordImageResultUrl(record) {

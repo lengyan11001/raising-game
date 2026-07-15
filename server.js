@@ -23682,18 +23682,25 @@ async function serveStatic(req, res, url) {
   if (await isProtectedUnlockAssetPath(pathname)) {
     return sendText(res, 403, "Unlock required");
   }
-  if ((req.method === "GET" || req.method === "HEAD") && pathname.startsWith("/assets/") && !DISABLE_R2_STORAGE && R2.publicDomain) {
+  const filePath = path.normalize(path.join(ROOT, pathname));
+
+  if (!filePath.startsWith(ROOT)) {
+    return sendText(res, 403, "Forbidden");
+  }
+
+  const shouldRedirectAssetToR2 =
+    (req.method === "GET" || req.method === "HEAD") &&
+    pathname.startsWith("/assets/") &&
+    !pathname.startsWith("/assets/generated/") &&
+    !DISABLE_R2_STORAGE &&
+    R2.publicDomain;
+  if (shouldRedirectAssetToR2) {
     const target = `${String(R2.publicDomain || "").replace(/\/+$/, "")}${pathname}${url.search || ""}`;
     res.writeHead(302, {
       location: target,
       "cache-control": "public, max-age=300",
     });
     return res.end();
-  }
-  const filePath = path.normalize(path.join(ROOT, pathname));
-
-  if (!filePath.startsWith(ROOT)) {
-    return sendText(res, 403, "Forbidden");
   }
 
   if (req.method === "GET" && path.normalize(filePath) === path.normalize(path.join(ROOT, "platform.html"))) {
