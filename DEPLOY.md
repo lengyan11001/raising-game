@@ -43,6 +43,7 @@ Fixed production target:
 - site: `old`
 - domain: `https://123vips.com`
 - host: `101.47.76.188`
+- SSH port: `22`
 - branch: `old-site`
 - remote root: `/opt/raising-game-demo`
 - service: `raising-game-demo`

@@ -18,6 +18,7 @@ from pathlib import Path
 TARGETS = {
     "old": {
         "host": "101.47.76.188",
+        "port": 22,
         "branch": "old-site",
         "remote_root": "/opt/raising-game-demo",
         "service": "raising-game-demo",
@@ -26,6 +27,7 @@ TARGETS = {
     },
     "new2": {
         "host": "198.200.37.82",
+        "port": 42607,
         "branch": "codex/site-667zui",
         "remote_root": "/opt/raising-game-667zui",
         "service": "raising-game-667zui",
@@ -46,15 +48,16 @@ def first_env(names: tuple[str, ...]) -> tuple[str, str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Deploy a fixed production target.")
     parser.add_argument("--site", choices=sorted(TARGETS), required=True, help="old=123vips.com, new2=667zui.video")
-    parser.add_argument("--port", type=int, default=int(os.environ.get("DEPLOY_PORT", "22")))
+    parser.add_argument("--port", type=int, default=None, help="Override the fixed SSH port for this site.")
     parser.add_argument("--dry-run", action="store_true", help="Print the fixed target and exit.")
     parser.add_argument("--no-restart", action="store_true", help="Pull code without restarting the service.")
     args = parser.parse_args()
 
     target = TARGETS[args.site]
+    port = args.port or int(os.environ.get("DEPLOY_PORT") or target["port"])
     env_name, password = first_env(target["password_env"])
     print(f"[deploy-site] site={args.site}")
-    print(f"[deploy-site] host={target['host']} port={args.port}")
+    print(f"[deploy-site] host={target['host']} port={port}")
     print(f"[deploy-site] branch={target['branch']}")
     print(f"[deploy-site] remote_root={target['remote_root']}")
     print(f"[deploy-site] service={target['service']}")
@@ -70,7 +73,7 @@ def main() -> None:
     env["DEPLOY_HOST"] = target["host"]
     env["DEPLOY_USER"] = env.get("DEPLOY_USER", "root")
     env["DEPLOY_SSH_PASSWORD"] = password
-    env["DEPLOY_PORT"] = str(args.port)
+    env["DEPLOY_PORT"] = str(port)
     deploy_pull = Path(__file__).with_name("deploy_pull.py")
     command = [
         sys.executable,
@@ -84,7 +87,7 @@ def main() -> None:
         "--health-url",
         target["health_url"],
         "--port",
-        str(args.port),
+        str(port),
     ]
     if args.no_restart:
         command.append("--no-restart")
