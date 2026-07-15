@@ -11,7 +11,7 @@ server environment, not in copied secrets or ad-hoc code forks.
 - Local workspace: `D:\raising-game-667zui`
 - Branch: `codex/site-667zui`
 - Public site: `https://667zui.video`
-- Target server IP: `104.233.149.159`
+- Target server IP: `198.200.37.82`
 - Suggested remote root: `/opt/raising-game-667zui`
 - Suggested service: `raising-game-667zui`
 - Upstream mode: `gateway`
@@ -77,10 +77,19 @@ as an alternate data store or deployment target.
 From the local machine, use the helper only after pushing:
 
 ```powershell
-$env:DEPLOY_HOST = "104.233.149.159"
-$env:DEPLOY_SSH_PASSWORD = "<server-root-password>"
-python .\scripts\deploy_pull.py --branch codex/site-667zui --remote-root /opt/raising-game-667zui --service raising-game-667zui --health-url https://667zui.video/api/health
+$env:NEW_SITE2_SSH_PASSWORD = "<server-root-password>"
+python .\scripts\deploy_site.py --site new2
 ```
+
+Fixed production target:
+
+- site: `new2`
+- domain: `https://667zui.video`
+- host: `198.200.37.82`
+- branch: `codex/site-667zui`
+- remote root: `/opt/raising-game-667zui`
+- service: `raising-game-667zui`
+- health URL: `https://667zui.video/api/health`
 
 The old SFTP upload deploy is intentionally removed. Do not deploy by copying
 files into `/opt/raising-game-667zui`; that leaves Git unable to pull cleanly.

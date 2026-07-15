@@ -6,7 +6,7 @@
 - Branch: `codex/site-667zui`
 - Base branch: `old-site`
 - Public domain: `https://667zui.video`
-- Target server IP: `104.233.149.159`
+- Target server IP: `198.200.37.82`
 - Suggested remote root: `/opt/raising-game-667zui`
 - Suggested service: `raising-game-667zui`
 
@@ -73,7 +73,13 @@ docs, environment defaults, and runtime data/config.
 
 ## DNS And Server Notes
 
-The DNS records checked earlier showed:
+The current production target is:
+
+```text
+667zui.video -> 198.200.37.82
+```
+
+Older DNS records checked earlier showed:
 
 - `www.667zui.video` -> `104.233.149.159`
 - `api.667zui.video` -> `104.233.149.159`
@@ -82,7 +88,7 @@ The DNS records checked earlier showed:
 The root domain `667zui.video` still needed a root A record at that time:
 
 ```text
-667zui.video -> 104.233.149.159
+667zui.video -> 198.200.37.82
 ```
 
 The target IP responded to ping, but ports `80` and `443` were not open from
