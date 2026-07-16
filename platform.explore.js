@@ -176,10 +176,9 @@ function mergeHomeCharacters(items = []) {
 }
 
 async function loadMoreHomeCharacters() {
-  if (state.homeCharactersLoadingMore) return false;
-  if (Number(state.homeCharactersTotal || 0) && state.homeCharacters.length >= Number(state.homeCharactersTotal || 0)) return false;
+  if (state.homeCharactersLoadingMore) return;
+  if (Number(state.homeCharactersTotal || 0) && state.homeCharacters.length >= Number(state.homeCharactersTotal || 0)) return;
   state.homeCharactersLoadingMore = true;
-  state.homeCharactersLoadMessage = "";
   try {
     const nextPage = Number(state.homeCharactersPage || 1) + 1;
     const limit = Number(state.homeCharactersLimit || CHARACTER_PAGE_SIZE) || CHARACTER_PAGE_SIZE;
@@ -189,10 +188,6 @@ async function loadMoreHomeCharacters() {
     state.homeCharactersLimit = Number(payload.limit || limit) || limit;
     state.homeCharactersTotal = Number(payload.total || state.homeCharacters.length) || state.homeCharacters.length;
     state.homeCharactersTotalPages = Number(payload.totalPages || state.homeCharactersTotalPages || 1) || 1;
-    return true;
-  } catch (error) {
-    state.homeCharactersLoadMessage = error.message || "Load failed.";
-    throw error;
   } finally {
     state.homeCharactersLoadingMore = false;
   }
@@ -1304,59 +1299,33 @@ function renderGalleryCharacters(root = els.templateGrid) {
 
 function resetCharacterPagination() {
   state.visibleCharacterCount = CHARACTER_PAGE_SIZE;
-  state.characterLoadAutoArmed = true;
-  clearCharacterLoadTriggers();
-}
-
-function clearCharacterLoadTriggers() {
   if (state.characterLoadObserver) {
     state.characterLoadObserver.disconnect();
     state.characterLoadObserver = null;
   }
-  if (state.characterLoadScrollHandler) {
-    window.removeEventListener("scroll", state.characterLoadScrollHandler);
-    window.removeEventListener("resize", state.characterLoadScrollHandler);
-    state.characterLoadScrollHandler = null;
-  }
-  if (state.characterLoadScrollTimer) {
-    window.clearTimeout(state.characterLoadScrollTimer);
-    state.characterLoadScrollTimer = 0;
-  }
-}
-
-function characterLoadTargetNearViewport(root = els.templateGrid) {
-  const marker = root?.querySelector?.("[data-character-load-more]") || root;
-  if (!marker?.getBoundingClientRect) return false;
-  const rect = marker.getBoundingClientRect();
-  return rect.top < window.innerHeight + 420 && rect.bottom > -120;
 }
 
 function renderCharacterLoadMore(visibleCount = 0, totalCount = 0, source = "system") {
   if (!totalCount || visibleCount >= totalCount) return "";
   const loading = source === "system" && state.homeCharactersLoadingMore;
-  const message = source === "system" ? String(state.homeCharactersLoadMessage || "") : "";
   return `
     <div class="character-load-more" data-character-load-more>
       <span>${escapeHtml(String(visibleCount))} / ${escapeHtml(String(totalCount))} characters</span>
       <button class="ghost-button" data-character-load-more-button type="button" ${loading ? "disabled" : ""}><i data-lucide="${loading ? "loader-circle" : "chevrons-down"}"></i>${loading ? "Loading" : "Load more"}</button>
-      ${message ? `<small class="character-load-message">${escapeHtml(message)}</small>` : ""}
       <i class="character-load-sentinel" data-character-load-sentinel aria-hidden="true"></i>
     </div>
   `;
 }
 
 function bindCharacterLoadMore(root = els.templateGrid, totalCount = 0, source = "system") {
-  clearCharacterLoadTriggers();
+  if (state.characterLoadObserver) {
+    state.characterLoadObserver.disconnect();
+    state.characterLoadObserver = null;
+  }
   const loadMore = async () => {
     if (source === "system") {
       if (state.homeCharactersLoadingMore || state.homeCharacters.length >= totalCount) return;
-      const promise = loadMoreHomeCharacters();
-      renderGalleryCharacters(root);
-      try {
-        await promise;
-      } catch (error) {
-        console.warn("load more characters failed", error.message || error);
-      }
+      await loadMoreHomeCharacters();
       renderGalleryCharacters(root);
       return;
     }
@@ -1364,34 +1333,14 @@ function bindCharacterLoadMore(root = els.templateGrid, totalCount = 0, source =
     state.visibleCharacterCount = Number(state.visibleCharacterCount || CHARACTER_PAGE_SIZE) + CHARACTER_PAGE_SIZE;
     renderGalleryCharacters(root);
   };
-  root.querySelector("[data-character-load-more-button]")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    loadMore();
-  });
+  root.querySelector("[data-character-load-more-button]")?.addEventListener("click", () => loadMore().catch((error) => console.warn("load more characters failed", error.message || error)));
   const sentinel = root.querySelector("[data-character-load-sentinel]");
   if (!sentinel) return;
-  const checkNearEnd = () => {
-    if (!document.body.contains(root) || !characterLoadTargetNearViewport(root)) return;
-    if (!state.characterLoadAutoArmed) return;
-    state.characterLoadAutoArmed = false;
-    loadMore();
-  };
-  if ("IntersectionObserver" in window) {
-    state.characterLoadObserver = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting) || !state.characterLoadAutoArmed) return;
-      state.characterLoadAutoArmed = false;
-      loadMore();
-    }, { rootMargin: "420px 0px", threshold: 0.01 });
-    state.characterLoadObserver.observe(sentinel);
-  }
-  state.characterLoadScrollHandler = () => {
-    state.characterLoadAutoArmed = true;
-    if (state.characterLoadScrollTimer) window.clearTimeout(state.characterLoadScrollTimer);
-    state.characterLoadScrollTimer = window.setTimeout(checkNearEnd, 80);
-  };
-  window.addEventListener("scroll", state.characterLoadScrollHandler, { passive: true });
-  window.addEventListener("resize", state.characterLoadScrollHandler, { passive: true });
-  window.requestAnimationFrame(checkNearEnd);
+  if (!("IntersectionObserver" in window)) return;
+  state.characterLoadObserver = new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) loadMore().catch((error) => console.warn("load more characters failed", error.message || error));
+  }, { rootMargin: "220px 0px", threshold: 0.01 });
+  state.characterLoadObserver.observe(sentinel);
 }
 
 function bindGalleryCharacterCards(root = els.templateGrid) {
@@ -4214,81 +4163,28 @@ async function createTopupOrder() {
 }
 
 function renderAccessGuides() {
-  const guides = ensureActiveAccessGuide();
+  ensureActiveAccessGuide();
   if (els.accessModeTabs) {
-    els.accessModeTabs.querySelectorAll("[data-access-mode]").forEach((button) => {
-      button.classList.toggle("is-active", button.dataset.accessMode === activeAccessMode);
-    });
+    els.accessModeTabs.hidden = true;
+    els.accessModeTabs.innerHTML = "";
   }
-  els.accessTabs.innerHTML = guides.map((guide) => `
-    <button class="access-tab ${activeAccessGuide.id === guide.id ? "is-active" : ""}" data-access-guide="${escapeHtml(guide.id)}" type="button">
-      <strong>${escapeHtml(guideText(guide, "title"))}</strong>
-      <span>${escapeHtml(guideText(guide, "subtitle"))}</span>
-    </button>
-  `).join("");
-  els.accessGuideTitle.textContent = guideText(activeAccessGuide, "title");
-  els.accessGuideDesc.textContent = guideText(activeAccessGuide, "desc");
-  els.accessCopy.textContent = accessText(hydrateAccessCopy(activeAccessGuide.copy || PUBLIC_COPY.accessCopy, { revealToken: state.showAccessToken }));
-  const doc = accessDoc(activeAccessGuide);
+  if (els.accessTabs) {
+    els.accessTabs.hidden = true;
+    els.accessTabs.innerHTML = "";
+  }
+  if (els.accessGuideTitle) els.accessGuideTitle.textContent = "";
+  if (els.accessGuideDesc) els.accessGuideDesc.textContent = "";
+  if (els.accessCopy) {
+    const copyCard = els.accessCopy.closest(".copy-card");
+    if (copyCard) copyCard.hidden = true;
+    els.accessCopy.textContent = "";
+  }
+  if (els.copyAccessBtn) els.copyAccessBtn.hidden = true;
   if (els.accessDocs) {
-    els.accessDocs.innerHTML = `
-      <article class="access-doc-card">
-        <div class="access-doc-head">
-          <div>
-            <span class="copy-kicker"><i data-lucide="book-open-text"></i>${escapeHtml(doc.title)}</span>
-            <p>${escapeHtml(doc.summary)}</p>
-          </div>
-          ${activeAccessMode === "params" ? `
-            <div class="access-doc-actions">
-              <button class="ghost-button" type="button" data-access-copy-markdown><i data-lucide="copy"></i>Copy Markdown</button>
-              <button class="ghost-button" type="button" data-access-download-markdown><i data-lucide="download"></i>Download .md</button>
-              <a class="ghost-button" href="${escapeHtml(PARAM_DOC_MARKDOWN_URL)}" target="_blank" rel="noreferrer"><i data-lucide="file-text"></i>Full docs</a>
-            </div>
-          ` : ""}
-        </div>
-        <div class="access-doc-grid">
-          <section>
-            <h4>Request</h4>
-            ${accessFieldTable(doc.request)}
-          </section>
-          <section>
-            <h4>Response</h4>
-            ${accessFieldTable(doc.response)}
-          </section>
-        </div>
-        ${accessQuickList([
-          doc === ACCESS_DOCS.assets ? "Upload once, then pass asset.id into the matching image/video/audio field." : "",
-          doc === ACCESS_DOCS.advanced ? "Use /api/advanced/generate for external Create/Advanced jobs; poll /api/generation-records/<taskId>." : "",
-          doc === ACCESS_DOCS.seedanceParams ? "Call /api/advanced/generate with provider=seedance and model=dreamina-seedance-2-0-260128 or dreamina-seedance-2-0-fast-260128." : "",
-          doc === ACCESS_DOCS.wan27VideoParams ? "Fields inside params.parameters merge into DashScope parameters; fields inside params.input merge into DashScope input." : "",
-          doc === ACCESS_DOCS.wan27ImageParams ? "Image results are saved to history first; call Add asset from history to place a result in assets. Admin records include the upstream payload." : "",
-          doc === ACCESS_DOCS.records ? "Use refresh=1 on list views when you want pending tasks to refresh." : "",
-        ].filter(Boolean))}
-        <details class="access-doc-example" open>
-          <summary>Example</summary>
-          <pre>${escapeHtml(accessText(doc.example))}</pre>
-        </details>
-      </article>
-    `;
+    els.accessDocs.hidden = true;
+    els.accessDocs.innerHTML = "";
   }
   renderTokenDisplays();
-  els.accessModeTabs?.querySelectorAll("[data-access-mode]").forEach((button) => {
-    button.addEventListener("click", () => {
-      activeAccessMode = button.dataset.accessMode === "params" ? "params" : "integration";
-      activeAccessGuide = accessGuidesForMode(activeAccessMode)[0] || ACCESS_GUIDES[0];
-      renderAccessGuides();
-      refreshIcons();
-    });
-  });
-  els.accessTabs.querySelectorAll("[data-access-guide]").forEach((button) => {
-    button.addEventListener("click", () => {
-      activeAccessGuide = guides.find((guide) => guide.id === button.dataset.accessGuide) || guides[0];
-      renderAccessGuides();
-      refreshIcons();
-    });
-  });
-  els.accessDocs?.querySelector("[data-access-copy-markdown]")?.addEventListener("click", (event) => copyAccessMarkdown(event.currentTarget, doc));
-  els.accessDocs?.querySelector("[data-access-download-markdown]")?.addEventListener("click", () => downloadAccessMarkdown(doc));
 }
 
 function userHasAdvancedAccess() {

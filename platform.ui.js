@@ -630,7 +630,7 @@ function tokenAccessPackageMarkdown() {
     `- Wan2.7 image edit: ${apiUrl("/api/wan27/image-edit")}`,
     `- Records list/detail: ${recordsUrl} and ${apiUrl("/api/generation-records/<taskId>")}`,
     "",
-    "Preferred path: use `/api/advanced/generate` for Create/Advanced integrations. It keeps provider routing, pricing, records, and refunds inside this service.",
+    "Preferred path: use `/api/advanced/generate` for video generation and `/api/generation-records/<taskId>` for progress and results.",
     "",
     "## Quick Start",
     "",
@@ -1670,9 +1670,8 @@ function renderAdvancedPresetCharacterPager() {
 async function loadMoreAdvancedPresetCharacters() {
   if (state.advancedPresetDialogSlot !== "character" || state.advancedPresetCharacterSource === "custom") return;
   if (!hasMoreSystemCharacterPresets()) return;
-  const promise = loadMoreHomeCharacters();
   renderAdvancedPresetDialog();
-  await promise;
+  await loadMoreHomeCharacters();
   if (state.advancedPresetDialogSlot === "character" && els.advancedPresetDialog?.open) renderAdvancedPresetDialog();
   renderAdvancedPresetBuilder();
 }
