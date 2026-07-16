@@ -580,7 +580,7 @@ const DEFAULT_CONFIG = {
     heroSubtitle: "Choose a template, upload an image or enter text, and create a new video.",
     notice: "Generated results are saved in history. Video links may expire after 24 hours, so download and save them in time.",
     accessCopy:
-      "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"model\":\"dreamina-seedance-2-0-260128\",\"prompt\":\"Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_video\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"referenceVideoUrls\":[\"https://example.com/video1.mp4\"],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>\n\nmodel dreamina-seedance-2-0-260128 routes to ep-20260429142513-zg667; model dreamina-seedance-2-0-fast-260128 routes to ep-20260429142538-fkm9d.",
+      "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"model\":\"dreamina-seedance-2-0-260128\",\"prompt\":\"Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_video\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"referenceVideoUrls\":[\"https://example.com/video1.mp4\"],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"watermark\":false}\n\nGET /api/generation-records/<taskId>",
     advancedPricing: DEFAULT_ADVANCED_PRICING,
     analytics: {
       googleMeasurementId: "",
@@ -16052,32 +16052,19 @@ function docsAdvancedExampleBody(item = {}) {
     ratio: params.ratio || params.aspect_ratio || "9:16",
     resolution: params.resolution || "720p",
     duration: durationSecondsFromParams(params) || 5,
-    seed: provider === "wan27" ? optionalWan27Seed(params.seed) ?? undefined : undefined,
-    generateAudio: params.generateAudio !== false,
-    params: provider === "wan27"
-      ? {
-        model: params.model || ALIYUN_WAN27_MODEL,
-        input: {},
-        parameters: {
-          prompt_extend: false,
-          watermark: false,
-          ...(params.seed !== undefined && params.seed !== null && params.seed !== "" ? { seed: params.seed } : {}),
-        },
-      }
-      : {
-        model: params.model || MODEL_QUALITY,
-        generate_audio: params.generateAudio !== false,
-        web_search: false,
-        watermark: false,
-        seed: params.seed || 123456,
-      },
   };
-  if (provider === "wan27") body.dataUrl = "data:image/png;base64,...";
+  if (provider === "wan27") {
+    const seed = optionalWan27Seed(params.seed);
+    body.mediaMode = params.mediaMode || "first_frame";
+    body.dataUrl = "data:image/png;base64,...";
+    if (seed !== undefined) body.seed = seed;
+  }
   if (provider === "seedance") {
     body.model = normalizeSeedanceTier(params.seedanceTier) === "fast"
       ? "dreamina-seedance-2-0-fast-260128"
       : "dreamina-seedance-2-0-260128";
     body.seedanceMode = normalizeSeedanceMode(params.seedanceMode || params.mediaMode || item.mediaMode || "reference_video");
+    body.generateAudio = params.generateAudio !== false;
     body.referenceImages = [
       { url: "https://example.com/image1.png", fileName: "image1.png" },
       { url: "https://example.com/image2.png", fileName: "image2.png" },
@@ -16110,7 +16097,7 @@ function advancedGenerateConstraintsDoc() {
         standard: "dreamina-seedance-2-0-260128",
         fast: "dreamina-seedance-2-0-fast-260128",
       },
-      seedanceMode: ["reference_video", "first_last_frame"],
+      seedanceMode: ["text_to_video", "first_frame", "first_last_frame", "reference_images", "reference_video"],
       durationSeconds: { integer: true, min: advancedDurationBounds("seedance").min, max: advancedDurationBounds("seedance").max },
       resolution: {
         standard: ["480p", "720p", "1080p", "4k"],
@@ -16136,16 +16123,19 @@ function advancedGenerateConstraintsDoc() {
         audios: ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT,
       },
       modeRules: {
-        reference_video: "Multimodal references. Send any supported mix of referenceImages, referenceVideoUrls/referenceVideoAssetIds, and referenceAudioUrls/referenceAudioAssetIds; refer to them in the prompt as Image 1, Video 1, Audio 1, etc.",
-        first_last_frame: "Requires first-frame and last-frame image inputs. Additional image/video/audio references may still be sent and should be described in the prompt by their labels.",
+        text_to_video: "Prompt-only video generation. Do not send image, video, or audio reference inputs.",
+        first_frame: "Requires exactly one first-frame image input. Do not mix with referenceImages, referenceVideos, referenceAudios, or raw reference content.",
+        first_last_frame: "Requires first-frame and last-frame image inputs. Do not mix with referenceImages, referenceVideos, referenceAudios, or raw reference content.",
+        reference_images: "Multimodal image references. Send up to 9 image inputs total; refer to them in the prompt as Image 1, Image 2, etc.",
+        reference_video: "Multimodal video references. Send supported image, video, and optional audio references; refer to them in the prompt as Image 1, Video 1, Audio 1, etc.",
       },
-      mediaUrl: "Use public http(s) URLs, data URLs accepted by this API, asset ids from /api/user-assets, or provider asset:// URIs where explicitly documented.",
+      mediaUrl: "Use public http(s) URLs, data URLs, or uploaded asset ids from /api/user-assets.",
     },
     wan27Video: {
       provider: "wan27",
       durationSeconds: { integer: true, min: advancedDurationBounds("wan27").min, max: advancedDurationBounds("wan27").max },
       resolution: ["720p", "1080p"],
-      mediaMode: ["multimodal", "first_last_frame"],
+      mediaMode: ["first_frame", "first_last_frame", "first_frame_audio", "first_last_frame_audio", "first_clip", "first_clip_last_frame"],
       mediaCombinations: [
         "first_frame",
         "first_frame + last_frame",
@@ -16167,20 +16157,15 @@ function advancedGenerateConstraintsDoc() {
 
 function externalAdvancedApiDoc(origin) {
   const advancedGenerate = `${origin}/api/advanced/generate`;
-  const advancedEstimate = `${origin}/api/advanced/estimate`;
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   const userAssets = `${origin}/api/user-assets`;
   return {
     baseUrl: origin,
-    summary: `Use /api/advanced/generate when an external caller needs the same Create/Advanced generation path as the web UI. It supports Seedance and Wan2.7 and keeps token auth, account pricing, pre-deduction, user assets, generation records, and failed-task refunds inside this service. Seedance standard routes to ${SEEDANCE_QUALITY_ENDPOINT_ID}; fast routes to ${SEEDANCE_FAST_ENDPOINT_ID}.`,
+    summary: "Use /api/advanced/generate for Seedance and Wan2.7 video generation. Upload reusable media through /api/user-assets, then pass the returned asset ids in the generation request.",
     recommendedRoute: advancedGenerate,
-    routeChoice: {
-      advancedGenerate: `Required for Create/Advanced-style external integrations, including Wan2.7 and Seedance through the site's pricing and record flow. Seedance standard uses ${SEEDANCE_QUALITY_ENDPOINT_ID}; fast uses ${SEEDANCE_FAST_ENDPOINT_ID}.`,
-    },
     constraints: advancedGenerateConstraintsDoc(),
     endpoints: {
       advancedGenerate,
-      advancedEstimate,
       generationRecordDetail,
       userAssets,
     },
@@ -16223,9 +16208,6 @@ function externalAdvancedApiDoc(origin) {
       ok: true,
       taskId: "cgt-...",
       task: { taskId: "cgt-...", status: "preparing" },
-      record: "Generation record object for history/progress.",
-      pricing: "Applied pricing estimate.",
-      cost: "Deducted credits.",
     },
     polling: {
       method: "GET",
@@ -16379,7 +16361,6 @@ async function buildTemplateModelDoc(template, origin, user = null, options = {}
       { name: "templateId", type: "string", required: true, description: "Template id from this document." },
       { name: "dataUrl", type: "string", required: template.type === "image-to-video", description: "Base64 data URL. Required for image-to-video templates." },
       { name: "prompt", type: "string", required: false, description: "Optional prompt override. Leave empty to use the saved template prompt." },
-      { name: "params", type: "object", required: false, description: "Optional advanced overrides. Most clients should omit this." },
     ],
     exampleRequest: {
       method: "POST",
@@ -16390,7 +16371,6 @@ async function buildTemplateModelDoc(template, origin, user = null, options = {}
       },
       body: docsPlatformExampleBody(template),
     },
-    upstreamJson: upstreamPayload.params,
   };
 }
 
@@ -16432,7 +16412,6 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     coverUrl: item.coverUrl,
     previewUrl: item.previewUrl,
     prompt: item.prompt || params.prompt || "",
-    params,
     requiresApproval: false,
     endpoint: {
       method: "POST",
@@ -16440,50 +16419,31 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
       auth: "Bearer <user-token>",
     },
     requestFields: [
-      { name: "caseId", type: "string", required: false, description: "Advanced case id. Omit only when sending all parameters manually." },
-      { name: "provider", type: "string", required: false, description: "`wan27` or `seedance`. Defaults to the saved case provider. Known Seedance model aliases also imply `seedance`, but explicit provider is recommended." },
-      { name: "model", type: "string", required: provider === "seedance", description: provider === "seedance" ? `Use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. These map to ${SEEDANCE_QUALITY_ENDPOINT_ID} and ${SEEDANCE_FAST_ENDPOINT_ID}.` : "Wan2.7 model id. Defaults to wan2.7-i2v-2026-04-25." },
-      { name: "prompt", type: "string", required: true, description: "Prompt submitted exactly as entered." },
-      { name: "seedanceMode", type: "string", required: false, description: "Seedance only. Use reference_video for multimodal references or first_last_frame when you want explicit first and last frame controls. Legacy aliases are accepted but new callers should use these two values." },
-      { name: "dataUrl", type: "string", required: provider === "wan27", description: "Uploaded base64 image. Required for Wan2.7 first-frame generation; accepted as a Seedance first frame only when seedanceMode is first_last_frame." },
-      { name: "imageUrl / firstFrameUrl", type: "string", required: false, description: "Seedance first-frame public URL. The server downloads it, uploads it to Ark assets, and sends upstream image_url." },
-      { name: "imageAssetId / firstFrameAssetId", type: "string", required: false, description: "Seedance first-frame asset id returned by /api/user-assets." },
-      { name: "endImageUrl / lastFrameUrl", type: "string", required: false, description: "Seedance last-frame public URL for first_last_frame. The server prepares it as upstream end_image_url." },
-      { name: "endImageAssetId / lastFrameAssetId", type: "string", required: false, description: "Seedance last-frame asset id for first_last_frame." },
-      { name: "referenceImages", type: "array", required: false, description: "Seedance multimodal references. One or more images in the same order shown to the user. Each item can use url/imageUrl + fileName, dataUrl + fileName, or assetId." },
+      { name: "caseId", type: "string", required: false, description: "Saved case id. Omit when sending manual provider parameters." },
+      { name: "provider", type: "string", required: false, description: "`seedance` or `wan27`." },
+      { name: "model", type: "string", required: provider === "seedance", description: provider === "seedance" ? "Seedance standard: dreamina-seedance-2-0-260128; fast: dreamina-seedance-2-0-fast-260128." : "Wan2.7 video model id." },
+      { name: "prompt", type: "string", required: true, description: "Generation prompt." },
+      { name: "seedanceMode", type: "string", required: false, description: "Seedance only: text_to_video, first_frame, first_last_frame, reference_images, reference_video." },
+      { name: "dataUrl", type: "string", required: provider === "wan27", description: "Base64 image data URL. Used as a first frame when applicable." },
+      { name: "imageUrl / firstFrameUrl", type: "string", required: false, description: "Seedance first-frame image URL." },
+      { name: "imageAssetId / firstFrameAssetId", type: "string", required: false, description: "Uploaded first-frame image asset id." },
+      { name: "endImageUrl / lastFrameUrl", type: "string", required: false, description: "Seedance last-frame image URL for first_last_frame." },
+      { name: "endImageAssetId / lastFrameAssetId", type: "string", required: false, description: "Uploaded last-frame image asset id for first_last_frame." },
+      { name: "referenceImages", type: "array", required: false, description: "Seedance reference images. Each item can use url/imageUrl, dataUrl, or assetId. Order maps to Image 1, Image 2, etc." },
       { name: "Seedance image rules", type: "constraint", required: false, description: `Every Seedance image input must be JPG/PNG/WebP/BMP, each side ${SEEDANCE_IMAGE_DIMENSION_MIN}-${SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}, and at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs total.` },
-      { name: "referenceImages[].assetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI. Prefer assetId from /api/user-assets when possible.", default: "-" },
-      { name: "seedanceReferenceAssetUri / seedanceCharacterAssetUri", type: "string", required: false, description: "Advanced passthrough asset:// URI for callers that already have a provider asset URI.", default: "-" },
-      { name: "referenceImageAssetUris / seedanceReferenceAssetUris", type: "array", required: false, description: "Advanced passthrough asset:// URI array for callers that already have provider asset URIs.", default: "[]" },
-      { name: "referenceVideos / referenceVideoUrls", type: "array", required: false, description: `Seedance multimodal public video URLs. Up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} URLs. Each video must have pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}.` },
-      { name: "referenceVideoAssetId", type: "string", required: false, description: "Seedance multimodal existing uploaded video asset id." },
-      { name: "referenceVideoAssetIds", type: "array", required: false, description: `Seedance multimodal/edit/extend. Up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} existing uploaded video asset ids. Each video must have pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}.` },
-      { name: "inputVideoSeconds / referenceVideoDurationSeconds", type: "number", required: false, description: "Total input video duration for Seedance reference-video/edit/extend billing. The server pre-deducts output seconds plus this input-video branch before submitting upstream. If omitted for a video input, the output duration is used as a conservative fallback.", default: "0" },
-      { name: "referenceAudios / referenceAudioUrls", type: "array", required: false, description: "Seedance multimodal reference audio public URLs. Up to 3 URLs; text+audio without image/video is not supported upstream." },
-      { name: "referenceAudioAssetId / referenceAudioAssetIds", type: "string|array", required: false, description: "Seedance multimodal audio references from /api/user-assets. Up to 3 audio assets." },
-      { name: "prompt asset labels", type: "string", required: false, description: "When referencing materials in prompt text, use Image 1, Video 1, or Audio 1. Do not write raw asset ids in the prompt." },
-      { name: "userAssetId", type: "string", required: false, description: "Optional existing uploaded asset id. For new Seedance callers prefer firstFrameAssetId for first/last-frame mode or referenceImages[].assetId for multimodal references." },
-      { name: "extraReferenceDataUrls", type: "array", required: false, description: "Seedance compatibility field. Prefer referenceImages for new integrations; referenceImages now supports URL items." },
-      { name: "extraReferenceAssetIds", type: "array", required: false, description: "Seedance only. Optional existing uploaded asset ids for additional references." },
+      { name: "referenceVideos / referenceVideoUrls", type: "array", required: false, description: `Seedance reference video URLs. Up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos. Pixel count must be ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}.` },
+      { name: "referenceVideoAssetId / referenceVideoAssetIds", type: "string|array", required: false, description: `Uploaded Seedance reference video asset ids. Up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos.` },
+      { name: "inputVideoSeconds / referenceVideoDurationSeconds", type: "number", required: false, description: "Total reference-video duration in seconds when known.", default: "0" },
+      { name: "referenceAudios / referenceAudioUrls", type: "array", required: false, description: `Seedance reference audio URLs. Up to ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios; audio must be combined with image or video reference.` },
+      { name: "referenceAudioAssetId / referenceAudioAssetIds", type: "string|array", required: false, description: `Uploaded Seedance reference audio asset ids. Up to ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios.` },
+      { name: "prompt asset labels", type: "string", required: false, description: "Use Image 1, Video 1, Audio 1 in the prompt to refer to uploaded/reference media." },
+      { name: "userAssetId", type: "string", required: false, description: "Existing uploaded image asset id. Prefer firstFrameAssetId or referenceImages[].assetId for new integrations." },
       { name: "ratio", type: "string", required: false, description: "Video ratio, for example 9:16, 16:9, or 1:1." },
-      { name: "resolution", type: "string", required: false, description: "Seedance standard: 480p, 720p, 1080p, or 4k. Seedance fast: 480p or 720p. Wan2.7 video: 720p or 1080p. Invalid values are rejected before charging." },
-      { name: "duration", type: "number", required: false, description: `Duration in seconds. Seedance must be an integer ${advancedDurationBounds("seedance").min}-${advancedDurationBounds("seedance").max}; Wan2.7 video must be an integer ${advancedDurationBounds("wan27").min}-${advancedDurationBounds("wan27").max}. Invalid values are rejected before charging.` },
-      { name: "seed", type: "number", required: false, description: "Provider pass-through random seed. The API forwards it when supplied; upstream decides whether it takes effect." },
-      { name: "params", type: "object", required: false, description: "Provider pass-through object. Seedance forwards model/content/reference_* fields; Wan2.7 forwards model plus input/parameters." },
-      { name: "params.model", type: "string", required: false, description: "Compatibility alias for model. Prefer the top-level model field for new integrations." },
-      { name: "params.input", type: "object", required: false, description: "Wan2.7 only. Extra DashScope input fields; prompt/media are still set by this API." },
-      { name: "params.parameters", type: "object", required: false, description: "Wan2.7 and Wan2.7 image. Extra DashScope parameters merged into the upstream payload." },
-      { name: "Wan2.7 image edit", type: "endpoint", required: false, description: "Use /api/wan27/image-edit with imageAssetIds containing 0-9 images. The image order maps to Image 1, Image 2, etc. Results are saved to history/admin records first; add to assets from history when needed." },
-      { name: "params.generate_audio", type: "boolean", required: false, description: "Seedance only. Generate synchronized voice/effects/background music." },
-      { name: "params.image_url", type: "string", required: false, description: "Seedance raw upstream first-frame URL or asset:// URI. Friendly imageUrl/firstFrameUrl is preferred." },
-      { name: "params.end_image_url", type: "string", required: false, description: "Seedance raw upstream last-frame URL or asset:// URI. Friendly endImageUrl/lastFrameUrl is preferred." },
-      { name: "params.reference_images", type: "array", required: false, description: "Seedance only. Raw upstream reference image URLs or asset:// URIs for advanced callers." },
-      { name: "params.reference_videos", type: "array", required: false, description: "Seedance only. Raw upstream reference video URLs or asset:// URIs for advanced callers." },
-      { name: "params.reference_audios", type: "array", required: false, description: "Seedance only. Raw upstream reference audio URLs or asset:// URIs for advanced callers." },
-      { name: "params.web_search / params.webSearch", type: "boolean", required: false, description: "Seedance pass-through. Enable upstream web-search enhancement where available; upstream decides whether it takes effect." },
-      { name: "params.watermark", type: "boolean", required: false, description: "Seedance pass-through watermark flag. Upstream decides whether it takes effect." },
-      { name: "params.seed", type: "number", required: false, description: "Seedance pass-through random seed. Upstream decides whether it takes effect." },
-      { name: "record.videoUrl / record.downloadUrl", type: "string", required: false, description: "Task query returns only the upstream provider video URL for API-token callers. For Seedance this may be a BytePlus/Volcengine temporary URL; for APIZ it may be an Aliyun URL. Our stored copies are internal site playback/backup data." },
+      { name: "resolution", type: "string", required: false, description: "Seedance standard: 480p, 720p, 1080p, 4k. Seedance fast: 480p, 720p. Wan2.7 video: 720p, 1080p." },
+      { name: "duration", type: "number", required: false, description: `Duration in seconds. Seedance: integer ${advancedDurationBounds("seedance").min}-${advancedDurationBounds("seedance").max}; Wan2.7 video: integer ${advancedDurationBounds("wan27").min}-${advancedDurationBounds("wan27").max}.` },
+      { name: "generateAudio", type: "boolean", required: false, description: "Seedance audio generation switch." },
+      { name: "Wan2.7 image edit", type: "endpoint", required: false, description: "Use /api/wan27/image-edit with prompt and imageAssetIds. imageAssetIds accepts 0-9 images. Text-to-image supports 1K, 2K, 4K; reference-image generation supports 1K or 2K." },
+      { name: "record.videoUrl / record.downloadUrl", type: "string", required: false, description: "Task query result video URL." },
     ],
     exampleRequest: {
       method: "POST",
@@ -16567,7 +16527,6 @@ function templateDocMarkdown(item) {
   if (item.coverUrl) lines.push(`- cover: ${item.coverUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
-  lines.push("", "**Server-side upstream JSON**", "", markdownCodeBlock("json", item.upstreamJson));
   return lines.join("\n");
 }
 
@@ -16584,13 +16543,10 @@ function advancedDocMarkdown(item) {
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
-  lines.push("", "External callers that want the same Create/Advanced behavior as the web UI should call `/api/advanced/generate` with this `caseId` or with manual provider parameters. Poll `/api/generation-records/<taskId>` for progress and final result.");
-  lines.push("", "Seedance inputs: upload reusable image, video, or audio files through `/api/user-assets`, then pass returned asset ids such as `firstFrameAssetId`, `referenceImages[].assetId`, `referenceVideoAssetIds`, or `referenceAudioAssetIds`. In prompts, refer to inputs as Image 1, Video 1, and Audio 1; do not put asset ids in the prompt text.");
-  lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 image assets. The order maps to Image 1, Image 2, and so on in the prompt; with no images it works as text-to-image through the same endpoint. Text-to-image supports `1K`, `2K`, and `4K`; requests with reference images support `1K` or `2K`. Results are saved to generation history first. Use the history Add asset action when the result should enter the asset library.");
-  lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `seedanceMode` plus first-frame, last-frame, reference image/video/audio fields on `/api/advanced/generate`.");
-  lines.push("", `Provider passthrough: Seedance accepts friendly fields on the Advanced body and also accepts provider-specific aliases in \`params\`. Fields such as \`model\`, \`image_url\`, \`end_image_url\`, \`generate_audio\`/\`generateAudio\`, \`reference_images\`/\`referenceImages\`, \`reference_videos\`/\`referenceVideos\`, \`reference_audios\`/\`referenceAudios\`, \`web_search\`/\`webSearch\`, \`watermark\`, \`seed\`, \`fps\`, \`camera_fixed\`, \`draft\`, and \`service_tier\` are forwarded or normalized into the upstream request. For Seedance, send \`model: "dreamina-seedance-2-0-260128"\` for standard or \`model: "dreamina-seedance-2-0-fast-260128"\` for fast. Standard maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`. Wan2.7 forwards \`params.input\` into DashScope \`input\` and \`params.parameters\` into DashScope \`parameters\`. Upstream decides whether each provider-specific field takes effect.`);
-  lines.push("", `Billing: Advanced calls are pre-deducted before upstream submission. Failed submissions and failed tasks are refunded. Seedance duration must be an integer ${advancedDurationBounds("seedance").min}-${advancedDurationBounds("seedance").max}; fast 1080p/4k is rejected before charging.`);
-  lines.push("", "Task query: calls made through `/api/advanced/generate` should poll `/api/generation-records/<taskId>`.");
+  lines.push("", "Call `/api/advanced/generate` with this `caseId` or with manual provider parameters. Poll `/api/generation-records/<taskId>` for progress and result.");
+  lines.push("", "Seedance inputs: pass image/video/audio URLs directly, or upload media through `/api/user-assets` and pass returned asset ids. In prompts, refer to media as Image 1, Video 1, and Audio 1.");
+  lines.push("", "Wan2.7 video inputs: choose `mediaMode` from first_frame, first_last_frame, first_frame_audio, first_last_frame_audio, first_clip, first_clip_last_frame.");
+  lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `prompt` and optional `imageAssetIds`. `imageAssetIds` accepts 0-9 images. Text-to-image supports `1K`, `2K`, `4K`; reference-image generation supports `1K` or `2K`.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -16601,9 +16557,9 @@ function advancedConstraintsMarkdown(doc = {}) {
   const wan27Video = constraints.wan27Video || {};
   const wan27Image = constraints.wan27Image || {};
   return [
-    "**Preflight Parameter Rules**",
+    "**Parameter Rules**",
     "",
-    "The service validates these rules before charging credits or submitting upstream. Validation errors return HTTP 400 with `ok: false`, `code`, `message`, and optional `details`.",
+    "These are the request fields and limits callers should follow.",
     "",
     "Seedance / Vipeak 2:",
     "",
@@ -16614,14 +16570,14 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((seedance.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, width and height each ${seedance.imageInput?.widthPx?.min ?? SEEDANCE_IMAGE_DIMENSION_MIN}-${seedance.imageInput?.widthPx?.max ?? SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${seedance.imageInput?.aspectRatio?.min ?? SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${seedance.imageInput?.aspectRatio?.max ?? SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`,
     `- Video inputs: MP4/WebM/MOV/M4V, max ${Math.round((seedance.videoInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, pixel count ${seedance.videoInput?.pixelCount?.min ?? SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${seedance.videoInput?.pixelCount?.max ?? SEEDANCE_VIDEO_PIXEL_COUNT_MAX}. For 9:16 video, 480x854 is the smallest safe size.`,
     `- Max references: ${seedance.referenceLimits?.images ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT} images total, ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos, ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios.`,
-    "- Public UI modes are `reference_video` for multimodal references and `first_last_frame` for explicit start/end frames. In first/last-frame mode, extra reference images, videos, and audio may still be sent.",
+    "- `first_frame` and `first_last_frame` cannot be mixed with `referenceImages`, `referenceVideos`, `referenceAudios`, or raw reference `content`. Use `reference_images` or `reference_video` for multimodal references.",
     "- Audio references must be combined with image or video references; audio-only generation is rejected.",
     "",
     "Wan2.7 / Vipeak 1 video:",
     "",
     `- \`provider\`: \`wan27\`; \`duration\`: integer ${wan27Video.durationSeconds?.min ?? advancedDurationBounds("wan27").min}-${wan27Video.durationSeconds?.max ?? advancedDurationBounds("wan27").max} seconds; \`resolution\`: ${(wan27Video.resolution || []).map((item) => `\`${item}\``).join(", ")}.`,
     `- \`mediaMode\`: ${(wan27Video.mediaMode || []).map((item) => `\`${item}\``).join(", ")}.`,
-    "- Public UI modes are `multimodal` and `first_last_frame`; legacy mode aliases are still normalized for compatibility.",
+    "- Valid media combinations are first frame, first+last frame, first frame+audio, first+last frame+audio, first clip, or first clip+last frame.",
     "",
     "Wan2.7 / Vipeak 1 image:",
     "",
@@ -16636,12 +16592,11 @@ function externalAdvancedApiMarkdown(doc = {}) {
   return [
     "## Advanced External API",
     "",
-    "Use this section when an external caller needs the same Create/Advanced generation path as the web UI.",
+    "Use this section to call video generation APIs and check parameter limits.",
     "",
     `Recommended route: \`${route(doc.recommendedRoute, "/api/advanced/generate")}\``,
     "",
     "- Supports Seedance video and Wan2.7 video.",
-    `- Keeps Bearer token auth, account pricing, pre-deduction, user assets, generation records, and failed-task refunds inside this service. Seedance standard routes to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast routes to \`${SEEDANCE_FAST_ENDPOINT_ID}\`.`,
     "",
     "**Seedance through Advanced**",
     "",
@@ -16665,7 +16620,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     "**Response and polling**",
     "",
-    "The generate response returns `taskId`, `task.status`, `record`, `pricing`, `cost`, and the updated `user`. Poll the generation record until it reaches a terminal status.",
+    "The generate response returns `taskId` and `task.status`. Poll the generation record until it reaches a terminal status and result.",
     "",
     markdownCodeBlock("http", [
       `GET ${route(endpoints.generationRecordDetail, "/api/generation-records/<taskId>")}`,
@@ -16700,20 +16655,18 @@ function seedanceAdvancedExampleMarkdown(docs) {
   return [
     "## Seedance Through Advanced",
     "",
-    `Use \`/api/advanced/generate\` for new Seedance integrations. Send \`model: "dreamina-seedance-2-0-260128"\` for standard or \`model: "dreamina-seedance-2-0-fast-260128"\` for fast. The service routes them to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\` and \`${SEEDANCE_FAST_ENDPOINT_ID}\`, and keeps authentication, pre-deduction, history, and refunds internally.`,
+    "Use `/api/advanced/generate` for Seedance generation. Send `model: \"dreamina-seedance-2-0-260128\"` for standard or `model: \"dreamina-seedance-2-0-fast-260128\"` for fast.",
     "",
-    "Routing values:",
+    "Request values:",
     "",
     "- `provider`: `seedance`",
     "- `model`: `dreamina-seedance-2-0-260128` or `dreamina-seedance-2-0-fast-260128`",
-    "- `seedanceTier`: `standard` or `fast` (optional; model aliases also select the route)",
-    `- Standard maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`.`,
     "",
     "Parameter ranges:",
     "",
     "- `resolution`: `480p`, `720p`, `1080p`, `4k`",
     `- \`duration\`: integer \`${advancedDurationBounds("seedance").min}\` to \`${advancedDurationBounds("seedance").max}\``,
-    "- `ratio`: UI-safe values `9:16`, `16:9`, `1:1`",
+    "- `ratio`: examples `9:16`, `16:9`, `1:1`",
     "- Fast tier does not support `1080p` or `4k`",
     "",
     markdownCodeBlock("http", [
@@ -16724,16 +16677,16 @@ function seedanceAdvancedExampleMarkdown(docs) {
       JSON.stringify(request, null, 2),
     ].join("\n")),
     "",
-    "Poll the local generation record for progress and final result.",
+    "Poll the task detail endpoint for progress and result.",
     "",
     markdownCodeBlock("http", [
       `GET ${detailEndpoint.replace(docs.baseUrl, "")}`,
       "Authorization: Bearer <user-token>",
     ].join("\n")),
     "",
-    "Supported media inputs: `imageUrl`/`firstFrameUrl`, `endImageUrl`/`lastFrameUrl`, `referenceImages`, `referenceVideoUrls`/`referenceVideoAssetIds`, and `referenceAudioUrls`/`referenceAudioAssetIds`. New callers should use `seedanceMode: \"reference_video\"` for multimodal references or `seedanceMode: \"first_last_frame\"` for explicit first/last frames. First/last-frame mode can still include extra reference images, videos, or audio. Include `referenceVideoDurationSeconds` when known; otherwise the server probes the URL and falls back conservatively for pre-deduction.",
+    "Supported media inputs: `imageUrl`/`firstFrameUrl`, `endImageUrl`/`lastFrameUrl`, `referenceImages`, `referenceVideoUrls`/`referenceVideoAssetIds`, and `referenceAudioUrls`/`referenceAudioAssetIds`. `seedanceMode` must be one of `text_to_video`, `first_frame`, `first_last_frame`, `reference_images`, or `reference_video`. `first_frame` and `first_last_frame` cannot be mixed with reference images, videos, audio, or raw reference content.",
     "",
-    `Billing guardrails: \`duration\` must be an integer from ${advancedDurationBounds("seedance").min} to ${advancedDurationBounds("seedance").max} seconds. Seedance standard accepts \`480p\`, \`720p\`, \`1080p\`, and \`4k\`; the fast model accepts \`480p\` and \`720p\` only, so vip123 rejects unsupported combinations before charging. Seedance images must be JPG/PNG/WebP/BMP, each side ${SEEDANCE_IMAGE_DIMENSION_MIN}-${SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}. Seedance video references must be MP4/WebM/MOV/M4V and pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}; for 9:16 video, use at least 480x854.`,
+    `Limits: \`duration\` should be an integer from ${advancedDurationBounds("seedance").min} to ${advancedDurationBounds("seedance").max} seconds. Seedance standard accepts \`480p\`, \`720p\`, \`1080p\`, and \`4k\`; the fast model accepts \`480p\` and \`720p\` only. Seedance images should be JPG/PNG/WebP/BMP, each side ${SEEDANCE_IMAGE_DIMENSION_MIN}-${SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}. Seedance video references should be MP4/WebM/MOV/M4V and pixel count ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${SEEDANCE_VIDEO_PIXEL_COUNT_MAX}; for 9:16 video, use at least 480x854.`,
     "",
   ].join("\n");
 }
@@ -16760,7 +16713,7 @@ function buildModelDocsMarkdown(docs) {
     "",
     "## Wan2.7 Image Edit",
     "",
-    "Use `/api/wan27/image-edit` for Wan2.7 image text generation, single-image editing, or multi-image fusion/reference editing. Pass `imageAssetIds` with 0 to 9 uploaded image assets; the array order maps to Image 1, Image 2, and so on in the prompt. For text-to-image, pass `imageAssetIds: []`; text-to-image supports `1K`, `2K`, and `4K`, while reference-image edit/fusion supports `1K` or `2K`. Results are saved to History and admin generation records first; use History -> Add asset when the result should enter Assets.",
+    "Use `/api/wan27/image-edit` for Wan2.7 image text generation, single-image editing, or multi-image fusion/reference editing. Pass `imageAssetIds` with 0 to 9 uploaded image assets; the array order maps to Image 1, Image 2, and so on in the prompt. For text-to-image, pass `imageAssetIds: []`; text-to-image supports `1K`, `2K`, and `4K`, while reference-image edit/fusion supports `1K` or `2K`.",
     "",
     markdownCodeBlock("http", [
       "POST /api/wan27/image-edit",
@@ -16771,21 +16724,17 @@ function buildModelDocsMarkdown(docs) {
       '  "prompt": "Use Image 1 as the person and Image 2 as the outfit reference. Create a realistic full-body portrait.",',
       '  "imageAssetIds": ["asset-image-1", "asset-image-2"],',
       '  "ratio": "9:16",',
-      '  "resolution": "2K",',
-      '  "params": {',
-      '    "model": "wan2.7-image-pro",',
-      '    "parameters": {"n": 1, "watermark": false}',
-      "  }",
+      '  "resolution": "2K"',
       "}",
     ].join("\n")),
     "",
     "## Quick Start",
     "",
     "1. Read `/api/models` or this Markdown file to choose the integration style.",
-    "2. For Create/Advanced-style external generation, call `/api/advanced/generate`; it supports Seedance and Wan2.7 and returns `taskId`.",
+    "2. For video generation, call `/api/advanced/generate`; it supports Seedance and Wan2.7 and returns `taskId`.",
     "3. Poll `/api/generation-records/<taskId>` for `/api/advanced/generate` tasks.",
     "4. Optional: upload a reusable image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
-    `5. For Seedance video, call \`/api/advanced/generate\` with \`provider: "seedance"\` and \`model: "dreamina-seedance-2-0-260128"\` for standard or \`model: "dreamina-seedance-2-0-fast-260128"\` for fast. Standard maps to \`${SEEDANCE_QUALITY_ENDPOINT_ID}\`; fast maps to \`${SEEDANCE_FAST_ENDPOINT_ID}\`.`,
+    '5. For Seedance video, call `/api/advanced/generate` with `provider: "seedance"` and `model: "dreamina-seedance-2-0-260128"` for standard or `model: "dreamina-seedance-2-0-fast-260128"` for fast.',
     "6. For Wan2.7 image generation/editing, call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 images. Use an empty array for text-to-image. Text-to-image supports `4K`; reference-image edit/fusion is limited to `1K` or `2K`.",
     "",
     "## Seedance Advanced Example",
