@@ -16468,7 +16468,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     title: item.title,
     category: item.category,
     provider,
-    model: docModel || pricing.model,
+    model: publicModelText(docModel || pricing.model),
     description: item.description || "",
     pricing: options.tenantPublic ? tenantDocsPricingView(pricingView) : pricingView,
     coverUrl: item.coverUrl,
@@ -16564,7 +16564,7 @@ function templateDocMarkdown(item) {
     "",
     `- templateId: \`${item.id}\``,
     `- type: \`${item.type}\``,
-    `- model: \`${item.requestModel || item.model}\``,
+    `- model: \`${publicModelText(item.requestModel || item.model)}\``,
     `- duration: ${item.durationSeconds || "configured"}s`,
     `- estimated cost: ${item.pricing.available ? `${item.pricing.credits} credits` : "pricing unavailable"}`,
   ];
@@ -16581,7 +16581,7 @@ function advancedDocMarkdown(item) {
     "",
     `- caseId: \`${item.id}\``,
     `- provider: \`${item.provider || "seedance"}\``,
-    item.model ? `- model: \`${item.model}\`` : "",
+    item.model ? `- model: \`${publicModelText(item.model)}\`` : "",
     "- access: signed-in users",
     `- estimated cost: ${item.pricing.credits} credits`,
   ].filter(Boolean);
