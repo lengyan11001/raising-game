@@ -4163,81 +4163,28 @@ async function createTopupOrder() {
 }
 
 function renderAccessGuides() {
-  const guides = ensureActiveAccessGuide();
+  ensureActiveAccessGuide();
   if (els.accessModeTabs) {
-    els.accessModeTabs.querySelectorAll("[data-access-mode]").forEach((button) => {
-      button.classList.toggle("is-active", button.dataset.accessMode === activeAccessMode);
-    });
+    els.accessModeTabs.hidden = true;
+    els.accessModeTabs.innerHTML = "";
   }
-  els.accessTabs.innerHTML = guides.map((guide) => `
-    <button class="access-tab ${activeAccessGuide.id === guide.id ? "is-active" : ""}" data-access-guide="${escapeHtml(guide.id)}" type="button">
-      <strong>${escapeHtml(guideText(guide, "title"))}</strong>
-      <span>${escapeHtml(guideText(guide, "subtitle"))}</span>
-    </button>
-  `).join("");
-  els.accessGuideTitle.textContent = guideText(activeAccessGuide, "title");
-  els.accessGuideDesc.textContent = guideText(activeAccessGuide, "desc");
-  els.accessCopy.textContent = accessText(hydrateAccessCopy(activeAccessGuide.copy || PUBLIC_COPY.accessCopy, { revealToken: state.showAccessToken }));
-  const doc = accessDoc(activeAccessGuide);
+  if (els.accessTabs) {
+    els.accessTabs.hidden = true;
+    els.accessTabs.innerHTML = "";
+  }
+  if (els.accessGuideTitle) els.accessGuideTitle.textContent = "";
+  if (els.accessGuideDesc) els.accessGuideDesc.textContent = "";
+  if (els.accessCopy) {
+    const copyCard = els.accessCopy.closest(".copy-card");
+    if (copyCard) copyCard.hidden = true;
+    els.accessCopy.textContent = "";
+  }
+  if (els.copyAccessBtn) els.copyAccessBtn.hidden = true;
   if (els.accessDocs) {
-    els.accessDocs.innerHTML = `
-      <article class="access-doc-card">
-        <div class="access-doc-head">
-          <div>
-            <span class="copy-kicker"><i data-lucide="book-open-text"></i>${escapeHtml(doc.title)}</span>
-            <p>${escapeHtml(doc.summary)}</p>
-          </div>
-          ${activeAccessMode === "params" ? `
-            <div class="access-doc-actions">
-              <button class="ghost-button" type="button" data-access-copy-markdown><i data-lucide="copy"></i>Copy Markdown</button>
-              <button class="ghost-button" type="button" data-access-download-markdown><i data-lucide="download"></i>Download .md</button>
-              <a class="ghost-button" href="${escapeHtml(PARAM_DOC_MARKDOWN_URL)}" target="_blank" rel="noreferrer"><i data-lucide="file-text"></i>Full docs</a>
-            </div>
-          ` : ""}
-        </div>
-        <div class="access-doc-grid">
-          <section>
-            <h4>Request</h4>
-            ${accessFieldTable(doc.request)}
-          </section>
-          <section>
-            <h4>Response</h4>
-            ${accessFieldTable(doc.response)}
-          </section>
-        </div>
-        ${accessQuickList([
-          doc === ACCESS_DOCS.assets ? "Upload once, then pass asset.id into the matching image/video/audio field." : "",
-          doc === ACCESS_DOCS.advanced ? "Use /api/advanced/generate for external Create/Advanced jobs; poll /api/generation-records/<taskId>." : "",
-          doc === ACCESS_DOCS.seedanceParams ? "Call /api/advanced/generate with provider=seedance and model=dreamina-seedance-2-0-260128 or dreamina-seedance-2-0-fast-260128." : "",
-          doc === ACCESS_DOCS.wan27VideoParams ? "Fields inside params.parameters merge into DashScope parameters; fields inside params.input merge into DashScope input." : "",
-          doc === ACCESS_DOCS.wan27ImageParams ? "Image results are saved to history first; call Add asset from history to place a result in assets. Admin records include the upstream payload." : "",
-          doc === ACCESS_DOCS.records ? "Use refresh=1 on list views when you want pending tasks to refresh." : "",
-        ].filter(Boolean))}
-        <details class="access-doc-example" open>
-          <summary>Example</summary>
-          <pre>${escapeHtml(accessText(doc.example))}</pre>
-        </details>
-      </article>
-    `;
+    els.accessDocs.hidden = true;
+    els.accessDocs.innerHTML = "";
   }
   renderTokenDisplays();
-  els.accessModeTabs?.querySelectorAll("[data-access-mode]").forEach((button) => {
-    button.addEventListener("click", () => {
-      activeAccessMode = button.dataset.accessMode === "params" ? "params" : "integration";
-      activeAccessGuide = accessGuidesForMode(activeAccessMode)[0] || ACCESS_GUIDES[0];
-      renderAccessGuides();
-      refreshIcons();
-    });
-  });
-  els.accessTabs.querySelectorAll("[data-access-guide]").forEach((button) => {
-    button.addEventListener("click", () => {
-      activeAccessGuide = guides.find((guide) => guide.id === button.dataset.accessGuide) || guides[0];
-      renderAccessGuides();
-      refreshIcons();
-    });
-  });
-  els.accessDocs?.querySelector("[data-access-copy-markdown]")?.addEventListener("click", (event) => copyAccessMarkdown(event.currentTarget, doc));
-  els.accessDocs?.querySelector("[data-access-download-markdown]")?.addEventListener("click", () => downloadAccessMarkdown(doc));
 }
 
 function userHasAdvancedAccess() {

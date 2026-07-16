@@ -1861,7 +1861,7 @@ Content-Type: application/json
 {
   "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot, no subtitles, no watermark.",
+  "prompt": "Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot.",
   "seedanceMode": "reference_video",
   "referenceImages": [
     {"url": "https://example.com/image1.png", "fileName": "image1.png"}
@@ -1870,16 +1870,17 @@ Content-Type: application/json
   "ratio": "9:16",
   "resolution": "4k",
   "duration": 5,
-  "generateAudio": true,
-  "watermark": false
+  "generateAudio": true
 }
 
 GET ${apiUrl("/api/generation-records/<taskId>")}
 Authorization: Bearer <user-token>
 
-The response returns the local generation record and progress. vip123 handles auth, configured allow-listed upstream routing, balance pre-deduction, history, and refund internally. Public URLs, base64 data URLs, and uploaded asset ids are accepted through the fields below.
+Poll this record endpoint for progress and result URLs. Public URLs, base64 data URLs, and uploaded asset ids are accepted through the fields below.
 
-Tip: do not call upstream task routes directly. Use POST /api/advanced/generate with provider "seedance". model "dreamina-seedance-2-0-260128" routes to ep-20260429142513-zg667; model "dreamina-seedance-2-0-fast-260128" routes to ep-20260429142538-fkm9d. Standard supports 480p, 720p, 1080p, and 4k. Fast supports 480p and 720p only.`;
+Seedance modes: text_to_video, first_frame, first_last_frame, reference_images, reference_video. first_frame and first_last_frame cannot be mixed with referenceImages, referenceVideoUrls, referenceVideoAssetIds, referenceAudioUrls, or referenceAudioAssetIds.
+
+Limits: duration 5-15 seconds. Standard supports 480p, 720p, 1080p, and 4k. Fast supports 480p and 720p. Images: JPG/PNG/WebP/BMP, max 20MB each, width and height 300-6000px, aspect ratio 0.4-2.5. Video references: max 3, pixel count 409600-8847360. Audio references: max 3, MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM, max 30MB each, and must be used with at least one image or video reference.`;
 
 const LIVE_HTTP_ACCESS_COPY = `Production generation endpoints:
 
@@ -1891,13 +1892,12 @@ Content-Type: application/json
 {
   "provider": "wan27",
   "model": "wan2.7-i2v-2026-04-25",
-  "prompt": "Animate Image 1 into a cinematic 5 second shot, no subtitles, no watermark.",
+  "prompt": "Animate Image 1 into a cinematic 5 second shot.",
   "firstFrameUrl": "https://example.com/first-frame.png",
   "mediaMode": "multimodal",
   "ratio": "9:16",
   "resolution": "1080p",
-  "duration": 5,
-  "parameters": {"prompt_extend": false, "watermark": false}
+  "duration": 5
 }
 
 Wan2.7 video supports 720p and 1080p.
@@ -1913,8 +1913,7 @@ Content-Type: application/json
   "prompt": "Create a realistic cinematic portrait.",
   "imageAssetIds": [],
   "ratio": "9:16",
-  "resolution": "4K",
-  "parameters": {"n": 1, "watermark": false}
+  "resolution": "4K"
 }
 
 Wan2.7 image supports 1K, 2K, and 4K for text-to-image. 4K is text-to-image only; reference-image edit/fusion supports 1K and 2K.
@@ -1961,8 +1960,7 @@ Content-Type: application/json
   "ratio": "9:16",
   "resolution": "4k",
   "duration": 5,
-  "generateAudio": true,
-  "watermark": false
+  "generateAudio": true
 }
 
 You may also send a public image URL or base64 data URL directly:
@@ -1991,8 +1989,7 @@ const body = {
   ratio: "9:16",
   resolution: "720p",
   duration: 5,
-  generateAudio: true,
-  watermark: false
+  generateAudio: true
 };
 
 const created = await fetch("${apiUrl("/api/advanced/generate")}", {
@@ -2028,7 +2025,6 @@ payload = {
     "resolution": "720p",
     "duration": 5,
     "generateAudio": True,
-    "watermark": False,
 }
 
 created = requests.post(
@@ -2051,13 +2047,13 @@ print(task)
 const CLI_ACCESS_COPY = `curl -X POST "${apiUrl("/api/advanced/generate")}" \
   -H "Authorization: Bearer <user-token>" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot.","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true,"watermark":false}'
+  -d '{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot.","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true}'
 
 curl -X GET "${apiUrl("/api/generation-records/<taskId>")}" \
   -H "Authorization: Bearer <user-token>"
 
 # Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
-# vip123 records the task internally and returns progress/results from /api/generation-records/<taskId>.`;
+# Query progress/results from /api/generation-records/<taskId>.`;
 
 const AGENT_ACCESS_COPY = `Use this video API:
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
@@ -2075,7 +2071,7 @@ const MCP_ACCESS_COPY = `Advanced generation wrapper target:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Input:
-{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"string","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"ratio":"9:16","resolution":"480p|720p|1080p|4k","duration":5,"generateAudio":true,"watermark":false,"seed":123456}
+{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"string","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"ratio":"9:16","resolution":"480p|720p|1080p|4k","duration":5,"generateAudio":true}
 
 Reusable asset upload target:
 POST ${apiUrl("/api/user-assets")}
@@ -2093,11 +2089,11 @@ POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
-Model routing:
+Model:
 - provider: "seedance"
 - model: "dreamina-seedance-2-0-260128" for standard or "dreamina-seedance-2-0-fast-260128" for fast
-- seedanceTier: "standard" or "fast" (optional; fast does not support 1080p)
-- standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d
+- standard supports 480p, 720p, 1080p, and 4k
+- fast supports 480p and 720p
 
 Prompt reference rule: describe uploaded materials as Image 1, Video 1, Audio 1. Do not put raw asset ids in the prompt text.
 
@@ -2105,14 +2101,10 @@ First + last frame:
 {
   "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Move smoothly from the first frame to the last frame. Also use Image 1 and Video 1 as references if supplied.",
+  "prompt": "Move smoothly from the first frame to the last frame.",
   "seedanceMode": "first_last_frame",
   "imageUrl": "https://example.com/first-frame.png",
   "endImageUrl": "https://example.com/last-frame.png",
-  "referenceImages": [
-    {"url": "https://example.com/image1.png", "fileName": "image1.png"}
-  ],
-  "referenceVideoUrls": ["https://example.com/video1.mp4"],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5
@@ -2131,13 +2123,10 @@ Multimodal references:
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5,
-  "generateAudio": true,
-  "web_search": false,
-  "watermark": false,
-  "seed": 123456
+  "generateAudio": true
 }
 
-Edit or extend with video/audio references:
+Video and audio references:
 {
   "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
@@ -2153,7 +2142,14 @@ Edit or extend with video/audio references:
   "resolution": "720p",
   "duration": 8,
   "generateAudio": true
-}`;
+}
+
+Limits:
+- duration: integer 5-15 seconds
+- image references: max 9; JPG/PNG/WebP/BMP; max 20MB each; width and height 300-6000px; aspect ratio 0.4-2.5
+- video references: max 3; pixel count 409600-8847360
+- audio references: max 3; MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM; max 30MB each; audio must be combined with image or video reference
+- first_frame and first_last_frame cannot be mixed with referenceImages, referenceVideoUrls, referenceVideoAssetIds, referenceAudioUrls, or referenceAudioAssetIds`;
 
 const WAN27_VIDEO_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
@@ -2167,14 +2163,7 @@ Content-Type: application/json
   "mediaMode": "multimodal",
   "ratio": "9:16",
   "resolution": "1080p",
-  "duration": 5,
-  "params": {
-    "parameters": {
-      "prompt_extend": false,
-      "seed": 123456,
-      "watermark": false
-    }
-  }
+  "duration": 5
 }
 
 Wan2.7 video supports 720p and 1080p. Use Seedance standard for video 4k.`;
@@ -2190,8 +2179,7 @@ Content-Type: application/json
   "prompt": "Create one realistic adult character portrait...",
   "imageAssetIds": [],
   "ratio": "9:16",
-  "resolution": "4K",
-  "parameters": {"n": 1, "watermark": false}
+  "resolution": "4K"
 }
 
 Image edit / multi-image edit:
@@ -2203,11 +2191,7 @@ Content-Type: application/json
   "prompt": "Blend Image 1 and Image 2 into one realistic cinematic portrait.",
   "imageAssetIds": ["asset-image-1", "asset-image-2"],
   "ratio": "9:16",
-  "resolution": "2K",
-  "params": {
-    "model": "wan2.7-image-pro",
-    "parameters": {"n": 1, "watermark": false}
-  }
+  "resolution": "2K"
 }
 
 Wan2.7 image edit accepts 0-9 source images. The order of imageAssetIds maps to Image 1, Image 2, ... in the prompt. Use an empty imageAssetIds array for text-to-image through the edit endpoint. Text-to-image supports 1K, 2K, and 4K. Requests with reference images support 1K and 2K. The older single-asset endpoint /api/user-assets/<assetId>/modify remains supported for one image.`;
@@ -2226,7 +2210,7 @@ const ACCESS_DOCS = {
       ["videoUrl", "Alias of url for video upload."],
       ["audioUrl", "Alias of url for audio upload."],
       ["dataUrl", "Optional base64 data URL. Use this when uploading bytes directly."],
-      ["durationSeconds", "Optional duration for uploaded video/audio assets. Used for Seedance video-input pre-deduction."],
+      ["durationSeconds", "Optional known duration for uploaded video/audio assets."],
       ["fileName", "Optional original file name, for example image1.png."],
       ["name", "Optional display name in the user's asset library."],
     ],
@@ -2248,7 +2232,7 @@ Content-Type: application/json
   },
   advanced: {
     title: "Advanced Generation",
-    summary: "New integrations should use /api/advanced/generate. vip123 keeps token authentication, allow-listed upstream routing, balance pre-deduction, task history, and refund handling internally.",
+    summary: "Use /api/advanced/generate to submit video generation tasks, then poll /api/generation-records/<taskId> for progress and result URLs.",
     request: [
       ["Authorization", "Bearer <user-token>"],
       ["Content-Type", "application/json"],
@@ -2261,68 +2245,57 @@ Content-Type: application/json
       ["imageUrl / firstFrameUrl / firstFrameDataUrl", "First-frame input for seedance first_last_frame mode."],
       ["endImageUrl / lastFrameUrl / endImageDataUrl", "Last-frame input for seedance first_last_frame mode."],
       ["referenceImages", "Array for seedance multimodal references. Each item may use assetId, url/imageUrl + fileName, or dataUrl + fileName."],
-      ["referenceVideoUrls / referenceVideoAssetIds", "Video references for seedance multimodal generation. Include referenceVideoDurationSeconds when known for billing."],
-      ["referenceAudioUrls / referenceAudioAssetIds", "Optional audio references for multimodal seedance requests."],
+      ["referenceVideoUrls / referenceVideoAssetIds", "Video references for seedance multimodal generation. Max 3 videos; pixel count must be 409600-8847360."],
+      ["referenceAudioUrls / referenceAudioAssetIds", "Optional audio references for multimodal seedance requests. Max 3 audio files; supported formats: MP3, WAV, M4A, MP4 audio, AAC, OGG, WebM; max 30MB each. Audio-only requests are not supported."],
       ["ratio", "9:16, 16:9, or 1:1."],
       ["resolution", "Wan2.7 video: 720p or 1080p. Seedance standard: 480p, 720p, 1080p, or 4k. Seedance fast: 480p or 720p."],
-      ["duration", "Integer seconds from 4 to 15. Invalid values are rejected before billing."],
-      ["seedanceTier", "Optional for provider=seedance. standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d and does not support 1080p or 4k."],
-      ["generateAudio / generate_audio", "Forwarded to upstream when supported."],
-      ["web_search / webSearch", "Forwarded to upstream when supplied."],
-      ["watermark", "Forwarded to upstream when supplied."],
-      ["seed", "Forwarded to upstream when supplied; upstream decides whether it takes effect."],
+      ["duration", "Seedance: integer 5-15 seconds. Wan2.7: integer 2-15 seconds."],
+      ["generateAudio / generate_audio", "Boolean. Request synced audio such as speech, effects, or background music when supported by the selected model."],
     ],
     response: [
       ["ok", "true when the task is accepted."],
-      ["taskId", "Local generation task id. Poll this id with /api/generation-records/<taskId>."],
+      ["taskId", "Generation task id. Poll this id with /api/generation-records/<taskId>."],
       ["task.status", "Initial task status."],
-      ["record", "Public generation record, including progress, result URL, billing, and prompt."],
-      ["pricing / cost", "Applied pricing and deducted credits."],
-      ["user", "Updated user snapshot, including current credits."],
+      ["record.status", "Current generation status when included."],
+      ["record.videoUrl / record.downloadUrl", "Result URL when ready. Returned provider URLs may expire after 24 hours."],
     ],
     example: LIVE_HTTP_ACCESS_COPY,
   },
   seedanceParams: {
     title: "Seedance Video Parameters",
-    summary: "Use /api/advanced/generate with provider=seedance. Standard routes to ep-20260429142513-zg667, fast routes to ep-20260429142538-fkm9d, and billing/history/refunds stay in this service.",
+    summary: "Use /api/advanced/generate with provider=seedance. The table below lists caller-facing fields and limits.",
     request: [
       { name: "/api/user-assets", type: "endpoint", required: "No", description: "Optional reusable upload endpoint. Send url/imageUrl/videoUrl/audioUrl or dataUrl; reuse the returned asset.id.", default: "-" },
-      { name: "provider", type: "string", required: "Yes", description: "Use seedance for this endpoint route.", default: "seedance" },
-      { name: "prompt", type: "string", required: "Yes", description: "Video prompt. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
-      { name: "seedanceMode", type: "string", required: "No", description: "reference_video for multimodal references or first_last_frame for explicit first/last frames. Legacy aliases are accepted for compatibility.", default: "reference_video" },
-      { name: "seedanceTier", type: "string", required: "No", description: "standard routes to ep-20260429142513-zg667; fast routes to ep-20260429142538-fkm9d. Fast tier does not support 1080p or 4k.", default: "standard" },
-      { name: "model", type: "string", required: "Yes", description: "Use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. These map to ep-20260429142513-zg667 and ep-20260429142538-fkm9d.", default: "dreamina-seedance-2-0-260128" },
+      { name: "provider", type: "string", required: "Yes", description: "Use seedance.", default: "seedance" },
+      { name: "model", type: "string", required: "Yes", description: "Use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. Fast supports 480p and 720p only.", default: "dreamina-seedance-2-0-260128" },
+      { name: "prompt", type: "string", required: "Yes", description: "Video prompt. Use Image 1, Video 1, Audio 1 labels when referring to uploaded materials. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
+      { name: "seedanceMode", type: "string", required: "No", description: "Supported values: text_to_video, first_frame, first_last_frame, reference_images, reference_video. first_frame and first_last_frame cannot be mixed with referenceImages, referenceVideoUrls, referenceVideoAssetIds, referenceAudioUrls, or referenceAudioAssetIds.", default: "reference_video" },
       { name: "imageUrl / firstFrameUrl / firstFrameDataUrl", type: "string", required: "For first frame modes", description: "Public URL or base64 data URL for the first frame.", default: "-" },
       { name: "firstFrameAssetId / imageAssetId", type: "string", required: "No", description: "Existing uploaded image asset id for the first frame.", default: "-" },
       { name: "endImageUrl / lastFrameUrl / endImageDataUrl", type: "string", required: "For first_last_frame", description: "Public URL or base64 data URL for the last frame.", default: "-" },
       { name: "endImageAssetId / lastFrameAssetId", type: "string", required: "No", description: "Existing uploaded image asset id for the last frame.", default: "-" },
-      { name: "referenceImages", type: "array", required: "For reference_video", description: "Image references. Each item may use assetId, url/imageUrl + fileName, or dataUrl + fileName.", default: "[]" },
-      { name: "referenceVideoUrls", type: "array", required: "For reference_video without asset ids", description: "Public video URLs. Include referenceVideoDurationSeconds when known.", default: "[]" },
-      { name: "referenceVideoAssetIds", type: "array", required: "No", description: "Existing uploaded video asset ids.", default: "[]" },
-      { name: "referenceVideoDurationSeconds / inputVideoSeconds", type: "number", required: "No", description: "Total input video duration used for pre-deduction. If omitted, the server probes when possible, then falls back conservatively.", default: "0" },
-      { name: "referenceAudioUrls / referenceAudioAssetIds", type: "array", required: "No", description: "Optional audio references. Text+audio without image/video is not supported upstream.", default: "[]" },
-      { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. UI-safe values: 9:16, 16:9, 1:1.", default: "9:16" },
-      { name: "resolution", type: "string", required: "No", description: "Video resolution. Supported values are 480p, 720p, 1080p, and 4k. Fast tier 1080p/4k is rejected before billing.", default: "720p" },
-      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs are limited to integer 4-15 seconds here.", default: "5" },
+      { name: "referenceImages", type: "array", required: "For reference_video or reference_images", description: "Image references. Each item may use assetId, url/imageUrl + fileName, or dataUrl + fileName. Max 9 images. JPG/PNG/WebP/BMP, max 20MB each, width and height 300-6000px, aspect ratio 0.4-2.5.", default: "[]" },
+      { name: "referenceVideoUrls", type: "array", required: "For reference_video without asset ids", description: "Public video URLs. Max 3 videos. Pixel count must be 409600-8847360. Include referenceVideoDurationSeconds when known.", default: "[]" },
+      { name: "referenceVideoAssetIds", type: "array", required: "No", description: "Existing uploaded video asset ids. Max 3 videos. Pixel count must be 409600-8847360.", default: "[]" },
+      { name: "referenceVideoDurationSeconds / inputVideoSeconds", type: "number", required: "No", description: "Known total reference video duration in seconds.", default: "0" },
+      { name: "referenceAudioUrls / referenceAudioAssetIds", type: "array", required: "No", description: "Optional audio references. Max 3 audio files. Supported formats: MP3, WAV, M4A, MP4 audio, AAC, OGG, WebM. Max 30MB each. Audio-only generation is not supported.", default: "[]" },
+      { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. UI-safe values: 9:16, 16:9, 1:1. Overall aspect ratio must stay between 0.4 and 2.5.", default: "9:16" },
+      { name: "resolution", type: "string", required: "No", description: "Standard model supports 480p, 720p, 1080p, and 4k. Fast model supports 480p and 720p.", default: "720p" },
+      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs support integer 5-15 seconds.", default: "5" },
       { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
       { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
-      { name: "web_search / webSearch", type: "boolean", required: "No", description: "Pass-through web search enhancement flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
-      { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag. The API forwards it; upstream decides whether it takes effect.", default: "false" },
-      { name: "seed", type: "integer", required: "No", description: "Pass-through random seed. The API forwards it; upstream decides whether it takes effect.", default: "-" },
-      { name: "draft / service_tier / fps / camera_fixed", type: "mixed", required: "No", description: "Provider-specific pass-through fields. vip123 forwards or normalizes them; upstream decides whether each one takes effect.", default: "-" },
     ],
     response: [
       { name: "ok", type: "boolean", required: "Yes", description: "true when the request is accepted.", default: "-" },
-      { name: "taskId", type: "string", required: "Yes", description: "Local generation task id for /api/generation-records/<taskId>.", default: "-" },
-      { name: "record.status", type: "string", required: "Yes", description: "Current local task status.", default: "-" },
+      { name: "taskId", type: "string", required: "Yes", description: "Generation task id for /api/generation-records/<taskId>.", default: "-" },
+      { name: "record.status", type: "string", required: "Yes", description: "Current task status.", default: "-" },
       { name: "record.videoUrl / record.downloadUrl", type: "string", required: "No", description: "Result URL when ready. Returned provider URLs may expire after 24 hours.", default: "-" },
-      { name: "pricing / cost", type: "object", required: "No", description: "Applied pricing and deducted credits.", default: "-" },
     ],
     example: SEEDANCE_PARAM_ACCESS_COPY,
   },
   wan27VideoParams: {
     title: "Wan2.7 Video Parameters",
-    summary: "Use /api/advanced/generate with provider=wan27. Media slots are handled by our API; extra DashScope input/parameters are forwarded.",
+    summary: "Use /api/advanced/generate with provider=wan27.",
     request: [
       { name: "model", type: "string", required: "No", description: "Wan2.7 video model id. Allowed value: wan2.7-i2v-2026-04-25.", default: "wan2.7-i2v-2026-04-25" },
       { name: "prompt", type: "string", required: "Yes", description: "Video prompt.", default: "-" },
@@ -2332,20 +2305,13 @@ Content-Type: application/json
       { name: "lastFrameUrl", type: "string", required: "No", description: "Public URL for the last frame when mediaMode uses a last frame.", default: "-" },
       { name: "firstClipUrl", type: "string", required: "No", description: "Public video URL when mediaMode starts from a clip.", default: "-" },
       { name: "drivingAudioUrl", type: "string", required: "No", description: "Public audio URL when mediaMode uses driving audio.", default: "-" },
-      { name: "resolution", type: "string", required: "No", description: "Allowed values: 720p, 1080p. We forward as 720P/1080P to DashScope.", default: "720p" },
+      { name: "resolution", type: "string", required: "No", description: "Allowed values: 720p, 1080p.", default: "720p" },
       { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Wan2.7 jobs are limited to 2-15 seconds here.", default: "5" },
-      { name: "seed", type: "integer", required: "No", description: "Optional reproducibility seed. Range: 0 to 2147483647.", default: "-" },
-      { name: "parameters.prompt_extend", type: "boolean", required: "No", description: "Enable upstream prompt extension.", default: "false" },
-      { name: "parameters.watermark", type: "boolean", required: "No", description: "Whether to request an upstream watermark.", default: "false" },
-      { name: "input", type: "object", required: "No", description: "Extra DashScope input fields. prompt/media are set by our API.", default: "{}" },
-      { name: "parameters", type: "object", required: "No", description: "Extra DashScope parameters are merged before submit.", default: "{}" },
-      { name: "params", type: "object", required: "No", description: "Pass-through wrapper for model/input/parameters and known fields.", default: "{}" },
     ],
     response: [
       { name: "ok", type: "boolean", required: "Yes", description: "true when the request is accepted.", default: "-" },
-      { name: "taskId", type: "string", required: "Yes", description: "Local generation task id.", default: "-" },
-      { name: "record.mediaAssets", type: "array", required: "No", description: "Resolved media slots sent to Wan2.7.", default: "-" },
-      { name: "record.upstreamPayload", type: "object", required: "No", description: "Submitted DashScope payload after the background job starts.", default: "-" },
+      { name: "taskId", type: "string", required: "Yes", description: "Generation task id.", default: "-" },
+      { name: "record.videoUrl / record.downloadUrl", type: "string", required: "No", description: "Result URL when ready. Returned provider URLs may expire after 24 hours.", default: "-" },
     ],
     example: WAN27_VIDEO_PARAM_ACCESS_COPY,
   },
@@ -2360,17 +2326,11 @@ Content-Type: application/json
       { name: "ratio", type: "string", required: "No", description: "Allowed values: 1:1, 3:4, 4:3, 9:16, 16:9.", default: "9:16" },
       { name: "resolution", type: "string", required: "No", description: "Allowed values: 1K, 2K, or 4K for text-to-image. Requests with reference images support 1K or 2K.", default: "2K" },
       { name: "size", type: "string", required: "No", description: "Direct upstream image size, for example 1440*2560. Overrides ratio/resolution size mapping.", default: "by ratio/resolution" },
-      { name: "parameters.n", type: "integer", required: "No", description: "Number of images requested from upstream.", default: "1" },
-      { name: "parameters.watermark", type: "boolean", required: "No", description: "Whether to request an upstream watermark.", default: "false" },
-      { name: "input", type: "object", required: "No", description: "Extra DashScope input fields. messages are built by our API from image/prompt.", default: "{}" },
-      { name: "parameters", type: "object", required: "No", description: "Extra DashScope generation parameters are merged before submit.", default: "{}" },
-      { name: "params", type: "object", required: "No", description: "Pass-through wrapper for model/size/input/parameters and known fields.", default: "{}" },
     ],
     response: [
       { name: "ok", type: "boolean", required: "Yes", description: "true when generation/editing succeeds.", default: "-" },
-      { name: "taskId", type: "string", required: "Yes", description: "Local image generation task id.", default: "-" },
+      { name: "taskId", type: "string", required: "Yes", description: "Image generation task id.", default: "-" },
       { name: "imageUrl / record.imageResultUrl", type: "string", required: "Yes", description: "Generated image URL saved in history. It is not added to assets until the user calls Add asset from history.", default: "-" },
-      { name: "record.upstreamPayload", type: "object", required: "No", description: "Submitted DashScope payload saved in history/admin records.", default: "-" },
     ],
     example: WAN27_IMAGE_PARAM_ACCESS_COPY,
   },
