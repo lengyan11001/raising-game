@@ -2129,27 +2129,10 @@ function promptWithoutPresetParts(prompt = "", params = {}) {
 
 function advancedEffectivePrompt(basePrompt = "") {
   const prompt = String(basePrompt || "").trim();
-  const mediaGuide = advancedMediaOrderPrompt();
-  if (state.advancedCreateKind === "custom") return [mediaGuide, prompt].filter(Boolean).join("\n");
-  return [mediaGuide, ...advancedPresetPromptParts(), prompt]
+  if (state.advancedCreateKind === "custom") return prompt;
+  return [...advancedPresetPromptParts(), prompt]
     .filter(Boolean)
     .join("\n");
-}
-
-function advancedMediaOrderPrompt() {
-  if (currentAdvancedProvider() !== "seedance") return "";
-  const refs = typeof advancedReferenceDisplayItems === "function" ? advancedReferenceDisplayItems("seedance") : [];
-  const lines = refs.map((ref) => {
-    if (ref.kind === "video") return `${ref.label}: reference video; use it for motion, timing, camera, action, and composition guidance.`;
-    if (ref.kind === "audio") return `${ref.label}: reference audio.`;
-    return `${ref.label}: reference image.`;
-  });
-  if (!lines.length) return "";
-  return [
-    "Use the uploaded references by their labels. The reference strip order is exactly:",
-    ...lines,
-    "When references conflict, preserve the user's selected subject/image identity first, then follow video/audio references for motion, rhythm, and sound.",
-  ].join(" ");
 }
 
 function nonCustomAdvancedNeedsCharacterImage() {
