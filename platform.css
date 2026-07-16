@@ -6094,6 +6094,23 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   opacity: .45;
   cursor: not-allowed;
 }
+.pager-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pager-jump input {
+  width: 72px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(255,255,255,.82);
+  font: inherit;
+  font-weight: 800;
+  text-align: center;
+}
 
 /* Ourdream-inspired dark explore surface. */
 .character-create-card,

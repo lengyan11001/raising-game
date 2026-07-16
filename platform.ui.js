@@ -102,18 +102,46 @@ function withExpiryNotice(text = "") {
   return `${value} ${notice}`;
 }
 
-function renderSimplePager(holder, data, onPage) {
+function renderSimplePager(holder, data, onPage, options = {}) {
   if (!holder) return;
+  const page = Math.max(1, Number(data.page || 1));
+  const totalPages = Math.max(1, Number(data.totalPages || 1));
+  const total = Number(data.total || 0);
+  const firstLabel = state.lang === "zh" ? "首页" : t("ledger.first", {}, "First");
+  const jumpLabel = state.lang === "zh" ? "确定" : t("ledger.go", {}, "Go");
   holder.innerHTML = `
-    <button class="ghost-button" type="button" data-page="prev" ${data.page <= 1 ? "disabled" : ""}>${escapeHtml(t("ledger.prev"))}</button>
-    <span>${escapeHtml(t("ledger.page", { page: data.page, totalPages: data.totalPages, total: data.total }))}</span>
-    <button class="ghost-button" type="button" data-page="next" ${data.page >= data.totalPages ? "disabled" : ""}>${escapeHtml(t("ledger.next"))}</button>
+    ${options.jump ? `<button class="ghost-button" type="button" data-page="first" ${page <= 1 ? "disabled" : ""}>${escapeHtml(firstLabel)}</button>` : ""}
+    <button class="ghost-button" type="button" data-page="prev" ${page <= 1 ? "disabled" : ""}>${escapeHtml(t("ledger.prev"))}</button>
+    <span>${escapeHtml(t("ledger.page", { page, totalPages, total }))}</span>
+    ${options.jump ? `
+      <label class="pager-jump">
+        <input type="number" min="1" max="${escapeHtml(String(totalPages))}" value="${escapeHtml(String(page))}" data-page-jump-input aria-label="${escapeHtml(state.lang === "zh" ? "跳转页码" : "Jump to page")}" />
+        <button class="ghost-button" type="button" data-page-jump>${escapeHtml(jumpLabel)}</button>
+      </label>
+    ` : ""}
+    <button class="ghost-button" type="button" data-page="next" ${page >= totalPages ? "disabled" : ""}>${escapeHtml(t("ledger.next"))}</button>
   `;
   holder.querySelector('[data-page="prev"]')?.addEventListener("click", () => {
-    if (data.page > 1) onPage(data.page - 1);
+    if (page > 1) onPage(page - 1);
   });
   holder.querySelector('[data-page="next"]')?.addEventListener("click", () => {
-    if (data.page < data.totalPages) onPage(data.page + 1);
+    if (page < totalPages) onPage(page + 1);
+  });
+  holder.querySelector('[data-page="first"]')?.addEventListener("click", () => {
+    if (page > 1) onPage(1);
+  });
+  const jumpInput = holder.querySelector("[data-page-jump-input]");
+  const jumpToPage = () => {
+    const nextPage = Math.min(totalPages, Math.max(1, Number.parseInt(jumpInput?.value || "", 10) || page));
+    if (jumpInput) jumpInput.value = String(nextPage);
+    if (nextPage !== page) onPage(nextPage);
+  };
+  holder.querySelector("[data-page-jump]")?.addEventListener("click", jumpToPage);
+  jumpInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      jumpToPage();
+    }
   });
 }
 

@@ -3070,7 +3070,7 @@ function renderHistory(records = []) {
       page: state.historyRecordsPage,
       totalPages: state.historyRecordsTotalPages,
       total: state.historyRecordsTotal,
-    }, (page) => loadHistory({ page }));
+    }, (page) => loadHistory({ page }), { jump: true });
     refreshIcons();
     return;
   }
@@ -3211,7 +3211,7 @@ function renderHistory(records = []) {
     page: state.historyRecordsPage,
     totalPages: state.historyRecordsTotalPages,
     total: state.historyRecordsTotal,
-  }, (page) => loadHistory({ page }));
+  }, (page) => loadHistory({ page }), { jump: true });
   refreshIcons();
 }
 
