@@ -4798,6 +4798,8 @@ function publicModelText(value = "") {
     .replace(/\/api\/wan27\/image-edit/gi, "/api/vipeak1/image-edit")
     .replace(/dreamina-seedance-2-0-fast-260128/gi, "vipeak2-fast")
     .replace(/dreamina-seedance-2-0-260128/gi, "vipeak2-standard")
+    .replace(/ep-20260429142538-fkm9d/gi, "dreamina-seedance-2-0-fast-260128")
+    .replace(/ep-20260429142513-zg667/gi, "dreamina-seedance-2-0-260128")
     .replace(/wan2\.7-image-pro/gi, "vipeak1-image")
     .replace(/wan2\.7-i2v-2026-04-25/gi, "vipeak1-video")
     .replace(/Wan2\.7 Image Edit/gi, "Vipeak 1 Image")
