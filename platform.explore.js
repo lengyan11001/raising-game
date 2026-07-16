@@ -3258,8 +3258,32 @@ function openHistoryDetail(index) {
   els.historyDetailBody.innerHTML = `
     <section class="history-detail-section">
       <header>
-        <strong>${escapeHtml(t("history.inputImages"))}</strong>
+        <strong>${escapeHtml(t("history.result"))}</strong>
         <span>${escapeHtml(record.taskId || "")}</span>
+        ${canDownload ? `
+          <button class="history-download history-detail-download" type="button" data-history-detail-download>
+            <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+          </button>
+        ` : ""}
+      </header>
+      ${videoUrl ? `
+        <video src="${escapeHtml(videoUrl)}" ${generationPosterUrl(record) ? `poster="${escapeHtml(generationPosterUrl(record))}"` : ""} controls playsinline preload="metadata" style="${escapeHtml(ratioStyle(recordRatio))}"></video>
+      ` : imageResultUrl ? `
+        <div class="history-detail-images">
+          <figure>
+            <img src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" />
+            <figcaption>${escapeHtml(t("history.result"))}</figcaption>
+          </figure>
+        </div>
+      ` : `<pre>${escapeHtml(record.error || statusLabel(record.status))}</pre>`}
+    </section>
+    <section class="history-detail-section">
+      <header><strong>${escapeHtml(t("history.parameters"))}</strong></header>
+      <pre>${escapeHtml(JSON.stringify(historyDetailPayload(record), null, 2))}</pre>
+    </section>
+    <section class="history-detail-section">
+      <header>
+        <strong>${escapeHtml(t("history.inputImages"))}</strong>
       </header>
       ${images.length || videos.length ? `
         <div class="history-detail-images">
@@ -3277,30 +3301,6 @@ function openHistoryDetail(index) {
           `).join("")}
         </div>
       ` : `<p class="history-detail-empty">${escapeHtml(t("history.noInputImages"))}</p>`}
-    </section>
-    <section class="history-detail-section">
-      <header><strong>${escapeHtml(t("history.parameters"))}</strong></header>
-      <pre>${escapeHtml(JSON.stringify(historyDetailPayload(record), null, 2))}</pre>
-    </section>
-    <section class="history-detail-section">
-      <header>
-        <strong>${escapeHtml(t("history.result"))}</strong>
-        ${canDownload ? `
-          <button class="history-download history-detail-download" type="button" data-history-detail-download>
-            <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
-          </button>
-        ` : ""}
-      </header>
-      ${videoUrl ? `
-        <video src="${escapeHtml(videoUrl)}" ${generationPosterUrl(record) ? `poster="${escapeHtml(generationPosterUrl(record))}"` : ""} controls playsinline preload="metadata" style="${escapeHtml(ratioStyle(recordRatio))}"></video>
-      ` : imageResultUrl ? `
-        <div class="history-detail-images">
-          <figure>
-            <img src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" />
-            <figcaption>${escapeHtml(t("history.result"))}</figcaption>
-          </figure>
-        </div>
-      ` : `<pre>${escapeHtml(record.error || statusLabel(record.status))}</pre>`}
     </section>
   `;
   els.historyDetailBody.querySelector("[data-history-detail-download]")?.addEventListener("click", () => {
