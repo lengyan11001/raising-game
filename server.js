@@ -8653,6 +8653,7 @@ async function uploadApizSeedanceAsset({ user = {}, url = "", assetType = "Image
     [mediaKey]: sourceUrl,
     asset_type: normalizedType,
     name,
+    Moderation: { Strategy: "Skip" },
   };
   console.log("[apiz-seedance-service-asset-upload]", JSON.stringify({
     path: "/api/v3/service-inference/assets",
