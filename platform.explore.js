@@ -106,6 +106,7 @@ function setTab(tab) {
   }
   if (nextTab === "access") loadApiSubtokens();
   if (nextTab === "advanced") {
+    renderAdvanced();
     loadAdvancedAssets();
     renderAdvancedResultPanel();
     if (state.advancedSideTab === "result" && state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1000, force: true });
