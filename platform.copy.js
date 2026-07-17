@@ -1854,37 +1854,39 @@ function tenantScopedAccessText(text = "") {
     });
 }
 
-const ADVANCED_SEEDANCE_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
+const ADVANCED_SEEDANCE_ACCESS_COPY = `POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot.",
-  "seedanceMode": "reference_video",
-  "referenceImages": [
-    {"url": "https://example.com/image1.png", "fileName": "image1.png"}
+  "content": [
+    {"type": "text", "text": "Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot."},
+    {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"},
+    {"type": "video_url", "video_url": {"url": "https://example.com/video1.mp4"}, "role": "reference_video"}
   ],
-  "referenceVideoUrls": ["https://example.com/video1.mp4"],
   "ratio": "9:16",
   "resolution": "4k",
   "duration": 5,
-  "generateAudio": true
+  "generate_audio": true,
+  "watermark": false
 }
 
-GET ${apiUrl("/api/generation-records/<taskId>")}
+GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}
 Authorization: Bearer <user-token>
 
-Poll this record endpoint for progress and result URLs. Public URLs, base64 data URLs, and uploaded asset ids are accepted through the fields below.
+Poll this V3 endpoint for progress and result URLs. Public URLs, supported data URLs, and asset:// ids are accepted in content[].
 
-Seedance modes: text_to_video, first_frame, first_last_frame, reference_images, reference_video. first_frame and first_last_frame cannot be mixed with referenceImages, referenceVideoUrls, referenceVideoAssetIds, referenceAudioUrls, or referenceAudioAssetIds.
+Media roles: first_frame, last_frame, reference_image, reference_video, reference_audio. First/last frame roles cannot be mixed with reference media.
 
 Limits: duration 5-15 seconds. Standard supports 480p, 720p, 1080p, and 4k. Fast supports 480p and 720p. Images: JPG/PNG/WebP/BMP, max 20MB each, width and height 300-6000px, aspect ratio 0.4-2.5. Video references: max 3, pixel count 409600-8847360. Audio references: max 3, MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM, max 30MB each, and must be used with at least one image or video reference.`;
 
 const LIVE_HTTP_ACCESS_COPY = `Production generation endpoints:
 
-1) Wan2.7 video through Advanced:
+1) Seedance video through BytePlus-compatible V3:
+${ADVANCED_SEEDANCE_ACCESS_COPY}
+
+2) Wan2.7 video through legacy Advanced:
 POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
@@ -1902,7 +1904,7 @@ Content-Type: application/json
 
 Wan2.7 video supports 720p and 1080p.
 
-2) Wan2.7 image text-to-image or image edit:
+3) Wan2.7 image text-to-image or image edit:
 POST ${apiUrl("/api/wan27/image-edit")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
@@ -1918,81 +1920,80 @@ Content-Type: application/json
 
 Wan2.7 image supports 1K, 2K, and 4K for text-to-image. 4K is text-to-image only; reference-image edit/fusion supports 1K and 2K.
 
-3) Seedance video through Advanced:
-${ADVANCED_SEEDANCE_ACCESS_COPY}
+BytePlus-compatible asset upload for reusable files:
+POST ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
 
-Asset upload for reusable files:
-POST ${apiUrl("/api/user-assets")}
 {
-  "url": "https://example.com/image1.png",
-  "fileName": "image1.png",
-  "name": "image1"
+  "URL": "https://example.com/image1.png",
+  "AssetType": "Image",
+  "Name": "image1",
+  "Moderation": {"Strategy":"Skip"}
 }`;
 
-const SEEDANCE_CHARACTER_UPLOAD_COPY = `Seedance workflow through /api/advanced/generate:
+const SEEDANCE_CHARACTER_UPLOAD_COPY = `Seedance workflow through BytePlus-compatible V3:
 
 1) Optional: upload a reusable character image.
-POST ${apiUrl("/api/user-assets")}
+POST ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "url": "https://example.com/character-image1.png",
-  "fileName": "image1.png",
-  "name": "image1"
+  "URL": "https://example.com/character-image1.png",
+  "AssetType": "Image",
+  "Name": "image1",
+  "Moderation": {"Strategy":"Skip"}
 }
 
-The response returns asset.id. Use that id in referenceImages or firstFrameAssetId.
+The response returns Result.Id. Use asset://<Result.Id> in content[].
 
-2) Submit with the Advanced endpoint:
-POST ${apiUrl("/api/advanced/generate")}
+2) Submit with the V3 endpoint:
+POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot.",
-  "seedanceMode": "reference_video",
-  "referenceImages": [
-    {"assetId": "asset-id-from-step-1"}
+  "content": [
+    {"type": "text", "text": "Use Image 1 as the main character. Keep the same identity and create a cinematic 5 second shot."},
+    {"type": "image_url", "image_url": {"url": "asset://asset-id-from-step-1"}, "role": "reference_image"}
   ],
   "ratio": "9:16",
   "resolution": "4k",
   "duration": 5,
-  "generateAudio": true
+  "generate_audio": true
 }
 
 You may also send a public image URL or base64 data URL directly:
 {
-  "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Animate Image 1 into a cinematic shot.",
-  "seedanceMode": "first_last_frame",
-  "firstFrameDataUrl": "data:image/png;base64,...",
-  "lastFrameUrl": "https://example.com/last-frame.png",
+  "content": [
+    {"type": "text", "text": "Animate from Image 1 to Image 2 into a cinematic shot."},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}, "role": "first_frame"},
+    {"type": "image_url", "image_url": {"url": "https://example.com/last-frame.png"}, "role": "last_frame"}
+  ],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5
 }
-Prompt rule: uploaded character images are referenced as Image 1, Image 2, etc. Do not put raw asset ids in the prompt text.`;
+Prompt rule: uploaded media labels follow each media type order: Image 1, Video 1, Audio 1. Do not put raw asset ids in the prompt text.`;
 
 const TYPE_SCRIPT_ACCESS_COPY = `const token = "<user-token>";
 const body = {
-  provider: "seedance",
   model: "dreamina-seedance-2-0-260128",
-  prompt: "Use Image 1 as the character reference. Generate a cinematic 5 second shot.",
-  seedanceMode: "reference_video",
-  referenceImages: [
-    { url: "https://example.com/image1.png", fileName: "image1.png" }
+  content: [
+    { type: "text", text: "Use Image 1 as the character reference. Generate a cinematic 5 second shot." },
+    { type: "image_url", image_url: { url: "https://example.com/image1.png" }, role: "reference_image" }
   ],
   ratio: "9:16",
   resolution: "720p",
   duration: 5,
-  generateAudio: true
+  generate_audio: true,
+  watermark: false
 };
 
-const created = await fetch("${apiUrl("/api/advanced/generate")}", {
+const created = await fetch("${apiUrl("/api/v3/contents/generations/tasks")}", {
   method: "POST",
   headers: {
     authorization: \`Bearer \${token}\`,
@@ -2001,8 +2002,8 @@ const created = await fetch("${apiUrl("/api/advanced/generate")}", {
   body: JSON.stringify(body)
 }).then((res) => res.json());
 
-const taskId = created.taskId || created.task?.taskId || created.record?.taskId;
-const task = await fetch("${apiUrl("/api/generation-records")}/" + encodeURIComponent(taskId), {
+const taskId = created.id;
+const task = await fetch("${apiUrl("/api/v3/contents/generations/tasks")}/" + encodeURIComponent(taskId), {
   headers: { authorization: \`Bearer \${token}\` }
 }).then((res) => res.json());
 console.log(task);
@@ -2014,28 +2015,27 @@ const PYTHON_ACCESS_COPY = `import requests
 
 token = "<user-token>"
 payload = {
-    "provider": "seedance",
     "model": "dreamina-seedance-2-0-260128",
-    "prompt": "Use Image 1 as the character reference. Generate a cinematic 5 second shot.",
-    "seedanceMode": "reference_video",
-    "referenceImages": [
-        {"url": "https://example.com/image1.png", "fileName": "image1.png"},
+    "content": [
+        {"type": "text", "text": "Use Image 1 as the character reference. Generate a cinematic 5 second shot."},
+        {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"},
     ],
     "ratio": "9:16",
     "resolution": "720p",
     "duration": 5,
-    "generateAudio": True,
+    "generate_audio": True,
+    "watermark": False,
 }
 
 created = requests.post(
-    "${apiUrl("/api/advanced/generate")}",
+    "${apiUrl("/api/v3/contents/generations/tasks")}",
     headers={"Authorization": f"Bearer {token}"},
     json=payload,
     timeout=120,
 ).json()
-task_id = created.get("taskId") or created.get("task", {}).get("taskId") or created.get("record", {}).get("taskId")
+task_id = created["id"]
 task = requests.get(
-    f"${apiUrl("/api/generation-records")}/{task_id}",
+    f"${apiUrl("/api/v3/contents/generations/tasks")}/{task_id}",
     headers={"Authorization": f"Bearer {token}"},
     timeout=120,
 ).json()
@@ -2044,67 +2044,72 @@ print(task)
 # Important: returned video URLs may expire after 24 hours.
 # Download and save successful videos promptly.`;
 
-const CLI_ACCESS_COPY = `curl -X POST "${apiUrl("/api/advanced/generate")}" \
+const CLI_ACCESS_COPY = `curl -X POST "${apiUrl("/api/v3/contents/generations/tasks")}" \
   -H "Authorization: Bearer <user-token>" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot.","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true}'
+  -d '{"model":"dreamina-seedance-2-0-260128","content":[{"type":"text","text":"Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot."},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"},{"type":"video_url","video_url":{"url":"https://example.com/video1.mp4"},"role":"reference_video"}],"ratio":"9:16","resolution":"720p","duration":5,"generate_audio":true,"watermark":false}'
 
-curl -X GET "${apiUrl("/api/generation-records/<taskId>")}" \
+curl -X GET "${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}" \
   -H "Authorization: Bearer <user-token>"
 
 # Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
-# Query progress/results from /api/generation-records/<taskId>.`;
+# Query progress/results from /api/v3/contents/generations/tasks/<taskId>.`;
 
 const AGENT_ACCESS_COPY = `Use this video API:
 Important: returned video URLs may expire after 24 hours. Download and save successful videos promptly.
 Task queries with API tokens or sub tokens return only upstream provider URLs in record.videoUrl and record.downloadUrl. Local/CDN backup URLs are internal and are not returned downstream.
 
 Seedance generation endpoint:
-POST ${apiUrl("/api/advanced/generate")}
+POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Body:
-{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"Use Image 1 as the character, Video 1 as motion reference, and Audio 1 as music reference.","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"referenceVideoDurationSeconds":6,"referenceAudioUrls":["https://example.com/audio1.mp3"],"ratio":"9:16","resolution":"720p","duration":5,"generateAudio":true}
+{"model":"dreamina-seedance-2-0-260128","content":[{"type":"text","text":"Use Image 1 as the character, Video 1 as motion reference, and Audio 1 as music reference."},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"},{"type":"video_url","video_url":{"url":"https://example.com/video1.mp4"},"role":"reference_video"},{"type":"audio_url","audio_url":{"url":"https://example.com/audio1.mp3"},"role":"reference_audio"}],"ratio":"9:16","resolution":"720p","duration":5,"generate_audio":true}
 
 Check records:
-GET ${apiUrl("/api/generation-records/<taskId>")}`;
+GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}`;
 
-const MCP_ACCESS_COPY = `Advanced generation wrapper target:
-POST ${apiUrl("/api/advanced/generate")}
+const MCP_ACCESS_COPY = `BytePlus-compatible generation target:
+POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Authorization: Bearer <user-token>
 Input:
-{"provider":"seedance","model":"dreamina-seedance-2-0-260128","prompt":"string","seedanceMode":"reference_video","referenceImages":[{"url":"https://example.com/image1.png","fileName":"image1.png"}],"referenceVideoUrls":["https://example.com/video1.mp4"],"ratio":"9:16","resolution":"480p|720p|1080p|4k","duration":5,"generateAudio":true}
+{"model":"dreamina-seedance-2-0-260128","content":[{"type":"text","text":"string"},{"type":"image_url","image_url":{"url":"https://example.com/image1.png"},"role":"reference_image"},{"type":"video_url","video_url":{"url":"https://example.com/video1.mp4"},"role":"reference_video"}],"ratio":"9:16","resolution":"480p|720p|1080p|4k","duration":5,"generate_audio":true}
 
 Reusable asset upload target:
-POST ${apiUrl("/api/user-assets")}
+POST ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}
 Authorization: Bearer <user-token>
 Input:
-{"url":"https://example.com/character-image1.png","fileName":"image1.png","name":"image1"}
+{"URL":"https://example.com/character-image1.png","AssetType":"Image","Name":"image1","Moderation":{"Strategy":"Skip"}}
 
 Task query:
-GET ${apiUrl("/api/generation-records/<taskId>")}`;
+GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}`;
 
 const SEEDANCE_PARAM_ACCESS_COPY = `${SEEDANCE_CHARACTER_UPLOAD_COPY}
 
 Seedance generation endpoint:
-POST ${apiUrl("/api/advanced/generate")}
+POST ${apiUrl("/api/v3/contents/generations/tasks")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 Model:
-- provider: "seedance"
 - model: "dreamina-seedance-2-0-260128" for standard or "dreamina-seedance-2-0-fast-260128" for fast
+- "dreamina-seedance-2-0-hc", "dreamina-seedance-2-0-fast-hc", and "dreamina-seedance-2-0-mini-hc" aliases are accepted
 - standard supports 480p, 720p, 1080p, and 4k
-- fast supports 480p and 720p
+- fast/mini supports 480p and 720p
 
-Prompt reference rule: describe uploaded materials as Image 1, Video 1, Audio 1. Do not put raw asset ids in the prompt text.
+content[]:
+- text block: {"type":"text","text":"prompt"}
+- image block: {"type":"image_url","image_url":{"url":"https://example.com/image.png"},"role":"reference_image"}
+- video block: {"type":"video_url","video_url":{"url":"https://example.com/video.mp4"},"role":"reference_video"}
+- audio block: {"type":"audio_url","audio_url":{"url":"https://example.com/audio.mp3"},"role":"reference_audio"}
+- use asset://<asset-id> after CreateAsset if you want reusable materials
 
 First + last frame:
 {
-  "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Move smoothly from the first frame to the last frame.",
-  "seedanceMode": "first_last_frame",
-  "imageUrl": "https://example.com/first-frame.png",
-  "endImageUrl": "https://example.com/last-frame.png",
+  "content": [
+    {"type": "text", "text": "Move smoothly from Image 1 to Image 2."},
+    {"type": "image_url", "image_url": {"url": "https://example.com/first-frame.png"}, "role": "first_frame"},
+    {"type": "image_url", "image_url": {"url": "https://example.com/last-frame.png"}, "role": "last_frame"}
+  ],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5
@@ -2112,44 +2117,40 @@ First + last frame:
 
 Multimodal references:
 {
-  "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic shot.",
-  "seedanceMode": "reference_video",
-  "referenceImages": [
-    {"url": "https://example.com/image1.png", "fileName": "image1.png"}
+  "content": [
+    {"type": "text", "text": "Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic shot."},
+    {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"},
+    {"type": "video_url", "video_url": {"url": "https://example.com/video1.mp4"}, "role": "reference_video"}
   ],
-  "referenceVideoUrls": ["https://example.com/video1.mp4"],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 5,
-  "generateAudio": true
+  "generate_audio": true
 }
 
 Video and audio references:
 {
-  "provider": "seedance",
   "model": "dreamina-seedance-2-0-260128",
-  "prompt": "Use Video 1 as the action reference, Image 1 as the character reference, and Audio 1 as the music reference.",
-  "seedanceMode": "reference_video",
-  "referenceImages": [
-    {"url": "https://example.com/image1.png", "fileName": "image1.png"}
+  "content": [
+    {"type": "text", "text": "Use Video 1 as the action reference, Image 1 as the character reference, and Audio 1 as the music reference."},
+    {"type": "image_url", "image_url": {"url": "https://example.com/image1.png"}, "role": "reference_image"},
+    {"type": "video_url", "video_url": {"url": "https://example.com/video2.mp4"}, "role": "reference_video"},
+    {"type": "audio_url", "audio_url": {"url": "https://example.com/music.mp3"}, "role": "reference_audio"}
   ],
-  "referenceVideoUrls": ["https://example.com/video2.mp4"],
-  "referenceVideoDurationSeconds": 6,
-  "referenceAudioUrls": ["https://example.com/music.mp3"],
   "ratio": "9:16",
   "resolution": "720p",
   "duration": 8,
-  "generateAudio": true
+  "generate_audio": true
 }
 
 Limits:
 - duration: integer 5-15 seconds
-- image references: max 9; JPG/PNG/WebP/BMP; max 20MB each; width and height 300-6000px; aspect ratio 0.4-2.5
-- video references: max 3; pixel count 409600-8847360
-- audio references: max 3; MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM; max 30MB each; audio must be combined with image or video reference
-- first_frame and first_last_frame cannot be mixed with referenceImages, referenceVideoUrls, referenceVideoAssetIds, referenceAudioUrls, or referenceAudioAssetIds`;
+- content: 1-16 blocks; images max 9; videos max 3; audios max 3
+- image inputs: JPG/PNG/WebP/BMP; max 20MB each; width and height 300-6000px; aspect ratio 0.4-2.5
+- video references: pixel count 409600-8847360
+- audio references: MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM; max 30MB each; audio must be combined with image or video reference
+- first_frame and last_frame roles cannot be mixed with reference_image, reference_video, or reference_audio`;
 
 const WAN27_VIDEO_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
 Authorization: Bearer <user-token>
@@ -2200,96 +2201,85 @@ const PARAM_DOC_MARKDOWN_URL = apiUrl("/docs/models.md");
 
 const ACCESS_DOCS = {
   assets: {
-    title: "Asset Upload",
-    summary: "Upload a reusable image, video, or audio file to the current user's asset library. Seedance-specific character preparation is documented inside Seedance Params.",
+    title: "BytePlus Asset Upload",
+    summary: "Create reusable image, video, or audio assets with the BytePlus-compatible Action API. Use asset://<Result.Id> in V3 content[].",
     request: [
       ["Authorization", "Bearer <user-token>"],
       ["Content-Type", "application/json"],
-      ["url", "Optional public image/video/audio URL. Use this when the caller already has a reachable file URL."],
-      ["imageUrl", "Alias of url."],
-      ["videoUrl", "Alias of url for video upload."],
-      ["audioUrl", "Alias of url for audio upload."],
-      ["dataUrl", "Optional base64 data URL. Use this when uploading bytes directly."],
-      ["durationSeconds", "Optional known duration for uploaded video/audio assets."],
-      ["fileName", "Optional original file name, for example image1.png."],
-      ["name", "Optional display name in the user's asset library."],
+      ["POST /?Action=CreateAsset&Version=2024-01-01", "Create an asset from a public URL."],
+      ["URL", "Public image/video/audio URL, max 4096 characters. Images: JPG/PNG/WebP/BMP, max 20MB, width/height 300-6000px, ratio 0.4-2.5. Videos/audios: max 30MB."],
+      ["AssetType", "Image, Video, or Audio. Video references used for Seedance must have pixel count 409600-8847360. Audio references support MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM."],
+      ["Name", "Optional asset name, max 64 characters."],
+      ["GroupId", "Optional asset group id."],
+      ["Moderation.Strategy", "Default or Skip."],
     ],
     response: [
-      ["ok", "true when the upload succeeds."],
-      ["asset.id", "Use this id as userAssetId, referenceVideoAssetIds[], referenceAudioAssetIds[], or other asset fields."],
-      ["asset.kind", "image, video, or audio."],
-      ["asset.previewUrl", "Local preview URL."],
+      ["Result.Id", "Use this id as asset://<Result.Id> in V3 content[]."],
+      ["GetAsset/ListAssets", "Use Action=GetAsset or Action=ListAssets to check status and metadata."],
     ],
-    example: `POST /api/user-assets
+    example: `POST /?Action=CreateAsset&Version=2024-01-01
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
 {
-  "url": "https://example.com/image1.png",
-  "fileName": "image1.png",
-  "name": "image1"
+  "URL": "https://example.com/image1.png",
+  "AssetType": "Image",
+  "Name": "image1",
+  "Moderation": {"Strategy":"Skip"}
 }`,
   },
   advanced: {
-    title: "Advanced Generation",
-    summary: "Use /api/advanced/generate to submit video generation tasks, then poll /api/generation-records/<taskId> for progress and result URLs.",
+    title: "V3 Video Generation",
+    summary: "Use /api/v3/contents/generations/tasks for new Seedance video tasks, then poll /api/v3/contents/generations/tasks/<taskId> for progress and result URLs. /api/advanced/generate remains a legacy wrapper.",
     request: [
       ["Authorization", "Bearer <user-token>"],
       ["Content-Type", "application/json"],
-      ["POST /api/advanced/generate", "Create an Advanced task. This is the only documented external video generation route."],
-      ["GET /api/generation-records/<taskId>", "Query progress and final result for Advanced tasks."],
-      ["provider", "Use wan27 for Wan2.7 video or seedance for Seedance video. For compatibility, known Seedance model aliases also imply seedance, but explicit provider is recommended."],
-      ["model", "For provider=wan27, use wan2.7-i2v-2026-04-25. For provider=seedance, use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast."],
-      ["prompt", "Video prompt. Refer to materials as Image 1, Video 1, Audio 1 instead of raw asset ids."],
-      ["seedanceMode", "For provider=seedance: reference_video for multimodal references or first_last_frame for explicit first/last frames. Legacy aliases are accepted for compatibility."],
-      ["imageUrl / firstFrameUrl / firstFrameDataUrl", "First-frame input for seedance first_last_frame mode."],
-      ["endImageUrl / lastFrameUrl / endImageDataUrl", "Last-frame input for seedance first_last_frame mode."],
-      ["referenceImages", "Array for seedance multimodal references. Each item may use assetId, url/imageUrl + fileName, or dataUrl + fileName."],
-      ["referenceVideoUrls / referenceVideoAssetIds", "Video references for seedance multimodal generation. Max 3 videos; pixel count must be 409600-8847360."],
-      ["referenceAudioUrls / referenceAudioAssetIds", "Optional audio references for multimodal seedance requests. Max 3 audio files; supported formats: MP3, WAV, M4A, MP4 audio, AAC, OGG, WebM; max 30MB each. Audio-only requests are not supported."],
+      ["POST /api/v3/contents/generations/tasks", "Create a Seedance video task. Response returns id."],
+      ["GET /api/v3/contents/generations/tasks/<taskId>", "Query progress and final result."],
+      ["model", "dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. -hc and mini-hc aliases are accepted."],
+      ["content", "1-16 blocks. One non-empty text block is required. Supports text, image_url, video_url, audio_url."],
+      ["content[].role", "Images: first_frame, last_frame, reference_image. Videos: reference_video. Audios: reference_audio."],
+      ["content[].image_url.url", "Public image URL, supported image data URL, or asset:// id. JPG/PNG/WebP/BMP, max 20MB, width/height 300-6000px, ratio 0.4-2.5."],
+      ["content[].video_url.url", "Public video URL, supported video data URL, or asset:// id. Max 3 videos; pixel count 409600-8847360."],
+      ["content[].audio_url.url", "Public audio URL, supported audio data URL, or asset:// id. Max 3 audios; MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM, max 30MB. Audio-only is not supported."],
       ["ratio", "9:16, 16:9, or 1:1."],
-      ["resolution", "Wan2.7 video: 720p or 1080p. Seedance standard: 480p, 720p, 1080p, or 4k. Seedance fast: 480p or 720p."],
-      ["duration", "Seedance: integer 5-15 seconds. Wan2.7: integer 2-15 seconds."],
-      ["generateAudio / generate_audio", "Boolean. Request synced audio such as speech, effects, or background music when supported by the selected model."],
+      ["resolution", "Standard: 480p, 720p, 1080p, or 4k. Fast/mini: 480p or 720p."],
+      ["duration", "Integer 5-15 seconds."],
+      ["generate_audio", "Boolean. Request synced audio such as speech, effects, or background music when supported by the selected model."],
     ],
     response: [
-      ["ok", "true when the task is accepted."],
-      ["taskId", "Generation task id. Poll this id with /api/generation-records/<taskId>."],
-      ["task.status", "Initial task status."],
-      ["record.status", "Current generation status when included."],
-      ["record.videoUrl / record.downloadUrl", "Result URL when ready. Returned provider URLs may expire after 24 hours."],
+      ["id", "Task id returned by create."],
+      ["status", "queued, running, succeeded, failed, cancelled, or expired."],
+      ["content.video_url", "Result URL when ready. Returned provider URLs may expire after 24 hours."],
+      ["error", "Failure details when status=failed."],
     ],
     example: LIVE_HTTP_ACCESS_COPY,
   },
   seedanceParams: {
     title: "Seedance Video Parameters",
-    summary: "Use /api/advanced/generate with provider=seedance. The table below lists caller-facing fields and limits.",
+    summary: "Use /api/v3/contents/generations/tasks. The table below lists caller-facing fields and limits.",
     request: [
-      { name: "/api/user-assets", type: "endpoint", required: "No", description: "Optional reusable upload endpoint. Send url/imageUrl/videoUrl/audioUrl or dataUrl; reuse the returned asset.id.", default: "-" },
-      { name: "provider", type: "string", required: "Yes", description: "Use seedance.", default: "seedance" },
-      { name: "model", type: "string", required: "Yes", description: "Use dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. Fast supports 480p and 720p only.", default: "dreamina-seedance-2-0-260128" },
-      { name: "prompt", type: "string", required: "Yes", description: "Video prompt. Use Image 1, Video 1, Audio 1 labels when referring to uploaded materials. Put dialogue in quotes if the video should try to generate synced speech.", default: "-" },
-      { name: "seedanceMode", type: "string", required: "No", description: "Supported values: text_to_video, first_frame, first_last_frame, reference_images, reference_video. first_frame and first_last_frame cannot be mixed with referenceImages, referenceVideoUrls, referenceVideoAssetIds, referenceAudioUrls, or referenceAudioAssetIds.", default: "reference_video" },
-      { name: "imageUrl / firstFrameUrl / firstFrameDataUrl", type: "string", required: "For first frame modes", description: "Public URL or base64 data URL for the first frame.", default: "-" },
-      { name: "firstFrameAssetId / imageAssetId", type: "string", required: "No", description: "Existing uploaded image asset id for the first frame.", default: "-" },
-      { name: "endImageUrl / lastFrameUrl / endImageDataUrl", type: "string", required: "For first_last_frame", description: "Public URL or base64 data URL for the last frame.", default: "-" },
-      { name: "endImageAssetId / lastFrameAssetId", type: "string", required: "No", description: "Existing uploaded image asset id for the last frame.", default: "-" },
-      { name: "referenceImages", type: "array", required: "For reference_video or reference_images", description: "Image references. Each item may use assetId, url/imageUrl + fileName, or dataUrl + fileName. Max 9 images. JPG/PNG/WebP/BMP, max 20MB each, width and height 300-6000px, aspect ratio 0.4-2.5.", default: "[]" },
-      { name: "referenceVideoUrls", type: "array", required: "For reference_video without asset ids", description: "Public video URLs. Max 3 videos. Pixel count must be 409600-8847360. Include referenceVideoDurationSeconds when known.", default: "[]" },
-      { name: "referenceVideoAssetIds", type: "array", required: "No", description: "Existing uploaded video asset ids. Max 3 videos. Pixel count must be 409600-8847360.", default: "[]" },
-      { name: "referenceVideoDurationSeconds / inputVideoSeconds", type: "number", required: "No", description: "Known total reference video duration in seconds.", default: "0" },
-      { name: "referenceAudioUrls / referenceAudioAssetIds", type: "array", required: "No", description: "Optional audio references. Max 3 audio files. Supported formats: MP3, WAV, M4A, MP4 audio, AAC, OGG, WebM. Max 30MB each. Audio-only generation is not supported.", default: "[]" },
+      { name: "/api/v3/contents/generations/tasks", type: "endpoint", required: "Yes", description: "Recommended BytePlus-compatible task endpoint.", default: "-" },
+      { name: "/?Action=CreateAsset&Version=2024-01-01", type: "endpoint", required: "No", description: "Optional reusable asset endpoint. Reuse Result.Id as asset://<Result.Id>.", default: "-" },
+      { name: "model", type: "string", required: "Yes", description: "dreamina-seedance-2-0-260128 for standard or dreamina-seedance-2-0-fast-260128 for fast. -hc and mini-hc aliases are accepted. Fast/mini supports 480p and 720p only.", default: "dreamina-seedance-2-0-260128" },
+      { name: "content", type: "array", required: "Yes", description: "1-16 blocks. Include one text prompt. Max 9 images, 3 videos, 3 audios.", default: "-" },
+      { name: "content[].type", type: "enum", required: "Yes", description: "text, image_url, video_url, or audio_url.", default: "-" },
+      { name: "content[].text", type: "string", required: "For text", description: "Video prompt. Use Image 1, Video 1, Audio 1 labels when referring to uploaded materials.", default: "-" },
+      { name: "content[].image_url.url", type: "string", required: "For image_url", description: "Public URL, supported image data URL, or asset:// id. JPG/PNG/WebP/BMP, max 20MB, width and height 300-6000px, aspect ratio 0.4-2.5.", default: "-" },
+      { name: "content[].video_url.url", type: "string", required: "For video_url", description: "Public URL, supported video data URL, or asset:// id. Max 3 videos. Pixel count must be 409600-8847360.", default: "-" },
+      { name: "content[].audio_url.url", type: "string", required: "For audio_url", description: "Public URL, supported audio data URL, or asset:// id. Max 3 audio files. MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM. Max 30MB each. Audio-only generation is not supported.", default: "-" },
+      { name: "content[].role", type: "enum", required: "For media", description: "Images: first_frame, last_frame, reference_image. Videos: reference_video. Audios: reference_audio. First/last frame roles cannot be mixed with reference media.", default: "reference_image for image_url" },
       { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. UI-safe values: 9:16, 16:9, 1:1. Overall aspect ratio must stay between 0.4 and 2.5.", default: "9:16" },
-      { name: "resolution", type: "string", required: "No", description: "Standard model supports 480p, 720p, 1080p, and 4k. Fast model supports 480p and 720p.", default: "720p" },
+      { name: "resolution", type: "string", required: "No", description: "Standard model supports 480p, 720p, 1080p, and 4k. Fast/mini supports 480p and 720p.", default: "720p" },
       { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs support integer 5-15 seconds.", default: "5" },
-      { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
-      { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded materials.", default: "-" },
+      { name: "generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
+      { name: "watermark / callback_url / return_last_frame / priority / service_tier / execution_expires_after / seed / fps / camera_fixed", type: "mixed", required: "No", description: "Provider-specific pass-through fields. Unsupported fields are decided by the upstream model.", default: "-" },
     ],
     response: [
-      { name: "ok", type: "boolean", required: "Yes", description: "true when the request is accepted.", default: "-" },
-      { name: "taskId", type: "string", required: "Yes", description: "Generation task id for /api/generation-records/<taskId>.", default: "-" },
-      { name: "record.status", type: "string", required: "Yes", description: "Current task status.", default: "-" },
-      { name: "record.videoUrl / record.downloadUrl", type: "string", required: "No", description: "Result URL when ready. Returned provider URLs may expire after 24 hours.", default: "-" },
+      { name: "id", type: "string", required: "Yes", description: "Task id returned by create.", default: "-" },
+      { name: "status", type: "string", required: "Yes", description: "queued, running, succeeded, failed, cancelled, or expired.", default: "-" },
+      { name: "content.video_url", type: "string", required: "No", description: "Result URL when ready. Returned provider URLs may expire after 24 hours.", default: "-" },
+      { name: "error", type: "object", required: "No", description: "Failure details when status=failed.", default: "-" },
     ],
     example: SEEDANCE_PARAM_ACCESS_COPY,
   },
@@ -2454,7 +2444,7 @@ ACCESS_PARAM_GUIDES = [
     docs: "seedanceParams",
     title: "Seedance Params",
     subtitle: "Video",
-    desc: "Parameter table for Seedance video generation through /api/advanced/generate.",
+    desc: "Parameter table for Seedance video generation through /api/v3/contents/generations/tasks.",
     copy: SEEDANCE_PARAM_ACCESS_COPY,
   },
   {
