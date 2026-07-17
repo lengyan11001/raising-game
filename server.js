@@ -23362,14 +23362,18 @@ function adminRechargeLedgerRecordView(record = {}, userMap = new Map()) {
   const user = userMap.get(record.userId) || {};
   const source = record.source || record.kind || "";
   const provider = record.paymentProvider || record.provider || "";
-  const credits = creditsAmount(record.credits ?? record.creditAmount ?? Math.abs(Number(record.delta || 0)));
+  const credits = record.delta !== undefined && record.delta !== null
+    ? creditsAmount(record.delta)
+    : creditsAmount(record.credits ?? record.creditAmount ?? 0);
   return {
     id: record.id || "",
     source,
-    sourceLabel: source === "manual_admin" ? "后台手动加币" : "用户充值",
+    sourceLabel: source === "manual_admin" ? "Admin credit adjustment" : "User top-up",
     userId: record.userId || "",
     username: record.username || user.username || "",
     credits,
+    delta: credits,
+    direction: credits < 0 ? "subtract" : "add",
     amountUsd: record.amountUsd ?? record.baseAmount ?? "",
     payableAmount: record.payableAmount ?? "",
     payableAmountText: record.payableAmountText || "",
@@ -23410,8 +23414,7 @@ function adminRechargeLedgerRecords(db = {}) {
       paidAt: order.paidAt || order.matchedAt || order.updatedAt || order.createdAt,
     }, userMap));
   const manualEntries = (db.creditLedger || [])
-    .filter((entry) => Number(entry.delta || 0) > 0)
-    .filter((entry) => ["admin_credit_add", "admin_credit_adjustment", "manual_credit_add", "manual_credit_adjustment"].includes(String(entry.type || "")))
+    .filter((entry) => ["admin_credit_add", "admin_credit_subtract", "admin_credit_adjustment", "manual_credit_add", "manual_credit_adjustment"].includes(String(entry.type || "")))
     .map((entry) => {
       const meta = entry.meta && typeof entry.meta === "object" ? entry.meta : {};
       return adminRechargeLedgerRecordView({
@@ -23419,7 +23422,7 @@ function adminRechargeLedgerRecords(db = {}) {
         source: "manual_admin",
         userId: entry.userId,
         username: entry.username || userMap.get(entry.userId)?.username || "",
-        credits: entry.delta,
+        delta: entry.delta,
         adminUserId: meta.adminUserId || "",
         adminUsername: meta.adminUsername || "",
         note: meta.note || meta.reason || entry.type || "",
@@ -23433,7 +23436,9 @@ function adminRechargeLedgerRecords(db = {}) {
 
 function adminRechargeLedgerSummary(records = []) {
   const userTopups = records.filter((entry) => entry.source === "user_topup");
-  const manualAdds = records.filter((entry) => entry.source === "manual_admin");
+  const manualAdjustments = records.filter((entry) => entry.source === "manual_admin");
+  const manualAdds = manualAdjustments.filter((entry) => Number(entry.credits || 0) > 0);
+  const manualReductions = manualAdjustments.filter((entry) => Number(entry.credits || 0) < 0);
   const sumCredits = (items) => creditsAmount(items.reduce((sum, item) => sum + Number(item.credits || 0), 0));
   const sumUsd = (items) => creditsAmount(items.reduce((sum, item) => sum + Number(item.amountUsd || 0), 0));
   return {
@@ -23442,8 +23447,11 @@ function adminRechargeLedgerSummary(records = []) {
     userTopupCount: userTopups.length,
     userTopupCredits: sumCredits(userTopups),
     userTopupUsd: sumUsd(userTopups),
-    manualCount: manualAdds.length,
+    manualCount: manualAdjustments.length,
     manualCredits: sumCredits(manualAdds),
+    manualAddedCredits: sumCredits(manualAdds),
+    manualReducedCredits: creditsAmount(Math.abs(sumCredits(manualReductions))),
+    manualNetCredits: sumCredits(manualAdjustments),
   };
 }
 
@@ -23546,23 +23554,31 @@ async function handleAdminUpdateUser(req, res, userId) {
     targetUsername: user.username || "",
     note: "Admin user credit adjustment",
   };
-  if (typeof body.creditsDelta === "number" && Number.isFinite(body.creditsDelta) && Number(body.creditsDelta) !== 0) {
-    await changeUserCredits(auth.db, user.id, Number(body.creditsDelta), Number(body.creditsDelta) > 0 ? "admin_credit_add" : "admin_credit_adjustment", {
+  const creditsAdd = Number(body.creditsAdd);
+  const creditsSubtract = Number(body.creditsSubtract);
+  const hasCreditsAdd = Number.isFinite(creditsAdd) && creditsAdd > 0;
+  const hasCreditsSubtract = Number.isFinite(creditsSubtract) && creditsSubtract > 0;
+  if (hasCreditsAdd && hasCreditsSubtract) {
+    return sendJson(res, 400, { ok: false, message: "Use either creditsAdd or creditsSubtract, not both." });
+  }
+  if (hasCreditsAdd) {
+    const amount = roundCredits(creditsAdd, 6);
+    await changeUserCredits(auth.db, user.id, amount, "admin_credit_add", {
       ...adminCreditMeta,
-      mode: "delta",
+      mode: "add",
+      amount,
     });
     changed = true;
-  } else if (typeof body.credits === "number" && Number.isFinite(body.credits)) {
-    const nextCredits = roundCredits(Math.max(0, Number(body.credits)), 6);
-    const delta = roundCredits(nextCredits - Number(user.credits || 0), 6);
-    if (delta !== 0) {
-      await changeUserCredits(auth.db, user.id, delta, delta > 0 ? "admin_credit_add" : "admin_credit_adjustment", {
-        ...adminCreditMeta,
-        mode: "set",
-        targetCredits: nextCredits,
-      });
-      changed = true;
-    }
+  } else if (hasCreditsSubtract) {
+    const amount = roundCredits(creditsSubtract, 6);
+    await changeUserCredits(auth.db, user.id, -amount, "admin_credit_subtract", {
+      ...adminCreditMeta,
+      mode: "subtract",
+      amount,
+    });
+    changed = true;
+  } else if (Object.prototype.hasOwnProperty.call(body, "credits") || Object.prototype.hasOwnProperty.call(body, "creditsDelta")) {
+    return sendJson(res, 400, { ok: false, message: "Use creditsAdd to increase or creditsSubtract to decrease credits." });
   }
   if (typeof body.role === "string" && ["admin", "user"].includes(body.role)) {
     if (user.role === "admin" && body.role !== "admin") {

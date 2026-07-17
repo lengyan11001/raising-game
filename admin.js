@@ -1379,29 +1379,31 @@ function openAddCreditsFromCharacterDialog(id, characters) {
   tpl.innerHTML = `
     <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(account)}" disabled /></div>
     <div class="adm-form-row"><span>增加积分</span><input id="addCreditsAmount" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 100" /></div>
-    <p class="adm-muted">会直接增加到该账号余额，不生成充值订单。</p>
+    <div class="adm-form-row"><span>减少积分</span><input id="subtractCreditsAmount" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 100" /></div>
+    <p class="adm-muted">增加和减少只能填一个，操作会写入积分流水。</p>
   `;
 
   openDialog({
-    title: "增加积分",
+    title: "调整积分",
     body: tpl,
-    confirmText: "确认增加",
+    confirmText: "确认调整",
     onConfirm: async () => {
-      const amount = Number(tpl.querySelector("#addCreditsAmount")?.value);
-      if (!Number.isFinite(amount) || amount <= 0) {
-        toast("请输入大于 0 的积分。", "error");
+      const add = Number(tpl.querySelector("#addCreditsAmount")?.value);
+      const subtract = Number(tpl.querySelector("#subtractCreditsAmount")?.value);
+      const hasAdd = Number.isFinite(add) && add > 0;
+      const hasSubtract = Number.isFinite(subtract) && subtract > 0;
+      if (hasAdd === hasSubtract) {
+        toast("增加和减少只能填一个。", "error");
         return false;
       }
-      const creditsDelta = Math.round(amount);
-      if (creditsDelta <= 0) {
-        toast("积分必须至少增加 1。", "error");
-        return false;
-      }
+      const body = hasAdd
+        ? { creditsAdd: Math.round(add) }
+        : { creditsSubtract: Math.round(subtract) };
       await api(`/api/admin/users/${encodeURIComponent(character.userId)}`, {
         method: "PATCH",
-        body: { creditsDelta },
+        body,
       });
-      toast(`已给 ${account} 增加 ${creditsDelta} 积分。`, "success");
+      toast(`已调整 ${account} 的积分。`, "success");
       renderCharacters();
     },
   });
@@ -2882,8 +2884,9 @@ function openEditUserDialog(id, users) {
       <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
       <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
     </select></div>
-    <div class="adm-form-row"><span>积分（直接设定）</span><input id="editCredits" type="number" min="0" value="${escapeHtml(user.credits)}" /></div>
-    <div class="adm-form-row"><span>积分增减（可选）</span><input id="editCreditsDelta" type="number" placeholder="例如 +50 或 -10" /></div>
+    <div class="adm-form-row"><span>增加积分</span><input id="editCreditsAdd" type="number" min="1" step="1" placeholder="例如 100" /></div>
+    <div class="adm-form-row"><span>减少积分</span><input id="editCreditsSubtract" type="number" min="1" step="1" placeholder="例如 100" /></div>
+    <p class="adm-muted">增加和减少只能填一个，不再直接设置账户总积分。</p>
     <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
     <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
     <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
@@ -2894,8 +2897,10 @@ function openEditUserDialog(id, users) {
     confirmText: "保存",
     onConfirm: async () => {
       const role = tpl.querySelector("#editRole").value;
-      const credits = Number(tpl.querySelector("#editCredits").value);
-      const delta = Number(tpl.querySelector("#editCreditsDelta").value);
+      const add = Number(tpl.querySelector("#editCreditsAdd").value);
+      const subtract = Number(tpl.querySelector("#editCreditsSubtract").value);
+      const hasAdd = Number.isFinite(add) && add > 0;
+      const hasSubtract = Number.isFinite(subtract) && subtract > 0;
       const pricingMultiplier = Number(tpl.querySelector("#editPricingMultiplier").value);
       const apiPricingMultiplier = Number(tpl.querySelector("#editApiPricingMultiplier").value);
       if (!Number.isFinite(pricingMultiplier) || pricingMultiplier <= 0 || pricingMultiplier > 100) {
@@ -2906,9 +2911,13 @@ function openEditUserDialog(id, users) {
         toast("API价格折扣比例必须大于 0，且不超过 100。", "error");
         return false;
       }
+      if (hasAdd && hasSubtract) {
+        toast("增加和减少只能填一个。", "error");
+        return false;
+      }
       const body = { role };
-      if (Number.isFinite(delta) && delta !== 0) body.creditsDelta = delta;
-      else if (Number.isFinite(credits)) body.credits = credits;
+      if (hasAdd) body.creditsAdd = Math.round(add);
+      if (hasSubtract) body.creditsSubtract = Math.round(subtract);
       body.pricingMultiplier = pricingMultiplier;
       body.apiPricingMultiplier = apiPricingMultiplier;
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
@@ -2970,25 +2979,25 @@ async function renderRecharges(pageArg = null, limitArg = null) {
       <div class="adm-page-head">
         <div>
           <h2>充值流水</h2>
-          <p class="adm-muted">统计已成功充值的用户订单，以及后台手动给用户增加的积分。</p>
+          <p class="adm-muted">统计用户充值，以及后台手动增加和减少积分的流水。</p>
         </div>
       </div>
       <div class="adm-stats">
         ${statCard("成功流水", summary.totalCount || 0, `${summary.totalCredits || 0} credits`, "receipt-text", "rose")}
         ${statCard("用户充值", summary.userTopupCount || 0, `${summary.userTopupCredits || 0} credits · $${summary.userTopupUsd || 0}`, "wallet-cards", "mint")}
-        ${statCard("后台加币", summary.manualCount || 0, `${summary.manualCredits || 0} credits`, "user-plus", "amber")}
+        ${statCard("后台调整", summary.manualCount || 0, `+${summary.manualAddedCredits || 0} / -${summary.manualReducedCredits || 0} credits`, "sliders-horizontal", "amber")}
       </div>
       <div class="adm-card adm-mt">
         <div class="adm-card-head">
           <div>
             <h3>流水明细</h3>
-            <p class="adm-muted">只展示成功入账记录。待支付订单仍在「钱包订单」处理。</p>
+            <p class="adm-muted">减少积分也会单独记录。待支付订单仍在「钱包订单」处理。</p>
           </div>
           <div class="adm-actions">
             <select id="rechargeSourceFilter" class="adm-select">
               <option value="" ${source === "" ? "selected" : ""}>全部来源</option>
               <option value="user_topup" ${source === "user_topup" ? "selected" : ""}>用户充值</option>
-              <option value="manual_admin" ${source === "manual_admin" ? "selected" : ""}>后台手动加币</option>
+              <option value="manual_admin" ${source === "manual_admin" ? "selected" : ""}>后台手动调整</option>
             </select>
             <input id="rechargeSearchInput" class="adm-input" value="${escapeHtml(q)}" placeholder="搜索用户 / 订单 / hash / 备注" />
             <button class="adm-btn adm-btn-ghost" id="rechargeSearchBtn" type="button"><i data-lucide="search"></i>查询</button>
@@ -2997,13 +3006,13 @@ async function renderRecharges(pageArg = null, limitArg = null) {
         <div class="adm-card-body adm-table-wrap">
           ${records.length ? `
             <table class="adm-table adm-recharge-table">
-              <thead><tr><th>来源</th><th>用户</th><th>入账积分</th><th>支付金额</th><th>支付 / 操作信息</th><th>时间</th><th>备注</th></tr></thead>
+              <thead><tr><th>来源</th><th>用户</th><th>积分变动</th><th>支付金额</th><th>支付 / 操作信息</th><th>时间</th><th>备注</th></tr></thead>
               <tbody>
                 ${records.map((r) => `
                   <tr>
                     <td><span class="adm-pill ${r.source === "manual_admin" ? "is-admin" : ""}">${escapeHtml(r.sourceLabel || r.source)}</span><br/><span class="adm-muted adm-mono">${escapeHtml(r.id)}</span></td>
                     <td><strong>${escapeHtml(r.username || r.userId)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.userId || "")}</span></td>
-                    <td><strong>${escapeHtml(r.credits || 0)}</strong></td>
+                    <td><strong ${Number(r.credits || 0) < 0 ? 'style="color:var(--adm-danger)"' : ""}>${Number(r.credits || 0) > 0 ? "+" : ""}${escapeHtml(r.credits ?? 0)}</strong></td>
                     <td>${r.source === "user_topup" ? `<strong>$${escapeHtml(r.amountUsd || "")}</strong><br/><span class="adm-muted">${escapeHtml(r.payableAmountText || r.payableAmount || "")} ${escapeHtml(r.asset || "")}</span>` : `<span class="adm-muted">-</span>`}</td>
                     <td class="adm-truncate">
                       ${r.source === "manual_admin"
@@ -3015,7 +3024,7 @@ async function renderRecharges(pageArg = null, limitArg = null) {
                   </tr>`).join("")}
               </tbody>
             </table>
-          ` : `<div class="adm-empty"><i data-lucide="receipt-text"></i><p>暂无成功充值流水</p></div>`}
+          ` : `<div class="adm-empty"><i data-lucide="receipt-text"></i><p>暂无充值或调整流水</p></div>`}
         </div>
         ${adminPagerHtml(payload)}
       </div>
