@@ -555,7 +555,7 @@ const DEFAULT_CONFIG = {
     heroSubtitle: "Choose a template, upload an image or enter text, and create a new video.",
     notice: "Generated results are saved in history. Video links may expire after 24 hours, so download and save them in time.",
     accessCopy:
-      "POST /api/advanced/generate\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"provider\":\"seedance\",\"model\":\"dreamina-seedance-2-0-260128\",\"prompt\":\"Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot.\",\"seedanceMode\":\"reference_video\",\"referenceImages\":[{\"url\":\"https://example.com/image1.png\",\"fileName\":\"image1.png\"}],\"referenceVideoUrls\":[\"https://example.com/video1.mp4\"],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true}\n\nGET /api/generation-records/<taskId>",
+      "POST /api/v3/contents/generations/tasks\nAuthorization: Bearer <user-token>\nContent-Type: application/json\n\n{\"model\":\"dreamina-seedance-2-0-260128\",\"content\":[{\"type\":\"text\",\"text\":\"Use Image 1 as the character reference and Video 1 as motion reference. Generate a cinematic 5 second shot.\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://example.com/image1.png\"},\"role\":\"reference_image\"},{\"type\":\"video_url\",\"video_url\":{\"url\":\"https://example.com/video1.mp4\"},\"role\":\"reference_video\"}],\"ratio\":\"9:16\",\"resolution\":\"720p\",\"duration\":5,\"generate_audio\":true,\"watermark\":false}\n\nGET /api/v3/contents/generations/tasks/<taskId>",
     advancedPricing: DEFAULT_ADVANCED_PRICING,
     analytics: {
       googleMeasurementId: "",
@@ -3064,10 +3064,11 @@ function buildLlmsTxt(snapshot, { full = false } = {}) {
     `- API guide: ${scopedApiUrl(snapshot.origin, "/#access")}`,
     "",
     "## API",
-    "- Primary generation endpoint: POST /api/advanced/generate",
-    "- Query generation records: GET /api/generation-records/<taskId>",
+    "- Primary Seedance generation endpoint: POST /api/v3/contents/generations/tasks",
+    "- Query Seedance V3 tasks: GET /api/v3/contents/generations/tasks/<taskId>",
+    "- Legacy Advanced endpoint: POST /api/advanced/generate",
     "- Public model guide: GET /models.md",
-    "- API clients should use the public platform endpoint and should not call upstream vendor task routes directly.",
+    "- New Seedance clients should use the BytePlus-compatible content[] request shape.",
     "",
     "## Content",
     `- Public character profiles: ${snapshot.characters.length}`,
@@ -3231,7 +3232,7 @@ function buildGeoAiProbePlan(snapshot = {}) {
         question: `Which public API endpoint should developers use for ${brand} video generation?`,
         intent: "接口发现",
         targetUrl: scopedApiUrl(origin, "/llms.txt"),
-        expectedSignals: ["/api/advanced/generate", "Authorization", "credits"],
+        expectedSignals: ["/api/v3/contents/generations/tasks", "Authorization", "credits"],
         status: "待测试",
       },
       {
@@ -3553,8 +3554,8 @@ async function handleAdminGeoReport(req, res) {
     { id: "support-contact", label: "客服入口信号", path: "/", url: scopedApiUrl(snapshot.origin, "/"), expect: ["Telegram", "VipeakSupportBot"] },
     { id: "robots", label: "robots.txt", path: "/robots.txt", url: scopedApiUrl(snapshot.origin, "/robots.txt"), expect: ["Sitemap:", "/sitemap.xml", "OAI-SearchBot", "PerplexityBot"] },
     { id: "sitemap", label: "sitemap.xml", path: "/sitemap.xml", url: scopedApiUrl(snapshot.origin, "/sitemap.xml"), expect: ["<urlset", "/characters/"] },
-    { id: "llms", label: "llms.txt 基础信号", path: "/llms.txt", url: scopedApiUrl(snapshot.origin, "/llms.txt"), expect: [snapshot.brand, "/api/advanced/generate"] },
-    { id: "api-access-signal", label: "API 接入信号", path: "/llms.txt", url: scopedApiUrl(snapshot.origin, "/llms.txt"), expect: ["/api/advanced/generate", "Authorization", "credits"] },
+    { id: "llms", label: "llms.txt 基础信号", path: "/llms.txt", url: scopedApiUrl(snapshot.origin, "/llms.txt"), expect: [snapshot.brand, "/api/v3/contents/generations/tasks"] },
+    { id: "api-access-signal", label: "API 接入信号", path: "/llms.txt", url: scopedApiUrl(snapshot.origin, "/llms.txt"), expect: ["/api/v3/contents/generations/tasks", "Authorization", "credits"] },
     { id: "llms-full", label: "llms-full.txt", path: "/llms-full.txt", url: scopedApiUrl(snapshot.origin, "/llms-full.txt"), expect: ["GEO Notes", "VideoObject"] },
     {
       id: "indexnow-key",
@@ -3657,7 +3658,7 @@ async function handleAdminGeoReport(req, res) {
       "把标签页和分类页作为 AI / 搜索可抓取的主题入口。",
       "导入新角色批次或切换域名后，运行 GEO 检查。",
       "站点地图或角色页变化后提交 IndexNow，然后在这里观察真实用户访问。",
-      "对外接口文案避免暴露上游供应商路由，统一保留 /api/advanced/generate 作为文档入口。",
+      "对外接口文档统一使用 BytePlus-compatible V3 /api/v3/contents/generations/tasks 参数，旧 /api/advanced/generate 仅作为兼容入口。",
     ],
   });
 }
@@ -4841,8 +4842,14 @@ function seedanceModelAliasKind(model = "") {
     SEEDANCE_FAST_ENDPOINT_ID.toLowerCase().replace(/[\s_-]+/g, ""),
     "dreaminaseedance20fast260128",
     "dreaminaseedance2.0fast260128",
+    "dreaminaseedance20fasthc",
+    "dreaminaseedance2.0fasthc",
+    "dreaminaseedance20minihc",
+    "dreaminaseedance2.0minihc",
     "seedance20fast",
     "seedance2.0fast",
+    "seedance20mini",
+    "seedance2.0mini",
     "vipeak2fast",
     "vp2fast",
   ];
@@ -4850,6 +4857,8 @@ function seedanceModelAliasKind(model = "") {
     SEEDANCE_QUALITY_ENDPOINT_ID.toLowerCase().replace(/[\s_-]+/g, ""),
     "dreaminaseedance20260128",
     "dreaminaseedance2.0260128",
+    "dreaminaseedance20hc",
+    "dreaminaseedance2.0hc",
     "seedance20",
     "seedance2.0",
     "vipeak2standard",
@@ -8034,7 +8043,15 @@ const SEEDANCE_TOP_LEVEL_PASSTHROUGH_FIELDS = [
   "duration",
   "generate_audio",
   "web_search",
+  "callback_url",
+  "return_last_frame",
+  "service_tier",
+  "execution_expires_after",
+  "draft",
+  "safety_identifier",
+  "priority",
   "seed",
+  "frames",
   "watermark",
   "fps",
   "camera_fixed",
@@ -13785,6 +13802,20 @@ async function runAdvancedGenerationJob(job = {}) {
         const watermarkValue = firstPresent(requestParams.watermark, requestParams.parameters?.watermark);
         if (webSearchValue !== undefined) gatewayBody.web_search = boolFromRequest(webSearchValue, false);
         if (watermarkValue !== undefined) gatewayBody.watermark = boolFromRequest(watermarkValue, false);
+        [
+          "callback_url",
+          "return_last_frame",
+          "service_tier",
+          "execution_expires_after",
+          "draft",
+          "safety_identifier",
+          "priority",
+          "frames",
+          "fps",
+          "camera_fixed",
+        ].forEach((field) => {
+          if (requestParams[field] !== undefined) gatewayBody[field] = requestParams[field];
+        });
       }
       if (provider === "wan27") {
         const dbForGateway = await readDb();
@@ -13943,6 +13974,646 @@ async function runAdvancedGenerationJob(job = {}) {
     } catch (updateError) {
       console.error("[advanced-generation-fail-update-error]", taskId, updateError.message || updateError);
     }
+  }
+}
+
+function byteplusRequestId() {
+  return `req-${crypto.randomBytes(12).toString("hex")}`;
+}
+
+function byteplusErrorPayload({ code = "InvalidParameter", message = "Invalid parameter.", param = "", type = "BadRequest" } = {}) {
+  return { error: { code, message, param, type } };
+}
+
+function byteplusHttpError(statusCode = 400, message = "Invalid parameter.", param = "", code = "InvalidParameter") {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.byteplusError = byteplusErrorPayload({
+    code,
+    message,
+    param,
+    type: statusCode === 404 ? "NotFound" : "BadRequest",
+  });
+  return error;
+}
+
+function sendByteplusError(res, statusCode = 400, error = {}) {
+  const payload = error?.byteplusError || byteplusErrorPayload({
+    code: error?.code || (statusCode === 404 ? "ResourceNotFound" : "InvalidParameter"),
+    message: error?.message || "Invalid parameter.",
+    param: error?.param || "",
+    type: statusCode === 404 ? "NotFound" : "BadRequest",
+  });
+  return sendJson(res, statusCode, payload);
+}
+
+function captureJsonResponse() {
+  return {
+    statusCode: 200,
+    headers: {},
+    body: "",
+    writeHead(statusCode, headers = {}) {
+      this.statusCode = Number(statusCode || 200);
+      this.headers = headers || {};
+      return this;
+    },
+    end(chunk) {
+      if (chunk !== undefined && chunk !== null) {
+        this.body += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      }
+      return this;
+    },
+  };
+}
+
+function capturedJsonPayload(captured = {}) {
+  try {
+    return captured.body ? JSON.parse(captured.body) : {};
+  } catch {
+    return {};
+  }
+}
+
+function byteplusNestedMediaUrl(item = {}, type = "") {
+  if (!item || typeof item !== "object") return "";
+  if (type === "image_url") return nestedMediaUrl(item.image_url) || nestedMediaUrl(item.imageUrl) || nestedMediaUrl(item.url) || nestedMediaUrl(item);
+  if (type === "video_url") return nestedMediaUrl(item.video_url) || nestedMediaUrl(item.videoUrl) || nestedMediaUrl(item.url) || nestedMediaUrl(item);
+  if (type === "audio_url") return nestedMediaUrl(item.audio_url) || nestedMediaUrl(item.audioUrl) || nestedMediaUrl(item.url) || nestedMediaUrl(item);
+  return nestedMediaUrl(item.url) || nestedMediaUrl(item);
+}
+
+function byteplusLocalAssetFromUri(auth = {}, uri = "") {
+  const text = String(uri || "").trim();
+  if (!text.startsWith("asset://")) return null;
+  const id = text.slice("asset://".length).trim();
+  if (!id) return null;
+  return (auth.db?.userAssets || []).find((asset) => asset.id === id && asset.userId === auth.user?.id && !isSoftDeleted(asset)) || null;
+}
+
+function byteplusAssetIdFromUri(uri = "") {
+  const text = String(uri || "").trim();
+  return text.startsWith("asset://") ? text.slice("asset://".length).trim() : "";
+}
+
+function pushByteplusV3AssetReference(auth, target, role, url, param, item = {}) {
+  const value = String(url || "").trim();
+  if (!value) throw byteplusHttpError(400, `${param} is required.`, param);
+  try {
+    const kind = role === "reference_video" ? "video" : role === "reference_audio" ? "audio" : "image";
+    assertSeedanceMediaUrl(value, param, { kind });
+  } catch (error) {
+    throw byteplusHttpError(400, error.message || `${param} is not valid.`, param, error.code || "InvalidParameter");
+  }
+
+  const localAsset = byteplusLocalAssetFromUri(auth, value);
+  const localAssetId = localAsset?.id || "";
+  const requestedAssetId = byteplusAssetIdFromUri(value);
+  if (requestedAssetId && !localAsset) {
+    throw byteplusHttpError(404, `The specified asset ${requestedAssetId} is not found.`, param, "ResourceNotFound");
+  }
+  if (localAsset) {
+    if (role === "first_frame") {
+      target.firstFrameAssetId = localAssetId;
+      return;
+    }
+    if (role === "last_frame") {
+      target.endImageAssetId = localAssetId;
+      return;
+    }
+    if (role === "reference_video") {
+      target.referenceVideoAssetIds.push(localAssetId);
+      return;
+    }
+    if (role === "reference_audio") {
+      target.referenceAudioAssetIds.push(localAssetId);
+      return;
+    }
+    target.referenceImages.push({ assetId: localAssetId, fileName: item.fileName || item.name || localAsset.name || "" });
+    return;
+  }
+
+  if (role === "first_frame") {
+    target.image_url = value;
+    return;
+  }
+  if (role === "last_frame") {
+    target.end_image_url = value;
+    return;
+  }
+  if (role === "reference_video") {
+    target.referenceVideoUrls.push(value);
+    return;
+  }
+  if (role === "reference_audio") {
+    target.referenceAudioUrls.push(value);
+    return;
+  }
+  target.referenceImages.push({ url: value, fileName: item.fileName || item.name || "" });
+}
+
+function byteplusSeedanceTierFromModel(model = "") {
+  const alias = seedanceModelAliasKind(model);
+  if (alias) return alias;
+  const normalized = String(model || "").toLowerCase();
+  return normalized.includes("fast") || normalized.includes("mini") ? "fast" : "standard";
+}
+
+function byteplusV3TaskToAdvancedBody(body = {}, auth = {}) {
+  const model = String(body.model || "").trim();
+  if (!model) throw byteplusHttpError(400, "model is required.", "model");
+  if (!Array.isArray(body.content) || body.content.length < 1 || body.content.length > 16) {
+    throw byteplusHttpError(400, "content must be an array with 1 to 16 items.", "content");
+  }
+  const promptParts = [];
+  const target = {
+    referenceImages: [],
+    referenceVideoUrls: [],
+    referenceVideoAssetIds: [],
+    referenceAudioUrls: [],
+    referenceAudioAssetIds: [],
+  };
+  let hasFirstFrame = false;
+  let hasLastFrame = false;
+  let hasReferenceImage = false;
+  let hasReferenceVideo = false;
+  let hasReferenceAudio = false;
+  let imageCount = 0;
+  let videoCount = 0;
+  let audioCount = 0;
+
+  body.content.forEach((rawItem, index) => {
+    const param = `content[${index}]`;
+    const item = normalizeSeedanceContentItem(rawItem);
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw byteplusHttpError(400, `${param} must be an object.`, param);
+    }
+    const type = String(item.type || "").trim().toLowerCase();
+    if (type === "text") {
+      const text = String(item.text || "").trim();
+      if (text) promptParts.push(text);
+      return;
+    }
+    const rawRole = String(item.role || "").trim().toLowerCase();
+    if (type === "image_url") {
+      const role = rawRole || "reference_image";
+      if (!["first_frame", "last_frame", "reference_image"].includes(role)) {
+        throw byteplusHttpError(400, "image_url role must be first_frame, last_frame, or reference_image.", `${param}.role`);
+      }
+      const url = byteplusNestedMediaUrl(item, type);
+      pushByteplusV3AssetReference(auth, target, role, url, `${param}.image_url.url`, item);
+      imageCount += 1;
+      hasFirstFrame = hasFirstFrame || role === "first_frame";
+      hasLastFrame = hasLastFrame || role === "last_frame";
+      hasReferenceImage = hasReferenceImage || role === "reference_image";
+      return;
+    }
+    if (type === "video_url") {
+      const role = rawRole || "";
+      if (role !== "reference_video") {
+        throw byteplusHttpError(400, "reference videos require role=reference_video.", `${param}.role`);
+      }
+      const url = byteplusNestedMediaUrl(item, type);
+      pushByteplusV3AssetReference(auth, target, role, url, `${param}.video_url.url`, item);
+      videoCount += 1;
+      hasReferenceVideo = true;
+      return;
+    }
+    if (type === "audio_url") {
+      const role = rawRole || "";
+      if (role !== "reference_audio") {
+        throw byteplusHttpError(400, "reference audios require role=reference_audio.", `${param}.role`);
+      }
+      const url = byteplusNestedMediaUrl(item, type);
+      pushByteplusV3AssetReference(auth, target, role, url, `${param}.audio_url.url`, item);
+      audioCount += 1;
+      hasReferenceAudio = true;
+      return;
+    }
+    throw byteplusHttpError(400, `content type ${type || "(empty)"} is not supported.`, `${param}.type`);
+  });
+
+  const prompt = promptParts.join("\n").trim();
+  if (!prompt) throw byteplusHttpError(400, "content must include a non-empty text prompt.", "content");
+  if (imageCount > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+    throw byteplusHttpError(400, `Seedance supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs.`, "content");
+  }
+  if (videoCount > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
+    throw byteplusHttpError(400, `Seedance supports at most ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} video inputs.`, "content");
+  }
+  if (audioCount > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
+    throw byteplusHttpError(400, `Seedance supports at most ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audio inputs.`, "content");
+  }
+  if (hasLastFrame && !hasFirstFrame) {
+    throw byteplusHttpError(400, "last_frame requires a matching first_frame image.", "content");
+  }
+  if ((hasFirstFrame || hasLastFrame) && (hasReferenceImage || hasReferenceVideo || hasReferenceAudio)) {
+    throw byteplusHttpError(400, "first_frame and last_frame roles cannot be mixed with reference media.", "content");
+  }
+  if (hasReferenceAudio && !hasReferenceImage && !hasReferenceVideo) {
+    throw byteplusHttpError(400, "audio_url references must be combined with at least one image_url or video_url reference.", "content");
+  }
+
+  const seedanceMode = hasFirstFrame || hasLastFrame
+    ? (hasLastFrame ? "first_last_frame" : "first_frame")
+    : (hasReferenceVideo || hasReferenceAudio ? "reference_video" : hasReferenceImage ? "reference_images" : "text_to_video");
+  const seedanceTier = byteplusSeedanceTierFromModel(model);
+  const advancedBody = {
+    provider: "seedance",
+    model,
+    seedanceTier,
+    prompt,
+    seedanceMode,
+    ratio: firstPresent(body.ratio, body.aspect_ratio, "9:16"),
+    resolution: firstPresent(body.resolution, "720p"),
+    duration: firstPresent(body.duration, body.durationSeconds, 5),
+    generate_audio: boolFromRequest(firstPresent(body.generate_audio, body.generateAudio), true),
+    watermark: boolFromRequest(body.watermark, false),
+    parameters: {},
+  };
+  [
+    "callback_url",
+    "return_last_frame",
+    "service_tier",
+    "execution_expires_after",
+    "draft",
+    "safety_identifier",
+    "priority",
+    "seed",
+    "frames",
+    "fps",
+    "camera_fixed",
+    "web_search",
+  ].forEach((field) => {
+    if (body[field] !== undefined) advancedBody[field] = body[field];
+  });
+  if (target.image_url) advancedBody.image_url = target.image_url;
+  if (target.end_image_url) advancedBody.end_image_url = target.end_image_url;
+  if (target.firstFrameAssetId) advancedBody.firstFrameAssetId = target.firstFrameAssetId;
+  if (target.endImageAssetId) advancedBody.endImageAssetId = target.endImageAssetId;
+  if (target.referenceImages.length) advancedBody.referenceImages = target.referenceImages;
+  if (target.referenceVideoUrls.length) advancedBody.referenceVideoUrls = target.referenceVideoUrls;
+  if (target.referenceVideoAssetIds.length) advancedBody.referenceVideoAssetIds = target.referenceVideoAssetIds;
+  if (target.referenceAudioUrls.length) advancedBody.referenceAudioUrls = target.referenceAudioUrls;
+  if (target.referenceAudioAssetIds.length) advancedBody.referenceAudioAssetIds = target.referenceAudioAssetIds;
+  return advancedBody;
+}
+
+function byteplusTaskStatus(status = "") {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (isSucceededStatus(normalized)) return "succeeded";
+  if (isFailedStatus(normalized)) return "failed";
+  if (["running", "processing"].includes(normalized)) return "running";
+  if (["cancelled", "canceled", "expired"].includes(normalized)) return normalized === "canceled" ? "cancelled" : normalized;
+  return "queued";
+}
+
+function unixSecondsFromIso(value = "") {
+  const ms = Date.parse(String(value || ""));
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : Math.floor(Date.now() / 1000);
+}
+
+function usageFromGenerationRecord(record = {}) {
+  const candidates = [
+    record.queryResponse?.usage,
+    record.createResponse?.usage,
+    record.queryResponse?.data?.usage,
+    record.createResponse?.data?.usage,
+    record.queryResponse?.task?.usage,
+    record.createResponse?.task?.usage,
+  ].filter(Boolean);
+  const usage = candidates.find((item) => item && typeof item === "object") || {};
+  const completion = Number(firstPresent(usage.completion_tokens, usage.completionTokens, usage.total_tokens, usage.totalTokens, record.pricingEstimate?.outputTokens));
+  if (!Number.isFinite(completion) || completion <= 0) return undefined;
+  return { completion_tokens: completion, total_tokens: completion };
+}
+
+function byteplusTaskFromRecord(record = {}, options = {}) {
+  const publicRecord = publicGenerationRecord(record, options);
+  const status = byteplusTaskStatus(publicRecord.status);
+  const params = publicRecord.params && typeof publicRecord.params === "object" ? publicRecord.params : {};
+  const response = {
+    id: publicRecord.taskId || record.taskId || "",
+    model: publicRecord.model || params.model || "",
+    status,
+    created_at: unixSecondsFromIso(publicRecord.createdAt || record.createdAt),
+    updated_at: unixSecondsFromIso(publicRecord.updatedAt || record.updatedAt || record.createdAt),
+    generate_audio: boolFromRequest(firstPresent(params.generate_audio, params.generateAudio), true),
+    seed: firstPresent(params.seed, -1),
+    resolution: publicRecord.resolution || params.resolution || "720p",
+    ratio: publicRecord.ratio || params.ratio || "9:16",
+    duration: publicRecord.duration || params.duration || 5,
+    framespersecond: Number(firstPresent(params.fps, params.framespersecond, 24)),
+    priority: Number(firstPresent(params.priority, 0)),
+    draft: boolFromRequest(params.draft, false),
+    service_tier: String(params.service_tier || "default"),
+    execution_expires_after: Number(firstPresent(params.execution_expires_after, 172800)),
+  };
+  if (status === "succeeded") {
+    const content = {};
+    if (publicRecord.videoUrl || publicRecord.downloadUrl) content.video_url = publicRecord.videoUrl || publicRecord.downloadUrl;
+    if (publicRecord.imageResultUrl) content.image_url = publicRecord.imageResultUrl;
+    if (Object.keys(content).length) response.content = content;
+    const usage = usageFromGenerationRecord(record);
+    if (usage) response.usage = usage;
+  }
+  if (status === "failed") {
+    response.error = {
+      code: publicRecord.error ? "TaskFailed" : "500",
+      message: publicRecord.error || "Task failed",
+    };
+  }
+  return response;
+}
+
+async function handleByteplusV3CreateTask(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  try {
+    const body = await readJson(req);
+    const advancedBody = byteplusV3TaskToAdvancedBody(body, auth);
+    const captured = captureJsonResponse();
+    await handleAdvancedGenerate(withJsonBody(req, advancedBody), captured);
+    const payload = capturedJsonPayload(captured);
+    if (captured.statusCode >= 400 || !payload?.taskId) {
+      return sendByteplusError(res, captured.statusCode || 400, {
+        code: payload?.code || payload?.error?.code || "InvalidParameter",
+        message: payload?.message || payload?.error?.message || "Failed to create task.",
+        param: payload?.param || payload?.error?.param || "",
+        byteplusError: payload?.error ? payload : null,
+      });
+    }
+    return sendJson(res, 200, { id: payload.taskId });
+  } catch (error) {
+    return sendByteplusError(res, error.statusCode || 400, error);
+  }
+}
+
+async function handleByteplusV3GetTask(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const captured = captureJsonResponse();
+  await handleGetGenerationRecord(req, captured, taskId);
+  const payload = capturedJsonPayload(captured);
+  if (captured.statusCode >= 400 || !payload?.record) {
+    return sendByteplusError(res, captured.statusCode || 404, {
+      code: payload?.code || "ResourceNotFound",
+      message: payload?.message || "Task not found.",
+      byteplusError: payload?.error ? payload : null,
+    });
+  }
+  const record = await getGenerationRecord(taskId);
+  return sendJson(res, 200, byteplusTaskFromRecord(record || payload.record, generationRecordResponseOptionsForAuth(auth)));
+}
+
+function byteplusActionEnvelope(action = "", result = {}) {
+  return {
+    ResponseMetadata: {
+      RequestId: byteplusRequestId(),
+      Action: action,
+      Version: "2024-01-01",
+      Service: "ark",
+      Region: "ap-southeast-1",
+    },
+    Result: result,
+  };
+}
+
+function byteplusActionErrorPayload(action = "", statusCode = 400, message = "Invalid parameter.", code = "InvalidParameter", param = "") {
+  return {
+    ResponseMetadata: {
+      RequestId: byteplusRequestId(),
+      Action: action,
+      Version: "2024-01-01",
+      Service: "ark",
+      Region: "ap-southeast-1",
+      Error: {
+        Code: code,
+        Message: message,
+        Data: {
+          "__Message.parameter": param,
+        },
+      },
+    },
+  };
+}
+
+function byteplusAssetGroupsKey(userId = "") {
+  return `byteplus_asset_groups:${String(userId || "").trim()}`;
+}
+
+async function listByteplusAssetGroups(userId = "") {
+  const groups = await getKv(byteplusAssetGroupsKey(userId), []);
+  return Array.isArray(groups) ? groups : [];
+}
+
+async function saveByteplusAssetGroups(userId = "", groups = []) {
+  await setKv(byteplusAssetGroupsKey(userId), Array.isArray(groups) ? groups : []);
+}
+
+function byteplusAssetTypeFromMime(mime = "") {
+  const normalized = String(mime || "").toLowerCase();
+  if (normalized.startsWith("video/")) return "Video";
+  if (normalized.startsWith("audio/")) return "Audio";
+  return "Image";
+}
+
+function byteplusAssetGroupId(asset = {}) {
+  return String(asset.byteplusGroupId || asset.groupId || asset.meta?.byteplusGroupId || asset.meta?.GroupId || "").trim();
+}
+
+function byteplusAssetView(asset = {}) {
+  return {
+    Id: String(asset.id || ""),
+    Name: String(asset.name || ""),
+    URL: String(asset.publicUrl || asset.cdnUrl || asset.localUrl || asset.sourceUrl || ""),
+    AssetType: byteplusAssetTypeFromMime(asset.mime),
+    GroupId: byteplusAssetGroupId(asset),
+    Status: isSoftDeleted(asset) ? "Deleted" : "Active",
+    Moderation: asset.meta?.Moderation || asset.meta?.moderation || { Strategy: "Default" },
+    ProjectName: String(asset.meta?.ProjectName || asset.meta?.projectName || "default"),
+    CreateTime: String(asset.createdAt || ""),
+    UpdateTime: String(asset.updatedAt || asset.createdAt || ""),
+  };
+}
+
+function byteplusGroupView(group = {}) {
+  return {
+    Id: String(group.Id || group.id || ""),
+    Name: String(group.Name || group.name || ""),
+    Description: String(group.Description || group.description || ""),
+    GroupType: String(group.GroupType || group.groupType || "AIGC"),
+    ProjectName: String(group.ProjectName || group.projectName || "default"),
+    CreateTime: String(group.CreateTime || group.createdAt || ""),
+    UpdateTime: String(group.UpdateTime || group.updatedAt || group.createdAt || ""),
+  };
+}
+
+async function handleByteplusAssetAction(req, res, url) {
+  const action = String(url.searchParams.get("Action") || url.searchParams.get("action") || "").trim();
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  try {
+    const queryBody = Object.fromEntries(url.searchParams.entries());
+    delete queryBody.Action;
+    delete queryBody.action;
+    delete queryBody.Version;
+    delete queryBody.version;
+    const rawBody = req.method === "GET" ? {} : await readJson(req);
+    const body = { ...queryBody, ...(rawBody && typeof rawBody === "object" && !Array.isArray(rawBody) ? rawBody : {}) };
+    const nowIso = new Date().toISOString();
+    const actionKey = action.toLowerCase();
+    if (actionKey === "createassetgroup") {
+      const name = String(body.Name || body.name || "").trim();
+      if (!name) throw byteplusHttpError(400, "Name is required.", "Name");
+      const group = {
+        Id: localGenerationTaskId("group"),
+        Name: name.slice(0, 64),
+        Description: String(body.Description || body.description || "").slice(0, 300),
+        GroupType: String(body.GroupType || body.groupType || "AIGC") || "AIGC",
+        ProjectName: String(body.ProjectName || body.projectName || "default") || "default",
+        CreateTime: nowIso,
+        UpdateTime: nowIso,
+      };
+      const groups = await listByteplusAssetGroups(auth.user.id);
+      groups.unshift(group);
+      await saveByteplusAssetGroups(auth.user.id, groups);
+      return sendJson(res, 200, byteplusActionEnvelope("CreateAssetGroup", { Id: group.Id }));
+    }
+    if (actionKey === "getassetgroup") {
+      const id = String(body.Id || body.id || "").trim();
+      const group = (await listByteplusAssetGroups(auth.user.id)).find((item) => String(item.Id || item.id) === id && !item.DeletedAt);
+      if (!group) return sendJson(res, 404, byteplusActionErrorPayload("GetAssetGroup", 404, `The specified asset group ${id} is not found.`, "NotFound.group_id", "Id"));
+      return sendJson(res, 200, byteplusActionEnvelope("GetAssetGroup", byteplusGroupView(group)));
+    }
+    if (actionKey === "listassetgroups") {
+      const pageNumber = Math.max(1, Number(body.PageNumber || body.page || 1));
+      const pageSize = Math.min(100, Math.max(1, Number(body.PageSize || body.pageSize || 10)));
+      const filter = body.Filter && typeof body.Filter === "object" ? body.Filter : {};
+      const wantedIds = new Set(arrayFromBody(filter.GroupIds).map((item) => String(item || "").trim()).filter(Boolean));
+      const name = String(filter.Name || "").trim().toLowerCase();
+      const groups = (await listByteplusAssetGroups(auth.user.id))
+        .filter((item) => !item.DeletedAt)
+        .filter((item) => !wantedIds.size || wantedIds.has(String(item.Id || item.id || "")))
+        .filter((item) => !name || String(item.Name || item.name || "").toLowerCase().includes(name))
+        .map(byteplusGroupView);
+      const start = (pageNumber - 1) * pageSize;
+      return sendJson(res, 200, byteplusActionEnvelope("ListAssetGroups", {
+        TotalCount: groups.length,
+        Items: groups.slice(start, start + pageSize),
+        PageNumber: pageNumber,
+        PageSize: pageSize,
+      }));
+    }
+    if (actionKey === "updateassetgroup") {
+      const id = String(body.Id || body.id || "").trim();
+      const groups = await listByteplusAssetGroups(auth.user.id);
+      const index = groups.findIndex((item) => String(item.Id || item.id) === id && !item.DeletedAt);
+      if (index < 0) return sendJson(res, 404, byteplusActionErrorPayload("UpdateAssetGroup", 404, `The specified asset group ${id} is not found.`, "NotFound.group_id", "Id"));
+      groups[index] = {
+        ...groups[index],
+        Name: body.Name !== undefined ? String(body.Name || "").slice(0, 64) : groups[index].Name,
+        Description: body.Description !== undefined ? String(body.Description || "").slice(0, 300) : groups[index].Description,
+        UpdateTime: nowIso,
+      };
+      await saveByteplusAssetGroups(auth.user.id, groups);
+      return sendJson(res, 200, byteplusActionEnvelope("UpdateAssetGroup", { Id: id }));
+    }
+    if (actionKey === "deleteassetgroup") {
+      const id = String(body.Id || body.id || "").trim();
+      const groups = await listByteplusAssetGroups(auth.user.id);
+      const index = groups.findIndex((item) => String(item.Id || item.id) === id && !item.DeletedAt);
+      if (index < 0) return sendJson(res, 404, byteplusActionErrorPayload("DeleteAssetGroup", 404, `The specified asset group ${id} is not found.`, "NotFound.group_id", "Id"));
+      groups[index] = { ...groups[index], DeletedAt: nowIso, UpdateTime: nowIso };
+      await saveByteplusAssetGroups(auth.user.id, groups);
+      return sendJson(res, 200, byteplusActionEnvelope("DeleteAssetGroup", { Id: id }));
+    }
+    if (actionKey === "createasset") {
+      const sourceUrl = String(body.URL || body.Url || body.url || "").trim();
+      if (!sourceUrl) throw byteplusHttpError(400, "URL is required.", "URL");
+      const assetType = String(body.AssetType || body.assetType || "").trim();
+      if (assetType && !["Image", "Video", "Audio"].includes(assetType)) {
+        throw byteplusHttpError(400, "AssetType must be Image, Video, or Audio.", "AssetType");
+      }
+      const groupId = String(body.GroupId || body.groupId || "").trim();
+      const asset = await createUserMediaAssetFromPublicUrl(auth.db, auth.user, {
+        url: sourceUrl,
+        name: body.Name || body.name || path.basename(new URL(sourceUrl).pathname) || "reference asset",
+        fileName: body.Name || body.name || path.basename(new URL(sourceUrl).pathname) || "",
+        durationSeconds: firstPresent(body.DurationSeconds, body.durationSeconds, body.Duration, body.duration),
+        meta: {
+          byteplusGroupId: groupId,
+          Moderation: body.Moderation || body.moderation || { Strategy: "Default" },
+          ProjectName: body.ProjectName || body.projectName || "default",
+        },
+      });
+      asset.byteplusGroupId = groupId;
+      asset.meta = {
+        ...(asset.meta && typeof asset.meta === "object" ? asset.meta : {}),
+        byteplusGroupId: groupId,
+        Moderation: body.Moderation || body.moderation || asset.meta?.Moderation || { Strategy: "Default" },
+        ProjectName: body.ProjectName || body.projectName || asset.meta?.ProjectName || "default",
+      };
+      asset.updatedAt = nowIso;
+      auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+      if (dbEnabled()) await upsertUserAssetInDb(asset);
+      else await writeDb(auth.db);
+      return sendJson(res, 200, byteplusActionEnvelope("CreateAsset", { Id: asset.id }));
+    }
+    if (actionKey === "getasset") {
+      const id = String(body.Id || body.id || "").trim();
+      const asset = (auth.db.userAssets || []).find((entry) => entry.id === id && entry.userId === auth.user.id && !isSoftDeleted(entry));
+      if (!asset) return sendJson(res, 404, byteplusActionErrorPayload("GetAsset", 404, `The specified asset ${id} is not found.`, "NotFound.asset_id", "Id"));
+      return sendJson(res, 200, byteplusActionEnvelope("GetAsset", byteplusAssetView(asset)));
+    }
+    if (actionKey === "listassets") {
+      const pageNumber = Math.max(1, Number(body.PageNumber || body.page || 1));
+      const pageSize = Math.min(100, Math.max(1, Number(body.PageSize || body.pageSize || 10)));
+      const filter = body.Filter && typeof body.Filter === "object" ? body.Filter : {};
+      const wantedGroups = new Set(arrayFromBody(filter.GroupIds).map((item) => String(item || "").trim()).filter(Boolean));
+      const wantedStatuses = new Set(arrayFromBody(filter.Statuses).map((item) => String(item || "").trim()).filter(Boolean));
+      const name = String(filter.Name || "").trim().toLowerCase();
+      const type = String(filter.AssetType || filter.Type || body.AssetType || "").trim();
+      const assets = (auth.db.userAssets || [])
+        .filter((asset) => asset.userId === auth.user.id)
+        .filter((asset) => !wantedStatuses.size ? !isSoftDeleted(asset) : wantedStatuses.has(isSoftDeleted(asset) ? "Deleted" : "Active"))
+        .filter((asset) => !wantedGroups.size || wantedGroups.has(byteplusAssetGroupId(asset)))
+        .filter((asset) => !type || byteplusAssetTypeFromMime(asset.mime) === type)
+        .filter((asset) => !name || String(asset.name || "").toLowerCase().includes(name))
+        .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
+        .map(byteplusAssetView);
+      const start = (pageNumber - 1) * pageSize;
+      return sendJson(res, 200, byteplusActionEnvelope("ListAssets", {
+        PageNumber: pageNumber,
+        PageSize: pageSize,
+        Items: assets.slice(start, start + pageSize),
+        TotalCount: assets.length,
+      }));
+    }
+    if (actionKey === "updateasset") {
+      const id = String(body.Id || body.id || "").trim();
+      const asset = (auth.db.userAssets || []).find((entry) => entry.id === id && entry.userId === auth.user.id && !isSoftDeleted(entry));
+      if (!asset) return sendJson(res, 404, byteplusActionErrorPayload("UpdateAsset", 404, `The specified asset ${id} is not found.`, "NotFound.asset_id", "Id"));
+      if (body.Name !== undefined) asset.name = String(body.Name || "").slice(0, 64);
+      asset.updatedAt = nowIso;
+      auth.db.userAssets = auth.db.userAssets.map((entry) => (entry.id === asset.id ? asset : entry));
+      if (dbEnabled()) await upsertUserAssetInDb(asset);
+      else await writeDb(auth.db);
+      return sendJson(res, 200, byteplusActionEnvelope("UpdateAsset", { Id: id }));
+    }
+    if (actionKey === "deleteasset") {
+      const id = String(body.Id || body.id || "").trim();
+      const asset = (auth.db.userAssets || []).find((entry) => entry.id === id && entry.userId === auth.user.id);
+      if (!asset || isSoftDeleted(asset)) return sendJson(res, 404, byteplusActionErrorPayload("DeleteAsset", 404, `The specified asset ${id} is not found.`, "NotFound.asset_id", "Id"));
+      asset.deletedAt = nowIso;
+      asset.updatedAt = nowIso;
+      auth.db.userAssets = auth.db.userAssets.map((entry) => (entry.id === asset.id ? asset : entry));
+      if (dbEnabled()) await upsertUserAssetInDb(asset);
+      else await writeDb(auth.db);
+      return sendJson(res, 200, byteplusActionEnvelope("DeleteAsset", { Id: id }));
+    }
+    return sendJson(res, 404, byteplusActionErrorPayload(action || "Unknown", 404, "Action not found.", "ResourceNotFound", "Action"));
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, byteplusActionErrorPayload(action || "Unknown", error.statusCode || 400, error.message || "Invalid parameter.", error.code || "InvalidParameter", error.param || ""));
   }
 }
 
@@ -14990,6 +15661,37 @@ function seedancePublicParameterMarkdown(origin = "") {
   return markdownTable(["Parameter", "Type", "Required", "Description", "Default"], rows);
 }
 
+function byteplusV3ParameterFields() {
+  return [
+    { name: "model", type: "string", required: "Yes", description: "`dreamina-seedance-2-0-260128` for standard or `dreamina-seedance-2-0-fast-260128` for fast. `dreamina-seedance-2-0-hc`, `dreamina-seedance-2-0-fast-hc`, and `dreamina-seedance-2-0-mini-hc` aliases are accepted.", default: "-" },
+    { name: "content", type: "array", required: "Yes", description: "1-16 content blocks. Include one non-empty text block. Images max 9, videos max 3, audios max 3.", default: "-" },
+    { name: "content[].type", type: "enum", required: "Yes", description: "`text`, `image_url`, `video_url`, or `audio_url`.", default: "-" },
+    { name: "content[].text", type: "string", required: "For text", description: "Prompt text. Use Image 1, Video 1, Audio 1 labels yourself when referring to references.", default: "-" },
+    { name: "content[].image_url.url", type: "string", required: "For image_url", description: "Public image URL, supported image data URL, or `asset://<asset-id>`. JPG/PNG/WebP/BMP, max 20MB, width and height 300-6000px, aspect ratio 0.4-2.5.", default: "-" },
+    { name: "content[].video_url.url", type: "string", required: "For video_url", description: "Public video URL, supported video data URL, or `asset://<asset-id>`. Max 3 videos; pixel count 409600-8847360.", default: "-" },
+    { name: "content[].audio_url.url", type: "string", required: "For audio_url", description: "Public audio URL, supported audio data URL, or `asset://<asset-id>`. Max 3 audios; MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM, max 30MB. Audio-only generation is rejected.", default: "-" },
+    { name: "content[].role", type: "enum", required: "For media", description: "Images: `first_frame`, `last_frame`, or `reference_image`. Videos: `reference_video`. Audios: `reference_audio`. First/last frame roles cannot be mixed with reference media.", default: "reference_image for image_url" },
+    { name: "ratio", type: "string", required: "No", description: "Output aspect ratio, for example `9:16`, `16:9`, or `1:1`. Ratio must stay between 0.4 and 2.5.", default: "9:16" },
+    { name: "resolution", type: "string", required: "No", description: "Standard model supports `480p`, `720p`, `1080p`, `4k`; fast/mini supports `480p`, `720p`.", default: "720p" },
+    { name: "duration", type: "integer", required: "No", description: `Video duration in seconds, integer ${advancedDurationBounds("seedance").min}-${advancedDurationBounds("seedance").max}.`, default: String(advancedDurationBounds("seedance").fallback) },
+    { name: "generate_audio", type: "boolean", required: "No", description: "Whether to generate synced audio such as voice, effects, or background music.", default: "true" },
+    { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
+    { name: "callback_url", type: "string(url)", required: "No", description: "Optional upstream callback URL when supported by the selected model/provider.", default: "-" },
+    { name: "return_last_frame / priority / service_tier / execution_expires_after / seed / fps / camera_fixed", type: "mixed", required: "No", description: "Provider-specific pass-through fields. The request forwards them when supported; unsupported fields are decided by the upstream model.", default: "-" },
+  ];
+}
+
+function byteplusV3ParameterMarkdown() {
+  const rows = byteplusV3ParameterFields().map((field) => ({
+    Parameter: field.name,
+    Type: field.type,
+    Required: field.required,
+    Description: field.description,
+    Default: field.default,
+  }));
+  return markdownTable(["Parameter", "Type", "Required", "Description", "Default"], rows);
+}
+
 function docsPlatformExampleBody(template = {}) {
   const body = {
     templateId: template.id || "template-id",
@@ -15020,7 +15722,7 @@ function docsAdvancedExampleBody(item = {}) {
     body.model = normalizeSeedanceTier(params.seedanceTier) === "fast"
       ? "dreamina-seedance-2-0-fast-260128"
       : "dreamina-seedance-2-0-260128";
-    body.seedanceMode = normalizeSeedanceMode(params.seedanceMode || params.mediaMode || item.mediaMode || "reference_images");
+    body.seedanceMode = normalizeSeedanceMode(params.seedanceMode || params.mediaMode || item.mediaMode || "reference_video");
     body.generateAudio = params.generateAudio !== false;
     body.referenceImages = [
       { url: "https://example.com/image1.png", fileName: "image1.png" },
@@ -15117,18 +15819,45 @@ function advancedGenerateConstraintsDoc() {
 }
 
 function externalAdvancedApiDoc(origin) {
+  const byteplusGenerate = `${origin}/api/v3/contents/generations/tasks`;
+  const byteplusTaskDetail = `${origin}/api/v3/contents/generations/tasks/<taskId>`;
+  const byteplusAssetAction = `${origin}/?Action=CreateAsset&Version=2024-01-01`;
   const advancedGenerate = `${origin}/api/advanced/generate`;
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   const userAssets = `${origin}/api/user-assets`;
   return {
     baseUrl: origin,
-    summary: "Use /api/advanced/generate for Seedance and Wan2.7 video generation. Upload reusable media through /api/user-assets, then pass the returned asset ids in the generation request.",
-    recommendedRoute: advancedGenerate,
+    summary: "Use the BytePlus-compatible /api/v3/contents/generations/tasks route for new Seedance video integrations. The older /api/advanced/generate wrapper remains supported for existing clients.",
+    recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     endpoints: {
+      byteplusGenerate,
+      byteplusTaskDetail,
+      byteplusAssetAction,
       advancedGenerate,
       generationRecordDetail,
       userAssets,
+    },
+    byteplusExample: {
+      method: "POST",
+      url: byteplusGenerate,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        model: "dreamina-seedance-2-0-260128",
+        content: [
+          { type: "text", text: "Use Image 1 as the subject reference and Video 1 as motion reference. Create a cinematic 5 second product promo video." },
+          { type: "image_url", image_url: { url: "asset://asset-id-from-upload" }, role: "reference_image" },
+          { type: "video_url", video_url: { url: "https://example.com/video1.mp4" }, role: "reference_video" },
+        ],
+        ratio: "9:16",
+        resolution: "720p",
+        duration: 5,
+        generate_audio: true,
+        watermark: false,
+      },
     },
     seedanceExample: {
       method: "POST",
@@ -15139,9 +15868,10 @@ function externalAdvancedApiDoc(origin) {
       },
       body: {
         provider: "seedance",
-        prompt: "Create a cinematic 5 second product promo video.",
-        seedanceMode: "first_frame",
-        imageUrl: "https://example.com/first-frame.jpg",
+        prompt: "Use Image 1 as the subject reference and Video 1 as motion reference. Create a cinematic 5 second product promo video.",
+        seedanceMode: "reference_video",
+        referenceImages: [{ url: "https://example.com/image1.jpg", fileName: "image1.jpg" }],
+        referenceVideoUrls: ["https://example.com/video1.mp4"],
         ratio: "9:16",
         resolution: "720p",
         duration: 5,
@@ -15438,6 +16168,9 @@ async function buildModelDocs(req) {
     endpoints: {
       docsMarkdown: `${origin}/docs/models.md`,
       modelsJson: `${origin}/api/models`,
+      byteplusGenerate: `${origin}/api/v3/contents/generations/tasks`,
+      byteplusTaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
+      byteplusAssetAction: `${origin}/?Action=CreateAsset&Version=2024-01-01`,
       advancedGenerate: `${origin}/api/advanced/generate`,
       userAssets: `${origin}/api/user-assets`,
       wan27ImageTextToImage: `${origin}/api/characters/generate`,
@@ -15504,16 +16237,17 @@ function advancedConstraintsMarkdown(doc = {}) {
     "",
     "These are the request fields and limits callers should follow.",
     "",
-    "Seedance / Vipeak 2:",
+    "Seedance V3:",
     "",
-    `- \`provider\`: \`seedance\`; \`model\`: \`${seedance.model?.standard || "dreamina-seedance-2-0-260128"}\` for standard, \`${seedance.model?.fast || "dreamina-seedance-2-0-fast-260128"}\` for fast.`,
-    `- \`seedanceMode\`: ${(seedance.seedanceMode || []).map((item) => `\`${item}\``).join(", ")}.`,
+    `- \`model\`: \`${seedance.model?.standard || "dreamina-seedance-2-0-260128"}\` for standard, \`${seedance.model?.fast || "dreamina-seedance-2-0-fast-260128"}\` for fast.`,
+    "- `content`: 1-16 blocks. Include one non-empty `text` block. Supported media block types are `image_url`, `video_url`, and `audio_url`.",
+    "- `content[].role`: images use `first_frame`, `last_frame`, or `reference_image`; videos use `reference_video`; audios use `reference_audio`.",
     `- \`duration\`: integer ${seedance.durationSeconds?.min ?? advancedDurationBounds("seedance").min}-${seedance.durationSeconds?.max ?? advancedDurationBounds("seedance").max} seconds.`,
     `- \`resolution\`: standard ${(seedance.resolution?.standard || []).map((item) => `\`${item}\``).join(", ")}; fast ${(seedance.resolution?.fast || []).map((item) => `\`${item}\``).join(", ")}.`,
     `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((seedance.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, width and height each ${seedance.imageInput?.widthPx?.min ?? SEEDANCE_IMAGE_DIMENSION_MIN}-${seedance.imageInput?.widthPx?.max ?? SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${seedance.imageInput?.aspectRatio?.min ?? SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${seedance.imageInput?.aspectRatio?.max ?? SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`,
     `- Video references: max ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos; pixel count ${seedance.videoInput?.pixelCount?.min ?? SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${seedance.videoInput?.pixelCount?.max ?? SEEDANCE_VIDEO_PIXEL_COUNT_MAX}. For 9:16 video, 480x854 is the smallest safe size.`,
     `- Max references: ${seedance.referenceLimits?.images ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT} images total, ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos, ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios.`,
-    "- `first_frame` and `first_last_frame` cannot be mixed with `referenceImages`, `referenceVideos`, `referenceAudios`, or raw reference `content`. Use `reference_images` or `reference_video` for multimodal references.",
+    "- `first_frame` and `last_frame` cannot be mixed with `reference_image`, `reference_video`, or `reference_audio` blocks.",
     `- Audio references: max ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios; supported uploaded/data URL audio types are MP3, WAV, M4A/MP4 audio, AAC, OGG, WebM; upload max ${Math.round((seedance.audioInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB. Audio references must be combined with image or video references; audio-only generation is rejected.`,
     "",
     "Wan2.7 / Vipeak 1 video:",
@@ -15537,21 +16271,54 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     "Use this section to call video generation APIs and check parameter limits.",
     "",
-    `Recommended route: \`${route(doc.recommendedRoute, "/api/advanced/generate")}\``,
+    `Recommended route: \`${route(doc.recommendedRoute, "/api/v3/contents/generations/tasks")}\``,
     "",
-    "- Supports Seedance video and Wan2.7 video.",
+    "- New Seedance video integrations should use the BytePlus-compatible V3 task route.",
+    "- The older `/api/advanced/generate` wrapper remains available for existing clients and Wan2.7 video.",
     "",
-    "**Seedance through Advanced**",
+    "**Seedance through BytePlus-compatible V3**",
     "",
     markdownCodeBlock("http", [
-      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
+      `POST ${route(endpoints.byteplusGenerate, "/api/v3/contents/generations/tasks")}`,
       "Authorization: Bearer <user-token>",
       "Content-Type: application/json",
       "",
-      JSON.stringify(doc.seedanceExample?.body || {}, null, 2),
+      JSON.stringify(doc.byteplusExample?.body || {}, null, 2),
     ].join("\n")),
     "",
-    "**Wan2.7 through Advanced**",
+    "**V3 request fields**",
+    "",
+    byteplusV3ParameterMarkdown(),
+    "",
+    "**Response and polling**",
+    "",
+    "The create response returns only `id`. Poll the V3 task detail endpoint until `status` is `succeeded` or `failed`.",
+    "",
+    markdownCodeBlock("http", [
+      `GET ${route(endpoints.byteplusTaskDetail, "/api/v3/contents/generations/tasks/<taskId>")}`,
+      "Authorization: Bearer <user-token>",
+    ].join("\n")),
+    "",
+    "**BytePlus-compatible asset upload**",
+    "",
+    "Optional: create a reusable asset first, then use `asset://<asset-id>` in `content[].image_url.url`, `content[].video_url.url`, or `content[].audio_url.url`.",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.byteplusAssetAction, "/?Action=CreateAsset&Version=2024-01-01")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify({
+        GroupId: "group-id-optional",
+        URL: "https://example.com/reference.png",
+        AssetType: "Image",
+        Name: "reference image",
+        Moderation: { Strategy: "Skip" },
+        ProjectName: "default",
+      }, null, 2),
+    ].join("\n")),
+    "",
+    "**Wan2.7 through legacy Advanced wrapper**",
     "",
     markdownCodeBlock("http", [
       `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
@@ -15560,17 +16327,6 @@ function externalAdvancedApiMarkdown(doc = {}) {
       "",
       JSON.stringify(doc.wan27Example?.body || {}, null, 2),
     ].join("\n")),
-    "",
-    "**Response and polling**",
-    "",
-    "The generate response returns `taskId` and `task.status`. Poll the generation record until it reaches a terminal status and result.",
-    "",
-    markdownCodeBlock("http", [
-      `GET ${route(endpoints.generationRecordDetail, "/api/generation-records/<taskId>")}`,
-      "Authorization: Bearer <user-token>",
-    ].join("\n")),
-    "",
-    "Optional: upload reusable image, video, or audio files first with `/api/user-assets`, then pass returned asset ids such as `imageAssetId`, `firstFrameAssetId`, `referenceVideoAssetIds`, or `referenceAudioAssetIds` to `/api/advanced/generate`.",
     "",
     advancedConstraintsMarkdown(doc),
     "",
@@ -15595,9 +16351,9 @@ function seedanceAdvancedExampleMarkdown(docs) {
     generateAudio: true,
   };
   return [
-    "## Seedance Through Advanced",
+    "## Legacy Seedance Advanced Wrapper",
     "",
-    "Use `/api/advanced/generate` for Seedance generation. Send `model: \"dreamina-seedance-2-0-260128\"` for standard or `model: \"dreamina-seedance-2-0-fast-260128\"` for fast.",
+    "Existing clients may still use `/api/advanced/generate`. New Seedance integrations should use `/api/v3/contents/generations/tasks`.",
     "",
     "Parameter table:",
     "",
@@ -15661,49 +16417,49 @@ function buildModelDocsMarkdown(docs) {
     "## Quick Start",
     "",
     "1. Read `/api/models` or this Markdown file to choose the integration style.",
-    "2. For video generation, call `/api/advanced/generate`; it supports Seedance and Wan2.7 and returns `taskId`.",
-    "3. Poll `/api/generation-records/<taskId>` for `/api/advanced/generate` tasks.",
-    "4. Optional: upload a reusable image, video, or audio with `/api/user-assets`, using either `dataUrl` or public `url`/`imageUrl`/`videoUrl`/`audioUrl`, then reuse `asset.id`.",
-    '5. For Seedance video, call `/api/advanced/generate` with `provider: "seedance"` and `model: "dreamina-seedance-2-0-260128"` for standard or `model: "dreamina-seedance-2-0-fast-260128"` for fast.',
+    "2. For new Seedance video generation, call `/api/v3/contents/generations/tasks` with BytePlus-style `model` and `content[]`; it returns `id`.",
+    "3. Poll `/api/v3/contents/generations/tasks/<taskId>` for V3 tasks.",
+    "4. Optional: create reusable media with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>` in `content[]`.",
+    "5. For Wan2.7 video and old clients, `/api/advanced/generate` remains supported.",
     "6. For Wan2.7 image generation/editing, call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 images. Use an empty array for text-to-image. Text-to-image supports `4K`; reference-image edit/fusion is limited to `1K` or `2K`.",
     "",
-    "## Seedance Advanced Example",
+    "## Seedance V3 Example",
     "",
-    "This is the Seedance role-image flow through `/api/advanced/generate`.",
+    "This is the recommended BytePlus-compatible Seedance flow.",
     "",
     markdownCodeBlock("http", [
-      "POST /api/user-assets",
+      "POST /?Action=CreateAsset&Version=2024-01-01",
       "Authorization: Bearer <user-token>",
       "Content-Type: application/json",
       "",
       "{",
-      '  "url": "https://example.com/character-image1.png",',
-      '  "fileName": "image1.png",',
-      '  "name": "image1"',
+      '  "URL": "https://example.com/character-image1.png",',
+      '  "AssetType": "Image",',
+      '  "Name": "image1",',
+      '  "Moderation": {"Strategy": "Skip"}',
       "}",
       "",
       "Response:",
       "{",
-      '  "ok": true,',
-      '  "asset": {"id": "asset-id-from-upload", "kind": "image", "name": "image1"}',
+      '  "ResponseMetadata": {"RequestId": "req-...", "Action": "CreateAsset"},',
+      '  "Result": {"Id": "asset-id-from-upload"}',
       "}",
       "",
-      "POST /api/advanced/generate",
+      "POST /api/v3/contents/generations/tasks",
       "Authorization: Bearer <user-token>",
       "Content-Type: application/json",
       "",
       "{",
-      '  "provider": "seedance",',
       '  "model": "dreamina-seedance-2-0-260128",',
-      '  "prompt": "Use Image 1 as the main character. Keep the same face, hairstyle, body shape, and outfit. Create a cinematic 5 second shot.",',
-      '  "seedanceMode": "reference_video",',
-      '  "referenceImages": [',
-      '    {"assetId": "asset-id-from-upload"}',
+      '  "content": [',
+      '    {"type": "text", "text": "Use Image 1 as the main character. Keep the same face, hairstyle, body shape, and outfit. Create a cinematic 5 second shot."},',
+      '    {"type": "image_url", "image_url": {"url": "asset://asset-id-from-upload"}, "role": "reference_image"}',
       "  ],",
       '  "ratio": "9:16",',
       '  "resolution": "720p",',
       '  "duration": 5,',
-      '  "generateAudio": true',
+      '  "generate_audio": true,',
+      '  "watermark": false',
       "}",
     ].join("\n")),
     "",
@@ -15718,7 +16474,7 @@ function buildModelDocsMarkdown(docs) {
     seedanceAdvancedExampleMarkdown(docs),
     "## Advanced Generate",
     "",
-    "External Create/Advanced integrations should use `/api/advanced/generate` and poll `/api/generation-records/<taskId>`.",
+    "Legacy Create/Advanced integrations may still use `/api/advanced/generate` and poll `/api/generation-records/<taskId>`. New Seedance integrations should use the V3 route above.",
     docs.advanced.telegram ? `\nSupport: ${docs.advanced.telegram}\n` : "",
     advancedSections,
     "",
@@ -22592,8 +23348,21 @@ async function handleRequest(req, res) {
       return await handleGameFeed(req, res);
     }
 
-    const volcengineTaskMatch = url.pathname.match(/^\/(?:(?:api\/v3|v3)\/)?contents\/generations\/tasks\/([^/]+)\/?$/);
-    if (req.method === "POST" && /^\/(?:(?:api\/v3|v3)\/)?contents\/generations\/tasks\/?$/.test(url.pathname)) {
+    if (req.method === "POST" && url.pathname === "/api/v3/contents/generations/tasks") {
+      return await handleByteplusV3CreateTask(req, res);
+    }
+
+    const byteplusV3TaskMatch = url.pathname.match(/^\/api\/v3\/contents\/generations\/tasks\/([^/]+)\/?$/);
+    if (req.method === "GET" && byteplusV3TaskMatch) {
+      return await handleByteplusV3GetTask(req, res, decodeURIComponent(byteplusV3TaskMatch[1]));
+    }
+
+    if (["GET", "POST"].includes(req.method) && url.pathname === "/" && (url.searchParams.has("Action") || url.searchParams.has("action"))) {
+      return await handleByteplusAssetAction(req, res, url);
+    }
+
+    const volcengineTaskMatch = url.pathname.match(/^\/(?:v3\/)?contents\/generations\/tasks\/([^/]+)\/?$/);
+    if (req.method === "POST" && /^\/(?:v3\/)?contents\/generations\/tasks\/?$/.test(url.pathname)) {
       return await handleVolcengineCreateGenerationTask(req, res);
     }
     if (req.method === "GET" && volcengineTaskMatch) {
