@@ -2694,6 +2694,206 @@ function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
   return [...imageItems, ...videoItems, ...audioItems].sort((left, right) => left.order - right.order);
 }
 
+function advancedPromptMentionContext(textarea = els.advancedPrompt) {
+  if (!textarea || textarea.selectionStart !== textarea.selectionEnd) return null;
+  if (state.advancedCreateKind !== "custom") return null;
+  const cursor = Number(textarea.selectionStart || 0);
+  const before = String(textarea.value || "").slice(0, cursor);
+  const atIndex = before.lastIndexOf("@");
+  if (atIndex < 0) return null;
+  const fragment = before.slice(atIndex + 1);
+  if (/[\s.,;:!?()[\]{}<>，。；：！？、]/.test(fragment)) return null;
+  return {
+    start: atIndex,
+    end: cursor,
+    query: fragment.trim().toLowerCase(),
+  };
+}
+
+function advancedPromptMentionItems() {
+  return advancedReferenceDisplayItems(currentAdvancedProvider())
+    .filter(({ item }) => item && !item.isPending && !item.pendingId)
+    .map((entry) => {
+      const rawName = entry.item.name || entry.item.fileName || entry.item.assetId || entry.item.url || entry.label;
+      return {
+        ...entry,
+        mention: `@${entry.label}`,
+        title: String(rawName || entry.label),
+        url: entry.item.dataUrl || entry.item.previewUrl || entry.item.url || "",
+      };
+    });
+}
+
+function textareaCaretClientRect(textarea, position = 0) {
+  if (!textarea) return null;
+  const style = window.getComputedStyle(textarea);
+  const mirror = document.createElement("div");
+  const span = document.createElement("span");
+  const text = String(textarea.value || "").slice(0, position);
+  const properties = [
+    "boxSizing", "width", "fontFamily", "fontSize", "fontWeight", "fontStyle", "letterSpacing",
+    "textTransform", "wordSpacing", "textIndent", "lineHeight", "paddingTop", "paddingRight",
+    "paddingBottom", "paddingLeft", "borderTopWidth", "borderRightWidth", "borderBottomWidth",
+    "borderLeftWidth", "whiteSpace", "overflowWrap", "wordBreak",
+  ];
+  properties.forEach((name) => { mirror.style[name] = style[name]; });
+  mirror.style.position = "fixed";
+  mirror.style.left = "-9999px";
+  mirror.style.top = "0";
+  mirror.style.height = "auto";
+  mirror.style.minHeight = "0";
+  mirror.style.overflow = "hidden";
+  mirror.style.whiteSpace = "pre-wrap";
+  mirror.style.overflowWrap = "break-word";
+  mirror.style.visibility = "hidden";
+  mirror.textContent = text;
+  span.textContent = "\u200b";
+  mirror.appendChild(span);
+  document.body.appendChild(mirror);
+  const textRect = textarea.getBoundingClientRect();
+  const mirrorRect = mirror.getBoundingClientRect();
+  const spanRect = span.getBoundingClientRect();
+  const rect = {
+    left: textRect.left + (spanRect.left - mirrorRect.left) - textarea.scrollLeft,
+    top: textRect.top + (spanRect.top - mirrorRect.top) - textarea.scrollTop,
+    bottom: textRect.top + (spanRect.bottom - mirrorRect.top) - textarea.scrollTop,
+  };
+  mirror.remove();
+  return rect;
+}
+
+function positionAdvancedPromptMentionMenu() {
+  const textarea = els.advancedPrompt;
+  const menu = els.advancedPromptMentions;
+  if (!textarea || !menu || menu.hidden) return;
+  const field = textarea.closest(".advanced-prompt-field") || textarea.parentElement;
+  if (!field) return;
+  const context = state.advancedPromptMentionContext || advancedPromptMentionContext(textarea);
+  const caret = textareaCaretClientRect(textarea, context?.end ?? textarea.selectionStart ?? 0);
+  const fieldRect = field.getBoundingClientRect();
+  const textareaRect = textarea.getBoundingClientRect();
+  const width = Math.max(220, Math.min(340, fieldRect.width - 16));
+  const fallbackLeft = textareaRect.left - fieldRect.left + 10;
+  const fallbackTop = textareaRect.bottom - fieldRect.top + 6;
+  const rawLeft = caret ? caret.left - fieldRect.left : fallbackLeft;
+  const rawTop = caret ? caret.bottom - fieldRect.top + 8 : fallbackTop;
+  const left = Math.max(8, Math.min(rawLeft, Math.max(8, fieldRect.width - width - 8)));
+  const top = Math.max(34, rawTop);
+  menu.style.setProperty("--mention-left", `${Math.round(left)}px`);
+  menu.style.setProperty("--mention-top", `${Math.round(top)}px`);
+  menu.style.setProperty("--mention-width", `${Math.round(width)}px`);
+}
+
+function closeAdvancedPromptMentions() {
+  state.advancedPromptMentionContext = null;
+  state.advancedPromptMentionItems = [];
+  state.advancedPromptMentionIndex = 0;
+  if (els.advancedPromptMentions) {
+    els.advancedPromptMentions.hidden = true;
+    els.advancedPromptMentions.innerHTML = "";
+  }
+}
+
+function renderAdvancedPromptMentionMenu() {
+  const textarea = els.advancedPrompt;
+  const menu = els.advancedPromptMentions;
+  const context = advancedPromptMentionContext(textarea);
+  if (!textarea || !menu || !context) {
+    closeAdvancedPromptMentions();
+    return;
+  }
+  const query = context.query || "";
+  const items = advancedPromptMentionItems()
+    .filter((item) => {
+      const text = `${item.mention} ${item.title} ${item.kind}`.toLowerCase();
+      return !query || text.includes(query);
+    })
+    .slice(0, 12);
+  if (!items.length) {
+    closeAdvancedPromptMentions();
+    return;
+  }
+  const selected = Math.max(0, Math.min(Number(state.advancedPromptMentionIndex || 0), items.length - 1));
+  state.advancedPromptMentionContext = context;
+  state.advancedPromptMentionItems = items;
+  state.advancedPromptMentionIndex = selected;
+  menu.hidden = false;
+  menu.innerHTML = items.map((entry, index) => {
+    const url = entry.url || "";
+    const thumb = entry.kind === "video" && url
+      ? `<video src="${escapeHtml(url)}" muted playsinline preload="metadata"></video>`
+      : entry.kind === "image" && url
+        ? `<img src="${escapeHtml(url)}" alt="" />`
+        : `<i data-lucide="${entry.kind === "audio" ? "audio-lines" : entry.kind === "video" ? "film" : "image"}"></i>`;
+    const title = entry.title && entry.title !== entry.label ? entry.title : (entry.kind === "audio" ? "Audio reference" : entry.kind === "video" ? "Video reference" : "Image reference");
+    return `
+      <button class="advanced-prompt-mention ${index === selected ? "is-active" : ""}" type="button" role="option" aria-selected="${index === selected ? "true" : "false"}" data-advanced-prompt-mention="${index}">
+        <span class="advanced-prompt-mention-thumb is-${escapeHtml(entry.kind)}">${thumb}</span>
+        <span class="advanced-prompt-mention-copy">
+          <strong>${escapeHtml(entry.mention)}</strong>
+          <small>${escapeHtml(title)}</small>
+        </span>
+      </button>
+    `;
+  }).join("");
+  positionAdvancedPromptMentionMenu();
+  refreshIcons();
+}
+
+function insertAdvancedPromptMention(index = state.advancedPromptMentionIndex || 0) {
+  const textarea = els.advancedPrompt;
+  const context = state.advancedPromptMentionContext || advancedPromptMentionContext(textarea);
+  const item = (state.advancedPromptMentionItems || [])[index];
+  if (!textarea || !context || !item) return false;
+  const value = String(textarea.value || "");
+  const before = value.slice(0, context.start);
+  const after = value.slice(context.end);
+  const needsSpace = after && /^\s/.test(after) ? "" : " ";
+  const inserted = `${item.mention}${needsSpace}`;
+  textarea.value = `${before}${inserted}${after}`;
+  const cursor = before.length + inserted.length;
+  textarea.focus?.();
+  textarea.setSelectionRange?.(cursor, cursor);
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  closeAdvancedPromptMentions();
+  return true;
+}
+
+function handleAdvancedPromptMentionInput() {
+  state.advancedPromptMentionIndex = 0;
+  renderAdvancedPromptMentionMenu();
+}
+
+function handleAdvancedPromptMentionKeydown(event) {
+  if (!els.advancedPromptMentions || els.advancedPromptMentions.hidden) return;
+  const items = state.advancedPromptMentionItems || [];
+  if (!items.length) return;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    state.advancedPromptMentionIndex = (Number(state.advancedPromptMentionIndex || 0) + delta + items.length) % items.length;
+    renderAdvancedPromptMentionMenu();
+    return;
+  }
+  if (event.key === "Enter" || event.key === "Tab") {
+    event.preventDefault();
+    insertAdvancedPromptMention();
+    return;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeAdvancedPromptMentions();
+  }
+}
+
+function handleAdvancedPromptMentionPointer(event) {
+  const button = event.target.closest("[data-advanced-prompt-mention]");
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  insertAdvancedPromptMention(Number(button.dataset.advancedPromptMention || 0));
+}
+
 function renderAdvancedReferencePreviews() {
   if (!els.advancedUploadPreview) return;
   const provider = currentAdvancedProvider();
@@ -2759,6 +2959,7 @@ function renderAdvancedReferencePreviews() {
     });
   });
   els.advancedUploadBox?.classList.toggle("has-image", refs.length > 0);
+  if (els.advancedPromptMentions && !els.advancedPromptMentions.hidden) renderAdvancedPromptMentionMenu();
   if (els.advancedWanFirstFramePreview) {
     const firstFrame = images[0]?.dataUrl || state.advancedUploadDataUrl || "";
     if ((provider === "wan27" || provider === "wan27-image-edit") && firstFrame) {

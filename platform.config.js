@@ -898,6 +898,7 @@ const els = {
   advancedPresetSearch: document.querySelector("#advancedPresetSearch"),
   advancedPresetGrid: document.querySelector("#advancedPresetGrid"),
   advancedPrompt: document.querySelector("#advancedPrompt"),
+  advancedPromptMentions: document.querySelector("#advancedPromptMentions"),
   advancedImage: document.querySelector("#advancedImage"),
   advancedUploadBox: document.querySelector("#advancedUploadBox"),
   advancedUploadPreview: document.querySelector("#advancedUploadPreview"),
