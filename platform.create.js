@@ -2696,13 +2696,13 @@ function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
 
 function advancedPromptMentionContext(textarea = els.advancedPrompt) {
   if (!textarea || textarea.selectionStart !== textarea.selectionEnd) return null;
-  if (state.advancedCreateKind !== "custom") return null;
+  if (textarea.hidden || textarea.closest("[hidden]")) return null;
   const cursor = Number(textarea.selectionStart || 0);
   const before = String(textarea.value || "").slice(0, cursor);
   const atIndex = before.lastIndexOf("@");
   if (atIndex < 0) return null;
   const fragment = before.slice(atIndex + 1);
-  if (/[\s.,;:!?()[\]{}<>，。；：！？、]/.test(fragment)) return null;
+  if (/[\s.,;:!?()[\]{}<>\uFF0C\u3002\uFF1B\uFF1A\uFF01\uFF1F\u3001]/.test(fragment)) return null;
   return {
     start: atIndex,
     end: cursor,
