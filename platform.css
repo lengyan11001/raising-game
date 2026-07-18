@@ -3318,6 +3318,89 @@ main {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 9px;
 }
+.advanced-prompt-field {
+  position: relative;
+  overflow: visible;
+}
+.advanced-prompt-mentions {
+  position: absolute;
+  left: var(--mention-left, 8px);
+  top: var(--mention-top, 100%);
+  z-index: 40;
+  display: grid;
+  width: var(--mention-width, min(340px, calc(100% - 16px)));
+  max-height: 316px;
+  overflow: auto;
+  gap: 4px;
+  padding: 7px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 8px;
+  background: rgba(17,17,19,.98);
+  box-shadow: 0 18px 44px rgba(0,0,0,.34);
+}
+.advanced-prompt-mentions[hidden] {
+  display: none;
+}
+.advanced-prompt-mention {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 50px;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.advanced-prompt-mention:hover,
+.advanced-prompt-mention.is-active {
+  border-color: rgba(117,227,226,.38);
+  background: rgba(117,227,226,.12);
+}
+.advanced-prompt-mention-thumb {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  overflow: hidden;
+  border-radius: 8px;
+  color: rgba(247,247,251,.72);
+  background: #24252a;
+}
+.advanced-prompt-mention-thumb img,
+.advanced-prompt-mention-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.advanced-prompt-mention-thumb svg {
+  width: 18px;
+  height: 18px;
+}
+.advanced-prompt-mention-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.advanced-prompt-mention-copy strong {
+  color: #fff;
+  font-size: .86rem;
+  line-height: 1.15;
+}
+.advanced-prompt-mention-copy small {
+  min-width: 0;
+  color: rgba(247,247,251,.58);
+  font-size: .74rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .advanced-workspace:not(.is-create-custom) .advanced-provider-field,
 .advanced-workspace:not(.is-create-custom) .advanced-tier-field,
 .advanced-workspace:not(.is-create-custom) .advanced-setting-field,

@@ -439,11 +439,25 @@ els.advancedCreateModeTabs?.addEventListener("click", (event) => {
   if (!button) return;
   setAdvancedCreateMode(button.dataset.advancedCreateMode || "");
 });
+els.advancedPrompt?.addEventListener("input", handleAdvancedPromptMentionInput);
+els.advancedPrompt?.addEventListener("click", renderAdvancedPromptMentionMenu);
+els.advancedPrompt?.addEventListener("keyup", (event) => {
+  if (["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) return;
+  renderAdvancedPromptMentionMenu();
+});
+els.advancedPrompt?.addEventListener("keydown", handleAdvancedPromptMentionKeydown);
+els.advancedPrompt?.addEventListener("blur", () => window.setTimeout(closeAdvancedPromptMentions, 120));
+els.advancedPromptMentions?.addEventListener("pointerdown", handleAdvancedPromptMentionPointer);
 els.advancedPrompt?.addEventListener("paste", (event) => {
   handleAdvancedPromptPaste(event).catch((error) => {
     if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
   });
 });
+document.addEventListener("pointerdown", (event) => {
+  if (event.target.closest("#advancedPrompt, #advancedPromptMentions")) return;
+  closeAdvancedPromptMentions();
+});
+window.addEventListener("resize", positionAdvancedPromptMentionMenu);
 els.characterCreateBtn?.addEventListener("click", createCharacterFromPrompt);
 els.assetSearch?.addEventListener("input", () => {
   window.clearTimeout(state.assetSearchTimer);
