@@ -2170,6 +2170,7 @@ function advancedCreateModeConfig(kind = state.advancedCreateKind, mode = state.
 }
 
 function clearAdvancedMediaInputs() {
+  const previousPromptRefs = typeof advancedPromptMentionSnapshot === "function" ? advancedPromptMentionSnapshot() : [];
   state.activeAdvancedCaseId = "";
   state.advancedUploadDataUrl = "";
   state.advancedSourceImageAssetId = "";
@@ -2224,6 +2225,7 @@ function clearAdvancedMediaInputs() {
   });
   if (els.advancedUploadPreview) els.advancedUploadPreview.innerHTML = "";
   els.advancedUploadBox?.classList.remove("has-image");
+  if (typeof syncAdvancedPromptMentionLabels === "function") syncAdvancedPromptMentionLabels(previousPromptRefs);
   renderAdvancedPresetBuilder();
 }
 

@@ -828,6 +828,7 @@ function dedupeAdvancedMediaReferences(refs = []) {
 }
 
 function removeAdvancedSeedanceMediaReference(kind = "video", index = -1) {
+  const previousPromptRefs = advancedPromptMentionSnapshot();
   if (kind === "audio") {
     const refs = advancedSeedanceAudioReferences();
     refs.splice(index, 1);
@@ -838,6 +839,7 @@ function removeAdvancedSeedanceMediaReference(kind = "video", index = -1) {
     setAdvancedSeedanceVideoReferences(refs);
     if (!advancedSeedanceVideoReferences().length && els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = "";
   }
+  syncAdvancedPromptMentionLabels(previousPromptRefs);
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }
@@ -2575,6 +2577,7 @@ function dedupeAdvancedReferenceImages(images = []) {
 function removeAdvancedReferenceImage(index = -1) {
   const images = Array.isArray(state.advancedReferenceImages) ? [...state.advancedReferenceImages] : [];
   if (index < 0 || index >= images.length) return;
+  const previousPromptRefs = advancedPromptMentionSnapshot();
   images.splice(index, 1);
   const provider = currentAdvancedProvider();
   state.advancedReferenceImages = images;
@@ -2587,18 +2590,22 @@ function removeAdvancedReferenceImage(index = -1) {
     state.advancedSourceImageAssetId = "";
   }
   if (!images.length && els.advancedImage) els.advancedImage.value = "";
+  syncAdvancedPromptMentionLabels(previousPromptRefs);
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }
 
 function removeAdvancedSeedanceVideoReference() {
+  const previousPromptRefs = advancedPromptMentionSnapshot();
   setAdvancedSeedanceVideoReferences([]);
   if (els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = "";
+  syncAdvancedPromptMentionLabels(previousPromptRefs);
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }
 
 function removeAdvancedMediaSlot(slot = "") {
+  const previousPromptRefs = advancedPromptMentionSnapshot();
   if (slot === "seedanceFirstFrame") {
     state.advancedSeedanceFirstFrameAssetId = "";
     state.advancedSeedanceFirstFrameDataUrl = "";
@@ -2639,6 +2646,7 @@ function removeAdvancedMediaSlot(slot = "") {
     state.advancedAudioOrder = 0;
     if (els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = "";
   }
+  syncAdvancedPromptMentionLabels(previousPromptRefs);
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }
@@ -2692,6 +2700,79 @@ function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
     order: advancedReferenceOrderValue(item, displayImages.length + displayVideos.length + index + 1),
   }));
   return [...imageItems, ...videoItems, ...audioItems].sort((left, right) => left.order - right.order);
+}
+
+function advancedPromptMentionStableKey(entry = {}) {
+  const item = entry.item || entry || {};
+  const kind = entry.kind || item.kind || "";
+  const assetUri = item.assetUri || item.referenceAssetUri || "";
+  const sourceUrl = item.sourceUrl || "";
+  const dataUrl = item.dataUrl || "";
+  const rawKey = item.assetId
+    ? `asset:${item.assetId}`
+    : assetUri
+      ? `asset-uri:${assetUri}`
+      : sourceUrl
+        ? `source:${sourceUrl}`
+        : item.url
+          ? `url:${item.url}`
+          : item.previewUrl
+            ? `preview:${item.previewUrl}`
+            : dataUrl
+              ? `data:${dataUrl}`
+              : item.fileName
+                ? `file:${item.fileName}:${advancedReferenceOrderValue(item)}`
+                : "";
+  return rawKey ? `${kind}:${rawKey}` : "";
+}
+
+function advancedPromptMentionSnapshot(provider = currentAdvancedProvider()) {
+  return advancedReferenceDisplayItems(provider)
+    .filter(({ item }) => item && !item.isPending && !item.pendingId)
+    .map((entry) => ({
+      label: entry.label,
+      key: advancedPromptMentionStableKey(entry),
+    }))
+    .filter((entry) => entry.label && entry.key);
+}
+
+function escapeAdvancedPromptMentionRegExp(value = "") {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function syncAdvancedPromptMentionLabels(previousRefs = [], nextRefs = advancedPromptMentionSnapshot()) {
+  const textarea = els.advancedPrompt;
+  if (!textarea || !previousRefs.length) return;
+  let value = String(textarea.value || "");
+  if (!value.includes("@")) return;
+  const nextLabelByKey = new Map();
+  nextRefs.forEach((entry) => {
+    if (entry.key && entry.label) nextLabelByKey.set(entry.key, entry.label);
+  });
+  let changed = false;
+  const boundary = "(?=$|[^A-Za-z0-9_-])";
+  previousRefs
+    .filter((entry) => entry.label && entry.key)
+    .sort((left, right) => right.label.length - left.label.length)
+    .forEach((entry) => {
+      const nextLabel = nextLabelByKey.get(entry.key) || "";
+      const from = `@${entry.label}`;
+      const to = nextLabel ? `@${nextLabel}` : "";
+      if (from === to) return;
+      const pattern = new RegExp(`${escapeAdvancedPromptMentionRegExp(from)}${boundary}`, "gi");
+      value = value.replace(pattern, () => {
+        changed = true;
+        return to;
+      });
+    });
+  if (!changed) return;
+  const cursor = Number(textarea.selectionStart || 0);
+  textarea.value = value
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([.,;:!?\uFF0C\u3002\uFF1B\uFF1A\uFF01\uFF1F\u3001])/g, "$1");
+  const nextCursor = Math.min(cursor, textarea.value.length);
+  textarea.setSelectionRange?.(nextCursor, nextCursor);
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function advancedPromptMentionContext(textarea = els.advancedPrompt) {
@@ -3146,6 +3227,7 @@ async function uploadUserAssets(files = []) {
 
 function clearDeletedAdvancedAssetReference(assetId = "") {
   if (!assetId) return;
+  const previousPromptRefs = advancedPromptMentionSnapshot();
   let changed = false;
   const images = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
   const nextImages = images.filter((item) => item?.assetId !== assetId);
@@ -3193,6 +3275,7 @@ function clearDeletedAdvancedAssetReference(assetId = "") {
     changed = true;
   }
   if (!changed) return;
+  syncAdvancedPromptMentionLabels(previousPromptRefs);
   renderAdvancedReferencePreviews();
   updateAdvancedReferenceSummary();
   updateAdvancedModelControls();
