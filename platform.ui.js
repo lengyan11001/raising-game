@@ -1328,7 +1328,7 @@ function advancedDurationBounds(provider = "seedance") {
   if (normalized === "wan27-image-edit") return { min: 1, max: 1, fallback: 1 };
   return normalized === "wan27"
     ? { min: 2, max: 15, fallback: 5 }
-    : { min: 4, max: 15, fallback: 5 };
+    : { min: 5, max: 15, fallback: 5 };
 }
 
 function normalizeVideoRatio(value = "") {

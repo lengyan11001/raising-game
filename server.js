@@ -12636,6 +12636,75 @@ async function refreshGenerationRecordStatus(record = {}) {
     try {
       const queryTaskId = record.upstreamTaskId || record.taskId;
       const task = await gatewayQueryTask(queryTaskId);
+      if (isImageGenerationRecord(record)) {
+        const imageUrl = task.imageUrl || task.imageUrls?.[0] || record.remoteImageUrl || "";
+        const failed = isFailedStatus(task.status);
+        if (!imageUrl && !failed) {
+          return await updateAssetImageModifyRecord(record.taskId, {
+            upstreamTaskId: task.taskId || queryTaskId,
+            status: task.status || record.status || "running",
+            awaitingUpstreamTask: true,
+            queryResponse: task.raw,
+            error: task.error || "",
+          }, "gateway-image-query");
+        }
+        if (failed && !imageUrl) {
+          if (Number(record.preDeductedCredits || 0) > 0 && record.billingStatus === "pre_deducted") {
+            try {
+              const db = await readDb();
+              await changeUserCredits(db, record.userId, Number(record.preDeductedCredits || 0), "asset_image_modify_refund", {
+                taskId: record.taskId,
+                error: task.error || "Gateway image generation failed.",
+              });
+              await recordSubtokenAdjustment(record, {
+                taskId: record.taskId,
+                type: "asset_image_modify_refund",
+                amount: -Number(record.preDeductedCredits || 0),
+                meta: { error: task.error || "Gateway image generation failed." },
+              });
+              if (!dbEnabled()) await writeDb(db);
+            } catch (refundError) {
+              console.error("[gateway-image-refresh-refund-failed]", record.taskId, refundError.message || refundError);
+            }
+          }
+          return await updateAssetImageModifyRecord(record.taskId, {
+            upstreamTaskId: task.taskId || queryTaskId,
+            status: "failed",
+            awaitingUpstreamTask: false,
+            queryResponse: task.raw,
+            error: task.error || "Gateway image generation failed.",
+            finalCredits: 0,
+            originalFinalCredits: 0,
+            billingStatus: Number(record.preDeductedCredits || 0) > 0 ? "refunded" : "free",
+            billingSettledAt: new Date().toISOString(),
+            failedAt: new Date().toISOString(),
+          }, "gateway-image-failed");
+        }
+        let savedImage = null;
+        if (!record.localImageUrl && imageUrl) {
+          const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "gateway image", maxBytes: 20 * 1024 * 1024 });
+          const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+          savedImage = await saveGeneratedImageFile(record.taskId, downloaded.bytes, mime);
+        }
+        return await updateAssetImageModifyRecord(record.taskId, {
+          upstreamTaskId: task.taskId || queryTaskId,
+          status: "succeeded",
+          awaitingUpstreamTask: false,
+          imageResultUrl: savedImage?.cdnImageUrl || savedImage?.localImageUrl || record.imageResultUrl || record.localImageUrl || imageUrl,
+          localImageUrl: savedImage?.localImageUrl || record.localImageUrl || "",
+          localImagePath: savedImage?.localImagePath || record.localImagePath || "",
+          cdnImageUrl: savedImage?.cdnImageUrl || record.cdnImageUrl || "",
+          cdnError: savedImage?.cdnError || record.cdnError || "",
+          remoteImageUrl: imageUrl,
+          queryResponse: task.raw,
+          finalCredits: record.preDeductedCredits || record.finalCredits || 0,
+          originalFinalCredits: record.originalPreDeductedCredits || record.originalFinalCredits || 0,
+          billingStatus: Number(record.preDeductedCredits || 0) > 0 ? "settled" : "free",
+          billingSettledAt: record.billingSettledAt || new Date().toISOString(),
+          completedAt: record.completedAt || new Date().toISOString(),
+          error: "",
+        }, "gateway-image-succeeded");
+      }
       const media = isSucceededStatus(task.status) && task.videoUrl && !record.localVideoUrl
         ? await maybeDownloadApizVideo(record, task.videoUrl)
         : {};
@@ -13653,11 +13722,28 @@ async function gatewayRequest(method, pathname, body = null) {
 function gatewayTaskFromPayload(payload = {}) {
   const record = payload.record || payload.data?.record || {};
   const task = payload.task || payload.data?.task || record || payload;
+  const videoUrl = gatewayAbsoluteAssetUrl(record.videoUrl || task.videoUrl || payload.videoUrl || payload.data?.videoUrl || findVideoUrl(payload) || "");
+  const imageUrl = gatewayAbsoluteAssetUrl(firstPresent(
+    payload.imageUrl,
+    payload.image_url,
+    payload.downloadUrl,
+    payload.data?.imageUrl,
+    payload.data?.image_url,
+    record.imageResultUrl,
+    record.cdnImageUrl,
+    record.localImageUrl,
+    record.remoteImageUrl,
+    record.providerImageUrl,
+    record.downloadUrl,
+    collectOutputImageUrls(payload)[0],
+  ));
   return {
     taskId: record.taskId || task.taskId || payload.taskId || payload.data?.taskId || "",
     upstreamTaskId: record.upstreamTaskId || task.upstreamTaskId || "",
     status: record.status || task.status || "submitted",
-    videoUrl: record.videoUrl || task.videoUrl || findVideoUrl(payload) || "",
+    videoUrl,
+    imageUrl,
+    imageUrls: imageUrl ? [imageUrl] : [],
     error: record.error || task.error || payload.error || "",
     record,
     raw: payload,
@@ -13672,6 +13758,79 @@ async function gatewaySubmitPlatformTask(body = {}) {
 async function gatewaySubmitAdvancedTask(body = {}) {
   const payload = await gatewayRequest("POST", "/api/advanced/generate", body);
   return gatewayTaskFromPayload(payload);
+}
+
+function gatewayAbsoluteAssetUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^https?:\/\//i.test(text)) return text;
+  if (text.startsWith("/")) {
+    try {
+      return new URL(text, UPSTREAM_BASE_URL).toString();
+    } catch {
+      return text;
+    }
+  }
+  return text;
+}
+
+function gatewayImageTaskFromPayload(payload = {}) {
+  const record = payload.record || payload.data?.record || {};
+  const task = payload.task || payload.data?.task || record || payload;
+  const imageUrl = gatewayAbsoluteAssetUrl(firstPresent(
+    payload.imageUrl,
+    payload.image_url,
+    payload.downloadUrl,
+    payload.data?.imageUrl,
+    payload.data?.image_url,
+    payload.output?.imageUrl,
+    payload.output?.image_url,
+    Array.isArray(payload.output?.images) ? (payload.output.images[0]?.url || payload.output.images[0]?.image_url) : "",
+    record.imageResultUrl,
+    record.cdnImageUrl,
+    record.localImageUrl,
+    record.remoteImageUrl,
+    record.providerImageUrl,
+    record.downloadUrl,
+    collectOutputImageUrls(payload)[0],
+  ));
+  return {
+    taskId: record.taskId || task.taskId || payload.taskId || payload.data?.taskId || "",
+    upstreamTaskId: record.upstreamTaskId || task.upstreamTaskId || "",
+    status: record.status || task.status || (imageUrl ? "succeeded" : "submitted"),
+    imageUrl,
+    imageUrls: imageUrl ? [imageUrl] : [],
+    error: record.error || task.error || payload.error || payload.message || "",
+    record,
+    raw: payload,
+  };
+}
+
+async function gatewaySubmitWan27ImageEditTask({
+  imageUrl,
+  imageUrls,
+  prompt,
+  ratio = "9:16",
+  resolution = "2K",
+  model = WAN27_IMAGE_PRO_MODEL,
+  input = {},
+  parameters = {},
+  waitForResult = true,
+} = {}) {
+  const orderedImages = arrayFromBody(imageUrls).map((item) => String(item || "").trim()).filter(Boolean);
+  if (!orderedImages.length && imageUrl) orderedImages.push(String(imageUrl || "").trim());
+  const gatewayBody = {
+    prompt,
+    ratio,
+    resolution,
+    model,
+    imageUrls: orderedImages,
+    input: plainObject(input),
+    parameters: plainObject(parameters),
+    async: waitForResult ? false : true,
+  };
+  const payload = await gatewayRequest("POST", "/api/wan27/image-edit", gatewayBody);
+  return { task: gatewayImageTaskFromPayload(payload), payload: gatewayBody, raw: payload };
 }
 
 async function gatewayQueryTask(taskId) {
@@ -20263,7 +20422,7 @@ async function systemCharacterImageUrl(item = {}) {
 async function handleGenerateUserCharacterImage(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!ALIYUN_DASHSCOPE_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
   }
   const body = await readJson(req);
@@ -20296,6 +20455,7 @@ async function handleGenerateUserCharacterImage(req, res) {
     source: "character-image-generate",
     kind: "character-image",
     provider: "aliyun-wan27-image",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
     userId: auth.user.id,
     prompt: userPrompt,
     finalPrompt: prompt,
@@ -20333,7 +20493,15 @@ async function handleGenerateUserCharacterImage(req, res) {
   }
 
   try {
-    const submitted = await submitWan27ImageTextGenerate({
+    const submitted = USE_GATEWAY_UPSTREAM ? await gatewaySubmitWan27ImageEditTask({
+      imageUrls: [],
+      prompt,
+      ratio,
+      resolution,
+      model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+    }) : await submitWan27ImageTextGenerate({
       prompt,
       ratio,
       resolution,
@@ -20428,7 +20596,7 @@ async function handleGenerateUserCharacterImage(req, res) {
 async function handleModifySystemCharacterImage(req, res, characterId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!ALIYUN_DASHSCOPE_API_KEY) return sendJson(res, 503, { ok: false, message: "DashScope API key is not configured." });
+  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) return sendJson(res, 503, { ok: false, message: "DashScope API key is not configured." });
   const config = await readAppConfig();
   config.homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const character = findHomeVideoItem(config.homeVideo, characterId);
@@ -20472,6 +20640,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
     source: "character-image-modify",
     kind: "character-image",
     provider: "aliyun-wan27-image",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
     userId: auth.user.id,
     characterId: character.id || "",
     characterName: character.name || "",
@@ -20514,7 +20683,15 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
 
   try {
     const publicSourceUrl = /^https?:\/\//i.test(imageUrl) ? imageUrl : publicUrlForAssetPath(imageUrl);
-    const submitted = await submitWan27ImageModify({
+    const submitted = USE_GATEWAY_UPSTREAM ? await gatewaySubmitWan27ImageEditTask({
+      imageUrl: publicSourceUrl,
+      prompt,
+      ratio,
+      resolution,
+      model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+    }) : await submitWan27ImageModify({
       imageUrl: publicSourceUrl,
       prompt,
       ratio,
@@ -20645,7 +20822,7 @@ function imageEditUrlsFromBody(body = {}) {
 async function handleWan27ImageEdit(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!ALIYUN_DASHSCOPE_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
   }
 
@@ -20709,6 +20886,7 @@ async function handleWan27ImageEdit(req, res) {
     source: "asset-image-modify",
     kind: "asset-image",
     provider: "aliyun-wan27-image",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
     userId: auth.user.id,
     userAssetIds: sourceAssets.map((asset) => asset.id),
     userAssetId: sourceAssets[0]?.id || "",
@@ -20798,7 +20976,16 @@ async function handleWan27ImageEdit(req, res) {
       sourceImageUrls: referenceUrls,
       status: "running",
     }, "wan27-image-edit-references-ready");
-    const submitted = await submitWan27ImageModify({
+    const submitted = USE_GATEWAY_UPSTREAM ? await gatewaySubmitWan27ImageEditTask({
+      imageUrls: publicImageUrls,
+      prompt,
+      ratio,
+      resolution,
+      model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+      waitForResult,
+    }) : await submitWan27ImageModify({
       imageUrls: publicImageUrls,
       prompt,
       ratio,
@@ -20969,7 +21156,7 @@ async function handleWan27ImageEdit(req, res) {
 async function handleModifyUserAssetImage(req, res, assetId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  if (!ALIYUN_DASHSCOPE_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Wan2.7 image generation is not configured." });
   }
   const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
@@ -21012,6 +21199,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
     source: "asset-image-modify",
     kind: "asset-image",
     provider: "aliyun-wan27-image",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
     userId: auth.user.id,
     userAssetId: asset.id,
     imageUrl: assetPreviewUrl,
@@ -21075,7 +21263,15 @@ async function handleModifyUserAssetImage(req, res, assetId) {
       sourceImageUrl: publicAsset.localUrl || publicAsset.publicUrl || assetPreviewUrl,
       status: "running",
     }, "asset-image-modify-reference-ready");
-    const submitted = await submitWan27ImageModify({
+    const submitted = USE_GATEWAY_UPSTREAM ? await gatewaySubmitWan27ImageEditTask({
+      imageUrl: publicAsset.publicUrl || publicUrlForLocalAsset(publicAsset),
+      prompt,
+      ratio,
+      resolution,
+      model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+    }) : await submitWan27ImageModify({
       imageUrl: publicAsset.publicUrl || publicUrlForLocalAsset(publicAsset),
       prompt,
       ratio,
