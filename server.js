@@ -188,11 +188,12 @@ const SITE_STORAGE_SLUG = storagePathSegment(
 const TOS_KEY_PREFIX = storageKeyPrefix(
   process.env.TOS_KEY_PREFIX || process.env.STORAGE_KEY_PREFIX || `seedance-assets/${SITE_STORAGE_SLUG}`,
 );
+const TENANT_PUBLIC_DOMAIN_PATTERN = /(^|\.)(vidnovaai\.com|cloudtoken\.ai)$/i;
 
 function defaultStorageSlug() {
   try {
     const host = new URL(PUBLIC_BASE_URL || "https://raising-game.local").hostname;
-    if (/cloudtoken/i.test(host)) return "cloudtoken";
+    if (TENANT_PUBLIC_DOMAIN_PATTERN.test(host)) return "cloudtoken";
   } catch {
     // Keep the legacy namespace when the public URL is not configured yet.
   }
@@ -728,9 +729,9 @@ function isTenantPublicOrigin(origin = "") {
   if (!value) return false;
   try {
     const url = new URL(value.includes("://") ? value : `https://${value}`);
-    return /(^|\.)cloudtoken\.ai$/i.test(url.hostname);
+    return TENANT_PUBLIC_DOMAIN_PATTERN.test(url.hostname);
   } catch {
-    return /(^|\.)cloudtoken\.ai(?::|\/|$)/i.test(value);
+    return /(^|\.)(vidnovaai\.com|cloudtoken\.ai)(?::|\/|$)/i.test(value);
   }
 }
 

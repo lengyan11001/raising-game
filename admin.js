@@ -51,7 +51,7 @@ const ROUTES = [
 const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "config"]);
 
 function isTenantAdminHost() {
-  return /(^|\.)cloudtoken\.ai$/i.test(window.location.hostname || "");
+  return /(^|\.)(vidnovaai\.com|cloudtoken\.ai)$/i.test(window.location.hostname || "");
 }
 
 function visibleAdminRoutes() {

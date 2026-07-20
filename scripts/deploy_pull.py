@@ -50,7 +50,7 @@ def main() -> None:
     if not PASSWORD:
         raise SystemExit("FYSHARK_SSH_PASSWORD is required.")
     if not args.branch:
-        raise SystemExit("--branch is required. Use old-site for 123vips.com or cloudtoken for cloudtoken.ai.")
+        raise SystemExit("--branch is required. Use old-site for 123vips.com or cloudtoken for vidnovaai.com.")
     if args.branch == "main" and os.environ.get("DEPLOY_ALLOW_MAIN") != "1":
         raise SystemExit("Refusing to deploy main. Use --branch old-site or --branch cloudtoken.")
 
