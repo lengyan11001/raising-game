@@ -1389,6 +1389,18 @@ function currentSeedanceVideoInputSeconds(duration = 5, provider = currentAdvanc
   return assetSeconds + (assetCount && !assetSeconds ? fallbackSeconds : 0) + (hasVideoUrl ? fallbackSeconds * videoUrlCount : 0) || fallbackSeconds;
 }
 
+function currentSeedanceEstimateReferenceVideoUrls(provider = currentAdvancedProvider()) {
+  if (normalizeAdvancedProvider(provider) !== "seedance") return [];
+  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
+  if (seedanceModeNeedsFirstFrame(seedanceMode)) return [];
+  const videoRefs = typeof advancedSeedanceVideoReferences === "function" ? advancedSeedanceVideoReferences() : [];
+  const refUrls = videoRefs
+    .filter((item) => !item?.assetId)
+    .map((item) => item.url || item.previewUrl || "")
+    .filter(Boolean);
+  return [...new Set([...refUrls, ...splitUrlList(els.advancedSeedanceVideoUrls?.value || "")])];
+}
+
 function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "wan27-image-edit") {
@@ -2559,6 +2571,9 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
   const minSeconds = normalizedProvider === "seedance" && options.allowFourSecondSeedance === true ? 4 : bounds.min;
   const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(minSeconds, rawDuration)) : bounds.fallback;
   const inputVideoSeconds = normalizedProvider === "seedance" ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0) : 0;
+  const referenceVideoSignature = normalizedProvider === "seedance"
+    ? (Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : []).map((item) => String(item || "").trim()).filter(Boolean).join(",")
+    : "";
   return [
     normalizedProvider,
     normalizedProvider === "seedance" ? (String(options.seedanceTier || "").trim().toLowerCase() === "fast" ? "fast" : "standard") : "",
@@ -2566,6 +2581,7 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
     normalizeVideoRatio(ratio),
     seconds,
     inputVideoSeconds,
+    referenceVideoSignature,
     Number(state.user?.pricingMultiplier || 1),
   ].join("|");
 }
@@ -2585,6 +2601,7 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
           resolution,
           ratio,
           inputVideoSeconds: positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0),
+          referenceVideoUrls: Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : [],
           allowFourSecondSeedance: options.allowFourSecondSeedance === true,
           seedanceTier: options.seedanceTier,
         },
@@ -2616,7 +2633,11 @@ function updateAdvancedButtonCost() {
     refreshIcons();
     return;
   }
-  const options = { inputVideoSeconds: currentSeedanceVideoInputSeconds(duration, provider), seedanceTier };
+  const options = {
+    inputVideoSeconds: currentSeedanceVideoInputSeconds(duration, provider),
+    referenceVideoUrls: currentSeedanceEstimateReferenceVideoUrls(provider),
+    seedanceTier,
+  };
   requestAdvancedEstimate(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options);
   els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;
   refreshIcons();

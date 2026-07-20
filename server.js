@@ -7573,11 +7573,24 @@ async function refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, asset = {},
   asset.seedanceVideoAssetId = "";
   asset.seedanceVideoAssetUri = "";
   const refreshedBytes = await fs.readFile(targetPath);
-  const mirror = await uploadLocalAssetMirrorToObjectStorage({ localUrl: asset.localUrl, bytes: refreshedBytes, mime: asset.mime || videoMimeFromPath(targetPath) });
-  asset.publicUrl = mirror.publicUrl || publicUrlForAssetPath(asset.localUrl) || asset.publicUrl || "";
-  asset.cdnUrl = mirror.publicUrl || asset.cdnUrl || "";
-  asset.objectStorageKey = mirror.key || asset.objectStorageKey || "";
-  asset.objectStorageError = mirror.error || asset.objectStorageError || "";
+  const refreshedMime = asset.mime || videoMimeFromPath(targetPath) || "video/mp4";
+  if (objectStorageEnabled()) {
+    const uploaded = await uploadBufferToTos({
+      userId: asset.userId,
+      assetId: `${asset.id}-seedance-refresh`,
+      bytes: refreshedBytes,
+      mime: refreshedMime,
+      extension: path.extname(targetPath),
+    });
+    asset.publicUrl = uploaded.publicUrl || "";
+    asset.cdnUrl = uploaded.publicUrl || "";
+    asset.objectStorageKey = uploaded.key || "";
+    asset.objectStorageError = "";
+    asset.publicUploadedAt = new Date().toISOString();
+  } else {
+    asset.publicUrl = publicUrlForAssetPath(asset.localUrl) || asset.publicUrl || "";
+    asset.cdnUrl = asset.cdnUrl || "";
+  }
   asset.updatedAt = new Date().toISOString();
   db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
   if (dbEnabled()) await upsertUserAssetInDb(asset);
@@ -11474,7 +11487,15 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   }
   const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
   let uploaded = { publicUrl: localPublicUrl, key: "" };
-  if (!uploaded.publicUrl) {
+  if (assetType === "Video" && objectStorageEnabled()) {
+    uploaded = await uploadBufferToTos({
+      userId: userAsset.userId,
+      assetId: `${userAsset.id}-seedance`,
+      bytes,
+      mime: userAsset.mime || videoMimeFromPath(localPath) || "video/mp4",
+      extension: path.extname(localPath),
+    });
+  } else if (!uploaded.publicUrl) {
     uploaded = await uploadBufferToTos({
       userId: userAsset.userId,
       assetId: userAsset.id,
@@ -11509,6 +11530,12 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   }
   userAsset.publicUrl = uploaded.publicUrl;
   userAsset.tosKey = uploaded.key;
+  if (uploaded.key) {
+    userAsset.cdnUrl = uploaded.publicUrl || userAsset.cdnUrl || "";
+    userAsset.objectStorageKey = uploaded.key;
+    userAsset.objectStorageError = "";
+    userAsset.publicUploadedAt = new Date().toISOString();
+  }
   userAsset.upstreamCreatedAt = new Date().toISOString();
   userAsset.updatedAt = new Date().toISOString();
   if (dbEnabled()) await upsertUserAssetInDb(userAsset);
