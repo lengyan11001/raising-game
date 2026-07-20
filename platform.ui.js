@@ -1415,8 +1415,7 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   }
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawSeconds = Number(duration || bounds.fallback);
-  const minSeconds = normalizedProvider === "seedance" && options.allowFourSecondSeedance === true ? 4 : bounds.min;
-  const seconds = Number.isFinite(rawSeconds) ? Math.min(bounds.max, Math.max(minSeconds, rawSeconds)) : bounds.fallback;
+  const seconds = Number.isFinite(rawSeconds) ? Math.min(bounds.max, Math.max(bounds.min, rawSeconds)) : bounds.fallback;
   const configPricing = state.config?.platform?.advancedPricing || {};
   const multiplier = userPricingMultiplier();
   if (normalizedProvider === "wan27") {
@@ -2564,8 +2563,7 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
   }
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawDuration = Number(duration || bounds.fallback);
-  const minSeconds = normalizedProvider === "seedance" && options.allowFourSecondSeedance === true ? 4 : bounds.min;
-  const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(minSeconds, rawDuration)) : bounds.fallback;
+  const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
   const inputVideoSeconds = normalizedProvider === "seedance" ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0) : 0;
   const referenceVideoSignature = normalizedProvider === "seedance"
     ? (Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : []).map((item) => String(item || "").trim()).filter(Boolean).join(",")
@@ -2598,7 +2596,6 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
           ratio,
           inputVideoSeconds: positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0),
           referenceVideoUrls: Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : [],
-          allowFourSecondSeedance: options.allowFourSecondSeedance === true,
           seedanceTier: options.seedanceTier,
         },
       });

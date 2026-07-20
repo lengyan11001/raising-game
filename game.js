@@ -507,7 +507,7 @@ function actionOptionsMarkup({ prompt = "", needImage = false, imageLabel = "Rep
     <div class="action-grid">
       <label class="action-field">
         <span>Duration</span>
-        <input id="actionDuration" type="number" min="4" max="15" value="${escapeHtml(duration)}" />
+        <input id="actionDuration" type="number" min="5" max="15" value="${escapeHtml(duration)}" />
       </label>
       <label class="action-field">
         <span>Resolution</span>
