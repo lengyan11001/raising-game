@@ -53,6 +53,12 @@ def main() -> None:
     parser.add_argument("--health-url", default=HEALTH_URL)
     parser.add_argument("--env-file", default=ENV_FILE, help="Required systemd EnvironmentFile path for this production service.")
     parser.add_argument("--port", type=int, default=PORT)
+    parser.add_argument(
+        "--forbid-env-pattern",
+        action="append",
+        default=[],
+        help="Reject deployment if the required env file contains this extended grep pattern.",
+    )
     parser.add_argument("--no-restart", action="store_true")
     args = parser.parse_args()
     if not PASSWORD:
@@ -67,9 +73,18 @@ def main() -> None:
         service_q = shlex.quote(args.service)
         env_file_q = shlex.quote(args.env_file)
         env_line_q = shlex.quote(f"EnvironmentFile={args.env_file}")
+        forbidden_checks = []
+        for pattern in args.forbid_env_pattern:
+            pattern_q = shlex.quote(pattern)
+            forbidden_checks.append(
+                f"grep -E -- {pattern_q} {env_file_q} >/dev/null && "
+                f"{{ echo \"Forbidden env pattern in {args.env_file}: {pattern}\"; exit 22; }} || true"
+            )
+        forbidden_env_check = "\n".join(forbidden_checks)
         env_check = f"""
 test -f {env_file_q} || {{ echo "Missing required env file: {args.env_file}"; exit 20; }}
 systemctl cat {service_q} | grep -F -- {env_line_q} >/dev/null || {{ echo "Missing systemd EnvironmentFile={args.env_file} in {args.service}"; exit 21; }}
+{forbidden_env_check}
 """
 
     command = f"""

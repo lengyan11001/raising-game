@@ -35,6 +35,12 @@ TARGETS = {
         "health_url": "https://667zui.video/api/health",
         "env_file": "/etc/raising-game-667zui.env",
         "password_env": ("NEW_SITE2_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
+        "forbidden_env_patterns": (
+            r"^(R2_BUCKET|CLOUDFLARE_R2_BUCKET)=\"?vipeak-media\"?$",
+            r"^(R2_PUBLIC_BASE_URL|R2_PUBLIC_DOMAIN|CLOUDFLARE_R2_PUBLIC_BASE_URL|CLOUDFLARE_R2_PUBLIC_DOMAIN)=\"?https://media\.123vips\.com\"?$",
+            r"^TOS_BUCKET=\"?fal-task\"?$",
+            r"^TOS_PUBLIC_DOMAIN=\"?https://cdn-video\.51sux\.com\"?$",
+        ),
     },
 }
 
@@ -66,6 +72,8 @@ def main() -> None:
     print(f"[deploy-site] health_url={target['health_url']}")
     print(f"[deploy-site] env_file={target['env_file']}")
     print(f"[deploy-site] password_env={env_name or '<missing>'}")
+    for pattern in target.get("forbidden_env_patterns", ()):
+        print(f"[deploy-site] forbid_env_pattern={pattern}")
     if args.dry_run:
         return
     if not password:
@@ -95,6 +103,8 @@ def main() -> None:
     ]
     if args.no_restart:
         command.append("--no-restart")
+    for pattern in target.get("forbidden_env_patterns", ()):
+        command.extend(["--forbid-env-pattern", pattern])
     raise SystemExit(subprocess.call(command, env=env))
 
 
