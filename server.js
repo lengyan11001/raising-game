@@ -8418,6 +8418,24 @@ async function submitSeedanceVideoTask({
   const payload = seedancePayloadFromBody({ config, prompt, content, body });
   payload.Moderation = { Strategy: "Skip" };
 
+  if (USE_GATEWAY_UPSTREAM) {
+    const gatewayBody = await gatewaySeedanceBodyFromReferences({
+      config,
+      prompt,
+      referenceAssetUri,
+      extraReferenceAssetUris,
+      firstFrameAssetUri,
+      lastFrameAssetUri,
+      referenceVideoAssetUri,
+      extraReferenceVideoAssetUris,
+      referenceAudioAssetUris,
+      body,
+    });
+    console.log(`[seedance-gateway-submit-${slug || "video"}]`, JSON.stringify(gatewayBody, null, 2));
+    const task = await gatewaySubmitAdvancedTask(gatewayBody);
+    return { task, payload: gatewayBody, raw: task.raw || task };
+  }
+
   console.log(`[seedance-submit-${slug || "video"}]`, JSON.stringify(payload, null, 2));
   let raw;
   let lastSubmitError = "";
@@ -10170,6 +10188,10 @@ async function ensureSyntheticReferenceForHomeItem(config, itemId, options = {})
     throw error;
   }
 
+  if (USE_GATEWAY_UPSTREAM) {
+    return ensureSeedanceAssetForHomeItem(config, itemId);
+  }
+
   const force = options.force === true;
   const hasSynthetic = Boolean(item.syntheticReferenceLocalUrl || item.syntheticReferenceUrl);
   const hasAsset = Boolean(item.referenceAssetUri);
@@ -10254,6 +10276,18 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
     const error = new Error("The home image must be uploaded locally first before creating an upstream reference asset.");
     error.statusCode = 400;
     throw error;
+  }
+
+  if (USE_GATEWAY_UPSTREAM) {
+    const publicUrl = publicUrlForAssetPath(localUrl) || item.publicImageUrl || localUrl;
+    const next = {
+      ...item,
+      publicImageUrl: publicUrl,
+      referenceAssetUri: publicUrl || localUrl,
+      updatedAt: new Date().toISOString(),
+    };
+    config.homeVideo = replaceHomeVideoItem(config.homeVideo, next);
+    return config;
   }
 
   const localPath = path.join(ROOT, localUrl.replace(/^\//, ""));
@@ -13772,6 +13806,128 @@ function gatewayAbsoluteAssetUrl(value = "") {
     }
   }
   return text;
+}
+
+async function dataUrlForLocalAssetUrl(localUrl = "", fallbackMime = "application/octet-stream") {
+  const value = String(localUrl || "").trim();
+  if (!value || !value.startsWith("/")) return "";
+  const localPath = path.normalize(path.join(ROOT, value.replace(/^\/+/, "")));
+  if (!localPath.startsWith(ROOT)) {
+    const error = new Error("Asset path is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const bytes = await fs.readFile(localPath);
+  return `data:${fallbackMime};base64,${bytes.toString("base64")}`;
+}
+
+async function gatewaySeedanceReferenceFromUri(uri = "", label = "Reference") {
+  const value = String(uri || "").trim();
+  if (!value) return null;
+  if (/^data:/i.test(value)) return { dataUrl: value, fileName: `${label}.bin`, name: label };
+  if (value.startsWith("asset://")) return { url: value, name: label };
+  if (value.startsWith("/")) {
+    const localPath = path.normalize(path.join(ROOT, value.replace(/^\/+/, "")));
+    const mime = imageMimeFromKnownPath(localPath) || videoMimeFromPath(localPath);
+    return { dataUrl: await dataUrlForLocalAssetUrl(value, mime), fileName: path.basename(localPath), name: label };
+  }
+  return { url: gatewayAbsoluteAssetUrl(value), name: label };
+}
+
+async function gatewaySeedanceVideoUrlFromUri(uri = "") {
+  const value = String(uri || "").trim();
+  if (!value) return "";
+  if (value.startsWith("/")) return publicUrlForAssetPath(value) || value;
+  return gatewayAbsoluteAssetUrl(value);
+}
+
+async function gatewaySeedanceBodyFromReferences({
+  config = {},
+  prompt = "",
+  referenceAssetUri = "",
+  extraReferenceAssetUris = [],
+  firstFrameAssetUri = "",
+  lastFrameAssetUri = "",
+  referenceVideoAssetUri = "",
+  extraReferenceVideoAssetUris = [],
+  referenceAudioAssetUris = [],
+  body = {},
+} = {}) {
+  const directPayload = seedancePayloadFromBody({
+    config,
+    prompt,
+    content: seedanceContentFromReferences({
+      prompt,
+      referenceAssetUri,
+      extraReferenceAssetUris,
+      firstFrameAssetUri,
+      lastFrameAssetUri,
+      referenceVideoAssetUri,
+      extraReferenceVideoAssetUris,
+      referenceAudioAssetUris,
+      body,
+    }),
+    body,
+  });
+  const gatewayBody = {
+    provider: "seedance",
+    prompt,
+    ratio: directPayload.ratio,
+    resolution: directPayload.resolution,
+    duration: directPayload.duration,
+    generateAudio: directPayload.generate_audio,
+    seedanceMode: "reference_video",
+    model: directPayload.model,
+    parameters: {},
+  };
+  ["seed", "web_search", "watermark", "draft", "service_tier", "fps", "camera_fixed"].forEach((field) => {
+    if (directPayload[field] !== undefined) gatewayBody[field] = directPayload[field];
+  });
+
+  const referenceImages = [];
+  const firstFrame = firstFrameAssetUri ? await gatewaySeedanceReferenceFromUri(firstFrameAssetUri, "First frame") : null;
+  const lastFrame = lastFrameAssetUri ? await gatewaySeedanceReferenceFromUri(lastFrameAssetUri, "Last frame") : null;
+  if (firstFrame?.dataUrl) gatewayBody.firstFrameDataUrl = firstFrame.dataUrl;
+  else if (firstFrame?.url) gatewayBody.firstFrameUrl = firstFrame.url;
+  if (lastFrame?.dataUrl) gatewayBody.endImageDataUrl = lastFrame.dataUrl;
+  else if (lastFrame?.url) gatewayBody.endImageUrl = lastFrame.url;
+  if (firstFrame || lastFrame) gatewayBody.seedanceMode = lastFrame ? "first_last_frame" : "first_frame";
+
+  const imageUris = [referenceAssetUri, ...arrayFromBody(extraReferenceAssetUris)]
+    .filter((uri, index, list) => uri && list.indexOf(uri) === index);
+  for (let index = 0; index < imageUris.length; index += 1) {
+    const item = await gatewaySeedanceReferenceFromUri(imageUris[index], `Reference image ${index + 1}`);
+    if (item) referenceImages.push(item);
+  }
+  if (referenceImages.length && !firstFrame && !lastFrame) {
+    gatewayBody.referenceImages = referenceImages.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    gatewayBody.seedanceMode = "reference_video";
+  }
+
+  const videoUris = [referenceVideoAssetUri, ...arrayFromBody(extraReferenceVideoAssetUris), ...arrayFromBody(body.reference_videos)]
+    .map((item) => (typeof item === "string" ? item : String(item?.url || item?.videoUrl || item?.video_url || item?.assetUri || "")))
+    .filter((uri, index, list) => uri && list.indexOf(uri) === index);
+  const referenceVideoUrls = [];
+  for (const uri of videoUris) {
+    const videoUrl = await gatewaySeedanceVideoUrlFromUri(uri);
+    if (videoUrl) referenceVideoUrls.push(videoUrl);
+  }
+  if (referenceVideoUrls.length) {
+    gatewayBody.referenceVideoUrls = referenceVideoUrls.slice(0, ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT);
+    gatewayBody.seedanceMode = "reference_video";
+  }
+
+  const audioUris = [...arrayFromBody(referenceAudioAssetUris), ...arrayFromBody(body.reference_audios)]
+    .map((item) => (typeof item === "string" ? item : String(item?.url || item?.audioUrl || item?.audio_url || item?.assetUri || "")))
+    .filter((uri, index, list) => uri && list.indexOf(uri) === index);
+  const referenceAudioUrls = [];
+  for (const uri of audioUris) {
+    const audioUrl = await gatewaySeedanceVideoUrlFromUri(uri);
+    if (audioUrl) referenceAudioUrls.push(audioUrl);
+  }
+  if (referenceAudioUrls.length) gatewayBody.referenceAudioUrls = referenceAudioUrls.slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
+
+  return gatewayBody;
 }
 
 function gatewayImageTaskFromPayload(payload = {}) {
@@ -21488,6 +21644,48 @@ async function saveUserCharacterForAuth(auth, record) {
 
 async function refreshGeneratedMyCharacterImage(auth, record) {
   if (!record?.imageTaskId) return { record, task: null, imageUrls: [] };
+  if (USE_GATEWAY_UPSTREAM && record.gatewayCharacterId) {
+    const payload = await gatewayRequest("GET", `/api/my/characters/${encodeURIComponent(record.gatewayCharacterId)}/image`);
+    const gatewayCharacter = payload.character || {};
+    const task = payload.task || gatewayCharacter.imageTaskResponse || payload;
+    const status = String(gatewayCharacter.imageStatus || apizTaskStatus(task));
+    const imageUrls = [
+      ...(Array.isArray(payload.imageUrls) ? payload.imageUrls : []),
+      gatewayCharacter.publicImageUrl,
+      gatewayCharacter.cdnImageUrl,
+      gatewayCharacter.localImageUrl,
+      gatewayCharacter.posterUrl,
+      collectImageUrls(task)[0],
+    ].map(gatewayAbsoluteAssetUrl).filter(Boolean);
+    const nowIso = new Date().toISOString();
+    record.imageStatus = status;
+    record.updatedAt = nowIso;
+
+    if (isCompletedStatus(status) && imageUrls[0]) {
+      const local = await downloadGeneratedCharacterSheet(record.imageTaskId, imageUrls[0]);
+      record.posterUrl = local.localUrl;
+      record.localImageUrl = local.localUrl;
+      record.sourceImageUrl = local.localUrl;
+      record.publicImageUrl = local.cdnImageUrl || record.publicImageUrl || "";
+      record.cdnImageUrl = local.cdnImageUrl || record.cdnImageUrl || "";
+      record.objectStorageKey = local.objectStorageKey || record.objectStorageKey || "";
+      record.objectStorageError = local.cdnError || record.objectStorageError || "";
+      record.imageRemoteUrl = imageUrls[0];
+      record.imageTaskResponse = payload;
+      record.status = "image_ready";
+      record.error = "";
+    } else if (isFailedStatus(status)) {
+      record.status = "image_failed";
+      record.error = String(gatewayCharacter.error || task.error || task.message || task.fail_reason || "Character image generation failed.");
+      record.imageTaskResponse = payload;
+    } else {
+      record.status = record.status || "image_generating";
+      record.imageTaskResponse = payload;
+    }
+
+    await saveUserCharacterForAuth(auth, record);
+    return { record, task, imageUrls };
+  }
   const task = await apizRequest("/api/v3/tasks/query", { task_id: record.imageTaskId });
   const status = apizTaskStatus(task);
   const imageUrls = collectImageUrls(task);
@@ -21528,6 +21726,15 @@ async function ensureCharacterReferenceForRecord(record) {
     const error = new Error("Character image must be uploaded locally first before creating the upstream asset.");
     error.statusCode = 400;
     throw error;
+  }
+
+  if (USE_GATEWAY_UPSTREAM) {
+    const publicUrl = publicUrlForAssetPath(sourceUrl) || record.publicImageUrl || sourceUrl;
+    record.publicImageUrl = publicUrl;
+    record.referenceAssetUri = publicUrl || sourceUrl;
+    record.status = record.status === "draft" || record.status === "image_uploaded" ? "reference_ready" : record.status;
+    record.updatedAt = new Date().toISOString();
+    return record;
   }
 
   if (!record.syntheticReferenceLocalUrl) {
@@ -21697,6 +21904,7 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     duration: payload.duration,
     quality: "high",
     provider: "seedance",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
     kind: "main-video",
     params: payload,
     upstreamPayload: payload,
@@ -21800,6 +22008,8 @@ async function handleGenerateMyCharacterImage(req, res) {
     imageTaskId: "",
     imageStatus: "submitted",
     imageRemoteUrl: "",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
+    gatewayCharacterId: "",
     referenceAssetUri: "",
     syntheticReferenceLocalUrl: "",
     syntheticReferenceUrl: "",
@@ -21828,7 +22038,14 @@ async function handleGenerateMyCharacterImage(req, res) {
 
   try {
     console.log("[my-character-image-submit]", JSON.stringify({ userId: auth.user.id, characterId, model, params }, null, 2));
-    const submitted = await apizRequest("/api/v3/tasks/create", { model, params });
+    const submitted = USE_GATEWAY_UPSTREAM
+      ? await gatewayRequest("POST", "/api/my/characters/generate-image", {
+        prompt: userPrompt,
+        name: record.name,
+        title: record.title,
+        creator: record.creator,
+      })
+      : await apizRequest("/api/v3/tasks/create", { model, params });
     const taskId = apizTaskIdFromResponse(submitted);
     if (!taskId) {
       const error = new Error(`Character image task did not return task id: ${JSON.stringify(submitted)}`);
@@ -21836,7 +22053,10 @@ async function handleGenerateMyCharacterImage(req, res) {
       throw error;
     }
     record.imageTaskId = taskId;
-    record.imageStatus = apizTaskStatus(submitted);
+    record.imageStatus = USE_GATEWAY_UPSTREAM
+      ? String(submitted.character?.imageStatus || submitted.task?.status || apizTaskStatus(submitted))
+      : apizTaskStatus(submitted);
+    record.gatewayCharacterId = USE_GATEWAY_UPSTREAM ? String(submitted.character?.id || "") : "";
     record.imageTaskResponse = submitted;
     record.updatedAt = new Date().toISOString();
     await saveUserCharacterForAuth(auth, record);
@@ -21868,10 +22088,10 @@ async function handleCreateMyCharacter(req, res) {
     return sendJson(res, 400, { ok: false, message: "Image must be 20MB or smaller." });
   }
 
-  if (!ARK_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
-  if (!APIZ_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !APIZ_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "GENERATION_SERVICE_NOT_CONFIGURED", message: "Generation service is not configured." });
   }
 
@@ -21974,10 +22194,10 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     return sendJson(res, 400, { ok: false, message: "This character cannot start main video generation from its current status." });
   }
 
-  if (!ARK_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
-  if (!APIZ_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !APIZ_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "GENERATION_SERVICE_NOT_CONFIGURED", message: "Generation service is not configured." });
   }
 
@@ -22104,8 +22324,9 @@ async function handleQueryMyCharacterMainVideo(req, res, characterId) {
   if (!record) return sendJson(res, 404, { ok: false, message: "Character not found." });
   if (!record.taskId) return sendJson(res, 400, { ok: false, message: "This character has no video task yet." });
 
-  const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(record.taskId)}`);
-  const task = normalizeTask(raw);
+  const gatewayTask = USE_GATEWAY_UPSTREAM ? await gatewayQueryTask(record.taskId) : null;
+  const raw = gatewayTask ? gatewayTask.raw : await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(record.taskId)}`);
+  const task = gatewayTask || normalizeTask(raw);
   let localVideoUrl = "";
   let localVideoPath = "";
   let cdnVideoUrl = record.cdnVideoUrl || "";
@@ -22169,7 +22390,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
   if (!record.referenceAssetUri) {
     return sendJson(res, 400, { ok: false, message: "This character isn't ready yet. Wait for the main video task to finish or recreate the character." });
   }
-  if (!ARK_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — scene video tasks cannot be submitted." });
   }
 
@@ -22268,6 +22489,7 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     duration: payload.duration,
     quality: "high",
     provider: "seedance",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
     kind: "scene-video",
     params: payload,
     upstreamPayload: payload,
@@ -22320,8 +22542,9 @@ async function handleQueryMyCharacterSceneVideo(req, res, taskId) {
   const matchedVideoKey = matchedSceneId;
   const matchedSceneBaseId = sceneIdFromVideoKey(matchedVideoKey);
 
-  const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
-  const task = normalizeTask(raw);
+  const gatewayTask = USE_GATEWAY_UPSTREAM ? await gatewayQueryTask(taskId) : null;
+  const raw = gatewayTask ? gatewayTask.raw : await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
+  const task = gatewayTask || normalizeTask(raw);
   let localVideoUrl = "";
   let localVideoPath = "";
   let cdnVideoUrl = "";
@@ -22968,7 +23191,7 @@ async function handleAdminCreateHomeVideo(req, res) {
     });
   }
 
-  if (!ARK_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "缺少 ARK_API_KEY，不能提交 Seedance 视频任务。" });
   }
 
@@ -23041,6 +23264,8 @@ async function handleAdminCreateHomeVideo(req, res) {
     resolution: payload.resolution,
     duration: payload.duration,
     quality: "high",
+    provider: "seedance",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl: "",
     error: "",
@@ -23070,7 +23295,7 @@ async function handleAdminCreateCharacterSceneVideo(req, res) {
   if (!sceneConfig || sceneConfig.id !== sceneId) {
     return sendJson(res, 404, { ok: false, message: "没有找到这个场景。" });
   }
-  if (!ARK_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "缺少 ARK_API_KEY，不能提交 Seedance 视频任务。" });
   }
 
@@ -23080,7 +23305,7 @@ async function handleAdminCreateCharacterSceneVideo(req, res) {
   if (!referenceAssetUri) {
     return sendJson(res, 400, { ok: false, message: "角色还没有可用的上游参考素材。" });
   }
-  if (!refItem.syntheticReferenceLocalUrl) {
+  if (!USE_GATEWAY_UPSTREAM && !refItem.syntheticReferenceLocalUrl) {
     return sendJson(res, 400, { ok: false, message: "该角色的合成参考图还没准备好，请稍候再试或先点'重建参考图'。" });
   }
 
@@ -23157,6 +23382,8 @@ async function handleAdminCreateCharacterSceneVideo(req, res) {
     resolution: payload.resolution,
     duration: payload.duration,
     quality: "high",
+    provider: "seedance",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
     remoteVideoUrl: task.videoUrl || "",
     localVideoUrl: "",
     error: "",
@@ -23189,8 +23416,9 @@ async function handleAdminGetCharacterSceneVideo(req, res, taskId) {
     return sendJson(res, 404, { ok: false, message: "找不到对应的场景视频任务。" });
   }
 
-  const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
-  const task = normalizeTask(raw);
+  const gatewayTask = USE_GATEWAY_UPSTREAM ? await gatewayQueryTask(taskId) : null;
+  const raw = gatewayTask ? gatewayTask.raw : await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
+  const task = gatewayTask || normalizeTask(raw);
   let localVideoUrl = "";
   let localVideoPath = "";
   let downloadError = "";
@@ -23240,8 +23468,9 @@ async function handleAdminGetHomeVideo(req, res, taskId) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
   let config = await readAppConfig();
-  const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
-  const task = normalizeTask(raw);
+  const gatewayTask = USE_GATEWAY_UPSTREAM ? await gatewayQueryTask(taskId) : null;
+  const raw = gatewayTask ? gatewayTask.raw : await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
+  const task = gatewayTask || normalizeTask(raw);
   let localVideoUrl = "";
   let localVideoPath = "";
   let downloadError = "";
@@ -23340,7 +23569,9 @@ async function refreshCompletedHomeVideoItems(config) {
 
       let task;
       try {
-        task = normalizeTask(await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(sceneTaskId)}`));
+        task = USE_GATEWAY_UPSTREAM
+          ? await gatewayQueryTask(sceneTaskId)
+          : normalizeTask(await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(sceneTaskId)}`));
       } catch {
         continue;
       }
@@ -23412,7 +23643,9 @@ async function refreshCompletedHomeVideoItems(config) {
 
     let task;
     try {
-      task = normalizeTask(await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`));
+      task = USE_GATEWAY_UPSTREAM
+        ? await gatewayQueryTask(taskId)
+        : normalizeTask(await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`));
     } catch {
       continue;
     }
@@ -24631,9 +24864,16 @@ async function handleCreateCharacterImage(req, res) {
 
   const body = await readJson(req);
   const config = await readAppConfig();
-  const userAsset = body.userAssetId
-    ? auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id)
-    : null;
+  let userAsset = null;
+  if (body.dataUrl) {
+    userAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
+      dataUrl: body.dataUrl,
+      name: body.name || "Character reference",
+      fileName: body.fileName || "character-reference.png",
+    });
+  } else if (body.userAssetId) {
+    userAsset = auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id);
+  }
   if (body.userAssetId && !userAsset) {
     return sendJson(res, 404, { ok: false, message: "User asset not found." });
   }
@@ -24667,6 +24907,16 @@ async function handleCreateCharacterImage(req, res) {
     return sendJson(res, 200, { ok: true, dryRun: true, model, params });
   }
 
+  if (USE_GATEWAY_UPSTREAM) {
+    const gatewayBody = { prompt };
+    if (userAsset) {
+      gatewayBody.dataUrl = await dataUrlForUserAsset(userAsset);
+      gatewayBody.fileName = userAsset.name || body.fileName || "";
+    }
+    const submitted = await gatewayRequest("POST", "/api/character-image", gatewayBody);
+    return sendJson(res, 200, submitted);
+  }
+
   console.log("[apiz-character-submit]", JSON.stringify({ model, params }, null, 2));
   const submitted = await apizRequest("/api/v3/tasks/create", { model, params });
   return sendJson(res, 200, {
@@ -24681,6 +24931,24 @@ async function handleCreateCharacterImage(req, res) {
 async function handleGetCharacterImage(req, res, taskId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  if (USE_GATEWAY_UPSTREAM) {
+    const payload = await gatewayRequest("GET", `/api/character-image/${encodeURIComponent(taskId)}`);
+    const task = payload.task || payload;
+    const imageUrls = [
+      ...(Array.isArray(payload.imageUrls) ? payload.imageUrls : []),
+      payload.localSheetUrl,
+      payload.localUrl,
+      collectImageUrls(task)[0],
+    ].map(gatewayAbsoluteAssetUrl).filter(Boolean);
+    let localSheetUrl = "";
+    let localSheetPath = "";
+    if (isCompletedStatus(task.status) && imageUrls[0]) {
+      const local = await downloadGeneratedCharacterSheet(taskId, imageUrls[0]);
+      localSheetUrl = local.localUrl;
+      localSheetPath = local.localPath;
+    }
+    return sendJson(res, 200, { ...payload, ok: true, task, imageUrls, localSheetUrl: localSheetUrl || payload.localSheetUrl || "", localSheetPath });
+  }
   const task = await apizRequest("/api/v3/tasks/query", { task_id: taskId });
   const imageUrls = collectImageUrls(task);
   let localSheetUrl = "";
@@ -24761,7 +25029,7 @@ async function handleCreateSceneVideo(req, res) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
 
-  if (dryRun || !ARK_API_KEY) {
+  if (dryRun || (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY)) {
     return sendJson(res, dryRun ? 200 : 503, {
       ok: dryRun,
       code: dryRun ? "DRY_RUN" : "MISSING_ARK_API_KEY",
@@ -24790,7 +25058,7 @@ async function handleCreateSceneVideo(req, res) {
       try {
         config = await ensureSyntheticReferenceForHomeItem(config, homeItem.id);
         const refItem = findHomeVideoItem(config.homeVideo, homeItem.id);
-        if (!refItem?.referenceAssetUri || !refItem?.syntheticReferenceLocalUrl) {
+        if (!refItem?.referenceAssetUri || (!USE_GATEWAY_UPSTREAM && !refItem?.syntheticReferenceLocalUrl)) {
           return sendJson(res, 503, {
             ok: false,
             code: "REFERENCE_NOT_READY",
@@ -24918,8 +25186,30 @@ async function handleCreateSceneVideo(req, res) {
 
   console.log("[seedance-submit-payload]", JSON.stringify(payload, null, 2));
   let raw;
+  let task;
   try {
-    raw = await arkRequest("POST", "/contents/generations/tasks", payload);
+    if (USE_GATEWAY_UPSTREAM) {
+      const gatewayBody = await gatewaySeedanceBodyFromReferences({
+        config,
+        prompt: submittedFinalPrompt,
+        referenceAssetUri,
+        extraReferenceAssetUris: partnerReferenceAssetUri ? [partnerReferenceAssetUri] : [],
+        body: {
+          ...body,
+          ratio: payload.ratio,
+          resolution: payload.resolution,
+          duration: payload.duration,
+          generateAudio: true,
+        },
+      });
+      const gatewayTask = await gatewaySubmitAdvancedTask(gatewayBody);
+      task = gatewayTask;
+      raw = gatewayTask.raw || gatewayTask;
+      Object.assign(payload, gatewayBody);
+    } else {
+      raw = await arkRequest("POST", "/contents/generations/tasks", payload);
+      task = normalizeTask(raw);
+    }
   } catch (error) {
     await changeUserCredits(auth.db, auth.user.id, cost, "user_scene_video_submit_refund", {
       sceneId: body.sceneId || "",
@@ -24935,7 +25225,7 @@ async function handleCreateSceneVideo(req, res) {
     if (!dbEnabled()) await writeDb(auth.db);
     throw error;
   }
-  const task = normalizeTask(raw);
+  if (!task) task = normalizeTask(raw);
   await upsertAndSettleGenerationRecord({
     taskId: task.taskId,
     status: task.status,
@@ -24958,6 +25248,7 @@ async function handleCreateSceneVideo(req, res) {
     duration: payload.duration,
     quality,
     provider: "seedance",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
     kind: "scene-video",
     params: payload,
     upstreamPayload: payload,
@@ -24997,8 +25288,9 @@ async function handleGetSceneVideo(req, res, taskId) {
     return sendJson(res, 200, { ok: true, task });
   }
 
-  const raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
-  const task = normalizeTask(raw);
+  const gatewayTask = USE_GATEWAY_UPSTREAM ? await gatewayQueryTask(taskId) : null;
+  const raw = gatewayTask ? gatewayTask.raw : await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(taskId)}`);
+  const task = gatewayTask || normalizeTask(raw);
   let localVideoUrl = "";
   let localVideoPath = "";
   let downloadError = "";
