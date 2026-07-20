@@ -12598,9 +12598,11 @@ function gatewayAbsoluteAssetUrl(value = "") {
 
 async function dataUrlForLocalAssetUrl(localUrl = "", fallbackMime = "application/octet-stream") {
   const value = String(localUrl || "").trim();
-  if (!value || !value.startsWith("/")) return "";
-  const localPath = path.normalize(path.join(ROOT, value.replace(/^\/+/, "")));
-  if (!localPath.startsWith(ROOT)) {
+  if (!value) return "";
+  const localPath = localAssetPathFromPublicValue(value);
+  if (!localPath) return "";
+  const assetsRoot = path.normalize(path.join(ROOT, "assets"));
+  if (!localPath.startsWith(assetsRoot)) {
     const error = new Error("Asset path is invalid.");
     error.statusCode = 400;
     throw error;
@@ -12614,9 +12616,9 @@ async function gatewaySeedanceReferenceFromUri(uri = "", label = "Reference") {
   if (!value) return null;
   if (/^data:/i.test(value)) return { dataUrl: value, fileName: `${label}.bin`, name: label };
   if (value.startsWith("asset://")) return { url: value, name: label };
-  if (value.startsWith("/")) {
-    const localPath = path.normalize(path.join(ROOT, value.replace(/^\/+/, "")));
-    const mime = imageMimeFromKnownPath(localPath) || videoMimeFromPath(localPath);
+  const localPath = localAssetPathFromPublicValue(value);
+  if (localPath) {
+    const mime = imageMimeFromKnownPath(localPath) || "image/png";
     return { dataUrl: await dataUrlForLocalAssetUrl(value, mime), fileName: path.basename(localPath), name: label };
   }
   return { url: gatewayAbsoluteAssetUrl(value), name: label };
