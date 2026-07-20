@@ -1881,46 +1881,12 @@ Media roles: first_frame, last_frame, reference_image, reference_video, referenc
 
 Limits: duration 5-15 seconds. Standard supports 480p, 720p, 1080p, and 4k. Fast supports 480p and 720p. Images: JPG/PNG/WebP/BMP, max 20MB each, width and height 300-6000px, aspect ratio 0.4-2.5. Video references: max 3, pixel count 409600-8847360. Audio references: max 3, MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM, max 30MB each, and must be used with at least one image or video reference.`;
 
-const LIVE_HTTP_ACCESS_COPY = `Production generation endpoints:
+const LIVE_HTTP_ACCESS_COPY = `Production Seedance V3 endpoints:
 
-1) Seedance video through BytePlus-compatible V3:
+1) Create and poll a Seedance video task:
 ${ADVANCED_SEEDANCE_ACCESS_COPY}
 
-2) Wan2.7 video through legacy Advanced:
-POST ${apiUrl("/api/advanced/generate")}
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "provider": "wan27",
-  "model": "wan2.7-i2v-2026-04-25",
-  "prompt": "Animate Image 1 into a cinematic 5 second shot.",
-  "firstFrameUrl": "https://example.com/first-frame.png",
-  "mediaMode": "multimodal",
-  "ratio": "9:16",
-  "resolution": "1080p",
-  "duration": 5
-}
-
-Wan2.7 video supports 720p and 1080p.
-
-3) Wan2.7 image text-to-image or image edit:
-POST ${apiUrl("/api/wan27/image-edit")}
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "provider": "wan27-image",
-  "model": "wan2.7-image-pro",
-  "prompt": "Create a realistic cinematic portrait.",
-  "imageAssetIds": [],
-  "ratio": "9:16",
-  "resolution": "4K"
-}
-
-Wan2.7 image supports 1K, 2K, and 4K for text-to-image. 4K is text-to-image only; reference-image edit/fusion supports 1K and 2K.
-
-BytePlus-compatible asset upload for reusable files:
+2) Optional BytePlus-compatible asset upload for reusable files:
 POST ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
@@ -2152,51 +2118,6 @@ Limits:
 - audio references: MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM; max 30MB each; audio must be combined with image or video reference
 - first_frame and last_frame roles cannot be mixed with reference_image, reference_video, or reference_audio`;
 
-const WAN27_VIDEO_PARAM_ACCESS_COPY = `POST ${apiUrl("/api/advanced/generate")}
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "provider": "wan27",
-  "model": "wan2.7-i2v-2026-04-25",
-  "prompt": "Describe the video motion and camera.",
-  "firstFrameUrl": "https://example.com/first-frame.png",
-  "mediaMode": "multimodal",
-  "ratio": "9:16",
-  "resolution": "1080p",
-  "duration": 5
-}
-
-Wan2.7 video supports 720p and 1080p. Use Seedance standard for video 4k.`;
-
-const WAN27_IMAGE_PARAM_ACCESS_COPY = `Text-to-image:
-POST ${apiUrl("/api/wan27/image-edit")}
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "provider": "wan27-image",
-  "model": "wan2.7-image-pro",
-  "prompt": "Create one realistic adult character portrait...",
-  "imageAssetIds": [],
-  "ratio": "9:16",
-  "resolution": "4K"
-}
-
-Image edit / multi-image edit:
-POST ${apiUrl("/api/wan27/image-edit")}
-Authorization: Bearer <user-token>
-Content-Type: application/json
-
-{
-  "prompt": "Blend Image 1 and Image 2 into one realistic cinematic portrait.",
-  "imageAssetIds": ["asset-image-1", "asset-image-2"],
-  "ratio": "9:16",
-  "resolution": "2K"
-}
-
-Wan2.7 image edit accepts 0-9 source images. The order of imageAssetIds maps to Image 1, Image 2, ... in the prompt. Use an empty imageAssetIds array for text-to-image through the edit endpoint. Text-to-image supports 1K, 2K, and 4K. Requests with reference images support 1K and 2K. The older single-asset endpoint /api/user-assets/<assetId>/modify remains supported for one image.`;
-
 const PARAM_DOC_MARKDOWN_URL = apiUrl("/docs/models.md");
 
 const ACCESS_DOCS = {
@@ -2230,7 +2151,7 @@ Content-Type: application/json
   },
   advanced: {
     title: "V3 Video Generation",
-    summary: "Use /api/v3/contents/generations/tasks for new Seedance video tasks, then poll /api/v3/contents/generations/tasks/<taskId> for progress and result URLs. /api/advanced/generate remains a legacy wrapper.",
+    summary: "Use /api/v3/contents/generations/tasks for Seedance video tasks, then poll /api/v3/contents/generations/tasks/<taskId> for progress and result URLs.",
     request: [
       ["Authorization", "Bearer <user-token>"],
       ["Content-Type", "application/json"],
@@ -2283,70 +2204,6 @@ Content-Type: application/json
     ],
     example: SEEDANCE_PARAM_ACCESS_COPY,
   },
-  wan27VideoParams: {
-    title: "Wan2.7 Video Parameters",
-    summary: "Use /api/advanced/generate with provider=wan27.",
-    request: [
-      { name: "model", type: "string", required: "No", description: "Wan2.7 video model id. Allowed value: wan2.7-i2v-2026-04-25.", default: "wan2.7-i2v-2026-04-25" },
-      { name: "prompt", type: "string", required: "Yes", description: "Video prompt.", default: "-" },
-      { name: "dataUrl", type: "string", required: "Usually", description: "Base64 first-frame image. You can also use userAssetId or firstFrameAssetId.", default: "-" },
-      { name: "mediaMode", type: "string", required: "No", description: "Use multimodal or first_last_frame in new integrations. Legacy aliases are accepted for compatibility.", default: "multimodal" },
-      { name: "firstFrameUrl", type: "string", required: "No", description: "Public URL for the first frame if not using dataUrl/userAssetId.", default: "-" },
-      { name: "lastFrameUrl", type: "string", required: "No", description: "Public URL for the last frame when mediaMode uses a last frame.", default: "-" },
-      { name: "firstClipUrl", type: "string", required: "No", description: "Public video URL when mediaMode starts from a clip.", default: "-" },
-      { name: "drivingAudioUrl", type: "string", required: "No", description: "Public audio URL when mediaMode uses driving audio.", default: "-" },
-      { name: "resolution", type: "string", required: "No", description: "Allowed values: 720p, 1080p.", default: "720p" },
-      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Wan2.7 jobs are limited to 2-15 seconds here.", default: "5" },
-    ],
-    response: [
-      { name: "ok", type: "boolean", required: "Yes", description: "true when the request is accepted.", default: "-" },
-      { name: "taskId", type: "string", required: "Yes", description: "Generation task id.", default: "-" },
-      { name: "record.videoUrl / record.downloadUrl", type: "string", required: "No", description: "Result URL when ready. Returned provider URLs may expire after 24 hours.", default: "-" },
-    ],
-    example: WAN27_VIDEO_PARAM_ACCESS_COPY,
-  },
-  wan27ImageParams: {
-    title: "Wan2.7 Image Parameters",
-    summary: "Use /api/wan27/image-edit for text-to-image and 0-9 image text/edit/fusion requests. /api/characters/generate, /api/user-assets/<assetId>/modify, and /api/characters/<characterId>/modify remain supported legacy paths.",
-    request: [
-      { name: "model", type: "string", required: "No", description: "Image generation/editing model id. Allowed value: wan2.7-image-pro.", default: "wan2.7-image-pro" },
-      { name: "prompt", type: "string", required: "Yes", description: "Prompt sent to upstream exactly as provided by the caller, except take-off uses the fixed take-off prompt.", default: "-" },
-      { name: "imageAssetIds", type: "array", required: "No", description: "Wan2.7 image edit source images from /api/user-assets. Supports 0-9 images. Array order maps to Image 1, Image 2, etc.", default: "[]" },
-      { name: "imageAssetId / assetId / userAssetId", type: "string", required: "No", description: "Single-image alias accepted by /api/wan27/image-edit and the legacy /api/user-assets/<assetId>/modify path.", default: "-" },
-      { name: "ratio", type: "string", required: "No", description: "Allowed values: 1:1, 3:4, 4:3, 9:16, 16:9.", default: "9:16" },
-      { name: "resolution", type: "string", required: "No", description: "Allowed values: 1K, 2K, or 4K for text-to-image. Requests with reference images support 1K or 2K.", default: "2K" },
-      { name: "size", type: "string", required: "No", description: "Direct upstream image size, for example 1440*2560. Overrides ratio/resolution size mapping.", default: "by ratio/resolution" },
-    ],
-    response: [
-      { name: "ok", type: "boolean", required: "Yes", description: "true when generation/editing succeeds.", default: "-" },
-      { name: "taskId", type: "string", required: "Yes", description: "Image generation task id.", default: "-" },
-      { name: "imageUrl / record.imageResultUrl", type: "string", required: "Yes", description: "Generated image URL saved in history. It is not added to assets until the user calls Add asset from history.", default: "-" },
-    ],
-    example: WAN27_IMAGE_PARAM_ACCESS_COPY,
-  },
-  records: {
-    title: "Records",
-    summary: "Query generation history for the current user, then fetch a single task for a fresher status or final video URL. API-token and sub-token callers receive upstream provider URLs only; local/CDN backup URLs are not returned downstream.",
-    request: [
-      ["Authorization", "Bearer <user-token>"],
-      ["GET /api/generation-records?limit=60", "List current user records. Optional refresh=1 to refresh pending tasks."],
-      ["GET /api/generation-records/<taskId>", "Fetch one record by task id."],
-    ],
-    response: [
-      ["ok", "true when the request succeeds."],
-      ["records", "Array of generation records."],
-      ["total", "Total record count for the user."],
-      ["user", "Updated user snapshot."],
-      ["record", "Single record when calling the detail endpoint."],
-      ["record.videoUrl / record.downloadUrl", "Upstream provider URL only for API-token and sub-token callers. This may be a BytePlus/Volcengine temporary URL for Seedance or an Aliyun URL for APIZ/Wan2.7."],
-      ["local/CDN backup URLs", "Kept internally for site playback and backup; not returned to downstream API-token callers."],
-    ],
-    example: `GET /api/generation-records?limit=60
-Authorization: Bearer <user-token>
-
-GET /api/generation-records/<taskId>
-Authorization: Bearer <user-token>`,
-  },
   samples: {
     title: "Ready-made Clients",
     summary: "These are copy-ready snippets for TypeScript, Python, curl, agent instructions, and MCP wrappers.",
@@ -2359,7 +2216,7 @@ Authorization: Bearer <user-token>`,
     ],
     response: [
       ["Video URL", "API-token task queries return upstream provider URLs only; returned URLs may expire after 24 hours."],
-      ["History", "Use /api/generation-records or /api/generation-records/<taskId> to check progress."],
+      ["Task query", "Use /api/v3/contents/generations/tasks/<taskId> to check progress."],
     ],
     example: LIVE_HTTP_ACCESS_COPY,
   },
@@ -2414,13 +2271,13 @@ ACCESS_INTEGRATION_GUIDES = [
     title: "Assets",
     subtitle: "Upload",
     desc: "Upload reusable images, videos, or audio and reuse returned asset ids.",
-    copy: `POST ${apiUrl("/api/user-assets")}
+    copy: `POST ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
-{"url":"https://example.com/image1.png","fileName":"image1.png","name":"image1"}
-{"videoUrl":"https://example.com/video1.mp4","fileName":"video1.mp4","name":"video1"}
-{"audioUrl":"https://example.com/audio1.mp3","fileName":"audio1.mp3","name":"audio1"}`,
+{"URL":"https://example.com/image1.png","AssetType":"Image","Name":"image1","Moderation":{"Strategy":"Skip"}}
+{"URL":"https://example.com/video1.mp4","AssetType":"Video","Name":"video1","Moderation":{"Strategy":"Skip"}}
+{"URL":"https://example.com/audio1.mp3","AssetType":"Audio","Name":"audio1","Moderation":{"Strategy":"Skip"}}`,
   },
   {
     id: "agent",
@@ -2446,22 +2303,6 @@ ACCESS_PARAM_GUIDES = [
     subtitle: "Video",
     desc: "Parameter table for Seedance video generation through /api/v3/contents/generations/tasks.",
     copy: SEEDANCE_PARAM_ACCESS_COPY,
-  },
-  {
-    id: "wan27-video-params",
-    docs: "wan27VideoParams",
-    title: "Wan2.7 Video",
-    subtitle: "Params",
-    desc: "Parameter table for Wan2.7 video generation through /api/advanced/generate.",
-    copy: WAN27_VIDEO_PARAM_ACCESS_COPY,
-  },
-  {
-    id: "wan27-image-params",
-    docs: "wan27ImageParams",
-    title: "Wan2.7 Image",
-    subtitle: "Params",
-    desc: "Parameter table for Wan2.7 image generation and image editing.",
-    copy: WAN27_IMAGE_PARAM_ACCESS_COPY,
   },
 ];
 
