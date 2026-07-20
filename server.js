@@ -21068,10 +21068,11 @@ async function gatewayPurchaseImageCredits() {
     if (!Number.isFinite(Number(credits))) {
       throw new Error("Gateway estimate did not include a usable image credit amount.");
     }
+    const multiplier = gatewayEstimateMultiplier(estimate);
     return {
       credits: creditsAmount(credits),
       source: "gateway_upstream",
-      message: "Old-site sale price through the configured upstream token.",
+      message: `Old-site sale price through the configured upstream token${multiplier !== 1 ? `, API multiplier ${multiplier} applied` : ""}.`,
     };
   } catch (error) {
     return {
@@ -21080,6 +21081,11 @@ async function gatewayPurchaseImageCredits() {
       message: error.message || String(error),
     };
   }
+}
+
+function gatewayEstimateMultiplier(estimate = {}) {
+  const multiplier = Number(estimate.userPricingMultiplier ?? estimate.pricingMultiplier ?? estimate.multiplier ?? 1);
+  return Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
 }
 
 async function gatewayPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard") {
@@ -21095,16 +21101,28 @@ async function gatewayPurchaseCreditsPerSecond(provider = "seedance", resolution
       ...(normalizedProvider === "seedance" ? { seedanceTier: normalizeSeedanceTier(seedanceTier) } : {}),
       ...(normalizedProvider === "seedance" && rateKind === "video_input" ? { inputVideoSeconds: duration } : {}),
     });
+    const multiplier = gatewayEstimateMultiplier(estimate);
+    const estimateDuration = Number(estimate.duration || duration);
+    const inputSeconds = Number(estimate.videoInputSeconds || duration);
+    const outputCredits = Number(estimate.outputCredits);
+    const videoInputCredits = Number(estimate.videoInputCredits);
+    const originalCredits = Number(estimate.originalCredits);
     const rawCredits = normalizedProvider === "seedance" && rateKind === "video_input"
-      ? Number(estimate.videoInputCredits ?? 0) / Number(estimate.videoInputSeconds || duration)
-      : Number(estimate.outputCredits ?? estimate.credits ?? 0) / Number(estimate.duration || duration);
+      ? Number.isFinite(videoInputCredits)
+        ? (videoInputCredits * multiplier) / inputSeconds
+        : Number.isFinite(originalCredits) && Number.isFinite(outputCredits)
+        ? (Math.max(0, originalCredits - outputCredits) * multiplier) / inputSeconds
+        : Number(estimate.credits ?? 0) / inputSeconds
+      : Number.isFinite(outputCredits)
+      ? (outputCredits * multiplier) / estimateDuration
+      : Number(estimate.credits ?? 0) / estimateDuration;
     if (!Number.isFinite(rawCredits) || rawCredits < 0) {
       throw new Error("Gateway estimate did not include a usable credit amount.");
     }
     return {
       creditsPerSecond: pricingNumber(rawCredits, 0),
       source: "gateway_upstream",
-      message: "Old-site sale price through the configured upstream token.",
+      message: `Old-site sale price through the configured upstream token${multiplier !== 1 ? `, API multiplier ${multiplier} applied` : ""}.`,
     };
   } catch (error) {
     return {
