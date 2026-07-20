@@ -6969,6 +6969,103 @@ async function probeLocalVideoDimensions(videoPath = "") {
   }
 }
 
+function evenVideoDimension(value, mode = "ceil") {
+  const numeric = Math.max(2, Number(value) || 2);
+  const rounded = mode === "floor" ? Math.floor(numeric) : Math.ceil(numeric);
+  return rounded % 2 === 0 ? rounded : (mode === "floor" ? rounded - 1 : rounded + 1);
+}
+
+function seedanceVideoTargetDimensions(dimensions = {}) {
+  const width = Number(dimensions.width || 0);
+  const height = Number(dimensions.height || 0);
+  const pixelCount = width * height;
+  if (!width || !height || !Number.isFinite(pixelCount) || pixelCount <= 0) return null;
+  if (pixelCount >= SEEDANCE_VIDEO_PIXEL_COUNT_MIN && pixelCount <= SEEDANCE_VIDEO_PIXEL_COUNT_MAX) {
+    return { width, height };
+  }
+  const targetPixels = pixelCount < SEEDANCE_VIDEO_PIXEL_COUNT_MIN
+    ? SEEDANCE_VIDEO_PIXEL_COUNT_MIN
+    : SEEDANCE_VIDEO_PIXEL_COUNT_MAX;
+  const scale = Math.sqrt(targetPixels / pixelCount);
+  const mode = pixelCount < SEEDANCE_VIDEO_PIXEL_COUNT_MIN ? "ceil" : "floor";
+  let targetWidth = evenVideoDimension(width * scale, mode);
+  let targetHeight = evenVideoDimension(height * scale, mode);
+  while (targetWidth * targetHeight < SEEDANCE_VIDEO_PIXEL_COUNT_MIN) {
+    if (targetWidth <= targetHeight) targetWidth += 2;
+    else targetHeight += 2;
+  }
+  while (targetWidth * targetHeight > SEEDANCE_VIDEO_PIXEL_COUNT_MAX) {
+    if (targetWidth >= targetHeight && targetWidth > 2) targetWidth -= 2;
+    else if (targetHeight > 2) targetHeight -= 2;
+    else break;
+  }
+  return { width: targetWidth, height: targetHeight };
+}
+
+async function normalizeSeedanceVideoFileForRequest(sourcePath = "", targetPath = "", label = "Seedance video") {
+  const sourceDimensions = await probeLocalVideoDimensions(sourcePath);
+  const targetDimensions = seedanceVideoTargetDimensions(sourceDimensions);
+  if (!targetDimensions) {
+    throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Vipeak 2.`);
+  }
+  const sourcePixelCount = Number(sourceDimensions.width || 0) * Number(sourceDimensions.height || 0);
+  const outputPath = targetPath || sourcePath;
+  if (sourcePixelCount >= SEEDANCE_VIDEO_PIXEL_COUNT_MIN && sourcePixelCount <= SEEDANCE_VIDEO_PIXEL_COUNT_MAX) {
+    if (outputPath && path.resolve(sourcePath) !== path.resolve(outputPath)) {
+      await fs.mkdir(path.dirname(outputPath), { recursive: true });
+      await fs.copyFile(sourcePath, outputPath);
+    }
+    return assertSeedanceVideoPixelCount(sourceDimensions, label);
+  }
+  const tempPath = `${outputPath}.${Date.now()}.seedance-normalized.mp4`;
+  try {
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    await execFileQuiet("ffmpeg", [
+      "-y",
+      "-i",
+      sourcePath,
+      "-vf",
+      `scale=${targetDimensions.width}:${targetDimensions.height}:flags=lanczos`,
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a?",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "20",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
+      tempPath,
+    ], { timeout: 180000 });
+    const normalizedDimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(tempPath), label);
+    await fs.rename(tempPath, outputPath);
+    return normalizedDimensions;
+  } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+    if (error?.code === "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID" || error?.code === "SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE") throw error;
+    const wrapped = advancedValidationError(
+      "SEEDANCE_VIDEO_NORMALIZE_FAILED",
+      `${label} could not be normalized for Vipeak 2. Re-upload a video between ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN} and ${SEEDANCE_VIDEO_PIXEL_COUNT_MAX} pixels.`,
+      {
+        width: sourceDimensions.width,
+        height: sourceDimensions.height,
+        pixelCount: sourcePixelCount,
+      },
+    );
+    wrapped.cause = error;
+    throw wrapped;
+  }
+}
+
 function localPathForUserAsset(asset = {}) {
   const localUrl = String(asset.localUrl || "").trim();
   if (!localUrl) return "";
@@ -7045,17 +7142,25 @@ function storedVideoDimensionsForAsset(asset = {}) {
 async function validateSeedanceVideoAssetForRequest(db, asset = {}, label = "Seedance video") {
   if (!asset) return null;
   validateWan27MediaKind(asset, "video", label);
-  const storedDimensions = storedVideoDimensionsForAsset(asset);
-  if (storedDimensions) return assertSeedanceVideoPixelCount(storedDimensions, label);
-
   const localPath = localPathForUserAsset(asset);
+  const storedDimensions = storedVideoDimensionsForAsset(asset);
+  if (storedDimensions) {
+    try {
+      return assertSeedanceVideoPixelCount(storedDimensions, label);
+    } catch (error) {
+      if (!localPath || error.code !== "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID") throw error;
+    }
+  }
+
   if (!localPath) {
     throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Vipeak 2.`, { assetId: asset.id || "" });
   }
-  const dimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(localPath), label);
+  const dimensions = await normalizeSeedanceVideoFileForRequest(localPath, localPath, label);
   asset.videoWidth = dimensions.width;
   asset.videoHeight = dimensions.height;
   asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
+  asset.seedanceVideoAssetId = "";
+  asset.seedanceVideoAssetUri = "";
   asset.updatedAt = new Date().toISOString();
   db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
   if (dbEnabled()) await upsertUserAssetInDb(asset);
@@ -7370,12 +7475,7 @@ async function refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, asset = {},
   const sourcePath = localAssetPathFromPublicValue(sourceUrl || asset.sourceUrl || asset.originalUrl || "");
   const targetPath = localPathForUserAsset(asset);
   if (!sourcePath || !targetPath) return asset;
-  const sourceDimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(sourcePath), "Seedance reference video source");
-  const samePath = path.resolve(sourcePath) === path.resolve(targetPath);
-  if (!samePath) {
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.copyFile(sourcePath, targetPath);
-  }
+  const sourceDimensions = await normalizeSeedanceVideoFileForRequest(sourcePath, targetPath, "Seedance reference video source");
   asset.videoWidth = sourceDimensions.width;
   asset.videoHeight = sourceDimensions.height;
   asset.durationSeconds = sourceDimensions.durationSeconds || asset.durationSeconds || 0;
@@ -10394,23 +10494,41 @@ function seedanceAssetCacheField(userAsset = {}) {
 async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   const assetType = seedanceAssetTypeForUserAsset(userAsset);
   const cacheField = seedanceAssetCacheField(userAsset);
-  if (userAsset[cacheField] && (!localPublicAssetStorageEnabled() || !userAsset.localUrl || isLocalPublicAssetUrl(userAsset.publicUrl))) return userAsset;
+  if (userAsset[cacheField] && (!localPublicAssetStorageEnabled() || !userAsset.localUrl || isLocalPublicAssetUrl(userAsset.publicUrl))) {
+    if (assetType !== "Video") return userAsset;
+    const storedDimensions = storedVideoDimensionsForAsset(userAsset);
+    if (!userAsset.localUrl) return userAsset;
+    if (storedDimensions) {
+      try {
+        assertSeedanceVideoPixelCount(storedDimensions, "Seedance video asset");
+        return userAsset;
+      } catch (error) {
+        if (error.code !== "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID") throw error;
+      }
+    }
+  }
 
   const localPath = localPathForUserAsset(userAsset);
   if (!localPath) {
     throw advancedValidationError("ASSET_FILE_MISSING", "Asset local file is missing. Re-upload the asset before using it with Vipeak 2.", { assetId: userAsset.id || "" });
   }
-  const bytes = await fs.readFile(localPath);
+  let bytes = null;
   if (assetType === "Image") {
+    bytes = await fs.readFile(localPath);
     const dimensions = validateSeedanceImageBytes(bytes, "Seedance image asset");
     userAsset.width = dimensions.width;
     userAsset.height = dimensions.height;
     userAsset.imageType = dimensions.type || userAsset.imageType || "";
   } else if (assetType === "Video") {
-    const dimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(localPath), "Seedance video asset");
+    const dimensions = await normalizeSeedanceVideoFileForRequest(localPath, localPath, "Seedance video asset");
     userAsset.videoWidth = dimensions.width;
     userAsset.videoHeight = dimensions.height;
     userAsset.durationSeconds = dimensions.durationSeconds || userAsset.durationSeconds || 0;
+    userAsset.seedanceVideoAssetId = "";
+    userAsset.seedanceVideoAssetUri = "";
+    bytes = await fs.readFile(localPath);
+  } else {
+    bytes = await fs.readFile(localPath);
   }
   const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
   let uploaded = { publicUrl: localPublicUrl, key: "" };
@@ -10545,27 +10663,32 @@ async function createSeedanceReferenceVideoAssetFromUrl(db, user, videoUrl = "",
   if (existing) return await refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, existing, url);
   const localSourcePath = localAssetPathFromPublicValue(url);
   if (localSourcePath) {
-    const dimensions = assertSeedanceVideoPixelCount(await probeLocalVideoDimensions(localSourcePath), `Seedance reference video ${index + 1}`);
-    const bytes = await fs.readFile(localSourcePath);
-    const asset = await createUserMediaAssetFromBytes(db, user, {
-      bytes,
-      mime: videoMimeFromPath(localSourcePath),
-      name: `Seedance reference video ${index + 1}`,
-      fileName,
-      maxBytes: MEDIA_UPLOAD_MAX_BYTES,
-      durationSeconds: dimensions.durationSeconds,
-    });
-    asset.sourceUrl = normalizedAssetSourceUrl(url);
-    asset.hidden = true;
-    asset.videoWidth = dimensions.width;
-    asset.videoHeight = dimensions.height;
-    asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
-    asset.meta = { fromWorkflowPreset: true, upstreamUse: "seedance_reference_video" };
-    asset.updatedAt = new Date().toISOString();
-    db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
-    if (dbEnabled()) await upsertUserAssetInDb(asset);
-    else await writeDb(db);
-    return asset;
+    const tempPath = path.join(USER_UPLOAD_DIR, user.id, `.seedance-reference-video-${Date.now()}-${index}.mp4`);
+    try {
+      const dimensions = await normalizeSeedanceVideoFileForRequest(localSourcePath, tempPath, `Seedance reference video ${index + 1}`);
+      const bytes = await fs.readFile(tempPath);
+      const asset = await createUserMediaAssetFromBytes(db, user, {
+        bytes,
+        mime: videoMimeFromPath(tempPath),
+        name: `Seedance reference video ${index + 1}`,
+        fileName,
+        maxBytes: MEDIA_UPLOAD_MAX_BYTES,
+        durationSeconds: dimensions.durationSeconds,
+      });
+      asset.sourceUrl = normalizedAssetSourceUrl(url);
+      asset.hidden = true;
+      asset.videoWidth = dimensions.width;
+      asset.videoHeight = dimensions.height;
+      asset.durationSeconds = dimensions.durationSeconds || asset.durationSeconds || 0;
+      asset.meta = { fromWorkflowPreset: true, upstreamUse: "seedance_reference_video" };
+      asset.updatedAt = new Date().toISOString();
+      db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+      if (dbEnabled()) await upsertUserAssetInDb(asset);
+      else await writeDb(db);
+      return asset;
+    } finally {
+      await fs.rm(tempPath, { force: true }).catch(() => {});
+    }
   }
   return await createUserMediaAssetFromPublicUrl(db, user, {
     url,
