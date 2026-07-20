@@ -8999,7 +8999,9 @@ async function submitIgnexSeedanceVideoTask({
   });
   const { payload, externalModel } = ignexSeedancePayloadFromBody({ config, prompt, content, body });
   await prepareIgnexSeedancePayloadAssets(payload, { db, user });
-  payload.Moderation = { Strategy: "Skip" };
+  delete payload.Moderation;
+  delete payload.moderation;
+  stripSeedanceCompatibilityAliases(payload);
 
   console.log(`[ignex-seedance-submit-${slug || "video"}]`, JSON.stringify({
     ...payload,
@@ -9339,7 +9341,9 @@ async function prepareOfficialSeedancePayloadForIgnex(db, user, body = {}, { con
     body: sourcePayload,
   });
   await prepareIgnexSeedancePayloadAssets(payload, { db, user });
-  payload.Moderation = { Strategy: "Skip" };
+  delete payload.Moderation;
+  delete payload.moderation;
+  stripSeedanceCompatibilityAliases(payload);
   return { payload, externalModel, sourcePayload };
 }
 
@@ -9368,6 +9372,9 @@ function validateOfficialSeedancePayloadBeforeCharge(payload = {}) {
     if (item.type === "video_url" || item.type === "audio_url") return true;
     return item.type === "image_url" && !["first_frame", "last_frame"].includes(String(item.role || ""));
   });
+  if (hasFrameImage && hasReferenceMedia) {
+    errors.push("first/last-frame image content cannot be mixed with reference image, reference video, reference audio, or draft_task content.");
+  }
   if (audioCount > 0 && imageCount + videoCount < 1) errors.push("audio content must be combined with image or video content.");
   const missingMedia = content.find((item) => {
     if (!item || typeof item !== "object") return false;
@@ -11087,6 +11094,12 @@ async function validateSeedanceAdvancedMediaRules({
   const referenceVideoCount = [...referenceVideoRefs].filter(Boolean).length;
   const referenceAudioCount = [...referenceAudioRefs].filter(Boolean).length;
   const totalImageInputs = firstFrameCount + lastFrameCount + referenceImageCount;
+  if (seedanceModeNeedsFirstFrame(mode) && (referenceImageCount > 0 || referenceVideoCount > 0 || referenceAudioCount > 0 || requestParams.draft || requestParams.draft_task || requestParams.draftTask)) {
+    throw advancedValidationError(
+      "SEEDANCE_FRAME_REFERENCE_MIX_UNSUPPORTED",
+      "Vipeak 2 first/last-frame mode cannot be mixed with reference images, reference videos, reference audios, or draft references. Use reference_video mode for multimodal references, or remove the extra references.",
+    );
+  }
 
   if (totalImageInputs > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
     throw advancedValidationError("TOO_MANY_SEEDANCE_IMAGES", `Vipeak 2 supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs total.`, {
