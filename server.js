@@ -10668,24 +10668,39 @@ function seedanceReferenceVideoAssetIdsFromBody(body = {}) {
     ...arrayFromBody(body.referenceVideoAssetIds),
     ...arrayFromBody(body.videoAssetIds),
   ].map((item) => String(item || "").trim()).filter(Boolean);
-  if (ids.length > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
+  const uniqueIds = [...new Set(ids)];
+  if (uniqueIds.length > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} reference videos.`);
     error.statusCode = 400;
     throw error;
   }
-  return ids;
+  return uniqueIds;
+}
+
+function seedanceReferenceVideoUrlFromItem(item = "") {
+  if (typeof item === "string") return item.trim();
+  if (!item || typeof item !== "object") return "";
+  return String(item.url || item.videoUrl || item.video_url || item.assetUri || "").trim();
+}
+
+function uniqueSeedanceReferenceVideoItems(items = []) {
+  const seen = new Set();
+  const unique = [];
+  for (const item of items) {
+    const url = seedanceReferenceVideoUrlFromItem(item);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    unique.push(item);
+  }
+  return unique;
 }
 
 function seedanceReferenceVideoUrlInputsFromBody(body = {}) {
-  const inputs = [
+  const inputs = uniqueSeedanceReferenceVideoItems([
     ...arrayFromBody(body.referenceVideos),
     ...arrayFromBody(body.referenceVideoUrls),
     ...arrayFromBody(body.videoUrls),
-  ].filter((item) => {
-    if (!item) return false;
-    if (typeof item === "string") return item.trim();
-    return item.url || item.videoUrl || item.video_url || item.assetUri;
-  });
+  ]);
   if (inputs.length > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} reference videos.`);
     error.statusCode = 400;
@@ -10693,7 +10708,7 @@ function seedanceReferenceVideoUrlInputsFromBody(body = {}) {
   }
   return inputs.map((item, index) => {
     if (typeof item === "string") return item.trim();
-    return String(item.url || item.videoUrl || item.video_url || item.assetUri || "").trim();
+    return seedanceReferenceVideoUrlFromItem(item);
   }).filter(Boolean).map((url, index) => assertSeedanceMediaUrl(url, `Seedance reference video ${index + 1}`, { kind: "video" }));
 }
 
@@ -10730,30 +10745,25 @@ function seedanceExplicitVideoInputSecondsFromBody(body = {}) {
 }
 
 function seedanceReferenceVideoUrlItemsFromBody(body = {}) {
-  return [
+  return uniqueSeedanceReferenceVideoItems([
     ...arrayFromBody(body.referenceVideos),
     ...arrayFromBody(body.referenceVideoUrls),
     ...arrayFromBody(body.videoUrls),
     ...arrayFromBody(body.reference_videos),
-  ].filter((item) => {
-    if (!item) return false;
-    if (typeof item === "string") return item.trim();
-    return item.url || item.videoUrl || item.video_url || item.assetUri;
-  });
+  ]);
 }
 
 function seedanceReferenceVideoInputCountFromBody(body = {}) {
-  const scalarIds = [
+  const ids = [
     body.referenceVideoAssetId,
     body.videoAssetId,
     body.firstClipAssetId,
-  ].map((item) => String(item || "").trim()).filter(Boolean).length;
-  const arrayIds = [
     ...arrayFromBody(body.referenceVideoAssetIds),
     ...arrayFromBody(body.videoAssetIds),
-  ].map((item) => String(item || "").trim()).filter(Boolean).length;
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  const uniqueIdCount = new Set(ids).size;
   const arrayVideos = seedanceReferenceVideoUrlItemsFromBody(body).length;
-  return scalarIds + arrayIds + arrayVideos;
+  return uniqueIdCount + arrayVideos;
 }
 
 function seedanceVideoInputSecondsFromBody(body = {}, { fallbackSeconds = 0 } = {}) {
