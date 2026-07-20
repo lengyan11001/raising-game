@@ -940,7 +940,6 @@ async function submitPlayfluxTemplate(template = {}, root) {
           referenceVideoDurationSeconds: referenceVideoSeconds,
           params: {
             ...recordBase.params,
-            reference_videos: referenceVideoUrl ? [referenceVideoUrl] : [],
           },
         },
       });
