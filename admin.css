@@ -1404,6 +1404,21 @@ a { color: inherit; text-decoration: none; }
   justify-content: flex-end;
 }
 .adm-record-detail { display: grid; gap: 12px; }
+.adm-record-detail-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--adm-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--adm-muted);
+  font-size: 0.86rem;
+}
+.adm-record-detail-loading .adm-spinner {
+  width: 18px;
+  height: 18px;
+}
 .adm-record-preview {
   border: 1px solid var(--adm-line);
   border-radius: 12px;
@@ -1498,6 +1513,7 @@ a { color: inherit; text-decoration: none; }
   background: rgba(255, 255, 255, 0.03);
 }
 .adm-record-line a { color: var(--adm-mint); word-break: break-all; font-size: 0.82rem; }
+.adm-record-error-line code { color: var(--adm-danger); }
 .adm-record-section {
   border: 1px solid var(--adm-line);
   border-radius: 10px;
@@ -1510,6 +1526,15 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   padding: 8px 10px;
   border-bottom: 1px solid var(--adm-line);
+}
+.adm-record-json-section header {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.adm-record-json-section header > .adm-muted {
+  flex: 1 1 90px;
+  min-width: 0;
+  text-align: left;
 }
 .adm-record-section pre {
   margin: 0;

@@ -542,6 +542,7 @@ function videoOrPoster(item) {
 /* ============ dialog helpers ============ */
 function openDialog({ title, body, confirmText = "确定", cancelText = "取消", showCancel = true, hideConfirm = false, onConfirm, onOpen }) {
   els.dialogTitle.textContent = title || "";
+  delete els.dialogBody.dataset.recordDetailToken;
   els.dialogBody.innerHTML = "";
   if (typeof body === "string") {
     els.dialogBody.innerHTML = body;
@@ -1918,7 +1919,7 @@ function recordPreviewHtml(record) {
   const imageResult = adminPreviewMediaUrl(recordImageResultUrl(record));
   const poster = adminPreviewMediaUrl(recordResultPosterUrl(record));
   const posterAttr = poster ? ` poster="${escapeHtml(poster)}"` : "";
-  if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="auto" playsinline${posterAttr} style="${escapeHtml(recordRatioStyle(record))}"></video>`;
+  if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="metadata" playsinline${posterAttr} style="${escapeHtml(recordRatioStyle(record))}"></video>`;
   if (imageResult) return `<img src="${escapeHtml(imageResult)}" alt="" />`;
   if (remoteVideo) {
     return `
@@ -2511,31 +2512,44 @@ async function promoteRecordToCharacterVideo(record = {}, button = null, load = 
   clearTimeout(searchTimer);
 }
 
-async function fetchAdminGenerationRecordDetail(record = {}) {
-  if (!record?.taskId) return record;
-  if (record.upstreamPayload || record.createResponse || record.queryResponse) return record;
-  const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}`);
-  return payload.record || record;
+function hasRecordDetailValue(value) {
+  return value !== undefined && value !== null && value !== "";
 }
 
-async function openGenerationRecordDetail(record) {
-  try {
-    record = await fetchAdminGenerationRecordDetail(record);
-  } catch (error) {
-    toast(error.message || "加载详情失败。", "error");
-    return;
-  }
+function recordDetailJsonBrief(value) {
+  if (!hasRecordDetailValue(value)) return "";
+  if (Array.isArray(value)) return `${value.length} items`;
+  if (typeof value === "object") return `${Object.keys(value).length} keys`;
+  return shortText(String(value), 80);
+}
+
+function recordDetailJsonSectionHtml(key, title, value) {
+  if (!hasRecordDetailValue(value)) return "";
+  return `
+    <section class="adm-record-section adm-record-json-section" data-json-section="${escapeHtml(key)}">
+      <header>
+        <strong>${escapeHtml(title)}</strong>
+        <span class="adm-muted">${escapeHtml(recordDetailJsonBrief(value))}</span>
+        <div class="adm-row">
+          <button type="button" class="adm-btn adm-btn-sm adm-btn-ghost" data-json-toggle="${escapeHtml(key)}"><i data-lucide="chevron-down"></i>展开</button>
+          <button type="button" class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="${escapeHtml(key)}"><i data-lucide="copy"></i>复制</button>
+        </div>
+      </header>
+      <pre data-json-body="${escapeHtml(key)}" hidden></pre>
+    </section>
+  `;
+}
+
+function generationRecordDetailBody(record = {}, { loading = false, error = "" } = {}) {
   const video = recordVideoUrl(record);
   const remoteVideo = recordRemoteVideoUrl(record);
   const imageResult = recordImageResultUrl(record);
   const videoHref = adminPreviewMediaUrl(video) || video;
   const imageResultHref = adminPreviewMediaUrl(imageResult) || imageResult;
-  const paramsText = jsonPretty(record.params);
-  const upstreamText = jsonPretty(record.upstreamPayload);
-  const createText = jsonPretty(record.createResponse);
-  const queryText = jsonPretty(record.queryResponse);
-  const body = `
+  return `
     <div class="adm-record-detail">
+      ${loading ? '<div class="adm-record-detail-loading"><div class="adm-spinner"></div><span>正在加载完整详情...</span></div>' : ""}
+      ${error ? `<div class="adm-record-line adm-record-error-line"><span>加载失败</span><code>${escapeHtml(error)}</code></div>` : ""}
       <div class="adm-record-preview">
         ${recordPreviewHtml(record)}
       </div>
@@ -2559,42 +2573,90 @@ async function openGenerationRecordDetail(record) {
       ${record.error ? `<div class="adm-record-line"><span>错误</span><code>${escapeHtml(record.error)}</code></div>` : ""}
       ${record.statusQueryError ? `<div class="adm-record-line"><span>状态查询</span><code>${escapeHtml(record.statusQueryError)}</code></div>` : ""}
       <section class="adm-record-section">
-        <header><strong>Prompt</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="prompt"><i data-lucide="copy"></i>复制</button></header>
+        <header><strong>Prompt</strong><button type="button" class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="prompt"><i data-lucide="copy"></i>复制</button></header>
         <pre>${escapeHtml(record.finalPrompt || record.prompt || "")}</pre>
       </section>
       ${record.prompt && record.finalPrompt && record.prompt !== record.finalPrompt ? `<section class="adm-record-section"><header><strong>用户 Prompt</strong></header><pre>${escapeHtml(record.prompt)}</pre></section>` : ""}
-      <section class="adm-record-section">
-        <header><strong>参数</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="params"><i data-lucide="copy"></i>复制</button></header>
-        <pre>${escapeHtml(paramsText || "{}")}</pre>
-      </section>
-      ${upstreamText ? `<section class="adm-record-section"><header><strong>上游请求</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="upstream"><i data-lucide="copy"></i>复制</button></header><pre>${escapeHtml(upstreamText)}</pre></section>` : ""}
-      ${createText ? `<section class="adm-record-section"><header><strong>创建返回</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="create"><i data-lucide="copy"></i>复制</button></header><pre>${escapeHtml(createText)}</pre></section>` : ""}
-      ${queryText ? `<section class="adm-record-section"><header><strong>查询返回</strong><button class="adm-btn adm-btn-sm adm-btn-ghost" data-copy-detail="query"><i data-lucide="copy"></i>复制</button></header><pre>${escapeHtml(queryText)}</pre></section>` : ""}
+      ${recordDetailJsonSectionHtml("params", "参数", record.params)}
+      ${recordDetailJsonSectionHtml("upstream", "上游请求", record.upstreamPayload)}
+      ${recordDetailJsonSectionHtml("create", "创建返回", record.createResponse)}
+      ${recordDetailJsonSectionHtml("query", "查询返回", record.queryResponse)}
     </div>
   `;
+}
+
+function bindGenerationRecordDetailBody(bodyEl, record = {}) {
+  const jsonMap = {
+    params: record.params,
+    upstream: record.upstreamPayload,
+    create: record.createResponse,
+    query: record.queryResponse,
+  };
+  const textMap = {
+    prompt: record.finalPrompt || record.prompt || "",
+  };
+  const jsonText = (key) => jsonPretty(jsonMap[key]) || "{}";
+  bodyEl.querySelectorAll("[data-json-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.jsonToggle || "";
+      const pre = bodyEl.querySelector(`[data-json-body="${key}"]`);
+      if (!pre) return;
+      const nextOpen = pre.hidden;
+      if (nextOpen && !pre.dataset.loaded) {
+        pre.textContent = jsonText(key);
+        pre.dataset.loaded = "1";
+      }
+      pre.hidden = !nextOpen;
+      button.innerHTML = nextOpen ? '<i data-lucide="chevron-up"></i>收起' : '<i data-lucide="chevron-down"></i>展开';
+      refreshIcons();
+    });
+  });
+  bodyEl.querySelectorAll("[data-copy-detail]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.dataset.copyDetail || "";
+      copyText(Object.prototype.hasOwnProperty.call(textMap, key) ? textMap[key] : jsonText(key));
+    });
+  });
+  const previewVideo = bodyEl.querySelector(".adm-record-preview video");
+  if (previewVideo) previewVideo.load();
+  refreshIcons();
+}
+
+async function fetchAdminGenerationRecordDetail(record = {}) {
+  if (!record?.taskId) return record;
+  if (record.upstreamPayload || record.createResponse || record.queryResponse) return record;
+  const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}`);
+  return payload.record || record;
+}
+
+async function openGenerationRecordDetail(record) {
+  const taskId = record?.taskId || "";
+  const token = `record-detail-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const isActive = () => els.dialog.open && els.dialogBody.dataset.recordDetailToken === token;
   openDialog({
-    title: `生成详情 · ${record.taskId || ""}`,
-    body,
+    title: `生成详情 · ${taskId}`,
+    body: generationRecordDetailBody(record, { loading: true }),
     hideConfirm: true,
     cancelText: "关闭",
     onOpen: (bodyEl) => {
-      const previewVideo = bodyEl.querySelector(".adm-record-preview video");
-      if (previewVideo) previewVideo.load();
+      bodyEl.dataset.recordDetailToken = token;
+      bindGenerationRecordDetailBody(bodyEl, record);
     },
   });
-  const copyMap = {
-    prompt: record.finalPrompt || record.prompt || "",
-    params: paramsText,
-    upstream: upstreamText,
-    create: createText,
-    query: queryText,
-  };
-  setTimeout(() => {
-    els.dialogBody.querySelectorAll("[data-copy-detail]").forEach((button) => {
-      button.addEventListener("click", () => copyText(copyMap[button.dataset.copyDetail] || ""));
-    });
-    refreshIcons();
-  }, 0);
+  try {
+    record = await fetchAdminGenerationRecordDetail(record);
+  } catch (error) {
+    if (isActive()) {
+      els.dialogBody.innerHTML = generationRecordDetailBody(record, { error: error.message || "加载详情失败。" });
+      bindGenerationRecordDetailBody(els.dialogBody, record);
+    }
+    toast(error.message || "加载详情失败。", "error");
+    return;
+  }
+  if (!isActive()) return;
+  els.dialogTitle.textContent = `生成详情 · ${record.taskId || taskId}`;
+  els.dialogBody.innerHTML = generationRecordDetailBody(record);
+  bindGenerationRecordDetailBody(els.dialogBody, record);
 }
 
 /* ============ SCENES ============ */
