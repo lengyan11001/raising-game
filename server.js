@@ -5268,8 +5268,7 @@ function advancedDurationBounds(provider = "seedance") {
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const bounds = advancedDurationBounds(normalizedProvider);
-  const minDuration = normalizedProvider === "seedance" && options.allowFourSecondSeedance === true ? 4 : bounds.min;
-  const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, minDuration, bounds.max);
+  const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, bounds.min, bounds.max);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
   if (normalizedProvider === "wan27") {
     const resolution = normalizeWan27Resolution(options.resolution);
@@ -8476,8 +8475,8 @@ function validateOfficialSeedancePayloadBeforeCharge(payload = {}) {
   const resolution = String(payload.resolution || "720p").trim().toLowerCase();
   if (!["480p", "720p", "1080p", "4k"].includes(resolution)) errors.push("resolution must be 480p, 720p, 1080p, or 4k.");
   const duration = Number(payload.duration ?? advancedDurationBounds("seedance").fallback);
-  if (!Number.isFinite(duration) || !Number.isInteger(duration) || duration < 4 || duration > 15) {
-    errors.push("duration must be an integer from 4 to 15 seconds.");
+  if (!Number.isFinite(duration) || !Number.isInteger(duration) || duration < advancedDurationBounds("seedance").min || duration > advancedDurationBounds("seedance").max) {
+    errors.push(`duration must be an integer from ${advancedDurationBounds("seedance").min} to ${advancedDurationBounds("seedance").max} seconds.`);
   }
   const model = String(payload.model || "").toLowerCase();
   if (model.includes("fast") && ["1080p", "4k"].includes(resolution)) errors.push("Seedance fast does not support 1080p or 4k.");
@@ -8574,7 +8573,7 @@ async function handleVolcengineCreateGenerationTask(req, res) {
   const requestParams = {
     ...payloadForValidation,
     provider: "seedance",
-    duration: clampNumber(payloadForValidation.duration, advancedDurationBounds("seedance").fallback, 4, advancedDurationBounds("seedance").max),
+    duration: clampNumber(payloadForValidation.duration, advancedDurationBounds("seedance").fallback, advancedDurationBounds("seedance").min, advancedDurationBounds("seedance").max),
     resolution: String(payloadForValidation.resolution || "720p").toLowerCase() === "1080p"
       ? "1080p"
       : String(payloadForValidation.resolution || "720p").toLowerCase() === "480p"
@@ -8587,7 +8586,6 @@ async function handleVolcengineCreateGenerationTask(req, res) {
     ...requestParams,
     model: payloadForValidation.model,
     advancedPricing: config.platform?.advancedPricing,
-    allowFourSecondSeedance: true,
   });
   const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;
@@ -16576,7 +16574,6 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
     inputVideoSeconds,
     seedanceTier: params.seedanceTier,
     advancedPricing: config.platform?.advancedPricing,
-    allowFourSecondSeedance: params.allowFourSecondSeedance === true,
   });
   return applyUserPricingToEstimate(rawPricing, user || 1, options);
 }
@@ -16604,7 +16601,6 @@ async function handleAdvancedEstimate(req, res) {
     url.searchParams.get("inputVideoSeconds"),
     url.searchParams.get("referenceVideoDurationSeconds"),
   );
-  params.allowFourSecondSeedance = body.allowFourSecondSeedance === true || url.searchParams.get("allowFourSecondSeedance") === "true";
   const pricing = await buildUserAdvancedEstimate(provider, params, auth.user, pricingContextForAuth(auth));
   const publicPricing = tenantPublic
     ? {
