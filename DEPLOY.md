@@ -31,6 +31,15 @@ systemctl restart raising-game-demo
 Runtime data must live in PostgreSQL through `DATABASE_URL`; do not use JSON files
 as an alternate data store or deployment target.
 
+Production systemd must load runtime secrets and per-site settings from:
+
+```text
+/etc/raising-game-demo.env
+```
+
+`raising-game-demo.service` must include `EnvironmentFile=/etc/raising-game-demo.env`.
+The local deploy helper checks this before restarting.
+
 From the local machine, use the helper only after pushing:
 
 ```powershell
@@ -47,6 +56,7 @@ Fixed production target:
 - branch: `old-site`
 - remote root: `/opt/raising-game-demo`
 - service: `raising-game-demo`
+- env file: `/etc/raising-game-demo.env`
 - health URL: `https://123vips.com/api/health`
 
 The old SFTP upload deploy is intentionally removed. Do not deploy by copying
