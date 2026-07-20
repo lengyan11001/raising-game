@@ -128,7 +128,7 @@ const IGNEX_ASSET_GROUP_NAME = String(process.env.IGNEX_ASSET_GROUP_NAME || "vip
 const IGNEX_SEEDANCE_QUALITY_MODEL = String(process.env.IGNEX_SEEDANCE_QUALITY_MODEL || "dreamina-seedance-2-0-260128").trim();
 const IGNEX_SEEDANCE_FAST_MODEL = String(process.env.IGNEX_SEEDANCE_FAST_MODEL || "dreamina-seedance-2-0-fast-260128").trim();
 const IGNEX_ENABLED_USER_KEYS = new Set(
-  String(process.env.IGNEX_ENABLED_USERS || "test01")
+  String(process.env.IGNEX_ENABLED_USERS || "")
     .split(",")
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean),
