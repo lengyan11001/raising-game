@@ -1433,7 +1433,10 @@ async function submitAdvancedGenerate() {
     && presetReferenceImages.length > 0;
   const seedanceMode = presetReferenceMode ? "reference_video" : rawSeedanceMode;
   if (presetReferenceMode && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
-  const referenceImages = presetReferenceMode
+  const seedanceFrameMode = provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode);
+  const referenceImages = seedanceFrameMode
+    ? []
+    : presetReferenceMode
     ? dedupeAdvancedReferenceImages([
         ...presetReferenceImages,
         ...(Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []),
@@ -1442,8 +1445,8 @@ async function submitAdvancedGenerate() {
   const caseVideoUrl = provider === "seedance" && advancedCreateModeNeedsReplacePair()
     ? absoluteHttpUrl(advancedCaseInputVideo(currentCase || {}))
     : "";
-  const seedanceVideoRefs = provider === "seedance" ? advancedSeedanceVideoReferences() : [];
-  const seedanceAudioRefs = provider === "seedance" ? advancedSeedanceAudioReferences() : [];
+  const seedanceVideoRefs = provider === "seedance" && !seedanceFrameMode ? advancedSeedanceVideoReferences() : [];
+  const seedanceAudioRefs = provider === "seedance" && !seedanceFrameMode ? advancedSeedanceAudioReferences() : [];
   const seedanceVideoAssetIds = seedanceVideoRefs.map((item) => item.assetId || "").filter(Boolean);
   const seedanceAudioAssetIds = seedanceAudioRefs.map((item) => item.assetId || "").filter(Boolean);
   const seedanceVideoRefUrls = seedanceVideoRefs.filter((item) => !item.assetId).map((item) => item.url || item.previewUrl || "").filter(Boolean);
@@ -1451,8 +1454,10 @@ async function submitAdvancedGenerate() {
   const seedanceVideoUrls = splitUrlList(els.advancedSeedanceVideoUrls?.value || "");
   const effectiveSeedanceVideoUrls = advancedCreateModeIsSimpleEdit()
     ? []
+    : seedanceFrameMode
+    ? []
     : [...seedanceVideoRefUrls, ...seedanceVideoUrls, ...(caseVideoUrl ? [caseVideoUrl] : [])];
-  const seedanceAudioUrls = [...seedanceAudioRefUrls, ...splitUrlList(els.advancedSeedanceAudioUrls?.value || "")];
+  const seedanceAudioUrls = seedanceFrameMode ? [] : [...seedanceAudioRefUrls, ...splitUrlList(els.advancedSeedanceAudioUrls?.value || "")];
   const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0;
   const seedanceFirstFrameAssetId = state.advancedSeedanceFirstFrameAssetId || state.advancedFirstFrameAssetId || "";
   const seedanceFirstFrameData = state.advancedSeedanceFirstFrameDataUrl || "";
@@ -1559,17 +1564,17 @@ async function submitAdvancedGenerate() {
         lastFrameAssetId: provider === "wan27" ? (state.advancedWanLastFrameAssetId || "") : provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : "",
         endImageDataUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameDataUrl : undefined,
         endImageUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameUrl : undefined,
-        referenceImages: provider === "seedance"
+        referenceImages: provider === "seedance" && !seedanceFrameMode
           ? referenceImages.map(seedanceImageRefPayload)
           : undefined,
-        referenceVideoAssetId: provider === "seedance" ? (seedanceVideoAssetIds[0] || "") : undefined,
-        referenceVideoAssetIds: provider === "seedance" ? seedanceVideoAssetIds : undefined,
-        referenceAudioAssetId: provider === "seedance" ? (seedanceAudioAssetIds[0] || "") : undefined,
-        referenceAudioAssetIds: provider === "seedance" ? seedanceAudioAssetIds : undefined,
-        referenceVideoUrls: provider === "seedance" ? effectiveSeedanceVideoUrls : undefined,
-        inputVideoSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
-        referenceVideoDurationSeconds: provider === "seedance" ? inputVideoSeconds : undefined,
-        referenceAudioUrls: provider === "seedance" ? seedanceAudioUrls : undefined,
+        referenceVideoAssetId: provider === "seedance" && !seedanceFrameMode ? (seedanceVideoAssetIds[0] || "") : undefined,
+        referenceVideoAssetIds: provider === "seedance" && !seedanceFrameMode ? seedanceVideoAssetIds : undefined,
+        referenceAudioAssetId: provider === "seedance" && !seedanceFrameMode ? (seedanceAudioAssetIds[0] || "") : undefined,
+        referenceAudioAssetIds: provider === "seedance" && !seedanceFrameMode ? seedanceAudioAssetIds : undefined,
+        referenceVideoUrls: provider === "seedance" && !seedanceFrameMode ? effectiveSeedanceVideoUrls : undefined,
+        inputVideoSeconds: provider === "seedance" && !seedanceFrameMode ? inputVideoSeconds : undefined,
+        referenceVideoDurationSeconds: provider === "seedance" && !seedanceFrameMode ? inputVideoSeconds : undefined,
+        referenceAudioUrls: provider === "seedance" && !seedanceFrameMode ? seedanceAudioUrls : undefined,
         lastFrameDataUrl: !state.advancedWanLastFrameAssetId ? wanLastFrameDataUrl : "",
         lastFrameUrl: !state.advancedWanLastFrameAssetId ? wanLastFrameUrl : "",
         drivingAudioUrl: els.advancedWanAudioUrl?.value.trim() || "",
