@@ -11,7 +11,7 @@
   </head>
   <body class="adm">
     <section id="loginView" class="adm-login" hidden>
-      <form class="adm-login-card" id="loginForm" autocomplete="on">
+      <form class="adm-login-card" id="loginForm" autocomplete="off">
         <header>
           <strong>After Dark</strong>
           <h1>管理后台</h1>
@@ -19,11 +19,11 @@
         </header>
         <label>
           <span>账号</span>
-          <input id="loginUsername" type="text" autocomplete="username" required minlength="3" />
+          <input id="loginUsername" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" required minlength="3" />
         </label>
         <label>
           <span>密码</span>
-          <input id="loginPassword" type="password" autocomplete="current-password" required minlength="6" />
+          <input id="loginPassword" type="password" autocomplete="new-password" required minlength="6" />
         </label>
         <button type="submit" class="adm-btn adm-btn-primary" id="loginSubmit">
           <i data-lucide="log-in"></i>
@@ -107,6 +107,6 @@
       <div class="adm-spinner"></div>
     </div>
 
-    <script src="./admin.js?v=adm-76"></script>
+    <script src="./admin.js?v=adm-77"></script>
   </body>
 </html>

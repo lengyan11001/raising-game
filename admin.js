@@ -354,6 +354,8 @@ async function doLogout() {
 function showLogin() {
   els.loginView.hidden = false;
   els.appView.hidden = true;
+  if (els.loginUsername) els.loginUsername.value = "";
+  if (els.loginPassword) els.loginPassword.value = "";
   hideAppLoading();
   setTimeout(() => els.loginUsername?.focus(), 50);
 }
