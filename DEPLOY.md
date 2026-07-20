@@ -92,6 +92,21 @@ Fixed production target:
 - service: `raising-game-667zui`
 - health URL: `https://667zui.video/api/health`
 
+Required Nginx asset handoff:
+
+```nginx
+location ^~ /__protected_assets__/ {
+    internal;
+    alias /opt/raising-game-667zui/assets/;
+    add_header Accept-Ranges bytes always;
+}
+```
+
+The app serves stable `/assets/...` files through `X-Accel-Redirect`. Without
+this internal location, template videos such as `/assets/playflux/...mp4` return
+404 through Nginx even when the files exist on disk, which breaks old-site
+gateway preflight downloads.
+
 The old SFTP upload deploy is intentionally removed. Do not deploy by copying
 files into `/opt/raising-game-667zui`; that leaves Git unable to pull cleanly.
 
