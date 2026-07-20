@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-284" />
+    <link rel="stylesheet" href="./platform.css?v=ai-285" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -608,16 +608,12 @@
                 <strong id="topupSelectedPackage">0 credits</strong>
               </div>
               <div class="topup-method-tabs" id="topupMethodTabs" role="tablist" aria-label="Payment method">
-                <button class="topup-method-tab is-active" type="button" data-topup-method="paypal" role="tab" aria-selected="true">
-                  <i data-lucide="credit-card"></i>
-                  <span data-i18n="topup.paypalTab">PayPal</span>
-                </button>
-                <button class="topup-method-tab" type="button" data-topup-method="usdt" role="tab" aria-selected="false">
+                <button class="topup-method-tab is-active" type="button" data-topup-method="usdt" role="tab" aria-selected="true">
                   <i data-lucide="wallet"></i>
                   <span data-i18n="topup.usdtTab">USDT</span>
                 </button>
               </div>
-              <div class="topup-method-panel" id="topupPaypalPanel" data-topup-panel="paypal">
+              <div class="topup-method-panel" id="topupPaypalPanel" data-topup-panel="paypal" hidden>
                 <div class="paypal-checkout" id="paypalBox" hidden>
                   <div>
                     <span data-i18n="topup.paypalTitle">PayPal Checkout</span>
@@ -626,7 +622,7 @@
                   <div class="paypal-buttons" id="paypalButtons"></div>
                 </div>
               </div>
-              <div class="topup-method-panel" id="topupUsdtPanel" data-topup-panel="usdt" hidden>
+              <div class="topup-method-panel" id="topupUsdtPanel" data-topup-panel="usdt">
                 <div class="topup-wallet-options" id="topupWalletOptions"></div>
                 <div class="topup-actions topup-usdt-actions">
                   <button class="copy-btn" id="createTopupBtn" data-i18n="topup.createOrder" type="button"><i data-lucide="wallet"></i>Create USDT order</button>
@@ -820,6 +816,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-284"></script>
+    <script src="./platform.js?v=ai-285"></script>
   </body>
 </html>

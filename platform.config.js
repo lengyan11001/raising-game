@@ -669,7 +669,7 @@ const state = {
   advancedAudioOrder: 0,
   wallet: null,
   selectedWalletOptionId: "",
-  topupMethod: "paypal",
+  topupMethod: "usdt",
   topupStep: "packages",
   topupPayStep: "transfer",
   selectedTopupPackageId: "",

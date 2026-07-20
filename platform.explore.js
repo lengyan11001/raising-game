@@ -3702,7 +3702,7 @@ function selectTopupPackage(packageId = "") {
   const selected = packages.find((item) => item.id === packageId) || packages[0];
   if (!selected) return;
   state.selectedTopupPackageId = selected.id;
-  setTopupMethod("paypal", { skipSummary: true });
+  setTopupMethod("usdt", { skipSummary: true });
   setTopupStep("payment");
 }
 
@@ -3778,8 +3778,8 @@ function renderWalletOptions() {
   });
 }
 
-function setTopupMethod(method = "paypal", options = {}) {
-  const next = method === "usdt" ? "usdt" : "paypal";
+function setTopupMethod(method = "usdt", options = {}) {
+  const next = "usdt";
   state.topupMethod = next;
   els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
     const active = button.dataset.topupMethod === next;

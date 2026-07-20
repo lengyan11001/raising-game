@@ -6686,7 +6686,7 @@ function startWalletScanScheduler() {
 }
 
 function paypalEnabled() {
-  return Boolean(PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
+  return false;
 }
 
 function paypalApiBaseUrl() {
@@ -6705,9 +6705,10 @@ function paypalMoneyValue(amount) {
 }
 
 function paypalPublicConfig() {
+  const enabled = paypalEnabled();
   return {
-    enabled: paypalEnabled(),
-    clientId: PAYPAL_CLIENT_ID,
+    enabled,
+    clientId: enabled ? PAYPAL_CLIENT_ID : "",
     currency: PAYPAL_CURRENCY,
     environment: PAYPAL_ENV,
     minAmount: PAYPAL_MIN_AMOUNT,
