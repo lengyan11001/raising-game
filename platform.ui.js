@@ -583,11 +583,8 @@ function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
   const tokenLabel = token !== "<user-token>" ? (revealToken ? token : maskToken(token)) : "<user-token>";
   const rawCopy = String(copy || "");
-  const staleAccessCopy = /api\/platform\/generate|api\/v3\/contents\/generations\/tasks/i.test(rawCopy)
-    || /Vipeak 2/i.test(rawCopy)
-    || (/api\/advanced\/generate/i.test(rawCopy)
-      && !/dreamina-seedance-2-0(?:-fast)?-260128/i.test(rawCopy)
-      && !/\bwan27\b|wan2\.7-i2v-2026-04-25/i.test(rawCopy));
+  const staleAccessCopy = /api\/platform\/generate|api\/advanced\/generate/i.test(rawCopy)
+    || /Vipeak 2/i.test(rawCopy);
   const source = staleAccessCopy
     ? LIVE_HTTP_ACCESS_COPY
     : (copy || PUBLIC_COPY.accessCopy);
@@ -611,7 +608,7 @@ function tokenAccessPackageMarkdown() {
   const baseUrl = API_ORIGIN || window.location.origin || "";
   const docsUrl = PARAM_DOC_MARKDOWN_URL || apiUrl("/docs/models.md");
   const modelsJsonUrl = apiUrl("/api/models");
-  const recordsUrl = apiUrl("/api/generation-records");
+  const taskUrl = apiUrl("/api/v3/contents/generations/tasks/<taskId>");
   return [
     "# Vipeak AI API Access Package",
     "",
@@ -619,18 +616,17 @@ function tokenAccessPackageMarkdown() {
     `API Token: ${token}`,
     `Full parameter docs: ${docsUrl}`,
     `Models JSON: ${modelsJsonUrl}`,
-    `Records API: ${recordsUrl}`,
+    `Task API: ${taskUrl}`,
     "",
     "This package includes the production token plus the core docs a client needs to integrate without extra clarification.",
     "",
     "## Supported Endpoints",
     "",
-    `- Advanced generate: ${apiUrl("/api/advanced/generate")}`,
-    `- Asset upload: ${apiUrl("/api/user-assets")}`,
-    `- Wan2.7 image edit: ${apiUrl("/api/wan27/image-edit")}`,
-    `- Records list/detail: ${recordsUrl} and ${apiUrl("/api/generation-records/<taskId>")}`,
+    `- Seedance V3 generate: ${apiUrl("/api/v3/contents/generations/tasks")}`,
+    `- Seedance V3 task detail: ${taskUrl}`,
+    `- BytePlus-compatible asset upload: ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}`,
     "",
-    "Preferred path: use `/api/advanced/generate` for video generation and `/api/generation-records/<taskId>` for progress and results.",
+    "Preferred path: use `/api/v3/contents/generations/tasks` for video generation and `/api/v3/contents/generations/tasks/<taskId>` for progress and results.",
     "",
     "## Quick Start",
     "",

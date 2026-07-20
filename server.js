@@ -17742,13 +17742,6 @@ function advancedGenerateConstraintsDoc() {
       },
       mediaUrl: "Use public http(s) URLs, supported data URLs, or asset:// ids returned by CreateAsset.",
     },
-    wan27Image: {
-      route: "/api/wan27/image-edit",
-      imageAssetIds: { min: 0, max: 9 },
-      textToImageResolution: ["1K", "2K", "4K"],
-      referenceImageResolution: ["1K", "2K"],
-      note: "4K is only available for text-to-image without reference images.",
-    },
   };
 }
 
@@ -17982,6 +17975,17 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     outputTokens: pricing.outputTokens || null,
     yuanPerMillionTokens: pricing.yuanPerMillionTokens || null,
   };
+  const exampleBody = {
+    model: params.model || "dreamina-seedance-2-0-260128",
+    content: [
+      { type: "text", text: item.prompt || params.prompt || "Use Image 1 as the reference and generate a cinematic 5 second shot." },
+    ],
+    ratio: params.ratio || params.aspect_ratio || "9:16",
+    resolution: params.resolution || "720p",
+    duration: durationSeconds,
+    generate_audio: true,
+    watermark: false,
+  };
   return {
     id: item.id,
     title: item.title,
@@ -17996,27 +18000,18 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     requiresApproval: false,
     endpoint: {
       method: "POST",
-      url: `${origin}/api/advanced/generate`,
+      url: `${origin}/api/v3/contents/generations/tasks`,
       auth: "Bearer <user-token>",
     },
-    requestFields: provider === "seedance" ? seedancePublicParameterFields(origin) : [
-      { name: "provider", type: "string", required: "Yes", description: "Use `wan27`.", default: "wan27" },
-      { name: "prompt", type: "string", required: "Yes", description: "Generation prompt.", default: "-" },
-      { name: "mediaMode", type: "string", required: "No", description: "first_frame, first_last_frame, first_frame_audio, first_last_frame_audio, first_clip, or first_clip_last_frame.", default: "first_frame" },
-      { name: "dataUrl", type: "string", required: "For image-based modes", description: `Base64 image data URL. Images max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}.`, default: "-" },
-      { name: "ratio", type: "string", required: "No", description: "Output aspect ratio, for example 9:16, 16:9, or 1:1.", default: "9:16" },
-      { name: "resolution", type: "string", required: "No", description: "720p or 1080p.", default: "720p" },
-      { name: "duration", type: "integer", required: "No", description: `Integer ${advancedDurationBounds("wan27").min}-${advancedDurationBounds("wan27").max} seconds.`, default: String(advancedDurationBounds("wan27").fallback) },
-      { name: "record.videoUrl / record.downloadUrl", type: "string", required: "No", description: "Task query result video URL.", default: "-" },
-    ],
+    requestFields: seedancePublicParameterFields(origin),
     exampleRequest: {
       method: "POST",
-      url: `${origin}/api/advanced/generate`,
+      url: `${origin}/api/v3/contents/generations/tasks`,
       headers: {
         Authorization: "Bearer <user-token>",
         "Content-Type": "application/json",
       },
-      body: docsAdvancedExampleBody(item),
+      body: exampleBody,
     },
   };
 }
@@ -18045,13 +18040,6 @@ async function buildModelDocs(req) {
       galleryMarkup: GENERATION_PRICE_MARKUP,
       creditsPerUsd: DEFAULT_CREDITS_PER_USD,
       advancedSeedanceCreditsPerSecondByResolution: platform.advancedPricing.seedanceCreditsPerSecondByResolution,
-      advancedWan27CreditsPerSecondByResolution: platform.advancedPricing.wan27CreditsPerSecondByResolution,
-      vipeak1Image: {
-        model: platform.advancedPricing.wan27ImagePro?.model,
-        saleUsdPerImage: pricingNumber(Number(platform.advancedPricing.wan27ImagePro?.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
-        resolutions: platform.advancedPricing.wan27ImagePro?.resolutions || ["1K", "2K", "4K"],
-        ratios: platform.advancedPricing.wan27ImagePro?.ratios || ["1:1", "3:4", "4:3", "9:16", "16:9"],
-      },
     },
     advancedExternalApi: externalAdvancedApiDoc(origin),
     endpoints: {
@@ -18060,12 +18048,6 @@ async function buildModelDocs(req) {
       byteplusGenerate: `${origin}/api/v3/contents/generations/tasks`,
       byteplusTaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
       byteplusAssetAction: `${origin}/?Action=CreateAsset&Version=2024-01-01`,
-      wan27ImageTextToImage: `${origin}/api/characters/generate`,
-      wan27ImageEdit: `${origin}/api/wan27/image-edit`,
-      wan27ImageEditAsset: `${origin}/api/user-assets/<assetId>/modify`,
-      wan27ImageEditSystemCharacter: `${origin}/api/characters/<characterId>/modify`,
-      generationRecords: `${origin}/api/generation-records`,
-      generationRecordDetail: `${origin}/api/generation-records/<taskId>`,
     },
     templates,
     advanced: {
@@ -18106,10 +18088,8 @@ function advancedDocMarkdown(item) {
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
-  lines.push("", "Call `/api/advanced/generate` with this `caseId` or with manual provider parameters. Poll `/api/generation-records/<taskId>` for progress and result.");
-  lines.push("", "Seedance inputs: pass image/video/audio URLs directly, or upload media through `/api/user-assets` and pass returned asset ids. In prompts, refer to media as Image 1, Video 1, and Audio 1.");
-  lines.push("", "Wan2.7 video inputs: choose `mediaMode` from first_frame, first_last_frame, first_frame_audio, first_last_frame_audio, first_clip, first_clip_last_frame.");
-  lines.push("", "Wan2.7 image edit: call `/api/wan27/image-edit` with `prompt` and optional `imageAssetIds`. `imageAssetIds` accepts 0-9 images. Text-to-image supports `1K`, `2K`, `4K`; reference-image generation supports `1K` or `2K`.");
+  lines.push("", "Use the Seedance V3 task endpoint for external integrations. Submit content[] to `/api/v3/contents/generations/tasks` and poll `/api/v3/contents/generations/tasks/<taskId>` for progress and result.");
+  lines.push("", "Seedance V3 inputs accept public URLs, supported data URLs, or asset:// ids returned by the BytePlus-compatible CreateAsset action. In prompts, refer to media as Image 1, Video 1, and Audio 1.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -18117,7 +18097,6 @@ function advancedDocMarkdown(item) {
 function advancedConstraintsMarkdown(doc = {}) {
   const constraints = doc.constraints || advancedGenerateConstraintsDoc();
   const seedance = constraints.seedance || {};
-  const wan27Image = constraints.wan27Image || {};
   return [
     "**Parameter Rules**",
     "",
@@ -18135,10 +18114,6 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- Max references: ${seedance.referenceLimits?.images ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT} images total, ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos, ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios.`,
     "- `first_frame` and `last_frame` cannot be mixed with `reference_image`, `reference_video`, or `reference_audio` blocks.",
     `- Audio references: max ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios; supported uploaded/data URL audio types are MP3, WAV, M4A/MP4 audio, AAC, OGG, WebM; upload max ${Math.round((seedance.audioInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB. Audio references must be combined with image or video references; audio-only generation is rejected.`,
-    "",
-    "Wan2.7 / Vipeak 1 image:",
-    "",
-    `- Use \`${wan27Image.route || "/api/wan27/image-edit"}\`; \`imageAssetIds\` accepts 0-9 images. Text-to-image supports \`1K\`, \`2K\`, \`4K\`; reference-image generation supports \`1K\` or \`2K\` only.`,
     "",
   ].join("\n");
 }
@@ -18218,30 +18193,12 @@ function buildModelDocsMarkdown(docs) {
     "",
     externalAdvancedApiMarkdown(docs.advancedExternalApi),
     "",
-    "## Wan2.7 Image Edit",
-    "",
-    "Use `/api/wan27/image-edit` for Wan2.7 image text generation, single-image editing, or multi-image fusion/reference editing. Pass `imageAssetIds` with 0 to 9 uploaded image assets; the array order maps to Image 1, Image 2, and so on in the prompt. For text-to-image, pass `imageAssetIds: []`; text-to-image supports `1K`, `2K`, and `4K`, while reference-image edit/fusion supports `1K` or `2K`.",
-    "",
-    markdownCodeBlock("http", [
-      "POST /api/wan27/image-edit",
-      "Authorization: Bearer <user-token>",
-      "Content-Type: application/json",
-      "",
-      "{",
-      '  "prompt": "Use Image 1 as the person and Image 2 as the outfit reference. Create a realistic full-body portrait.",',
-      '  "imageAssetIds": ["asset-image-1", "asset-image-2"],',
-      '  "ratio": "9:16",',
-      '  "resolution": "2K"',
-      "}",
-    ].join("\n")),
-    "",
     "## Quick Start",
     "",
-    "1. Read `/api/models` or this Markdown file to choose the integration style.",
-    "2. For Seedance video generation, call `/api/v3/contents/generations/tasks` with BytePlus-style `model` and `content[]`; it returns `id`.",
-    "3. Poll `/api/v3/contents/generations/tasks/<taskId>` for V3 tasks.",
-    "4. Optional: create reusable media with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>` in `content[]`.",
-    "5. For Wan2.7 image generation/editing, call `/api/wan27/image-edit` with `imageAssetIds` containing 0-9 images. Use an empty array for text-to-image. Text-to-image supports `4K`; reference-image edit/fusion is limited to `1K` or `2K`.",
+    "1. Read `/api/models` or this Markdown file for the V3 request shape and limits.",
+    "2. Optional: create reusable media with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>` in `content[]`.",
+    "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
+    "4. Poll `/api/v3/contents/generations/tasks/<taskId>` until the task succeeds or fails.",
     "",
     "## Seedance V3 Example",
     "",
