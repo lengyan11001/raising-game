@@ -4913,6 +4913,16 @@ function sendAdvancedValidationError(res, error, fallback = "Invalid advanced ge
   });
 }
 
+function sendReferenceAssetNotFound(res, kind = "image", assetId = "") {
+  const normalizedKind = ["video", "audio"].includes(kind) ? kind : "image";
+  return sendJson(res, 404, {
+    ok: false,
+    code: `REFERENCE_${normalizedKind.toUpperCase()}_NOT_FOUND`,
+    message: `Reference ${normalizedKind} not found.`,
+    ...(assetId ? { assetId, missingAssetIds: [assetId] } : {}),
+  });
+}
+
 function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
@@ -15460,14 +15470,14 @@ async function handleAdvancedGenerate(req, res) {
     referenceVideoAssetIds = seedanceReferenceVideoAssetIdsFromBody(mergedBody);
     if (referenceVideoAssetIds.length) {
       seedanceVideoAsset = auth.db.userAssets.find((asset) => asset.id === referenceVideoAssetIds[0] && asset.userId === auth.user.id && !isSoftDeleted(asset));
-      if (!seedanceVideoAsset) return sendJson(res, 404, { ok: false, message: "Reference video not found." });
+      if (!seedanceVideoAsset) return sendReferenceAssetNotFound(res, "video", referenceVideoAssetIds[0]);
       try {
         validateWan27MediaKind(seedanceVideoAsset, "video", "Seedance reference video");
       } catch (error) {
         return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference video must be a video.") });
       }
       seedanceVideoAssets = referenceVideoAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
-      if (seedanceVideoAssets.some((asset) => !asset)) return sendJson(res, 404, { ok: false, message: "Reference video not found." });
+      if (seedanceVideoAssets.some((asset) => !asset)) return sendReferenceAssetNotFound(res, "video", referenceVideoAssetIds[seedanceVideoAssets.findIndex((asset) => !asset)] || "");
       try {
         seedanceVideoAssets.forEach((asset) => validateWan27MediaKind(asset, "video", "Seedance reference video"));
       } catch (error) {
@@ -15494,7 +15504,7 @@ async function handleAdvancedGenerate(req, res) {
     }
     if (referenceAudioAssetIds.length) {
       seedanceAudioAssets = referenceAudioAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
-      if (seedanceAudioAssets.some((asset) => !asset)) return sendJson(res, 404, { ok: false, message: "Reference audio not found." });
+      if (seedanceAudioAssets.some((asset) => !asset)) return sendReferenceAssetNotFound(res, "audio", referenceAudioAssetIds[seedanceAudioAssets.findIndex((asset) => !asset)] || "");
       try {
         seedanceAudioAssets.forEach((asset) => validateWan27MediaKind(asset, "audio", "Seedance reference audio"));
       } catch (error) {
@@ -15521,7 +15531,7 @@ async function handleAdvancedGenerate(req, res) {
       });
       if (referenceAssetIds.length) {
         const foundAssets = referenceAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
-        if (foundAssets.some((asset) => !asset)) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
+        if (foundAssets.some((asset) => !asset)) return sendReferenceAssetNotFound(res, "image", referenceAssetIds[foundAssets.findIndex((asset) => !asset)] || "");
         try {
           foundAssets.forEach((asset) => validateWan27MediaKind(asset, "image", "Seedance reference image"));
         } catch (error) {
@@ -15539,7 +15549,7 @@ async function handleAdvancedGenerate(req, res) {
     for (const assetId of seedanceExtraReferenceAssetIdsFromBody(mergedBody)) {
       if (seenSeedanceAssetIds.has(assetId) || extraUserAssets.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT - 1) continue;
       const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
-      if (!asset) return sendJson(res, 404, { ok: false, message: "Extra reference image not found." });
+      if (!asset) return sendReferenceAssetNotFound(res, "image", assetId);
       try {
         validateWan27MediaKind(asset, "image", "Extra reference image");
       } catch (error) {
@@ -15584,7 +15594,7 @@ async function handleAdvancedGenerate(req, res) {
     } else if (firstPresent(body.userAssetId, body.firstFrameAssetId, bodyParams.userAssetId, bodyParams.firstFrameAssetId)) {
       const firstAssetId = firstPresent(body.firstFrameAssetId, body.userAssetId, bodyParams.firstFrameAssetId, bodyParams.userAssetId);
       userAsset = auth.db.userAssets.find((asset) => asset.id === firstAssetId && asset.userId === auth.user.id && !isSoftDeleted(asset));
-      if (!userAsset) return sendJson(res, 404, { ok: false, message: "Reference image not found." });
+      if (!userAsset) return sendReferenceAssetNotFound(res, "image", firstAssetId);
     }
   }
   let wan27MediaMode = "";
@@ -20078,6 +20088,24 @@ async function handleListUserAssets(req, res, url = null) {
   });
 }
 
+async function handleResolveUserAssets(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const assetIds = [...new Set(arrayFromBody(body.assetIds || body.ids)
+    .map((id) => String(id || "").trim())
+    .filter(Boolean))].slice(0, 50);
+  const assets = assetIds
+    .map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)))
+    .filter(Boolean);
+  const foundIds = new Set(assets.map((asset) => asset.id));
+  return sendJson(res, 200, {
+    ok: true,
+    assets: assets.map(publicUserAsset),
+    missingAssetIds: assetIds.filter((assetId) => !foundIds.has(assetId)),
+  });
+}
+
 async function handleDeleteUserAsset(req, res, assetId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -24297,6 +24325,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/user-assets") {
       return await handleListUserAssets(req, res, url);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/user-assets/resolve") {
+      return await handleResolveUserAssets(req, res);
     }
 
     if (req.method === "POST" && (url.pathname === "/api/wan27/image-edit" || url.pathname === "/api/vipeak1/image-edit")) {
