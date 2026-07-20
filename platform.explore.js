@@ -480,7 +480,7 @@ function playfluxTemplatePromptBlock(template = {}) {
       <div class="playflux-anime-prompt-panel">
         <div class="playflux-anime-prompt-head">
           <span>Add custom details...</span>
-          <strong>${escapeHtml(playfluxTemplateCostLabel(template))}</strong>
+          <strong data-playflux-template-cost>${escapeHtml(playfluxTemplateCostLabel(template))}</strong>
         </div>
         <label class="field">
           <textarea rows="5" data-playflux-template-prompt>${escapeHtml(prompt)}</textarea>
@@ -515,7 +515,7 @@ function playfluxTemplatePromptBlock(template = {}) {
       ` : ""}
       <div class="playflux-template-meta">
         <span>Resolution: ${escapeHtml(template.ratio || "9:16")}</span>
-        <span>${escapeHtml(playfluxTemplateCostLabel(template))}</span>
+        <span data-playflux-template-cost>${escapeHtml(playfluxTemplateCostLabel(template))}</span>
       </div>
     </details>
   `;
@@ -595,8 +595,10 @@ function openPlayfluxTemplateDialog(templateId = "") {
         button.addEventListener("click", () => {
           root.querySelectorAll("[data-playflux-source-mode]").forEach((item) => item.classList.remove("is-active"));
           button.classList.add("is-active");
+          refreshPlayfluxTemplateCost(root, template, button.dataset.playfluxSourceMode || "");
         });
       });
+      refreshPlayfluxTemplateCost(root, template);
       root.querySelector("[data-playflux-template-preview]")?.addEventListener("click", () => {
         if (template.previewType === "video") playPreview({ title: template.title, previewUrl: template.previewUrl, ratio: template.ratio || "9:16" });
         else previewImage({ title: template.title, imageUrl: template.previewUrl });
@@ -788,21 +790,89 @@ function playfluxTemplateImagePrompt(template = {}, sourceImageCount = 0, previe
   return [guide, prompt].filter(Boolean).join("\n\n");
 }
 
-function playfluxTemplateCostLabel(template = {}) {
+function playfluxTemplateEstimateCacheKey(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
+  const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(sourceMode);
+  const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(template.referenceVideoUrl || template.previewUrl || "") : "";
+  return [
+    template.id || "",
+    template.tab || "",
+    sourceMode || "",
+    template.duration || 5,
+    template.resolution || "720p",
+    template.ratio || "9:16",
+    referenceVideoUrl,
+    Number(state.user?.pricingMultiplier || 1),
+  ].join("|");
+}
+
+function playfluxTemplateCachedEstimate(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
+  const key = playfluxTemplateEstimateCacheKey(template, sourceMode);
+  return state.playfluxTemplateEstimates?.[key] || null;
+}
+
+function playfluxTemplateVideoInputSeconds(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template), duration = Number(template.duration || 5)) {
+  if (!playfluxSeedanceModeNeedsReferenceVideo(sourceMode)) return 0;
+  const cached = playfluxTemplateCachedEstimate(template, sourceMode);
+  return Number(cached?.videoInputSeconds || template.referenceVideoDurationSeconds || duration);
+}
+
+function playfluxTemplateCostLabel(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
   if (template.tab === "video") {
     const duration = Number(template.duration || 5);
     const resolution = template.resolution || "720p";
     const ratio = template.ratio || "9:16";
-    const inputVideoSeconds = playfluxSeedanceModeNeedsReferenceVideo(template.seedanceMode)
-      ? Number(template.referenceVideoDurationSeconds || duration)
-      : 0;
-    const pricing = advancedPricing(duration, "seedance", resolution, ratio, {
+    const cached = playfluxTemplateCachedEstimate(template, sourceMode);
+    const pricing = cached || advancedPricing(duration, "seedance", resolution, ratio, {
       seedanceTier: "standard",
-      inputVideoSeconds,
+      inputVideoSeconds: playfluxTemplateVideoInputSeconds(template, sourceMode, duration),
     });
     return t("cost.credits", { credits: formatCredits(pricing.credits) });
   }
   return assetImageModifyCostLabel();
+}
+
+function renderPlayfluxTemplateCost(root, template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
+  root?.querySelectorAll("[data-playflux-template-cost]").forEach((item) => {
+    item.textContent = playfluxTemplateCostLabel(template, sourceMode);
+  });
+}
+
+async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "") {
+  const mode = sourceMode || root?.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || playfluxTemplateDefaultSourceMode(template);
+  renderPlayfluxTemplateCost(root, template, mode);
+  if (!state.user || template.tab !== "video") return;
+  state.playfluxTemplateEstimates = state.playfluxTemplateEstimates || {};
+  const key = playfluxTemplateEstimateCacheKey(template, mode);
+  if (state.playfluxTemplateEstimates[key]) {
+    renderPlayfluxTemplateCost(root, template, mode);
+    return;
+  }
+  const duration = Number(template.duration || 5);
+  const resolution = template.resolution || "720p";
+  const ratio = normalizeVideoRatio(template.ratio || "9:16");
+  const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(mode);
+  const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(template.referenceVideoUrl || template.previewUrl || "") : "";
+  try {
+    const payload = await requestJson("/api/advanced/estimate", {
+      method: "POST",
+      body: {
+        provider: "seedance",
+        seedanceTier: "standard",
+        duration,
+        resolution,
+        ratio,
+        inputVideoSeconds: usesReferenceVideo ? Number(template.referenceVideoDurationSeconds || duration) : 0,
+        referenceVideoUrls: referenceVideoUrl ? [referenceVideoUrl] : [],
+      },
+    });
+    const pricing = payload.pricing || payload.estimate || null;
+    if (!pricing) return;
+    state.playfluxTemplateEstimates[key] = pricing;
+    if (Number(pricing.videoInputSeconds || 0) > 0) template.referenceVideoDurationSeconds = Number(pricing.videoInputSeconds || 0);
+    renderPlayfluxTemplateCost(root, template, mode);
+  } catch (error) {
+    console.warn("playflux estimate failed", error);
+  }
 }
 
 function playfluxTemplateAbsoluteUrl(value = "") {
@@ -916,7 +986,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
       const reference = dataUrl ? { dataUrl, fileName: file.name || "", name: file.name || "Template source image" } : null;
       const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(sourceMode);
       const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "") : "";
-      const referenceVideoSeconds = usesReferenceVideo ? Number(effectiveTemplate.referenceVideoDurationSeconds || duration) : 0;
+      const referenceVideoSeconds = playfluxTemplateVideoInputSeconds(effectiveTemplate, sourceMode, duration);
       const videoPrompt = playfluxTemplateVideoPrompt(effectiveTemplate, {
         usesReferenceVideo,
         hasSourceImage: Boolean(reference),
@@ -1099,7 +1169,7 @@ function openPlayfluxTemplateDialog(templateId = "") {
           </div>
         ` : ""}
         ${playfluxTemplatePromptBlock(template)}
-        ${isAnime ? "" : `<p class="job-note">Cost: ${escapeHtml(playfluxTemplateCostLabel(template))}</p>`}
+        ${isAnime ? "" : `<p class="job-note">Cost: <span data-playflux-template-cost>${escapeHtml(playfluxTemplateCostLabel(template))}</span></p>`}
         <p class="job-note" data-playflux-template-status></p>
       </div>
     `,
@@ -1112,8 +1182,10 @@ function openPlayfluxTemplateDialog(templateId = "") {
         button.addEventListener("click", () => {
           root.querySelectorAll("[data-playflux-source-mode]").forEach((item) => item.classList.remove("is-active"));
           button.classList.add("is-active");
+          refreshPlayfluxTemplateCost(root, template, button.dataset.playfluxSourceMode || "");
         });
       });
+      refreshPlayfluxTemplateCost(root, template);
       root.querySelector("[data-playflux-template-preview]")?.addEventListener("click", () => {
         if (template.previewType === "video") playPreview({ title: template.title, previewUrl: template.previewUrl, ratio: template.ratio || "9:16" });
         else previewImage({ title: template.title, imageUrl: template.previewUrl });
