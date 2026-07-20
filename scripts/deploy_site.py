@@ -23,6 +23,7 @@ TARGETS = {
         "remote_root": "/opt/raising-game-demo",
         "service": "raising-game-demo",
         "health_url": "https://123vips.com/api/health",
+        "env_file": "/etc/raising-game-demo.env",
         "password_env": ("OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
     },
     "new2": {
@@ -32,6 +33,7 @@ TARGETS = {
         "remote_root": "/opt/raising-game-667zui",
         "service": "raising-game-667zui",
         "health_url": "https://667zui.video/api/health",
+        "env_file": "/etc/raising-game-667zui.env",
         "password_env": ("NEW_SITE2_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
     },
 }
@@ -62,6 +64,7 @@ def main() -> None:
     print(f"[deploy-site] remote_root={target['remote_root']}")
     print(f"[deploy-site] service={target['service']}")
     print(f"[deploy-site] health_url={target['health_url']}")
+    print(f"[deploy-site] env_file={target['env_file']}")
     print(f"[deploy-site] password_env={env_name or '<missing>'}")
     if args.dry_run:
         return
@@ -74,6 +77,7 @@ def main() -> None:
     env["DEPLOY_USER"] = env.get("DEPLOY_USER", "root")
     env["DEPLOY_SSH_PASSWORD"] = password
     env["DEPLOY_PORT"] = str(port)
+    env["DEPLOY_ENV_FILE"] = target["env_file"]
     deploy_pull = Path(__file__).with_name("deploy_pull.py")
     command = [
         sys.executable,

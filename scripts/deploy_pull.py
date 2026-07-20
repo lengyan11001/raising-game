@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import shlex
 
 import paramiko
 
@@ -29,6 +30,7 @@ REMOTE_ROOT = os.environ.get("DEPLOY_REMOTE_ROOT", "/opt/raising-game-demo")
 SERVICE = os.environ.get("DEPLOY_SERVICE", "raising-game-demo")
 HEALTH_URL = os.environ.get("DEPLOY_HEALTH_URL", "https://123vips.com/api/health")
 BRANCH = os.environ.get("DEPLOY_BRANCH")
+ENV_FILE = os.environ.get("DEPLOY_ENV_FILE", "")
 
 
 def remote_run(client: paramiko.SSHClient, command: str, timeout: int = 120) -> tuple[int, str, str]:
@@ -49,6 +51,7 @@ def main() -> None:
     parser.add_argument("--remote-root", default=REMOTE_ROOT)
     parser.add_argument("--service", default=SERVICE)
     parser.add_argument("--health-url", default=HEALTH_URL)
+    parser.add_argument("--env-file", default=ENV_FILE, help="Required systemd EnvironmentFile path for this production service.")
     parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--no-restart", action="store_true")
     args = parser.parse_args()
@@ -59,9 +62,20 @@ def main() -> None:
     if args.branch == "main" and os.environ.get("DEPLOY_ALLOW_MAIN") != "1":
         raise SystemExit("Refusing to deploy main. Use --branch old-site or --branch cloudtoken.")
 
+    env_check = "true"
+    if args.env_file:
+        service_q = shlex.quote(args.service)
+        env_file_q = shlex.quote(args.env_file)
+        env_line_q = shlex.quote(f"EnvironmentFile={args.env_file}")
+        env_check = f"""
+test -f {env_file_q} || {{ echo "Missing required env file: {args.env_file}"; exit 20; }}
+systemctl cat {service_q} | grep -F -- {env_line_q} >/dev/null || {{ echo "Missing systemd EnvironmentFile={args.env_file} in {args.service}"; exit 21; }}
+"""
+
     command = f"""
 set -euo pipefail
 cd {args.remote_root}
+{env_check}
 git fetch origin {args.branch}
 git checkout {args.branch}
 git reset --hard origin/{args.branch}

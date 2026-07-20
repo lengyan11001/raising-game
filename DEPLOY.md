@@ -36,6 +36,16 @@ UPSTREAM_BASE_URL=https://123vips.com
 UPSTREAM_API_TOKEN=<old-site-user-api-token>
 ```
 
+Production systemd must load these values from:
+
+```text
+/etc/raising-game-667zui.env
+```
+
+`raising-game-667zui.service` must include `EnvironmentFile=/etc/raising-game-667zui.env`.
+The local deploy helper checks this before restarting so new2 does not drift
+from the old-site service layout again.
+
 Do not copy old-site Ark, Aliyun, APIZ, or other upstream provider secrets to
 the 667zui server. The old site owns direct upstream access; 667zui owns its
 own users, balance ledger, records, and frontend state.
@@ -90,6 +100,7 @@ Fixed production target:
 - branch: `codex/site-667zui`
 - remote root: `/opt/raising-game-667zui`
 - service: `raising-game-667zui`
+- env file: `/etc/raising-game-667zui.env`
 - health URL: `https://667zui.video/api/health`
 
 Required Nginx asset handoff:
