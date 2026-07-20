@@ -617,6 +617,74 @@ function setAdvancedSeedanceAudioReferences(refs = []) {
   state.advancedAudioAssetId = next[0]?.assetId || "";
 }
 
+function uniqueAdvancedAssetIds(assetIds = []) {
+  return [...new Set((assetIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+}
+
+async function resolveMissingAdvancedAssetIds(assetIds = []) {
+  const ids = uniqueAdvancedAssetIds(assetIds);
+  if (!ids.length || !state.user) return [];
+  try {
+    const payload = await requestJson("/api/user-assets/resolve", {
+      method: "POST",
+      body: { assetIds: ids },
+    });
+    if (Array.isArray(payload.missingAssetIds)) return uniqueAdvancedAssetIds(payload.missingAssetIds);
+    const foundIds = new Set((payload.assets || []).map((asset) => String(asset.id || "")));
+    return ids.filter((id) => !foundIds.has(id));
+  } catch (error) {
+    return [];
+  }
+}
+
+function advancedMissingAssetMessage(assetIds = []) {
+  const count = uniqueAdvancedAssetIds(assetIds).length;
+  return count > 1
+    ? t("advanced.referencesMissing", { count }, "Some selected references were deleted or are no longer available. Please reselect them.")
+    : t("advanced.referenceMissing", {}, "The selected reference was deleted or is no longer available. Please reselect it.");
+}
+
+async function guardAdvancedSubmitAssets(assetIds = []) {
+  const missingAssetIds = await resolveMissingAdvancedAssetIds(assetIds);
+  if (!missingAssetIds.length) return true;
+  missingAssetIds.forEach((assetId) => clearDeletedAdvancedAssetReference(assetId));
+  if (els.advancedNote) els.advancedNote.textContent = advancedMissingAssetMessage(missingAssetIds);
+  setAdvancedSideTab("assets", { syncMobile: true });
+  updateAdvancedButtonCost();
+  return false;
+}
+
+function advancedMissingAssetIdsFromError(error = {}) {
+  const payload = error.payload || {};
+  return uniqueAdvancedAssetIds([
+    payload.assetId,
+    ...(Array.isArray(payload.missingAssetIds) ? payload.missingAssetIds : []),
+    payload.details?.assetId,
+  ]);
+}
+
+function isAdvancedReferenceMissingError(error = {}) {
+  const code = String(error.code || error.payload?.code || "").toUpperCase();
+  const message = String(error.message || "");
+  return code.includes("REFERENCE_") && code.includes("_NOT_FOUND")
+    || (Number(error.statusCode || 0) === 404 && /Reference (image|video|audio).*not found/i.test(message));
+}
+
+function handleAdvancedReferenceMissingError(error = {}, pendingTaskId = "") {
+  if (!isAdvancedReferenceMissingError(error)) return false;
+  const missingAssetIds = advancedMissingAssetIdsFromError(error);
+  missingAssetIds.forEach((assetId) => clearDeletedAdvancedAssetReference(assetId));
+  if (pendingTaskId) {
+    state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== pendingTaskId);
+    if (state.advancedResultTaskId === pendingTaskId) state.advancedResultTaskId = "";
+    renderAdvancedResultPanel();
+  }
+  if (els.advancedNote) els.advancedNote.textContent = missingAssetIds.length ? advancedMissingAssetMessage(missingAssetIds) : (error.message || String(error));
+  setAdvancedSideTab("assets", { syncMobile: true });
+  updateAdvancedButtonCost();
+  return true;
+}
+
 function syncSeedanceReferenceMode() {
   if (currentAdvancedProvider() === "seedance" && els.advancedSeedanceMediaMode && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode.value)) {
     els.advancedSeedanceMediaMode.value = "reference_video";
@@ -1348,6 +1416,11 @@ async function submitAdvancedGenerate() {
   const seedanceTier = currentSeedanceTier();
   const advancedPresetSelection = usingPresetFlow ? advancedPresetSelectionPayload() : undefined;
   if (provider === "wan27-image-edit") {
+    const referencesReady = await guardAdvancedSubmitAssets(selectedAdvancedReferenceImages("wan27-image-edit").map((item) => item.assetId));
+    if (!referencesReady) {
+      els.advancedSubmitBtn.disabled = false;
+      return;
+    }
     const pendingTaskId = `pending-image-${Date.now().toString(36)}`;
     mergeAdvancedResultRecord({
       taskId: pendingTaskId,
@@ -1405,6 +1478,7 @@ async function submitAdvancedGenerate() {
       if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       await loadHistory({ silent: true }).catch(() => {});
     } catch (error) {
+      if (handleAdvancedReferenceMissingError(error, pendingTaskId)) return;
       state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
         record.taskId === pendingTaskId
           ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
@@ -1502,6 +1576,25 @@ async function submitAdvancedGenerate() {
       if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipRequired");
       return;
     }
+  }
+  const submitAssetIds = provider === "seedance"
+    ? [
+        seedanceModeNeedsFirstFrame(seedanceMode) ? seedanceFirstFrameAssetId : "",
+        seedanceModeNeedsLastFrame(seedanceMode) ? state.advancedSeedanceLastFrameAssetId : "",
+        ...referenceImages.map((item) => item.assetId || ""),
+        ...seedanceVideoAssetIds,
+        ...seedanceAudioAssetIds,
+      ]
+    : [
+        state.advancedFirstFrameAssetId,
+        state.advancedWanLastFrameAssetId,
+        state.advancedWanClipAssetId,
+        state.advancedAudioAssetId,
+      ];
+  const referencesReady = await guardAdvancedSubmitAssets(submitAssetIds);
+  if (!referencesReady) {
+    els.advancedSubmitBtn.disabled = false;
+    return;
   }
   if (provider === "seedance" && autoPrompt) {
     const confirmed = await confirmAdvancedSimpleActionCost(advancedSimpleActionCostLabel(provider, duration, resolution, currentAdvancedRatio()));
@@ -1631,6 +1724,7 @@ async function submitAdvancedGenerate() {
     scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
     scheduleHistoryRefresh({ delayMs: 8000, force: true });
   } catch (error) {
+    if (handleAdvancedReferenceMissingError(error, pendingTaskId)) return;
     state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
       record.taskId === pendingTaskId
         ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
@@ -3271,12 +3365,24 @@ function clearDeletedAdvancedAssetReference(assetId = "") {
     changed = true;
   }
   if (state.advancedSeedanceVideoAssetId === assetId) {
-    setAdvancedSeedanceVideoReferences(advancedSeedanceVideoReferences().filter((item) => item.assetId !== assetId));
+    state.advancedSeedanceVideoAssetId = "";
+    state.advancedSeedanceVideoPreviewUrl = "";
+    changed = true;
+  }
+  const seedanceVideos = advancedSeedanceVideoReferences();
+  const nextSeedanceVideos = seedanceVideos.filter((item) => item.assetId !== assetId);
+  if (nextSeedanceVideos.length !== seedanceVideos.length) {
+    setAdvancedSeedanceVideoReferences(nextSeedanceVideos);
     changed = true;
   }
   if (state.advancedAudioAssetId === assetId) {
-    setAdvancedSeedanceAudioReferences(advancedSeedanceAudioReferences().filter((item) => item.assetId !== assetId));
     removeAdvancedMediaSlot("wanAudio");
+    changed = true;
+  }
+  const seedanceAudios = advancedSeedanceAudioReferences();
+  const nextSeedanceAudios = seedanceAudios.filter((item) => item.assetId !== assetId);
+  if (nextSeedanceAudios.length !== seedanceAudios.length) {
+    setAdvancedSeedanceAudioReferences(nextSeedanceAudios);
     changed = true;
   }
   if (!changed) return;

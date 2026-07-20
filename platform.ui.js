@@ -2654,7 +2654,14 @@ async function requestJson(url, options = {}) {
     body: options.body === undefined ? undefined : typeof options.body === "string" ? options.body : JSON.stringify(options.body),
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.detail || `Request failed: ${response.status}`);
+  if (!response.ok || payload.ok === false) {
+    const error = new Error(payload.message || payload.detail || `Request failed: ${response.status}`);
+    error.statusCode = response.status;
+    error.code = payload.code || "";
+    error.payload = payload;
+    error.details = payload.details || null;
+    throw error;
+  }
   return payload;
 }
 
