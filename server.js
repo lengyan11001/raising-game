@@ -9618,6 +9618,10 @@ function normalizeSeedanceMode(value = "", body = {}) {
   if (SEEDANCE_MEDIA_MODES.has(raw)) return raw;
 
   const merged = body || {};
+  const contentSummary = safeSeedanceContentMediaSummary(merged.content);
+  if (contentSummary.firstImages.length || contentSummary.lastImages.length) {
+    return contentSummary.lastImages.length ? "first_last_frame" : "first_frame";
+  }
   if (firstPresent(
     merged.endImageUrl,
     merged.end_image_url,
@@ -9640,10 +9644,15 @@ function normalizeSeedanceMode(value = "", body = {}) {
   )) return "first_frame";
   if (
     seedanceReferenceVideoInputCountFromBody(merged) > 0 ||
+    seedanceReferenceAudioInputCountFromBody(merged) > 0 ||
+    contentSummary.videos.length ||
+    contentSummary.audios.length ||
     Array.isArray(merged.reference_videos)
   ) return "reference_video";
   if (
+    contentSummary.referenceImages.length ||
     arrayFromBody(merged.referenceImages).length ||
+    arrayFromBody(merged.reference_images).length ||
     arrayFromBody(merged.referenceImageDataUrls).length ||
     arrayFromBody(merged.referenceImageAssetUris).length ||
     arrayFromBody(merged.seedanceReferenceAssetUris).length ||
@@ -9741,6 +9750,7 @@ async function createSingleSeedanceImageAssetFromInput(db, user, input, { name =
 function seedanceReferenceInputsFromBody(body = {}, { includeDataUrlFallback = true } = {}) {
   const inputs = [
     ...arrayFromBody(body.referenceImages),
+    ...arrayFromBody(body.reference_images),
     ...arrayFromBody(body.referenceImageDataUrls),
   ];
   const filteredInputs = inputs.filter((item) => {
@@ -9830,14 +9840,15 @@ function seedanceReferenceAssetUrisFromBody(body = {}) {
     ...arrayFromBody(body.referenceImageAssetUris),
   ].map((item) => String(item || "").trim()).filter(Boolean);
   const referenceImageInputs = [
-    ...arrayFromBody(body.referenceImages).map((item) => (
+    ...arrayFromBody(body.referenceImages),
+    ...arrayFromBody(body.reference_images),
+  ].map((item) => (
       typeof item === "string"
         ? (item.trim().startsWith("asset://") ? item : "")
         : (item?.assetId || item?.userAssetId || item?.imageAssetId
           ? ""
           : String(item?.assetUri || item?.referenceAssetUri || item?.seedanceAssetUri || ""))
-    )),
-  ].map((item) => String(item || "").trim()).filter(Boolean);
+    )).map((item) => String(item || "").trim()).filter(Boolean);
   const inputs = [...explicitInputs, ...referenceImageInputs];
   const invalid = inputs.find((uri) => !uri.startsWith("asset://"));
   if (invalid) {
@@ -9894,6 +9905,7 @@ function seedanceReferenceVideoUrlInputsFromBody(body = {}) {
     ...arrayFromBody(body.referenceVideos),
     ...arrayFromBody(body.referenceVideoUrls),
     ...arrayFromBody(body.videoUrls),
+    ...arrayFromBody(body.reference_videos),
   ]);
   if (inputs.length > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} reference videos.`);
@@ -10061,6 +10073,8 @@ function seedanceReferenceAudioInputsFromBody(body = {}) {
   const inputs = [
     ...arrayFromBody(body.referenceAudios),
     ...arrayFromBody(body.referenceAudioUrls),
+    ...arrayFromBody(body.audioUrls),
+    ...arrayFromBody(body.reference_audios),
   ].filter((item) => {
     if (!item) return false;
     if (typeof item === "string") return item.trim();
@@ -10075,6 +10089,23 @@ function seedanceReferenceAudioInputsFromBody(body = {}) {
     if (typeof item === "string") return item.trim();
     return String(item.url || item.audioUrl || item.audio_url || item.assetUri || "").trim();
   }).filter(Boolean).map((url, index) => assertSeedanceMediaUrl(url, `Seedance reference audio ${index + 1}`, { kind: "audio" }));
+}
+
+function seedanceReferenceAudioInputCountFromBody(body = {}) {
+  const ids = [
+    body.referenceAudioAssetId,
+    body.audioAssetId,
+    body.drivingAudioAssetId,
+    ...arrayFromBody(body.referenceAudioAssetIds),
+    ...arrayFromBody(body.audioAssetIds),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  const urls = [
+    ...arrayFromBody(body.referenceAudios),
+    ...arrayFromBody(body.referenceAudioUrls),
+    ...arrayFromBody(body.audioUrls),
+    ...arrayFromBody(body.reference_audios),
+  ].map((item) => (typeof item === "string" ? item.trim() : nestedMediaUrl(item))).filter(Boolean);
+  return new Set([...ids.map((id) => `asset:${id}`), ...urls]).size;
 }
 
 function seedanceRawArrayUrls(value, kind = "image", label = "Seedance media") {
@@ -10113,6 +10144,84 @@ function seedanceContentMediaSummary(content = []) {
     else if (type === "audio_url") summary.audios.push(url);
   }
   return summary;
+}
+
+function emptySeedanceContentMediaSummary() {
+  return {
+    firstImages: [],
+    lastImages: [],
+    referenceImages: [],
+    videos: [],
+    audios: [],
+  };
+}
+
+function safeSeedanceContentMediaSummary(content = []) {
+  try {
+    return seedanceContentMediaSummary(content);
+  } catch {
+    return emptySeedanceContentMediaSummary();
+  }
+}
+
+function seedanceContentHasMedia(content = []) {
+  const summary = safeSeedanceContentMediaSummary(content);
+  return Boolean(
+    summary.firstImages.length ||
+    summary.lastImages.length ||
+    summary.referenceImages.length ||
+    summary.videos.length ||
+    summary.audios.length
+  );
+}
+
+function seedancePromptFromContent(content = []) {
+  return (Array.isArray(content) ? content : [])
+    .map((item) => normalizeSeedanceContentItem(item))
+    .map((item) => {
+      if (typeof item === "string") return item;
+      if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+      if (item.type === "text" || item.text !== undefined) return String(item.text || "");
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function mergeSeedanceMediaList(existing = [], additions = []) {
+  const merged = [];
+  const seen = new Set();
+  [...arrayFromBody(existing), ...arrayFromBody(additions)].forEach((item) => {
+    const key = nestedMediaUrl(item) || String(item || "").trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push(item);
+  });
+  return merged;
+}
+
+function seedanceBodyWithContentMediaFields(body = {}) {
+  if (!Array.isArray(body.content) || !seedanceContentHasMedia(body.content)) return body;
+  const summary = seedanceContentMediaSummary(body.content);
+  const next = { ...body };
+  if (summary.firstImages.length && !firstPresent(next.image_url, next.imageUrl, next.firstFrameUrl, next.first_frame_url, next.imageAssetId, next.firstFrameAssetId)) {
+    next.image_url = summary.firstImages[0];
+  }
+  if (summary.lastImages.length && !firstPresent(next.end_image_url, next.endImageUrl, next.lastFrameUrl, next.last_frame_url, next.endImageAssetId, next.lastFrameAssetId)) {
+    next.end_image_url = summary.lastImages[0];
+  }
+  if (summary.referenceImages.length) {
+    next.referenceImages = mergeSeedanceMediaList(next.referenceImages, summary.referenceImages);
+  }
+  if (summary.videos.length) {
+    next.referenceVideoUrls = mergeSeedanceMediaList(next.referenceVideoUrls, summary.videos);
+  }
+  if (summary.audios.length) {
+    next.referenceAudioUrls = mergeSeedanceMediaList(next.referenceAudioUrls, summary.audios);
+  }
+  delete next.content;
+  return next;
 }
 
 async function validateSeedanceAdvancedMediaRules({
@@ -10739,6 +10848,31 @@ async function createSeedanceReferenceVideoAssetFromUrl(db, user, videoUrl = "",
     sourceUrl: url,
     hidden: true,
     meta: { fromWorkflowPreset: true, upstreamUse: "seedance_reference_video" },
+  });
+}
+
+async function createSeedanceReferenceAudioAssetFromUrl(db, user, audioUrl = "", index = 0) {
+  const url = publicHttpUrlForUpstream(audioUrl) || String(audioUrl || "").trim();
+  if (!url) return null;
+  if (isAllowedInlineMediaDataUrl(url, "audio")) {
+    return await createUserWanMediaAssetFromDataUrl(db, user, {
+      dataUrl: url,
+      name: `Seedance reference audio ${index + 1}`,
+      fileName: `seedance-reference-audio-${index + 1}.mp3`,
+    });
+  }
+  if (!isPublicHttpUrl(url)) return null;
+  const pathname = new URL(url).pathname;
+  const fileName = path.basename(pathname) || `seedance-reference-audio-${index + 1}.mp3`;
+  const existing = findUserAssetBySourceUrl(db, user, url);
+  if (existing) return existing;
+  return await createUserMediaAssetFromPublicUrl(db, user, {
+    url,
+    name: `Seedance reference audio ${index + 1}`,
+    fileName,
+    sourceUrl: url,
+    hidden: true,
+    meta: { fromWorkflowPreset: true, upstreamUse: "seedance_reference_audio" },
   });
 }
 
@@ -14088,6 +14222,31 @@ async function runAdvancedGenerationJob(job = {}) {
       delete requestParams.referenceVideoUrls;
       delete requestParams.videoUrls;
     }
+    if (provider === "seedance" && referenceAudioAssetUris.length && !USE_GATEWAY_UPSTREAM && !useExternalSeedanceHttp) {
+      const remainingReferenceAudioUris = [];
+      for (let index = 0; index < referenceAudioAssetUris.length; index += 1) {
+        const uri = String(referenceAudioAssetUris[index] || "").trim();
+        if (!uri) continue;
+        if (uri.startsWith("asset://")) {
+          remainingReferenceAudioUris.push(uri);
+          continue;
+        }
+        const urlAsset = await createSeedanceReferenceAudioAssetFromUrl(db, jobUser || { id: userId }, uri, index);
+        if (!urlAsset) {
+          remainingReferenceAudioUris.push(uri);
+          continue;
+        }
+        if (!seedanceAudioAssets.some((asset) => asset?.id === urlAsset.id)) {
+          seedanceAudioAssets.push(urlAsset);
+        }
+      }
+      referenceAudioAssetUris = remainingReferenceAudioUris;
+      if (remainingReferenceAudioUris.length) requestParams.reference_audios = remainingReferenceAudioUris;
+      else delete requestParams.reference_audios;
+      delete requestParams.referenceAudios;
+      delete requestParams.referenceAudioUrls;
+      delete requestParams.audioUrls;
+    }
     const audioReferenceUriByAssetId = new Map();
     if (provider === "seedance") {
       resolvedReferenceAudioAssetUris = referenceAudioAssetUris
@@ -15128,7 +15287,7 @@ async function handleAdvancedGenerate(req, res) {
   const bodyParams = requestParamsFromBody(body);
   const selectedCase = cases.find((item) => item.id === String(firstPresent(body.caseId, bodyParams.caseId, "")).trim());
   const caseParams = selectedCase?.params && typeof selectedCase.params === "object" ? selectedCase.params : {};
-  const mergedBody = mergedRequestForMedia(body, caseParams);
+  const mergedBodyBase = mergedRequestForMedia(body, caseParams);
   const requestedModel = firstPresent(body.model, bodyParams.model, caseParams.model);
   const requestedSeedanceTier = seedanceModelAliasKind(requestedModel) || firstPresent(
     body.seedanceTier,
@@ -15164,7 +15323,24 @@ async function handleAdvancedGenerate(req, res) {
   if (!USE_GATEWAY_UPSTREAM && provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Vipeak 1 generation is not configured." });
   }
-  let prompt = String(firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
+  let mergedBody = mergedBodyBase;
+  let seedanceContentExpanded = false;
+  if (provider === "seedance") {
+    try {
+      seedanceContentExpanded = seedanceContentHasMedia(mergedBodyBase.content);
+      mergedBody = seedanceBodyWithContentMediaFields(mergedBodyBase);
+    } catch (error) {
+      return sendAdvancedValidationError(res, error, "Vipeak 2 content is invalid.");
+    }
+  }
+  let prompt = String(firstPresent(
+    body.prompt,
+    bodyParams.prompt,
+    selectedCase?.prompt,
+    caseParams.prompt,
+    provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
+    "",
+  )).trim();
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   const durationBounds = advancedDurationBounds(provider);
   const mergedProviderParameters = {
@@ -15219,10 +15395,15 @@ async function handleAdvancedGenerate(req, res) {
   }
   if (provider === "seedance") {
     [
-      "image_url",
-      "end_image_url",
-      "reference_images",
-      "content",
+        "image_url",
+        "end_image_url",
+        "referenceImages",
+        "reference_images",
+        "referenceVideoUrls",
+        "reference_videos",
+        "referenceAudioUrls",
+        "reference_audios",
+        "content",
       "web_search",
       "webSearch",
       "watermark",
@@ -15230,9 +15411,12 @@ async function handleAdvancedGenerate(req, res) {
       "fps",
       "camera_fixed",
     ].forEach((field) => {
-      const value = firstPresent(body[field], bodyParams[field], caseParams[field]);
+      const value = field === "content" && seedanceContentExpanded
+        ? undefined
+        : firstPresent(mergedBody[field], body[field], bodyParams[field], caseParams[field]);
       if (value !== undefined) requestParams[field] = value;
     });
+    if (seedanceContentExpanded) delete requestParams.content;
   }
   let userAsset = null;
   let extraUserAssets = [];
