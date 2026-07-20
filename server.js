@@ -22363,22 +22363,49 @@ async function handleAdminUpdateUser(req, res, userId) {
     targetUsername: user.username || "",
     note: "Admin user credit adjustment",
   };
-  if (typeof body.creditsDelta === "number" && Number.isFinite(body.creditsDelta) && Number(body.creditsDelta) !== 0) {
-    await changeUserCredits(auth.db, user.id, Number(body.creditsDelta), Number(body.creditsDelta) > 0 ? "admin_credit_add" : "admin_credit_adjustment", {
+  const creditsAdd = Number(body.creditsAdd);
+  const creditsSubtract = Number(body.creditsSubtract);
+  const hasCreditsAdd = Number.isFinite(creditsAdd) && creditsAdd > 0;
+  const hasCreditsSubtract = Number.isFinite(creditsSubtract) && creditsSubtract > 0;
+  if (hasCreditsAdd && hasCreditsSubtract) {
+    return sendJson(res, 400, { ok: false, message: "Use either creditsAdd or creditsSubtract, not both." });
+  }
+  if (hasCreditsAdd) {
+    const amount = roundCredits(creditsAdd, 6);
+    await changeUserCredits(auth.db, user.id, amount, "admin_credit_add", {
       ...adminCreditMeta,
-      mode: "delta",
+      mode: "add",
+      amount,
     });
     changed = true;
-  } else if (typeof body.credits === "number" && Number.isFinite(body.credits)) {
-    const nextCredits = roundCredits(Math.max(0, Number(body.credits)), 6);
-    const delta = roundCredits(nextCredits - Number(user.credits || 0), 6);
-    if (delta !== 0) {
-      await changeUserCredits(auth.db, user.id, delta, delta > 0 ? "admin_credit_add" : "admin_credit_adjustment", {
-        ...adminCreditMeta,
-        mode: "set",
-        targetCredits: nextCredits,
-      });
-      changed = true;
+  } else if (hasCreditsSubtract) {
+    const amount = roundCredits(creditsSubtract, 6);
+    await changeUserCredits(auth.db, user.id, -amount, "admin_credit_subtract", {
+      ...adminCreditMeta,
+      mode: "subtract",
+      amount,
+    });
+    changed = true;
+  } else if (Object.prototype.hasOwnProperty.call(body, "credits") || Object.prototype.hasOwnProperty.call(body, "creditsDelta")) {
+    const hasLegacyCredits = Object.prototype.hasOwnProperty.call(body, "credits");
+    const hasLegacyDelta = Object.prototype.hasOwnProperty.call(body, "creditsDelta");
+    const legacyCreditsRaw = body.credits;
+    const legacyDeltaRaw = body.creditsDelta;
+    const legacyCreditsProvided = hasLegacyCredits && legacyCreditsRaw !== "" && legacyCreditsRaw !== null && legacyCreditsRaw !== undefined;
+    const legacyDeltaProvided = hasLegacyDelta && legacyDeltaRaw !== "" && legacyDeltaRaw !== null && legacyDeltaRaw !== undefined;
+    const legacyCredits = Number(legacyCreditsRaw);
+    const legacyDelta = Number(legacyDeltaRaw);
+    const creditsChanged = legacyCreditsProvided
+      && Number.isFinite(legacyCredits)
+      && Math.abs(roundCredits(legacyCredits, 6) - roundCredits(user.credits || 0, 6)) > 0.000001;
+    const deltaChanged = legacyDeltaProvided && Number.isFinite(legacyDelta) && Math.abs(legacyDelta) > 0.000001;
+    if (
+      (legacyCreditsProvided && !Number.isFinite(legacyCredits)) ||
+      (legacyDeltaProvided && !Number.isFinite(legacyDelta)) ||
+      creditsChanged ||
+      deltaChanged
+    ) {
+      return sendJson(res, 400, { ok: false, message: "Use creditsAdd to increase or creditsSubtract to decrease credits." });
     }
   }
   if (typeof body.role === "string" && ["admin", "user"].includes(body.role)) {

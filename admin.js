@@ -1381,29 +1381,31 @@ function openAddCreditsFromCharacterDialog(id, characters) {
   tpl.innerHTML = `
     <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(account)}" disabled /></div>
     <div class="adm-form-row"><span>增加积分</span><input id="addCreditsAmount" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 100" /></div>
-    <p class="adm-muted">会直接增加到该账号余额，不生成充值订单。</p>
+    <div class="adm-form-row"><span>减少积分</span><input id="subtractCreditsAmount" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 100" /></div>
+    <p class="adm-muted">增加和减少只能填一个，操作会写入积分流水。</p>
   `;
 
   openDialog({
-    title: "增加积分",
+    title: "调整积分",
     body: tpl,
-    confirmText: "确认增加",
+    confirmText: "确认调整",
     onConfirm: async () => {
-      const amount = Number(tpl.querySelector("#addCreditsAmount")?.value);
-      if (!Number.isFinite(amount) || amount <= 0) {
-        toast("请输入大于 0 的积分。", "error");
+      const add = Number(tpl.querySelector("#addCreditsAmount")?.value);
+      const subtract = Number(tpl.querySelector("#subtractCreditsAmount")?.value);
+      const hasAdd = Number.isFinite(add) && add > 0;
+      const hasSubtract = Number.isFinite(subtract) && subtract > 0;
+      if (hasAdd === hasSubtract) {
+        toast("增加和减少只能填一个。", "error");
         return false;
       }
-      const creditsDelta = Math.round(amount);
-      if (creditsDelta <= 0) {
-        toast("积分必须至少增加 1。", "error");
-        return false;
-      }
+      const body = hasAdd
+        ? { creditsAdd: Math.round(add) }
+        : { creditsSubtract: Math.round(subtract) };
       await api(`/api/admin/users/${encodeURIComponent(character.userId)}`, {
         method: "PATCH",
-        body: { creditsDelta },
+        body,
       });
-      toast(`已给 ${account} 增加 ${creditsDelta} 积分。`, "success");
+      toast(`已调整 ${account} 的积分。`, "success");
       renderCharacters();
     },
   });
@@ -2835,6 +2837,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
                   <td>
                     <div class="adm-row-actions">
                       <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit-user"><i data-lucide="pencil"></i>编辑</button>
+                      <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="adjust-credits"><i data-lucide="coins"></i>积分</button>
                       <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="reset-pwd"><i data-lucide="key-round"></i>重置密码</button>
                       <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-user"><i data-lucide="trash-2"></i>删除</button>
                     </div>
@@ -2869,6 +2872,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
   els.adminContent.querySelectorAll("tr[data-id]").forEach((tr) => {
     const id = tr.dataset.id;
     tr.querySelector('[data-act="edit-user"]')?.addEventListener("click", () => openEditUserDialog(id, users));
+    tr.querySelector('[data-act="adjust-credits"]')?.addEventListener("click", () => openAdjustCreditsDialog(id, users));
     tr.querySelector('[data-act="reset-pwd"]')?.addEventListener("click", () => openResetPwdDialog(id, users));
     tr.querySelector('[data-act="delete-user"]')?.addEventListener("click", () => deleteUser(id, users));
   });
@@ -2884,8 +2888,6 @@ function openEditUserDialog(id, users) {
       <option value="user" ${user.role === "user" ? "selected" : ""}>普通用户</option>
       <option value="admin" ${user.role === "admin" ? "selected" : ""}>管理员</option>
     </select></div>
-    <div class="adm-form-row"><span>积分（直接设定）</span><input id="editCredits" type="number" min="0" value="${escapeHtml(user.credits)}" /></div>
-    <div class="adm-form-row"><span>积分增减（可选）</span><input id="editCreditsDelta" type="number" placeholder="例如 +50 或 -10" /></div>
     <div class="adm-form-row"><span>API Token</span><input class="adm-mono" value="${escapeHtml(user.apiToken || "")}" disabled /><small class="adm-muted">用户 Access API 页面展示和接口 Bearer 使用的就是这个 token。</small></div>
     <div class="adm-form-row"><span>前端价格折扣</span><input id="editPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.pricingMultiplier))}" /><small class="adm-muted">只对用户在网页前端点击生成时生效。1 = 原价，0.9 = 九折，1.1 = 加价 10%。</small></div>
     <div class="adm-form-row"><span>API价格折扣</span><input id="editApiPricingMultiplier" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(user.apiPricingMultiplier))}" /><small class="adm-muted">只对 Bearer Token / 子 Token 接口调用生效，前端网页生成不使用这个折扣。</small></div>
@@ -2896,8 +2898,6 @@ function openEditUserDialog(id, users) {
     confirmText: "保存",
     onConfirm: async () => {
       const role = tpl.querySelector("#editRole").value;
-      const credits = Number(tpl.querySelector("#editCredits").value);
-      const delta = Number(tpl.querySelector("#editCreditsDelta").value);
       const pricingMultiplier = Number(tpl.querySelector("#editPricingMultiplier").value);
       const apiPricingMultiplier = Number(tpl.querySelector("#editApiPricingMultiplier").value);
       if (!Number.isFinite(pricingMultiplier) || pricingMultiplier <= 0 || pricingMultiplier > 100) {
@@ -2909,12 +2909,48 @@ function openEditUserDialog(id, users) {
         return false;
       }
       const body = { role };
-      if (Number.isFinite(delta) && delta !== 0) body.creditsDelta = delta;
-      else if (Number.isFinite(credits)) body.credits = credits;
       body.pricingMultiplier = pricingMultiplier;
       body.apiPricingMultiplier = apiPricingMultiplier;
       await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
       toast("已更新。", "success");
+      renderUsers();
+    },
+  });
+}
+
+function openAdjustCreditsDialog(id, users) {
+  const user = users.find((u) => u.id === id);
+  if (!user) return;
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <div class="adm-form-row"><span>账号</span><input value="${escapeHtml(user.username)}" disabled /></div>
+    <div class="adm-form-row"><span>当前积分</span><input value="${escapeHtml(user.credits)}" disabled /></div>
+    <div class="adm-form-row"><span>增加积分</span><input id="adjustCreditsAdd" type="number" min="1" step="1" placeholder="例如 100" /></div>
+    <div class="adm-form-row"><span>减少积分</span><input id="adjustCreditsSubtract" type="number" min="1" step="1" placeholder="例如 100" /></div>
+    <p class="adm-muted">增加和减少只能填一个。</p>
+  `;
+  openDialog({
+    title: `调整积分：${user.username}`,
+    body: tpl,
+    confirmText: "保存",
+    onConfirm: async () => {
+      const add = Number(tpl.querySelector("#adjustCreditsAdd").value);
+      const subtract = Number(tpl.querySelector("#adjustCreditsSubtract").value);
+      const hasAdd = Number.isFinite(add) && add > 0;
+      const hasSubtract = Number.isFinite(subtract) && subtract > 0;
+      if (!hasAdd && !hasSubtract) {
+        toast("请填写增加积分或减少积分。", "error");
+        return false;
+      }
+      if (hasAdd && hasSubtract) {
+        toast("增加和减少只能填一个。", "error");
+        return false;
+      }
+      const body = {};
+      if (hasAdd) body.creditsAdd = Math.round(add);
+      if (hasSubtract) body.creditsSubtract = Math.round(subtract);
+      await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "PATCH", body });
+      toast("积分已更新。", "success");
       renderUsers();
     },
   });
