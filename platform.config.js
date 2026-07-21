@@ -24,6 +24,11 @@ const ADVANCED_SEEDANCE_FAST_DISCOUNT = 0.8;
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 20;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 50;
 const ADVANCED_GENERATION_MARKUP = 1.5;
+const ADVANCED_SEEDREAM5_LITE_USD_PER_IMAGE = 0.035;
+const ADVANCED_SEEDREAM5_PRO_2K_USD_PER_IMAGE = 0.045;
+const ADVANCED_SEEDREAM5_PRO_3K_USD_PER_IMAGE = 0.09;
+const ADVANCED_SEEDREAM5_PRO_4K_USD_PER_IMAGE = 0.09;
+const ADVANCED_SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST = 0.003;
 const DEFAULT_ADVANCED_PROVIDER = "wan27";
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 9;
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = 3;
@@ -483,6 +488,7 @@ function currentAdvancedSeedanceUploadMode() {
 
 function advancedCreateUploadIsVideo(mode = state.advancedCreateMode) {
   const provider = currentAdvancedProvider();
+  if (provider === "seedream5-image") return false;
   if (provider === "seedance") return false;
   return advancedCreateModeAcceptsVideoUpload(mode) && !advancedCreateModeAcceptsImageUpload(mode);
 }
@@ -505,6 +511,7 @@ function advancedCreateModeDefaultPrompt(mode = state.advancedCreateMode) {
 }
 
 function advancedCreateUploadAcceptValue(mode = state.advancedCreateMode) {
+  if (currentAdvancedProvider() === "seedream5-image") return "image/*";
   if (["seedance", "wan27"].includes(currentAdvancedProvider())) {
     return "image/*,video/mp4,video/webm,video/quicktime,video/*,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/ogg,audio/webm,audio/*";
   }
@@ -904,6 +911,7 @@ const els = {
   advancedUploadPreview: document.querySelector("#advancedUploadPreview"),
   advancedProvider: document.querySelector("#advancedProvider"),
   advancedSeedanceTier: document.querySelector("#advancedSeedanceTier"),
+  advancedSeedreamTier: document.querySelector("#advancedSeedreamTier"),
   advancedRatio: document.querySelector("#advancedRatio"),
   advancedResolution: document.querySelector("#advancedResolution"),
   advancedDuration: document.querySelector("#advancedDuration"),

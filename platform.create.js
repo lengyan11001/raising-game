@@ -64,6 +64,8 @@ function advancedAssetTargetItems() {
   const targets = [];
   if (provider === "wan27-image-edit") {
     targets.push({ id: "sourceImages", label: t("advanced.assetTargetSourceImages"), type: "image" });
+  } else if (provider === "seedream5-image") {
+    targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
   } else if (provider === "wan27") {
     if (wanModeNeedsFirstFrame(wanMode)) targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
     if (wanModeNeedsClip(wanMode)) targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
@@ -1074,17 +1076,19 @@ function updateAdvancedModelControls() {
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const bounds = advancedDurationBounds(provider);
   const isImageEdit = provider === "wan27-image-edit";
+  const isSeedreamImage = provider === "seedream5-image";
   const simpleEdit = advancedCreateModeIsSimpleEdit();
   const simpleAction = state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt();
   if (els.advancedDuration) {
     els.advancedDuration.min = String(bounds.min);
     els.advancedDuration.max = String(bounds.max);
-    els.advancedDuration.value = isImageEdit ? "1" : String(Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration.value || bounds.fallback))));
+    els.advancedDuration.value = isImageEdit || isSeedreamImage ? "1" : String(Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration.value || bounds.fallback))));
   }
   if (els.advancedResolution) {
     const imageEditOptions = imageCreateResolutionOptions();
+    const seedreamOptions = ["2K", "3K", "4K"];
     const videoOptions = provider === "seedance" ? ["480p", "720p", "1080p", "4k"] : ["720p", "1080p"];
-    const options = isImageEdit ? imageEditOptions : videoOptions;
+    const options = isSeedreamImage ? seedreamOptions : isImageEdit ? imageEditOptions : videoOptions;
     const current = normalizeAdvancedResolution(els.advancedResolution.value, provider);
     els.advancedResolution.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedResolution.value = options[0];
@@ -1097,6 +1101,11 @@ function updateAdvancedModelControls() {
       els.advancedSeedanceTier.value = "standard";
     }
   }
+  if (els.advancedSeedreamTier) {
+    const active = isSeedreamImage;
+    els.advancedSeedreamTier.closest(".field")?.toggleAttribute("hidden", !active);
+    if (!active) els.advancedSeedreamTier.value = "lite";
+  }
   if (els.advancedRatio) {
     const imageRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
     const videoRatios = ["9:16", "16:9", "1:1"];
@@ -1104,12 +1113,16 @@ function updateAdvancedModelControls() {
     const current = normalizeVideoRatio(els.advancedRatio.value || "9:16");
     els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedRatio.value = isImageEdit ? "9:16" : "9:16";
+    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || simpleAction);
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || provider !== "wan27";
   });
   document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || provider !== "seedance";
+  });
+  document.querySelectorAll(".advanced-seedream5-option").forEach((item) => {
+    item.hidden = simpleAction || simpleEdit || !isSeedreamImage;
   });
   document.querySelectorAll(".advanced-fields").forEach((item) => {
     item.hidden = simpleAction;
@@ -1118,7 +1131,7 @@ function updateAdvancedModelControls() {
     item.hidden = simpleAction;
   });
   document.querySelectorAll(".advanced-duration-field").forEach((item) => {
-    item.hidden = isImageEdit || simpleEdit;
+    item.hidden = isImageEdit || isSeedreamImage || simpleEdit;
   });
   syncAdvancedVideoSettingsControls();
   document.querySelectorAll(".wan-first-frame").forEach((item) => {
@@ -1149,12 +1162,13 @@ function updateAdvancedModelControls() {
     const hidePresetUploadBox = false;
     if (els.advancedImage) {
       els.advancedImage.accept = advancedCreateUploadAcceptValue();
-      els.advancedImage.multiple = provider === "seedance" || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload());
+      els.advancedImage.multiple = provider === "seedance" || isSeedreamImage || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload());
     }
     const forceUpload = simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload();
     els.advancedUploadBox.hidden = hidePresetUploadBox || (provider !== "seedance" && !forceUpload && provider === "wan27" && !wanModeNeedsFirstFrame(wanMode));
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
+    els.advancedUploadBox.classList.toggle("is-seedream5", isSeedreamImage);
     els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
     els.advancedUploadBox.classList.toggle("is-video-upload", uploadIsVideo);
     const label = els.advancedUploadBox.querySelector("span");
@@ -1162,8 +1176,8 @@ function updateAdvancedModelControls() {
       const imageEditLabel = t("advanced.assetTargetSourceImages");
       const videoEditLabel = t("advanced.assetTargetVideo");
       const seedanceLabel = t("advanced.uploadReference");
-      const uploadLabel = provider === "seedance" || provider === "wan27" ? seedanceLabel : simpleEdit && isImageEdit ? imageEditLabel : simpleEdit && uploadIsVideo ? videoEditLabel : mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : seedanceLabel;
-      label.innerHTML = `<i data-lucide="${provider === "seedance" || provider === "wan27" ? "plus" : uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(uploadLabel)}`;
+      const uploadLabel = provider === "seedance" || provider === "wan27" || isSeedreamImage ? seedanceLabel : simpleEdit && isImageEdit ? imageEditLabel : simpleEdit && uploadIsVideo ? videoEditLabel : mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : seedanceLabel;
+      label.innerHTML = `<i data-lucide="${provider === "seedance" || provider === "wan27" || isSeedreamImage ? "plus" : uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(uploadLabel)}`;
     }
   }
   renderAdvancedReferencePreviews();
@@ -1181,12 +1195,14 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "" } = {}) {
     if (!seedanceModeNeedsFirstFrame(mode)) mode = "reference_video";
     els.advancedSeedanceMediaMode.value = mode;
     state.advancedAssetTarget = seedanceModeNeedsFirstFrame(mode) ? "primary" : "referenceImages";
+  } else if (provider === "seedream5-image") {
+    state.advancedAssetTarget = "referenceImages";
   } else if (provider === "wan27-image-edit") {
     state.advancedAssetTarget = "sourceImages";
   }
   updateAdvancedModelControls();
   els.advancedImage.accept = provider === "seedance" ? advancedCreateUploadAcceptValue() : "image/*";
-  els.advancedImage.multiple = provider === "seedance" || (!advancedCreateModeUsesSingleUpload() && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || ""));
+  els.advancedImage.multiple = provider === "seedance" || provider === "seedream5-image" || (!advancedCreateModeUsesSingleUpload() && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || ""));
   els.advancedImage.click();
 }
 
@@ -1414,7 +1430,85 @@ async function submitAdvancedGenerate() {
   els.advancedSubmitBtn.disabled = true;
   const provider = currentAdvancedProvider();
   const seedanceTier = currentSeedanceTier();
+  const seedreamTier = currentSeedreamTier();
   const advancedPresetSelection = usingPresetFlow ? advancedPresetSelectionPayload() : undefined;
+  if (provider === "seedream5-image") {
+    const references = selectedAdvancedReferenceImages("seedream5-image");
+    const referencesReady = await guardAdvancedSubmitAssets(references.map((item) => item.assetId));
+    if (!referencesReady) {
+      els.advancedSubmitBtn.disabled = false;
+      return;
+    }
+    const pendingTaskId = `pending-image-${Date.now().toString(36)}`;
+    mergeAdvancedResultRecord({
+      taskId: pendingTaskId,
+      status: "submitting",
+      model: advancedProviderLabel(provider),
+      provider,
+      source: "advanced-seedream5-image",
+      kind: "advanced-image",
+      prompt,
+      presets: advancedPresetSelection,
+      params: {
+        createKind: state.advancedCreateKind,
+        createMode: state.advancedCreateMode,
+        presets: advancedPresetSelection,
+        seedreamTier,
+        referenceImageCount: references.length,
+      },
+      resolution: currentAdvancedResolution(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    state.advancedResultTaskId = pendingTaskId;
+    setAdvancedSideTab("result", { syncMobile: true });
+    renderAdvancedResultPanel();
+    if (els.advancedNote) els.advancedNote.textContent = "";
+    try {
+      const payload = await requestJson("/api/advanced/generate", {
+        method: "POST",
+        body: {
+          caseId: state.activeAdvancedCaseId,
+          provider,
+          seedreamTier,
+          prompt,
+          referenceImages: references.map(seedanceImageRefPayload),
+          resolution: currentAdvancedResolution(),
+          params: {
+            createKind: state.advancedCreateKind,
+            createMode: state.advancedCreateMode,
+            presets: advancedPresetSelection,
+          },
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== pendingTaskId);
+      if (payload.record) {
+        state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
+        mergeAdvancedResultRecord(payload.record);
+      }
+      state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
+      clearAdvancedCreationInputs();
+      if (els.advancedNote) els.advancedNote.textContent = "";
+      setAdvancedSideTab("result", { syncMobile: true });
+      renderAdvancedResultPanel();
+      await loadHistory({ silent: true, refresh: true, page: 1 }).catch(() => {});
+    } catch (error) {
+      if (handleAdvancedReferenceMissingError(error, pendingTaskId)) return;
+      state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
+        record.taskId === pendingTaskId
+          ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
+          : record
+      ));
+      if (state.advancedResultTaskId === pendingTaskId) state.advancedResultTaskId = "";
+      renderAdvancedResultPanel();
+      if (els.advancedNote) els.advancedNote.textContent = "";
+    } finally {
+      els.advancedSubmitBtn.disabled = false;
+      updateAdvancedButtonCost();
+    }
+    return;
+  }
   if (provider === "wan27-image-edit") {
     const referencesReady = await guardAdvancedSubmitAssets(selectedAdvancedReferenceImages("wan27-image-edit").map((item) => item.assetId));
     if (!referencesReady) {
@@ -1780,7 +1874,8 @@ function pastedImageFilesFromEvent(event) {
 
 function advancedPromptPasteTargetIsReferenceImages() {
   if (state.advancedCreateKind !== "custom") return false;
-  if (currentAdvancedProvider() !== "seedance") return false;
+  if (!["seedance", "seedream5-image"].includes(currentAdvancedProvider())) return false;
+  if (currentAdvancedProvider() === "seedream5-image") return true;
   return seedanceModeNeedsReferenceImages(els.advancedSeedanceMediaMode?.value || "");
 }
 
@@ -2656,6 +2751,7 @@ function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   const images = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "wan27-image-edit") return images.slice(0, advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  if (normalizedProvider === "seedream5-image") return images.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (normalizedProvider !== "seedance") return images.slice(0, 1);
   return images;
 }
