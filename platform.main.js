@@ -36,6 +36,65 @@ els.advancedImage?.addEventListener("change", async () => {
   const provider = currentAdvancedProvider();
   const files = Array.from(els.advancedImage.files || []);
   if (!files.length) return;
+  if (provider === "seedream5-image") {
+    try {
+      let skippedWrongType = false;
+      let skippedTooLarge = false;
+      let skippedTooMany = false;
+      for (const file of files) {
+        const mime = String(file.type || "").toLowerCase();
+        if (!mime.startsWith("image/")) {
+          skippedWrongType = true;
+          continue;
+        }
+        if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) {
+          skippedTooLarge = true;
+          continue;
+        }
+        const existingImages = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
+        if (existingImages.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+          skippedTooMany = true;
+          continue;
+        }
+        const pending = addAdvancedPendingReference("image", file);
+        let ref = null;
+        try {
+          ref = {
+            dataUrl: await readFileAsDataUrl(file),
+            fileName: file.name || "",
+            name: file.name || "",
+            order: pending.order,
+          };
+        } finally {
+          removeAdvancedPendingReference(pending.pendingId, { render: false });
+        }
+        ref = stampAdvancedReferenceOrder(ref);
+        state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existingImages, ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+        state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+        state.advancedFirstFrameAssetId = "";
+        state.advancedSourceImageAssetId = "";
+      }
+      if (skippedWrongType && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.assetWrongType", { target: t("advanced.uploadReference"), type: "image" });
+      }
+      if (skippedTooLarge && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
+      }
+      if (skippedTooMany && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: ADVANCED_SEEDANCE_REFERENCE_LIMIT });
+      }
+      state.activeAdvancedCaseId = "";
+      state.advancedAssetTarget = "referenceImages";
+      renderAdvancedPresetBuilder();
+      updateAdvancedModelControls();
+      updateAdvancedButtonCost();
+    } catch (error) {
+      if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+    } finally {
+      els.advancedImage.value = "";
+    }
+    return;
+  }
   if (provider === "seedance") {
     try {
       let skippedWrongType = false;
@@ -546,6 +605,9 @@ els.advancedProvider?.addEventListener("change", () => {
 els.advancedSeedanceTier?.addEventListener("change", () => {
   updateAdvancedModelControls();
 });
+els.advancedSeedreamTier?.addEventListener("change", () => {
+  updateAdvancedModelControls();
+});
 els.advancedWanMediaMode?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
   updateAdvancedModelControls();
@@ -577,7 +639,7 @@ els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelC
 els.advancedUploadBox?.addEventListener("click", () => {
   const provider = currentAdvancedProvider();
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
-  setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? "referenceImages" : advancedCreateUploadIsVideo() ? "video" : "primary");
+  setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : provider === "seedream5-image" ? "referenceImages" : provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? "referenceImages" : advancedCreateUploadIsVideo() ? "video" : "primary");
 });
 document.querySelectorAll("[data-remove-advanced-slot]").forEach((button) => {
   button.addEventListener("click", (event) => {

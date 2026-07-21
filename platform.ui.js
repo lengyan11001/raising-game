@@ -1261,6 +1261,7 @@ function advancedCaseDuration(item = {}) {
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return DEFAULT_ADVANCED_PROVIDER;
+  if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["wan27imageedit", "wan2.7imageedit", "wanimageedit", "imageedit", "wan27image", "vipeak1image", "vipeak1imageedit"].includes(normalized)) return "wan27-image-edit";
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized)) return "wan27";
   if (["seedance", "vipeak2", "vp2"].includes(normalized)) return "seedance";
@@ -1269,6 +1270,7 @@ function normalizeAdvancedProvider(value = "") {
 
 function advancedProviderLabel(provider = currentAdvancedProvider()) {
   const normalized = normalizeAdvancedProvider(provider);
+  if (normalized === "seedream5-image") return "Seedream 5.0 Image";
   if (normalized === "wan27-image-edit") return "Vipeak 1 Image";
   return normalized === "wan27" ? "Vipeak 1" : "Vipeak 2";
 }
@@ -1279,6 +1281,8 @@ function publicModelText(value = "") {
     .replace(/\/api\/wan27\/image-edit/gi, "/api/vipeak1/image-edit")
     .replace(/dreamina-seedance-2-0-fast-260128/gi, "vipeak2-fast")
     .replace(/dreamina-seedance-2-0-260128/gi, "vipeak2-standard")
+    .replace(/ep-20260721180102-9hm6g/gi, "seedream5-lite")
+    .replace(/ep-20260721175949-xw978/gi, "seedream5-pro")
     .replace(/wan2\.7-image-pro/gi, "vipeak1-image")
     .replace(/wan2\.7-i2v-2026-04-25/gi, "vipeak1-video")
     .replace(/Wan2\.7 Image Edit/gi, "Vipeak 1 Image")
@@ -1312,6 +1316,7 @@ function advancedCaseProvider(item = {}) {
 
 function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
+  if (normalizeAdvancedProvider(provider) === "seedream5-image") return raw === "4k" ? "4K" : raw === "3k" ? "3K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return raw === "4k" ? "4K" : raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan27") return raw === "1080p" ? "1080p" : "720p";
   if (raw === "480p") return "480p";
@@ -1321,6 +1326,7 @@ function normalizeAdvancedResolution(value = "", provider = "seedance") {
 
 function advancedDurationBounds(provider = "seedance") {
   const normalized = normalizeAdvancedProvider(provider);
+  if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan27-image-edit") return { min: 1, max: 1, fallback: 1 };
   return normalized === "wan27"
     ? { min: 2, max: 15, fallback: 5 }
@@ -1399,6 +1405,42 @@ function currentSeedanceEstimateReferenceVideoUrls(provider = currentAdvancedPro
 
 function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "seedream5-image") {
+    const configPricing = state.config?.platform?.advancedPricing || {};
+    const seedreamPricing = configPricing.seedream5Image || {};
+    const creditsPerUsd = Number(configPricing.creditsPerUsd || state.wallet?.creditsPerUsd || 100) || 100;
+    const tier = String(options.seedreamTier || options.seedream5Tier || els.advancedSeedreamTier?.value || seedreamPricing.defaultTier || "lite").trim().toLowerCase() === "pro" ? "pro" : "lite";
+    const normalizedResolution = normalizeAdvancedResolution(resolution || seedreamPricing.defaultResolution || "2K", normalizedProvider);
+    const referenceImageCount = Math.max(0, Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("seedream5-image").length) || 0);
+    const proResolutionUsd = seedreamPricing.pro?.saleUsdPerImageByResolution || {};
+    const outputUsdPerImage = tier === "pro"
+      ? Number(proResolutionUsd[normalizedResolution] ?? (normalizedResolution === "2K" ? ADVANCED_SEEDREAM5_PRO_2K_USD_PER_IMAGE : normalizedResolution === "3K" ? ADVANCED_SEEDREAM5_PRO_3K_USD_PER_IMAGE : ADVANCED_SEEDREAM5_PRO_4K_USD_PER_IMAGE))
+      : Number(seedreamPricing.lite?.saleUsdPerImage ?? ADVANCED_SEEDREAM5_LITE_USD_PER_IMAGE);
+    const referenceUsdPerImage = tier === "pro"
+      ? Number(seedreamPricing.pro?.referenceUsdPerImageAfterFirst ?? ADVANCED_SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST)
+      : 0;
+    const billableReferenceImages = tier === "pro" ? Math.max(0, referenceImageCount - 1) : 0;
+    const totalUsd = Math.max(0, outputUsdPerImage + referenceUsdPerImage * billableReferenceImages);
+    const originalCredits = creditsAmount(totalUsd * creditsPerUsd);
+    const multiplier = userPricingMultiplier();
+    return {
+      provider: "seedream5-image",
+      seedreamTier: tier,
+      duration: 1,
+      resolution: normalizedResolution,
+      size: normalizedResolution,
+      referenceImageCount,
+      billableReferenceImages,
+      outputUsdPerImage,
+      referenceUsdPerImage,
+      totalUsd,
+      baseCredits: originalCredits,
+      originalCredits,
+      credits: creditsAmount(originalCredits * multiplier),
+      markup: 1,
+      userPricingMultiplier: multiplier,
+    };
+  }
   if (normalizedProvider === "wan27-image-edit") {
     const credits = assetImageModifyCostCredits();
     return {
@@ -1511,9 +1553,14 @@ function currentSeedanceTier() {
   return (String(els.advancedSeedanceTier?.value || "").trim().toLowerCase() === "fast") ? "fast" : "standard";
 }
 
+function currentSeedreamTier() {
+  return (String(els.advancedSeedreamTier?.value || "").trim().toLowerCase() === "pro") ? "pro" : "lite";
+}
+
 function currentAdvancedResolution() {
   const provider = currentAdvancedProvider();
-  const fallback = normalizeAdvancedProvider(provider) === "seedance" ? "480p" : "720p";
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  const fallback = normalizedProvider === "seedream5-image" ? "2K" : normalizedProvider === "seedance" ? "480p" : "720p";
   return normalizeAdvancedResolution(els.advancedResolution?.value || fallback, provider);
 }
 
@@ -1522,6 +1569,7 @@ function advancedVideoSettingsVisible() {
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
+  if (normalizeAdvancedProvider(provider) === "seedream5-image") return ["2K", "3K", "4K"];
   return normalizeAdvancedProvider(provider) === "seedance"
     ? ["480p", "720p", "1080p", "4k"]
     : ["720p", "1080p"];
@@ -2364,6 +2412,14 @@ function wanModeNeedsClip(mode) {
 }
 
 function advancedCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
+  if (normalizeAdvancedProvider(provider) === "seedream5-image") {
+    const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
+    const pricing = state.advancedEstimate && state.advancedEstimateKey === key
+      ? state.advancedEstimate
+      : advancedPricing(duration, provider, resolution, ratio, options);
+    const tier = String(pricing.seedreamTier || options.seedreamTier || "lite").toLowerCase() === "pro" ? "Pro" : "Lite";
+    return `${t("cost.credits", { credits: formatCredits(pricing.credits) })} - ${tier} ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)}`;
+  }
   if (normalizeAdvancedProvider(provider) === "wan27-image-edit") {
     return `${assetImageModifyCostLabel()} - ${normalizeAdvancedResolution(resolution, provider)}`;
   }
@@ -2544,6 +2600,7 @@ function advancedButtonCostLabel(duration, provider = "seedance", resolution = "
   const fullLabel = advancedCostLabel(duration, provider, resolution, ratio, options);
   if (state.advancedCreateKind === "custom") return fullLabel;
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "seedream5-image") return fullLabel;
   if (normalizedProvider === "wan27-image-edit") return assetImageModifyCostLabel();
   const pricing = state.advancedEstimate && state.advancedEstimateKey === advancedEstimateKey(duration, provider, resolution, ratio, options)
     ? state.advancedEstimate
@@ -2553,6 +2610,15 @@ function advancedButtonCostLabel(duration, provider = "seedance", resolution = "
 
 function advancedEstimateKey(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "seedream5-image") {
+    return [
+      normalizedProvider,
+      String(options.seedreamTier || options.seedream5Tier || currentSeedreamTier()).trim().toLowerCase() === "pro" ? "pro" : "lite",
+      normalizeAdvancedResolution(resolution, normalizedProvider),
+      Math.max(0, Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("seedream5-image").length) || 0),
+      Number(state.user?.pricingMultiplier || 1),
+    ].join("|");
+  }
   if (normalizedProvider === "wan27-image-edit") {
     return [
       normalizedProvider,
@@ -2597,6 +2663,8 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
           inputVideoSeconds: positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0),
           referenceVideoUrls: Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : [],
           seedanceTier: options.seedanceTier,
+          seedreamTier: options.seedreamTier || options.seedream5Tier,
+          referenceImageCount: Math.max(0, Number(options.referenceImageCount || 0) || 0),
         },
       });
       state.advancedEstimate = payload.pricing || null;
@@ -2627,9 +2695,10 @@ function updateAdvancedButtonCost() {
     return;
   }
   const options = {
-    inputVideoSeconds: currentSeedanceVideoInputSeconds(duration, provider),
-    referenceVideoUrls: currentSeedanceEstimateReferenceVideoUrls(provider),
-    seedanceTier,
+    inputVideoSeconds: provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0,
+    referenceVideoUrls: provider === "seedance" ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
+    seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
+    referenceImageCount: provider === "seedream5-image" ? selectedAdvancedReferenceImages("seedream5-image").length : 0,
   };
   requestAdvancedEstimate(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options);
   els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;

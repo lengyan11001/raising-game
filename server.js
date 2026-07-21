@@ -120,6 +120,14 @@ const MODEL_QUALITY =
   process.env.SEEDANCE_ENDPOINT_ID ||
   process.env.SEEDANCE_MODEL ||
   SEEDANCE_QUALITY_ENDPOINT_ID;
+const SEEDREAM5_LITE_ENDPOINT_ID =
+  process.env.SEEDREAM5_LITE_ENDPOINT_ID ||
+  process.env.ARK_SEEDREAM5_LITE_MODEL ||
+  "ep-20260721180102-9hm6g";
+const SEEDREAM5_PRO_ENDPOINT_ID =
+  process.env.SEEDREAM5_PRO_ENDPOINT_ID ||
+  process.env.ARK_SEEDREAM5_PRO_MODEL ||
+  "ep-20260721175949-xw978";
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
@@ -244,6 +252,11 @@ const WAN27_IMAGE_PRO_MODEL = process.env.ALIYUN_WAN27_IMAGE_PRO_MODEL || "wan2.
 const WAN27_IMAGE_PRO_PURCHASE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_PURCHASE_CNY, 0.375, 0, 6);
 const WAN27_IMAGE_PRO_MARKUP = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_MARKUP, 1.5, 1);
 const WAN27_IMAGE_PRO_SALE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_SALE_CNY, WAN27_IMAGE_PRO_PURCHASE_CNY * WAN27_IMAGE_PRO_MARKUP, 0, 6);
+const SEEDREAM5_LITE_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_LITE_USD_PER_IMAGE, 0.035, 0, 6);
+const SEEDREAM5_PRO_2K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0.045, 0, 6);
+const SEEDREAM5_PRO_3K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_3K_USD_PER_IMAGE, 0.09, 0, 6);
+const SEEDREAM5_PRO_4K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_4K_USD_PER_IMAGE, 0.09, 0, 6);
+const SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST = pricingNumber(process.env.SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0.003, 0, 6);
 const DEFAULT_ADVANCED_PRICING = {
   unit: "credits",
   creditsPerCny: ADVANCED_CREDITS_PER_CNY,
@@ -279,6 +292,30 @@ const DEFAULT_ADVANCED_PRICING = {
     ratios: ["1:1", "3:4", "4:3", "9:16", "16:9"],
     defaultResolution: "2K",
     defaultRatio: "9:16",
+  },
+  seedream5Image: {
+    lite: {
+      model: SEEDREAM5_LITE_ENDPOINT_ID,
+      purchaseUsdPerImage: SEEDREAM5_LITE_USD_PER_IMAGE,
+      saleUsdPerImage: SEEDREAM5_LITE_USD_PER_IMAGE,
+    },
+    pro: {
+      model: SEEDREAM5_PRO_ENDPOINT_ID,
+      purchaseUsdPerImageByResolution: {
+        "2K": SEEDREAM5_PRO_2K_USD_PER_IMAGE,
+        "3K": SEEDREAM5_PRO_3K_USD_PER_IMAGE,
+        "4K": SEEDREAM5_PRO_4K_USD_PER_IMAGE,
+      },
+      saleUsdPerImageByResolution: {
+        "2K": SEEDREAM5_PRO_2K_USD_PER_IMAGE,
+        "3K": SEEDREAM5_PRO_3K_USD_PER_IMAGE,
+        "4K": SEEDREAM5_PRO_4K_USD_PER_IMAGE,
+      },
+      referenceUsdPerImageAfterFirst: SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST,
+    },
+    resolutions: ["2K", "3K", "4K"],
+    defaultResolution: "2K",
+    defaultTier: "lite",
   },
 };
 const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_MARKUP, 1.5, 1, 100);
@@ -658,9 +695,9 @@ const DEFAULT_CONFIG = {
     commandTemplate: "",
   },
   characterImage: {
-    textModel: "fal-ai/bytedance/seedream/v5/lite/text-to-image",
-    editModel: "fal-ai/bytedance/seedream/v5/lite/edit",
-    imageSize: "1024x1536",
+    textModel: SEEDREAM5_LITE_ENDPOINT_ID,
+    editModel: SEEDREAM5_LITE_ENDPOINT_ID,
+    imageSize: "2K",
   },
   scenes: [
     {
@@ -1164,6 +1201,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const rawWan27ImageSource = source.wan27ImagePro && typeof source.wan27ImagePro === "object" && !Array.isArray(source.wan27ImagePro)
     ? source.wan27ImagePro
     : {};
+  const rawSeedream5ImageSource = source.seedream5Image && typeof source.seedream5Image === "object" && !Array.isArray(source.seedream5Image)
+    ? source.seedream5Image
+    : {};
   const wan27ImageSource = { ...rawWan27ImageSource };
   if (Number(wan27ImageSource.saleCnyPerImage) === 0.8432 && !rawWan27ImageSource.userConfigured) {
     wan27ImageSource.saleCnyPerImage = WAN27_IMAGE_PRO_SALE_CNY;
@@ -1190,6 +1230,25 @@ function normalizeAdvancedPricing(pricing = {}) {
     const normalizedResolution = normalizeWan27ImageResolution(value);
     if (!normalizedImageResolutions.includes(normalizedResolution)) normalizedImageResolutions.push(normalizedResolution);
   }
+  const seedreamDefault = DEFAULT_ADVANCED_PRICING.seedream5Image || {};
+  const seedreamSource = { ...rawSeedream5ImageSource };
+  const seedreamLiteSource = seedreamSource.lite && typeof seedreamSource.lite === "object" && !Array.isArray(seedreamSource.lite) ? seedreamSource.lite : {};
+  const seedreamProSource = seedreamSource.pro && typeof seedreamSource.pro === "object" && !Array.isArray(seedreamSource.pro) ? seedreamSource.pro : {};
+  const seedreamProPurchase = seedreamProSource.purchaseUsdPerImageByResolution && typeof seedreamProSource.purchaseUsdPerImageByResolution === "object"
+    ? seedreamProSource.purchaseUsdPerImageByResolution
+    : {};
+  const seedreamProSale = seedreamProSource.saleUsdPerImageByResolution && typeof seedreamProSource.saleUsdPerImageByResolution === "object"
+    ? seedreamProSource.saleUsdPerImageByResolution
+    : {};
+  const normalizeSeedreamUsdMap = (sourceMap = {}, fallbackMap = {}) => ({
+    "2K": pricingNumber(firstPresent(sourceMap["2K"], sourceMap["2k"]), fallbackMap["2K"] ?? SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6),
+    "3K": pricingNumber(firstPresent(sourceMap["3K"], sourceMap["3k"]), fallbackMap["3K"] ?? SEEDREAM5_PRO_3K_USD_PER_IMAGE, 0, 6),
+    "4K": pricingNumber(firstPresent(sourceMap["4K"], sourceMap["4k"]), fallbackMap["4K"] ?? SEEDREAM5_PRO_4K_USD_PER_IMAGE, 0, 6),
+  });
+  const seedreamResolutions = Array.isArray(seedreamSource.resolutions) && seedreamSource.resolutions.length
+    ? seedreamSource.resolutions
+    : (Array.isArray(seedreamDefault.resolutions) ? seedreamDefault.resolutions : ["2K", "3K", "4K"]);
+  const normalizedSeedreamResolutions = [...new Set(seedreamResolutions.map(normalizeSeedream5Resolution))];
   return {
     unit: "credits",
     creditsPerCny,
@@ -1231,12 +1290,33 @@ function normalizeAdvancedPricing(pricing = {}) {
       defaultResolution: String(wan27ImageSource.defaultResolution || wan27ImageDefault.defaultResolution || "2K"),
       defaultRatio: String(wan27ImageSource.defaultRatio || wan27ImageDefault.defaultRatio || "9:16"),
     },
+    seedream5Image: {
+      lite: {
+        ...(seedreamDefault.lite || {}),
+        ...seedreamLiteSource,
+        model: String(seedreamLiteSource.model || seedreamDefault.lite?.model || SEEDREAM5_LITE_ENDPOINT_ID),
+        purchaseUsdPerImage: pricingNumber(seedreamLiteSource.purchaseUsdPerImage, seedreamDefault.lite?.purchaseUsdPerImage ?? SEEDREAM5_LITE_USD_PER_IMAGE, 0, 6),
+        saleUsdPerImage: pricingNumber(seedreamLiteSource.saleUsdPerImage, seedreamDefault.lite?.saleUsdPerImage ?? seedreamLiteSource.purchaseUsdPerImage ?? SEEDREAM5_LITE_USD_PER_IMAGE, 0, 6),
+      },
+      pro: {
+        ...(seedreamDefault.pro || {}),
+        ...seedreamProSource,
+        model: String(seedreamProSource.model || seedreamDefault.pro?.model || SEEDREAM5_PRO_ENDPOINT_ID),
+        purchaseUsdPerImageByResolution: normalizeSeedreamUsdMap(seedreamProPurchase, seedreamDefault.pro?.purchaseUsdPerImageByResolution || {}),
+        saleUsdPerImageByResolution: normalizeSeedreamUsdMap(seedreamProSale, seedreamDefault.pro?.saleUsdPerImageByResolution || seedreamProPurchase || {}),
+        referenceUsdPerImageAfterFirst: pricingNumber(seedreamProSource.referenceUsdPerImageAfterFirst, seedreamDefault.pro?.referenceUsdPerImageAfterFirst ?? SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0, 6),
+      },
+      resolutions: normalizedSeedreamResolutions.length ? normalizedSeedreamResolutions : ["2K", "3K", "4K"],
+      defaultResolution: normalizeSeedream5Resolution(seedreamSource.defaultResolution || seedreamDefault.defaultResolution || "2K"),
+      defaultTier: normalizeSeedream5Tier(seedreamSource.defaultTier || seedreamDefault.defaultTier || "lite"),
+    },
   };
 }
 
 function publicAdvancedPricingView(pricing = {}) {
   const normalized = normalizeAdvancedPricing(pricing);
   const imagePricing = normalized.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro || {};
+  const seedreamPricing = normalized.seedream5Image || DEFAULT_ADVANCED_PRICING.seedream5Image || {};
   const imageCostCredits = pricingNumber(
     Number(imagePricing.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY),
     0,
@@ -1259,6 +1339,20 @@ function publicAdvancedPricingView(pricing = {}) {
       ratios: imagePricing.ratios || ["1:1", "3:4", "4:3", "9:16", "16:9"],
       defaultResolution: imagePricing.defaultResolution || "2K",
       defaultRatio: imagePricing.defaultRatio || "9:16",
+    },
+    seedream5Image: {
+      resolutions: seedreamPricing.resolutions || ["2K", "3K", "4K"],
+      defaultResolution: seedreamPricing.defaultResolution || "2K",
+      defaultTier: seedreamPricing.defaultTier || "lite",
+      lite: {
+        saleUsdPerImage: seedreamPricing.lite?.saleUsdPerImage ?? SEEDREAM5_LITE_USD_PER_IMAGE,
+      },
+      pro: {
+        saleUsdPerImageByResolution: {
+          ...(seedreamPricing.pro?.saleUsdPerImageByResolution || DEFAULT_ADVANCED_PRICING.seedream5Image.pro.saleUsdPerImageByResolution),
+        },
+        referenceUsdPerImageAfterFirst: seedreamPricing.pro?.referenceUsdPerImageAfterFirst ?? SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST,
+      },
     },
   };
 }
@@ -4731,9 +4825,25 @@ function fixedCnyPricingEstimate(cny, source = "", details = {}, creditsPerCny =
   };
 }
 
+function isSeedream5ImageProvider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return [
+    "seedream",
+    "seedream5",
+    "seedream50",
+    "seedreamimage",
+    "seedream5image",
+    "seedream50image",
+    "seedream5img",
+    "seedream5imageedit",
+    "vipeakseedream",
+  ].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50");
+}
+
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
+  if (isSeedream5ImageProvider(value)) return "seedream5-image";
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "wan27";
   if (["seedance", "vipeak2", "vp2"].includes(normalized) || normalized.includes("vipeak2")) return "seedance";
   return "seedance";
@@ -4748,6 +4858,7 @@ function publicProviderId(value = "") {
   const raw = String(value || "").trim();
   const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "";
+  if (isSeedream5ImageProvider(raw)) return "seedream5-image";
   if (isWan27ImageProvider(raw) || ["vipeak1image", "vp1image"].includes(normalized) || normalized.includes("wan27image") || normalized.includes("wan2.7image")) return "vipeak1-image";
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "vipeak1";
   if (["seedance", "vipeak2", "vp2"].includes(normalized) || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina")) return "vipeak2";
@@ -4756,6 +4867,7 @@ function publicProviderId(value = "") {
 
 function publicProviderLabel(value = "") {
   const id = publicProviderId(value);
+  if (id === "seedream5-image") return "Seedream 5.0 Image";
   if (id === "vipeak1-image") return "Vipeak 1 Image";
   if (id === "vipeak1") return "Vipeak 1";
   if (id === "vipeak2") return "Vipeak 2";
@@ -4768,6 +4880,8 @@ function publicModelText(value = "") {
     .replace(/\/api\/wan27\/image-edit/gi, "/api/vipeak1/image-edit")
     .replace(/dreamina-seedance-2-0-fast-260128/gi, "vipeak2-fast")
     .replace(/dreamina-seedance-2-0-260128/gi, "vipeak2-standard")
+    .replace(/ep-20260721180102-9hm6g/gi, "seedream5-lite")
+    .replace(/ep-20260721175949-xw978/gi, "seedream5-pro")
     .replace(/ep-20260429142538-fkm9d/gi, "dreamina-seedance-2-0-fast-260128")
     .replace(/ep-20260429142513-zg667/gi, "dreamina-seedance-2-0-260128")
     .replace(/wan2\.7-image-pro/gi, "vipeak1-image")
@@ -4880,6 +4994,22 @@ function seedanceConfiguredModelForRequest(model = "", seedanceTier = "standard"
   return raw;
 }
 
+function publicHttpUrlForUpstream(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (isPublicHttpUrl(text)) return text;
+  if (text.startsWith("/")) {
+    const configured = publicUrlForAssetPath(text);
+    if (configured) return configured;
+    return `https://123vips.com/${text.replace(/^\/+/, "")}`;
+  }
+  return "";
+}
+
+function publicHttpUrlForUserAsset(asset = {}, fallback = "") {
+  return publicHttpUrlForUpstream(asset.publicUrl || asset.localUrl || fallback || "");
+}
+
 function normalizeAdvancedResolution(value = "") {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "480p") return "480p";
@@ -4926,15 +5056,16 @@ function sendReferenceAssetNotFound(res, kind = "image", assetId = "") {
 function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
+  if (isSeedream5ImageProvider(value)) return true;
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized)) return true;
   if (["seedance", "vipeak2", "vp2"].includes(normalized)) return true;
-  return normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1") || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina");
+  return normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1") || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina") || normalized.includes("seedream");
 }
 
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan27/vipeak1 or seedance/vipeak2.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan27/vipeak1, seedance/vipeak2, or seedream5-image.", { provider: value });
   }
 }
 
@@ -4954,6 +5085,12 @@ function assertAdvancedDurationInput(provider = "seedance", value) {
 function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceTier = "standard" } = {}) {
   if (value === undefined || value === null || value === "") return;
   const raw = String(value || "").trim().toLowerCase();
+  if (normalizeAdvancedProvider(provider) === "seedream5-image") {
+    if (!["2k", "3k", "4k"].includes(raw)) {
+      throw advancedValidationError("INVALID_RESOLUTION", "Seedream 5.0 Image resolution must be one of: 2K, 3K, 4K.", { resolution: value, allowed: ["2K", "3K", "4K"] });
+    }
+    return;
+  }
   if (normalizeAdvancedProvider(provider) === "wan27") {
     if (!["720p", "1080p"].includes(raw)) {
       throw advancedValidationError("INVALID_RESOLUTION", "Vipeak 1 video resolution must be 720p or 1080p.", { resolution: value, allowed: ["720p", "1080p"] });
@@ -5144,6 +5281,24 @@ function normalizeWan27ImageResolution(value = "") {
   return normalized === "1K" ? "1K" : "2K";
 }
 
+function normalizeSeedream5Tier(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "pro" || normalized.includes("pro") ? "pro" : "lite";
+}
+
+function normalizeSeedream5Resolution(value = "") {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (normalized === "4K" || normalized === "4096") return "4K";
+  if (normalized === "3K" || normalized === "3072") return "3K";
+  return "2K";
+}
+
+function seedream5ModelForTier(model = "", tier = "lite") {
+  const raw = String(model || "").trim();
+  if (raw && !["lite", "pro", "seedream5-lite", "seedream5-pro"].includes(raw.toLowerCase())) return raw;
+  return normalizeSeedream5Tier(raw || tier) === "pro" ? SEEDREAM5_PRO_ENDPOINT_ID : SEEDREAM5_LITE_ENDPOINT_ID;
+}
+
 function wan27ImageSize(resolution = "2K", ratio = "9:16") {
   const tier = normalizeWan27ImageResolution(resolution);
   const normalizedRatio = normalizeWan27ImageRatio(ratio);
@@ -5270,6 +5425,7 @@ function seedanceTokenPricing(options = {}) {
 }
 
 function advancedDurationBounds(provider = "seedance") {
+  if (normalizeAdvancedProvider(provider) === "seedream5-image") return { fallback: 1, min: 1, max: 1 };
   return normalizeAdvancedProvider(provider) === "wan27"
     ? { fallback: 5, min: 2, max: 15 }
     : { fallback: 5, min: 5, max: 15 };
@@ -5280,6 +5436,9 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   const bounds = advancedDurationBounds(normalizedProvider);
   const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, bounds.min, bounds.max);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
+  if (normalizedProvider === "seedream5-image") {
+    return seedream5ImagePricingEstimate(advancedPricing, options);
+  }
   if (normalizedProvider === "wan27") {
     const resolution = normalizeWan27Resolution(options.resolution);
     const publicResolution = normalizeAdvancedResolution(resolution);
@@ -5347,6 +5506,55 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     credits,
     markup: 1,
     source: "public_duration_rate",
+  };
+}
+
+function seedream5ImagePricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, options = {}) {
+  const pricing = normalizeAdvancedPricing(advancedPricing);
+  const seedreamPricing = pricing.seedream5Image || DEFAULT_ADVANCED_PRICING.seedream5Image;
+  const tier = normalizeSeedream5Tier(options.seedreamTier || options.seedream5Tier || options.tier || seedreamPricing.defaultTier || "lite");
+  const resolution = normalizeSeedream5Resolution(options.resolution || options.size || seedreamPricing.defaultResolution || "2K");
+  const referenceImageCount = Math.max(0, Math.floor(Number(firstPresent(
+    options.referenceImageCount,
+    options.imageCount,
+    arrayFromBody(options.referenceImages).length || undefined,
+    arrayFromBody(options.images).length || undefined,
+  ) || 0)));
+  const outputImageCount = Math.max(1, Math.floor(Number(firstPresent(options.n, options.count, options.outputImageCount, 1)) || 1));
+  const tierConfig = tier === "pro" ? seedreamPricing.pro : seedreamPricing.lite;
+  const model = seedream5ModelForTier(options.model || tierConfig?.model || "", tier);
+  const outputUsdPerImage = tier === "pro"
+    ? pricingNumber(tierConfig?.saleUsdPerImageByResolution?.[resolution], DEFAULT_ADVANCED_PRICING.seedream5Image.pro.saleUsdPerImageByResolution[resolution] || SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6)
+    : pricingNumber(tierConfig?.saleUsdPerImage, SEEDREAM5_LITE_USD_PER_IMAGE, 0, 6);
+  const referenceUsdPerImage = tier === "pro"
+    ? pricingNumber(tierConfig?.referenceUsdPerImageAfterFirst, SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0, 6)
+    : 0;
+  const billableReferenceImages = tier === "pro" ? Math.max(0, referenceImageCount - 1) : 0;
+  const outputUsd = pricingNumber(outputUsdPerImage * outputImageCount, 0, 0, 6);
+  const referenceUsd = pricingNumber(referenceUsdPerImage * billableReferenceImages, 0, 0, 6);
+  const totalUsd = pricingNumber(outputUsd + referenceUsd, 0, 0, 6);
+  const credits = creditsAmount(totalUsd * DEFAULT_CREDITS_PER_USD);
+  return {
+    provider: "seedream5-image",
+    providerLabel: "Seedream 5.0 Image",
+    model,
+    seedreamTier: tier,
+    resolution,
+    size: resolution,
+    duration: 1,
+    outputImageCount,
+    referenceImageCount,
+    billableReferenceImages,
+    outputUsdPerImage,
+    referenceUsdPerImage,
+    outputUsd,
+    referenceUsd,
+    totalUsd,
+    creditsPerUsd: DEFAULT_CREDITS_PER_USD,
+    baseCredits: credits,
+    credits,
+    markup: 1,
+    source: "byteplus_seedream5_official_image_pricing",
   };
 }
 
@@ -9275,7 +9483,6 @@ async function downloadHomeReferenceImage(imageUrl, itemId) {
 }
 
 async function createHomeSyntheticReference(item) {
-  requireValue("APIZ_API_KEY", APIZ_API_KEY);
   const sourceUrl = item.sourceImageUrl || item.originalImageUrl || item.localImageUrl || item.posterUrl;
   if (!sourceUrl || /^https?:\/\//i.test(sourceUrl)) {
     const error = new Error("Save the home character locally first before generating a faithful reference image.");
@@ -9296,56 +9503,24 @@ async function createHomeSyntheticReference(item) {
     });
   }
   const prompt = makeHomeSyntheticReferencePrompt(item);
-  const model = process.env.HOME_REFERENCE_MODEL || process.env.OFFICIAL_PRESET_MODEL || DEFAULT_CONFIG.characterImage.editModel;
-  const created = await apizRequest("/api/v3/tasks/create", {
+  const model = process.env.HOME_REFERENCE_MODEL || process.env.OFFICIAL_PRESET_MODEL || "";
+  const generated = await createSeedream5ImageDirect({
+    prompt,
+    imageUrls: [uploaded.publicUrl],
+    resolution: process.env.HOME_REFERENCE_SEEDREAM_SIZE || process.env.CHARACTER_SEEDREAM_SIZE || "2K",
     model,
-    params: {
-      prompt,
-      image_urls: [uploaded.publicUrl],
-      image_size: "auto_3K",
-      num_images: 1,
-      max_images: 1,
-      enhance_prompt_mode: "standard",
-    },
-    channel: null,
+    tier: process.env.HOME_REFERENCE_SEEDREAM_TIER || process.env.CHARACTER_SEEDREAM_TIER || "lite",
   });
-  const taskId = created.task_id || created.taskId || created.id;
-  if (!taskId) {
-    const error = new Error(`Seedream did not return task id: ${JSON.stringify(created)}`);
-    error.statusCode = 502;
-    throw error;
-  }
-
-  let task = created;
-  for (let attempt = 0; attempt < 90; attempt += 1) {
-    await delay(5000);
-    task = await apizRequest("/api/v3/tasks/query", { task_id: taskId });
-    if (isCompletedStatus(task.status)) break;
-    if (isFailedStatus(task.status)) {
-      const error = new Error(`Synthetic reference generation failed: ${task.error || task.message || JSON.stringify(task)}`);
-      error.statusCode = 502;
-      throw error;
-    }
-  }
-  if (!isCompletedStatus(task.status)) {
-    const error = new Error(`Synthetic reference generation timed out: ${taskId}`);
-    error.statusCode = 504;
-    throw error;
-  }
-
-  const imageUrl = collectOutputImageUrls(task)[0];
-  if (!imageUrl) {
-    const error = new Error(`Synthetic reference task returned no image: ${taskId}`);
-    error.statusCode = 502;
-    throw error;
-  }
-
+  const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("ref"));
+  const imageUrl = generated.imageUrl;
   const local = await downloadHomeReferenceImage(imageUrl, item.id);
   return {
-    model,
+    model: generated.payload.model,
     prompt,
     taskId,
     imageUrl,
+    raw: generated.raw,
+    payload: generated.payload,
     sourcePublicUrl: uploaded.publicUrl,
     sourceTosKey: uploaded.key,
     local,
@@ -12815,6 +12990,7 @@ function collectImageUrls(value, urls = []) {
 function collectOutputImageUrls(task) {
   const output = task?.output || task?.result || task?.data?.output || {};
   const direct = [
+    ...(Array.isArray(task?.data) ? task.data.map((image) => image?.url || image?.image_url || image?.image) : []),
     ...(Array.isArray(output.images) ? output.images.map((image) => image?.url || image?.image_url) : []),
     ...(Array.isArray(output.results) ? output.results.map((image) => image?.url || image?.image_url || image?.image) : []),
     output.url,
@@ -15283,6 +15459,392 @@ async function handleByteplusAssetAction(req, res, url) {
   }
 }
 
+function seedream5ReferenceInputsFromBody(body = {}) {
+  const contentSummary = safeSeedanceContentMediaSummary(body.content);
+  const directInputs = [
+    ...arrayFromBody(body.referenceImages),
+    ...arrayFromBody(body.reference_images),
+    ...arrayFromBody(body.referenceImageUrls),
+    ...arrayFromBody(body.reference_image_urls),
+    ...arrayFromBody(body.imageUrls),
+    ...arrayFromBody(body.image_urls),
+    ...arrayFromBody(body.images),
+    ...arrayFromBody(body.image),
+    ...arrayFromBody(contentSummary.referenceImages),
+  ];
+  const assetIds = [
+    body.userAssetId,
+    body.assetId,
+    body.imageAssetId,
+    body.referenceImageAssetId,
+    ...arrayFromBody(body.userAssetIds),
+    ...arrayFromBody(body.assetIds),
+    ...arrayFromBody(body.imageAssetIds),
+    ...arrayFromBody(body.referenceImageAssetIds),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+  const inputs = [
+    ...assetIds.map((assetId) => ({ assetId })),
+    ...directInputs,
+  ].filter((item) => {
+    if (!item) return false;
+    if (typeof item === "string") return Boolean(item.trim());
+    return item.assetId || item.dataUrl || item.url || item.imageUrl;
+  });
+  const unsupportedAssetUri = inputs.find((item) => {
+    const raw = typeof item === "string" ? item : (item?.assetUri || item?.referenceAssetUri || item?.seedanceAssetUri || item?.url || item?.imageUrl || "");
+    return String(raw || "").trim().startsWith("asset://");
+  });
+  if (unsupportedAssetUri) {
+    throw advancedValidationError("UNSUPPORTED_SEEDREAM_ASSET_URI", "Seedream 5.0 Image references must use uploaded assetId, public image URL, or image dataUrl.", {
+      reference: typeof unsupportedAssetUri === "string" ? unsupportedAssetUri : unsupportedAssetUri.assetUri || unsupportedAssetUri.referenceAssetUri || unsupportedAssetUri.seedanceAssetUri || "",
+    });
+  }
+  if (inputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+    throw advancedValidationError("TOO_MANY_SEEDREAM_IMAGES", `Seedream 5.0 Image supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`, {
+      count: inputs.length,
+      max: ADVANCED_SEEDANCE_REFERENCE_LIMIT,
+    });
+  }
+  return inputs;
+}
+
+async function prepareSeedream5ReferenceImages(db, user, body = {}) {
+  const inputs = seedream5ReferenceInputsFromBody(body);
+  const assets = await createUserImageAssetsFromInputs(db, user, inputs, { name: "Seedream reference image" });
+  const preparedAssets = [];
+  const publicImageUrls = [];
+  for (const asset of assets) {
+    validateWan27MediaKind(asset, "image", "Seedream reference image");
+    const prepared = await ensurePublicUrlForUserMediaAsset(db, asset);
+    const publicUrl = publicUrlForLocalAsset(prepared);
+    if (!isPublicHttpUrl(publicUrl)) {
+      throw advancedValidationError("SEEDREAM_REFERENCE_NOT_PUBLIC", "Failed to prepare Seedream reference image public URL.", { assetId: asset.id || "" });
+    }
+    preparedAssets.push(prepared);
+    publicImageUrls.push(publicUrl);
+  }
+  return {
+    inputs,
+    assets: preparedAssets,
+    publicImageUrls: [...new Set(publicImageUrls)],
+  };
+}
+
+function seedream5OutputImageUrls(raw = {}) {
+  return [
+    ...collectOutputImageUrls(raw),
+    ...(Array.isArray(raw?.data) ? raw.data.map((item) => item?.url || item?.image_url || item?.image) : []),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+async function createSeedream5ImageDirect({
+  prompt = "",
+  imageUrls = [],
+  resolution = "2K",
+  model = "",
+  tier = "lite",
+  watermark = false,
+  sequentialImageGeneration = "disabled",
+} = {}) {
+  const finalPrompt = String(prompt || "").trim();
+  if (!finalPrompt) {
+    const error = new Error("Prompt is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const preparedImageUrls = arrayFromBody(imageUrls)
+    .map((url) => {
+      const text = typeof url === "string" ? url : (url?.url || url?.imageUrl || url?.image_url || "");
+      const trimmed = String(text || "").trim();
+      if (!trimmed) return "";
+      return trimmed.startsWith("/") ? (publicUrlForAssetPath(trimmed) || trimmed) : trimmed;
+    })
+    .filter((url) => isPublicHttpUrl(url));
+  const payload = {
+    model: seedream5ModelForTier(model, tier),
+    prompt: finalPrompt,
+    response_format: "url",
+    size: normalizeSeedream5Resolution(resolution),
+    stream: false,
+    watermark: Boolean(watermark),
+    sequential_image_generation: sequentialImageGeneration === undefined || sequentialImageGeneration === null || sequentialImageGeneration === "" ? "disabled" : String(sequentialImageGeneration),
+    Moderation: { Strategy: "Skip" },
+  };
+  if (preparedImageUrls.length) payload.image = preparedImageUrls;
+  const raw = await arkRequest("POST", "/images/generations", payload);
+  const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
+  if (!imageUrl) {
+    const error = new Error("Seedream 5.0 Image returned no image.");
+    error.statusCode = 502;
+    error.payload = raw;
+    throw error;
+  }
+  return { raw, imageUrl, payload };
+}
+
+async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
+  const auth = context.auth || await requireUser(req, res);
+  if (!auth) return;
+  if (!ARK_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Seedream 5.0 Image generation is not configured." });
+  }
+  const body = context.body || await readJson(req);
+  const bodyParams = context.bodyParams || requestParamsFromBody(body);
+  const caseParams = context.caseParams || {};
+  const selectedCase = context.selectedCase || null;
+  const config = context.config || await readAppConfig();
+  const mergedProviderParameters = {
+    ...plainObject(caseParams.parameters),
+    ...plainObject(bodyParams.parameters),
+    ...plainObject(body.parameters),
+  };
+  const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+
+  const tier = normalizeSeedream5Tier(firstPresent(
+    body.seedreamTier,
+    body.seedream5Tier,
+    bodyParams.seedreamTier,
+    bodyParams.seedream5Tier,
+    mergedProviderParameters.seedreamTier,
+    mergedProviderParameters.seedream5Tier,
+    caseParams.seedreamTier,
+    caseParams.seedream5Tier,
+  ));
+  const resolution = normalizeSeedream5Resolution(firstPresent(
+    body.resolution,
+    body.size,
+    bodyParams.resolution,
+    bodyParams.size,
+    mergedProviderParameters.resolution,
+    mergedProviderParameters.size,
+    caseParams.resolution,
+    caseParams.size,
+    config.platform?.advancedPricing?.seedream5Image?.defaultResolution,
+    "2K",
+  ));
+  const model = seedream5ModelForTier(firstPresent(body.model, bodyParams.model, mergedProviderParameters.model, caseParams.model), tier);
+  let referenceInputs = [];
+  try {
+    referenceInputs = seedream5ReferenceInputsFromBody({ ...bodyParams, ...body });
+  } catch (error) {
+    return sendAdvancedValidationError(res, error, "Seedream 5.0 Image reference input is invalid.");
+  }
+  const rawPricing = advancedModelPricing("seedream5-image", {
+    advancedPricing: config.platform?.advancedPricing,
+    seedreamTier: tier,
+    resolution,
+    model,
+    referenceImageCount: referenceInputs.length,
+    outputImageCount: 1,
+  });
+  const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+
+  const taskId = localGenerationTaskId("img");
+  const initialRecord = {
+    taskId,
+    status: "submitting",
+    model,
+    source: "advanced-seedream5-image",
+    kind: "advanced-image",
+    provider: "seedream5-image",
+    upstreamSource: "direct",
+    userId: auth.user.id,
+    userAssetIds: [],
+    userAssetId: "",
+    imageUrl: "",
+    imageUrls: [],
+    sourceImageUrl: "",
+    sourceImageUrls: [],
+    prompt,
+    finalPrompt: prompt,
+    params: {
+      ...plainObject(bodyParams),
+      ...plainObject(body.params),
+      provider: "seedream5-image",
+      seedreamTier: tier,
+      resolution,
+      size: resolution,
+      referenceImageCount: referenceInputs.length,
+      action: referenceInputs.length ? "image_reference" : "text_to_image",
+    },
+    resolution,
+    preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
+    finalCredits: null,
+    originalFinalCredits: null,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+    billingStatus: cost > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
+    pricingEstimate: pricing,
+    awaitingUpstreamTask: true,
+    upstreamPayload: null,
+    createResponse: null,
+    queryResponse: null,
+    remoteImageUrl: "",
+    localImageUrl: "",
+    error: "",
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
+  };
+  await upsertGenerationRecord(initialRecord);
+  if (cost > 0) {
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "advanced_seedream5_image",
+      taskId,
+      meta: {
+        taskId,
+        provider: "seedream5-image",
+        model,
+        seedreamTier: tier,
+        resolution,
+        referenceImageCount: referenceInputs.length,
+        outputUsd: pricing.outputUsd,
+        referenceUsd: pricing.referenceUsd,
+        totalUsd: pricing.totalUsd,
+        baseCredits: pricing.baseCredits,
+        originalCost: pricing.originalCredits,
+        pricingMultiplier: pricing.userPricingMultiplier,
+        pricingSource: pricing.source,
+      },
+    });
+    if (!dbEnabled()) await writeDb(auth.db);
+  }
+
+  try {
+    const prepared = await prepareSeedream5ReferenceImages(auth.db, auth.user, { ...bodyParams, ...body });
+    const referencePreviewUrls = prepared.assets.map((asset) => asset.localUrl || asset.publicUrl || "").filter(Boolean);
+    await upsertGenerationRecord({
+      taskId,
+      userAssetIds: prepared.assets.map((asset) => asset.id),
+      userAssetId: prepared.assets[0]?.id || "",
+      imageUrl: referencePreviewUrls[0] || "",
+      imageUrls: referencePreviewUrls,
+      sourceImageUrl: referencePreviewUrls[0] || "",
+      sourceImageUrls: referencePreviewUrls,
+      status: "running",
+      params: {
+        ...initialRecord.params,
+        referenceImageCount: prepared.publicImageUrls.length,
+      },
+    });
+    const payload = {
+      model,
+      prompt,
+      response_format: "url",
+      size: resolution,
+      stream: false,
+      watermark: boolFromRequest(firstPresent(body.watermark, bodyParams.watermark, mergedProviderParameters.watermark), false),
+      Moderation: { Strategy: "Skip" },
+    };
+    const sequential = firstPresent(body.sequential_image_generation, body.sequentialImageGeneration, bodyParams.sequential_image_generation, bodyParams.sequentialImageGeneration, mergedProviderParameters.sequential_image_generation, mergedProviderParameters.sequentialImageGeneration);
+    payload.sequential_image_generation = sequential === undefined || sequential === null || sequential === "" ? "disabled" : String(sequential);
+    if (prepared.publicImageUrls.length) payload.image = prepared.publicImageUrls;
+    const raw = await arkRequest("POST", "/images/generations", payload);
+    const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
+    await upsertGenerationRecord({
+      taskId,
+      upstreamTaskId: String(raw.id || raw.task_id || raw.taskId || ""),
+      awaitingUpstreamTask: false,
+      status: imageUrl ? "succeeded" : "failed",
+      upstreamPayload: payload,
+      createResponse: raw,
+      remoteImageUrl: imageUrl,
+      error: imageUrl ? "" : "Seedream 5.0 Image returned no image.",
+    });
+    if (!imageUrl) {
+      const error = new Error("Seedream 5.0 Image returned no image.");
+      error.statusCode = 502;
+      error.payload = raw;
+      throw error;
+    }
+    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "seedream image", maxBytes: 30 * 1024 * 1024 });
+    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
+    await upsertGenerationRecord({
+      taskId,
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      localImageUrl: savedImage.localImageUrl,
+      localImagePath: savedImage.localImagePath,
+      cdnImageUrl: savedImage.cdnImageUrl,
+      cdnError: savedImage.cdnError,
+      remoteImageUrl: imageUrl,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits ?? cost,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: new Date().toISOString(),
+      error: "",
+    });
+    const latestDb = await readDb();
+    const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth));
+    return sendJson(res, 200, {
+      ok: true,
+      taskId,
+      upstreamTaskId: String(raw.id || raw.task_id || raw.taskId || ""),
+      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
+      user: userView(latestUser),
+      pricing,
+      cost,
+      record: publicRecord,
+      params: {
+        provider: "seedream5-image",
+        seedreamTier: tier,
+        resolution,
+        size: resolution,
+        referenceImageCount: prepared.publicImageUrls.length,
+      },
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    console.warn("[seedream5-image-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
+    if (cost > 0) {
+      try {
+        const db = await readDb();
+        await changeUserCredits(db, auth.user.id, cost, "advanced_seedream5_image_refund", { taskId, error: error.message || "Seedream 5.0 Image failed." });
+        await recordSubtokenAdjustment(auth, { taskId, type: "advanced_seedream5_image_refund", amount: -cost, meta: { error: error.message || "Seedream 5.0 Image failed." } });
+        if (!dbEnabled()) await writeDb(db);
+      } catch (refundError) {
+        console.error("[seedream5-image-refund-failed]", taskId, refundError.message || refundError);
+      }
+    }
+    await upsertGenerationRecord({
+      taskId,
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || "Seedream 5.0 Image failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    });
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      message: errorInfo.message || error.message || "Seedream 5.0 Image failed.",
+      code: errorInfo.code || "",
+      taskId,
+      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
+      payload: errorInfo.payload || null,
+    });
+  }
+}
+
 async function handleAdvancedGenerate(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -15349,6 +15911,17 @@ async function handleAdvancedGenerate(req, res) {
     "",
   )).trim();
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  if (provider === "seedream5-image") {
+    return await handleAdvancedSeedream5ImageGenerate(req, res, {
+      auth,
+      body,
+      bodyParams,
+      caseParams,
+      selectedCase,
+      config,
+      prompt,
+    });
+  }
   const durationBounds = advancedDurationBounds(provider);
   const mergedProviderParameters = {
     ...plainObject(caseParams.parameters),
@@ -16583,6 +17156,8 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
     ratio: params.ratio || params.aspect_ratio,
     inputVideoSeconds,
     seedanceTier: params.seedanceTier,
+    seedreamTier: firstPresent(params.seedreamTier, params.seedream5Tier, params.seedanceTier),
+    referenceImageCount: firstPresent(params.referenceImageCount, params.imageCount),
     advancedPricing: config.platform?.advancedPricing,
   });
   return applyUserPricingToEstimate(rawPricing, user || 1, options);
@@ -17081,6 +17656,31 @@ async function downloadGeneratedCharacterSheet(taskId, imageUrl) {
     objectStorageKey: mirror.key || "",
     cdnError: mirror.error || "",
   };
+}
+
+async function findGeneratedCharacterSheet(taskId) {
+  const safeTaskId = String(taskId || "").trim();
+  if (!safeTaskId) return null;
+  for (const ext of [".png", ".jpg", ".jpeg", ".webp"]) {
+    const fileName = `sheet${ext}`;
+    const localPath = path.join(GENERATED_CHARACTER_DIR, safeTaskId, fileName);
+    const localUrl = `/assets/generated/characters/apiz/${safeTaskId}/${fileName}`;
+    try {
+      await fs.access(localPath);
+      const existingBytes = objectStorageEnabled() ? await fs.readFile(localPath) : null;
+      const mirror = existingBytes ? await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes: existingBytes, mime: imageMimeFromPath(localPath) }) : {};
+      return {
+        localPath,
+        localUrl,
+        cdnImageUrl: mirror.publicUrl || "",
+        objectStorageKey: mirror.key || "",
+        cdnError: mirror.error || "",
+      };
+    } catch {
+      // Try the next extension.
+    }
+  }
+  return null;
 }
 
 async function downloadGeneratedPanorama(taskId, imageUrl, slug = "panorama") {
@@ -20194,6 +20794,14 @@ async function saveUserCharacterForAuth(auth, record) {
 }
 
 async function refreshGeneratedMyCharacterImage(auth, record) {
+  const readyImageUrl = record?.publicImageUrl || record?.cdnImageUrl || record?.localImageUrl || record?.posterUrl || "";
+  if (readyImageUrl && (isCompletedStatus(record.imageStatus) || String(record.status || "").toLowerCase() === "image_ready")) {
+    return {
+      record,
+      task: record.imageTaskResponse || { taskId: record.imageTaskId || "", status: record.imageStatus || "succeeded", output: { url: readyImageUrl } },
+      imageUrls: [readyImageUrl],
+    };
+  }
   if (!record?.imageTaskId) return { record, task: null, imageUrls: [] };
   if (USE_GATEWAY_UPSTREAM && record.gatewayCharacterId) {
     const payload = await gatewayRequest("GET", `/api/my/characters/${encodeURIComponent(record.gatewayCharacterId)}/image`);
@@ -20289,7 +20897,6 @@ async function ensureCharacterReferenceForRecord(record) {
   }
 
   if (!record.syntheticReferenceLocalUrl) {
-    requireValue("APIZ_API_KEY", APIZ_API_KEY);
     const sourcePath = path.join(ROOT, sourceUrl.replace(/^\//, ""));
     const sourceBytes = await fs.readFile(sourcePath);
     const localSourcePublicUrl = publicUrlForAssetPath(sourceUrl);
@@ -20303,69 +20910,33 @@ async function ensureCharacterReferenceForRecord(record) {
       });
     }
     const refPrompt = makeHomeSyntheticReferencePrompt(record);
-    const model = process.env.HOME_REFERENCE_MODEL || process.env.OFFICIAL_PRESET_MODEL || DEFAULT_CONFIG.characterImage.editModel;
-    const created = await apizRequest("/api/v3/tasks/create", {
+    const model = process.env.HOME_REFERENCE_MODEL || process.env.OFFICIAL_PRESET_MODEL || "";
+    const generated = await createSeedream5ImageDirect({
+      prompt: refPrompt,
+      imageUrls: [uploaded.publicUrl],
+      resolution: process.env.HOME_REFERENCE_SEEDREAM_SIZE || process.env.CHARACTER_SEEDREAM_SIZE || "2K",
       model,
-      params: {
-        prompt: refPrompt,
-        image_urls: [uploaded.publicUrl],
-        image_size: "auto_3K",
-        num_images: 1,
-        max_images: 1,
-        enhance_prompt_mode: "standard",
-      },
-      channel: null,
+      tier: process.env.HOME_REFERENCE_SEEDREAM_TIER || process.env.CHARACTER_SEEDREAM_TIER || "lite",
     });
-    const taskId = created.task_id || created.taskId || created.id;
-    if (!taskId) {
-      const error = new Error(`Seedream did not return task id: ${JSON.stringify(created)}`);
-      error.statusCode = 502;
-      throw error;
-    }
-
-    let task = created;
-    for (let attempt = 0; attempt < 90; attempt += 1) {
-      await delay(5000);
-      task = await apizRequest("/api/v3/tasks/query", { task_id: taskId });
-      if (isCompletedStatus(task.status)) break;
-      if (isFailedStatus(task.status)) {
-        const error = new Error(`Character synthetic reference failed: ${task.error || task.message || JSON.stringify(task)}`);
-        error.statusCode = 502;
-        throw error;
-      }
-    }
-    if (!isCompletedStatus(task.status)) {
-      const error = new Error(`Character synthetic reference timed out: ${taskId}`);
-      error.statusCode = 504;
-      throw error;
-    }
-    const imageUrl = collectOutputImageUrls(task)[0];
-    if (!imageUrl) {
-      const error = new Error(`Character synthetic reference returned no image: ${taskId}`);
-      error.statusCode = 502;
-      throw error;
-    }
+    const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("ref"));
+    const imageUrl = generated.imageUrl;
 
     const fileName = `ref-${String(record.id).replace(/[^a-z0-9_-]/gi, "-")}-${Date.now()}.png`;
     const localPath = path.join(USER_CHARACTER_DIR, record.userId || "user", fileName);
     await fs.mkdir(path.dirname(localPath), { recursive: true });
-    const response = await fetch(imageUrl, { signal: AbortSignal.timeout(180000) });
-    if (!response.ok) {
-      const error = new Error(`Failed to download synthetic reference: ${response.status}`);
-      error.statusCode = 502;
-      throw error;
-    }
-    const refBytes = Buffer.from(await response.arrayBuffer());
-    await fs.writeFile(localPath, refBytes);
+    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "character synthetic reference", maxBytes: 30 * 1024 * 1024, timeoutMs: 180000 });
+    await fs.writeFile(localPath, downloaded.bytes);
 
     record.syntheticReferenceLocalUrl = `/assets/user-characters/${record.userId || "user"}/${fileName}`;
     record.syntheticReferenceUrl = imageUrl;
     record.syntheticReferenceTaskId = taskId;
-    record.syntheticReferenceModel = model;
+    record.syntheticReferenceModel = generated.payload.model;
     record.syntheticReferencePrompt = refPrompt;
+    record.syntheticReferenceCreateResponse = generated.raw;
+    record.syntheticReferencePayload = generated.payload;
     record.posterUrl = record.syntheticReferenceLocalUrl;
     record.localImageUrl = record.syntheticReferenceLocalUrl;
-    record.imageMime = "image/png";
+    record.imageMime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
     record.sourcePublicUrl = uploaded.publicUrl;
     record.sourceTosKey = uploaded.key;
     record.status = "reference_ready";
@@ -20588,33 +21159,59 @@ async function handleGenerateMyCharacterImage(req, res) {
   };
 
   try {
-    console.log("[my-character-image-submit]", JSON.stringify({ userId: auth.user.id, characterId, model, params }, null, 2));
-    const submitted = USE_GATEWAY_UPSTREAM
-      ? await gatewayRequest("POST", "/api/my/characters/generate-image", {
+    if (USE_GATEWAY_UPSTREAM) {
+      const submitted = await gatewayRequest("POST", "/api/my/characters/generate-image", {
         prompt: userPrompt,
         name: record.name,
         title: record.title,
         creator: record.creator,
-      })
-      : await apizRequest("/api/v3/tasks/create", { model, params });
-    const taskId = apizTaskIdFromResponse(submitted);
-    if (!taskId) {
-      const error = new Error(`Character image task did not return task id: ${JSON.stringify(submitted)}`);
-      error.statusCode = 502;
-      throw error;
+      });
+      const taskId = apizTaskIdFromResponse(submitted);
+      if (!taskId) {
+        const error = new Error(`Character image task did not return task id: ${JSON.stringify(submitted)}`);
+        error.statusCode = 502;
+        throw error;
+      }
+      record.imageTaskId = taskId;
+      record.imageStatus = String(submitted.character?.imageStatus || submitted.task?.status || apizTaskStatus(submitted));
+      record.gatewayCharacterId = String(submitted.character?.id || "");
+      record.imageTaskResponse = submitted;
+      record.updatedAt = new Date().toISOString();
+      await saveUserCharacterForAuth(auth, record);
+      return sendJson(res, 200, {
+        ok: true,
+        character: publicUserCharacter(record),
+        task: { taskId, status: record.imageStatus },
+        user: userView(auth.user),
+      });
     }
+
+    const generated = await createSeedream5ImageDirect({
+      prompt: userPrompt,
+      resolution: process.env.CHARACTER_SEEDREAM_SIZE || "2K",
+      model: process.env.CHARACTER_SEEDREAM_MODEL || (/^ep-/i.test(String(model || "")) ? model : ""),
+      tier: process.env.CHARACTER_SEEDREAM_TIER || "lite",
+    });
+    const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("img"));
+    const local = await downloadGeneratedCharacterSheet(taskId, generated.imageUrl);
     record.imageTaskId = taskId;
-    record.imageStatus = USE_GATEWAY_UPSTREAM
-      ? String(submitted.character?.imageStatus || submitted.task?.status || apizTaskStatus(submitted))
-      : apizTaskStatus(submitted);
-    record.gatewayCharacterId = USE_GATEWAY_UPSTREAM ? String(submitted.character?.id || "") : "";
-    record.imageTaskResponse = submitted;
+    record.imageStatus = "succeeded";
+    record.posterUrl = local.localUrl;
+    record.localImageUrl = local.localUrl;
+    record.sourceImageUrl = local.localUrl;
+    record.publicImageUrl = local.cdnImageUrl || record.publicImageUrl || "";
+    record.cdnImageUrl = local.cdnImageUrl || record.cdnImageUrl || "";
+    record.objectStorageKey = local.objectStorageKey || record.objectStorageKey || "";
+    record.objectStorageError = local.cdnError || record.objectStorageError || "";
+    record.imageRemoteUrl = generated.imageUrl;
+    record.imageTaskResponse = { ...generated.raw, payload: generated.payload };
+    record.status = "image_ready";
     record.updatedAt = new Date().toISOString();
     await saveUserCharacterForAuth(auth, record);
     return sendJson(res, 200, {
       ok: true,
       character: publicUserCharacter(record),
-      task: { taskId, status: record.imageStatus },
+      task: { taskId, status: record.imageStatus, imageUrl: local.cdnImageUrl || local.localUrl || generated.imageUrl },
       user: userView(auth.user),
     });
   } catch (error) {
@@ -20642,10 +21239,6 @@ async function handleCreateMyCharacter(req, res) {
   if (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
-  if (!USE_GATEWAY_UPSTREAM && !APIZ_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "GENERATION_SERVICE_NOT_CONFIGURED", message: "Generation service is not configured." });
-  }
-
   const config = await readAppConfig();
   const cost = clampNumber(body.cost, Number(config.prices.customCharacter || 30), 0, 9999);
   if (auth.user.credits < cost) {
@@ -20748,10 +21341,6 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
   if (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
-  if (!USE_GATEWAY_UPSTREAM && !APIZ_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "GENERATION_SERVICE_NOT_CONFIGURED", message: "Generation service is not configured." });
-  }
-
   const config = await readAppConfig();
   const cost = clampNumber(body.cost, Number(config.prices.customCharacter || 30), 0, 9999);
   if (auth.user.credits < cost) {
@@ -23466,11 +24055,30 @@ async function handleCreateCharacterImageLegacy(req, res) {
     params.image_url = userAsset.publicUrl;
   }
 
-  const submitted = await apizRequest("/api/v3/tasks/create", { model, params });
+  const generated = await createSeedream5ImageDirect({
+    prompt,
+    imageUrls: params.image_url ? [params.image_url] : [],
+    resolution: process.env.CHARACTER_SEEDREAM_SIZE || "2K",
+    model: process.env.CHARACTER_SEEDREAM_MODEL || (/^ep-/i.test(String(model || "")) ? model : ""),
+    tier: process.env.CHARACTER_SEEDREAM_TIER || "lite",
+  });
+  const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("img"));
+  const local = await downloadGeneratedCharacterSheet(taskId, generated.imageUrl);
+  const submitted = {
+    ...generated.raw,
+    task_id: taskId,
+    taskId,
+    id: taskId,
+    status: "succeeded",
+    output: { url: generated.imageUrl },
+  };
   return sendJson(res, 200, {
     ok: true,
     task: submitted,
-    model,
+    model: generated.payload.model,
+    imageUrls: [local.cdnImageUrl, local.localUrl, generated.imageUrl].filter(Boolean),
+    localSheetUrl: local.localUrl,
+    localSheetPath: local.localPath,
     note: "角色图会按 4x2 方向分镜生成；前端拿到结果图后可切成 8 帧用于拖动旋转。",
   });
 }
@@ -23534,20 +24142,50 @@ async function handleCreateCharacterImage(req, res) {
     return sendJson(res, 200, submitted);
   }
 
-  console.log("[apiz-character-submit]", JSON.stringify({ model, params }, null, 2));
-  const submitted = await apizRequest("/api/v3/tasks/create", { model, params });
+  const generated = await createSeedream5ImageDirect({
+    prompt,
+    imageUrls: params.image_urls || [],
+    resolution: process.env.CHARACTER_SEEDREAM_SIZE || "2K",
+    model: process.env.CHARACTER_SEEDREAM_MODEL || (/^ep-/i.test(String(model || "")) ? model : ""),
+    tier: process.env.CHARACTER_SEEDREAM_TIER || "lite",
+  });
+  const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("img"));
+  const local = await downloadGeneratedCharacterSheet(taskId, generated.imageUrl);
+  const submitted = {
+    ...generated.raw,
+    task_id: taskId,
+    taskId,
+    id: taskId,
+    status: "succeeded",
+    output: { url: generated.imageUrl },
+  };
   return sendJson(res, 200, {
     ok: true,
     task: submitted,
-    model,
+    model: generated.payload.model,
     params,
-    note: "Character sheet task submitted. The frontend will slice the 4x2 result into 8 rotation frames.",
+    payload: generated.payload,
+    imageUrls: [local.cdnImageUrl, local.localUrl, generated.imageUrl].filter(Boolean),
+    localSheetUrl: local.localUrl,
+    localSheetPath: local.localPath,
+    note: "Character sheet generated. The frontend will slice the 4x2 result into 8 rotation frames.",
   });
 }
 
 async function handleGetCharacterImage(req, res, taskId) {
   const auth = await requireUser(req, res);
   if (!auth) return;
+  const existingSheet = await findGeneratedCharacterSheet(taskId);
+  if (existingSheet) {
+    const imageUrls = [existingSheet.cdnImageUrl, existingSheet.localUrl].filter(Boolean);
+    return sendJson(res, 200, {
+      ok: true,
+      task: { taskId, task_id: taskId, id: taskId, status: "succeeded", output: { url: imageUrls[0] || existingSheet.localUrl } },
+      imageUrls,
+      localSheetUrl: existingSheet.localUrl,
+      localSheetPath: existingSheet.localPath,
+    });
+  }
   if (USE_GATEWAY_UPSTREAM) {
     const payload = await gatewayRequest("GET", `/api/character-image/${encodeURIComponent(taskId)}`);
     const task = payload.task || payload;
