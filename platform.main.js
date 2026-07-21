@@ -427,6 +427,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
     state.advancedWanClipDataUrl = "";
     state.advancedWanClipFileName = "";
     state.advancedWanClipAssetId = "";
+    state.advancedWanClipOrder = 0;
     els.advancedWanClipFile.value = "";
     els.advancedWanClipPreview?.removeAttribute("src");
     els.advancedWanClipPreview?.classList.remove("is-visible");
@@ -439,6 +440,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
     state.advancedWanClipDataUrl = "";
     state.advancedWanClipFileName = "";
     state.advancedWanClipAssetId = "";
+    state.advancedWanClipOrder = 0;
     els.advancedWanClipFile.value = "";
     els.advancedWanClipPreview?.removeAttribute("src");
     els.advancedWanClipPreview?.classList.remove("is-visible");
@@ -449,6 +451,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
   state.advancedWanClipDataUrl = await readFileAsDataUrl(file);
   state.advancedWanClipFileName = file.name || "";
   state.advancedWanClipAssetId = "";
+  state.advancedWanClipOrder = nextAdvancedReferenceOrder();
   if (els.advancedWanClipPreview) {
     els.advancedWanClipPreview.src = state.advancedWanClipDataUrl;
     els.advancedWanClipPreview.classList.add("is-visible");

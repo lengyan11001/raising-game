@@ -128,9 +128,37 @@ const SEEDREAM5_PRO_ENDPOINT_ID =
   process.env.SEEDREAM5_PRO_ENDPOINT_ID ||
   process.env.ARK_SEEDREAM5_PRO_MODEL ||
   "ep-20260721175949-xw978";
+const IGNEX_API_BASE_URL = (process.env.IGNEX_API_BASE_URL || "https://api.ignex.ai").replace(/\/+$/, "");
+const IGNEX_API_KEY = String(process.env.IGNEX_API_KEY || "").trim();
+const IGNEX_PROJECT_NAME = String(process.env.IGNEX_PROJECT_NAME || "default").trim() || "default";
+const IGNEX_ASSET_GROUP_ID = String(process.env.IGNEX_ASSET_GROUP_ID || "").trim();
+const IGNEX_ASSET_GROUP_NAME = String(process.env.IGNEX_ASSET_GROUP_NAME || "vipeak-seedance").trim() || "vipeak-seedance";
+const IGNEX_SEEDANCE_QUALITY_MODEL = String(process.env.IGNEX_SEEDANCE_QUALITY_MODEL || "dreamina-seedance-2-0-260128").trim();
+const IGNEX_SEEDANCE_FAST_MODEL = String(process.env.IGNEX_SEEDANCE_FAST_MODEL || "dreamina-seedance-2-0-fast-260128").trim();
+const IGNEX_ENABLED_USER_KEYS = new Set(
+  String(process.env.IGNEX_ENABLED_USERS || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean),
+);
+const IGNEX_ASSET_URI_CACHE = new Map();
+let ignexAssetGroupCache = "";
+const PIVOX_API_BASE_URL = "";
+const PIVOX_API_KEY = "";
+const PIVOX_SEEDANCE_QUALITY_MODEL = "";
+const PIVOX_SEEDANCE_FAST_MODEL = "";
+const PIVOX_ENABLED_USER_KEYS = new Set();
+const PIVOX_ASSET_GROUP_CACHE = new Map();
+const PIVOX_ASSET_URI_CACHE = new Map();
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
+const APIZ_SEEDANCE_API_BASE_URL = "";
+const APIZ_SEEDANCE_API_KEY = "";
+const APIZ_SEEDANCE_MODEL_ID = "";
+const APIZ_SEEDANCE_QUALITY_MODEL = "";
+const APIZ_SEEDANCE_FAST_MODEL = "";
+const APIZ_SEEDANCE_ASSET_URI_CACHE = new Map();
 const UPSTREAM_MODE = String(process.env.UPSTREAM_MODE || "direct").trim().toLowerCase();
 const USE_GATEWAY_UPSTREAM = ["gateway", "proxy", "api"].includes(UPSTREAM_MODE);
 const UPSTREAM_BASE_URL = (process.env.UPSTREAM_BASE_URL || "https://123vips.com").replace(/\/+$/, "");
@@ -2031,8 +2059,6 @@ async function readGeoCharacterVisitStats() {
     version: 1,
     updatedAt: stats.updatedAt || "",
     total: Number(stats.total || 0),
-    pv: Number(stats.pv || stats.total || 0),
-    uv: Number(stats.uv || 0),
     byCharacter: stats.byCharacter && typeof stats.byCharacter === "object" ? stats.byCharacter : {},
     recent: Array.isArray(stats.recent) ? stats.recent.slice(0, GEO_CHARACTER_RECENT_LIMIT) : [],
   };
@@ -2054,7 +2080,14 @@ function trimGeoCharacterVisitStats(stats = {}) {
       }), { pv: 0, home: 0, direct: 0, external: 0 });
       const uvBitmap = geoUvBitmapOr(Object.values(days).map((row) => row.uvBitmap || ""));
       const uv = geoUvEstimate(uvBitmap);
-      return [id, { ...entry, ...totals, total: totals.pv, uv, uvBitmap, days }];
+      return [id, {
+        ...entry,
+        ...totals,
+        total: totals.pv,
+        uv,
+        uvBitmap,
+        days,
+      }];
     })
     .filter(([, entry]) => Number(entry.pv ?? entry.total ?? 0) > 0)
     .sort((a, b) => String(b[1].lastSeen || "").localeCompare(String(a[1].lastSeen || "")))
@@ -4994,6 +5027,47 @@ function seedanceConfiguredModelForRequest(model = "", seedanceTier = "standard"
   return raw;
 }
 
+function seedanceUpstreamEnabledForUser(user = {}, enabledKeys = new Set()) {
+  if (!enabledKeys?.size) return false;
+  const keys = [
+    user?.username,
+    user?.name,
+    user?.email,
+    user?.id,
+  ].map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
+  return enabledKeys.has("*") || keys.some((key) => enabledKeys.has(key));
+}
+
+function seedancePivoxEnabledForUser(user = {}) {
+  return false;
+}
+
+function seedanceApizEnabledForUser(user = {}) {
+  return false;
+}
+
+function seedanceIgnexEnabledForUser(user = {}) {
+  if (!IGNEX_API_KEY) return false;
+  return seedanceUpstreamEnabledForUser(user, IGNEX_ENABLED_USER_KEYS);
+}
+
+function seedancePivoxModelForRequest(model = "", seedanceTier = "standard") {
+  const kind = seedanceModelAliasKind(model) || normalizeSeedanceTier(seedanceTier);
+  return kind === "fast" ? PIVOX_SEEDANCE_FAST_MODEL : PIVOX_SEEDANCE_QUALITY_MODEL;
+}
+
+function seedanceApizModelForRequest(model = "", seedanceTier = "standard") {
+  const raw = String(model || "").trim().toLowerCase();
+  const kind = seedanceModelAliasKind(model) || (raw.includes("fast") ? "fast" : "") || normalizeSeedanceTier(seedanceTier);
+  return kind === "fast" ? APIZ_SEEDANCE_FAST_MODEL : APIZ_SEEDANCE_QUALITY_MODEL;
+}
+
+function seedanceIgnexModelForRequest(model = "", seedanceTier = "standard") {
+  const raw = String(model || "").trim().toLowerCase();
+  const kind = seedanceModelAliasKind(model) || (raw.includes("fast") ? "fast" : "") || normalizeSeedanceTier(seedanceTier);
+  return kind === "fast" ? IGNEX_SEEDANCE_FAST_MODEL : IGNEX_SEEDANCE_QUALITY_MODEL;
+}
+
 function publicHttpUrlForUpstream(value = "") {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -6812,7 +6886,7 @@ function startWalletScanScheduler() {
 }
 
 function paypalEnabled() {
-  return Boolean(PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
+  return false;
 }
 
 function paypalApiBaseUrl() {
@@ -6831,9 +6905,10 @@ function paypalMoneyValue(amount) {
 }
 
 function paypalPublicConfig() {
+  const enabled = paypalEnabled();
   return {
-    enabled: paypalEnabled(),
-    clientId: PAYPAL_CLIENT_ID,
+    enabled,
+    clientId: enabled ? PAYPAL_CLIENT_ID : "",
     currency: PAYPAL_CURRENCY,
     environment: PAYPAL_ENV,
     minAmount: PAYPAL_MIN_AMOUNT,
@@ -8434,6 +8509,201 @@ function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body 
   return applyDefaultVideoNegativePromptToSeedancePayload(payload, source);
 }
 
+function pivoxSeedanceContentFromReferences(args = {}) {
+  const content = seedanceContentFromReferences(args);
+  const addReferenceImage = (uri) => {
+    const url = String(uri || "").trim();
+    if (!url) return;
+    const exists = content.some((item) => item?.type === "image_url" && nestedMediaUrl(item.image_url) === url && String(item.role || "") === "reference_image");
+    if (!exists) content.push({ type: "image_url", image_url: { url }, role: "reference_image" });
+  };
+  addReferenceImage(args.referenceAssetUri);
+  arrayFromBody(args.extraReferenceAssetUris).forEach(addReferenceImage);
+  return content;
+}
+
+function normalizePivoxSeedanceContent(content = []) {
+  return (Array.isArray(content) ? content : [])
+    .map((item) => normalizeSeedanceContentItem(item))
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      if (item.type === "text") return { ...item, text: String(item.text || "") };
+      if (item.type === "image_url") {
+        const url = pivoxMediaReferenceUrl(nestedMediaUrl(item.image_url));
+        if (!url) return null;
+        return { ...item, image_url: { ...(item.image_url || {}), url } };
+      }
+      if (item.type === "video_url") {
+        const url = pivoxMediaReferenceUrl(nestedMediaUrl(item.video_url));
+        if (!url) return null;
+        return { ...item, video_url: { ...(item.video_url || {}), url } };
+      }
+      if (item.type === "audio_url") {
+        const url = pivoxMediaReferenceUrl(nestedMediaUrl(item.audio_url));
+        if (!url) return null;
+        return { ...item, audio_url: { ...(item.audio_url || {}), url } };
+      }
+      return item;
+    })
+    .filter(Boolean);
+}
+
+function normalizePivoxUrlList(value = []) {
+  return arrayFromBody(value)
+    .map((item) => pivoxMediaReferenceUrl(nestedMediaUrl(item)))
+    .filter((url, index, list) => url && list.indexOf(url) === index);
+}
+
+function isPivoxAssetUri(value = "") {
+  return /^asset:\/\/asset-[a-z0-9_-]+$/i.test(String(value || "").trim());
+}
+
+function pivoxMediaReferenceUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (isPivoxAssetUri(text)) return text;
+  return publicHttpUrlForUpstream(text);
+}
+
+function pivoxAssetGroupCacheKey(user = {}, model = "") {
+  const userKey = String(user?.id || user?.username || user?.email || "default").trim().toLowerCase() || "default";
+  return `${String(model || "default").trim().toLowerCase() || "default"}:${userKey}`;
+}
+
+async function pivoxAssetGroupForUser(user = {}, model = "") {
+  const key = pivoxAssetGroupCacheKey(user, model);
+  const cached = PIVOX_ASSET_GROUP_CACHE.get(key);
+  if (cached) return cached;
+  const safeUser = String(user?.username || user?.id || "user").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 48) || "user";
+  const raw = await pivoxRequest("POST", "/v1/asset-groups", {
+    model,
+    name: `vipeak-${safeUser}`,
+    description: "Vipeak reusable Seedance references",
+  });
+  const groupId = String(raw?.id || raw?.group_id || raw?.data?.id || raw?.data?.group_id || "").trim();
+  if (!groupId) {
+    const error = new Error(`Pivoxapi did not return asset group id: ${JSON.stringify(raw || {})}`);
+    error.statusCode = 502;
+    error.code = "PIVOX_ASSET_GROUP_FAILED";
+    throw error;
+  }
+  PIVOX_ASSET_GROUP_CACHE.set(key, groupId);
+  return groupId;
+}
+
+async function waitForPivoxAsset(assetId = "", taskId = "", model = "") {
+  const id = String(assetId || "").trim();
+  const task = String(taskId || "").trim();
+  if (!id && !task) return null;
+  let last = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (attempt) await delay(Math.min(1000 + attempt * 500, 3500));
+    last = await pivoxRequest("POST", "/v1/assets/get", {
+      model,
+      ...(id ? { asset_id: id } : {}),
+      ...(task ? { task_id: task } : {}),
+    });
+    const status = String(last?.status || last?.data?.status || last?.asset?.status || "").toLowerCase();
+    const assetError = last?.error || last?.data?.error || last?.asset?.error;
+    if (status === "completed" || status === "success" || status === "succeeded") return last;
+    if (status === "failed" || status === "error" || assetError) {
+      const error = new Error(assetError?.message || assetError || "Pivoxapi asset upload failed.");
+      error.statusCode = 502;
+      error.code = "PIVOX_ASSET_UPLOAD_FAILED";
+      error.payload = last;
+      throw error;
+    }
+  }
+  const error = new Error(`Pivoxapi asset upload did not complete: ${id || task}`);
+  error.statusCode = 502;
+  error.code = "PIVOX_ASSET_UPLOAD_TIMEOUT";
+  error.payload = last;
+  throw error;
+}
+
+async function uploadPivoxImageReferenceAsset({ user = {}, model = "", url = "", name = "reference-image" } = {}) {
+  const sourceUrl = pivoxMediaReferenceUrl(url);
+  if (!sourceUrl) return "";
+  if (isPivoxAssetUri(sourceUrl)) return sourceUrl;
+  const cacheKey = `${pivoxAssetGroupCacheKey(user, model)}:${sourceUrl}`;
+  const cachedAssetUri = PIVOX_ASSET_URI_CACHE.get(cacheKey);
+  if (cachedAssetUri) return cachedAssetUri;
+  const groupId = await pivoxAssetGroupForUser(user, model);
+  const raw = await pivoxRequest("POST", "/v1/assets", {
+    model,
+    group_id: groupId,
+    url: sourceUrl,
+    asset_type: "Image",
+    name,
+  });
+  const assetId = String(raw?.id || raw?.asset_id || raw?.data?.id || raw?.data?.asset_id || "").trim();
+  const taskId = String(raw?.task_id || raw?.data?.task_id || "").trim();
+  if (!assetId) {
+    const error = new Error(`Pivoxapi did not return asset id: ${JSON.stringify(raw || {})}`);
+    error.statusCode = 502;
+    error.code = "PIVOX_ASSET_UPLOAD_FAILED";
+    throw error;
+  }
+  await waitForPivoxAsset(assetId, taskId, model);
+  const assetUri = `asset://${assetId}`;
+  PIVOX_ASSET_URI_CACHE.set(cacheKey, assetUri);
+  return assetUri;
+}
+
+async function preparePivoxSeedancePayloadAssets(payload = {}, { user = {} } = {}) {
+  if (!payload || typeof payload !== "object") return payload;
+  const model = String(payload.model || PIVOX_SEEDANCE_QUALITY_MODEL);
+  const assetUriByUrl = new Map();
+  const toAssetUri = async (url = "", name = "reference-image") => {
+    const normalized = pivoxMediaReferenceUrl(url);
+    if (!normalized) return "";
+    if (isPivoxAssetUri(normalized)) return normalized;
+    if (!assetUriByUrl.has(normalized)) {
+      assetUriByUrl.set(normalized, uploadPivoxImageReferenceAsset({ user, model, url: normalized, name }));
+    }
+    return await assetUriByUrl.get(normalized);
+  };
+
+  const content = Array.isArray(payload.content) ? payload.content : [];
+  for (let index = 0; index < content.length; index += 1) {
+    const item = content[index];
+    if (!item || item.type !== "image_url") continue;
+    const url = nestedMediaUrl(item.image_url);
+    const assetUri = await toAssetUri(url, `content-image-${index + 1}`);
+    if (assetUri) item.image_url = { ...(item.image_url || {}), url: assetUri };
+  }
+  if (Array.isArray(payload.reference_images) && payload.reference_images.length) {
+    const refs = [];
+    for (let index = 0; index < payload.reference_images.length; index += 1) {
+      const assetUri = await toAssetUri(payload.reference_images[index], `reference-image-${index + 1}`);
+      if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    payload.reference_images = refs;
+  }
+  return payload;
+}
+
+function avoidPivoxMixedFrameReferenceContent(content = []) {
+  return content;
+}
+
+function pivoxSeedancePayloadFromBody({ config = {}, prompt = "", content = [], body = {} } = {}) {
+  const payload = seedancePayloadFromBody({ config, prompt, content, body });
+  const externalModel = String(payload.model || MODEL_QUALITY);
+  payload.model = seedancePivoxModelForRequest(externalModel, firstPresent(body.seedanceTier, body.vipeak2Tier));
+  payload.content = avoidPivoxMixedFrameReferenceContent(normalizePivoxSeedanceContent(payload.content));
+  if (!payload.content.some((item) => item?.type === "text")) {
+    payload.content.unshift({ type: "text", text: String(prompt || "") });
+  }
+  payload.reference_images = normalizePivoxUrlList(payload.reference_images);
+  payload.reference_videos = normalizePivoxUrlList(payload.reference_videos);
+  payload.reference_audios = normalizePivoxUrlList(payload.reference_audios);
+  if (!payload.reference_images.length) delete payload.reference_images;
+  if (!payload.reference_videos.length) delete payload.reference_videos;
+  if (!payload.reference_audios.length) delete payload.reference_audios;
+  return { payload, externalModel };
+}
+
 async function submitSeedanceVideoTask({
   config,
   prompt,
@@ -8502,6 +8772,462 @@ async function submitSeedanceVideoTask({
     throw error;
   }
   return { task: normalizeTask(raw), payload, raw };
+}
+
+async function submitPivoxSeedanceVideoTask({
+  config,
+  prompt,
+  referenceAssetUri,
+  extraReferenceAssetUris = [],
+  firstFrameAssetUri = "",
+  lastFrameAssetUri = "",
+  referenceVideoAssetUri = "",
+  extraReferenceVideoAssetUris = [],
+  referenceAudioAssetUris = [],
+  body = {},
+  slug = "",
+  user = {},
+}) {
+  const content = pivoxSeedanceContentFromReferences({
+    prompt,
+    referenceAssetUri,
+    extraReferenceAssetUris,
+    firstFrameAssetUri,
+    lastFrameAssetUri,
+    referenceVideoAssetUri,
+    extraReferenceVideoAssetUris,
+    referenceAudioAssetUris,
+    body,
+  });
+  const { payload, externalModel } = pivoxSeedancePayloadFromBody({ config, prompt, content, body });
+  await preparePivoxSeedancePayloadAssets(payload, { user });
+
+  console.log(`[pivox-seedance-submit-${slug || "video"}]`, JSON.stringify({
+    ...payload,
+    model: payload.model,
+    externalModel,
+  }, null, 2));
+  const raw = await pivoxRequest("POST", "/v1/video/generate", payload);
+  return {
+    task: normalizePivoxTask(raw),
+    payload,
+    raw,
+    recordModel: externalModel,
+    upstreamSource: "pivoxapi",
+  };
+}
+
+function apizSeedanceMediaReferenceUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^asset:\/\/asset-[a-z0-9_-]+$/i.test(text)) return text;
+  return publicHttpUrlForUpstream(text);
+}
+
+function normalizeApizSeedanceUrlList(value = [], limit = 9) {
+  const urls = [];
+  arrayFromBody(value).forEach((item) => {
+    const url = apizSeedanceMediaReferenceUrl(nestedMediaUrl(item));
+    if (url && !urls.includes(url) && urls.length < limit) urls.push(url);
+  });
+  return urls;
+}
+
+function normalizeApizSeedanceContent(content = []) {
+  return (Array.isArray(content) ? content : [])
+    .map((item) => normalizeSeedanceContentItem(item))
+    .map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      if (item.type === "text") return { ...item, text: String(item.text || "") };
+      if (item.type === "image_url") {
+        const url = apizSeedanceMediaReferenceUrl(nestedMediaUrl(item.image_url));
+        if (!url) return null;
+        return { ...item, image_url: { ...(item.image_url || {}), url } };
+      }
+      if (item.type === "video_url") {
+        const url = apizSeedanceMediaReferenceUrl(nestedMediaUrl(item.video_url));
+        if (!url) return null;
+        return { ...item, video_url: { ...(item.video_url || {}), url } };
+      }
+      if (item.type === "audio_url") {
+        const url = apizSeedanceMediaReferenceUrl(nestedMediaUrl(item.audio_url));
+        if (!url) return null;
+        return { ...item, audio_url: { ...(item.audio_url || {}), url } };
+      }
+      return item;
+    })
+    .filter(Boolean);
+}
+
+function addApizSeedanceUrl(list = [], value = "", limit = 9) {
+  const url = apizSeedanceMediaReferenceUrl(value);
+  if (url && !list.includes(url) && list.length < limit) list.push(url);
+}
+
+function apizSeedanceParamsFromPayload(payload = {}, { prompt = "", body = {} } = {}) {
+  const source = { ...requestParamsFromBody(body), ...body };
+  const content = normalizeApizSeedanceContent(payload.content);
+  const textPrompt = content
+    .filter((item) => item?.type === "text")
+    .map((item) => String(item.text || ""))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  const params = {
+    model: seedanceApizModelForRequest(payload.model, firstPresent(source.seedanceTier, source.vipeak2Tier)),
+    prompt: textPrompt || String(prompt || source.prompt || "").trim(),
+    ratio: String(firstPresent(payload.ratio, source.ratio, source.aspect_ratio, "9:16")),
+    resolution: normalizeAdvancedResolution(firstPresent(payload.resolution, source.resolution, "720p")),
+    duration: clampNumber(
+      firstPresent(payload.duration, source.duration, source.durationSeconds),
+      advancedDurationBounds("seedance").fallback,
+      advancedDurationBounds("seedance").min,
+      advancedDurationBounds("seedance").max,
+    ),
+    generate_audio: boolFromRequest(firstPresent(payload.generate_audio, source.generate_audio, source.generateAudio), true),
+  };
+  const webSearchValue = firstPresent(payload.web_search, source.web_search, source.webSearch, source.parameters?.web_search, source.parameters?.webSearch);
+  if (webSearchValue !== undefined) params.web_search = boolFromRequest(webSearchValue, false);
+  const watermarkValue = firstPresent(payload.watermark, source.watermark, source.parameters?.watermark);
+  if (watermarkValue !== undefined) params.watermark = boolFromRequest(watermarkValue, false);
+  const returnLastFrame = firstPresent(payload.return_last_frame, source.return_last_frame, source.returnLastFrame);
+  if (returnLastFrame !== undefined) params.return_last_frame = boolFromRequest(returnLastFrame, false);
+
+  let firstFrameUrl = apizSeedanceMediaReferenceUrl(firstPresent(payload.image_url, source.image_url, source.imageUrl, source.firstFrameUrl, source.first_frame_url));
+  let lastFrameUrl = apizSeedanceMediaReferenceUrl(firstPresent(payload.end_image_url, source.end_image_url, source.endImageUrl, source.lastFrameUrl, source.last_frame_url));
+  const referenceImages = normalizeApizSeedanceUrlList([
+    ...arrayFromBody(payload.reference_images),
+    ...arrayFromBody(source.referenceImages),
+  ], ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  const referenceVideos = normalizeApizSeedanceUrlList([
+    ...arrayFromBody(payload.reference_videos),
+    ...arrayFromBody(source.referenceVideos),
+  ], ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT);
+  const referenceAudios = normalizeApizSeedanceUrlList([
+    ...arrayFromBody(payload.reference_audios),
+    ...arrayFromBody(source.referenceAudios),
+  ], ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
+
+  content.forEach((item) => {
+    if (item?.type === "image_url") {
+      const url = nestedMediaUrl(item.image_url);
+      const role = String(item.role || "");
+      if (role === "first_frame" && !firstFrameUrl) firstFrameUrl = url;
+      else if (role === "last_frame" && !lastFrameUrl) lastFrameUrl = url;
+      else addApizSeedanceUrl(referenceImages, url, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    } else if (item?.type === "video_url") {
+      addApizSeedanceUrl(referenceVideos, nestedMediaUrl(item.video_url), ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT);
+    } else if (item?.type === "audio_url") {
+      addApizSeedanceUrl(referenceAudios, nestedMediaUrl(item.audio_url), ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
+    }
+  });
+
+  if (firstFrameUrl) params.image_url = firstFrameUrl;
+  if (lastFrameUrl) params.end_image_url = lastFrameUrl;
+  if (referenceImages.length) params.reference_images = referenceImages;
+  if (referenceVideos.length) params.reference_videos = referenceVideos;
+  if (referenceAudios.length) params.reference_audios = referenceAudios;
+  return params;
+}
+
+function apizSeedancePayloadFromBody({ config = {}, prompt = "", content = [], body = {} } = {}) {
+  const seedancePayload = seedancePayloadFromBody({ config, prompt, content, body });
+  const externalModel = String(seedancePayload.model || MODEL_QUALITY);
+  const params = apizSeedanceParamsFromPayload(seedancePayload, { prompt, body });
+  return {
+    payload: {
+      model: APIZ_SEEDANCE_MODEL_ID,
+      params,
+      channel: null,
+    },
+    externalModel,
+  };
+}
+
+function isApizAssetUri(value = "") {
+  return /^asset:\/\/asset-[a-z0-9_-]+$/i.test(String(value || "").trim());
+}
+
+function normalizeApizAssetUri(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(/asset:\/\/(asset-[a-z0-9_-]+)/i);
+  return match ? `Asset://${match[1]}` : "";
+}
+
+function apizSeedanceAssetCacheKey(user = {}) {
+  const userKey = String(user?.id || user?.username || user?.email || "default").trim().toLowerCase() || "default";
+  return `${String(APIZ_SEEDANCE_MODEL_ID || "seedance").trim().toLowerCase()}:${userKey}`;
+}
+
+function apizSeedanceServiceAssetUrl(assetId = "", taskId = "") {
+  const id = encodeURIComponent(String(assetId || "").trim());
+  if (!id) return "";
+  const task = String(taskId || "").trim();
+  return `/api/v3/service-inference/assets/${id}${task ? `?task_id=${encodeURIComponent(task)}` : ""}`;
+}
+
+function apizSeedanceAssetStatusPayload(raw = {}) {
+  return raw?.data && typeof raw.data === "object" ? raw.data : raw;
+}
+
+async function waitForApizSeedanceAsset(assetId = "", taskId = "") {
+  const id = String(assetId || "").trim();
+  if (!id) return null;
+  let last = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (attempt) await delay(Math.min(1000 + attempt * 500, 3500));
+    const queryPath = apizSeedanceServiceAssetUrl(id, taskId);
+    console.log("[apiz-seedance-service-asset-query]", JSON.stringify({ path: queryPath, assetId: id, taskId: taskId || "" }));
+    last = await apizSeedanceRequest(queryPath, null, { method: "GET" });
+    const data = apizSeedanceAssetStatusPayload(last);
+    const status = String(firstPresent(data?.sync_status, data?.status, data?.state, last?.sync_status, last?.status, "")).toLowerCase();
+    const assetError = firstPresent(data?.sync_error, data?.error?.message, data?.error, last?.sync_error, last?.error?.message, last?.error, "");
+    if (["active", "completed", "complete", "success", "succeeded", "ready"].includes(status)) return last;
+    if (["failed", "fail", "error"].includes(status) || assetError) {
+      const error = new Error(assetError || `APIZ Seedance asset upload failed: ${id}`);
+      error.statusCode = 502;
+      error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
+      error.payload = last;
+      throw error;
+    }
+  }
+  const error = new Error(`APIZ Seedance asset upload did not complete: ${id}`);
+  error.statusCode = 502;
+  error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_TIMEOUT";
+  error.payload = last;
+  throw error;
+}
+
+async function uploadApizSeedanceAsset({ user = {}, url = "", assetType = "Image", name = "reference-media" } = {}) {
+  const sourceUrl = apizSeedanceMediaReferenceUrl(url);
+  if (!sourceUrl) return "";
+  const existingAssetUri = normalizeApizAssetUri(sourceUrl);
+  if (existingAssetUri) return existingAssetUri;
+  const normalizedType = String(assetType || "Image").trim();
+  const cacheKey = `${apizSeedanceAssetCacheKey(user)}:${normalizedType.toLowerCase()}:${sourceUrl}`;
+  const cachedAssetUri = APIZ_SEEDANCE_ASSET_URI_CACHE.get(cacheKey);
+  if (cachedAssetUri) return cachedAssetUri;
+  const mediaKey = normalizedType.toLowerCase() === "video" ? "video_url" : normalizedType.toLowerCase() === "audio" ? "audio_url" : "image_url";
+  const uploadPayload = {
+    [mediaKey]: sourceUrl,
+    asset_type: normalizedType,
+    name,
+    Moderation: { Strategy: "Skip" },
+  };
+  console.log("[apiz-seedance-service-asset-upload]", JSON.stringify({
+    path: "/api/v3/service-inference/assets",
+    assetType: normalizedType,
+    mediaKey,
+    name,
+    sourceUrl,
+  }));
+  const raw = await apizSeedanceRequest("/api/v3/service-inference/assets", uploadPayload);
+  const assetId = String(raw?.asset_id || raw?.id || raw?.assetId || raw?.data?.asset_id || raw?.data?.id || raw?.data?.assetId || "").trim();
+  const taskId = String(raw?.task_id || raw?.taskId || raw?.upload_task_id || raw?.uploadTaskId || raw?.data?.task_id || raw?.data?.taskId || raw?.data?.upload_task_id || raw?.data?.uploadTaskId || "").trim();
+  const assetUri = normalizeApizAssetUri(firstPresent(raw?.asset_uri, raw?.data?.asset_uri, raw?.intl_asset_uri, raw?.data?.intl_asset_uri, ""));
+  if (!assetId && !assetUri) {
+    const error = new Error(`APIZ Seedance did not return asset id: ${JSON.stringify(raw || {})}`);
+    error.statusCode = 502;
+    error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
+    throw error;
+  }
+  console.log("[apiz-seedance-service-asset-upload-result]", JSON.stringify({
+    assetId,
+    taskId,
+    assetUri,
+  }));
+  if (assetId) {
+    try {
+      await waitForApizSeedanceAsset(assetId, taskId);
+    } catch (error) {
+      error.sourceUrl = sourceUrl;
+      error.assetId = assetId;
+      error.taskId = taskId;
+      error.assetUri = assetUri;
+      throw error;
+    }
+  }
+  const finalAssetUri = assetUri || `Asset://${assetId}`;
+  APIZ_SEEDANCE_ASSET_URI_CACHE.set(cacheKey, finalAssetUri);
+  return finalAssetUri;
+}
+
+function uniqueApizSeedanceMediaRefs(values = []) {
+  return [...new Set(values.map((item) => apizSeedanceMediaReferenceUrl(item)).filter(Boolean))];
+}
+
+async function prepareApizSeedancePayloadAssets(payload = {}, { user = {} } = {}) {
+  const params = payload?.params && typeof payload.params === "object" ? payload.params : null;
+  if (!params) return payload;
+  const imageCache = new Map();
+  const toAsset = async (value = "", assetType = "Image", name = "reference-media", { optional = false } = {}) => {
+    const sourceUrl = apizSeedanceMediaReferenceUrl(value);
+    if (!sourceUrl) return "";
+    if (!imageCache.has(`${assetType}:${sourceUrl}`)) {
+      imageCache.set(`${assetType}:${sourceUrl}`, uploadApizSeedanceAsset({ user, url: sourceUrl, assetType, name }));
+    }
+    try {
+      return await imageCache.get(`${assetType}:${sourceUrl}`);
+    } catch (error) {
+      if (!optional) throw error;
+      console.warn("[apiz-seedance-optional-asset-skipped]", {
+        name,
+        assetType,
+        sourceUrl,
+        assetId: error?.assetId || "",
+        message: error?.message || String(error),
+      });
+      return "";
+    }
+  };
+  if (params.image_url) params.image_url = await toAsset(params.image_url, "Image", "first-frame");
+  if (params.end_image_url) params.end_image_url = await toAsset(params.end_image_url, "Image", "last-frame");
+  if (Array.isArray(params.reference_images)) {
+    const refs = [];
+    const sourceRefs = uniqueApizSeedanceMediaRefs(params.reference_images);
+    for (let index = 0; index < sourceRefs.length; index += 1) {
+      const assetUri = await toAsset(sourceRefs[index], "Image", `reference-image-${index + 1}`, { optional: true });
+      if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    if (sourceRefs.length && !refs.length) {
+      const error = new Error("APIZ Seedance rejected all reference images.");
+      error.statusCode = 502;
+      error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
+      throw error;
+    }
+    params.reference_images = refs;
+  }
+  if (Array.isArray(params.reference_videos)) {
+    const refs = [];
+    const sourceRefs = uniqueApizSeedanceMediaRefs(params.reference_videos);
+    for (let index = 0; index < sourceRefs.length; index += 1) {
+      const assetUri = await toAsset(sourceRefs[index], "Video", `reference-video-${index + 1}`, { optional: true });
+      if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    if (sourceRefs.length && !refs.length) {
+      const error = new Error("APIZ Seedance rejected all reference videos.");
+      error.statusCode = 502;
+      error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
+      throw error;
+    }
+    params.reference_videos = refs;
+  }
+  if (Array.isArray(params.reference_audios)) {
+    const refs = [];
+    const sourceRefs = uniqueApizSeedanceMediaRefs(params.reference_audios);
+    for (let index = 0; index < sourceRefs.length; index += 1) {
+      const assetUri = await toAsset(sourceRefs[index], "Audio", `reference-audio-${index + 1}`, { optional: true });
+      if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    if (sourceRefs.length && !refs.length) {
+      const error = new Error("APIZ Seedance rejected all reference audios.");
+      error.statusCode = 502;
+      error.code = "APIZ_SEEDANCE_ASSET_UPLOAD_FAILED";
+      throw error;
+    }
+    params.reference_audios = refs;
+  }
+  if (Array.isArray(params.reference_images) && !params.reference_images.length) delete params.reference_images;
+  if (Array.isArray(params.reference_videos) && !params.reference_videos.length) delete params.reference_videos;
+  if (Array.isArray(params.reference_audios) && !params.reference_audios.length) delete params.reference_audios;
+  return payload;
+}
+
+async function submitApizSeedanceVideoTask({
+  config,
+  prompt,
+  referenceAssetUri,
+  extraReferenceAssetUris = [],
+  firstFrameAssetUri = "",
+  lastFrameAssetUri = "",
+  referenceVideoAssetUri = "",
+  extraReferenceVideoAssetUris = [],
+  referenceAudioAssetUris = [],
+  body = {},
+  slug = "",
+  user = {},
+}) {
+  const content = pivoxSeedanceContentFromReferences({
+    prompt,
+    referenceAssetUri,
+    extraReferenceAssetUris,
+    firstFrameAssetUri,
+    lastFrameAssetUri,
+    referenceVideoAssetUri,
+    extraReferenceVideoAssetUris,
+    referenceAudioAssetUris,
+    body,
+  });
+  const { payload, externalModel } = apizSeedancePayloadFromBody({ config, prompt, content, body });
+  await prepareApizSeedancePayloadAssets(payload, { user });
+
+  console.log(`[apiz-seedance-submit-${slug || "video"}]`, JSON.stringify({
+    ...payload,
+    externalModel,
+  }, null, 2));
+  const raw = await apizSeedanceRequest("/api/v3/tasks/create", payload);
+  return {
+    task: normalizeApizSeedanceTask(raw),
+    payload,
+    raw,
+    recordModel: externalModel,
+    upstreamSource: "apiz-seedance",
+  };
+}
+
+function ignexSeedancePayloadFromBody({ config = {}, prompt = "", content = [], body = {} } = {}) {
+  const source = { ...requestParamsFromBody(body), ...body };
+  const payload = seedancePayloadFromBody({ config, prompt, content, body });
+  const externalModel = String(payload.model || MODEL_QUALITY);
+  payload.model = seedanceIgnexModelForRequest(payload.model, firstPresent(source.seedanceTier, source.vipeak2Tier));
+  return { payload, externalModel };
+}
+
+async function submitIgnexSeedanceVideoTask({
+  config,
+  prompt,
+  referenceAssetUri,
+  extraReferenceAssetUris = [],
+  firstFrameAssetUri = "",
+  lastFrameAssetUri = "",
+  referenceVideoAssetUri = "",
+  extraReferenceVideoAssetUris = [],
+  referenceAudioAssetUris = [],
+  body = {},
+  slug = "",
+  user = {},
+  db = null,
+}) {
+  const content = pivoxSeedanceContentFromReferences({
+    prompt,
+    referenceAssetUri,
+    extraReferenceAssetUris,
+    firstFrameAssetUri,
+    lastFrameAssetUri,
+    referenceVideoAssetUri,
+    extraReferenceVideoAssetUris,
+    referenceAudioAssetUris,
+    body,
+  });
+  const { payload, externalModel } = ignexSeedancePayloadFromBody({ config, prompt, content, body });
+  await prepareIgnexSeedancePayloadAssets(payload, { db, user });
+  delete payload.Moderation;
+  delete payload.moderation;
+  stripSeedanceCompatibilityAliases(payload);
+
+  console.log(`[ignex-seedance-submit-${slug || "video"}]`, JSON.stringify({
+    ...payload,
+    externalModel,
+  }, null, 2));
+  const raw = await ignexRequest("POST", "/api/v3/contents/generations/tasks", payload);
+  return {
+    task: normalizeIgnexTask(raw),
+    payload,
+    raw,
+    recordModel: externalModel,
+    upstreamSource: "ignex",
+  };
 }
 
 function cloneJson(value) {
@@ -8688,6 +9414,152 @@ async function prepareOfficialSeedancePayloadForArk(db, user, body = {}, { prepa
   return applyDefaultVideoNegativePromptToSeedancePayload(payload, source);
 }
 
+async function preparePivoxMediaUrlForUser(db, user, value = "", name = "Seedance media") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const publicUrl = publicHttpUrlForUpstream(text);
+  if (publicUrl) return publicUrl;
+  if (!/^data:(image|video|audio)\//i.test(text)) return "";
+  const { mime, bytes } = decodeWanMediaDataUrl(text);
+  const maxBytes = mime.startsWith("image/") ? IMAGE_UPLOAD_MAX_BYTES : MEDIA_UPLOAD_MAX_BYTES;
+  const ext = mime.startsWith("video/") ? ".mp4" : mime.startsWith("audio/") ? ".mp3" : imageExtFromMime(mime);
+  const userAsset = await createUserMediaAssetFromBytes(db, user, {
+    bytes,
+    mime,
+    name,
+    fileName: `${String(name || "media").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 40) || "media"}${ext}`,
+    maxBytes,
+  });
+  const publicAsset = await ensurePublicUrlForUserMediaAsset(db, userAsset);
+  return publicHttpUrlForUserAsset(publicAsset);
+}
+
+async function prepareOfficialSeedancePayloadForPivox(db, user, body = {}, { config = {} } = {}) {
+  const sourcePayload = await prepareOfficialSeedancePayloadForArk(db, user, body, { prepareImages: false });
+  const prompt = officialSeedancePrompt(sourcePayload);
+  const preparedContent = [];
+  for (let index = 0; index < (Array.isArray(sourcePayload.content) ? sourcePayload.content : []).length; index += 1) {
+    const item = sourcePayload.content[index];
+    if (!item || typeof item !== "object" || Array.isArray(item) || !["image_url", "video_url", "audio_url"].includes(item.type)) {
+      preparedContent.push(item);
+      continue;
+    }
+    const key = item.type;
+    const url = await preparePivoxMediaUrlForUser(db, user, mediaUrlFromOfficialItem(item, key), `Seedance content ${index + 1}`);
+    if (!url) {
+      const error = new Error(`${item.type || "media"} content requires a public http(s) URL for Pivoxapi.`);
+      error.statusCode = 400;
+      error.code = "INVALID_PIVOX_MEDIA_URL";
+      throw error;
+    }
+    preparedContent.push(setOfficialMediaUrl(item, key, url));
+  }
+  sourcePayload.content = preparedContent;
+  if (Array.isArray(sourcePayload.reference_images)) {
+    const urls = [];
+    for (let index = 0; index < sourcePayload.reference_images.length; index += 1) {
+      const url = await preparePivoxMediaUrlForUser(db, user, nestedMediaUrl(sourcePayload.reference_images[index]), `Seedance reference image ${index + 1}`);
+      if (url) urls.push(url);
+    }
+    sourcePayload.reference_images = urls;
+  }
+  if (Array.isArray(sourcePayload.reference_videos)) {
+    const urls = [];
+    for (let index = 0; index < sourcePayload.reference_videos.length; index += 1) {
+      const url = await preparePivoxMediaUrlForUser(db, user, nestedMediaUrl(sourcePayload.reference_videos[index]), `Seedance reference video ${index + 1}`);
+      if (url) urls.push(url);
+    }
+    sourcePayload.reference_videos = urls;
+  }
+  if (Array.isArray(sourcePayload.reference_audios)) {
+    const urls = [];
+    for (let index = 0; index < sourcePayload.reference_audios.length; index += 1) {
+      const url = await preparePivoxMediaUrlForUser(db, user, nestedMediaUrl(sourcePayload.reference_audios[index]), `Seedance reference audio ${index + 1}`);
+      if (url) urls.push(url);
+    }
+    sourcePayload.reference_audios = urls;
+  }
+  const { payload, externalModel } = pivoxSeedancePayloadFromBody({
+    config,
+    prompt,
+    content: sourcePayload.content,
+    body: sourcePayload,
+  });
+  await preparePivoxSeedancePayloadAssets(payload, { user });
+  return { payload, externalModel, sourcePayload };
+}
+
+async function prepareOfficialSeedancePayloadForApiz(db, user, body = {}, { config = {} } = {}) {
+  const sourcePayload = await prepareOfficialSeedancePayloadForArk(db, user, body, { prepareImages: false });
+  const prompt = officialSeedancePrompt(sourcePayload);
+  const preparedContent = [];
+  for (let index = 0; index < (Array.isArray(sourcePayload.content) ? sourcePayload.content : []).length; index += 1) {
+    const item = sourcePayload.content[index];
+    if (!item || typeof item !== "object" || Array.isArray(item) || !["image_url", "video_url", "audio_url"].includes(item.type)) {
+      preparedContent.push(item);
+      continue;
+    }
+    const key = item.type;
+    const url = await preparePivoxMediaUrlForUser(db, user, mediaUrlFromOfficialItem(item, key), `Seedance content ${index + 1}`);
+    if (!url) {
+      const error = new Error(`${item.type || "media"} content requires a public http(s) URL for APIZ Seedance.`);
+      error.statusCode = 400;
+      error.code = "INVALID_APIZ_SEEDANCE_MEDIA_URL";
+      throw error;
+    }
+    preparedContent.push(setOfficialMediaUrl(item, key, url));
+  }
+  sourcePayload.content = preparedContent;
+  if (Array.isArray(sourcePayload.reference_images)) {
+    const urls = [];
+    for (let index = 0; index < sourcePayload.reference_images.length; index += 1) {
+      const url = await preparePivoxMediaUrlForUser(db, user, nestedMediaUrl(sourcePayload.reference_images[index]), `Seedance reference image ${index + 1}`);
+      if (url) urls.push(url);
+    }
+    sourcePayload.reference_images = urls;
+  }
+  if (Array.isArray(sourcePayload.reference_videos)) {
+    const urls = [];
+    for (let index = 0; index < sourcePayload.reference_videos.length; index += 1) {
+      const url = await preparePivoxMediaUrlForUser(db, user, nestedMediaUrl(sourcePayload.reference_videos[index]), `Seedance reference video ${index + 1}`);
+      if (url) urls.push(url);
+    }
+    sourcePayload.reference_videos = urls;
+  }
+  if (Array.isArray(sourcePayload.reference_audios)) {
+    const urls = [];
+    for (let index = 0; index < sourcePayload.reference_audios.length; index += 1) {
+      const url = await preparePivoxMediaUrlForUser(db, user, nestedMediaUrl(sourcePayload.reference_audios[index]), `Seedance reference audio ${index + 1}`);
+      if (url) urls.push(url);
+    }
+    sourcePayload.reference_audios = urls;
+  }
+  const { payload, externalModel } = apizSeedancePayloadFromBody({
+    config,
+    prompt,
+    content: sourcePayload.content,
+    body: sourcePayload,
+  });
+  await prepareApizSeedancePayloadAssets(payload, { user });
+  return { payload, externalModel, sourcePayload };
+}
+
+async function prepareOfficialSeedancePayloadForIgnex(db, user, body = {}, { config = {} } = {}) {
+  const sourcePayload = await prepareOfficialSeedancePayloadForArk(db, user, body, { prepareImages: false });
+  const prompt = officialSeedancePrompt(sourcePayload);
+  const { payload, externalModel } = ignexSeedancePayloadFromBody({
+    config,
+    prompt,
+    content: sourcePayload.content,
+    body: sourcePayload,
+  });
+  await prepareIgnexSeedancePayloadAssets(payload, { db, user });
+  delete payload.Moderation;
+  delete payload.moderation;
+  stripSeedanceCompatibilityAliases(payload);
+  return { payload, externalModel, sourcePayload };
+}
+
 function validateOfficialSeedancePayloadBeforeCharge(payload = {}) {
   const errors = [];
   const resolution = String(payload.resolution || "720p").trim().toLowerCase();
@@ -8765,9 +9637,11 @@ async function handleVolcengineCreateGenerationTask(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   if (USE_GATEWAY_UPSTREAM) {
-    return sendJson(res, 503, { error: { code: "GATEWAY_MODE_NOT_SUPPORTED", message: "This legacy route requires direct Ark upstream mode. Use /api/advanced/generate for external integrations." } });
+    return sendJson(res, 503, { error: { code: "GATEWAY_MODE_NOT_SUPPORTED", message: "This route requires direct Ark upstream mode. Use /api/v3/contents/generations/tasks for external video integrations." } });
   }
-  if (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY) {
+  const useIgnexSeedance = seedanceIgnexEnabledForUser(auth.user);
+  const useExternalSeedanceHttp = useIgnexSeedance;
+  if (!ARK_API_KEY && !useExternalSeedanceHttp) {
     return sendJson(res, 503, { error: { code: "MISSING_ARK_API_KEY", message: "Seedance generation is not configured." } });
   }
 
@@ -8820,6 +9694,8 @@ async function handleVolcengineCreateGenerationTask(req, res) {
   }
 
   const fallbackTaskId = localGenerationTaskId("ark");
+  const recordModel = payloadForValidation.model || MODEL_QUALITY;
+  const upstreamSource = useIgnexSeedance ? "ignex" : "direct";
   if (cost > 0) {
     await chargeUserWithSubtoken(auth, {
       cost,
@@ -8842,34 +9718,48 @@ async function handleVolcengineCreateGenerationTask(req, res) {
   }
 
   try {
-    payload = await prepareOfficialSeedancePayloadForArk(auth.db, auth.user, body, { prepareImages: true });
-    payload.Moderation = { Strategy: "Skip" };
     let raw;
-    let lastSubmitError = "";
-    for (let attempt = 0; attempt < 18; attempt += 1) {
-      try {
-        raw = await arkRequest("POST", "/contents/generations/tasks", payload);
-        break;
-      } catch (error) {
-        lastSubmitError = error.message || String(error);
-        if (!/asset is still processing|not available yet/i.test(lastSubmitError)) throw error;
-        await delay(10000);
+    let task;
+    if (useIgnexSeedance) {
+      const prepared = await prepareOfficialSeedancePayloadForIgnex(auth.db, auth.user, body, { config });
+      payload = prepared.payload;
+      console.log("[ignex-seedance-submit-volcengine]", JSON.stringify({
+        ...payload,
+        externalModel: prepared.externalModel,
+      }, null, 2));
+      raw = await ignexRequest("POST", "/api/v3/contents/generations/tasks", payload);
+      task = normalizeIgnexTask(raw);
+    } else {
+      payload = await prepareOfficialSeedancePayloadForArk(auth.db, auth.user, body, { prepareImages: true });
+      payload.Moderation = { Strategy: "Skip" };
+      let lastSubmitError = "";
+      for (let attempt = 0; attempt < 18; attempt += 1) {
+        try {
+          raw = await arkRequest("POST", "/contents/generations/tasks", payload);
+          break;
+        } catch (error) {
+          lastSubmitError = error.message || String(error);
+          if (!/asset is still processing|not available yet/i.test(lastSubmitError)) throw error;
+          await delay(10000);
+        }
       }
+      if (!raw) {
+        const error = new Error(lastSubmitError || "Upstream asset still processing, Seedance submit failed.");
+        error.statusCode = 502;
+        throw error;
+      }
+      task = normalizeTask(raw);
     }
-    if (!raw) {
-      const error = new Error(lastSubmitError || "Upstream asset still processing, Seedance submit failed.");
-      error.statusCode = 502;
-      throw error;
-    }
-    const task = normalizeTask(raw);
     const taskId = fallbackTaskId;
+    const submittedAt = new Date().toISOString();
     await upsertGenerationRecord({
       taskId,
       upstreamTaskId: task.taskId || "",
       status: task.status || "submitted",
-      model: payload.model || MODEL_QUALITY,
+      model: recordModel,
       provider: "seedance",
-      upstreamSource: "direct",
+      upstreamSource,
+      upstreamModel: useExternalSeedanceHttp ? (payload.params?.model || payload.model || "") : "",
       source: "volcengine-compatible",
       kind: "advanced-video",
       userId: auth.user.id,
@@ -8896,14 +9786,27 @@ async function handleVolcengineCreateGenerationTask(req, res) {
       apiTokenType: auth.tokenRecord?.quotaType || "",
       apiTokenSource: auth.tokenSource || "",
     });
+    if (useExternalSeedanceHttp) {
+      return sendJson(res, 200, officialSeedanceResponseFromRecord({
+        taskId,
+        upstreamTaskId: task.taskId || "",
+        status: task.status || "submitted",
+        model: recordModel,
+        remoteVideoUrl: task.videoUrl || "",
+        error: task.error || "",
+        createdAt: submittedAt,
+        updatedAt: submittedAt,
+      }));
+    }
     return sendJson(res, 200, raw);
   } catch (error) {
     await upsertGenerationRecord({
       taskId: fallbackTaskId,
       status: "failed",
-      model: payload.model || MODEL_QUALITY,
+      model: recordModel,
       provider: "seedance",
-      upstreamSource: "direct",
+      upstreamSource,
+      upstreamModel: useExternalSeedanceHttp ? (payload?.params?.model || payload?.model || "") : "",
       source: "volcengine-compatible",
       kind: "advanced-video",
       userId: auth.user.id,
@@ -8964,7 +9867,14 @@ async function handleVolcengineGetGenerationTask(req, res, taskId) {
   }
   const upstreamTaskId = record.upstreamTaskId || record.taskId;
   let raw = record.queryResponse || record.createResponse || officialSeedanceResponseFromRecord(record);
-  if (ARK_API_KEY && !isImageGenerationRecord(record) && shouldRefreshGenerationRecord(record)) {
+  if (record.upstreamSource === "ignex" && !isImageGenerationRecord(record) && shouldRefreshGenerationRecord(record)) {
+    try {
+      const refreshed = await refreshIgnexGenerationRecord(record, "volcengine-ignex-query");
+      raw = officialSeedanceResponseFromRecord(refreshed);
+    } catch (error) {
+      raw = officialSeedanceResponseFromRecord(record);
+    }
+  } else if (ARK_API_KEY && !isImageGenerationRecord(record) && shouldRefreshGenerationRecord(record)) {
     try {
       raw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(upstreamTaskId)}`);
       const task = normalizeTask(raw);
@@ -10503,6 +11413,7 @@ async function validateSeedanceAdvancedMediaRules({
   if (seedanceModeNeedsEndFrame(mode) && !lastFrameCount) {
     throw advancedValidationError("MISSING_LAST_FRAME", "Vipeak 2 first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl.");
   }
+  const hasReferenceMedia = referenceImageCount > 0 || referenceVideoCount > 0 || referenceAudioCount > 0;
   if (referenceAudioCount > 0 && firstFrameCount + lastFrameCount + referenceImageCount + referenceVideoCount < 1) {
     throw advancedValidationError("AUDIO_REQUIRES_VISUAL_MEDIA", "Vipeak 2 audio references must be combined with an image or video reference.");
   }
@@ -11884,15 +12795,6 @@ function adminGenerationRecordView(record = {}, userMap = new Map()) {
   };
 }
 
-function adminGenerationRecordListView(record = {}, userMap = new Map()) {
-  const view = adminGenerationRecordView(record, userMap);
-  delete view.upstreamPayload;
-  delete view.pricingEstimate;
-  delete view.createResponse;
-  delete view.queryResponse;
-  return view;
-}
-
 function generationRecordMatchesQuery(record = {}, query = "") {
   const needle = String(query || "").trim().toLowerCase();
   if (!needle) return true;
@@ -12051,6 +12953,165 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
   });
 }
 
+async function refreshPivoxGenerationRecord(record = {}, reason = "pivox-query") {
+  if (!PIVOX_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+  const queryTaskId = record.upstreamTaskId || record.taskId;
+  const raw = await pivoxRequest("GET", `/v1/video/tasks/${encodeURIComponent(queryTaskId)}`);
+  const task = normalizePivoxTask(raw);
+  let localVideoUrl = record.localVideoUrl || "";
+  let localVideoPath = record.localVideoPath || "";
+  let localPosterUrl = record.localPosterUrl || "";
+  let localPosterPath = record.localPosterPath || "";
+  let cdnVideoUrl = record.cdnVideoUrl || "";
+  let cdnPosterUrl = record.cdnPosterUrl || "";
+  let cdnError = record.cdnError || "";
+  let downloadError = "";
+  const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
+  if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+    try {
+      const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
+      localVideoUrl = localVideo.localVideoUrl;
+      localVideoPath = localVideo.localVideoPath;
+      localPosterUrl = localVideo.localPosterUrl || localPosterUrl;
+      localPosterPath = localVideo.localPosterPath || localPosterPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
+      cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+      cdnError = localVideo.cdnError || cdnError;
+    } catch (error) {
+      downloadError = error.message || "Failed to download generated video.";
+    }
+  }
+  return await upsertAndSettleGenerationRecord({
+    taskId: record.taskId,
+    upstreamTaskId: task.taskId || queryTaskId,
+    status: task.status || record.status || "unknown",
+    upstreamSource: "pivoxapi",
+    remoteVideoUrl,
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (localVideoUrl || cdnVideoUrl || remoteVideoUrl || record.videoUrl || "")
+      : (cdnVideoUrl || localVideoUrl || remoteVideoUrl || record.videoUrl || ""),
+    localVideoUrl,
+    localVideoPath,
+    localPosterUrl,
+    localPosterPath,
+    posterUrl: localPublicAssetStorageEnabled()
+      ? (localPosterUrl || cdnPosterUrl || record.posterUrl || "")
+      : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
+    cdnVideoUrl,
+    cdnPosterUrl,
+    cdnError,
+    error: task.error || downloadError || record.error || "",
+    queryResponse: raw,
+    completedAt: isSucceededStatus(task.status) ? (record.completedAt || new Date().toISOString()) : record.completedAt || "",
+  }, reason);
+}
+
+async function refreshApizSeedanceGenerationRecord(record = {}, reason = "apiz-seedance-query") {
+  if (!APIZ_SEEDANCE_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+  const queryTaskId = record.upstreamTaskId || record.taskId;
+  const raw = await apizSeedanceRequest("/api/v3/tasks/query", { task_id: queryTaskId });
+  const task = normalizeApizSeedanceTask(raw);
+  let localVideoUrl = record.localVideoUrl || "";
+  let localVideoPath = record.localVideoPath || "";
+  let localPosterUrl = record.localPosterUrl || "";
+  let localPosterPath = record.localPosterPath || "";
+  let cdnVideoUrl = record.cdnVideoUrl || "";
+  let cdnPosterUrl = record.cdnPosterUrl || "";
+  let cdnError = record.cdnError || "";
+  let downloadError = "";
+  const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
+  if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+    try {
+      const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
+      localVideoUrl = localVideo.localVideoUrl;
+      localVideoPath = localVideo.localVideoPath;
+      localPosterUrl = localVideo.localPosterUrl || localPosterUrl;
+      localPosterPath = localVideo.localPosterPath || localPosterPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
+      cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+      cdnError = localVideo.cdnError || cdnError;
+    } catch (error) {
+      downloadError = error.message || "Failed to download generated video.";
+    }
+  }
+  return await upsertAndSettleGenerationRecord({
+    taskId: record.taskId,
+    upstreamTaskId: task.taskId || queryTaskId,
+    status: task.status || record.status || "unknown",
+    upstreamSource: "apiz-seedance",
+    remoteVideoUrl,
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (localVideoUrl || cdnVideoUrl || remoteVideoUrl || record.videoUrl || "")
+      : (cdnVideoUrl || localVideoUrl || remoteVideoUrl || record.videoUrl || ""),
+    localVideoUrl,
+    localVideoPath,
+    localPosterUrl,
+    localPosterPath,
+    posterUrl: localPublicAssetStorageEnabled()
+      ? (localPosterUrl || cdnPosterUrl || record.posterUrl || "")
+      : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
+    cdnVideoUrl,
+    cdnPosterUrl,
+    cdnError,
+    error: task.error || downloadError || record.error || "",
+    queryResponse: raw,
+    completedAt: isSucceededStatus(task.status) ? (record.completedAt || new Date().toISOString()) : record.completedAt || "",
+  }, reason);
+}
+
+async function refreshIgnexGenerationRecord(record = {}, reason = "ignex-query") {
+  if (!IGNEX_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+  const queryTaskId = record.upstreamTaskId || record.taskId;
+  const raw = await ignexRequest("GET", `/api/v3/contents/generations/tasks/${encodeURIComponent(queryTaskId)}`);
+  const task = normalizeIgnexTask(raw);
+  let localVideoUrl = record.localVideoUrl || "";
+  let localVideoPath = record.localVideoPath || "";
+  let localPosterUrl = record.localPosterUrl || "";
+  let localPosterPath = record.localPosterPath || "";
+  let cdnVideoUrl = record.cdnVideoUrl || "";
+  let cdnPosterUrl = record.cdnPosterUrl || "";
+  let cdnError = record.cdnError || "";
+  let downloadError = "";
+  const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
+  if (isSucceededStatus(task.status) && remoteVideoUrl && !localVideoUrl) {
+    try {
+      const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
+      localVideoUrl = localVideo.localVideoUrl;
+      localVideoPath = localVideo.localVideoPath;
+      localPosterUrl = localVideo.localPosterUrl || localPosterUrl;
+      localPosterPath = localVideo.localPosterPath || localPosterPath;
+      cdnVideoUrl = localVideo.cdnVideoUrl || cdnVideoUrl;
+      cdnPosterUrl = localVideo.cdnPosterUrl || cdnPosterUrl;
+      cdnError = localVideo.cdnError || cdnError;
+    } catch (error) {
+      downloadError = error.message || "Failed to download generated video.";
+    }
+  }
+  return await upsertAndSettleGenerationRecord({
+    taskId: record.taskId,
+    upstreamTaskId: task.taskId || queryTaskId,
+    status: task.status || record.status || "unknown",
+    upstreamSource: "ignex",
+    remoteVideoUrl,
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (localVideoUrl || cdnVideoUrl || remoteVideoUrl || record.videoUrl || "")
+      : (cdnVideoUrl || localVideoUrl || remoteVideoUrl || record.videoUrl || ""),
+    localVideoUrl,
+    localVideoPath,
+    localPosterUrl,
+    localPosterPath,
+    posterUrl: localPublicAssetStorageEnabled()
+      ? (localPosterUrl || cdnPosterUrl || record.posterUrl || "")
+      : (cdnPosterUrl || localPosterUrl || record.posterUrl || ""),
+    cdnVideoUrl,
+    cdnPosterUrl,
+    cdnError,
+    error: task.error || downloadError || record.error || "",
+    queryResponse: raw,
+    completedAt: isSucceededStatus(task.status) ? (record.completedAt || new Date().toISOString()) : record.completedAt || "",
+  }, reason);
+}
+
 async function refreshGenerationRecordStatus(record = {}) {
   if (needsApizFailureRefund(record)) {
     return settleApizGenerationRecord(record, { status: record.status || "failed", error: record.error || "" }, "refresh");
@@ -12179,6 +13240,21 @@ async function refreshGenerationRecordStatus(record = {}) {
       }, "gateway-query");
     } catch (error) {
       console.warn("[gateway-generation-record-refresh-failed]", record.taskId, error.message || error);
+      return record;
+    }
+  }
+  if (record.upstreamSource === "apiz-seedance") {
+    return record;
+  }
+  if (record.upstreamSource === "pivoxapi") {
+    return record;
+  }
+  if (record.upstreamSource === "ignex") {
+    if (!shouldRefreshGenerationRecord(record)) return record;
+    try {
+      return await refreshIgnexGenerationRecord(record, "ignex-query");
+    } catch (error) {
+      console.warn("[ignex-generation-record-refresh-failed]", record.taskId, error.message || error);
       return record;
     }
   }
@@ -12957,6 +14033,125 @@ function normalizeTask(raw) {
   };
 }
 
+function adminGenerationRecordListView(record = {}, userMap = new Map()) {
+  const view = adminGenerationRecordView(record, userMap);
+  delete view.upstreamPayload;
+  delete view.pricingEstimate;
+  delete view.createResponse;
+  delete view.queryResponse;
+  return view;
+}
+
+function normalizePivoxStatus(status = "") {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (["success", "succeeded", "completed", "done"].includes(normalized)) return "succeeded";
+  if (["fail", "failed", "error", "cancelled", "canceled"].includes(normalized)) return "failed";
+  if (["queued", "pending", "created", "submitted", "not_start"].includes(normalized)) return "submitted";
+  if (["running", "processing", "in_progress", "generating"].includes(normalized)) return "processing";
+  return normalized || "submitted";
+}
+
+function findPivoxOutputVideoUrl(value = {}) {
+  const task = value?.data?.data?.task || value?.data?.task || value?.task || value;
+  const outputs = [
+    ...(Array.isArray(task?.outputs) ? task.outputs : []),
+    ...(Array.isArray(value?.data?.outputs) ? value.data.outputs : []),
+    ...(Array.isArray(value?.outputs) ? value.outputs : []),
+  ];
+  for (const item of outputs) {
+    const url = typeof item === "string" ? item : nestedMediaUrl(item);
+    if (url && isLikelyVideoUrl(url)) return url;
+  }
+  return findVideoUrl(value);
+}
+
+function normalizePivoxTask(raw = {}) {
+  const outer = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+  const task = outer?.data?.task || outer?.task || raw?.task || {};
+  const status = firstPresent(outer.status, task.status, raw.status, task.state, raw.state, "submitted");
+  const taskId = firstPresent(outer.task_id, outer.taskId, task.task_id, task.taskId, task.id, raw.task_id, raw.taskId, raw.id, "");
+  const error = firstPresent(
+    outer.fail_reason,
+    outer.error_msg,
+    outer.error?.message,
+    task.fail_reason,
+    task.error_msg,
+    task.error?.message,
+    task.error,
+    raw.error?.message,
+    raw.message,
+    "",
+  );
+  return {
+    taskId: String(taskId || ""),
+    status: normalizePivoxStatus(status),
+    videoUrl: findPivoxOutputVideoUrl(raw) || "",
+    error: String(error || ""),
+  };
+}
+
+function normalizeApizSeedanceTask(raw = {}) {
+  const outer = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+  const task = outer?.data?.task || outer?.task || raw?.task || {};
+  const status = firstPresent(outer.status, task.status, raw.status, task.state, raw.state, "submitted");
+  const taskId = firstPresent(outer.task_id, outer.taskId, task.task_id, task.taskId, task.id, raw.task_id, raw.taskId, raw.id, "");
+  const error = firstPresent(
+    outer.fail_reason,
+    outer.error_msg,
+    outer.error?.message,
+    task.fail_reason,
+    task.error_msg,
+    task.error?.message,
+    task.error,
+    raw.error?.message,
+    raw.message,
+    "",
+  );
+  return {
+    taskId: String(taskId || ""),
+    status: normalizePivoxStatus(status),
+    videoUrl: apizResultUrl(raw) || findPivoxOutputVideoUrl(raw) || "",
+    error: String(error || ""),
+  };
+}
+
+function normalizeIgnexTask(raw = {}) {
+  const outer = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+  const task = outer?.Result || outer?.result || outer?.data?.task || outer?.task || raw?.task || outer;
+  const status = firstPresent(task?.status, task?.Status, outer?.status, outer?.Status, raw?.status, "submitted");
+  const taskId = firstPresent(
+    task?.id,
+    task?.Id,
+    task?.task_id,
+    task?.taskId,
+    outer?.id,
+    outer?.Id,
+    outer?.task_id,
+    outer?.taskId,
+    raw?.id,
+    raw?.task_id,
+    "",
+  );
+  const error = firstPresent(
+    task?.error?.message,
+    task?.Error?.Message,
+    task?.error,
+    task?.fail_reason,
+    outer?.error?.message,
+    outer?.Error?.Message,
+    outer?.message,
+    raw?.error?.message,
+    raw?.message,
+    "",
+  );
+  return {
+    taskId: String(taskId || ""),
+    status: normalizePivoxStatus(status),
+    videoUrl: findVideoUrl(raw) || "",
+    error: String(error || ""),
+  };
+}
+
 function findVideoUrl(value) {
   if (!value || typeof value !== "object") return "";
   if (typeof value.video_url === "string") return value.video_url;
@@ -13118,7 +14313,7 @@ async function gatewaySeedanceReferenceFromUri(uri = "", label = "Reference") {
   if (value.startsWith("asset://")) return { url: value, name: label };
   const localPath = localAssetPathFromPublicValue(value);
   if (localPath) {
-    const mime = imageMimeFromKnownPath(localPath) || "image/png";
+    const mime = imageMimeFromKnownPath(localPath) || videoMimeFromPath(localPath) || "application/octet-stream";
     return { dataUrl: await dataUrlForLocalAssetUrl(value, mime), fileName: path.basename(localPath), name: label };
   }
   return { url: gatewayAbsoluteAssetUrl(value), name: label };
@@ -14009,7 +15204,7 @@ async function handlePlatformGenerate(req, res) {
   const config = await readAppConfig();
   const template = findPlatformTemplate(config, body.templateId);
   if (template && !isExternalPlatformTemplate(template)) {
-    return sendJson(res, 400, { ok: false, code: "TEMPLATE_NOT_GENERATABLE", message: "This template is a gallery shortcut. Use /api/advanced/generate instead." });
+    return sendJson(res, 400, { ok: false, code: "TEMPLATE_NOT_GENERATABLE", message: "This template is a gallery shortcut and cannot be generated from this endpoint." });
   }
   if (!template) return sendJson(res, 404, { ok: false, message: "模板不存在或未启用。" });
 
@@ -14238,6 +15433,9 @@ async function runAdvancedGenerationJob(job = {}) {
     : [];
   let payload = null;
   let createResponse = null;
+  let useIgnexSeedance = false;
+  let useExternalSeedanceHttp = false;
+  let upstreamSource = USE_GATEWAY_UPSTREAM ? "gateway" : "direct";
 
   try {
     await updateGenerationRecord(taskId, {
@@ -14247,6 +15445,10 @@ async function runAdvancedGenerationJob(job = {}) {
     }, "advanced-preparing");
 
     let db = await readDb();
+    const jobUser = (db.users || []).find((user) => user.id === userId && !isSoftDeleted(user)) || null;
+    useIgnexSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && seedanceIgnexEnabledForUser(jobUser);
+    useExternalSeedanceHttp = useIgnexSeedance;
+    upstreamSource = useIgnexSeedance ? "ignex" : (USE_GATEWAY_UPSTREAM ? "gateway" : "direct");
     if (userAssetId) {
       userAsset = (db.userAssets || []).find((asset) => asset.id === userAssetId && asset.userId === userId && !isSoftDeleted(asset));
       if (!userAsset) {
@@ -14325,6 +15527,10 @@ async function runAdvancedGenerationJob(job = {}) {
         if (USE_GATEWAY_UPSTREAM) {
           imageUrl = userAsset.localUrl || userAsset.publicUrl || "";
           sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
+        } else if (useExternalSeedanceHttp) {
+          referenceAssetUri = publicHttpUrlForUserAsset(userAsset);
+          imageUrl = referenceAssetUri || userAsset.localUrl || userAsset.publicUrl || "";
+          sourceImageUrl = publicHttpUrlForUpstream(userAsset.sourceImageUrl) || publicHttpUrlForUserAsset(userAsset) || userAsset.sourceImageUrl || userAsset.localUrl || "";
         } else {
           const prepared = await prepareSeedanceReferenceAsset(db, userAsset, false);
           userAsset = prepared.asset;
@@ -14340,7 +15546,18 @@ async function runAdvancedGenerationJob(job = {}) {
         sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
       }
     }
-    if (provider === "seedance" && directReferenceAssetUris.length) {
+    if (provider === "seedance" && directReferenceAssetUris.length && useExternalSeedanceHttp) {
+      const directQueue = directReferenceAssetUris
+        .filter((uri) => uri && uri !== referenceAssetUri)
+        .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+      if (!referenceAssetUri && directQueue.length) {
+        referenceAssetUri = directQueue.shift();
+      }
+      directQueue.forEach((uri) => {
+        if (uri !== referenceAssetUri && !extraReferenceAssetUris.includes(uri)) extraReferenceAssetUris.push(uri);
+      });
+      extraReferenceAssetUris = extraReferenceAssetUris.slice(0, Math.max(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT - 1));
+    } else if (provider === "seedance" && directReferenceAssetUris.length && !useExternalSeedanceHttp) {
       const directQueue = directReferenceAssetUris
         .filter((uri) => uri && uri !== referenceAssetUri)
         .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
@@ -14355,6 +15572,9 @@ async function runAdvancedGenerationJob(job = {}) {
     if (provider === "seedance" && seedanceVideoAsset) {
       if (USE_GATEWAY_UPSTREAM) {
         imageUrl = imageUrl || seedanceVideoAsset.localUrl || seedanceVideoAsset.publicUrl || "";
+      } else if (useExternalSeedanceHttp) {
+        referenceVideoAssetUri = publicHttpUrlForUserAsset(seedanceVideoAsset);
+        imageUrl = imageUrl || referenceVideoAssetUri || seedanceVideoAsset.localUrl || seedanceVideoAsset.publicUrl || "";
       } else {
         const preparedVideo = await prepareSeedanceVideoAsset(db, seedanceVideoAsset);
         seedanceVideoAsset = preparedVideo.asset;
@@ -14363,7 +15583,15 @@ async function runAdvancedGenerationJob(job = {}) {
       }
     }
     const extraReferenceVideoUriQueue = [];
-    if (provider === "seedance" && extraSeedanceVideoAssets.length && !USE_GATEWAY_UPSTREAM) {
+    if (provider === "seedance" && extraSeedanceVideoAssets.length && useExternalSeedanceHttp) {
+      for (const asset of extraSeedanceVideoAssets) {
+        const uri = publicHttpUrlForUserAsset(asset);
+        if (uri && uri !== referenceVideoAssetUri && !extraReferenceVideoAssetUris.includes(uri)) {
+          extraReferenceVideoAssetUris.push(uri);
+          extraReferenceVideoUriQueue.push(uri);
+        }
+      }
+    } else if (provider === "seedance" && extraSeedanceVideoAssets.length && !USE_GATEWAY_UPSTREAM) {
       for (const asset of extraSeedanceVideoAssets) {
         const preparedVideo = await prepareSeedanceVideoAsset(db, asset);
         if (preparedVideo.referenceAssetUri && preparedVideo.referenceAssetUri !== referenceVideoAssetUri && !extraReferenceVideoAssetUris.includes(preparedVideo.referenceAssetUri)) {
@@ -14372,7 +15600,7 @@ async function runAdvancedGenerationJob(job = {}) {
         }
       }
     }
-    if (provider === "seedance" && referenceVideoAssetUris.length && !USE_GATEWAY_UPSTREAM) {
+    if (provider === "seedance" && referenceVideoAssetUris.length && !USE_GATEWAY_UPSTREAM && !useExternalSeedanceHttp) {
       const unresolvedReferenceVideoUris = [];
       for (let index = 0; index < referenceVideoAssetUris.length; index += 1) {
         const uri = String(referenceVideoAssetUris[index] || "").trim();
@@ -14435,7 +15663,7 @@ async function runAdvancedGenerationJob(job = {}) {
       resolvedReferenceAudioAssetUris = referenceAudioAssetUris
         .map((uri) => String(uri || "").trim())
         .filter(Boolean);
-      if (seedanceAudioAssets.length && !USE_GATEWAY_UPSTREAM) {
+      if (seedanceAudioAssets.length && !USE_GATEWAY_UPSTREAM && !useExternalSeedanceHttp) {
         for (const asset of seedanceAudioAssets) {
           const preparedAudio = await prepareSeedanceAudioAsset(db, asset);
           const uri = preparedAudio.referenceAssetUri || preparedAudio.audioUrl || "";
@@ -14446,7 +15674,7 @@ async function runAdvancedGenerationJob(job = {}) {
         }
       } else if (seedanceAudioAssets.length) {
         for (const asset of seedanceAudioAssets) {
-          const uri = asset.localUrl || asset.publicUrl || "";
+          const uri = useExternalSeedanceHttp ? publicHttpUrlForUserAsset(asset) : (asset.localUrl || asset.publicUrl || "");
           if (uri && !resolvedReferenceAudioAssetUris.includes(uri)) {
             resolvedReferenceAudioAssetUris.push(uri);
             audioReferenceUriByAssetId.set(asset.id, uri);
@@ -14459,6 +15687,10 @@ async function runAdvancedGenerationJob(job = {}) {
       if (USE_GATEWAY_UPSTREAM) {
         imageUrl = imageUrl || seedanceFirstFrameAsset.localUrl || seedanceFirstFrameAsset.publicUrl || "";
         sourceImageUrl = sourceImageUrl || seedanceFirstFrameAsset.sourceImageUrl || seedanceFirstFrameAsset.localUrl || "";
+      } else if (useExternalSeedanceHttp) {
+        seedanceImageUrl = publicHttpUrlForUserAsset(seedanceFirstFrameAsset);
+        imageUrl = imageUrl || seedanceImageUrl || seedanceFirstFrameAsset.localUrl || seedanceFirstFrameAsset.publicUrl || "";
+        sourceImageUrl = sourceImageUrl || publicHttpUrlForUpstream(seedanceFirstFrameAsset.sourceImageUrl) || seedanceImageUrl || seedanceFirstFrameAsset.sourceImageUrl || seedanceFirstFrameAsset.localUrl || "";
       } else {
         const preparedFrame = await prepareSeedanceReferenceAsset(db, seedanceFirstFrameAsset, false);
         seedanceFirstFrameAsset = preparedFrame.asset;
@@ -14468,7 +15700,9 @@ async function runAdvancedGenerationJob(job = {}) {
       }
     }
     if (provider === "seedance" && seedanceEndFrameAsset) {
-      if (!USE_GATEWAY_UPSTREAM) {
+      if (useExternalSeedanceHttp) {
+        seedanceEndImageUrl = publicHttpUrlForUserAsset(seedanceEndFrameAsset);
+      } else if (!USE_GATEWAY_UPSTREAM) {
         const preparedEndFrame = await prepareSeedanceReferenceAsset(db, seedanceEndFrameAsset, false);
         seedanceEndFrameAsset = preparedEndFrame.asset;
         seedanceEndImageUrl = preparedEndFrame.referenceAssetUri;
@@ -14481,8 +15715,8 @@ async function runAdvancedGenerationJob(job = {}) {
           key: "image_url",
           userAssetId: seedanceFirstFrameAsset.id,
           referenceAssetUri: seedanceImageUrl,
-          imageUrl: seedanceFirstFrameAsset.localUrl || seedanceFirstFrameAsset.publicUrl || imageUrl || "",
-          sourceImageUrl: seedanceFirstFrameAsset.sourceImageUrl || seedanceFirstFrameAsset.localUrl || "",
+          imageUrl: seedanceImageUrl || seedanceFirstFrameAsset.localUrl || seedanceFirstFrameAsset.publicUrl || imageUrl || "",
+          sourceImageUrl: sourceImageUrl || seedanceFirstFrameAsset.sourceImageUrl || seedanceFirstFrameAsset.localUrl || "",
           localUrl: seedanceFirstFrameAsset.localUrl || "",
           mime: seedanceFirstFrameAsset.mime || "",
         }] : []),
@@ -14491,7 +15725,7 @@ async function runAdvancedGenerationJob(job = {}) {
           key: "end_image_url",
           userAssetId: seedanceEndFrameAsset.id,
           referenceAssetUri: seedanceEndImageUrl,
-          imageUrl: seedanceEndFrameAsset.localUrl || seedanceEndFrameAsset.publicUrl || "",
+          imageUrl: seedanceEndImageUrl || seedanceEndFrameAsset.localUrl || seedanceEndFrameAsset.publicUrl || "",
           sourceImageUrl: seedanceEndFrameAsset.sourceImageUrl || seedanceEndFrameAsset.localUrl || "",
           localUrl: seedanceEndFrameAsset.localUrl || "",
           mime: seedanceEndFrameAsset.mime || "",
@@ -14504,7 +15738,7 @@ async function runAdvancedGenerationJob(job = {}) {
           key: `video_${index + 1}`,
           userAssetId: asset.id,
           referenceAssetUri: asset.id === seedanceVideoAsset?.id ? referenceVideoAssetUri : extraReferenceVideoUriQueue.shift() || "",
-          videoUrl: asset.localUrl || asset.publicUrl || imageUrl || "",
+          videoUrl: (asset.id === seedanceVideoAsset?.id ? referenceVideoAssetUri : "") || asset.localUrl || asset.publicUrl || imageUrl || "",
           localUrl: asset.localUrl || "",
           mime: asset.mime || "",
         }));
@@ -14536,11 +15770,11 @@ async function runAdvancedGenerationJob(job = {}) {
           referenceAssetUri: uri,
           imageUrl: uri,
         }));
-      const primaryMediaAsset = USE_GATEWAY_UPSTREAM && userAsset ? [{
+      const primaryMediaAsset = (USE_GATEWAY_UPSTREAM || useExternalSeedanceHttp) && userAsset ? [{
         type: "reference_image",
         key: "image_1",
         userAssetId: userAsset.id,
-        referenceAssetUri: "",
+        referenceAssetUri: useExternalSeedanceHttp ? referenceAssetUri : "",
         imageUrl,
         sourceImageUrl,
         localUrl: userAsset.localUrl || "",
@@ -14557,15 +15791,17 @@ async function runAdvancedGenerationJob(job = {}) {
       }] : [];
       const extraMediaAssets = [];
       for (let index = 0; index < extraUserAssets.length; index += 1) {
-        if (USE_GATEWAY_UPSTREAM) {
+        if (USE_GATEWAY_UPSTREAM || useExternalSeedanceHttp) {
           const asset = extraUserAssets[index];
+          const referenceUrl = useExternalSeedanceHttp ? publicHttpUrlForUserAsset(asset) : "";
+          if (referenceUrl && !extraReferenceAssetUris.includes(referenceUrl)) extraReferenceAssetUris.push(referenceUrl);
           extraMediaAssets.push({
             type: "reference_image",
             key: `extra_${index + 1}`,
             userAssetId: asset?.id || "",
-            referenceAssetUri: "",
-            imageUrl: asset?.localUrl || asset?.publicUrl || "",
-            sourceImageUrl: asset?.sourceImageUrl || asset?.localUrl || "",
+            referenceAssetUri: referenceUrl,
+            imageUrl: referenceUrl || asset?.localUrl || asset?.publicUrl || "",
+            sourceImageUrl: (useExternalSeedanceHttp ? publicHttpUrlForUpstream(asset?.sourceImageUrl) : "") || asset?.sourceImageUrl || asset?.localUrl || "",
             localUrl: asset?.localUrl || "",
             mime: asset?.mime || "",
           });
@@ -14720,7 +15956,8 @@ async function runAdvancedGenerationJob(job = {}) {
       payload = submitted.payload;
       createResponse = submitted.raw;
     } else {
-      const submitted = await submitSeedanceVideoTask({
+      const submitSeedanceTask = useIgnexSeedance ? submitIgnexSeedanceVideoTask : submitSeedanceVideoTask;
+      const submitted = await submitSeedanceTask({
         config,
         prompt,
         referenceAssetUri,
@@ -14734,10 +15971,13 @@ async function runAdvancedGenerationJob(job = {}) {
           ...requestParams,
         },
         slug: "advanced",
+        user: jobUser,
+        db,
       });
-      task = submitted.task;
+      task = { ...submitted.task, recordModel: submitted.recordModel || "" };
       payload = submitted.payload;
       createResponse = submitted.raw || task;
+      upstreamSource = submitted.upstreamSource || upstreamSource;
     }
 
     const upstreamTaskId = task?.taskId || "";
@@ -14749,10 +15989,11 @@ async function runAdvancedGenerationJob(job = {}) {
 
     const submittedAt = new Date().toISOString();
     const submittedModel = String(firstPresent(
+      task?.recordModel,
       task?.record?.model,
       task?.raw?.record?.model,
       task?.raw?.data?.record?.model,
-      payload?.model,
+      useExternalSeedanceHttp ? runtime.model : payload?.model,
       runtime.model,
     ));
     const fixedBilling = {
@@ -14768,7 +16009,8 @@ async function runAdvancedGenerationJob(job = {}) {
       awaitingUpstreamTask: false,
       model: submittedModel,
       provider: runtime.providerName,
-      upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
+      upstreamSource,
+      upstreamModel: useExternalSeedanceHttp ? (payload?.params?.model || payload?.model || "") : "",
       source: runtime.recordSource,
       kind: "advanced-video",
       imageUrl,
@@ -14830,6 +16072,9 @@ function byteplusErrorPayload({ code = "InvalidParameter", message = "Invalid pa
 function byteplusHttpError(statusCode = 400, message = "Invalid parameter.", param = "", code = "InvalidParameter") {
   const error = new Error(message);
   error.statusCode = statusCode;
+  error.code = code;
+  error.param = param;
+  if (param) error.details = { param };
   error.byteplusError = byteplusErrorPayload({
     code,
     message,
@@ -14961,9 +16206,10 @@ function byteplusSeedanceTierFromModel(model = "") {
 }
 
 function byteplusV3TaskToAdvancedBody(body = {}, auth = {}) {
-  const model = String(body.model || "").trim();
+  const source = { ...requestParamsFromBody(body), ...body };
+  const model = String(source.model || "").trim();
   if (!model) throw byteplusHttpError(400, "model is required.", "model");
-  if (!Array.isArray(body.content) || body.content.length < 1 || body.content.length > 16) {
+  if (!Array.isArray(source.content) || source.content.length < 1 || source.content.length > 16) {
     throw byteplusHttpError(400, "content must be an array with 1 to 16 items.", "content");
   }
   const promptParts = [];
@@ -14983,7 +16229,7 @@ function byteplusV3TaskToAdvancedBody(body = {}, auth = {}) {
   let videoCount = 0;
   let audioCount = 0;
 
-  body.content.forEach((rawItem, index) => {
+  source.content.forEach((rawItem, index) => {
     const param = `content[${index}]`;
     const item = normalizeSeedanceContentItem(rawItem);
     if (!item || typeof item !== "object" || Array.isArray(item)) {
@@ -15065,12 +16311,12 @@ function byteplusV3TaskToAdvancedBody(body = {}, auth = {}) {
     seedanceTier,
     prompt,
     seedanceMode,
-    ratio: firstPresent(body.ratio, body.aspect_ratio, "9:16"),
-    resolution: firstPresent(body.resolution, "720p"),
-    duration: firstPresent(body.duration, body.durationSeconds, 5),
-    generate_audio: boolFromRequest(firstPresent(body.generate_audio, body.generateAudio), true),
-    watermark: boolFromRequest(body.watermark, false),
-    parameters: {},
+    ratio: firstPresent(source.ratio, source.aspect_ratio, "9:16"),
+    resolution: firstPresent(source.resolution, "720p"),
+    duration: firstPresent(source.duration, source.durationSeconds, 5),
+    generate_audio: boolFromRequest(firstPresent(source.generate_audio, source.generateAudio), true),
+    watermark: boolFromRequest(source.watermark, false),
+    parameters: plainObject(source.parameters),
   };
   [
     "callback_url",
@@ -15086,7 +16332,7 @@ function byteplusV3TaskToAdvancedBody(body = {}, auth = {}) {
     "camera_fixed",
     "web_search",
   ].forEach((field) => {
-    if (body[field] !== undefined) advancedBody[field] = body[field];
+    if (source[field] !== undefined) advancedBody[field] = source[field];
   });
   if (target.image_url) advancedBody.image_url = target.image_url;
   if (target.end_image_url) advancedBody.end_image_url = target.end_image_url;
@@ -15883,10 +17129,11 @@ async function handleAdvancedGenerate(req, res) {
   } catch (error) {
     return sendAdvancedValidationError(res, error);
   }
+  const canUseIgnexSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && seedanceIgnexEnabledForUser(auth.user);
   if (USE_GATEWAY_UPSTREAM && !UPSTREAM_API_TOKEN) {
     return sendJson(res, 503, { ok: false, code: "GATEWAY_TOKEN_NOT_CONFIGURED", message: "Gateway upstream token is not configured." });
   }
-  if (!USE_GATEWAY_UPSTREAM && provider === "seedance" && !ARK_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && provider === "seedance" && !ARK_API_KEY && !canUseIgnexSeedance) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Vipeak 2 generation is not configured." });
   }
   if (!USE_GATEWAY_UPSTREAM && provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
@@ -15986,8 +17233,16 @@ async function handleAdvancedGenerate(req, res) {
         "content",
       "web_search",
       "webSearch",
+      "callback_url",
+      "return_last_frame",
+      "service_tier",
+      "execution_expires_after",
+      "draft",
+      "safety_identifier",
+      "priority",
       "watermark",
       "seed",
+      "frames",
       "fps",
       "camera_fixed",
     ].forEach((field) => {
@@ -16086,10 +17341,6 @@ async function handleAdvancedGenerate(req, res) {
     }
     if (referenceAudioAssetUris.length) {
       requestParams.reference_audios = referenceAudioAssetUris;
-    }
-    if (referenceVideoAssetIds.length || referenceVideoAssetUris.length) {
-      seedanceMode = "reference_video";
-      requestParams.seedanceMode = seedanceMode;
     }
     const referenceInputs = seedanceReferenceInputsFromBody(mergedBody, { includeDataUrlFallback: !seedanceModeNeedsFirstFrame(seedanceMode) });
     const createdReferenceAssets = await createUserImageAssetsFromInputs(auth.db, auth.user, referenceInputs, {
@@ -16820,7 +18071,7 @@ async function handlePlatformEstimates(req, res, url) {
     return sendJson(res, 404, { ok: false, message: "Template not found." });
   }
   if (requestedTemplate && !isExternalPlatformTemplate(requestedTemplate)) {
-    return sendJson(res, 400, { ok: false, code: "TEMPLATE_NOT_GENERATABLE", message: "This template is a gallery shortcut. Use /api/advanced/generate instead." });
+    return sendJson(res, 400, { ok: false, code: "TEMPLATE_NOT_GENERATABLE", message: "This template is a gallery shortcut and cannot be generated from this endpoint." });
   }
   const templates = requestedTemplate
     ? [requestedTemplate]
@@ -17012,7 +18263,7 @@ function advancedGenerateConstraintsDoc() {
         maxAspectRatio: SEEDANCE_IMAGE_ASPECT_RATIO_MAX,
         examples: ["9:16", "16:9", "1:1"],
       },
-      errorShape: { ok: false, code: "INVALID_DURATION", message: "Human readable error.", details: {} },
+      errorShape: { error: { code: "InvalidParameter", message: "Human readable error.", param: "duration" } },
     },
     seedance: {
       provider: "seedance",
@@ -17754,6 +19005,407 @@ async function arkRequest(method, pathname, body) {
     throw error;
   }
 
+  return payload;
+}
+
+async function pivoxRequest(method, pathname, body = null) {
+  if (!PIVOX_API_KEY) {
+    const error = new Error("Missing PIVOX_API_KEY");
+    error.code = "MISSING_PIVOX_API_KEY";
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const maxAttempts = method === "GET" ? 3 : 2;
+  let response;
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      response = await fetch(`${PIVOX_API_BASE_URL}${pathname}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${PIVOX_API_KEY}`,
+          accept: "application/json",
+          ...(body ? { "content-type": "application/json" } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(method === "GET" ? 60000 : 180000),
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) await delay(attempt * 900);
+    }
+  }
+  if (!response) {
+    const error = new Error(`Pivoxapi request failed: ${lastError?.cause?.code || lastError?.message || "fetch failed"}`);
+    error.code = "PIVOX_FETCH_FAILED";
+    error.statusCode = 502;
+    error.cause = lastError;
+    throw error;
+  }
+
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { message: text };
+  }
+  if (!response.ok || payload?.error || payload?.code >= 400) {
+    const error = new Error(payload?.error?.message || payload?.message || payload?.detail || `Pivoxapi request failed: ${response.status}`);
+    error.statusCode = response.status || 502;
+    error.code = payload?.error?.code || payload?.code || "PIVOX_REQUEST_FAILED";
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+async function apizSeedanceRequest(pathname, body = {}, options = {}) {
+  if (!APIZ_SEEDANCE_API_KEY) {
+    const error = new Error("Missing APIZ_SEEDANCE_API_KEY");
+    error.code = "MISSING_APIZ_SEEDANCE_API_KEY";
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const method = String(options.method || "POST").toUpperCase();
+  const hasBody = body !== undefined && body !== null && method !== "GET" && method !== "HEAD";
+  let response;
+  let lastError;
+  const maxAttempts = method === "GET" ? 3 : 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      response = await fetch(`${APIZ_SEEDANCE_API_BASE_URL}${pathname}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${APIZ_SEEDANCE_API_KEY}`,
+          accept: "application/json",
+          ...(hasBody ? { "content-type": "application/json" } : {}),
+        },
+        body: hasBody ? JSON.stringify(body || {}) : undefined,
+        signal: AbortSignal.timeout(method === "GET" ? 60000 : 180000),
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) await delay(attempt * 900);
+    }
+  }
+  if (!response) {
+    const error = new Error(`APIZ Seedance request failed: ${lastError?.cause?.code || lastError?.message || "fetch failed"}`);
+    error.code = "APIZ_SEEDANCE_FETCH_FAILED";
+    error.statusCode = 502;
+    error.cause = lastError;
+    throw error;
+  }
+
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { message: text };
+  }
+  if (!response.ok || payload?.error || payload?.code >= 400) {
+    const error = new Error(payload?.error?.message || payload?.message || payload?.detail || `APIZ Seedance request failed: ${response.status}`);
+    error.statusCode = response.status || 502;
+    error.code = payload?.error?.code || payload?.code || "APIZ_SEEDANCE_REQUEST_FAILED";
+    error.payload = payload;
+    throw error;
+  }
+  return payload.data || payload;
+}
+
+function ignexAssetCacheKey(assetType = "Image", sourceUrl = "") {
+  const digest = crypto
+    .createHash("sha1")
+    .update(`${IGNEX_PROJECT_NAME}:${String(assetType || "").toLowerCase()}:${String(sourceUrl || "").trim()}`)
+    .digest("hex");
+  return `ignex_asset_uri:${digest}`;
+}
+
+function normalizeIgnexAssetUri(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(/^asset:\/\/(.+)$/i);
+  return match ? `asset://${match[1]}` : "";
+}
+
+function extractIgnexAssetId(raw = {}) {
+  return String(firstPresent(
+    raw?.Result?.Id,
+    raw?.Result?.id,
+    raw?.result?.Id,
+    raw?.result?.id,
+    raw?.Id,
+    raw?.id,
+    raw?.asset_id,
+    raw?.assetId,
+    "",
+  ) || "").trim();
+}
+
+async function ignexRequest(method, pathname, body = null) {
+  if (!IGNEX_API_KEY) {
+    const error = new Error("Missing IGNEX_API_KEY");
+    error.code = "MISSING_IGNEX_API_KEY";
+    error.statusCode = 503;
+    throw error;
+  }
+  const requestUrl = /^https?:\/\//i.test(String(pathname || ""))
+    ? String(pathname)
+    : `${IGNEX_API_BASE_URL}${pathname}`;
+  const upperMethod = String(method || "GET").toUpperCase();
+  const hasBody = body !== undefined && body !== null && upperMethod !== "GET" && upperMethod !== "HEAD";
+  const maxAttempts = upperMethod === "GET" ? 3 : 2;
+  let response;
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      response = await fetch(requestUrl, {
+        method: upperMethod,
+        headers: {
+          authorization: `Bearer ${IGNEX_API_KEY}`,
+          accept: "application/json",
+          ...(hasBody ? { "content-type": "application/json" } : {}),
+        },
+        body: hasBody ? JSON.stringify(body || {}) : undefined,
+        signal: AbortSignal.timeout(upperMethod === "GET" ? 60000 : 180000),
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) await delay(attempt * 900);
+    }
+  }
+  if (!response) {
+    const error = new Error(`Ignex request failed: ${lastError?.cause?.code || lastError?.message || "fetch failed"}`);
+    error.code = "IGNEX_FETCH_FAILED";
+    error.statusCode = 502;
+    error.cause = lastError;
+    throw error;
+  }
+
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { message: text };
+  }
+  const responseError = payload?.ResponseMetadata?.Error || payload?.error;
+  if (!response.ok || responseError || payload?.code >= 400) {
+    const error = new Error(
+      responseError?.Message ||
+      responseError?.message ||
+      payload?.message ||
+      payload?.detail ||
+      `Ignex request failed: ${response.status}`,
+    );
+    error.statusCode = response.status || 502;
+    error.code = responseError?.Code || responseError?.code || payload?.code || "IGNEX_REQUEST_FAILED";
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+async function ignexAssetAction(action = "", body = {}) {
+  const actionName = String(action || "").trim();
+  if (!actionName) {
+    const error = new Error("Missing Ignex action.");
+    error.statusCode = 500;
+    throw error;
+  }
+  return ignexRequest("POST", `/?Action=${encodeURIComponent(actionName)}&Version=2024-01-01`, body);
+}
+
+async function ignexAssetGroupId() {
+  if (IGNEX_ASSET_GROUP_ID) return IGNEX_ASSET_GROUP_ID;
+  if (ignexAssetGroupCache) return ignexAssetGroupCache;
+  const kvKey = `ignex_asset_group:${IGNEX_PROJECT_NAME}:${IGNEX_ASSET_GROUP_NAME}`;
+  const cached = String(await getKv(kvKey, "") || "").trim();
+  if (cached) {
+    ignexAssetGroupCache = cached;
+    return cached;
+  }
+  const list = await ignexAssetAction("ListAssetGroups", {
+    PageNumber: 1,
+    PageSize: 50,
+    ProjectName: IGNEX_PROJECT_NAME,
+    Filter: { GroupType: "AIGC" },
+  });
+  const groups = Array.isArray(list?.Result?.Items) ? list.Result.Items : [];
+  const existing = groups.find((item) => String(item?.Name || item?.name || "").trim() === IGNEX_ASSET_GROUP_NAME);
+  const existingId = String(existing?.Id || existing?.id || "").trim();
+  if (existingId) {
+    ignexAssetGroupCache = existingId;
+    await setKv(kvKey, existingId);
+    return existingId;
+  }
+  const created = await ignexAssetAction("CreateAssetGroup", {
+    Name: IGNEX_ASSET_GROUP_NAME,
+    Description: "Vipeak Seedance reusable references",
+    GroupType: "AIGC",
+    ProjectName: IGNEX_PROJECT_NAME,
+  });
+  const createdId = extractIgnexAssetId(created);
+  if (!createdId) {
+    const error = new Error(`Ignex CreateAssetGroup did not return group id: ${JSON.stringify(created || {})}`);
+    error.statusCode = 502;
+    error.code = "IGNEX_ASSET_GROUP_FAILED";
+    error.payload = created;
+    throw error;
+  }
+  ignexAssetGroupCache = createdId;
+  await setKv(kvKey, createdId);
+  return createdId;
+}
+
+function userAssetIdFromAssetUri(value = "") {
+  const match = String(value || "").trim().match(/^asset:\/\/([^/?#]+)$/i);
+  return match ? match[1] : "";
+}
+
+async function publicIgnexMediaSourceUrl(db, user, value = "", name = "Seedance media") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const localAssetId = userAssetIdFromAssetUri(text);
+  if (localAssetId && db?.userAssets && user?.id) {
+    const asset = (db.userAssets || []).find((item) => item.id === localAssetId && item.userId === user.id && !isSoftDeleted(item));
+    if (asset) {
+      const prepared = await ensurePublicUrlForUserMediaAsset(db, asset);
+      return publicHttpUrlForUserAsset(prepared);
+    }
+  }
+  if (normalizeIgnexAssetUri(text)) return normalizeIgnexAssetUri(text);
+  const publicUrl = publicHttpUrlForUpstream(text);
+  if (publicUrl) return publicUrl;
+  if (!/^data:(image|video|audio)\//i.test(text) || !db || !user?.id) return "";
+  const { mime, bytes } = decodeWanMediaDataUrl(text);
+  const maxBytes = mime.startsWith("image/") ? IMAGE_UPLOAD_MAX_BYTES : MEDIA_UPLOAD_MAX_BYTES;
+  const ext = mime.startsWith("video/") ? ".mp4" : mime.startsWith("audio/") ? ".mp3" : imageExtFromMime(mime);
+  const userAsset = await createUserMediaAssetFromBytes(db, user, {
+    bytes,
+    mime,
+    name,
+    fileName: `${String(name || "media").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 40) || "media"}${ext}`,
+    maxBytes,
+  });
+  const publicAsset = await ensurePublicUrlForUserMediaAsset(db, userAsset);
+  return publicHttpUrlForUserAsset(publicAsset);
+}
+
+async function uploadIgnexSeedanceAsset({ db = null, user = {}, url = "", assetType = "Image", name = "reference-media" } = {}) {
+  const sourceUrl = await publicIgnexMediaSourceUrl(db, user, url, name);
+  if (!sourceUrl) return "";
+  const existingAssetUri = normalizeIgnexAssetUri(sourceUrl);
+  if (existingAssetUri && !isPublicHttpUrl(sourceUrl)) return existingAssetUri;
+  const normalizedType = String(assetType || "Image").trim() || "Image";
+  const cacheKey = ignexAssetCacheKey(normalizedType, sourceUrl);
+  const cachedAssetUri = IGNEX_ASSET_URI_CACHE.get(cacheKey) || String(await getKv(cacheKey, "") || "").trim();
+  if (cachedAssetUri) {
+    IGNEX_ASSET_URI_CACHE.set(cacheKey, cachedAssetUri);
+    return cachedAssetUri;
+  }
+  const groupId = await ignexAssetGroupId();
+  const uploadPayload = {
+    GroupId: groupId,
+    URL: sourceUrl,
+    AssetType: normalizedType,
+    Name: name,
+    Moderation: { Strategy: "Skip" },
+    ProjectName: IGNEX_PROJECT_NAME,
+  };
+  console.log("[ignex-seedance-asset-upload]", JSON.stringify({
+    action: "CreateAsset",
+    assetType: normalizedType,
+    name,
+    sourceUrl,
+  }));
+  const raw = await ignexAssetAction("CreateAsset", uploadPayload);
+  const assetId = extractIgnexAssetId(raw);
+  if (!assetId) {
+    const error = new Error(`Ignex CreateAsset did not return asset id: ${JSON.stringify(raw || {})}`);
+    error.statusCode = 502;
+    error.code = "IGNEX_ASSET_UPLOAD_FAILED";
+    error.payload = raw;
+    throw error;
+  }
+  const assetUri = `asset://${assetId}`;
+  IGNEX_ASSET_URI_CACHE.set(cacheKey, assetUri);
+  await setKv(cacheKey, assetUri);
+  return assetUri;
+}
+
+async function prepareIgnexSeedancePayloadAssets(payload = {}, { db = null, user = {} } = {}) {
+  const uploadCache = new Map();
+  const toAsset = async (value = "", assetType = "Image", name = "reference-media") => {
+    const sourceKey = `${assetType}:${String(value || "").trim()}`;
+    if (!String(value || "").trim()) return "";
+    if (!uploadCache.has(sourceKey)) {
+      uploadCache.set(sourceKey, uploadIgnexSeedanceAsset({ db, user, url: value, assetType, name }));
+    }
+    return await uploadCache.get(sourceKey);
+  };
+  if (payload.image_url) payload.image_url = await toAsset(payload.image_url, "Image", "first-frame");
+  if (payload.end_image_url) payload.end_image_url = await toAsset(payload.end_image_url, "Image", "last-frame");
+  if (Array.isArray(payload.reference_images)) {
+    const refs = [];
+    for (let index = 0; index < payload.reference_images.length; index += 1) {
+      const assetUri = await toAsset(nestedMediaUrl(payload.reference_images[index]), "Image", `reference-image-${index + 1}`);
+      if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    payload.reference_images = refs;
+  }
+  if (Array.isArray(payload.reference_videos)) {
+    const refs = [];
+    for (let index = 0; index < payload.reference_videos.length; index += 1) {
+      const assetUri = await toAsset(nestedMediaUrl(payload.reference_videos[index]), "Video", `reference-video-${index + 1}`);
+      if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    payload.reference_videos = refs;
+  }
+  if (Array.isArray(payload.reference_audios)) {
+    const refs = [];
+    for (let index = 0; index < payload.reference_audios.length; index += 1) {
+      const assetUri = await toAsset(nestedMediaUrl(payload.reference_audios[index]), "Audio", `reference-audio-${index + 1}`);
+      if (assetUri && !refs.includes(assetUri)) refs.push(assetUri);
+    }
+    payload.reference_audios = refs;
+  }
+  if (Array.isArray(payload.content)) {
+    const preparedContent = [];
+    for (let index = 0; index < payload.content.length; index += 1) {
+      const item = normalizeSeedanceContentItem(payload.content[index]);
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        preparedContent.push(item);
+        continue;
+      }
+      if (item.type === "image_url") {
+        const assetUri = await toAsset(mediaUrlFromOfficialItem(item, "image_url"), "Image", `content-image-${index + 1}`);
+        preparedContent.push(assetUri ? setOfficialMediaUrl(item, "image_url", assetUri) : item);
+        continue;
+      }
+      if (item.type === "video_url") {
+        const assetUri = await toAsset(mediaUrlFromOfficialItem(item, "video_url"), "Video", `content-video-${index + 1}`);
+        preparedContent.push(assetUri ? setOfficialMediaUrl(item, "video_url", assetUri) : item);
+        continue;
+      }
+      if (item.type === "audio_url") {
+        const assetUri = await toAsset(mediaUrlFromOfficialItem(item, "audio_url"), "Audio", `content-audio-${index + 1}`);
+        preparedContent.push(assetUri ? setOfficialMediaUrl(item, "audio_url", assetUri) : item);
+        continue;
+      }
+      preparedContent.push(item);
+    }
+    payload.content = preparedContent;
+  }
+  if (Array.isArray(payload.reference_images) && !payload.reference_images.length) delete payload.reference_images;
+  if (Array.isArray(payload.reference_videos) && !payload.reference_videos.length) delete payload.reference_videos;
+  if (Array.isArray(payload.reference_audios) && !payload.reference_audios.length) delete payload.reference_audios;
   return payload;
 }
 
@@ -22992,14 +24644,18 @@ function adminRechargeLedgerRecordView(record = {}, userMap = new Map()) {
   const user = userMap.get(record.userId) || {};
   const source = record.source || record.kind || "";
   const provider = record.paymentProvider || record.provider || "";
-  const credits = creditsAmount(record.credits ?? record.creditAmount ?? Math.abs(Number(record.delta || 0)));
+  const credits = record.delta !== undefined && record.delta !== null
+    ? creditsAmount(record.delta)
+    : creditsAmount(record.credits ?? record.creditAmount ?? 0);
   return {
     id: record.id || "",
     source,
-    sourceLabel: source === "manual_admin" ? "后台手动加币" : "用户充值",
+    sourceLabel: source === "manual_admin" ? "Admin credit adjustment" : "User top-up",
     userId: record.userId || "",
     username: record.username || user.username || "",
     credits,
+    delta: credits,
+    direction: credits < 0 ? "subtract" : "add",
     amountUsd: record.amountUsd ?? record.baseAmount ?? "",
     payableAmount: record.payableAmount ?? "",
     payableAmountText: record.payableAmountText || "",
@@ -23040,8 +24696,7 @@ function adminRechargeLedgerRecords(db = {}) {
       paidAt: order.paidAt || order.matchedAt || order.updatedAt || order.createdAt,
     }, userMap));
   const manualEntries = (db.creditLedger || [])
-    .filter((entry) => Number(entry.delta || 0) > 0)
-    .filter((entry) => ["admin_credit_add", "admin_credit_adjustment", "manual_credit_add", "manual_credit_adjustment"].includes(String(entry.type || "")))
+    .filter((entry) => ["admin_credit_add", "admin_credit_subtract", "admin_credit_adjustment", "manual_credit_add", "manual_credit_adjustment"].includes(String(entry.type || "")))
     .map((entry) => {
       const meta = entry.meta && typeof entry.meta === "object" ? entry.meta : {};
       return adminRechargeLedgerRecordView({
@@ -23049,7 +24704,7 @@ function adminRechargeLedgerRecords(db = {}) {
         source: "manual_admin",
         userId: entry.userId,
         username: entry.username || userMap.get(entry.userId)?.username || "",
-        credits: entry.delta,
+        delta: entry.delta,
         adminUserId: meta.adminUserId || "",
         adminUsername: meta.adminUsername || "",
         note: meta.note || meta.reason || entry.type || "",
@@ -23063,7 +24718,9 @@ function adminRechargeLedgerRecords(db = {}) {
 
 function adminRechargeLedgerSummary(records = []) {
   const userTopups = records.filter((entry) => entry.source === "user_topup");
-  const manualAdds = records.filter((entry) => entry.source === "manual_admin");
+  const manualAdjustments = records.filter((entry) => entry.source === "manual_admin");
+  const manualAdds = manualAdjustments.filter((entry) => Number(entry.credits || 0) > 0);
+  const manualReductions = manualAdjustments.filter((entry) => Number(entry.credits || 0) < 0);
   const sumCredits = (items) => creditsAmount(items.reduce((sum, item) => sum + Number(item.credits || 0), 0));
   const sumUsd = (items) => creditsAmount(items.reduce((sum, item) => sum + Number(item.amountUsd || 0), 0));
   return {
@@ -23072,8 +24729,11 @@ function adminRechargeLedgerSummary(records = []) {
     userTopupCount: userTopups.length,
     userTopupCredits: sumCredits(userTopups),
     userTopupUsd: sumUsd(userTopups),
-    manualCount: manualAdds.length,
+    manualCount: manualAdjustments.length,
     manualCredits: sumCredits(manualAdds),
+    manualAddedCredits: sumCredits(manualAdds),
+    manualReducedCredits: creditsAmount(Math.abs(sumCredits(manualReductions))),
+    manualNetCredits: sumCredits(manualAdjustments),
   };
 }
 
@@ -23791,6 +25451,12 @@ async function handleGetGenerationRecord(req, res, taskId) {
       nextRecord = await refreshGenerationRecordStatus(record);
     } catch (error) {
       console.warn("[gateway-generation-record-detail-refresh-failed]", taskId, error.message || error);
+    }
+  } else if (record.upstreamSource === "ignex" && shouldRefreshGenerationRecord(record)) {
+    try {
+      nextRecord = await refreshIgnexGenerationRecord(record, "ignex-detail");
+    } catch (error) {
+      console.warn("[ignex-generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
   } else if (record.provider === "aliyun-wan27" && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(record)) {
     try {
@@ -24787,10 +26453,6 @@ async function handleRequest(req, res) {
       return await handleByteplusV3GetTask(req, res, decodeURIComponent(byteplusV3TaskMatch[1]));
     }
 
-    if (["GET", "POST"].includes(req.method) && url.pathname === "/" && (url.searchParams.has("Action") || url.searchParams.has("action"))) {
-      return await handleByteplusAssetAction(req, res, url);
-    }
-
     const volcengineTaskMatch = url.pathname.match(/^\/(?:v3\/)?contents\/generations\/tasks\/([^/]+)\/?$/);
     if (req.method === "POST" && /^\/(?:v3\/)?contents\/generations\/tasks\/?$/.test(url.pathname)) {
       return await handleVolcengineCreateGenerationTask(req, res);
@@ -25240,6 +26902,10 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && url.pathname === "/api/character-assets") {
       const assets = await getKv("character_assets", {});
       return sendJson(res, 200, { ok: true, assets: assets && typeof assets === "object" ? assets : {} });
+    }
+
+    if (["GET", "POST"].includes(req.method) && url.pathname === "/" && (url.searchParams.has("Action") || url.searchParams.has("action"))) {
+      return await handleByteplusAssetAction(req, res, url);
     }
 
     if (req.method === "GET" && url.pathname === "/api/generation-records") {

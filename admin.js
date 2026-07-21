@@ -624,7 +624,7 @@ async function renderDashboard() {
       <div class="adm-page-head">
         <div>
           <h2>仪表盘</h2>
-          <p class="adm-muted">用户、充值、生成和系统角色访问的关键指标。</p>
+          <p class="adm-muted">用户、角色、充值和系统角色访问的关键指标。</p>
         </div>
         <div class="adm-page-actions">
           <button class="adm-btn adm-btn-ghost" data-act="refresh"><i data-lucide="refresh-cw"></i>刷新</button>
@@ -637,7 +637,7 @@ async function renderDashboard() {
         ${statCard("角色 PV", visits.pv || visits.total || 0, `${visits.home || 0} 首页进入`, "eye", "mint")}
         ${statCard("角色 UV", visits.uv || 0, "90 天哈希位图估算", "users", "amber")}
         ${statCard("用户自定义角色", s.userCharacters, `${s.userSceneVideos || 0} 个用户场景视频`, "user-plus", "rose")}
-        ${statCard("钱包订单", s.walletOrders, `${s.pendingOrders || 0} 待确认`, "wallet", "amber")}
+        ${statCard("钱包订单", s.walletOrders, `${s.pendingOrders || 0} 待确认`, "wallet", "violet")}
         ${statCard("生成历史", s.generationRecords, "任务记录总数", "history", "mint")}
         ${statCard("用户素材库", s.userAssets, "上传图片素材数量", "images", "amber")}
       </div>
@@ -831,64 +831,6 @@ function statusText(status) {
     reference_failed: "参考失败",
   };
   return map[String(status).toLowerCase()] || status;
-}
-
-function openCreatePresetDialog() {
-  const tpl = document.createElement("div");
-  tpl.innerHTML = `
-    <label class="adm-upload">
-      <input id="presetFile" type="file" accept="image/png,image/jpeg,image/webp" />
-      <i data-lucide="image-up"></i>
-      <span>点击或拖拽上传角色图（建议竖版 9:16，全身）</span>
-      <img id="presetPreview" hidden />
-    </label>
-    <div class="adm-form-row adm-mt"><span>角色名</span><input id="presetName" type="text" maxlength="40" placeholder="例如 Ava" /></div>
-    <div class="adm-form-row"><span>角色描述</span><textarea id="presetDescription" rows="4" maxlength="1200" placeholder="用于详情页和后台查看，不直接当生成视频提示词。"></textarea></div>
-    <div class="adm-form-row"><span>标签</span><input id="presetTags" type="text" maxlength="180" placeholder="用逗号分隔，例如 Blonde, Cosplay, Realistic" /></div>
-    <div class="adm-form-row"><span>分类</span><input id="presetCategory" type="text" maxlength="48" placeholder="例如 Featured" /></div>
-    <details class="adm-detail-json adm-mt">
-      <summary>高级：内部参考 Prompt</summary>
-      <div class="adm-form-row adm-mt"><span>内部 Prompt</span><textarea id="presetPrompt" rows="5" placeholder="可留空。仅作为内部参考，不在卡片上展示。"></textarea></div>
-    </details>
-  `;
-  let dataUrl = "";
-  setTimeout(() => {
-    const file = tpl.querySelector("#presetFile");
-    const preview = tpl.querySelector("#presetPreview");
-    file.addEventListener("change", () => {
-      const f = file.files?.[0];
-      if (!f) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        dataUrl = String(reader.result || "");
-        preview.src = dataUrl;
-        preview.hidden = false;
-      };
-      reader.readAsDataURL(f);
-    });
-    refreshIcons();
-  }, 0);
-  openDialog({
-    title: "新建系统角色",
-    body: tpl,
-    confirmText: "保存角色",
-    onConfirm: async () => {
-      const name = tpl.querySelector("#presetName").value.trim();
-      const description = tpl.querySelector("#presetDescription").value.trim();
-      const tags = tpl.querySelector("#presetTags").value;
-      const category = tpl.querySelector("#presetCategory").value.trim();
-      const prompt = tpl.querySelector("#presetPrompt").value;
-      if (!dataUrl) { toast("请先选择一张角色图。", "error"); return false; }
-      if (!name) { toast("请填写角色名。", "error"); return false; }
-      await api("/api/admin/home-image", {
-        method: "POST",
-        body: { dataUrl, name, description, tags, category, prompt },
-      });
-      toast("系统角色已保存。", "success");
-      state.config = null;
-      renderCharacters();
-    },
-  });
 }
 
 async function openEditPresetDialog(itemId) {
@@ -1144,6 +1086,64 @@ function userCharCard(c) {
       </div>
     </article>
   `;
+}
+
+function openCreatePresetDialog() {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = `
+    <label class="adm-upload">
+      <input id="presetFile" type="file" accept="image/png,image/jpeg,image/webp" />
+      <i data-lucide="image-up"></i>
+      <span>点击或拖拽上传角色图（建议竖版 9:16，全身）</span>
+      <img id="presetPreview" hidden />
+    </label>
+    <div class="adm-form-row adm-mt"><span>角色名</span><input id="presetName" type="text" maxlength="40" placeholder="例如 Ava" /></div>
+    <div class="adm-form-row"><span>角色描述</span><textarea id="presetDescription" rows="4" maxlength="1200" placeholder="用于详情页和后台查看，不直接当生成视频提示词。"></textarea></div>
+    <div class="adm-form-row"><span>标签</span><input id="presetTags" type="text" maxlength="180" placeholder="用逗号分隔，例如 Blonde, Cosplay, Realistic" /></div>
+    <div class="adm-form-row"><span>分类</span><input id="presetCategory" type="text" maxlength="48" placeholder="例如 Featured" /></div>
+    <details class="adm-detail-json adm-mt">
+      <summary>高级：内部参考 Prompt</summary>
+      <div class="adm-form-row adm-mt"><span>内部 Prompt</span><textarea id="presetPrompt" rows="5" placeholder="可留空。仅作为内部参考，不在卡片上展示。"></textarea></div>
+    </details>
+  `;
+  let dataUrl = "";
+  setTimeout(() => {
+    const file = tpl.querySelector("#presetFile");
+    const preview = tpl.querySelector("#presetPreview");
+    file.addEventListener("change", () => {
+      const f = file.files?.[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        dataUrl = String(reader.result || "");
+        preview.src = dataUrl;
+        preview.hidden = false;
+      };
+      reader.readAsDataURL(f);
+    });
+    refreshIcons();
+  }, 0);
+  openDialog({
+    title: "新建系统角色",
+    body: tpl,
+    confirmText: "保存角色",
+    onConfirm: async () => {
+      const name = tpl.querySelector("#presetName").value.trim();
+      const description = tpl.querySelector("#presetDescription").value.trim();
+      const tags = tpl.querySelector("#presetTags").value;
+      const category = tpl.querySelector("#presetCategory").value.trim();
+      const prompt = tpl.querySelector("#presetPrompt").value;
+      if (!dataUrl) { toast("请先选择一张角色图。", "error"); return false; }
+      if (!name) { toast("请填写角色名。", "error"); return false; }
+      await api("/api/admin/home-image", {
+        method: "POST",
+        body: { dataUrl, name, description, tags, category, prompt },
+      });
+      toast("系统角色已保存。", "success");
+      state.config = null;
+      renderCharacters();
+    },
+  });
 }
 
 function adminCharacterDescription(item = {}) {
@@ -3070,25 +3070,25 @@ async function renderRecharges(pageArg = null, limitArg = null) {
       <div class="adm-page-head">
         <div>
           <h2>充值流水</h2>
-          <p class="adm-muted">统计已成功充值的用户订单，以及后台手动给用户增加的积分。</p>
+          <p class="adm-muted">统计用户充值，以及后台手动增加和减少积分的流水。</p>
         </div>
       </div>
       <div class="adm-stats">
         ${statCard("成功流水", summary.totalCount || 0, `${summary.totalCredits || 0} credits`, "receipt-text", "rose")}
         ${statCard("用户充值", summary.userTopupCount || 0, `${summary.userTopupCredits || 0} credits · $${summary.userTopupUsd || 0}`, "wallet-cards", "mint")}
-        ${statCard("后台加币", summary.manualCount || 0, `${summary.manualCredits || 0} credits`, "user-plus", "amber")}
+        ${statCard("后台调整", summary.manualCount || 0, `+${summary.manualAddedCredits || 0} / -${summary.manualReducedCredits || 0} credits`, "sliders-horizontal", "amber")}
       </div>
       <div class="adm-card adm-mt">
         <div class="adm-card-head">
           <div>
             <h3>流水明细</h3>
-            <p class="adm-muted">只展示成功入账记录。待支付订单仍在「钱包订单」处理。</p>
+            <p class="adm-muted">减少积分也会单独记录。待支付订单仍在「钱包订单」处理。</p>
           </div>
           <div class="adm-actions">
             <select id="rechargeSourceFilter" class="adm-select">
               <option value="" ${source === "" ? "selected" : ""}>全部来源</option>
               <option value="user_topup" ${source === "user_topup" ? "selected" : ""}>用户充值</option>
-              <option value="manual_admin" ${source === "manual_admin" ? "selected" : ""}>后台手动加币</option>
+              <option value="manual_admin" ${source === "manual_admin" ? "selected" : ""}>后台手动调整</option>
             </select>
             <input id="rechargeSearchInput" class="adm-input" value="${escapeHtml(q)}" placeholder="搜索用户 / 订单 / hash / 备注" />
             <button class="adm-btn adm-btn-ghost" id="rechargeSearchBtn" type="button"><i data-lucide="search"></i>查询</button>
@@ -3097,13 +3097,13 @@ async function renderRecharges(pageArg = null, limitArg = null) {
         <div class="adm-card-body adm-table-wrap">
           ${records.length ? `
             <table class="adm-table adm-recharge-table">
-              <thead><tr><th>来源</th><th>用户</th><th>入账积分</th><th>支付金额</th><th>支付 / 操作信息</th><th>时间</th><th>备注</th></tr></thead>
+              <thead><tr><th>来源</th><th>用户</th><th>积分变动</th><th>支付金额</th><th>支付 / 操作信息</th><th>时间</th><th>备注</th></tr></thead>
               <tbody>
                 ${records.map((r) => `
                   <tr>
                     <td><span class="adm-pill ${r.source === "manual_admin" ? "is-admin" : ""}">${escapeHtml(r.sourceLabel || r.source)}</span><br/><span class="adm-muted adm-mono">${escapeHtml(r.id)}</span></td>
                     <td><strong>${escapeHtml(r.username || r.userId)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(r.userId || "")}</span></td>
-                    <td><strong>${escapeHtml(r.credits || 0)}</strong></td>
+                    <td><strong ${Number(r.credits || 0) < 0 ? 'style="color:var(--adm-danger)"' : ""}>${Number(r.credits || 0) > 0 ? "+" : ""}${escapeHtml(r.credits ?? 0)}</strong></td>
                     <td>${r.source === "user_topup" ? `<strong>$${escapeHtml(r.amountUsd || "")}</strong><br/><span class="adm-muted">${escapeHtml(r.payableAmountText || r.payableAmount || "")} ${escapeHtml(r.asset || "")}</span>` : `<span class="adm-muted">-</span>`}</td>
                     <td class="adm-truncate">
                       ${r.source === "manual_admin"
@@ -3115,7 +3115,7 @@ async function renderRecharges(pageArg = null, limitArg = null) {
                   </tr>`).join("")}
               </tbody>
             </table>
-          ` : `<div class="adm-empty"><i data-lucide="receipt-text"></i><p>暂无成功充值流水</p></div>`}
+          ` : `<div class="adm-empty"><i data-lucide="receipt-text"></i><p>暂无充值或调整流水</p></div>`}
         </div>
         ${adminPagerHtml(payload)}
       </div>
