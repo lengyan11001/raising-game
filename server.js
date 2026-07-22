@@ -150,6 +150,7 @@ const PIVOX_SEEDANCE_FAST_MODEL = "";
 const PIVOX_ENABLED_USER_KEYS = new Set();
 const PIVOX_ASSET_GROUP_CACHE = new Map();
 const PIVOX_ASSET_URI_CACHE = new Map();
+const SEEDREAM5_ASSET_URI_CACHE = new Map();
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
@@ -16734,17 +16735,15 @@ function seedream5ReferenceInputsFromBody(body = {}) {
   ].filter((item) => {
     if (!item) return false;
     if (typeof item === "string") return Boolean(item.trim());
-    return item.assetId || item.dataUrl || item.url || item.imageUrl;
+    return item.assetId || item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || item.dataUrl || item.url || item.imageUrl;
+  }).map((item) => {
+    if (typeof item !== "string") {
+      const rawAssetUri = String(item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || item.url || item.imageUrl || "").trim();
+      return rawAssetUri.startsWith("asset://") ? { assetId: item.assetId || byteplusAssetIdFromUri(rawAssetUri) } : item;
+    }
+    const text = item.trim();
+    return text.startsWith("asset://") ? { assetId: byteplusAssetIdFromUri(text) } : text;
   });
-  const unsupportedAssetUri = inputs.find((item) => {
-    const raw = typeof item === "string" ? item : (item?.assetUri || item?.referenceAssetUri || item?.seedanceAssetUri || item?.url || item?.imageUrl || "");
-    return String(raw || "").trim().startsWith("asset://");
-  });
-  if (unsupportedAssetUri) {
-    throw advancedValidationError("UNSUPPORTED_SEEDREAM_ASSET_URI", "Seedream 5.0 Image references must use uploaded assetId, public image URL, or image dataUrl.", {
-      reference: typeof unsupportedAssetUri === "string" ? unsupportedAssetUri : unsupportedAssetUri.assetUri || unsupportedAssetUri.referenceAssetUri || unsupportedAssetUri.seedanceAssetUri || "",
-    });
-  }
   if (inputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
     throw advancedValidationError("TOO_MANY_SEEDREAM_IMAGES", `Seedream 5.0 Image supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`, {
       count: inputs.length,
@@ -16754,25 +16753,76 @@ function seedream5ReferenceInputsFromBody(body = {}) {
   return inputs;
 }
 
+async function createSeedream5ImageAssetUriFromUrl(url = "", name = "Seedream reference image") {
+  const sourceUrl = String(url || "").trim();
+  if (!sourceUrl) return "";
+  if (sourceUrl.startsWith("asset://")) return sourceUrl;
+  if (!isPublicHttpUrl(sourceUrl)) {
+    throw advancedValidationError("SEEDREAM_REFERENCE_NOT_PUBLIC", "Seedream 5.0 Image reference must be a public URL before upstream asset upload.", { url: sourceUrl });
+  }
+  const cacheKey = `seedream5:image:${sourceUrl}`;
+  const cached = SEEDREAM5_ASSET_URI_CACHE.get(cacheKey) || String(await getKv(cacheKey, "") || "").trim();
+  if (cached) {
+    SEEDREAM5_ASSET_URI_CACHE.set(cacheKey, cached);
+    return cached;
+  }
+  const created = await arkOpenApiAction("CreateAsset", {
+    GroupId: ARK_OPENAPI.groupId,
+    URL: sourceUrl,
+    AssetType: "Image",
+    Moderation: { Strategy: "Skip" },
+    Name: name || storageObjectName("seedream5", "reference"),
+    ProjectName: ARK_OPENAPI.projectName,
+  });
+  const assetId = extractAssetId(created);
+  if (!assetId) {
+    const error = new Error(`CreateAsset did not return asset id: ${JSON.stringify(created)}`);
+    error.statusCode = 502;
+    throw error;
+  }
+  const assetUri = `asset://${assetId}`;
+  SEEDREAM5_ASSET_URI_CACHE.set(cacheKey, assetUri);
+  await setKv(cacheKey, assetUri);
+  return assetUri;
+}
+
+async function createSeedream5ImageAssetUrisFromUrls(urls = [], { name = "Seedream reference image" } = {}) {
+  const assetUris = [];
+  for (let index = 0; index < urls.length; index += 1) {
+    const sourceUrl = String(urls[index] || "").trim();
+    if (!sourceUrl) continue;
+    const assetUri = await createSeedream5ImageAssetUriFromUrl(sourceUrl, `${name} ${index + 1}`);
+    if (assetUri && !assetUris.includes(assetUri)) assetUris.push(assetUri);
+  }
+  return assetUris;
+}
+
 async function prepareSeedream5ReferenceImages(db, user, body = {}) {
   const inputs = seedream5ReferenceInputsFromBody(body);
   const assets = await createUserImageAssetsFromInputs(db, user, inputs, { name: "Seedream reference image" });
   const preparedAssets = [];
   const publicImageUrls = [];
+  const upstreamImageAssetUris = [];
   for (const asset of assets) {
     validateWan27MediaKind(asset, "image", "Seedream reference image");
-    const prepared = await ensurePublicUrlForUserMediaAsset(db, asset);
+    const prepared = await ensureSeedanceAssetForUserAsset(db, asset);
     const publicUrl = publicUrlForLocalAsset(prepared);
-    if (!isPublicHttpUrl(publicUrl)) {
+    const assetUri = String(prepared.assetUri || "").trim();
+    if (!assetUri.startsWith("asset://")) {
+      throw advancedValidationError("SEEDREAM_REFERENCE_ASSET_UPLOAD_FAILED", "Failed to upload Seedream reference image to the upstream asset library.", { assetId: asset.id || "" });
+    }
+    if (publicUrl && !isPublicHttpUrl(publicUrl)) {
       throw advancedValidationError("SEEDREAM_REFERENCE_NOT_PUBLIC", "Failed to prepare Seedream reference image public URL.", { assetId: asset.id || "" });
     }
     preparedAssets.push(prepared);
-    publicImageUrls.push(publicUrl);
+    if (publicUrl) publicImageUrls.push(publicUrl);
+    upstreamImageAssetUris.push(assetUri);
   }
   return {
     inputs,
     assets: preparedAssets,
     publicImageUrls: [...new Set(publicImageUrls)],
+    upstreamImageAssetUris: [...new Set(upstreamImageAssetUris)],
   };
 }
 
@@ -16781,6 +16831,32 @@ function seedream5OutputImageUrls(raw = {}) {
     ...collectOutputImageUrls(raw),
     ...(Array.isArray(raw?.data) ? raw.data.map((item) => item?.url || item?.image_url || item?.image) : []),
   ].map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+async function submitSeedream5ImageGeneration(payload = {}, label = "image") {
+  console.log(`[seedream5-image-submit-${label || "image"}]`, JSON.stringify(payload, null, 2));
+  let raw;
+  let lastSubmitError = "";
+  for (let attempt = 0; attempt < 18; attempt += 1) {
+    try {
+      raw = await arkRequest("POST", "/images/generations", payload);
+      break;
+    } catch (error) {
+      lastSubmitError = error.message || String(error);
+      if (!/asset is still processing|not available yet/i.test(lastSubmitError)) {
+        error.upstreamPayload = payload;
+        throw error;
+      }
+      await delay(10000);
+    }
+  }
+  if (!raw) {
+    const error = new Error(lastSubmitError || "Upstream asset still processing, Seedream 5.0 Image submit failed.");
+    error.statusCode = 502;
+    error.upstreamPayload = payload;
+    throw error;
+  }
+  return raw;
 }
 
 async function createSeedream5ImageDirect({
@@ -16805,7 +16881,7 @@ async function createSeedream5ImageDirect({
       if (!trimmed) return "";
       return trimmed.startsWith("/") ? (publicUrlForAssetPath(trimmed) || trimmed) : trimmed;
     })
-    .filter((url) => isPublicHttpUrl(url));
+    .filter((url) => isPublicHttpUrl(url) || String(url || "").startsWith("asset://"));
   const payload = {
     model: seedream5ModelForTier(model, tier),
     prompt: finalPrompt,
@@ -16816,8 +16892,9 @@ async function createSeedream5ImageDirect({
     sequential_image_generation: sequentialImageGeneration === undefined || sequentialImageGeneration === null || sequentialImageGeneration === "" ? "disabled" : String(sequentialImageGeneration),
     Moderation: { Strategy: "Skip" },
   };
-  if (preparedImageUrls.length) payload.image = preparedImageUrls;
-  const raw = await arkRequest("POST", "/images/generations", payload);
+  const imageAssetUris = await createSeedream5ImageAssetUrisFromUrls(preparedImageUrls, { name: "Seedream direct reference image" });
+  if (imageAssetUris.length) payload.image = imageAssetUris;
+  const raw = await submitSeedream5ImageGeneration(payload, "direct");
   const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
   if (!imageUrl) {
     const error = new Error("Seedream 5.0 Image returned no image.");
@@ -16979,10 +17056,11 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
       imageUrls: referencePreviewUrls,
       sourceImageUrl: referencePreviewUrls[0] || "",
       sourceImageUrls: referencePreviewUrls,
+      upstreamReferenceAssetUris: prepared.upstreamImageAssetUris,
       status: "running",
       params: {
         ...initialRecord.params,
-        referenceImageCount: prepared.publicImageUrls.length,
+        referenceImageCount: prepared.upstreamImageAssetUris.length,
       },
     });
     const payload = {
@@ -16996,10 +17074,10 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     };
     const sequential = firstPresent(body.sequential_image_generation, body.sequentialImageGeneration, bodyParams.sequential_image_generation, bodyParams.sequentialImageGeneration, mergedProviderParameters.sequential_image_generation, mergedProviderParameters.sequentialImageGeneration);
     payload.sequential_image_generation = sequential === undefined || sequential === null || sequential === "" ? "disabled" : String(sequential);
-    if (prepared.publicImageUrls.length) payload.image = prepared.publicImageUrls;
+    if (prepared.upstreamImageAssetUris.length) payload.image = prepared.upstreamImageAssetUris;
     upstreamPayload = payload;
     await upsertGenerationRecord({ taskId, upstreamPayload });
-    const raw = await arkRequest("POST", "/images/generations", payload);
+    const raw = await submitSeedream5ImageGeneration(payload, taskId);
     const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
     await upsertGenerationRecord({
       taskId,
@@ -17053,7 +17131,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
         seedreamTier: tier,
         resolution,
         size: resolution,
-        referenceImageCount: prepared.publicImageUrls.length,
+        referenceImageCount: prepared.upstreamImageAssetUris.length,
       },
     });
   } catch (error) {
