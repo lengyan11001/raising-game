@@ -4946,6 +4946,40 @@ function publicModelValue(value) {
   return typeof value === "string" ? publicModelText(value) : value;
 }
 
+function slimGenerationRecordValue(value, { detail = false } = {}) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    if (/^data:[^;]+;base64,/i.test(value)) {
+      return `[dataUrl omitted: ${Buffer.byteLength(value)} bytes]`;
+    }
+    if (!detail && value.length > 12000) return `${value.slice(0, 12000)}... [truncated ${value.length} chars]`;
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((item) => slimGenerationRecordValue(item, { detail }));
+  if (typeof value !== "object") return value;
+  const next = {};
+  Object.entries(value).forEach(([key, item]) => {
+    const normalizedKey = String(key || "").toLowerCase();
+    if (normalizedKey === "dataurl" || normalizedKey === "data_url" || normalizedKey === "b64_json" || normalizedKey === "base64") {
+      next[key] = typeof item === "string"
+        ? `[${key} omitted: ${Buffer.byteLength(item)} bytes]`
+        : `[${key} omitted]`;
+      return;
+    }
+    next[key] = slimGenerationRecordValue(item, { detail });
+  });
+  return next;
+}
+
+function storageGenerationRecord(record = {}) {
+  if (!record || typeof record !== "object") return record;
+  return slimGenerationRecordValue(record, { detail: true });
+}
+
+function listGenerationRecordValue(value) {
+  return slimGenerationRecordValue(value, { detail: false });
+}
+
 function publicPricingValue(value) {
   if (value === null || value === undefined) return value;
   if (Array.isArray(value)) return value.map(publicPricingValue);
@@ -12537,17 +12571,18 @@ async function writeGenerationRecords(records) {
 }
 
 async function upsertGenerationRecord(nextRecord) {
+  const storableRecord = storageGenerationRecord(nextRecord);
   if (dbEnabled()) {
-    return upsertGenerationRecordInDb(nextRecord);
+    return upsertGenerationRecordInDb(storableRecord);
   }
   return withAppStateWriteLock(async () => {
     const records = await readGenerationRecords();
-    const index = records.findIndex((record) => record.taskId === nextRecord.taskId);
+    const index = records.findIndex((record) => record.taskId === storableRecord.taskId);
     const now = new Date().toISOString();
     const record = {
       ...(index >= 0 ? records[index] : { createdAt: now }),
-      ...nextRecord,
-      deletedAt: nextRecord.deletedAt ?? (index >= 0 ? records[index].deletedAt || "" : ""),
+      ...storableRecord,
+      deletedAt: storableRecord.deletedAt ?? (index >= 0 ? records[index].deletedAt || "" : ""),
       updatedAt: now,
     };
 
@@ -12569,7 +12604,7 @@ async function upsertAndSettleGenerationRecord(nextRecord, reason = "query") {
 
 async function updateGenerationRecord(taskId, updates = {}, reason = "update") {
   if (!taskId) return null;
-  const nextRecord = { ...updates, taskId };
+  const nextRecord = storageGenerationRecord({ ...updates, taskId });
   if (reason) nextRecord.lastUpdateReason = reason;
   return upsertAndSettleGenerationRecord(nextRecord, reason);
 }
@@ -12753,11 +12788,11 @@ function publicGenerationRecord(record = {}, options = {}) {
     userAssetId: String(record.userAssetId || ""),
     referenceAssetUri: String(record.referenceAssetUri || ""),
     mediaMode: publicModelText(record.mediaMode || record.params?.mediaMode || ""),
-    mediaAssets: publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : []),
+    mediaAssets: listGenerationRecordValue(publicModelValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : [])),
     posterUrl: includeStoredVideoUrls ? storedPosterUrl : providerPosterUrl,
     prompt: String(record.prompt || ""),
     finalPrompt: String(record.finalPrompt || ""),
-    params: publicModelValue(record.params || null),
+    params: listGenerationRecordValue(publicModelValue(record.params || null)),
     model: publicModelText(record.model || ""),
     provider: publicProviderId(record.provider || record.params?.provider || ""),
     providerLabel: publicProviderLabel(record.provider || record.params?.provider || ""),
@@ -12807,16 +12842,16 @@ function adminGenerationRecordView(record = {}, userMap = new Map()) {
     username: user?.username || "",
     source: String(record.source || ""),
     mediaMode: String(record.mediaMode || record.params?.mediaMode || ""),
-    mediaAssets: Array.isArray(record.mediaAssets) ? record.mediaAssets : [],
-    params: record.params || null,
+    mediaAssets: listGenerationRecordValue(Array.isArray(record.mediaAssets) ? record.mediaAssets : []),
+    params: listGenerationRecordValue(record.params || null),
     model: String(record.model || ""),
     provider: String(inferredProvider || ""),
     error: String(record.error || ""),
     cdnError: String(record.cdnError || ""),
-    upstreamPayload: record.upstreamPayload || null,
+    upstreamPayload: listGenerationRecordValue(record.upstreamPayload || null),
     pricingEstimate: record.pricingEstimate || null,
-    createResponse: record.createResponse || null,
-    queryResponse: record.queryResponse || null,
+    createResponse: listGenerationRecordValue(record.createResponse || null),
+    queryResponse: listGenerationRecordValue(record.queryResponse || null),
     createReportedCredits: record.createReportedCredits === undefined ? null : record.createReportedCredits,
     billingError: String(record.billingError || ""),
     statusQueryError: String(record.statusQueryError || ""),
@@ -14070,6 +14105,8 @@ function adminGenerationRecordListView(record = {}, userMap = new Map()) {
   delete view.pricingEstimate;
   delete view.createResponse;
   delete view.queryResponse;
+  view.params = listGenerationRecordValue(view.params);
+  view.mediaAssets = listGenerationRecordValue(view.mediaAssets);
   return view;
 }
 

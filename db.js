@@ -9,6 +9,7 @@ function clone(value) {
 }
 
 let pool;
+let schemaPromise;
 
 function getPool() {
   if (!dbEnabled()) return null;
@@ -33,6 +34,15 @@ async function query(text, params = []) {
 
 async function ensureSchema() {
   if (!dbEnabled()) return;
+  if (schemaPromise) return schemaPromise;
+  schemaPromise = ensureSchemaInner().catch((error) => {
+    schemaPromise = null;
+    throw error;
+  });
+  return schemaPromise;
+}
+
+async function ensureSchemaInner() {
   const createUniqueIndex = async (sql) => {
     try {
       await query(sql);
