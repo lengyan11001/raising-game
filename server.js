@@ -18682,12 +18682,13 @@ function wan27ImageParameterFields() {
 
 function seedream5ImageParameterFields() {
   return [
-    { name: "/api/v3/images/generations", type: "endpoint", required: "Yes", description: "Seedream 5.0 Pro image generation endpoint.", default: "-" },
+    { name: "/api/v3/images/generations", type: "endpoint", required: "Yes", description: "Create a Seedream 5.0 Pro image task. The create response returns id/task_id and status.", default: "-" },
+    { name: "/api/v3/contents/generations/tasks/<taskId>", type: "endpoint", required: "Yes", description: "Query progress and final content.image_url.", default: "-" },
     { name: "model", type: "string", required: "Yes", description: "Use `seedream-5.0-pro`.", default: "seedream-5.0-pro" },
     { name: "prompt", type: "string", required: "Yes", description: "Non-empty image prompt or edit instruction.", default: "-" },
     { name: "image", type: "string or array", required: "No", description: `Optional reference image or images. Use public image URLs, supported image data URLs, or asset:// ids returned by upload. Up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`, default: "-" },
     { name: "size", type: "string", required: "No", description: "Supported values here: `1K`, `2K`.", default: "2K" },
-    { name: "response_format", type: "enum", required: "No", description: "`url` or `b64_json`.", default: "url" },
+    { name: "response_format", type: "enum", required: "No", description: "Use `url`. This async create endpoint returns a task id; read the final URL from task detail.", default: "url" },
     { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
     { name: "output_format", type: "enum", required: "No", description: "`png` or `jpeg`.", default: "-" },
     { name: "optimize_prompt_options.mode", type: "enum", required: "No", description: "`standard` or `fast` when prompt optimization is needed.", default: "-" },
@@ -18879,7 +18880,7 @@ function advancedGenerateConstraintsDoc() {
       model: "seedream-5.0-pro",
       referenceImages: { min: 0, max: ADVANCED_SEEDANCE_REFERENCE_LIMIT },
       size: ["1K", "2K"],
-      response_format: ["url", "b64_json"],
+      response_format: ["url"],
       output_format: ["png", "jpeg"],
       optimize_prompt_options: { mode: ["standard", "fast"] },
       imageInput: {
@@ -18900,6 +18901,7 @@ function externalAdvancedApiDoc(origin) {
   const byteplusGenerate = `${origin}/api/v3/contents/generations/tasks`;
   const byteplusTaskDetail = `${origin}/api/v3/contents/generations/tasks/<taskId>`;
   const seedream5ImageGenerate = `${origin}/api/v3/images/generations`;
+  const seedream5ImageTaskDetail = byteplusTaskDetail;
   const byteplusAssetAction = `${origin}/?Action=CreateAsset&Version=2024-01-01`;
   const advancedGenerate = `${origin}/api/advanced/generate`;
   const wan27ImageEdit = `${origin}/api/vipeak1/image-edit`;
@@ -18913,6 +18915,7 @@ function externalAdvancedApiDoc(origin) {
       byteplusGenerate,
       byteplusTaskDetail,
       seedream5ImageGenerate,
+      seedream5ImageTaskDetail,
       byteplusAssetAction,
       advancedGenerate,
       wan27ImageEdit,
@@ -18942,6 +18945,12 @@ function externalAdvancedApiDoc(origin) {
     responseShape: {
       id: "cgt-...",
     },
+    seedream5ImageResponseShape: {
+      id: "img-...",
+      task_id: "img-...",
+      status: "queued",
+      data: [],
+    },
     seedream5ImageExample: {
       method: "POST",
       url: seedream5ImageGenerate,
@@ -18954,7 +18963,6 @@ function externalAdvancedApiDoc(origin) {
         prompt: "Create a cinematic portrait while preserving the selected subject identity.",
         image: ["asset://asset-id-from-upload"],
         size: "2K",
-        response_format: "url",
         watermark: false,
         output_format: "png",
         optimize_prompt_options: { mode: "standard" },
@@ -19331,9 +19339,10 @@ function advancedConstraintsMarkdown(doc = {}) {
     "Seedream 5.0 image:",
     "",
     `- Endpoint: \`${seedream5Image.route || "/api/v3/images/generations"}\` with \`model: "seedream-5.0-pro"\`.`,
+    "- Create is async: response returns `id`/`task_id` and `status`; poll `/api/v3/contents/generations/tasks/<taskId>` and read `content.image_url` when succeeded.",
     `- \`image\`: optional reference image or array of reference images, max ${seedream5Image.referenceImages?.max ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT}. Use public URLs, supported image data URLs, or \`asset://\` ids.`,
     `- \`size\`: ${(seedream5Image.size || ["1K", "2K"]).map((item) => `\`${item}\``).join(", ")}.`,
-    `- \`response_format\`: ${(seedream5Image.response_format || ["url", "b64_json"]).map((item) => `\`${item}\``).join(", ")}. \`output_format\`: ${(seedream5Image.output_format || ["png", "jpeg"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- \`response_format\`: \`url\`. The async create response does not return base64 image data. \`output_format\`: ${(seedream5Image.output_format || ["png", "jpeg"]).map((item) => `\`${item}\``).join(", ")}.`,
     `- Reference image limits: max ${Math.round((seedream5Image.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, width/height > 14px, aspect ratio 1/16-16, total pixels <= ${seedream5Image.imageInput?.maxPixelCount || 36000000}.`,
     "- Unsupported for this model: `sequential_image_generation`, `sequential_image_generation_options`, `seed`, `guidance_scale`.",
     "",
@@ -19406,6 +19415,17 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "**Seedream 5.0 image fields**",
     "",
     docsParameterMarkdown(seedream5ImageParameterFields()),
+    "",
+    "**Seedream 5.0 image response and polling**",
+    "",
+    "The create response returns `id`, `task_id`, `status`, and an empty `data` array while the task is queued or running. Poll the same V3 task detail endpoint used for video tasks. When `status` is `succeeded`, read `content.image_url`.",
+    "",
+    markdownCodeBlock("json", doc.seedream5ImageResponseShape || { id: "img-...", task_id: "img-...", status: "queued", data: [] }),
+    "",
+    markdownCodeBlock("http", [
+      `GET ${route(endpoints.seedream5ImageTaskDetail || endpoints.byteplusTaskDetail, "/api/v3/contents/generations/tasks/<taskId>")}`,
+      "Authorization: Bearer <user-token>",
+    ].join("\n")),
     "",
     "**Wan2.7 video**",
     "",
@@ -19482,11 +19502,12 @@ function buildModelDocsMarkdown(docs) {
     "## Quick Start",
     "",
     "1. Read `/api/models` or this Markdown file for request shapes and limits.",
-    "2. For Seedance, create reusable media with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>` in V3 `content[]`.",
+    "2. For reusable media, create assets with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>` in V3 content or image fields.",
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
-    "4. Create Wan2.7 video with `/api/advanced/generate` and `provider: \"wan27\"`.",
-    "5. Create or edit Wan images with `/api/vipeak1/image-edit`.",
-    "6. Poll `/api/v3/contents/generations/tasks/<taskId>` for Seedance, or use `/api/generation-records/<taskId>` for Advanced/Wan records.",
+    "4. Create a Seedream 5.0 Pro image task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
+    "5. Create Wan2.7 video with `/api/advanced/generate` and `provider: \"wan27\"`.",
+    "6. Create or edit Wan images with `/api/vipeak1/image-edit`.",
+    "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for Seedance video and Seedream image tasks, or use `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",
     "## Seedance V3 Example",
     "",

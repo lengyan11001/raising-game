@@ -583,8 +583,8 @@ function hydrateAccessCopy(copy = "", { revealToken = false } = {}) {
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
   const tokenLabel = token !== "<user-token>" ? (revealToken ? token : maskToken(token)) : "<user-token>";
   const rawCopy = String(copy || "");
-  const staleAccessCopy = /api\/platform\/generate|api\/advanced\/generate/i.test(rawCopy)
-    || /Vipeak 2/i.test(rawCopy);
+  const staleAccessCopy = /api\/platform\/generate/i.test(rawCopy)
+    || (/api\/advanced\/generate/i.test(rawCopy) && /Seedance|Vipeak 2/i.test(rawCopy));
   const source = staleAccessCopy
     ? LIVE_HTTP_ACCESS_COPY
     : (copy || PUBLIC_COPY.accessCopy);
@@ -626,6 +626,7 @@ async function tokenAccessPackageMarkdown() {
   const docsUrl = PARAM_DOC_MARKDOWN_URL || apiUrl("/docs/models.md");
   const modelsJsonUrl = apiUrl("/api/models");
   const taskUrl = apiUrl("/api/v3/contents/generations/tasks/<taskId>");
+  const seedreamImageUrl = apiUrl("/api/v3/images/generations");
   const modelDocs = await fetchLatestModelDocsMarkdown({ revealToken: true });
   return [
     "# Vipeak AI API Access Package",
@@ -641,10 +642,11 @@ async function tokenAccessPackageMarkdown() {
     "## Supported Endpoints",
     "",
     `- Seedance V3 generate: ${apiUrl("/api/v3/contents/generations/tasks")}`,
-    `- Seedance V3 task detail: ${taskUrl}`,
+    `- Seedream 5.0 image generate: ${seedreamImageUrl}`,
+    `- V3 task detail: ${taskUrl}`,
     `- BytePlus-compatible asset upload: ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}`,
     "",
-    "Preferred path: use `/api/v3/contents/generations/tasks` for video generation and `/api/v3/contents/generations/tasks/<taskId>` for progress and results.",
+    "Preferred path: Seedance video uses `/api/v3/contents/generations/tasks`; Seedream image uses `/api/v3/images/generations`; both return a task id and use `/api/v3/contents/generations/tasks/<taskId>` for progress and results.",
     "",
     "## Quick Start",
     "",
