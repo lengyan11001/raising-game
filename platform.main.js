@@ -640,6 +640,7 @@ els.advancedVideoDurationChoices?.addEventListener("click", (event) => {
 });
 els.advancedPreprocessReference?.addEventListener("change", updateAdvancedModelControls);
 els.advancedUploadBox?.addEventListener("click", () => {
+  if (!advancedCreateModeAllowsManualReferenceUpload()) return;
   const provider = currentAdvancedProvider();
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
   setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : provider === "seedream5-image" ? "referenceImages" : provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? "referenceImages" : advancedCreateUploadIsVideo() ? "video" : "primary");
