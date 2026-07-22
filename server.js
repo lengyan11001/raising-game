@@ -15555,11 +15555,12 @@ async function runAdvancedGenerationJob(job = {}) {
     referenceVideoAssetId = "",
     referenceVideoAssetIds = [],
     referenceVideoAssetUris: initialReferenceVideoAssetUris = [],
-    referenceAudioAssetUris = [],
+    referenceAudioAssetUris: initialReferenceAudioAssetUris = [],
     referenceAudioAssetIds = [],
     referenceImageAssetUris = [],
   } = job;
   let referenceVideoAssetUris = Array.isArray(initialReferenceVideoAssetUris) ? [...initialReferenceVideoAssetUris] : [];
+  let referenceAudioAssetUris = Array.isArray(initialReferenceAudioAssetUris) ? [...initialReferenceAudioAssetUris] : [];
   const bodyParams = requestParams && typeof requestParams === "object" ? requestParamsFromBody(requestParams) : {};
   const runtime = advancedRuntimeForProvider(provider, requestParams);
   let userAsset = null;
