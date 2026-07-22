@@ -24469,7 +24469,10 @@ async function adminAdvancedPricingView(config = {}) {
     const purchaseCredits = hasGatewayPurchase
       ? gatewayPurchase.credits
       : pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
-    const saleCredits = advancedSaleSeedream5Credits(pricing, resolution);
+    const configuredSaleCredits = advancedSaleSeedream5Credits(pricing, resolution);
+    const saleCredits = hasGatewayPurchase && Number.isFinite(Number(purchaseCredits)) && !pricing.seedream5Image?.pro?.userConfigured
+      ? purchaseCredits
+      : configuredSaleCredits;
     rows.push({
       key: `seedream5-pro-${resolution.toLowerCase()}`,
       provider: "seedream5-image",
@@ -24492,7 +24495,10 @@ async function adminAdvancedPricingView(config = {}) {
     const purchaseCredits = hasGatewayPurchase
       ? gatewayPurchase.credits
       : pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
-    const saleCredits = advancedSaleSeedream5ReferenceCredits(pricing);
+    const configuredSaleCredits = advancedSaleSeedream5ReferenceCredits(pricing);
+    const saleCredits = hasGatewayPurchase && Number.isFinite(Number(purchaseCredits)) && !pricing.seedream5Image?.pro?.userConfigured
+      ? purchaseCredits
+      : configuredSaleCredits;
     rows.push({
       key: "seedream5-pro-reference",
       provider: "seedream5-image",
