@@ -13443,6 +13443,15 @@ function generationRecordCreatedMs(record = {}) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function generationRecordUpdatedMs(record = {}) {
+  const value = Date.parse(record.updatedAt || record.completedAt || record.billingSettledAt || record.createdAt || "");
+  return Number.isFinite(value) ? value : 0;
+}
+
+function seedream5ImageRecordHasResult(record = {}) {
+  return Boolean(record.imageResultUrl || record.localImageUrl || record.cdnImageUrl || record.remoteImageUrl || record.providerImageUrl || record.upstreamImageUrl);
+}
+
 function seedream5ImageRequestFingerprint({ userId = "", model = "", prompt = "", resolution = "", tier = "", outputFormat = "", optimizePromptOptions = null, referenceInputs = [] } = {}) {
   const normalizedReferences = (Array.isArray(referenceInputs) ? referenceInputs : [])
     .map((item) => {
@@ -13481,7 +13490,7 @@ async function findActiveSeedream5ImageDuplicate({ userId = "", fingerprint = ""
     String(record.requestFingerprint || record.params?.requestFingerprint || "") === cleanFingerprint &&
     (
       (isActiveGenerationStatus(record.status) && generationRecordCreatedMs(record) >= cutoff) ||
-      (!isFailedStatus(record.status) && generationRecordCreatedMs(record) >= settledCutoff)
+      (isSucceededStatus(record.status) && seedream5ImageRecordHasResult(record) && generationRecordUpdatedMs(record) >= settledCutoff)
     )
   )) || null;
 }
@@ -16658,7 +16667,6 @@ async function handleByteplusV3ImageGeneration(req, res) {
   if (!auth) return;
   try {
     const body = await readJson(req);
-    const responseFormat = normalizeSeedream5ResponseFormat(body.response_format);
     const advancedBody = byteplusV3ImageGenerationToAdvancedBody(body);
     const captured = captureJsonResponse();
     await handleAdvancedSeedream5ImageGenerate(withJsonBody(req, advancedBody), captured, { auth });
@@ -16672,23 +16680,18 @@ async function handleByteplusV3ImageGeneration(req, res) {
       });
     }
     const record = payload.record || publicGenerationRecord(await getGenerationRecord(payload.taskId) || { taskId: payload.taskId }, generationRecordResponseOptionsForAuth(auth));
-    const rawImageUrl = payload.imageUrl || record.imageResultUrl || record.imageUrl || "";
-    const imageUrl = publicUrlForAssetPath(rawImageUrl) || absoluteUrlFromBase(rawImageUrl, publicOriginFromRequest(req)) || rawImageUrl;
-    if (!imageUrl) {
-      throw byteplusHttpError(502, "Seedream 5.0 Image returned no image.", "data", "UpstreamNoResult");
-    }
-    const item = {};
-    if (responseFormat === "b64_json") {
-      const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "seedream image result", maxBytes: 30 * 1024 * 1024 });
-      item.b64_json = downloaded.bytes.toString("base64");
-    } else {
-      item.url = imageUrl;
-    }
+    const status = byteplusTaskStatus(record.status || "queued");
+    const rawImageUrl = payload.imageUrl || record.imageResultUrl || record.imageUrl || record.downloadUrl || "";
+    const imageUrl = rawImageUrl ? (publicUrlForAssetPath(rawImageUrl) || absoluteUrlFromBase(rawImageUrl, publicOriginFromRequest(req)) || rawImageUrl) : "";
+    const data = status === "succeeded" && imageUrl ? [{ url: imageUrl }] : [];
     return sendJson(res, 200, {
       created: Math.floor(Date.now() / 1000),
-      data: [item],
       id: payload.taskId,
+      task_id: payload.taskId,
       model: "seedream-5.0-pro",
+      object: "image.generation.task",
+      status,
+      data,
     });
   } catch (error) {
     return sendByteplusError(res, error.statusCode || 400, error);
@@ -17155,6 +17158,165 @@ async function createSeedream5ImageDirect({
   return { raw, imageUrl, payload, upstreamReferenceAssetUris: imageAssetUris };
 }
 
+async function runSeedream5ImageGenerationJob(job = {}) {
+  const {
+    taskId = "",
+    userId = "",
+    body = {},
+    bodyParams = {},
+    mergedProviderParameters = {},
+    initialParams = {},
+    model = "",
+    prompt = "",
+    tier = "pro",
+    resolution = "2K",
+    outputFormat = "",
+    optimizePromptOptions = null,
+    pricing = {},
+    cost = 0,
+  } = job;
+  if (!taskId || !userId) return;
+
+  let upstreamPayload = null;
+  try {
+    const db = await readDb();
+    const user = (db.users || []).find((entry) => entry.id === userId);
+    if (!user) {
+      const error = new Error("User not found for Seedream 5.0 Image job.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const prepared = await prepareSeedream5ReferenceImages(db, user, { ...bodyParams, ...body });
+    const referencePreviewUrls = prepared.assets.map((asset) => asset.localUrl || asset.publicUrl || "").filter(Boolean);
+    const referencePayloadUrls = prepared.publicImageUrls.filter((url) => isPublicHttpUrl(url));
+    if (prepared.inputs.length && !referencePayloadUrls.length) {
+      throw advancedValidationError("SEEDREAM_REFERENCE_NOT_PUBLIC", "Failed to prepare Seedream reference image public URL.");
+    }
+    await upsertGenerationRecord({
+      taskId,
+      userAssetIds: prepared.assets.map((asset) => asset.id),
+      userAssetId: prepared.assets[0]?.id || "",
+      imageUrl: referencePreviewUrls[0] || "",
+      imageUrls: referencePreviewUrls,
+      sourceImageUrl: referencePreviewUrls[0] || "",
+      sourceImageUrls: referencePreviewUrls,
+      upstreamReferenceAssetUris: prepared.upstreamImageAssetUris,
+      status: "running",
+      params: {
+        ...initialParams,
+        referenceImageCount: referencePayloadUrls.length,
+      },
+    });
+
+    const payload = {
+      model,
+      prompt,
+      response_format: "url",
+      size: resolution,
+      stream: false,
+      watermark: boolFromRequest(firstPresent(body.watermark, bodyParams.watermark, mergedProviderParameters.watermark), false),
+      Moderation: { Strategy: "Skip" },
+    };
+    if (outputFormat) payload.output_format = outputFormat;
+    if (optimizePromptOptions) payload.optimize_prompt_options = optimizePromptOptions;
+    const sequential = firstPresent(
+      body.sequential_image_generation,
+      body.sequentialImageGeneration,
+      bodyParams.sequential_image_generation,
+      bodyParams.sequentialImageGeneration,
+      mergedProviderParameters.sequential_image_generation,
+      mergedProviderParameters.sequentialImageGeneration,
+    );
+    const sequentialValue = seedream5SequentialImageGenerationValue(sequential, { model, tier });
+    if (sequentialValue) payload.sequential_image_generation = sequentialValue;
+    if (referencePayloadUrls.length) payload.image = referencePayloadUrls;
+    upstreamPayload = payload;
+    await upsertGenerationRecord({ taskId, upstreamPayload });
+
+    const raw = await submitSeedream5ImageGeneration(payload, taskId);
+    const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
+    await upsertGenerationRecord({
+      taskId,
+      upstreamTaskId: String(raw.id || raw.task_id || raw.taskId || ""),
+      awaitingUpstreamTask: false,
+      status: imageUrl ? "succeeded" : "failed",
+      upstreamPayload: payload,
+      createResponse: raw,
+      remoteImageUrl: imageUrl,
+      error: imageUrl ? "" : "Seedream 5.0 Image returned no image.",
+    });
+    if (!imageUrl) {
+      const error = new Error("Seedream 5.0 Image returned no image.");
+      error.statusCode = 502;
+      error.payload = raw;
+      throw error;
+    }
+
+    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "seedream image", maxBytes: 30 * 1024 * 1024 });
+    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
+    await upsertGenerationRecord({
+      taskId,
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      localImageUrl: savedImage.localImageUrl,
+      localImagePath: savedImage.localImagePath,
+      cdnImageUrl: savedImage.cdnImageUrl,
+      cdnError: savedImage.cdnError,
+      remoteImageUrl: imageUrl,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits ?? cost,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: new Date().toISOString(),
+      error: "",
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    console.warn("[seedream5-image-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
+    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
+    if (cost > 0 && currentRecord?.billingStatus !== "refunded") {
+      try {
+        const db = await readDb();
+        await changeUserCredits(db, userId, cost, "advanced_seedream5_image_refund", { taskId, error: error.message || "Seedream 5.0 Image failed." });
+        await recordSubtokenAdjustment(currentRecord || { taskId, userId }, {
+          taskId,
+          type: "advanced_seedream5_image_refund",
+          amount: -cost,
+          meta: { error: error.message || "Seedream 5.0 Image failed." },
+        });
+        if (!dbEnabled()) await writeDb(db);
+      } catch (refundError) {
+        console.error("[seedream5-image-refund-failed]", taskId, refundError.message || refundError);
+      }
+    }
+    await upsertGenerationRecord({
+      taskId,
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || "Seedream 5.0 Image failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      upstreamPayload,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    });
+  }
+}
+
+function startSeedream5ImageGenerationJob(job = {}) {
+  setImmediate(() => {
+    runSeedream5ImageGenerationJob(job).catch((error) => {
+      console.error("[seedream5-image-job-unhandled]", job.taskId || "", error.message || error);
+    });
+  });
+}
+
 async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
   const auth = context.auth || await requireUser(req, res);
   if (!auth) return;
@@ -17241,14 +17403,16 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     });
     if (duplicateRecord) {
       const publicRecord = publicGenerationRecord(duplicateRecord, generationRecordResponseOptionsForAuth(auth));
+      const duplicateDone = isSucceededStatus(duplicateRecord.status);
       return sendJson(res, 200, {
         ok: true,
+        async: !duplicateDone,
         duplicate: true,
         taskId: duplicateRecord.taskId,
         upstreamTaskId: duplicateRecord.upstreamTaskId || "",
         imageUrl: publicRecord.imageResultUrl || publicRecord.imageUrl || "",
         record: publicRecord,
-        message: "A matching Seedream 5.0 Image task is already running.",
+        message: duplicateDone ? "A matching Seedream 5.0 Image task was recently completed." : "A matching Seedream 5.0 Image task is already running.",
       });
     }
     const rawPricing = advancedModelPricing("seedream5-image", {
@@ -17347,140 +17511,43 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     if (!dbEnabled()) await writeDb(auth.db);
   }
 
-  let upstreamPayload = null;
-  try {
-    const prepared = await prepareSeedream5ReferenceImages(auth.db, auth.user, { ...bodyParams, ...body });
-    const referencePreviewUrls = prepared.assets.map((asset) => asset.localUrl || asset.publicUrl || "").filter(Boolean);
-    const referencePayloadUrls = prepared.publicImageUrls.filter((url) => isPublicHttpUrl(url));
-    if (prepared.inputs.length && !referencePayloadUrls.length) {
-      throw advancedValidationError("SEEDREAM_REFERENCE_NOT_PUBLIC", "Failed to prepare Seedream reference image public URL.");
-    }
-    await upsertGenerationRecord({
-      taskId,
-      userAssetIds: prepared.assets.map((asset) => asset.id),
-      userAssetId: prepared.assets[0]?.id || "",
-      imageUrl: referencePreviewUrls[0] || "",
-      imageUrls: referencePreviewUrls,
-      sourceImageUrl: referencePreviewUrls[0] || "",
-      sourceImageUrls: referencePreviewUrls,
-      upstreamReferenceAssetUris: prepared.upstreamImageAssetUris,
-      status: "running",
-      params: {
-        ...initialRecord.params,
-        referenceImageCount: referencePayloadUrls.length,
-      },
-    });
-    const payload = {
-      model,
-      prompt,
-      response_format: "url",
+  startSeedream5ImageGenerationJob({
+    taskId,
+    userId: auth.user.id,
+    body,
+    bodyParams,
+    mergedProviderParameters,
+    initialParams: initialRecord.params,
+    model,
+    prompt,
+    tier,
+    resolution,
+    outputFormat,
+    optimizePromptOptions,
+    pricing,
+    cost,
+  });
+  const latestDb = await readDb();
+  const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+  const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || initialRecord, generationRecordResponseOptionsForAuth(auth));
+  return sendJson(res, 200, {
+    ok: true,
+    async: true,
+    taskId,
+    upstreamTaskId: "",
+    imageUrl: "",
+    user: userView(latestUser),
+    pricing,
+    cost,
+    record: publicRecord,
+    params: {
+      provider: "seedream5-image",
+      seedreamTier: tier,
+      resolution,
       size: resolution,
-      stream: false,
-      watermark: boolFromRequest(firstPresent(body.watermark, bodyParams.watermark, mergedProviderParameters.watermark), false),
-      Moderation: { Strategy: "Skip" },
-    };
-    if (outputFormat) payload.output_format = outputFormat;
-    if (optimizePromptOptions) payload.optimize_prompt_options = optimizePromptOptions;
-    const sequential = firstPresent(body.sequential_image_generation, body.sequentialImageGeneration, bodyParams.sequential_image_generation, bodyParams.sequentialImageGeneration, mergedProviderParameters.sequential_image_generation, mergedProviderParameters.sequentialImageGeneration);
-    const sequentialValue = seedream5SequentialImageGenerationValue(sequential, { model, tier });
-    if (sequentialValue) payload.sequential_image_generation = sequentialValue;
-    if (referencePayloadUrls.length) payload.image = referencePayloadUrls;
-    upstreamPayload = payload;
-    await upsertGenerationRecord({ taskId, upstreamPayload });
-    const raw = await submitSeedream5ImageGeneration(payload, taskId);
-    const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
-    await upsertGenerationRecord({
-      taskId,
-      upstreamTaskId: String(raw.id || raw.task_id || raw.taskId || ""),
-      awaitingUpstreamTask: false,
-      status: imageUrl ? "succeeded" : "failed",
-      upstreamPayload: payload,
-      createResponse: raw,
-      remoteImageUrl: imageUrl,
-      error: imageUrl ? "" : "Seedream 5.0 Image returned no image.",
-    });
-    if (!imageUrl) {
-      const error = new Error("Seedream 5.0 Image returned no image.");
-      error.statusCode = 502;
-      error.payload = raw;
-      throw error;
-    }
-    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "seedream image", maxBytes: 30 * 1024 * 1024 });
-    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
-    await upsertGenerationRecord({
-      taskId,
-      status: "succeeded",
-      awaitingUpstreamTask: false,
-      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
-      localImageUrl: savedImage.localImageUrl,
-      localImagePath: savedImage.localImagePath,
-      cdnImageUrl: savedImage.cdnImageUrl,
-      cdnError: savedImage.cdnError,
-      remoteImageUrl: imageUrl,
-      finalCredits: cost,
-      originalFinalCredits: pricing.originalCredits ?? cost,
-      billingStatus: cost > 0 ? "settled" : "free",
-      billingSettledAt: new Date().toISOString(),
-      error: "",
-    });
-    const latestDb = await readDb();
-    const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
-    const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth));
-    return sendJson(res, 200, {
-      ok: true,
-      taskId,
-      upstreamTaskId: String(raw.id || raw.task_id || raw.taskId || ""),
-      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
-      user: userView(latestUser),
-      pricing,
-      cost,
-      record: publicRecord,
-      params: {
-        provider: "seedream5-image",
-        seedreamTier: tier,
-        resolution,
-        size: resolution,
-        referenceImageCount: referencePayloadUrls.length,
-      },
-    });
-  } catch (error) {
-    const errorInfo = normalizeErrorPayload(error);
-    console.warn("[seedream5-image-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
-    if (cost > 0) {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, auth.user.id, cost, "advanced_seedream5_image_refund", { taskId, error: error.message || "Seedream 5.0 Image failed." });
-        await recordSubtokenAdjustment(auth, { taskId, type: "advanced_seedream5_image_refund", amount: -cost, meta: { error: error.message || "Seedream 5.0 Image failed." } });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[seedream5-image-refund-failed]", taskId, refundError.message || refundError);
-      }
-    }
-    await upsertGenerationRecord({
-      taskId,
-      status: "failed",
-      awaitingUpstreamTask: false,
-      error: errorInfo.message || "Seedream 5.0 Image failed.",
-      code: errorInfo.code || "",
-      errorPayload: errorInfo.payload || null,
-      createResponse: errorInfo.payload || null,
-      upstreamPayload,
-      finalCredits: 0,
-      originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
-      failedAt: new Date().toISOString(),
-    });
-    return sendJson(res, error.statusCode || 502, {
-      ok: false,
-      message: errorInfo.message || error.message || "Seedream 5.0 Image failed.",
-      code: errorInfo.code || "",
-      taskId,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
-      payload: errorInfo.payload || null,
-    });
-  }
+      referenceImageCount: referenceInputs.length,
+    },
+  });
   });
 }
 
