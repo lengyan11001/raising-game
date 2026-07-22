@@ -96,6 +96,7 @@ els.advancedImage?.addEventListener("change", async () => {
     return;
   }
   if (provider === "seedance") {
+    const localCharacterUpload = state.advancedLocalUploadSlot === "character" && state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference();
     try {
       let skippedWrongType = false;
       let skippedTooLarge = false;
@@ -107,8 +108,8 @@ els.advancedImage?.addEventListener("change", async () => {
             skippedTooLarge = true;
             continue;
           }
-          const existingImages = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
-          if (existingImages.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+          const existingImages = localCharacterUpload ? [] : (Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []);
+          if (!localCharacterUpload && existingImages.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
             skippedTooMany = true;
             continue;
           }
@@ -125,20 +126,22 @@ els.advancedImage?.addEventListener("change", async () => {
             removeAdvancedPendingReference(pending.pendingId, { render: false });
           }
           ref = stampAdvancedReferenceOrder(ref);
-          state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existingImages, ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+          state.advancedReferenceImages = localCharacterUpload ? [ref] : dedupeAdvancedReferenceImages([...existingImages, ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+          if (localCharacterUpload) setAdvancedLocalCharacterPreset(ref);
           state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
           state.advancedSourceImageAssetId = "";
           if (!seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "")) {
             state.advancedFirstFrameAssetId = "";
             state.advancedSeedanceFirstFrameAssetId = "";
           }
-        } else if (mime.startsWith("video/")) {
+          if (localCharacterUpload) break;
+        } else if (!localCharacterUpload && mime.startsWith("video/")) {
           if (advancedSeedanceVideoReferences().length >= ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
             skippedTooMany = true;
             continue;
           }
           await uploadAdvancedMediaReference(file, "video");
-        } else if (mime.startsWith("audio/")) {
+        } else if (!localCharacterUpload && mime.startsWith("audio/")) {
           if (advancedSeedanceAudioReferences().length >= ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
             skippedTooMany = true;
             continue;
@@ -165,6 +168,7 @@ els.advancedImage?.addEventListener("change", async () => {
     } catch (error) {
       if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
     } finally {
+      if (localCharacterUpload) state.advancedLocalUploadSlot = "";
       els.advancedImage.value = "";
     }
     return;

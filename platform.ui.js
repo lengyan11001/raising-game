@@ -1898,11 +1898,14 @@ function renderAdvancedPresetBuilder() {
     els.advancedPresetBuilder.innerHTML = `<div class="advanced-preset-status">${escapeHtml(t("advancedPreset.loading"))}</div>`;
     return;
   }
-  els.advancedPresetBuilder.innerHTML = slots.map((slot) => {
+  const showLocalUpload = slots.includes("character") && nonCustomAdvancedNeedsCharacterImage();
+  const uploadAction = showLocalUpload
+    ? `<button class="advanced-preset-upload" type="button" data-advanced-preset-upload="character"><i data-lucide="upload"></i>${escapeHtml(t("advancedPreset.uploadLocalImage"))}</button>`
+    : "";
+  els.advancedPresetBuilder.innerHTML = `${uploadAction}${slots.map((slot) => {
     const meta = advancedPresetMeta(slot);
     const selected = selectedAdvancedPreset(slot);
     const image = presetImageUrl(selected || {});
-    const localUpload = slot === "character" && nonCustomAdvancedNeedsCharacterImage();
     return `
       <button class="advanced-preset-slot ${selected ? "has-preset" : ""}" type="button" data-advanced-preset-slot="${escapeHtml(slot)}">
         <span class="advanced-preset-slot-media">
@@ -1912,16 +1915,15 @@ function renderAdvancedPresetBuilder() {
           <strong>${escapeHtml(selected?.label || advancedPresetLabel(slot))}</strong>
           <small>${escapeHtml(selected ? advancedPresetLabel(slot) : t(meta.required ? "advancedPreset.required" : "advancedPreset.optional"))}</small>
         </span>
-        ${localUpload ? `<span class="advanced-preset-upload" role="button" tabindex="0" data-advanced-preset-upload="${escapeHtml(slot)}"><i data-lucide="image-up"></i>${escapeHtml(t("advancedPreset.uploadLocalImage"))}</span>` : ""}
         ${selected ? `<span class="advanced-preset-clear" data-advanced-preset-clear="${escapeHtml(slot)}" aria-label="${escapeHtml(t("advancedPreset.clear"))}">&times;</span>` : ""}
       </button>
     `;
-  }).join("");
+  }).join("")}`;
   els.advancedPresetBuilder.querySelectorAll("[data-advanced-preset-upload]").forEach((button) => {
     const openUpload = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      triggerAdvancedLocalImageUpload({ sourceMode: "reference_video" });
+      triggerAdvancedLocalImageUpload({ sourceMode: "reference_video", presetSlot: "character" });
     };
     button.addEventListener("click", openUpload);
     button.addEventListener("keydown", (event) => {
@@ -2028,7 +2030,7 @@ function renderAdvancedPresetDialog() {
   const bindLocalUploadCard = () => {
     els.advancedPresetGrid.querySelector("[data-advanced-preset-local-upload]")?.addEventListener("click", () => {
       els.advancedPresetDialog?.close();
-      triggerAdvancedLocalImageUpload({ sourceMode: "reference_video" });
+      triggerAdvancedLocalImageUpload({ sourceMode: "reference_video", presetSlot: "character" });
     });
   };
   const items = advancedPresetItems(slot).filter((item) => {
