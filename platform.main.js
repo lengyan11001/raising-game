@@ -695,7 +695,8 @@ els.toggleAccessTokenBtn?.addEventListener("click", () => {
 });
 els.copyTokenBtn?.addEventListener("click", async () => {
   if (!state.token || !state.user?.apiToken) return openLogin();
-  await navigator.clipboard.writeText(tokenAccessPackageMarkdown());
+  const markdown = await tokenAccessPackageMarkdown();
+  await navigator.clipboard.writeText(markdown);
   els.copyTokenBtn.innerHTML = `<i data-lucide="check"></i>Copied token + docs`;
   refreshIcons();
   setTimeout(() => {
