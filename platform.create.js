@@ -1089,7 +1089,7 @@ function updateAdvancedModelControls() {
   }
   if (els.advancedResolution) {
     const imageEditOptions = imageCreateResolutionOptions();
-    const seedreamOptions = ["2K", "3K", "4K"];
+    const seedreamOptions = ["1K", "2K"];
     const videoOptions = provider === "seedance" ? ["480p", "720p", "1080p", "4k"] : ["720p", "1080p"];
     const options = isSeedreamImage ? seedreamOptions : isImageEdit ? imageEditOptions : videoOptions;
     const current = normalizeAdvancedResolution(els.advancedResolution.value, provider);
