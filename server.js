@@ -151,6 +151,7 @@ const PIVOX_ENABLED_USER_KEYS = new Set();
 const PIVOX_ASSET_GROUP_CACHE = new Map();
 const PIVOX_ASSET_URI_CACHE = new Map();
 const SEEDREAM5_ASSET_URI_CACHE = new Map();
+const SEEDREAM5_IMAGE_IN_FLIGHT = new Map();
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
@@ -13432,6 +13433,91 @@ function isFailedStatus(status) {
   return ["failed", "error", "cancelled", "canceled"].includes(String(status || "").toLowerCase());
 }
 
+function isActiveGenerationStatus(status) {
+  const normalized = String(status || "").toLowerCase();
+  return ["submitting", "preparing", "submitted", "queued", "pending", "running", "processing", "generating"].includes(normalized);
+}
+
+function generationRecordCreatedMs(record = {}) {
+  const value = Date.parse(record.createdAt || record.submittedAt || record.updatedAt || "");
+  return Number.isFinite(value) ? value : 0;
+}
+
+function seedream5ImageRequestFingerprint({ userId = "", model = "", prompt = "", resolution = "", tier = "", outputFormat = "", optimizePromptOptions = null, referenceInputs = [] } = {}) {
+  const normalizedReferences = (Array.isArray(referenceInputs) ? referenceInputs : [])
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      if (!item || typeof item !== "object") return "";
+      return String(item.assetId || item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || item.url || item.imageUrl || item.fileName || "").trim();
+    })
+    .filter(Boolean);
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify({
+      provider: "seedream5-image",
+      userId: String(userId || ""),
+      model: String(model || ""),
+      prompt: String(prompt || "").trim(),
+      resolution: String(resolution || ""),
+      tier: String(tier || ""),
+      outputFormat: String(outputFormat || ""),
+      optimizePromptOptions: optimizePromptOptions || null,
+      references: normalizedReferences,
+    }))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+async function findActiveSeedream5ImageDuplicate({ userId = "", fingerprint = "", windowMs = 5 * 60 * 1000, recentSettledWindowMs = 3 * 60 * 1000 } = {}) {
+  const cleanFingerprint = String(fingerprint || "").trim();
+  if (!userId || !cleanFingerprint) return null;
+  const cutoff = Date.now() - Math.max(30 * 1000, Number(windowMs) || 0);
+  const settledCutoff = Date.now() - Math.max(0, Number(recentSettledWindowMs) || 0);
+  const records = await listGenerationRecordsForUser(userId, 80);
+  return records.find((record) => (
+    record &&
+    record.provider === "seedream5-image" &&
+    record.kind === "advanced-image" &&
+    String(record.requestFingerprint || record.params?.requestFingerprint || "") === cleanFingerprint &&
+    (
+      (isActiveGenerationStatus(record.status) && generationRecordCreatedMs(record) >= cutoff) ||
+      (!isFailedStatus(record.status) && generationRecordCreatedMs(record) >= settledCutoff)
+    )
+  )) || null;
+}
+
+function requestTraceForGeneration(req) {
+  if (!req || !req.headers) return {};
+  const ip = requestIpForStats(req);
+  return {
+    requestIp: ip,
+    requestIpHash: ipHashForStats(ip),
+    requestUserAgent: compactPlainText(req.headers["user-agent"] || "", 220),
+    requestReferer: compactPlainText(req.headers.referer || req.headers.referrer || "", 260),
+  };
+}
+
+async function withSeedream5ImageInFlight(fingerprint, fn) {
+  const key = String(fingerprint || "").trim();
+  if (!key) return await fn();
+  while (SEEDREAM5_IMAGE_IN_FLIGHT.has(key)) {
+    await SEEDREAM5_IMAGE_IN_FLIGHT.get(key).catch(() => {});
+  }
+  let release = () => {};
+  const lock = new Promise((resolve) => {
+    release = resolve;
+  });
+  SEEDREAM5_IMAGE_IN_FLIGHT.set(key, lock);
+  try {
+    return await fn();
+  } finally {
+    if (SEEDREAM5_IMAGE_IN_FLIGHT.get(key) === lock) {
+      SEEDREAM5_IMAGE_IN_FLIGHT.delete(key);
+    }
+    release();
+  }
+}
+
 function normalizeErrorPayload(error = {}) {
   const payload = error?.payload && typeof error.payload === "object" ? error.payload : null;
   return {
@@ -17136,14 +17222,42 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
   } catch (error) {
     return sendAdvancedValidationError(res, error, "Seedream 5.0 Image reference input is invalid.");
   }
-  const rawPricing = advancedModelPricing("seedream5-image", {
-    advancedPricing: config.platform?.advancedPricing,
-    seedreamTier: tier,
-    resolution,
+  const requestFingerprint = seedream5ImageRequestFingerprint({
+    userId: auth.user.id,
     model,
-    referenceImageCount: referenceInputs.length,
-    outputImageCount: 1,
+    prompt,
+    resolution,
+    tier,
+    outputFormat,
+    optimizePromptOptions,
+    referenceInputs,
   });
+  const requestTrace = requestTraceForGeneration(req);
+  return await withSeedream5ImageInFlight(requestFingerprint, async () => {
+    const duplicateRecord = await findActiveSeedream5ImageDuplicate({
+      userId: auth.user.id,
+      fingerprint: requestFingerprint,
+    });
+    if (duplicateRecord) {
+      const publicRecord = publicGenerationRecord(duplicateRecord, generationRecordResponseOptionsForAuth(auth));
+      return sendJson(res, 200, {
+        ok: true,
+        duplicate: true,
+        taskId: duplicateRecord.taskId,
+        upstreamTaskId: duplicateRecord.upstreamTaskId || "",
+        imageUrl: publicRecord.imageResultUrl || publicRecord.imageUrl || "",
+        record: publicRecord,
+        message: "A matching Seedream 5.0 Image task is already running.",
+      });
+    }
+    const rawPricing = advancedModelPricing("seedream5-image", {
+      advancedPricing: config.platform?.advancedPricing,
+      seedreamTier: tier,
+      resolution,
+      model,
+      referenceImageCount: referenceInputs.length,
+      outputImageCount: 1,
+    });
   const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;
   if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -17182,7 +17296,9 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
       ...(optimizePromptOptions ? { optimize_prompt_options: optimizePromptOptions } : {}),
       referenceImageCount: referenceInputs.length,
       action: referenceInputs.length ? "image_reference" : "text_to_image",
+      requestFingerprint,
     },
+    requestFingerprint,
     resolution,
     preDeductedCredits: cost,
     originalPreDeductedCredits: pricing.originalCredits ?? cost,
@@ -17203,6 +17319,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     apiTokenName: auth.tokenRecord?.name || "",
     apiTokenType: auth.tokenRecord?.quotaType || "",
     apiTokenSource: auth.tokenSource || "",
+    ...requestTrace,
   };
   await upsertGenerationRecord(initialRecord);
   if (cost > 0) {
@@ -17363,6 +17480,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
       payload: errorInfo.payload || null,
     });
   }
+  });
 }
 
 async function handleAdvancedGenerate(req, res) {
