@@ -1105,9 +1105,8 @@ function updateAdvancedModelControls() {
     }
   }
   if (els.advancedSeedreamTier) {
-    const active = isSeedreamImage;
-    els.advancedSeedreamTier.closest(".field")?.toggleAttribute("hidden", !active);
-    if (!active) els.advancedSeedreamTier.value = "lite";
+    els.advancedSeedreamTier.value = "pro";
+    els.advancedSeedreamTier.closest(".field")?.setAttribute("hidden", "");
   }
   if (els.advancedRatio) {
     const imageRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
