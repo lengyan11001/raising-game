@@ -5153,8 +5153,8 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
   if (value === undefined || value === null || value === "") return;
   const raw = String(value || "").trim().toLowerCase();
   if (normalizeAdvancedProvider(provider) === "seedream5-image") {
-    if (!["2k", "3k", "4k"].includes(raw)) {
-      throw advancedValidationError("INVALID_RESOLUTION", "Seedream 5.0 Image resolution must be one of: 2K, 3K, 4K.", { resolution: value, allowed: ["2K", "3K", "4K"] });
+    if (!["1k", "2k"].includes(raw)) {
+      throw advancedValidationError("INVALID_RESOLUTION", "Seedream 5.0 Image resolution must be one of: 1K, 2K.", { resolution: value, allowed: ["1K", "2K"] });
     }
     return;
   }
