@@ -1191,10 +1191,12 @@ function updateAdvancedModelControls() {
   updateAdvancedButtonCost();
 }
 
-function triggerAdvancedLocalImageUpload({ sourceMode = "" } = {}) {
+function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = {}) {
   if (!els.advancedImage) return;
   const provider = currentAdvancedProvider();
-  if (!advancedCreateModeAllowsManualReferenceUpload()) return;
+  const characterPresetUpload = presetSlot === "character" && state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference();
+  if (!advancedCreateModeAllowsManualReferenceUpload() && !characterPresetUpload) return;
+  state.advancedLocalUploadSlot = characterPresetUpload ? "character" : "";
   if (provider === "seedance" && els.advancedSeedanceMediaMode) {
     let mode = normalizeSeedanceMediaMode(sourceMode || els.advancedSeedanceMediaMode.value || "reference_video");
     if (!seedanceModeNeedsFirstFrame(mode)) mode = "reference_video";
@@ -1207,7 +1209,7 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "" } = {}) {
   }
   updateAdvancedModelControls();
   els.advancedImage.accept = provider === "seedance" ? advancedCreateUploadAcceptValue() : "image/*";
-  els.advancedImage.multiple = provider === "seedance" || provider === "seedream5-image" || (!advancedCreateModeUsesSingleUpload() && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || ""));
+  els.advancedImage.multiple = !characterPresetUpload && (provider === "seedance" || provider === "seedream5-image" || (!advancedCreateModeUsesSingleUpload() && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "")));
   els.advancedImage.click();
 }
 

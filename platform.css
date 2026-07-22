@@ -2708,28 +2708,32 @@ main {
   font-weight: 800;
 }
 .advanced-preset-upload {
-  position: absolute;
+  grid-column: 1 / -1;
   z-index: 3;
-  left: 10px;
-  bottom: 52px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  width: max-content;
-  max-width: calc(100% - 20px);
-  min-height: 28px;
-  padding: 0 9px;
-  border-radius: 999px;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(255,79,163,.34);
+  border-radius: 8px;
   color: #fff;
-  background: rgba(20,20,22,.78);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
-  font-size: .72rem;
+  background: #242429;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+  font-size: .9rem;
   font-weight: 900;
   line-height: 1;
+  cursor: pointer;
+}
+.advanced-preset-upload:hover {
+  border-color: rgba(255,79,163,.62);
+  background: rgba(255,79,163,.16);
 }
 .advanced-preset-upload svg {
-  width: 13px;
-  height: 13px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border-radius: 0;
   background: transparent;

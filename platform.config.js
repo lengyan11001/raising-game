@@ -658,6 +658,7 @@ const state = {
   accessDocMode: "http",
   uploadDataUrl: "",
   advancedUploadDataUrl: "",
+  advancedLocalUploadSlot: "",
   advancedSourceImageAssetId: "",
   advancedFirstFrameAssetId: "",
   advancedReferenceImages: [],
