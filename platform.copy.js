@@ -2204,6 +2204,75 @@ Content-Type: application/json
     ],
     example: SEEDANCE_PARAM_ACCESS_COPY,
   },
+  wan27Params: {
+    title: "Wan2.7 Video Parameters",
+    summary: "Use /api/advanced/generate with provider=wan27. Seedance still uses V3; this endpoint is for Wan2.7 video.",
+    request: [
+      { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Wan2.7 video generation endpoint.", default: "-" },
+      { name: "provider", type: "string", required: "Yes", description: "wan27 or vipeak1.", default: "wan27" },
+      { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt.", default: "-" },
+      { name: "mediaMode", type: "enum", required: "No", description: "first_frame, first_last_frame, first_frame_audio, first_last_frame_audio, first_clip, or first_clip_last_frame.", default: "first_frame" },
+      { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first-frame modes", description: "First-frame image. Use public URL, supported data URL, or uploaded asset id. Images max 20MB.", default: "-" },
+      { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For last-frame modes", description: "Last-frame image. Use public URL, supported data URL, or uploaded asset id. Images max 20MB.", default: "-" },
+      { name: "firstClipUrl / firstClipDataUrl / firstClipAssetId", type: "string", required: "For first_clip modes", description: "Source video clip. Use public URL, supported data URL, or uploaded asset id. Uploaded video max 30MB.", default: "-" },
+      { name: "drivingAudioUrl / drivingAudioDataUrl / drivingAudioAssetId", type: "string", required: "For audio modes", description: "Driving audio. Use public URL, supported data URL, or uploaded asset id. Uploaded audio max 30MB.", default: "-" },
+      { name: "resolution", type: "string", required: "No", description: "720p or 1080p.", default: "720p" },
+      { name: "duration", type: "integer", required: "No", description: "Video duration in seconds, integer 2-15.", default: "5" },
+      { name: "seed", type: "integer", required: "No", description: "Optional deterministic seed when supported by the model.", default: "-" },
+      { name: "prompt_extend / promptExtend", type: "boolean", required: "No", description: "Whether to enable prompt extension.", default: "false" },
+      { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
+    ],
+    response: [
+      { name: "taskId", type: "string", required: "Yes", description: "Local generation record id.", default: "-" },
+      { name: "record", type: "object", required: "No", description: "Generation record with status and result URLs.", default: "-" },
+      { name: "error", type: "object/string", required: "No", description: "Failure details when generation fails.", default: "-" },
+    ],
+    example: `POST ${apiUrl("/api/advanced/generate")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "provider": "wan27",
+  "prompt": "Create a 5 second cinematic shot from the first frame.",
+  "mediaMode": "first_frame",
+  "firstFrameUrl": "https://example.com/first-frame.png",
+  "resolution": "720p",
+  "duration": 5,
+  "prompt_extend": false,
+  "watermark": false
+}`,
+  },
+  wanImageParams: {
+    title: "Wan Image Parameters",
+    summary: "Use /api/vipeak1/image-edit for Wan text-to-image and image edit/reference generation.",
+    request: [
+      { name: "/api/vipeak1/image-edit", type: "endpoint", required: "Yes", description: "Wan image generation/edit endpoint. /api/wan27/image-edit remains accepted as an alias.", default: "-" },
+      { name: "prompt", type: "string", required: "Yes", description: "Non-empty image prompt or edit instruction.", default: "-" },
+      { name: "imageUrls / imageAssetIds", type: "array", required: "No", description: "0-9 reference images. Use public image URLs or uploaded image asset ids. Images max 20MB.", default: "[]" },
+      { name: "imageUrl / imageAssetId", type: "string", required: "No", description: "Single reference image URL or uploaded image asset id.", default: "-" },
+      { name: "ratio", type: "string", required: "No", description: "1:1, 3:4, 4:3, 9:16, or 16:9.", default: "9:16" },
+      { name: "resolution", type: "string", required: "No", description: "1K, 2K, or 4K. 4K is text-to-image only; reference-image generation supports 1K or 2K.", default: "2K" },
+      { name: "model", type: "string", required: "No", description: "Wan image model id when explicitly supplied.", default: "wan2.7-image-pro" },
+      { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
+      { name: "async / asyncResponse / returnImmediately", type: "boolean", required: "No", description: "Return immediately with task info instead of waiting for the image result.", default: "false" },
+    ],
+    response: [
+      { name: "taskId", type: "string", required: "Yes", description: "Local generation record id.", default: "-" },
+      { name: "imageUrl / imageResultUrl", type: "string", required: "No", description: "Result image URL when ready.", default: "-" },
+      { name: "record", type: "object", required: "No", description: "Generation record with status, parameters, and result URLs.", default: "-" },
+    ],
+    example: `POST ${apiUrl("/api/vipeak1/image-edit")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "prompt": "Edit the reference image into a cinematic portrait while preserving identity.",
+  "imageUrls": ["https://example.com/reference.png"],
+  "ratio": "9:16",
+  "resolution": "2K",
+  "watermark": false
+}`,
+  },
   samples: {
     title: "Ready-made Clients",
     summary: "These are copy-ready snippets for TypeScript, Python, curl, agent instructions, and MCP wrappers.",
@@ -2303,6 +2372,22 @@ ACCESS_PARAM_GUIDES = [
     subtitle: "Video",
     desc: "Parameter table for Seedance video generation through /api/v3/contents/generations/tasks.",
     copy: SEEDANCE_PARAM_ACCESS_COPY,
+  },
+  {
+    id: "wan27-params",
+    docs: "wan27Params",
+    title: "Wan2.7 Params",
+    subtitle: "Video",
+    desc: "Parameter table for Wan2.7 video generation through /api/advanced/generate.",
+    copy: ACCESS_DOCS.wan27Params.example,
+  },
+  {
+    id: "wan-image-params",
+    docs: "wanImageParams",
+    title: "Wan Image Params",
+    subtitle: "Image",
+    desc: "Parameter table for Wan image generation/edit through /api/vipeak1/image-edit.",
+    copy: ACCESS_DOCS.wanImageParams.example,
   },
 ];
 

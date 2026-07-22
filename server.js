@@ -3194,6 +3194,8 @@ function buildLlmsTxt(snapshot, { full = false } = {}) {
     "## API",
     "- Primary Seedance generation endpoint: POST /api/v3/contents/generations/tasks",
     "- Query Seedance V3 tasks: GET /api/v3/contents/generations/tasks/<taskId>",
+    "- Wan2.7 video endpoint: POST /api/advanced/generate with provider=wan27",
+    "- Wan image endpoint: POST /api/vipeak1/image-edit",
     "- Public model guide: GET /models.md",
     "- Seedance clients must use the BytePlus-compatible content[] request shape.",
     "",
@@ -18258,6 +18260,50 @@ function seedancePublicParameterMarkdown(origin = "") {
   return markdownTable(["Parameter", "Type", "Required", "Description", "Default"], rows);
 }
 
+function docsParameterMarkdown(fields = []) {
+  const rows = fields.map((field) => ({
+    Parameter: field.name,
+    Type: field.type,
+    Required: String(field.required),
+    Description: field.description,
+    Default: field.default ?? "-",
+  }));
+  return markdownTable(["Parameter", "Type", "Required", "Description", "Default"], rows);
+}
+
+function wan27VideoParameterFields() {
+  const bounds = advancedDurationBounds("wan27");
+  return [
+    { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Wan2.7 video generation endpoint.", default: "-" },
+    { name: "provider", type: "string", required: "Yes", description: "Use `wan27` or `vipeak1` for Wan2.7 video.", default: "wan27" },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt.", default: "-" },
+    { name: "mediaMode", type: "enum", required: "No", description: "`first_frame`, `first_last_frame`, `first_frame_audio`, `first_last_frame_audio`, `first_clip`, or `first_clip_last_frame`.", default: "first_frame" },
+    { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first-frame modes", description: `First-frame image. Use public URL, supported data URL, or uploaded asset id. Images max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}.`, default: "-" },
+    { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For last-frame modes", description: `Last-frame image. Use public URL, supported data URL, or uploaded asset id. Images max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}.`, default: "-" },
+    { name: "firstClipUrl / firstClipDataUrl / firstClipAssetId", type: "string", required: "For first_clip modes", description: `Source video clip. Use public URL, supported data URL, or uploaded asset id. Uploaded video max ${docsMb(MEDIA_UPLOAD_MAX_BYTES)}.`, default: "-" },
+    { name: "drivingAudioUrl / drivingAudioDataUrl / drivingAudioAssetId", type: "string", required: "For audio modes", description: `Driving audio. Use public URL, supported data URL, or uploaded asset id. Uploaded audio max ${docsMb(MEDIA_UPLOAD_MAX_BYTES)}.`, default: "-" },
+    { name: "resolution", type: "string", required: "No", description: "Supported values: `720p`, `1080p`.", default: "720p" },
+    { name: "duration", type: "integer", required: "No", description: `Video duration in seconds, integer ${bounds.min}-${bounds.max}.`, default: String(bounds.fallback) },
+    { name: "seed", type: "integer", required: "No", description: "Optional deterministic seed when supported by the model.", default: "-" },
+    { name: "prompt_extend / promptExtend", type: "boolean", required: "No", description: "Whether to enable prompt extension.", default: "false" },
+    { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
+  ];
+}
+
+function wan27ImageParameterFields() {
+  return [
+    { name: "/api/vipeak1/image-edit", type: "endpoint", required: "Yes", description: "Wan image generation/edit endpoint. `/api/wan27/image-edit` remains accepted as an alias.", default: "-" },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty image prompt or edit instruction.", default: "-" },
+    { name: "imageUrls / imageAssetIds", type: "array", required: "No", description: `0-9 reference images. Use public image URLs or uploaded image asset ids. Images max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}.`, default: "[]" },
+    { name: "imageUrl / imageAssetId", type: "string", required: "No", description: "Single reference image URL or uploaded image asset id.", default: "-" },
+    { name: "ratio", type: "string", required: "No", description: "`1:1`, `3:4`, `4:3`, `9:16`, or `16:9`.", default: "9:16" },
+    { name: "resolution", type: "string", required: "No", description: "`1K`, `2K`, or `4K`. 4K is text-to-image only; reference-image generation supports `1K` or `2K`.", default: "2K" },
+    { name: "model", type: "string", required: "No", description: "Wan image model id when explicitly supplied.", default: WAN27_IMAGE_PRO_MODEL },
+    { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
+    { name: "async / asyncResponse / returnImmediately", type: "boolean", required: "No", description: "Return immediately with task info instead of waiting for the image result.", default: "false" },
+  ];
+}
+
 function byteplusV3ParameterFields() {
   return [
     { name: "model", type: "string", required: "Yes", description: "`dreamina-seedance-2-0-260128` for standard or `dreamina-seedance-2-0-fast-260128` for fast. `dreamina-seedance-2-0-hc`, `dreamina-seedance-2-0-fast-hc`, and `dreamina-seedance-2-0-mini-hc` aliases are accepted.", default: "-" },
@@ -18391,6 +18437,51 @@ function advancedGenerateConstraintsDoc() {
       },
       mediaUrl: "Use public http(s) URLs, supported data URLs, or asset:// ids returned by CreateAsset.",
     },
+    wan27: {
+      provider: "wan27",
+      route: "/api/advanced/generate",
+      model: ALIYUN_WAN27_MODEL,
+      mediaMode: Array.from(WAN27_MEDIA_MODE),
+      durationSeconds: { integer: true, min: advancedDurationBounds("wan27").min, max: advancedDurationBounds("wan27").max },
+      resolution: ["720p", "1080p"],
+      mediaCombinations: [
+        "first_frame",
+        "first_frame + last_frame",
+        "first_frame + driving_audio",
+        "first_frame + last_frame + driving_audio",
+        "first_clip",
+        "first_clip + last_frame",
+      ],
+      imageInput: {
+        formats: ["JPG", "PNG", "WebP", "BMP"],
+        maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+      },
+      videoInput: {
+        maxBytes: MEDIA_UPLOAD_MAX_BYTES,
+      },
+      audioInput: {
+        formats: ["MP3", "WAV", "M4A/MP4 audio", "AAC", "OGG", "WebM"],
+        maxBytes: MEDIA_UPLOAD_MAX_BYTES,
+      },
+      mediaUrl: "Use public http(s) URLs, supported data URLs, or uploaded asset ids.",
+    },
+    wan27Image: {
+      provider: "wan27-image",
+      route: "/api/vipeak1/image-edit",
+      aliasRoute: "/api/wan27/image-edit",
+      model: WAN27_IMAGE_PRO_MODEL,
+      referenceImages: { min: 0, max: 9 },
+      resolution: {
+        textToImage: ["1K", "2K", "4K"],
+        referenceImage: ["1K", "2K"],
+      },
+      ratio: ["1:1", "3:4", "4:3", "9:16", "16:9"],
+      imageInput: {
+        formats: ["JPG", "PNG", "WebP", "BMP"],
+        maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+      },
+      mediaUrl: "Use public http(s) image URLs or uploaded image asset ids.",
+    },
   };
 }
 
@@ -18398,15 +18489,21 @@ function externalAdvancedApiDoc(origin) {
   const byteplusGenerate = `${origin}/api/v3/contents/generations/tasks`;
   const byteplusTaskDetail = `${origin}/api/v3/contents/generations/tasks/<taskId>`;
   const byteplusAssetAction = `${origin}/?Action=CreateAsset&Version=2024-01-01`;
+  const advancedGenerate = `${origin}/api/advanced/generate`;
+  const wan27ImageEdit = `${origin}/api/vipeak1/image-edit`;
+  const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Use the BytePlus-compatible /api/v3/contents/generations/tasks route for Seedance video integrations.",
+    summary: "Seedance video integrations use the BytePlus-compatible V3 task route. Wan2.7 video and Wan image generation keep their dedicated endpoints.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     endpoints: {
       byteplusGenerate,
       byteplusTaskDetail,
       byteplusAssetAction,
+      advancedGenerate,
+      wan27ImageEdit,
+      generationRecordDetail,
     },
     byteplusExample: {
       method: "POST",
@@ -18431,6 +18528,39 @@ function externalAdvancedApiDoc(origin) {
     },
     responseShape: {
       id: "cgt-...",
+    },
+    wan27Example: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        provider: "wan27",
+        prompt: "Create a 5 second cinematic shot from the first frame.",
+        mediaMode: "first_frame",
+        firstFrameUrl: "https://example.com/first-frame.png",
+        resolution: "720p",
+        duration: 5,
+        prompt_extend: false,
+        watermark: false,
+      },
+    },
+    wan27ImageExample: {
+      method: "POST",
+      url: wan27ImageEdit,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        prompt: "Edit the reference image into a cinematic portrait while preserving identity.",
+        imageUrls: ["https://example.com/reference.png"],
+        ratio: "9:16",
+        resolution: "2K",
+        watermark: false,
+      },
     },
     polling: {
       method: "GET",
@@ -18746,6 +18876,8 @@ function advancedDocMarkdown(item) {
 function advancedConstraintsMarkdown(doc = {}) {
   const constraints = doc.constraints || advancedGenerateConstraintsDoc();
   const seedance = constraints.seedance || {};
+  const wan27 = constraints.wan27 || {};
+  const wan27Image = constraints.wan27Image || {};
   return [
     "**Parameter Rules**",
     "",
@@ -18764,6 +18896,24 @@ function advancedConstraintsMarkdown(doc = {}) {
     "- `first_frame` and `last_frame` cannot be mixed with `reference_image`, `reference_video`, or `reference_audio` blocks.",
     `- Audio references: max ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios; supported uploaded/data URL audio types are MP3, WAV, M4A/MP4 audio, AAC, OGG, WebM; upload max ${Math.round((seedance.audioInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB. Audio references must be combined with image or video references; audio-only generation is rejected.`,
     "",
+    "Wan2.7 video:",
+    "",
+    `- Endpoint: \`${wan27.route || "/api/advanced/generate"}\` with \`provider: "wan27"\`.`,
+    `- \`mediaMode\`: ${(wan27.mediaMode || Array.from(WAN27_MEDIA_MODE)).map((item) => `\`${item}\``).join(", ")}.`,
+    `- Valid media combinations: ${(wan27.mediaCombinations || []).join("; ")}.`,
+    `- \`duration\`: integer ${wan27.durationSeconds?.min ?? advancedDurationBounds("wan27").min}-${wan27.durationSeconds?.max ?? advancedDurationBounds("wan27").max} seconds.`,
+    `- \`resolution\`: ${(wan27.resolution || ["720p", "1080p"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((wan27.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB. Video/audio uploads max ${Math.round((wan27.videoInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB.`,
+    "- Media inputs can use public URLs, supported data URLs, or uploaded asset ids.",
+    "",
+    "Wan image generation/edit:",
+    "",
+    `- Endpoint: \`${wan27Image.route || "/api/vipeak1/image-edit"}\` (alias \`${wan27Image.aliasRoute || "/api/wan27/image-edit"}\`).`,
+    `- Reference images: ${wan27Image.referenceImages?.min ?? 0}-${wan27Image.referenceImages?.max ?? 9} images. Send no images for text-to-image, or images for image edit/reference generation.`,
+    `- \`resolution\`: text-to-image supports ${(wan27Image.resolution?.textToImage || ["1K", "2K", "4K"]).map((item) => `\`${item}\``).join(", ")}; reference-image generation supports ${(wan27Image.resolution?.referenceImage || ["1K", "2K"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- \`ratio\`: ${(wan27Image.ratio || ["1:1", "3:4", "4:3", "9:16", "16:9"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((wan27Image.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB.`,
+    "",
   ].join("\n");
 }
 
@@ -18773,7 +18923,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
   return [
     "## Advanced External API",
     "",
-    "Use this section to call video generation APIs and check parameter limits.",
+    "Use this section to call video and image generation APIs and check parameter limits.",
     "",
     `Recommended route: \`${route(doc.recommendedRoute, "/api/v3/contents/generations/tasks")}\``,
     "",
@@ -18801,6 +18951,38 @@ function externalAdvancedApiMarkdown(doc = {}) {
       `GET ${route(endpoints.byteplusTaskDetail, "/api/v3/contents/generations/tasks/<taskId>")}`,
       "Authorization: Bearer <user-token>",
     ].join("\n")),
+    "",
+    "**Wan2.7 video**",
+    "",
+    "Wan2.7 video generation keeps the Advanced endpoint. This is not the Seedance route.",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.wan27Example?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Wan2.7 video fields**",
+    "",
+    docsParameterMarkdown(wan27VideoParameterFields()),
+    "",
+    "**Wan image generation/edit**",
+    "",
+    "Wan image generation and image edit keep the Wan image endpoint.",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.wan27ImageEdit, "/api/vipeak1/image-edit")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.wan27ImageExample?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Wan image fields**",
+    "",
+    docsParameterMarkdown(wan27ImageParameterFields()),
     "",
     "**BytePlus-compatible asset upload**",
     "",
@@ -18844,10 +19026,12 @@ function buildModelDocsMarkdown(docs) {
     "",
     "## Quick Start",
     "",
-    "1. Read `/api/models` or this Markdown file for the V3 request shape and limits.",
-    "2. Optional: create reusable media with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>` in `content[]`.",
+    "1. Read `/api/models` or this Markdown file for request shapes and limits.",
+    "2. For Seedance, create reusable media with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>` in V3 `content[]`.",
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
-    "4. Poll `/api/v3/contents/generations/tasks/<taskId>` until the task succeeds or fails.",
+    "4. Create Wan2.7 video with `/api/advanced/generate` and `provider: \"wan27\"`.",
+    "5. Create or edit Wan images with `/api/vipeak1/image-edit`.",
+    "6. Poll `/api/v3/contents/generations/tasks/<taskId>` for Seedance, or use `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",
     "## Seedance V3 Example",
     "",
