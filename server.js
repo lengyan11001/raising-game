@@ -282,9 +282,8 @@ const WAN27_IMAGE_PRO_PURCHASE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAG
 const WAN27_IMAGE_PRO_MARKUP = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_MARKUP, 1.5, 1);
 const WAN27_IMAGE_PRO_SALE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_SALE_CNY, WAN27_IMAGE_PRO_PURCHASE_CNY * WAN27_IMAGE_PRO_MARKUP, 0, 6);
 const SEEDREAM5_LITE_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_LITE_USD_PER_IMAGE, 0.035, 0, 6);
-const SEEDREAM5_PRO_2K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0.045, 0, 6);
-const SEEDREAM5_PRO_3K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_3K_USD_PER_IMAGE, 0.09, 0, 6);
-const SEEDREAM5_PRO_4K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_4K_USD_PER_IMAGE, 0.09, 0, 6);
+const SEEDREAM5_PRO_1K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_1K_USD_PER_IMAGE, 0.045, 0, 6);
+const SEEDREAM5_PRO_2K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0.09, 0, 6);
 const SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST = pricingNumber(process.env.SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0.003, 0, 6);
 const DEFAULT_ADVANCED_PRICING = {
   unit: "credits",
@@ -331,18 +330,16 @@ const DEFAULT_ADVANCED_PRICING = {
     pro: {
       model: SEEDREAM5_PRO_ENDPOINT_ID,
       purchaseUsdPerImageByResolution: {
+        "1K": SEEDREAM5_PRO_1K_USD_PER_IMAGE,
         "2K": SEEDREAM5_PRO_2K_USD_PER_IMAGE,
-        "3K": SEEDREAM5_PRO_3K_USD_PER_IMAGE,
-        "4K": SEEDREAM5_PRO_4K_USD_PER_IMAGE,
       },
       saleUsdPerImageByResolution: {
+        "1K": SEEDREAM5_PRO_1K_USD_PER_IMAGE,
         "2K": SEEDREAM5_PRO_2K_USD_PER_IMAGE,
-        "3K": SEEDREAM5_PRO_3K_USD_PER_IMAGE,
-        "4K": SEEDREAM5_PRO_4K_USD_PER_IMAGE,
       },
       referenceUsdPerImageAfterFirst: SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST,
     },
-    resolutions: ["2K", "3K", "4K"],
+    resolutions: ["1K", "2K"],
     defaultResolution: "2K",
     defaultTier: "pro",
   },
@@ -1270,14 +1267,10 @@ function normalizeAdvancedPricing(pricing = {}) {
     ? seedreamProSource.saleUsdPerImageByResolution
     : {};
   const normalizeSeedreamUsdMap = (sourceMap = {}, fallbackMap = {}) => ({
+    "1K": pricingNumber(firstPresent(sourceMap["1K"], sourceMap["1k"]), fallbackMap["1K"] ?? SEEDREAM5_PRO_1K_USD_PER_IMAGE, 0, 6),
     "2K": pricingNumber(firstPresent(sourceMap["2K"], sourceMap["2k"]), fallbackMap["2K"] ?? SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6),
-    "3K": pricingNumber(firstPresent(sourceMap["3K"], sourceMap["3k"]), fallbackMap["3K"] ?? SEEDREAM5_PRO_3K_USD_PER_IMAGE, 0, 6),
-    "4K": pricingNumber(firstPresent(sourceMap["4K"], sourceMap["4k"]), fallbackMap["4K"] ?? SEEDREAM5_PRO_4K_USD_PER_IMAGE, 0, 6),
   });
-  const seedreamResolutions = Array.isArray(seedreamSource.resolutions) && seedreamSource.resolutions.length
-    ? seedreamSource.resolutions
-    : (Array.isArray(seedreamDefault.resolutions) ? seedreamDefault.resolutions : ["2K", "3K", "4K"]);
-  const normalizedSeedreamResolutions = [...new Set(seedreamResolutions.map(normalizeSeedream5Resolution))];
+  const normalizedSeedreamResolutions = ["1K", "2K"];
   return {
     unit: "credits",
     creditsPerCny,
@@ -1335,7 +1328,7 @@ function normalizeAdvancedPricing(pricing = {}) {
         saleUsdPerImageByResolution: normalizeSeedreamUsdMap(seedreamProSale, seedreamDefault.pro?.saleUsdPerImageByResolution || seedreamProPurchase || {}),
         referenceUsdPerImageAfterFirst: pricingNumber(seedreamProSource.referenceUsdPerImageAfterFirst, seedreamDefault.pro?.referenceUsdPerImageAfterFirst ?? SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0, 6),
       },
-      resolutions: normalizedSeedreamResolutions.length ? normalizedSeedreamResolutions : ["2K", "3K", "4K"],
+      resolutions: normalizedSeedreamResolutions,
       defaultResolution: normalizeSeedream5Resolution(seedreamSource.defaultResolution || seedreamDefault.defaultResolution || "2K"),
       defaultTier: "pro",
     },
@@ -1370,7 +1363,7 @@ function publicAdvancedPricingView(pricing = {}) {
       defaultRatio: imagePricing.defaultRatio || "9:16",
     },
     seedream5Image: {
-      resolutions: seedreamPricing.resolutions || ["2K", "3K", "4K"],
+      resolutions: seedreamPricing.resolutions || ["1K", "2K"],
       defaultResolution: seedreamPricing.defaultResolution || "2K",
       defaultTier: "pro",
       pro: {
@@ -5360,9 +5353,10 @@ function normalizeSeedream5Tier(value = "") {
 }
 
 function normalizeSeedream5Resolution(value = "") {
-  const normalized = String(value || "").trim().toUpperCase();
-  if (normalized === "4K" || normalized === "4096") return "4K";
-  if (normalized === "3K" || normalized === "3072") return "3K";
+  const raw = String(value || "").trim();
+  const normalized = raw.toUpperCase();
+  if (normalized === "1K" || normalized === "1024") return "1K";
+  if (/^\d+\s*[xX*]\s*\d+$/.test(raw)) return raw.replace(/\s+/g, "").replace(/[X*]/g, "x");
   return "2K";
 }
 

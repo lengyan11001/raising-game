@@ -1316,7 +1316,7 @@ function advancedCaseProvider(item = {}) {
 
 function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
-  if (normalizeAdvancedProvider(provider) === "seedream5-image") return raw === "4k" ? "4K" : raw === "3k" ? "3K" : "2K";
+  if (normalizeAdvancedProvider(provider) === "seedream5-image") return raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return raw === "4k" ? "4K" : raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan27") return raw === "1080p" ? "1080p" : "720p";
   if (raw === "480p") return "480p";
@@ -1413,7 +1413,7 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     const normalizedResolution = normalizeAdvancedResolution(resolution || seedreamPricing.defaultResolution || "2K", normalizedProvider);
     const referenceImageCount = Math.max(0, Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("seedream5-image").length) || 0);
     const proResolutionUsd = seedreamPricing.pro?.saleUsdPerImageByResolution || {};
-    const outputUsdPerImage = Number(proResolutionUsd[normalizedResolution] ?? (normalizedResolution === "2K" ? ADVANCED_SEEDREAM5_PRO_2K_USD_PER_IMAGE : normalizedResolution === "3K" ? ADVANCED_SEEDREAM5_PRO_3K_USD_PER_IMAGE : ADVANCED_SEEDREAM5_PRO_4K_USD_PER_IMAGE));
+    const outputUsdPerImage = Number(proResolutionUsd[normalizedResolution] ?? (normalizedResolution === "1K" ? ADVANCED_SEEDREAM5_PRO_1K_USD_PER_IMAGE : ADVANCED_SEEDREAM5_PRO_2K_USD_PER_IMAGE));
     const referenceUsdPerImage = Number(seedreamPricing.pro?.referenceUsdPerImageAfterFirst ?? ADVANCED_SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST);
     const billableReferenceImages = Math.max(0, referenceImageCount - 1);
     const totalUsd = Math.max(0, outputUsdPerImage + referenceUsdPerImage * billableReferenceImages);
@@ -1565,7 +1565,7 @@ function advancedVideoSettingsVisible() {
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
-  if (normalizeAdvancedProvider(provider) === "seedream5-image") return ["2K", "3K", "4K"];
+  if (normalizeAdvancedProvider(provider) === "seedream5-image") return ["1K", "2K"];
   return normalizeAdvancedProvider(provider) === "seedance"
     ? ["480p", "720p", "1080p", "4k"]
     : ["720p", "1080p"];
