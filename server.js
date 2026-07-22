@@ -19265,7 +19265,12 @@ async function buildModelDocs(req) {
       modelsJson: `${origin}/api/models`,
       byteplusGenerate: `${origin}/api/v3/contents/generations/tasks`,
       byteplusTaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
+      seedream5ImageGenerate: `${origin}/api/v3/images/generations`,
+      seedream5ImageTaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
       byteplusAssetAction: `${origin}/?Action=CreateAsset&Version=2024-01-01`,
+      advancedGenerate: `${origin}/api/advanced/generate`,
+      wan27ImageEdit: `${origin}/api/vipeak1/image-edit`,
+      generationRecordDetail: `${origin}/api/generation-records/<taskId>`,
     },
     templates,
     advanced: {
