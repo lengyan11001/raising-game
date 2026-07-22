@@ -1409,17 +1409,13 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     const configPricing = state.config?.platform?.advancedPricing || {};
     const seedreamPricing = configPricing.seedream5Image || {};
     const creditsPerUsd = Number(configPricing.creditsPerUsd || state.wallet?.creditsPerUsd || 100) || 100;
-    const tier = String(options.seedreamTier || options.seedream5Tier || els.advancedSeedreamTier?.value || seedreamPricing.defaultTier || "lite").trim().toLowerCase() === "pro" ? "pro" : "lite";
+    const tier = "pro";
     const normalizedResolution = normalizeAdvancedResolution(resolution || seedreamPricing.defaultResolution || "2K", normalizedProvider);
     const referenceImageCount = Math.max(0, Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("seedream5-image").length) || 0);
     const proResolutionUsd = seedreamPricing.pro?.saleUsdPerImageByResolution || {};
-    const outputUsdPerImage = tier === "pro"
-      ? Number(proResolutionUsd[normalizedResolution] ?? (normalizedResolution === "2K" ? ADVANCED_SEEDREAM5_PRO_2K_USD_PER_IMAGE : normalizedResolution === "3K" ? ADVANCED_SEEDREAM5_PRO_3K_USD_PER_IMAGE : ADVANCED_SEEDREAM5_PRO_4K_USD_PER_IMAGE))
-      : Number(seedreamPricing.lite?.saleUsdPerImage ?? ADVANCED_SEEDREAM5_LITE_USD_PER_IMAGE);
-    const referenceUsdPerImage = tier === "pro"
-      ? Number(seedreamPricing.pro?.referenceUsdPerImageAfterFirst ?? ADVANCED_SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST)
-      : 0;
-    const billableReferenceImages = tier === "pro" ? Math.max(0, referenceImageCount - 1) : 0;
+    const outputUsdPerImage = Number(proResolutionUsd[normalizedResolution] ?? (normalizedResolution === "2K" ? ADVANCED_SEEDREAM5_PRO_2K_USD_PER_IMAGE : normalizedResolution === "3K" ? ADVANCED_SEEDREAM5_PRO_3K_USD_PER_IMAGE : ADVANCED_SEEDREAM5_PRO_4K_USD_PER_IMAGE));
+    const referenceUsdPerImage = Number(seedreamPricing.pro?.referenceUsdPerImageAfterFirst ?? ADVANCED_SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST);
+    const billableReferenceImages = Math.max(0, referenceImageCount - 1);
     const totalUsd = Math.max(0, outputUsdPerImage + referenceUsdPerImage * billableReferenceImages);
     const originalCredits = creditsAmount(totalUsd * creditsPerUsd);
     const multiplier = userPricingMultiplier();
@@ -1554,7 +1550,7 @@ function currentSeedanceTier() {
 }
 
 function currentSeedreamTier() {
-  return (String(els.advancedSeedreamTier?.value || "").trim().toLowerCase() === "pro") ? "pro" : "lite";
+  return "pro";
 }
 
 function currentAdvancedResolution() {
@@ -2419,8 +2415,7 @@ function advancedCostLabel(duration, provider = "seedance", resolution = "720p",
     const pricing = state.advancedEstimate && state.advancedEstimateKey === key
       ? state.advancedEstimate
       : advancedPricing(duration, provider, resolution, ratio, options);
-    const tier = String(pricing.seedreamTier || options.seedreamTier || "lite").toLowerCase() === "pro" ? "Pro" : "Lite";
-    return `${t("cost.credits", { credits: formatCredits(pricing.credits) })} - ${tier} ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)}`;
+    return `${t("cost.credits", { credits: formatCredits(pricing.credits) })} - Pro ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)}`;
   }
   if (normalizeAdvancedProvider(provider) === "wan27-image-edit") {
     return `${assetImageModifyCostLabel()} - ${normalizeAdvancedResolution(resolution, provider)}`;
@@ -2615,7 +2610,7 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
   if (normalizedProvider === "seedream5-image") {
     return [
       normalizedProvider,
-      String(options.seedreamTier || options.seedream5Tier || currentSeedreamTier()).trim().toLowerCase() === "pro" ? "pro" : "lite",
+      "pro",
       normalizeAdvancedResolution(resolution, normalizedProvider),
       Math.max(0, Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("seedream5-image").length) || 0),
       Number(state.user?.pricingMultiplier || 1),

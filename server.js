@@ -344,7 +344,7 @@ const DEFAULT_ADVANCED_PRICING = {
     },
     resolutions: ["2K", "3K", "4K"],
     defaultResolution: "2K",
-    defaultTier: "lite",
+    defaultTier: "pro",
   },
 };
 const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_MARKUP, 1.5, 1, 100);
@@ -724,8 +724,8 @@ const DEFAULT_CONFIG = {
     commandTemplate: "",
   },
   characterImage: {
-    textModel: SEEDREAM5_LITE_ENDPOINT_ID,
-    editModel: SEEDREAM5_LITE_ENDPOINT_ID,
+    textModel: SEEDREAM5_PRO_ENDPOINT_ID,
+    editModel: SEEDREAM5_PRO_ENDPOINT_ID,
     imageSize: "2K",
   },
   scenes: [
@@ -1337,7 +1337,7 @@ function normalizeAdvancedPricing(pricing = {}) {
       },
       resolutions: normalizedSeedreamResolutions.length ? normalizedSeedreamResolutions : ["2K", "3K", "4K"],
       defaultResolution: normalizeSeedream5Resolution(seedreamSource.defaultResolution || seedreamDefault.defaultResolution || "2K"),
-      defaultTier: normalizeSeedream5Tier(seedreamSource.defaultTier || seedreamDefault.defaultTier || "lite"),
+      defaultTier: "pro",
     },
   };
 }
@@ -1372,10 +1372,7 @@ function publicAdvancedPricingView(pricing = {}) {
     seedream5Image: {
       resolutions: seedreamPricing.resolutions || ["2K", "3K", "4K"],
       defaultResolution: seedreamPricing.defaultResolution || "2K",
-      defaultTier: seedreamPricing.defaultTier || "lite",
-      lite: {
-        saleUsdPerImage: seedreamPricing.lite?.saleUsdPerImage ?? SEEDREAM5_LITE_USD_PER_IMAGE,
-      },
+      defaultTier: "pro",
       pro: {
         saleUsdPerImageByResolution: {
           ...(seedreamPricing.pro?.saleUsdPerImageByResolution || DEFAULT_ADVANCED_PRICING.seedream5Image.pro.saleUsdPerImageByResolution),
@@ -5359,8 +5356,7 @@ function normalizeWan27ImageResolution(value = "") {
 }
 
 function normalizeSeedream5Tier(value = "") {
-  const normalized = String(value || "").trim().toLowerCase();
-  return normalized === "pro" || normalized.includes("pro") ? "pro" : "lite";
+  return "pro";
 }
 
 function normalizeSeedream5Resolution(value = "") {
@@ -5370,10 +5366,11 @@ function normalizeSeedream5Resolution(value = "") {
   return "2K";
 }
 
-function seedream5ModelForTier(model = "", tier = "lite") {
+function seedream5ModelForTier(model = "", tier = "pro") {
   const raw = String(model || "").trim();
+  if (raw === SEEDREAM5_LITE_ENDPOINT_ID) return SEEDREAM5_PRO_ENDPOINT_ID;
   if (raw && !["lite", "pro", "seedream5-lite", "seedream5-pro"].includes(raw.toLowerCase())) return raw;
-  return normalizeSeedream5Tier(raw || tier) === "pro" ? SEEDREAM5_PRO_ENDPOINT_ID : SEEDREAM5_LITE_ENDPOINT_ID;
+  return SEEDREAM5_PRO_ENDPOINT_ID;
 }
 
 function seedream5SequentialImageGenerationValue(value, { model = "", tier = "" } = {}) {
@@ -5597,7 +5594,7 @@ function advancedModelPricing(provider = "seedance", options = {}) {
 function seedream5ImagePricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, options = {}) {
   const pricing = normalizeAdvancedPricing(advancedPricing);
   const seedreamPricing = pricing.seedream5Image || DEFAULT_ADVANCED_PRICING.seedream5Image;
-  const tier = normalizeSeedream5Tier(options.seedreamTier || options.seedream5Tier || options.tier || seedreamPricing.defaultTier || "lite");
+  const tier = normalizeSeedream5Tier(options.seedreamTier || options.seedream5Tier || options.tier || seedreamPricing.defaultTier || "pro");
   const resolution = normalizeSeedream5Resolution(options.resolution || options.size || seedreamPricing.defaultResolution || "2K");
   const referenceImageCount = Math.max(0, Math.floor(Number(firstPresent(
     options.referenceImageCount,
@@ -5606,15 +5603,11 @@ function seedream5ImagePricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICIN
     arrayFromBody(options.images).length || undefined,
   ) || 0)));
   const outputImageCount = Math.max(1, Math.floor(Number(firstPresent(options.n, options.count, options.outputImageCount, 1)) || 1));
-  const tierConfig = tier === "pro" ? seedreamPricing.pro : seedreamPricing.lite;
+  const tierConfig = seedreamPricing.pro || {};
   const model = seedream5ModelForTier(options.model || tierConfig?.model || "", tier);
-  const outputUsdPerImage = tier === "pro"
-    ? pricingNumber(tierConfig?.saleUsdPerImageByResolution?.[resolution], DEFAULT_ADVANCED_PRICING.seedream5Image.pro.saleUsdPerImageByResolution[resolution] || SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6)
-    : pricingNumber(tierConfig?.saleUsdPerImage, SEEDREAM5_LITE_USD_PER_IMAGE, 0, 6);
-  const referenceUsdPerImage = tier === "pro"
-    ? pricingNumber(tierConfig?.referenceUsdPerImageAfterFirst, SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0, 6)
-    : 0;
-  const billableReferenceImages = tier === "pro" ? Math.max(0, referenceImageCount - 1) : 0;
+  const outputUsdPerImage = pricingNumber(tierConfig?.saleUsdPerImageByResolution?.[resolution], DEFAULT_ADVANCED_PRICING.seedream5Image.pro.saleUsdPerImageByResolution[resolution] || SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6);
+  const referenceUsdPerImage = pricingNumber(tierConfig?.referenceUsdPerImageAfterFirst, SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0, 6);
+  const billableReferenceImages = Math.max(0, referenceImageCount - 1);
   const outputUsd = pricingNumber(outputUsdPerImage * outputImageCount, 0, 0, 6);
   const referenceUsd = pricingNumber(referenceUsdPerImage * billableReferenceImages, 0, 0, 6);
   const totalUsd = pricingNumber(outputUsd + referenceUsd, 0, 0, 6);
@@ -10430,7 +10423,7 @@ async function createHomeSyntheticReference(item) {
     imageUrls: [uploaded.publicUrl],
     resolution: process.env.HOME_REFERENCE_SEEDREAM_SIZE || process.env.CHARACTER_SEEDREAM_SIZE || "2K",
     model,
-    tier: process.env.HOME_REFERENCE_SEEDREAM_TIER || process.env.CHARACTER_SEEDREAM_TIER || "lite",
+    tier: process.env.HOME_REFERENCE_SEEDREAM_TIER || process.env.CHARACTER_SEEDREAM_TIER || "pro",
   });
   const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("ref"));
   const imageUrl = generated.imageUrl;
@@ -16872,7 +16865,7 @@ async function createSeedream5ImageDirect({
   imageUrls = [],
   resolution = "2K",
   model = "",
-  tier = "lite",
+  tier = "pro",
   watermark = false,
   sequentialImageGeneration = undefined,
 } = {}) {
@@ -22960,7 +22953,7 @@ async function ensureCharacterReferenceForRecord(record) {
       imageUrls: [uploaded.publicUrl],
       resolution: process.env.HOME_REFERENCE_SEEDREAM_SIZE || process.env.CHARACTER_SEEDREAM_SIZE || "2K",
       model,
-      tier: process.env.HOME_REFERENCE_SEEDREAM_TIER || process.env.CHARACTER_SEEDREAM_TIER || "lite",
+      tier: process.env.HOME_REFERENCE_SEEDREAM_TIER || process.env.CHARACTER_SEEDREAM_TIER || "pro",
     });
     const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("ref"));
     const imageUrl = generated.imageUrl;
@@ -23275,7 +23268,7 @@ async function handleGenerateMyCharacterImage(req, res) {
       prompt: userPrompt,
       resolution: process.env.CHARACTER_SEEDREAM_SIZE || "2K",
       model: process.env.CHARACTER_SEEDREAM_MODEL || (/^ep-/i.test(String(model || "")) ? model : ""),
-      tier: process.env.CHARACTER_SEEDREAM_TIER || "lite",
+      tier: process.env.CHARACTER_SEEDREAM_TIER || "pro",
     });
     const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("img"));
     record.imageTaskId = taskId;
@@ -26196,7 +26189,7 @@ async function handleCreateCharacterImageLegacy(req, res) {
     imageUrls: params.image_url ? [params.image_url] : [],
     resolution: process.env.CHARACTER_SEEDREAM_SIZE || "2K",
     model: process.env.CHARACTER_SEEDREAM_MODEL || (/^ep-/i.test(String(model || "")) ? model : ""),
-    tier: process.env.CHARACTER_SEEDREAM_TIER || "lite",
+    tier: process.env.CHARACTER_SEEDREAM_TIER || "pro",
   });
   const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("img"));
   const local = await downloadGeneratedCharacterSheet(taskId, generated.imageUrl);
@@ -26283,7 +26276,7 @@ async function handleCreateCharacterImage(req, res) {
     imageUrls: params.image_urls || [],
     resolution: process.env.CHARACTER_SEEDREAM_SIZE || "2K",
     model: process.env.CHARACTER_SEEDREAM_MODEL || (/^ep-/i.test(String(model || "")) ? model : ""),
-    tier: process.env.CHARACTER_SEEDREAM_TIER || "lite",
+    tier: process.env.CHARACTER_SEEDREAM_TIER || "pro",
   });
   const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("img"));
   const local = await downloadGeneratedCharacterSheet(taskId, generated.imageUrl);
