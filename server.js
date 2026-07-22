@@ -22937,6 +22937,7 @@ async function handleGenerateMyCharacterImage(req, res) {
       });
       const imageUrls = characterImageUrlsFromPayload(submitted);
       const taskId = apizTaskIdFromResponse(submitted) || String(submitted.character?.imageTaskId || submitted.record?.upstreamTaskId || submitted.record?.taskId || "").trim();
+      const gatewayRecordTaskId = String(submitted.record?.taskId || submitted.data?.record?.taskId || "").trim();
       if (!taskId && !imageUrls[0]) {
         const error = new Error(`Character image task did not return task id: ${JSON.stringify(submitted)}`);
         error.statusCode = 502;
@@ -22966,7 +22967,7 @@ async function handleGenerateMyCharacterImage(req, res) {
       record.updatedAt = new Date().toISOString();
       await saveUserCharacterForAuth(auth, record);
       const generationRecord = await updateMyCharacterImageGenerationRecord(auth, record, {
-        upstreamTaskId: taskId || "",
+        upstreamTaskId: gatewayRecordTaskId || taskId || "",
         status: myCharacterImageGenerationStatus(record, record.imageStatus),
         model: submitted.record?.model || model,
         params,
