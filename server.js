@@ -24228,6 +24228,78 @@ function advancedSaleSeedream5ReferenceCredits(pricing = DEFAULT_ADVANCED_PRICIN
   return pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
 }
 
+function purchaseUsdFromCredits(credits) {
+  const value = Number(credits);
+  return Number.isFinite(value) ? pricingNumber(value / DEFAULT_CREDITS_PER_USD, 0, 0, 6) : null;
+}
+
+async function gatewayPurchaseSeedream5ImageCredits(resolution = "2K") {
+  if (!USE_GATEWAY_UPSTREAM) return null;
+  const publicResolution = normalizeSeedream5Resolution(resolution);
+  try {
+    const estimate = await gatewayAdvancedEstimate("seedream5-image", {
+      seedreamTier: "pro",
+      resolution: publicResolution,
+      size: publicResolution,
+      referenceImageCount: 0,
+      outputImageCount: 1,
+    });
+    const credits = Number(estimate?.credits ?? estimate?.cost);
+    if (!Number.isFinite(credits)) {
+      throw new Error("Gateway estimate did not include a usable Seedream image credit amount.");
+    }
+    const multiplier = gatewayEstimateMultiplier(estimate);
+    return {
+      credits: creditsAmount(credits),
+      source: "gateway_upstream",
+      message: `Old-site sale price through the configured upstream token${multiplier !== 1 ? `, API multiplier ${multiplier} applied` : ""}.`,
+    };
+  } catch (error) {
+    return {
+      credits: null,
+      source: "gateway_unavailable",
+      message: error.message || String(error),
+    };
+  }
+}
+
+async function gatewayPurchaseSeedream5ReferenceCredits() {
+  if (!USE_GATEWAY_UPSTREAM) return null;
+  try {
+    const baseEstimate = await gatewayAdvancedEstimate("seedream5-image", {
+      seedreamTier: "pro",
+      resolution: "2K",
+      size: "2K",
+      referenceImageCount: 1,
+      outputImageCount: 1,
+    });
+    const withReferenceEstimate = await gatewayAdvancedEstimate("seedream5-image", {
+      seedreamTier: "pro",
+      resolution: "2K",
+      size: "2K",
+      referenceImageCount: 2,
+      outputImageCount: 1,
+    });
+    const baseCredits = Number(baseEstimate?.credits ?? baseEstimate?.cost);
+    const withReferenceCredits = Number(withReferenceEstimate?.credits ?? withReferenceEstimate?.cost);
+    if (!Number.isFinite(baseCredits) || !Number.isFinite(withReferenceCredits)) {
+      throw new Error("Gateway estimate did not include a usable Seedream reference credit amount.");
+    }
+    const multiplier = gatewayEstimateMultiplier(withReferenceEstimate);
+    return {
+      credits: creditsAmount(Math.max(0, withReferenceCredits - baseCredits)),
+      source: "gateway_upstream",
+      message: `Old-site sale add-on per reference image after the first${multiplier !== 1 ? `, API multiplier ${multiplier} applied` : ""}.`,
+    };
+  } catch (error) {
+    return {
+      credits: null,
+      source: "gateway_unavailable",
+      message: error.message || String(error),
+    };
+  }
+}
+
 async function gatewayPurchaseImageCredits() {
   if (!USE_GATEWAY_UPSTREAM) return null;
   try {
@@ -24388,8 +24460,13 @@ async function adminAdvancedPricingView(config = {}) {
     saleUsdPerSecond: pricingNumber(advancedSaleImageCredits(pricing) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     model: pricing.wan27ImagePro.model,
   });
-  ["1K", "2K"].forEach((resolution) => {
+  for (const resolution of ["1K", "2K"]) {
     const purchaseUsd = seedream5ProOfficialUsdPerImage(resolution);
+    const gatewayPurchase = await gatewayPurchaseSeedream5ImageCredits(resolution);
+    const hasGatewayPurchase = gatewayPurchase !== null;
+    const purchaseCredits = hasGatewayPurchase
+      ? gatewayPurchase.credits
+      : pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
     const saleCredits = advancedSaleSeedream5Credits(pricing, resolution);
     rows.push({
       key: `seedream5-pro-${resolution.toLowerCase()}`,
@@ -24397,17 +24474,22 @@ async function adminAdvancedPricingView(config = {}) {
       providerLabel: "Seedream 5.0 Pro",
       resolution,
       unit: "image",
-      purchaseCreditsPerSecond: pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
-      purchaseUsdPerSecond: purchaseUsd,
-      purchaseSource: "byteplus_official_image_pricing",
-      purchaseMessage: "Official Seedream 5.0 Pro image price per generated image.",
+      purchaseCreditsPerSecond: purchaseCredits,
+      purchaseUsdPerSecond: hasGatewayPurchase ? purchaseUsdFromCredits(purchaseCredits) : purchaseUsd,
+      purchaseSource: gatewayPurchase?.source || "byteplus_official_image_pricing",
+      purchaseMessage: gatewayPurchase?.message || "Official Seedream 5.0 Pro image price per generated image.",
       saleCreditsPerSecond: saleCredits,
       saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
       model: "seedream-5.0-pro",
     });
-  });
+  }
   {
     const purchaseUsd = SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST;
+    const gatewayPurchase = await gatewayPurchaseSeedream5ReferenceCredits();
+    const hasGatewayPurchase = gatewayPurchase !== null;
+    const purchaseCredits = hasGatewayPurchase
+      ? gatewayPurchase.credits
+      : pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
     const saleCredits = advancedSaleSeedream5ReferenceCredits(pricing);
     rows.push({
       key: "seedream5-pro-reference",
@@ -24415,10 +24497,10 @@ async function adminAdvancedPricingView(config = {}) {
       providerLabel: "Seedream 5.0 Pro Reference",
       resolution: "reference",
       unit: "reference_image",
-      purchaseCreditsPerSecond: pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
-      purchaseUsdPerSecond: purchaseUsd,
-      purchaseSource: "byteplus_official_image_pricing",
-      purchaseMessage: "Official add-on price per reference image after the first reference image.",
+      purchaseCreditsPerSecond: purchaseCredits,
+      purchaseUsdPerSecond: hasGatewayPurchase ? purchaseUsdFromCredits(purchaseCredits) : purchaseUsd,
+      purchaseSource: gatewayPurchase?.source || "byteplus_official_image_pricing",
+      purchaseMessage: gatewayPurchase?.message || "Official add-on price per reference image after the first reference image.",
       saleCreditsPerSecond: saleCredits,
       saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
       model: "seedream-5.0-pro",
