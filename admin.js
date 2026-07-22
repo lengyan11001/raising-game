@@ -3407,10 +3407,14 @@ function fmtPriceRange(values = [], suffix = "") {
 }
 
 function isImagePricingRow(row = {}) {
-  return String(row.provider || "").toLowerCase() === "wan27-image" || String(row.unit || "").toLowerCase() === "image";
+  const provider = String(row.provider || "").toLowerCase();
+  const unit = String(row.unit || "").toLowerCase();
+  return provider === "wan27-image" || provider === "seedream5-image" || unit.includes("image");
 }
 
 function rowPriceUnit(row = {}, credits = false) {
+  const unit = String(row.unit || "").toLowerCase();
+  if (unit === "reference_image") return credits ? "credits/reference" : "USD/reference";
   return isImagePricingRow(row) ? (credits ? "credits/image" : "USD/image") : (credits ? "credits/s" : "USD/s");
 }
 
@@ -3521,6 +3525,7 @@ function pricingRowTitle(row = {}) {
 }
 
 function pricingRowUsage(row = {}) {
+  if (String(row.unit || "").toLowerCase() === "reference_image") return "By reference images";
   if (isImagePricingRow(row)) return "按生成图片张数";
   if (String(row.rateKind || "") === "video_input") return "按输入视频秒数额外加收";
   return "按生成视频秒数";
