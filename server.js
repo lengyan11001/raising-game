@@ -5376,6 +5376,14 @@ function seedream5ModelForTier(model = "", tier = "lite") {
   return normalizeSeedream5Tier(raw || tier) === "pro" ? SEEDREAM5_PRO_ENDPOINT_ID : SEEDREAM5_LITE_ENDPOINT_ID;
 }
 
+function seedream5SequentialImageGenerationValue(value, { model = "", tier = "" } = {}) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const targetModel = String(model || "").trim();
+  const isProModel = targetModel === SEEDREAM5_PRO_ENDPOINT_ID || normalizeSeedream5Tier(tier) === "pro";
+  return isProModel ? "" : text;
+}
+
 function wan27ImageSize(resolution = "2K", ratio = "9:16") {
   const tier = normalizeWan27ImageResolution(resolution);
   const normalizedRatio = normalizeWan27ImageRatio(ratio);
@@ -16868,7 +16876,7 @@ async function createSeedream5ImageDirect({
   model = "",
   tier = "lite",
   watermark = false,
-  sequentialImageGeneration = "disabled",
+  sequentialImageGeneration = undefined,
 } = {}) {
   const finalPrompt = String(prompt || "").trim();
   if (!finalPrompt) {
@@ -16884,16 +16892,18 @@ async function createSeedream5ImageDirect({
       return trimmed.startsWith("/") ? (publicUrlForAssetPath(trimmed) || trimmed) : trimmed;
     })
     .filter((url) => isPublicHttpUrl(url) || String(url || "").startsWith("asset://"));
+  const resolvedModel = seedream5ModelForTier(model, tier);
   const payload = {
-    model: seedream5ModelForTier(model, tier),
+    model: resolvedModel,
     prompt: finalPrompt,
     response_format: "url",
     size: normalizeSeedream5Resolution(resolution),
     stream: false,
     watermark: Boolean(watermark),
-    sequential_image_generation: sequentialImageGeneration === undefined || sequentialImageGeneration === null || sequentialImageGeneration === "" ? "disabled" : String(sequentialImageGeneration),
     Moderation: { Strategy: "Skip" },
   };
+  const sequential = seedream5SequentialImageGenerationValue(sequentialImageGeneration, { model: resolvedModel, tier });
+  if (sequential) payload.sequential_image_generation = sequential;
   const imageAssetUris = await createSeedream5ImageAssetUrisFromUrls(preparedImageUrls, { name: "Seedream direct reference image" });
   const publicImageUrls = preparedImageUrls.filter((url) => isPublicHttpUrl(url));
   if (preparedImageUrls.length && !publicImageUrls.length) {
@@ -17083,7 +17093,8 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
       Moderation: { Strategy: "Skip" },
     };
     const sequential = firstPresent(body.sequential_image_generation, body.sequentialImageGeneration, bodyParams.sequential_image_generation, bodyParams.sequentialImageGeneration, mergedProviderParameters.sequential_image_generation, mergedProviderParameters.sequentialImageGeneration);
-    payload.sequential_image_generation = sequential === undefined || sequential === null || sequential === "" ? "disabled" : String(sequential);
+    const sequentialValue = seedream5SequentialImageGenerationValue(sequential, { model, tier });
+    if (sequentialValue) payload.sequential_image_generation = sequentialValue;
     if (referencePayloadUrls.length) payload.image = referencePayloadUrls;
     upstreamPayload = payload;
     await upsertGenerationRecord({ taskId, upstreamPayload });
