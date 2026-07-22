@@ -22443,9 +22443,96 @@ async function saveUserCharacterForAuth(auth, record) {
   return record;
 }
 
+function myCharacterImageGenerationStatus(record = {}, fallback = "submitted") {
+  const status = String(record.status || "").toLowerCase();
+  if (status === "image_ready") return "succeeded";
+  if (status === "image_failed") return "failed";
+  if (status === "image_generating") return String(record.imageStatus || fallback || "submitted");
+  return String(record.imageStatus || record.status || fallback || "submitted");
+}
+
+function myCharacterImageGenerationRecordId(record = {}) {
+  return String(record.imageGenerationRecordTaskId || record.imageTaskId || "").trim();
+}
+
+function characterImageUrlsFromPayload(payload = {}) {
+  const character = payload.character || payload.data?.character || {};
+  const task = payload.task || payload.data?.task || character.imageTaskResponse || {};
+  const record = payload.record || payload.data?.record || {};
+  const urls = [
+    payload.imageUrl,
+    payload.image_url,
+    payload.localSheetUrl,
+    payload.localImageUrl,
+    payload.cdnImageUrl,
+    payload.downloadUrl,
+    character.publicImageUrl,
+    character.cdnImageUrl,
+    character.localImageUrl,
+    character.posterUrl,
+    task.imageUrl,
+    task.image_url,
+    task.output?.url,
+    task.output?.image_url,
+    record.imageResultUrl,
+    record.cdnImageUrl,
+    record.localImageUrl,
+    record.remoteImageUrl,
+    ...(Array.isArray(payload.imageUrls) ? payload.imageUrls : []),
+    ...collectOutputImageUrls(payload),
+    ...collectImageUrls(payload),
+  ];
+  return [...new Set(urls.map(gatewayAbsoluteAssetUrl).filter(Boolean))];
+}
+
+async function updateMyCharacterImageGenerationRecord(auth, record, updates = {}, reason = "my-character-image") {
+  const taskId = myCharacterImageGenerationRecordId(record) || String(updates.taskId || "").trim();
+  if (!taskId) return null;
+  return upsertGenerationRecord({
+    taskId,
+    status: myCharacterImageGenerationStatus(record, updates.status || "submitted"),
+    source: "my-character-image-generate",
+    kind: "character-image",
+    provider: "seedream5-image",
+    upstreamSource: record.upstreamSource || (USE_GATEWAY_UPSTREAM ? "gateway" : "direct"),
+    userId: record.userId || auth.user.id,
+    companionId: record.id || "",
+    companionName: record.name || "",
+    sceneName: record.title || "",
+    prompt: record.prompt || "",
+    finalPrompt: record.finalPrompt || record.prompt || "",
+    imageUrl: record.sourceImageUrl || "",
+    imageResultUrl: record.publicImageUrl || record.cdnImageUrl || record.localImageUrl || record.posterUrl || "",
+    localImageUrl: record.localImageUrl || "",
+    cdnImageUrl: record.cdnImageUrl || record.publicImageUrl || "",
+    remoteImageUrl: record.imageRemoteUrl || "",
+    error: record.error || "",
+    billingStatus: "free",
+    finalCredits: 0,
+    originalFinalCredits: 0,
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
+    ...updates,
+    taskId,
+    lastUpdateReason: reason,
+  });
+}
+
 async function refreshGeneratedMyCharacterImage(auth, record) {
   const readyImageUrl = record?.publicImageUrl || record?.cdnImageUrl || record?.localImageUrl || record?.posterUrl || "";
   if (readyImageUrl && (isCompletedStatus(record.imageStatus) || String(record.status || "").toLowerCase() === "image_ready")) {
+    await updateMyCharacterImageGenerationRecord(auth, record, {
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      imageResultUrl: readyImageUrl,
+      localImageUrl: record.localImageUrl || "",
+      cdnImageUrl: record.cdnImageUrl || record.publicImageUrl || "",
+      remoteImageUrl: record.imageRemoteUrl || "",
+      createResponse: record.imageTaskResponse || null,
+      error: "",
+    }, "my-character-image-ready");
     return {
       record,
       task: record.imageTaskResponse || { taskId: record.imageTaskId || "", status: record.imageStatus || "succeeded", output: { url: readyImageUrl } },
@@ -22493,6 +22580,17 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
     }
 
     await saveUserCharacterForAuth(auth, record);
+    await updateMyCharacterImageGenerationRecord(auth, record, {
+      upstreamTaskId: record.imageTaskId || "",
+      status: myCharacterImageGenerationStatus(record, status),
+      awaitingUpstreamTask: !(isCompletedStatus(status) || isFailedStatus(status)),
+      imageResultUrl: record.publicImageUrl || record.cdnImageUrl || record.localImageUrl || record.posterUrl || "",
+      localImageUrl: record.localImageUrl || "",
+      cdnImageUrl: record.cdnImageUrl || record.publicImageUrl || "",
+      remoteImageUrl: record.imageRemoteUrl || imageUrls[0] || "",
+      queryResponse: payload,
+      error: record.error || "",
+    }, "my-character-image-refresh");
     return { record, task, imageUrls };
   }
   const task = await apizRequest("/api/v3/tasks/query", { task_id: record.imageTaskId });
@@ -22525,6 +22623,17 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
   }
 
   await saveUserCharacterForAuth(auth, record);
+  await updateMyCharacterImageGenerationRecord(auth, record, {
+    upstreamTaskId: record.imageTaskId || "",
+    status: myCharacterImageGenerationStatus(record, status),
+    awaitingUpstreamTask: !(isCompletedStatus(status) || isFailedStatus(status)),
+    imageResultUrl: record.publicImageUrl || record.cdnImageUrl || record.localImageUrl || record.posterUrl || "",
+    localImageUrl: record.localImageUrl || "",
+    cdnImageUrl: record.cdnImageUrl || record.publicImageUrl || "",
+    remoteImageUrl: record.imageRemoteUrl || imageUrls[0] || "",
+    queryResponse: task,
+    error: record.error || "",
+  }, "my-character-image-refresh");
   return { record, task, imageUrls };
 }
 
@@ -22766,6 +22875,7 @@ async function handleGenerateMyCharacterImage(req, res) {
   const config = await readAppConfig();
   const nowIso = new Date().toISOString();
   const characterId = randomId("mychar");
+  const imageRecordTaskId = localGenerationTaskId("mychar-img");
   const record = {
     id: characterId,
     userId: auth.user.id,
@@ -22778,6 +22888,7 @@ async function handleGenerateMyCharacterImage(req, res) {
     sourceImageMime: "",
     publicImageUrl: "",
     imageTaskId: "",
+    imageGenerationRecordTaskId: imageRecordTaskId,
     imageStatus: "submitted",
     imageRemoteUrl: "",
     upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
@@ -22807,6 +22918,12 @@ async function handleGenerateMyCharacterImage(req, res) {
     max_images: 1,
     enhance_prompt_mode: "standard",
   };
+  await updateMyCharacterImageGenerationRecord(auth, record, {
+    status: "submitting",
+    model,
+    params,
+    awaitingUpstreamTask: true,
+  }, "my-character-image-create");
 
   try {
     if (USE_GATEWAY_UPSTREAM) {
@@ -22816,22 +22933,54 @@ async function handleGenerateMyCharacterImage(req, res) {
         title: record.title,
         creator: record.creator,
       });
-      const taskId = apizTaskIdFromResponse(submitted);
-      if (!taskId) {
+      const imageUrls = characterImageUrlsFromPayload(submitted);
+      const taskId = apizTaskIdFromResponse(submitted) || String(submitted.character?.imageTaskId || submitted.record?.upstreamTaskId || submitted.record?.taskId || "").trim();
+      if (!taskId && !imageUrls[0]) {
         const error = new Error(`Character image task did not return task id: ${JSON.stringify(submitted)}`);
         error.statusCode = 502;
         throw error;
       }
-      record.imageTaskId = taskId;
+      record.imageTaskId = taskId || imageRecordTaskId;
       record.imageStatus = String(submitted.character?.imageStatus || submitted.task?.status || apizTaskStatus(submitted));
       record.gatewayCharacterId = String(submitted.character?.id || "");
       record.imageTaskResponse = submitted;
+      if (imageUrls[0] && (isCompletedStatus(record.imageStatus) || !isFailedStatus(record.imageStatus))) {
+        const local = await downloadGeneratedCharacterSheet(record.imageTaskId, imageUrls[0]);
+        record.imageStatus = "succeeded";
+        record.posterUrl = local.localUrl;
+        record.localImageUrl = local.localUrl;
+        record.sourceImageUrl = local.localUrl;
+        record.publicImageUrl = local.cdnImageUrl || record.publicImageUrl || "";
+        record.cdnImageUrl = local.cdnImageUrl || record.cdnImageUrl || "";
+        record.objectStorageKey = local.objectStorageKey || record.objectStorageKey || "";
+        record.objectStorageError = local.cdnError || record.objectStorageError || "";
+        record.imageRemoteUrl = imageUrls[0];
+        record.status = "image_ready";
+        record.error = "";
+      } else if (isFailedStatus(record.imageStatus)) {
+        record.status = "image_failed";
+        record.error = String(submitted.character?.error || submitted.task?.error || submitted.task?.message || submitted.message || "Character image generation failed.");
+      }
       record.updatedAt = new Date().toISOString();
       await saveUserCharacterForAuth(auth, record);
+      const generationRecord = await updateMyCharacterImageGenerationRecord(auth, record, {
+        upstreamTaskId: taskId || "",
+        status: myCharacterImageGenerationStatus(record, record.imageStatus),
+        model: submitted.record?.model || model,
+        params,
+        awaitingUpstreamTask: !(record.status === "image_ready" || record.status === "image_failed"),
+        createResponse: submitted,
+        remoteImageUrl: record.imageRemoteUrl || imageUrls[0] || "",
+        imageResultUrl: record.publicImageUrl || record.cdnImageUrl || record.localImageUrl || record.posterUrl || "",
+        localImageUrl: record.localImageUrl || "",
+        cdnImageUrl: record.cdnImageUrl || record.publicImageUrl || "",
+        error: record.error || "",
+      }, "my-character-image-submit");
       return sendJson(res, 200, {
         ok: true,
         character: publicUserCharacter(record),
-        task: { taskId, status: record.imageStatus },
+        task: { taskId: record.imageTaskId, status: record.imageStatus, imageUrl: record.publicImageUrl || record.cdnImageUrl || record.localImageUrl || record.imageRemoteUrl || "" },
+        record: publicGenerationRecord(generationRecord || { taskId: imageRecordTaskId }, generationRecordResponseOptionsForAuth(auth)),
         user: userView(auth.user),
       });
     }
@@ -22843,8 +22992,18 @@ async function handleGenerateMyCharacterImage(req, res) {
       tier: process.env.CHARACTER_SEEDREAM_TIER || "lite",
     });
     const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("img"));
-    const local = await downloadGeneratedCharacterSheet(taskId, generated.imageUrl);
     record.imageTaskId = taskId;
+    await updateMyCharacterImageGenerationRecord(auth, record, {
+      upstreamTaskId: taskId,
+      status: "submitted",
+      model: generated.payload.model || model,
+      params,
+      upstreamPayload: generated.payload,
+      createResponse: generated.raw,
+      remoteImageUrl: generated.imageUrl,
+      awaitingUpstreamTask: false,
+    }, "my-character-image-submit");
+    const local = await downloadGeneratedCharacterSheet(taskId, generated.imageUrl);
     record.imageStatus = "succeeded";
     record.posterUrl = local.localUrl;
     record.localImageUrl = local.localUrl;
@@ -22858,10 +23017,26 @@ async function handleGenerateMyCharacterImage(req, res) {
     record.status = "image_ready";
     record.updatedAt = new Date().toISOString();
     await saveUserCharacterForAuth(auth, record);
+    const generationRecord = await updateMyCharacterImageGenerationRecord(auth, record, {
+      upstreamTaskId: taskId,
+      status: "succeeded",
+      model: generated.payload.model || model,
+      params,
+      upstreamPayload: generated.payload,
+      createResponse: generated.raw,
+      remoteImageUrl: generated.imageUrl,
+      imageResultUrl: local.cdnImageUrl || local.localUrl || generated.imageUrl,
+      localImageUrl: local.localUrl,
+      cdnImageUrl: local.cdnImageUrl || "",
+      cdnError: local.cdnError || "",
+      awaitingUpstreamTask: false,
+      error: "",
+    }, "my-character-image-succeeded");
     return sendJson(res, 200, {
       ok: true,
       character: publicUserCharacter(record),
       task: { taskId, status: record.imageStatus, imageUrl: local.cdnImageUrl || local.localUrl || generated.imageUrl },
+      record: publicGenerationRecord(generationRecord || { taskId: imageRecordTaskId }, generationRecordResponseOptionsForAuth(auth)),
       user: userView(auth.user),
     });
   } catch (error) {
@@ -22869,10 +23044,21 @@ async function handleGenerateMyCharacterImage(req, res) {
     record.error = error.message || "Character image generation failed.";
     record.updatedAt = new Date().toISOString();
     await saveUserCharacterForAuth(auth, record);
+    const errorInfo = normalizeErrorPayload(error);
+    const generationRecord = await updateMyCharacterImageGenerationRecord(auth, record, {
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || record.error,
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      failedAt: new Date().toISOString(),
+    }, "my-character-image-failed");
     return sendJson(res, error.statusCode || 502, {
       ok: false,
       message: record.error,
       character: publicUserCharacter(record),
+      record: publicGenerationRecord(generationRecord || { taskId: imageRecordTaskId }, generationRecordResponseOptionsForAuth(auth)),
     });
   }
 }
