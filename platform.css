@@ -3205,7 +3205,7 @@ main {
 }
 .advanced-result-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 12px;
 }
 .advanced-result-empty {
@@ -3311,6 +3311,10 @@ main {
   color: #b42318;
   font-size: .82rem;
   line-height: 1.4;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 .advanced-result-regenerate {
   width: fit-content;

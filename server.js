@@ -16967,6 +16967,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     if (!dbEnabled()) await writeDb(auth.db);
   }
 
+  let upstreamPayload = null;
   try {
     const prepared = await prepareSeedream5ReferenceImages(auth.db, auth.user, { ...bodyParams, ...body });
     const referencePreviewUrls = prepared.assets.map((asset) => asset.localUrl || asset.publicUrl || "").filter(Boolean);
@@ -16996,6 +16997,8 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     const sequential = firstPresent(body.sequential_image_generation, body.sequentialImageGeneration, bodyParams.sequential_image_generation, bodyParams.sequentialImageGeneration, mergedProviderParameters.sequential_image_generation, mergedProviderParameters.sequentialImageGeneration);
     payload.sequential_image_generation = sequential === undefined || sequential === null || sequential === "" ? "disabled" : String(sequential);
     if (prepared.publicImageUrls.length) payload.image = prepared.publicImageUrls;
+    upstreamPayload = payload;
+    await upsertGenerationRecord({ taskId, upstreamPayload });
     const raw = await arkRequest("POST", "/images/generations", payload);
     const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
     await upsertGenerationRecord({
@@ -17074,6 +17077,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
       code: errorInfo.code || "",
       errorPayload: errorInfo.payload || null,
       createResponse: errorInfo.payload || null,
+      upstreamPayload,
       finalCredits: 0,
       originalFinalCredits: 0,
       billingStatus: cost > 0 ? "refunded" : "free",
