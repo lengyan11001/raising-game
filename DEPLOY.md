@@ -1,57 +1,4 @@
-# 667zui Deploy Notes
-
-This branch is the second tenant/new-shell site for `667zui.video`.
-
-It should stay based on the old site branch and receive old-site fixes by
-merging or cherry-picking from `old-site`. Runtime differences belong in the
-server environment, not in copied secrets or ad-hoc code forks.
-
-## Scope
-
-- Local workspace: `D:\raising-game-667zui`
-- Branch: `codex/site-667zui`
-- Public site: `https://667zui.video`
-- Target server IP: `198.200.37.82`
-- Suggested remote root: `/opt/raising-game-667zui`
-- Suggested service: `raising-game-667zui`
-- Upstream mode: `gateway`
-- Upstream API base: `https://123vips.com`
-
-## Runtime Contract
-
-`667zui.video` calls the old site the same way the previous CloudToken new site
-did: it sends generation and pricing requests to the old site's public API with
-a configured user API token.
-
-Required production environment:
-
-```env
-NODE_ENV=production
-PORT=4174
-PUBLIC_BASE_URL=https://667zui.video
-SITE_STORAGE_SLUG=667zui
-
-UPSTREAM_MODE=gateway
-UPSTREAM_BASE_URL=https://123vips.com
-UPSTREAM_API_TOKEN=<old-site-user-api-token>
-```
-
-Production systemd must load these values from:
-
-```text
-/etc/raising-game-667zui.env
-```
-
-`raising-game-667zui.service` must include `EnvironmentFile=/etc/raising-game-667zui.env`.
-The local deploy helper checks this before restarting so new2 does not drift
-from the old-site service layout again.
-
-Do not copy old-site Ark, Aliyun, APIZ, or other upstream provider secrets to
-the 667zui server. The old site owns direct upstream access; 667zui owns its
-own users, balance ledger, records, and frontend state.
-
-The old-site user behind `UPSTREAM_API_TOKEN` must have enough credits because
-the old site will bill that account when 667zui submits generation tasks.
+# Deploy Notes
 
 ## Repo vs runtime
 
@@ -67,69 +14,116 @@ Keep these on the server and out of Git:
 - generated runtime outputs under `assets/generated/` that are recreated or user-specific
 - any ad-hoc ops scripts with embedded passwords or server login details
 
+## Old -> new2 shared-code rule
+
+`D:\raising-game-price-old` (`old-site`) is the source of truth for shared UI,
+admin, DB helper, docs, and deploy tooling. `D:\raising-game-667zui`
+(`codex/site-667zui`) must be synced from old-site for those files.
+
+Before deploying new2, run this from the old-site worktree:
+
+```powershell
+python .\scripts\sync_old_to_new2.py --check
+```
+
+If it reports drift, sync from old-site to new2, then verify:
+
+```powershell
+python .\scripts\sync_old_to_new2.py
+python .\scripts\sync_old_to_new2.py --check
+```
+
+The sync script intentionally does not copy runtime data, `.env` files, uploads,
+generated media, or database content. `server.js` is not copied by default
+because upstream invocation can differ per site; use `--include-server` only
+when old-site server code is intentionally the source for that change.
+
+## Fixed deploy commands
+
+Old site:
+
+```powershell
+$env:OLD_SITE_SSH_PASSWORD="..."
+python .\scripts\deploy_site.py --site old
+```
+
+New2:
+
+```powershell
+$env:NEW_SITE2_SSH_PASSWORD="..."
+python .\scripts\deploy_site.py --site new2
+```
+
+`deploy_site.py --site new2` runs the shared-code drift check before SSH. If it
+fails, sync first with `python .\scripts\sync_old_to_new2.py`.
+
 ## Server pull deploy
 
 Recommended flow:
 
-1. Push code to `codex/site-667zui` on GitHub.
-2. On the server, inside `/opt/raising-game-667zui`:
+1. Push code to `old-site` on GitHub.
+2. On the server, inside `/opt/raising-game-demo`:
 
 ```bash
-git fetch origin codex/site-667zui
-git checkout codex/site-667zui
-git reset --hard origin/codex/site-667zui
-systemctl restart raising-game-667zui
+git fetch origin old-site
+git checkout old-site
+git reset --hard origin/old-site
+systemctl restart raising-game-demo
 ```
 
 Runtime data must live in PostgreSQL through `DATABASE_URL`; do not use JSON files
 as an alternate data store or deployment target.
 
+Production systemd must load runtime secrets and per-site settings from:
+
+```text
+/etc/raising-game-demo.env
+```
+
+`raising-game-demo.service` must include `EnvironmentFile=/etc/raising-game-demo.env`.
+The local deploy helper checks this before restarting.
+
 From the local machine, use the helper only after pushing:
 
 ```powershell
-$env:NEW_SITE2_SSH_PASSWORD = "<server-root-password>"
-python .\scripts\deploy_site.py --site new2
+$env:OLD_SITE_SSH_PASSWORD="..."
+python .\scripts\deploy_site.py --site old
 ```
 
 Fixed production target:
 
-- site: `new2`
-- domain: `https://667zui.video`
-- host: `198.200.37.82`
-- SSH port: `42607`
-- branch: `codex/site-667zui`
-- remote root: `/opt/raising-game-667zui`
-- service: `raising-game-667zui`
-- env file: `/etc/raising-game-667zui.env`
-- health URL: `https://667zui.video/api/health`
-
-Required Nginx asset handoff:
-
-```nginx
-location ^~ /__protected_assets__/ {
-    internal;
-    alias /opt/raising-game-667zui/assets/;
-    add_header Accept-Ranges bytes always;
-}
-```
-
-The app serves stable `/assets/...` files through `X-Accel-Redirect`. Without
-this internal location, template videos such as `/assets/playflux/...mp4` return
-404 through Nginx even when the files exist on disk, which breaks old-site
-gateway preflight downloads.
+- site: `old`
+- domain: `https://123vips.com`
+- host: `101.47.76.188`
+- SSH port: `22`
+- branch: `old-site`
+- remote root: `/opt/raising-game-demo`
+- service: `raising-game-demo`
+- env file: `/etc/raising-game-demo.env`
+- health URL: `https://123vips.com/api/health`
 
 The old SFTP upload deploy is intentionally removed. Do not deploy by copying
-files into `/opt/raising-game-667zui`; that leaves Git unable to pull cleanly.
+files into `/opt/raising-game-demo`; that leaves Git unable to pull cleanly.
 
-## Keeping In Sync With Old Site
+## Wan2.7 production env
 
-When old-site fixes should be brought into 667zui:
+Wan2.7 generation requires DashScope credentials in the systemd env file used by
+`raising-game-demo`.
 
-```bash
-git fetch origin
-git checkout codex/site-667zui
-git merge origin/old-site
+Check the current redacted state:
+
+```powershell
+$env:FYSHARK_SSH_PASSWORD="..."
+python .\scripts\configure_wan27_env.py --check-only
 ```
 
-Resolve only real tenant-specific conflicts. Keep provider secrets in each
-server's environment files, never in Git.
+Configure or rotate the key, restart the service, and verify `/api/health`:
+
+```powershell
+$env:FYSHARK_SSH_PASSWORD="..."
+$env:ALIYUN_DASHSCOPE_API_KEY="..."
+python .\scripts\configure_wan27_env.py
+```
+
+The helper updates `/etc/raising-game-demo.env`, creates a timestamped backup,
+restarts `raising-game-demo`, and prints only redacted key lengths.
