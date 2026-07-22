@@ -1260,12 +1260,15 @@ function normalizeAdvancedPricing(pricing = {}) {
   const seedreamSource = { ...rawSeedream5ImageSource };
   const seedreamLiteSource = seedreamSource.lite && typeof seedreamSource.lite === "object" && !Array.isArray(seedreamSource.lite) ? seedreamSource.lite : {};
   const seedreamProSource = seedreamSource.pro && typeof seedreamSource.pro === "object" && !Array.isArray(seedreamSource.pro) ? seedreamSource.pro : {};
-  const seedreamProPurchase = seedreamProSource.purchaseUsdPerImageByResolution && typeof seedreamProSource.purchaseUsdPerImageByResolution === "object"
-    ? seedreamProSource.purchaseUsdPerImageByResolution
-    : {};
-  const seedreamProSale = seedreamProSource.saleUsdPerImageByResolution && typeof seedreamProSource.saleUsdPerImageByResolution === "object"
+  const seedreamProPurchase = {};
+  const seedreamProSaleSource = seedreamProSource.saleUsdPerImageByResolution && typeof seedreamProSource.saleUsdPerImageByResolution === "object"
     ? seedreamProSource.saleUsdPerImageByResolution
     : {};
+  const seedreamProSale = { ...seedreamProSaleSource };
+  if (!seedreamProSource.userConfigured && Number(seedreamProSale["1K"] || seedreamProSale["1k"]) === SEEDREAM5_PRO_1K_USD_PER_IMAGE && Number(seedreamProSale["2K"] || seedreamProSale["2k"]) === SEEDREAM5_PRO_1K_USD_PER_IMAGE) {
+    delete seedreamProSale["2K"];
+    delete seedreamProSale["2k"];
+  }
   const normalizeSeedreamUsdMap = (sourceMap = {}, fallbackMap = {}) => ({
     "1K": pricingNumber(firstPresent(sourceMap["1K"], sourceMap["1k"]), fallbackMap["1K"] ?? SEEDREAM5_PRO_1K_USD_PER_IMAGE, 0, 6),
     "2K": pricingNumber(firstPresent(sourceMap["2K"], sourceMap["2k"]), fallbackMap["2K"] ?? SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6),
@@ -4906,8 +4909,8 @@ function publicModelText(value = "") {
     .replace(/\/api\/wan27\/image-edit/gi, "/api/vipeak1/image-edit")
     .replace(/dreamina-seedance-2-0-fast-260128/gi, "vipeak2-fast")
     .replace(/dreamina-seedance-2-0-260128/gi, "vipeak2-standard")
-    .replace(/ep-20260721180102-9hm6g/gi, "seedream5-lite")
-    .replace(/ep-20260721175949-xw978/gi, "seedream5-pro")
+    .replace(/ep-20260721180102-9hm6g/gi, "seedream-5.0-pro")
+    .replace(/ep-20260721175949-xw978/gi, "seedream-5.0-pro")
     .replace(/ep-20260429142538-fkm9d/gi, "dreamina-seedance-2-0-fast-260128")
     .replace(/ep-20260429142513-zg667/gi, "dreamina-seedance-2-0-260128")
     .replace(/wan2\.7-image-pro/gi, "vipeak1-image")
@@ -5356,14 +5359,26 @@ function normalizeSeedream5Resolution(value = "") {
   const raw = String(value || "").trim();
   const normalized = raw.toUpperCase();
   if (normalized === "1K" || normalized === "1024") return "1K";
-  if (/^\d+\s*[xX*]\s*\d+$/.test(raw)) return raw.replace(/\s+/g, "").replace(/[X*]/g, "x");
   return "2K";
 }
 
 function seedream5ModelForTier(model = "", tier = "pro") {
   const raw = String(model || "").trim();
   if (raw === SEEDREAM5_LITE_ENDPOINT_ID) return SEEDREAM5_PRO_ENDPOINT_ID;
-  if (raw && !["lite", "pro", "seedream5-lite", "seedream5-pro"].includes(raw.toLowerCase())) return raw;
+  const compact = raw.toLowerCase().replace(/[\s_.-]+/g, "");
+  if ([
+    "lite",
+    "pro",
+    "seedream",
+    "seedream5",
+    "seedream50",
+    "seedream5pro",
+    "seedream50pro",
+    "seedreampro",
+  ].includes(compact)) {
+    return SEEDREAM5_PRO_ENDPOINT_ID;
+  }
+  if (raw && raw !== SEEDREAM5_PRO_ENDPOINT_ID) return raw;
   return SEEDREAM5_PRO_ENDPOINT_ID;
 }
 
@@ -5373,6 +5388,24 @@ function seedream5SequentialImageGenerationValue(value, { model = "", tier = "" 
   const targetModel = String(model || "").trim();
   const isProModel = targetModel === SEEDREAM5_PRO_ENDPOINT_ID || normalizeSeedream5Tier(tier) === "pro";
   return isProModel ? "" : text;
+}
+
+function normalizeSeedream5ResponseFormat(value = "url") {
+  const raw = String(value || "").trim().toLowerCase();
+  return raw === "b64_json" ? "b64_json" : "url";
+}
+
+function normalizeSeedream5OutputFormat(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "jpg") return "jpeg";
+  return ["png", "jpeg"].includes(raw) ? raw : "";
+}
+
+function normalizeSeedream5OptimizePromptOptions(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const mode = String(value.mode || "").trim().toLowerCase();
+  if (!["standard", "fast"].includes(mode)) return null;
+  return { mode };
 }
 
 function wan27ImageSize(resolution = "2K", ratio = "9:16") {
@@ -16451,6 +16484,95 @@ async function handleByteplusV3GetTask(req, res, taskId) {
   return sendJson(res, 200, byteplusTaskFromRecord(record || payload.record, generationRecordResponseOptionsForAuth(auth)));
 }
 
+function byteplusV3ImageGenerationToAdvancedBody(body = {}) {
+  const source = { ...requestParamsFromBody(body), ...body };
+  const model = String(source.model || "").trim();
+  if (!model) throw byteplusHttpError(400, "model is required.", "model");
+  const resolvedModel = seedream5ModelForTier(model, "pro");
+  if (resolvedModel !== SEEDREAM5_PRO_ENDPOINT_ID) {
+    throw byteplusHttpError(400, "model must be seedream-5.0-pro.", "model", "InvalidParameter.UnsupportedModel");
+  }
+  const prompt = String(source.prompt || "").trim();
+  if (!prompt) throw byteplusHttpError(400, "prompt is required.", "prompt");
+  const resolution = normalizeSeedream5Resolution(firstPresent(source.size, source.resolution, "2K"));
+  const advancedBody = {
+    provider: "seedream5-image",
+    model: resolvedModel,
+    seedreamTier: "pro",
+    prompt,
+    resolution,
+    size: resolution,
+    watermark: boolFromRequest(source.watermark, false),
+  };
+  [
+    "image",
+    "images",
+    "imageUrls",
+    "image_urls",
+    "referenceImages",
+    "reference_images",
+    "referenceImageUrls",
+    "reference_image_urls",
+    "imageAssetId",
+    "imageAssetIds",
+    "referenceImageAssetId",
+    "referenceImageAssetIds",
+    "assetId",
+    "assetIds",
+    "userAssetId",
+    "userAssetIds",
+  ].forEach((field) => {
+    if (source[field] !== undefined) advancedBody[field] = source[field];
+  });
+  const outputFormat = normalizeSeedream5OutputFormat(firstPresent(source.output_format, source.outputFormat));
+  const optimizePromptOptions = normalizeSeedream5OptimizePromptOptions(firstPresent(source.optimize_prompt_options, source.optimizePromptOptions));
+  if (outputFormat) advancedBody.output_format = outputFormat;
+  if (optimizePromptOptions) advancedBody.optimize_prompt_options = optimizePromptOptions;
+  return advancedBody;
+}
+
+async function handleByteplusV3ImageGeneration(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  try {
+    const body = await readJson(req);
+    const responseFormat = normalizeSeedream5ResponseFormat(body.response_format);
+    const advancedBody = byteplusV3ImageGenerationToAdvancedBody(body);
+    const captured = captureJsonResponse();
+    await handleAdvancedSeedream5ImageGenerate(withJsonBody(req, advancedBody), captured, { auth });
+    const payload = capturedJsonPayload(captured);
+    if (captured.statusCode >= 400 || !payload?.taskId) {
+      return sendByteplusError(res, captured.statusCode || 400, {
+        code: payload?.code || payload?.error?.code || "InvalidParameter",
+        message: payload?.message || payload?.error?.message || "Failed to generate image.",
+        param: payload?.param || payload?.error?.param || "",
+        byteplusError: payload?.error ? payload : null,
+      });
+    }
+    const record = payload.record || publicGenerationRecord(await getGenerationRecord(payload.taskId) || { taskId: payload.taskId }, generationRecordResponseOptionsForAuth(auth));
+    const rawImageUrl = payload.imageUrl || record.imageResultUrl || record.imageUrl || "";
+    const imageUrl = publicUrlForAssetPath(rawImageUrl) || absoluteUrlFromBase(rawImageUrl, publicOriginFromRequest(req)) || rawImageUrl;
+    if (!imageUrl) {
+      throw byteplusHttpError(502, "Seedream 5.0 Image returned no image.", "data", "UpstreamNoResult");
+    }
+    const item = {};
+    if (responseFormat === "b64_json") {
+      const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "seedream image result", maxBytes: 30 * 1024 * 1024 });
+      item.b64_json = downloaded.bytes.toString("base64");
+    } else {
+      item.url = imageUrl;
+    }
+    return sendJson(res, 200, {
+      created: Math.floor(Date.now() / 1000),
+      data: [item],
+      id: payload.taskId,
+      model: "seedream-5.0-pro",
+    });
+  } catch (error) {
+    return sendByteplusError(res, error.statusCode || 400, error);
+  }
+}
+
 function byteplusActionEnvelope(action = "", result = {}) {
   return {
     ResponseMetadata: {
@@ -16863,6 +16985,7 @@ async function createSeedream5ImageDirect({
   model = "",
   tier = "pro",
   watermark = false,
+  outputFormat = "",
   sequentialImageGeneration = undefined,
 } = {}) {
   const finalPrompt = String(prompt || "").trim();
@@ -16889,6 +17012,8 @@ async function createSeedream5ImageDirect({
     watermark: Boolean(watermark),
     Moderation: { Strategy: "Skip" },
   };
+  const resolvedOutputFormat = normalizeSeedream5OutputFormat(outputFormat);
+  if (resolvedOutputFormat) payload.output_format = resolvedOutputFormat;
   const sequential = seedream5SequentialImageGenerationValue(sequentialImageGeneration, { model: resolvedModel, tier });
   if (sequential) payload.sequential_image_generation = sequential;
   const imageAssetUris = await createSeedream5ImageAssetUrisFromUrls(preparedImageUrls, { name: "Seedream direct reference image" });
@@ -16950,6 +17075,26 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     "2K",
   ));
   const model = seedream5ModelForTier(firstPresent(body.model, bodyParams.model, mergedProviderParameters.model, caseParams.model), tier);
+  const outputFormat = normalizeSeedream5OutputFormat(firstPresent(
+    body.output_format,
+    body.outputFormat,
+    bodyParams.output_format,
+    bodyParams.outputFormat,
+    mergedProviderParameters.output_format,
+    mergedProviderParameters.outputFormat,
+    caseParams.output_format,
+    caseParams.outputFormat,
+  ));
+  const optimizePromptOptions = normalizeSeedream5OptimizePromptOptions(firstPresent(
+    body.optimize_prompt_options,
+    body.optimizePromptOptions,
+    bodyParams.optimize_prompt_options,
+    bodyParams.optimizePromptOptions,
+    mergedProviderParameters.optimize_prompt_options,
+    mergedProviderParameters.optimizePromptOptions,
+    caseParams.optimize_prompt_options,
+    caseParams.optimizePromptOptions,
+  ));
   let referenceInputs = [];
   try {
     referenceInputs = seedream5ReferenceInputsFromBody({ ...bodyParams, ...body });
@@ -16998,6 +17143,8 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
       seedreamTier: tier,
       resolution,
       size: resolution,
+      ...(outputFormat ? { output_format: outputFormat } : {}),
+      ...(optimizePromptOptions ? { optimize_prompt_options: optimizePromptOptions } : {}),
       referenceImageCount: referenceInputs.length,
       action: referenceInputs.length ? "image_reference" : "text_to_image",
     },
@@ -17079,6 +17226,8 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
       watermark: boolFromRequest(firstPresent(body.watermark, bodyParams.watermark, mergedProviderParameters.watermark), false),
       Moderation: { Strategy: "Skip" },
     };
+    if (outputFormat) payload.output_format = outputFormat;
+    if (optimizePromptOptions) payload.optimize_prompt_options = optimizePromptOptions;
     const sequential = firstPresent(body.sequential_image_generation, body.sequentialImageGeneration, bodyParams.sequential_image_generation, bodyParams.sequentialImageGeneration, mergedProviderParameters.sequential_image_generation, mergedProviderParameters.sequentialImageGeneration);
     const sequentialValue = seedream5SequentialImageGenerationValue(sequential, { model, tier });
     if (sequentialValue) payload.sequential_image_generation = sequentialValue;
@@ -18310,6 +18459,21 @@ function wan27ImageParameterFields() {
   ];
 }
 
+function seedream5ImageParameterFields() {
+  return [
+    { name: "/api/v3/images/generations", type: "endpoint", required: "Yes", description: "Seedream 5.0 Pro image generation endpoint.", default: "-" },
+    { name: "model", type: "string", required: "Yes", description: "Use `seedream-5.0-pro`.", default: "seedream-5.0-pro" },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty image prompt or edit instruction.", default: "-" },
+    { name: "image", type: "string or array", required: "No", description: `Optional reference image or images. Use public image URLs, supported image data URLs, or asset:// ids returned by upload. Up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`, default: "-" },
+    { name: "size", type: "string", required: "No", description: "Supported values here: `1K`, `2K`.", default: "2K" },
+    { name: "response_format", type: "enum", required: "No", description: "`url` or `b64_json`.", default: "url" },
+    { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
+    { name: "output_format", type: "enum", required: "No", description: "`png` or `jpeg`.", default: "-" },
+    { name: "optimize_prompt_options.mode", type: "enum", required: "No", description: "`standard` or `fast` when prompt optimization is needed.", default: "-" },
+    { name: "image input limits", type: "rule", required: "For image", description: `Supported image uploads are max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}. Upstream reference images must be larger than 14x14px, aspect ratio between 1/16 and 16, and total pixels no more than 36000000.`, default: "-" },
+  ];
+}
+
 function byteplusV3ParameterFields() {
   return [
     { name: "model", type: "string", required: "Yes", description: "`dreamina-seedance-2-0-260128` for standard or `dreamina-seedance-2-0-fast-260128` for fast. `dreamina-seedance-2-0-hc`, `dreamina-seedance-2-0-fast-hc`, and `dreamina-seedance-2-0-mini-hc` aliases are accepted.", default: "-" },
@@ -18488,24 +18652,46 @@ function advancedGenerateConstraintsDoc() {
       },
       mediaUrl: "Use public http(s) image URLs or uploaded image asset ids.",
     },
+    seedream5Image: {
+      provider: "seedream5-image",
+      route: "/api/v3/images/generations",
+      model: "seedream-5.0-pro",
+      referenceImages: { min: 0, max: ADVANCED_SEEDANCE_REFERENCE_LIMIT },
+      size: ["1K", "2K"],
+      response_format: ["url", "b64_json"],
+      output_format: ["png", "jpeg"],
+      optimize_prompt_options: { mode: ["standard", "fast"] },
+      imageInput: {
+        formats: ["JPG", "PNG", "WebP", "BMP", "TIFF", "GIF", "HEIC", "HEIF"],
+        maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+        widthPx: { min: 15 },
+        heightPx: { min: 15 },
+        aspectRatio: { min: 1 / 16, max: 16 },
+        maxPixelCount: 36000000,
+      },
+      unsupportedFields: ["sequential_image_generation", "sequential_image_generation_options", "seed", "guidance_scale"],
+      mediaUrl: "Use public http(s) image URLs, supported image data URLs, or asset:// ids returned by upload.",
+    },
   };
 }
 
 function externalAdvancedApiDoc(origin) {
   const byteplusGenerate = `${origin}/api/v3/contents/generations/tasks`;
   const byteplusTaskDetail = `${origin}/api/v3/contents/generations/tasks/<taskId>`;
+  const seedream5ImageGenerate = `${origin}/api/v3/images/generations`;
   const byteplusAssetAction = `${origin}/?Action=CreateAsset&Version=2024-01-01`;
   const advancedGenerate = `${origin}/api/advanced/generate`;
   const wan27ImageEdit = `${origin}/api/vipeak1/image-edit`;
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Seedance video integrations use the BytePlus-compatible V3 task route. Wan2.7 video and Wan image generation keep their dedicated endpoints.",
+    summary: "Seedance video integrations use the BytePlus-compatible V3 task route. Seedream 5.0 Pro image generation uses the V3 images route. Wan2.7 video and Wan image generation keep their dedicated endpoints.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     endpoints: {
       byteplusGenerate,
       byteplusTaskDetail,
+      seedream5ImageGenerate,
       byteplusAssetAction,
       advancedGenerate,
       wan27ImageEdit,
@@ -18534,6 +18720,24 @@ function externalAdvancedApiDoc(origin) {
     },
     responseShape: {
       id: "cgt-...",
+    },
+    seedream5ImageExample: {
+      method: "POST",
+      url: seedream5ImageGenerate,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        model: "seedream-5.0-pro",
+        prompt: "Create a cinematic portrait while preserving the selected subject identity.",
+        image: ["asset://asset-id-from-upload"],
+        size: "2K",
+        response_format: "url",
+        watermark: false,
+        output_format: "png",
+        optimize_prompt_options: { mode: "standard" },
+      },
     },
     wan27Example: {
       method: "POST",
@@ -18884,6 +19088,7 @@ function advancedConstraintsMarkdown(doc = {}) {
   const seedance = constraints.seedance || {};
   const wan27 = constraints.wan27 || {};
   const wan27Image = constraints.wan27Image || {};
+  const seedream5Image = constraints.seedream5Image || {};
   return [
     "**Parameter Rules**",
     "",
@@ -18901,6 +19106,15 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- Max references: ${seedance.referenceLimits?.images ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT} images total, ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos, ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios.`,
     "- `first_frame` and `last_frame` cannot be mixed with `reference_image`, `reference_video`, or `reference_audio` blocks.",
     `- Audio references: max ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios; supported uploaded/data URL audio types are MP3, WAV, M4A/MP4 audio, AAC, OGG, WebM; upload max ${Math.round((seedance.audioInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB. Audio references must be combined with image or video references; audio-only generation is rejected.`,
+    "",
+    "Seedream 5.0 image:",
+    "",
+    `- Endpoint: \`${seedream5Image.route || "/api/v3/images/generations"}\` with \`model: "seedream-5.0-pro"\`.`,
+    `- \`image\`: optional reference image or array of reference images, max ${seedream5Image.referenceImages?.max ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT}. Use public URLs, supported image data URLs, or \`asset://\` ids.`,
+    `- \`size\`: ${(seedream5Image.size || ["1K", "2K"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- \`response_format\`: ${(seedream5Image.response_format || ["url", "b64_json"]).map((item) => `\`${item}\``).join(", ")}. \`output_format\`: ${(seedream5Image.output_format || ["png", "jpeg"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- Reference image limits: max ${Math.round((seedream5Image.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, width/height > 14px, aspect ratio 1/16-16, total pixels <= ${seedream5Image.imageInput?.maxPixelCount || 36000000}.`,
+    "- Unsupported for this model: `sequential_image_generation`, `sequential_image_generation_options`, `seed`, `guidance_scale`.",
     "",
     "Wan2.7 video:",
     "",
@@ -18957,6 +19171,20 @@ function externalAdvancedApiMarkdown(doc = {}) {
       `GET ${route(endpoints.byteplusTaskDetail, "/api/v3/contents/generations/tasks/<taskId>")}`,
       "Authorization: Bearer <user-token>",
     ].join("\n")),
+    "",
+    "**Seedream 5.0 image through V3**",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.seedream5ImageGenerate, "/api/v3/images/generations")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.seedream5ImageExample?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Seedream 5.0 image fields**",
+    "",
+    docsParameterMarkdown(seedream5ImageParameterFields()),
     "",
     "**Wan2.7 video**",
     "",
@@ -23884,6 +24112,9 @@ const ADVANCED_PRICING_ROWS = [
 const ADVANCED_PRICING_ROW_KEYS = new Set([
   ...ADVANCED_PRICING_ROWS.map((row) => row.key),
   "wan27-image",
+  "seedream5-pro-1k",
+  "seedream5-pro-2k",
+  "seedream5-pro-reference",
 ]);
 
 function pricingPayloadError(message, code = "INVALID_PRICING_ROWS") {
@@ -23899,6 +24130,10 @@ function advancedPricingRowKey(row = {}) {
   const providerRaw = String(row.provider || "").toLowerCase();
   const unitRaw = String(row.unit || "").toLowerCase();
   const resolutionRaw = String(row.resolution || "").toLowerCase();
+  if (isSeedream5ImageProvider(providerRaw)) {
+    if (unitRaw === "reference_image" || resolutionRaw === "reference" || resolutionRaw === "reference_image") return "seedream5-pro-reference";
+    return `seedream5-pro-${normalizeSeedream5Resolution(row.resolution).toLowerCase()}`;
+  }
   if (providerRaw === "wan27-image" || unitRaw === "image" || resolutionRaw === "image") return "wan27-image";
   const provider = normalizeAdvancedProvider(row.provider);
   const resolution = normalizeAdvancedResolution(row.resolution);
@@ -23964,6 +24199,35 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
 function advancedSaleImageCredits(pricing = DEFAULT_ADVANCED_PRICING) {
   const normalized = normalizeAdvancedPricing(pricing);
   return pricingNumber(Number(normalized.wan27ImagePro.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6);
+}
+
+function seedream5ProOfficialUsdPerImage(resolution = "2K") {
+  return normalizeSeedream5Resolution(resolution) === "1K"
+    ? SEEDREAM5_PRO_1K_USD_PER_IMAGE
+    : SEEDREAM5_PRO_2K_USD_PER_IMAGE;
+}
+
+function advancedSaleSeedream5Credits(pricing = DEFAULT_ADVANCED_PRICING, resolution = "2K") {
+  const normalized = normalizeAdvancedPricing(pricing);
+  const publicResolution = normalizeSeedream5Resolution(resolution);
+  const saleUsd = pricingNumber(
+    normalized.seedream5Image?.pro?.saleUsdPerImageByResolution?.[publicResolution],
+    DEFAULT_ADVANCED_PRICING.seedream5Image.pro.saleUsdPerImageByResolution[publicResolution] || seedream5ProOfficialUsdPerImage(publicResolution),
+    0,
+    6,
+  );
+  return pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+}
+
+function advancedSaleSeedream5ReferenceCredits(pricing = DEFAULT_ADVANCED_PRICING) {
+  const normalized = normalizeAdvancedPricing(pricing);
+  const saleUsd = pricingNumber(
+    normalized.seedream5Image?.pro?.referenceUsdPerImageAfterFirst,
+    SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST,
+    0,
+    6,
+  );
+  return pricingNumber(saleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
 }
 
 async function gatewayPurchaseImageCredits() {
@@ -24126,6 +24390,42 @@ async function adminAdvancedPricingView(config = {}) {
     saleUsdPerSecond: pricingNumber(advancedSaleImageCredits(pricing) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     model: pricing.wan27ImagePro.model,
   });
+  ["1K", "2K"].forEach((resolution) => {
+    const purchaseUsd = seedream5ProOfficialUsdPerImage(resolution);
+    const saleCredits = advancedSaleSeedream5Credits(pricing, resolution);
+    rows.push({
+      key: `seedream5-pro-${resolution.toLowerCase()}`,
+      provider: "seedream5-image",
+      providerLabel: "Seedream 5.0 Pro",
+      resolution,
+      unit: "image",
+      purchaseCreditsPerSecond: pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      purchaseUsdPerSecond: purchaseUsd,
+      purchaseSource: "byteplus_official_image_pricing",
+      purchaseMessage: "Official Seedream 5.0 Pro image price per generated image.",
+      saleCreditsPerSecond: saleCredits,
+      saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      model: "seedream-5.0-pro",
+    });
+  });
+  {
+    const purchaseUsd = SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST;
+    const saleCredits = advancedSaleSeedream5ReferenceCredits(pricing);
+    rows.push({
+      key: "seedream5-pro-reference",
+      provider: "seedream5-image",
+      providerLabel: "Seedream 5.0 Pro Reference",
+      resolution: "reference",
+      unit: "reference_image",
+      purchaseCreditsPerSecond: pricingNumber(purchaseUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      purchaseUsdPerSecond: purchaseUsd,
+      purchaseSource: "byteplus_official_image_pricing",
+      purchaseMessage: "Official add-on price per reference image after the first reference image.",
+      saleCreditsPerSecond: saleCredits,
+      saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      model: "seedream-5.0-pro",
+    });
+  }
   return {
     unit: "credits",
     creditsPerUsd: DEFAULT_CREDITS_PER_USD,
@@ -24153,6 +24453,24 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
       }
       next.wan27ImagePro.saleCnyPerImage = pricingNumber(rawSale, next.wan27ImagePro.saleCnyPerImage, 0, 6);
       next.wan27ImagePro.userConfigured = true;
+      continue;
+    }
+    if (key === "seedream5-pro-1k" || key === "seedream5-pro-2k" || key === "seedream5-pro-reference") {
+      const rawSaleUsd = row.saleUsdPerSecond !== undefined
+        ? Number(row.saleUsdPerSecond)
+        : row.saleCreditsPerSecond !== undefined
+        ? Number(row.saleCreditsPerSecond) / DEFAULT_CREDITS_PER_USD
+        : NaN;
+      if (!Number.isFinite(rawSaleUsd) || rawSaleUsd < 0) {
+        throw pricingPayloadError(`Invalid sale price for ${key}`);
+      }
+      next.seedream5Image.pro.userConfigured = true;
+      if (key === "seedream5-pro-reference") {
+        next.seedream5Image.pro.referenceUsdPerImageAfterFirst = pricingNumber(rawSaleUsd, next.seedream5Image.pro.referenceUsdPerImageAfterFirst, 0, 6);
+      } else {
+        const resolution = key.endsWith("-1k") ? "1K" : "2K";
+        next.seedream5Image.pro.saleUsdPerImageByResolution[resolution] = pricingNumber(rawSaleUsd, next.seedream5Image.pro.saleUsdPerImageByResolution[resolution], 0, 6);
+      }
       continue;
     }
     const rawCredits = advancedPricingRowSaleCredits(row, next.creditsPerCny);
@@ -26905,6 +27223,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/v3/contents/generations/tasks") {
       return await handleByteplusV3CreateTask(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/v3/images/generations") {
+      return await handleByteplusV3ImageGeneration(req, res);
     }
 
     const byteplusV3TaskMatch = url.pathname.match(/^\/api\/v3\/contents\/generations\/tasks\/([^/]+)\/?$/);
