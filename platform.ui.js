@@ -603,12 +603,30 @@ function allParameterDocsMarkdown({ revealToken = false } = {}) {
   return revealToken ? markdown.replaceAll("<user-token>", token) : markdown;
 }
 
-function tokenAccessPackageMarkdown() {
+async function fetchLatestModelDocsMarkdown({ revealToken = false } = {}) {
+  const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
+  const docsUrl = PARAM_DOC_MARKDOWN_URL || apiUrl("/docs/models.md");
+  try {
+    const response = await fetch(docsUrl, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const markdown = await response.text();
+    if (markdown && markdown.trim()) {
+      const scoped = tenantScopedAccessText(markdown);
+      return revealToken ? scoped.replaceAll("<user-token>", token) : scoped;
+    }
+  } catch (error) {
+    console.warn("[access-docs-copy-fallback]", error?.message || error);
+  }
+  return allParameterDocsMarkdown({ revealToken });
+}
+
+async function tokenAccessPackageMarkdown() {
   const token = state.token && state.user?.apiToken ? state.user.apiToken : "<user-token>";
   const baseUrl = API_ORIGIN || window.location.origin || "";
   const docsUrl = PARAM_DOC_MARKDOWN_URL || apiUrl("/docs/models.md");
   const modelsJsonUrl = apiUrl("/api/models");
   const taskUrl = apiUrl("/api/v3/contents/generations/tasks/<taskId>");
+  const modelDocs = await fetchLatestModelDocsMarkdown({ revealToken: true });
   return [
     "# Vipeak AI API Access Package",
     "",
@@ -636,7 +654,7 @@ function tokenAccessPackageMarkdown() {
     "",
     "## Detailed Parameters",
     "",
-    allParameterDocsMarkdown({ revealToken: true }).trim(),
+    modelDocs.trim(),
     "",
   ].join("\n");
 }
