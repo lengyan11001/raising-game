@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +26,12 @@ TARGETS = {
         "health_url": "https://123vips.com/api/health",
         "env_file": "/etc/raising-game-demo.env",
         "password_env": ("OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
+        "local_password_files": (
+            {
+                "path": r"D:\raising-game\scripts\fyshark_tail_log.py",
+                "pattern": r'(?m)^PASSWORD\s*=\s*"([^"]+)"',
+            },
+        ),
     },
     "new2": {
         "host": "198.200.37.82",
@@ -45,11 +52,21 @@ TARGETS = {
 }
 
 
-def first_env(names: tuple[str, ...]) -> tuple[str, str]:
+def first_password(target: dict[str, object]) -> tuple[str, str]:
+    names = target.get("password_env", ())
     for name in names:
         value = os.environ.get(name, "")
         if value:
             return name, value
+    for source in target.get("local_password_files", ()):
+        path = Path(str(source.get("path", "")))
+        pattern = str(source.get("pattern", ""))
+        if not path.exists() or not pattern:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        match = re.search(pattern, text)
+        if match and match.group(1):
+            return f"local-file:{path}", match.group(1)
     return "", ""
 
 
@@ -73,7 +90,7 @@ def main() -> None:
 
     target = TARGETS[args.site]
     port = args.port or int(os.environ.get("DEPLOY_PORT") or target["port"])
-    env_name, password = first_env(target["password_env"])
+    password_source, password = first_password(target)
     print(f"[deploy-site] site={args.site}")
     print(f"[deploy-site] host={target['host']} port={port}")
     print(f"[deploy-site] branch={target['branch']}")
@@ -81,7 +98,7 @@ def main() -> None:
     print(f"[deploy-site] service={target['service']}")
     print(f"[deploy-site] health_url={target['health_url']}")
     print(f"[deploy-site] env_file={target['env_file']}")
-    print(f"[deploy-site] password_env={env_name or '<missing>'}")
+    print(f"[deploy-site] password_source={password_source or '<missing>'}")
     for pattern in target.get("forbidden_env_patterns", ()):
         print(f"[deploy-site] forbid_env_pattern={pattern}")
     if args.dry_run:
