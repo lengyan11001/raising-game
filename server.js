@@ -16895,7 +16895,11 @@ async function createSeedream5ImageDirect({
     Moderation: { Strategy: "Skip" },
   };
   const imageAssetUris = await createSeedream5ImageAssetUrisFromUrls(preparedImageUrls, { name: "Seedream direct reference image" });
-  if (imageAssetUris.length) payload.image = imageAssetUris;
+  const publicImageUrls = preparedImageUrls.filter((url) => isPublicHttpUrl(url));
+  if (preparedImageUrls.length && !publicImageUrls.length) {
+    throw advancedValidationError("SEEDREAM_REFERENCE_NOT_PUBLIC", "Seedream 5.0 Image reference must be a public URL for image generation.");
+  }
+  if (publicImageUrls.length) payload.image = publicImageUrls;
   const raw = await submitSeedream5ImageGeneration(payload, "direct");
   const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
   if (!imageUrl) {
@@ -16904,7 +16908,7 @@ async function createSeedream5ImageDirect({
     error.payload = raw;
     throw error;
   }
-  return { raw, imageUrl, payload };
+  return { raw, imageUrl, payload, upstreamReferenceAssetUris: imageAssetUris };
 }
 
 async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
@@ -17050,6 +17054,10 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
   try {
     const prepared = await prepareSeedream5ReferenceImages(auth.db, auth.user, { ...bodyParams, ...body });
     const referencePreviewUrls = prepared.assets.map((asset) => asset.localUrl || asset.publicUrl || "").filter(Boolean);
+    const referencePayloadUrls = prepared.publicImageUrls.filter((url) => isPublicHttpUrl(url));
+    if (prepared.inputs.length && !referencePayloadUrls.length) {
+      throw advancedValidationError("SEEDREAM_REFERENCE_NOT_PUBLIC", "Failed to prepare Seedream reference image public URL.");
+    }
     await upsertGenerationRecord({
       taskId,
       userAssetIds: prepared.assets.map((asset) => asset.id),
@@ -17062,7 +17070,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
       status: "running",
       params: {
         ...initialRecord.params,
-        referenceImageCount: prepared.upstreamImageAssetUris.length,
+        referenceImageCount: referencePayloadUrls.length,
       },
     });
     const payload = {
@@ -17076,7 +17084,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     };
     const sequential = firstPresent(body.sequential_image_generation, body.sequentialImageGeneration, bodyParams.sequential_image_generation, bodyParams.sequentialImageGeneration, mergedProviderParameters.sequential_image_generation, mergedProviderParameters.sequentialImageGeneration);
     payload.sequential_image_generation = sequential === undefined || sequential === null || sequential === "" ? "disabled" : String(sequential);
-    if (prepared.upstreamImageAssetUris.length) payload.image = prepared.upstreamImageAssetUris;
+    if (referencePayloadUrls.length) payload.image = referencePayloadUrls;
     upstreamPayload = payload;
     await upsertGenerationRecord({ taskId, upstreamPayload });
     const raw = await submitSeedream5ImageGeneration(payload, taskId);
@@ -17133,7 +17141,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
         seedreamTier: tier,
         resolution,
         size: resolution,
-        referenceImageCount: prepared.upstreamImageAssetUris.length,
+        referenceImageCount: referencePayloadUrls.length,
       },
     });
   } catch (error) {
