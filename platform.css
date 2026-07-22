@@ -7454,6 +7454,11 @@ select:focus,
   background: #3a3a3d;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
 }
+.advanced-workspace.is-create-video-image .advanced-upload-box,
+.advanced-workspace.is-create-video-extend .advanced-upload-box,
+.advanced-workspace.is-create-video-replace .advanced-upload-box {
+  display: none !important;
+}
 .advanced-workspace:not(.is-create-custom) .advanced-upload-box > span {
   border: 0;
   color: #fff;
