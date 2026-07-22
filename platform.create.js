@@ -58,6 +58,7 @@ function setAdvancedSideTab(tab = "assets", { silent = false, syncMobile = false
 }
 
 function advancedAssetTargetItems() {
+  if (!advancedCreateModeAllowsManualReferenceUpload()) return [];
   const provider = currentAdvancedProvider();
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
@@ -202,6 +203,7 @@ function renderAdvancedAssetTargets() {
 function renderAdvancedAssets(assets) {
   if (!els.advancedAssetGrid) return;
   renderAdvancedAssetTargets();
+  const canAddAssetToGeneration = advancedCreateModeAllowsManualReferenceUpload() && Boolean(activeAdvancedAssetTarget());
   const list = Array.isArray(assets)
     ? assets
     : (state.advancedAssetsLoaded ? state.advancedAssets : state.userAssets) || [];
@@ -249,7 +251,7 @@ function renderAdvancedAssets(assets) {
           <span>${escapeHtml(typeLabel)}</span>
         </div>
         <div class="advanced-asset-actions">
-          <button class="copy-btn" type="button" data-advanced-asset-add="${escapeHtml(asset.id)}">${escapeHtml(t("advanced.assetAdd"))}</button>
+          ${canAddAssetToGeneration ? `<button class="copy-btn" type="button" data-advanced-asset-add="${escapeHtml(asset.id)}">${escapeHtml(t("advanced.assetAdd"))}</button>` : ""}
           ${!video && !audio ? `<button class="ghost-button" type="button" data-advanced-asset-modify="${escapeHtml(asset.id)}">${escapeHtml(t("assets.modify"))}</button>` : ""}
           <button class="ghost-button danger" type="button" data-advanced-asset-delete="${escapeHtml(asset.id)}">${escapeHtml(t("assets.delete"))}</button>
         </div>
@@ -1074,6 +1076,7 @@ function updateAdvancedModelControls() {
   const provider = currentAdvancedProvider();
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
+  const allowManualReferenceUpload = advancedCreateModeAllowsManualReferenceUpload();
   const bounds = advancedDurationBounds(provider);
   const isImageEdit = provider === "wan27-image-edit";
   const isSeedreamImage = provider === "seedream5-image";
@@ -1159,12 +1162,12 @@ function updateAdvancedModelControls() {
   if (els.advancedUploadBox) {
     const uploadIsVideo = advancedCreateUploadIsVideo();
     const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
-    const hidePresetUploadBox = false;
+    const hidePresetUploadBox = !allowManualReferenceUpload;
     if (els.advancedImage) {
       els.advancedImage.accept = advancedCreateUploadAcceptValue();
-      els.advancedImage.multiple = provider === "seedance" || isSeedreamImage || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload());
+      els.advancedImage.multiple = allowManualReferenceUpload && (provider === "seedance" || isSeedreamImage || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload()));
     }
-    const forceUpload = simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload();
+    const forceUpload = allowManualReferenceUpload && (simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload());
     els.advancedUploadBox.hidden = hidePresetUploadBox || (provider !== "seedance" && !forceUpload && provider === "wan27" && !wanModeNeedsFirstFrame(wanMode));
     els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
@@ -1179,6 +1182,7 @@ function updateAdvancedModelControls() {
       const uploadLabel = provider === "seedance" || provider === "wan27" || isSeedreamImage ? seedanceLabel : simpleEdit && isImageEdit ? imageEditLabel : simpleEdit && uploadIsVideo ? videoEditLabel : mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : seedanceLabel;
       label.innerHTML = `<i data-lucide="${provider === "seedance" || provider === "wan27" || isSeedreamImage ? "plus" : uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(uploadLabel)}`;
     }
+    if (hidePresetUploadBox) els.advancedUploadBox.classList.remove("has-image");
   }
   renderAdvancedReferencePreviews();
   updateAdvancedReferenceSummary();

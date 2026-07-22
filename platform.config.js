@@ -482,6 +482,10 @@ function advancedCreateModeAcceptsImageUpload(mode = state.advancedCreateMode) {
   return !(state.advancedCreateKind === "video" && mode === "video-edit");
 }
 
+function advancedCreateModeAllowsManualReferenceUpload(mode = state.advancedCreateMode) {
+  return !(state.advancedCreateKind === "video" && ["video-image", "video-extend", "video-replace"].includes(mode));
+}
+
 function currentAdvancedSeedanceUploadMode() {
   return normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || advancedCreateModePreferredSeedanceMode(advancedCreateModeConfig()) || "reference_video");
 }
