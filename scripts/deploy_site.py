@@ -53,12 +53,22 @@ def first_env(names: tuple[str, ...]) -> tuple[str, str]:
     return "", ""
 
 
+def enforce_shared_sync_for_new2() -> None:
+    sync_script = Path(__file__).with_name("sync_old_to_new2.py")
+    if not sync_script.exists():
+        raise SystemExit(f"Missing shared sync checker: {sync_script}")
+    result = subprocess.run([sys.executable, str(sync_script), "--check"], text=True)
+    if result.returncode != 0:
+        raise SystemExit("New2 shared code is not synced from old-site. Run: python .\\scripts\\sync_old_to_new2.py")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Deploy a fixed production target.")
     parser.add_argument("--site", choices=sorted(TARGETS), required=True, help="old=123vips.com, new2=667zui.video")
     parser.add_argument("--port", type=int, default=None, help="Override the fixed SSH port for this site.")
     parser.add_argument("--dry-run", action="store_true", help="Print the fixed target and exit.")
     parser.add_argument("--no-restart", action="store_true", help="Pull code without restarting the service.")
+    parser.add_argument("--skip-shared-sync-check", action="store_true", help="Emergency override for new2 drift guard.")
     args = parser.parse_args()
 
     target = TARGETS[args.site]
@@ -76,6 +86,8 @@ def main() -> None:
         print(f"[deploy-site] forbid_env_pattern={pattern}")
     if args.dry_run:
         return
+    if args.site == "new2" and not args.skip_shared_sync_check:
+        enforce_shared_sync_for_new2()
     if not password:
         expected = ", ".join(target["password_env"])
         raise SystemExit(f"Missing SSH password env. Set one of: {expected}")

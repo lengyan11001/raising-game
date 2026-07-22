@@ -14,6 +14,49 @@ Keep these on the server and out of Git:
 - generated runtime outputs under `assets/generated/` that are recreated or user-specific
 - any ad-hoc ops scripts with embedded passwords or server login details
 
+## Old -> new2 shared-code rule
+
+`D:\raising-game-price-old` (`old-site`) is the source of truth for shared UI,
+admin, DB helper, docs, and deploy tooling. `D:\raising-game-667zui`
+(`codex/site-667zui`) must be synced from old-site for those files.
+
+Before deploying new2, run this from the old-site worktree:
+
+```powershell
+python .\scripts\sync_old_to_new2.py --check
+```
+
+If it reports drift, sync from old-site to new2, then verify:
+
+```powershell
+python .\scripts\sync_old_to_new2.py
+python .\scripts\sync_old_to_new2.py --check
+```
+
+The sync script intentionally does not copy runtime data, `.env` files, uploads,
+generated media, or database content. `server.js` is not copied by default
+because upstream invocation can differ per site; use `--include-server` only
+when old-site server code is intentionally the source for that change.
+
+## Fixed deploy commands
+
+Old site:
+
+```powershell
+$env:OLD_SITE_SSH_PASSWORD="..."
+python .\scripts\deploy_site.py --site old
+```
+
+New2:
+
+```powershell
+$env:NEW_SITE2_SSH_PASSWORD="..."
+python .\scripts\deploy_site.py --site new2
+```
+
+`deploy_site.py --site new2` runs the shared-code drift check before SSH. If it
+fails, sync first with `python .\scripts\sync_old_to_new2.py`.
+
 ## Server pull deploy
 
 Recommended flow:

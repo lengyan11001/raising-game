@@ -1194,6 +1194,7 @@ function updateAdvancedModelControls() {
 function triggerAdvancedLocalImageUpload({ sourceMode = "" } = {}) {
   if (!els.advancedImage) return;
   const provider = currentAdvancedProvider();
+  if (!advancedCreateModeAllowsManualReferenceUpload()) return;
   if (provider === "seedance" && els.advancedSeedanceMediaMode) {
     let mode = normalizeSeedanceMediaMode(sourceMode || els.advancedSeedanceMediaMode.value || "reference_video");
     if (!seedanceModeNeedsFirstFrame(mode)) mode = "reference_video";
