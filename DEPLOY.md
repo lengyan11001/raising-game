@@ -47,6 +47,11 @@ $env:OLD_SITE_SSH_PASSWORD="..."
 python .\scripts\deploy_site.py --site old
 ```
 
+On this dev machine, if `OLD_SITE_SSH_PASSWORD` is not set, the helper also
+reads the old root SSH password from `D:\raising-game\scripts\fyshark_tail_log.py`
+without printing it. That local legacy file is not a deploy mechanism; it is only
+a credential source for `deploy_site.py`.
+
 New2:
 
 ```powershell
