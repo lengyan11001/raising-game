@@ -252,6 +252,8 @@ const I18N = {
     "advanced.seedanceModeVideo": "Multimodal references",
     "advanced.seedanceVideoUrls": "Reference video URLs",
     "advanced.seedanceAudioUrls": "Reference audio URLs",
+    "advanced.seedanceGenerateAudio": "Generate audio",
+    "advanced.seedanceGenerateAudioHint": "Let Seedance create synced voice, effects, or music.",
     "advanced.seedanceFirstRequired": "First frame image is required for this mode.",
     "advanced.seedanceLastRequired": "Last frame image is required for this mode.",
     "advanced.seedanceVideoRequired": "Reference video is required for this mode.",
@@ -1879,7 +1881,7 @@ Poll this V3 endpoint for progress and result URLs. Public URLs, supported data 
 
 Media roles: first_frame, last_frame, reference_image, reference_video, reference_audio. First/last frame roles cannot be mixed with reference media.
 
-Limits: duration 5-15 seconds. Standard supports 480p, 720p, 1080p, and 4k. Fast supports 480p and 720p. Images: JPG/PNG/WebP/BMP, max 20MB each, width and height 300-6000px, aspect ratio 0.4-2.5. Video references: max 3, pixel count 409600-8847360. Audio references: max 3, MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM, max 30MB each, and must be used with at least one image or video reference.`;
+Limits: duration 5-15 seconds. Standard supports 480p, 720p, 1080p, and 4k. Fast supports 480p and 720p. Images: JPG/PNG/WebP/BMP, max 20MB each, width and height 300-6000px, aspect ratio 0.4-2.5. Video references: max 3, pixel count 409600-8847360. Audio references: max 3, MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM, max 30MB each, and must be used with at least one image or video reference. Set generate_audio=false when no generated voice/effects/music is needed.`;
 
 const LIVE_HTTP_ACCESS_COPY = `Production Seedance V3 endpoints:
 
@@ -2166,7 +2168,7 @@ Content-Type: application/json
       ["ratio", "9:16, 16:9, or 1:1."],
       ["resolution", "Standard: 480p, 720p, 1080p, or 4k. Fast/mini: 480p or 720p."],
       ["duration", "Integer 5-15 seconds."],
-      ["generate_audio", "Boolean. Request synced audio such as speech, effects, or background music when supported by the selected model."],
+      ["generate_audio", "Boolean. Default true. Set false to disable generated voice, effects, or background music."],
     ],
     response: [
       ["id", "Task id returned by create."],
@@ -2193,7 +2195,7 @@ Content-Type: application/json
       { name: "ratio", type: "string", required: "No", description: "Video aspect ratio. UI-safe values: 9:16, 16:9, 1:1. Overall aspect ratio must stay between 0.4 and 2.5.", default: "9:16" },
       { name: "resolution", type: "string", required: "No", description: "Standard model supports 480p, 720p, 1080p, and 4k. Fast/mini supports 480p and 720p.", default: "720p" },
       { name: "duration", type: "integer", required: "No", description: "Video duration in seconds. Seedance jobs support integer 5-15 seconds.", default: "5" },
-      { name: "generate_audio", type: "boolean", required: "No", description: "Generate synced audio such as voice, effects, or background music.", default: "true" },
+      { name: "generate_audio", type: "boolean", required: "No", description: "Default true. Set false to disable generated voice, effects, or background music.", default: "true" },
       { name: "watermark / callback_url / return_last_frame / priority / service_tier / execution_expires_after / seed / fps / camera_fixed", type: "mixed", required: "No", description: "Provider-specific pass-through fields. Unsupported fields are decided by the upstream model.", default: "-" },
     ],
     response: [

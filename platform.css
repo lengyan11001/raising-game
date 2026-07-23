@@ -3466,6 +3466,38 @@ main {
 .wan-first-frame {
   grid-column: 1 / -1;
 }
+.seedance-audio-toggle {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid rgba(15,148,139,.18);
+  border-radius: 8px;
+  background: rgba(255,255,255,.64);
+  cursor: pointer;
+}
+.seedance-audio-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #0f948b;
+}
+.seedance-audio-toggle-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.seedance-audio-toggle-copy strong {
+  color: var(--text);
+  font-size: .88rem;
+}
+.seedance-audio-toggle-copy small {
+  color: var(--muted);
+  font-size: .76rem;
+  line-height: 1.3;
+}
 .wan-frame-stack {
   display: grid;
   gap: 8px;

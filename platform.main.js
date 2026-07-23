@@ -402,6 +402,10 @@ els.advancedSeedanceAudioUrls?.addEventListener("input", () => {
   updateAdvancedReferenceSummary();
   updateAdvancedButtonCost();
 });
+els.advancedSeedanceGenerateAudio?.addEventListener("change", () => {
+  state.advancedSeedanceGenerateAudio = els.advancedSeedanceGenerateAudio.checked;
+  updateAdvancedButtonCost();
+});
 els.advancedWanLastFrame?.addEventListener("change", async () => {
   const file = els.advancedWanLastFrame.files?.[0];
   if (!file) return;
