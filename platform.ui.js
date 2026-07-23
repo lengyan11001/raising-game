@@ -2507,109 +2507,127 @@ function pricingTable(title, description, columns = [], rows = []) {
 function renderPricing() {
   if (!els.pricingRules) return;
   const seedanceResolutions = ["480p", "720p", "1080p", "4k"];
+  const seedanceFastResolutions = ["480p", "720p"];
   const wanResolutions = ["720p", "1080p"];
-  const sampleDuration = 5;
-  const creditsPerUsd = Number(state.wallet?.creditsPerUsd || state.config?.platform?.advancedPricing?.creditsPerUsd || 100) || 100;
+  const commonDurations = [5, 10, 15];
+  const creditsPerUsd = Number(state.config?.platform?.advancedPricing?.creditsPerUsd || 100) || 100;
   const unlockCost = Number(state.config?.homeVideo?.characterUnlockCost ?? state.config?.prices?.unlockVideo ?? 750) || 750;
   const packages = topupPackages();
-  const outputRows = seedanceResolutions.map((resolution) => {
-    const standard = advancedPricing(sampleDuration, "seedance", resolution, "16:9", { seedanceTier: "standard" });
-    const fast = ["1080p", "4k"].includes(resolution)
-      ? t("pricing.notSupported")
-      : pricingCreditLabel(advancedPricing(sampleDuration, "seedance", resolution, "16:9", { seedanceTier: "fast" }).credits);
-    return [
-      `<strong>${escapeHtml(resolution)}</strong>`,
-      pricingCreditLabel(standard.credits / standard.duration),
-      pricingCreditLabel(standard.credits),
-      fast,
-    ];
-  });
-  const inputRows = seedanceResolutions.map((resolution) => {
-    const inputPerSecond = seedanceInputCreditsPerSecond(resolution, "standard");
-    const standard = inputPerSecond * userPricingMultiplier();
-    const fast = ["1080p", "4k"].includes(resolution)
-      ? t("pricing.notSupported")
-      : pricingCreditLabel(seedanceInputCreditsPerSecond(resolution, "fast") * userPricingMultiplier());
-    return [
-      `<strong>${escapeHtml(resolution)}</strong>`,
-      pricingCreditLabel(standard),
-      fast,
-    ];
-  });
-  const wanRows = wanResolutions.map((resolution) => {
-    const pricing = advancedPricing(sampleDuration, "wan27", resolution, "16:9");
-    return [
-      `<strong>${escapeHtml(resolution)}</strong>`,
-      pricingCreditLabel(pricing.credits / pricing.duration),
-      pricingCreditLabel(pricing.credits),
-    ];
-  });
-  const imageCost = assetImageModifyCostCredits() * userPricingMultiplier();
-  const imageRows = [
-    ["<strong>1K</strong>", pricingCreditLabel(imageCost)],
-    ["<strong>2K</strong>", pricingCreditLabel(imageCost)],
-    ["<strong>4K</strong>", pricingCreditLabel(imageCost)],
+
+  const publicCredits = (value) => `${formatCredits(creditsAmount(value))} 积分`;
+  const publicPricingCredits = (pricing = {}) => creditsAmount(pricing.originalCredits ?? pricing.baseCredits ?? pricing.credits ?? 0);
+  const durationSummary = (provider, resolution, options = {}) => commonDurations
+    .map((duration) => `${duration}s ${publicCredits(publicPricingCredits(advancedPricing(duration, provider, resolution, "16:9", options)))}`)
+    .join(" / ");
+  const generationRow = (category, model, resolution, provider, options, note) => {
+    const pricing = advancedPricing(5, provider, resolution, "16:9", options);
+    return {
+      category,
+      model,
+      spec: resolution,
+      unit: `${publicCredits(pricing.creditsPerSecond || publicPricingCredits(pricing) / 5)}/秒`,
+      common: durationSummary(provider, resolution, options),
+      note,
+    };
+  };
+  const videoInputRow = (resolution, tier) => {
+    const inputPerSecond = seedanceInputCreditsPerSecond(resolution, tier);
+    return {
+      category: "参考视频加收",
+      model: `Vipeak 2 ${tier === "fast" ? "Fast" : "Standard"}`,
+      spec: resolution,
+      unit: `${publicCredits(inputPerSecond)}/秒`,
+      common: commonDurations.map((duration) => `${duration}s +${publicCredits(inputPerSecond * duration)}`).join(" / "),
+      note: "仅上传参考视频时叠加",
+    };
+  };
+  const seedreamPrice = (resolution) => publicPricingCredits(advancedPricing(1, "seedream5-image", resolution, "1:1", { referenceImageCount: 0 }));
+  const seedreamReferenceExtra = creditsAmount(
+    Number(state.config?.platform?.advancedPricing?.seedream5Image?.pro?.referenceUsdPerImageAfterFirst ?? ADVANCED_SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST)
+    * creditsPerUsd
+  );
+  const rows = [
+    ...seedanceResolutions.map((resolution) => generationRow("视频生成", "Vipeak 2 Standard", resolution, "seedance", { seedanceTier: "standard" }, "支持 5-15 秒")),
+    ...seedanceFastResolutions.map((resolution) => generationRow("视频生成", "Vipeak 2 Fast", resolution, "seedance", { seedanceTier: "fast" }, "Fast 支持 480p / 720p")),
+    ...wanResolutions.map((resolution) => generationRow("视频生成", "Vipeak 1", resolution, "wan27", {}, "支持 2-15 秒")),
+    ...seedanceResolutions.map((resolution) => videoInputRow(resolution, "standard")),
+    ...seedanceFastResolutions.map((resolution) => videoInputRow(resolution, "fast")),
+    {
+      category: "图片生成/编辑",
+      model: "Vipeak 1 Image",
+      spec: "1K / 2K / 4K",
+      unit: `${publicCredits(assetImageModifyCostCredits())}/张`,
+      common: `单张 ${publicCredits(assetImageModifyCostCredits())}`,
+      note: "4K 仅文生图",
+    },
+    {
+      category: "图片生成",
+      model: "Seedream 5.0 Pro",
+      spec: "1K",
+      unit: `${publicCredits(seedreamPrice("1K"))}/张`,
+      common: `单张 ${publicCredits(seedreamPrice("1K"))}`,
+      note: `第 2 张起参考图 +${publicCredits(seedreamReferenceExtra)}/张`,
+    },
+    {
+      category: "图片生成",
+      model: "Seedream 5.0 Pro",
+      spec: "2K",
+      unit: `${publicCredits(seedreamPrice("2K"))}/张`,
+      common: `单张 ${publicCredits(seedreamPrice("2K"))}`,
+      note: `第 2 张起参考图 +${publicCredits(seedreamReferenceExtra)}/张`,
+    },
+    {
+      category: "角色解锁",
+      model: "Character unlock",
+      spec: "每个角色",
+      unit: "-",
+      common: publicCredits(unlockCost),
+      note: "解锁角色剩余视频",
+    },
   ];
   const packageChips = packages.length
-    ? packages.map((item) => `<span><strong>${escapeHtml(item.currency)} $${escapeHtml(formatCredits(item.amount))}</strong>${escapeHtml(pricingCreditLabel(item.credits))}</span>`).join("")
+    ? packages.map((item) => `<span><strong>${escapeHtml(item.currency)} $${escapeHtml(formatCredits(item.amount))}</strong>${escapeHtml(publicCredits(item.credits))}</span>`).join("")
     : "";
   els.pricingRules.innerHTML = `
-    <div class="pricing-summary">
-      <div>
-        <span>${escapeHtml(t("pricing.topupRate", { credits: formatCredits(creditsPerUsd) }))}</span>
-        <strong>${escapeHtml(t("pricing.yourCost"))}</strong>
+    <div class="pricing-shot-card">
+      <div class="pricing-shot-title">
+        <div>
+          <p>Vipeak AI</p>
+          <h3>公开价格表</h3>
+        </div>
+        <span>1 USD = ${escapeHtml(formatCredits(creditsPerUsd))} 积分</span>
       </div>
-      <ul>
-        <li>${escapeHtml(t("pricing.durationRule"))}</li>
-        <li>${escapeHtml(t("pricing.ratioRule"))}</li>
-        <li>${escapeHtml(t("pricing.fastRule"))}</li>
-      </ul>
+      <div class="pricing-shot-table-wrap">
+        <table class="pricing-shot-table">
+          <thead>
+            <tr>
+              <th>类型</th>
+              <th>模型/项目</th>
+              <th>规格</th>
+              <th>单价</th>
+              <th>常用价格</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.category)}</td>
+                <td><strong>${escapeHtml(row.model)}</strong></td>
+                <td>${escapeHtml(row.spec)}</td>
+                <td>${escapeHtml(row.unit)}</td>
+                <td>${escapeHtml(row.common)}</td>
+                <td>${escapeHtml(row.note)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+      <div class="pricing-shot-foot">
+        <span>视频最终扣分 = 生成视频价格 + 参考视频加收（如有）。公开价不包含用户专属折扣。</span>
+        ${packageChips ? `<div class="pricing-package-list">${packageChips}</div>` : ""}
+      </div>
     </div>
-    <div class="pricing-rule-grid">
-      ${pricingTable(
-        t("pricing.outputTitle"),
-        t("pricing.outputDesc"),
-        [t("pricing.resolution"), t("pricing.rateSecond"), t("pricing.standard5s"), t("pricing.fast5s")],
-        outputRows
-      )}
-      ${pricingTable(
-        t("pricing.inputTitle"),
-        t("pricing.inputDesc"),
-        [t("pricing.resolution"), t("pricing.standardRateSecond"), t("pricing.fastRateSecond")],
-        inputRows
-      )}
-      ${pricingTable(
-        t("pricing.vipeak1VideoTitle"),
-        t("pricing.vipeak1VideoDesc"),
-        [t("pricing.resolution"), t("pricing.rateSecond"), t("pricing.standard5s")],
-        wanRows
-      )}
-      ${pricingTable(
-        t("pricing.imageTitle"),
-        t("pricing.imageDesc"),
-        [t("field.resolution"), t("pricing.perImage")],
-        imageRows
-      )}
-    </div>
-    <div class="pricing-bottom-row">
-      <section class="pricing-rule-block">
-        <div class="pricing-rule-head">
-          <h3>${escapeHtml(t("pricing.unlockTitle"))}</h3>
-          <p>${escapeHtml(t("pricing.unlockDesc"))}</p>
-        </div>
-        <div class="pricing-single-price">
-          <strong>${escapeHtml(pricingCreditLabel(unlockCost))}</strong>
-          <span>${escapeHtml(t("pricing.perCharacter"))}</span>
-        </div>
-      </section>
-      <section class="pricing-rule-block">
-        <div class="pricing-rule-head">
-          <h3>${escapeHtml(t("pricing.packagesTitle"))}</h3>
-        </div>
-        <div class="pricing-package-list">${packageChips}</div>
-      </section>
-    </div>
-    <p class="pricing-footnote">${escapeHtml(t("pricing.videoInputFormula"))}</p>
   `;
 }
 

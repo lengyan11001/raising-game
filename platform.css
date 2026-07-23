@@ -2384,6 +2384,107 @@ main {
   display: grid;
   gap: 16px;
 }
+.pricing-shot-card {
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 8px;
+  background: #101014;
+  box-shadow: 0 22px 70px rgba(0,0,0,.28);
+}
+.pricing-shot-title {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px 18px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  background: linear-gradient(135deg, rgba(255,79,163,.18), rgba(15,148,139,.12));
+}
+.pricing-shot-title p {
+  margin: 0 0 5px;
+  color: rgba(247,247,251,.62);
+  font-size: .78rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.pricing-shot-title h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.72rem;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+.pricing-shot-title > span {
+  flex: 0 0 auto;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #fff;
+  background: rgba(0,0,0,.2);
+  font-size: .88rem;
+  font-weight: 900;
+}
+.pricing-shot-table-wrap {
+  overflow-x: auto;
+}
+.pricing-shot-table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+}
+.pricing-shot-table th,
+.pricing-shot-table td {
+  padding: 11px 13px;
+  border-right: 1px solid rgba(255,255,255,.07);
+  border-bottom: 1px solid rgba(255,255,255,.075);
+  text-align: left;
+  vertical-align: middle;
+}
+.pricing-shot-table th:last-child,
+.pricing-shot-table td:last-child {
+  border-right: 0;
+}
+.pricing-shot-table th {
+  color: rgba(247,247,251,.58);
+  background: rgba(255,255,255,.045);
+  font-size: .73rem;
+  font-weight: 950;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.pricing-shot-table td {
+  color: rgba(247,247,251,.84);
+  font-size: .87rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+.pricing-shot-table td:nth-child(1),
+.pricing-shot-table td:nth-child(3),
+.pricing-shot-table td:nth-child(4) {
+  white-space: nowrap;
+}
+.pricing-shot-table td:nth-child(2) strong,
+.pricing-shot-table td:nth-child(4),
+.pricing-shot-table td:nth-child(5) {
+  color: #fff;
+}
+.pricing-shot-table tr:last-child td {
+  border-bottom: 0;
+}
+.pricing-shot-foot {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid rgba(255,255,255,.09);
+  background: rgba(255,255,255,.035);
+}
+.pricing-shot-foot > span {
+  color: rgba(247,247,251,.72);
+  font-size: .84rem;
+  font-weight: 800;
+  line-height: 1.5;
+}
 .pricing-summary {
   display: grid;
   grid-template-columns: minmax(220px, .42fr) minmax(0, 1fr);
