@@ -14,11 +14,11 @@ from dataclasses import dataclass
 import paramiko
 
 
-DEFAULT_HOST = "101.47.76.188"
+DEFAULT_HOST = "47.76.175.249"
 DEFAULT_USER = "root"
-DEFAULT_ENV_FILE = "/etc/raising-game-demo.env"
-DEFAULT_SERVICE = "raising-game-demo"
-DEFAULT_HEALTH_URL = "https://123vips.com/api/health"
+DEFAULT_ENV_FILE = "/etc/raising-game-cloudtoken.env"
+DEFAULT_SERVICE = "raising-game-cloudtoken"
+DEFAULT_HEALTH_URL = "https://mystockmarket.top/api/health"
 DEFAULT_BASE_URL = "https://dashscope-intl.aliyuncs.com"
 DEFAULT_MODEL = "wan2.7-i2v-2026-04-25"
 

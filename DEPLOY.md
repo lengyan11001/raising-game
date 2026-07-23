@@ -1,65 +1,52 @@
-# Deploy Notes
+# New Site 1 Deploy Notes
 
-## Repo vs runtime
+## Fixed Target
 
-The Git repo should contain code and stable static assets only.
+New site 1 must deploy only to the new server.
 
-Keep these on the server and out of Git:
+- Domain: `https://mystockmarket.top`
+- Host: `47.76.175.249`
+- Remote root: `/opt/raising-game-cloudtoken`
+- Systemd service: `raising-game-cloudtoken`
+- Runtime env file: `/etc/raising-game-cloudtoken.env`
+- Health check: `https://mystockmarket.top/api/health`
 
-- `.env.local`
-- `data/`
-- `logs/`
-- `tmp/`
-- `assets/user-uploads/`
-- `assets/user-characters/`
-- generated runtime outputs under `assets/generated/` that are recreated or user-specific
-- any ad-hoc ops scripts with embedded passwords or server login details
+Do not deploy new site 1 to the retired server `8.210.186.75`.
 
-## Server pull deploy
+## Git Pull Deploy
 
-Recommended flow:
+Deploy by Git pull on the server. Do not use `scp` or manual file copying.
 
-1. Push code to `main` on GitHub.
-2. On the server, inside `/opt/raising-game-demo`:
-
-```bash
-git fetch origin main
-git checkout main
-git reset --hard origin/main
-systemctl restart raising-game-demo
-```
-
-This avoids overwriting runtime data like `data/app-config.json` and `data/app-db.json`.
-
-From the local machine, use the helper only after pushing:
+Recommended local flow:
 
 ```powershell
-$env:FYSHARK_SSH_PASSWORD="..."
+git status --short
+git push origin main
+$env:DEPLOY_SSH_PASSWORD = "<server-root-password>"
 python .\scripts\deploy_pull.py
 ```
 
-The old SFTP upload deploy is intentionally removed. Do not deploy by copying
-files into `/opt/raising-game-demo`; that leaves Git unable to pull cleanly.
+Equivalent server-side flow:
 
-## Wan2.7 production env
-
-Wan2.7 generation requires DashScope credentials in the systemd env file used by
-`raising-game-demo`.
-
-Check the current redacted state:
-
-```powershell
-$env:FYSHARK_SSH_PASSWORD="..."
-python .\scripts\configure_wan27_env.py --check-only
+```bash
+cd /opt/raising-game-cloudtoken
+git fetch origin main
+git checkout main
+git reset --hard origin/main
+systemctl restart raising-game-cloudtoken
+curl -sS https://mystockmarket.top/api/health
 ```
 
-Configure or rotate the key, restart the service, and verify `/api/health`:
+Runtime configuration, database state, logs, uploaded assets, and generated
+outputs stay on the server and must not be overwritten by deployment.
+
+## Verification
+
+After every deploy, verify:
 
 ```powershell
-$env:FYSHARK_SSH_PASSWORD="..."
-$env:ALIYUN_DASHSCOPE_API_KEY="..."
-python .\scripts\configure_wan27_env.py
+Invoke-RestMethod https://mystockmarket.top/api/health
+(Invoke-WebRequest -Uri 'https://mystockmarket.top/admin.html' -UseBasicParsing).Content |
+  Select-String 'admin\.js\?v=adm-[0-9]+' -AllMatches
+Invoke-RestMethod https://mystockmarket.top/api/config/pricing
 ```
-
-The helper updates `/etc/raising-game-demo.env`, creates a timestamped backup,
-restarts `raising-game-demo`, and prints only redacted key lengths.

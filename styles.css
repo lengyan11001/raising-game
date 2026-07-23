@@ -789,6 +789,33 @@ svg {
   color: var(--violet);
 }
 
+.support-fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: inline-grid;
+  place-items: center;
+  gap: 4px;
+  width: 64px;
+  min-height: 68px;
+  padding: 8px 6px 7px;
+  border: 1px solid rgba(255, 244, 247, 0.18);
+  border-radius: 18px;
+  color: var(--ink);
+  background: rgba(20, 10, 18, 0.88);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(16px);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.support-fab svg {
+  width: 22px;
+  height: 22px;
+  color: var(--mint);
+}
+
 .avatar-pad {
   position: absolute;
   left: 50%;
@@ -1861,6 +1888,13 @@ input[type="text"]:focus {
     top: 228px;
   }
 
+  .support-fab {
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: 60px;
+    min-height: 64px;
+  }
+
   .avatar-pad {
     top: 45%;
   }
@@ -2018,6 +2052,14 @@ input[type="text"]:focus {
   color: rgba(255, 245, 232, 0.66);
   font-size: 12.5px;
   line-height: 1.55;
+}
+
+.dialog-tip.is-success {
+  color: #7cf0c4;
+}
+
+.dialog-tip.is-error {
+  color: #ff8ca6;
 }
 
 .bound-scene-video {

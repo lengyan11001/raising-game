@@ -14,6 +14,7 @@ const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
+const TENANT_PUBLIC_HOSTS = ["cloudtoken.ai", "mystockmarket.top", "vidnovaai.com"];
 const WAN27_MEDIA_MODES = [
   ["first_frame", "单图首帧"],
   ["first_last_frame", "首帧 + 尾帧"],
@@ -38,18 +39,21 @@ const ROUTES = [
   { id: "dashboard", title: "仪表盘", render: renderDashboard },
   { id: "platform", title: "首页广场", render: renderPlatform },
   { id: "advanced-cases", title: "高级案例", render: renderAdvancedCases },
+  { id: "pricing", title: "价格配置", render: renderPricing },
   { id: "characters", title: "角色管理", render: renderCharacters },
   { id: "videos", title: "视频管理", render: renderVideos },
   { id: "records", title: "生成记录", render: renderGenerationRecords },
   { id: "scenes", title: "场景管理", render: renderScenes },
   { id: "users", title: "用户管理", render: renderUsers },
   { id: "wallet", title: "钱包订单", render: renderWallet },
+  { id: "support", title: "客服消息", render: renderSupportMessages },
   { id: "config", title: "系统配置", render: renderConfig },
 ];
-const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "config"]);
+const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "config", "support"]);
 
 function isTenantAdminHost() {
-  return /(^|\.)cloudtoken\.ai$/i.test(window.location.hostname || "");
+  const host = String(window.location.hostname || "").trim().toLowerCase();
+  return TENANT_PUBLIC_HOSTS.some((tenantHost) => host === tenantHost || host.endsWith(`.${tenantHost}`));
 }
 
 function visibleAdminRoutes() {
@@ -377,8 +381,8 @@ async function loadConfig(force = false) {
 function statusPill(status) {
   const value = String(status || "").toLowerCase().trim();
   if (!value) return '<span class="adm-pill">—</span>';
-  const cls = ["succeeded", "success", "done", "completed", "paid"].includes(value) ? "is-success"
-    : ["pending", "image_uploaded", "queued", "submitted"].includes(value) ? "is-pending"
+  const cls = ["succeeded", "success", "done", "completed", "paid", "replied", "closed"].includes(value) ? "is-success"
+    : ["pending", "image_uploaded", "queued", "submitted", "new"].includes(value) ? "is-pending"
     : ["failed", "error", "cancelled", "canceled", "reference_failed"].includes(value) ? "is-failed"
     : ["running", "in_progress"].includes(value) ? "is-running"
     : "";
@@ -598,6 +602,118 @@ function statCard(label, value, detail, icon, color) {
       <span class="adm-stat-detail">${escapeHtml(detail || "")}</span>
     </div>
   `;
+}
+
+function fmtMoney(value, currency = "$") {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `${currency}${n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
+
+async function renderPricing() {
+  const payload = await api("/api/admin/pricing");
+  if (!isActiveRoute("pricing")) return;
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const multiplier = Number(payload.resalePricing?.multiplier || 1);
+  const cnyPerUsd = Number(payload.cnyPerUsd || 6.67);
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>价格配置</h2>
+          <p class="adm-muted">采购价读取老站对外价格；新站1出售价 = 采购价 × 当前倍率。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="refreshPricingBtn"><i data-lucide="refresh-cw"></i>刷新价格源</button>
+          <button class="adm-btn adm-btn-primary" id="savePricingBtn"><i data-lucide="save"></i>保存倍率</button>
+        </div>
+      </div>
+      <div class="adm-grid adm-grid-2">
+        <div class="adm-card">
+          <div class="adm-card-body">
+            <label class="adm-form-row">
+              <span>出售价倍率</span>
+              <input id="pricingMultiplierInput" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(multiplier))}" />
+              <small class="adm-muted">1 = 和老站对外价一致；0.8 = 八折；1.2 = 加价 20%。</small>
+            </label>
+            <label class="adm-form-row">
+              <span>人民币汇率</span>
+              <input id="pricingCnyInput" type="number" min="0.0001" step="0.01" value="${escapeHtml(cnyPerUsd)}" />
+              <small class="adm-muted">仅用于表格折算展示。</small>
+            </label>
+          </div>
+        </div>
+        <div class="adm-card">
+          <div class="adm-card-body">
+            <div class="adm-record-line"><span>价格源</span><code>${escapeHtml(payload.source || "old-site")}</code></div>
+            <div class="adm-record-line"><span>更新时间</span><code>${escapeHtml(payload.updatedAt || "—")}</code></div>
+            <div class="adm-record-line"><span>积分换算</span><code>${escapeHtml(payload.creditsPerUsd || 100)} credits = 1 USD</code></div>
+          </div>
+        </div>
+      </div>
+      <div class="adm-card">
+        <header class="adm-card-head">
+          <h3>模型价格表</h3>
+          <span class="adm-muted">采购价 / 出售价 / 人民币折算</span>
+        </header>
+        <div class="adm-card-body adm-table-wrap">
+          ${rows.length ? `
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th>模型</th>
+                  <th>单位</th>
+                  <th>采购价 USD</th>
+                  <th>出售价 USD</th>
+                  <th>出售价 RMB</th>
+                  <th>出售价积分</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows.map((row) => `
+                  <tr>
+                    <td><strong>${escapeHtml(row.label || row.id || "")}</strong><span class="adm-block adm-muted">${escapeHtml(row.group || "")}</span></td>
+                    <td>${escapeHtml(row.unit || "")}</td>
+                    <td>${escapeHtml(fmtMoney(row.purchaseUsd, "$"))}</td>
+                    <td>${escapeHtml(fmtMoney(row.saleUsd, "$"))}</td>
+                    <td>${escapeHtml(fmtMoney(row.saleCny, "¥"))}</td>
+                    <td><span class="adm-mono">${escapeHtml(row.saleCredits ?? "")}</span></td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>` : '<div class="adm-empty"><i data-lucide="receipt"></i><p>暂无价格数据</p></div>'}
+        </div>
+      </div>
+    </section>
+  `;
+  byId("refreshPricingBtn")?.addEventListener("click", async () => {
+    try {
+      await api("/api/admin/pricing?refresh=1");
+      toast("价格源已刷新。", "success");
+      renderPricing();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+  byId("savePricingBtn")?.addEventListener("click", async () => {
+    const nextMultiplier = Number(byId("pricingMultiplierInput")?.value);
+    const nextCnyPerUsd = Number(byId("pricingCnyInput")?.value);
+    if (!Number.isFinite(nextMultiplier) || nextMultiplier <= 0 || nextMultiplier > 100) {
+      toast("倍率必须大于 0 且不超过 100。", "error");
+      return;
+    }
+    try {
+      await api("/api/admin/pricing", {
+        method: "PUT",
+        body: { multiplier: nextMultiplier, cnyPerUsd: nextCnyPerUsd },
+      });
+      toast("价格倍率已保存。", "success");
+      renderPricing();
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  });
+  refreshIcons();
 }
 
 /* ============ CHARACTERS ============ */
@@ -1467,6 +1583,33 @@ function recordImageAssets(record = {}) {
   return images;
 }
 
+function recordPrimaryImageUrl(record = {}) {
+  const images = recordImageAssets(record);
+  return toAbsoluteHttpUrl(images[0] ? recordMediaAssetPreviewUrl(images[0]) : "")
+    || toAbsoluteHttpUrl(record.sourceImageUrl || record.imageUrl || record.localPosterUrl || record.posterUrl || "");
+}
+
+function recordMediaAssetVideoUrl(asset = {}) {
+  return asset.videoUrl || asset.url || asset.localUrl || "";
+}
+
+function recordInputVideoAsset(record = {}) {
+  const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  return assets.find((asset) => asset && ["reference_video", "first_clip"].includes(asset.type)) || null;
+}
+
+function recordInputVideoUrl(record = {}) {
+  const asset = recordInputVideoAsset(record);
+  return toAbsoluteHttpUrl(asset ? recordMediaAssetVideoUrl(asset) : "")
+    || toAbsoluteHttpUrl(record.params?.firstClipUrl || record.params?.first_clip_url || "");
+}
+
+function recordInputVideoPosterUrl(record = {}) {
+  const asset = recordInputVideoAsset(record);
+  return toAbsoluteHttpUrl(asset?.posterUrl || asset?.imageUrl || asset?.thumbnailUrl || asset?.localPosterUrl || "")
+    || toAbsoluteHttpUrl(record.localPosterUrl || record.posterUrl || record.imageUrl || "");
+}
+
 function recordImageAssetsHtml(record = {}) {
   const images = recordImageAssets(record);
   if (!images.length) return "";
@@ -1673,7 +1816,13 @@ function renderGenerationRecordTable(records, payload = {}) {
   pane.querySelectorAll("[data-act='promote-advanced']").forEach((button) => {
     button.addEventListener("click", () => {
       const record = records[Number(button.dataset.index || 0)];
-      if (record) promoteRecordToAdvancedCase(record, button);
+      if (record) promoteRecordToAdvancedCaseWithCategory(record, button);
+    });
+  });
+  pane.querySelectorAll("[data-act='promote-platform']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = records[Number(button.dataset.index || 0)];
+      if (record) promoteRecordToPlatformGallery(record, button);
     });
   });
 }
@@ -1697,6 +1846,7 @@ function generationRecordRowHtml(record, index) {
       <td class="adm-record-actions">
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="record-detail" data-index="${index}"><i data-lucide="eye"></i>Detail</button>
         <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="copy-record" data-index="${index}"><i data-lucide="copy"></i>Prompt</button>
+        ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="promote-platform" data-index="${index}"><i data-lucide="layout-template"></i>Gallery</button>` : ""}
         ${canPromote ? `<button class="adm-btn adm-btn-sm adm-btn-primary" data-act="promote-advanced" data-index="${index}"><i data-lucide="wand-sparkles"></i>Advanced</button>` : ""}
       </td>
     </tr>
@@ -1710,7 +1860,7 @@ function advancedProviderFromRecord(record = {}) {
   return "wan27";
 }
 
-function advancedCaseFromRecord(record = {}, index = 0) {
+function advancedCaseFromRecord(record = {}, index = 0, category = "hot") {
   const provider = advancedProviderFromRecord(record);
   const params = {
     provider,
@@ -1728,14 +1878,21 @@ function advancedCaseFromRecord(record = {}, index = 0) {
   const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || "Advanced generation";
   const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
   const sourceCoverUrl = toAbsoluteHttpUrl(record.coverUrl || record.posterUrl || record.imageUrl || "");
+  const inputImageUrl = recordPrimaryImageUrl(record);
+  const inputVideoUrl = recordInputVideoUrl(record);
+  const inputVideoPosterUrl = recordInputVideoPosterUrl(record);
   return {
     id: `advanced-record-${String(record.taskId || Date.now()).replace(/[^a-z0-9_-]/gi, "-").slice(0, 48)}`,
     title: String(title || "Advanced generation").slice(0, 80),
-    category: "advanced",
+    category: normalizeAdvancedCaseCategory(category),
     provider,
     price: advancedCaseCredits({ provider, params }),
     coverUrl: "",
     previewUrl: sourceVideoUrl,
+    inputImageUrl,
+    inputVideoUrl,
+    inputVideoPosterUrl,
+    sourceImageUrl: inputImageUrl,
     sourceVideoUrl,
     sourceCoverUrl,
     description: `${recordOwnerText(record)} · ${fmtDate(record.createdAt)}`,
@@ -1783,6 +1940,145 @@ async function promoteRecordToAdvancedCase(record = {}, button = null) {
     toast("已加入 Advanced 广场。", "success");
   } catch (error) {
     toast(error.message || "加入 Advanced 失败。", "error");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }
+  }
+}
+
+async function promoteRecordToAdvancedCaseWithCategory(record = {}, button = null) {
+  const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
+  if (!sourceVideoUrl) {
+    toast("This record has no usable video for Advanced.", "error");
+    return;
+  }
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "Advanced generation";
+  const originalHtml = button?.innerHTML || "";
+  const detectedInputVideoUrl = recordInputVideoUrl(record);
+  const detectedInputVideoPosterUrl = recordInputVideoPosterUrl(record);
+  const detectedInputImageUrl = recordPrimaryImageUrl(record);
+  const result = await openDialog({
+    title: "设置到 Advanced",
+    body: `
+      <div class="adm-form-row">
+        <span>视频</span>
+        <input value="${escapeHtml(title)}" disabled />
+      </div>
+      <div class="adm-form-row">
+        <span>分类</span>
+        <select id="promoteAdvancedCategory">${advancedCaseCategoryOptions("hot")}</select>
+      </div>
+      <div id="promoteReplaceFields" hidden>
+        <div class="adm-form-row">
+          <span>Replace 左侧输入视频 URL（必填）</span>
+          <input id="promoteInputVideoUrl" value="${escapeHtml(detectedInputVideoUrl)}" placeholder="https://.../input-video.mp4" />
+        </div>
+        <div class="adm-form-row">
+          <span>Replace 左侧输入视频首帧 URL</span>
+          <input id="promoteInputVideoPosterUrl" value="${escapeHtml(detectedInputVideoPosterUrl)}" placeholder="https://.../first-frame.jpg" />
+        </div>
+        <div class="adm-form-row">
+          <span>Replace 左侧替换图片 URL</span>
+          <input id="promoteInputImageUrl" value="${escapeHtml(detectedInputImageUrl)}" placeholder="https://.../replace-image.jpg" />
+        </div>
+      </div>
+      <p class="adm-muted" style="margin:0;">保存时会把右侧结果视频下载到本地素材，并自动生成封面。Replace 分类会同时保存左侧输入视频和右侧结果视频；移出展示不会删除视频文件。</p>
+    `,
+    confirmText: "加入 Advanced",
+    cancelText: "取消",
+    onOpen: () => {
+      const categorySelect = els.dialogBody.querySelector("#promoteAdvancedCategory");
+      const replaceFields = els.dialogBody.querySelector("#promoteReplaceFields");
+      const syncReplaceFields = () => {
+        if (replaceFields) replaceFields.hidden = categorySelect?.value !== "replace";
+      };
+      categorySelect?.addEventListener("change", syncReplaceFields);
+      syncReplaceFields();
+    },
+    onConfirm: async () => {
+      if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i data-lucide="loader-circle"></i>Saving';
+        refreshIcons();
+      }
+      try {
+        const category = els.dialogBody.querySelector("#promoteAdvancedCategory")?.value || "hot";
+        const inputVideoUrl = els.dialogBody.querySelector("#promoteInputVideoUrl")?.value.trim() || "";
+        const inputVideoPosterUrl = els.dialogBody.querySelector("#promoteInputVideoPosterUrl")?.value.trim() || "";
+        const inputImageUrl = els.dialogBody.querySelector("#promoteInputImageUrl")?.value.trim() || "";
+        if (category === "replace" && !isHttpUrl(inputVideoUrl)) {
+          throw new Error("Replace 分类必须填写左侧输入视频 URL，否则前台左侧视频会缺失。");
+        }
+        if (category === "replace" && inputVideoPosterUrl && !isHttpUrl(inputVideoPosterUrl)) {
+          throw new Error("输入视频首帧 URL 必须是 http/https。");
+        }
+        if (category === "replace" && inputImageUrl && !isHttpUrl(inputImageUrl)) {
+          throw new Error("替换图片 URL 必须是 http/https。");
+        }
+        const config = await loadConfig(true);
+        const platform = config.platform || {};
+        const advanced = defaultAdvancedConfig(platform);
+        let nextCase = advancedCaseFromRecord(record, advanced.cases.length, category);
+        if (category === "replace") {
+          nextCase = {
+            ...nextCase,
+            inputVideoUrl,
+            inputVideoPosterUrl: inputVideoPosterUrl || nextCase.inputVideoPosterUrl || "",
+            inputImageUrl: inputImageUrl || nextCase.inputImageUrl || "",
+            sourceImageUrl: inputImageUrl || nextCase.sourceImageUrl || "",
+          };
+        }
+        nextCase = await ingestAdvancedCaseMediaForSave(nextCase);
+        const nextAdvanced = {
+          ...advanced,
+          cases: [...advanced.cases.filter((item) => item.id !== nextCase.id), nextCase],
+        };
+        const payload = await api("/api/admin/config", {
+          method: "PUT",
+          body: { config: { ...config, platform: { ...platform, advanced: nextAdvanced } } },
+        });
+        state.config = payload.config;
+        toast("已加入 Advanced。", "success");
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.innerHTML = originalHtml;
+          refreshIcons();
+        }
+      }
+    },
+  });
+  if (result === "confirm" && isActiveRoute("records")) renderGenerationRecords();
+}
+
+async function promoteRecordToPlatformGallery(record = {}, button = null) {
+  const sourceVideoUrl = toAbsoluteHttpUrl(recordVideoUrl(record) || recordRemoteVideoUrl(record));
+  if (!sourceVideoUrl) {
+    toast("该记录没有可用视频，不能加入普通广场。", "error");
+    return;
+  }
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.taskId || "Gallery video";
+  const ok = await confirmAction(
+    "加入首页普通广场",
+    `确认把「${title}」加入首页普通广场？前台点击这个视频会跳到 Advanced，不弹出普通生成窗口。`,
+    { confirmText: "加入普通广场" },
+  );
+  if (!ok) return;
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-circle"></i>Saving';
+    refreshIcons();
+  }
+  try {
+    const payload = await api(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}/promote-platform`, { method: "POST" });
+    if (payload.config) state.config = payload.config;
+    toast("已加入首页普通广场。", "success");
+  } catch (error) {
+    toast(error.message || "加入普通广场失败。", "error");
   } finally {
     if (button) {
       button.disabled = false;
@@ -2244,11 +2540,146 @@ async function renderWallet() {
   });
 }
 
+/* ============ SUPPORT ============ */
+function supportPreview(value, length = 150) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > length ? `${text.slice(0, Math.max(0, length - 3))}...` : text;
+}
+
+function supportStatusOptions(status = "new") {
+  const current = String(status || "new").toLowerCase();
+  return [
+    ["new", "未处理"],
+    ["replied", "已回复"],
+    ["closed", "已关闭"],
+  ].map(([value, label]) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`).join("");
+}
+
+async function openSupportReplyDialog(message) {
+  if (!message?.id) return;
+  const result = await openDialog({
+    title: "回复客服消息",
+    body: `
+      <div class="adm-support-detail">
+        <div class="adm-support-meta">
+          <div><span>邮箱</span><code>${escapeHtml(message.email || "-")}</code></div>
+          <div><span>用户</span><code>${escapeHtml(message.username || message.userId || "-")}</code></div>
+          <div><span>语言</span><code>${escapeHtml(message.locale || "-")}</code></div>
+          <div><span>提交时间</span><code>${escapeHtml(fmtDate(message.createdAt))}</code></div>
+        </div>
+        <label class="adm-form-row">
+          <span>用户问题</span>
+          <textarea rows="5" readonly>${escapeHtml(message.question || "")}</textarea>
+        </label>
+        <label class="adm-form-row">
+          <span>回复内容</span>
+          <textarea id="supportReplyInput" rows="8" maxlength="4000" placeholder="填写给用户看的回复内容">${escapeHtml(message.reply || "")}</textarea>
+        </label>
+        <label class="adm-form-row">
+          <span>状态</span>
+          <select id="supportStatusSelect">${supportStatusOptions(message.status)}</select>
+        </label>
+        ${message.replyAt ? `<p class="adm-muted">上次回复：${escapeHtml(fmtDate(message.replyAt))}${message.replyBy ? ` / ${escapeHtml(message.replyBy)}` : ""}</p>` : ""}
+      </div>
+    `,
+    confirmText: "保存回复",
+    cancelText: "取消",
+    onOpen: (root) => root.querySelector("#supportReplyInput")?.focus(),
+    onConfirm: async () => {
+      const reply = els.dialogBody.querySelector("#supportReplyInput")?.value.trim() || "";
+      const status = els.dialogBody.querySelector("#supportStatusSelect")?.value || "replied";
+      if (!reply && status !== "closed") throw new Error("请填写回复内容。");
+      await api(`/api/admin/support-messages/${encodeURIComponent(message.id)}`, {
+        method: "PATCH",
+        body: { reply, status },
+      });
+      toast("客服回复已保存。", "success");
+    },
+  });
+  if (result === "confirm") renderSupportMessages();
+}
+
+async function renderSupportMessages() {
+  const payload = await api("/api/admin/support-messages");
+  if (!isActiveRoute("support")) return;
+  const messages = payload.messages || [];
+  const messageMap = new Map(messages.map((message) => [String(message.id), message]));
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <div>
+          <h2>客服消息</h2>
+          <p class="adm-muted">老站站内信入口提交的邮箱和问题，可以在这里保存回复和处理状态。</p>
+        </div>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" data-act="refresh"><i data-lucide="refresh-cw"></i>刷新</button>
+        </div>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-body adm-table-wrap">
+          ${messages.length ? `
+            <table class="adm-table adm-support-table">
+              <thead><tr><th>消息</th><th>用户</th><th>邮箱</th><th>问题</th><th>回复</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+              <tbody>
+                ${messages.map((m) => `
+                  <tr data-id="${escapeHtml(m.id)}">
+                    <td>
+                      <div class="adm-mono adm-truncate" title="${escapeHtml(m.id)}">${escapeHtml(m.id)}</div>
+                      <small class="adm-muted adm-block">Lang: ${escapeHtml(m.locale || "-")}</small>
+                    </td>
+                    <td>${escapeHtml(m.username || m.userId || "-")}</td>
+                    <td class="adm-mono adm-truncate">${escapeHtml(m.email || "-")}</td>
+                    <td class="adm-support-question">${escapeHtml(supportPreview(m.question || "", 180))}</td>
+                    <td class="adm-support-reply">${m.reply ? `
+                      <div>${escapeHtml(supportPreview(m.reply, 150))}</div>
+                      <small class="adm-muted adm-block">${escapeHtml(fmtDate(m.replyAt))}${m.replyBy ? ` / ${escapeHtml(m.replyBy)}` : ""}</small>
+                    ` : "-"}</td>
+                    <td>${statusPill(m.status || "new")}</td>
+                    <td>${fmtDate(m.createdAt)}</td>
+                    <td>
+                      <div class="adm-row-actions">
+                        <button class="adm-btn adm-btn-sm adm-btn-primary" type="button" data-act="reply">回复</button>
+                        ${String(m.status || "").toLowerCase() !== "closed" ? `<button class="adm-btn adm-btn-sm adm-btn-ghost" type="button" data-act="close">关闭</button>` : ""}
+                      </div>
+                    </td>
+                  </tr>`).join("")}
+              </tbody>
+            </table>
+          ` : `<div class="adm-empty"><i data-lucide="mail"></i><p>No support messages</p></div>`}
+        </div>
+      </div>
+    </section>
+  `;
+  els.adminContent.querySelector('[data-act="refresh"]')?.addEventListener("click", () => renderSupportMessages());
+  els.adminContent.querySelectorAll("tr[data-id]").forEach((row) => {
+    const message = messageMap.get(row.dataset.id || "");
+    row.querySelector('[data-act="reply"]')?.addEventListener("click", () => openSupportReplyDialog(message));
+    row.querySelector('[data-act="close"]')?.addEventListener("click", async () => {
+      if (!message?.id) return;
+      const ok = await confirmAction("关闭客服消息", "确认将这条客服消息标记为已关闭？", { confirmText: "关闭" });
+      if (!ok) return;
+      await api(`/api/admin/support-messages/${encodeURIComponent(message.id)}`, {
+        method: "PATCH",
+        body: { status: "closed" },
+      });
+      toast("客服消息已关闭。", "success");
+      renderSupportMessages();
+    });
+  });
+  refreshIcons();
+}
+
 /* ============ PLATFORM ============ */
 const FIXED_PLATFORM_CATEGORIES = [
   { id: "featured", name: "精选模板" },
   { id: "i2v", name: "图生视频" },
   { id: "t2v", name: "文生视频" },
+];
+
+const ADVANCED_CASE_CATEGORIES = [
+  { id: "hot", name: "热门" },
+  { id: "extend", name: "Extend" },
+  { id: "replace", name: "Replace" },
 ];
 
 function defaultAdvancedConfig(platform = {}) {
@@ -2272,6 +2703,26 @@ function platformTemplateRequestJson(template = {}) {
 function platformCategoryOptions(categories = [], selected = "") {
   return categories.map((category) => `
     <option value="${escapeHtml(category.id)}" ${category.id === selected ? "selected" : ""}>${escapeHtml(category.name || category.id)}</option>
+  `).join("");
+}
+
+function normalizeAdvancedCaseCategory(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw.includes("extend")) return "extend";
+  if (raw.includes("replace")) return "replace";
+  if (raw === "hot" || raw.includes("热门") || raw.includes("popular")) return "hot";
+  return "hot";
+}
+
+function advancedCaseCategoryLabel(value = "") {
+  const id = normalizeAdvancedCaseCategory(value);
+  return ADVANCED_CASE_CATEGORIES.find((item) => item.id === id)?.name || id;
+}
+
+function advancedCaseCategoryOptions(selected = "hot") {
+  const current = normalizeAdvancedCaseCategory(selected);
+  return ADVANCED_CASE_CATEGORIES.map((category) => `
+    <option value="${escapeHtml(category.id)}" ${category.id === current ? "selected" : ""}>${escapeHtml(category.name)}</option>
   `).join("");
 }
 
@@ -2362,7 +2813,7 @@ function platformTemplateSummary(template = {}, index = 0, categories = []) {
       <td>
         <div class="adm-actions">
           <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit-template" type="button"><i data-lucide="pencil"></i>编辑</button>
-          <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-template" type="button"><i data-lucide="trash-2"></i>删除</button>
+          <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="delete-template" type="button"><i data-lucide="eye-off"></i>移出广场</button>
         </div>
       </td>
     </tr>
@@ -2452,7 +2903,7 @@ function defaultAdvancedCase(index = 0) {
   return {
     id: `advanced-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     title: "Advanced Case",
-    category: "portrait",
+    category: "hot",
     provider: "wan27",
     price: 500,
     coverUrl: "",
@@ -2523,7 +2974,7 @@ function advancedCaseSummary(item = {}, index = 0) {
     <tr data-advanced-index="${index}">
       <td>${platformTemplatePreview(item)}</td>
       <td><strong>${escapeHtml(item.title || `Case ${index + 1}`)}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(item.id || "")}</small></td>
-      <td>${escapeHtml(item.category || "—")}</td>
+      <td>${escapeHtml(advancedCaseCategoryLabel(item.category))}</td>
       <td>${escapeHtml(item.provider || item.params?.provider || "seedance")} / ${advancedCaseCredits(item)}（${advancedCaseDuration(item)}s）</td>
       <td class="adm-truncate" title="${escapeHtml(item.prompt || "")}">${escapeHtml(item.prompt || "").slice(0, 80)}</td>
       <td>${item.enabled === false ? '<span class="adm-pill is-cancelled">Off</span>' : '<span class="adm-pill is-success">On</span>'}</td>
@@ -2531,7 +2982,7 @@ function advancedCaseSummary(item = {}, index = 0) {
         <div class="adm-actions">
           <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit-advanced" type="button"><i data-lucide="pencil"></i>编辑</button>
           <button class="adm-btn adm-btn-sm adm-btn-primary" data-act="generate-advanced" type="button"><i data-lucide="wand-sparkles"></i>生成</button>
-          <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-advanced" type="button"><i data-lucide="trash-2"></i>删除</button>
+          <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="delete-advanced" type="button"><i data-lucide="eye-off"></i>移出展示</button>
         </div>
       </td>
     </tr>
@@ -2544,11 +2995,14 @@ function advancedCaseEditor(item = {}, index = 0) {
   const mediaMode = normalizeWanMediaMode(item.mediaMode || item.params?.mediaMode);
   const videoInput = item.sourceVideoUrl || (/^https?:\/\//i.test(item.previewUrl || "") ? item.previewUrl : "");
   const coverInput = item.sourceCoverUrl || (/^https?:\/\//i.test(item.coverUrl || "") ? item.coverUrl : "");
+  const inputImage = item.inputImageUrl || item.sourceImageUrl || "";
+  const inputVideo = item.inputVideoUrl || "";
+  const inputVideoPoster = item.inputVideoPosterUrl || "";
   return `
     <div class="platform-template-editor" data-advanced-index="${index}">
       <div class="adm-grid adm-grid-3">
         <div class="adm-form-row"><span>标题</span><input data-f="title" value="${escapeHtml(item.title || "")}" /></div>
-        <div class="adm-form-row"><span>分类</span><input data-f="category" value="${escapeHtml(item.category || "portrait")}" /></div>
+        <div class="adm-form-row"><span>分类</span><select data-f="category">${advancedCaseCategoryOptions(item.category || "hot")}</select></div>
         <div class="adm-form-row"><span>模型</span><select data-f="provider"><option value="seedance" ${provider === "seedance" ? "selected" : ""}>Seedance</option><option value="wan27" ${provider === "wan27" ? "selected" : ""}>Wan2.7</option></select></div>
       </div>
       <div class="adm-grid adm-grid-3">
@@ -2563,6 +3017,11 @@ function advancedCaseEditor(item = {}, index = 0) {
       <div class="adm-grid adm-grid-2">
         <div class="adm-form-row"><span>样例视频链接（必填，http/https）</span><input data-f="sourceVideoUrl" value="${escapeHtml(videoInput)}" placeholder="https://.../case-preview.mp4" /></div>
         <div class="adm-form-row"><span>封面链接（选填，http/https）</span><input data-f="sourceCoverUrl" value="${escapeHtml(coverInput)}" placeholder="不填则保存时从视频抽帧" /></div>
+      </div>
+      <div class="adm-form-row"><span>输入图片 URL（Extend/Replace 左侧展示）</span><input data-f="inputImageUrl" value="${escapeHtml(inputImage)}" placeholder="https://.../input.jpg" /></div>
+      <div class="adm-grid adm-grid-2">
+        <div class="adm-form-row"><span>输入视频 URL（Replace 左侧展示）</span><input data-f="inputVideoUrl" value="${escapeHtml(inputVideo)}" placeholder="https://.../input.mp4" /></div>
+        <div class="adm-form-row"><span>输入视频首帧 URL</span><input data-f="inputVideoPosterUrl" value="${escapeHtml(inputVideoPoster)}" placeholder="https://.../first-frame.jpg" /></div>
       </div>
       ${(item.localVideoUrl || item.cdnVideoUrl || item.localCoverUrl || item.cdnCoverUrl) ? `
         <div class="adm-form-row">
@@ -2600,12 +3059,16 @@ function collectAdvancedCaseFromCard(card, existing = {}) {
   return {
     ...existing,
     title: get("title")?.value.trim() || existing.title || "Advanced Case",
-    category: get("category")?.value.trim() || "portrait",
+    category: normalizeAdvancedCaseCategory(get("category")?.value || existing.category || "hot"),
     provider,
     mediaMode: provider === "wan27" ? params.mediaMode : "",
     price: advancedCaseCredits({ params, provider }),
     sourceVideoUrl: get("sourceVideoUrl")?.value.trim() || existing.sourceVideoUrl || "",
     sourceCoverUrl: get("sourceCoverUrl")?.value.trim() || existing.sourceCoverUrl || "",
+    inputImageUrl: get("inputImageUrl")?.value.trim() || existing.inputImageUrl || "",
+    inputVideoUrl: get("inputVideoUrl")?.value.trim() || existing.inputVideoUrl || "",
+    inputVideoPosterUrl: get("inputVideoPosterUrl")?.value.trim() || existing.inputVideoPosterUrl || "",
+    sourceImageUrl: get("inputImageUrl")?.value.trim() || existing.sourceImageUrl || "",
     coverUrl: existing.coverUrl || "",
     previewUrl: existing.previewUrl || "",
     description: get("description")?.value.trim() || "",
@@ -2894,7 +3357,7 @@ async function renderPlatform(options = {}) {
     }
   });
 
-  const saveAdvanced = async (nextCases = advanced.cases) => {
+  const saveAdvanced = async (nextCases = advanced.cases, successMessage = "高级生成配置已保存。") => {
     const nextAdvanced = {
       ...advanced,
       telegram: byId("advancedTelegram")?.value.trim() || "",
@@ -2905,7 +3368,7 @@ async function renderPlatform(options = {}) {
       body: { config: { ...config, platform: { ...platform, categories, templates, advanced: nextAdvanced } } },
     });
     state.config = payload.config;
-    toast("高级生成配置已保存。", "success");
+    toast(successMessage, "success");
     rerenderPlatform();
   };
 
@@ -2989,7 +3452,11 @@ async function renderPlatform(options = {}) {
     });
     row.querySelector('[data-act="delete-template"]')?.addEventListener("click", async () => {
       const index = Number(row.dataset.templateIndex || 0);
-      const ok = await confirmAction("删除模板", `确认删除「${templates[index]?.title || "Template"}」？`, { danger: true, confirmText: "删除" });
+      const ok = await confirmAction(
+        "移出首页广场",
+        `确认把「${templates[index]?.title || "Template"}」从首页广场移出？只会删除广场展示配置，不会删除视频、封面、生成记录或素材文件。`,
+        { confirmText: "移出广场" },
+      );
       if (!ok) return;
       const nextTemplates = templates.filter((_, i) => i !== index);
       const payload = await api("/api/admin/config", {
@@ -2997,7 +3464,7 @@ async function renderPlatform(options = {}) {
         body: { config: { ...config, platform: { ...platform, templates: nextTemplates } } },
       });
       state.config = payload.config;
-      toast("模板已删除。", "success");
+      toast("已从首页广场移出，视频和记录已保留。", "success");
       rerenderPlatform();
     });
   });
@@ -3039,9 +3506,13 @@ async function renderPlatform(options = {}) {
     });
     row.querySelector('[data-act="delete-advanced"]')?.addEventListener("click", async () => {
       const index = Number(row.dataset.advancedIndex || 0);
-      const ok = await confirmAction("删除高级案例", `确认删除「${advanced.cases[index]?.title || "Case"}」？`, { danger: true, confirmText: "删除" });
+      const ok = await confirmAction(
+        "移出高级案例展示",
+        `确认把「${advanced.cases[index]?.title || "Case"}」从 Advanced 案例展示移出？只会删除展示配置，不会删除视频、封面、生成记录或素材文件。`,
+        { confirmText: "移出展示" },
+      );
       if (!ok) return;
-      await saveAdvanced(advanced.cases.filter((_, i) => i !== index));
+      await saveAdvanced(advanced.cases.filter((_, i) => i !== index), "已从 Advanced 案例展示移出，视频和记录已保留。");
     });
   });
 }

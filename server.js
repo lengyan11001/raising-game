@@ -45,6 +45,12 @@ const MAINLAND_BYPASS_MAX_AGE_SECONDS = Math.max(
 
 const PORT = Number(process.env.PORT || 4174);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+const TENANT_PUBLIC_HOSTS = String(
+  process.env.TENANT_PUBLIC_HOSTS || "cloudtoken.ai,mystockmarket.top,vidnovaai.com",
+)
+  .split(",")
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
 const GENERATION_RECORDS_PATH = path.join(ROOT, "data", "generation-records.json");
 const APP_DB_PATH = path.join(ROOT, "data", "app-db.json");
 const APP_CONFIG_PATH = path.join(ROOT, "data", "app-config.json");
@@ -78,10 +84,15 @@ const UPSTREAM_MODE = String(process.env.UPSTREAM_MODE || "direct").trim().toLow
 const USE_GATEWAY_UPSTREAM = ["gateway", "proxy", "api"].includes(UPSTREAM_MODE);
 const UPSTREAM_BASE_URL = (process.env.UPSTREAM_BASE_URL || "https://123vips.com").replace(/\/+$/, "");
 const UPSTREAM_API_TOKEN = String(process.env.UPSTREAM_API_TOKEN || "").trim();
+const OLD_SITE_PRICING_URL = String(process.env.OLD_SITE_PRICING_URL || process.env.OLD_SITE_PUBLIC_CONFIG_URL || "https://123vips.com/api/config/pricing").trim();
+const OLD_SITE_PRICING_CACHE_TTL_MS = Math.max(1000, Number(process.env.OLD_SITE_PRICING_CACHE_TTL_MS || 60000) || 60000);
 const GATEWAY_PLATFORM_FALLBACK_CREDITS = Math.max(1, creditsAmount(process.env.GATEWAY_PLATFORM_FALLBACK_CREDITS || 1325));
 const APIZ_PRICING_CACHE_TTL_MS = 60 * 60 * 1000;
 const apizPricingCache = new Map();
 let apizModelListPricingCache = { expiresAt: 0, values: new Map() };
+let oldSiteAdvancedPricingCache = { expiresAt: 0, value: null };
+const DEFAULT_CREDITS_PER_USD = Math.max(1, Number(process.env.CREDITS_PER_USD || 100) || 100);
+const PRICE_TABLE_CNY_PER_USD = clampNumber(process.env.PRICE_TABLE_CNY_PER_USD || 6.67, 6.67, 0.0001, 1000);
 const DEFAULT_USDT_CNY_CENTS = clampNumber(process.env.USDT_CNY_CENTS || process.env.CNY_CENTS_PER_USDT, 720, 1, 100000);
 const PAYPAL_ENV = /sandbox/i.test(process.env.PAYPAL_ENV || process.env.PAYPAL_MODE || "") ? "sandbox" : "live";
 const PAYPAL_CLIENT_ID = String(process.env.PAYPAL_CLIENT_ID || "").trim();
@@ -143,6 +154,8 @@ const ALIYUN_DASHSCOPE_API_KEY =
   process.env.BAILIAN_API_KEY ||
   "";
 const ALIYUN_WAN27_MODEL = process.env.ALIYUN_WAN27_MODEL || "wan2.7-i2v-2026-04-25";
+const ALIYUN_DASHSCOPE_DATA_INSPECTION =
+  String(process.env.ALIYUN_DASHSCOPE_DATA_INSPECTION || '{"input":"disable","output":"disable"}').trim();
 const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
   "auto_2K",
   "auto_3K",
@@ -174,11 +187,17 @@ const TOS_KEY_PREFIX = storageKeyPrefix(
 function defaultStorageSlug() {
   try {
     const host = new URL(PUBLIC_BASE_URL || "https://raising-game.local").hostname;
-    if (/cloudtoken/i.test(host)) return "cloudtoken";
+    if (isTenantPublicHostname(host)) return storagePathSegment(host.split(".")[0], "tenant");
   } catch {
     // Keep the legacy namespace when the public URL is not configured yet.
   }
   return "raising-game";
+}
+
+function isTenantPublicHostname(hostname = "") {
+  const host = String(hostname || "").trim().toLowerCase().replace(/:\d+$/, "");
+  if (!host) return false;
+  return TENANT_PUBLIC_HOSTS.some((tenantHost) => host === tenantHost || host.endsWith(`.${tenantHost}`));
 }
 
 function storagePathSegment(value = "", fallback = "asset") {
@@ -244,6 +263,7 @@ const DEFAULT_DB = {
   users: [],
   sessions: [],
   walletOrders: [],
+  supportMessages: [],
   creditLedger: [],
   userAssets: [],
   userCharacters: [],
@@ -423,6 +443,9 @@ const DEFAULT_CONFIG = {
         params: { aspect_ratio: "16:9", duration: "5", resolution: "720p" },
       },
     ],
+  },
+  resalePricing: {
+    multiplier: 1,
   },
   homeVideo: {
     provider: "seedance",
@@ -687,6 +710,14 @@ function publicUrlForAssetPath(localUrl = "") {
   return `${baseUrl}/${value.replace(/^\/+/, "")}`;
 }
 
+function absolutePublicUrl(value = "", fallbackOrigin = "https://123vips.com") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (isPublicHttpUrl(text)) return text;
+  const base = configuredPublicBaseUrl() || fallbackOrigin;
+  return `${base.replace(/\/+$/, "")}/${text.replace(/^\/+/, "")}`;
+}
+
 function requestTenantOptions(req) {
   return { tenantPublic: isTenantPublicOrigin(publicOriginFromRequest(req)) };
 }
@@ -696,14 +727,18 @@ function isLocalPublicAssetUrl(value = "") {
   return Boolean(baseUrl && String(value || "").startsWith(`${baseUrl}/assets/`));
 }
 
+function escapeRegExp(value = "") {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function isTenantPublicOrigin(origin = "") {
   const value = String(origin || "").trim();
   if (!value) return false;
   try {
     const url = new URL(value.includes("://") ? value : `https://${value}`);
-    return /(^|\.)cloudtoken\.ai$/i.test(url.hostname);
+    return isTenantPublicHostname(url.hostname);
   } catch {
-    return /(^|\.)cloudtoken\.ai(?::|\/|$)/i.test(value);
+    return TENANT_PUBLIC_HOSTS.some((host) => new RegExp(`(^|\\.)${escapeRegExp(host)}(?::|\\/|$)`, "i").test(value));
   }
 }
 
@@ -729,6 +764,7 @@ async function readDb() {
     users: Array.isArray(db.users) ? db.users : [],
     sessions: Array.isArray(db.sessions) ? db.sessions : [],
     walletOrders: Array.isArray(db.walletOrders) ? db.walletOrders : [],
+    supportMessages: Array.isArray(db.supportMessages) ? db.supportMessages : [],
     creditLedger: Array.isArray(db.creditLedger) ? db.creditLedger : [],
     userAssets: Array.isArray(db.userAssets) ? db.userAssets : [],
     userCharacters: Array.isArray(db.userCharacters) ? db.userCharacters : [],
@@ -739,6 +775,28 @@ async function readDb() {
 
 function isSoftDeleted(record) {
   return Boolean(record?.deletedAt);
+}
+
+function makeSupportMessageId() {
+  return `support-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
+}
+
+function supportMessageView(message, userMap = new Map()) {
+  const user = userMap.get(message.userId);
+  return {
+    id: message.id,
+    userId: message.userId || "",
+    username: user?.username || message.username || "",
+    email: message.email || "",
+    question: message.question || "",
+    status: message.status || "new",
+    locale: message.locale || "",
+    reply: message.reply || "",
+    replyAt: message.replyAt || "",
+    replyBy: message.replyBy || "",
+    createdAt: message.createdAt || "",
+    updatedAt: message.updatedAt || message.createdAt || "",
+  };
 }
 
 async function writeDb(db) {
@@ -754,6 +812,7 @@ async function readAppConfig() {
     ...DEFAULT_CONFIG,
     ...saved,
     prices: { ...DEFAULT_CONFIG.prices, ...(saved.prices || {}) },
+    resalePricing: normalizeResalePricingConfig(saved.resalePricing || DEFAULT_CONFIG.resalePricing),
     wallet: { ...DEFAULT_CONFIG.wallet, ...(saved.wallet || {}) },
     video: { ...DEFAULT_CONFIG.video, ...(saved.video || {}), generateAudio: true },
     platform: normalizePlatformConfig(saved.platform || DEFAULT_CONFIG.platform),
@@ -805,6 +864,59 @@ function tenantScopedAccessCopy(copy = "", origin = "") {
     });
 }
 
+function publicPlatformTemplateView(template = {}) {
+  return {
+    id: String(template.id || "").trim(),
+    title: String(template.title || "").trim(),
+    category: String(template.category || "").trim(),
+    type: String(template.type || "").trim(),
+    coverUrl: String(template.coverUrl || "").trim(),
+    previewUrl: String(template.previewUrl || "").trim(),
+    hoverPreviewUrl: String(template.hoverPreviewUrl || "").trim(),
+    badge: String(template.badge || "").trim(),
+    price: positiveCreditsOrNull(template.price ?? template.credits ?? template.estimatedCredits),
+    action: template.action === "advanced" ? "advanced" : "",
+    targetTab: template.targetTab === "advanced" ? "advanced" : "",
+    advancedCaseId: String(template.advancedCaseId || template.caseId || "").trim(),
+    buttonLabel: String(template.buttonLabel || "").trim(),
+  };
+}
+
+function publicAdvancedCaseView(item = {}) {
+  return {
+    id: String(item.id || "").trim(),
+    title: String(item.title || "").trim(),
+    category: String(item.category || item.caseCategory || item.tab || "").trim(),
+    provider: String(item.provider || "").trim(),
+    price: positiveCreditsOrNull(item.price ?? item.estimatedCredits),
+    estimatedCredits: positiveCreditsOrNull(item.estimatedCredits ?? item.price),
+    coverUrl: String(item.coverUrl || "").trim(),
+    previewUrl: String(item.previewUrl || "").trim(),
+    hoverPreviewUrl: String(item.hoverPreviewUrl || "").trim(),
+    outputPosterUrl: String(item.outputPosterUrl || item.resultPosterUrl || "").trim(),
+    resultPosterUrl: String(item.resultPosterUrl || item.outputPosterUrl || "").trim(),
+    inputImageUrl: String(item.inputImageUrl || item.sourceImageUrl || item.referenceImageUrl || item.imageUrl || "").trim(),
+    inputVideoUrl: String(item.inputVideoUrl || "").trim(),
+    inputVideoPosterUrl: String(item.inputVideoPosterUrl || "").trim(),
+    sourceImageUrl: String(item.sourceImageUrl || item.inputImageUrl || "").trim(),
+    sourceVideoUrl: String(item.sourceVideoUrl || "").trim(),
+    sourceCoverUrl: String(item.sourceCoverUrl || "").trim(),
+    mediaSourceVideoUrl: String(item.mediaSourceVideoUrl || item.sourceVideoUrl || "").trim(),
+    mediaSourceCoverUrl: String(item.mediaSourceCoverUrl || item.sourceCoverUrl || "").trim(),
+    localVideoUrl: String(item.localVideoUrl || "").trim(),
+    localCoverUrl: String(item.localCoverUrl || "").trim(),
+    cdnVideoUrl: String(item.cdnVideoUrl || "").trim(),
+    cdnCoverUrl: String(item.cdnCoverUrl || "").trim(),
+    description: String(item.description || "").trim(),
+    mediaMode: String(item.mediaMode || "").trim(),
+    ratio: String(item.ratio || "").trim(),
+    resolution: String(item.resolution || "").trim(),
+    duration: Number(item.duration || 0),
+    enabled: item.enabled !== false,
+    sort: Number(item.sort || 0) || 0,
+  };
+}
+
 function publicConfig(config, origin = "") {
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const platform = normalizePlatformConfig(config.platform || {});
@@ -814,6 +926,11 @@ function publicConfig(config, origin = "") {
   const publicPlatform = {
     ...platform,
     accessCopy: tenantScopedAccessCopy(platform.accessCopy, origin),
+  };
+  publicPlatform.templates = (publicPlatform.templates || []).map(publicPlatformTemplateView);
+  publicPlatform.advanced = {
+    ...(publicPlatform.advanced || {}),
+    cases: (publicPlatform.advanced?.cases || []).map(publicAdvancedCaseView),
   };
   if (tenantPublic) {
     publicPlatform.advanced = {
@@ -844,6 +961,7 @@ function publicConfig(config, origin = "") {
       tenantPublic,
       assetLibrary: !tenantPublic,
       accountMenu: true,
+      supportInbox: !tenantPublic,
     },
     wallet: {
       asset: publicWalletDefault.asset || config.wallet.asset,
@@ -860,14 +978,11 @@ function publicConfig(config, origin = "") {
       provider: homeVideo.provider || "seedance",
       posterUrl: homeVideo.posterUrl || "",
       videoUrl: homeVideo.videoUrl || "",
-      taskId: homeVideo.taskId || "",
       status: homeVideo.status || "",
-      referenceAssetUri: homeVideo.referenceAssetUri || "",
       activeItemId: homeVideo.activeItemId || "",
       items: homeVideo.items.map(publicHomeVideoItem),
     },
     platform: publicPlatform,
-    characterImage: config.characterImage,
     scenes: config.scenes
       .filter((scene) => scene.enabled !== false)
       .map((scene) => {
@@ -882,6 +997,8 @@ function normalizePlatformTemplate(template = {}, index = 0) {
   const type = String(template.type || "image-to-video").trim();
   const safeType = type === "text-to-video" ? "text-to-video" : "image-to-video";
   const id = String(template.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId;
+  const action = String(template.action || "").trim().toLowerCase();
+  const targetTab = String(template.targetTab || template.openTab || "").trim().toLowerCase();
   const legacyParams = template.params && typeof template.params === "object" && !Array.isArray(template.params) ? template.params : {};
   const requestJson = template.requestJson && typeof template.requestJson === "object" && !Array.isArray(template.requestJson)
     ? template.requestJson
@@ -911,6 +1028,10 @@ function normalizePlatformTemplate(template = {}, index = 0) {
     price: positiveCreditsOrNull(template.price ?? template.credits ?? template.estimatedCredits),
     params: legacyParams,
     requestJson,
+    action: action === "advanced" ? "advanced" : "",
+    targetTab: targetTab === "advanced" ? "advanced" : "",
+    advancedCaseId: String(template.advancedCaseId || template.caseId || "").trim(),
+    buttonLabel: String(template.buttonLabel || "").trim().slice(0, 40),
     enabled: template.enabled !== false,
     sort: Number.isFinite(Number(template.sort)) ? Number(template.sort) : index,
   };
@@ -932,7 +1053,7 @@ function normalizeAdvancedCase(item = {}, index = 0) {
   return {
     id: String(item.id || fallbackId).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 64) || fallbackId,
     title: String(item.title || "Advanced case").trim().slice(0, 80) || "Advanced case",
-    category: String(item.category || "advanced").trim().slice(0, 40) || "advanced",
+    category: normalizeAdvancedCaseCategory(item.category || item.caseCategory || item.tab),
     provider,
     price: estimatedCredits,
     creditsPerSecond: pricing.creditsPerSecond,
@@ -941,6 +1062,12 @@ function normalizeAdvancedCase(item = {}, index = 0) {
     coverUrl: String(item.coverUrl || "").trim(),
     previewUrl: String(item.previewUrl || "").trim(),
     hoverPreviewUrl: String(item.hoverPreviewUrl || "").trim(),
+    outputPosterUrl: String(item.outputPosterUrl || "").trim(),
+    resultPosterUrl: String(item.resultPosterUrl || item.outputPosterUrl || "").trim(),
+    inputImageUrl: String(item.inputImageUrl || item.sourceImageUrl || item.referenceImageUrl || item.imageUrl || "").trim(),
+    inputVideoUrl: String(item.inputVideoUrl || "").trim(),
+    inputVideoPosterUrl: String(item.inputVideoPosterUrl || "").trim(),
+    sourceImageUrl: String(item.sourceImageUrl || item.inputImageUrl || "").trim(),
     sourceVideoUrl: String(item.sourceVideoUrl || "").trim(),
     sourceCoverUrl: String(item.sourceCoverUrl || "").trim(),
     mediaSourceVideoUrl: String(item.mediaSourceVideoUrl || item.sourceVideoUrl || "").trim(),
@@ -956,6 +1083,14 @@ function normalizeAdvancedCase(item = {}, index = 0) {
     enabled: item.enabled !== false,
     sort: Number.isFinite(Number(item.sort)) ? Number(item.sort) : index,
   };
+}
+
+function normalizeAdvancedCaseCategory(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw.includes("extend")) return "extend";
+  if (raw.includes("replace")) return "replace";
+  if (raw === "hot" || raw.includes("热门") || raw.includes("popular")) return "hot";
+  return "hot";
 }
 
 function normalizePlatformAdvancedConfig(advanced = {}) {
@@ -1143,11 +1278,8 @@ function publicHomeVideoItem(item) {
     title: item.title || "Featured drama",
     posterUrl: item.posterUrl || item.localImageUrl || "",
     videoUrl: item.videoUrl || item.localVideoUrl || "",
-    taskId: item.taskId || "",
     status: item.status || "",
-    referenceAssetUri: item.referenceAssetUri || "",
     referenceState,
-    deletedAt: item.deletedAt || "",
     createdAt: item.createdAt || "",
     homeSceneVideos: publicSceneVideoMap(item.homeSceneVideos || {}),
     sceneVideos: publicSceneVideoMap(item.sceneVideos || {}),
@@ -1287,13 +1419,10 @@ function publicUnlockVideo(entry = {}, videoKey = "") {
     sceneEntryName: normalized.sceneEntryName || "",
     title: normalized.title || "Unlocked video",
     posterUrl: normalized.posterUrl || "",
-    taskId: normalized.taskId || "",
     status: normalized.status || "",
     price: normalized.price,
-    provider: normalized.provider || "seedance",
     updatedAt: normalized.updatedAt || "",
     createdAt: normalized.createdAt || "",
-    error: normalized.error || "",
   };
 }
 
@@ -1508,6 +1637,17 @@ function applyUserPricingMultiplierToCredits(credits, userOrValue = 1) {
 function pricingMultiplierView(userOrValue = 1) {
   return {
     multiplier: normalizeUserPricingMultiplier(userOrValue),
+  };
+}
+
+function normalizeResalePricingConfig(value = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const rawMultiplier = source.multiplier ?? source.markup ?? source.discount ?? 1;
+  const multiplier = normalizeUserPricingMultiplier(rawMultiplier);
+  const rawCnyPerUsd = Number(source.cnyPerUsd ?? source.cny_per_usd ?? PRICE_TABLE_CNY_PER_USD);
+  return {
+    multiplier,
+    cnyPerUsd: Number.isFinite(rawCnyPerUsd) && rawCnyPerUsd > 0 ? Math.round(rawCnyPerUsd * 10000) / 10000 : PRICE_TABLE_CNY_PER_USD,
   };
 }
 
@@ -2880,31 +3020,22 @@ function findSceneConfig(config, sceneId) {
 function publicSceneVideo(entry = {}) {
   if (!entry || typeof entry !== "object") return null;
   const videoUrl = entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "";
-  const savedPrompt = String(entry.userPrompt || "").trim();
-  if (!videoUrl && !entry.taskId && !savedPrompt) return null;
+  if (!videoUrl && !entry.taskId && !entry.posterUrl && !entry.coverUrl && !entry.thumbnailUrl) return null;
   return {
     sceneId: entry.sceneId || "",
     sceneName: entry.sceneName || "",
     videoUrl,
     posterUrl: entry.posterUrl || "",
-    taskId: entry.taskId || "",
     status: entry.status || "",
     sceneEntryId: entry.sceneEntryId || "default",
     sceneEntryName: entry.sceneEntryName || "",
-    referenceAssetUri: entry.referenceAssetUri || "",
     partnerCharacterId: entry.partnerCharacterId || "",
     partnerCharacterName: entry.partnerCharacterName || "",
-    partnerReferenceAssetUri: entry.partnerReferenceAssetUri || "",
-    savedPrompt,
-    userPrompt: savedPrompt,
-    model: entry.model || "",
     ratio: entry.ratio || "",
     resolution: entry.resolution || "",
     duration: entry.duration || 0,
-    provider: entry.provider || "seedance",
     updatedAt: entry.updatedAt || "",
     createdAt: entry.createdAt || "",
-    error: entry.error || "",
   };
 }
 
@@ -3305,7 +3436,7 @@ function normalizeWan27Task(raw = {}) {
   };
 }
 
-async function aliyunDashscopeRequest(pathname, { method = "POST", body = null, asyncTask = false } = {}) {
+async function aliyunDashscopeRequest(pathname, { method = "POST", body = null, asyncTask = false, dataInspection = false } = {}) {
   if (!ALIYUN_DASHSCOPE_API_KEY) {
     const error = new Error("Wan2.7 generation is not configured.");
     error.statusCode = 503;
@@ -3319,6 +3450,7 @@ async function aliyunDashscopeRequest(pathname, { method = "POST", body = null, 
       accept: "application/json",
       ...(body ? { "content-type": "application/json" } : {}),
       ...(asyncTask ? { "X-DashScope-Async": "enable" } : {}),
+      ...(dataInspection && ALIYUN_DASHSCOPE_DATA_INSPECTION ? { "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(180000),
@@ -3425,6 +3557,7 @@ async function submitWan27VideoTask({ prompt, imageUrl = "", media = [], body = 
     method: "POST",
     body: payload,
     asyncTask: true,
+    dataInspection: true,
   });
   return { task: normalizeWan27Task(raw), payload, raw };
 }
@@ -3901,6 +4034,16 @@ function seedanceReferenceVideoAssetIdsFromBody(body = {}) {
   ].map((item) => String(item || "").trim()).filter(Boolean);
 }
 
+function seedanceReferenceVideoUrlsFromBody(body = {}) {
+  return [
+    body.referenceVideoUrl,
+    body.videoUrl,
+    body.firstClipUrl,
+    ...arrayFromBody(body.referenceVideoUrls),
+    ...arrayFromBody(body.videoUrls),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+}
+
 async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "Reference" } = {}) {
   const assets = [];
   for (let index = 0; index < inputs.length; index += 1) {
@@ -3926,6 +4069,7 @@ async function createUserImageAssetsFromInputs(db, user, inputs = [], { name = "
         error.statusCode = 404;
         throw error;
       }
+      validateWan27MediaKind(asset, "image", "Reference image");
       assets.push(asset);
     }
   }
@@ -4821,7 +4965,6 @@ function generationRecordVideoUrl(record = {}) {
 function publicGenerationRecord(record = {}) {
   return {
     taskId: String(record.taskId || ""),
-    upstreamTaskId: String(record.upstreamTaskId || ""),
     status: String(record.status || "submitted"),
     source: String(record.source || ""),
     kind: String(record.kind || generationRecordKind(record)),
@@ -4840,7 +4983,6 @@ function publicGenerationRecord(record = {}) {
     syntheticReferenceLocalUrl: String(record.syntheticReferenceLocalUrl || ""),
     syntheticReferenceUrl: String(record.syntheticReferenceUrl || ""),
     userAssetId: String(record.userAssetId || ""),
-    referenceAssetUri: String(record.referenceAssetUri || ""),
     mediaMode: String(record.mediaMode || record.params?.mediaMode || ""),
     mediaAssets: Array.isArray(record.mediaAssets) ? record.mediaAssets : [],
     posterUrl: String(localPublicAssetStorageEnabled() ? (record.localPosterUrl || record.posterUrl || record.cdnPosterUrl || "") : (record.posterUrl || "")),
@@ -4868,14 +5010,85 @@ function publicGenerationRecord(record = {}) {
   };
 }
 
-function adminGenerationRecordView(record = {}, userMap = new Map()) {
+function assetPublicPreviewUrl(asset = {}) {
+  return asset.localUrl || asset.publicUrl || asset.sourceImageUrl || "";
+}
+
+function enrichRecordMediaAssets(record = {}, assetMap = new Map()) {
+  const assets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const enrichedAssets = assets.map((media = {}) => {
+    const userAsset = media.userAssetId ? assetMap.get(media.userAssetId) : null;
+    if (!userAsset || isSoftDeleted(userAsset)) return media;
+    const previewUrl = assetPublicPreviewUrl(userAsset);
+    const mime = media.mime || userAsset.mime || "";
+    const enriched = {
+      ...media,
+      mime,
+      localUrl: media.localUrl || userAsset.localUrl || "",
+      publicUrl: media.publicUrl || userAsset.publicUrl || "",
+    };
+    if (String(mime || "").toLowerCase().startsWith("video/") || media.type === "reference_video" || media.type === "first_clip") {
+      enriched.videoUrl = media.videoUrl || previewUrl;
+      enriched.url = media.url || previewUrl;
+    } else {
+      enriched.imageUrl = media.imageUrl || previewUrl;
+      enriched.sourceImageUrl = media.sourceImageUrl || userAsset.sourceImageUrl || userAsset.localUrl || "";
+      enriched.url = media.url || previewUrl;
+    }
+    return enriched;
+  });
+  const hasReferenceVideo = enrichedAssets.some((asset) => asset && ["reference_video", "first_clip"].includes(asset.type));
+  if (!hasReferenceVideo && record.referenceVideoAssetId) {
+    const userAsset = assetMap.get(record.referenceVideoAssetId);
+    const previewUrl = userAsset && !isSoftDeleted(userAsset) ? assetPublicPreviewUrl(userAsset) : "";
+    if (previewUrl) {
+      enrichedAssets.unshift({
+        type: "reference_video",
+        key: "video_1",
+        userAssetId: userAsset.id,
+        videoUrl: previewUrl,
+        url: previewUrl,
+        localUrl: userAsset.localUrl || "",
+        publicUrl: userAsset.publicUrl || "",
+        mime: userAsset.mime || "",
+      });
+    }
+  }
+  const hasReferenceImage = enrichedAssets.some((asset) => asset && !["reference_video", "first_clip", "driving_audio"].includes(asset.type));
+  if (!hasReferenceImage && record.userAssetId) {
+    const userAsset = assetMap.get(record.userAssetId);
+    const previewUrl = userAsset && !isSoftDeleted(userAsset) ? assetPublicPreviewUrl(userAsset) : "";
+    if (previewUrl) {
+      enrichedAssets.push({
+        type: "reference_image",
+        key: "image_1",
+        userAssetId: userAsset.id,
+        imageUrl: previewUrl,
+        sourceImageUrl: userAsset.sourceImageUrl || userAsset.localUrl || "",
+        url: previewUrl,
+        localUrl: userAsset.localUrl || "",
+        publicUrl: userAsset.publicUrl || "",
+        mime: userAsset.mime || "",
+      });
+    }
+  }
+  return enrichedAssets;
+}
+
+function adminGenerationRecordView(record = {}, userMap = new Map(), assetMap = new Map()) {
   const user = userMap.get(record.userId);
-  const publicRecord = publicGenerationRecord(record);
+  const publicRecord = publicGenerationRecord({
+    ...record,
+    mediaAssets: enrichRecordMediaAssets(record, assetMap),
+  });
   const inferredProvider = record.provider || (String(record.source || "").includes("platform") ? "apiz" : "seedance");
   return {
     ...publicRecord,
     userId: String(record.userId || ""),
     username: user?.username || "",
+    upstreamTaskId: String(record.upstreamTaskId || ""),
+    referenceVideoAssetId: String(record.referenceVideoAssetId || ""),
+    referenceAssetUri: String(record.referenceAssetUri || ""),
     provider: String(inferredProvider || ""),
     upstreamPayload: record.upstreamPayload || null,
     pricingEstimate: record.pricingEstimate || null,
@@ -5683,6 +5896,251 @@ async function gatewayAdvancedEstimate(provider = "seedance", params = {}) {
     throw error;
   }
   return gatewayPricedBreakdown(estimate, "gateway_advanced_estimate");
+}
+
+function oldSitePricingNumber(value, fallback = 0) {
+  const next = Number(value);
+  return Number.isFinite(next) && next >= 0 ? Math.round(next * 1000000) / 1000000 : fallback;
+}
+
+function oldSitePricingMap(value = {}) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function normalizeOldSitePricingPayload(payload = {}) {
+  const pricing = payload.pricing && typeof payload.pricing === "object"
+    ? payload.pricing
+    : payload.config?.pricing && typeof payload.config.pricing === "object"
+      ? payload.config.pricing
+      : payload.config?.platform?.advancedPricing && typeof payload.config.platform.advancedPricing === "object"
+        ? payload.config.platform.advancedPricing
+      : null;
+  if (!pricing) {
+    const error = new Error("Old-site pricing response is missing pricing.");
+    error.statusCode = 502;
+    error.code = "OLD_SITE_PRICING_INVALID";
+    throw error;
+  }
+  return {
+    source: String(payload.source || (payload.config?.platform?.advancedPricing ? "old-site-public-pricing-block" : "old-site")).trim() || "old-site",
+    updatedAt: String(payload.updatedAt || payload.config?.updatedAt || "").trim(),
+    pricing,
+  };
+}
+
+function oldSiteBaseUrl() {
+  try {
+    return new URL(OLD_SITE_PRICING_URL || UPSTREAM_BASE_URL || "https://123vips.com").origin;
+  } catch {
+    return "https://123vips.com";
+  }
+}
+
+async function fetchOldSiteJson(url) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+  });
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { ok: false, message: text };
+  }
+  return { response, payload };
+}
+
+async function fetchOldSitePricingConfig({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && oldSiteAdvancedPricingCache.value && oldSiteAdvancedPricingCache.expiresAt > now) {
+    return oldSiteAdvancedPricingCache.value;
+  }
+  let { response, payload } = await fetchOldSiteJson(OLD_SITE_PRICING_URL);
+  if ((!response.ok || payload.ok === false) && response.status === 404) {
+    ({ response, payload } = await fetchOldSiteJson(`${oldSiteBaseUrl()}/api/config/public`));
+  }
+  if (!response.ok || payload.ok === false) {
+    const error = new Error(payload.message || `Old-site pricing request failed: ${response.status}`);
+    error.statusCode = response.status || 502;
+    error.code = payload.code || "OLD_SITE_PRICING_UNAVAILABLE";
+    throw error;
+  }
+  const value = normalizeOldSitePricingPayload(payload);
+  oldSiteAdvancedPricingCache = {
+    value,
+    expiresAt: now + OLD_SITE_PRICING_CACHE_TTL_MS,
+  };
+  return value;
+}
+
+function oldSiteAdvancedCreditsPerSecond(pricing = {}, provider = "seedance", options = {}) {
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  const resolution = normalizedProvider === "wan27"
+    ? normalizeAdvancedResolution(normalizeWan27Resolution(options.resolution))
+    : normalizeAdvancedResolution(options.resolution);
+  const seedanceTier = String(options.seedanceTier || options.tier || "").trim().toLowerCase();
+  const hasVideoInput = Boolean(
+    options.referenceVideoAssetId ||
+    options.referenceVideoAssetIds ||
+    options.referenceVideoUrl ||
+    options.referenceVideoUrls ||
+    options.inputVideoSeconds,
+  );
+  let table = {};
+  if (normalizedProvider === "wan27") {
+    table = oldSitePricingMap(pricing.wan27CreditsPerSecondByResolution);
+  } else if (seedanceTier === "fast" && hasVideoInput) {
+    table = oldSitePricingMap(pricing.seedanceFastVideoInputCreditsPerSecondByResolution);
+  } else if (seedanceTier === "fast") {
+    table = oldSitePricingMap(pricing.seedanceFastCreditsPerSecondByResolution);
+  } else if (hasVideoInput) {
+    table = oldSitePricingMap(pricing.seedanceVideoInputCreditsPerSecondByResolution);
+  } else {
+    table = oldSitePricingMap(pricing.seedanceCreditsPerSecondByResolution);
+  }
+  return oldSitePricingNumber(table[resolution], 0);
+}
+
+function oldSiteAdvancedModelPricing(config = {}, oldPricingPayload = {}, provider = "seedance", options = {}) {
+  const fallback = advancedModelPricing(provider, options);
+  const resale = normalizeResalePricingConfig(config.resalePricing);
+  const purchaseCreditsPerSecond = oldSiteAdvancedCreditsPerSecond(oldPricingPayload.pricing || {}, provider, options);
+  if (!purchaseCreditsPerSecond) {
+    return {
+      ...fallback,
+      source: "local_duration_rate",
+      pricingWarning: "Old-site pricing is missing this provider/resolution; local fallback was used.",
+      resalePricingMultiplier: resale.multiplier,
+    };
+  }
+  const purchaseCredits = creditsAmount(fallback.duration * purchaseCreditsPerSecond);
+  const saleCredits = creditsAmount(purchaseCredits * resale.multiplier);
+  return {
+    ...fallback,
+    creditsPerSecond: creditsAmount(purchaseCreditsPerSecond * resale.multiplier),
+    purchaseCreditsPerSecond,
+    baseCredits: purchaseCredits,
+    credits: saleCredits,
+    markup: resale.multiplier,
+    source: "old_site_pricing",
+    oldSitePricingSource: oldPricingPayload.source || "old-site",
+    oldSitePricingUpdatedAt: oldPricingPayload.updatedAt || "",
+    resalePricingMultiplier: resale.multiplier,
+  };
+}
+
+function usdFromCredits(credits = 0) {
+  return oldSitePricingNumber(Number(credits || 0) / DEFAULT_CREDITS_PER_USD, 0);
+}
+
+function creditsFromUsd(usd = 0) {
+  return creditsAmount(Number(usd || 0) * DEFAULT_CREDITS_PER_USD);
+}
+
+function moneyAmount(value = 0) {
+  return Math.round(Number(value || 0) * 1000000) / 1000000;
+}
+
+function pricingRowsFromOldSite(pricing = {}, resale = normalizeResalePricingConfig()) {
+  const rows = [];
+  const addCreditRows = (group, label, map = {}, unit = "second") => {
+    Object.entries(oldSitePricingMap(map)).forEach(([resolution, credits]) => {
+      const purchaseCredits = creditsAmount(credits);
+      if (!purchaseCredits) return;
+      const purchaseUsd = usdFromCredits(purchaseCredits);
+      const saleUsd = moneyAmount(purchaseUsd * resale.multiplier);
+      rows.push({
+        id: `${group}:${resolution}`,
+        group,
+        label: `${label} ${resolution}`,
+        resolution,
+        unit,
+        purchaseCredits,
+        saleCredits: creditsFromUsd(saleUsd),
+        purchaseUsd,
+        saleUsd,
+        saleCny: moneyAmount(saleUsd * resale.cnyPerUsd),
+      });
+    });
+  };
+  const addUsdRows = (group, label, map = {}, unit = "image") => {
+    Object.entries(oldSitePricingMap(map)).forEach(([resolution, usd]) => {
+      const purchaseUsd = moneyAmount(usd);
+      if (!purchaseUsd) return;
+      const saleUsd = moneyAmount(purchaseUsd * resale.multiplier);
+      rows.push({
+        id: `${group}:${resolution}`,
+        group,
+        label: `${label} ${resolution}`,
+        resolution,
+        unit,
+        purchaseCredits: creditsFromUsd(purchaseUsd),
+        saleCredits: creditsFromUsd(saleUsd),
+        purchaseUsd,
+        saleUsd,
+        saleCny: moneyAmount(saleUsd * resale.cnyPerUsd),
+      });
+    });
+  };
+
+  addCreditRows("seedance-standard", "Seedance standard", pricing.seedanceCreditsPerSecondByResolution);
+  addCreditRows("seedance-video-input", "Seedance video input", pricing.seedanceVideoInputCreditsPerSecondByResolution);
+  addCreditRows("seedance-fast", "Seedance fast", pricing.seedanceFastCreditsPerSecondByResolution);
+  addCreditRows("seedance-fast-video-input", "Seedance fast video input", pricing.seedanceFastVideoInputCreditsPerSecondByResolution);
+  addCreditRows("wan27-video", "Wan2.7 video", pricing.wan27CreditsPerSecondByResolution);
+  if (pricing.vipeak1Image?.saleUsdPerImage) {
+    addUsdRows("vipeak1-image", "Vipeak 1 image", { [pricing.vipeak1Image.defaultResolution || "image"]: pricing.vipeak1Image.saleUsdPerImage });
+  }
+  addUsdRows("seedream5-pro", "Seedream 5 Pro", pricing.seedream5Image?.pro?.saleUsdPerImageByResolution);
+  if (pricing.seedream5Image?.pro?.referenceUsdPerImageAfterFirst) {
+    addUsdRows("seedream5-reference", "Seedream 5 reference after first", { reference: pricing.seedream5Image.pro.referenceUsdPerImageAfterFirst }, "reference image");
+  }
+  return rows;
+}
+
+async function buildPricingConfigView(config = {}, { force = false, admin = false } = {}) {
+  const resale = normalizeResalePricingConfig(config.resalePricing);
+  const oldPricing = await fetchOldSitePricingConfig({ force });
+  const rows = pricingRowsFromOldSite(oldPricing.pricing, resale);
+  const publicRows = admin ? rows : rows.map((row) => ({
+    id: row.id,
+    group: row.group,
+    label: row.label,
+    resolution: row.resolution,
+    unit: row.unit,
+    saleCredits: row.saleCredits,
+    saleUsd: row.saleUsd,
+    saleCny: row.saleCny,
+  }));
+  return {
+    source: oldPricing.source || "old-site",
+    updatedAt: oldPricing.updatedAt || "",
+    creditsPerUsd: DEFAULT_CREDITS_PER_USD,
+    cnyPerUsd: resale.cnyPerUsd,
+    resalePricing: {
+      multiplier: resale.multiplier,
+    },
+    rows: publicRows,
+  };
+}
+
+async function buildBaseAdvancedEstimate(provider = "seedance", params = {}) {
+  if (USE_GATEWAY_UPSTREAM) {
+    return await gatewayAdvancedEstimate(provider, params);
+  }
+  const config = await readAppConfig();
+  try {
+    const oldPricing = await fetchOldSitePricingConfig();
+    return oldSiteAdvancedModelPricing(config, oldPricing, provider, params);
+  } catch (error) {
+    console.warn("[old-site-pricing-fallback]", error.message || error);
+    return {
+      ...advancedModelPricing(provider, params),
+      source: "local_duration_rate",
+      pricingWarning: error.message || "Old-site pricing is unavailable; local fallback was used.",
+    };
+  }
 }
 
 async function gatewayQueryTask(taskId) {
@@ -6869,8 +7327,12 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.resolution = provider === "wan27" ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
   requestParams.preprocessReference = false;
   requestParams.seed = body.seed ?? caseParams.seed ?? "";
+  requestParams.seedanceTier = body.seedanceTier || body.tier || caseParams.seedanceTier || caseParams.tier || "";
+  requestParams.referenceVideoAssetIds = provider === "seedance" ? seedanceReferenceVideoAssetIdsFromBody(body) : [];
+  requestParams.referenceVideoUrls = provider === "seedance" ? seedanceReferenceVideoUrlsFromBody(body) : [];
+  requestParams.inputVideoSeconds = body.inputVideoSeconds ?? body.referenceVideoDurationSeconds ?? caseParams.inputVideoSeconds ?? 0;
   if (provider === "wan27") requestParams.model = ALIYUN_WAN27_MODEL;
-  const rawPricing = await buildUserAdvancedEstimate(provider, requestParams, 1);
+  const rawPricing = await buildBaseAdvancedEstimate(provider, requestParams);
   const pricing = applyUserPricingToEstimate(rawPricing, auth.user);
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
@@ -7102,7 +7564,7 @@ async function handleAdvancedGenerate(req, res) {
       sourceImageUrl: asset.sourceImageUrl || asset.localUrl || "",
       referenceAssetUri: "",
     })),
-    pricing,
+    pricing: publicPricingEstimateView(pricing),
     cost,
   });
 }
@@ -7255,6 +7717,82 @@ async function handleAdminIngestPlatformTemplateMedia(req, res) {
   }
 }
 
+function platformTemplateFromGenerationRecord(record = {}, media = {}, index = 0) {
+  const taskId = String(record.taskId || Date.now()).replace(/[^a-z0-9_-]/gi, "-").slice(0, 48);
+  const title = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "Gallery video";
+  const prompt = record.finalPrompt || record.prompt || title;
+  const ratio = record.ratio || record.params?.ratio || record.params?.aspect_ratio || "16:9";
+  const duration = record.duration || record.params?.duration || 5;
+  const resolution = record.resolution || record.params?.resolution || "720p";
+  return normalizePlatformTemplate({
+    id: `gallery-record-${taskId}`,
+    title: String(title || "Gallery video").slice(0, 80),
+    category: "featured",
+    type: "text-to-video",
+    badge: "Advanced",
+    previewUrl: media.previewUrl || record.localVideoUrl || record.videoUrl || record.remoteVideoUrl || "",
+    coverUrl: media.coverUrl || record.localPosterUrl || record.posterUrl || record.imageUrl || "",
+    hoverPreviewUrl: media.previewUrl || "",
+    model: "advanced-link",
+    prompt,
+    requestJson: {
+      model: "advanced-link",
+      prompt,
+      ratio,
+      duration,
+      resolution,
+    },
+    action: "advanced",
+    targetTab: "advanced",
+    buttonLabel: "Advanced",
+    enabled: true,
+    sort: index,
+  }, index);
+}
+
+async function handleAdminPromoteRecordToPlatform(req, res, taskId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const records = await readGenerationRecords();
+  const record = records.find((entry) => entry.taskId === taskId);
+  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  const sourceVideoUrl = generationRecordVideoUrl(record);
+  if (!sourceVideoUrl) return sendJson(res, 400, { ok: false, message: "This record has no video result." });
+
+  const config = await readAppConfig();
+  const platform = config.platform || {};
+  const templates = Array.isArray(platform.templates) ? platform.templates : [];
+  const templateId = `gallery-record-${String(record.taskId || Date.now()).replace(/[^a-z0-9_-]/gi, "-").slice(0, 48)}`;
+  let media = {
+    previewUrl: sourceVideoUrl,
+    coverUrl: record.localPosterUrl || record.posterUrl || record.imageUrl || "",
+  };
+  try {
+    media = await ingestPlatformTemplateMedia({
+      videoUrl: absolutePublicUrl(sourceVideoUrl),
+      coverUrl: media.coverUrl ? absolutePublicUrl(media.coverUrl) : "",
+      templateId,
+    });
+  } catch (error) {
+    console.warn("[promote-platform-media-failed]", taskId, error.message || error);
+  }
+  const nextTemplate = platformTemplateFromGenerationRecord(record, media, templates.length);
+  const nextTemplates = [
+    ...templates.filter((item) => item.id !== nextTemplate.id),
+    nextTemplate,
+  ];
+  const nextConfig = {
+    ...config,
+    platform: {
+      ...platform,
+      templates: nextTemplates,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  await writeAppConfig(nextConfig);
+  return sendJson(res, 200, { ok: true, template: nextTemplate, config: nextConfig });
+}
+
 async function makePlatformEstimate(template, overrides = {}, user = null) {
   const prompt =
     typeof overrides.prompt === "string" && overrides.prompt.trim()
@@ -7277,8 +7815,6 @@ async function makePlatformEstimate(template, overrides = {}, user = null) {
     userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? normalizeUserPricingMultiplier(user || 1),
     markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
     source: pricingEstimate.source,
-    model: upstreamPayload.model,
-    requestModel: upstreamPayload.params.model || upstreamPayload.model,
     durationSeconds,
     available: true,
   };
@@ -7354,7 +7890,7 @@ function docsAdvancedExampleBody(item = {}) {
   const body = {
     caseId: item.id || "case-id",
     provider,
-    prompt: item.prompt || params.prompt || "your prompt",
+    prompt: "your prompt",
     dataUrl: "data:image/png;base64,...",
     ratio: params.ratio || params.aspect_ratio || "9:16",
     resolution: params.resolution || "720p",
@@ -7405,15 +7941,45 @@ function tenantDocsPricingView(pricing = {}) {
     };
 }
 
+function publicPricingEstimateView(pricing = {}) {
+  if (pricing && pricing.available === false) {
+    return {
+      available: false,
+      credits: null,
+      message: pricing.message || "Pricing is unavailable.",
+    };
+  }
+  return {
+    available: true,
+    provider: pricing.provider || "",
+    credits: creditsAmount(pricing.credits),
+    baseCredits: creditsAmount(pricing.baseCredits ?? pricing.credits),
+    originalCredits: pricing.originalCredits === undefined || pricing.originalCredits === null ? null : creditsAmount(pricing.originalCredits),
+    userPricingMultiplier: pricing.userPricingMultiplier ?? pricing.pricingMultiplier ?? 1,
+    markup: pricing.markup ?? 1,
+    source: pricing.source || "",
+    duration: pricing.duration ?? pricing.durationSeconds ?? null,
+    resolution: pricing.resolution || "",
+    ratio: pricing.ratio || "",
+    creditsPerSecond: pricing.creditsPerSecond ?? null,
+    purchaseCreditsPerSecond: pricing.purchaseCreditsPerSecond ?? null,
+    resalePricingMultiplier: pricing.resalePricingMultiplier ?? null,
+  };
+}
+
 async function buildUserAdvancedEstimate(provider = "seedance", params = {}, user = null) {
   const estimateParams = {
     duration: params.duration ?? params.durationSeconds,
     resolution: params.resolution,
     ratio: params.ratio || params.aspect_ratio,
+    seedanceTier: params.seedanceTier || params.tier,
+    referenceVideoAssetId: params.referenceVideoAssetId,
+    referenceVideoAssetIds: params.referenceVideoAssetIds,
+    referenceVideoUrl: params.referenceVideoUrl,
+    referenceVideoUrls: params.referenceVideoUrls,
+    inputVideoSeconds: params.inputVideoSeconds,
   };
-  const rawPricing = USE_GATEWAY_UPSTREAM
-    ? await gatewayAdvancedEstimate(provider, estimateParams)
-    : advancedModelPricing(provider, estimateParams);
+  const rawPricing = await buildBaseAdvancedEstimate(provider, estimateParams);
   return applyUserPricingToEstimate(rawPricing, user || 1);
 }
 
@@ -7437,7 +8003,7 @@ async function handleAdvancedEstimate(req, res) {
       resolution: pricing.resolution,
       ratio: pricing.ratio,
     }
-    : pricing;
+    : publicPricingEstimateView(pricing);
   return sendJson(res, 200, {
     ok: true,
     userPricing: pricingMultiplierView(auth.user || 1),
@@ -7476,14 +8042,10 @@ async function buildTemplateModelDoc(template, origin, user = null, options = {}
     type: template.type,
     category: template.category,
     badge: template.badge,
-    model: upstreamPayload.model,
-    requestModel: upstreamPayload.params?.model || upstreamPayload.model,
     durationSeconds,
     pricing: options.tenantPublic ? tenantDocsPricingView(pricing) : pricing,
     coverUrl: template.coverUrl,
     previewUrl: template.previewUrl,
-    prompt: configuredPrompt || "",
-    negativePrompt: template.negativePrompt || "",
     endpoint: {
       method: "POST",
       url: `${origin}/api/platform/generate`,
@@ -7492,7 +8054,7 @@ async function buildTemplateModelDoc(template, origin, user = null, options = {}
     requestFields: [
       { name: "templateId", type: "string", required: true, description: "Template id from this document." },
       { name: "dataUrl", type: "string", required: template.type === "image-to-video", description: "Base64 data URL. Required for image-to-video templates." },
-      { name: "prompt", type: "string", required: false, description: "Optional prompt override. Leave empty to use the saved template prompt." },
+      { name: "prompt", type: "string", required: false, description: "Optional prompt text for this generation." },
       { name: "params", type: "object", required: false, description: "Optional advanced overrides. Most clients should omit this." },
     ],
     exampleRequest: {
@@ -7504,7 +8066,6 @@ async function buildTemplateModelDoc(template, origin, user = null, options = {}
       },
       body: docsPlatformExampleBody(template),
     },
-    upstreamJson: upstreamPayload.params,
   };
 }
 
@@ -7537,13 +8098,16 @@ async function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     title: item.title,
     category: item.category,
     provider,
-    model: pricing.model,
     description: item.description || "",
     pricing: options.tenantPublic ? tenantDocsPricingView(pricingView) : pricingView,
     coverUrl: item.coverUrl,
     previewUrl: item.previewUrl,
-    prompt: item.prompt || params.prompt || "",
-    params,
+    inputImageUrl: item.inputImageUrl || item.sourceImageUrl || "",
+    sourceImageUrl: item.sourceImageUrl || "",
+    inputVideoUrl: item.inputVideoUrl || "",
+    inputVideoPosterUrl: item.inputVideoPosterUrl || "",
+    sourceVideoUrl: item.sourceVideoUrl || "",
+    sourceCoverUrl: item.sourceCoverUrl || item.mediaSourceCoverUrl || "",
     requiresApproval: true,
     endpoint: {
       method: "POST",
@@ -7634,15 +8198,12 @@ function templateDocMarkdown(item) {
     "",
     `- templateId: \`${item.id}\``,
     `- type: \`${item.type}\``,
-    `- model: \`${item.requestModel || item.model}\``,
     `- duration: ${item.durationSeconds || "configured"}s`,
     `- estimated cost: ${item.pricing.available ? `${item.pricing.credits} credits` : "pricing unavailable"}`,
   ];
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.coverUrl) lines.push(`- cover: ${item.coverUrl}`);
-  if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
-  lines.push("", "**Server-side upstream JSON**", "", markdownCodeBlock("json", item.upstreamJson));
   return lines.join("\n");
 }
 
@@ -7652,13 +8213,11 @@ function advancedDocMarkdown(item) {
     "",
     `- caseId: \`${item.id}\``,
     `- provider: \`${item.provider || "seedance"}\``,
-    item.model ? `- model: \`${item.model}\`` : "",
     "- access: approval required",
     `- estimated cost: ${item.pricing.credits} credits`,
   ].filter(Boolean);
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
-  if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "Reference image: Wan2.7 uses `dataUrl` as the first frame and optional last-frame fields. Seedance uses `referenceImages` for one or more images in the same field, or `userAssetId` / `extraReferenceAssetIds` for existing uploaded assets.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
@@ -8672,6 +9231,77 @@ async function handleUploadUserAsset(req, res) {
   return sendJson(res, 200, { ok: true, asset: publicUserAsset(userAsset) });
 }
 
+function generationRecordAssetName(record = {}) {
+  const base = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || record.taskId || "Generated video";
+  return String(base || "Generated video").trim().slice(0, 60) || "Generated video";
+}
+
+async function bytesForGenerationRecordVideo(record = {}) {
+  const localUrl = record.localVideoUrl || "";
+  if (localUrl && !/^https?:\/\//i.test(localUrl)) {
+    const localPath = path.normalize(path.join(ROOT, localUrl.replace(/^\//, "")));
+    const assetsRoot = path.normalize(path.join(ROOT, "assets"));
+    if (!localPath.startsWith(assetsRoot)) {
+      const error = new Error("Generation video path is not allowed.");
+      error.statusCode = 403;
+      throw error;
+    }
+    return {
+      bytes: await fs.readFile(localPath),
+      mime: videoMimeFromPath(localPath),
+      fileName: path.basename(localPath),
+    };
+  }
+  const videoUrl = generationRecordVideoUrl(record);
+  if (!videoUrl) {
+    const error = new Error("Generation record has no video result.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!/^https?:\/\//i.test(videoUrl)) {
+    const localPath = path.normalize(path.join(ROOT, videoUrl.replace(/^\//, "")));
+    const assetsRoot = path.normalize(path.join(ROOT, "assets"));
+    if (!localPath.startsWith(assetsRoot)) {
+      const error = new Error("Generation video path is not allowed.");
+      error.statusCode = 403;
+      throw error;
+    }
+    return {
+      bytes: await fs.readFile(localPath),
+      mime: videoMimeFromPath(localPath),
+      fileName: path.basename(localPath),
+    };
+  }
+  const downloaded = await downloadRemoteFileToBuffer(videoUrl, {
+    label: "generation video",
+    maxBytes: 30 * 1024 * 1024,
+  });
+  return {
+    bytes: downloaded.bytes,
+    mime: downloaded.mime && downloaded.mime.startsWith("video/") ? downloaded.mime : videoMimeFromPath(videoUrl),
+    fileName: path.basename(new URL(videoUrl).pathname) || `${record.taskId || "generated"}.mp4`,
+  };
+}
+
+async function handleAddGenerationRecordToAssets(req, res, taskId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const records = await readGenerationRecords();
+  const record = records.find((entry) => entry.taskId === taskId && entry.userId === auth.user.id && isUserVisibleGenerationRecord(entry));
+  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  if (!isSucceededStatus(record.status)) return sendJson(res, 400, { ok: false, message: "Generation is not completed yet." });
+  const video = await bytesForGenerationRecordVideo(record);
+  const fileName = video.fileName || `${taskId}.mp4`;
+  const asset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
+    bytes: video.bytes,
+    mime: video.mime && video.mime.startsWith("video/") ? video.mime : "video/mp4",
+    name: generationRecordAssetName(record),
+    fileName,
+    maxBytes: 30 * 1024 * 1024,
+  });
+  return sendJson(res, 200, { ok: true, asset: publicUserAsset(asset) });
+}
+
 function publicUserAsset(asset = {}) {
   const kind = String(asset.mime || "").toLowerCase().startsWith("video/") ? "video" : "image";
   return {
@@ -8696,15 +9326,23 @@ async function handleListUserAssets(req, res, url = null) {
   const params = url?.searchParams || new URLSearchParams();
   const q = String(params.get("q") || "").trim().toLowerCase();
   const type = String(params.get("type") || "").trim().toLowerCase();
-  const limit = Math.floor(clampNumber(params.get("limit"), 80, 1, 200));
-  const assets = auth.db.userAssets
+  const { page, limit, offset } = pagingFromUrl(url || new URL("http://localhost"), { defaultLimit: 8, maxLimit: 50 });
+  const filtered = auth.db.userAssets
     .filter((asset) => asset.userId === auth.user.id && !isSoftDeleted(asset))
     .map(publicUserAsset)
     .filter((asset) => !type || asset.kind === type)
     .filter((asset) => !q || [asset.name, asset.id, asset.mime].some((value) => String(value || "").toLowerCase().includes(q)))
-    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
-    .slice(0, limit);
-  return sendJson(res, 200, { ok: true, assets });
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+  const total = filtered.length;
+  const assets = filtered.slice(offset, offset + limit);
+  return sendJson(res, 200, {
+    ok: true,
+    assets,
+    page,
+    limit,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  });
 }
 
 async function handleDeleteUserAsset(req, res, assetId) {
@@ -9439,6 +10077,51 @@ async function handleAdminGetConfig(req, res) {
   if (!auth) return;
   const config = await readAppConfig();
   return sendJson(res, 200, { ok: true, config });
+}
+
+async function handleAdminGetPricing(req, res, url = new URL("/", "http://localhost")) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  try {
+    return sendJson(res, 200, {
+      ok: true,
+      ...(await buildPricingConfigView(config, { force: url.searchParams.get("refresh") === "1", admin: true })),
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 502, {
+      ok: false,
+      code: error.code || "PRICING_UNAVAILABLE",
+      message: error.message || "Pricing is unavailable.",
+    });
+  }
+}
+
+async function handleAdminSavePricing(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const rawMultiplier = body.multiplier ?? body.resaleMultiplier ?? body.pricingMultiplier ?? body.discount;
+  const nextMultiplier = Number(rawMultiplier);
+  if (!Number.isFinite(nextMultiplier) || nextMultiplier <= 0 || nextMultiplier > 100) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_PRICING_MULTIPLIER", message: "Pricing multiplier must be greater than 0 and no more than 100." });
+  }
+  const current = await readAppConfig();
+  const currentResale = normalizeResalePricingConfig(current.resalePricing);
+  const next = {
+    ...current,
+    resalePricing: normalizeResalePricingConfig({
+      ...currentResale,
+      multiplier: nextMultiplier,
+      cnyPerUsd: body.cnyPerUsd ?? currentResale.cnyPerUsd,
+    }),
+    updatedAt: new Date().toISOString(),
+  };
+  await writeAppConfig(next);
+  return sendJson(res, 200, {
+    ok: true,
+    ...(await buildPricingConfigView(next, { force: true, admin: true })),
+  });
 }
 
 async function handleAdminSaveConfig(req, res) {
@@ -10595,6 +11278,96 @@ async function handleAdminListWalletOrders(req, res) {
   return sendJson(res, 200, { ok: true, orders: list });
 }
 
+async function handleCreateSupportMessage(req, res) {
+  if (isTenantPublicOrigin(publicOriginFromRequest(req))) {
+    return sendJson(res, 404, { ok: false, message: "Not found." });
+  }
+  const auth = await getAuth(req);
+  const body = await readJson(req);
+  const email = String(body.email || "").trim().slice(0, 120);
+  const question = String(body.question || "").trim().slice(0, 2000);
+  const locale = String(body.locale || req.headers["accept-language"] || "").trim().slice(0, 40);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return sendJson(res, 400, { ok: false, message: "Please enter a valid email address." });
+  }
+  if (!question) {
+    return sendJson(res, 400, { ok: false, message: "Please enter your question." });
+  }
+  const now = new Date().toISOString();
+  const message = {
+    id: makeSupportMessageId(),
+    userId: auth.user?.id || "",
+    username: auth.user?.username || "",
+    email,
+    question,
+    locale,
+    status: "new",
+    reply: "",
+    replyAt: "",
+    replyBy: "",
+    createdAt: now,
+    updatedAt: now,
+  };
+  auth.db.supportMessages = [message, ...(auth.db.supportMessages || [])];
+  await writeDb(auth.db);
+  const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
+  return sendJson(res, 200, { ok: true, message: supportMessageView(message, userMap) });
+}
+
+async function handleAdminUpdateSupportMessage(req, res, messageId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  if (isTenantPublicOrigin(publicOriginFromRequest(req))) {
+    return sendJson(res, 404, { ok: false, message: "Not found." });
+  }
+  const messages = auth.db.supportMessages || [];
+  const message = messages.find((item) => item.id === messageId);
+  if (!message) return sendJson(res, 404, { ok: false, message: "Message not found." });
+  const body = await readJson(req);
+  const now = new Date().toISOString();
+  const hasReply = Object.prototype.hasOwnProperty.call(body || {}, "reply");
+  const hasStatus = Object.prototype.hasOwnProperty.call(body || {}, "status");
+  if (hasReply) {
+    const reply = String(body.reply || "").trim().slice(0, 4000);
+    message.reply = reply;
+    if (reply) {
+      message.replyAt = now;
+      message.replyBy = auth.user?.username || "";
+    } else {
+      message.replyAt = "";
+      message.replyBy = "";
+    }
+  }
+  if (hasStatus) {
+    const nextStatus = String(body.status || "").trim().toLowerCase();
+    if (["new", "replied", "closed"].includes(nextStatus)) {
+      message.status = nextStatus;
+    }
+  }
+  if (message.reply && (!hasStatus || message.status === "new")) {
+    message.status = "replied";
+  }
+  message.updatedAt = now;
+  await writeDb(auth.db);
+  const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
+  return sendJson(res, 200, { ok: true, message: supportMessageView(message, userMap) });
+}
+
+async function handleAdminListSupportMessages(req, res, url) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  if (isTenantPublicOrigin(publicOriginFromRequest(req))) {
+    return sendJson(res, 404, { ok: false, message: "Not found." });
+  }
+  const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") || 200)));
+  const userMap = new Map((auth.db.users || []).map((u) => [u.id, u]));
+  const list = (auth.db.supportMessages || [])
+    .map((message) => supportMessageView(message, userMap))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .slice(0, limit);
+  return sendJson(res, 200, { ok: true, messages: list });
+}
+
 async function handleAdminUpdateWalletOrder(req, res, orderId) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
@@ -10640,6 +11413,7 @@ async function handleAdminListGenerationRecords(req, res, url) {
   const status = String(url.searchParams.get("status") || "").trim().toLowerCase();
   const kind = String(url.searchParams.get("kind") || "").trim();
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
+  const assetMap = new Map((auth.db.userAssets || []).map((asset) => [asset.id, asset]));
   let records = await readGenerationRecords();
   const refreshRequested = generationListRefreshRequested(url);
   const refundable = records.filter(needsSeedanceFailureRefund).slice(0, 100);
@@ -10656,7 +11430,7 @@ async function handleAdminListGenerationRecords(req, res, url) {
     );
     records = records.map((record) => refreshedByTask.get(record.taskId) || record);
   }
-  const enriched = records.map((record) => adminGenerationRecordView(record, userMap));
+  const enriched = records.map((record) => adminGenerationRecordView(record, userMap, assetMap));
   const filtered = enriched.filter((record) => {
     if (provider && record.provider !== provider) return false;
     if (kind && record.kind !== kind) return false;
@@ -10674,11 +11448,11 @@ async function handleAdminListGenerationRecords(req, res, url) {
 async function handleListGenerationRecords(req, res, url) {
   const auth = await requireUser(req, res);
   if (!auth) return;
-  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 60)));
+  const { page, limit, offset } = pagingFromUrl(url, { defaultLimit: 8, maxLimit: 50 });
   const records = await readGenerationRecords();
-  const ownRecords = records
-    .filter((record) => record.userId === auth.user.id && isUserVisibleGenerationRecord(record))
-    .slice(0, limit);
+  const allOwnRecords = records
+    .filter((record) => record.userId === auth.user.id && isUserVisibleGenerationRecord(record));
+  const ownRecords = allOwnRecords.slice(offset, offset + limit);
 
   const refreshRequested = generationListRefreshRequested(url);
   const refundable = ownRecords.filter(needsSeedanceFailureRefund).slice(0, 50);
@@ -10700,7 +11474,10 @@ async function handleListGenerationRecords(req, res, url) {
   return sendJson(res, 200, {
     ok: true,
     records: ownRecords.map(publicGenerationRecord),
-    total: ownRecords.length,
+    page,
+    limit,
+    total: allOwnRecords.length,
+    totalPages: Math.max(1, Math.ceil(allOwnRecords.length / limit)),
     user: userView((await readDb()).users.find((user) => user.id === auth.user.id) || auth.user),
   });
 }
@@ -11305,6 +12082,11 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req)) });
     }
 
+    if (req.method === "GET" && url.pathname === "/api/config/pricing") {
+      const config = await readAppConfig();
+      return sendJson(res, 200, { ok: true, ...(await buildPricingConfigView(config, { force: url.searchParams.get("refresh") === "1" })) });
+    }
+
     if (req.method === "GET" && url.pathname === "/api/models") {
       return await handleModelsJson(req, res);
     }
@@ -11327,6 +12109,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/auth/me") {
       return await handleMe(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/support/messages") {
+      return await handleCreateSupportMessage(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/pay/paypal/config") {
@@ -11383,6 +12169,11 @@ async function handleRequest(req, res) {
       return await handleUploadUserAsset(req, res);
     }
 
+    const addGenerationRecordAssetMatch = url.pathname.match(/^\/api\/generation-records\/([^/]+)\/add-asset$/);
+    if (req.method === "POST" && addGenerationRecordAssetMatch) {
+      return await handleAddGenerationRecordToAssets(req, res, decodeURIComponent(addGenerationRecordAssetMatch[1]));
+    }
+
     if (req.method === "POST" && url.pathname === "/api/platform/generate") {
       return await handlePlatformGenerate(req, res);
     }
@@ -11435,6 +12226,14 @@ async function handleRequest(req, res) {
 
     if (req.method === "PUT" && url.pathname === "/api/admin/config") {
       return await handleAdminSaveConfig(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/pricing") {
+      return await handleAdminGetPricing(req, res, url);
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/admin/pricing") {
+      return await handleAdminSavePricing(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/overview") {
@@ -11550,6 +12349,14 @@ async function handleRequest(req, res) {
       return await handleAdminListWalletOrders(req, res);
     }
 
+    if (req.method === "GET" && url.pathname === "/api/admin/support-messages") {
+      return await handleAdminListSupportMessages(req, res, url);
+    }
+    const adminSupportMessageMatch = url.pathname.match(/^\/api\/admin\/support-messages\/([^/]+)$/);
+    if (adminSupportMessageMatch && req.method === "PATCH") {
+      return await handleAdminUpdateSupportMessage(req, res, decodeURIComponent(adminSupportMessageMatch[1]));
+    }
+
     if (req.method === "POST" && url.pathname === "/api/admin/wallet-orders/scan") {
       return await handleAdminScanWalletOrders(req, res);
     }
@@ -11565,6 +12372,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/generation-records") {
       return await handleAdminListGenerationRecords(req, res, url);
+    }
+    const adminPromotePlatformMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)\/promote-platform$/);
+    if (adminPromotePlatformMatch && req.method === "POST") {
+      return await handleAdminPromoteRecordToPlatform(req, res, decodeURIComponent(adminPromotePlatformMatch[1]));
     }
 
     if (req.method === "POST" && url.pathname === "/api/my/characters/draft") {

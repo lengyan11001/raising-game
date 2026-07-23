@@ -18,13 +18,14 @@ import os
 import paramiko
 
 
-HOST = os.environ.get("FYSHARK_HOST", os.environ.get("DEPLOY_HOST", "101.47.76.188"))
-USER = os.environ.get("FYSHARK_USER", os.environ.get("DEPLOY_USER", "root"))
-PASSWORD = os.environ.get("FYSHARK_SSH_PASSWORD", os.environ.get("DEPLOY_SSH_PASSWORD", ""))
-REMOTE_ROOT = os.environ.get("DEPLOY_REMOTE_ROOT", "/opt/raising-game-demo")
-SERVICE = os.environ.get("DEPLOY_SERVICE", "raising-game-demo")
-HEALTH_URL = os.environ.get("DEPLOY_HEALTH_URL", "https://123vips.com/api/health")
-BRANCH = os.environ.get("DEPLOY_BRANCH")
+HOST = os.environ.get("DEPLOY_HOST", os.environ.get("FYSHARK_HOST", "47.76.175.249"))
+USER = os.environ.get("DEPLOY_USER", os.environ.get("FYSHARK_USER", "root"))
+PASSWORD = os.environ.get("DEPLOY_SSH_PASSWORD", os.environ.get("FYSHARK_SSH_PASSWORD", ""))
+REMOTE_ROOT = os.environ.get("DEPLOY_REMOTE_ROOT", "/opt/raising-game-cloudtoken")
+SERVICE = os.environ.get("DEPLOY_SERVICE", "raising-game-cloudtoken")
+HEALTH_URL = os.environ.get("DEPLOY_HEALTH_URL", "https://mystockmarket.top/api/health")
+BRANCH = os.environ.get("DEPLOY_BRANCH", "main")
+RETIRED_HOSTS = {"8.210.186.75"}
 
 
 def remote_run(client: paramiko.SSHClient, command: str, timeout: int = 120) -> tuple[int, str, str]:
@@ -39,8 +40,7 @@ def main() -> None:
     parser.add_argument(
         "--branch",
         default=BRANCH,
-        required=BRANCH is None,
-        help="Production branch to deploy, e.g. old-site or cloudtoken. Do not use main for production.",
+        help="Git branch to deploy for new site 1.",
     )
     parser.add_argument("--remote-root", default=REMOTE_ROOT)
     parser.add_argument("--service", default=SERVICE)
@@ -48,16 +48,20 @@ def main() -> None:
     parser.add_argument("--no-restart", action="store_true")
     args = parser.parse_args()
     if not PASSWORD:
-        raise SystemExit("FYSHARK_SSH_PASSWORD is required.")
+        raise SystemExit("DEPLOY_SSH_PASSWORD is required.")
     if not args.branch:
-        raise SystemExit("--branch is required. Use old-site for 123vips.com or cloudtoken for cloudtoken.ai.")
-    if args.branch == "main" and os.environ.get("DEPLOY_ALLOW_MAIN") != "1":
-        raise SystemExit("Refusing to deploy main. Use --branch old-site or --branch cloudtoken.")
+        raise SystemExit("--branch is required.")
+    if HOST in RETIRED_HOSTS:
+        raise SystemExit(f"Refusing to deploy new site 1 to retired host {HOST}. Use 47.76.175.249.")
 
     command = f"""
 set -euo pipefail
 cd {args.remote_root}
-git fetch origin {args.branch}
+export DISPLAY="${{DISPLAY:-none}}"
+export SSH_ASKPASS="${{SSH_ASKPASS:-/root/.ssh/github-askpass.sh}}"
+export SSH_ASKPASS_REQUIRE="${{SSH_ASKPASS_REQUIRE:-force}}"
+export GIT_SSH_COMMAND="${{GIT_SSH_COMMAND:-ssh -p 443 -i /root/.ssh/github-maczhuji -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new}}"
+setsid git fetch origin {args.branch}
 git checkout {args.branch}
 git reset --hard origin/{args.branch}
 {"true" if args.no_restart else f"systemctl restart {args.service}"}

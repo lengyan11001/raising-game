@@ -277,6 +277,13 @@ const state = {
   stats: { ...companions[0].stats },
 };
 
+const TENANT_PUBLIC_HOSTS = ["cloudtoken.ai", "mystockmarket.top", "vidnovaai.com"];
+
+function isTenantPublicHost() {
+  const host = String(window.location.hostname || "").trim().toLowerCase();
+  return TENANT_PUBLIC_HOSTS.some((tenantHost) => host === tenantHost || host.endsWith(`.${tenantHost}`));
+}
+
 const els = {
   creditCount: document.querySelector("#creditCount"),
   topUpBtn: document.querySelector("#topUpBtn"),
@@ -290,6 +297,7 @@ const els = {
   openPhotoBtn: document.querySelector("#openPhotoBtn"),
   meetBtn: document.querySelector("#meetBtn"),
   chatBtn: document.querySelector("#chatBtn"),
+  supportBtn: document.querySelector("#supportBtn"),
   outfitBtn: document.querySelector("#outfitBtn"),
   openVrBtn: document.querySelector("#openVrBtn"),
   homeHeroVideo: document.querySelector("#homeHeroVideo"),
@@ -339,6 +347,11 @@ const els = {
   videoDialog: document.querySelector("#videoDialog"),
   resultVideo: document.querySelector("#resultVideo"),
   generationHistoryDialog: document.querySelector("#generationHistoryDialog"),
+  supportDialog: document.querySelector("#supportDialog"),
+  supportEmail: document.querySelector("#supportEmail"),
+  supportQuestion: document.querySelector("#supportQuestion"),
+  supportSubmitBtn: document.querySelector("#supportSubmitBtn"),
+  supportStatus: document.querySelector("#supportStatus"),
   generationHistoryList: document.querySelector("#generationHistoryList"),
   generationHistoryRefreshBtn: document.querySelector("#generationHistoryRefreshBtn"),
   avatarModel: document.querySelector("#avatarModel"),
@@ -404,7 +417,7 @@ function closeDialog(dialog) {
 }
 
 function closeGameDialogs() {
-  [els.profileDialog, els.wishDialog, els.photoDialog, els.dateDialog, els.videoDialog, els.customCharacterDialog, els.scenePickerDialog, els.generationHistoryDialog].forEach(closeDialog);
+  [els.profileDialog, els.wishDialog, els.photoDialog, els.dateDialog, els.videoDialog, els.customCharacterDialog, els.scenePickerDialog, els.generationHistoryDialog, els.supportDialog].forEach(closeDialog);
 }
 
 const INTIMACY_STORAGE_KEY = "raisingGameIntimacy";
@@ -535,6 +548,49 @@ function openRechargeDialog() {
   els.orderResult.textContent = "";
   els.rechargeDialog.showModal();
   refreshIcons();
+}
+
+function openSupportDialog() {
+  if (!els.supportDialog) return;
+  els.supportStatus.textContent = "";
+  els.supportStatus.className = "dialog-tip";
+  els.supportEmail.value = "";
+  els.supportQuestion.value = "";
+  openDialog(els.supportDialog);
+  setTimeout(() => els.supportEmail.focus(), 50);
+}
+
+async function submitSupportMessage() {
+  const email = els.supportEmail.value.trim();
+  const question = els.supportQuestion.value.trim();
+  if (!email || !question) {
+    els.supportStatus.textContent = "请填写邮箱和问题。";
+    els.supportStatus.className = "dialog-tip is-error";
+    return;
+  }
+  els.supportSubmitBtn.disabled = true;
+  els.supportStatus.textContent = "提交中...";
+  els.supportStatus.className = "dialog-tip";
+  try {
+    await requestJson("/api/support/messages", {
+      method: "POST",
+      body: JSON.stringify({ email, question }),
+    });
+    els.supportStatus.textContent = "已收到，我们会在站内信里处理。";
+    els.supportStatus.className = "dialog-tip is-success";
+    els.supportQuestion.value = "";
+  } catch (error) {
+    els.supportStatus.textContent = error.message || "提交失败。";
+    els.supportStatus.className = "dialog-tip is-error";
+  } finally {
+    els.supportSubmitBtn.disabled = false;
+  }
+}
+
+function updateSupportButtonVisibility() {
+  if (!els.supportBtn) return;
+  const enabled = state.config?.tenantFeatures ? state.config.tenantFeatures.supportInbox !== false : !isTenantPublicHost();
+  els.supportBtn.hidden = !enabled;
 }
 
 function getVrScene(sceneId) {
@@ -1946,6 +2002,7 @@ async function loadPublicConfig() {
     els.wishGenerateBtn.innerHTML = `<i data-lucide="sparkles"></i>Generate · ${priceOf("meet", MEET_COST)}`;
     els.uploadGenerateBtn.innerHTML = `<i data-lucide="wand-sparkles"></i>Generate from photo · ${priceOf("photo", PHOTO_COST)}`;
     els.sceneGenerateBtn.innerHTML = `<i data-lucide="video"></i>Generate video · ${priceOf("dateVideo", DATE_VIDEO_COST)}`;
+    updateSupportButtonVisibility();
     renderHomeHero();
   } catch (error) {
     console.warn("public config unavailable", error);
@@ -3095,6 +3152,7 @@ function bindEvents() {
   if (state.eventsBound) return;
   state.eventsBound = true;
   bindVrEvents();
+  updateSupportButtonVisibility();
   document.addEventListener("click", unlockSoundAfterGesture, { capture: true });
   document.addEventListener("keydown", unlockSoundAfterGesture, { capture: true });
 
@@ -3126,6 +3184,7 @@ function bindEvents() {
     openDialog(els.photoDialog);
   });
   els.chatBtn.addEventListener("click", handleChat);
+  els.supportBtn?.addEventListener("click", openSupportDialog);
   els.outfitBtn.addEventListener("click", handleOutfit);
 
   els.meetBtn.addEventListener("click", () => {
@@ -3201,6 +3260,14 @@ function bindEvents() {
   els.confirmPayBtn?.addEventListener("click", (event) => {
     event.preventDefault();
     runPendingPaymentAction();
+  });
+  els.supportDialog?.querySelector("form")?.addEventListener("submit", (event) => {
+    if (event.submitter?.id !== "supportSubmitBtn") return;
+    event.preventDefault();
+    submitSupportMessage();
+  });
+  els.supportDialog?.querySelectorAll("[data-support-close]").forEach((button) => {
+    button.addEventListener("click", () => closeDialog(els.supportDialog));
   });
 
   els.copyWalletBtn?.addEventListener("click", async () => {

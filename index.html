@@ -98,6 +98,10 @@
           <i data-lucide="messages-square"></i>
           <span>Chat</span>
         </button>
+        <button class="support-fab" id="supportBtn" type="button" aria-label="Customer support">
+          <i data-lucide="life-buoy"></i>
+          <span>&#23458;&#26381;</span>
+        </button>
         <button class="orb-action orb-outfit" id="outfitBtn" type="button" aria-label="Outfit">
           <i data-lucide="shirt"></i>
           <span>Outfit</span>
@@ -445,6 +449,37 @@
         </div>
         <div class="history-list" id="generationHistoryList">
           <div class="history-empty">No records yet.</div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="supportDialog" class="game-dialog support-dialog">
+      <form method="dialog">
+        <header class="dialog-head">
+          <div>
+            <span>&#23458;&#26381;&#20837;&#21475;</span>
+            <strong>&#31449;&#20869;&#20449;&#25552;&#20132;&#37038;&#31665;&#21644;&#38382;&#39064;</strong>
+          </div>
+          <button class="icon-action" data-support-close type="button" aria-label="Close" formnovalidate>
+            <i data-lucide="x"></i>
+          </button>
+        </header>
+        <p class="dialog-tip">&#21482;&#22312;&#31449;&#20869;&#20445;&#23384;&#65292;&#19981;&#20250;&#36339;&#36716;&#22806;&#37096;&#23458;&#26381;&#12290;</p>
+        <label class="field-row">
+          <span>&#37038;&#31665;</span>
+          <input id="supportEmail" type="email" maxlength="120" placeholder="name@example.com" />
+        </label>
+        <label class="field-row">
+          <span>&#38382;&#39064;</span>
+          <textarea id="supportQuestion" rows="5" maxlength="2000" placeholder="&#35831;&#25551;&#36848;&#20320;&#36935;&#21040;&#30340;&#38382;&#39064;"></textarea>
+        </label>
+        <p id="supportStatus" class="dialog-tip"></p>
+        <div class="dialog-actions">
+          <button class="secondary-btn" data-support-close type="button" formnovalidate>&#20851;&#38381;</button>
+          <button id="supportSubmitBtn" class="primary-btn" value="confirm" type="submit">
+            <i data-lucide="send"></i>
+            &#25552;&#20132;
+          </button>
         </div>
       </form>
     </dialog>

@@ -21,6 +21,13 @@ const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
+const TENANT_PUBLIC_HOSTS = ["cloudtoken.ai", "mystockmarket.top", "vidnovaai.com"];
+const ADVANCED_CASE_TABS = [
+  { id: "hot", labelKey: "advanced.caseTab.hot" },
+  { id: "extend", labelKey: "advanced.caseTab.extend" },
+  { id: "replace", labelKey: "advanced.caseTab.replace" },
+];
+const ADVANCED_CASE_PAGE_SIZE = { hot: 9, extend: 3, replace: 3 };
 
 function normalizePlatformTab(value = "") {
   const normalized = String(value || "").trim().replace(/^#\/?/, "");
@@ -41,11 +48,18 @@ const state = {
   category: "all",
   advancedCases: [],
   activeAdvancedCaseId: "",
+  activeAdvancedCaseTab: "hot",
+  advancedCasePages: { hot: 1, extend: 1, replace: 1 },
   advancedEstimate: null,
   advancedEstimateKey: "",
   advancedEstimateTimer: 0,
   activeTemplate: null,
   userAssets: [],
+  assetImageChoices: [],
+  userAssetsPage: 1,
+  userAssetsLimit: 8,
+  userAssetsTotal: 0,
+  userAssetsTotalPages: 1,
   assetSearch: "",
   assetType: "",
   accessDocMode: "http",
@@ -66,6 +80,11 @@ const state = {
   showAccountToken: false,
   topupRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [] },
   spendingRecords: { page: 1, limit: 12, total: 0, totalPages: 1, records: [], types: [] },
+  historyRecords: [],
+  historyRecordsPage: 1,
+  historyRecordsLimit: 8,
+  historyRecordsTotal: 0,
+  historyRecordsTotalPages: 1,
   assetSearchTimer: 0,
   topupRefreshTimer: 0,
   topupRefreshInFlight: false,
@@ -75,6 +94,11 @@ function tenantFeature(name, fallback = true) {
   const features = state.config?.tenantFeatures;
   if (!features || features[name] === undefined) return fallback;
   return Boolean(features[name]);
+}
+
+function isTenantPublicHost() {
+  const host = String(window.location.hostname || "").trim().toLowerCase();
+  return TENANT_PUBLIC_HOSTS.some((tenantHost) => host === tenantHost || host.endsWith(`.${tenantHost}`));
 }
 
 function isTabAllowed(tab) {
@@ -134,6 +158,8 @@ const els = {
   refreshAssetsBtn: document.querySelector("#refreshAssetsBtn"),
   assetNote: document.querySelector("#assetNote"),
   assetGrid: document.querySelector("#assetGrid"),
+  assetPager: document.querySelector("#assetPager"),
+  historyPager: document.querySelector("#historyPager"),
   topupDialog: document.querySelector("#topupDialog"),
   topupTriggerBtn: document.querySelector("#topupTriggerBtn"),
   topupTriggerCredits: document.querySelector("#topupTriggerCredits"),
@@ -158,6 +184,13 @@ const els = {
   historyDetailDialog: document.querySelector("#historyDetailDialog"),
   historyDetailTitle: document.querySelector("#historyDetailTitle"),
   historyDetailBody: document.querySelector("#historyDetailBody"),
+  inlineDialog: document.querySelector("#inlineDialog"),
+  inlineDialogForm: document.querySelector("#inlineDialogForm"),
+  inlineDialogTitle: document.querySelector("#inlineDialogTitle"),
+  inlineDialogBody: document.querySelector("#inlineDialogBody"),
+  inlineDialogConfirm: document.querySelector("#inlineDialogConfirm"),
+  inlineDialogClose: document.querySelector("#inlineDialogClose"),
+  inlineDialogCancel: document.querySelector("#inlineDialogCancel"),
   advancedGate: document.querySelector("#advancedGate"),
   advancedWorkspace: document.querySelector("#advancedWorkspace"),
   advancedPrompt: document.querySelector("#advancedPrompt"),
@@ -209,6 +242,12 @@ const els = {
   toggleLoginMode: document.querySelector("#toggleLoginMode"),
   loginSubmit: document.querySelector("#loginSubmit"),
   loginMessage: document.querySelector("#loginMessage"),
+  supportBtn: document.querySelector("#supportBtn"),
+  supportDialog: document.querySelector("#supportDialog"),
+  supportEmail: document.querySelector("#supportEmail"),
+  supportQuestion: document.querySelector("#supportQuestion"),
+  supportSubmitBtn: document.querySelector("#supportSubmitBtn"),
+  supportStatus: document.querySelector("#supportStatus"),
 };
 
 function currentTopupCreditsEls() {
@@ -387,6 +426,17 @@ const I18N = {
     "advanced.loadedCase": "Loaded case: {title} - {cost}",
     "advanced.defaultCase": "Advanced case",
     "advanced.noCases": "No cases configured yet.",
+    "advanced.usePrompt": "Use prompt",
+    "advanced.casePromptHint": "Upload one image to create a matching video.",
+    "advanced.casePromptLoaded": "Prompt loaded. Model set to {model}. Upload one image to create a matching video.",
+    "advanced.casePromptFallback": "Use the uploaded image to create a video in the same style as this example.",
+    "advanced.caseInputVideo": "Input video",
+    "advanced.caseInputImage": "Input image",
+    "advanced.caseImage": "Image",
+    "advanced.caseResultVideo": "Result video",
+    "advanced.caseTab.hot": "Hot",
+    "advanced.caseTab.extend": "Extend",
+    "advanced.caseTab.replace": "Replace",
     "advanced.imageTooLarge": "Image must be 8MB or smaller.",
     "assets.eyebrow": "Library",
     "assets.title": "Asset Library",
@@ -459,6 +509,9 @@ const I18N = {
     "history.regenerate": "Regenerate",
     "history.regenerating": "Regenerating...",
     "history.regenerateSubmitted": "Submitted",
+    "history.addAsset": "Add asset",
+    "history.addingAsset": "Adding...",
+    "history.assetAdded": "Added",
     "history.detailTitle": "Generation detail",
     "history.inputImages": "Input images",
     "history.parameters": "Parameters",
@@ -1646,6 +1699,224 @@ Object.entries(EXPIRY_I18N_COPY).forEach(([lang, copy]) => {
   if (I18N[lang]) Object.assign(I18N[lang], copy);
 });
 
+const SUPPORT_I18N_COPY = {
+  en: {
+    "support.aria": "Customer support",
+    "support.button": "Support",
+    "support.kicker": "Support",
+    "support.title": "Send your email and question",
+    "support.note": "This stays inside the site. No external support window will open.",
+    "support.email": "Email",
+    "support.question": "Question",
+    "support.placeholder": "Describe the issue you ran into.",
+    "support.submit": "Submit",
+    "support.required": "Please enter your email and question.",
+    "support.submitting": "Submitting...",
+    "support.submitted": "Received. We will handle it in the site inbox.",
+    "support.failed": "Submit failed.",
+  },
+  vi: {
+    "support.aria": "Ho tro khach hang",
+    "support.button": "Ho tro",
+    "support.kicker": "Ho tro",
+    "support.title": "Gui email va cau hoi cua ban",
+    "support.note": "Tin nhan chi duoc luu trong website. Khong mo cua so ho tro ben ngoai.",
+    "support.email": "Email",
+    "support.question": "Cau hoi",
+    "support.placeholder": "Mo ta van de ban gap phai.",
+    "support.submit": "Gui",
+    "support.required": "Vui long nhap email va cau hoi.",
+    "support.submitting": "Dang gui...",
+    "support.submitted": "Da nhan. Chung toi se xu ly trong hop thu cua website.",
+    "support.failed": "Gui that bai.",
+  },
+  ja: {
+    "support.aria": "カスタマーサポート",
+    "support.button": "サポート",
+    "support.kicker": "サポート",
+    "support.title": "メールと質問を送信",
+    "support.note": "この内容はサイト内に保存されます。外部サポート画面は開きません。",
+    "support.email": "メール",
+    "support.question": "質問",
+    "support.placeholder": "発生した問題を説明してください。",
+    "support.submit": "送信",
+    "support.required": "メールと質問を入力してください。",
+    "support.submitting": "送信中...",
+    "support.submitted": "受け付けました。サイト内メッセージで対応します。",
+    "support.failed": "送信に失敗しました。",
+  },
+  ko: {
+    "support.aria": "고객 지원",
+    "support.button": "지원",
+    "support.kicker": "지원",
+    "support.title": "이메일과 문의 내용을 보내세요",
+    "support.note": "이 내용은 사이트 안에 저장됩니다. 외부 지원 창은 열리지 않습니다.",
+    "support.email": "이메일",
+    "support.question": "문의",
+    "support.placeholder": "겪은 문제를 설명해 주세요.",
+    "support.submit": "제출",
+    "support.required": "이메일과 문의 내용을 입력해 주세요.",
+    "support.submitting": "제출 중...",
+    "support.submitted": "접수되었습니다. 사이트 내 메시지로 처리하겠습니다.",
+    "support.failed": "제출에 실패했습니다.",
+  },
+  id: {
+    "support.aria": "Dukungan pelanggan",
+    "support.button": "Dukungan",
+    "support.kicker": "Dukungan",
+    "support.title": "Kirim email dan pertanyaan Anda",
+    "support.note": "Pesan ini hanya disimpan di dalam situs. Tidak ada jendela dukungan eksternal.",
+    "support.email": "Email",
+    "support.question": "Pertanyaan",
+    "support.placeholder": "Jelaskan masalah yang Anda temui.",
+    "support.submit": "Kirim",
+    "support.required": "Masukkan email dan pertanyaan Anda.",
+    "support.submitting": "Mengirim...",
+    "support.submitted": "Diterima. Kami akan menanganinya di kotak masuk situs.",
+    "support.failed": "Gagal mengirim.",
+  },
+};
+Object.entries(SUPPORT_I18N_COPY).forEach(([lang, copy]) => {
+  if (I18N[lang]) Object.assign(I18N[lang], copy);
+});
+
+const ASSET_WORKFLOW_COPY = {
+  en: {
+    "assets.extractFrame": "Extract frame",
+    "assets.extendTitle": "Extend image",
+    "assets.replaceTitle": "Replace from video",
+    "assets.frameTitle": "Extract current frame",
+    "assets.pickImage": "Choose image",
+    "assets.uploadImage": "Upload image",
+    "assets.frameHint": "Drag the video progress, then save the current frame into Assets.",
+    "assets.selectImageRequired": "Please choose or upload an image.",
+    "assets.generating": "Submitting generation...",
+    "assets.generated": "Generation submitted: {taskId}",
+    "assets.frameSaved": "Frame saved to Assets.",
+    "assets.selectFrame": "Save frame",
+    "assets.noImageAssets": "No image assets yet.",
+    "file.choose": "Choose file",
+    "file.chooseImage": "Choose image",
+    "file.chooseVideo": "Choose video",
+    "file.none": "No file selected",
+    "file.multipleSelected": "{count} files selected",
+  },
+  vi: {
+    "file.choose": "Chon tep",
+    "file.chooseImage": "Chon anh",
+    "file.chooseVideo": "Chon video",
+    "file.none": "Chua chon tep",
+    "file.multipleSelected": "Da chon {count} tep",
+    "history.addAsset": "Add asset",
+    "history.addingAsset": "Adding...",
+    "history.assetAdded": "Added",
+  },
+  ja: {
+    "file.choose": "ファイルを選択",
+    "file.chooseImage": "画像を選択",
+    "file.chooseVideo": "動画を選択",
+    "file.none": "ファイル未選択",
+    "file.multipleSelected": "{count}件のファイルを選択済み",
+    "history.addAsset": "Add asset",
+    "history.addingAsset": "Adding...",
+    "history.assetAdded": "Added",
+  },
+  ko: {
+    "file.choose": "파일 선택",
+    "file.chooseImage": "이미지 선택",
+    "file.chooseVideo": "동영상 선택",
+    "file.none": "선택된 파일 없음",
+    "file.multipleSelected": "파일 {count}개 선택됨",
+    "history.addAsset": "Add asset",
+    "history.addingAsset": "Adding...",
+    "history.assetAdded": "Added",
+  },
+  id: {
+    "file.choose": "Pilih file",
+    "file.chooseImage": "Pilih gambar",
+    "file.chooseVideo": "Pilih video",
+    "file.none": "Belum ada file",
+    "file.multipleSelected": "{count} file dipilih",
+    "history.addAsset": "Add asset",
+    "history.addingAsset": "Adding...",
+    "history.assetAdded": "Added",
+  },
+};
+Object.entries(ASSET_WORKFLOW_COPY).forEach(([lang, copy]) => {
+  if (I18N[lang]) Object.assign(I18N[lang], copy);
+});
+
+const ADVANCED_CASE_TAB_COPY = {
+  en: {
+    "advanced.caseTab.hot": "Hot",
+    "advanced.caseTab.extend": "Extend",
+    "advanced.caseTab.replace": "Replace",
+    "advanced.usePrompt": "Use prompt",
+    "advanced.casePromptHint": "Upload one image to create a matching video.",
+    "advanced.casePromptLoaded": "Prompt loaded. Model set to {model}. Upload one image to create a matching video.",
+    "advanced.casePromptFallback": "Use the uploaded image to create a video in the same style as this example.",
+    "advanced.caseInputVideo": "Input video",
+    "advanced.caseInputImage": "Input image",
+    "advanced.caseImage": "Image",
+    "advanced.caseResultVideo": "Result video",
+  },
+  vi: {
+    "advanced.caseTab.hot": "Pho bien",
+    "advanced.caseTab.extend": "Extend",
+    "advanced.caseTab.replace": "Replace",
+    "advanced.usePrompt": "Use prompt",
+    "advanced.casePromptHint": "Upload one image to create a matching video.",
+    "advanced.casePromptLoaded": "Prompt loaded. Model set to {model}. Upload one image to create a matching video.",
+    "advanced.casePromptFallback": "Use the uploaded image to create a video in the same style as this example.",
+    "advanced.caseInputVideo": "Input video",
+    "advanced.caseInputImage": "Input image",
+    "advanced.caseImage": "Image",
+    "advanced.caseResultVideo": "Result video",
+  },
+  ja: {
+    "advanced.caseTab.hot": "Hot",
+    "advanced.caseTab.extend": "Extend",
+    "advanced.caseTab.replace": "Replace",
+    "advanced.usePrompt": "Use prompt",
+    "advanced.casePromptHint": "Upload one image to create a matching video.",
+    "advanced.casePromptLoaded": "Prompt loaded. Model set to {model}. Upload one image to create a matching video.",
+    "advanced.casePromptFallback": "Use the uploaded image to create a video in the same style as this example.",
+    "advanced.caseInputVideo": "Input video",
+    "advanced.caseInputImage": "Input image",
+    "advanced.caseImage": "Image",
+    "advanced.caseResultVideo": "Result video",
+  },
+  ko: {
+    "advanced.caseTab.hot": "Hot",
+    "advanced.caseTab.extend": "Extend",
+    "advanced.caseTab.replace": "Replace",
+    "advanced.usePrompt": "Use prompt",
+    "advanced.casePromptHint": "Upload one image to create a matching video.",
+    "advanced.casePromptLoaded": "Prompt loaded. Model set to {model}. Upload one image to create a matching video.",
+    "advanced.casePromptFallback": "Use the uploaded image to create a video in the same style as this example.",
+    "advanced.caseInputVideo": "Input video",
+    "advanced.caseInputImage": "Input image",
+    "advanced.caseImage": "Image",
+    "advanced.caseResultVideo": "Result video",
+  },
+  id: {
+    "advanced.caseTab.hot": "Populer",
+    "advanced.caseTab.extend": "Extend",
+    "advanced.caseTab.replace": "Replace",
+    "advanced.usePrompt": "Use prompt",
+    "advanced.casePromptHint": "Upload one image to create a matching video.",
+    "advanced.casePromptLoaded": "Prompt loaded. Model set to {model}. Upload one image to create a matching video.",
+    "advanced.casePromptFallback": "Use the uploaded image to create a video in the same style as this example.",
+    "advanced.caseInputVideo": "Input video",
+    "advanced.caseInputImage": "Input image",
+    "advanced.caseImage": "Image",
+    "advanced.caseResultVideo": "Result video",
+  },
+};
+Object.entries(ADVANCED_CASE_TAB_COPY).forEach(([lang, copy]) => {
+  if (I18N[lang]) Object.assign(I18N[lang], copy);
+});
+
 const PUBLIC_COPY = {
   galleryTitle: "Create AI videos",
   gallerySubtitle: "Choose a template, upload an image or enter text, and create a new video.",
@@ -2209,6 +2480,23 @@ function t(key, vars = {}, fallback = "") {
   return String(value).replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? "");
 }
 
+function fileInputLabel(input) {
+  const files = Array.from(input?.files || []);
+  if (!files.length) return t("file.none");
+  if (files.length === 1) return files[0].name || t("file.choose");
+  return t("file.multipleSelected", { count: files.length });
+}
+
+function updateFilePickerLabel(input) {
+  if (!input?.id) return;
+  const label = document.querySelector(`[data-file-name-for="${input.id}"]`);
+  if (label) label.textContent = fileInputLabel(input);
+}
+
+function updateAllFilePickerLabels(root = document) {
+  root.querySelectorAll("input[type='file']").forEach(updateFilePickerLabel);
+}
+
 function localizedPublicCopy(configValue, key) {
   const fallback = t(`copy.${key}`, {}, PUBLIC_COPY[key] || "");
   if (state.lang !== "en") return fallback;
@@ -2347,6 +2635,7 @@ function applyStaticTranslations() {
 function applyTenantFeatures() {
   const assetEnabled = tenantFeature("assetLibrary", true);
   const accountMenuEnabled = true;
+  const supportEnabled = tenantFeature("supportInbox", !isTenantPublicHost());
   document.querySelectorAll(".tenant-menu-only").forEach((element) => {
     element.hidden = !accountMenuEnabled;
   });
@@ -2359,6 +2648,7 @@ function applyTenantFeatures() {
   document.querySelectorAll("[data-tab='assets']").forEach((element) => {
     element.hidden = !assetEnabled;
   });
+  if (els.supportBtn) els.supportBtn.hidden = !supportEnabled;
 }
 
 function applyLanguage() {
@@ -2375,6 +2665,7 @@ function applyLanguage() {
   renderTokenDisplays();
   renderLoginMode();
   if (els.legalDialog?.open) renderLegalDialog(els.legalDialog.dataset.doc || "privacy");
+  updateAllFilePickerLabels();
   updateSubmitButtonCost();
   updateAdvancedButtonCost();
   if (state.tab === "history" && !historyLoading) loadHistory();
@@ -2643,6 +2934,13 @@ function templateGenerateLabel(templateId) {
   return t("template.generate", { cost: templateCostLabel(templateId) });
 }
 
+function templateActionLabel(template = {}) {
+  if (template.action === "advanced" || template.targetTab === "advanced") {
+    return template.buttonLabel || "Advanced";
+  }
+  return templateGenerateLabel(template.id);
+}
+
 function updateSubmitButtonCost() {
   if (!els.submitTemplateBtn) return;
   const templateId = state.activeTemplate?.id || "";
@@ -2869,6 +3167,58 @@ async function requestJson(url, options = {}) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.detail || `Request failed: ${response.status}`);
   return payload;
+}
+
+function openSupportDialog() {
+  if (!els.supportDialog) return;
+  if (els.supportStatus) {
+    els.supportStatus.textContent = "";
+    els.supportStatus.className = "support-status";
+  }
+  if (els.supportEmail) els.supportEmail.value = "";
+  if (els.supportQuestion) els.supportQuestion.value = "";
+  els.supportDialog.showModal();
+  setTimeout(() => els.supportEmail?.focus(), 50);
+  refreshIcons();
+}
+
+function closeSupportDialog() {
+  els.supportDialog?.close();
+}
+
+async function submitSupportMessage() {
+  const email = els.supportEmail?.value.trim() || "";
+  const question = els.supportQuestion?.value.trim() || "";
+  if (!email || !question) {
+    if (els.supportStatus) {
+      els.supportStatus.textContent = t("support.required");
+      els.supportStatus.className = "support-status is-error";
+    }
+    return;
+  }
+  if (els.supportSubmitBtn) els.supportSubmitBtn.disabled = true;
+  if (els.supportStatus) {
+    els.supportStatus.textContent = t("support.submitting");
+    els.supportStatus.className = "support-status";
+  }
+  try {
+    await requestJson("/api/support/messages", {
+      method: "POST",
+      body: { email, question, locale: state.lang || document.documentElement.lang || "" },
+    });
+    if (els.supportStatus) {
+      els.supportStatus.textContent = t("support.submitted");
+      els.supportStatus.className = "support-status is-success";
+    }
+    if (els.supportQuestion) els.supportQuestion.value = "";
+  } catch (error) {
+    if (els.supportStatus) {
+      els.supportStatus.textContent = error.message || t("support.failed");
+      els.supportStatus.className = "support-status is-error";
+    }
+  } finally {
+    if (els.supportSubmitBtn) els.supportSubmitBtn.disabled = false;
+  }
 }
 
 function setTab(tab) {
@@ -3102,7 +3452,7 @@ function renderTemplates() {
       <img class="template-cover" src="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(localizedTemplateTitle(template))}" loading="lazy" />
       ${template.previewUrl || template.hoverPreviewUrl ? `<video class="template-hover-video" data-src="${escapeHtml(template.hoverPreviewUrl || template.previewUrl)}" poster="${escapeHtml(template.coverUrl || DEFAULT_TEMPLATE_COVER)}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
       <div class="template-meta">
-        <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateGenerateLabel(template.id))}</button>
+        <button class="use-template" data-template-id="${escapeHtml(template.id)}" type="button">${escapeHtml(templateActionLabel(template))}</button>
       </div>
     </article>
   `).join("") : `<div class="job-note">${escapeHtml(t("gallery.noTemplates"))}</div>`;
@@ -3237,7 +3587,200 @@ function openPreview(templateId) {
 function openAdvancedPreview(index) {
   const cases = state.advancedCases.filter((item) => item.enabled !== false);
   const item = cases[Number(index || 0)];
-  playPreview({ title: item?.title, previewUrl: item?.previewUrl, ratio: previewRatioFromItem(item) });
+  playPreview({ title: item?.title, previewUrl: advancedCaseOutputVideo(item), ratio: previewRatioFromItem(item) });
+}
+
+function advancedCaseById(id = "") {
+  const target = String(id || "").trim();
+  return state.advancedCases.find((item) => String(item.id || "") === target) || null;
+}
+
+function advancedCaseInputImage(item = {}) {
+  const candidates = [
+    item.inputImageUrl,
+    item.sourceImageUrl,
+    item.referenceImageUrl,
+    item.referenceUrl,
+    item.imageUrl,
+    item.params?.inputImageUrl,
+    item.params?.sourceImageUrl,
+    item.params?.referenceImageUrl,
+    item.mediaAssets?.find?.((asset) => asset && !["reference_video", "first_clip", "driving_audio"].includes(asset.type))?.imageUrl,
+    item.mediaAssets?.find?.((asset) => asset && !["reference_video", "first_clip", "driving_audio"].includes(asset.type))?.localUrl,
+    item.sourceCoverUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || item.coverUrl || DEFAULT_TEMPLATE_COVER;
+}
+
+function advancedCaseInputVideo(item = {}) {
+  const candidates = [
+    item.inputVideoUrl,
+    item.params?.inputVideoUrl,
+    item.params?.sourceVideoUrl,
+    item.params?.firstClipUrl,
+    item.params?.first_clip_url,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.videoUrl,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.url,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.localUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || "";
+}
+
+function advancedCaseInputVideoPoster(item = {}) {
+  const candidates = [
+    item.inputVideoPosterUrl,
+    item.sourceVideoPosterUrl,
+    item.params?.inputVideoPosterUrl,
+    item.params?.sourceVideoPosterUrl,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.posterUrl,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.imageUrl,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.thumbnailUrl,
+    item.mediaAssets?.find?.((asset) => asset && ["reference_video", "first_clip"].includes(asset.type))?.localPosterUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || item.coverUrl || item.sourceCoverUrl || DEFAULT_TEMPLATE_COVER;
+}
+
+function advancedCaseOutputVideo(item = {}) {
+  const candidates = [
+    item.previewUrl,
+    item.localVideoUrl,
+    item.cdnVideoUrl,
+    item.hoverPreviewUrl,
+    item.sourceVideoUrl,
+    item.mediaSourceVideoUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || "";
+}
+
+function generatedPosterFromVideoUrl(videoUrl = "") {
+  const raw = String(videoUrl || "").trim();
+  const match = raw.match(/^(.*\/assets\/generated\/)videos\/([^/?#]+)\.(?:mp4|webm|mov|m4v)([?#].*)?$/i);
+  if (!match) return "";
+  return `${match[1]}posters/${match[2]}.jpg`;
+}
+
+function advancedCaseOutputPoster(item = {}) {
+  const candidates = [
+    item.outputPosterUrl,
+    item.resultPosterUrl,
+    item.posterUrl,
+    generatedPosterFromVideoUrl(item.sourceVideoUrl),
+    generatedPosterFromVideoUrl(item.mediaSourceVideoUrl),
+    generatedPosterFromVideoUrl(item.localVideoUrl),
+    generatedPosterFromVideoUrl(item.previewUrl),
+    item.localCoverUrl,
+    item.coverUrl,
+    item.cdnCoverUrl,
+    item.sourceCoverUrl,
+    item.mediaSourceCoverUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(Boolean) || DEFAULT_TEMPLATE_COVER;
+}
+
+function openAdvancedRowPreview(caseId, kind = "output") {
+  const item = advancedCaseById(caseId);
+  if (!item) return;
+  const previewUrl = kind === "input" ? advancedCaseInputVideo(item) : advancedCaseOutputVideo(item);
+  playPreview({ title: item.title || t("advanced.defaultCase"), previewUrl, ratio: previewRatioFromItem(item) });
+}
+
+function advancedCaseStageTile({ className = "", imageUrl = "", videoUrl = "", label = "", isVideo = false, caseId = "", previewKind = "" } = {}) {
+  const playable = Boolean(isVideo && previewKind && videoUrl);
+  const poster = imageUrl || DEFAULT_TEMPLATE_COVER;
+  const media = isVideo && videoUrl
+    ? `<video class="advanced-case-stage-video" src="${escapeHtml(videoUrl)}" poster="${escapeHtml(poster)}" muted playsinline preload="metadata" disablepictureinpicture></video>`
+    : `<img src="${escapeHtml(poster)}" alt="" loading="lazy" />`;
+  return `
+    <div class="advanced-case-row-media ${className} ${isVideo ? "is-video" : "is-image"}">
+      ${media}
+      <span class="advanced-case-stage-label">${escapeHtml(label)}</span>
+      ${isVideo ? `<span class="advanced-case-video-mark"><i data-lucide="play"></i></span>` : ""}
+      ${playable ? `<button class="advanced-case-stage-hit" data-advanced-row-preview-id="${escapeHtml(caseId)}" data-advanced-row-preview-kind="${escapeHtml(previewKind)}" type="button" aria-label="${escapeHtml(t("common.preview"))}"></button>` : ""}
+    </div>
+  `;
+}
+
+function advancedCasePromptText(item = {}) {
+  const params = item.params && typeof item.params === "object" ? item.params : {};
+  return String(item.prompt || params.prompt || t("advanced.casePromptFallback")).trim();
+}
+
+function fillAdvancedCasePrompt(item = {}) {
+  if (!item) return;
+  const prompt = advancedCasePromptText(item);
+  const provider = advancedCaseProvider(item);
+  if (els.advancedProvider) {
+    els.advancedProvider.value = provider;
+    updateAdvancedModelControls();
+  }
+  if (els.advancedPrompt) {
+    els.advancedPrompt.value = prompt;
+    els.advancedPrompt.focus?.();
+  }
+  state.activeAdvancedCaseId = "";
+  updateAdvancedButtonCost();
+  if (els.advancedNote) els.advancedNote.textContent = t("advanced.casePromptLoaded", { model: provider === "wan27" ? "Wan2.7" : "Seedance" });
+}
+
+function renderAdvancedCaseCard({ item, index }) {
+  return `
+    <article class="advanced-case-card" data-case-index="${index}">
+      <img class="advanced-case-cover" src="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
+      ${item.previewUrl || item.hoverPreviewUrl ? `<video class="advanced-case-hover-video" data-src="${escapeHtml(item.hoverPreviewUrl || item.previewUrl)}" poster="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
+      ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
+    </article>
+  `;
+}
+
+function renderAdvancedCaseRow({ item, index }) {
+  const caseId = String(item.id || "");
+  const inputImage = advancedCaseInputImage(item);
+  const inputVideo = advancedCaseInputVideo(item);
+  const inputVideoPoster = advancedCaseInputVideoPoster(item);
+  const outputVideo = advancedCaseOutputVideo(item);
+  const outputPoster = advancedCaseOutputPoster(item);
+  const tab = normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab);
+  const showReplaceVideoSlot = tab === "replace" && (inputVideo || inputVideoPoster);
+  return `
+    <article class="advanced-case-row" data-case-index="${index}" data-case-id="${escapeHtml(caseId)}">
+      <div class="advanced-case-row-input ${tab === "replace" ? "is-replace" : ""}">
+        ${showReplaceVideoSlot ? `
+          ${advancedCaseStageTile({ className: "advanced-case-row-source-video", imageUrl: inputVideoPoster, videoUrl: inputVideo, label: t("advanced.caseInputVideo"), isVideo: true, caseId, previewKind: inputVideo ? "input" : "" })}
+        ` : ""}
+        ${advancedCaseStageTile({ className: "advanced-case-row-image", imageUrl: inputImage, label: tab === "replace" ? t("advanced.caseImage") : t("advanced.caseInputImage"), isVideo: false, caseId })}
+      </div>
+      <div class="advanced-case-row-arrow"><i data-lucide="arrow-right"></i></div>
+      ${advancedCaseStageTile({ className: "advanced-case-row-video", imageUrl: outputPoster, videoUrl: outputVideo, label: t("advanced.caseResultVideo"), isVideo: true, caseId, previewKind: outputVideo ? "output" : "" })}
+      <div class="advanced-case-row-action">
+        <button class="ghost-button advanced-case-use-prompt" data-advanced-fill-prompt-id="${escapeHtml(caseId)}" type="button"><i data-lucide="text-cursor-input"></i>${escapeHtml(t("advanced.usePrompt"))}</button>
+        <p class="advanced-case-row-hint">${escapeHtml(t("advanced.casePromptHint"))}</p>
+      </div>
+    </article>
+  `;
+}
+
+function renderAdvancedCasePager(tab, page, totalPages) {
+  if (totalPages <= 1) return "";
+  return `
+    <div class="advanced-case-pager">
+      <button class="ghost-button" type="button" data-case-page="${page - 1}" ${page <= 1 ? "disabled" : ""}><i data-lucide="chevron-left"></i></button>
+      <span>${page} / ${totalPages}</span>
+      <button class="ghost-button" type="button" data-case-page="${page + 1}" ${page >= totalPages ? "disabled" : ""}><i data-lucide="chevron-right"></i></button>
+    </div>
+  `;
+}
+
+function normalizeAdvancedCaseTab(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw.includes("extend")) return "extend";
+  if (raw.includes("replace")) return "replace";
+  if (raw === "hot" || raw.includes("热门") || raw.includes("popular")) return "hot";
+  return "hot";
+}
+
+function advancedCaseTabLabel(tab = "hot") {
+  const item = ADVANCED_CASE_TABS.find((entry) => entry.id === tab) || ADVANCED_CASE_TABS[0];
+  return t(item.labelKey, {}, item.id);
 }
 
 let paypalConfigPromise = null;
@@ -3344,6 +3887,65 @@ function renderTopupQrDialog(order = null) {
   if (!els.topupQrDialog.open) els.topupQrDialog.showModal();
   syncTopupAutoRefresh();
   refreshIcons();
+}
+
+function renderSimplePager(holder, data, onPage) {
+  if (!holder) return;
+  holder.innerHTML = `
+    <button class="ghost-button" type="button" data-page="prev" ${data.page <= 1 ? "disabled" : ""}>${escapeHtml(t("ledger.prev"))}</button>
+    <span>${escapeHtml(t("ledger.page", { page: data.page, totalPages: data.totalPages, total: data.total }))}</span>
+    <button class="ghost-button" type="button" data-page="next" ${data.page >= data.totalPages ? "disabled" : ""}>${escapeHtml(t("ledger.next"))}</button>
+  `;
+  holder.querySelector('[data-page="prev"]')?.addEventListener("click", () => {
+    if (data.page > 1) onPage(data.page - 1);
+  });
+  holder.querySelector('[data-page="next"]')?.addEventListener("click", () => {
+    if (data.page < data.totalPages) onPage(data.page + 1);
+  });
+}
+
+function showInlineDialog({ title = "", body = "", confirmText = "", onOpen, onConfirm } = {}) {
+  if (!els.inlineDialog || !els.inlineDialogForm || !els.inlineDialogBody) return Promise.resolve("close");
+  els.inlineDialogTitle.textContent = title || "";
+  els.inlineDialogBody.innerHTML = body || "";
+  if (els.inlineDialogConfirm) {
+    els.inlineDialogConfirm.disabled = false;
+    els.inlineDialogConfirm.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(confirmText || t("common.generate"))}`;
+  }
+  refreshIcons();
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      els.inlineDialogForm.removeEventListener("submit", submitHandler);
+      els.inlineDialogClose?.removeEventListener("click", closeHandler);
+      els.inlineDialogCancel?.removeEventListener("click", closeHandler);
+      els.inlineDialog.removeEventListener("close", dialogCloseHandler);
+    };
+    const closeHandler = () => els.inlineDialog.close("close");
+    const dialogCloseHandler = () => {
+      cleanup();
+      resolve(els.inlineDialog.returnValue || "close");
+    };
+    const submitHandler = async (event) => {
+      event.preventDefault();
+      try {
+        if (els.inlineDialogConfirm) els.inlineDialogConfirm.disabled = true;
+        if (typeof onConfirm === "function") await onConfirm(els.inlineDialogBody);
+        cleanup();
+        els.inlineDialog.close("confirm");
+        resolve("confirm");
+      } catch (error) {
+        const status = els.inlineDialogBody.querySelector(".job-note:last-child");
+        if (status) status.textContent = error.message || String(error);
+        if (els.inlineDialogConfirm) els.inlineDialogConfirm.disabled = false;
+      }
+    };
+    els.inlineDialogForm.addEventListener("submit", submitHandler);
+    els.inlineDialogClose?.addEventListener("click", closeHandler);
+    els.inlineDialogCancel?.addEventListener("click", closeHandler);
+    els.inlineDialog.addEventListener("close", dialogCloseHandler);
+    els.inlineDialog.showModal();
+    if (typeof onOpen === "function") onOpen(els.inlineDialogBody);
+  });
 }
 
 function copyTopupAddress(address = "") {
@@ -3666,19 +4268,66 @@ function renderAdvancedCases() {
   activeHoverPreviewStop?.();
   activeHoverPreviewStop = null;
   const cases = state.advancedCases.filter((item) => item.enabled !== false);
-  els.advancedCaseGrid.innerHTML = cases.length ? cases.map((item, index) => `
-    <article class="advanced-case-card" data-case-index="${index}">
-      <img class="advanced-case-cover" src="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" alt="${escapeHtml(item.title || t("advanced.defaultCase"))}" loading="lazy" />
-      ${item.previewUrl || item.hoverPreviewUrl ? `<video class="advanced-case-hover-video" data-src="${escapeHtml(item.hoverPreviewUrl || item.previewUrl)}" poster="${escapeHtml(item.coverUrl || "/assets/admin/home/default-hero.jpg")}" muted loop playsinline preload="none" disablepictureinpicture></video>` : ""}
-      ${item.previewUrl ? `<button class="preview-play advanced-preview-play" data-advanced-preview-index="${index}" type="button" aria-label="${escapeHtml(t("common.preview"))}"><i data-lucide="play"></i></button>` : ""}
-    </article>
-  `).join("") : `<div class="job-note">${escapeHtml(t("advanced.noCases"))}</div>`;
+  state.activeAdvancedCaseTab = normalizeAdvancedCaseTab(state.activeAdvancedCaseTab);
+  const activeTab = state.activeAdvancedCaseTab;
+  const visibleCases = cases
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === activeTab);
+  const pageSize = ADVANCED_CASE_PAGE_SIZE[activeTab] || 9;
+  const totalPages = Math.max(1, Math.ceil(visibleCases.length / pageSize));
+  const currentPage = Math.min(totalPages, Math.max(1, Number(state.advancedCasePages?.[activeTab] || 1)));
+  state.advancedCasePages = { ...state.advancedCasePages, [activeTab]: currentPage };
+  const pageCases = visibleCases.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const tabs = `
+    <div class="advanced-case-tabs" role="tablist" aria-label="${escapeHtml(t("advanced.cases"))}">
+      ${ADVANCED_CASE_TABS.map((tab) => {
+        const count = cases.filter((item) => normalizeAdvancedCaseTab(item.category || item.caseCategory || item.tab) === tab.id).length;
+        return `<button class="advanced-case-tab ${tab.id === activeTab ? "is-active" : ""}" data-case-tab="${escapeHtml(tab.id)}" type="button" role="tab" aria-selected="${tab.id === activeTab ? "true" : "false"}">${escapeHtml(advancedCaseTabLabel(tab.id))}<span>${count}</span></button>`;
+      }).join("")}
+    </div>
+  `;
+  const caseMarkup = pageCases.length
+    ? pageCases.map((entry) => (activeTab === "hot" ? renderAdvancedCaseCard(entry) : renderAdvancedCaseRow(entry))).join("")
+    : `<div class="job-note advanced-case-empty">${escapeHtml(t("advanced.noCases"))}</div>`;
+  els.advancedCaseGrid.classList.toggle("is-case-list", activeTab !== "hot");
+  els.advancedCaseGrid.innerHTML = `${tabs}${caseMarkup}${renderAdvancedCasePager(activeTab, currentPage, totalPages)}`;
+  els.advancedCaseGrid.querySelectorAll("[data-case-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeAdvancedCaseTab = normalizeAdvancedCaseTab(button.dataset.caseTab);
+      state.advancedCasePages = { ...state.advancedCasePages, [state.activeAdvancedCaseTab]: state.advancedCasePages?.[state.activeAdvancedCaseTab] || 1 };
+      renderAdvancedCases();
+    });
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-case-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.advancedCasePages = {
+        ...state.advancedCasePages,
+        [activeTab]: Math.min(totalPages, Math.max(1, Number(button.dataset.casePage || 1))),
+      };
+      renderAdvancedCases();
+    });
+  });
   els.advancedCaseGrid.querySelectorAll("[data-case-index]").forEach((card) => {
-    card.addEventListener("click", () => fillAdvancedCase(cases[Number(card.dataset.caseIndex || 0)]));
+    if (!card.classList.contains("advanced-case-row")) {
+      card.addEventListener("click", () => fillAdvancedCase(cases[Number(card.dataset.caseIndex || 0)]));
+    }
+    const isCaseRow = card.classList.contains("advanced-case-row");
     bindHoverPreviewCard({
       card,
-      video: card.querySelector(".advanced-case-hover-video"),
-      cover: card.querySelector(".advanced-case-cover"),
+      video: isCaseRow ? null : card.querySelector(".advanced-case-hover-video"),
+      cover: isCaseRow ? null : card.querySelector(".advanced-case-cover"),
+    });
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-advanced-fill-prompt-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      fillAdvancedCasePrompt(advancedCaseById(button.dataset.advancedFillPromptId));
+    });
+  });
+  els.advancedCaseGrid.querySelectorAll("[data-advanced-row-preview-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openAdvancedRowPreview(button.dataset.advancedRowPreviewId, button.dataset.advancedRowPreviewKind || "output");
     });
   });
   els.advancedCaseGrid.querySelectorAll("[data-advanced-preview-index]").forEach((button) => {
@@ -3828,6 +4477,14 @@ async function submitAdvancedGenerate() {
 function openTemplate(templateId) {
   const template = state.templates.find((item) => item.id === templateId);
   if (!template) return;
+  if (template.action === "advanced" || template.targetTab === "advanced") {
+    setTab("advanced");
+    if (template.advancedCaseId) {
+      const matched = state.advancedCases.find((item) => item.id === template.advancedCaseId);
+      if (matched) fillAdvancedCase(matched);
+    }
+    return;
+  }
   state.activeTemplate = template;
   state.uploadDataUrl = "";
   els.modalType.textContent = template.type === "image-to-video" ? t("modal.imageToVideo") : t("modal.textToVideo");
@@ -3890,6 +4547,186 @@ function advancedSeedanceImageRefsFromState() {
 function seedanceImageRefPayload(item = {}) {
   if (item.assetId) return { assetId: item.assetId, dataUrl: "", fileName: item.fileName || "", name: item.name || "" };
   return { dataUrl: item.dataUrl || "", fileName: item.fileName || "", name: item.name || "" };
+}
+
+function imageAssetOptions(selectedId = "") {
+  const images = (state.assetImageChoices?.length ? state.assetImageChoices : state.userAssets || []).filter(isImageAsset);
+  return images.length
+    ? images.map((asset) => `<option value="${escapeHtml(asset.id)}" ${asset.id === selectedId ? "selected" : ""}>${escapeHtml(asset.name || asset.id)}</option>`).join("")
+    : `<option value="">${escapeHtml(t("assets.noImageAssets"))}</option>`;
+}
+
+async function ensureAssetImageChoices() {
+  if (!state.user) return [];
+  const payload = await requestJson("/api/user-assets?type=image&page=1&limit=50");
+  state.assetImageChoices = payload.assets || [];
+  return state.assetImageChoices;
+}
+
+function assetGenerateDialogBody({ mode = "extend", imageAssetId = "" } = {}) {
+  const isReplace = mode === "replace";
+  return `
+    <div class="asset-generate-form">
+      ${isReplace ? `
+        <label class="field"><span>${escapeHtml(t("assets.pickImage"))}</span><select id="assetGenerateImageAsset">${imageAssetOptions(imageAssetId)}</select></label>
+        <label class="field file-picker-field">
+          <span>${escapeHtml(t("assets.uploadImage"))}</span>
+          <span class="file-picker-control">
+            <input id="assetGenerateImageUpload" type="file" accept="image/*" />
+            <span class="file-picker-button"><i data-lucide="image-up"></i>${escapeHtml(t("file.chooseImage"))}</span>
+            <span class="file-picker-name" data-file-name-for="assetGenerateImageUpload">${escapeHtml(t("file.none"))}</span>
+          </span>
+        </label>
+      ` : ""}
+      <label class="field"><span>${escapeHtml(t("field.prompt"))}</span><textarea id="assetGeneratePrompt" rows="4">${escapeHtml(isReplace ? "Replace the lady in [Video 1] with the lady in [Image 1]" : "Extend [Image 1]")}</textarea></label>
+      <div class="asset-generate-grid">
+        <label class="field"><span>${escapeHtml(t("field.duration"))}</span><input id="assetGenerateDuration" type="number" min="5" max="15" value="5" /></label>
+        <label class="field"><span>${escapeHtml(t("field.resolution"))}</span><select id="assetGenerateResolution"><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+      </div>
+      <p class="job-note" id="assetGenerateCost"></p>
+      <p class="job-note" id="assetGenerateStatus"></p>
+    </div>
+  `;
+}
+
+function bindAssetGenerateCost(root) {
+  const durationInput = root.querySelector("#assetGenerateDuration");
+  const resolutionInput = root.querySelector("#assetGenerateResolution");
+  const cost = root.querySelector("#assetGenerateCost");
+  root.querySelectorAll("input[type='file']").forEach((input) => {
+    updateFilePickerLabel(input);
+    input.addEventListener("change", () => updateFilePickerLabel(input));
+  });
+  const update = () => {
+    const duration = Number(durationInput?.value || 5);
+    const resolution = resolutionInput?.value || "720p";
+    if (cost) cost.textContent = advancedCostLabel(duration, "seedance", resolution, "16:9");
+    if (els.inlineDialogConfirm) {
+      els.inlineDialogConfirm.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedCostLabel(duration, "seedance", resolution, "16:9") }))}`;
+      refreshIcons();
+    }
+  };
+  durationInput?.addEventListener("input", update);
+  resolutionInput?.addEventListener("change", update);
+  update();
+}
+
+async function readOptionalImageUpload(root) {
+  const file = root.querySelector("#assetGenerateImageUpload")?.files?.[0];
+  if (!file) return null;
+  if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) throw new Error(t("advanced.referenceImageTooLarge"));
+  return { dataUrl: await readFileAsDataUrl(file), fileName: file.name || "", name: file.name || "" };
+}
+
+async function openAssetExtendDialog(asset = {}) {
+  if (!asset?.id) return;
+  if (!state.user) return openLogin();
+  const result = await showInlineDialog({
+    title: t("assets.extendTitle"),
+    body: assetGenerateDialogBody({ mode: "extend" }),
+    confirmText: t("common.generate"),
+    onOpen: bindAssetGenerateCost,
+    onConfirm: async (root) => {
+      const duration = Number(root.querySelector("#assetGenerateDuration")?.value || 5);
+      const resolution = root.querySelector("#assetGenerateResolution")?.value || "720p";
+      const prompt = root.querySelector("#assetGeneratePrompt")?.value.trim() || "Extend [Image 1]";
+      root.querySelector("#assetGenerateStatus").textContent = t("assets.generating");
+      const payload = await requestJson("/api/advanced/generate", {
+        method: "POST",
+        body: {
+          provider: "seedance",
+          prompt,
+          referenceImages: [{ assetId: asset.id, name: asset.name || "" }],
+          ratio: "16:9",
+          resolution,
+          duration,
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      root.querySelector("#assetGenerateStatus").textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
+    },
+  });
+  if (result === "confirm") {
+    setTab("history");
+    scheduleHistoryRefresh({ delayMs: 8000, force: true });
+  }
+}
+
+async function openAssetReplaceDialog(videoAsset = {}) {
+  if (!videoAsset?.id) return;
+  if (!state.user) return openLogin();
+  const choices = await ensureAssetImageChoices().catch(() => (state.userAssets || []).filter(isImageAsset));
+  const firstImage = choices.find(isImageAsset);
+  const result = await showInlineDialog({
+    title: t("assets.replaceTitle"),
+    body: assetGenerateDialogBody({ mode: "replace", imageAssetId: firstImage?.id || "" }),
+    confirmText: t("common.generate"),
+    onOpen: bindAssetGenerateCost,
+    onConfirm: async (root) => {
+      const duration = Number(root.querySelector("#assetGenerateDuration")?.value || 5);
+      const resolution = root.querySelector("#assetGenerateResolution")?.value || "720p";
+      const prompt = root.querySelector("#assetGeneratePrompt")?.value.trim() || "Replace the lady in [Video 1] with the lady in [Image 1]";
+      const uploadRef = await readOptionalImageUpload(root);
+      const selectedImageAssetId = root.querySelector("#assetGenerateImageAsset")?.value || "";
+      if (!uploadRef && !selectedImageAssetId) throw new Error(t("assets.selectImageRequired"));
+      root.querySelector("#assetGenerateStatus").textContent = t("assets.generating");
+      const payload = await requestJson("/api/advanced/generate", {
+        method: "POST",
+        body: {
+          provider: "seedance",
+          prompt,
+          referenceVideoAssetId: videoAsset.id,
+          referenceImages: uploadRef ? [uploadRef] : [{ assetId: selectedImageAssetId }],
+          ratio: "16:9",
+          resolution,
+          duration,
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      root.querySelector("#assetGenerateStatus").textContent = t("assets.generated", { taskId: payload.taskId || payload.task?.taskId || "" });
+    },
+  });
+  if (result === "confirm") {
+    setTab("history");
+    scheduleHistoryRefresh({ delayMs: 8000, force: true });
+  }
+}
+
+function captureFrameFromVideo(video) {
+  if (!video || !video.videoWidth || !video.videoHeight) throw new Error("Video frame is not ready.");
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
+async function openAssetFrameDialog(asset = {}) {
+  const url = assetPreviewUrl(asset);
+  if (!url) return;
+  await showInlineDialog({
+    title: t("assets.frameTitle"),
+    body: `
+      <div class="asset-frame-form">
+        <video id="assetFrameVideo" src="${escapeHtml(url)}" controls playsinline preload="metadata"></video>
+        <p class="job-note">${escapeHtml(t("assets.frameHint"))}</p>
+        <p class="job-note" id="assetFrameStatus"></p>
+      </div>
+    `,
+    confirmText: t("assets.selectFrame"),
+    onConfirm: async (root) => {
+      const video = root.querySelector("#assetFrameVideo");
+      const dataUrl = captureFrameFromVideo(video);
+      root.querySelector("#assetFrameStatus").textContent = t("assets.uploading");
+      await requestJson("/api/user-assets", {
+        method: "POST",
+        body: { dataUrl, name: `${asset.name || "video"} frame`, fileName: `${asset.id || "frame"}.jpg` },
+      });
+      root.querySelector("#assetFrameStatus").textContent = t("assets.frameSaved");
+      await loadUserAssets(state.userAssetsPage || 1);
+    },
+  });
 }
 
 function useAssetInAdvanced(asset = {}, action = "use") {
@@ -4010,6 +4847,7 @@ function updateAdvancedReferenceSummary() {
 function renderAssets(assets = state.userAssets || []) {
   if (!els.assetGrid) return;
   if (!state.user) {
+    if (els.assetPager) els.assetPager.innerHTML = "";
     els.assetGrid.innerHTML = `
       <div class="history-empty-card">
         <strong>${escapeHtml(t("assets.loginRequired"))}</strong>
@@ -4022,6 +4860,11 @@ function renderAssets(assets = state.userAssets || []) {
   }
   if (!assets.length) {
     els.assetGrid.innerHTML = `<div class="history-empty-card"><strong>${escapeHtml(t("assets.emptyTitle"))}</strong><p>${escapeHtml(t("assets.emptyDesc"))}</p></div>`;
+    renderSimplePager(els.assetPager, {
+      page: state.userAssetsPage,
+      totalPages: state.userAssetsTotalPages,
+      total: state.userAssetsTotal,
+    }, loadUserAssets);
     return;
   }
   els.assetGrid.innerHTML = assets.map((asset) => {
@@ -4041,7 +4884,8 @@ function renderAssets(assets = state.userAssets || []) {
         <div class="asset-actions">
           ${!video ? `<button class="ghost-button" type="button" data-asset-use="${escapeHtml(asset.id)}">${escapeHtml(t("assets.use"))}</button>` : ""}
           ${!video ? `<button class="ghost-button" type="button" data-asset-extend="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extend"))}</button>` : ""}
-          <button class="copy-btn" type="button" data-asset-replace="${escapeHtml(asset.id)}">${escapeHtml(t("assets.replace"))}</button>
+          ${video ? `<button class="copy-btn" type="button" data-asset-replace="${escapeHtml(asset.id)}">${escapeHtml(t("assets.replace"))}</button>` : ""}
+          ${video ? `<button class="ghost-button" type="button" data-asset-frame="${escapeHtml(asset.id)}">${escapeHtml(t("assets.extractFrame"))}</button>` : ""}
           <button class="ghost-button danger" type="button" data-asset-delete="${escapeHtml(asset.id)}">${escapeHtml(t("assets.delete"))}</button>
         </div>
       </article>
@@ -4051,18 +4895,26 @@ function renderAssets(assets = state.userAssets || []) {
     button.addEventListener("click", () => useAssetInAdvanced(state.userAssets.find((asset) => asset.id === button.dataset.assetUse), "use"));
   });
   els.assetGrid.querySelectorAll("[data-asset-extend]").forEach((button) => {
-    button.addEventListener("click", () => useAssetInAdvanced(state.userAssets.find((asset) => asset.id === button.dataset.assetExtend), "extend"));
+    button.addEventListener("click", () => openAssetExtendDialog(state.userAssets.find((asset) => asset.id === button.dataset.assetExtend)));
   });
   els.assetGrid.querySelectorAll("[data-asset-replace]").forEach((button) => {
-    button.addEventListener("click", () => useAssetInAdvanced(state.userAssets.find((asset) => asset.id === button.dataset.assetReplace), "replace"));
+    button.addEventListener("click", () => openAssetReplaceDialog(state.userAssets.find((asset) => asset.id === button.dataset.assetReplace)));
+  });
+  els.assetGrid.querySelectorAll("[data-asset-frame]").forEach((button) => {
+    button.addEventListener("click", () => openAssetFrameDialog(state.userAssets.find((asset) => asset.id === button.dataset.assetFrame)));
   });
   els.assetGrid.querySelectorAll("[data-asset-delete]").forEach((button) => {
     button.addEventListener("click", () => deleteUserAsset(button.dataset.assetDelete || ""));
   });
+  renderSimplePager(els.assetPager, {
+    page: state.userAssetsPage,
+    totalPages: state.userAssetsTotalPages,
+    total: state.userAssetsTotal,
+  }, loadUserAssets);
   refreshIcons();
 }
 
-async function loadUserAssets() {
+async function loadUserAssets(page = state.userAssetsPage || 1) {
   if (!els.assetGrid) return;
   if (!state.user) {
     renderAssets([]);
@@ -4071,11 +4923,16 @@ async function loadUserAssets() {
   const params = new URLSearchParams();
   if (els.assetSearch?.value) params.set("q", els.assetSearch.value);
   if (els.assetTypeFilter?.value) params.set("type", els.assetTypeFilter.value);
-  params.set("limit", "120");
+  params.set("page", String(page));
+  params.set("limit", String(state.userAssetsLimit || 8));
   if (els.assetNote) els.assetNote.textContent = t("assets.loading");
   try {
     const payload = await requestJson(`/api/user-assets?${params.toString()}`);
     state.userAssets = payload.assets || [];
+    state.userAssetsPage = payload.page || page;
+    state.userAssetsLimit = payload.limit || state.userAssetsLimit || 8;
+    state.userAssetsTotal = payload.total || 0;
+    state.userAssetsTotalPages = payload.totalPages || 1;
     if (els.assetNote) els.assetNote.textContent = "";
     renderAssets();
   } catch (error) {
@@ -4099,11 +4956,12 @@ async function uploadUserAssets(files = []) {
       uploaded += 1;
     }
     if (els.assetNote) els.assetNote.textContent = t("assets.uploaded", { count: uploaded });
-    await loadUserAssets();
+    await loadUserAssets(1);
   } catch (error) {
     if (els.assetNote) els.assetNote.textContent = t("assets.uploadFailed", { message: error.message || String(error) });
   } finally {
     if (els.assetUploadInput) els.assetUploadInput.value = "";
+    updateFilePickerLabel(els.assetUploadInput);
   }
 }
 
@@ -4111,7 +4969,7 @@ async function deleteUserAsset(assetId = "") {
   if (!assetId) return;
   try {
     await requestJson(`/api/user-assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
-    await loadUserAssets();
+    await loadUserAssets(state.userAssetsPage || 1);
   } catch (error) {
     if (els.assetNote) els.assetNote.textContent = error.message || String(error);
   }
@@ -4156,6 +5014,7 @@ function renderHistory(records = []) {
     </div>
   `;
   if (!state.user) {
+    if (els.historyPager) els.historyPager.innerHTML = "";
     els.historyList.innerHTML = `
       ${expiryNotice}
       <div class="history-empty-card">
@@ -4170,6 +5029,11 @@ function renderHistory(records = []) {
   }
   if (!sortedRecords.length) {
     els.historyList.innerHTML = `${expiryNotice}<div class="history-empty-card"><strong>${escapeHtml(t("history.emptyTitle"))}</strong><p>${escapeHtml(t("history.emptyDesc"))}</p></div>`;
+    renderSimplePager(els.historyPager, {
+      page: state.historyRecordsPage,
+      totalPages: state.historyRecordsTotalPages,
+      total: state.historyRecordsTotal,
+    }, (page) => loadHistory({ page }));
     refreshIcons();
     return;
   }
@@ -4193,10 +5057,15 @@ function renderHistory(records = []) {
           ` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
         <div class="history-card-actions">
-          <div class="history-record-actions${taskId ? "" : " history-record-actions-empty"}">
+          <div class="history-record-actions${taskId || videoUrl ? "" : " history-record-actions-empty"}">
             ${taskId ? `
               <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
                 <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
+              </button>
+            ` : ""}
+            ${taskId && videoUrl ? `
+              <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
+                <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
               </button>
             ` : ""}
           </div>
@@ -4225,9 +5094,17 @@ function renderHistory(records = []) {
   els.historyList.querySelectorAll("[data-history-regenerate]").forEach((button) => {
     button.addEventListener("click", () => regenerateHistoryRecord(button.dataset.historyRegenerate || "", button));
   });
+  els.historyList.querySelectorAll("[data-history-add-asset]").forEach((button) => {
+    button.addEventListener("click", () => addHistoryRecordToAssets(button.dataset.historyAddAsset || "", button));
+  });
   els.historyList.querySelectorAll("[data-history-detail]").forEach((button) => {
     button.addEventListener("click", () => openHistoryDetail(button.dataset.historyDetail || 0));
   });
+  renderSimplePager(els.historyPager, {
+    page: state.historyRecordsPage,
+    totalPages: state.historyRecordsTotalPages,
+    total: state.historyRecordsTotal,
+  }, (page) => loadHistory({ page }));
   refreshIcons();
 }
 
@@ -4258,6 +5135,39 @@ async function regenerateHistoryRecord(taskId, button) {
     button.innerHTML = originalHtml;
     refreshIcons();
   }, 1800);
+}
+
+async function addHistoryRecordToAssets(taskId, button) {
+  if (!taskId || !button) return;
+  const originalHtml = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.addingAsset"))}`;
+  refreshIcons();
+  try {
+    const payload = await requestJson(`/api/generation-records/${encodeURIComponent(taskId)}/add-asset`, { method: "POST" });
+    if (payload.asset) {
+      state.userAssets = [payload.asset, ...(state.userAssets || []).filter((asset) => asset.id !== payload.asset.id)];
+      state.userAssetsTotal += 1;
+    }
+    button.innerHTML = `<i data-lucide="check"></i>${escapeHtml(t("history.assetAdded"))}`;
+    refreshIcons();
+    window.setTimeout(() => {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      refreshIcons();
+    }, 1800);
+  } catch (error) {
+    button.disabled = false;
+    button.innerHTML = originalHtml;
+    if (els.historyList) {
+      const note = document.createElement("div");
+      note.className = "job-note history-action-note";
+      note.textContent = error.message || String(error);
+      els.historyList.prepend(note);
+      window.setTimeout(() => note.remove(), 5000);
+    }
+    refreshIcons();
+  }
 }
 
 function isPendingGenerationRecord(record = {}) {
@@ -4337,7 +5247,7 @@ function scheduleHistoryRefresh({ delayMs = 15000, force = false } = {}) {
   }, delayMs);
 }
 
-async function loadHistory({ silent = false, refresh = false } = {}) {
+async function loadHistory({ silent = false, refresh = false, page = state.historyRecordsPage || 1 } = {}) {
   if (!els.historyList) return;
   if (!state.user) {
     stopHistoryRefresh();
@@ -4349,12 +5259,17 @@ async function loadHistory({ silent = false, refresh = false } = {}) {
   historyLoading = true;
   historyRefreshInFlight = true;
   const previousScrollTop = els.historyList.scrollTop || 0;
+  const requestedPage = Math.max(1, Number(page || 1) || 1);
   if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
   try {
-    const historyUrl = `/api/generation-records?limit=50${refresh ? "&refresh=1" : ""}`;
+    const historyUrl = `/api/generation-records?page=${encodeURIComponent(requestedPage)}&limit=${encodeURIComponent(state.historyRecordsLimit || 8)}${refresh ? "&refresh=1" : ""}`;
     const payload = await requestJson(historyUrl);
     if (payload.user) setUser(payload.user);
     const records = payload.records || [];
+    state.historyRecordsPage = payload.page || requestedPage;
+    state.historyRecordsLimit = payload.limit || state.historyRecordsLimit || 8;
+    state.historyRecordsTotal = payload.total || records.length;
+    state.historyRecordsTotalPages = payload.totalPages || 1;
     const nextSignature = generationRecordsSignature(records);
     if (!silent || nextSignature !== historyRecordsSignature) {
       renderHistory(records);
@@ -4764,6 +5679,7 @@ async function bootstrap() {
   renderAccountMenu();
   renderTopupSummary();
   renderTokenDisplays();
+  updateAllFilePickerLabels();
   setTab(state.tab);
   refreshIcons();
   loadPlatformEstimates();
@@ -4881,13 +5797,16 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
 els.refreshHistoryBtn?.addEventListener("click", () => loadHistory({ refresh: true }));
-els.refreshAssetsBtn?.addEventListener("click", loadUserAssets);
+els.refreshAssetsBtn?.addEventListener("click", () => loadUserAssets(state.userAssetsPage || 1));
 els.assetSearch?.addEventListener("input", () => {
   window.clearTimeout(state.assetSearchTimer);
-  state.assetSearchTimer = window.setTimeout(loadUserAssets, 250);
+  state.assetSearchTimer = window.setTimeout(() => loadUserAssets(1), 250);
 });
-els.assetTypeFilter?.addEventListener("change", loadUserAssets);
-els.assetUploadInput?.addEventListener("change", () => uploadUserAssets(els.assetUploadInput.files));
+els.assetTypeFilter?.addEventListener("change", () => loadUserAssets(1));
+els.assetUploadInput?.addEventListener("change", () => {
+  updateFilePickerLabel(els.assetUploadInput);
+  uploadUserAssets(els.assetUploadInput.files);
+});
 els.topupFilters?.addEventListener("submit", (event) => {
   event.preventDefault();
   loadTopupRecords(1);
@@ -4991,6 +5910,14 @@ els.copyAccountTokenBtn?.addEventListener("click", async () => {
 });
 els.logoutAccountBtn?.addEventListener("click", logout);
 els.menuLogoutBtn?.addEventListener("click", logout);
+els.supportBtn?.addEventListener("click", openSupportDialog);
+els.supportDialog?.querySelector("form")?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  submitSupportMessage();
+});
+els.supportDialog?.querySelectorAll("[data-support-close]").forEach((button) => {
+  button.addEventListener("click", closeSupportDialog);
+});
 
 applyLanguage();
 
