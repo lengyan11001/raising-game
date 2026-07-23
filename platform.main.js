@@ -403,7 +403,7 @@ els.advancedSeedanceAudioUrls?.addEventListener("input", () => {
   updateAdvancedButtonCost();
 });
 els.advancedSeedanceGenerateAudio?.addEventListener("change", () => {
-  state.advancedSeedanceGenerateAudio = els.advancedSeedanceGenerateAudio.checked;
+  state.advancedSeedanceGenerateAudio = els.advancedSeedanceGenerateAudio.value !== "false";
   updateAdvancedButtonCost();
 });
 els.advancedWanLastFrame?.addEventListener("change", async () => {
