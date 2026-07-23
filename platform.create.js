@@ -1135,6 +1135,9 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-duration-field").forEach((item) => {
     item.hidden = isImageEdit || isSeedreamImage || simpleEdit;
   });
+  document.querySelectorAll(".advanced-seedance-audio-field").forEach((item) => {
+    item.hidden = simpleAction || simpleEdit || provider !== "seedance";
+  });
   syncAdvancedVideoSettingsControls();
   document.querySelectorAll(".wan-first-frame").forEach((item) => {
     item.hidden = provider !== "wan27" || !wanModeNeedsFirstFrame(wanMode);
@@ -1321,7 +1324,7 @@ function fillAdvancedCase(item = {}) {
     ...arrayFrom(params.reference_audios).map((item) => (typeof item === "string" ? item : item?.url || item?.audioUrl || item?.audio_url || item?.assetUri || "")).filter(Boolean),
   ].join(", ");
   state.advancedSeedanceGenerateAudio = advancedBoolFromValue(params.generateAudio ?? params.generate_audio ?? item.generateAudio ?? item.generate_audio, true);
-  if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.checked = state.advancedSeedanceGenerateAudio;
+  if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = state.advancedSeedanceGenerateAudio ? "true" : "false";
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
   if (els.advancedNote) {
@@ -1369,7 +1372,7 @@ function clearAdvancedCreationInputs() {
   ].forEach((input) => {
     if (input) input.value = "";
   });
-  if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.checked = true;
+  if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = "true";
   [
     els.advancedImage,
     els.advancedSeedanceFirstFrame,
@@ -1636,7 +1639,7 @@ async function submitAdvancedGenerate() {
     ? []
     : [...seedanceVideoRefUrls, ...seedanceVideoUrls, ...(caseVideoUrl ? [caseVideoUrl] : [])];
   const seedanceAudioUrls = seedanceFrameMode ? [] : [...seedanceAudioRefUrls, ...splitUrlList(els.advancedSeedanceAudioUrls?.value || "")];
-  const seedanceGenerateAudio = provider === "seedance" ? els.advancedSeedanceGenerateAudio?.checked !== false : true;
+  const seedanceGenerateAudio = provider === "seedance" ? advancedBoolFromValue(els.advancedSeedanceGenerateAudio?.value, true) : true;
   if (provider === "seedance") state.advancedSeedanceGenerateAudio = seedanceGenerateAudio;
   const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0;
   const seedanceFirstFrameAssetId = state.advancedSeedanceFirstFrameAssetId || state.advancedFirstFrameAssetId || "";
@@ -2197,7 +2200,7 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = seedanceMode;
   if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = wanMode;
   state.advancedSeedanceGenerateAudio = advancedBoolFromValue(params.generateAudio ?? params.generate_audio ?? record.generateAudio ?? record.generate_audio, true);
-  if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.checked = state.advancedSeedanceGenerateAudio;
+  if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = state.advancedSeedanceGenerateAudio ? "true" : "false";
   const restoredSeedanceFirstFrame = provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) ? (references[0] || null) : null;
   state.advancedReferenceImages = restoredSeedanceFirstFrame ? references.slice(1) : references;
   state.advancedUploadDataUrl = restoredSeedanceFirstFrame ? "" : (references[0]?.dataUrl || "");

@@ -278,10 +278,6 @@
                   <span data-i18n="advanced.seedanceAudioUrls">Reference audio URLs</span>
                   <input id="advancedSeedanceAudioUrls" type="text" placeholder="https://example.com/audio1.mp3" />
                 </label>
-                <label class="seedance-extra seedance-audio-toggle">
-                  <input id="advancedSeedanceGenerateAudio" type="checkbox" checked />
-                  <span data-i18n="advanced.seedanceGenerateAudio">Audio</span>
-                </label>
               </div>
             </div>
             <div class="wan-media-panel advanced-wan-option" id="advancedWanMediaPanel" hidden>
@@ -336,6 +332,7 @@
               <label class="field advanced-setting-field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
               <label class="field advanced-setting-field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
               <label class="field advanced-duration-field"><span data-i18n="field.duration">Duration</span><input id="advancedDuration" type="number" min="5" max="15" value="5" /></label>
+              <label class="field advanced-setting-field advanced-seedance-audio-field" hidden><span data-i18n="advanced.seedanceGenerateAudio">Audio</span><select id="advancedSeedanceGenerateAudio"><option value="true" selected>On</option><option value="false">Off</option></select></label>
               <input id="advancedPreprocessReference" type="hidden" value="no" />
               <label class="field advanced-wan-option advanced-seed-field" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="0" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
             </div>

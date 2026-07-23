@@ -3466,26 +3466,6 @@ main {
 .wan-first-frame {
   grid-column: 1 / -1;
 }
-.seedance-audio-toggle {
-  grid-column: 1 / -1;
-  display: inline-flex;
-  align-items: center;
-  justify-self: start;
-  gap: 7px;
-  min-height: 24px;
-  color: var(--muted);
-  font-size: .82rem;
-  font-weight: 800;
-  line-height: 1;
-  cursor: pointer;
-}
-.seedance-audio-toggle input {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  flex: 0 0 auto;
-  accent-color: #0f948b;
-}
 .wan-frame-stack {
   display: grid;
   gap: 8px;
