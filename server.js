@@ -18620,7 +18620,7 @@ function seedancePublicParameterFields(origin = "") {
     { name: "ratio", type: "string", required: "No", description: `Output aspect ratio in width:height format. Examples: 9:16, 16:9, 1:1. Ratio must stay between ${SEEDANCE_IMAGE_ASPECT_RATIO_MIN} and ${SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`, default: "9:16" },
     { name: "resolution", type: "string", required: "No", description: "Standard model supports `480p`, `720p`, `1080p`, `4k`; fast model supports `480p`, `720p`.", default: "720p" },
     { name: "duration", type: "integer", required: "No", description: `Video duration in seconds, integer ${advancedDurationBounds("seedance").min}-${advancedDurationBounds("seedance").max}.`, default: String(advancedDurationBounds("seedance").fallback) },
-    { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Whether to generate synced audio such as voice, effects, or background music.", default: "true" },
+    { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Default true. Set false to disable generated voice, effects, or background music.", default: "true" },
     { name: "prompt asset labels", type: "string", required: "No", description: "Use Image 1, Video 1, Audio 1 in prompt text when referring to uploaded/reference media. Labels follow each array's order.", default: "-" },
   ];
 }
@@ -18709,7 +18709,7 @@ function byteplusV3ParameterFields() {
     { name: "ratio", type: "string", required: "No", description: "Output aspect ratio, for example `9:16`, `16:9`, or `1:1`. Ratio must stay between 0.4 and 2.5.", default: "9:16" },
     { name: "resolution", type: "string", required: "No", description: "Standard model supports `480p`, `720p`, `1080p`, `4k`; fast/mini supports `480p`, `720p`.", default: "720p" },
     { name: "duration", type: "integer", required: "No", description: `Video duration in seconds, integer ${advancedDurationBounds("seedance").min}-${advancedDurationBounds("seedance").max}.`, default: String(advancedDurationBounds("seedance").fallback) },
-    { name: "generate_audio", type: "boolean", required: "No", description: "Whether to generate synced audio such as voice, effects, or background music.", default: "true" },
+    { name: "generate_audio", type: "boolean", required: "No", description: "Default true. Set false to disable generated voice, effects, or background music.", default: "true" },
     { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
     { name: "callback_url", type: "string(url)", required: "No", description: "Optional upstream callback URL when supported by the selected model/provider.", default: "-" },
     { name: "return_last_frame / priority / service_tier / execution_expires_after / seed / fps / camera_fixed", type: "mixed", required: "No", description: "Provider-specific pass-through fields. The request forwards them when supported; unsupported fields are decided by the upstream model.", default: "-" },
@@ -19335,6 +19335,7 @@ function advancedConstraintsMarkdown(doc = {}) {
     "- `content[].role`: images use `first_frame`, `last_frame`, or `reference_image`; videos use `reference_video`; audios use `reference_audio`.",
     `- \`duration\`: integer ${seedance.durationSeconds?.min ?? advancedDurationBounds("seedance").min}-${seedance.durationSeconds?.max ?? advancedDurationBounds("seedance").max} seconds.`,
     `- \`resolution\`: standard ${(seedance.resolution?.standard || []).map((item) => `\`${item}\``).join(", ")}; fast ${(seedance.resolution?.fast || []).map((item) => `\`${item}\``).join(", ")}.`,
+    "- `generate_audio`: boolean, default `true`; set `false` to disable generated voice, effects, or background music.",
     `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((seedance.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, width and height each ${seedance.imageInput?.widthPx?.min ?? SEEDANCE_IMAGE_DIMENSION_MIN}-${seedance.imageInput?.widthPx?.max ?? SEEDANCE_IMAGE_DIMENSION_MAX}px, aspect ratio ${seedance.imageInput?.aspectRatio?.min ?? SEEDANCE_IMAGE_ASPECT_RATIO_MIN}-${seedance.imageInput?.aspectRatio?.max ?? SEEDANCE_IMAGE_ASPECT_RATIO_MAX}.`,
     `- Video references: max ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos; pixel count ${seedance.videoInput?.pixelCount?.min ?? SEEDANCE_VIDEO_PIXEL_COUNT_MIN}-${seedance.videoInput?.pixelCount?.max ?? SEEDANCE_VIDEO_PIXEL_COUNT_MAX}. For 9:16 video, 480x854 is the smallest safe size.`,
     `- Max references: ${seedance.referenceLimits?.images ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT} images total, ${seedance.referenceLimits?.videos ?? ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} videos, ${seedance.referenceLimits?.audios ?? ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} audios.`,
