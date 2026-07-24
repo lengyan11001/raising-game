@@ -165,7 +165,6 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
     const cleanup = () => {
       els.inlineDialogForm.removeEventListener("submit", submitHandler);
       els.inlineDialogClose?.removeEventListener("click", closeHandler);
-      els.inlineDialogCancel?.removeEventListener("click", closeHandler);
       els.inlineDialog.removeEventListener("close", dialogCloseHandler);
       els.inlineDialog.classList.remove("is-media-action", "is-frame-action", "is-playflux-template");
     };
@@ -194,7 +193,6 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
     };
     els.inlineDialogForm.addEventListener("submit", submitHandler);
     els.inlineDialogClose?.addEventListener("click", closeHandler);
-    els.inlineDialogCancel?.addEventListener("click", closeHandler);
     els.inlineDialog.addEventListener("close", dialogCloseHandler);
     els.inlineDialog.showModal();
     if (typeof onOpen === "function") onOpen(els.inlineDialogBody);

@@ -477,7 +477,6 @@ function playfluxTemplatePromptBlock(template = {}) {
     <div class="playflux-template-meta playflux-template-public-meta">
       <span>Resolution: ${escapeHtml(template.ratio || "9:16")}</span>
       ${template.tab === "anime" ? `<span>Base style: ${escapeHtml(template.animeBaseStyleLabel || "Nova Anime XL")}</span>` : ""}
-      <span data-playflux-template-cost>${escapeHtml(playfluxTemplateCostLabel(template))}</span>
     </div>
   `;
 }
@@ -760,9 +759,14 @@ function playfluxTemplateCostLabel(template = {}, sourceMode = playfluxTemplateD
 }
 
 function renderPlayfluxTemplateCost(root, template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
+  const label = playfluxTemplateCostLabel(template, sourceMode);
   root?.querySelectorAll("[data-playflux-template-cost]").forEach((item) => {
-    item.textContent = playfluxTemplateCostLabel(template, sourceMode);
+    item.textContent = label;
   });
+  if (els.inlineDialogConfirm && root && els.inlineDialogBody?.contains(root)) {
+    els.inlineDialogConfirm.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: label }))}`;
+    refreshIcons();
+  }
 }
 
 async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "") {
@@ -1062,7 +1066,6 @@ function openPlayfluxTemplateDialog(templateId = "") {
           </div>
         ` : ""}
         ${playfluxTemplatePromptBlock(template)}
-        ${isAnime ? "" : `<p class="job-note">Cost: <span data-playflux-template-cost>${escapeHtml(playfluxTemplateCostLabel(template))}</span></p>`}
         <p class="job-note" data-playflux-template-status></p>
       </div>
     `,
@@ -1761,6 +1764,7 @@ function renderGalleryCharacterCard(item = {}, index = 0) {
   const videoCount = item.videoCount || characterAllVideos(item).length;
   const custom = item.custom === true;
   const mine = item.myCharacter === true;
+  const deletable = mine || custom;
   const imageReady = Boolean(characterUsableImage(item));
   const generating = isMyCharacterGenerating(item);
   const tags = characterTags(item, 2);
@@ -1774,20 +1778,19 @@ function renderGalleryCharacterCard(item = {}, index = 0) {
           ${generating ? `<button class="ghost-button" data-character-refresh="${escapeHtml(item.id || "")}" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>` : ""}
           ${imageReady ? `<button class="primary-button" data-character-alive="${escapeHtml(item.id || "")}" type="button"><i data-lucide="sparkles"></i>Bring alive</button>` : ""}
           ${imageReady ? `<button class="copy-btn" data-character-alive-picker="${escapeHtml(item.id || "")}" type="button"><i data-lucide="clapperboard"></i>Scene</button>` : ""}
-          <button class="ghost-button danger" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>
       `
     : `
           <button class="ghost-button" data-character-use="${escapeHtml(item.id || "")}" type="button"><i data-lucide="image-plus"></i>${escapeHtml(t("gallery.character.use"))}</button>
           <button class="ghost-button" data-character-takeoff="${escapeHtml(item.id || "")}" type="button"><i data-lucide="shirt"></i>${escapeHtml(t("characters.takeOff"))}</button>
           <button class="copy-btn" data-character-modify="${escapeHtml(item.id || "")}" type="button"><i data-lucide="wand-sparkles"></i>${escapeHtml(t("characters.modify"))}</button>
-          ${custom ? `<button class="ghost-button danger" data-character-delete="${escapeHtml(item.id || "")}" type="button"><i data-lucide="trash-2"></i>${escapeHtml(t("characters.delete"))}</button>` : ""}
       `;
   return `
-    <article class="character-card explore-character-card" data-character-id="${escapeHtml(item.id || "")}">
+    <article class="character-card explore-character-card ${deletable ? "has-card-delete" : ""}" data-character-id="${escapeHtml(item.id || "")}">
       <div class="character-card-media">
         ${renderSmartCoverMedia({ className: "character-cover-media", posterUrl: poster, videoUrl: "", alt: item.name || "", fallbackUrl: fallbackPoster, eager: index < 6, defer: index >= 6 })}
         ${videoUrl ? `<span class="character-card-video-mark"><i data-lucide="radio"></i>LIVE</span>` : ""}
         ${mine ? `<span class="character-card-status ${generating ? "is-pending" : imageReady ? "is-ready" : "is-failed"}">${escapeHtml(myCharacterStatusLabel(item))}</span>` : ""}
+        ${deletable ? `<button class="character-card-delete" data-character-delete="${escapeHtml(item.id || "")}" type="button" aria-label="${escapeHtml(t("characters.delete"))}" title="${escapeHtml(t("characters.delete"))}"><i data-lucide="trash-2"></i></button>` : ""}
         <div class="character-card-meta">
           <span>${escapeHtml(mine ? myCharacterStatusLabel(item) : custom ? t("characters.customTab") : stats)}</span>
           <strong>${escapeHtml(item.name || "Character")}</strong>
@@ -2129,22 +2132,22 @@ function renderCharacterCreator() {
   const currentIndex = Math.max(0, CHARACTER_CREATOR_STEPS.findIndex((step) => step.id === state.characterCreator.step));
   const isFirst = currentIndex <= 0;
   const isLast = currentIndex >= CHARACTER_CREATOR_STEPS.length - 1;
+  const createCostLabel = assetImageModifyCostLabel();
+  const submitLabel = isLast ? `${characterCreatorCopy("generate")} - ${createCostLabel}` : characterCreatorCopy("next");
   els.characterCreatorRoot.className = `character-creator-root is-step-${state.characterCreator.step}`;
   els.characterCreatorRoot.innerHTML = `
     ${renderCharacterCreatorSteps()}
     ${renderCharacterCreatorHeroTitle()}
     <div class="character-creator-body">${renderCharacterCreatorStepBody()}</div>
-    <p class="job-note" id="characterCreateCost">${escapeHtml(assetImageModifyCostLabel())}</p>
     <div class="character-creator-actions">
       <button class="ghost-button" data-creator-nav="back" type="button" ${isFirst ? "disabled" : ""}><i data-lucide="chevron-left"></i>${escapeHtml(characterCreatorCopy("back"))}</button>
       <button class="generate-btn" id="characterCreateBtn" data-creator-submit="${isLast ? "true" : "false"}" data-creator-nav="${isLast ? "" : "next"}" type="button">
-        <i data-lucide="${isLast ? "wand-sparkles" : "chevron-right"}"></i><span>${escapeHtml(isLast ? characterCreatorCopy("generate") : characterCreatorCopy("next"))}</span>
+        <i data-lucide="${isLast ? "wand-sparkles" : "chevron-right"}"></i><span>${escapeHtml(submitLabel)}</span>
       </button>
     </div>
     <p class="job-note" id="characterCreateStatus"></p>
   `;
   els.characterCreateBtn = els.characterCreatorRoot.querySelector("#characterCreateBtn");
-  els.characterCreateCost = els.characterCreatorRoot.querySelector("#characterCreateCost");
   els.characterCreateStatus = els.characterCreatorRoot.querySelector("#characterCreateStatus");
   els.characterCreatorRoot.dataset.rendered = "true";
   refreshIcons();
@@ -2304,7 +2307,6 @@ function bindCharacterCreator({ force = false } = {}) {
     bindCharacterCreatorEvents();
     return;
   }
-  if (els.characterCreateCost) els.characterCreateCost.textContent = assetImageModifyCostLabel();
 }
 
 async function createCharacterFromPrompt() {
@@ -2343,7 +2345,7 @@ async function createCharacterFromPrompt() {
     }
     if (els.characterCreatePrompt) els.characterCreatePrompt.value = "";
     if (els.characterCreatorRoot) {
-      state.characterCreator = { ...CHARACTER_CREATOR_DEFAULT, step: "prompt" };
+      state.characterCreator = { ...CHARACTER_CREATOR_DEFAULT };
       renderCharacterCreator();
     }
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = state.lang === "zh" ? "角色已加入我的角色，正在生成。" : "Character added. Generating image...";
@@ -2411,7 +2413,6 @@ async function openSystemCharacterTakeOffDialog(characterId = "") {
         <div class="asset-modify-preview character-action-preview">
           <img src="${escapeHtml(poster)}" alt="${escapeHtml(character.name || "")}" data-cover-fallback="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" />
         </div>
-        <p class="job-note">${escapeHtml(assetImageModifyCostLabel())}</p>
         <p class="job-note" id="characterTakeoffStatus">${escapeHtml(t("characters.takeOffConfirm"))}</p>
         <div class="character-action-result" id="characterTakeoffResult" hidden></div>
       </div>
@@ -2474,12 +2475,17 @@ async function openSystemCharacterModifyDialog(characterId = "") {
     body: `
       <div class="asset-generate-form">
         <label class="field"><span>${escapeHtml(t("field.prompt"))}</span><textarea id="characterModifyPrompt" rows="5" placeholder="${escapeHtml(t("characters.modifyPlaceholder"))}"></textarea></label>
-        <p class="job-note">${escapeHtml(assetImageModifyCostLabel())}</p>
         <p class="job-note" id="characterModifyStatus"></p>
       </div>
     `,
     confirmText: t("characters.modify"),
     dialogClass: "is-media-action",
+    onOpen: () => {
+      if (els.inlineDialogConfirm) {
+        els.inlineDialogConfirm.innerHTML = `<i data-lucide="wand-sparkles"></i>${escapeHtml(t("template.generate", { cost: assetImageModifyCostLabel() }))}`;
+        refreshIcons();
+      }
+    },
     onConfirm: async (root) => {
       const prompt = root.querySelector("#characterModifyPrompt")?.value.trim() || "";
       if (!prompt) throw new Error(t("advanced.promptRequired"));
