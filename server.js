@@ -102,7 +102,6 @@ const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
 const GENERATED_POSTER_DIR = path.join(ROOT, "assets", "generated", "posters");
 const GENERATED_IMAGE_DIR = path.join(ROOT, "assets", "generated", "images");
 const GENERATED_CHARACTER_DIR = path.join(ROOT, "assets", "generated", "characters", "apiz");
-const GENERATED_PANORAMA_DIR = path.join(ROOT, "assets", "generated", "panoramas");
 const ARK_BASE_URL = process.env.ARK_BASE_URL || "https://ark.ap-southeast.bytepluses.com/api/v3";
 const ARK_API_KEY =
   process.env.ARK_API_KEY ||
@@ -19595,30 +19594,6 @@ async function findGeneratedCharacterSheet(taskId) {
   return null;
 }
 
-async function downloadGeneratedPanorama(taskId, imageUrl, slug = "panorama") {
-  await fs.mkdir(GENERATED_PANORAMA_DIR, { recursive: true });
-  const safeSlug = String(slug || "panorama").replace(/[^a-z0-9_-]/gi, "-").slice(0, 60);
-  const fileName = `${safeSlug}-${String(taskId).replace(/[^a-z0-9_-]/gi, "_")}.png`;
-  const localPath = path.join(GENERATED_PANORAMA_DIR, fileName);
-  const localUrl = `/assets/generated/panoramas/${fileName}`;
-  try {
-    await fs.access(localPath);
-    return { localPath, localUrl };
-  } catch {
-    // Continue and download.
-  }
-
-  const response = await fetch(imageUrl);
-  if (!response.ok) {
-    const error = new Error(`Failed to download panorama: ${response.status}`);
-    error.statusCode = 502;
-    throw error;
-  }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  await fs.writeFile(localPath, bytes);
-  return { localPath, localUrl };
-}
-
 async function arkRequest(method, pathname, body) {
   if (!ARK_API_KEY) {
     const error = new Error("Missing ARK_API_KEY");
@@ -26832,59 +26807,6 @@ async function handleDeleteGenerationRecord(req, res, taskId) {
   return sendJson(res, 200, { ok: true, record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)) });
 }
 
-async function handleCreateCharacterImageLegacy(req, res) {
-  const auth = await requireUser(req, res);
-  if (!auth) return;
-
-  const body = await readJson(req);
-  const config = await readAppConfig();
-  const userAsset = body.userAssetId
-    ? auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id)
-    : null;
-  const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : [
-    "full body photorealistic mature virtual girlfriend character sheet",
-    "eight clean turntable views in a 4x2 grid: front, front-right, right side, back-right, back, back-left, left side, front-left",
-    "consistent face, hair, body proportions and outfit in every frame",
-    "transparent or plain dark background, mobile dating game asset, elegant sensual fashion, no explicit nudity",
-  ].join(", ");
-  const model = userAsset ? config.characterImage.editModel : config.characterImage.textModel;
-  const params = {
-    prompt,
-    image_size: config.characterImage.imageSize,
-  };
-
-  if (userAsset?.publicUrl) {
-    params.image_url = userAsset.publicUrl;
-  }
-
-  const generated = await createSeedream5ImageDirect({
-    prompt,
-    imageUrls: params.image_url ? [params.image_url] : [],
-    resolution: process.env.CHARACTER_SEEDREAM_SIZE || "2K",
-    model: process.env.CHARACTER_SEEDREAM_MODEL || (/^ep-/i.test(String(model || "")) ? model : ""),
-    tier: process.env.CHARACTER_SEEDREAM_TIER || "pro",
-  });
-  const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("img"));
-  const local = await downloadGeneratedCharacterSheet(taskId, generated.imageUrl);
-  const submitted = {
-    ...generated.raw,
-    task_id: taskId,
-    taskId,
-    id: taskId,
-    status: "succeeded",
-    output: { url: generated.imageUrl },
-  };
-  return sendJson(res, 200, {
-    ok: true,
-    task: submitted,
-    model: generated.payload.model,
-    imageUrls: [local.cdnImageUrl, local.localUrl, generated.imageUrl].filter(Boolean),
-    localSheetUrl: local.localUrl,
-    localSheetPath: local.localPath,
-    note: "角色图会按 4x2 方向分镜生成；前端拿到结果图后可切成 8 帧用于拖动旋转。",
-  });
-}
-
 async function handleCreateCharacterImage(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -27018,47 +26940,6 @@ async function handleGetCharacterImage(req, res, taskId) {
   }
 
   return sendJson(res, 200, { ok: true, task, imageUrls, localSheetUrl, localSheetPath });
-}
-
-async function handleCreatePanoramaImage(req, res) {
-  const auth = await requireAdmin(req, res);
-  if (!auth) return;
-
-  const body = await readJson(req);
-  const prompt = typeof body.prompt === "string" ? body.prompt : "";
-  if (!prompt) return sendJson(res, 400, { ok: false, message: "缺少全景图 prompt。" });
-
-  const params = {
-    prompt,
-    image_size: body.image_size || "16:9",
-    resolution: body.resolution || "4K",
-    quality: body.quality || "medium",
-    num_images: 1,
-    output_format: "png",
-  };
-  const task = await apizRequest("/api/v3/tasks/create", {
-    model: body.model || "openai/gpt-image-2",
-    params,
-    channel: null,
-  });
-  return sendJson(res, 200, { ok: true, task, params, slug: body.slug || "panorama" });
-}
-
-async function handleGetPanoramaImage(req, res, taskId, url) {
-  const auth = await requireAdmin(req, res);
-  if (!auth) return;
-
-  const task = await apizRequest("/api/v3/tasks/query", { task_id: taskId });
-  const imageUrls = collectImageUrls(task);
-  let localUrl = "";
-  let localPath = "";
-  if (isCompletedStatus(task.status) && imageUrls[0]) {
-    const local = await downloadGeneratedPanorama(taskId, imageUrls[0], url.searchParams.get("slug") || "panorama");
-    localUrl = local.localUrl;
-    localPath = local.localPath;
-  }
-
-  return sendJson(res, 200, { ok: true, task, imageUrls, localUrl, localPath });
 }
 
 async function handleCreateSceneVideo(req, res) {
@@ -27797,15 +27678,6 @@ async function handleRequest(req, res) {
     const characterImageTaskMatch = url.pathname.match(/^\/api\/character-image\/([^/]+)$/);
     if (req.method === "GET" && characterImageTaskMatch) {
       return await handleGetCharacterImage(req, res, characterImageTaskMatch[1]);
-    }
-
-    if (req.method === "POST" && url.pathname === "/api/panorama-image") {
-      return await handleCreatePanoramaImage(req, res);
-    }
-
-    const panoramaImageTaskMatch = url.pathname.match(/^\/api\/panorama-image\/([^/]+)$/);
-    if (req.method === "GET" && panoramaImageTaskMatch) {
-      return await handleGetPanoramaImage(req, res, panoramaImageTaskMatch[1], url);
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/config") {
