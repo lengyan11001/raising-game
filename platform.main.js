@@ -573,7 +573,7 @@ els.createTopupBtn?.addEventListener("click", createTopupOrder);
 function openTopupDialog() {
   closeAccountMenu();
   setTopupStep("packages");
-  setTopupMethod("paypal");
+  setTopupMethod("usdt");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   syncTopupAutoRefresh();

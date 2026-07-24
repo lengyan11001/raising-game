@@ -1788,9 +1788,9 @@ body.creator-picker-open {
   position: relative;
   overflow: hidden;
   display: grid;
-  gap: 8px;
-  min-height: 118px;
-  padding: 14px;
+  gap: 7px;
+  min-height: 106px;
+  padding: 12px;
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 8px;
   color: var(--text);
@@ -1804,7 +1804,7 @@ body.creator-picker-open {
 .topup-package-card::after {
   content: "";
   position: absolute;
-  inset: auto 12px 10px 12px;
+  inset: auto 10px 8px 10px;
   height: 2px;
   border-radius: 999px;
   background: rgba(255,255,255,.16);
@@ -1820,12 +1820,13 @@ body.creator-picker-open {
 .topup-package-card strong {
   margin: 0;
   color: #fff;
-  font-size: 1.56rem;
+  font-size: 1.38rem;
   line-height: 1;
 }
 .topup-package-card small {
   margin: 0;
   color: var(--muted);
+  font-size: .74rem;
   font-weight: 800;
 }
 .topup-package-card:hover,
@@ -1934,18 +1935,21 @@ body.creator-picker-open {
 }
 .topup-wallet-options:empty { display: none; }
 .topup-wallet-options-head {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 12px;
-  align-items: end;
+  align-items: start;
 }
 .topup-wallet-options-head span {
   color: var(--text);
   font-size: .78rem;
+  line-height: 1.15;
 }
 .topup-wallet-options-head small {
+  min-width: 0;
   color: var(--muted);
   font-size: .76rem;
+  line-height: 1.35;
 }
 .topup-wallet-option-grid {
   display: grid;
@@ -1953,7 +1957,7 @@ body.creator-picker-open {
   gap: 8px;
 }
 .topup-wallet-option {
-  min-height: 58px;
+  min-height: 56px;
   padding: 10px 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -8567,19 +8571,70 @@ select:focus,
 }
 
 @media (max-width: 460px) {
-  .topup-headline,
   .paypal-checkout {
     grid-template-columns: 1fr;
   }
+  .topup-modal .modal-body {
+    padding: 14px;
+  }
+  .topup-modal-panel {
+    padding: 14px;
+  }
+  .topup-headline {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: end;
+  }
+  .topup-package-stage,
+  .topup-wallet-options {
+    padding: 10px;
+  }
   .topup-package-grid,
   .topup-wallet-option-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .topup-package-card {
+    min-height: 88px;
+    padding: 10px;
+    gap: 5px;
+  }
+  .topup-package-card span {
+    font-size: .62rem;
+  }
+  .topup-package-card strong {
+    font-size: 1.16rem;
+  }
+  .topup-package-card small {
+    font-size: .66rem;
+    line-height: 1.2;
   }
   .topup-selected-package {
-    align-items: flex-start;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
   }
-  .topup-selected-package strong { text-align: left; }
+  .topup-selected-package strong {
+    min-width: 0;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .topup-wallet-options-head {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .topup-wallet-option {
+    min-height: 54px;
+    padding: 9px 8px;
+  }
+  .topup-wallet-option strong {
+    font-size: .78rem;
+    line-height: 1.15;
+  }
+  .topup-wallet-option small {
+    font-size: .66rem;
+  }
   .template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gallery-advanced-grid,
   .character-grid,

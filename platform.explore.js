@@ -452,27 +452,29 @@ function renderPlayfluxTemplateGallery() {
 
 function renderPlayfluxTemplateCard(template = {}) {
   const isVideo = template.previewType === "video";
+  const title = localizedTemplateTitle(template);
   return `
     <button class="playflux-template-card" type="button" data-playflux-template="${escapeHtml(template.id || "")}">
       <span class="playflux-template-media">
         ${isVideo
           ? `<video src="${escapeHtml(template.previewUrl || "")}" ${template.posterUrl ? `poster="${escapeHtml(template.posterUrl)}"` : ""} muted loop autoplay playsinline preload="metadata"></video>`
-          : `<img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(template.title || "")}" loading="lazy" />`}
+          : `<img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(title)}" loading="lazy" />`}
         <span class="playflux-template-shade"></span>
         ${template.badge ? `<small class="playflux-template-badge">${escapeHtml(template.badge)}</small>` : ""}
         <span class="playflux-template-fav"><i data-lucide="heart"></i></span>
         ${isVideo ? `<span class="playflux-template-play"><i data-lucide="play"></i></span>` : ""}
       </span>
-      <strong>${escapeHtml(template.title || "")}</strong>
+      <strong>${escapeHtml(title)}</strong>
     </button>
   `;
 }
 
 function playfluxTemplateDialogMedia(template = {}) {
+  const title = localizedTemplateTitle(template);
   if (template.previewType === "video") {
     return `<video src="${escapeHtml(template.previewUrl || "")}" ${template.posterUrl ? `poster="${escapeHtml(template.posterUrl)}"` : ""} muted loop autoplay playsinline controls preload="metadata"></video>`;
   }
-  return `<img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(template.title || "")}" loading="lazy" />`;
+  return `<img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(title)}" loading="lazy" />`;
 }
 
 function playfluxTemplatePromptBlock(template = {}) {
@@ -485,13 +487,14 @@ function playfluxTemplatePromptBlock(template = {}) {
 }
 
 function playfluxTemplateAnimePanel(template = {}) {
+  const title = localizedTemplateTitle(template);
   return `
     <div class="playflux-anime-direct">
       <div class="playflux-anime-selected">
-        <img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(template.title || "")}" loading="lazy" />
+        <img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(title)}" loading="lazy" />
         <span>
           <small>Anime action</small>
-          <strong>${escapeHtml(template.title || "")}</strong>
+          <strong>${escapeHtml(title)}</strong>
         </span>
       </div>
       <div class="playflux-anime-style">
@@ -513,8 +516,9 @@ function openPlayfluxTemplateDialog(templateId = "") {
   const template = playfluxTemplateById(templateId);
   if (!template) return;
   const tab = playfluxTemplateTabMeta(template.tab);
+  const title = localizedTemplateTitle(template);
   showInlineDialog({
-    title: template.title || "Template",
+    title,
     body: `
       <div class="playflux-template-dialog">
         <div class="playflux-template-kicker"><i data-lucide="${escapeHtml(tab.icon)}"></i>${escapeHtml(tab.label)}</div>
@@ -563,8 +567,8 @@ function openPlayfluxTemplateDialog(templateId = "") {
       });
       refreshPlayfluxTemplateCost(root, template);
       root.querySelector("[data-playflux-template-preview]")?.addEventListener("click", () => {
-        if (template.previewType === "video") playPreview({ title: template.title, previewUrl: template.previewUrl, ratio: template.ratio || "9:16" });
-        else previewImage({ title: template.title, imageUrl: template.previewUrl });
+        if (template.previewType === "video") playPreview({ title, previewUrl: template.previewUrl, ratio: template.ratio || "9:16" });
+        else previewImage({ title, imageUrl: template.previewUrl });
       });
       root.querySelector("[data-playflux-template-character]")?.addEventListener("click", () => {
         const sourceMode = root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || "";
@@ -830,7 +834,7 @@ function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seed
       createKind: template.tab === "video" ? "video" : "image",
       createMode: template.tab === "video" ? "playflux-video" : (template.createMode || (template.sourceRequired ? "image-edit" : "image-create")),
       templateId: template.id || "",
-      templateTitle: template.title || "",
+      templateTitle: localizedTemplateTitle(template),
       templateTab: template.tab || "",
       sourceCount: Number(template.sourceCount || 0),
       animeBaseStyleLabel: template.animeBaseStyleLabel || "",
@@ -1032,8 +1036,9 @@ function openPlayfluxTemplateDialog(templateId = "") {
   const needsSource = playfluxTemplateNeedsSource(template);
   const requiredSourceCount = playfluxTemplateRequiredSourceCount(template);
   const sourceHint = requiredSourceCount > 1 ? `Required: ${requiredSourceCount} images` : (needsSource ? "Required" : "Optional");
+  const title = localizedTemplateTitle(template);
   showInlineDialog({
-    title: template.title || "Template",
+    title,
     body: `
       <div class="playflux-template-dialog">
         <div class="playflux-template-kicker"><i data-lucide="${escapeHtml(tab.icon)}"></i>${escapeHtml(tab.label)}</div>
@@ -1086,8 +1091,8 @@ function openPlayfluxTemplateDialog(templateId = "") {
       });
       refreshPlayfluxTemplateCost(root, template);
       root.querySelector("[data-playflux-template-preview]")?.addEventListener("click", () => {
-        if (template.previewType === "video") playPreview({ title: template.title, previewUrl: template.previewUrl, ratio: template.ratio || "9:16" });
-        else previewImage({ title: template.title, imageUrl: template.previewUrl });
+        if (template.previewType === "video") playPreview({ title, previewUrl: template.previewUrl, ratio: template.ratio || "9:16" });
+        else previewImage({ title, imageUrl: template.previewUrl });
       });
       root.querySelector("[data-playflux-template-upload]")?.addEventListener("click", () => {
         root.querySelector("#playfluxTemplateImageInput")?.click();

@@ -396,19 +396,40 @@ function localizedTemplateBadge(template = {}) {
 }
 
 function titleFromTemplateId(id = "") {
-  return String(id || "")
+  const normalized = String(id || "")
+    .trim()
+    .replace(/^pf-(video|image|anime)-\d+-/i, "")
+    .replace(/^pf-(video|image|anime)-/i, "");
+  const title = normalized
     .split(/[-_]+/)
     .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (/^v\d+$/i.test(part) || ["ai", "pov", "nsfw", "sdxl"].includes(lower)) return part.toUpperCase();
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(" ")
+    .replace(/\b(\d) (\d)\b/g, "$1.$2");
+  return title;
+}
+
+function localizedTemplateField(template = {}, base = "title") {
+  const lang = state.lang || "en";
+  const suffix = lang.charAt(0).toUpperCase() + lang.slice(1);
+  const candidates = lang === "zh"
+    ? [template[`${base}Zh`], template[`${base}_zh`], template.zhTitle, template.titleZh, template.title]
+    : [template[`${base}${suffix}`], template[`${base}_${lang}`], template[`${base}En`], template[`${base}_en`], template.enTitle, template.titleEn, template.englishTitle];
+  return String(candidates.find((value) => String(value || "").trim()) || "").trim();
 }
 
 function localizedTemplateTitle(template = {}) {
   const key = `templateTitle.${template.id || ""}`;
   const translated = I18N[state.lang]?.[key] || I18N.en[key];
   if (translated) return translated;
+  const localized = localizedTemplateField(template, "title");
+  if (localized) return localized;
   const rawTitle = String(template.title || "").trim();
-  if (state.lang === "en" && /[\u4e00-\u9fff]/.test(rawTitle)) return titleFromTemplateId(template.id) || "Template";
+  if (state.lang !== "zh" && /[\u4e00-\u9fff]/.test(rawTitle)) return titleFromTemplateId(template.id) || "Template";
   return rawTitle || titleFromTemplateId(template.id) || "Template";
 }
 
