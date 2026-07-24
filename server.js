@@ -23413,6 +23413,26 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
       imageUrls: [readyImageUrl],
     };
   }
+  if (isFailedStatus(record?.imageStatus) || String(record?.status || "").toLowerCase() === "image_failed") {
+    const billingUpdates = await myCharacterImageRefundUpdates(auth, record, "my-character-image-refresh-failed", record.error || "");
+    await updateMyCharacterImageGenerationRecord(auth, record, {
+      status: "failed",
+      awaitingUpstreamTask: false,
+      imageResultUrl: "",
+      localImageUrl: record.localImageUrl || "",
+      cdnImageUrl: record.cdnImageUrl || record.publicImageUrl || "",
+      remoteImageUrl: record.imageRemoteUrl || "",
+      createResponse: record.imageTaskResponse || null,
+      error: record.error || "Character image generation failed.",
+      failedAt: record.failedAt || new Date().toISOString(),
+      ...billingUpdates,
+    }, "my-character-image-already-failed");
+    return {
+      record,
+      task: record.imageTaskResponse || { taskId: record.imageTaskId || "", status: "failed", error: record.error || "Character image generation failed." },
+      imageUrls: [],
+    };
+  }
   const localImageRecordTaskId = String(record?.imageGenerationRecordTaskId || "").trim();
   const currentImageTaskId = String(record?.imageTaskId || "").trim();
   const terminalImageStatus = isCompletedStatus(record?.imageStatus)
