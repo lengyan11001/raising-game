@@ -16,7 +16,7 @@ Keep these on the server and out of Git:
 
 ## Old -> new2 shared-code rule
 
-`D:\raising-game-price-old` (`old-site`) is the source of truth for shared UI,
+`D:\raising-game-old-asyncfix` (`origin/old-site`) is the source of truth for shared UI,
 admin, DB helper, docs, and deploy tooling. `D:\raising-game-667zui`
 (`codex/site-667zui`) must be synced from old-site for those files.
 
