@@ -1357,7 +1357,6 @@ function publicAdvancedPricingView(pricing = {}) {
     seedanceFastVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceFastVideoInputCreditsPerSecondByResolution },
     wan27CreditsPerSecondByResolution: { ...normalized.wan27CreditsPerSecondByResolution },
     vipeak1Image: {
-      model: imagePricing.model || WAN27_IMAGE_PRO_MODEL,
       costCredits: imageCostCredits,
       saleUsdPerImage: pricingNumber(Number(imagePricing.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
       resolutions: imagePricing.resolutions || ["1K", "2K", "4K"],
@@ -1377,6 +1376,146 @@ function publicAdvancedPricingView(pricing = {}) {
       },
     },
   };
+}
+
+function publicPlatformTemplateView(template = {}) {
+  return publicAssetUrlsForClient({
+    id: String(template.id || "").trim(),
+    title: String(template.title || "").trim(),
+    category: String(template.category || "").trim(),
+    type: String(template.type || "").trim(),
+    coverUrl: String(template.coverUrl || "").trim(),
+    previewUrl: String(template.previewUrl || "").trim(),
+    hoverPreviewUrl: String(template.hoverPreviewUrl || "").trim(),
+    badge: String(template.badge || "").trim(),
+    price: positiveCreditsOrNull(template.price ?? template.credits ?? template.estimatedCredits),
+    action: template.action === "advanced" ? "advanced" : "",
+    targetTab: template.targetTab === "advanced" ? "advanced" : "",
+    advancedCaseId: String(template.advancedCaseId || template.caseId || "").trim(),
+    buttonLabel: String(template.buttonLabel || "").trim(),
+  });
+}
+
+function publicAdvancedCaseView(item = {}) {
+  return publicAssetUrlsForClient({
+    id: String(item.id || "").trim(),
+    title: String(item.title || "").trim(),
+    category: String(item.category || item.caseCategory || item.tab || "").trim(),
+    provider: String(item.provider || "").trim(),
+    price: positiveCreditsOrNull(item.price ?? item.estimatedCredits),
+    estimatedCredits: positiveCreditsOrNull(item.estimatedCredits ?? item.price),
+    coverUrl: String(item.coverUrl || "").trim(),
+    previewUrl: String(item.previewUrl || "").trim(),
+    hoverPreviewUrl: String(item.hoverPreviewUrl || "").trim(),
+    outputPosterUrl: String(item.outputPosterUrl || item.resultPosterUrl || "").trim(),
+    resultPosterUrl: String(item.resultPosterUrl || item.outputPosterUrl || "").trim(),
+    inputImageUrl: String(item.inputImageUrl || item.sourceImageUrl || item.referenceImageUrl || item.imageUrl || "").trim(),
+    inputVideoUrl: String(item.inputVideoUrl || "").trim(),
+    inputVideoPosterUrl: String(item.inputVideoPosterUrl || "").trim(),
+    sourceImageUrl: String(item.sourceImageUrl || item.inputImageUrl || "").trim(),
+    sourceVideoUrl: String(item.sourceVideoUrl || "").trim(),
+    sourceCoverUrl: String(item.sourceCoverUrl || "").trim(),
+    mediaSourceVideoUrl: String(item.mediaSourceVideoUrl || item.sourceVideoUrl || "").trim(),
+    mediaSourceCoverUrl: String(item.mediaSourceCoverUrl || item.sourceCoverUrl || "").trim(),
+    localVideoUrl: String(item.localVideoUrl || "").trim(),
+    localCoverUrl: String(item.localCoverUrl || "").trim(),
+    cdnVideoUrl: String(item.cdnVideoUrl || "").trim(),
+    cdnCoverUrl: String(item.cdnCoverUrl || "").trim(),
+    description: String(item.description || "").trim(),
+    mediaMode: String(item.mediaMode || "").trim(),
+    ratio: String(item.ratio || "").trim(),
+    resolution: String(item.resolution || "").trim(),
+    duration: Number(item.duration || 0),
+    enabled: item.enabled !== false,
+    sort: Number(item.sort || 0) || 0,
+  });
+}
+
+function publicPlayfluxTemplateView(template = {}) {
+  return publicAssetUrlsForClient({
+    id: String(template.id || "").trim(),
+    tab: String(template.tab || "").trim(),
+    badge: String(template.badge || "").trim(),
+    ratio: String(template.ratio || "").trim(),
+    title: String(template.title || "").trim(),
+    credits: positiveCreditsOrNull(template.credits ?? template.price),
+    duration: Number(template.duration || 0) || undefined,
+    posterUrl: String(template.posterUrl || "").trim(),
+    previewUrl: String(template.previewUrl || "").trim(),
+    resolution: String(template.resolution || "").trim(),
+    previewType: String(template.previewType || "").trim(),
+    seedanceMode: String(template.seedanceMode || "").trim(),
+    sourceCount: Number(template.sourceCount || 0) || 0,
+    sourceRequired: template.sourceRequired === true,
+    referenceVideoDurationSeconds: Number(template.referenceVideoDurationSeconds || 0) || undefined,
+    animeBaseStyleLabel: String(template.animeBaseStyleLabel || "").trim(),
+  });
+}
+
+function findPlayfluxTemplate(config = {}, templateId = "") {
+  const id = String(templateId || "").trim();
+  if (!id) return null;
+  return (Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [])
+    .find((template) => String(template?.id || "").trim() === id) || null;
+}
+
+function playfluxTemplatePromptWithNegative(template = {}, userPrompt = "") {
+  return [
+    String(template.prompt || "").trim(),
+    String(userPrompt || "").trim(),
+    template.negativePrompt ? `Negative prompt: ${String(template.negativePrompt).trim()}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
+function playfluxTemplateVideoPrompt(template = {}, { sourceMode = "", hasSourceImage = false, userPrompt = "" } = {}) {
+  const mode = normalizeSeedanceMode(sourceMode || template.seedanceMode || "reference_images", {});
+  const basePrompt = playfluxTemplatePromptWithNegative(template, userPrompt);
+  if (!seedanceModeNeedsReferenceVideo(mode)) return basePrompt;
+  const guide = [
+    hasSourceImage
+      ? "CRITICAL: Image 1 is the user's selected character/source image. Preserve Image 1 identity, face, hairstyle, body type, skin tone, outfit direction, and main visual features."
+      : "",
+    "CRITICAL: Video 1 is the reference motion video. Match Video 1 closely: action type, pose sequence, body positions, interaction timing, camera angle, framing, shot rhythm, motion direction, and start/end composition.",
+    hasSourceImage
+      ? "Use Video 1 only for motion, action, camera, and composition. Do not copy identity, face, body, clothing, background, watermark, text, colors, or artifacts from Video 1. If Image 1 conflicts with Video 1, Image 1 always wins."
+      : "Use Video 1 as the primary action, camera, and composition guide.",
+    "Generate one continuous cinematic shot with the same action rhythm as Video 1, coherent anatomy, stable hands, and no subtitles or watermark.",
+  ].filter(Boolean).join(" ");
+  return [guide, basePrompt].filter(Boolean).join("\n\n");
+}
+
+function playfluxTemplateShouldUsePreviewImageReference(template = {}, sourceImageCount = 0) {
+  if (String(template.tab || "") === "video" || !template.previewUrl) return false;
+  if (sourceImageCount < 1) return false;
+  const requiredCount = Number(template.sourceCount || 0);
+  return requiredCount <= 1 && sourceImageCount <= 1;
+}
+
+function playfluxTemplateImagePrompt(template = {}, { sourceImageCount = 0, userPrompt = "" } = {}) {
+  const basePrompt = playfluxTemplatePromptWithNegative(template, userPrompt);
+  if (!playfluxTemplateShouldUsePreviewImageReference(template, sourceImageCount)) return basePrompt;
+  const previewIndex = Math.max(0, Number(sourceImageCount || 0)) + 1;
+  const guide = sourceImageCount > 0
+    ? `CRITICAL: Image 1 is the user's selected character/source and must be the dominant subject. Preserve Image 1 identity, face, body type, skin tone, hair, and main visual features. Image ${previewIndex} is NOT the target result and NOT a character reference; use it only as a loose reference for pose, composition, camera angle, scene intent, and general style. Do not copy the person, face, body, clothing, background, watermark, text, colors, or artifacts from Image ${previewIndex}. If Image 1 conflicts with Image ${previewIndex}, Image 1 always wins. The final result must look like a transformed version of Image 1, not a copy of Image ${previewIndex}.`
+    : "";
+  return [guide, basePrompt].filter(Boolean).join("\n\n");
+}
+
+function playfluxBodyHasImageReference(body = {}) {
+  return Boolean(
+    body.dataUrl ||
+    body.imageUrl ||
+    body.image_url ||
+    body.firstFrameUrl ||
+    body.firstFrameDataUrl ||
+    body.firstFrameAssetId ||
+    body.imageAssetId ||
+    body.userAssetId ||
+    arrayFromBody(body.referenceImages).length ||
+    arrayFromBody(body.reference_images).length ||
+    arrayFromBody(body.referenceImageAssetIds).length ||
+    arrayFromBody(body.extraReferenceAssetIds).length
+  );
 }
 
 function publicCharacterPageFromItems(items = [], auth = null, paging = {}) {
@@ -1427,15 +1566,11 @@ function publicConfig(config, origin = "", auth = null) {
     ...platform,
     accessCopy: tenantScopedAccessCopy(isLegacyAccessCopy(platform.accessCopy) ? DEFAULT_CONFIG.platform.accessCopy : platform.accessCopy, origin),
   };
-  if (tenantPublic) {
-    publicPlatform.advanced = {
-      ...publicPlatform.advanced,
-      cases: (publicPlatform.advanced?.cases || []).map((item) => {
-        const { creditsPerSecond, pricing, ...safeItem } = item;
-        return safeItem;
-      }),
-    };
-  }
+  publicPlatform.templates = (publicPlatform.templates || []).map(publicPlatformTemplateView);
+  publicPlatform.advanced = {
+    ...(publicPlatform.advanced || {}),
+    cases: (publicPlatform.advanced?.cases || []).map(publicAdvancedCaseView),
+  };
   const normalizedAdvancedPricing = normalizeAdvancedPricing(publicPlatform.advancedPricing);
   const assetImageModifyPricing = normalizedAdvancedPricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
   publicPlatform.advancedPricing = publicAdvancedPricingView(normalizedAdvancedPricing);
@@ -1448,7 +1583,6 @@ function publicConfig(config, origin = "", auth = null) {
       accountMenu: true,
     },
     assetImageModify: {
-      model: assetImageModifyPricing.model || WAN27_IMAGE_PRO_MODEL,
       costCredits: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) * Number(normalizedAdvancedPricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6),
       saleUsdPerImage: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
       resolutions: (assetImageModifyPricing.resolutions || ["1K", "2K", "4K"]).filter((item) => String(item || "").toUpperCase() !== "4K"),
@@ -1468,14 +1602,14 @@ function publicConfig(config, origin = "", auth = null) {
       topupPackages: publicTopupPackages(),
     },
     video: config.video,
-    playfluxTemplates: Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [],
+    playfluxTemplates: (Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [])
+      .map(publicPlayfluxTemplateView)
+      .filter((template) => template.id && template.tab && template.title && template.previewUrl),
     homeVideo: {
       provider: homeVideo.provider || "seedance",
       posterUrl: homeVideo.posterUrl || "",
       videoUrl: homeVideo.videoUrl || "",
-      taskId: homeVideo.taskId || "",
       status: homeVideo.status || "",
-      referenceAssetUri: homeVideo.referenceAssetUri || "",
       activeItemId: homeVideo.activeItemId || "",
       characterUnlockCost: CHARACTER_UNLOCK_COST_CREDITS,
       items: characterPage.items,
@@ -1486,7 +1620,6 @@ function publicConfig(config, origin = "", auth = null) {
       hasMore: characterPage.hasMore,
     },
     platform: publicPlatform,
-    characterImage: config.characterImage,
     scenes: config.scenes
       .filter((scene) => scene.enabled !== false)
       .map((scene) => {
@@ -1518,12 +1651,9 @@ function publicWorkflowPresetView(preset = {}) {
   return publicAssetUrlsForClient({
     id: String(preset.id || "").trim(),
     label: String(preset.label || preset.name || "").trim(),
-    prompt: String(preset.prompt || preset.defaultPrompt || "").trim(),
     previewUrl: String(preset.previewUrl || "").trim(),
     posterUrl: String(preset.posterUrl || "").trim(),
     category: String(preset.category || "PlayFlux").trim() || "PlayFlux",
-    source: String(preset.source || "").trim(),
-    sourceId: String(preset.sourceId || "").trim(),
     sortOrder: Number(preset.sortOrder || 0) || 0,
   });
 }
@@ -1532,7 +1662,7 @@ async function handleWorkflowPresets(req, res) {
   const presets = await listWorkflowPresetsFromDb({ includeDeleted: false }) || [];
   const list = presets
     .map(publicWorkflowPresetView)
-    .filter((preset) => preset.id && preset.label && preset.prompt && preset.previewUrl)
+    .filter((preset) => preset.id && preset.label && preset.previewUrl)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label));
   return sendJson(res, 200, { ok: true, presets: list });
 }
@@ -1990,6 +2120,14 @@ async function readGeoVisitorStats() {
     byCountry: stats.byCountry && typeof stats.byCountry === "object" ? stats.byCountry : {},
     recent: Array.isArray(stats.recent) ? stats.recent.slice(0, 80) : [],
     lastSeen: stats.lastSeen || "",
+  };
+}
+
+function publicPricingConfig(config = {}) {
+  return {
+    source: "old-site",
+    updatedAt: config.updatedAt || "",
+    pricing: publicAdvancedPricingView(config.platform?.advancedPricing || DEFAULT_ADVANCED_PRICING),
   };
 }
 
@@ -4194,14 +4332,8 @@ function publicHomeVideoItem(item, auth = null) {
     name: item.name || "Featured",
     title: item.title || "Featured drama",
     posterUrl,
-    localImageUrl: item.localImageUrl || "",
     characterImageUrl,
     referenceImageUrl: characterImageUrl,
-    syntheticReferenceLocalUrl: item.syntheticReferenceLocalUrl || "",
-    sourceImageUrl: item.publicImageUrl || item.cdnImageUrl || item.sourceImageUrl || "",
-    publicImageUrl: item.publicImageUrl || "",
-    cdnImageUrl: item.cdnImageUrl || "",
-    cdnPosterUrl: item.cdnPosterUrl || "",
     coverUrl: item.coverUrl || "",
     thumbnailUrl: item.thumbnailUrl || "",
     thumbUrl: item.thumbUrl || "",
@@ -4211,27 +4343,20 @@ function publicHomeVideoItem(item, auth = null) {
     videoUrl: "",
     localVideoUrl: "",
     remoteVideoUrl: "",
-    taskId: item.taskId || "",
     status: item.status || "",
-    provider: item.provider || "",
     resolution: item.resolution || "",
     duration: item.duration || 0,
-    source: item.source || "",
-    sourceDisplayId: item.sourceDisplayId || "",
     description: item.description || "",
     age: item.age || 0,
     gender: item.gender || "",
     style: item.style || "",
-    model: item.model || "",
     tags: Array.isArray(item.tags) ? item.tags : [],
     likeCount: Number(item.likeCount || 0),
     estimatedMessageCount: Number(item.estimatedMessageCount || 0),
     creatorUsername: item.creatorUsername || "",
     creatorAvatarUrl: item.creatorAvatarUrl || "",
     videoCount: Number(item.videoCount || Object.keys(characterVideos.homeSceneVideos).length + Object.keys(characterVideos.unlockVideos).length),
-    referenceAssetUri: item.referenceAssetUri || "",
     referenceState,
-    deletedAt: item.deletedAt || "",
     createdAt: item.createdAt || "",
     homeSceneVideos: characterVideos.homeSceneVideos,
     sceneVideos: characterVideos.sceneVideos,
@@ -4408,13 +4533,10 @@ function publicUnlockVideo(entry = {}, videoKey = "") {
     coverUrl: normalized.coverUrl || posterUrl || "",
     thumbnailUrl: normalized.thumbnailUrl || posterUrl || "",
     videoUrl: "",
-    taskId: normalized.taskId || "",
     status: normalized.status || "",
     price: normalized.price,
-    provider: normalized.provider || "seedance",
     updatedAt: normalized.updatedAt || "",
     createdAt: normalized.createdAt || "",
-    error: normalized.error || "",
   };
 }
 
@@ -7923,8 +8045,7 @@ function findSceneConfig(config, sceneId) {
 function publicSceneVideo(entry = {}) {
   if (!entry || typeof entry !== "object") return null;
   const videoUrl = entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "";
-  const savedPrompt = String(entry.userPrompt || "").trim();
-  if (!videoUrl && !entry.taskId && !savedPrompt) return null;
+  if (!videoUrl && !entry.taskId && !entry.posterUrl && !entry.coverUrl && !entry.thumbnailUrl) return null;
   const posterUrl = String(entry.cdnPosterUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
   return {
     sceneId: entry.sceneId || "",
@@ -7936,27 +8057,18 @@ function publicSceneVideo(entry = {}) {
     localPosterUrl: entry.localPosterUrl || posterUrl || "",
     coverUrl: entry.coverUrl || posterUrl || "",
     thumbnailUrl: entry.thumbnailUrl || posterUrl || "",
-    taskId: entry.taskId || "",
     status: entry.status || "",
     sceneEntryId: entry.sceneEntryId || "default",
     sceneEntryName: entry.sceneEntryName || "",
-    referenceAssetUri: entry.referenceAssetUri || "",
     partnerCharacterId: entry.partnerCharacterId || "",
     partnerCharacterName: entry.partnerCharacterName || "",
-    partnerReferenceAssetUri: entry.partnerReferenceAssetUri || "",
-    savedPrompt,
-    userPrompt: savedPrompt,
-    model: entry.model || "",
     ratio: entry.ratio || "",
     resolution: entry.resolution || "",
     duration: entry.duration || 0,
     likes: Number(entry.likes || entry.thumbsUpCount || 0),
     shouldBlur: entry.shouldBlur === true,
-    source: entry.source || "",
-    provider: entry.provider || "seedance",
     updatedAt: entry.updatedAt || "",
     createdAt: entry.createdAt || "",
-    error: entry.error || "",
   };
 }
 
@@ -17376,9 +17488,10 @@ async function handleAdvancedGenerate(req, res) {
   const advanced = config.platform?.advanced || {};
   const cases = Array.isArray(advanced.cases) ? advanced.cases : [];
   const bodyParams = requestParamsFromBody(body);
+  const playfluxTemplate = findPlayfluxTemplate(config, firstPresent(body.templateId, bodyParams.templateId, body.params?.templateId, ""));
   const selectedCase = cases.find((item) => item.id === String(firstPresent(body.caseId, bodyParams.caseId, "")).trim());
   const caseParams = selectedCase?.params && typeof selectedCase.params === "object" ? selectedCase.params : {};
-  const mergedBodyBase = mergedRequestForMedia(body, caseParams);
+  let mergedBodyBase = mergedRequestForMedia(body, caseParams);
   const requestedModel = firstPresent(body.model, bodyParams.model, caseParams.model);
   const requestedSeedanceTier = seedanceModelAliasKind(requestedModel) || firstPresent(
     body.seedanceTier,
@@ -17415,6 +17528,21 @@ async function handleAdvancedGenerate(req, res) {
   if (!USE_GATEWAY_UPSTREAM && provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Vipeak 1 generation is not configured." });
   }
+  const playfluxSeedanceMode = provider === "seedance" && playfluxTemplate
+    ? normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, playfluxTemplate.seedanceMode), mergedBodyBase)
+    : "";
+  if (playfluxTemplate && seedanceModeNeedsReferenceVideo(playfluxSeedanceMode)) {
+    const templateReferenceVideoUrl = String(playfluxTemplate.referenceVideoUrl || playfluxTemplate.previewUrl || "").trim();
+    const hasReferenceVideos = arrayFromBody(mergedBodyBase.referenceVideoUrls).length || arrayFromBody(mergedBodyBase.reference_videos).length;
+    if (templateReferenceVideoUrl && !hasReferenceVideos) {
+      mergedBodyBase = {
+        ...mergedBodyBase,
+        referenceVideoUrls: [templateReferenceVideoUrl],
+        referenceVideoDurationSeconds: mergedBodyBase.referenceVideoDurationSeconds || playfluxTemplate.referenceVideoDurationSeconds || playfluxTemplate.duration || "",
+        inputVideoSeconds: mergedBodyBase.inputVideoSeconds || playfluxTemplate.referenceVideoDurationSeconds || playfluxTemplate.duration || "",
+      };
+    }
+  }
   let mergedBody = mergedBodyBase;
   let seedanceContentExpanded = false;
   if (provider === "seedance") {
@@ -17425,14 +17553,21 @@ async function handleAdvancedGenerate(req, res) {
       return sendAdvancedValidationError(res, error, "Vipeak 2 content is invalid.");
     }
   }
-  let prompt = String(firstPresent(
-    body.prompt,
-    bodyParams.prompt,
-    selectedCase?.prompt,
-    caseParams.prompt,
-    provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
-    "",
-  )).trim();
+  const submittedPrompt = String(firstPresent(body.prompt, bodyParams.prompt, "")).trim();
+  let prompt = provider === "seedance" && playfluxTemplate
+    ? playfluxTemplateVideoPrompt(playfluxTemplate, {
+      sourceMode: playfluxSeedanceMode,
+      hasSourceImage: playfluxBodyHasImageReference(mergedBodyBase),
+      userPrompt: submittedPrompt,
+    })
+    : String(firstPresent(
+      body.prompt,
+      bodyParams.prompt,
+      selectedCase?.prompt,
+      caseParams.prompt,
+      provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
+      "",
+    )).trim();
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   if (provider === "seedream5-image") {
     return await handleAdvancedSeedream5ImageGenerate(req, res, {
@@ -17544,7 +17679,7 @@ async function handleAdvancedGenerate(req, res) {
   let seedanceFirstFrameAsset = null;
   let seedanceEndFrameAsset = null;
   if (provider !== "wan27") {
-    seedanceMode = normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.vipeak2Mode, caseParams.mediaMode), mergedBody);
+    seedanceMode = normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.vipeak2Mode, caseParams.mediaMode, playfluxTemplate?.seedanceMode), mergedBody);
     requestParams.seedanceMode = seedanceMode;
     const firstFrameInput = seedanceFirstFrameInputFromBody(mergedBody, {
       includeDataUrlFallback: seedanceModeNeedsFirstFrame(seedanceMode),
@@ -18327,8 +18462,6 @@ async function makePlatformEstimate(template, overrides = {}, user = null, optio
     userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? normalizeUserPricingMultiplier(user || 1, options),
     markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
     source: pricingEstimate.source,
-    model: upstreamPayload.model,
-    requestModel: upstreamPayload.params.model || upstreamPayload.model,
     durationSeconds,
     available: true,
   };
@@ -18944,14 +19077,10 @@ async function buildTemplateModelDoc(template, origin, user = null, options = {}
     type: template.type,
     category: template.category,
     badge: template.badge,
-    model: upstreamPayload.model,
-    requestModel: upstreamPayload.params?.model || upstreamPayload.model,
     durationSeconds,
     pricing: options.tenantPublic ? tenantDocsPricingView(pricing) : pricing,
     coverUrl: template.coverUrl,
     previewUrl: template.previewUrl,
-    prompt: configuredPrompt || "",
-    negativePrompt: template.negativePrompt || "",
     endpoint: {
       method: "POST",
       url: `${origin}/api/platform/generate`,
@@ -18960,7 +19089,7 @@ async function buildTemplateModelDoc(template, origin, user = null, options = {}
     requestFields: [
       { name: "templateId", type: "string", required: true, description: "Template id from this document." },
       { name: "dataUrl", type: "string", required: template.type === "image-to-video", description: "Base64 data URL. Required for image-to-video templates." },
-      { name: "prompt", type: "string", required: false, description: "Optional prompt override. Leave empty to use the saved template prompt." },
+      { name: "prompt", type: "string", required: false, description: "Optional prompt text for this generation." },
     ],
     exampleRequest: {
       method: "POST",
@@ -19004,7 +19133,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
   const exampleBody = {
     model: params.model || "dreamina-seedance-2-0-260128",
     content: [
-      { type: "text", text: item.prompt || params.prompt || "Use Image 1 as the reference and generate a cinematic 5 second shot." },
+      { type: "text", text: "Use Image 1 as the reference and generate a cinematic 5 second shot." },
     ],
     ratio: params.ratio || params.aspect_ratio || "9:16",
     resolution: params.resolution || "720p",
@@ -19017,12 +19146,10 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     title: item.title,
     category: item.category,
     provider,
-    model: publicModelText(docModel || pricing.model),
     description: item.description || "",
     pricing: options.tenantPublic ? tenantDocsPricingView(pricingView) : pricingView,
     coverUrl: item.coverUrl,
     previewUrl: item.previewUrl,
-    prompt: item.prompt || params.prompt || "",
     requiresApproval: false,
     endpoint: {
       method: "POST",
@@ -19090,13 +19217,11 @@ function templateDocMarkdown(item) {
     "",
     `- templateId: \`${item.id}\``,
     `- type: \`${item.type}\``,
-    `- model: \`${publicModelText(item.requestModel || item.model)}\``,
     `- duration: ${item.durationSeconds || "configured"}s`,
     `- estimated cost: ${item.pricing.available ? `${item.pricing.credits} credits` : "pricing unavailable"}`,
   ];
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.coverUrl) lines.push(`- cover: ${item.coverUrl}`);
-  if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -19107,13 +19232,11 @@ function advancedDocMarkdown(item) {
     "",
     `- caseId: \`${item.id}\``,
     `- provider: \`${item.provider || "seedance"}\``,
-    item.model ? `- model: \`${publicModelText(item.model)}\`` : "",
     "- access: signed-in users",
     `- estimated cost: ${item.pricing.credits} credits`,
   ].filter(Boolean);
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
-  if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "Use the Seedance V3 task endpoint for external integrations. Submit content[] to `/api/v3/contents/generations/tasks` and poll `/api/v3/contents/generations/tasks/<taskId>` for progress and result.");
   lines.push("", "Seedance V3 inputs accept public URLs, supported data URLs, or asset:// ids returned by the BytePlus-compatible CreateAsset action. In prompts, refer to media as Image 1, Video 1, and Audio 1.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
@@ -22306,13 +22429,25 @@ async function handleWan27ImageEdit(req, res) {
   }
 
   const body = await readJson(req);
-  const prompt = String(body.prompt || "").trim();
-  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   const bodyParams = requestParamsFromBody(body);
   const mergedBody = { ...bodyParams, ...body };
   const asyncResponse = boolFromRequest(firstPresent(mergedBody.async, mergedBody.asyncResponse, mergedBody.returnImmediately), false);
   const assetIds = imageEditAssetIdsFromBody(mergedBody);
-  const externalImageUrls = imageEditUrlsFromBody(mergedBody);
+  let externalImageUrls = imageEditUrlsFromBody(mergedBody);
+  const config = await readAppConfig();
+  const playfluxTemplate = findPlayfluxTemplate(config, firstPresent(body.templateId, bodyParams.templateId, body.params?.templateId, ""));
+  const originalSourceImageCount = assetIds.length + externalImageUrls.length;
+  if (playfluxTemplate && playfluxTemplateShouldUsePreviewImageReference(playfluxTemplate, originalSourceImageCount)) {
+    const previewUrl = String(playfluxTemplate.previewUrl || "").trim();
+    if (previewUrl && !externalImageUrls.includes(previewUrl)) externalImageUrls = [...externalImageUrls, previewUrl];
+  }
+  const prompt = playfluxTemplate
+    ? playfluxTemplateImagePrompt(playfluxTemplate, {
+      sourceImageCount: originalSourceImageCount,
+      userPrompt: String(firstPresent(body.prompt, bodyParams.prompt, "") || "").trim(),
+    })
+    : String(firstPresent(body.prompt, bodyParams.prompt, "") || "").trim();
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   const invalidExternalImageUrl = externalImageUrls.find((url) => !isPublicHttpUrl(url));
   if (invalidExternalImageUrl) {
     return sendJson(res, 400, { ok: false, code: "INVALID_IMAGE_URL", message: "Wan2.7 image URLs must be public http(s) URLs." });
@@ -22331,7 +22466,6 @@ async function handleWan27ImageEdit(req, res) {
     sourceAssets.push(asset);
   }
 
-  const config = await readAppConfig();
   const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
   const imageOptions = wan27ImageRequestOptions(mergedBody, {
     defaultModel: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
@@ -22929,6 +23063,7 @@ function publicUserCharacter(character) {
     publicImageUrl: character.publicImageUrl || "",
     cdnImageUrl: character.cdnImageUrl || "",
     imageTaskId: character.imageTaskId || "",
+    imageGenerationRecordTaskId: character.imageGenerationRecordTaskId || "",
     imageRemoteUrl: character.imageRemoteUrl || "",
     videoUrl,
     cdnVideoUrl: character.cdnVideoUrl || "",
@@ -23079,6 +23214,26 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
       imageUrls: [readyImageUrl],
     };
   }
+  const localImageRecordTaskId = String(record?.imageGenerationRecordTaskId || "").trim();
+  const currentImageTaskId = String(record?.imageTaskId || "").trim();
+  const waitingForSubmit = Boolean(record?.awaitingImageSubmit)
+    || (localImageRecordTaskId && currentImageTaskId === localImageRecordTaskId && !record.gatewayCharacterId);
+  if (waitingForSubmit) {
+    record.status = "image_generating";
+    record.imageStatus = record.imageStatus || "submitting";
+    record.updatedAt = new Date().toISOString();
+    await saveUserCharacterForAuth(auth, record);
+    await updateMyCharacterImageGenerationRecord(auth, record, {
+      status: record.imageStatus || "submitting",
+      awaitingUpstreamTask: true,
+      error: "",
+    }, "my-character-image-awaiting-submit");
+    return {
+      record,
+      task: { taskId: currentImageTaskId || localImageRecordTaskId, status: record.imageStatus || "submitting" },
+      imageUrls: [],
+    };
+  }
   if (!record?.imageTaskId) return { record, task: null, imageUrls: [] };
   if (USE_GATEWAY_UPSTREAM && record.gatewayCharacterId) {
     const payload = await gatewayRequest("GET", `/api/my/characters/${encodeURIComponent(record.gatewayCharacterId)}/image`);
@@ -23175,6 +23330,180 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
     error: record.error || "",
   }, "my-character-image-refresh");
   return { record, task, imageUrls };
+}
+
+async function backgroundAuthForMyCharacterJob(authSnapshot = {}) {
+  const db = await readDb();
+  const userId = authSnapshot.user?.id || "";
+  const user = (db.users || []).find((entry) => entry.id === userId) || authSnapshot.user || null;
+  return {
+    ...authSnapshot,
+    db,
+    user,
+  };
+}
+
+function startMyCharacterImageGenerationJob(job = {}) {
+  setImmediate(() => {
+    runMyCharacterImageGenerationJob(job).catch((error) => {
+      console.error("[my-character-image-job-failed]", job.characterId || job.record?.id || "", error.message || error);
+    });
+  });
+}
+
+async function failMyCharacterImageGeneration(auth, record, error, reason = "my-character-image-failed") {
+  const errorInfo = normalizeErrorPayload(error);
+  record.status = "image_failed";
+  record.imageStatus = "failed";
+  record.awaitingImageSubmit = false;
+  record.error = errorInfo.message || error.message || "Character image generation failed.";
+  record.updatedAt = new Date().toISOString();
+  await saveUserCharacterForAuth(auth, record);
+  await updateMyCharacterImageGenerationRecord(auth, record, {
+    status: "failed",
+    awaitingUpstreamTask: false,
+    error: record.error,
+    code: errorInfo.code || "",
+    errorPayload: errorInfo.payload || null,
+    createResponse: errorInfo.payload || null,
+    failedAt: new Date().toISOString(),
+  }, reason);
+}
+
+async function runMyCharacterImageGenerationJob(job = {}) {
+  let auth = await backgroundAuthForMyCharacterJob(job.auth || {});
+  if (!auth.user) {
+    throw new Error("Character image job user not found.");
+  }
+  let record = (auth.db.userCharacters || []).find((entry) => entry.id === job.characterId && entry.userId === auth.user.id && !isSoftDeleted(entry)) || job.record;
+  if (!record?.id) {
+    throw new Error("Character image job record not found.");
+  }
+  const config = job.config || await readAppConfig();
+  const model = job.model || config.characterImage?.textModel || "";
+  const params = job.params || {};
+  const userPrompt = String(job.userPrompt || record.prompt || "").trim();
+  record.awaitingImageSubmit = true;
+  record.status = "image_generating";
+  record.imageStatus = record.imageStatus || "submitting";
+  record.updatedAt = new Date().toISOString();
+  await saveUserCharacterForAuth(auth, record);
+
+  try {
+    if (USE_GATEWAY_UPSTREAM) {
+      const submitted = await gatewayRequest("POST", "/api/my/characters/generate-image", {
+        prompt: userPrompt,
+        name: record.name,
+        title: record.title,
+        creator: record.creator,
+      });
+      auth = await backgroundAuthForMyCharacterJob(auth);
+      record = (auth.db.userCharacters || []).find((entry) => entry.id === job.characterId && entry.userId === auth.user.id && !isSoftDeleted(entry)) || record;
+      const imageUrls = characterImageUrlsFromPayload(submitted);
+      const taskId = apizTaskIdFromResponse(submitted) || String(submitted.character?.imageTaskId || submitted.record?.upstreamTaskId || submitted.record?.taskId || "").trim();
+      const gatewayRecordTaskId = String(submitted.record?.taskId || submitted.data?.record?.taskId || "").trim();
+      if (!taskId && !imageUrls[0]) {
+        const error = new Error(`Character image task did not return task id: ${JSON.stringify(submitted)}`);
+        error.statusCode = 502;
+        throw error;
+      }
+      record.imageTaskId = taskId || record.imageTaskId || record.imageGenerationRecordTaskId || "";
+      record.imageStatus = String(submitted.character?.imageStatus || submitted.task?.status || apizTaskStatus(submitted));
+      record.gatewayCharacterId = String(submitted.character?.id || "");
+      record.imageTaskResponse = submitted;
+      record.awaitingImageSubmit = false;
+      if (imageUrls[0] && (isCompletedStatus(record.imageStatus) || !isFailedStatus(record.imageStatus))) {
+        const local = await downloadGeneratedCharacterSheet(record.imageTaskId, imageUrls[0]);
+        record.imageStatus = "succeeded";
+        record.posterUrl = local.localUrl;
+        record.localImageUrl = local.localUrl;
+        record.sourceImageUrl = local.localUrl;
+        record.publicImageUrl = local.cdnImageUrl || record.publicImageUrl || "";
+        record.cdnImageUrl = local.cdnImageUrl || record.cdnImageUrl || "";
+        record.objectStorageKey = local.objectStorageKey || record.objectStorageKey || "";
+        record.objectStorageError = local.cdnError || record.objectStorageError || "";
+        record.imageRemoteUrl = imageUrls[0];
+        record.status = "image_ready";
+        record.error = "";
+      } else if (isFailedStatus(record.imageStatus)) {
+        record.status = "image_failed";
+        record.error = String(submitted.character?.error || submitted.task?.error || submitted.task?.message || submitted.message || "Character image generation failed.");
+      } else {
+        record.status = "image_generating";
+        record.error = "";
+      }
+      record.updatedAt = new Date().toISOString();
+      await saveUserCharacterForAuth(auth, record);
+      await updateMyCharacterImageGenerationRecord(auth, record, {
+        upstreamTaskId: gatewayRecordTaskId || taskId || "",
+        status: myCharacterImageGenerationStatus(record, record.imageStatus),
+        model: submitted.record?.model || model,
+        params,
+        awaitingUpstreamTask: !(record.status === "image_ready" || record.status === "image_failed"),
+        createResponse: submitted,
+        remoteImageUrl: record.imageRemoteUrl || imageUrls[0] || "",
+        imageResultUrl: record.publicImageUrl || record.cdnImageUrl || record.localImageUrl || record.posterUrl || "",
+        localImageUrl: record.localImageUrl || "",
+        cdnImageUrl: record.cdnImageUrl || record.publicImageUrl || "",
+        error: record.error || "",
+      }, "my-character-image-submit");
+      return;
+    }
+
+    const generated = await createSeedream5ImageDirect({
+      prompt: userPrompt,
+      resolution: process.env.CHARACTER_SEEDREAM_SIZE || "2K",
+      model: process.env.CHARACTER_SEEDREAM_MODEL || (/^ep-/i.test(String(model || "")) ? model : ""),
+      tier: process.env.CHARACTER_SEEDREAM_TIER || "pro",
+    });
+    auth = await backgroundAuthForMyCharacterJob(auth);
+    record = (auth.db.userCharacters || []).find((entry) => entry.id === job.characterId && entry.userId === auth.user.id && !isSoftDeleted(entry)) || record;
+    const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("img"));
+    record.imageTaskId = taskId;
+    record.awaitingImageSubmit = false;
+    await updateMyCharacterImageGenerationRecord(auth, record, {
+      upstreamTaskId: taskId,
+      status: "submitted",
+      model: generated.payload.model || model,
+      params,
+      upstreamPayload: generated.payload,
+      createResponse: generated.raw,
+      remoteImageUrl: generated.imageUrl,
+      awaitingUpstreamTask: false,
+    }, "my-character-image-submit");
+    const local = await downloadGeneratedCharacterSheet(taskId, generated.imageUrl);
+    record.imageStatus = "succeeded";
+    record.posterUrl = local.localUrl;
+    record.localImageUrl = local.localUrl;
+    record.sourceImageUrl = local.localUrl;
+    record.publicImageUrl = local.cdnImageUrl || record.publicImageUrl || "";
+    record.cdnImageUrl = local.cdnImageUrl || record.cdnImageUrl || "";
+    record.objectStorageKey = local.objectStorageKey || record.objectStorageKey || "";
+    record.objectStorageError = local.cdnError || record.objectStorageError || "";
+    record.imageRemoteUrl = generated.imageUrl;
+    record.imageTaskResponse = { ...generated.raw, payload: generated.payload };
+    record.status = "image_ready";
+    record.error = "";
+    record.updatedAt = new Date().toISOString();
+    await saveUserCharacterForAuth(auth, record);
+    await updateMyCharacterImageGenerationRecord(auth, record, {
+      upstreamTaskId: taskId,
+      status: "succeeded",
+      model: generated.payload.model || model,
+      params,
+      upstreamPayload: generated.payload,
+      createResponse: generated.raw,
+      remoteImageUrl: generated.imageUrl,
+      imageResultUrl: local.cdnImageUrl || local.localUrl || generated.imageUrl,
+      localImageUrl: local.localUrl,
+      cdnImageUrl: local.cdnImageUrl || "",
+      cdnError: local.cdnError || "",
+      awaitingUpstreamTask: false,
+      error: "",
+    }, "my-character-image-succeeded");
+  } catch (error) {
+    await failMyCharacterImageGeneration(auth, record, error, "my-character-image-failed");
+  }
 }
 
 async function ensureCharacterReferenceForRecord(record) {
@@ -23465,143 +23794,42 @@ async function handleGenerateMyCharacterImage(req, res) {
     awaitingUpstreamTask: true,
   }, "my-character-image-create");
 
-  try {
-    if (USE_GATEWAY_UPSTREAM) {
-      const submitted = await gatewayRequest("POST", "/api/my/characters/generate-image", {
-        prompt: userPrompt,
-        name: record.name,
-        title: record.title,
-        creator: record.creator,
-      });
-      const imageUrls = characterImageUrlsFromPayload(submitted);
-      const taskId = apizTaskIdFromResponse(submitted) || String(submitted.character?.imageTaskId || submitted.record?.upstreamTaskId || submitted.record?.taskId || "").trim();
-      const gatewayRecordTaskId = String(submitted.record?.taskId || submitted.data?.record?.taskId || "").trim();
-      if (!taskId && !imageUrls[0]) {
-        const error = new Error(`Character image task did not return task id: ${JSON.stringify(submitted)}`);
-        error.statusCode = 502;
-        throw error;
-      }
-      record.imageTaskId = taskId || imageRecordTaskId;
-      record.imageStatus = String(submitted.character?.imageStatus || submitted.task?.status || apizTaskStatus(submitted));
-      record.gatewayCharacterId = String(submitted.character?.id || "");
-      record.imageTaskResponse = submitted;
-      if (imageUrls[0] && (isCompletedStatus(record.imageStatus) || !isFailedStatus(record.imageStatus))) {
-        const local = await downloadGeneratedCharacterSheet(record.imageTaskId, imageUrls[0]);
-        record.imageStatus = "succeeded";
-        record.posterUrl = local.localUrl;
-        record.localImageUrl = local.localUrl;
-        record.sourceImageUrl = local.localUrl;
-        record.publicImageUrl = local.cdnImageUrl || record.publicImageUrl || "";
-        record.cdnImageUrl = local.cdnImageUrl || record.cdnImageUrl || "";
-        record.objectStorageKey = local.objectStorageKey || record.objectStorageKey || "";
-        record.objectStorageError = local.cdnError || record.objectStorageError || "";
-        record.imageRemoteUrl = imageUrls[0];
-        record.status = "image_ready";
-        record.error = "";
-      } else if (isFailedStatus(record.imageStatus)) {
-        record.status = "image_failed";
-        record.error = String(submitted.character?.error || submitted.task?.error || submitted.task?.message || submitted.message || "Character image generation failed.");
-      }
-      record.updatedAt = new Date().toISOString();
-      await saveUserCharacterForAuth(auth, record);
-      const generationRecord = await updateMyCharacterImageGenerationRecord(auth, record, {
-        upstreamTaskId: gatewayRecordTaskId || taskId || "",
-        status: myCharacterImageGenerationStatus(record, record.imageStatus),
-        model: submitted.record?.model || model,
-        params,
-        awaitingUpstreamTask: !(record.status === "image_ready" || record.status === "image_failed"),
-        createResponse: submitted,
-        remoteImageUrl: record.imageRemoteUrl || imageUrls[0] || "",
-        imageResultUrl: record.publicImageUrl || record.cdnImageUrl || record.localImageUrl || record.posterUrl || "",
-        localImageUrl: record.localImageUrl || "",
-        cdnImageUrl: record.cdnImageUrl || record.publicImageUrl || "",
-        error: record.error || "",
-      }, "my-character-image-submit");
-      return sendJson(res, 200, {
-        ok: true,
-        character: publicUserCharacter(record),
-        task: { taskId: record.imageTaskId, status: record.imageStatus, imageUrl: record.publicImageUrl || record.cdnImageUrl || record.localImageUrl || record.imageRemoteUrl || "" },
-        record: publicGenerationRecord(generationRecord || { taskId: imageRecordTaskId }, generationRecordResponseOptionsForAuth(auth)),
-        user: userView(auth.user),
-      });
-    }
+  record.imageTaskId = imageRecordTaskId;
+  record.imageStatus = "submitting";
+  record.awaitingImageSubmit = true;
+  record.updatedAt = new Date().toISOString();
+  await saveUserCharacterForAuth(auth, record);
+  const generationRecord = await updateMyCharacterImageGenerationRecord(auth, record, {
+    status: "submitting",
+    model,
+    params,
+    awaitingUpstreamTask: true,
+    upstreamTaskId: "",
+    error: "",
+  }, "my-character-image-queued");
 
-    const generated = await createSeedream5ImageDirect({
-      prompt: userPrompt,
-      resolution: process.env.CHARACTER_SEEDREAM_SIZE || "2K",
-      model: process.env.CHARACTER_SEEDREAM_MODEL || (/^ep-/i.test(String(model || "")) ? model : ""),
-      tier: process.env.CHARACTER_SEEDREAM_TIER || "pro",
-    });
-    const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("img"));
-    record.imageTaskId = taskId;
-    await updateMyCharacterImageGenerationRecord(auth, record, {
-      upstreamTaskId: taskId,
-      status: "submitted",
-      model: generated.payload.model || model,
-      params,
-      upstreamPayload: generated.payload,
-      createResponse: generated.raw,
-      remoteImageUrl: generated.imageUrl,
-      awaitingUpstreamTask: false,
-    }, "my-character-image-submit");
-    const local = await downloadGeneratedCharacterSheet(taskId, generated.imageUrl);
-    record.imageStatus = "succeeded";
-    record.posterUrl = local.localUrl;
-    record.localImageUrl = local.localUrl;
-    record.sourceImageUrl = local.localUrl;
-    record.publicImageUrl = local.cdnImageUrl || record.publicImageUrl || "";
-    record.cdnImageUrl = local.cdnImageUrl || record.cdnImageUrl || "";
-    record.objectStorageKey = local.objectStorageKey || record.objectStorageKey || "";
-    record.objectStorageError = local.cdnError || record.objectStorageError || "";
-    record.imageRemoteUrl = generated.imageUrl;
-    record.imageTaskResponse = { ...generated.raw, payload: generated.payload };
-    record.status = "image_ready";
-    record.updatedAt = new Date().toISOString();
-    await saveUserCharacterForAuth(auth, record);
-    const generationRecord = await updateMyCharacterImageGenerationRecord(auth, record, {
-      upstreamTaskId: taskId,
-      status: "succeeded",
-      model: generated.payload.model || model,
-      params,
-      upstreamPayload: generated.payload,
-      createResponse: generated.raw,
-      remoteImageUrl: generated.imageUrl,
-      imageResultUrl: local.cdnImageUrl || local.localUrl || generated.imageUrl,
-      localImageUrl: local.localUrl,
-      cdnImageUrl: local.cdnImageUrl || "",
-      cdnError: local.cdnError || "",
-      awaitingUpstreamTask: false,
-      error: "",
-    }, "my-character-image-succeeded");
-    return sendJson(res, 200, {
-      ok: true,
-      character: publicUserCharacter(record),
-      task: { taskId, status: record.imageStatus, imageUrl: local.cdnImageUrl || local.localUrl || generated.imageUrl },
-      record: publicGenerationRecord(generationRecord || { taskId: imageRecordTaskId }, generationRecordResponseOptionsForAuth(auth)),
-      user: userView(auth.user),
-    });
-  } catch (error) {
-    record.status = "image_failed";
-    record.error = error.message || "Character image generation failed.";
-    record.updatedAt = new Date().toISOString();
-    await saveUserCharacterForAuth(auth, record);
-    const errorInfo = normalizeErrorPayload(error);
-    const generationRecord = await updateMyCharacterImageGenerationRecord(auth, record, {
-      status: "failed",
-      awaitingUpstreamTask: false,
-      error: errorInfo.message || record.error,
-      code: errorInfo.code || "",
-      errorPayload: errorInfo.payload || null,
-      createResponse: errorInfo.payload || null,
-      failedAt: new Date().toISOString(),
-    }, "my-character-image-failed");
-    return sendJson(res, error.statusCode || 502, {
-      ok: false,
-      message: record.error,
-      character: publicUserCharacter(record),
-      record: publicGenerationRecord(generationRecord || { taskId: imageRecordTaskId }, generationRecordResponseOptionsForAuth(auth)),
-    });
-  }
+  startMyCharacterImageGenerationJob({
+    auth: {
+      user: auth.user,
+      tokenRecord: auth.tokenRecord || null,
+      tokenSource: auth.tokenSource || "",
+    },
+    characterId,
+    record: { ...record },
+    userPrompt,
+    config,
+    model,
+    params,
+  });
+
+  return sendJson(res, 202, {
+    ok: true,
+    character: publicUserCharacter(record),
+    task: { taskId: imageRecordTaskId, status: "submitting", imageUrl: "" },
+    taskId: imageRecordTaskId,
+    record: publicGenerationRecord(generationRecord || { taskId: imageRecordTaskId }, generationRecordResponseOptionsForAuth(auth)),
+    user: userView(auth.user),
+  });
 }
 
 async function handleCreateMyCharacter(req, res) {
@@ -27321,6 +27549,11 @@ async function handleRequest(req, res) {
       config = await refreshCompletedHomeVideoItems(config);
       const auth = await getAuth(req);
       return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null) });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/config/pricing") {
+      const config = await readAppConfig();
+      return sendJson(res, 200, { ok: true, ...publicPricingConfig(config) });
     }
 
     if (req.method === "GET" && url.pathname === "/api/public/characters") {

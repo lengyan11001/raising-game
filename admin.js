@@ -1972,9 +1972,13 @@ async function renderGenerationRecords() {
           <option value="">全部供应商</option>
           <option value="apiz" ${provider === "apiz" ? "selected" : ""}>apiz</option>
           <option value="seedance" ${provider === "seedance" ? "selected" : ""}>seedance</option>
+          <option value="seedream5-image" ${provider === "seedream5-image" ? "selected" : ""}>seedream5-image</option>
+          <option value="aliyun-wan27-image" ${provider === "aliyun-wan27-image" ? "selected" : ""}>wan27-image</option>
         </select>
         <select id="recordKind">
           <option value="">全部类型</option>
+          <option value="advanced-image" ${kind === "advanced-image" ? "selected" : ""}>advanced-image</option>
+          <option value="asset-image" ${kind === "asset-image" ? "selected" : ""}>asset-image</option>
           <option value="image-to-video" ${kind === "image-to-video" ? "selected" : ""}>图生视频</option>
           <option value="text-to-video" ${kind === "text-to-video" ? "selected" : ""}>文生视频</option>
           <option value="advanced-video" ${kind === "advanced-video" ? "selected" : ""}>高级生成</option>
@@ -1995,6 +1999,7 @@ async function renderGenerationRecords() {
           <option value="100" ${String(limit) === "100" ? "selected" : ""}>100</option>
         </select>
         <button class="adm-btn adm-btn-primary" type="submit"><i data-lucide="search"></i>查询</button>
+        <button class="adm-btn adm-btn-ghost" type="button" id="resetRecordFilters"><i data-lucide="x-circle"></i>Reset</button>
       </form>
       <div id="recordTablePane" class="adm-card adm-mt">
         <div class="adm-loading"><div class="adm-spinner"></div></div>
@@ -2044,6 +2049,14 @@ async function renderGenerationRecords() {
 
   byId("recordFilters")?.addEventListener("submit", (event) => {
     event.preventDefault();
+    load({ page: 1 }).catch((err) => renderRouteError("records", err));
+  });
+  byId("resetRecordFilters")?.addEventListener("click", () => {
+    if (byId("recordQuery")) byId("recordQuery").value = "";
+    if (byId("recordProvider")) byId("recordProvider").value = "";
+    if (byId("recordKind")) byId("recordKind").value = "";
+    if (byId("recordStatus")) byId("recordStatus").value = "";
+    sessionStorage.removeItem("admRecordFilters");
     load({ page: 1 }).catch((err) => renderRouteError("records", err));
   });
   byId("refreshRecordsBtn")?.addEventListener("click", () => load().catch((err) => renderRouteError("records", err)));

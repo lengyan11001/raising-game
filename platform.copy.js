@@ -1882,12 +1882,33 @@ Media roles: first_frame, last_frame, reference_image, reference_video, referenc
 
 Limits: duration 5-15 seconds. Standard supports 480p, 720p, 1080p, and 4k. Fast supports 480p and 720p. Images: JPG/PNG/WebP/BMP, max 20MB each, width and height 300-6000px, aspect ratio 0.4-2.5. Video references: max 3, pixel count 409600-8847360. Audio references: max 3, MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM, max 30MB each, and must be used with at least one image or video reference. Set generate_audio=false when no generated voice/effects/music is needed.`;
 
-const LIVE_HTTP_ACCESS_COPY = `Production Seedance V3 endpoints:
+const LIVE_HTTP_ACCESS_COPY = `Production generation endpoints:
 
 1) Create and poll a Seedance video task:
 ${ADVANCED_SEEDANCE_ACCESS_COPY}
 
-2) Optional BytePlus-compatible asset upload for reusable files:
+2) Create and poll a Seedream 5.0 Pro image task:
+POST ${apiUrl("/api/v3/images/generations")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "model": "seedream-5.0-pro",
+  "prompt": "Create a cinematic portrait while preserving the selected subject identity.",
+  "image": ["asset://asset-id-from-upload"],
+  "size": "2K",
+  "watermark": false,
+  "output_format": "png",
+  "optimize_prompt_options": {"mode": "standard"}
+}
+
+Response returns id/task_id and status. Poll:
+GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}
+Authorization: Bearer <user-token>
+
+When status is succeeded, read content.image_url.
+
+3) Optional BytePlus-compatible asset upload for reusable files:
 POST ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
@@ -2119,6 +2140,53 @@ Limits:
 - audio references: MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM; max 30MB each; audio must be combined with image or video reference
 - first_frame and last_frame roles cannot be mixed with reference_image, reference_video, or reference_audio`;
 
+const SEEDREAM5_IMAGE_ACCESS_COPY = `Seedream 5.0 Pro image generation is async.
+
+Create image task:
+POST ${apiUrl("/api/v3/images/generations")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "model": "seedream-5.0-pro",
+  "prompt": "Create a cinematic portrait while preserving the selected subject identity.",
+  "image": ["https://example.com/reference.png"],
+  "size": "2K",
+  "watermark": false,
+  "output_format": "png",
+  "optimize_prompt_options": {"mode": "standard"}
+}
+
+Create response:
+{
+  "id": "img-...",
+  "task_id": "img-...",
+  "status": "queued",
+  "data": []
+}
+
+Poll result:
+GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}
+Authorization: Bearer <user-token>
+
+When status is succeeded, read content.image_url.
+
+Fields:
+- model: seedream-5.0-pro
+- prompt: required non-empty image prompt or edit instruction
+- image: optional reference image or array of reference images; public image URL, supported image data URL, or asset:// id; max 9
+- size: 1K or 2K
+- watermark: boolean, default false
+- output_format: png or jpeg
+- optimize_prompt_options.mode: standard or fast
+
+Reference image limits:
+- max 20MB each
+- supported common image formats include JPG, PNG, WebP, BMP, TIFF, GIF, HEIC, HEIF
+- width and height must be greater than 14px
+- aspect ratio must be between 1/16 and 16
+- total pixels must be no more than 36000000`;
+
 const PARAM_DOC_MARKDOWN_URL = apiUrl("/docs/models.md");
 
 const ACCESS_DOCS = {
@@ -2242,6 +2310,29 @@ Content-Type: application/json
   "prompt_extend": false,
   "watermark": false
 }`,
+  },
+  seedream5ImageParams: {
+    title: "Seedream 5.0 Image Parameters",
+    summary: "Use /api/v3/images/generations to create an async Seedream 5.0 Pro image task, then poll /api/v3/contents/generations/tasks/<taskId> for the result image URL.",
+    request: [
+      { name: "/api/v3/images/generations", type: "endpoint", required: "Yes", description: "Create a Seedream 5.0 Pro image task. The create response returns id/task_id and status.", default: "-" },
+      { name: "/api/v3/contents/generations/tasks/<taskId>", type: "endpoint", required: "Yes", description: "Query progress and final content.image_url.", default: "-" },
+      { name: "model", type: "string", required: "Yes", description: "seedream-5.0-pro.", default: "seedream-5.0-pro" },
+      { name: "prompt", type: "string", required: "Yes", description: "Non-empty image prompt or edit instruction.", default: "-" },
+      { name: "image", type: "string or array", required: "No", description: "Optional reference image(s). Use public image URLs, supported image data URLs, or asset:// ids. Max 9.", default: "-" },
+      { name: "size", type: "string", required: "No", description: "1K or 2K.", default: "2K" },
+      { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
+      { name: "output_format", type: "enum", required: "No", description: "png or jpeg.", default: "-" },
+      { name: "optimize_prompt_options.mode", type: "enum", required: "No", description: "standard or fast.", default: "-" },
+      { name: "image input limits", type: "rule", required: "For image", description: "Max 20MB each. Width and height must be greater than 14px. Aspect ratio must be between 1/16 and 16. Total pixels must be no more than 36000000.", default: "-" },
+    ],
+    response: [
+      { name: "id / task_id", type: "string", required: "Yes", description: "Task id returned by create.", default: "-" },
+      { name: "status", type: "string", required: "Yes", description: "queued, running, succeeded, failed, cancelled, or expired.", default: "-" },
+      { name: "content.image_url", type: "string", required: "No", description: "Result image URL when the polled task status is succeeded.", default: "-" },
+      { name: "error", type: "object", required: "No", description: "Failure details when status=failed.", default: "-" },
+    ],
+    example: SEEDREAM5_IMAGE_ACCESS_COPY,
   },
   wanImageParams: {
     title: "Wan Image Parameters",
@@ -2381,6 +2472,14 @@ ACCESS_PARAM_GUIDES = [
     subtitle: "Video",
     desc: "Parameter table for Wan2.7 video generation through /api/advanced/generate.",
     copy: ACCESS_DOCS.wan27Params.example,
+  },
+  {
+    id: "seedream5-image-params",
+    docs: "seedream5ImageParams",
+    title: "Seedream 5.0 Params",
+    subtitle: "Image",
+    desc: "Parameter table for async Seedream 5.0 Pro image generation through /api/v3/images/generations.",
+    copy: SEEDREAM5_IMAGE_ACCESS_COPY,
   },
   {
     id: "wan-image-params",

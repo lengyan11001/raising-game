@@ -473,51 +473,12 @@ function playfluxTemplateDialogMedia(template = {}) {
 }
 
 function playfluxTemplatePromptBlock(template = {}) {
-  const prompt = String(template.prompt || "").trim();
-  const negative = String(template.negativePrompt || "").trim();
-  if (template.tab === "anime") {
-    return `
-      <div class="playflux-anime-prompt-panel">
-        <div class="playflux-anime-prompt-head">
-          <span>Add custom details...</span>
-          <strong data-playflux-template-cost>${escapeHtml(playfluxTemplateCostLabel(template))}</strong>
-        </div>
-        <label class="field">
-          <textarea rows="5" data-playflux-template-prompt>${escapeHtml(prompt)}</textarea>
-        </label>
-        <div class="playflux-template-meta">
-          <span>Resolution: ${escapeHtml(template.ratio || "9:16")}</span>
-          <span>Base style: ${escapeHtml(template.animeBaseStyleLabel || "Nova Anime XL")}</span>
-        </div>
-        ${negative ? `
-          <label class="field">
-            <span>Negative prompt</span>
-            <textarea rows="4" data-playflux-template-negative>${escapeHtml(negative)}</textarea>
-          </label>
-        ` : ""}
-      </div>
-    `;
-  }
   return `
-    <details class="playflux-template-advanced">
-      <summary><i data-lucide="settings"></i><span>高级</span></summary>
-      ${prompt ? `
-        <label class="field">
-          <span>Prompt</span>
-          <textarea rows="5" readonly data-playflux-template-prompt>${escapeHtml(prompt)}</textarea>
-        </label>
-      ` : ""}
-      ${negative ? `
-        <label class="field">
-          <span>Negative prompt</span>
-          <textarea rows="4" readonly data-playflux-template-negative>${escapeHtml(negative)}</textarea>
-        </label>
-      ` : ""}
-      <div class="playflux-template-meta">
-        <span>Resolution: ${escapeHtml(template.ratio || "9:16")}</span>
-        <span data-playflux-template-cost>${escapeHtml(playfluxTemplateCostLabel(template))}</span>
-      </div>
-    </details>
+    <div class="playflux-template-meta playflux-template-public-meta">
+      <span>Resolution: ${escapeHtml(template.ratio || "9:16")}</span>
+      ${template.tab === "anime" ? `<span>Base style: ${escapeHtml(template.animeBaseStyleLabel || "Nova Anime XL")}</span>` : ""}
+      <span data-playflux-template-cost>${escapeHtml(playfluxTemplateCostLabel(template))}</span>
+    </div>
   `;
 }
 
@@ -710,9 +671,7 @@ function showPlayfluxSubmittedHistory(record = null) {
 }
 
 function playfluxTemplatePrompt(template = {}) {
-  return [template.prompt || "", template.negativePrompt ? `Negative prompt: ${template.negativePrompt}` : ""]
-    .filter(Boolean)
-    .join("\n\n");
+  return "";
 }
 
 function playfluxNormalizeSeedanceMediaMode(mode = "") {
@@ -742,35 +701,11 @@ function playfluxSeedanceModeNeedsReferenceVideo(mode = "") {
 }
 
 function playfluxTemplateVideoPrompt(template = {}, { usesReferenceVideo = false, hasSourceImage = false } = {}) {
-  const basePrompt = String(template.prompt || "").trim();
-  const negative = String(template.negativePrompt || "").trim();
-  if (!usesReferenceVideo) {
-    return [basePrompt, negative ? `Negative prompt: ${negative}` : ""].filter(Boolean).join("\n\n");
-  }
-  const guide = [
-    hasSourceImage
-      ? "CRITICAL: Image 1 is the user's selected character/source image. Preserve Image 1 identity, face, hairstyle, body type, skin tone, outfit direction, and main visual features."
-      : "",
-    "CRITICAL: Video 1 is the reference motion video. Match Video 1 closely: action type, pose sequence, body positions, interaction timing, camera angle, framing, shot rhythm, motion direction, and start/end composition.",
-    hasSourceImage
-      ? "Use Video 1 only for motion, action, camera, and composition. Do not copy identity, face, body, clothing, background, watermark, text, colors, or artifacts from Video 1. If Image 1 conflicts with Video 1, Image 1 always wins."
-      : "Use Video 1 as the primary action, camera, and composition guide.",
-    "Generate one continuous cinematic shot with the same action rhythm as Video 1, coherent anatomy, stable hands, and no subtitles or watermark.",
-  ].filter(Boolean).join(" ");
-  return [guide, basePrompt, negative ? `Negative prompt: ${negative}` : ""]
-    .filter(Boolean)
-    .join("\n\n");
+  return "";
 }
 
 function playfluxTemplateFromDialog(template = {}, root = null) {
-  if (template.tab !== "anime") return template;
-  const promptInput = root?.querySelector("[data-playflux-template-prompt]");
-  const negativeInput = root?.querySelector("[data-playflux-template-negative]");
-  return {
-    ...template,
-    prompt: String(promptInput?.value || template.prompt || "").trim(),
-    negativePrompt: String(negativeInput?.value || template.negativePrompt || "").trim(),
-  };
+  return template;
 }
 
 function playfluxTemplateShouldUsePreviewImageReference(template = {}, sourceImageCount = 0) {
@@ -781,18 +716,11 @@ function playfluxTemplateShouldUsePreviewImageReference(template = {}, sourceIma
 }
 
 function playfluxTemplateImagePrompt(template = {}, sourceImageCount = 0, previewImageUrl = "") {
-  const prompt = playfluxTemplatePrompt(template);
-  if (!previewImageUrl) return prompt;
-  const previewIndex = Math.max(0, Number(sourceImageCount || 0)) + 1;
-  const guide = sourceImageCount > 0
-    ? `CRITICAL: Image 1 is the user's selected character/source and must be the dominant subject. Preserve Image 1 identity, face, body type, skin tone, hair, and main visual features. Image ${previewIndex} is NOT the target result and NOT a character reference; use it only as a loose reference for pose, composition, camera angle, scene intent, and general style. Do not copy the person, face, body, clothing, background, watermark, text, colors, or artifacts from Image ${previewIndex}. If Image 1 conflicts with Image ${previewIndex}, Image 1 always wins. The final result must look like a transformed version of Image 1, not a copy of Image ${previewIndex}.`
-    : "";
-  return [guide, prompt].filter(Boolean).join("\n\n");
+  return "";
 }
 
 function playfluxTemplateEstimateCacheKey(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
   const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(sourceMode);
-  const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(template.referenceVideoUrl || template.previewUrl || "") : "";
   return [
     template.id || "",
     template.tab || "",
@@ -800,7 +728,7 @@ function playfluxTemplateEstimateCacheKey(template = {}, sourceMode = playfluxTe
     template.duration || 5,
     template.resolution || "720p",
     template.ratio || "9:16",
-    referenceVideoUrl,
+    usesReferenceVideo ? Number(template.referenceVideoDurationSeconds || template.duration || 5) : 0,
     Number(state.user?.pricingMultiplier || 1),
   ].join("|");
 }
@@ -851,7 +779,6 @@ async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "")
   const resolution = template.resolution || "720p";
   const ratio = normalizeVideoRatio(template.ratio || "9:16");
   const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(mode);
-  const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(template.referenceVideoUrl || template.previewUrl || "") : "";
   try {
     const payload = await requestJson("/api/advanced/estimate", {
       method: "POST",
@@ -862,7 +789,6 @@ async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "")
         resolution,
         ratio,
         inputVideoSeconds: usesReferenceVideo ? Number(template.referenceVideoDurationSeconds || duration) : 0,
-        referenceVideoUrls: referenceVideoUrl ? [referenceVideoUrl] : [],
       },
     });
     const pricing = payload.pricing || payload.estimate || null;
@@ -886,7 +812,6 @@ function playfluxTemplateAbsoluteUrl(value = "") {
 }
 
 function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seedance", options = {}) {
-  const prompt = String(options.prompt || "").trim() || playfluxTemplatePrompt(template);
   return {
     taskId,
     status: "submitting",
@@ -894,22 +819,14 @@ function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seed
     provider,
     source: "playflux-template",
     kind: template.tab === "video" ? "advanced-video" : "asset-image",
-    prompt,
     params: {
       createKind: template.tab === "video" ? "video" : "image",
       createMode: template.tab === "video" ? "playflux-video" : (template.createMode || (template.sourceRequired ? "image-edit" : "image-create")),
       templateId: template.id || "",
       templateTitle: template.title || "",
       templateTab: template.tab || "",
-      sourceModelId: template.sourceModelId || "",
       sourceCount: Number(template.sourceCount || 0),
-      usePreviewAsReference: Boolean(template.usePreviewAsReference),
-      referenceVideoUrl: template.referenceVideoUrl || "",
-      previewImageReferenceUrl: template.tab !== "video" ? (template.previewUrl || "") : "",
-      animePositionId: template.animePositionId || "",
-      animeBaseStyleId: template.animeBaseStyleId || "",
       animeBaseStyleLabel: template.animeBaseStyleLabel || "",
-      triggerWords: template.triggerWords || "",
       source: "playflux",
     },
     ratio: template.ratio || "9:16",
@@ -965,14 +882,8 @@ async function submitPlayfluxTemplate(template = {}, root) {
   const selectedVideoSourceMode = isVideo
     ? playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images")
     : "";
-  const selectedVideoPrompt = isVideo
-    ? playfluxTemplateVideoPrompt(effectiveTemplate, {
-        usesReferenceVideo: playfluxSeedanceModeNeedsReferenceVideo(selectedVideoSourceMode),
-        hasSourceImage: files.length > 0,
-      })
-    : "";
   const pendingTaskId = `pending-playflux-${Date.now().toString(36)}`;
-  mergeAdvancedResultRecord(playfluxTemplateRecordBase(effectiveTemplate, pendingTaskId, provider, selectedVideoPrompt ? { prompt: selectedVideoPrompt } : {}));
+  mergeAdvancedResultRecord(playfluxTemplateRecordBase(effectiveTemplate, pendingTaskId, provider));
   state.advancedResultTaskId = pendingTaskId;
   renderAdvancedResultPanel();
   try {
@@ -985,22 +896,16 @@ async function submitPlayfluxTemplate(template = {}, root) {
       const ratio = normalizeVideoRatio(effectiveTemplate.ratio || "9:16");
       const reference = dataUrl ? { dataUrl, fileName: file.name || "", name: file.name || "Template source image" } : null;
       const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(sourceMode);
-      const referenceVideoUrl = usesReferenceVideo ? playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "") : "";
       const referenceVideoSeconds = playfluxTemplateVideoInputSeconds(effectiveTemplate, sourceMode, duration);
-      const videoPrompt = playfluxTemplateVideoPrompt(effectiveTemplate, {
-        usesReferenceVideo,
-        hasSourceImage: Boolean(reference),
-      });
-      const recordBase = playfluxTemplateRecordBase(effectiveTemplate, "", provider, { prompt: videoPrompt });
+      const recordBase = playfluxTemplateRecordBase(effectiveTemplate, "", provider);
       const payload = await requestJson("/api/advanced/generate", {
         method: "POST",
         body: {
           provider: "seedance",
           seedanceTier: "standard",
-          prompt: videoPrompt,
+          templateId: effectiveTemplate.id || "",
           seedanceMode: sourceMode,
           referenceImages: (playfluxSeedanceModeNeedsReferenceImages(sourceMode) || usesReferenceVideo) && reference ? [seedanceImageRefPayload(reference)] : undefined,
-          referenceVideoUrls: referenceVideoUrl ? [referenceVideoUrl] : undefined,
           firstFrameDataUrl: playfluxSeedanceModeNeedsFirstFrame(sourceMode) && reference ? dataUrl : undefined,
           firstFrameUrl: "",
           ratio,
@@ -1021,7 +926,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
         mergeAdvancedResultRecord(payload.record);
       } else if (taskId) {
         mergeAdvancedResultRecord({
-          ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider, { prompt: videoPrompt }),
+          ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider),
           status: payload.task?.status || "submitted",
           updatedAt: new Date().toISOString(),
         });
@@ -1030,7 +935,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
       playfluxTemplateStatus(root, "Submitted.");
       if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 1200, force: true });
       showPlayfluxSubmittedHistory(payload.record || (taskId ? {
-        ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider, { prompt: videoPrompt }),
+        ...playfluxTemplateRecordBase(effectiveTemplate, taskId, provider),
         status: payload.task?.status || "submitted",
         updatedAt: new Date().toISOString(),
       } : null));
@@ -1038,11 +943,10 @@ async function submitPlayfluxTemplate(template = {}, root) {
     }
 
     if (isAnime) {
-      const imagePrompt = playfluxTemplatePrompt(effectiveTemplate);
       const payload = await requestJson("/api/wan27/image-edit", {
         method: "POST",
         body: {
-          prompt: imagePrompt,
+          templateId: effectiveTemplate.id || "",
           imageAssetIds: [],
           imageUrls: [],
           ratio: effectiveTemplate.ratio || "9:16",
@@ -1050,12 +954,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
           params: {
             ...playfluxTemplateRecordBase(effectiveTemplate, "", provider).params,
             createMode: "anime-text-image",
-            animeBaseStyleId: effectiveTemplate.animeBaseStyleId || "nova-anime-xl",
             animeBaseStyleLabel: effectiveTemplate.animeBaseStyleLabel || "Nova Anime XL",
-            animePositionId: effectiveTemplate.animePositionId || "",
-            triggerWords: effectiveTemplate.triggerWords || "",
-            previewImageReferenceUrl: "",
-            previewImageReferenceIndex: 0,
           },
           async: true,
         },
@@ -1078,22 +977,16 @@ async function submitPlayfluxTemplate(template = {}, root) {
     }
 
     const uploaded = await uploadPlayfluxTemplateImageAssets(files);
-    const previewImageReferenceUrl = playfluxTemplateShouldUsePreviewImageReference(effectiveTemplate, uploaded.length)
-      ? playfluxTemplateAbsoluteUrl(effectiveTemplate.previewUrl || "")
-      : "";
-    const imagePrompt = playfluxTemplateImagePrompt(effectiveTemplate, uploaded.length, previewImageReferenceUrl);
     const payload = await requestJson("/api/wan27/image-edit", {
       method: "POST",
       body: {
-        prompt: imagePrompt,
+        templateId: effectiveTemplate.id || "",
         imageAssetIds: uploaded.map((item) => item.asset?.id).filter(Boolean),
-        imageUrls: previewImageReferenceUrl ? [previewImageReferenceUrl] : [],
+        imageUrls: [],
         ratio: effectiveTemplate.ratio || "9:16",
         resolution: effectiveTemplate.resolution || "1K",
         params: {
           ...playfluxTemplateRecordBase(effectiveTemplate, "", provider).params,
-          previewImageReferenceUrl,
-          previewImageReferenceIndex: previewImageReferenceUrl ? uploaded.length + 1 : 0,
         },
         async: true,
       },
@@ -1964,6 +1857,7 @@ function updateMyCharacterInState(character = {}) {
     character,
     ...(state.myCharacters || []).filter((item) => String(item.id || "") !== String(character.id || "")),
   ];
+  state.myCharactersLoaded = true;
 }
 
 function scheduleMyCharacterProgressRefreshes() {
@@ -2285,12 +2179,19 @@ async function createCharacterFromPrompt() {
     });
     if (payload.user) setUser(payload.user);
     if (payload.character) updateMyCharacterInState(payload.character);
+    if (payload.record) {
+      state.historyRecords = [
+        payload.record,
+        ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId),
+      ];
+    }
     if (els.characterCreatePrompt) els.characterCreatePrompt.value = "";
     if (els.characterCreatorRoot) {
       state.characterCreator = { ...CHARACTER_CREATOR_DEFAULT, step: "prompt" };
       renderCharacterCreator();
     }
     if (els.characterCreateStatus) els.characterCreateStatus.textContent = state.lang === "zh" ? "角色已加入我的角色，正在生成。" : "Character added. Generating image...";
+    if (els.characterCreateStatus) els.characterCreateStatus.textContent = "";
     state.activeGalleryCharacterId = "";
     state.characterPanelTab = "list";
     renderCharactersPanel();
