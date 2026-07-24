@@ -123,67 +123,6 @@ body.tenant-tool-video .playflux-template-page {
   gap: 18px;
 }
 
-body.tenant-tool-video .tool-video-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
-  align-items: end;
-  min-height: 118px;
-  padding: 18px 18px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(255, 79, 122, 0.16), rgba(45, 226, 200, 0.1)),
-    rgba(255, 255, 255, 0.035);
-  overflow: hidden;
-}
-
-body.tenant-tool-video .tool-video-hero-copy {
-  display: grid;
-  gap: 5px;
-}
-
-body.tenant-tool-video .tool-video-hero-copy span {
-  color: var(--video-teal);
-  font-size: 0.78rem;
-  font-weight: 950;
-  text-transform: uppercase;
-  letter-spacing: 0;
-}
-
-body.tenant-tool-video .tool-video-hero-copy h1 {
-  margin: 0;
-  color: var(--video-text);
-  font-size: clamp(2.35rem, 5.4vw, 5.2rem);
-  line-height: 0.92;
-  letter-spacing: 0;
-}
-
-body.tenant-tool-video .tool-video-hero-meta {
-  display: inline-flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-body.tenant-tool-video .tool-video-hero-meta span {
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 11px;
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 999px;
-  color: rgba(248, 248, 251, 0.82);
-  background: rgba(0, 0, 0, 0.22);
-  font-size: 0.8rem;
-  font-weight: 900;
-}
-
-body.tenant-tool-video .tool-video-hero-meta b {
-  color: var(--video-gold);
-}
-
 body.tenant-tool-video .playflux-card-grid {
   grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
   gap: 12px;
@@ -265,20 +204,6 @@ body.tenant-tool-video .spending-panel {
   body.tenant-tool-video .mobile-drawer-topup,
   body.tenant-tool-video .mobile-drawer-login {
     border-radius: 8px;
-  }
-
-  body.tenant-tool-video .tool-video-hero {
-    grid-template-columns: 1fr;
-    min-height: 0;
-    padding: 14px;
-  }
-
-  body.tenant-tool-video .tool-video-hero-copy h1 {
-    font-size: clamp(2rem, 13vw, 3.25rem);
-  }
-
-  body.tenant-tool-video .tool-video-hero-meta {
-    justify-content: flex-start;
   }
 
   body.tenant-tool-video .playflux-card-grid {

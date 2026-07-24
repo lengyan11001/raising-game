@@ -436,23 +436,9 @@ function playfluxTemplatesForActiveTab() {
 function renderPlayfluxTemplateGallery() {
   if (!els.templateGrid) return;
   const templates = playfluxTemplatesForActiveTab();
-  const productHero = isTenantTool("video") ? `
-    <section class="tool-video-hero">
-      <div class="tool-video-hero-copy">
-        <span>123Tops Video</span>
-        <h1>AI Video Studio</h1>
-      </div>
-      <div class="tool-video-hero-meta" aria-label="Video options">
-        <span><b>${escapeHtml(String(templates.length))}</b> Actions</span>
-        <span>Fast</span>
-        <span>Standard</span>
-      </div>
-    </section>
-  ` : "";
   els.templateGrid.className = "template-grid playflux-template-shell";
   els.templateGrid.innerHTML = `
     <section class="playflux-template-page">
-      ${productHero}
       <div class="playflux-card-grid">
         ${templates.map(renderPlayfluxTemplateCard).join("")}
       </div>
