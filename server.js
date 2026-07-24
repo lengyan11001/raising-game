@@ -84,6 +84,69 @@ const MAINLAND_BYPASS_MAX_AGE_SECONDS = Math.max(
 
 const PORT = Number(process.env.PORT || 4174);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+const PRIMARY_PLATFORM_HOSTS = new Set(parseCsvList(process.env.PRIMARY_PLATFORM_HOSTS || "123vips.com,www.123vips.com"));
+const PRIMARY_PLATFORM_ROOT_HOSTS = new Set(parseCsvList(process.env.PRIMARY_PLATFORM_ROOT_HOSTS || "123vips.com"));
+const PUBLIC_TENANT_ROOT_HOSTS = new Set(parseCsvList(process.env.PUBLIC_TENANT_ROOT_HOSTS || "cloudtoken.ai,667zui.video"));
+const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
+  video: "video",
+  videos: "video",
+  image: "image",
+  images: "image",
+  anime: "anime",
+  animation: "anime",
+  character: "characters",
+  characters: "characters",
+  role: "characters",
+  roles: "characters",
+  create: "advanced",
+  advanced: "advanced",
+  tool: "advanced",
+});
+const TOOL_TENANT_SPECS = Object.freeze({
+  video: {
+    id: "video",
+    defaultTab: "gallery",
+    defaultGalleryMode: "playflux-video",
+    allowedTabs: ["gallery", "history", "topups", "spending", "pricing"],
+    allowedGalleryModes: ["playflux-video"],
+    disabledTabs: ["access", "assets", "workflow", "referral"],
+    assetLibrary: false,
+  },
+  image: {
+    id: "image",
+    defaultTab: "gallery",
+    defaultGalleryMode: "playflux-image",
+    allowedTabs: ["gallery", "history", "topups", "spending", "pricing"],
+    allowedGalleryModes: ["playflux-image"],
+    disabledTabs: ["access", "assets", "workflow", "referral"],
+    assetLibrary: false,
+  },
+  anime: {
+    id: "anime",
+    defaultTab: "gallery",
+    defaultGalleryMode: "playflux-anime",
+    allowedTabs: ["gallery", "history", "topups", "spending", "pricing"],
+    allowedGalleryModes: ["playflux-anime"],
+    disabledTabs: ["access", "assets", "workflow", "referral"],
+    assetLibrary: false,
+  },
+  characters: {
+    id: "characters",
+    defaultTab: "characters",
+    allowedTabs: ["characters", "history", "topups", "spending", "pricing"],
+    allowedGalleryModes: ["characters"],
+    disabledTabs: ["access", "assets", "workflow", "referral"],
+    assetLibrary: false,
+  },
+  advanced: {
+    id: "advanced",
+    defaultTab: "advanced",
+    allowedTabs: ["advanced", "characters", "history", "topups", "spending", "pricing"],
+    disabledTabs: ["access", "assets", "workflow", "referral"],
+    assetLibrary: false,
+  },
+});
+const TOOL_TENANT_DOMAIN_MAP = parseToolTenantDomainMap(process.env.TOOL_TENANT_DOMAINS || process.env.TOOL_DOMAIN_MAP || "");
 const INDEXNOW_KEY = String(process.env.INDEXNOW_KEY || "").trim();
 const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
 const TELEGRAM_SUPPORT_ADMIN_CHAT_ID = String(process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID || "").trim();
@@ -965,6 +1028,44 @@ function publicOriginFromRequest(req) {
   return `${protocol}://${host}`.replace(/\/+$/, "");
 }
 
+function parseCsvList(value = "") {
+  return String(value || "")
+    .split(/[,\n;]/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function normalizeHostname(value = "") {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return "";
+  try {
+    return new URL(text.includes("://") ? text : `https://${text}`).hostname.toLowerCase();
+  } catch {
+    return text.replace(/:\d+$/, "").replace(/^\.+|\.+$/g, "").toLowerCase();
+  }
+}
+
+function parseToolTenantDomainMap(value = "") {
+  const map = new Map();
+  String(value || "")
+    .split(/[,\n;]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .forEach((entry) => {
+      const separator = entry.includes("=") ? "=" : entry.includes("|") ? "|" : "";
+      if (!separator) return;
+      const [rawHost, rawTool] = entry.split(separator);
+      const host = normalizeHostname(rawHost);
+      const tool = String(rawTool || "").trim().toLowerCase();
+      if (host && TOOL_TENANT_SPECS[tool]) map.set(host, tool);
+    });
+  return map;
+}
+
+function hostnameFromOrigin(origin = "") {
+  return normalizeHostname(origin);
+}
+
 function requestHostname(req) {
   const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
   if (!host) return "";
@@ -1051,8 +1152,68 @@ function absoluteUrlFromBase(value = "", baseUrl = "") {
   return `${base}${text}`;
 }
 
+function hostnameMatchesRoot(hostname = "", root = "") {
+  const host = normalizeHostname(hostname);
+  const base = normalizeHostname(root);
+  return Boolean(host && base && (host === base || host.endsWith(`.${base}`)));
+}
+
+function isPrimaryPlatformHostname(hostname = "") {
+  const host = normalizeHostname(hostname);
+  return Boolean(host && PRIMARY_PLATFORM_HOSTS.has(host));
+}
+
+function isPublicTenantHostname(hostname = "") {
+  const host = normalizeHostname(hostname);
+  if (!host || isPrimaryPlatformHostname(host)) return false;
+  if (Array.from(PRIMARY_PLATFORM_ROOT_HOSTS).some((root) => hostnameMatchesRoot(host, root))) return true;
+  return Array.from(PUBLIC_TENANT_ROOT_HOSTS).some((root) => hostnameMatchesRoot(host, root));
+}
+
+function toolTenantIdForHostname(hostname = "") {
+  const host = normalizeHostname(hostname);
+  if (!host || isPrimaryPlatformHostname(host)) return "";
+  const configured = TOOL_TENANT_DOMAIN_MAP.get(host);
+  if (configured && TOOL_TENANT_SPECS[configured]) return configured;
+  const firstLabel = host.split(".")[0] || "";
+  return TOOL_TENANT_SUBDOMAIN_ALIASES[firstLabel] || "";
+}
+
+function tenantDescriptorFromHostname(hostname = "") {
+  const host = normalizeHostname(hostname);
+  const toolId = toolTenantIdForHostname(host);
+  const tool = TOOL_TENANT_SPECS[toolId] || null;
+  const tenantPublic = Boolean(tool || isPublicTenantHostname(host));
+  const apiAccess = !tenantPublic && !tool;
+  return {
+    tenantPublic,
+    tenantMode: tool ? "tool" : "platform",
+    host,
+    toolOnly: Boolean(tool),
+    toolId: tool?.id || "",
+    defaultTab: tool?.defaultTab || "gallery",
+    defaultGalleryMode: tool?.defaultGalleryMode || "characters",
+    allowedTabs: Array.isArray(tool?.allowedTabs) ? tool.allowedTabs : [],
+    allowedGalleryModes: Array.isArray(tool?.allowedGalleryModes) ? tool.allowedGalleryModes : [],
+    disabledTabs: Array.from(new Set([...(tool?.disabledTabs || []), ...(apiAccess ? [] : ["access"])])),
+    apiAccess,
+    assetLibrary: tool?.assetLibrary ?? true,
+    accountMenu: true,
+    subscriptions: Boolean(tool),
+  };
+}
+
+function tenantDescriptorFromOrigin(origin = "") {
+  return tenantDescriptorFromHostname(hostnameFromOrigin(origin));
+}
+
+function requestTenantDescriptor(req) {
+  return tenantDescriptorFromHostname(requestHostname(req) || hostnameFromOrigin(publicOriginFromRequest(req)));
+}
+
 function requestTenantOptions(req) {
-  return { tenantPublic: isTenantPublicOrigin(publicOriginFromRequest(req)) };
+  const tenant = requestTenantDescriptor(req);
+  return { ...tenant, tenant };
 }
 
 function isLocalPublicAssetUrl(value = "") {
@@ -1061,14 +1222,7 @@ function isLocalPublicAssetUrl(value = "") {
 }
 
 function isTenantPublicOrigin(origin = "") {
-  const value = String(origin || "").trim();
-  if (!value) return false;
-  try {
-    const url = new URL(value.includes("://") ? value : `https://${value}`);
-    return /(^|\.)(cloudtoken\.ai|667zui\.video)$/i.test(url.hostname);
-  } catch {
-    return /(^|\.)(cloudtoken\.ai|667zui\.video)(?::|\/|$)/i.test(value);
-  }
+  return tenantDescriptorFromOrigin(origin).tenantPublic;
 }
 
 async function readDb() {
@@ -1413,14 +1567,33 @@ function publicCharacterPageFromItems(items = [], auth = null, paging = {}) {
   };
 }
 
-function publicConfig(config, origin = "", auth = null) {
+function publicTenantFeatures(tenant = {}) {
+  return {
+    tenantPublic: Boolean(tenant.tenantPublic),
+    tenantMode: tenant.tenantMode || "platform",
+    toolOnly: Boolean(tenant.toolOnly),
+    toolId: tenant.toolId || "",
+    defaultTab: tenant.defaultTab || "gallery",
+    defaultGalleryMode: tenant.defaultGalleryMode || "characters",
+    allowedTabs: Array.isArray(tenant.allowedTabs) ? tenant.allowedTabs : [],
+    allowedGalleryModes: Array.isArray(tenant.allowedGalleryModes) ? tenant.allowedGalleryModes : [],
+    disabledTabs: Array.isArray(tenant.disabledTabs) ? tenant.disabledTabs : [],
+    apiAccess: tenant.apiAccess !== false,
+    assetLibrary: tenant.assetLibrary !== false,
+    accountMenu: tenant.accountMenu !== false,
+    subscriptions: Boolean(tenant.subscriptions),
+  };
+}
+
+function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const characterPage = publicCharacterPageFromItems(homeVideo.items, auth, {
     page: 1,
     limit: PUBLIC_CHARACTER_PAGE_SIZE,
   });
   const platform = normalizePlatformConfig(config.platform || {});
-  const tenantPublic = isTenantPublicOrigin(origin);
+  const tenant = tenantOptions?.tenant || tenantOptions || tenantDescriptorFromOrigin(origin);
+  const tenantPublic = Boolean(tenant.tenantPublic);
   const walletOptions = publicWalletOptions(config.wallet || {}, { tenantPublic });
   const publicWalletDefault = walletOptions[0] || {};
   const publicPlatform = {
@@ -1442,11 +1615,7 @@ function publicConfig(config, origin = "", auth = null) {
   const view = {
     defaultCompanionId: config.defaultCompanionId,
     prices: { ...config.prices, unlockVideo: CHARACTER_UNLOCK_COST_CREDITS },
-    tenantFeatures: {
-      tenantPublic,
-      assetLibrary: true,
-      accountMenu: true,
-    },
+    tenantFeatures: publicTenantFeatures(tenant),
     assetImageModify: {
       model: assetImageModifyPricing.model || WAN27_IMAGE_PRO_MODEL,
       costCredits: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) * Number(normalizedAdvancedPricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6),
@@ -3167,12 +3336,12 @@ ${entries.join("\n")}
 `;
 }
 
-function buildLlmsTxt(snapshot, { full = false } = {}) {
+function buildLlmsTxt(snapshot, { full = false, apiAccess = true } = {}) {
   const description = homeDescriptionForGeo(snapshot.platform);
   const topCharacters = snapshot.characters.slice(0, full ? 30 : 8);
   const topTags = (snapshot.tags || []).slice(0, full ? 30 : 10);
   const topCategories = (snapshot.categories || []).slice(0, full ? 12 : 6);
-  const lines = [
+  const coreUrls = [
     `# ${snapshot.brand}`,
     "",
     `> ${description}`,
@@ -3182,8 +3351,9 @@ function buildLlmsTxt(snapshot, { full = false } = {}) {
     `- Sitemap: ${scopedApiUrl(snapshot.origin, "/sitemap.xml")}`,
     `- Character library: ${scopedApiUrl(snapshot.origin, "/#gallery")}`,
     `- Create workspace: ${scopedApiUrl(snapshot.origin, "/#advanced")}`,
-    `- API guide: ${scopedApiUrl(snapshot.origin, "/#access")}`,
-    "",
+  ];
+  if (apiAccess) coreUrls.push(`- API guide: ${scopedApiUrl(snapshot.origin, "/#access")}`);
+  const apiLines = apiAccess ? [
     "## API",
     "- Primary Seedance generation endpoint: POST /api/v3/contents/generations/tasks",
     "- Query Seedance V3 tasks: GET /api/v3/contents/generations/tasks/<taskId>",
@@ -3192,6 +3362,11 @@ function buildLlmsTxt(snapshot, { full = false } = {}) {
     "- Public model guide: GET /models.md",
     "- Seedance clients must use the BytePlus-compatible content[] request shape.",
     "",
+  ] : [];
+  const lines = [
+    ...coreUrls,
+    "",
+    ...apiLines,
     "## Content",
     `- Public character profiles: ${snapshot.characters.length}`,
     `- Public character videos listed: ${snapshot.characters.reduce((sum, item) => sum + item.geoVideos.length, 0)}`,
@@ -3236,7 +3411,7 @@ async function handleSitemapXml(req, res) {
 
 async function handleLlmsTxt(req, res, { full = false } = {}) {
   const snapshot = await geoSiteSnapshot(req);
-  return sendText(res, 200, buildLlmsTxt(snapshot, { full }), { head: req.method === "HEAD" });
+  return sendText(res, 200, buildLlmsTxt(snapshot, { full, apiAccess: requestTenantOptions(req).apiAccess !== false }), { head: req.method === "HEAD" });
 }
 
 async function handleIndexNowKey(req, res) {
@@ -19087,7 +19262,7 @@ async function handleAdvancedEstimate(req, res) {
   const auth = await getAuth(req);
   const body = req.method === "POST" ? await readJson(req) : {};
   const url = new URL(req.url || "/", "http://localhost");
-  const tenantPublic = isTenantPublicOrigin(publicOriginFromRequest(req));
+  const tenantPublic = requestTenantOptions(req).tenantPublic;
   const rawProvider = body.provider || url.searchParams.get("provider");
   const provider = isWan27ImageProvider(rawProvider) ? "wan27-image" : normalizeAdvancedProvider(rawProvider);
   const duration = body.duration ?? url.searchParams.get("duration");
@@ -19255,7 +19430,8 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
 async function buildModelDocs(req) {
   const auth = await getAuth(req);
   const origin = publicOriginFromRequest(req);
-  const tenantPublic = isTenantPublicOrigin(origin);
+  const tenantOptions = requestTenantOptions(req);
+  const tenantPublic = tenantOptions.tenantPublic;
   const config = await readAppConfig();
   const platform = normalizePlatformConfig(config.platform || {});
   const templates = [];
@@ -19594,6 +19770,22 @@ async function handleModelsJson(req, res) {
 async function handleModelsMarkdown(req, res) {
   const docs = await buildModelDocs(req);
   return sendMarkdown(res, 200, buildModelDocsMarkdown(docs));
+}
+
+function apiAccessEnabledForRequest(req) {
+  return requestTenantOptions(req).apiAccess !== false;
+}
+
+function sendApiAccessDisabled(res) {
+  return sendJson(res, 404, {
+    ok: false,
+    code: "API_ACCESS_DISABLED",
+    message: "External API access is not enabled for this domain.",
+  });
+}
+
+function byteplusAssetActionRequested(url = null) {
+  return Boolean(url && (url.searchParams.has("Action") || url.searchParams.has("action")));
 }
 
 async function refreshApizGenerationRecord(record) {
@@ -21406,7 +21598,7 @@ async function handleGameFeed(req, res) {
   config = await ensureSceneEntriesPersisted(config);
   config = await refreshCompletedHomeVideoItems(config);
   const auth = await getAuth(req);
-  const publicView = publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null);
+  const publicView = publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, requestTenantOptions(req));
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const items = publicAssetUrlsForClient(homeVideo.items.map((item) => publicGameHomeVideoItem(item, auth?.user ? auth : null)));
   publicView.homeVideo.items = items;
@@ -27915,7 +28107,7 @@ async function handleRequest(req, res) {
       config = await ensureSceneEntriesPersisted(config);
       config = await refreshCompletedHomeVideoItems(config);
       const auth = await getAuth(req);
-      return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null) });
+      return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, requestTenantOptions(req)) });
     }
 
     if (req.method === "GET" && url.pathname === "/api/public/characters") {
@@ -27943,27 +28135,33 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/v3/contents/generations/tasks") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleByteplusV3CreateTask(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/v3/images/generations") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleByteplusV3ImageGeneration(req, res);
     }
 
     const byteplusV3TaskMatch = url.pathname.match(/^\/api\/v3\/contents\/generations\/tasks\/([^/]+)\/?$/);
     if (req.method === "GET" && byteplusV3TaskMatch) {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleByteplusV3GetTask(req, res, decodeURIComponent(byteplusV3TaskMatch[1]));
     }
 
     const volcengineTaskMatch = url.pathname.match(/^\/(?:v3\/)?contents\/generations\/tasks\/([^/]+)\/?$/);
     if (req.method === "POST" && /^\/(?:v3\/)?contents\/generations\/tasks\/?$/.test(url.pathname)) {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleVolcengineCreateGenerationTask(req, res);
     }
     if (req.method === "GET" && volcengineTaskMatch) {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleVolcengineGetGenerationTask(req, res, decodeURIComponent(volcengineTaskMatch[1]));
     }
 
     if (req.method === "GET" && url.pathname === "/api/models") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleModelsJson(req, res);
     }
 
@@ -27972,6 +28170,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && (url.pathname === "/docs/models.md" || url.pathname === "/models.md")) {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleModelsMarkdown(req, res);
     }
 
@@ -28001,18 +28200,22 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/access/subtokens") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleListApiSubtokens(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/access/subtokens") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleCreateApiSubtoken(req, res);
     }
 
     const accessSubtokenMatch = url.pathname.match(/^\/api\/access\/subtokens\/([^/]+)$/);
     if (req.method === "PATCH" && accessSubtokenMatch) {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleUpdateApiSubtoken(req, res, decodeURIComponent(accessSubtokenMatch[1]));
     }
     if (req.method === "DELETE" && accessSubtokenMatch) {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleRevokeApiSubtoken(req, res, decodeURIComponent(accessSubtokenMatch[1]));
     }
 
@@ -28397,7 +28600,8 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, { ok: true, assets: assets && typeof assets === "object" ? assets : {} });
     }
 
-    if (["GET", "POST"].includes(req.method) && url.pathname === "/" && (url.searchParams.has("Action") || url.searchParams.has("action"))) {
+    if (["GET", "POST"].includes(req.method) && url.pathname === "/" && byteplusAssetActionRequested(url)) {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleByteplusAssetAction(req, res, url);
     }
 
