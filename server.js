@@ -23431,6 +23431,40 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
     };
   }
   if (!record?.imageTaskId) return { record, task: null, imageUrls: [] };
+  if (!USE_GATEWAY_UPSTREAM && record.imageRemoteUrl && !readyImageUrl) {
+    const taskId = String(record.imageTaskId || myCharacterImageGenerationRecordId(record) || "");
+    const local = await downloadGeneratedCharacterSheet(taskId, record.imageRemoteUrl);
+    record.imageStatus = "succeeded";
+    record.posterUrl = local.localUrl;
+    record.localImageUrl = local.localUrl;
+    record.sourceImageUrl = local.localUrl;
+    record.publicImageUrl = local.cdnImageUrl || record.publicImageUrl || "";
+    record.cdnImageUrl = local.cdnImageUrl || record.cdnImageUrl || "";
+    record.objectStorageKey = local.objectStorageKey || record.objectStorageKey || "";
+    record.objectStorageError = local.cdnError || record.objectStorageError || "";
+    record.status = "image_ready";
+    record.error = "";
+    record.updatedAt = new Date().toISOString();
+    await saveUserCharacterForAuth(auth, record);
+    const billingUpdates = await myCharacterImageSettleUpdates(record);
+    await updateMyCharacterImageGenerationRecord(auth, record, {
+      upstreamTaskId: record.imageTaskId || "",
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      imageResultUrl: local.cdnImageUrl || local.localUrl || record.imageRemoteUrl,
+      localImageUrl: local.localUrl || "",
+      cdnImageUrl: local.cdnImageUrl || "",
+      cdnError: local.cdnError || "",
+      remoteImageUrl: record.imageRemoteUrl || "",
+      error: "",
+      ...billingUpdates,
+    }, "my-character-image-remote-image-recovered");
+    return {
+      record,
+      task: record.imageTaskResponse || { taskId: record.imageTaskId || "", status: "succeeded", output: { url: record.imageRemoteUrl } },
+      imageUrls: [local.cdnImageUrl, local.localUrl, record.imageRemoteUrl].filter(Boolean),
+    };
+  }
   if (USE_GATEWAY_UPSTREAM && record.gatewayCharacterId) {
     const payload = await gatewayRequest("GET", `/api/my/characters/${encodeURIComponent(record.gatewayCharacterId)}/image`);
     const gatewayCharacter = payload.character || {};
@@ -23574,6 +23608,21 @@ async function refreshMyCharacterImageGenerationRecord(record = {}, reason = "my
     )
   ));
   if (!character) return record;
+  if (
+    !USE_GATEWAY_UPSTREAM &&
+    record.upstreamTaskId &&
+    String(character.imageTaskId || "") === taskId &&
+    !character.imageRemoteUrl
+  ) {
+    const ageMs = Date.now() - generationRecordTime(record);
+    if (ageMs >= GENERATION_SUBMIT_STALE_MS) {
+      character.imageTaskId = String(record.upstreamTaskId || "");
+      character.awaitingImageSubmit = false;
+      const error = new Error("Seedream image submission was interrupted before a result image was saved. The pre-deducted credits were refunded.");
+      await failMyCharacterImageGeneration(auth, character, error, "my-character-image-stale-seedream-submit");
+      return await getGenerationRecord(taskId) || record;
+    }
+  }
   try {
     await refreshGeneratedMyCharacterImage(auth, character);
   } catch (error) {
@@ -23708,7 +23757,12 @@ async function runMyCharacterImageGenerationJob(job = {}) {
     record = (auth.db.userCharacters || []).find((entry) => entry.id === job.characterId && entry.userId === auth.user.id && !isSoftDeleted(entry)) || record;
     const taskId = String(generated.raw?.id || generated.raw?.task_id || generated.raw?.taskId || randomId("img"));
     record.imageTaskId = taskId;
+    record.imageRemoteUrl = generated.imageUrl;
+    record.imageTaskResponse = { ...generated.raw, payload: generated.payload };
+    record.imageStatus = "submitted";
     record.awaitingImageSubmit = false;
+    record.updatedAt = new Date().toISOString();
+    await saveUserCharacterForAuth(auth, record);
     await updateMyCharacterImageGenerationRecord(auth, record, {
       upstreamTaskId: taskId,
       status: "submitted",
