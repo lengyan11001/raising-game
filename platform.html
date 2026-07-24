@@ -23,11 +23,11 @@
     <section id="ageGate" class="age-gate" role="dialog" aria-modal="true" aria-labelledby="ageGateTitle">
       <div class="age-gate-card">
         <span class="age-gate-pill">18+</span>
-        <h1 id="ageGateTitle">&#20165;&#38480; 18 &#23681;&#21450;&#20197;&#19978;&#35775;&#38382;</h1>
-        <p>&#36827;&#20837;&#21069;&#35831;&#30830;&#35748;&#20320;&#24050;&#24180;&#28385; 18 &#23681;&#12290;&#26410;&#28385; 18 &#23681;&#35831;&#30452;&#25509;&#36864;&#20986;&#12290;</p>
+        <h1 id="ageGateTitle" data-i18n="age.title">Adults only</h1>
+        <p data-i18n="age.description">Confirm you are 18 or older before entering. If you are under 18, please exit.</p>
         <div class="age-gate-actions">
-          <button id="ageGateDeclineBtn" class="secondary-btn age-gate-secondary" type="button">&#26410;&#28385; 18 &#23681;&#65292;&#36864;&#20986;</button>
-          <button id="ageGateConfirmBtn" class="primary-btn age-gate-primary" type="button">&#25105;&#24050;&#24180;&#28385; 18 &#23681;&#65292;&#36827;&#20837;</button>
+          <button id="ageGateDeclineBtn" class="secondary-btn age-gate-secondary" type="button" data-i18n="age.decline">Under 18, exit</button>
+          <button id="ageGateConfirmBtn" class="primary-btn age-gate-primary" type="button" data-i18n="age.confirm">I am 18 or older</button>
         </div>
       </div>
     </section>
@@ -35,9 +35,9 @@
     <section id="ageForbidden" class="age-forbidden" hidden aria-live="polite">
       <div class="age-forbidden-card">
         <span class="age-forbidden-code">403</span>
-        <strong>&#35775;&#38382;&#24050;&#25298;&#32477;</strong>
-        <p>&#20165;&#38480; 18 &#23681;&#21450;&#20197;&#19978;&#29992;&#25143;&#36827;&#20837;&#12290;</p>
-        <small>&#21047;&#26032;&#39029;&#38754;&#20250;&#20877;&#27425;&#20986;&#29616;&#24180;&#40836;&#30830;&#35748;&#12290;</small>
+        <strong data-i18n="age.deniedTitle">Access denied</strong>
+        <p data-i18n="age.deniedDescription">Only users aged 18 or older may enter.</p>
+        <small data-i18n="age.deniedRefresh">Refresh the page to show age confirmation again.</small>
       </div>
     </section>
 
@@ -817,6 +817,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-299-remove-video-hero"></script>
+    <script src="./platform.js?v=ai-301-i18n-topup"></script>
   </body>
 </html>
