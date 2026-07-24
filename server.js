@@ -2859,6 +2859,10 @@ function jsonLdScript(data) {
   return `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>`;
 }
 
+function jsonScriptValue(data) {
+  return JSON.stringify(data ?? {}).replace(/</g, "\\u003c");
+}
+
 function geoMetaTags({ title, description, url, image, type = "website", jsonLd = [] }) {
   const imageTag = image ? `
     <meta property="og:image" content="${htmlEscape(image)}" />
@@ -2936,15 +2940,34 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
         /(<strong\s+id="brandName"[^>]*>)([\s\S]*?)(<\/strong>)/i,
         `$1${htmlEscape(displayBrand)}$3`,
       );
+      withTenantShell = withTenantShell.replace(
+        /(<footer\s+class="site-foot"[\s\S]*?<strong>)([\s\S]*?)(<\/strong>)/i,
+        `$1${htmlEscape(displayBrand)}$3`,
+      );
     }
   }
   if (toolId === "video") {
     withTenantShell = withTenantShell
       .replace(/class="top-tab\s+is-active"\s+data-tab="gallery"/i, `class="top-tab" data-tab="gallery"`)
       .replace(/class="top-tab"\s+data-gallery-shortcut="playflux-video"/i, `class="top-tab is-active" data-gallery-shortcut="playflux-video"`);
+    ["gallery", "characters", "advanced", "workflow", "referral", "access"].forEach((tab) => {
+      withTenantShell = withTenantShell.replace(
+        new RegExp(`(<button\\s+class="top-tab"\\s+data-tab="${tab}"\\s+)(type="button")`, "i"),
+        "$1hidden $2",
+      );
+    });
+    ["playflux-anime", "playflux-image"].forEach((shortcut) => {
+      withTenantShell = withTenantShell.replace(
+        new RegExp(`(<button\\s+class="top-tab"\\s+data-gallery-shortcut="${shortcut}"\\s+)(type="button")`, "i"),
+        "$1hidden $2",
+      );
+    });
   }
+  const bootstrapScript = tenant.toolOnly && toolId
+    ? `    <script>window.__TENANT_FEATURES__=${jsonScriptValue(publicTenantFeatures(tenant))};</script>\n`
+    : "";
   const withToolStyles = toolId === "video" && !withTenantShell.includes("tool-video.css")
-    ? withTenantShell.replace(/<\/head>/i, `    <link rel="stylesheet" href="./tool-video.css?v=tool-video-2" />\n  </head>`)
+    ? withTenantShell.replace(/<\/head>/i, `${bootstrapScript}    <link rel="stylesheet" href="./tool-video.css?v=tool-video-3" />\n  </head>`)
     : withTenantShell;
   const withoutTitle = withToolStyles.replace(/<title>[\s\S]*?<\/title>/i, "");
   return withoutTitle.replace(/<\/head>/i, `${tags}\n  </head>`);
