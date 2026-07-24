@@ -12891,6 +12891,14 @@ function generationRecordMatchesQuery(record = {}, query = "") {
 function shouldRefreshGenerationRecord(record = {}) {
   if (needsApizFailureRefund(record)) return true;
   if (needsSeedanceFailureRefund(record)) return true;
+  if (String(record.provider || "").toLowerCase() === "seedream5-image") {
+    if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
+    const imageStatus = String(record.status || "").toLowerCase();
+    if (isFailedStatus(imageStatus)) return false;
+    if (isSucceededStatus(imageStatus)) return !generationRecordImageUrl(record);
+    const queryTaskId = String(record.upstreamTaskId || record.taskId || "");
+    return Boolean(queryTaskId) && !queryTaskId.startsWith("demo-");
+  }
   if (String(record.provider || "").toLowerCase() === "aliyun-wan27-image") {
     if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
     const imageStatus = String(record.status || "").toLowerCase();
@@ -13195,6 +13203,12 @@ async function refreshGenerationRecordStatus(record = {}) {
       console.warn("[generation-record-media-optimize-failed]", record.taskId, error.message || error);
       return record;
     }
+  }
+  if (
+    String(record.provider || "").toLowerCase() === "seedream5-image" &&
+    String(record.source || "").toLowerCase() === "my-character-image-generate"
+  ) {
+    return refreshMyCharacterImageGenerationRecord(record, "generation-record-refresh");
   }
   if (record.provider === "apiz") {
     if ((!APIZ_API_KEY && record.upstreamSource !== "gateway") || !shouldRefreshGenerationRecord(record)) return record;
@@ -23535,6 +23549,38 @@ async function backgroundAuthForMyCharacterJob(authSnapshot = {}) {
     db,
     user,
   };
+}
+
+async function refreshMyCharacterImageGenerationRecord(record = {}, reason = "my-character-image-record-refresh") {
+  if (!record?.taskId || !record.userId) return record;
+  const auth = await backgroundAuthForMyCharacterJob({
+    user: { id: record.userId },
+    tokenRecord: tokenContextFromRecord(record),
+    tokenSource: record.apiTokenSource || "",
+  });
+  if (!auth.user) return record;
+  const taskId = String(record.taskId || "");
+  const upstreamTaskId = String(record.upstreamTaskId || "");
+  const companionId = String(record.companionId || "");
+  const character = (auth.db.userCharacters || []).find((entry) => (
+    entry &&
+    entry.userId === record.userId &&
+    !isSoftDeleted(entry) &&
+    (
+      String(entry.id || "") === companionId ||
+      String(entry.imageGenerationRecordTaskId || "") === taskId ||
+      String(entry.imageTaskId || "") === taskId ||
+      (upstreamTaskId && String(entry.imageTaskId || "") === upstreamTaskId)
+    )
+  ));
+  if (!character) return record;
+  try {
+    await refreshGeneratedMyCharacterImage(auth, character);
+  } catch (error) {
+    console.warn("[my-character-image-record-refresh-failed]", taskId, error.message || error);
+    return record;
+  }
+  return await getGenerationRecord(taskId) || record;
 }
 
 function startMyCharacterImageGenerationJob(job = {}) {
