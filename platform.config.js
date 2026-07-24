@@ -579,12 +579,59 @@ function galleryModeFromPlatformRoute(value = "") {
   return PLAYFLUX_GALLERY_MODE_BY_HASH[normalized] || "";
 }
 
+function bootstrapTenantFeatures() {
+  const value = window.__TENANT_FEATURES__;
+  return value && typeof value === "object" ? value : {};
+}
+
+function bootstrapTenantFeature(name, fallback = true) {
+  const features = bootstrapTenantFeatures();
+  if (features[name] === undefined) return fallback;
+  return Boolean(features[name]);
+}
+
+function bootstrapTenantStringFeature(name, fallback = "") {
+  const value = bootstrapTenantFeatures()[name];
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function bootstrapTenantListFeature(name) {
+  const value = bootstrapTenantFeatures()[name];
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function initialTenantDefaultTab() {
+  const candidate = bootstrapTenantStringFeature("defaultTab", DEFAULT_PLATFORM_TAB);
+  return ALL_TABS.has(candidate) ? candidate : DEFAULT_PLATFORM_TAB;
+}
+
+function initialTenantDefaultGalleryMode() {
+  const configured = bootstrapTenantStringFeature("defaultGalleryMode", DEFAULT_GALLERY_MODE);
+  const allowed = bootstrapTenantListFeature("allowedGalleryModes");
+  const candidates = [configured, ...allowed, DEFAULT_GALLERY_MODE, "playflux-video", "playflux-image"];
+  for (const candidate of candidates) {
+    if (!galleryModeExists(candidate)) continue;
+    if (allowed.length && !allowed.includes(candidate)) continue;
+    return candidate;
+  }
+  return DEFAULT_GALLERY_MODE;
+}
+
 function initialPlatformTab() {
   if (window.location.hash) return normalizePlatformTab(window.location.hash);
   const searchParams = new URLSearchParams(window.location.search || "");
   const searchTab = searchParams.get("tab") || searchParams.get("view") || "";
   if (searchTab) return normalizePlatformTab(searchTab);
+  if (bootstrapTenantFeature("toolOnly", false)) return initialTenantDefaultTab();
   return normalizePlatformTab(localStorage.getItem(TAB_KEY) || "");
+}
+
+function initialGalleryMode() {
+  const routeMode = galleryModeFromPlatformRoute(window.location.hash || "");
+  if (routeMode) return routeMode;
+  if (bootstrapTenantFeature("toolOnly", false)) return initialTenantDefaultGalleryMode();
+  return DEFAULT_GALLERY_MODE;
 }
 
 const state = {
@@ -594,7 +641,7 @@ const state = {
   categories: [],
   estimates: {},
   tab: initialPlatformTab(),
-  galleryMode: galleryModeFromPlatformRoute(window.location.hash || "") || DEFAULT_GALLERY_MODE,
+  galleryMode: initialGalleryMode(),
   playfluxTemplateTab: "video",
   characterSource: "custom",
   characterPanelTab: "create",
@@ -754,7 +801,7 @@ function canUseAnimeTemplates() {
 function tenantFeatures() {
   return state.config?.tenantFeatures && typeof state.config.tenantFeatures === "object"
     ? state.config.tenantFeatures
-    : {};
+    : bootstrapTenantFeatures();
 }
 
 function tenantFeature(name, fallback = true) {
