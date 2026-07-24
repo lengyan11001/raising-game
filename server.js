@@ -8,6 +8,8 @@ const { execFile } = require("node:child_process");
 const { Readable } = require("node:stream");
 const { URL } = require("node:url");
 const {
+  DEFAULT_TENANT_ID,
+  normalizeTenantId,
   dbEnabled,
   migrateGenerationRecordsKvToTable,
   readAppDbFromTables,
@@ -105,6 +107,7 @@ const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
 const TOOL_TENANT_SPECS = Object.freeze({
   video: {
     id: "video",
+    tenantId: "tool-video-123tops",
     brand: "123Tops Video",
     title: "123Tops Video",
     description: "AI video creation workspace.",
@@ -117,6 +120,7 @@ const TOOL_TENANT_SPECS = Object.freeze({
   },
   image: {
     id: "image",
+    tenantId: "tool-image",
     defaultTab: "gallery",
     defaultGalleryMode: "playflux-image",
     allowedTabs: ["gallery", "history", "topups", "spending", "pricing"],
@@ -126,6 +130,7 @@ const TOOL_TENANT_SPECS = Object.freeze({
   },
   anime: {
     id: "anime",
+    tenantId: "tool-anime",
     defaultTab: "gallery",
     defaultGalleryMode: "playflux-anime",
     allowedTabs: ["gallery", "history", "topups", "spending", "pricing"],
@@ -135,6 +140,7 @@ const TOOL_TENANT_SPECS = Object.freeze({
   },
   characters: {
     id: "characters",
+    tenantId: "tool-characters",
     defaultTab: "characters",
     allowedTabs: ["characters", "history", "topups", "spending", "pricing"],
     allowedGalleryModes: ["characters"],
@@ -143,6 +149,7 @@ const TOOL_TENANT_SPECS = Object.freeze({
   },
   advanced: {
     id: "advanced",
+    tenantId: "tool-advanced",
     defaultTab: "advanced",
     allowedTabs: ["advanced", "characters", "history", "topups", "spending", "pricing"],
     disabledTabs: ["access", "assets", "workflow", "referral"],
@@ -1202,6 +1209,7 @@ function tenantDescriptorFromHostname(hostname = "") {
     tenantPublic,
     tenantMode: tool ? "tool" : "platform",
     host,
+    tenantId: normalizeTenantId(tool?.tenantId || DEFAULT_TENANT_ID),
     toolOnly: Boolean(tool),
     toolId: tool?.id || "",
     brand: tool?.brand || "",
@@ -1232,6 +1240,18 @@ function requestTenantOptions(req) {
   return { ...tenant, tenant };
 }
 
+function requestTenantId(req) {
+  return normalizeTenantId(requestTenantDescriptor(req).tenantId || DEFAULT_TENANT_ID);
+}
+
+function recordTenantId(record = null) {
+  return normalizeTenantId(record?.tenantId || record?.tenant_id || DEFAULT_TENANT_ID);
+}
+
+function recordBelongsToTenant(record = null, tenantId = DEFAULT_TENANT_ID) {
+  return Boolean(record) && recordTenantId(record) === normalizeTenantId(tenantId);
+}
+
 function isLocalPublicAssetUrl(value = "") {
   const baseUrl = configuredPublicBaseUrl();
   return Boolean(baseUrl && String(value || "").startsWith(`${baseUrl}/assets/`));
@@ -1243,9 +1263,15 @@ function isTenantPublicOrigin(origin = "") {
 
 async function readDb() {
   const db = (await readAppDbFromTables(DEFAULT_DB)) || DEFAULT_DB;
+  const users = Array.isArray(db.users)
+    ? db.users.map((user) => ({ ...user, tenantId: recordTenantId(user) }))
+    : [];
+  const sessions = Array.isArray(db.sessions)
+    ? db.sessions.map((session) => ({ ...session, tenantId: recordTenantId(session) }))
+    : [];
   return {
-    users: Array.isArray(db.users) ? db.users : [],
-    sessions: Array.isArray(db.sessions) ? db.sessions : [],
+    users,
+    sessions,
     walletOrders: Array.isArray(db.walletOrders) ? db.walletOrders : [],
     creditLedger: Array.isArray(db.creditLedger) ? db.creditLedger : [],
     userAssets: Array.isArray(db.userAssets) ? db.userAssets : [],
@@ -1587,6 +1613,7 @@ function publicTenantFeatures(tenant = {}) {
   return {
     tenantPublic: Boolean(tenant.tenantPublic),
     tenantMode: tenant.tenantMode || "platform",
+    tenantId: normalizeTenantId(tenant.tenantId || DEFAULT_TENANT_ID),
     toolOnly: Boolean(tenant.toolOnly),
     toolId: tenant.toolId || "",
     brand: tenant.brand || "",
@@ -4882,6 +4909,7 @@ function userView(user) {
   if (!user) return null;
   return {
     id: user.id,
+    tenantId: recordTenantId(user),
     username: user.username,
     role: user.role || "user",
     credits: Number(user.credits || 0),
@@ -6402,18 +6430,22 @@ function withJsonBody(req, body = {}) {
 
 async function getAuth(req) {
   const token = getBearerToken(req);
+  const tenantId = requestTenantId(req);
   if (!token) return { db: await readDb(), user: null, session: null, token: "", tokenSource: "", tokenRecord: null };
   if (dbEnabled()) {
     const db = await readDb();
     const session = await getSessionByTokenInDb(token);
-    if (session) {
+    if (session && recordBelongsToTenant(session, tenantId)) {
       const user = await getUserByIdInDb(session.userId);
+      if (!recordBelongsToTenant(user, tenantId)) {
+        return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null };
+      }
       const auth = { db, user, session, ...authUserContext(user, token, "session", null) };
       const store = requestContext.getStore();
       if (store) store.auth = auth;
       return auth;
     }
-    const user = db.users.find((item) => item.apiToken === token) || null;
+    const user = db.users.find((item) => item.apiToken === token && recordBelongsToTenant(item, tenantId)) || null;
     if (user) {
       const auth = { db, user, session: null, ...authUserContext(user, token, "api_token", null) };
       const store = requestContext.getStore();
@@ -6423,7 +6455,7 @@ async function getAuth(req) {
     const subtoken = await getApiSubtokenFromDbByToken(token);
     if (subtoken) {
       const parent = await getUserByIdInDb(subtoken.parentUserId);
-      if (parent) {
+      if (recordBelongsToTenant(parent, tenantId)) {
         const auth = {
           db,
           user: parent,
@@ -6438,15 +6470,18 @@ async function getAuth(req) {
     return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null };
   }
   const db = await readDb();
-  const session = db.sessions.find((item) => item.token === token);
+  const session = db.sessions.find((item) => item.token === token && recordBelongsToTenant(item, tenantId));
   if (session) {
     const user = db.users.find((item) => item.id === session.userId) || null;
+    if (!recordBelongsToTenant(user, tenantId)) {
+      return { db, user: null, session: null, token, tokenSource: "", tokenRecord: null };
+    }
     const auth = { db, user, session, ...authUserContext(user, token, "session", null) };
     const store = requestContext.getStore();
     if (store) store.auth = auth;
     return auth;
   }
-  const user = db.users.find((item) => item.apiToken === token) || null;
+  const user = db.users.find((item) => item.apiToken === token && recordBelongsToTenant(item, tenantId)) || null;
   if (user) {
     const auth = { db, user, session: null, ...authUserContext(user, token, "api_token", null) };
     const store = requestContext.getStore();
@@ -6456,7 +6491,7 @@ async function getAuth(req) {
   const subtoken = await getApiSubtokenFromDbByToken(token);
   if (subtoken) {
     const parent = db.users.find((item) => item.id === subtoken.parentUserId) || null;
-    if (parent) {
+    if (recordBelongsToTenant(parent, tenantId)) {
       const auth = {
         db,
         user: parent,
@@ -20438,6 +20473,7 @@ function getDemoTask(taskId) {
 
 async function handleRegister(req, res) {
   const body = await readJson(req);
+  const tenantId = requestTenantId(req);
   const username = String(body.username || "").trim().toLowerCase();
   const password = String(body.password || "");
   const referralCode = normalizeReferralCode(body.referralCode || body.referral || body.ref || "");
@@ -20449,8 +20485,8 @@ async function handleRegister(req, res) {
   }
 
   const db = await readDb();
-  const existingUser = await getUserByUsernameInDb(username);
-  if (existingUser || db.users.some((user) => user.username === username)) {
+  const existingUser = await getUserByUsernameInDb(username, tenantId);
+  if (existingUser || db.users.some((user) => user.username === username && recordBelongsToTenant(user, tenantId))) {
     return sendJson(res, 409, { ok: false, message: "Username already exists — please sign in." });
   }
 
@@ -20459,6 +20495,7 @@ async function handleRegister(req, res) {
   const referrer = referrerId ? (await getUserByIdInDb(referrerId) || db.users.find((item) => item.id === referrerId)) : null;
   const user = {
     id: randomId("user"),
+    tenantId,
     username,
     passwordHash: hashPassword(password),
     role: db.users.length === 0 ? "admin" : "user",
@@ -20469,7 +20506,7 @@ async function handleRegister(req, res) {
     createdAt: now,
     updatedAt: now,
   };
-  if (referrer?.id && referrer.id !== user.id) {
+  if (referrer?.id && referrer.id !== user.id && recordBelongsToTenant(referrer, tenantId)) {
     user.referral = {
       referredByUserId: referrer.id,
       referredByUsername: referrer.username || "",
@@ -20478,7 +20515,7 @@ async function handleRegister(req, res) {
     };
   }
   const token = crypto.randomBytes(32).toString("hex");
-  const session = { token, userId: user.id, createdAt: now };
+  const session = { token, userId: user.id, tenantId, createdAt: now };
   db.users.push(user);
   db.sessions.push(session);
   if (dbEnabled()) {
@@ -20492,17 +20529,19 @@ async function handleRegister(req, res) {
 
 async function handleLogin(req, res) {
   const body = await readJson(req);
+  const tenantId = requestTenantId(req);
   const username = String(body.username || "").trim().toLowerCase();
   const password = String(body.password || "");
   const db = await readDb();
-  const user = await getUserByUsernameInDb(username) || db.users.find((item) => item.username === username);
+  const user = await getUserByUsernameInDb(username, tenantId)
+    || db.users.find((item) => item.username === username && recordBelongsToTenant(item, tenantId));
   if (!user || !verifyPassword(password, user.passwordHash)) {
     return sendJson(res, 401, { ok: false, message: "Wrong username or password." });
   }
 
   ensureUserApiToken(user, db);
   const token = crypto.randomBytes(32).toString("hex");
-  const session = { token, userId: user.id, createdAt: new Date().toISOString() };
+  const session = { token, userId: user.id, tenantId, createdAt: new Date().toISOString() };
   db.sessions.push(session);
   if (dbEnabled()) {
     await updateUserInDb(user);
@@ -26644,7 +26683,7 @@ async function handleAdminListUsers(req, res, url) {
     advancedAccessRequestedAt: u.advancedAccessRequestedAt || "",
   }));
   if (query) {
-    list = list.filter((user) => [user.username, user.id, user.apiToken, user.role]
+    list = list.filter((user) => [user.username, user.id, user.tenantId, user.apiToken, user.role]
       .some((value) => String(value || "").toLowerCase().includes(query)));
   }
   if (role) list = list.filter((user) => String(user.role || "").toLowerCase() === role);

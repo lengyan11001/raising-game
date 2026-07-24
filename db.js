@@ -1,5 +1,17 @@
 const { Pool } = require("pg");
 
+const DEFAULT_TENANT_ID = "main";
+
+function normalizeTenantId(value = DEFAULT_TENANT_ID) {
+  const cleaned = String(value || DEFAULT_TENANT_ID)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return cleaned || DEFAULT_TENANT_ID;
+}
+
 function dbEnabled() {
   return Boolean(process.env.DATABASE_URL);
 }
@@ -61,7 +73,8 @@ async function ensureSchemaInner() {
   await query(`
     CREATE TABLE IF NOT EXISTS app_users (
       id TEXT PRIMARY KEY,
-      username TEXT UNIQUE NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
+      username TEXT NOT NULL,
       api_token TEXT UNIQUE,
       role TEXT NOT NULL DEFAULT 'user',
       password_hash TEXT NOT NULL DEFAULT '',
@@ -76,6 +89,7 @@ async function ensureSchemaInner() {
   `);
   await query(`
     ALTER TABLE app_users
+      ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
       ADD COLUMN IF NOT EXISTS username TEXT NOT NULL DEFAULT '',
       ADD COLUMN IF NOT EXISTS api_token TEXT,
       ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user',
@@ -93,13 +107,22 @@ async function ensureSchemaInner() {
     SET username = COALESCE(NULLIF(username, ''), NULLIF(payload->>'username', ''), id)
     WHERE username = '';
   `);
+  await query(`
+    UPDATE app_users
+    SET tenant_id = COALESCE(NULLIF(tenant_id, ''), NULLIF(payload->>'tenantId', ''), NULLIF(payload->>'tenant_id', ''), 'main')
+    WHERE tenant_id = '';
+  `);
+  await query(`ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_username_key;`);
+  await query(`DROP INDEX IF EXISTS app_users_username_uidx;`);
   await query(`CREATE INDEX IF NOT EXISTS app_users_created_idx ON app_users (created_at DESC);`);
-  await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_uidx ON app_users (username) WHERE deleted_at IS NULL;`);
+  await query(`CREATE INDEX IF NOT EXISTS app_users_tenant_created_idx ON app_users (tenant_id, created_at DESC);`);
+  await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_tenant_username_uidx ON app_users (tenant_id, username) WHERE deleted_at IS NULL;`);
   await createUniqueIndex(`CREATE UNIQUE INDEX IF NOT EXISTS app_users_api_token_uidx ON app_users (api_token) WHERE api_token IS NOT NULL AND api_token <> '';`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_sessions (
       token TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT 'main',
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -108,11 +131,18 @@ async function ensureSchemaInner() {
   await query(`
     ALTER TABLE app_sessions
       ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'main',
       ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
+  await query(`
+    UPDATE app_sessions
+    SET tenant_id = COALESCE(NULLIF(tenant_id, ''), NULLIF(payload->>'tenantId', ''), NULLIF(payload->>'tenant_id', ''), 'main')
+    WHERE tenant_id = '';
+  `);
   await query(`CREATE INDEX IF NOT EXISTS app_sessions_user_idx ON app_sessions (user_id, created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_sessions_tenant_user_idx ON app_sessions (tenant_id, user_id, created_at DESC);`);
   await query(`
     CREATE TABLE IF NOT EXISTS app_wallet_orders (
       id TEXT PRIMARY KEY,
@@ -403,6 +433,7 @@ function userFromRow(row = {}) {
   return {
     ...payload,
     id: String(row.id || payload.id || ""),
+    tenantId: normalizeTenantId(row.tenant_id || payload.tenantId || payload.tenant_id || DEFAULT_TENANT_ID),
     username: String(row.username || payload.username || ""),
     apiToken: String(row.api_token || payload.apiToken || ""),
     role: String(row.role || payload.role || "user"),
@@ -445,6 +476,7 @@ function sessionFromRow(row = {}) {
     ...payload,
     token: String(row.token || payload.token || ""),
     userId: String(row.user_id || payload.userId || ""),
+    tenantId: normalizeTenantId(row.tenant_id || payload.tenantId || payload.tenant_id || DEFAULT_TENANT_ID),
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
   };
@@ -583,11 +615,14 @@ async function replaceAppDbTables(db = {}, options = {}) {
     }
 
     for (const user of Array.isArray(db.users) ? db.users : []) {
+      const tenantId = normalizeTenantId(user.tenantId || user.tenant_id || DEFAULT_TENANT_ID);
+      const payload = { ...user, tenantId };
       await client.query(
         `
-          INSERT INTO app_users(id, username, api_token, role, password_hash, credits, pricing_multiplier, api_pricing_multiplier, payload, deleted_at, created_at, updated_at)
-          VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::numeric, $7::numeric, $8::numeric, $9::jsonb, $10::timestamptz, $11::timestamptz, $12::timestamptz)
+          INSERT INTO app_users(id, tenant_id, username, api_token, role, password_hash, credits, pricing_multiplier, api_pricing_multiplier, payload, deleted_at, created_at, updated_at)
+          VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7::numeric, $8::numeric, $9::numeric, $10::jsonb, $11::timestamptz, $12::timestamptz, $13::timestamptz)
           ON CONFLICT (id) DO UPDATE SET
+            tenant_id = EXCLUDED.tenant_id,
             username = EXCLUDED.username,
             api_token = EXCLUDED.api_token,
             role = EXCLUDED.role,
@@ -600,6 +635,7 @@ async function replaceAppDbTables(db = {}, options = {}) {
         `,
         [
           String(user.id || ""),
+          tenantId,
           String(user.username || ""),
           String(user.apiToken || ""),
           String(user.role || "user"),
@@ -607,21 +643,23 @@ async function replaceAppDbTables(db = {}, options = {}) {
           creditNumber(user.credits || 0),
           creditNumber(user.pricingMultiplier ?? user.priceMultiplier ?? user.discount ?? 1, 1),
           creditNumber(user.apiPricingMultiplier ?? user.apiPriceMultiplier ?? user.apiDiscount ?? 1, 1),
-          JSON.stringify(user),
-          deletedAtOrNull(user),
-          payloadCreatedAt(user),
-          payloadUpdatedAt(user),
+          JSON.stringify(payload),
+          deletedAtOrNull(payload),
+          payloadCreatedAt(payload),
+          payloadUpdatedAt(payload),
         ],
       );
     }
     for (const session of Array.isArray(db.sessions) ? db.sessions : []) {
+      const tenantId = normalizeTenantId(session.tenantId || session.tenant_id || DEFAULT_TENANT_ID);
+      const payload = { ...session, tenantId };
       await client.query(
         `
-          INSERT INTO app_sessions(token, user_id, payload, created_at, updated_at)
-          VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz)
-          ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at
+          INSERT INTO app_sessions(token, user_id, tenant_id, payload, created_at, updated_at)
+          VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz)
+          ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, tenant_id = EXCLUDED.tenant_id, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at
         `,
-        [String(session.token || ""), String(session.userId || ""), JSON.stringify(session), payloadCreatedAt(session), payloadUpdatedAt(session)],
+        [String(session.token || ""), String(session.userId || ""), tenantId, JSON.stringify(payload), payloadCreatedAt(payload), payloadUpdatedAt(payload)],
       );
     }
     for (const order of Array.isArray(db.walletOrders) ? db.walletOrders : []) {
@@ -789,12 +827,16 @@ async function createManualWalletOrderInDb({ order = {}, suffixDigits = 6, maxAt
   throw error;
 }
 
-async function getUserByUsernameInDb(username = "") {
+async function getUserByUsernameInDb(username = "", tenantId = DEFAULT_TENANT_ID) {
   if (!dbEnabled()) return null;
   const cleanUsername = String(username || "").trim().toLowerCase();
+  const cleanTenantId = normalizeTenantId(tenantId);
   if (!cleanUsername) return null;
   await ensureSchema();
-  const { rows } = await query(`SELECT * FROM app_users WHERE username = $1 AND deleted_at IS NULL`, [cleanUsername]);
+  const { rows } = await query(
+    `SELECT * FROM app_users WHERE tenant_id = $1 AND username = $2 AND deleted_at IS NULL`,
+    [cleanTenantId, cleanUsername],
+  );
   return rows[0] ? userFromRow(rows[0]) : null;
 }
 
@@ -812,14 +854,15 @@ async function createSessionInDb(session = {}) {
   const token = String(session.token || "").trim();
   if (!token) return null;
   await ensureSchema();
-  const payload = { ...session };
+  const tenantId = normalizeTenantId(session.tenantId || session.tenant_id || DEFAULT_TENANT_ID);
+  const payload = { ...session, tenantId };
   await query(
     `
-      INSERT INTO app_sessions(token, user_id, payload, created_at, updated_at)
-      VALUES ($1, $2, $3::jsonb, $4::timestamptz, $5::timestamptz)
+      INSERT INTO app_sessions(token, user_id, tenant_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $6::timestamptz)
       ON CONFLICT (token) DO NOTHING
     `,
-    [token, String(session.userId || ""), JSON.stringify(payload), payloadCreatedAt(payload), payloadUpdatedAt(payload)],
+    [token, String(session.userId || ""), tenantId, JSON.stringify(payload), payloadCreatedAt(payload), payloadUpdatedAt(payload)],
   );
   return session;
 }
@@ -891,12 +934,14 @@ async function updateUserInDb(user = {}) {
   const id = String(user.id || "").trim();
   if (!id) return null;
   await ensureSchema();
-  const payload = { ...user };
+  const tenantId = normalizeTenantId(user.tenantId || user.tenant_id || DEFAULT_TENANT_ID);
+  const payload = { ...user, tenantId };
   await query(
     `
-      INSERT INTO app_users(id, username, api_token, role, password_hash, credits, pricing_multiplier, api_pricing_multiplier, payload, deleted_at, created_at, updated_at)
-      VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6::numeric, $7::numeric, $8::numeric, $9::jsonb, $10::timestamptz, $11::timestamptz, $12::timestamptz)
+      INSERT INTO app_users(id, tenant_id, username, api_token, role, password_hash, credits, pricing_multiplier, api_pricing_multiplier, payload, deleted_at, created_at, updated_at)
+      VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7::numeric, $8::numeric, $9::numeric, $10::jsonb, $11::timestamptz, $12::timestamptz, $13::timestamptz)
       ON CONFLICT (id) DO UPDATE SET
+        tenant_id = EXCLUDED.tenant_id,
         username = EXCLUDED.username,
         api_token = EXCLUDED.api_token,
         role = EXCLUDED.role,
@@ -910,6 +955,7 @@ async function updateUserInDb(user = {}) {
     `,
     [
       id,
+      tenantId,
       String(user.username || ""),
       String(user.apiToken || ""),
       String(user.role || "user"),
@@ -1857,6 +1903,8 @@ function normalizeApiSubtokenUsageRecord(record = {}) {
 }
 
 module.exports = {
+  DEFAULT_TENANT_ID,
+  normalizeTenantId,
   dbEnabled,
   ensureSchema,
   query,
