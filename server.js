@@ -23363,7 +23363,10 @@ async function myCharacterImageRefundUpdates(auth, record = {}, reason = "my-cha
   const taskId = myCharacterImageGenerationRecordId(record);
   const generationRecord = taskId ? await getGenerationRecord(taskId) : null;
   const preDeducted = creditsAmount(generationRecord?.preDeductedCredits || 0);
-  if (preDeducted <= 0 || generationRecord?.billingStatus !== "pre_deducted") {
+  const billingStatus = String(generationRecord?.billingStatus || "").toLowerCase();
+  const finalCredits = creditsAmount(generationRecord?.finalCredits || 0);
+  const canRefund = billingStatus === "pre_deducted" || billingStatus === "settled" || finalCredits > 0;
+  if (preDeducted <= 0 || !canRefund || billingStatus === "refunded" || billingStatus === "free") {
     return {};
   }
   const db = await readDb();
@@ -28512,8 +28515,26 @@ async function scanActiveGenerationRecords(reason = "timer") {
   activeGenerationScanRunning = true;
   try {
     const records = await readGenerationRecords();
+    const refundableRecords = records
+      .filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record))
+      .slice(0, 10);
+    const refunded = [];
+    for (const record of refundableRecords) {
+      try {
+        const nextRecord = await refreshGenerationRecordStatus(record);
+        if (nextRecord && nextRecord.billingStatus !== record.billingStatus) {
+          refunded.push(`${record.taskId}:${record.billingStatus || ""}->${nextRecord.billingStatus || ""}`);
+        }
+      } catch (error) {
+        console.warn("[failed-generation-record-refund-failed]", record.taskId, error.message || error);
+      }
+    }
+    if (refunded.length) {
+      console.log("[failed-generation-records-refunded]", { reason, count: refunded.length, records: refunded });
+    }
     const activeRecords = records
       .filter((record) => isActiveGenerationRecordForScan(record))
+      .filter((record) => !refundableRecords.some((item) => item.taskId === record.taskId))
       .sort((a, b) => generationRecordTime(a) - generationRecordTime(b))
       .slice(0, GENERATION_ACTIVE_SCAN_BATCH_SIZE);
     if (!activeRecords.length) return;
