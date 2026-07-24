@@ -23216,8 +23216,13 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
   }
   const localImageRecordTaskId = String(record?.imageGenerationRecordTaskId || "").trim();
   const currentImageTaskId = String(record?.imageTaskId || "").trim();
-  const waitingForSubmit = Boolean(record?.awaitingImageSubmit)
-    || (localImageRecordTaskId && currentImageTaskId === localImageRecordTaskId && !record.gatewayCharacterId);
+  const terminalImageStatus = isCompletedStatus(record?.imageStatus)
+    || isFailedStatus(record?.imageStatus)
+    || ["image_ready", "image_failed"].includes(String(record?.status || "").toLowerCase());
+  const waitingForSubmit = !terminalImageStatus && (
+    Boolean(record?.awaitingImageSubmit)
+    || (localImageRecordTaskId && currentImageTaskId === localImageRecordTaskId && !record.gatewayCharacterId)
+  );
   if (waitingForSubmit) {
     record.status = "image_generating";
     record.imageStatus = record.imageStatus || "submitting";
