@@ -27,6 +27,7 @@ SHARED_APP_FILES = (
     "platform.explore.js",
     "platform.create.js",
     "platform.main.js",
+    "tool-video.css",
     "admin.html",
     "admin.js",
     "db.js",
@@ -95,7 +96,12 @@ def main() -> int:
             missing.append(f"old missing: {relative}")
             continue
         if not target.exists():
-            missing.append(f"new2 missing: {relative}")
+            if args.check:
+                missing.append(f"new2 missing: {relative}")
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            changed.append(relative)
             continue
         if filecmp.cmp(source, target, shallow=False):
             continue

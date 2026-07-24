@@ -442,8 +442,15 @@ function applyTenantFeatures() {
   const animeEnabled = canUseAnimeTemplates();
   const apiAccessEnabled = tenantFeature("apiAccess", true);
   const toolOnly = tenantFeature("toolOnly", false);
+  const toolId = tenantStringFeature("toolId", "");
   const accountMenuEnabled = tenantFeature("accountMenu", true);
   document.body.classList.toggle("tenant-tool-shell", toolOnly);
+  Array.from(document.body.classList).forEach((className) => {
+    if (/^tenant-tool-[a-z0-9-]+$/i.test(className) && className !== "tenant-tool-shell") {
+      document.body.classList.remove(className);
+    }
+  });
+  if (toolOnly && toolId) document.body.classList.add(`tenant-tool-${toolId}`);
   document.querySelectorAll(".tenant-menu-only").forEach((element) => {
     element.hidden = !accountMenuEnabled;
   });

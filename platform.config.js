@@ -849,6 +849,10 @@ function normalizeTenantRouteAfterConfig() {
   }
 }
 
+function isTenantTool(toolId = "") {
+  return tenantFeature("toolOnly", false) && tenantStringFeature("toolId", "") === String(toolId || "").trim();
+}
+
 function isTabAllowed(tab) {
   const raw = platformHashParts(tab).tab || String(tab || "").trim();
   const normalized = ALL_TABS.has(raw) ? raw : DEFAULT_PLATFORM_TAB;
