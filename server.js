@@ -150,6 +150,7 @@ const PIVOX_ENABLED_USER_KEYS = new Set();
 const PIVOX_ASSET_GROUP_CACHE = new Map();
 const PIVOX_ASSET_URI_CACHE = new Map();
 const SEEDREAM5_ASSET_URI_CACHE = new Map();
+const SEEDREAM5_IMAGE_IN_FLIGHT = new Map();
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
@@ -1356,6 +1357,7 @@ function publicAdvancedPricingView(pricing = {}) {
     seedanceFastVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceFastVideoInputCreditsPerSecondByResolution },
     wan27CreditsPerSecondByResolution: { ...normalized.wan27CreditsPerSecondByResolution },
     vipeak1Image: {
+      model: imagePricing.model || WAN27_IMAGE_PRO_MODEL,
       costCredits: imageCostCredits,
       saleUsdPerImage: pricingNumber(Number(imagePricing.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
       resolutions: imagePricing.resolutions || ["1K", "2K", "4K"],
@@ -1375,146 +1377,6 @@ function publicAdvancedPricingView(pricing = {}) {
       },
     },
   };
-}
-
-function publicPlatformTemplateView(template = {}) {
-  return publicAssetUrlsForClient({
-    id: String(template.id || "").trim(),
-    title: String(template.title || "").trim(),
-    category: String(template.category || "").trim(),
-    type: String(template.type || "").trim(),
-    coverUrl: String(template.coverUrl || "").trim(),
-    previewUrl: String(template.previewUrl || "").trim(),
-    hoverPreviewUrl: String(template.hoverPreviewUrl || "").trim(),
-    badge: String(template.badge || "").trim(),
-    price: positiveCreditsOrNull(template.price ?? template.credits ?? template.estimatedCredits),
-    action: template.action === "advanced" ? "advanced" : "",
-    targetTab: template.targetTab === "advanced" ? "advanced" : "",
-    advancedCaseId: String(template.advancedCaseId || template.caseId || "").trim(),
-    buttonLabel: String(template.buttonLabel || "").trim(),
-  });
-}
-
-function publicAdvancedCaseView(item = {}) {
-  return publicAssetUrlsForClient({
-    id: String(item.id || "").trim(),
-    title: String(item.title || "").trim(),
-    category: String(item.category || item.caseCategory || item.tab || "").trim(),
-    provider: String(item.provider || "").trim(),
-    price: positiveCreditsOrNull(item.price ?? item.estimatedCredits),
-    estimatedCredits: positiveCreditsOrNull(item.estimatedCredits ?? item.price),
-    coverUrl: String(item.coverUrl || "").trim(),
-    previewUrl: String(item.previewUrl || "").trim(),
-    hoverPreviewUrl: String(item.hoverPreviewUrl || "").trim(),
-    outputPosterUrl: String(item.outputPosterUrl || item.resultPosterUrl || "").trim(),
-    resultPosterUrl: String(item.resultPosterUrl || item.outputPosterUrl || "").trim(),
-    inputImageUrl: String(item.inputImageUrl || item.sourceImageUrl || item.referenceImageUrl || item.imageUrl || "").trim(),
-    inputVideoUrl: String(item.inputVideoUrl || "").trim(),
-    inputVideoPosterUrl: String(item.inputVideoPosterUrl || "").trim(),
-    sourceImageUrl: String(item.sourceImageUrl || item.inputImageUrl || "").trim(),
-    sourceVideoUrl: String(item.sourceVideoUrl || "").trim(),
-    sourceCoverUrl: String(item.sourceCoverUrl || "").trim(),
-    mediaSourceVideoUrl: String(item.mediaSourceVideoUrl || item.sourceVideoUrl || "").trim(),
-    mediaSourceCoverUrl: String(item.mediaSourceCoverUrl || item.sourceCoverUrl || "").trim(),
-    localVideoUrl: String(item.localVideoUrl || "").trim(),
-    localCoverUrl: String(item.localCoverUrl || "").trim(),
-    cdnVideoUrl: String(item.cdnVideoUrl || "").trim(),
-    cdnCoverUrl: String(item.cdnCoverUrl || "").trim(),
-    description: String(item.description || "").trim(),
-    mediaMode: String(item.mediaMode || "").trim(),
-    ratio: String(item.ratio || "").trim(),
-    resolution: String(item.resolution || "").trim(),
-    duration: Number(item.duration || 0),
-    enabled: item.enabled !== false,
-    sort: Number(item.sort || 0) || 0,
-  });
-}
-
-function publicPlayfluxTemplateView(template = {}) {
-  return publicAssetUrlsForClient({
-    id: String(template.id || "").trim(),
-    tab: String(template.tab || "").trim(),
-    badge: String(template.badge || "").trim(),
-    ratio: String(template.ratio || "").trim(),
-    title: String(template.title || "").trim(),
-    credits: positiveCreditsOrNull(template.credits ?? template.price),
-    duration: Number(template.duration || 0) || undefined,
-    posterUrl: String(template.posterUrl || "").trim(),
-    previewUrl: String(template.previewUrl || "").trim(),
-    resolution: String(template.resolution || "").trim(),
-    previewType: String(template.previewType || "").trim(),
-    seedanceMode: String(template.seedanceMode || "").trim(),
-    sourceCount: Number(template.sourceCount || 0) || 0,
-    sourceRequired: template.sourceRequired === true,
-    referenceVideoDurationSeconds: Number(template.referenceVideoDurationSeconds || 0) || undefined,
-    animeBaseStyleLabel: String(template.animeBaseStyleLabel || "").trim(),
-  });
-}
-
-function findPlayfluxTemplate(config = {}, templateId = "") {
-  const id = String(templateId || "").trim();
-  if (!id) return null;
-  return (Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [])
-    .find((template) => String(template?.id || "").trim() === id) || null;
-}
-
-function playfluxTemplatePromptWithNegative(template = {}, userPrompt = "") {
-  return [
-    String(template.prompt || "").trim(),
-    String(userPrompt || "").trim(),
-    template.negativePrompt ? `Negative prompt: ${String(template.negativePrompt).trim()}` : "",
-  ].filter(Boolean).join("\n\n");
-}
-
-function playfluxTemplateVideoPrompt(template = {}, { sourceMode = "", hasSourceImage = false, userPrompt = "" } = {}) {
-  const mode = normalizeSeedanceMode(sourceMode || template.seedanceMode || "reference_images", {});
-  const basePrompt = playfluxTemplatePromptWithNegative(template, userPrompt);
-  if (!seedanceModeNeedsReferenceVideo(mode)) return basePrompt;
-  const guide = [
-    hasSourceImage
-      ? "CRITICAL: Image 1 is the user's selected character/source image. Preserve Image 1 identity, face, hairstyle, body type, skin tone, outfit direction, and main visual features."
-      : "",
-    "CRITICAL: Video 1 is the reference motion video. Match Video 1 closely: action type, pose sequence, body positions, interaction timing, camera angle, framing, shot rhythm, motion direction, and start/end composition.",
-    hasSourceImage
-      ? "Use Video 1 only for motion, action, camera, and composition. Do not copy identity, face, body, clothing, background, watermark, text, colors, or artifacts from Video 1. If Image 1 conflicts with Video 1, Image 1 always wins."
-      : "Use Video 1 as the primary action, camera, and composition guide.",
-    "Generate one continuous cinematic shot with the same action rhythm as Video 1, coherent anatomy, stable hands, and no subtitles or watermark.",
-  ].filter(Boolean).join(" ");
-  return [guide, basePrompt].filter(Boolean).join("\n\n");
-}
-
-function playfluxTemplateShouldUsePreviewImageReference(template = {}, sourceImageCount = 0) {
-  if (String(template.tab || "") === "video" || !template.previewUrl) return false;
-  if (sourceImageCount < 1) return false;
-  const requiredCount = Number(template.sourceCount || 0);
-  return requiredCount <= 1 && sourceImageCount <= 1;
-}
-
-function playfluxTemplateImagePrompt(template = {}, { sourceImageCount = 0, userPrompt = "" } = {}) {
-  const basePrompt = playfluxTemplatePromptWithNegative(template, userPrompt);
-  if (!playfluxTemplateShouldUsePreviewImageReference(template, sourceImageCount)) return basePrompt;
-  const previewIndex = Math.max(0, Number(sourceImageCount || 0)) + 1;
-  const guide = sourceImageCount > 0
-    ? `CRITICAL: Image 1 is the user's selected character/source and must be the dominant subject. Preserve Image 1 identity, face, body type, skin tone, hair, and main visual features. Image ${previewIndex} is NOT the target result and NOT a character reference; use it only as a loose reference for pose, composition, camera angle, scene intent, and general style. Do not copy the person, face, body, clothing, background, watermark, text, colors, or artifacts from Image ${previewIndex}. If Image 1 conflicts with Image ${previewIndex}, Image 1 always wins. The final result must look like a transformed version of Image 1, not a copy of Image ${previewIndex}.`
-    : "";
-  return [guide, basePrompt].filter(Boolean).join("\n\n");
-}
-
-function playfluxBodyHasImageReference(body = {}) {
-  return Boolean(
-    body.dataUrl ||
-    body.imageUrl ||
-    body.image_url ||
-    body.firstFrameUrl ||
-    body.firstFrameDataUrl ||
-    body.firstFrameAssetId ||
-    body.imageAssetId ||
-    body.userAssetId ||
-    arrayFromBody(body.referenceImages).length ||
-    arrayFromBody(body.reference_images).length ||
-    arrayFromBody(body.referenceImageAssetIds).length ||
-    arrayFromBody(body.extraReferenceAssetIds).length
-  );
 }
 
 function publicCharacterPageFromItems(items = [], auth = null, paging = {}) {
@@ -1565,11 +1427,15 @@ function publicConfig(config, origin = "", auth = null) {
     ...platform,
     accessCopy: tenantScopedAccessCopy(isLegacyAccessCopy(platform.accessCopy) ? DEFAULT_CONFIG.platform.accessCopy : platform.accessCopy, origin),
   };
-  publicPlatform.templates = (publicPlatform.templates || []).map(publicPlatformTemplateView);
-  publicPlatform.advanced = {
-    ...(publicPlatform.advanced || {}),
-    cases: (publicPlatform.advanced?.cases || []).map(publicAdvancedCaseView),
-  };
+  if (tenantPublic) {
+    publicPlatform.advanced = {
+      ...publicPlatform.advanced,
+      cases: (publicPlatform.advanced?.cases || []).map((item) => {
+        const { creditsPerSecond, pricing, ...safeItem } = item;
+        return safeItem;
+      }),
+    };
+  }
   const normalizedAdvancedPricing = normalizeAdvancedPricing(publicPlatform.advancedPricing);
   const assetImageModifyPricing = normalizedAdvancedPricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
   publicPlatform.advancedPricing = publicAdvancedPricingView(normalizedAdvancedPricing);
@@ -1582,6 +1448,7 @@ function publicConfig(config, origin = "", auth = null) {
       accountMenu: true,
     },
     assetImageModify: {
+      model: assetImageModifyPricing.model || WAN27_IMAGE_PRO_MODEL,
       costCredits: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) * Number(normalizedAdvancedPricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6),
       saleUsdPerImage: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
       resolutions: (assetImageModifyPricing.resolutions || ["1K", "2K", "4K"]).filter((item) => String(item || "").toUpperCase() !== "4K"),
@@ -1601,14 +1468,14 @@ function publicConfig(config, origin = "", auth = null) {
       topupPackages: publicTopupPackages(),
     },
     video: config.video,
-    playfluxTemplates: (Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [])
-      .map(publicPlayfluxTemplateView)
-      .filter((template) => template.id && template.tab && template.title && template.previewUrl),
+    playfluxTemplates: Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [],
     homeVideo: {
       provider: homeVideo.provider || "seedance",
       posterUrl: homeVideo.posterUrl || "",
       videoUrl: homeVideo.videoUrl || "",
+      taskId: homeVideo.taskId || "",
       status: homeVideo.status || "",
+      referenceAssetUri: homeVideo.referenceAssetUri || "",
       activeItemId: homeVideo.activeItemId || "",
       characterUnlockCost: CHARACTER_UNLOCK_COST_CREDITS,
       items: characterPage.items,
@@ -1619,6 +1486,7 @@ function publicConfig(config, origin = "", auth = null) {
       hasMore: characterPage.hasMore,
     },
     platform: publicPlatform,
+    characterImage: config.characterImage,
     scenes: config.scenes
       .filter((scene) => scene.enabled !== false)
       .map((scene) => {
@@ -1650,9 +1518,12 @@ function publicWorkflowPresetView(preset = {}) {
   return publicAssetUrlsForClient({
     id: String(preset.id || "").trim(),
     label: String(preset.label || preset.name || "").trim(),
+    prompt: String(preset.prompt || preset.defaultPrompt || "").trim(),
     previewUrl: String(preset.previewUrl || "").trim(),
     posterUrl: String(preset.posterUrl || "").trim(),
     category: String(preset.category || "PlayFlux").trim() || "PlayFlux",
+    source: String(preset.source || "").trim(),
+    sourceId: String(preset.sourceId || "").trim(),
     sortOrder: Number(preset.sortOrder || 0) || 0,
   });
 }
@@ -1661,7 +1532,7 @@ async function handleWorkflowPresets(req, res) {
   const presets = await listWorkflowPresetsFromDb({ includeDeleted: false }) || [];
   const list = presets
     .map(publicWorkflowPresetView)
-    .filter((preset) => preset.id && preset.label && preset.previewUrl)
+    .filter((preset) => preset.id && preset.label && preset.prompt && preset.previewUrl)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label));
   return sendJson(res, 200, { ok: true, presets: list });
 }
@@ -2119,14 +1990,6 @@ async function readGeoVisitorStats() {
     byCountry: stats.byCountry && typeof stats.byCountry === "object" ? stats.byCountry : {},
     recent: Array.isArray(stats.recent) ? stats.recent.slice(0, 80) : [],
     lastSeen: stats.lastSeen || "",
-  };
-}
-
-function publicPricingConfig(config = {}) {
-  return {
-    source: "old-site",
-    updatedAt: config.updatedAt || "",
-    pricing: publicAdvancedPricingView(config.platform?.advancedPricing || DEFAULT_ADVANCED_PRICING),
   };
 }
 
@@ -4331,8 +4194,14 @@ function publicHomeVideoItem(item, auth = null) {
     name: item.name || "Featured",
     title: item.title || "Featured drama",
     posterUrl,
+    localImageUrl: item.localImageUrl || "",
     characterImageUrl,
     referenceImageUrl: characterImageUrl,
+    syntheticReferenceLocalUrl: item.syntheticReferenceLocalUrl || "",
+    sourceImageUrl: item.publicImageUrl || item.cdnImageUrl || item.sourceImageUrl || "",
+    publicImageUrl: item.publicImageUrl || "",
+    cdnImageUrl: item.cdnImageUrl || "",
+    cdnPosterUrl: item.cdnPosterUrl || "",
     coverUrl: item.coverUrl || "",
     thumbnailUrl: item.thumbnailUrl || "",
     thumbUrl: item.thumbUrl || "",
@@ -4342,20 +4211,27 @@ function publicHomeVideoItem(item, auth = null) {
     videoUrl: "",
     localVideoUrl: "",
     remoteVideoUrl: "",
+    taskId: item.taskId || "",
     status: item.status || "",
+    provider: item.provider || "",
     resolution: item.resolution || "",
     duration: item.duration || 0,
+    source: item.source || "",
+    sourceDisplayId: item.sourceDisplayId || "",
     description: item.description || "",
     age: item.age || 0,
     gender: item.gender || "",
     style: item.style || "",
+    model: item.model || "",
     tags: Array.isArray(item.tags) ? item.tags : [],
     likeCount: Number(item.likeCount || 0),
     estimatedMessageCount: Number(item.estimatedMessageCount || 0),
     creatorUsername: item.creatorUsername || "",
     creatorAvatarUrl: item.creatorAvatarUrl || "",
     videoCount: Number(item.videoCount || Object.keys(characterVideos.homeSceneVideos).length + Object.keys(characterVideos.unlockVideos).length),
+    referenceAssetUri: item.referenceAssetUri || "",
     referenceState,
+    deletedAt: item.deletedAt || "",
     createdAt: item.createdAt || "",
     homeSceneVideos: characterVideos.homeSceneVideos,
     sceneVideos: characterVideos.sceneVideos,
@@ -4532,10 +4408,13 @@ function publicUnlockVideo(entry = {}, videoKey = "") {
     coverUrl: normalized.coverUrl || posterUrl || "",
     thumbnailUrl: normalized.thumbnailUrl || posterUrl || "",
     videoUrl: "",
+    taskId: normalized.taskId || "",
     status: normalized.status || "",
     price: normalized.price,
+    provider: normalized.provider || "seedance",
     updatedAt: normalized.updatedAt || "",
     createdAt: normalized.createdAt || "",
+    error: normalized.error || "",
   };
 }
 
@@ -8044,7 +7923,8 @@ function findSceneConfig(config, sceneId) {
 function publicSceneVideo(entry = {}) {
   if (!entry || typeof entry !== "object") return null;
   const videoUrl = entry.cdnVideoUrl || entry.videoUrl || entry.localVideoUrl || entry.remoteVideoUrl || "";
-  if (!videoUrl && !entry.taskId && !entry.posterUrl && !entry.coverUrl && !entry.thumbnailUrl) return null;
+  const savedPrompt = String(entry.userPrompt || "").trim();
+  if (!videoUrl && !entry.taskId && !savedPrompt) return null;
   const posterUrl = String(entry.cdnPosterUrl || entry.posterUrl || entry.localPosterUrl || entry.coverUrl || entry.thumbnailUrl || "").trim();
   return {
     sceneId: entry.sceneId || "",
@@ -8056,18 +7936,27 @@ function publicSceneVideo(entry = {}) {
     localPosterUrl: entry.localPosterUrl || posterUrl || "",
     coverUrl: entry.coverUrl || posterUrl || "",
     thumbnailUrl: entry.thumbnailUrl || posterUrl || "",
+    taskId: entry.taskId || "",
     status: entry.status || "",
     sceneEntryId: entry.sceneEntryId || "default",
     sceneEntryName: entry.sceneEntryName || "",
+    referenceAssetUri: entry.referenceAssetUri || "",
     partnerCharacterId: entry.partnerCharacterId || "",
     partnerCharacterName: entry.partnerCharacterName || "",
+    partnerReferenceAssetUri: entry.partnerReferenceAssetUri || "",
+    savedPrompt,
+    userPrompt: savedPrompt,
+    model: entry.model || "",
     ratio: entry.ratio || "",
     resolution: entry.resolution || "",
     duration: entry.duration || 0,
     likes: Number(entry.likes || entry.thumbsUpCount || 0),
     shouldBlur: entry.shouldBlur === true,
+    source: entry.source || "",
+    provider: entry.provider || "seedance",
     updatedAt: entry.updatedAt || "",
     createdAt: entry.createdAt || "",
+    error: entry.error || "",
   };
 }
 
@@ -13543,6 +13432,100 @@ function isFailedStatus(status) {
   return ["failed", "error", "cancelled", "canceled", "image_failed"].includes(String(status || "").toLowerCase());
 }
 
+function isActiveGenerationStatus(status) {
+  const normalized = String(status || "").toLowerCase();
+  return ["submitting", "preparing", "submitted", "queued", "pending", "running", "processing", "generating"].includes(normalized);
+}
+
+function generationRecordCreatedMs(record = {}) {
+  const value = Date.parse(record.createdAt || record.submittedAt || record.updatedAt || "");
+  return Number.isFinite(value) ? value : 0;
+}
+
+function generationRecordUpdatedMs(record = {}) {
+  const value = Date.parse(record.updatedAt || record.completedAt || record.billingSettledAt || record.createdAt || "");
+  return Number.isFinite(value) ? value : 0;
+}
+
+function seedream5ImageRecordHasResult(record = {}) {
+  return Boolean(record.imageResultUrl || record.localImageUrl || record.cdnImageUrl || record.remoteImageUrl || record.providerImageUrl || record.upstreamImageUrl);
+}
+
+function seedream5ImageRequestFingerprint({ userId = "", model = "", prompt = "", resolution = "", tier = "", outputFormat = "", optimizePromptOptions = null, referenceInputs = [] } = {}) {
+  const normalizedReferences = (Array.isArray(referenceInputs) ? referenceInputs : [])
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      if (!item || typeof item !== "object") return "";
+      return String(item.assetId || item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || item.url || item.imageUrl || item.fileName || "").trim();
+    })
+    .filter(Boolean);
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify({
+      provider: "seedream5-image",
+      userId: String(userId || ""),
+      model: String(model || ""),
+      prompt: String(prompt || "").trim(),
+      resolution: String(resolution || ""),
+      tier: String(tier || ""),
+      outputFormat: String(outputFormat || ""),
+      optimizePromptOptions: optimizePromptOptions || null,
+      references: normalizedReferences,
+    }))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+async function findActiveSeedream5ImageDuplicate({ userId = "", fingerprint = "", windowMs = 5 * 60 * 1000, recentSettledWindowMs = 3 * 60 * 1000 } = {}) {
+  const cleanFingerprint = String(fingerprint || "").trim();
+  if (!userId || !cleanFingerprint) return null;
+  const cutoff = Date.now() - Math.max(30 * 1000, Number(windowMs) || 0);
+  const settledCutoff = Date.now() - Math.max(0, Number(recentSettledWindowMs) || 0);
+  const records = await listGenerationRecordsForUser(userId, 80);
+  return records.find((record) => (
+    record &&
+    record.provider === "seedream5-image" &&
+    record.kind === "advanced-image" &&
+    String(record.requestFingerprint || record.params?.requestFingerprint || "") === cleanFingerprint &&
+    (
+      (isActiveGenerationStatus(record.status) && generationRecordCreatedMs(record) >= cutoff) ||
+      (isSucceededStatus(record.status) && seedream5ImageRecordHasResult(record) && generationRecordUpdatedMs(record) >= settledCutoff)
+    )
+  )) || null;
+}
+
+function requestTraceForGeneration(req) {
+  if (!req || !req.headers) return {};
+  const ip = requestIpForStats(req);
+  return {
+    requestIp: ip,
+    requestIpHash: ipHashForStats(ip),
+    requestUserAgent: compactPlainText(req.headers["user-agent"] || "", 220),
+    requestReferer: compactPlainText(req.headers.referer || req.headers.referrer || "", 260),
+  };
+}
+
+async function withSeedream5ImageInFlight(fingerprint, fn) {
+  const key = String(fingerprint || "").trim();
+  if (!key) return await fn();
+  while (SEEDREAM5_IMAGE_IN_FLIGHT.has(key)) {
+    await SEEDREAM5_IMAGE_IN_FLIGHT.get(key).catch(() => {});
+  }
+  let release = () => {};
+  const lock = new Promise((resolve) => {
+    release = resolve;
+  });
+  SEEDREAM5_IMAGE_IN_FLIGHT.set(key, lock);
+  try {
+    return await fn();
+  } finally {
+    if (SEEDREAM5_IMAGE_IN_FLIGHT.get(key) === lock) {
+      SEEDREAM5_IMAGE_IN_FLIGHT.delete(key);
+    }
+    release();
+  }
+}
+
 function normalizeErrorPayload(error = {}) {
   const payload = error?.payload && typeof error.payload === "object" ? error.payload : null;
   return {
@@ -14472,11 +14455,9 @@ function gatewayAbsoluteAssetUrl(value = "") {
 
 async function dataUrlForLocalAssetUrl(localUrl = "", fallbackMime = "application/octet-stream") {
   const value = String(localUrl || "").trim();
-  if (!value) return "";
-  const localPath = localAssetPathFromPublicValue(value);
-  if (!localPath) return "";
-  const assetsRoot = path.normalize(path.join(ROOT, "assets"));
-  if (!localPath.startsWith(assetsRoot)) {
+  if (!value || !value.startsWith("/")) return "";
+  const localPath = path.normalize(path.join(ROOT, value.replace(/^\/+/, "")));
+  if (!localPath.startsWith(ROOT)) {
     const error = new Error("Asset path is invalid.");
     error.statusCode = 400;
     throw error;
@@ -14490,9 +14471,9 @@ async function gatewaySeedanceReferenceFromUri(uri = "", label = "Reference") {
   if (!value) return null;
   if (/^data:/i.test(value)) return { dataUrl: value, fileName: `${label}.bin`, name: label };
   if (value.startsWith("asset://")) return { url: value, name: label };
-  const localPath = localAssetPathFromPublicValue(value);
-  if (localPath) {
-    const mime = imageMimeFromKnownPath(localPath) || videoMimeFromPath(localPath) || "application/octet-stream";
+  if (value.startsWith("/")) {
+    const localPath = path.normalize(path.join(ROOT, value.replace(/^\/+/, "")));
+    const mime = imageMimeFromKnownPath(localPath) || videoMimeFromPath(localPath);
     return { dataUrl: await dataUrlForLocalAssetUrl(value, mime), fileName: path.basename(localPath), name: label };
   }
   return { url: gatewayAbsoluteAssetUrl(value), name: label };
@@ -15582,11 +15563,12 @@ async function runAdvancedGenerationJob(job = {}) {
     referenceVideoAssetId = "",
     referenceVideoAssetIds = [],
     referenceVideoAssetUris: initialReferenceVideoAssetUris = [],
-    referenceAudioAssetUris = [],
+    referenceAudioAssetUris: initialReferenceAudioAssetUris = [],
     referenceAudioAssetIds = [],
     referenceImageAssetUris = [],
   } = job;
   let referenceVideoAssetUris = Array.isArray(initialReferenceVideoAssetUris) ? [...initialReferenceVideoAssetUris] : [];
+  let referenceAudioAssetUris = Array.isArray(initialReferenceAudioAssetUris) ? [...initialReferenceAudioAssetUris] : [];
   const bodyParams = requestParams && typeof requestParams === "object" ? requestParamsFromBody(requestParams) : {};
   const runtime = advancedRuntimeForProvider(provider, requestParams);
   let userAsset = null;
@@ -16684,7 +16666,6 @@ async function handleByteplusV3ImageGeneration(req, res) {
   if (!auth) return;
   try {
     const body = await readJson(req);
-    const responseFormat = normalizeSeedream5ResponseFormat(body.response_format);
     const advancedBody = byteplusV3ImageGenerationToAdvancedBody(body);
     const captured = captureJsonResponse();
     await handleAdvancedSeedream5ImageGenerate(withJsonBody(req, advancedBody), captured, { auth });
@@ -16698,23 +16679,18 @@ async function handleByteplusV3ImageGeneration(req, res) {
       });
     }
     const record = payload.record || publicGenerationRecord(await getGenerationRecord(payload.taskId) || { taskId: payload.taskId }, generationRecordResponseOptionsForAuth(auth));
-    const rawImageUrl = payload.imageUrl || record.imageResultUrl || record.imageUrl || "";
-    const imageUrl = publicUrlForAssetPath(rawImageUrl) || absoluteUrlFromBase(rawImageUrl, publicOriginFromRequest(req)) || rawImageUrl;
-    if (!imageUrl) {
-      throw byteplusHttpError(502, "Seedream 5.0 Image returned no image.", "data", "UpstreamNoResult");
-    }
-    const item = {};
-    if (responseFormat === "b64_json") {
-      const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "seedream image result", maxBytes: 30 * 1024 * 1024 });
-      item.b64_json = downloaded.bytes.toString("base64");
-    } else {
-      item.url = imageUrl;
-    }
+    const status = byteplusTaskStatus(record.status || "queued");
+    const rawImageUrl = payload.imageUrl || record.imageResultUrl || record.imageUrl || record.downloadUrl || "";
+    const imageUrl = rawImageUrl ? (publicUrlForAssetPath(rawImageUrl) || absoluteUrlFromBase(rawImageUrl, publicOriginFromRequest(req)) || rawImageUrl) : "";
+    const data = status === "succeeded" && imageUrl ? [{ url: imageUrl }] : [];
     return sendJson(res, 200, {
       created: Math.floor(Date.now() / 1000),
-      data: [item],
       id: payload.taskId,
+      task_id: payload.taskId,
       model: "seedream-5.0-pro",
+      object: "image.generation.task",
+      status,
+      data,
     });
   } catch (error) {
     return sendByteplusError(res, error.statusCode || 400, error);
@@ -17181,6 +17157,165 @@ async function createSeedream5ImageDirect({
   return { raw, imageUrl, payload, upstreamReferenceAssetUris: imageAssetUris };
 }
 
+async function runSeedream5ImageGenerationJob(job = {}) {
+  const {
+    taskId = "",
+    userId = "",
+    body = {},
+    bodyParams = {},
+    mergedProviderParameters = {},
+    initialParams = {},
+    model = "",
+    prompt = "",
+    tier = "pro",
+    resolution = "2K",
+    outputFormat = "",
+    optimizePromptOptions = null,
+    pricing = {},
+    cost = 0,
+  } = job;
+  if (!taskId || !userId) return;
+
+  let upstreamPayload = null;
+  try {
+    const db = await readDb();
+    const user = (db.users || []).find((entry) => entry.id === userId);
+    if (!user) {
+      const error = new Error("User not found for Seedream 5.0 Image job.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const prepared = await prepareSeedream5ReferenceImages(db, user, { ...bodyParams, ...body });
+    const referencePreviewUrls = prepared.assets.map((asset) => asset.localUrl || asset.publicUrl || "").filter(Boolean);
+    const referencePayloadUrls = prepared.publicImageUrls.filter((url) => isPublicHttpUrl(url));
+    if (prepared.inputs.length && !referencePayloadUrls.length) {
+      throw advancedValidationError("SEEDREAM_REFERENCE_NOT_PUBLIC", "Failed to prepare Seedream reference image public URL.");
+    }
+    await upsertGenerationRecord({
+      taskId,
+      userAssetIds: prepared.assets.map((asset) => asset.id),
+      userAssetId: prepared.assets[0]?.id || "",
+      imageUrl: referencePreviewUrls[0] || "",
+      imageUrls: referencePreviewUrls,
+      sourceImageUrl: referencePreviewUrls[0] || "",
+      sourceImageUrls: referencePreviewUrls,
+      upstreamReferenceAssetUris: prepared.upstreamImageAssetUris,
+      status: "running",
+      params: {
+        ...initialParams,
+        referenceImageCount: referencePayloadUrls.length,
+      },
+    });
+
+    const payload = {
+      model,
+      prompt,
+      response_format: "url",
+      size: resolution,
+      stream: false,
+      watermark: boolFromRequest(firstPresent(body.watermark, bodyParams.watermark, mergedProviderParameters.watermark), false),
+      Moderation: { Strategy: "Skip" },
+    };
+    if (outputFormat) payload.output_format = outputFormat;
+    if (optimizePromptOptions) payload.optimize_prompt_options = optimizePromptOptions;
+    const sequential = firstPresent(
+      body.sequential_image_generation,
+      body.sequentialImageGeneration,
+      bodyParams.sequential_image_generation,
+      bodyParams.sequentialImageGeneration,
+      mergedProviderParameters.sequential_image_generation,
+      mergedProviderParameters.sequentialImageGeneration,
+    );
+    const sequentialValue = seedream5SequentialImageGenerationValue(sequential, { model, tier });
+    if (sequentialValue) payload.sequential_image_generation = sequentialValue;
+    if (referencePayloadUrls.length) payload.image = referencePayloadUrls;
+    upstreamPayload = payload;
+    await upsertGenerationRecord({ taskId, upstreamPayload });
+
+    const raw = await submitSeedream5ImageGeneration(payload, taskId);
+    const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
+    await upsertGenerationRecord({
+      taskId,
+      upstreamTaskId: String(raw.id || raw.task_id || raw.taskId || ""),
+      awaitingUpstreamTask: false,
+      status: imageUrl ? "succeeded" : "failed",
+      upstreamPayload: payload,
+      createResponse: raw,
+      remoteImageUrl: imageUrl,
+      error: imageUrl ? "" : "Seedream 5.0 Image returned no image.",
+    });
+    if (!imageUrl) {
+      const error = new Error("Seedream 5.0 Image returned no image.");
+      error.statusCode = 502;
+      error.payload = raw;
+      throw error;
+    }
+
+    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "seedream image", maxBytes: 30 * 1024 * 1024 });
+    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
+    await upsertGenerationRecord({
+      taskId,
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+      localImageUrl: savedImage.localImageUrl,
+      localImagePath: savedImage.localImagePath,
+      cdnImageUrl: savedImage.cdnImageUrl,
+      cdnError: savedImage.cdnError,
+      remoteImageUrl: imageUrl,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits ?? cost,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: new Date().toISOString(),
+      error: "",
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    console.warn("[seedream5-image-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
+    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
+    if (cost > 0 && currentRecord?.billingStatus !== "refunded") {
+      try {
+        const db = await readDb();
+        await changeUserCredits(db, userId, cost, "advanced_seedream5_image_refund", { taskId, error: error.message || "Seedream 5.0 Image failed." });
+        await recordSubtokenAdjustment(currentRecord || { taskId, userId }, {
+          taskId,
+          type: "advanced_seedream5_image_refund",
+          amount: -cost,
+          meta: { error: error.message || "Seedream 5.0 Image failed." },
+        });
+        if (!dbEnabled()) await writeDb(db);
+      } catch (refundError) {
+        console.error("[seedream5-image-refund-failed]", taskId, refundError.message || refundError);
+      }
+    }
+    await upsertGenerationRecord({
+      taskId,
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || "Seedream 5.0 Image failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      upstreamPayload,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    });
+  }
+}
+
+function startSeedream5ImageGenerationJob(job = {}) {
+  setImmediate(() => {
+    runSeedream5ImageGenerationJob(job).catch((error) => {
+      console.error("[seedream5-image-job-unhandled]", job.taskId || "", error.message || error);
+    });
+  });
+}
+
 async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
   const auth = context.auth || await requireUser(req, res);
   if (!auth) return;
@@ -17249,14 +17384,44 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
   } catch (error) {
     return sendAdvancedValidationError(res, error, "Seedream 5.0 Image reference input is invalid.");
   }
-  const rawPricing = advancedModelPricing("seedream5-image", {
-    advancedPricing: config.platform?.advancedPricing,
-    seedreamTier: tier,
-    resolution,
+  const requestFingerprint = seedream5ImageRequestFingerprint({
+    userId: auth.user.id,
     model,
-    referenceImageCount: referenceInputs.length,
-    outputImageCount: 1,
+    prompt,
+    resolution,
+    tier,
+    outputFormat,
+    optimizePromptOptions,
+    referenceInputs,
   });
+  const requestTrace = requestTraceForGeneration(req);
+  return await withSeedream5ImageInFlight(requestFingerprint, async () => {
+    const duplicateRecord = await findActiveSeedream5ImageDuplicate({
+      userId: auth.user.id,
+      fingerprint: requestFingerprint,
+    });
+    if (duplicateRecord) {
+      const publicRecord = publicGenerationRecord(duplicateRecord, generationRecordResponseOptionsForAuth(auth));
+      const duplicateDone = isSucceededStatus(duplicateRecord.status);
+      return sendJson(res, 200, {
+        ok: true,
+        async: !duplicateDone,
+        duplicate: true,
+        taskId: duplicateRecord.taskId,
+        upstreamTaskId: duplicateRecord.upstreamTaskId || "",
+        imageUrl: publicRecord.imageResultUrl || publicRecord.imageUrl || "",
+        record: publicRecord,
+        message: duplicateDone ? "A matching Seedream 5.0 Image task was recently completed." : "A matching Seedream 5.0 Image task is already running.",
+      });
+    }
+    const rawPricing = advancedModelPricing("seedream5-image", {
+      advancedPricing: config.platform?.advancedPricing,
+      seedreamTier: tier,
+      resolution,
+      model,
+      referenceImageCount: referenceInputs.length,
+      outputImageCount: 1,
+    });
   const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;
   if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -17295,7 +17460,9 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
       ...(optimizePromptOptions ? { optimize_prompt_options: optimizePromptOptions } : {}),
       referenceImageCount: referenceInputs.length,
       action: referenceInputs.length ? "image_reference" : "text_to_image",
+      requestFingerprint,
     },
+    requestFingerprint,
     resolution,
     preDeductedCredits: cost,
     originalPreDeductedCredits: pricing.originalCredits ?? cost,
@@ -17316,6 +17483,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     apiTokenName: auth.tokenRecord?.name || "",
     apiTokenType: auth.tokenRecord?.quotaType || "",
     apiTokenSource: auth.tokenSource || "",
+    ...requestTrace,
   };
   await upsertGenerationRecord(initialRecord);
   if (cost > 0) {
@@ -17342,140 +17510,44 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     if (!dbEnabled()) await writeDb(auth.db);
   }
 
-  let upstreamPayload = null;
-  try {
-    const prepared = await prepareSeedream5ReferenceImages(auth.db, auth.user, { ...bodyParams, ...body });
-    const referencePreviewUrls = prepared.assets.map((asset) => asset.localUrl || asset.publicUrl || "").filter(Boolean);
-    const referencePayloadUrls = prepared.publicImageUrls.filter((url) => isPublicHttpUrl(url));
-    if (prepared.inputs.length && !referencePayloadUrls.length) {
-      throw advancedValidationError("SEEDREAM_REFERENCE_NOT_PUBLIC", "Failed to prepare Seedream reference image public URL.");
-    }
-    await upsertGenerationRecord({
-      taskId,
-      userAssetIds: prepared.assets.map((asset) => asset.id),
-      userAssetId: prepared.assets[0]?.id || "",
-      imageUrl: referencePreviewUrls[0] || "",
-      imageUrls: referencePreviewUrls,
-      sourceImageUrl: referencePreviewUrls[0] || "",
-      sourceImageUrls: referencePreviewUrls,
-      upstreamReferenceAssetUris: prepared.upstreamImageAssetUris,
-      status: "running",
-      params: {
-        ...initialRecord.params,
-        referenceImageCount: referencePayloadUrls.length,
-      },
-    });
-    const payload = {
-      model,
-      prompt,
-      response_format: "url",
+  startSeedream5ImageGenerationJob({
+    taskId,
+    userId: auth.user.id,
+    body,
+    bodyParams,
+    mergedProviderParameters,
+    initialParams: initialRecord.params,
+    model,
+    prompt,
+    tier,
+    resolution,
+    outputFormat,
+    optimizePromptOptions,
+    pricing,
+    cost,
+  });
+  const latestDb = await readDb();
+  const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+  const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || initialRecord, generationRecordResponseOptionsForAuth(auth));
+  return sendJson(res, 200, {
+    ok: true,
+    async: true,
+    taskId,
+    upstreamTaskId: "",
+    imageUrl: "",
+    user: userView(latestUser),
+    pricing,
+    cost,
+    record: publicRecord,
+    params: {
+      provider: "seedream5-image",
+      seedreamTier: tier,
+      resolution,
       size: resolution,
-      stream: false,
-      watermark: boolFromRequest(firstPresent(body.watermark, bodyParams.watermark, mergedProviderParameters.watermark), false),
-      Moderation: { Strategy: "Skip" },
-    };
-    if (outputFormat) payload.output_format = outputFormat;
-    if (optimizePromptOptions) payload.optimize_prompt_options = optimizePromptOptions;
-    const sequential = firstPresent(body.sequential_image_generation, body.sequentialImageGeneration, bodyParams.sequential_image_generation, bodyParams.sequentialImageGeneration, mergedProviderParameters.sequential_image_generation, mergedProviderParameters.sequentialImageGeneration);
-    const sequentialValue = seedream5SequentialImageGenerationValue(sequential, { model, tier });
-    if (sequentialValue) payload.sequential_image_generation = sequentialValue;
-    if (referencePayloadUrls.length) payload.image = referencePayloadUrls;
-    upstreamPayload = payload;
-    await upsertGenerationRecord({ taskId, upstreamPayload });
-    const raw = await submitSeedream5ImageGeneration(payload, taskId);
-    const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
-    await upsertGenerationRecord({
-      taskId,
-      upstreamTaskId: String(raw.id || raw.task_id || raw.taskId || ""),
-      awaitingUpstreamTask: false,
-      status: imageUrl ? "succeeded" : "failed",
-      upstreamPayload: payload,
-      createResponse: raw,
-      remoteImageUrl: imageUrl,
-      error: imageUrl ? "" : "Seedream 5.0 Image returned no image.",
-    });
-    if (!imageUrl) {
-      const error = new Error("Seedream 5.0 Image returned no image.");
-      error.statusCode = 502;
-      error.payload = raw;
-      throw error;
-    }
-    const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "seedream image", maxBytes: 30 * 1024 * 1024 });
-    const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-    const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
-    await upsertGenerationRecord({
-      taskId,
-      status: "succeeded",
-      awaitingUpstreamTask: false,
-      imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
-      localImageUrl: savedImage.localImageUrl,
-      localImagePath: savedImage.localImagePath,
-      cdnImageUrl: savedImage.cdnImageUrl,
-      cdnError: savedImage.cdnError,
-      remoteImageUrl: imageUrl,
-      finalCredits: cost,
-      originalFinalCredits: pricing.originalCredits ?? cost,
-      billingStatus: cost > 0 ? "settled" : "free",
-      billingSettledAt: new Date().toISOString(),
-      error: "",
-    });
-    const latestDb = await readDb();
-    const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
-    const publicRecord = publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth));
-    return sendJson(res, 200, {
-      ok: true,
-      taskId,
-      upstreamTaskId: String(raw.id || raw.task_id || raw.taskId || ""),
-      imageUrl: publicRecord.imageResultUrl || savedImage.localImageUrl,
-      user: userView(latestUser),
-      pricing,
-      cost,
-      record: publicRecord,
-      params: {
-        provider: "seedream5-image",
-        seedreamTier: tier,
-        resolution,
-        size: resolution,
-        referenceImageCount: referencePayloadUrls.length,
-      },
-    });
-  } catch (error) {
-    const errorInfo = normalizeErrorPayload(error);
-    console.warn("[seedream5-image-error]", taskId, errorInfo.message || error.message || error, JSON.stringify(errorInfo.payload || {}).slice(0, 1000));
-    if (cost > 0) {
-      try {
-        const db = await readDb();
-        await changeUserCredits(db, auth.user.id, cost, "advanced_seedream5_image_refund", { taskId, error: error.message || "Seedream 5.0 Image failed." });
-        await recordSubtokenAdjustment(auth, { taskId, type: "advanced_seedream5_image_refund", amount: -cost, meta: { error: error.message || "Seedream 5.0 Image failed." } });
-        if (!dbEnabled()) await writeDb(db);
-      } catch (refundError) {
-        console.error("[seedream5-image-refund-failed]", taskId, refundError.message || refundError);
-      }
-    }
-    await upsertGenerationRecord({
-      taskId,
-      status: "failed",
-      awaitingUpstreamTask: false,
-      error: errorInfo.message || "Seedream 5.0 Image failed.",
-      code: errorInfo.code || "",
-      errorPayload: errorInfo.payload || null,
-      createResponse: errorInfo.payload || null,
-      upstreamPayload,
-      finalCredits: 0,
-      originalFinalCredits: 0,
-      billingStatus: cost > 0 ? "refunded" : "free",
-      billingSettledAt: new Date().toISOString(),
-      failedAt: new Date().toISOString(),
-    });
-    return sendJson(res, error.statusCode || 502, {
-      ok: false,
-      message: errorInfo.message || error.message || "Seedream 5.0 Image failed.",
-      code: errorInfo.code || "",
-      taskId,
-      record: publicGenerationRecord(await getGenerationRecord(taskId) || { taskId }, generationRecordResponseOptionsForAuth(auth)),
-      payload: errorInfo.payload || null,
-    });
-  }
+      referenceImageCount: referenceInputs.length,
+    },
+  });
+  });
 }
 
 async function handleAdvancedGenerate(req, res) {
@@ -17487,10 +17559,9 @@ async function handleAdvancedGenerate(req, res) {
   const advanced = config.platform?.advanced || {};
   const cases = Array.isArray(advanced.cases) ? advanced.cases : [];
   const bodyParams = requestParamsFromBody(body);
-  const playfluxTemplate = findPlayfluxTemplate(config, firstPresent(body.templateId, bodyParams.templateId, body.params?.templateId, ""));
   const selectedCase = cases.find((item) => item.id === String(firstPresent(body.caseId, bodyParams.caseId, "")).trim());
   const caseParams = selectedCase?.params && typeof selectedCase.params === "object" ? selectedCase.params : {};
-  let mergedBodyBase = mergedRequestForMedia(body, caseParams);
+  const mergedBodyBase = mergedRequestForMedia(body, caseParams);
   const requestedModel = firstPresent(body.model, bodyParams.model, caseParams.model);
   const requestedSeedanceTier = seedanceModelAliasKind(requestedModel) || firstPresent(
     body.seedanceTier,
@@ -17527,21 +17598,6 @@ async function handleAdvancedGenerate(req, res) {
   if (!USE_GATEWAY_UPSTREAM && provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Vipeak 1 generation is not configured." });
   }
-  const playfluxSeedanceMode = provider === "seedance" && playfluxTemplate
-    ? normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, playfluxTemplate.seedanceMode), mergedBodyBase)
-    : "";
-  if (playfluxTemplate && seedanceModeNeedsReferenceVideo(playfluxSeedanceMode)) {
-    const templateReferenceVideoUrl = String(playfluxTemplate.referenceVideoUrl || playfluxTemplate.previewUrl || "").trim();
-    const hasReferenceVideos = arrayFromBody(mergedBodyBase.referenceVideoUrls).length || arrayFromBody(mergedBodyBase.reference_videos).length;
-    if (templateReferenceVideoUrl && !hasReferenceVideos) {
-      mergedBodyBase = {
-        ...mergedBodyBase,
-        referenceVideoUrls: [templateReferenceVideoUrl],
-        referenceVideoDurationSeconds: mergedBodyBase.referenceVideoDurationSeconds || playfluxTemplate.referenceVideoDurationSeconds || playfluxTemplate.duration || "",
-        inputVideoSeconds: mergedBodyBase.inputVideoSeconds || playfluxTemplate.referenceVideoDurationSeconds || playfluxTemplate.duration || "",
-      };
-    }
-  }
   let mergedBody = mergedBodyBase;
   let seedanceContentExpanded = false;
   if (provider === "seedance") {
@@ -17552,21 +17608,14 @@ async function handleAdvancedGenerate(req, res) {
       return sendAdvancedValidationError(res, error, "Vipeak 2 content is invalid.");
     }
   }
-  const submittedPrompt = String(firstPresent(body.prompt, bodyParams.prompt, "")).trim();
-  let prompt = provider === "seedance" && playfluxTemplate
-    ? playfluxTemplateVideoPrompt(playfluxTemplate, {
-      sourceMode: playfluxSeedanceMode,
-      hasSourceImage: playfluxBodyHasImageReference(mergedBodyBase),
-      userPrompt: submittedPrompt,
-    })
-    : String(firstPresent(
-      body.prompt,
-      bodyParams.prompt,
-      selectedCase?.prompt,
-      caseParams.prompt,
-      provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
-      "",
-    )).trim();
+  let prompt = String(firstPresent(
+    body.prompt,
+    bodyParams.prompt,
+    selectedCase?.prompt,
+    caseParams.prompt,
+    provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
+    "",
+  )).trim();
   if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   if (provider === "seedream5-image") {
     return await handleAdvancedSeedream5ImageGenerate(req, res, {
@@ -17678,7 +17727,7 @@ async function handleAdvancedGenerate(req, res) {
   let seedanceFirstFrameAsset = null;
   let seedanceEndFrameAsset = null;
   if (provider !== "wan27") {
-    seedanceMode = normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.vipeak2Mode, caseParams.mediaMode, playfluxTemplate?.seedanceMode), mergedBody);
+    seedanceMode = normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.vipeak2Mode, caseParams.mediaMode), mergedBody);
     requestParams.seedanceMode = seedanceMode;
     const firstFrameInput = seedanceFirstFrameInputFromBody(mergedBody, {
       includeDataUrlFallback: seedanceModeNeedsFirstFrame(seedanceMode),
@@ -18461,6 +18510,8 @@ async function makePlatformEstimate(template, overrides = {}, user = null, optio
     userPricingMultiplier: pricingEstimate.userPricingMultiplier ?? normalizeUserPricingMultiplier(user || 1, options),
     markup: pricingEstimate.markup ?? GENERATION_PRICE_MARKUP,
     source: pricingEstimate.source,
+    model: upstreamPayload.model,
+    requestModel: upstreamPayload.params.model || upstreamPayload.model,
     durationSeconds,
     available: true,
   };
@@ -18630,12 +18681,13 @@ function wan27ImageParameterFields() {
 
 function seedream5ImageParameterFields() {
   return [
-    { name: "/api/v3/images/generations", type: "endpoint", required: "Yes", description: "Seedream 5.0 Pro image generation endpoint.", default: "-" },
+    { name: "/api/v3/images/generations", type: "endpoint", required: "Yes", description: "Create a Seedream 5.0 Pro image task. The create response returns id/task_id and status.", default: "-" },
+    { name: "/api/v3/contents/generations/tasks/<taskId>", type: "endpoint", required: "Yes", description: "Query progress and final content.image_url.", default: "-" },
     { name: "model", type: "string", required: "Yes", description: "Use `seedream-5.0-pro`.", default: "seedream-5.0-pro" },
     { name: "prompt", type: "string", required: "Yes", description: "Non-empty image prompt or edit instruction.", default: "-" },
     { name: "image", type: "string or array", required: "No", description: `Optional reference image or images. Use public image URLs, supported image data URLs, or asset:// ids returned by upload. Up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`, default: "-" },
     { name: "size", type: "string", required: "No", description: "Supported values here: `1K`, `2K`.", default: "2K" },
-    { name: "response_format", type: "enum", required: "No", description: "`url` or `b64_json`.", default: "url" },
+    { name: "response_format", type: "enum", required: "No", description: "Use `url`. This async create endpoint returns a task id; read the final URL from task detail.", default: "url" },
     { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
     { name: "output_format", type: "enum", required: "No", description: "`png` or `jpeg`.", default: "-" },
     { name: "optimize_prompt_options.mode", type: "enum", required: "No", description: "`standard` or `fast` when prompt optimization is needed.", default: "-" },
@@ -18827,7 +18879,7 @@ function advancedGenerateConstraintsDoc() {
       model: "seedream-5.0-pro",
       referenceImages: { min: 0, max: ADVANCED_SEEDANCE_REFERENCE_LIMIT },
       size: ["1K", "2K"],
-      response_format: ["url", "b64_json"],
+      response_format: ["url"],
       output_format: ["png", "jpeg"],
       optimize_prompt_options: { mode: ["standard", "fast"] },
       imageInput: {
@@ -18848,6 +18900,7 @@ function externalAdvancedApiDoc(origin) {
   const byteplusGenerate = `${origin}/api/v3/contents/generations/tasks`;
   const byteplusTaskDetail = `${origin}/api/v3/contents/generations/tasks/<taskId>`;
   const seedream5ImageGenerate = `${origin}/api/v3/images/generations`;
+  const seedream5ImageTaskDetail = byteplusTaskDetail;
   const byteplusAssetAction = `${origin}/?Action=CreateAsset&Version=2024-01-01`;
   const advancedGenerate = `${origin}/api/advanced/generate`;
   const wan27ImageEdit = `${origin}/api/vipeak1/image-edit`;
@@ -18861,6 +18914,7 @@ function externalAdvancedApiDoc(origin) {
       byteplusGenerate,
       byteplusTaskDetail,
       seedream5ImageGenerate,
+      seedream5ImageTaskDetail,
       byteplusAssetAction,
       advancedGenerate,
       wan27ImageEdit,
@@ -18890,6 +18944,12 @@ function externalAdvancedApiDoc(origin) {
     responseShape: {
       id: "cgt-...",
     },
+    seedream5ImageResponseShape: {
+      id: "img-...",
+      task_id: "img-...",
+      status: "queued",
+      data: [],
+    },
     seedream5ImageExample: {
       method: "POST",
       url: seedream5ImageGenerate,
@@ -18902,7 +18962,6 @@ function externalAdvancedApiDoc(origin) {
         prompt: "Create a cinematic portrait while preserving the selected subject identity.",
         image: ["asset://asset-id-from-upload"],
         size: "2K",
-        response_format: "url",
         watermark: false,
         output_format: "png",
         optimize_prompt_options: { mode: "standard" },
@@ -19076,10 +19135,14 @@ async function buildTemplateModelDoc(template, origin, user = null, options = {}
     type: template.type,
     category: template.category,
     badge: template.badge,
+    model: upstreamPayload.model,
+    requestModel: upstreamPayload.params?.model || upstreamPayload.model,
     durationSeconds,
     pricing: options.tenantPublic ? tenantDocsPricingView(pricing) : pricing,
     coverUrl: template.coverUrl,
     previewUrl: template.previewUrl,
+    prompt: configuredPrompt || "",
+    negativePrompt: template.negativePrompt || "",
     endpoint: {
       method: "POST",
       url: `${origin}/api/platform/generate`,
@@ -19088,7 +19151,7 @@ async function buildTemplateModelDoc(template, origin, user = null, options = {}
     requestFields: [
       { name: "templateId", type: "string", required: true, description: "Template id from this document." },
       { name: "dataUrl", type: "string", required: template.type === "image-to-video", description: "Base64 data URL. Required for image-to-video templates." },
-      { name: "prompt", type: "string", required: false, description: "Optional prompt text for this generation." },
+      { name: "prompt", type: "string", required: false, description: "Optional prompt override. Leave empty to use the saved template prompt." },
     ],
     exampleRequest: {
       method: "POST",
@@ -19132,7 +19195,7 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
   const exampleBody = {
     model: params.model || "dreamina-seedance-2-0-260128",
     content: [
-      { type: "text", text: "Use Image 1 as the reference and generate a cinematic 5 second shot." },
+      { type: "text", text: item.prompt || params.prompt || "Use Image 1 as the reference and generate a cinematic 5 second shot." },
     ],
     ratio: params.ratio || params.aspect_ratio || "9:16",
     resolution: params.resolution || "720p",
@@ -19145,10 +19208,12 @@ function buildAdvancedModelDoc(item, origin, user = null, options = {}) {
     title: item.title,
     category: item.category,
     provider,
+    model: publicModelText(docModel || pricing.model),
     description: item.description || "",
     pricing: options.tenantPublic ? tenantDocsPricingView(pricingView) : pricingView,
     coverUrl: item.coverUrl,
     previewUrl: item.previewUrl,
+    prompt: item.prompt || params.prompt || "",
     requiresApproval: false,
     endpoint: {
       method: "POST",
@@ -19199,7 +19264,12 @@ async function buildModelDocs(req) {
       modelsJson: `${origin}/api/models`,
       byteplusGenerate: `${origin}/api/v3/contents/generations/tasks`,
       byteplusTaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
+      seedream5ImageGenerate: `${origin}/api/v3/images/generations`,
+      seedream5ImageTaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
       byteplusAssetAction: `${origin}/?Action=CreateAsset&Version=2024-01-01`,
+      advancedGenerate: `${origin}/api/advanced/generate`,
+      wan27ImageEdit: `${origin}/api/vipeak1/image-edit`,
+      generationRecordDetail: `${origin}/api/generation-records/<taskId>`,
     },
     templates,
     advanced: {
@@ -19216,11 +19286,13 @@ function templateDocMarkdown(item) {
     "",
     `- templateId: \`${item.id}\``,
     `- type: \`${item.type}\``,
+    `- model: \`${publicModelText(item.requestModel || item.model)}\``,
     `- duration: ${item.durationSeconds || "configured"}s`,
     `- estimated cost: ${item.pricing.available ? `${item.pricing.credits} credits` : "pricing unavailable"}`,
   ];
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
   if (item.coverUrl) lines.push(`- cover: ${item.coverUrl}`);
+  if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
   return lines.join("\n");
 }
@@ -19231,11 +19303,13 @@ function advancedDocMarkdown(item) {
     "",
     `- caseId: \`${item.id}\``,
     `- provider: \`${item.provider || "seedance"}\``,
+    item.model ? `- model: \`${publicModelText(item.model)}\`` : "",
     "- access: signed-in users",
     `- estimated cost: ${item.pricing.credits} credits`,
   ].filter(Boolean);
   if (item.description) lines.push(`- description: ${markdownText(item.description)}`);
   if (item.previewUrl) lines.push(`- preview: ${item.previewUrl}`);
+  if (item.prompt) lines.push("", "**Saved prompt**", "", item.prompt);
   lines.push("", "Use the Seedance V3 task endpoint for external integrations. Submit content[] to `/api/v3/contents/generations/tasks` and poll `/api/v3/contents/generations/tasks/<taskId>` for progress and result.");
   lines.push("", "Seedance V3 inputs accept public URLs, supported data URLs, or asset:// ids returned by the BytePlus-compatible CreateAsset action. In prompts, refer to media as Image 1, Video 1, and Audio 1.");
   lines.push("", "**Client request**", "", markdownCodeBlock("json", item.exampleRequest));
@@ -19270,9 +19344,10 @@ function advancedConstraintsMarkdown(doc = {}) {
     "Seedream 5.0 image:",
     "",
     `- Endpoint: \`${seedream5Image.route || "/api/v3/images/generations"}\` with \`model: "seedream-5.0-pro"\`.`,
+    "- Create is async: response returns `id`/`task_id` and `status`; poll `/api/v3/contents/generations/tasks/<taskId>` and read `content.image_url` when succeeded.",
     `- \`image\`: optional reference image or array of reference images, max ${seedream5Image.referenceImages?.max ?? ADVANCED_SEEDANCE_REFERENCE_LIMIT}. Use public URLs, supported image data URLs, or \`asset://\` ids.`,
     `- \`size\`: ${(seedream5Image.size || ["1K", "2K"]).map((item) => `\`${item}\``).join(", ")}.`,
-    `- \`response_format\`: ${(seedream5Image.response_format || ["url", "b64_json"]).map((item) => `\`${item}\``).join(", ")}. \`output_format\`: ${(seedream5Image.output_format || ["png", "jpeg"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- \`response_format\`: \`url\`. The async create response does not return base64 image data. \`output_format\`: ${(seedream5Image.output_format || ["png", "jpeg"]).map((item) => `\`${item}\``).join(", ")}.`,
     `- Reference image limits: max ${Math.round((seedream5Image.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, width/height > 14px, aspect ratio 1/16-16, total pixels <= ${seedream5Image.imageInput?.maxPixelCount || 36000000}.`,
     "- Unsupported for this model: `sequential_image_generation`, `sequential_image_generation_options`, `seed`, `guidance_scale`.",
     "",
@@ -19345,6 +19420,17 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "**Seedream 5.0 image fields**",
     "",
     docsParameterMarkdown(seedream5ImageParameterFields()),
+    "",
+    "**Seedream 5.0 image response and polling**",
+    "",
+    "The create response returns `id`, `task_id`, `status`, and an empty `data` array while the task is queued or running. Poll the same V3 task detail endpoint used for video tasks. When `status` is `succeeded`, read `content.image_url`.",
+    "",
+    markdownCodeBlock("json", doc.seedream5ImageResponseShape || { id: "img-...", task_id: "img-...", status: "queued", data: [] }),
+    "",
+    markdownCodeBlock("http", [
+      `GET ${route(endpoints.seedream5ImageTaskDetail || endpoints.byteplusTaskDetail, "/api/v3/contents/generations/tasks/<taskId>")}`,
+      "Authorization: Bearer <user-token>",
+    ].join("\n")),
     "",
     "**Wan2.7 video**",
     "",
@@ -19421,11 +19507,12 @@ function buildModelDocsMarkdown(docs) {
     "## Quick Start",
     "",
     "1. Read `/api/models` or this Markdown file for request shapes and limits.",
-    "2. For Seedance, create reusable media with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>` in V3 `content[]`.",
+    "2. For reusable media, create assets with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>` in V3 content or image fields.",
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
-    "4. Create Wan2.7 video with `/api/advanced/generate` and `provider: \"wan27\"`.",
-    "5. Create or edit Wan images with `/api/vipeak1/image-edit`.",
-    "6. Poll `/api/v3/contents/generations/tasks/<taskId>` for Seedance, or use `/api/generation-records/<taskId>` for Advanced/Wan records.",
+    "4. Create a Seedream 5.0 Pro image task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
+    "5. Create Wan2.7 video with `/api/advanced/generate` and `provider: \"wan27\"`.",
+    "6. Create or edit Wan images with `/api/vipeak1/image-edit`.",
+    "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for Seedance video and Seedream image tasks, or use `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",
     "## Seedance V3 Example",
     "",
@@ -22404,25 +22491,13 @@ async function handleWan27ImageEdit(req, res) {
   }
 
   const body = await readJson(req);
+  const prompt = String(body.prompt || "").trim();
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   const bodyParams = requestParamsFromBody(body);
   const mergedBody = { ...bodyParams, ...body };
   const asyncResponse = boolFromRequest(firstPresent(mergedBody.async, mergedBody.asyncResponse, mergedBody.returnImmediately), false);
   const assetIds = imageEditAssetIdsFromBody(mergedBody);
-  let externalImageUrls = imageEditUrlsFromBody(mergedBody);
-  const config = await readAppConfig();
-  const playfluxTemplate = findPlayfluxTemplate(config, firstPresent(body.templateId, bodyParams.templateId, body.params?.templateId, ""));
-  const originalSourceImageCount = assetIds.length + externalImageUrls.length;
-  if (playfluxTemplate && playfluxTemplateShouldUsePreviewImageReference(playfluxTemplate, originalSourceImageCount)) {
-    const previewUrl = String(playfluxTemplate.previewUrl || "").trim();
-    if (previewUrl && !externalImageUrls.includes(previewUrl)) externalImageUrls = [...externalImageUrls, previewUrl];
-  }
-  const prompt = playfluxTemplate
-    ? playfluxTemplateImagePrompt(playfluxTemplate, {
-      sourceImageCount: originalSourceImageCount,
-      userPrompt: String(firstPresent(body.prompt, bodyParams.prompt, "") || "").trim(),
-    })
-    : String(firstPresent(body.prompt, bodyParams.prompt, "") || "").trim();
-  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  const externalImageUrls = imageEditUrlsFromBody(mergedBody);
   const invalidExternalImageUrl = externalImageUrls.find((url) => !isPublicHttpUrl(url));
   if (invalidExternalImageUrl) {
     return sendJson(res, 400, { ok: false, code: "INVALID_IMAGE_URL", message: "Wan2.7 image URLs must be public http(s) URLs." });
@@ -22441,6 +22516,7 @@ async function handleWan27ImageEdit(req, res) {
     sourceAssets.push(asset);
   }
 
+  const config = await readAppConfig();
   const pricingConfig = normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro;
   const imageOptions = wan27ImageRequestOptions(mergedBody, {
     defaultModel: pricingConfig.model || WAN27_IMAGE_PRO_MODEL,
@@ -23038,7 +23114,6 @@ function publicUserCharacter(character) {
     publicImageUrl: character.publicImageUrl || "",
     cdnImageUrl: character.cdnImageUrl || "",
     imageTaskId: character.imageTaskId || "",
-    imageGenerationRecordTaskId: character.imageGenerationRecordTaskId || "",
     imageRemoteUrl: character.imageRemoteUrl || "",
     videoUrl,
     cdnVideoUrl: character.cdnVideoUrl || "",
@@ -23167,13 +23242,88 @@ async function updateMyCharacterImageGenerationRecord(auth, record, updates = {}
   });
 }
 
-function myCharacterImagePricing(config = {}, auth = {}) {
-  return configuredFixedCreditsPricing(config.prices?.customCharacter ?? DEFAULT_CONFIG.prices.customCharacter ?? 30, "my_character_image_price", auth);
-}
-
 function configuredFixedCreditsPricing(credits, source = "fixed_price", auth = {}) {
   const raw = fixedCreditsBreakdown(Number(credits || 0), source);
   return applyUserPricingToEstimate(raw, auth.user || 1, pricingContextForAuth(auth));
+}
+
+function characterSeedream5ImageOptions(config = {}, model = "", options = {}) {
+  const advancedPricing = normalizeAdvancedPricing(config.platform?.advancedPricing || DEFAULT_ADVANCED_PRICING);
+  const tier = normalizeSeedream5Tier(firstPresent(
+    options.seedreamTier,
+    options.seedream5Tier,
+    process.env.CHARACTER_SEEDREAM_TIER,
+    advancedPricing.seedream5Image?.defaultTier,
+    "pro",
+  ));
+  const resolution = normalizeSeedream5Resolution(firstPresent(
+    options.resolution,
+    options.size,
+    process.env.CHARACTER_SEEDREAM_SIZE,
+    advancedPricing.seedream5Image?.defaultResolution,
+    "2K",
+  ));
+  const resolvedModel = seedream5ModelForTier(firstPresent(
+    options.model,
+    process.env.CHARACTER_SEEDREAM_MODEL,
+    /^ep-/i.test(String(model || "")) ? model : "",
+  ), tier);
+  return {
+    provider: "seedream5-image",
+    model: resolvedModel,
+    seedreamTier: tier,
+    resolution,
+    size: resolution,
+    outputImageCount: Math.max(1, Math.floor(Number(options.outputImageCount || 1) || 1)),
+    referenceImageCount: Math.max(0, Math.floor(Number(options.referenceImageCount || 0) || 0)),
+  };
+}
+
+function myCharacterImagePricing(config = {}, auth = {}, options = {}) {
+  const raw = advancedModelPricing("seedream5-image", {
+    ...characterSeedream5ImageOptions(config, options.model || config.characterImage?.textModel || "", options),
+    advancedPricing: config.platform?.advancedPricing,
+  });
+  return applyUserPricingToEstimate(raw, auth.user || 1, pricingContextForAuth(auth));
+}
+
+async function seedanceVideoPricingForPayload(auth, config = {}, payload = {}, body = {}) {
+  const model = String(payload.model || firstPresent(body.model, MODEL_QUALITY));
+  const seedanceTier = normalizeSeedanceTier(firstPresent(
+    body.seedanceTier,
+    body.vipeak2Tier,
+    payload.seedanceTier,
+    /fast/i.test(model) ? "fast" : "standard",
+  ));
+  const requestParams = {
+    ...payload,
+    provider: "seedance",
+    model,
+    seedanceTier,
+    duration: clampNumber(payload.duration, advancedDurationBounds("seedance").fallback, advancedDurationBounds("seedance").min, advancedDurationBounds("seedance").max),
+    resolution: normalizeAdvancedResolution(payload.resolution || body.resolution || config.video?.resolution || "720p"),
+    ratio: normalizeVideoRatio(payload.ratio || payload.aspect_ratio || body.ratio || body.aspect_ratio || config.video?.ratio || "9:16"),
+  };
+  const pricingBody = officialSeedanceVideoInputsForPricing(payload);
+  requestParams.inputVideoSeconds = await seedanceVideoInputSecondsForPricingWithProbe(pricingBody, { requestParams });
+  const raw = advancedModelPricing("seedance", {
+    ...requestParams,
+    advancedPricing: config.platform?.advancedPricing,
+  });
+  return applyUserPricingToEstimate(raw, auth.user || 1, pricingContextForAuth(auth));
+}
+
+async function seedanceVideoPricingForSubmitArgs(auth, args = {}) {
+  const content = seedanceContentFromReferences(args);
+  const payload = seedancePayloadFromBody({
+    config: args.config || {},
+    prompt: args.prompt || "",
+    content,
+    body: args.body || {},
+  });
+  payload.Moderation = { Strategy: "Skip" };
+  const pricing = await seedanceVideoPricingForPayload(auth, args.config || {}, payload, args.body || {});
+  return { pricing, payload };
 }
 
 async function myCharacterImageSettleUpdates(record = {}) {
@@ -23661,8 +23811,24 @@ async function ensureCharacterReferenceForRecord(record) {
   return record;
 }
 
+async function userCharacterMainVideoPricing(auth, prepared, config, userPrompt, seedanceBody = {}) {
+  const prompt = makeHomeVideoPrompt(prepared, userPrompt, { decorate: true });
+  return await seedanceVideoPricingForSubmitArgs(auth, {
+    config,
+    prompt,
+    referenceAssetUri: prepared.referenceAssetUri,
+    body: { ...seedanceBody, generateAudio: true },
+    slug: `user-character-${prepared.id}`,
+  });
+}
+
 async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, seedanceBody = {}, pricing = null) {
   const prompt = makeHomeVideoPrompt(prepared, userPrompt, { decorate: true });
+  let finalPricing = pricing;
+  if (!finalPricing) {
+    finalPricing = (await userCharacterMainVideoPricing(auth, prepared, config, userPrompt, seedanceBody)).pricing;
+    cost = finalPricing.credits;
+  }
   const { task, payload } = await submitSeedanceVideoTask({
     config,
     prompt,
@@ -23717,13 +23883,13 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     error: "",
     source: "user-character",
     preDeductedCredits: cost,
-    originalPreDeductedCredits: pricing?.originalCredits ?? cost,
+    originalPreDeductedCredits: finalPricing?.originalCredits ?? cost,
     finalCredits: cost,
-    originalFinalCredits: pricing?.originalCredits ?? cost,
-    userPricingMultiplier: pricing?.userPricingMultiplier ?? 1,
+    originalFinalCredits: finalPricing?.originalCredits ?? cost,
+    userPricingMultiplier: finalPricing?.userPricingMultiplier ?? 1,
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
-    pricingEstimate: pricing || null,
+    pricingEstimate: finalPricing || null,
     createResponse: task,
     apiTokenId: auth.tokenRecord?.id || "",
     apiTokenName: auth.tokenRecord?.name || "",
@@ -23803,7 +23969,9 @@ async function handleGenerateMyCharacterImage(req, res) {
   const nowIso = new Date().toISOString();
   const characterId = randomId("mychar");
   const imageRecordTaskId = localGenerationTaskId("mychar-img");
-  const pricing = myCharacterImagePricing(config, auth);
+  const model = config.characterImage.textModel;
+  const imagePricingOptions = characterSeedream5ImageOptions(config, model);
+  const pricing = myCharacterImagePricing(config, auth, imagePricingOptions);
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -23851,10 +24019,11 @@ async function handleGenerateMyCharacterImage(req, res) {
   };
   await saveUserCharacterForAuth(auth, record);
 
-  const model = config.characterImage.textModel;
   const params = {
     prompt: userPrompt,
     image_size: normalizeSeedreamImageSize(config.characterImage.imageSize),
+    size: imagePricingOptions.size,
+    seedreamTier: imagePricingOptions.seedreamTier,
     num_images: 1,
     max_images: 1,
     enhance_prompt_mode: "standard",
@@ -23887,7 +24056,10 @@ async function handleGenerateMyCharacterImage(req, res) {
         baseCredits: pricing.baseCredits,
         originalCost: pricing.originalCredits,
         pricingMultiplier: pricing.userPricingMultiplier,
-        pricingSource: pricing.source || "my_character_image_price",
+        pricingSource: pricing.source || "byteplus_seedream5_official_image_pricing",
+        provider: pricing.provider || "seedream5-image",
+        resolution: pricing.resolution || imagePricingOptions.resolution,
+        seedreamTier: pricing.seedreamTier || imagePricingOptions.seedreamTier,
       },
     });
     if (!dbEnabled()) await writeDb(auth.db);
@@ -23955,16 +24127,6 @@ async function handleCreateMyCharacter(req, res) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
   const config = await readAppConfig();
-  const pricing = configuredFixedCreditsPricing(config.prices?.customCharacter ?? DEFAULT_CONFIG.prices.customCharacter ?? 30, "custom_character_main_video_price", auth);
-  const cost = pricing.credits;
-  if (auth.user.credits < cost) {
-    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
-  }
-  try {
-    assertSubtokenCanSpend(auth, cost);
-  } catch (error) {
-    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
-  }
 
   const characterId = randomId("mychar");
   const fileName = `${characterId}-source${imageExtFromMime(mime)}`;
@@ -24008,6 +24170,21 @@ async function handleCreateMyCharacter(req, res) {
   if (dbEnabled()) await upsertUserCharacterInDb(record);
   else await writeDb(auth.db);
 
+  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
+  const pricing = (await userCharacterMainVideoPricing(auth, {
+    ...record,
+    referenceAssetUri: record.referenceAssetUri || "asset://pricing-reference",
+  }, config, userPrompt, body)).pricing;
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+
   let prepared;
   try {
     prepared = await ensureCharacterReferenceForRecord({ ...record });
@@ -24020,7 +24197,6 @@ async function handleCreateMyCharacter(req, res) {
     throw error;
   }
 
-  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
   const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body, pricing);
 
   return sendJson(res, 200, {
@@ -24058,16 +24234,6 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
   const config = await readAppConfig();
-  const pricing = configuredFixedCreditsPricing(config.prices?.customCharacter ?? DEFAULT_CONFIG.prices.customCharacter ?? 30, "custom_character_main_video_price", auth);
-  const cost = pricing.credits;
-  if (auth.user.credits < cost) {
-    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
-  }
-  try {
-    assertSubtokenCanSpend(auth, cost);
-  } catch (error) {
-    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
-  }
 
   if (st === "reference_failed") {
     record.referenceAssetUri = "";
@@ -24088,6 +24254,21 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     else await writeDb(auth.db);
   }
 
+  const userPrompt = typeof body.prompt === "string" ? body.prompt : String(record.prompt || "");
+  const pricing = (await userCharacterMainVideoPricing(auth, {
+    ...record,
+    referenceAssetUri: record.referenceAssetUri || "asset://pricing-reference",
+  }, config, userPrompt, body)).pricing;
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+
   let prepared;
   try {
     prepared = await ensureCharacterReferenceForRecord({ ...record });
@@ -24100,7 +24281,6 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     throw error;
   }
 
-  const userPrompt = typeof body.prompt === "string" ? body.prompt : String(record.prompt || "");
   const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body, pricing);
 
   return sendJson(res, 200, {
@@ -24259,7 +24439,15 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
   const sceneEntry = findSceneEntryConfig(sceneConfig, body.sceneEntryId);
   const sceneVideoKey = makeSceneVideoKey(sceneConfig.id, sceneEntry.id);
 
-  const pricing = configuredFixedCreditsPricing(sceneConfig.price || config.prices?.dateVideo || 25, "character_scene_video_price", auth);
+  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
+  const prompt = makeSceneVideoPrompt(sceneConfig, userPrompt);
+  const pricing = (await seedanceVideoPricingForSubmitArgs(auth, {
+    config,
+    prompt,
+    referenceAssetUri: record.referenceAssetUri,
+    body: { ...body, generateAudio: true },
+    slug: `user-scene-${characterId}-${sceneVideoKey}`,
+  })).pricing;
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -24270,8 +24458,6 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
   }
 
-  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
-  const prompt = makeSceneVideoPrompt(sceneConfig, userPrompt);
   let task;
   let payload;
   try {
@@ -24292,7 +24478,17 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     cost,
     type: "user_character_scene_video",
     taskId: task.taskId,
-    meta: { characterId, sceneId: sceneConfig.id, sceneEntryId: sceneEntry.id, duration: payload.duration },
+    meta: {
+      characterId,
+      sceneId: sceneConfig.id,
+      sceneEntryId: sceneEntry.id,
+      duration: payload.duration,
+      resolution: payload.resolution,
+      provider: pricing.provider || "seedance",
+      originalCost: pricing.originalCredits,
+      pricingMultiplier: pricing.userPricingMultiplier,
+      pricingSource: pricing.source || "public_duration_rate",
+    },
   });
 
   const nowIso = new Date().toISOString();
@@ -24356,9 +24552,13 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     error: "",
     source: "user-character-scene",
     preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
     finalCredits: cost,
+    originalFinalCredits: pricing.originalCredits ?? cost,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
+    pricingEstimate: pricing,
     createResponse: task,
     apiTokenId: auth.tokenRecord?.id || "",
     apiTokenName: auth.tokenRecord?.name || "",
@@ -27095,12 +27295,6 @@ async function handleCreateSceneVideo(req, res) {
     return sendJson(res, 400, { ok: false, message: "No prompt configured for this scene." });
   }
 
-  const pricing = configuredFixedCreditsPricing(sceneConfig.price || config.prices?.dateVideo || 25, "scene_video_price", auth);
-  const cost = pricing.credits;
-  if (auth.user.credits < cost) {
-    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
-  }
-
   if (dryRun || (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY)) {
     return sendJson(res, dryRun ? 200 : 503, {
       ok: dryRun,
@@ -27248,11 +27442,32 @@ async function handleCreateSceneVideo(req, res) {
     });
   }
 
+  const pricing = await seedanceVideoPricingForPayload(auth, config, payload, body);
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+
   await chargeUserWithSubtoken(auth, {
     cost,
     type: "user_scene_video",
     taskId: randomId("scene"),
-    meta: { sceneId: body.sceneId || "", sceneEntryId: sceneEntry.id, companionId: resolvedCompanionId || body.companionId || "" },
+    meta: {
+      sceneId: body.sceneId || "",
+      sceneEntryId: sceneEntry.id,
+      companionId: resolvedCompanionId || body.companionId || "",
+      duration: payload.duration,
+      resolution: payload.resolution,
+      provider: pricing.provider || "seedance",
+      originalCost: pricing.originalCredits,
+      pricingMultiplier: pricing.userPricingMultiplier,
+      pricingSource: pricing.source || "public_duration_rate",
+    },
   });
   if (!dbEnabled()) await writeDb(auth.db);
 
@@ -27329,9 +27544,13 @@ async function handleCreateSceneVideo(req, res) {
     error: "",
     source: "user-scene-video",
     preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
     finalCredits: cost,
+    originalFinalCredits: pricing.originalCredits ?? cost,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
+    pricingEstimate: pricing,
     createResponse: task,
     apiTokenId: auth.tokenRecord?.id || "",
     apiTokenName: auth.tokenRecord?.name || "",
@@ -27569,11 +27788,6 @@ async function handleRequest(req, res) {
       config = await refreshCompletedHomeVideoItems(config);
       const auth = await getAuth(req);
       return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null) });
-    }
-
-    if (req.method === "GET" && url.pathname === "/api/config/pricing") {
-      const config = await readAppConfig();
-      return sendJson(res, 200, { ok: true, ...publicPricingConfig(config) });
     }
 
     if (req.method === "GET" && url.pathname === "/api/public/characters") {
