@@ -13425,11 +13425,11 @@ async function refreshGenerationRecordStatus(record = {}) {
 }
 
 function isSucceededStatus(status) {
-  return ["succeeded", "success", "done", "completed"].includes(String(status || "").toLowerCase());
+  return ["succeeded", "success", "done", "completed", "image_ready"].includes(String(status || "").toLowerCase());
 }
 
 function isFailedStatus(status) {
-  return ["failed", "error", "cancelled", "canceled"].includes(String(status || "").toLowerCase());
+  return ["failed", "error", "cancelled", "canceled", "image_failed"].includes(String(status || "").toLowerCase());
 }
 
 function isActiveGenerationStatus(status) {
@@ -19614,7 +19614,7 @@ async function refreshApizGenerationRecord(record) {
 }
 
 function isCompletedStatus(status) {
-  return ["completed", "succeeded", "success", "done"].includes(String(status || "").toLowerCase());
+  return ["completed", "succeeded", "success", "done", "image_ready"].includes(String(status || "").toLowerCase());
 }
 
 async function downloadGeneratedCharacterSheet(taskId, imageUrl) {
@@ -23232,9 +23232,6 @@ async function updateMyCharacterImageGenerationRecord(auth, record, updates = {}
     cdnImageUrl: record.cdnImageUrl || record.publicImageUrl || "",
     remoteImageUrl: record.imageRemoteUrl || "",
     error: record.error || "",
-    billingStatus: "free",
-    finalCredits: 0,
-    originalFinalCredits: 0,
     apiTokenId: auth.tokenRecord?.id || "",
     apiTokenName: auth.tokenRecord?.name || "",
     apiTokenType: auth.tokenRecord?.quotaType || "",
@@ -23245,9 +23242,63 @@ async function updateMyCharacterImageGenerationRecord(auth, record, updates = {}
   });
 }
 
+function myCharacterImagePricing(config = {}, auth = {}) {
+  return configuredFixedCreditsPricing(config.prices?.customCharacter ?? DEFAULT_CONFIG.prices.customCharacter ?? 30, "my_character_image_price", auth);
+}
+
+function configuredFixedCreditsPricing(credits, source = "fixed_price", auth = {}) {
+  const raw = fixedCreditsBreakdown(Number(credits || 0), source);
+  return applyUserPricingToEstimate(raw, auth.user || 1, pricingContextForAuth(auth));
+}
+
+async function myCharacterImageSettleUpdates(record = {}) {
+  const taskId = myCharacterImageGenerationRecordId(record);
+  const generationRecord = taskId ? await getGenerationRecord(taskId) : null;
+  const preDeducted = creditsAmount(generationRecord?.preDeductedCredits || 0);
+  if (preDeducted <= 0) return {};
+  return {
+    finalCredits: preDeducted,
+    originalFinalCredits: creditsAmount(generationRecord.originalPreDeductedCredits ?? preDeducted),
+    billingStatus: "settled",
+    billingSettledAt: generationRecord.billingSettledAt || new Date().toISOString(),
+    billingError: "",
+  };
+}
+
+async function myCharacterImageRefundUpdates(auth, record = {}, reason = "my-character-image-failed", message = "") {
+  const taskId = myCharacterImageGenerationRecordId(record);
+  const generationRecord = taskId ? await getGenerationRecord(taskId) : null;
+  const preDeducted = creditsAmount(generationRecord?.preDeductedCredits || 0);
+  if (preDeducted <= 0 || generationRecord?.billingStatus !== "pre_deducted") {
+    return {};
+  }
+  const db = await readDb();
+  await changeUserCredits(db, generationRecord.userId || record.userId || auth.user.id, preDeducted, "my_character_image_refund", {
+    taskId,
+    characterId: record.id || generationRecord.companionId || "",
+    reason,
+    error: message,
+  });
+  await recordSubtokenAdjustment(generationRecord, {
+    taskId,
+    type: "my_character_image_refund",
+    amount: -preDeducted,
+    meta: { reason, error: message, characterId: record.id || generationRecord.companionId || "" },
+  });
+  if (!dbEnabled()) await writeDb(db);
+  return {
+    finalCredits: 0,
+    originalFinalCredits: 0,
+    billingStatus: "refunded",
+    billingSettledAt: new Date().toISOString(),
+    billingError: "",
+  };
+}
+
 async function refreshGeneratedMyCharacterImage(auth, record) {
   const readyImageUrl = record?.publicImageUrl || record?.cdnImageUrl || record?.localImageUrl || record?.posterUrl || "";
   if (readyImageUrl && (isCompletedStatus(record.imageStatus) || String(record.status || "").toLowerCase() === "image_ready")) {
+    const billingUpdates = await myCharacterImageSettleUpdates(record);
     await updateMyCharacterImageGenerationRecord(auth, record, {
       status: "succeeded",
       awaitingUpstreamTask: false,
@@ -23257,6 +23308,7 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
       remoteImageUrl: record.imageRemoteUrl || "",
       createResponse: record.imageTaskResponse || null,
       error: "",
+      ...billingUpdates,
     }, "my-character-image-ready");
     return {
       record,
@@ -23294,7 +23346,7 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
     const payload = await gatewayRequest("GET", `/api/my/characters/${encodeURIComponent(record.gatewayCharacterId)}/image`);
     const gatewayCharacter = payload.character || {};
     const task = payload.task || gatewayCharacter.imageTaskResponse || payload;
-    const status = String(gatewayCharacter.imageStatus || apizTaskStatus(task));
+    const status = String(gatewayCharacter.imageStatus || gatewayCharacter.status || apizTaskStatus(task));
     const imageUrls = [
       ...(Array.isArray(payload.imageUrls) ? payload.imageUrls : []),
       gatewayCharacter.publicImageUrl,
@@ -23330,6 +23382,11 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
     }
 
     await saveUserCharacterForAuth(auth, record);
+    const billingUpdates = isCompletedStatus(status)
+      ? await myCharacterImageSettleUpdates(record)
+      : isFailedStatus(status)
+        ? await myCharacterImageRefundUpdates(auth, record, "my-character-image-refresh", record.error || "")
+        : {};
     await updateMyCharacterImageGenerationRecord(auth, record, {
       upstreamTaskId: record.imageTaskId || "",
       status: myCharacterImageGenerationStatus(record, status),
@@ -23340,6 +23397,7 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
       remoteImageUrl: record.imageRemoteUrl || imageUrls[0] || "",
       queryResponse: payload,
       error: record.error || "",
+      ...billingUpdates,
     }, "my-character-image-refresh");
     return { record, task, imageUrls };
   }
@@ -23373,6 +23431,11 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
   }
 
   await saveUserCharacterForAuth(auth, record);
+  const billingUpdates = isCompletedStatus(status)
+    ? await myCharacterImageSettleUpdates(record)
+    : isFailedStatus(status)
+      ? await myCharacterImageRefundUpdates(auth, record, "my-character-image-refresh", record.error || "")
+      : {};
   await updateMyCharacterImageGenerationRecord(auth, record, {
     upstreamTaskId: record.imageTaskId || "",
     status: myCharacterImageGenerationStatus(record, status),
@@ -23383,6 +23446,7 @@ async function refreshGeneratedMyCharacterImage(auth, record) {
     remoteImageUrl: record.imageRemoteUrl || imageUrls[0] || "",
     queryResponse: task,
     error: record.error || "",
+    ...billingUpdates,
   }, "my-character-image-refresh");
   return { record, task, imageUrls };
 }
@@ -23408,6 +23472,7 @@ function startMyCharacterImageGenerationJob(job = {}) {
 
 async function failMyCharacterImageGeneration(auth, record, error, reason = "my-character-image-failed") {
   const errorInfo = normalizeErrorPayload(error);
+  const billingUpdates = await myCharacterImageRefundUpdates(auth, record, reason, errorInfo.message || "");
   record.status = "image_failed";
   record.imageStatus = "failed";
   record.awaitingImageSubmit = false;
@@ -23422,6 +23487,7 @@ async function failMyCharacterImageGeneration(auth, record, error, reason = "my-
     errorPayload: errorInfo.payload || null,
     createResponse: errorInfo.payload || null,
     failedAt: new Date().toISOString(),
+    ...billingUpdates,
   }, reason);
 }
 
@@ -23489,6 +23555,11 @@ async function runMyCharacterImageGenerationJob(job = {}) {
       }
       record.updatedAt = new Date().toISOString();
       await saveUserCharacterForAuth(auth, record);
+      const billingUpdates = record.status === "image_ready"
+        ? await myCharacterImageSettleUpdates(record)
+        : record.status === "image_failed"
+          ? await myCharacterImageRefundUpdates(auth, record, "my-character-image-submit", record.error || "")
+          : {};
       await updateMyCharacterImageGenerationRecord(auth, record, {
         upstreamTaskId: gatewayRecordTaskId || taskId || "",
         status: myCharacterImageGenerationStatus(record, record.imageStatus),
@@ -23501,6 +23572,7 @@ async function runMyCharacterImageGenerationJob(job = {}) {
         localImageUrl: record.localImageUrl || "",
         cdnImageUrl: record.cdnImageUrl || record.publicImageUrl || "",
         error: record.error || "",
+        ...billingUpdates,
       }, "my-character-image-submit");
       return;
     }
@@ -23541,6 +23613,7 @@ async function runMyCharacterImageGenerationJob(job = {}) {
     record.error = "";
     record.updatedAt = new Date().toISOString();
     await saveUserCharacterForAuth(auth, record);
+    const billingUpdates = await myCharacterImageSettleUpdates(record);
     await updateMyCharacterImageGenerationRecord(auth, record, {
       upstreamTaskId: taskId,
       status: "succeeded",
@@ -23555,6 +23628,7 @@ async function runMyCharacterImageGenerationJob(job = {}) {
       cdnError: local.cdnError || "",
       awaitingUpstreamTask: false,
       error: "",
+      ...billingUpdates,
     }, "my-character-image-succeeded");
   } catch (error) {
     await failMyCharacterImageGeneration(auth, record, error, "my-character-image-failed");
@@ -23662,7 +23736,7 @@ async function ensureCharacterReferenceForRecord(record) {
   return record;
 }
 
-async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, seedanceBody = {}) {
+async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, seedanceBody = {}, pricing = null) {
   const prompt = makeHomeVideoPrompt(prepared, userPrompt, { decorate: true });
   const { task, payload } = await submitSeedanceVideoTask({
     config,
@@ -23718,9 +23792,13 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     error: "",
     source: "user-character",
     preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing?.originalCredits ?? cost,
     finalCredits: cost,
+    originalFinalCredits: pricing?.originalCredits ?? cost,
+    userPricingMultiplier: pricing?.userPricingMultiplier ?? 1,
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
+    pricingEstimate: pricing || null,
     createResponse: task,
     apiTokenId: auth.tokenRecord?.id || "",
     apiTokenName: auth.tokenRecord?.name || "",
@@ -23800,6 +23878,20 @@ async function handleGenerateMyCharacterImage(req, res) {
   const nowIso = new Date().toISOString();
   const characterId = randomId("mychar");
   const imageRecordTaskId = localGenerationTaskId("mychar-img");
+  const pricing = myCharacterImagePricing(config, auth);
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || {
+      ok: false,
+      code: error.code || "SUBTOKEN_QUOTA_EXCEEDED",
+      message: error.message || "Sub token quota is not enough.",
+    });
+  }
   const record = {
     id: characterId,
     userId: auth.user.id,
@@ -23847,7 +23939,34 @@ async function handleGenerateMyCharacterImage(req, res) {
     model,
     params,
     awaitingUpstreamTask: true,
+    preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
+    finalCredits: null,
+    originalFinalCredits: null,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+    billingStatus: cost > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
+    billingError: "",
+    pricingEstimate: pricing,
   }, "my-character-image-create");
+
+  if (cost > 0) {
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "my_character_image_generate",
+      taskId: imageRecordTaskId,
+      meta: {
+        taskId: imageRecordTaskId,
+        characterId,
+        model,
+        baseCredits: pricing.baseCredits,
+        originalCost: pricing.originalCredits,
+        pricingMultiplier: pricing.userPricingMultiplier,
+        pricingSource: pricing.source || "my_character_image_price",
+      },
+    });
+    if (!dbEnabled()) await writeDb(auth.db);
+  }
 
   record.imageTaskId = imageRecordTaskId;
   record.imageStatus = "submitting";
@@ -23861,6 +23980,15 @@ async function handleGenerateMyCharacterImage(req, res) {
     awaitingUpstreamTask: true,
     upstreamTaskId: "",
     error: "",
+    preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
+    finalCredits: null,
+    originalFinalCredits: null,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+    billingStatus: cost > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
+    billingError: "",
+    pricingEstimate: pricing,
   }, "my-character-image-queued");
 
   startMyCharacterImageGenerationJob({
@@ -23884,6 +24012,8 @@ async function handleGenerateMyCharacterImage(req, res) {
     taskId: imageRecordTaskId,
     record: publicGenerationRecord(generationRecord || { taskId: imageRecordTaskId }, generationRecordResponseOptionsForAuth(auth)),
     user: userView(auth.user),
+    pricing,
+    cost,
   });
 }
 
@@ -23900,7 +24030,8 @@ async function handleCreateMyCharacter(req, res) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
   const config = await readAppConfig();
-  const cost = clampNumber(body.cost, Number(config.prices.customCharacter || 30), 0, 9999);
+  const pricing = configuredFixedCreditsPricing(config.prices?.customCharacter ?? DEFAULT_CONFIG.prices.customCharacter ?? 30, "custom_character_main_video_price", auth);
+  const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
@@ -23965,7 +24096,7 @@ async function handleCreateMyCharacter(req, res) {
   }
 
   const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
-  const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body);
+  const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body, pricing);
 
   return sendJson(res, 200, {
     ok: true,
@@ -24002,7 +24133,8 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
   const config = await readAppConfig();
-  const cost = clampNumber(body.cost, Number(config.prices.customCharacter || 30), 0, 9999);
+  const pricing = configuredFixedCreditsPricing(config.prices?.customCharacter ?? DEFAULT_CONFIG.prices.customCharacter ?? 30, "custom_character_main_video_price", auth);
+  const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
@@ -24044,7 +24176,7 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
   }
 
   const userPrompt = typeof body.prompt === "string" ? body.prompt : String(record.prompt || "");
-  const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body);
+  const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body, pricing);
 
   return sendJson(res, 200, {
     ok: true,
@@ -24202,7 +24334,8 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
   const sceneEntry = findSceneEntryConfig(sceneConfig, body.sceneEntryId);
   const sceneVideoKey = makeSceneVideoKey(sceneConfig.id, sceneEntry.id);
 
-  const cost = clampNumber(body.cost, Number(sceneConfig.price || config.prices.dateVideo || 25), 0, 9999);
+  const pricing = configuredFixedCreditsPricing(sceneConfig.price || config.prices?.dateVideo || 25, "character_scene_video_price", auth);
+  const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
@@ -27037,7 +27170,8 @@ async function handleCreateSceneVideo(req, res) {
     return sendJson(res, 400, { ok: false, message: "No prompt configured for this scene." });
   }
 
-  const cost = clampNumber(body.cost, Number(sceneConfig.price || config.prices.dateVideo || 25), 0, 9999);
+  const pricing = configuredFixedCreditsPricing(sceneConfig.price || config.prices?.dateVideo || 25, "scene_video_price", auth);
+  const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
   }
