@@ -1024,12 +1024,21 @@ function sendMarkdown(res, statusCode, body) {
 
 function publicOriginFromRequest(req) {
   if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL;
+  return requestOriginFromHeaders(req);
+}
+
+function requestOriginFromHeaders(req) {
   const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim();
   if (!host) return "https://123vips.com";
   const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
   const localHost = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host);
   const protocol = forwardedProto || (localHost ? "http" : "https");
   return `${protocol}://${host}`.replace(/\/+$/, "");
+}
+
+function pageOriginFromRequest(req) {
+  const tenant = requestTenantDescriptor(req);
+  return tenant.toolOnly ? requestOriginFromHeaders(req) : publicOriginFromRequest(req);
 }
 
 function parseCsvList(value = "") {
@@ -1955,7 +1964,7 @@ function buildGeoCategoriesForSnapshot(characters = [], origin = "") {
 }
 
 async function geoSiteSnapshot(req) {
-  const origin = publicOriginFromRequest(req);
+  const origin = pageOriginFromRequest(req);
   const config = await readAppConfig();
   const platform = normalizePlatformConfig(config.platform || {});
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
