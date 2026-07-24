@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_OLD_ROOT = Path(r"D:\raising-game-price-old")
+DEFAULT_OLD_ROOT = Path(r"D:\raising-game-old-asyncfix")
 DEFAULT_NEW2_ROOT = Path(r"D:\raising-game-667zui")
 
 SHARED_APP_FILES = (
