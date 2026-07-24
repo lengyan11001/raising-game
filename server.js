@@ -23242,13 +23242,88 @@ async function updateMyCharacterImageGenerationRecord(auth, record, updates = {}
   });
 }
 
-function myCharacterImagePricing(config = {}, auth = {}) {
-  return configuredFixedCreditsPricing(config.prices?.customCharacter ?? DEFAULT_CONFIG.prices.customCharacter ?? 30, "my_character_image_price", auth);
-}
-
 function configuredFixedCreditsPricing(credits, source = "fixed_price", auth = {}) {
   const raw = fixedCreditsBreakdown(Number(credits || 0), source);
   return applyUserPricingToEstimate(raw, auth.user || 1, pricingContextForAuth(auth));
+}
+
+function characterSeedream5ImageOptions(config = {}, model = "", options = {}) {
+  const advancedPricing = normalizeAdvancedPricing(config.platform?.advancedPricing || DEFAULT_ADVANCED_PRICING);
+  const tier = normalizeSeedream5Tier(firstPresent(
+    options.seedreamTier,
+    options.seedream5Tier,
+    process.env.CHARACTER_SEEDREAM_TIER,
+    advancedPricing.seedream5Image?.defaultTier,
+    "pro",
+  ));
+  const resolution = normalizeSeedream5Resolution(firstPresent(
+    options.resolution,
+    options.size,
+    process.env.CHARACTER_SEEDREAM_SIZE,
+    advancedPricing.seedream5Image?.defaultResolution,
+    "2K",
+  ));
+  const resolvedModel = seedream5ModelForTier(firstPresent(
+    options.model,
+    process.env.CHARACTER_SEEDREAM_MODEL,
+    /^ep-/i.test(String(model || "")) ? model : "",
+  ), tier);
+  return {
+    provider: "seedream5-image",
+    model: resolvedModel,
+    seedreamTier: tier,
+    resolution,
+    size: resolution,
+    outputImageCount: Math.max(1, Math.floor(Number(options.outputImageCount || 1) || 1)),
+    referenceImageCount: Math.max(0, Math.floor(Number(options.referenceImageCount || 0) || 0)),
+  };
+}
+
+function myCharacterImagePricing(config = {}, auth = {}, options = {}) {
+  const raw = advancedModelPricing("seedream5-image", {
+    ...characterSeedream5ImageOptions(config, options.model || config.characterImage?.textModel || "", options),
+    advancedPricing: config.platform?.advancedPricing,
+  });
+  return applyUserPricingToEstimate(raw, auth.user || 1, pricingContextForAuth(auth));
+}
+
+async function seedanceVideoPricingForPayload(auth, config = {}, payload = {}, body = {}) {
+  const model = String(payload.model || firstPresent(body.model, MODEL_QUALITY));
+  const seedanceTier = normalizeSeedanceTier(firstPresent(
+    body.seedanceTier,
+    body.vipeak2Tier,
+    payload.seedanceTier,
+    /fast/i.test(model) ? "fast" : "standard",
+  ));
+  const requestParams = {
+    ...payload,
+    provider: "seedance",
+    model,
+    seedanceTier,
+    duration: clampNumber(payload.duration, advancedDurationBounds("seedance").fallback, advancedDurationBounds("seedance").min, advancedDurationBounds("seedance").max),
+    resolution: normalizeAdvancedResolution(payload.resolution || body.resolution || config.video?.resolution || "720p"),
+    ratio: normalizeVideoRatio(payload.ratio || payload.aspect_ratio || body.ratio || body.aspect_ratio || config.video?.ratio || "9:16"),
+  };
+  const pricingBody = officialSeedanceVideoInputsForPricing(payload);
+  requestParams.inputVideoSeconds = await seedanceVideoInputSecondsForPricingWithProbe(pricingBody, { requestParams });
+  const raw = advancedModelPricing("seedance", {
+    ...requestParams,
+    advancedPricing: config.platform?.advancedPricing,
+  });
+  return applyUserPricingToEstimate(raw, auth.user || 1, pricingContextForAuth(auth));
+}
+
+async function seedanceVideoPricingForSubmitArgs(auth, args = {}) {
+  const content = seedanceContentFromReferences(args);
+  const payload = seedancePayloadFromBody({
+    config: args.config || {},
+    prompt: args.prompt || "",
+    content,
+    body: args.body || {},
+  });
+  payload.Moderation = { Strategy: "Skip" };
+  const pricing = await seedanceVideoPricingForPayload(auth, args.config || {}, payload, args.body || {});
+  return { pricing, payload };
 }
 
 async function myCharacterImageSettleUpdates(record = {}) {
@@ -23736,8 +23811,24 @@ async function ensureCharacterReferenceForRecord(record) {
   return record;
 }
 
+async function userCharacterMainVideoPricing(auth, prepared, config, userPrompt, seedanceBody = {}) {
+  const prompt = makeHomeVideoPrompt(prepared, userPrompt, { decorate: true });
+  return await seedanceVideoPricingForSubmitArgs(auth, {
+    config,
+    prompt,
+    referenceAssetUri: prepared.referenceAssetUri,
+    body: { ...seedanceBody, generateAudio: true },
+    slug: `user-character-${prepared.id}`,
+  });
+}
+
 async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, seedanceBody = {}, pricing = null) {
   const prompt = makeHomeVideoPrompt(prepared, userPrompt, { decorate: true });
+  let finalPricing = pricing;
+  if (!finalPricing) {
+    finalPricing = (await userCharacterMainVideoPricing(auth, prepared, config, userPrompt, seedanceBody)).pricing;
+    cost = finalPricing.credits;
+  }
   const { task, payload } = await submitSeedanceVideoTask({
     config,
     prompt,
@@ -23792,13 +23883,13 @@ async function finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost
     error: "",
     source: "user-character",
     preDeductedCredits: cost,
-    originalPreDeductedCredits: pricing?.originalCredits ?? cost,
+    originalPreDeductedCredits: finalPricing?.originalCredits ?? cost,
     finalCredits: cost,
-    originalFinalCredits: pricing?.originalCredits ?? cost,
-    userPricingMultiplier: pricing?.userPricingMultiplier ?? 1,
+    originalFinalCredits: finalPricing?.originalCredits ?? cost,
+    userPricingMultiplier: finalPricing?.userPricingMultiplier ?? 1,
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
-    pricingEstimate: pricing || null,
+    pricingEstimate: finalPricing || null,
     createResponse: task,
     apiTokenId: auth.tokenRecord?.id || "",
     apiTokenName: auth.tokenRecord?.name || "",
@@ -23878,7 +23969,9 @@ async function handleGenerateMyCharacterImage(req, res) {
   const nowIso = new Date().toISOString();
   const characterId = randomId("mychar");
   const imageRecordTaskId = localGenerationTaskId("mychar-img");
-  const pricing = myCharacterImagePricing(config, auth);
+  const model = config.characterImage.textModel;
+  const imagePricingOptions = characterSeedream5ImageOptions(config, model);
+  const pricing = myCharacterImagePricing(config, auth, imagePricingOptions);
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -23926,10 +24019,11 @@ async function handleGenerateMyCharacterImage(req, res) {
   };
   await saveUserCharacterForAuth(auth, record);
 
-  const model = config.characterImage.textModel;
   const params = {
     prompt: userPrompt,
     image_size: normalizeSeedreamImageSize(config.characterImage.imageSize),
+    size: imagePricingOptions.size,
+    seedreamTier: imagePricingOptions.seedreamTier,
     num_images: 1,
     max_images: 1,
     enhance_prompt_mode: "standard",
@@ -23962,7 +24056,10 @@ async function handleGenerateMyCharacterImage(req, res) {
         baseCredits: pricing.baseCredits,
         originalCost: pricing.originalCredits,
         pricingMultiplier: pricing.userPricingMultiplier,
-        pricingSource: pricing.source || "my_character_image_price",
+        pricingSource: pricing.source || "byteplus_seedream5_official_image_pricing",
+        provider: pricing.provider || "seedream5-image",
+        resolution: pricing.resolution || imagePricingOptions.resolution,
+        seedreamTier: pricing.seedreamTier || imagePricingOptions.seedreamTier,
       },
     });
     if (!dbEnabled()) await writeDb(auth.db);
@@ -24030,16 +24127,6 @@ async function handleCreateMyCharacter(req, res) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
   const config = await readAppConfig();
-  const pricing = configuredFixedCreditsPricing(config.prices?.customCharacter ?? DEFAULT_CONFIG.prices.customCharacter ?? 30, "custom_character_main_video_price", auth);
-  const cost = pricing.credits;
-  if (auth.user.credits < cost) {
-    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
-  }
-  try {
-    assertSubtokenCanSpend(auth, cost);
-  } catch (error) {
-    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
-  }
 
   const characterId = randomId("mychar");
   const fileName = `${characterId}-source${imageExtFromMime(mime)}`;
@@ -24083,6 +24170,21 @@ async function handleCreateMyCharacter(req, res) {
   if (dbEnabled()) await upsertUserCharacterInDb(record);
   else await writeDb(auth.db);
 
+  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
+  const pricing = (await userCharacterMainVideoPricing(auth, {
+    ...record,
+    referenceAssetUri: record.referenceAssetUri || "asset://pricing-reference",
+  }, config, userPrompt, body)).pricing;
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+
   let prepared;
   try {
     prepared = await ensureCharacterReferenceForRecord({ ...record });
@@ -24095,7 +24197,6 @@ async function handleCreateMyCharacter(req, res) {
     throw error;
   }
 
-  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
   const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body, pricing);
 
   return sendJson(res, 200, {
@@ -24133,16 +24234,6 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "ARK_API_KEY is missing — character video tasks cannot be submitted." });
   }
   const config = await readAppConfig();
-  const pricing = configuredFixedCreditsPricing(config.prices?.customCharacter ?? DEFAULT_CONFIG.prices.customCharacter ?? 30, "custom_character_main_video_price", auth);
-  const cost = pricing.credits;
-  if (auth.user.credits < cost) {
-    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
-  }
-  try {
-    assertSubtokenCanSpend(auth, cost);
-  } catch (error) {
-    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
-  }
 
   if (st === "reference_failed") {
     record.referenceAssetUri = "";
@@ -24163,6 +24254,21 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     else await writeDb(auth.db);
   }
 
+  const userPrompt = typeof body.prompt === "string" ? body.prompt : String(record.prompt || "");
+  const pricing = (await userCharacterMainVideoPricing(auth, {
+    ...record,
+    referenceAssetUri: record.referenceAssetUri || "asset://pricing-reference",
+  }, config, userPrompt, body)).pricing;
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+
   let prepared;
   try {
     prepared = await ensureCharacterReferenceForRecord({ ...record });
@@ -24175,7 +24281,6 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     throw error;
   }
 
-  const userPrompt = typeof body.prompt === "string" ? body.prompt : String(record.prompt || "");
   const { task } = await finalizeUserCharacterMainVideoSubmit(auth, prepared, config, cost, userPrompt, body, pricing);
 
   return sendJson(res, 200, {
@@ -24334,7 +24439,15 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
   const sceneEntry = findSceneEntryConfig(sceneConfig, body.sceneEntryId);
   const sceneVideoKey = makeSceneVideoKey(sceneConfig.id, sceneEntry.id);
 
-  const pricing = configuredFixedCreditsPricing(sceneConfig.price || config.prices?.dateVideo || 25, "character_scene_video_price", auth);
+  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
+  const prompt = makeSceneVideoPrompt(sceneConfig, userPrompt);
+  const pricing = (await seedanceVideoPricingForSubmitArgs(auth, {
+    config,
+    prompt,
+    referenceAssetUri: record.referenceAssetUri,
+    body: { ...body, generateAudio: true },
+    slug: `user-scene-${characterId}-${sceneVideoKey}`,
+  })).pricing;
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -24345,8 +24458,6 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
   }
 
-  const userPrompt = typeof body.prompt === "string" ? body.prompt : "";
-  const prompt = makeSceneVideoPrompt(sceneConfig, userPrompt);
   let task;
   let payload;
   try {
@@ -24367,7 +24478,17 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     cost,
     type: "user_character_scene_video",
     taskId: task.taskId,
-    meta: { characterId, sceneId: sceneConfig.id, sceneEntryId: sceneEntry.id, duration: payload.duration },
+    meta: {
+      characterId,
+      sceneId: sceneConfig.id,
+      sceneEntryId: sceneEntry.id,
+      duration: payload.duration,
+      resolution: payload.resolution,
+      provider: pricing.provider || "seedance",
+      originalCost: pricing.originalCredits,
+      pricingMultiplier: pricing.userPricingMultiplier,
+      pricingSource: pricing.source || "public_duration_rate",
+    },
   });
 
   const nowIso = new Date().toISOString();
@@ -24431,9 +24552,13 @@ async function handleCreateMyCharacterSceneVideo(req, res, characterId) {
     error: "",
     source: "user-character-scene",
     preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
     finalCredits: cost,
+    originalFinalCredits: pricing.originalCredits ?? cost,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
+    pricingEstimate: pricing,
     createResponse: task,
     apiTokenId: auth.tokenRecord?.id || "",
     apiTokenName: auth.tokenRecord?.name || "",
@@ -27170,12 +27295,6 @@ async function handleCreateSceneVideo(req, res) {
     return sendJson(res, 400, { ok: false, message: "No prompt configured for this scene." });
   }
 
-  const pricing = configuredFixedCreditsPricing(sceneConfig.price || config.prices?.dateVideo || 25, "scene_video_price", auth);
-  const cost = pricing.credits;
-  if (auth.user.credits < cost) {
-    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
-  }
-
   if (dryRun || (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY)) {
     return sendJson(res, dryRun ? 200 : 503, {
       ok: dryRun,
@@ -27323,11 +27442,32 @@ async function handleCreateSceneVideo(req, res) {
     });
   }
 
+  const pricing = await seedanceVideoPricingForPayload(auth, config, payload, body);
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) {
+    return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  }
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+  }
+
   await chargeUserWithSubtoken(auth, {
     cost,
     type: "user_scene_video",
     taskId: randomId("scene"),
-    meta: { sceneId: body.sceneId || "", sceneEntryId: sceneEntry.id, companionId: resolvedCompanionId || body.companionId || "" },
+    meta: {
+      sceneId: body.sceneId || "",
+      sceneEntryId: sceneEntry.id,
+      companionId: resolvedCompanionId || body.companionId || "",
+      duration: payload.duration,
+      resolution: payload.resolution,
+      provider: pricing.provider || "seedance",
+      originalCost: pricing.originalCredits,
+      pricingMultiplier: pricing.userPricingMultiplier,
+      pricingSource: pricing.source || "public_duration_rate",
+    },
   });
   if (!dbEnabled()) await writeDb(auth.db);
 
@@ -27404,9 +27544,13 @@ async function handleCreateSceneVideo(req, res) {
     error: "",
     source: "user-scene-video",
     preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
     finalCredits: cost,
+    originalFinalCredits: pricing.originalCredits ?? cost,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
     billingStatus: cost > 0 ? "settled" : "free",
     billingSettledAt: new Date().toISOString(),
+    pricingEstimate: pricing,
     createResponse: task,
     apiTokenId: auth.tokenRecord?.id || "",
     apiTokenName: auth.tokenRecord?.name || "",
