@@ -33,7 +33,7 @@ function setTab(tab) {
   const previousTab = state.tab;
   const hashRoute = platformHashParts(tab);
   let routeGalleryMode = galleryModeFromPlatformRoute(tab);
-  if (routeGalleryMode === "playflux-anime" && !canUseAnimeTemplates()) routeGalleryMode = "";
+  if (routeGalleryMode && !isGalleryModeAllowed(routeGalleryMode)) routeGalleryMode = "";
   const routeCharacterId = characterRouteParamFrom(hashRoute.params);
   if (routeCharacterId) {
     state.routeCharacterId = routeCharacterId;
@@ -44,7 +44,7 @@ function setTab(tab) {
     state.activeGalleryCharacterId = "";
   }
   let nextTab = routeGalleryMode ? DEFAULT_PLATFORM_TAB : normalizePlatformTab(tab);
-  if (!isTabAllowed(nextTab)) nextTab = DEFAULT_PLATFORM_TAB;
+  if (!isTabAllowed(nextTab)) nextTab = tenantDefaultTab();
   if ((nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters") && state.routeCharacterId) {
     applyRouteCharacterDetail({ allowTabSwitch: true });
     nextTab = state.tab || nextTab;
@@ -56,6 +56,9 @@ function setTab(tab) {
       : previousTab === "characters" ? normalizeCharacterPanelTab(state.characterPanelTab) : "create";
   }
   if (routeGalleryMode) state.galleryMode = routeGalleryMode;
+  if (nextTab === DEFAULT_PLATFORM_TAB && !isGalleryModeAllowed(state.galleryMode)) {
+    state.galleryMode = tenantDefaultGalleryMode();
+  }
   localStorage.setItem(TAB_KEY, nextTab);
   const nextHash = state.routeCharacterId && (nextTab === DEFAULT_PLATFORM_TAB || nextTab === "characters")
     ? characterDetailHash(nextTab, state.routeCharacterId, state.routeCharacterSource)
@@ -149,7 +152,7 @@ function isPlayfluxGalleryMode(mode = state.galleryMode) {
 
 function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
   const normalized = normalizeGalleryMode(mode || DEFAULT_GALLERY_MODE);
-  state.galleryMode = normalized === "playflux-anime" && !canUseAnimeTemplates() ? DEFAULT_GALLERY_MODE : normalized;
+  state.galleryMode = normalized;
   state.routeCharacterId = "";
   state.routeCharacterSource = "";
   state.activeGalleryCharacterId = "";
@@ -3510,7 +3513,7 @@ function advancedCaseInputVideoPoster(item = {}) {
 function syncGalleryShortcutNav() {
   document.querySelectorAll("[data-gallery-shortcut]").forEach((button) => {
     const mode = normalizeGalleryMode(button.dataset.galleryShortcut || "");
-    const disabled = button.dataset.galleryShortcut === "playflux-anime" && !canUseAnimeTemplates();
+    const disabled = !isGalleryModeAllowed(button.dataset.galleryShortcut || "");
     button.hidden = disabled;
     const active = state.tab === DEFAULT_PLATFORM_TAB && mode === normalizeGalleryMode(state.galleryMode);
     button.classList.toggle("is-active", active);
@@ -3680,8 +3683,8 @@ function normalizeAdvancedCaseTab(value = "") {
 
 function normalizeGalleryMode(value = "") {
   const raw = String(value || "").trim().toLowerCase();
-  if (raw === "playflux-anime" && !canUseAnimeTemplates()) return DEFAULT_GALLERY_MODE;
-  return GALLERY_MODE_TABS.some((tab) => tab.id === raw) ? raw : DEFAULT_GALLERY_MODE;
+  if (isGalleryModeAllowed(raw)) return raw;
+  return tenantDefaultGalleryMode();
 }
 
 function advancedCaseTabLabel(tab = "hot") {

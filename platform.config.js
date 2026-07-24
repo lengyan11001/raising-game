@@ -743,12 +743,6 @@ const state = {
   ageGateDecision: null,
 };
 
-function tenantFeature(name, fallback = true) {
-  const features = state.config?.tenantFeatures;
-  if (!features || features[name] === undefined) return fallback;
-  return Boolean(features[name]);
-}
-
 function isWorkflowTester() {
   return String(state.user?.username || "").trim().toLowerCase() === "test01";
 }
@@ -757,9 +751,114 @@ function canUseAnimeTemplates() {
   return isWorkflowTester();
 }
 
+function tenantFeatures() {
+  return state.config?.tenantFeatures && typeof state.config.tenantFeatures === "object"
+    ? state.config.tenantFeatures
+    : {};
+}
+
+function tenantFeature(name, fallback = true) {
+  const features = tenantFeatures();
+  if (features[name] === undefined) return fallback;
+  return Boolean(features[name]);
+}
+
+function tenantStringFeature(name, fallback = "") {
+  const value = tenantFeatures()[name];
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function tenantListFeature(name) {
+  const value = tenantFeatures()[name];
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function tenantDisabledTabs() {
+  return tenantListFeature("disabledTabs");
+}
+
+function tenantAllowedTabs() {
+  return tenantListFeature("allowedTabs").filter((tab) => ALL_TABS.has(tab));
+}
+
+function tenantDefaultTabCandidate() {
+  const candidate = tenantStringFeature("defaultTab", DEFAULT_PLATFORM_TAB);
+  return ALL_TABS.has(candidate) ? candidate : DEFAULT_PLATFORM_TAB;
+}
+
+function tenantDefaultTab() {
+  const disabled = tenantDisabledTabs();
+  const allowed = tenantAllowedTabs();
+  const candidates = [tenantDefaultTabCandidate(), DEFAULT_PLATFORM_TAB, "advanced", "characters", "history", "pricing"];
+  for (const candidate of candidates) {
+    if (!ALL_TABS.has(candidate)) continue;
+    if (allowed.length && !allowed.includes(candidate)) continue;
+    if (disabled.includes(candidate)) continue;
+    if (candidate === "assets" && !tenantFeature("assetLibrary", true)) continue;
+    if (candidate === "access" && !tenantFeature("apiAccess", true)) continue;
+    if (candidate === "workflow" && !isWorkflowTester()) continue;
+    return candidate;
+  }
+  return DEFAULT_PLATFORM_TAB;
+}
+
+function galleryModeExists(mode = "") {
+  const raw = String(mode || "").trim();
+  return GALLERY_MODE_TABS.some((tab) => tab.id === raw);
+}
+
+function tenantAllowedGalleryModes() {
+  return tenantListFeature("allowedGalleryModes").filter(galleryModeExists);
+}
+
+function isGalleryModeAllowed(mode = "") {
+  const raw = String(mode || "").trim();
+  if (!galleryModeExists(raw)) return false;
+  const allowed = tenantAllowedGalleryModes();
+  if (allowed.length && !allowed.includes(raw)) return false;
+  if (raw === "playflux-anime" && !canUseAnimeTemplates()) return false;
+  return true;
+}
+
+function tenantDefaultGalleryMode() {
+  const allowed = tenantAllowedGalleryModes();
+  const configured = tenantStringFeature("defaultGalleryMode", DEFAULT_GALLERY_MODE);
+  const candidates = [configured, ...allowed, DEFAULT_GALLERY_MODE, "playflux-video", "playflux-image"];
+  for (const candidate of candidates) {
+    if (isGalleryModeAllowed(candidate)) return candidate;
+  }
+  return DEFAULT_GALLERY_MODE;
+}
+
+function hasExplicitPlatformRoute() {
+  const searchParams = new URLSearchParams(window.location.search || "");
+  return Boolean(window.location.hash || searchParams.get("tab") || searchParams.get("view"));
+}
+
+function normalizeTenantRouteAfterConfig() {
+  if (!state.config) return;
+  const explicit = hasExplicitPlatformRoute();
+  if (!explicit) {
+    state.tab = tenantDefaultTab();
+    if (state.tab === DEFAULT_PLATFORM_TAB) state.galleryMode = tenantDefaultGalleryMode();
+  }
+  if (!isTabAllowed(state.tab)) state.tab = tenantDefaultTab();
+  if (state.tab === DEFAULT_PLATFORM_TAB && !isGalleryModeAllowed(state.galleryMode)) {
+    state.galleryMode = tenantDefaultGalleryMode();
+  }
+}
+
 function isTabAllowed(tab) {
-  if (tab === "workflow") return isWorkflowTester();
-  return tab !== "assets" || tenantFeature("assetLibrary", true);
+  const raw = platformHashParts(tab).tab || String(tab || "").trim();
+  const normalized = ALL_TABS.has(raw) ? raw : DEFAULT_PLATFORM_TAB;
+  const allowed = tenantAllowedTabs();
+  if (allowed.length && !allowed.includes(normalized)) return false;
+  if (tenantDisabledTabs().includes(normalized)) return false;
+  if (normalized === "access" && !tenantFeature("apiAccess", true)) return false;
+  if (normalized === "workflow") return isWorkflowTester();
+  if (normalized === "assets") return tenantFeature("assetLibrary", true);
+  return true;
 }
 
 const els = {

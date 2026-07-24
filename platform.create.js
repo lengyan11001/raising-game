@@ -4466,7 +4466,7 @@ async function bootstrap() {
   els.brandName.textContent = platform.brand || "Vipeak AI";
   await loadAdvancedPresets();
   applyTenantFeatures();
-  if (!isTabAllowed(state.tab)) state.tab = DEFAULT_PLATFORM_TAB;
+  normalizeTenantRouteAfterConfig();
   renderCategories();
   renderTemplates();
   renderAccessGuides();

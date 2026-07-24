@@ -440,25 +440,38 @@ function applyTenantFeatures() {
   const assetEnabled = tenantFeature("assetLibrary", true);
   const workflowEnabled = isWorkflowTester();
   const animeEnabled = canUseAnimeTemplates();
-  const accountMenuEnabled = true;
+  const apiAccessEnabled = tenantFeature("apiAccess", true);
+  const toolOnly = tenantFeature("toolOnly", false);
+  const accountMenuEnabled = tenantFeature("accountMenu", true);
+  document.body.classList.toggle("tenant-tool-shell", toolOnly);
   document.querySelectorAll(".tenant-menu-only").forEach((element) => {
     element.hidden = !accountMenuEnabled;
   });
   document.querySelectorAll(".tenant-compact-only").forEach((element) => {
-    element.hidden = tenantFeature("accountMenu", true);
+    element.hidden = accountMenuEnabled;
   });
   document.querySelectorAll(".tenant-old-tab").forEach((element) => {
     element.hidden = !assetEnabled;
   });
-  document.querySelectorAll("[data-tab='assets']").forEach((element) => {
-    element.hidden = !assetEnabled;
+  document.querySelectorAll("[data-tab]").forEach((element) => {
+    const tab = element.dataset.tab || "";
+    const hiddenByToolGallery = toolOnly
+      && tab === DEFAULT_PLATFORM_TAB
+      && tenantDefaultGalleryMode() !== DEFAULT_GALLERY_MODE;
+    element.hidden = hiddenByToolGallery || !isTabAllowed(tab);
   });
-  document.querySelectorAll("[data-tab='workflow']").forEach((element) => {
-    element.hidden = !workflowEnabled;
+  document.querySelectorAll("[data-gallery-shortcut]").forEach((element) => {
+    const shortcut = element.dataset.galleryShortcut || "";
+    element.hidden = !isGalleryModeAllowed(shortcut) || (shortcut === "playflux-anime" && !animeEnabled);
   });
-  document.querySelectorAll("[data-gallery-shortcut='playflux-anime']").forEach((element) => {
-    element.hidden = !animeEnabled;
+  document.querySelectorAll("[data-panel='access'], #accessTokenCard").forEach((element) => {
+    element.hidden = !apiAccessEnabled || element.hidden;
   });
+  [els.copyTokenBtn, els.menuCopyTokenBtn, els.toggleAccessTokenBtn, els.copyAccountTokenBtn, els.toggleAccountTokenBtn].forEach((element) => {
+    if (element) element.hidden = !apiAccessEnabled;
+  });
+  const accountTokenBox = els.accountToken?.closest(".token-box");
+  if (accountTokenBox) accountTokenBox.hidden = !apiAccessEnabled;
 }
 
 function applyLanguage() {
@@ -532,7 +545,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     : t("nav.login");
   if (els.accountMenuLabel) els.accountMenuLabel.textContent = accountLabel;
   applyTenantFeatures();
-  if (!isTabAllowed(state.tab)) setTab(DEFAULT_PLATFORM_TAB);
+  if (!isTabAllowed(state.tab)) setTab(tenantDefaultTab());
   renderTokenDisplays();
   renderTopupSummary();
   renderPricing();
@@ -699,6 +712,10 @@ function apiSubtokenExpiresInputValue(value = "") {
 
 function renderApiSubtokens() {
   if (!els.accessSubtokens) return;
+  if (!tenantFeature("apiAccess", true)) {
+    els.accessSubtokens.innerHTML = "";
+    return;
+  }
   if (!state.user) {
     els.accessSubtokens.innerHTML = `
       <article class="access-doc-card access-subtoken-card">
@@ -793,7 +810,7 @@ function renderApiSubtokens() {
 }
 
 async function loadApiSubtokens({ force = false } = {}) {
-  if (!state.user || !els.accessSubtokens) {
+  if (!tenantFeature("apiAccess", true) || !state.user || !els.accessSubtokens) {
     state.apiSubtokens = [];
     state.apiSubtokensLoaded = false;
     renderApiSubtokens();
@@ -820,6 +837,7 @@ async function loadApiSubtokens({ force = false } = {}) {
 
 async function submitApiSubtokenCreate(event) {
   event.preventDefault();
+  if (!tenantFeature("apiAccess", true)) return;
   if (!state.user) return openLogin();
   const root = els.accessSubtokens;
   const name = root?.querySelector("#subtokenName")?.value.trim() || "";
@@ -851,6 +869,7 @@ async function submitApiSubtokenCreate(event) {
 }
 
 async function revokeApiSubtoken(tokenId, button = null) {
+  if (!tenantFeature("apiAccess", true)) return;
   if (!tokenId) return;
   const originalHtml = button?.innerHTML || "";
   if (button) {
@@ -875,6 +894,7 @@ async function revokeApiSubtoken(tokenId, button = null) {
 
 async function submitApiSubtokenUpdate(event) {
   event.preventDefault();
+  if (!tenantFeature("apiAccess", true)) return;
   const form = event.currentTarget;
   const tokenId = form?.dataset?.editSubtoken || "";
   if (!tokenId) return;
@@ -910,6 +930,7 @@ async function submitApiSubtokenUpdate(event) {
 }
 
 function renderTokenDisplays() {
+  const apiAccessEnabled = tenantFeature("apiAccess", true);
   if (els.accessTokenDisplay) {
     els.accessTokenDisplay.textContent = currentTokenLabel(state.showAccessToken);
   }
@@ -924,8 +945,11 @@ function renderTokenDisplays() {
   }
   if (els.copyTokenBtn) {
     els.copyTokenBtn.disabled = !state.token || !state.user?.apiToken;
+    els.copyTokenBtn.hidden = !apiAccessEnabled;
     els.copyTokenBtn.innerHTML = `<i data-lucide="key-round"></i>Copy token + docs`;
   }
+  const accountTokenBox = els.accountToken?.closest(".token-box");
+  if (accountTokenBox) accountTokenBox.hidden = !apiAccessEnabled;
   if (els.supportFab) {
     els.supportFab.hidden = !state.user;
   }
@@ -942,25 +966,28 @@ function renderTokenDisplays() {
   if (els.toggleAccountTokenBtn) {
     els.toggleAccountTokenBtn.textContent = state.showAccountToken ? t("common.hide") : t("common.showFull");
     els.toggleAccountTokenBtn.disabled = !state.token || !state.user?.apiToken;
+    els.toggleAccountTokenBtn.hidden = !apiAccessEnabled;
   }
   if (els.copyAccountTokenBtn) {
     els.copyAccountTokenBtn.disabled = !state.token || !state.user?.apiToken;
+    els.copyAccountTokenBtn.hidden = !apiAccessEnabled;
   }
 }
 
 function renderAccountMenu() {
   const loggedIn = Boolean(state.user);
+  const apiAccessEnabled = tenantFeature("apiAccess", true);
   if (els.menuBalance) els.menuBalance.hidden = !loggedIn;
   if (els.topupHeadBtn) els.topupHeadBtn.hidden = !loggedIn;
   if (els.topupTriggerBtn) els.topupTriggerBtn.hidden = !loggedIn;
   if (els.mobileDrawerTopupBtn) els.mobileDrawerTopupBtn.hidden = !loggedIn;
   if (els.mobileDrawerLoginBtn) els.mobileDrawerLoginBtn.hidden = loggedIn;
   document.querySelectorAll(".account-menu [data-tab]").forEach((button) => {
-    button.hidden = !loggedIn && button.dataset.tab !== "pricing";
+    button.hidden = !isTabAllowed(button.dataset.tab || "") || (!loggedIn && button.dataset.tab !== "pricing");
   });
   if (els.menuLoginBtn) els.menuLoginBtn.hidden = loggedIn;
   if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user?.apiToken;
-  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.hidden = !loggedIn;
+  if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.hidden = !apiAccessEnabled || !loggedIn;
   if (els.menuLogoutBtn) {
     els.menuLogoutBtn.hidden = !loggedIn;
     els.menuLogoutBtn.disabled = !loggedIn;
