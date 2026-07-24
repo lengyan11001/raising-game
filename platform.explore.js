@@ -1918,6 +1918,30 @@ function characterCreatorFieldLabel(field = "") {
   return state.lang === "zh" ? pair[1] : pair[0];
 }
 
+const CHARACTER_CREATOR_DETAIL_FIELDS = ["voice", "personality", "occupation", "relationship", "hobby", "fetish"];
+
+function characterCreatorFieldIcon(field = "") {
+  const icons = {
+    voice: "mic",
+    personality: "sparkles",
+    occupation: "briefcase",
+    relationship: "heart",
+    hobby: "gamepad-2",
+    fetish: "flame",
+  };
+  return icons[field] || "sparkles";
+}
+
+function characterCreatorUiText(key = "") {
+  const copy = {
+    select: ["Select", "\u9009\u62e9"],
+    search: ["Search", "\u641c\u7d22"],
+    moreDetails: ["More details", "\u66f4\u591a\u7ec6\u8282"],
+  };
+  const pair = copy[key] || [key, key];
+  return state.lang === "zh" ? pair[1] : pair[0];
+}
+
 function characterCreatorCopy(key = "") {
   const copy = {
     next: ["Next", "下一步"],
@@ -2037,6 +2061,29 @@ function renderCharacterCreatorChips(field = "") {
   `;
 }
 
+function renderCharacterCreatorSummaryCard(field = "") {
+  const selected = characterCreatorOption(field, state.characterCreator[field]);
+  const selectedLabel = selected ? characterCreatorLabel(selected) : characterCreatorUiText("select");
+  return `
+    <button class="creator-summary-card" data-creator-picker="${escapeHtml(field)}" type="button">
+      <span class="creator-summary-icon"><i data-lucide="${escapeHtml(characterCreatorFieldIcon(field))}"></i></span>
+      <span class="creator-summary-text">
+        <small>${escapeHtml(characterCreatorFieldLabel(field))}</small>
+        <strong>${escapeHtml(selectedLabel)}</strong>
+      </span>
+      <i class="creator-summary-arrow" data-lucide="chevron-right"></i>
+    </button>
+  `;
+}
+
+function renderCharacterCreatorSummaryGrid() {
+  return `
+    <div class="creator-summary-grid">
+      ${CHARACTER_CREATOR_DETAIL_FIELDS.map(renderCharacterCreatorSummaryCard).join("")}
+    </div>
+  `;
+}
+
 function renderCharacterCreatorField(field = "", content = "") {
   return `<section class="creator-field creator-field-${escapeHtml(field)}"><h4>${escapeHtml(characterCreatorFieldLabel(field))}</h4>${content}</section>`;
 }
@@ -2059,18 +2106,16 @@ function renderCharacterCreatorStepBody() {
   if (creator.step === "body") return `${renderCharacterCreatorField("bodyType", renderCharacterCreatorTiles("bodyType"))}${renderCharacterCreatorField("breastSize", renderCharacterCreatorTiles("breastSize"))}${renderCharacterCreatorField("buttSize", renderCharacterCreatorTiles("buttSize"))}`;
   if (creator.step === "details") {
     return `
-      <div class="creator-inline-grid">
-        <label class="field"><span>${escapeHtml(characterCreatorFieldLabel("name"))}</span><input data-creator-input="name" type="text" value="${escapeHtml(creator.name || "")}" placeholder="${escapeHtml(characterCreatorFieldLabel("name"))}" /></label>
-        <label class="field"><span>${escapeHtml(characterCreatorFieldLabel("age"))}</span><input data-creator-input="age" type="number" min="18" max="80" value="${escapeHtml(creator.age)}" /></label>
-      </div>
-      ${renderCharacterCreatorField("voice", renderCharacterCreatorChips("voice"))}
-      ${renderCharacterCreatorField("personality", renderCharacterCreatorChips("personality"))}
-      ${renderCharacterCreatorField("occupation", renderCharacterCreatorChips("occupation"))}
-      ${renderCharacterCreatorField("relationship", renderCharacterCreatorChips("relationship"))}
-      ${renderCharacterCreatorField("hobby", renderCharacterCreatorChips("hobby"))}
-      ${renderCharacterCreatorField("fetish", renderCharacterCreatorChips("fetish"))}
-      <label class="field"><span>${escapeHtml(characterCreatorFieldLabel("customPhysicalDetails"))}</span><textarea data-creator-input="customPhysicalDetails" rows="3" placeholder="${escapeHtml(characterCreatorCopy("customPhysicalPlaceholder"))}">${escapeHtml(creator.customPhysicalDetails || "")}</textarea></label>
-      <label class="field"><span>${escapeHtml(characterCreatorFieldLabel("customFaceDetails"))}</span><textarea data-creator-input="customFaceDetails" rows="3" placeholder="${escapeHtml(characterCreatorCopy("customFacePlaceholder"))}">${escapeHtml(creator.customFaceDetails || "")}</textarea></label>
+      <label class="field creator-detail-input creator-detail-name"><span>${escapeHtml(characterCreatorFieldLabel("name"))}</span><input data-creator-input="name" type="text" value="${escapeHtml(creator.name || "")}" placeholder="${escapeHtml(characterCreatorFieldLabel("name"))}" /></label>
+      <label class="field creator-detail-input creator-detail-age"><span>${escapeHtml(characterCreatorFieldLabel("age"))}</span><input data-creator-input="age" type="number" min="18" max="80" value="${escapeHtml(creator.age)}" /></label>
+      ${renderCharacterCreatorSummaryGrid()}
+      <details class="creator-extra-details">
+        <summary>${escapeHtml(characterCreatorUiText("moreDetails"))}</summary>
+        <div class="creator-extra-grid">
+          <label class="field"><span>${escapeHtml(characterCreatorFieldLabel("customPhysicalDetails"))}</span><textarea data-creator-input="customPhysicalDetails" rows="3" placeholder="${escapeHtml(characterCreatorCopy("customPhysicalPlaceholder"))}">${escapeHtml(creator.customPhysicalDetails || "")}</textarea></label>
+          <label class="field"><span>${escapeHtml(characterCreatorFieldLabel("customFaceDetails"))}</span><textarea data-creator-input="customFaceDetails" rows="3" placeholder="${escapeHtml(characterCreatorCopy("customFacePlaceholder"))}">${escapeHtml(creator.customFaceDetails || "")}</textarea></label>
+        </div>
+      </details>
     `;
   }
   return `
@@ -2127,10 +2172,99 @@ function navigateCharacterCreator(direction = "next") {
   scrollCharacterCreatorIntoView();
 }
 
+function closeCharacterCreatorPicker() {
+  const picker = document.querySelector(".creator-picker-shell");
+  if (!picker) return;
+  const onKeydown = picker._creatorPickerKeydown;
+  if (onKeydown) document.removeEventListener("keydown", onKeydown);
+  picker.remove();
+  document.body.classList.remove("creator-picker-open");
+}
+
+function characterCreatorPickerOptionsHtml(field = "", query = "") {
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  const value = state.characterCreator[field];
+  const options = (CHARACTER_CREATOR_OPTIONS[field] || []).filter((item) => {
+    if (!normalizedQuery) return true;
+    const label = `${item.label || ""} ${item.zh || ""} ${item.id || ""}`.toLowerCase();
+    return label.includes(normalizedQuery);
+  });
+  return options.map((item) => {
+    const label = characterCreatorLabel(item);
+    return `
+      <button class="creator-picker-option ${value === item.id ? "is-active" : ""}" data-creator-picker-value="${escapeHtml(item.id)}" type="button" title="${escapeHtml(label)}">
+        <span class="creator-picker-option-icon"><i data-lucide="${escapeHtml(characterCreatorFieldIcon(field))}"></i></span>
+        <span>${escapeHtml(label)}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+function openCharacterCreatorPicker(field = "") {
+  if (!CHARACTER_CREATOR_DETAIL_FIELDS.includes(field)) return;
+  closeCharacterCreatorPicker();
+  const shell = document.createElement("div");
+  shell.className = "creator-picker-shell";
+  shell.innerHTML = `
+    <button class="creator-picker-backdrop" data-creator-picker-close="true" type="button" aria-label="Close"></button>
+    <section class="creator-picker-panel" role="dialog" aria-modal="true" aria-label="${escapeHtml(characterCreatorFieldLabel(field))}">
+      <header class="creator-picker-header">
+        <strong>${escapeHtml(state.lang === "zh" ? `\u9009\u62e9${characterCreatorFieldLabel(field)}` : `Select ${characterCreatorFieldLabel(field)}`)}</strong>
+        <label class="creator-picker-search">
+          <i data-lucide="search"></i>
+          <input data-creator-picker-search type="search" placeholder="${escapeHtml(characterCreatorUiText("search"))}" autocomplete="off" />
+        </label>
+        <button class="icon-btn creator-picker-close" data-creator-picker-close="true" type="button" aria-label="Close"><i data-lucide="x"></i></button>
+      </header>
+      <div class="creator-picker-options" data-creator-picker-options>
+        ${characterCreatorPickerOptionsHtml(field)}
+      </div>
+    </section>
+  `;
+  const close = () => closeCharacterCreatorPicker();
+  const renderOptions = () => {
+    const grid = shell.querySelector("[data-creator-picker-options]");
+    const search = shell.querySelector("[data-creator-picker-search]");
+    if (!grid) return;
+    grid.innerHTML = characterCreatorPickerOptionsHtml(field, search?.value || "");
+    refreshIcons();
+  };
+  shell.addEventListener("click", (event) => {
+    if (event.target.closest("[data-creator-picker-close]")) {
+      close();
+      return;
+    }
+    const option = event.target.closest("[data-creator-picker-value]");
+    if (option) {
+      state.characterCreator[field] = option.dataset.creatorPickerValue || "";
+      renderCharacterCreator();
+      close();
+    }
+  });
+  shell.addEventListener("input", (event) => {
+    if (event.target.matches("[data-creator-picker-search]")) renderOptions();
+  });
+  const onKeydown = (event) => {
+    if (event.key === "Escape") close();
+  };
+  shell._creatorPickerKeydown = onKeydown;
+  document.addEventListener("keydown", onKeydown);
+  document.body.appendChild(shell);
+  document.body.classList.add("creator-picker-open");
+  refreshIcons();
+  window.requestAnimationFrame(() => shell.querySelector("[data-creator-picker-search]")?.focus());
+}
+
 function bindCharacterCreatorEvents() {
   if (!els.characterCreatorRoot || els.characterCreatorRoot.dataset.bound === "true") return;
   els.characterCreatorRoot.dataset.bound = "true";
   els.characterCreatorRoot.addEventListener("click", (event) => {
+    const pickerButton = event.target.closest("[data-creator-picker]");
+    if (pickerButton) {
+      els.characterCreatorRoot.querySelectorAll("[data-creator-input]").forEach(updateCharacterCreatorInput);
+      openCharacterCreatorPicker(pickerButton.dataset.creatorPicker || "");
+      return;
+    }
     const setButton = event.target.closest("[data-creator-set]");
     if (setButton) {
       state.characterCreator[setButton.dataset.creatorSet || ""] = setButton.dataset.creatorValue || "";
