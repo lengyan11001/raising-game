@@ -18,6 +18,11 @@ body.tenant-tool-video .aurora {
   display: none;
 }
 
+body.tenant-tool-video .top-tab[data-tab]:not([data-tab="history"]),
+body.tenant-tool-video .top-tab[data-gallery-shortcut]:not([data-gallery-shortcut="playflux-video"]) {
+  display: none !important;
+}
+
 @media (min-width: 721px) {
   body.tenant-tool-video {
     padding-top: 78px;

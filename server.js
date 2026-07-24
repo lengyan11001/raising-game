@@ -2923,9 +2923,29 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
     },
   ];
   const tags = geoMetaTags({ title, description, url: canonical, image, jsonLd });
-  const withToolStyles = tenant.toolId === "video" && !html.includes("tool-video.css")
-    ? html.replace(/<\/head>/i, `    <link rel="stylesheet" href="./tool-video.css?v=tool-video-1" />\n  </head>`)
-    : html;
+  const toolId = String(tenant.toolId || "").trim().toLowerCase();
+  let withTenantShell = html;
+  if (tenant.toolOnly && toolId) {
+    withTenantShell = withTenantShell.replace(/<body\s+class="([^"]*)"/i, (match, classText) => {
+      const classes = String(classText || "").split(/\s+/).filter(Boolean);
+      const nextClasses = Array.from(new Set([...classes, "tenant-tool-shell", `tenant-tool-${toolId}`]));
+      return match.replace(`class="${classText}"`, `class="${nextClasses.join(" ")}"`);
+    });
+    if (displayBrand) {
+      withTenantShell = withTenantShell.replace(
+        /(<strong\s+id="brandName"[^>]*>)([\s\S]*?)(<\/strong>)/i,
+        `$1${htmlEscape(displayBrand)}$3`,
+      );
+    }
+  }
+  if (toolId === "video") {
+    withTenantShell = withTenantShell
+      .replace(/class="top-tab\s+is-active"\s+data-tab="gallery"/i, `class="top-tab" data-tab="gallery"`)
+      .replace(/class="top-tab"\s+data-gallery-shortcut="playflux-video"/i, `class="top-tab is-active" data-gallery-shortcut="playflux-video"`);
+  }
+  const withToolStyles = toolId === "video" && !withTenantShell.includes("tool-video.css")
+    ? withTenantShell.replace(/<\/head>/i, `    <link rel="stylesheet" href="./tool-video.css?v=tool-video-2" />\n  </head>`)
+    : withTenantShell;
   const withoutTitle = withToolStyles.replace(/<title>[\s\S]*?<\/title>/i, "");
   return withoutTitle.replace(/<\/head>/i, `${tags}\n  </head>`);
 }
