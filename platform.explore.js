@@ -2038,7 +2038,17 @@ function renderCharacterCreatorChips(field = "") {
 }
 
 function renderCharacterCreatorField(field = "", content = "") {
-  return `<section class="creator-field"><h4>${escapeHtml(characterCreatorFieldLabel(field))}</h4>${content}</section>`;
+  return `<section class="creator-field creator-field-${escapeHtml(field)}"><h4>${escapeHtml(characterCreatorFieldLabel(field))}</h4>${content}</section>`;
+}
+
+function renderCharacterCreatorHeroTitle() {
+  if (state.characterCreator.step !== "style") return "";
+  return `
+    <div class="character-creator-hero-title">
+      <span>Create Your</span>
+      <strong>AI Character</strong>
+    </div>
+  `;
 }
 
 function renderCharacterCreatorStepBody() {
@@ -2074,8 +2084,10 @@ function renderCharacterCreator() {
   const currentIndex = Math.max(0, CHARACTER_CREATOR_STEPS.findIndex((step) => step.id === state.characterCreator.step));
   const isFirst = currentIndex <= 0;
   const isLast = currentIndex >= CHARACTER_CREATOR_STEPS.length - 1;
+  els.characterCreatorRoot.className = `character-creator-root is-step-${state.characterCreator.step}`;
   els.characterCreatorRoot.innerHTML = `
     ${renderCharacterCreatorSteps()}
+    ${renderCharacterCreatorHeroTitle()}
     <div class="character-creator-body">${renderCharacterCreatorStepBody()}</div>
     <p class="job-note" id="characterCreateCost">${escapeHtml(assetImageModifyCostLabel())}</p>
     <div class="character-creator-actions">

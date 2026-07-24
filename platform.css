@@ -582,7 +582,8 @@ main {
   align-items: start;
 }
 .character-page-tabs {
-  justify-content: flex-start;
+  justify-content: center;
+  margin-bottom: 8px;
 }
 .character-list-panel {
   display: grid;
@@ -595,13 +596,15 @@ main {
 .character-create-card {
   position: static;
   display: grid;
-  gap: 10px;
+  gap: 0;
   width: 100%;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255,255,255,.78);
-  box-shadow: var(--soft-shadow);
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 0 0 26px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .character-create-card h3 {
   margin: 0;
@@ -629,16 +632,17 @@ main {
 .character-creator-steps {
   display: flex;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 18px;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   width: max-content;
   max-width: 100%;
-  padding: 4px;
+  margin: 0 auto 10px;
+  padding: 0;
   overflow-x: auto;
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 999px;
-  background: rgba(255,255,255,.04);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   scrollbar-width: none;
 }
 .character-creator-steps::-webkit-scrollbar {
@@ -648,41 +652,74 @@ main {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border: 0;
+  border-radius: 6px;
   color: rgba(255,255,255,.42);
   background: transparent;
   cursor: pointer;
+  position: relative;
+}
+.character-creator-steps button:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: calc(100% + 6px);
+  top: 50%;
+  width: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.22);
+  transform: translateY(-50%);
 }
 .character-creator-steps button:disabled {
   cursor: default;
   opacity: .45;
 }
 .character-creator-steps button.is-reachable {
-  color: rgba(255,255,255,.72);
-  border-color: rgba(255,79,163,.25);
+  color: rgba(255,79,163,.9);
 }
 .character-creator-steps button.is-active {
-  color: #111;
-  border-color: #ff4fa3;
-  background: #fff;
+  color: #ff4fa3;
+  background: rgba(255,79,163,.16);
+}
+.character-creator-steps button.is-reachable::after {
+  background: rgba(255,79,163,.75);
+}
+.character-creator-hero-title {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 auto 14px;
+  color: #fff;
+  font-size: clamp(2.4rem, 5vw, 3.7rem);
+  font-weight: 950;
+  line-height: .98;
+  text-align: center;
+}
+.character-creator-hero-title strong {
+  color: #ff4fa3;
 }
 .character-creator-body {
   display: grid;
-  gap: 10px;
+  gap: 14px;
+  justify-items: center;
+  width: 100%;
   overflow: visible;
 }
 .creator-segment {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
+  width: min(600px, 100%);
+  min-height: 46px;
   padding: 4px;
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 999px;
-  background: rgba(255,255,255,.04);
+  background: rgba(255,255,255,.08);
 }
 .creator-segment button,
 .creator-chip-row button {
@@ -704,19 +741,21 @@ main {
 .creator-field {
   display: grid;
   gap: 8px;
+  width: 100%;
 }
 .creator-field h4 {
   margin: 0;
-  color: rgba(255,255,255,.76);
-  font-size: .74rem;
+  color: rgba(255,255,255,.9);
+  font-size: .82rem;
   font-weight: 900;
   text-transform: uppercase;
+  text-align: center;
 }
 .creator-tile-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 136px));
-  gap: 8px;
-  justify-content: flex-start;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 144px));
+  gap: 10px;
+  justify-content: center;
 }
 .creator-tile {
   position: relative;
@@ -739,8 +778,8 @@ main {
 .creator-tile::after {
   content: "";
   position: absolute;
-  inset: 45% 0 0;
-  background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.72));
+  inset: 42% 0 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.78));
 }
 .creator-tile span {
   position: absolute;
@@ -758,31 +797,88 @@ main {
   border-color: #ff4fa3;
   box-shadow: 0 0 0 2px rgba(255,79,163,.55);
 }
+.character-creator-root.is-step-style .character-creator-body {
+  gap: 16px;
+}
+.character-creator-root.is-step-style .creator-field-style {
+  width: min(640px, 100%);
+}
+.character-creator-root.is-step-style .creator-field-style h4 {
+  display: none;
+}
+.character-creator-root.is-step-style .creator-tile-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.character-creator-root.is-step-style .creator-tile {
+  border-radius: 18px;
+}
+.character-creator-root.is-step-style .creator-tile span {
+  bottom: 18px;
+  color: #ff4fa3;
+  font-size: 1.38rem;
+  text-shadow: 0 2px 10px rgba(0,0,0,.78);
+}
+.character-creator-root.is-step-general .character-creator-body,
+.character-creator-root.is-step-face .character-creator-body,
+.character-creator-root.is-step-body .character-creator-body {
+  width: min(820px, 100%);
+}
+.character-creator-root.is-step-general .creator-tile-grid,
+.character-creator-root.is-step-face .creator-tile-grid,
+.character-creator-root.is-step-body .creator-tile-grid {
+  grid-template-columns: repeat(5, minmax(0, 144px));
+}
+.character-creator-root.is-step-details .character-creator-body {
+  width: min(780px, 100%);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.character-creator-root.is-step-details .creator-inline-grid,
+.character-creator-root.is-step-details label.field {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+.character-creator-root.is-step-details .creator-field {
+  min-height: 92px;
+  align-content: start;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+}
+.character-creator-root.is-step-details .creator-field h4 {
+  text-align: left;
+}
+.character-creator-root.is-step-prompt .character-creator-body {
+  width: min(720px, 100%);
+}
 .creator-swatch-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 12px;
+  justify-content: center;
 }
 .creator-swatch {
   display: grid;
   justify-items: center;
-  gap: 3px;
-  min-width: 40px;
+  gap: 5px;
+  min-width: 48px;
   border: 0;
   color: rgba(255,255,255,.7);
   background: transparent;
   cursor: pointer;
 }
 .creator-swatch span {
-  width: 28px;
-  height: 28px;
+  width: 38px;
+  height: 38px;
   border: 1px solid rgba(255,255,255,.2);
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.18);
 }
 .creator-swatch small {
-  max-width: 54px;
-  font-size: .64rem;
+  max-width: 66px;
+  font-size: .7rem;
   line-height: 1.1;
   overflow-wrap: anywhere;
 }
@@ -800,16 +896,16 @@ main {
 }
 .creator-inline-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 92px;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 18px;
 }
 .character-create-card input,
 .character-create-card textarea {
   width: 100%;
   min-width: 0;
   border: 1px solid rgba(255,255,255,.14);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 12px;
+  padding: 14px 16px;
   color: #fff;
   background: rgba(255,255,255,.06);
   outline: none;
@@ -838,9 +934,20 @@ main {
 }
 .character-creator-actions {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  justify-self: center;
+  width: min(420px, 100%);
+  gap: 0;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 999px;
   align-items: center;
+  background: rgba(255,255,255,.06);
+  box-shadow: 0 18px 42px rgba(0,0,0,.34);
+}
+.character-creator-actions .ghost-button {
+  display: none;
 }
 .character-creator-actions .ghost-button:disabled {
   opacity: .45;
@@ -848,6 +955,17 @@ main {
 }
 .character-creator-actions .generate-btn {
   min-width: 0;
+  min-height: 48px;
+  border-radius: 999px;
+  font-size: .95rem;
+  font-weight: 950;
+}
+#characterCreateCost {
+  justify-self: center;
+  width: min(640px, 100%);
+  margin: 0;
+  color: rgba(255,255,255,.78);
+  font-size: .82rem;
 }
 .history-panel { width: 100%; }
 .history-panel .section-head.compact {
@@ -2403,7 +2521,7 @@ main {
 .pricing-shot-card {
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.14);
-  border-radius: 8px;
+  border-radius: 12px;
   background: #101014;
   box-shadow: 0 22px 70px rgba(0,0,0,.28);
 }
@@ -2835,7 +2953,7 @@ main {
   min-height: 44px;
   padding: 0 14px;
   border: 1px solid rgba(255,79,163,.34);
-  border-radius: 8px;
+  border-radius: 14px;
   color: #fff;
   background: #242429;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
@@ -5442,7 +5560,7 @@ select option:checked {
 .workflow-node-toggle-copy strong {
   overflow: hidden;
   color: #fff;
-  font-size: .82rem;
+  font-size: .98rem;
   font-weight: 950;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -7330,6 +7448,11 @@ input:focus {
   background: #151518;
   box-shadow: none;
 }
+.characters-page .character-create-card {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
 .advanced-case-panel,
 .advanced-side-panel {
   background: #18181c;
@@ -7779,6 +7902,14 @@ select:focus,
     left: 0;
     right: auto;
   }
+  .character-create-card {
+    max-width: 100%;
+  }
+  .character-creator-root.is-step-general .creator-tile-grid,
+  .character-creator-root.is-step-face .creator-tile-grid,
+  .character-creator-root.is-step-body .creator-tile-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
   .site-head { gap: 10px; padding-inline: 18px; }
   .brand { min-width: auto; }
   .asset-generate-grid { grid-template-columns: 1fr; }
@@ -7823,6 +7954,28 @@ select:focus,
   main {
     width: 100%;
     padding: 10px 12px 26px;
+  }
+  .character-page-tabs {
+    justify-content: flex-start;
+  }
+  .character-creator-hero-title {
+    font-size: clamp(2rem, 10vw, 2.8rem);
+  }
+  .character-creator-root.is-step-style .creator-tile-grid,
+  .character-creator-root.is-step-general .creator-tile-grid,
+  .character-creator-root.is-step-face .creator-tile-grid,
+  .character-creator-root.is-step-body .creator-tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .character-creator-root.is-step-details .character-creator-body {
+    grid-template-columns: 1fr;
+  }
+  .creator-inline-grid {
+    grid-template-columns: 1fr;
+  }
+  .character-creator-actions {
+    width: min(360px, 100%);
   }
   .mobile-drawer-toggle {
     position: fixed;
