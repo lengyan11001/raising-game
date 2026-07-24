@@ -610,104 +610,135 @@ function fmtMoney(value, currency = "$") {
   return `${currency}${n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`;
 }
 
+function fmtPrice(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  const text = String(Math.round(n * 1000000) / 1000000);
+  return text.includes(".") ? text.replace(/0+$/, "").replace(/\.$/, "") : text;
+}
+
+function pricingRowUnit(row = {}, credits = false) {
+  const unit = String(row.unit || "").toLowerCase();
+  if (unit.includes("reference")) return credits ? "积分/参考图" : "USD/参考图";
+  if (unit.includes("image")) return credits ? "积分/张" : "USD/张";
+  if (String(row.rateKind || "") === "video_input" || unit.includes("input")) return credits ? "积分/输入秒" : "USD/输入秒";
+  return credits ? "积分/秒" : "USD/秒";
+}
+
+function pricingRowTitle(row = {}) {
+  const key = String(row.key || "");
+  const provider = String(row.provider || "").toLowerCase();
+  if (row.providerLabel) return row.providerLabel;
+  if (key.startsWith("seedance-fast-video-input")) return "Seedance Fast 视频输入";
+  if (key.startsWith("seedance-fast")) return "Seedance Fast";
+  if (key.startsWith("seedance-video-input")) return "Seedance 视频输入";
+  if (provider === "seedance") return "Seedance";
+  if (provider === "wan27") return "Wan2.7";
+  if (provider === "seedream5-image") return "Seedream 5.0 Pro";
+  if (provider === "vipeak1-image") return "Vipeak 1 Image";
+  return row.label || row.provider || "模型";
+}
+
+function renderPricingTable(rows = []) {
+  if (!rows.length) return '<div class="adm-empty"><i data-lucide="receipt"></i><p>暂无价格项</p></div>';
+  return `
+    <div class="adm-table-wrap">
+      <table class="adm-table adm-pricing-table">
+        <thead>
+          <tr>
+            <th>模型</th>
+            <th>规格</th>
+            <th>采购价</th>
+            <th>出售价</th>
+            <th>积分</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr data-provider="${escapeHtml(row.provider || "")}" data-resolution="${escapeHtml(row.resolution || "")}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || row.id || "")}" data-unit="${escapeHtml(row.unit || "")}">
+              <td><strong>${escapeHtml(pricingRowTitle(row))}</strong><span class="adm-block adm-muted adm-mono">${escapeHtml(row.key || row.id || "")}</span></td>
+              <td>${escapeHtml(row.resolution || "-")}<span class="adm-block adm-muted">${escapeHtml(pricingRowUnit(row))}</span></td>
+              <td><strong>${escapeHtml(fmtPrice(row.purchaseUsdPerUnit ?? row.purchaseUsdPerSecond ?? row.purchaseUsd)) || "-"}</strong><span class="adm-block adm-muted">${escapeHtml(pricingRowUnit(row))}</span></td>
+              <td><input class="adm-price-input" data-f="saleUsdPerSecond" type="number" min="0" step="0.0001" value="${escapeHtml(fmtPrice(row.saleUsdPerUnit ?? row.saleUsdPerSecond ?? row.saleUsd))}" /></td>
+              <td class="adm-mono" data-price-credits>${escapeHtml(fmtPrice(row.saleCreditsPerUnit ?? row.saleCreditsPerSecond ?? row.saleCredits))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 async function renderPricing() {
   const payload = await api("/api/admin/pricing");
   if (!isActiveRoute("pricing")) return;
-  const rows = Array.isArray(payload.rows) ? payload.rows : [];
-  const multiplier = Number(payload.resalePricing?.multiplier || 1);
-  const cnyPerUsd = Number(payload.cnyPerUsd || 6.67);
+  const pricing = payload.pricing || {};
+  const rows = Array.isArray(pricing.rows) ? pricing.rows : (Array.isArray(payload.rows) ? payload.rows : []);
+  const seedanceRows = rows.filter((row) => String(row.provider || "").toLowerCase() === "seedance");
+  const otherRows = rows.filter((row) => String(row.provider || "").toLowerCase() !== "seedance");
   els.adminContent.innerHTML = `
     <section class="adm-page">
       <div class="adm-page-head">
         <div>
           <h2>价格配置</h2>
-          <p class="adm-muted">采购价读取老站对外价格；新站1出售价 = 采购价 × 当前倍率。</p>
         </div>
         <div class="adm-page-actions">
-          <button class="adm-btn adm-btn-ghost" id="refreshPricingBtn"><i data-lucide="refresh-cw"></i>刷新价格源</button>
-          <button class="adm-btn adm-btn-primary" id="savePricingBtn"><i data-lucide="save"></i>保存倍率</button>
-        </div>
-      </div>
-      <div class="adm-grid adm-grid-2">
-        <div class="adm-card">
-          <div class="adm-card-body">
-            <label class="adm-form-row">
-              <span>出售价倍率</span>
-              <input id="pricingMultiplierInput" type="number" min="0.01" max="100" step="0.01" value="${escapeHtml(pricingMultiplierText(multiplier))}" />
-              <small class="adm-muted">1 = 和老站对外价一致；0.8 = 八折；1.2 = 加价 20%。</small>
-            </label>
-            <label class="adm-form-row">
-              <span>人民币汇率</span>
-              <input id="pricingCnyInput" type="number" min="0.0001" step="0.01" value="${escapeHtml(cnyPerUsd)}" />
-              <small class="adm-muted">仅用于表格折算展示。</small>
-            </label>
-          </div>
-        </div>
-        <div class="adm-card">
-          <div class="adm-card-body">
-            <div class="adm-record-line"><span>价格源</span><code>${escapeHtml(payload.source || "old-site")}</code></div>
-            <div class="adm-record-line"><span>更新时间</span><code>${escapeHtml(payload.updatedAt || "—")}</code></div>
-            <div class="adm-record-line"><span>积分换算</span><code>${escapeHtml(payload.creditsPerUsd || 100)} credits = 1 USD</code></div>
-          </div>
+          <button class="adm-btn adm-btn-ghost" id="refreshPricingBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+          <button class="adm-btn adm-btn-primary" id="savePricingBtn" type="button"><i data-lucide="save"></i>保存</button>
         </div>
       </div>
       <div class="adm-card">
-        <header class="adm-card-head">
-          <h3>模型价格表</h3>
-          <span class="adm-muted">采购价 / 出售价 / 人民币折算</span>
-        </header>
         <div class="adm-card-body adm-table-wrap">
-          ${rows.length ? `
-            <table class="adm-table">
-              <thead>
-                <tr>
-                  <th>模型</th>
-                  <th>单位</th>
-                  <th>采购价 USD</th>
-                  <th>出售价 USD</th>
-                  <th>出售价 RMB</th>
-                  <th>出售价积分</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rows.map((row) => `
-                  <tr>
-                    <td><strong>${escapeHtml(row.label || row.id || "")}</strong><span class="adm-block adm-muted">${escapeHtml(row.group || "")}</span></td>
-                    <td>${escapeHtml(row.unit || "")}</td>
-                    <td>${escapeHtml(fmtMoney(row.purchaseUsd, "$"))}</td>
-                    <td>${escapeHtml(fmtMoney(row.saleUsd, "$"))}</td>
-                    <td>${escapeHtml(fmtMoney(row.saleCny, "¥"))}</td>
-                    <td><span class="adm-mono">${escapeHtml(row.saleCredits ?? "")}</span></td>
-                  </tr>
-                `).join("")}
-              </tbody>
-            </table>` : '<div class="adm-empty"><i data-lucide="receipt"></i><p>暂无价格数据</p></div>'}
+          <div class="adm-pricing-groups">
+            <section class="adm-pricing-section">
+              <div class="adm-pricing-section-head"><h4>Seedance</h4></div>
+              ${renderPricingTable(seedanceRows)}
+            </section>
+            <section class="adm-pricing-section">
+              <div class="adm-pricing-section-head"><h4>其他模型</h4></div>
+              ${renderPricingTable(otherRows)}
+            </section>
+          </div>
         </div>
       </div>
     </section>
   `;
+  const updateCredits = () => {
+    const creditsPerUsd = Number(pricing.creditsPerUsd || payload.creditsPerUsd || 100);
+    els.adminContent.querySelectorAll("tr[data-provider]").forEach((tr) => {
+      const input = tr.querySelector('[data-f="saleUsdPerSecond"]');
+      const target = tr.querySelector("[data-price-credits]");
+      const usd = Number(input?.value || 0);
+      target.textContent = Number.isFinite(usd) && usd >= 0 ? fmtPrice(usd * creditsPerUsd) : "-";
+    });
+  };
+  els.adminContent.querySelectorAll('[data-f="saleUsdPerSecond"]').forEach((input) => {
+    input.addEventListener("input", updateCredits);
+  });
   byId("refreshPricingBtn")?.addEventListener("click", async () => {
     try {
       await api("/api/admin/pricing?refresh=1");
-      toast("价格源已刷新。", "success");
+      toast("已刷新。", "success");
       renderPricing();
     } catch (err) {
       toast(err.message, "error");
     }
   });
   byId("savePricingBtn")?.addEventListener("click", async () => {
-    const nextMultiplier = Number(byId("pricingMultiplierInput")?.value);
-    const nextCnyPerUsd = Number(byId("pricingCnyInput")?.value);
-    if (!Number.isFinite(nextMultiplier) || nextMultiplier <= 0 || nextMultiplier > 100) {
-      toast("倍率必须大于 0 且不超过 100。", "error");
-      return;
-    }
     try {
+      const nextRows = Array.from(els.adminContent.querySelectorAll("tr[data-provider]")).map((tr) => ({
+        provider: tr.dataset.provider,
+        resolution: tr.dataset.resolution,
+        rateKind: tr.dataset.rateKind,
+        key: tr.dataset.key,
+        unit: tr.dataset.unit,
+        saleUsdPerSecond: Number(tr.querySelector('[data-f="saleUsdPerSecond"]')?.value || 0),
+      }));
       await api("/api/admin/pricing", {
         method: "PUT",
-        body: { multiplier: nextMultiplier, cnyPerUsd: nextCnyPerUsd },
+        body: { rows: nextRows },
       });
-      toast("价格倍率已保存。", "success");
+      toast("价格已保存。", "success");
       renderPricing();
     } catch (err) {
       toast(err.message, "error");

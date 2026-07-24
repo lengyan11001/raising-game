@@ -5907,6 +5907,103 @@ function oldSitePricingMap(value = {}) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+function adminPricingPayloadError(message, code = "INVALID_PRICING_ROWS") {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.code = code;
+  return error;
+}
+
+function advancedPricingSource(config = {}) {
+  return config.platform?.advancedPricing && typeof config.platform.advancedPricing === "object" && !Array.isArray(config.platform.advancedPricing)
+    ? config.platform.advancedPricing
+    : {};
+}
+
+function pricingResolution(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "4k") return "4k";
+  if (normalized === "1080p") return "1080p";
+  if (normalized === "480p") return "480p";
+  if (normalized === "image") return "image";
+  if (normalized === "1k") return "1K";
+  if (normalized === "2k") return "2K";
+  if (normalized === "reference" || normalized === "reference_image") return "reference";
+  return "720p";
+}
+
+function pricingValueFromMap(map = {}, resolution = "") {
+  const source = oldSitePricingMap(map);
+  const candidates = [
+    resolution,
+    String(resolution || "").toLowerCase(),
+    String(resolution || "").toUpperCase(),
+  ];
+  for (const key of candidates) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      const value = Number(source[key]);
+      if (Number.isFinite(value) && value >= 0) return value;
+    }
+  }
+  return null;
+}
+
+function pricingVideoMapName(row = {}) {
+  const key = String(row.key || "").trim().toLowerCase();
+  if (key.startsWith("wan27-")) return "wan27CreditsPerSecondByResolution";
+  if (key.startsWith("seedance-fast-video-input-")) return "seedanceFastVideoInputCreditsPerSecondByResolution";
+  if (key.startsWith("seedance-fast-")) return "seedanceFastCreditsPerSecondByResolution";
+  if (key.startsWith("seedance-video-input-")) return "seedanceVideoInputCreditsPerSecondByResolution";
+  if (key.startsWith("seedance-")) return "seedanceCreditsPerSecondByResolution";
+  const provider = String(row.provider || "").trim().toLowerCase();
+  const rateKind = String(row.rateKind || row.unit || "").trim().toLowerCase();
+  const tier = String(row.seedanceTier || row.tier || "").trim().toLowerCase();
+  if (provider === "wan27") return "wan27CreditsPerSecondByResolution";
+  if (provider === "seedance" && tier === "fast" && (rateKind === "video_input" || rateKind === "input_second")) return "seedanceFastVideoInputCreditsPerSecondByResolution";
+  if (provider === "seedance" && tier === "fast") return "seedanceFastCreditsPerSecondByResolution";
+  if (provider === "seedance" && (rateKind === "video_input" || rateKind === "input_second")) return "seedanceVideoInputCreditsPerSecondByResolution";
+  if (provider === "seedance") return "seedanceCreditsPerSecondByResolution";
+  return "";
+}
+
+function pricingVideoRowKey(row = {}) {
+  const explicit = String(row.key || "").trim();
+  if (explicit) return explicit;
+  const mapName = pricingVideoMapName(row);
+  const resolution = pricingResolution(row.resolution);
+  if (mapName === "wan27CreditsPerSecondByResolution") return `wan27-${resolution}`;
+  if (mapName === "seedanceFastVideoInputCreditsPerSecondByResolution") return `seedance-fast-video-input-${resolution}`;
+  if (mapName === "seedanceFastCreditsPerSecondByResolution") return `seedance-fast-${resolution}`;
+  if (mapName === "seedanceVideoInputCreditsPerSecondByResolution") return `seedance-video-input-${resolution}`;
+  if (mapName === "seedanceCreditsPerSecondByResolution") return `seedance-${resolution}`;
+  return "";
+}
+
+function configuredSaleCreditsPerSecond(config = {}, row = {}, purchaseCreditsPerSecond = 0) {
+  const pricing = advancedPricingSource(config);
+  const mapName = pricingVideoMapName(row);
+  const configured = mapName ? pricingValueFromMap(pricing[mapName], pricingResolution(row.resolution)) : null;
+  if (configured !== null) return creditsAmount(configured);
+  const resale = normalizeResalePricingConfig(config.resalePricing);
+  return creditsAmount(Number(purchaseCreditsPerSecond || 0) * resale.multiplier);
+}
+
+function configuredSaleUsd(config = {}, pathValue, purchaseUsd = 0) {
+  const value = Number(pathValue);
+  if (Number.isFinite(value) && value >= 0) return moneyAmount(value);
+  const resale = normalizeResalePricingConfig(config.resalePricing);
+  return moneyAmount(Number(purchaseUsd || 0) * resale.multiplier);
+}
+
+function pricingRowSaleUsd(row = {}) {
+  const raw = row.saleUsdPerSecond ?? row.saleUsdPerUnit ?? row.saleUsd;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw adminPricingPayloadError(`Invalid sale price for ${String(row.key || row.provider || "row")}`);
+  }
+  return moneyAmount(value);
+}
+
 function normalizeOldSitePricingPayload(payload = {}) {
   const pricing = payload.pricing && typeof payload.pricing === "object"
     ? payload.pricing
@@ -6004,29 +6101,42 @@ function oldSiteAdvancedCreditsPerSecond(pricing = {}, provider = "seedance", op
 
 function oldSiteAdvancedModelPricing(config = {}, oldPricingPayload = {}, provider = "seedance", options = {}) {
   const fallback = advancedModelPricing(provider, options);
-  const resale = normalizeResalePricingConfig(config.resalePricing);
   const purchaseCreditsPerSecond = oldSiteAdvancedCreditsPerSecond(oldPricingPayload.pricing || {}, provider, options);
   if (!purchaseCreditsPerSecond) {
     return {
       ...fallback,
       source: "local_duration_rate",
       pricingWarning: "Old-site pricing is missing this provider/resolution; local fallback was used.",
-      resalePricingMultiplier: resale.multiplier,
     };
   }
   const purchaseCredits = creditsAmount(fallback.duration * purchaseCreditsPerSecond);
-  const saleCredits = creditsAmount(purchaseCredits * resale.multiplier);
+  const runtimeRow = {
+    provider: normalizeAdvancedProvider(provider),
+    resolution: normalizeAdvancedProvider(provider) === "wan27"
+      ? normalizeAdvancedResolution(normalizeWan27Resolution(options.resolution))
+      : normalizeAdvancedResolution(options.resolution),
+    seedanceTier: String(options.seedanceTier || options.tier || "").trim().toLowerCase(),
+    rateKind: Number(options.inputVideoSeconds || 0) > 0 ||
+      options.referenceVideoAssetId ||
+      options.referenceVideoAssetIds ||
+      options.referenceVideoUrl ||
+      options.referenceVideoUrls
+      ? "video_input"
+      : "output",
+  };
+  runtimeRow.key = pricingVideoRowKey(runtimeRow);
+  const saleCreditsPerSecond = configuredSaleCreditsPerSecond(config, runtimeRow, purchaseCreditsPerSecond);
+  const saleCredits = creditsAmount(fallback.duration * saleCreditsPerSecond);
   return {
     ...fallback,
-    creditsPerSecond: creditsAmount(purchaseCreditsPerSecond * resale.multiplier),
+    creditsPerSecond: saleCreditsPerSecond,
     purchaseCreditsPerSecond,
     baseCredits: purchaseCredits,
     credits: saleCredits,
-    markup: resale.multiplier,
+    markup: purchaseCreditsPerSecond > 0 ? creditsAmount(saleCreditsPerSecond / purchaseCreditsPerSecond) : 1,
     source: "old_site_pricing",
     oldSitePricingSource: oldPricingPayload.source || "old-site",
     oldSitePricingUpdatedAt: oldPricingPayload.updatedAt || "",
-    resalePricingMultiplier: resale.multiplier,
   };
 }
 
@@ -6042,84 +6152,200 @@ function moneyAmount(value = 0) {
   return Math.round(Number(value || 0) * 1000000) / 1000000;
 }
 
-function pricingRowsFromOldSite(pricing = {}, resale = normalizeResalePricingConfig()) {
+function pricingRowsFromOldSite(pricing = {}, config = {}) {
   const rows = [];
-  const addCreditRows = (group, label, map = {}, unit = "second") => {
+  const addCreditRows = ({ group, label, provider, seedanceTier = "", rateKind = "output", map = {}, unit = "output_second" }) => {
     Object.entries(oldSitePricingMap(map)).forEach(([resolution, credits]) => {
       const purchaseCredits = creditsAmount(credits);
       if (!purchaseCredits) return;
+      const row = {
+        provider,
+        seedanceTier,
+        rateKind,
+        resolution: pricingResolution(resolution),
+        unit,
+      };
+      row.key = pricingVideoRowKey(row);
       const purchaseUsd = usdFromCredits(purchaseCredits);
-      const saleUsd = moneyAmount(purchaseUsd * resale.multiplier);
+      const saleCredits = configuredSaleCreditsPerSecond(config, row, purchaseCredits);
+      const saleUsd = usdFromCredits(saleCredits);
       rows.push({
-        id: `${group}:${resolution}`,
+        id: row.key,
+        key: row.key,
         group,
-        label: `${label} ${resolution}`,
-        resolution,
+        provider,
+        providerLabel: label,
+        seedanceTier,
+        rateKind,
+        label: `${label} ${row.resolution}`,
+        resolution: row.resolution,
         unit,
         purchaseCredits,
-        saleCredits: creditsFromUsd(saleUsd),
+        purchaseCreditsPerSecond: purchaseCredits,
+        saleCredits,
+        saleCreditsPerSecond: saleCredits,
         purchaseUsd,
+        purchaseUsdPerSecond: purchaseUsd,
+        purchaseUsdPerUnit: purchaseUsd,
         saleUsd,
-        saleCny: moneyAmount(saleUsd * resale.cnyPerUsd),
+        saleUsdPerSecond: saleUsd,
+        saleUsdPerUnit: saleUsd,
       });
     });
   };
-  const addUsdRows = (group, label, map = {}, unit = "image") => {
+  const addUsdRows = ({ group, label, provider, map = {}, unit = "image", keyForResolution = null, saleValueForResolution = null }) => {
     Object.entries(oldSitePricingMap(map)).forEach(([resolution, usd]) => {
       const purchaseUsd = moneyAmount(usd);
       if (!purchaseUsd) return;
-      const saleUsd = moneyAmount(purchaseUsd * resale.multiplier);
+      const normalizedResolution = pricingResolution(resolution);
+      const key = keyForResolution ? keyForResolution(normalizedResolution) : `${group}:${normalizedResolution}`;
+      const saleUsd = configuredSaleUsd(config, saleValueForResolution ? saleValueForResolution(normalizedResolution) : undefined, purchaseUsd);
       rows.push({
-        id: `${group}:${resolution}`,
+        id: key,
+        key,
         group,
-        label: `${label} ${resolution}`,
-        resolution,
+        provider,
+        providerLabel: label,
+        label: `${label} ${normalizedResolution}`,
+        resolution: normalizedResolution,
         unit,
         purchaseCredits: creditsFromUsd(purchaseUsd),
         saleCredits: creditsFromUsd(saleUsd),
+        purchaseCreditsPerSecond: creditsFromUsd(purchaseUsd),
+        saleCreditsPerSecond: creditsFromUsd(saleUsd),
         purchaseUsd,
+        purchaseUsdPerSecond: purchaseUsd,
+        purchaseUsdPerUnit: purchaseUsd,
         saleUsd,
-        saleCny: moneyAmount(saleUsd * resale.cnyPerUsd),
+        saleUsdPerSecond: saleUsd,
+        saleUsdPerUnit: saleUsd,
       });
     });
   };
 
-  addCreditRows("seedance-standard", "Seedance standard", pricing.seedanceCreditsPerSecondByResolution);
-  addCreditRows("seedance-video-input", "Seedance video input", pricing.seedanceVideoInputCreditsPerSecondByResolution);
-  addCreditRows("seedance-fast", "Seedance fast", pricing.seedanceFastCreditsPerSecondByResolution);
-  addCreditRows("seedance-fast-video-input", "Seedance fast video input", pricing.seedanceFastVideoInputCreditsPerSecondByResolution);
-  addCreditRows("wan27-video", "Wan2.7 video", pricing.wan27CreditsPerSecondByResolution);
+  const configuredPricing = advancedPricingSource(config);
+  addCreditRows({ group: "seedance-standard", label: "Seedance Standard", provider: "seedance", seedanceTier: "standard", rateKind: "output", map: pricing.seedanceCreditsPerSecondByResolution });
+  addCreditRows({ group: "seedance-video-input", label: "Seedance Standard 视频输入", provider: "seedance", seedanceTier: "standard", rateKind: "video_input", unit: "input_second", map: pricing.seedanceVideoInputCreditsPerSecondByResolution });
+  addCreditRows({ group: "seedance-fast", label: "Seedance Fast", provider: "seedance", seedanceTier: "fast", rateKind: "output", map: pricing.seedanceFastCreditsPerSecondByResolution });
+  addCreditRows({ group: "seedance-fast-video-input", label: "Seedance Fast 视频输入", provider: "seedance", seedanceTier: "fast", rateKind: "video_input", unit: "input_second", map: pricing.seedanceFastVideoInputCreditsPerSecondByResolution });
+  addCreditRows({ group: "wan27-video", label: "Wan2.7", provider: "wan27", rateKind: "output", map: pricing.wan27CreditsPerSecondByResolution });
   if (pricing.vipeak1Image?.saleUsdPerImage) {
-    addUsdRows("vipeak1-image", "Vipeak 1 image", { [pricing.vipeak1Image.defaultResolution || "image"]: pricing.vipeak1Image.saleUsdPerImage });
+    addUsdRows({
+      group: "vipeak1-image",
+      label: "Vipeak 1 Image",
+      provider: "vipeak1-image",
+      map: { [pricing.vipeak1Image.defaultResolution || "image"]: pricing.vipeak1Image.saleUsdPerImage },
+      keyForResolution: () => "vipeak1-image",
+      saleValueForResolution: () => configuredPricing.vipeak1Image?.saleUsdPerImage,
+    });
   }
-  addUsdRows("seedream5-pro", "Seedream 5 Pro", pricing.seedream5Image?.pro?.saleUsdPerImageByResolution);
+  addUsdRows({
+    group: "seedream5-pro",
+    label: "Seedream 5.0 Pro",
+    provider: "seedream5-image",
+    map: pricing.seedream5Image?.pro?.saleUsdPerImageByResolution,
+    keyForResolution: (resolution) => `seedream5-pro-${String(resolution).toLowerCase()}`,
+    saleValueForResolution: (resolution) => configuredPricing.seedream5Image?.pro?.saleUsdPerImageByResolution?.[resolution],
+  });
   if (pricing.seedream5Image?.pro?.referenceUsdPerImageAfterFirst) {
-    addUsdRows("seedream5-reference", "Seedream 5 reference after first", { reference: pricing.seedream5Image.pro.referenceUsdPerImageAfterFirst }, "reference image");
+    addUsdRows({
+      group: "seedream5-reference",
+      label: "Seedream 5.0 Pro Reference",
+      provider: "seedream5-image",
+      map: { reference: pricing.seedream5Image.pro.referenceUsdPerImageAfterFirst },
+      unit: "reference_image",
+      keyForResolution: () => "seedream5-pro-reference",
+      saleValueForResolution: () => configuredPricing.seedream5Image?.pro?.referenceUsdPerImageAfterFirst,
+    });
   }
   return rows;
 }
 
+function advancedPricingFromAdminRows(rows = [], currentPricing = {}) {
+  if (!Array.isArray(rows) || !rows.length) {
+    throw adminPricingPayloadError("Pricing rows are required.", "PRICING_ROWS_REQUIRED");
+  }
+  const next = {
+    ...oldSitePricingMap(currentPricing),
+    seedanceCreditsPerSecondByResolution: { ...oldSitePricingMap(currentPricing.seedanceCreditsPerSecondByResolution) },
+    seedanceVideoInputCreditsPerSecondByResolution: { ...oldSitePricingMap(currentPricing.seedanceVideoInputCreditsPerSecondByResolution) },
+    seedanceFastCreditsPerSecondByResolution: { ...oldSitePricingMap(currentPricing.seedanceFastCreditsPerSecondByResolution) },
+    seedanceFastVideoInputCreditsPerSecondByResolution: { ...oldSitePricingMap(currentPricing.seedanceFastVideoInputCreditsPerSecondByResolution) },
+    wan27CreditsPerSecondByResolution: { ...oldSitePricingMap(currentPricing.wan27CreditsPerSecondByResolution) },
+    vipeak1Image: {
+      ...(currentPricing.vipeak1Image && typeof currentPricing.vipeak1Image === "object" && !Array.isArray(currentPricing.vipeak1Image)
+        ? currentPricing.vipeak1Image
+        : {}),
+    },
+    seedream5Image: {
+      ...(currentPricing.seedream5Image && typeof currentPricing.seedream5Image === "object" && !Array.isArray(currentPricing.seedream5Image)
+        ? currentPricing.seedream5Image
+        : {}),
+      pro: {
+        ...(currentPricing.seedream5Image?.pro && typeof currentPricing.seedream5Image.pro === "object" && !Array.isArray(currentPricing.seedream5Image.pro)
+          ? currentPricing.seedream5Image.pro
+          : {}),
+        saleUsdPerImageByResolution: {
+          ...oldSitePricingMap(currentPricing.seedream5Image?.pro?.saleUsdPerImageByResolution),
+        },
+      },
+    },
+  };
+  for (const row of rows) {
+    const key = String(row.key || row.id || pricingVideoRowKey(row)).trim();
+    const saleUsd = pricingRowSaleUsd(row);
+    const saleCredits = creditsFromUsd(saleUsd);
+    if (key === "vipeak1-image") {
+      next.vipeak1Image.saleUsdPerImage = saleUsd;
+      next.vipeak1Image.defaultResolution = row.resolution || next.vipeak1Image.defaultResolution || "image";
+      continue;
+    }
+    if (key === "seedream5-pro-reference") {
+      next.seedream5Image.pro.referenceUsdPerImageAfterFirst = saleUsd;
+      continue;
+    }
+    if (key === "seedream5-pro-1k" || key === "seedream5-pro-2k") {
+      const resolution = key.endsWith("-1k") ? "1K" : "2K";
+      next.seedream5Image.pro.saleUsdPerImageByResolution[resolution] = saleUsd;
+      continue;
+    }
+    const mapName = pricingVideoMapName({ ...row, key });
+    if (!mapName) {
+      throw adminPricingPayloadError(`Unknown pricing row: ${key || "empty"}`);
+    }
+    const resolution = pricingResolution(row.resolution || key.split("-").pop());
+    next[mapName][resolution] = saleCredits;
+  }
+  next.updatedAt = new Date().toISOString();
+  return next;
+}
+
 async function buildPricingConfigView(config = {}, { force = false, admin = false } = {}) {
-  const resale = normalizeResalePricingConfig(config.resalePricing);
   const oldPricing = await fetchOldSitePricingConfig({ force });
-  const rows = pricingRowsFromOldSite(oldPricing.pricing, resale);
+  const rows = pricingRowsFromOldSite(oldPricing.pricing, config);
   const publicRows = admin ? rows : rows.map((row) => ({
     id: row.id,
+    key: row.key,
     group: row.group,
+    provider: row.provider,
+    providerLabel: row.providerLabel,
     label: row.label,
     resolution: row.resolution,
     unit: row.unit,
+    rateKind: row.rateKind,
     saleCredits: row.saleCredits,
     saleUsd: row.saleUsd,
-    saleCny: row.saleCny,
+    saleCreditsPerSecond: row.saleCreditsPerSecond,
+    saleUsdPerSecond: row.saleUsdPerSecond,
   }));
   return {
     source: oldPricing.source || "old-site",
     updatedAt: oldPricing.updatedAt || "",
     creditsPerUsd: DEFAULT_CREDITS_PER_USD,
-    cnyPerUsd: resale.cnyPerUsd,
-    resalePricing: {
-      multiplier: resale.multiplier,
+    pricing: {
+      unit: "usd",
+      creditsPerUsd: DEFAULT_CREDITS_PER_USD,
+      rows: publicRows,
     },
     rows: publicRows,
   };
@@ -10101,27 +10327,29 @@ async function handleAdminSavePricing(req, res) {
   const auth = await requireAdmin(req, res);
   if (!auth) return;
   const body = await readJson(req);
-  const rawMultiplier = body.multiplier ?? body.resaleMultiplier ?? body.pricingMultiplier ?? body.discount;
-  const nextMultiplier = Number(rawMultiplier);
-  if (!Number.isFinite(nextMultiplier) || nextMultiplier <= 0 || nextMultiplier > 100) {
-    return sendJson(res, 400, { ok: false, code: "INVALID_PRICING_MULTIPLIER", message: "Pricing multiplier must be greater than 0 and no more than 100." });
-  }
   const current = await readAppConfig();
-  const currentResale = normalizeResalePricingConfig(current.resalePricing);
-  const next = {
-    ...current,
-    resalePricing: normalizeResalePricingConfig({
-      ...currentResale,
-      multiplier: nextMultiplier,
-      cnyPerUsd: body.cnyPerUsd ?? currentResale.cnyPerUsd,
-    }),
-    updatedAt: new Date().toISOString(),
-  };
-  await writeAppConfig(next);
-  return sendJson(res, 200, {
-    ok: true,
-    ...(await buildPricingConfigView(next, { force: true, admin: true })),
-  });
+  try {
+    const advancedPricing = advancedPricingFromAdminRows(body.rows, advancedPricingSource(current));
+    const next = {
+      ...current,
+      platform: normalizePlatformConfig({
+        ...(current.platform || {}),
+        advancedPricing,
+      }),
+      updatedAt: new Date().toISOString(),
+    };
+    await writeAppConfig(next);
+    return sendJson(res, 200, {
+      ok: true,
+      ...(await buildPricingConfigView(next, { force: true, admin: true })),
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, {
+      ok: false,
+      code: error.code || "INVALID_PRICING_ROWS",
+      message: error.message || "Invalid pricing rows.",
+    });
+  }
 }
 
 async function handleAdminSaveConfig(req, res) {
