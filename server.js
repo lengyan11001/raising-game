@@ -105,6 +105,9 @@ const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
 const TOOL_TENANT_SPECS = Object.freeze({
   video: {
     id: "video",
+    brand: "123Tops Video",
+    title: "123Tops Video",
+    description: "AI video creation workspace.",
     defaultTab: "gallery",
     defaultGalleryMode: "playflux-video",
     allowedTabs: ["gallery", "history", "topups", "spending", "pricing"],
@@ -146,7 +149,8 @@ const TOOL_TENANT_SPECS = Object.freeze({
     assetLibrary: false,
   },
 });
-const TOOL_TENANT_DOMAIN_MAP = parseToolTenantDomainMap(process.env.TOOL_TENANT_DOMAINS || process.env.TOOL_DOMAIN_MAP || "");
+const DEFAULT_TOOL_TENANT_DOMAINS = "123tops.com=video,www.123tops.com=video,video.123tops.com=video";
+const TOOL_TENANT_DOMAIN_MAP = parseToolTenantDomainMap(process.env.TOOL_TENANT_DOMAINS || process.env.TOOL_DOMAIN_MAP || DEFAULT_TOOL_TENANT_DOMAINS);
 const INDEXNOW_KEY = String(process.env.INDEXNOW_KEY || "").trim();
 const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
 const TELEGRAM_SUPPORT_ADMIN_CHAT_ID = String(process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID || "").trim();
@@ -1191,6 +1195,9 @@ function tenantDescriptorFromHostname(hostname = "") {
     host,
     toolOnly: Boolean(tool),
     toolId: tool?.id || "",
+    brand: tool?.brand || "",
+    title: tool?.title || "",
+    description: tool?.description || "",
     defaultTab: tool?.defaultTab || "gallery",
     defaultGalleryMode: tool?.defaultGalleryMode || "characters",
     allowedTabs: Array.isArray(tool?.allowedTabs) ? tool.allowedTabs : [],
@@ -1573,6 +1580,8 @@ function publicTenantFeatures(tenant = {}) {
     tenantMode: tenant.tenantMode || "platform",
     toolOnly: Boolean(tenant.toolOnly),
     toolId: tenant.toolId || "",
+    brand: tenant.brand || "",
+    title: tenant.title || "",
     defaultTab: tenant.defaultTab || "gallery",
     defaultGalleryMode: tenant.defaultGalleryMode || "characters",
     allowedTabs: Array.isArray(tenant.allowedTabs) ? tenant.allowedTabs : [],
@@ -1598,6 +1607,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
   const publicWalletDefault = walletOptions[0] || {};
   const publicPlatform = {
     ...platform,
+    brand: tenant.brand || platform.brand,
     accessCopy: tenantScopedAccessCopy(isLegacyAccessCopy(platform.accessCopy) ? DEFAULT_CONFIG.platform.accessCopy : platform.accessCopy, origin),
   };
   if (tenantPublic) {
@@ -2860,18 +2870,20 @@ function geoMetaTags({ title, description, url, image, type = "website", jsonLd 
     ${ld}`;
 }
 
-function injectPlatformGeoHead(html = "", snapshot) {
+function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
   const { origin, brand, platform, characters } = snapshot;
   const canonical = scopedApiUrl(origin, "/");
-  const description = homeDescriptionForGeo(platform);
+  const tenant = tenantOptions?.tenant || tenantOptions || {};
+  const displayBrand = tenant.brand || brand;
+  const description = tenant.description || homeDescriptionForGeo(platform);
   const image = characters[0]?.geoPoster ? absoluteUrlFromBase(characters[0].geoPoster, origin) : "";
-  const title = `${brand} | AI Character Video Generator`;
+  const title = tenant.title || `${displayBrand} | AI Character Video Generator`;
   const sameAs = [VIPEAK_X_URL, VIPEAK_TELEGRAM_CHANNEL_URL];
   const jsonLd = [
     {
       "@context": "https://schema.org",
       "@type": "WebSite",
-      name: brand,
+      name: displayBrand,
       url: canonical,
       description,
       sameAs,
@@ -2884,7 +2896,7 @@ function injectPlatformGeoHead(html = "", snapshot) {
     {
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
-      name: brand,
+      name: displayBrand,
       applicationCategory: "MultimediaApplication",
       operatingSystem: "Web",
       url: canonical,
@@ -2902,7 +2914,10 @@ function injectPlatformGeoHead(html = "", snapshot) {
     },
   ];
   const tags = geoMetaTags({ title, description, url: canonical, image, jsonLd });
-  const withoutTitle = html.replace(/<title>[\s\S]*?<\/title>/i, "");
+  const withToolStyles = tenant.toolId === "video" && !html.includes("tool-video.css")
+    ? html.replace(/<\/head>/i, `    <link rel="stylesheet" href="./tool-video.css?v=tool-video-1" />\n  </head>`)
+    : html;
+  const withoutTitle = withToolStyles.replace(/<title>[\s\S]*?<\/title>/i, "");
   return withoutTitle.replace(/<\/head>/i, `${tags}\n  </head>`);
 }
 
@@ -3396,7 +3411,7 @@ async function servePlatformHtmlWithGeo(req, res) {
   const filePath = path.join(ROOT, "platform.html");
   const html = await fs.readFile(filePath, "utf8");
   const snapshot = await geoSiteSnapshot(req);
-  return sendHtml(res, 200, injectPlatformGeoHead(html, snapshot), { cacheControl: "no-cache", head: req.method === "HEAD" });
+  return sendHtml(res, 200, injectPlatformGeoHead(html, snapshot, requestTenantOptions(req)), { cacheControl: "no-cache", head: req.method === "HEAD" });
 }
 
 async function handleRobotsTxt(req, res) {
