@@ -6613,11 +6613,20 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 .ledger-negative { color: #b73c3c; font-weight: 900; }
 .ledger-pager {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
   gap: 10px;
   margin-top: 12px;
   color: var(--muted);
+}
+.ledger-pager > span {
+  white-space: nowrap;
+}
+.ledger-pager .ghost-button {
+  flex: 0 0 auto;
+  justify-content: center;
+  min-width: 76px;
 }
 .ledger-pager .ghost-button:disabled {
   opacity: .45;
@@ -8519,7 +8528,37 @@ select:focus,
   }
   .ledger-table td > small { grid-column: 2; }
   .ledger-table code { font-size: .76rem; }
-  .ledger-pager { align-items: stretch; flex-direction: column; }
+  .ledger-pager {
+    justify-content: flex-start;
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ledger-pager [data-page="first"] { order: 1; }
+  .ledger-pager [data-page="prev"] { order: 2; }
+  .ledger-pager [data-page="next"] { order: 3; }
+  .ledger-pager > span {
+    order: 4;
+    flex: 1 0 100%;
+    font-size: .86rem;
+  }
+  .ledger-pager .pager-jump {
+    order: 5;
+    flex: 0 0 auto;
+  }
+  .ledger-pager .ghost-button {
+    min-width: 64px;
+    min-height: 34px;
+    padding: 7px 12px;
+  }
+  .ledger-pager .pager-jump input {
+    width: 64px;
+    min-height: 34px;
+  }
+  .ledger-pager .pager-jump .ghost-button {
+    min-width: 48px;
+  }
   .access-tabs { grid-template-columns: 1fr; }
   .advanced-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workflow-node { width: min(414px, calc(100vw - 44px)); }
