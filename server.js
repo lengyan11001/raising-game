@@ -12933,7 +12933,7 @@ function isStalePreSubmitGenerationRecord(record = {}, staleMs = GENERATION_SUBM
   if (!["seedance", "aliyun-wan27", "apiz", "seedream5-image"].includes(provider)) return false;
   const status = String(record.status || "").toLowerCase();
   if (!["preparing", "submitting", "submitted", "running", "processing", "queued", "pending"].includes(status)) return false;
-  const time = generationRecordTime(record);
+  const time = generationRecordCreatedTime(record);
   return Boolean(time) && Date.now() - time >= staleMs;
 }
 
@@ -12965,6 +12965,11 @@ const GENERATION_LIST_REFRESH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function generationRecordTime(record = {}) {
   const value = Date.parse(record.updatedAt || record.createdAt || "");
+  return Number.isFinite(value) ? value : 0;
+}
+
+function generationRecordCreatedTime(record = {}) {
+  const value = Date.parse(record.createdAt || record.updatedAt || "");
   return Number.isFinite(value) ? value : 0;
 }
 
@@ -23614,7 +23619,7 @@ async function refreshMyCharacterImageGenerationRecord(record = {}, reason = "my
     String(character.imageTaskId || "") === taskId &&
     !character.imageRemoteUrl
   ) {
-    const ageMs = Date.now() - generationRecordTime(record);
+    const ageMs = Date.now() - generationRecordCreatedTime(record);
     if (ageMs >= GENERATION_SUBMIT_STALE_MS) {
       character.imageTaskId = String(record.upstreamTaskId || "");
       character.awaitingImageSubmit = false;
