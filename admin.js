@@ -1,7 +1,7 @@
 "use strict";
 
-const TOKEN_KEY = "raisingGameAdminToken";
-const LEGACY_TOKEN_KEY = "raisingGameToken";
+const TOKEN_KEY = "cloudTokenAdminToken";
+const LEGACY_TOKEN_KEY = "cloudTokenToken";
 const ADVANCED_SEEDANCE_FPS = 24;
 const ADVANCED_SEEDANCE_720P_CNY_PER_MILLION_TOKENS = 46;
 const ADVANCED_SEEDANCE_1080P_CNY_PER_MILLION_TOKENS = 51;
@@ -14,7 +14,7 @@ const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 6;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 8 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
-const TENANT_PUBLIC_HOSTS = ["cloudtoken.ai", "mystockmarket.top", "vidnovaai.com"];
+const TENANT_PUBLIC_HOSTS = ["cloudtoken.example"];
 const WAN27_MEDIA_MODES = [
   ["first_frame", "单图首帧"],
   ["first_last_frame", "首帧 + 尾帧"],
@@ -635,7 +635,7 @@ function pricingRowTitle(row = {}) {
   if (provider === "seedance") return "Seedance";
   if (provider === "wan27") return "Wan2.7";
   if (provider === "seedream5-image") return "Seedream 5.0 Pro";
-  if (provider === "vipeak1-image") return "Vipeak 1 Image";
+  if (provider === "vipeak1-image") return "CloudToken Image";
   return row.label || row.provider || "模型";
 }
 

@@ -1,8 +1,8 @@
-"use strict";
+﻿"use strict";
 
-const TOKEN_KEY = "raisingGameToken";
-const LANG_KEY = "raisingGameLanguage";
-const TAB_KEY = "raisingGamePlatformTab";
+const TOKEN_KEY = "cloudTokenToken";
+const LANG_KEY = "cloudTokenLanguage";
+const TAB_KEY = "cloudTokenPlatformTab";
 const ALL_TABS = new Set(["gallery", "advanced", "assets", "access", "history", "topups", "spending"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
 const ADVANCED_SEEDANCE_FPS = 24;
@@ -21,7 +21,7 @@ const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
-const TENANT_PUBLIC_HOSTS = ["cloudtoken.ai", "mystockmarket.top", "vidnovaai.com"];
+const TENANT_PUBLIC_HOSTS = ["cloudtoken.example"];
 const ADVANCED_CASE_TABS = [
   { id: "hot", labelKey: "advanced.caseTab.hot" },
   { id: "extend", labelKey: "advanced.caseTab.extend" },
@@ -2271,7 +2271,7 @@ const LEGAL_DOCS = {
     registration: {
       title: "User Registration Agreement",
       sections: [
-        ["Account eligibility", "By registering or using Vipeak AI, you confirm that you can legally enter this agreement and that the information you provide is truthful, current, and complete."],
+        ["Account eligibility", "By registering or using CloudToken AI, you confirm that you can legally enter this agreement and that the information you provide is truthful, current, and complete."],
         ["Account security", "You are responsible for safeguarding your password, API token, generated credentials, and activity under your account. Notify us promptly if you suspect unauthorized access."],
         ["Acceptable use", "You must not use the service to create illegal, non-consensual, deceptive, infringing, hateful, exploitative, abusive, or unsafe content, or to bypass safety controls, rate limits, access controls, or payment rules."],
         ["Uploads and rights", "You represent that you have the necessary rights, permissions, and consent for images, prompts, text, names, likenesses, trademarks, and other materials that you upload or request the service to process."],
@@ -2289,7 +2289,7 @@ const LEGAL_DOCS = {
         ["User responsibility", "You are responsible for prompts, uploads, generated content, publication, distribution, and downstream use. Do not represent generated content as real footage or real statements when that would mislead others."],
         ["Third-party services", "The service may depend on model providers, hosting providers, networks, wallets, and other third parties. Availability, latency, moderation results, and output quality may vary and are not guaranteed."],
         ["No warranties", "To the maximum extent permitted by law, the service is provided as is and as available, without warranties of uninterrupted operation, error-free output, merchantability, fitness for a particular purpose, or non-infringement."],
-        ["Limitation of liability", "To the maximum extent permitted by law, Vipeak AI and its operators are not liable for indirect, incidental, special, consequential, punitive, or lost-profit damages arising from use or inability to use the service."],
+        ["Limitation of liability", "To the maximum extent permitted by law, CloudToken AI and its operators are not liable for indirect, incidental, special, consequential, punitive, or lost-profit damages arising from use or inability to use the service."],
       ],
     },
   },
@@ -2310,7 +2310,7 @@ const LEGAL_DOCS = {
     registration: {
       title: "Thỏa thuận đăng ký người dùng",
       sections: [
-        ["Điều kiện tài khoản", "Khi đăng ký hoặc sử dụng Vipeak AI, bạn xác nhận rằng bạn có quyền pháp lý để tham gia thỏa thuận này và thông tin cung cấp là đúng, hiện hành và đầy đủ."],
+        ["Điều kiện tài khoản", "Khi đăng ký hoặc sử dụng CloudToken AI, bạn xác nhận rằng bạn có quyền pháp lý để tham gia thỏa thuận này và thông tin cung cấp là đúng, hiện hành và đầy đủ."],
         ["Bảo mật tài khoản", "Bạn chịu trách nhiệm bảo vệ mật khẩu, API token, thông tin xác thực và mọi hoạt động trong tài khoản. Hãy thông báo ngay nếu nghi ngờ có truy cập trái phép."],
         ["Sử dụng được phép", "Bạn không được dùng dịch vụ để tạo nội dung bất hợp pháp, không có sự đồng ý, lừa đảo, xâm phạm quyền, thù ghét, bóc lột, lạm dụng hoặc không an toàn, hoặc để vượt qua kiểm soát an toàn, giới hạn tốc độ, kiểm soát truy cập hay quy tắc thanh toán."],
         ["Tệp tải lên và quyền", "Bạn cam kết có đầy đủ quyền, giấy phép và sự đồng ý cần thiết đối với hình ảnh, prompt, văn bản, tên, chân dung, nhãn hiệu và tài liệu khác mà bạn tải lên hoặc yêu cầu dịch vụ xử lý."],
@@ -2328,7 +2328,7 @@ const LEGAL_DOCS = {
         ["Trách nhiệm của người dùng", "Bạn chịu trách nhiệm về prompt, tệp tải lên, nội dung tạo ra, công bố, phân phối và sử dụng sau đó. Không trình bày nội dung tạo ra như cảnh quay hoặc phát ngôn có thật nếu điều đó gây hiểu lầm."],
         ["Dịch vụ bên thứ ba", "Dịch vụ có thể phụ thuộc vào nhà cung cấp mô hình, lưu trữ, mạng, ví và bên thứ ba khác. Tính khả dụng, độ trễ, kết quả kiểm duyệt và chất lượng đầu ra có thể thay đổi và không được bảo đảm."],
         ["Không bảo đảm", "Trong phạm vi tối đa pháp luật cho phép, dịch vụ được cung cấp theo hiện trạng và khi sẵn có, không bảo đảm vận hành liên tục, không lỗi, khả năng thương mại, phù hợp mục đích cụ thể hoặc không xâm phạm."],
-        ["Giới hạn trách nhiệm", "Trong phạm vi tối đa pháp luật cho phép, Vipeak AI và đơn vị vận hành không chịu trách nhiệm cho thiệt hại gián tiếp, ngẫu nhiên, đặc biệt, hệ quả, trừng phạt hoặc mất lợi nhuận phát sinh từ việc sử dụng hoặc không thể sử dụng dịch vụ."],
+        ["Giới hạn trách nhiệm", "Trong phạm vi tối đa pháp luật cho phép, CloudToken AI và đơn vị vận hành không chịu trách nhiệm cho thiệt hại gián tiếp, ngẫu nhiên, đặc biệt, hệ quả, trừng phạt hoặc mất lợi nhuận phát sinh từ việc sử dụng hoặc không thể sử dụng dịch vụ."],
       ],
     },
   },
@@ -2349,7 +2349,7 @@ const LEGAL_DOCS = {
     registration: {
       title: "ユーザー登録規約",
       sections: [
-        ["アカウント資格", "Vipeak AI に登録または利用することで、利用者は本契約を締結する法的能力を有し、提供する情報が真実、最新かつ完全であることを確認します。"],
+        ["アカウント資格", "CloudToken AI に登録または利用することで、利用者は本契約を締結する法的能力を有し、提供する情報が真実、最新かつ完全であることを確認します。"],
         ["アカウントの安全", "パスワード、API トークン、認証情報、およびアカウント上の活動を保護する責任は利用者にあります。不正アクセスの疑いがある場合は速やかに通知してください。"],
         ["許容される利用", "違法、非同意、欺瞞的、権利侵害、憎悪的、搾取的、虐待的、または安全でないコンテンツの作成、ならびに安全制御、レート制限、アクセス制御、支払いルールの回避に本サービスを使用してはなりません。"],
         ["アップロードと権利", "利用者は、アップロードまたは処理を依頼する画像、プロンプト、テキスト、氏名、肖像、商標その他の素材について、必要な権利、許可、同意を有することを表明します。"],
@@ -2367,7 +2367,7 @@ const LEGAL_DOCS = {
         ["利用者の責任", "プロンプト、アップロード、生成コンテンツ、公開、配布、その後の利用については利用者が責任を負います。他者を誤認させる形で、生成コンテンツを実在の映像や発言として表示してはなりません。"],
         ["第三者サービス", "本サービスはモデル提供者、ホスティング、ネットワーク、ウォレットその他第三者に依存する場合があります。可用性、遅延、モデレーション結果、出力品質は変動し、保証されません。"],
         ["保証なし", "法令で許される最大限の範囲で、本サービスは現状有姿かつ提供可能な範囲で提供され、連続稼働、無エラー、商品性、特定目的適合性、非侵害について保証しません。"],
-        ["責任制限", "法令で許される最大限の範囲で、Vipeak AI および運営者は、本サービスの利用または利用不能から生じる間接、偶発、特別、結果的、懲罰的損害または逸失利益について責任を負いません。"],
+        ["責任制限", "法令で許される最大限の範囲で、CloudToken AI および運営者は、本サービスの利用または利用不能から生じる間接、偶発、特別、結果的、懲罰的損害または逸失利益について責任を負いません。"],
       ],
     },
   },
@@ -2388,7 +2388,7 @@ const LEGAL_DOCS = {
     registration: {
       title: "사용자 등록 약관",
       sections: [
-        ["계정 자격", "Vipeak AI에 등록하거나 사용함으로써 귀하는 본 계약을 체결할 법적 능력이 있으며 제공하는 정보가 진실하고 최신이며 완전함을 확인합니다."],
+        ["계정 자격", "CloudToken AI에 등록하거나 사용함으로써 귀하는 본 계약을 체결할 법적 능력이 있으며 제공하는 정보가 진실하고 최신이며 완전함을 확인합니다."],
         ["계정 보안", "비밀번호, API 토큰, 인증 정보 및 계정 활동을 보호할 책임은 귀하에게 있습니다. 무단 접근이 의심되면 즉시 알려주십시오."],
         ["허용되는 사용", "불법, 비동의, 기만, 권리 침해, 혐오, 착취, 학대 또는 안전하지 않은 콘텐츠를 만들거나 안전 제어, 속도 제한, 접근 제어, 결제 규칙을 우회하기 위해 서비스를 사용해서는 안 됩니다."],
         ["업로드와 권리", "귀하는 업로드하거나 서비스가 처리하도록 요청하는 이미지, 프롬프트, 텍스트, 이름, 초상, 상표 및 기타 자료에 필요한 권리, 허가 및 동의를 보유하고 있음을 진술합니다."],
@@ -2406,7 +2406,7 @@ const LEGAL_DOCS = {
         ["사용자 책임", "프롬프트, 업로드, 생성 콘텐츠, 게시, 배포 및 이후 사용에 대한 책임은 귀하에게 있습니다. 타인을 오도할 수 있는 경우 생성 콘텐츠를 실제 영상이나 실제 발언으로 표시하지 마십시오."],
         ["제3자 서비스", "서비스는 모델 제공자, 호스팅, 네트워크, 지갑 및 기타 제3자에 의존할 수 있습니다. 가용성, 지연, 검수 결과 및 출력 품질은 달라질 수 있으며 보장되지 않습니다."],
         ["보증 없음", "법률이 허용하는 최대 범위에서 서비스는 있는 그대로 및 이용 가능한 상태로 제공되며 중단 없는 운영, 오류 없는 출력, 상품성, 특정 목적 적합성 또는 비침해를 보증하지 않습니다."],
-        ["책임 제한", "법률이 허용하는 최대 범위에서 Vipeak AI와 운영자는 서비스 이용 또는 이용 불가로 발생하는 간접, 부수, 특별, 결과, 징벌적 손해 또는 이익 손실에 대해 책임지지 않습니다."],
+        ["책임 제한", "법률이 허용하는 최대 범위에서 CloudToken AI와 운영자는 서비스 이용 또는 이용 불가로 발생하는 간접, 부수, 특별, 결과, 징벌적 손해 또는 이익 손실에 대해 책임지지 않습니다."],
       ],
     },
   },
@@ -2427,7 +2427,7 @@ const LEGAL_DOCS = {
     registration: {
       title: "Perjanjian Pendaftaran Pengguna",
       sections: [
-        ["Kelayakan akun", "Dengan mendaftar atau menggunakan Vipeak AI, Anda menyatakan bahwa Anda dapat secara hukum membuat perjanjian ini dan informasi yang Anda berikan benar, terkini, dan lengkap."],
+        ["Kelayakan akun", "Dengan mendaftar atau menggunakan CloudToken AI, Anda menyatakan bahwa Anda dapat secara hukum membuat perjanjian ini dan informasi yang Anda berikan benar, terkini, dan lengkap."],
         ["Keamanan akun", "Anda bertanggung jawab menjaga kata sandi, token API, kredensial, dan aktivitas di akun Anda. Beri tahu kami segera jika Anda mencurigai akses tanpa izin."],
         ["Penggunaan yang diperbolehkan", "Anda tidak boleh menggunakan layanan untuk membuat konten ilegal, tanpa persetujuan, menipu, melanggar hak, kebencian, eksploitatif, abusif, atau tidak aman, atau untuk melewati kontrol keselamatan, batas laju, kontrol akses, atau aturan pembayaran."],
         ["Unggahan dan hak", "Anda menyatakan memiliki hak, izin, dan persetujuan yang diperlukan atas gambar, prompt, teks, nama, kemiripan, merek dagang, dan materi lain yang Anda unggah atau minta untuk diproses layanan."],
@@ -2445,7 +2445,7 @@ const LEGAL_DOCS = {
         ["Tanggung jawab pengguna", "Anda bertanggung jawab atas prompt, unggahan, konten yang dibuat, publikasi, distribusi, dan penggunaan lanjutan. Jangan menyatakan konten yang dibuat sebagai rekaman nyata atau pernyataan nyata jika hal itu dapat menyesatkan orang lain."],
         ["Layanan pihak ketiga", "Layanan dapat bergantung pada penyedia model, hosting, jaringan, dompet, dan pihak ketiga lainnya. Ketersediaan, latensi, hasil moderasi, dan kualitas output dapat berbeda dan tidak dijamin."],
         ["Tanpa jaminan", "Sejauh diizinkan hukum, layanan disediakan sebagaimana adanya dan sebagaimana tersedia, tanpa jaminan operasi tanpa gangguan, output bebas kesalahan, kelayakan jual, kesesuaian untuk tujuan tertentu, atau tidak melanggar hak."],
-        ["Batasan tanggung jawab", "Sejauh diizinkan hukum, Vipeak AI dan operatornya tidak bertanggung jawab atas kerugian tidak langsung, insidental, khusus, konsekuensial, hukuman, atau kehilangan keuntungan yang timbul dari penggunaan atau ketidakmampuan menggunakan layanan."],
+        ["Batasan tanggung jawab", "Sejauh diizinkan hukum, CloudToken AI dan operatornya tidak bertanggung jawab atas kerugian tidak langsung, insidental, khusus, konsekuensial, hukuman, atau kehilangan keuntungan yang timbul dari penggunaan atau ketidakmampuan menggunakan layanan."],
       ],
     },
   },
@@ -5667,7 +5667,7 @@ async function bootstrap() {
   state.templates = platform.templates || [];
   state.categories = platform.categories || [];
   state.advancedCases = platform.advanced?.cases || [];
-  els.brandName.textContent = platform.brand || "Vipeak AI";
+  els.brandName.textContent = platform.brand || "CloudToken AI";
   applyTenantFeatures();
   if (!isTabAllowed(state.tab)) state.tab = "gallery";
   renderHero();

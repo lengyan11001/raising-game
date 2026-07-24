@@ -14,11 +14,11 @@ from dataclasses import dataclass
 import paramiko
 
 
-DEFAULT_HOST = "47.76.175.249"
+DEFAULT_HOST = ""
 DEFAULT_USER = "root"
-DEFAULT_ENV_FILE = "/etc/raising-game-cloudtoken.env"
-DEFAULT_SERVICE = "raising-game-cloudtoken"
-DEFAULT_HEALTH_URL = "https://mystockmarket.top/api/health"
+DEFAULT_ENV_FILE = "/etc/cloudtoken.env"
+DEFAULT_SERVICE = "cloudtoken"
+DEFAULT_HEALTH_URL = "http://127.0.0.1:4174/api/health"
 DEFAULT_BASE_URL = "https://dashscope-intl.aliyuncs.com"
 DEFAULT_MODEL = "wan2.7-i2v-2026-04-25"
 
@@ -151,8 +151,8 @@ def health_check(client: paramiko.SSHClient, url: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Set Wan2.7 DashScope env vars on production.")
-    parser.add_argument("--host", default=os.environ.get("FYSHARK_HOST", DEFAULT_HOST))
-    parser.add_argument("--user", default=os.environ.get("FYSHARK_USER", DEFAULT_USER))
+    parser.add_argument("--host", default=os.environ.get("DEPLOY_HOST", DEFAULT_HOST))
+    parser.add_argument("--user", default=os.environ.get("DEPLOY_USER", DEFAULT_USER))
     parser.add_argument("--env-file", default=DEFAULT_ENV_FILE)
     parser.add_argument("--service", default=DEFAULT_SERVICE)
     parser.add_argument("--health-url", default=DEFAULT_HEALTH_URL)
@@ -162,8 +162,10 @@ def main() -> None:
     parser.add_argument("--model-only", action="store_true", help="Only update ALIYUN_WAN27_MODEL and keep the existing key.")
     parser.add_argument("--no-restart", action="store_true", help="Write env without restarting systemd service.")
     args = parser.parse_args()
+    if not args.host:
+        raise SystemExit("--host or DEPLOY_HOST is required.")
 
-    ssh_password = os.environ.get("FYSHARK_SSH_PASSWORD") or getpass.getpass("SSH password: ")
+    ssh_password = os.environ.get("DEPLOY_SSH_PASSWORD") or getpass.getpass("SSH password: ")
     dashscope_key = (
         os.environ.get("ALIYUN_DASHSCOPE_API_KEY")
         or os.environ.get("DASHSCOPE_API_KEY")

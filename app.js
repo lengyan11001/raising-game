@@ -224,8 +224,8 @@ const suiteVrSpots = [
 
 const state = {
   credits: CREDIT_START,
-  authToken: localStorage.getItem("raisingGameToken") || "",
-  soundEnabled: localStorage.getItem("raisingGameSoundEnabled") !== "0",
+  authToken: localStorage.getItem("cloudTokenToken") || "",
+  soundEnabled: localStorage.getItem("cloudTokenSoundEnabled") !== "0",
   user: null,
   loginMode: "login",
   config: null,
@@ -277,7 +277,7 @@ const state = {
   stats: { ...companions[0].stats },
 };
 
-const TENANT_PUBLIC_HOSTS = ["cloudtoken.ai", "mystockmarket.top", "vidnovaai.com"];
+const TENANT_PUBLIC_HOSTS = ["cloudtoken.example"];
 
 function isTenantPublicHost() {
   const host = String(window.location.hostname || "").trim().toLowerCase();
@@ -420,7 +420,7 @@ function closeGameDialogs() {
   [els.profileDialog, els.wishDialog, els.photoDialog, els.dateDialog, els.videoDialog, els.customCharacterDialog, els.scenePickerDialog, els.generationHistoryDialog, els.supportDialog].forEach(closeDialog);
 }
 
-const INTIMACY_STORAGE_KEY = "raisingGameIntimacy";
+const INTIMACY_STORAGE_KEY = "cloudTokenIntimacy";
 
 function loadIntimacyMap() {
   try {
@@ -963,7 +963,7 @@ function syncAllVideoAudio(options = {}) {
 function playHomeHeroWithSound() {
   state.soundEnabled = true;
   state.awaitingSoundUnlock = false;
-  localStorage.setItem("raisingGameSoundEnabled", "1");
+  localStorage.setItem("cloudTokenSoundEnabled", "1");
   renderSoundToggle();
   applyVideoAudio(els.homeHeroVideo, { forcePlay: true });
 }
@@ -981,7 +981,7 @@ function renderSoundToggle() {
 function setSoundEnabled(nextValue) {
   state.soundEnabled = Boolean(nextValue);
   state.awaitingSoundUnlock = false;
-  localStorage.setItem("raisingGameSoundEnabled", state.soundEnabled ? "1" : "0");
+  localStorage.setItem("cloudTokenSoundEnabled", state.soundEnabled ? "1" : "0");
   renderSoundToggle();
   syncAllVideoAudio({ forcePlay: true });
 }
@@ -2019,11 +2019,11 @@ async function loadSession() {
     const payload = await requestJson("/api/auth/me");
     syncUser(payload.user || null);
     if (!payload.user) {
-      localStorage.removeItem("raisingGameToken");
+      localStorage.removeItem("cloudTokenToken");
       state.authToken = "";
     }
   } catch (error) {
-    localStorage.removeItem("raisingGameToken");
+    localStorage.removeItem("cloudTokenToken");
     state.authToken = "";
     syncUser(null);
   }
@@ -2404,7 +2404,7 @@ async function submitLogin() {
       body: JSON.stringify({ username, password }),
     });
     state.authToken = payload.token;
-    localStorage.setItem("raisingGameToken", state.authToken);
+    localStorage.setItem("cloudTokenToken", state.authToken);
     syncUser(payload.user);
     closeDialog(els.loginDialog);
     await loadUnlocks();

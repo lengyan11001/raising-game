@@ -46,7 +46,7 @@ const MAINLAND_BYPASS_MAX_AGE_SECONDS = Math.max(
 const PORT = Number(process.env.PORT || 4174);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 const TENANT_PUBLIC_HOSTS = String(
-  process.env.TENANT_PUBLIC_HOSTS || "cloudtoken.ai,mystockmarket.top,vidnovaai.com",
+  process.env.TENANT_PUBLIC_HOSTS || "cloudtoken.example",
 )
   .split(",")
   .map((host) => host.trim().toLowerCase())
@@ -99,7 +99,7 @@ const PAYPAL_CLIENT_ID = String(process.env.PAYPAL_CLIENT_ID || "").trim();
 const PAYPAL_CLIENT_SECRET = String(process.env.PAYPAL_CLIENT_SECRET || "").trim();
 const PAYPAL_WEBHOOK_ID = String(process.env.PAYPAL_WEBHOOK_ID || "").trim();
 const PAYPAL_CURRENCY = String(process.env.PAYPAL_CURRENCY || "USD").trim().toUpperCase() || "USD";
-const PAYPAL_BRAND_NAME = String(process.env.PAYPAL_BRAND_NAME || "Vipeak AI").trim() || "Vipeak AI";
+const PAYPAL_BRAND_NAME = String(process.env.PAYPAL_BRAND_NAME || "CloudToken AI").trim() || "CloudToken AI";
 const MIN_TOPUP_AMOUNT = clampNumber(process.env.MIN_TOPUP_AMOUNT, 1, 1, 100000);
 const PAYPAL_MIN_AMOUNT = clampNumber(process.env.PAYPAL_MIN_AMOUNT, MIN_TOPUP_AMOUNT, 0.01, 100000);
 const PAYPAL_MAX_AMOUNT = clampNumber(process.env.PAYPAL_MAX_AMOUNT, 10000, PAYPAL_MIN_AMOUNT, 1000000);
@@ -178,7 +178,7 @@ const TOS = {
 const DISABLE_TOS_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_TOS_STORAGE || ""));
 const SITE_STORAGE_SLUG = storagePathSegment(
   process.env.SITE_STORAGE_SLUG || process.env.TENANT_SLUG || defaultStorageSlug(),
-  "raising-game",
+  "cloudtoken",
 );
 const TOS_KEY_PREFIX = storageKeyPrefix(
   process.env.TOS_KEY_PREFIX || process.env.STORAGE_KEY_PREFIX || `seedance-assets/${SITE_STORAGE_SLUG}`,
@@ -186,12 +186,12 @@ const TOS_KEY_PREFIX = storageKeyPrefix(
 
 function defaultStorageSlug() {
   try {
-    const host = new URL(PUBLIC_BASE_URL || "https://raising-game.local").hostname;
+    const host = new URL(PUBLIC_BASE_URL || "https://cloudtoken.local").hostname;
     if (isTenantPublicHostname(host)) return storagePathSegment(host.split(".")[0], "tenant");
   } catch {
-    // Keep the legacy namespace when the public URL is not configured yet.
+    // Keep a neutral namespace when the public URL is not configured yet.
   }
-  return "raising-game";
+  return "cloudtoken";
 }
 
 function isTenantPublicHostname(hostname = "") {
@@ -214,7 +214,7 @@ function storageKeyPrefix(value = "") {
     .split("/")
     .map((part) => storagePathSegment(part, ""))
     .filter(Boolean)
-    .join("/") || "seedance-assets/raising-game";
+    .join("/") || "seedance-assets/cloudtoken";
 }
 
 function tosStorageKey(...parts) {
@@ -308,10 +308,10 @@ const DEFAULT_ADMIN_HOME_ITEMS = [
     syntheticReferenceLocalUrl: "/assets/admin/home/default-hero.jpg",
     syntheticReferenceTaskId: "demo-seed",
     referenceAssetUri: "asset://asset-20260429190434-6plrk",
-    videoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
-    localVideoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
-    taskId: "cgt-20260502191234-jdb6s",
-    status: "succeeded",
+    videoUrl: "",
+    localVideoUrl: "",
+    taskId: "",
+    status: "draft",
     createdAt: "2026-05-02T11:17:48.000Z",
     sceneVideos: {},
   },
@@ -344,10 +344,10 @@ const DEFAULT_ADMIN_HOME_ITEMS = [
     syntheticReferenceLocalUrl: "/assets/admin/home/demo-aria-reference.png",
     syntheticReferenceTaskId: "demo-clean-frame",
     referenceAssetUri: "asset://asset-20260429190434-6plrk",
-    videoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
-    localVideoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
-    taskId: "cgt-20260502191234-jdb6s",
-    status: "succeeded",
+    videoUrl: "",
+    localVideoUrl: "",
+    taskId: "",
+    status: "draft",
     createdAt: "2026-05-02T11:17:48.000Z",
     sceneVideos: {},
   },
@@ -365,8 +365,8 @@ const DEFAULT_CONFIG = {
   wallet: {
     asset: "USDT",
     network: "TRC20",
-    address: "TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
-    qrUrl: "/assets/wallet/usdt-trc20-qr.png",
+    address: "",
+    qrUrl: "",
     suffixDigits: 6,
     /** Credits use RMB cents, matching upstream billing points. 1 USDT -> CNY cents. */
     cnyCentsPerUsdt: DEFAULT_USDT_CNY_CENTS,
@@ -379,7 +379,7 @@ const DEFAULT_CONFIG = {
     generateAudio: true,
   },
   platform: {
-    brand: "Vipeak AI",
+    brand: "CloudToken AI",
     heroTitle: "Create AI videos",
     heroSubtitle: "Choose a template, upload an image or enter text, and create a new video.",
     notice: "Generated results are saved in history. Video links may expire after 24 hours, so download and save them in time.",
@@ -453,9 +453,9 @@ const DEFAULT_CONFIG = {
     localImageUrl: "/assets/admin/home/default-hero.jpg",
     publicImageUrl: "",
     referenceAssetUri: "",
-    videoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
-    taskId: "cgt-20260502191234-jdb6s",
-    status: "succeeded",
+    videoUrl: "",
+    taskId: "",
+    status: "draft",
     activeItemId: "demo-aria-vintage",
     items: [
       {
@@ -470,10 +470,10 @@ const DEFAULT_CONFIG = {
         syntheticReferenceLocalUrl: "/assets/admin/home/demo-aria-reference.png",
         syntheticReferenceTaskId: "demo-clean-frame",
         referenceAssetUri: "asset://asset-20260429190434-6plrk",
-        videoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
-        localVideoUrl: "/assets/generated/videos/seductive-nonexplicit-cgt-20260502191234-jdb6s.mp4",
-        taskId: "cgt-20260502191234-jdb6s",
-        status: "succeeded",
+        videoUrl: "",
+        localVideoUrl: "",
+        taskId: "",
+        status: "draft",
         createdAt: "2026-05-02T11:17:48.000Z",
         sceneVideos: {},
       },
@@ -535,25 +535,6 @@ const DEFAULT_CONFIG = {
         "15-second photorealistic vertical private cinema full-body shot. Elegant adult woman in a sleek short evening outfit walking down the aisle of a private theater, projector light streaks across her body, velvet seats around her, slow tracking camera that always shows her full body and long legs, intimate whispering mood, premium scene, non-explicit.",
     },
   ],
-};
-
-const OLD_SITE_TRON_WALLET_OPTION = {
-  id: "tron",
-  label: "Tron",
-  network: "TRC20 / Tron",
-  asset: "USDT",
-  address: "TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
-  qrUrl: "/assets/wallet/usdt-trc20-qr.png",
-  explorerUrl: "https://tronscan.org/#/address/TBaZJZrLdqwb4bSDQnp2LzRaBo3RkhJ6rA",
-};
-
-const CLOUDTOKEN_TRON_WALLET_OPTION = {
-  id: "trc20",
-  label: "TRC20",
-  network: "TRC20",
-  asset: "USDT",
-  address: "TFLCCcZoNyavF5nGFYHKHitWLZ88888888",
-  qrUrl: "/assets/wallet/cloudtoken-usdt-trc20-qr.png",
 };
 
 function sendJson(res, statusCode, payload) {
@@ -1176,7 +1157,7 @@ function normalizePlatformConfig(platform = {}) {
   return {
     ...fallback,
     ...platform,
-    brand: String(platform.brand || fallback.brand || "Vipeak AI"),
+    brand: String(platform.brand || fallback.brand || "CloudToken AI"),
     heroTitle: cleanPlatformHeroCopy(platform.heroTitle, fallback.heroTitle || "Create AI videos"),
     heroSubtitle: cleanPlatformHeroCopy(platform.heroSubtitle, fallback.heroSubtitle || ""),
     notice: cleanPlatformHeroCopy(platform.notice, fallback.notice || ""),
@@ -1494,7 +1475,7 @@ function findUserUnlock(db, userId, itemId, sceneId, sceneEntryId = "default") {
 const UNLOCK_STREAM_TTL_MS = 6 * 60 * 60 * 1000;
 
 function unlockStreamSecret() {
-  return process.env.UNLOCK_STREAM_SECRET || process.env.SESSION_SECRET || ARK_API_KEY || "raising-game-unlock-stream";
+  return process.env.UNLOCK_STREAM_SECRET || process.env.SESSION_SECRET || ARK_API_KEY || "cloudtoken-unlock-stream";
 }
 
 function base64UrlEncode(value) {
@@ -2069,21 +2050,9 @@ function normalizeWalletOption(option = {}, index = 0) {
 
 function walletOptions(wallet = {}, options = {}) {
   const configured = Array.isArray(wallet.options) ? wallet.options : [];
-  let list = configured
+  const list = configured
     .map((option, index) => normalizeWalletOption(option, index))
     .filter((option) => option.address);
-  if (options.tenantPublic) {
-    const tenantTron = normalizeWalletOption(CLOUDTOKEN_TRON_WALLET_OPTION, 0);
-    const configuredTenantOptions = list.filter((option) => option.address !== OLD_SITE_TRON_WALLET_OPTION.address);
-    return configuredTenantOptions.length ? configuredTenantOptions : [tenantTron];
-  }
-  const oldSiteTron = normalizeWalletOption(OLD_SITE_TRON_WALLET_OPTION, list.length);
-  const hasOldSiteTron = list.some((option) => (
-    option.id === oldSiteTron.id ||
-    option.address === oldSiteTron.address ||
-    (normalizeWalletChain(option.network) === "tron" && option.address === oldSiteTron.address)
-  ));
-  if (oldSiteTron.address && !hasOldSiteTron) list = [...list, oldSiteTron];
   if (list.length) return list;
   const fallback = normalizeWalletOption({
     id: wallet.network || "wallet",
@@ -3852,7 +3821,7 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
     URL: uploaded.publicUrl,
     AssetType: "Image",
     Moderation: { Strategy: "Skip" },
-    Name: `raising-game-home-${item.id}-${Date.now()}`,
+    Name: `cloudtoken-home-${item.id}-${Date.now()}`,
     ProjectName: ARK_OPENAPI.projectName,
   });
   const assetId = extractAssetId(created);
@@ -6232,7 +6201,7 @@ function pricingRowsFromOldSite(pricing = {}, config = {}) {
   if (pricing.vipeak1Image?.saleUsdPerImage) {
     addUsdRows({
       group: "vipeak1-image",
-      label: "Vipeak 1 Image",
+      label: "CloudToken Image",
       provider: "vipeak1-image",
       map: { [pricing.vipeak1Image.defaultResolution || "image"]: pricing.vipeak1Image.saleUsdPerImage },
       keyForResolution: () => "vipeak1-image",
@@ -8379,7 +8348,7 @@ async function buildModelDocs(req) {
 
   return {
     ok: true,
-    title: `${platform.brand || "Vipeak AI"} Model Guide`,
+    title: `${platform.brand || "CloudToken AI"} Model Guide`,
     baseUrl: origin,
     updatedAt: new Date().toISOString(),
     userPricing: pricingMultiplierView(auth.user || 1),
@@ -12719,7 +12688,7 @@ async function bootstrap() {
   startWalletScanScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {
-    console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
+    console.log(`CloudToken server: http://127.0.0.1:${PORT}/`);
     console.log(`Upstream mode: ${USE_GATEWAY_UPSTREAM ? "gateway" : "direct"}`);
     console.log(`Ark configured: ${ARK_API_KEY ? "yes" : "no"}`);
     console.log(`Database configured: ${DATABASE_URL ? "yes" : "no"}`);

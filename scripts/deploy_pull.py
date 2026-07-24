@@ -18,14 +18,13 @@ import os
 import paramiko
 
 
-HOST = os.environ.get("DEPLOY_HOST", os.environ.get("FYSHARK_HOST", "47.76.175.249"))
+HOST = os.environ.get("DEPLOY_HOST", os.environ.get("FYSHARK_HOST", ""))
 USER = os.environ.get("DEPLOY_USER", os.environ.get("FYSHARK_USER", "root"))
 PASSWORD = os.environ.get("DEPLOY_SSH_PASSWORD", os.environ.get("FYSHARK_SSH_PASSWORD", ""))
-REMOTE_ROOT = os.environ.get("DEPLOY_REMOTE_ROOT", "/opt/raising-game-cloudtoken")
-SERVICE = os.environ.get("DEPLOY_SERVICE", "raising-game-cloudtoken")
-HEALTH_URL = os.environ.get("DEPLOY_HEALTH_URL", "https://mystockmarket.top/api/health")
+REMOTE_ROOT = os.environ.get("DEPLOY_REMOTE_ROOT", "/opt/cloudtoken")
+SERVICE = os.environ.get("DEPLOY_SERVICE", "cloudtoken")
+HEALTH_URL = os.environ.get("DEPLOY_HEALTH_URL", "http://127.0.0.1:4174/api/health")
 BRANCH = os.environ.get("DEPLOY_BRANCH", "main")
-RETIRED_HOSTS = {"8.210.186.75"}
 
 
 def remote_run(client: paramiko.SSHClient, command: str, timeout: int = 120) -> tuple[int, str, str]:
@@ -47,21 +46,17 @@ def main() -> None:
     parser.add_argument("--health-url", default=HEALTH_URL)
     parser.add_argument("--no-restart", action="store_true")
     args = parser.parse_args()
+    if not HOST:
+        raise SystemExit("DEPLOY_HOST is required.")
     if not PASSWORD:
         raise SystemExit("DEPLOY_SSH_PASSWORD is required.")
     if not args.branch:
         raise SystemExit("--branch is required.")
-    if HOST in RETIRED_HOSTS:
-        raise SystemExit(f"Refusing to deploy new site 1 to retired host {HOST}. Use 47.76.175.249.")
 
     command = f"""
 set -euo pipefail
 cd {args.remote_root}
-export DISPLAY="${{DISPLAY:-none}}"
-export SSH_ASKPASS="${{SSH_ASKPASS:-/root/.ssh/github-askpass.sh}}"
-export SSH_ASKPASS_REQUIRE="${{SSH_ASKPASS_REQUIRE:-force}}"
-export GIT_SSH_COMMAND="${{GIT_SSH_COMMAND:-ssh -p 443 -i /root/.ssh/github-maczhuji -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new}}"
-setsid git fetch origin {args.branch}
+git fetch origin {args.branch}
 git checkout {args.branch}
 git reset --hard origin/{args.branch}
 {"true" if args.no_restart else f"systemctl restart {args.service}"}
@@ -69,8 +64,8 @@ sleep 2
 git status --short
 git log -1 --oneline
 {"true" if args.no_restart else f"systemctl status {args.service} --no-pager -l | head -25"}
-curl -sS -o /tmp/raising-game-health -w 'http=%{{http_code}}\\n' {args.health_url} -m 10
-cat /tmp/raising-game-health 2>/dev/null || true
+curl -sS -o /tmp/cloudtoken-health -w 'http=%{{http_code}}\\n' {args.health_url} -m 10
+cat /tmp/cloudtoken-health 2>/dev/null || true
 echo
 """
 

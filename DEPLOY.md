@@ -1,52 +1,135 @@
-# New Site 1 Deploy Notes
+# CloudToken Deployment
 
-## Fixed Target
+This package is a clean handoff build. It does not include production secrets,
+database dumps, uploaded files, generated results, logs, or server credentials.
 
-New site 1 must deploy only to the new server.
+## Runtime
 
-- Domain: `https://mystockmarket.top`
-- Host: `47.76.175.249`
-- Remote root: `/opt/raising-game-cloudtoken`
-- Systemd service: `raising-game-cloudtoken`
-- Runtime env file: `/etc/raising-game-cloudtoken.env`
-- Health check: `https://mystockmarket.top/api/health`
+- Node.js 20 LTS or newer
+- PostgreSQL 14 or newer
+- A reverse proxy such as Nginx
+- Process manager: systemd
+- App directory: `/opt/cloudtoken`
+- Env file: `/etc/cloudtoken.env`
+- Service name: `cloudtoken`
 
-Do not deploy new site 1 to the retired server `8.210.186.75`.
-
-## Git Pull Deploy
-
-Deploy by Git pull on the server. Do not use `scp` or manual file copying.
-
-Recommended local flow:
-
-```powershell
-git status --short
-git push origin main
-$env:DEPLOY_SSH_PASSWORD = "<server-root-password>"
-python .\scripts\deploy_pull.py
-```
-
-Equivalent server-side flow:
+## Install
 
 ```bash
-cd /opt/raising-game-cloudtoken
-git fetch origin main
-git checkout main
-git reset --hard origin/main
-systemctl restart raising-game-cloudtoken
-curl -sS https://mystockmarket.top/api/health
+mkdir -p /opt/cloudtoken
+cd /opt/cloudtoken
+npm ci --omit=dev
 ```
 
-Runtime configuration, database state, logs, uploaded assets, and generated
-outputs stay on the server and must not be overwritten by deployment.
+Copy `.env.example` to `/etc/cloudtoken.env`, then fill real values on the
+server. Do not commit or share the filled env file.
 
-## Verification
-
-After every deploy, verify:
-
-```powershell
-Invoke-RestMethod https://mystockmarket.top/api/health
-(Invoke-WebRequest -Uri 'https://mystockmarket.top/admin.html' -UseBasicParsing).Content |
-  Select-String 'admin\.js\?v=adm-[0-9]+' -AllMatches
-Invoke-RestMethod https://mystockmarket.top/api/config/pricing
+```bash
+cp /opt/cloudtoken/.env.example /etc/cloudtoken.env
+chmod 600 /etc/cloudtoken.env
 ```
+
+Minimum required values:
+
+```env
+NODE_ENV=production
+PORT=4174
+PUBLIC_BASE_URL=https://your-domain.example
+TENANT_PUBLIC_HOSTS=your-domain.example
+DATABASE_URL=
+UPSTREAM_BASE_URL=https://your-upstream.example
+UPSTREAM_API_TOKEN=
+```
+
+Fill model/storage/payment variables only if those features are used. Wallet
+addresses and QR codes must be configured by the new operator before accepting
+payments.
+
+## systemd
+
+Create `/etc/systemd/system/cloudtoken.service`:
+
+```ini
+[Unit]
+Description=CloudToken
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/cloudtoken
+EnvironmentFile=/etc/cloudtoken.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Start it:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now cloudtoken
+systemctl status cloudtoken --no-pager -l
+```
+
+## Nginx
+
+Example server block:
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.example;
+
+    client_max_body_size 100m;
+
+    location / {
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 180s;
+        proxy_send_timeout 180s;
+    }
+}
+```
+
+Enable HTTPS with the operator's preferred certificate tool.
+
+## First Admin
+
+The first registered account becomes admin. Register it immediately after first
+startup, then keep the credentials outside the codebase.
+
+## Verify
+
+```bash
+curl -sS http://127.0.0.1:4174/api/health
+curl -sS https://your-domain.example/api/health
+```
+
+Open:
+
+- `https://your-domain.example/platform.html`
+- `https://your-domain.example/admin.html`
+
+## Package Exclusions
+
+These are intentionally not included:
+
+- `.env`, `.env.local`, or any filled env file
+- `data/`
+- `logs/`
+- `tmp/`
+- `node_modules/`
+- `.git/`
+- user uploads
+- generated videos/results
+- production wallet QR images
+- local handoff notes or credentials
