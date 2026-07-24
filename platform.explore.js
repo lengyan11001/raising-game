@@ -2111,11 +2111,20 @@ function updateCharacterCreatorInput(input) {
   state.characterCreator[field] = field === "age" ? Math.max(18, Math.min(80, Number(input.value) || 23)) : (input.value || "");
 }
 
+function scrollCharacterCreatorIntoView() {
+  const target = els.characterCreatorCard || els.characterCreatorRoot;
+  if (!target) return;
+  window.requestAnimationFrame(() => {
+    target.scrollIntoView({ block: "start", behavior: "smooth" });
+  });
+}
+
 function navigateCharacterCreator(direction = "next") {
   const currentIndex = Math.max(0, CHARACTER_CREATOR_STEPS.findIndex((step) => step.id === state.characterCreator.step));
   const nextIndex = direction === "back" ? Math.max(0, currentIndex - 1) : Math.min(CHARACTER_CREATOR_STEPS.length - 1, currentIndex + 1);
   state.characterCreator.step = CHARACTER_CREATOR_STEPS[nextIndex].id;
   renderCharacterCreator();
+  scrollCharacterCreatorIntoView();
 }
 
 function bindCharacterCreatorEvents() {
@@ -2132,6 +2141,7 @@ function bindCharacterCreatorEvents() {
     if (stepButton && !stepButton.disabled) {
       state.characterCreator.step = stepButton.dataset.creatorStep || state.characterCreator.step;
       renderCharacterCreator();
+      scrollCharacterCreatorIntoView();
       return;
     }
     const navButton = event.target.closest("[data-creator-nav]");
