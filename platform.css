@@ -1181,13 +1181,6 @@ body.creator-picker-open {
   font-size: .95rem;
   font-weight: 950;
 }
-#characterCreateCost {
-  justify-self: center;
-  width: min(640px, 100%);
-  margin: 0;
-  color: rgba(255,255,255,.78);
-  font-size: .82rem;
-}
 .history-panel { width: 100%; }
 .history-panel .section-head.compact {
   display: grid;
@@ -6213,17 +6206,6 @@ textarea {
 }
 textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 0 0 3px rgba(15,148,139,.12); }
 .job-note { margin: 0; color: var(--muted); line-height: 1.6; }
-.asset-simple-cost {
-  margin: 8px 0;
-  padding: 20px;
-  border: 1px solid rgba(255, 63, 173, 0.32);
-  border-radius: 14px;
-  background: rgba(255, 63, 173, 0.1);
-  color: var(--text);
-  font-size: 1.15rem;
-  font-weight: 900;
-  text-align: center;
-}
 .auth-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .account-grid {
   display: grid;
@@ -7503,6 +7485,35 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 }
 .character-card:hover .character-card-actions {
   opacity: 1;
+}
+.character-card.has-card-delete .character-card-actions {
+  top: 48px;
+  flex-direction: column;
+}
+.character-card-delete {
+  position: absolute;
+  right: 9px;
+  top: 9px;
+  z-index: 3;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgba(0,0,0,.62);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+}
+.character-card-delete:hover {
+  border-color: rgba(255,92,138,.52);
+  background: rgba(220,38,82,.82);
+}
+.character-card-delete svg {
+  width: 15px;
+  height: 15px;
 }
 .character-card-actions .ghost-button,
 .character-card-actions .primary-button,

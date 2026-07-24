@@ -2345,7 +2345,6 @@ function assetGenerateDialogBody({ mode = "extend", imageAssetId = "" } = {}) {
         <label class="field"><span>${escapeHtml(t("field.duration"))}</span><input id="assetGenerateDuration" type="number" min="5" max="15" value="5" /></label>
         <label class="field"><span>${escapeHtml(t("field.resolution"))}</span><select id="assetGenerateResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
       </div>
-      <p class="job-note" id="assetGenerateCost"></p>
       <p class="job-note" id="assetGenerateStatus"></p>
     </div>
   `;
@@ -2359,7 +2358,6 @@ function assetVideoExtendDialogBody() {
         <label class="field"><span>${escapeHtml(t("field.duration"))}</span><input id="assetGenerateDuration" type="number" min="5" max="15" value="5" /></label>
         <label class="field"><span>${escapeHtml(t("field.resolution"))}</span><select id="assetGenerateResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
       </div>
-      <p class="job-note" id="assetGenerateCost"></p>
       <p class="job-note" id="assetGenerateStatus"></p>
     </div>
   `;
@@ -2435,7 +2433,6 @@ function assetModifyDialogBody(asset = {}) {
       <label class="field"><span>${escapeHtml(t("field.ratio"))}</span><select id="assetModifyRatio">${ratios.map((ratio) => `<option value="${escapeHtml(ratio)}" ${ratio === defaultRatio ? "selected" : ""}>${escapeHtml(ratio)}</option>`).join("")}</select></label>
       <label class="field"><span>${escapeHtml(t("field.resolution"))}</span><select id="assetModifyResolution">${resolutions.map((resolution) => `<option value="${escapeHtml(resolution)}" ${resolution === defaultResolution ? "selected" : ""}>${escapeHtml(resolution)}</option>`).join("")}</select></label>
       <p class="job-note">${escapeHtml(t("assets.modifyHint"))}</p>
-      <p class="job-note" id="assetModifyCost"></p>
       <p class="job-note" id="assetModifyStatus"></p>
     </div>
   `;
@@ -2512,10 +2509,15 @@ async function openAssetExtendDialog(asset = {}) {
   const result = await showInlineDialog({
     title: t("assets.extendTitle"),
     body: `
-      <p class="job-note asset-simple-cost">${escapeHtml(t("advanced.confirmCostOnly", { cost }, cost))}</p>
       <p class="job-note" id="assetGenerateStatus"></p>
     `,
     confirmText: t("common.generate"),
+    onOpen: () => {
+      if (els.inlineDialogConfirm) {
+        els.inlineDialogConfirm.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost }))}`;
+        refreshIcons();
+      }
+    },
     onConfirm: async (root) => {
       const status = root.querySelector("#assetGenerateStatus");
       if (status) status.textContent = t("assets.generating");
@@ -2550,10 +2552,15 @@ async function openAssetVideoExtendDialog(videoAsset = {}) {
   const result = await showInlineDialog({
     title: t("assets.extendTitle"),
     body: `
-      <p class="job-note asset-simple-cost">${escapeHtml(t("advanced.confirmCostOnly", { cost }, cost))}</p>
       <p class="job-note" id="assetGenerateStatus"></p>
     `,
     confirmText: t("common.generate"),
+    onOpen: () => {
+      if (els.inlineDialogConfirm) {
+        els.inlineDialogConfirm.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost }))}`;
+        refreshIcons();
+      }
+    },
     onConfirm: async (root) => {
       const status = root.querySelector("#assetGenerateStatus");
       if (status) status.textContent = t("advanced.extractingLastFrame", {}, "Preparing video frame...");
@@ -2600,7 +2607,6 @@ async function openAssetReplaceDialog(videoAsset = {}) {
         </div>
         <img class="asset-upload-preview" id="assetReplaceUploadPreview" alt="" hidden />
       </label>
-      <p class="job-note asset-simple-cost">${escapeHtml(t("advanced.confirmCostOnly", { cost }, cost))}</p>
       <p class="job-note" id="assetGenerateStatus"></p>
     `,
     confirmText: t("common.generate"),
@@ -2614,6 +2620,9 @@ async function openAssetReplaceDialog(videoAsset = {}) {
         preview.src = await readFileAsDataUrl(file);
         preview.hidden = false;
       });
+      if (els.inlineDialogConfirm) {
+        els.inlineDialogConfirm.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost }))}`;
+      }
       refreshIcons();
     },
     onConfirm: async (root) => {
