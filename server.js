@@ -108,6 +108,9 @@ const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
   advanced: "advanced",
   tool: "advanced",
 });
+const TOOL_VIDEO_PROVIDER = ["wan27", "seedance"].includes(String(process.env.TOOL_VIDEO_PROVIDER || "").trim().toLowerCase())
+  ? String(process.env.TOOL_VIDEO_PROVIDER).trim().toLowerCase()
+  : "wan27";
 const TOOL_TENANT_SPECS = Object.freeze({
   video: {
     id: "video",
@@ -121,6 +124,7 @@ const TOOL_TENANT_SPECS = Object.freeze({
     allowedGalleryModes: ["playflux-video"],
     disabledTabs: ["access", "assets", "workflow", "referral"],
     assetLibrary: false,
+    videoProvider: TOOL_VIDEO_PROVIDER,
   },
   image: {
     id: "image",
@@ -1230,6 +1234,7 @@ function tenantDescriptorFromHostname(hostname = "") {
     assetLibrary: tool?.assetLibrary ?? true,
     accountMenu: true,
     subscriptions: Boolean(tool),
+    videoProvider: tool?.videoProvider || "",
   };
 }
 
@@ -1633,6 +1638,7 @@ function publicTenantFeatures(tenant = {}) {
     assetLibrary: tenant.assetLibrary !== false,
     accountMenu: tenant.accountMenu !== false,
     subscriptions: Boolean(tenant.subscriptions),
+    videoProvider: tenant.videoProvider || "",
   };
 }
 
@@ -17944,7 +17950,12 @@ async function handleAdvancedGenerate(req, res) {
   const advanced = config.platform?.advanced || {};
   const cases = Array.isArray(advanced.cases) ? advanced.cases : [];
   const bodyParams = requestParamsFromBody(body);
-  const selectedCase = cases.find((item) => item.id === String(firstPresent(body.caseId, bodyParams.caseId, "")).trim());
+  const requestSource = String(firstPresent(body.source, bodyParams.source, "") || "").trim().toLowerCase();
+  const requestedTemplateId = String(firstPresent(body.templateId, bodyParams.templateId, "") || "").trim();
+  const playfluxTemplate = requestSource === "playflux" && requestedTemplateId
+    ? (Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : []).find((item) => item.id === requestedTemplateId)
+    : null;
+  const selectedCase = cases.find((item) => item.id === String(firstPresent(body.caseId, bodyParams.caseId, "")).trim()) || playfluxTemplate;
   const caseParams = selectedCase?.params && typeof selectedCase.params === "object" ? selectedCase.params : {};
   const mergedBodyBase = mergedRequestForMedia(body, caseParams);
   const requestedModel = firstPresent(body.model, bodyParams.model, caseParams.model);
@@ -17956,7 +17967,11 @@ async function handleAdvancedGenerate(req, res) {
     caseParams.seedanceTier,
     caseParams.vipeak2Tier,
   );
+  const requestTenant = requestTenantDescriptor(req);
+  const isToolVideoTemplateRequest = requestTenant.toolId === "video";
+  const toolVideoProvider = requestTenant.videoProvider === "seedance" ? "seedance" : "wan27";
   const providerHint = firstPresent(
+    isToolVideoTemplateRequest ? toolVideoProvider : "",
     body.provider,
     bodyParams.provider,
     selectedCase?.provider,
@@ -19455,7 +19470,6 @@ async function handleAdvancedEstimate(req, res) {
   const url = new URL(req.url || "/", "http://localhost");
   const tenantPublic = requestTenantOptions(req).tenantPublic;
   const rawProvider = body.provider || url.searchParams.get("provider");
-  const provider = isWan27ImageProvider(rawProvider) ? "wan27-image" : normalizeAdvancedProvider(rawProvider);
   const duration = body.duration ?? url.searchParams.get("duration");
   const params = {
     ...plainObject(body.params),
@@ -19464,6 +19478,12 @@ async function handleAdvancedEstimate(req, res) {
     resolution: body.resolution ?? url.searchParams.get("resolution"),
     ratio: body.ratio ?? body.aspect_ratio ?? url.searchParams.get("ratio") ?? url.searchParams.get("aspect_ratio"),
   };
+  const tenant = requestTenantDescriptor(req);
+  const isToolVideoTemplateEstimate = tenant.toolId === "video";
+  const effectiveProvider = isToolVideoTemplateEstimate
+    ? (tenant.videoProvider === "seedance" ? "seedance" : "wan27")
+    : rawProvider;
+  const provider = isWan27ImageProvider(effectiveProvider) ? "wan27-image" : normalizeAdvancedProvider(effectiveProvider);
   params.inputVideoSeconds = firstPresent(
     body.inputVideoSeconds,
     body.videoInputSeconds,
