@@ -116,6 +116,11 @@ const DEFAULT_TOPUP_PACKAGES = [
   { id: "usd-500", amount: 500, credits: 65000, currency: "USD" },
   { id: "usd-1000", amount: 1000, credits: 140000, currency: "USD" },
 ];
+const DEFAULT_TOOL_TOPUP_PACKAGES = [
+  { id: "tool-usd-10", amount: 10, credits: 1000, currency: "USD" },
+  { id: "tool-usd-20", amount: 20, credits: 2000, currency: "USD" },
+  { id: "tool-usd-50", amount: 50, credits: 5000, currency: "USD" },
+];
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
 const TRON_USDT_CONTRACT = "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj";
 const DEFAULT_PLATFORM_TAB = "gallery";

@@ -3910,7 +3910,8 @@ function copyTopupValue(value = "", message = "") {
 
 function topupPackages() {
   const configured = Array.isArray(state.wallet?.topupPackages) ? state.wallet.topupPackages : [];
-  const packages = configured.length ? configured : DEFAULT_TOPUP_PACKAGES;
+  const fallback = tenantFeature("subscriptions", false) ? DEFAULT_TOOL_TOPUP_PACKAGES : DEFAULT_TOPUP_PACKAGES;
+  const packages = configured.length ? configured : fallback;
   return packages
     .map((item) => ({
       id: String(item.id || `usd-${item.amount || ""}`).trim(),
