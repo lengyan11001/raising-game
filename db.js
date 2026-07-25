@@ -180,6 +180,73 @@ async function ensureSchemaInner() {
       WHERE paypal_order_id <> '';
   `);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_billing_plans (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'Pro',
+      status TEXT NOT NULL DEFAULT 'active',
+      currency TEXT NOT NULL DEFAULT 'USD',
+      amount NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      interval_unit TEXT NOT NULL DEFAULT 'month',
+      interval_count INT NOT NULL DEFAULT 1,
+      included_credits NUMERIC(24, 6) NOT NULL DEFAULT 0,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_billing_plans_tenant_status_idx ON app_billing_plans (tenant_id, status, updated_at DESC);`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_user_subscriptions (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      current_period_start TIMESTAMPTZ,
+      current_period_end TIMESTAMPTZ,
+      cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+      provider TEXT NOT NULL DEFAULT '',
+      provider_customer_id TEXT NOT NULL DEFAULT '',
+      provider_subscription_id TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_user_subscriptions_user_idx ON app_user_subscriptions (tenant_id, user_id, updated_at DESC);`);
+  await createUniqueIndex(`
+    CREATE UNIQUE INDEX IF NOT EXISTS app_user_subscriptions_tenant_user_uidx
+      ON app_user_subscriptions (tenant_id, user_id);
+  `);
+  await query(`
+    INSERT INTO app_billing_plans (
+      id, tenant_id, name, status, currency, amount, interval_unit, interval_count, included_credits, payload
+    )
+    SELECT
+      'plan-' || tenant_id || '-pro',
+      tenant_id,
+      'Pro',
+      'active',
+      'USD',
+      20,
+      'month',
+      1,
+      2200,
+      jsonb_build_object(
+        'topupCreditsPerUsd', 100,
+        'topupQuickAmounts', jsonb_build_array(10, 20, 50)
+      )
+    FROM unnest(ARRAY[
+      'tool-video-123tops',
+      'tool-image',
+      'tool-anime',
+      'tool-characters',
+      'tool-advanced'
+    ]) AS tenant_id
+    ON CONFLICT (id) DO NOTHING;
+  `);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_credit_ledger (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -477,6 +544,46 @@ function sessionFromRow(row = {}) {
     token: String(row.token || payload.token || ""),
     userId: String(row.user_id || payload.userId || ""),
     tenantId: normalizeTenantId(row.tenant_id || payload.tenantId || payload.tenant_id || DEFAULT_TENANT_ID),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
+  };
+}
+
+function billingPlanFromRow(row = {}) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    tenantId: normalizeTenantId(row.tenant_id || payload.tenantId || DEFAULT_TENANT_ID),
+    name: String(row.name || payload.name || "Pro"),
+    status: String(row.status || payload.status || "active"),
+    currency: String(row.currency || payload.currency || "USD").toUpperCase(),
+    amount: creditNumber(row.amount ?? payload.amount ?? 0),
+    intervalUnit: String(row.interval_unit || payload.intervalUnit || "month"),
+    intervalCount: Math.max(1, Math.trunc(Number(row.interval_count ?? payload.intervalCount ?? 1) || 1)),
+    includedCredits: creditNumber(row.included_credits ?? payload.includedCredits ?? 0),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
+  };
+}
+
+function userSubscriptionFromRow(row = {}) {
+  const payload = rowPayload(row);
+  const periodStart = row.current_period_start || payload.currentPeriodStart;
+  const periodEnd = row.current_period_end || payload.currentPeriodEnd;
+  return {
+    ...payload,
+    id: String(row.id || payload.id || ""),
+    tenantId: normalizeTenantId(row.tenant_id || payload.tenantId || DEFAULT_TENANT_ID),
+    userId: String(row.user_id || payload.userId || ""),
+    planId: String(row.plan_id || payload.planId || ""),
+    status: String(row.status || payload.status || "active"),
+    currentPeriodStart: periodStart ? new Date(periodStart).toISOString() : "",
+    currentPeriodEnd: periodEnd ? new Date(periodEnd).toISOString() : "",
+    cancelAtPeriodEnd: Boolean(row.cancel_at_period_end ?? payload.cancelAtPeriodEnd),
+    provider: String(row.provider || payload.provider || ""),
+    providerCustomerId: String(row.provider_customer_id || payload.providerCustomerId || ""),
+    providerSubscriptionId: String(row.provider_subscription_id || payload.providerSubscriptionId || ""),
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : (payload.createdAt || ""),
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : (payload.updatedAt || ""),
   };
@@ -892,6 +999,106 @@ async function getWalletOrderByPaypalIdInDb(paypalOrderId = "") {
   await ensureSchema();
   const { rows } = await query(`SELECT * FROM app_wallet_orders WHERE paypal_order_id = $1`, [id]);
   return rows[0] ? walletOrderFromRow(rows[0]) : null;
+}
+
+async function listBillingPlansInDb(tenantId = DEFAULT_TENANT_ID, { includeInactive = false } = {}) {
+  if (!dbEnabled()) return [];
+  const cleanTenantId = normalizeTenantId(tenantId);
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_billing_plans
+      WHERE tenant_id = $1
+        AND ($2::boolean OR status = 'active')
+      ORDER BY amount ASC, updated_at DESC
+    `,
+    [cleanTenantId, Boolean(includeInactive)],
+  );
+  return rows.map(billingPlanFromRow);
+}
+
+async function getBillingPlanInDb(tenantId = DEFAULT_TENANT_ID, planId = "") {
+  if (!dbEnabled()) return null;
+  const cleanTenantId = normalizeTenantId(tenantId);
+  const cleanPlanId = String(planId || "").trim();
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_billing_plans
+      WHERE tenant_id = $1
+        AND ($2 = '' OR id = $2)
+        AND status = 'active'
+      ORDER BY amount ASC, updated_at DESC
+      LIMIT 1
+    `,
+    [cleanTenantId, cleanPlanId],
+  );
+  return rows[0] ? billingPlanFromRow(rows[0]) : null;
+}
+
+async function getUserSubscriptionInDb(userId = "", tenantId = DEFAULT_TENANT_ID) {
+  if (!dbEnabled()) return null;
+  const cleanUserId = String(userId || "").trim();
+  const cleanTenantId = normalizeTenantId(tenantId);
+  if (!cleanUserId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_user_subscriptions WHERE tenant_id = $1 AND user_id = $2 LIMIT 1`,
+    [cleanTenantId, cleanUserId],
+  );
+  return rows[0] ? userSubscriptionFromRow(rows[0]) : null;
+}
+
+async function upsertUserSubscriptionInDb(subscription = {}) {
+  if (!dbEnabled()) return null;
+  const id = String(subscription.id || "").trim();
+  const userId = String(subscription.userId || "").trim();
+  const tenantId = normalizeTenantId(subscription.tenantId || DEFAULT_TENANT_ID);
+  const planId = String(subscription.planId || "").trim();
+  if (!id || !userId || !planId) return null;
+  await ensureSchema();
+  const payload = { ...subscription, id, userId, tenantId, planId };
+  const { rows } = await query(
+    `
+      INSERT INTO app_user_subscriptions (
+        id, tenant_id, user_id, plan_id, status, current_period_start, current_period_end,
+        cancel_at_period_end, provider, provider_customer_id, provider_subscription_id,
+        payload, created_at, updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8::boolean, $9, $10, $11, $12::jsonb, $13::timestamptz, $14::timestamptz)
+      ON CONFLICT (tenant_id, user_id) DO UPDATE SET
+        plan_id = EXCLUDED.plan_id,
+        status = EXCLUDED.status,
+        current_period_start = EXCLUDED.current_period_start,
+        current_period_end = EXCLUDED.current_period_end,
+        cancel_at_period_end = EXCLUDED.cancel_at_period_end,
+        provider = EXCLUDED.provider,
+        provider_customer_id = EXCLUDED.provider_customer_id,
+        provider_subscription_id = EXCLUDED.provider_subscription_id,
+        payload = EXCLUDED.payload,
+        updated_at = EXCLUDED.updated_at
+      RETURNING *
+    `,
+    [
+      id,
+      tenantId,
+      userId,
+      planId,
+      String(subscription.status || "active"),
+      subscription.currentPeriodStart || new Date().toISOString(),
+      subscription.currentPeriodEnd || null,
+      Boolean(subscription.cancelAtPeriodEnd),
+      String(subscription.provider || ""),
+      String(subscription.providerCustomerId || ""),
+      String(subscription.providerSubscriptionId || ""),
+      JSON.stringify(payload),
+      subscription.createdAt || new Date().toISOString(),
+      subscription.updatedAt || new Date().toISOString(),
+    ],
+  );
+  return rows[0] ? userSubscriptionFromRow(rows[0]) : null;
 }
 
 async function updateWalletOrderInDb(order = {}) {
@@ -1921,6 +2128,10 @@ module.exports = {
   getSessionByTokenInDb,
   getWalletOrderByIdInDb,
   getWalletOrderByPaypalIdInDb,
+  listBillingPlansInDb,
+  getBillingPlanInDb,
+  getUserSubscriptionInDb,
+  upsertUserSubscriptionInDb,
   updateWalletOrderInDb,
   updateUserInDb,
   upsertUserAssetInDb,

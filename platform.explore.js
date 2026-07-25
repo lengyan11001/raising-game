@@ -1,4 +1,10 @@
 let googleAnalyticsMeasurementId = "";
+let playfluxGalleryRenderToken = 0;
+let playfluxGalleryBatchObserver = null;
+let playfluxGalleryMediaObserver = null;
+
+const PLAYFLUX_MOBILE_INITIAL_COUNT = 6;
+const PLAYFLUX_MOBILE_BATCH_SIZE = 6;
 
 function initGoogleAnalytics(measurementId = "") {
   const id = String(measurementId || "").trim();
@@ -380,6 +386,7 @@ function bindHoverPreviewCard({ card, video, cover, fallbackCover = DEFAULT_TEMP
 function renderTemplates() {
   activeHoverPreviewStop?.();
   activeHoverPreviewStop = null;
+  resetPlayfluxGalleryObservers();
   applyRouteCharacterDetail({ allowTabSwitch: true });
   renderGalleryModeTabs();
   if (state.tab === "characters") {
@@ -436,18 +443,95 @@ function playfluxTemplatesForActiveTab() {
 function renderPlayfluxTemplateGallery() {
   if (!els.templateGrid) return;
   const templates = playfluxTemplatesForActiveTab();
+  const mobile = Boolean(window.matchMedia?.("(max-width: 720px)")?.matches);
+  const batchSize = mobile ? PLAYFLUX_MOBILE_BATCH_SIZE : Math.max(templates.length, 1);
+  const initialCount = mobile ? PLAYFLUX_MOBILE_INITIAL_COUNT : templates.length;
+  const renderToken = ++playfluxGalleryRenderToken;
+  let renderedCount = 0;
   els.templateGrid.className = "template-grid playflux-template-shell";
   els.templateGrid.innerHTML = `
     <section class="playflux-template-page">
-      <div class="playflux-card-grid">
-        ${templates.map(renderPlayfluxTemplateCard).join("")}
-      </div>
+      <div class="playflux-card-grid" data-playflux-card-grid></div>
+      <div class="playflux-load-sentinel" data-playflux-load-sentinel aria-hidden="true"></div>
     </section>
   `;
-  els.templateGrid.querySelectorAll("[data-playflux-template]").forEach((button) => {
+  const grid = els.templateGrid.querySelector("[data-playflux-card-grid]");
+  const sentinel = els.templateGrid.querySelector("[data-playflux-load-sentinel]");
+  const appendBatch = (count = batchSize) => {
+    if (!grid || renderToken !== playfluxGalleryRenderToken) return;
+    const next = templates.slice(renderedCount, renderedCount + count);
+    if (!next.length) {
+      sentinel?.remove();
+      playfluxGalleryBatchObserver?.disconnect();
+      playfluxGalleryBatchObserver = null;
+      return;
+    }
+    grid.insertAdjacentHTML("beforeend", next.map(renderPlayfluxTemplateCard).join(""));
+    renderedCount += next.length;
+    bindPlayfluxTemplateCards(grid);
+    observePlayfluxTemplateMedia(grid);
+    refreshIcons();
+    if (renderedCount >= templates.length) {
+      sentinel?.remove();
+      playfluxGalleryBatchObserver?.disconnect();
+      playfluxGalleryBatchObserver = null;
+    }
+  };
+  appendBatch(initialCount);
+  if (mobile && renderedCount < templates.length && sentinel && "IntersectionObserver" in window) {
+    playfluxGalleryBatchObserver = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) appendBatch();
+    }, { rootMargin: "120px 0px" });
+    playfluxGalleryBatchObserver.observe(sentinel);
+  } else if (renderedCount < templates.length) {
+    appendBatch(templates.length - renderedCount);
+  }
+}
+
+function resetPlayfluxGalleryObservers() {
+  playfluxGalleryRenderToken += 1;
+  playfluxGalleryBatchObserver?.disconnect();
+  playfluxGalleryMediaObserver?.disconnect();
+  playfluxGalleryBatchObserver = null;
+  playfluxGalleryMediaObserver = null;
+}
+
+function bindPlayfluxTemplateCards(root) {
+  root?.querySelectorAll("[data-playflux-template]:not([data-playflux-bound])").forEach((button) => {
+    button.dataset.playfluxBound = "1";
     button.addEventListener("click", () => openPlayfluxTemplateDialog(button.dataset.playfluxTemplate || ""));
   });
-  refreshIcons();
+}
+
+function loadPlayfluxTemplateVideo(video) {
+  if (!video || !video.dataset.src) return;
+  if (!video.src) {
+    video.src = video.dataset.src;
+    video.load();
+  }
+  video.play().catch(() => {});
+}
+
+function observePlayfluxTemplateMedia(root) {
+  const videos = Array.from(root?.querySelectorAll("video[data-src]:not([data-playflux-observed])") || []);
+  if (!videos.length) return;
+  if (!("IntersectionObserver" in window)) {
+    videos.forEach(loadPlayfluxTemplateVideo);
+    return;
+  }
+  if (!playfluxGalleryMediaObserver) {
+    playfluxGalleryMediaObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const video = entry.target;
+        if (entry.isIntersecting) loadPlayfluxTemplateVideo(video);
+        else video.pause();
+      });
+    }, { rootMargin: "180px 0px", threshold: 0.01 });
+  }
+  videos.forEach((video) => {
+    video.dataset.playfluxObserved = "1";
+    playfluxGalleryMediaObserver.observe(video);
+  });
 }
 
 function renderPlayfluxTemplateCard(template = {}) {
@@ -457,7 +541,7 @@ function renderPlayfluxTemplateCard(template = {}) {
     <button class="playflux-template-card" type="button" data-playflux-template="${escapeHtml(template.id || "")}">
       <span class="playflux-template-media">
         ${isVideo
-          ? `<video src="${escapeHtml(template.previewUrl || "")}" ${template.posterUrl ? `poster="${escapeHtml(template.posterUrl)}"` : ""} muted loop autoplay playsinline preload="metadata"></video>`
+          ? `<video data-src="${escapeHtml(template.previewUrl || "")}" ${template.posterUrl ? `poster="${escapeHtml(template.posterUrl)}"` : ""} muted loop playsinline preload="none"></video>`
           : `<img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(title)}" loading="lazy" />`}
         <span class="playflux-template-shade"></span>
         ${template.badge ? `<small class="playflux-template-badge">${escapeHtml(template.badge)}</small>` : ""}
@@ -3823,7 +3907,62 @@ function topupPackages() {
     .filter((item) => item.id && item.amount > 0 && item.credits > 0);
 }
 
+function billingEnabled() {
+  return Boolean(state.billing?.enabled && tenantFeature("subscriptions", false));
+}
+
+function billingPlans() {
+  return billingEnabled() && Array.isArray(state.billing?.plans) ? state.billing.plans : [];
+}
+
+function selectedBillingPlan() {
+  const plans = billingPlans();
+  if (!plans.length) return null;
+  return plans.find((item) => item.id === state.selectedBillingPlanId) || null;
+}
+
+function selectBillingPlan(planId = "") {
+  const plan = billingPlans().find((item) => item.id === planId) || billingPlans()[0];
+  if (!plan) return;
+  state.selectedBillingPlanId = plan.id;
+  state.selectedTopupPackageId = "";
+  setTopupMethod("usdt", { skipSummary: true });
+  setTopupStep("payment");
+}
+
+function billingPeriodLabel(plan = {}) {
+  const count = Math.max(1, Number(plan.intervalCount || 1) || 1);
+  const unit = String(plan.intervalUnit || "month").toLowerCase();
+  if (count === 1) return unit === "year" ? "year" : unit === "day" ? "day" : "month";
+  return `${count} ${unit}s`;
+}
+
+function renderToolSubscription() {
+  if (!els.toolSubscriptionPanel) return;
+  const plan = billingPlans()[0] || null;
+  const visible = Boolean(plan);
+  els.toolSubscriptionPanel.hidden = !visible;
+  if (els.toolTopupLabel) els.toolTopupLabel.hidden = !visible;
+  if (!plan) return;
+  const subscription = state.billing?.subscription || null;
+  const active = subscription?.status === "active" && (!subscription.currentPeriodEnd || Date.parse(subscription.currentPeriodEnd) > Date.now());
+  if (els.toolSubscriptionName) els.toolSubscriptionName.textContent = plan.name || "Pro";
+  if (els.toolSubscriptionPrice) els.toolSubscriptionPrice.textContent = `$${formatCredits(plan.amount)} / ${billingPeriodLabel(plan)}`;
+  if (els.toolSubscriptionCredits) els.toolSubscriptionCredits.textContent = `${formatCredits(plan.includedCredits)} ${t("common.credits")}`;
+  if (els.toolSubscriptionBtn) {
+    els.toolSubscriptionBtn.textContent = active ? "Renew" : "Subscribe";
+    els.toolSubscriptionBtn.onclick = () => selectBillingPlan(plan.id);
+  }
+  if (els.toolSubscriptionStatus) {
+    const end = active && subscription.currentPeriodEnd
+      ? new Date(subscription.currentPeriodEnd).toLocaleDateString(state.lang || undefined)
+      : "";
+    els.toolSubscriptionStatus.textContent = active ? `Active until ${end}` : "";
+  }
+}
+
 function selectedTopupPackage() {
+  if (state.selectedBillingPlanId) return null;
   const packages = topupPackages();
   if (!packages.length) return null;
   return packages.find((item) => item.id === state.selectedTopupPackageId) || packages[0];
@@ -3843,6 +3982,7 @@ function selectTopupPackage(packageId = "") {
   const packages = topupPackages();
   const selected = packages.find((item) => item.id === packageId) || packages[0];
   if (!selected) return;
+  state.selectedBillingPlanId = "";
   state.selectedTopupPackageId = selected.id;
   setTopupMethod("usdt", { skipSummary: true });
   setTopupStep("payment");
@@ -4002,7 +4142,7 @@ function copyTopupAddress(address = "") {
 function renderTopupPackages() {
   if (!els.topupPackageGrid) return;
   const packages = topupPackages();
-  if (!state.selectedTopupPackageId && packages[0]) state.selectedTopupPackageId = packages[0].id;
+  if (!state.selectedTopupPackageId && !state.selectedBillingPlanId && packages[0]) state.selectedTopupPackageId = packages[0].id;
   els.topupPackageGrid.innerHTML = packages.map((item) => {
     const active = item.id === state.selectedTopupPackageId;
     return `
@@ -4020,16 +4160,20 @@ function renderTopupPackages() {
 
 function renderTopupSummary() {
   if (!els.topupPanel) return;
+  renderToolSubscription();
   renderTopupPackages();
+  const selectedPlan = selectedBillingPlan();
   const selectedPackage = selectedTopupPackage();
-  const amount = selectedPackage?.amount || DEFAULT_TOPUP_AMOUNT;
-  const credits = selectedPackage?.credits || walletCreditsForAmount(amount);
+  const amount = selectedPlan?.amount || selectedPackage?.amount || DEFAULT_TOPUP_AMOUNT;
+  const credits = selectedPlan?.includedCredits || selectedPackage?.credits || walletCreditsForAmount(amount);
   const asset = state.wallet?.asset || "USDT";
   const selected = ensureSelectedWalletOption();
   const network = selected?.network || state.wallet?.network || "TRC20";
   if (els.topupCredits) els.topupCredits.textContent = t("cost.credits", { credits });
   if (els.topupSelectedPackage) {
-    els.topupSelectedPackage.textContent = selectedPackage
+    els.topupSelectedPackage.textContent = selectedPlan
+      ? `${selectedPlan.name || "Pro"} / $${formatCredits(selectedPlan.amount)} / ${formatCredits(selectedPlan.includedCredits)} ${t("common.credits")}`
+      : selectedPackage
       ? `$${formatCredits(selectedPackage.amount)} / ${formatCredits(selectedPackage.credits)} ${t("common.credits")}`
       : "";
   }
@@ -4283,18 +4427,22 @@ async function payTopupWithTronLink(order = {}) {
 
 async function createTopupOrder() {
   if (!state.user) return openLogin();
+  const billingPlan = selectedBillingPlan();
   const topupPackage = selectedTopupPackage();
-  const amount = Number(topupPackage?.amount || 0);
-  if (!topupPackage || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
+  const amount = Number(billingPlan?.amount || topupPackage?.amount || 0);
+  if ((!billingPlan && !topupPackage) || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
     if (els.topupRate) els.topupRate.textContent = t("topup.invalid");
     return;
   }
   els.createTopupBtn.disabled = true;
   if (els.topupRate) els.topupRate.textContent = t("topup.creating");
   try {
-    const payload = await requestJson("/api/pay/orders", {
+    const endpoint = billingPlan ? "/api/billing/subscription/orders" : "/api/pay/orders";
+    const payload = await requestJson(endpoint, {
       method: "POST",
-      body: { amount, packageId: topupPackage.id, walletOptionId: selectedWalletOption()?.id || "" },
+      body: billingPlan
+        ? { planId: billingPlan.id, walletOptionId: selectedWalletOption()?.id || "" }
+        : { amount, packageId: topupPackage.id, walletOptionId: selectedWalletOption()?.id || "" },
     });
     renderTopupOrder(payload.order);
     if (els.topupRate) els.topupRate.textContent = t("topup.created");

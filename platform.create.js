@@ -4256,6 +4256,9 @@ async function refreshTopupsQuietly() {
       totalPages: payload.totalPages || 1,
     };
     if (state.tab === "topups") renderTopupRecords();
+    if (tenantFeature("subscriptions", false) && state.activeTopupOrder?.orderKind === "subscription") {
+      await loadBillingSummary();
+    }
     refreshIcons();
   } catch {
     // Keep the current table visible; the next interval can recover.
@@ -4401,6 +4404,7 @@ async function submitLogin() {
     if (state.tab === "spending") loadSpendingRecords(1);
     if (state.tab === "assets") loadUserAssets();
     if (state.tab === "referral") loadReferralSummary();
+    if (tenantFeature("subscriptions", false)) loadBillingSummary();
   } catch (error) {
     els.loginMessage.textContent = error.message;
   }
@@ -4415,6 +4419,18 @@ async function loadMe() {
     state.token = "";
     localStorage.removeItem(TOKEN_KEY);
     setUser(null);
+  }
+}
+
+async function loadBillingSummary() {
+  if (!state.user || !tenantFeature("subscriptions", false)) return;
+  try {
+    const payload = await requestJson("/api/billing/summary");
+    state.billing = payload.billing || state.billing;
+    if (payload.user) setUser(payload.user);
+    renderTopupSummary();
+  } catch (error) {
+    console.warn("billing summary failed", error.message || error);
   }
 }
 
@@ -4450,6 +4466,7 @@ async function bootstrap() {
   initGoogleAnalytics(platform.analytics?.googleMeasurementId || platform.googleMeasurementId || "");
   state.config = payload.config;
   state.wallet = payload.config?.wallet || null;
+  state.billing = payload.config?.billing || null;
   ensureSelectedWalletOption();
   state.templates = platform.templates || [];
   state.playfluxTemplates = Array.isArray(payload.config?.playfluxTemplates) ? payload.config.playfluxTemplates : [];

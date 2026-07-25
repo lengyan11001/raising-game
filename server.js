@@ -25,6 +25,10 @@ const {
   getSessionByTokenInDb,
   getWalletOrderByIdInDb,
   getWalletOrderByPaypalIdInDb,
+  listBillingPlansInDb,
+  getBillingPlanInDb,
+  getUserSubscriptionInDb,
+  upsertUserSubscriptionInDb,
   updateWalletOrderInDb,
   updateUserInDb,
   upsertUserAssetInDb,
@@ -1628,6 +1632,75 @@ function publicTenantFeatures(tenant = {}) {
     accountMenu: tenant.accountMenu !== false,
     subscriptions: Boolean(tenant.subscriptions),
   };
+}
+
+function publicBillingPlan(plan = {}) {
+  return {
+    id: String(plan.id || ""),
+    name: String(plan.name || "Pro"),
+    currency: String(plan.currency || "USD").toUpperCase(),
+    amount: creditsAmount(plan.amount || 0),
+    intervalUnit: String(plan.intervalUnit || "month"),
+    intervalCount: Math.max(1, Math.trunc(Number(plan.intervalCount || 1) || 1)),
+    includedCredits: creditsAmount(plan.includedCredits || 0),
+  };
+}
+
+function publicBillingSubscription(subscription = null, plan = null) {
+  if (!subscription) return null;
+  const periodEnd = String(subscription.currentPeriodEnd || "");
+  const expired = periodEnd && Date.parse(periodEnd) <= Date.now();
+  return {
+    id: String(subscription.id || ""),
+    planId: String(subscription.planId || ""),
+    planName: String(plan?.name || subscription.planName || "Pro"),
+    status: expired ? "expired" : String(subscription.status || "active"),
+    currentPeriodStart: String(subscription.currentPeriodStart || ""),
+    currentPeriodEnd: periodEnd,
+    cancelAtPeriodEnd: Boolean(subscription.cancelAtPeriodEnd),
+  };
+}
+
+function toolTopupPackagesForPlan(plan = null) {
+  const creditsPerUsd = Math.max(1, Number(plan?.topupCreditsPerUsd || DEFAULT_CREDITS_PER_USD) || DEFAULT_CREDITS_PER_USD);
+  const amounts = Array.isArray(plan?.topupQuickAmounts) && plan.topupQuickAmounts.length
+    ? plan.topupQuickAmounts
+    : [10, 20, 50];
+  return amounts
+    .map((value) => Math.max(1, Math.round(Number(value || 0))))
+    .filter((value, index, list) => value > 0 && list.indexOf(value) === index)
+    .slice(0, 6)
+    .map((amount) => ({
+      id: `tool-usd-${amount}`,
+      amount,
+      credits: creditsAmount(amount * creditsPerUsd),
+      currency: "USD",
+    }));
+}
+
+async function billingViewForRequest(req, auth = null) {
+  const tenant = requestTenantDescriptor(req);
+  if (!tenant.subscriptions) return { enabled: false, plans: [], subscription: null };
+  const plans = await listBillingPlansInDb(tenant.tenantId);
+  const primaryPlan = plans[0] || null;
+  const subscription = auth?.user
+    ? await getUserSubscriptionInDb(auth.user.id, tenant.tenantId)
+    : null;
+  return {
+    enabled: true,
+    tenantId: tenant.tenantId,
+    plans: plans.map(publicBillingPlan),
+    subscription: publicBillingSubscription(subscription, plans.find((plan) => plan.id === subscription?.planId) || primaryPlan),
+    topupPackages: toolTopupPackagesForPlan(primaryPlan),
+    recurringPaymentReady: false,
+  };
+}
+
+async function attachBillingViewToPublicConfig(view = {}, req, auth = null) {
+  const billing = await billingViewForRequest(req, auth);
+  view.billing = billing;
+  if (billing.enabled && view.wallet) view.wallet.topupPackages = billing.topupPackages;
+  return view;
 }
 
 function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
@@ -7373,8 +7446,21 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
       });
     }
   }
-  const user = await changeUserCredits(db, order.userId, creditDelta, "wallet_topup", {
+  const subscriptionPlan = order.orderKind === "subscription"
+    ? (await getBillingPlanInDb(order.tenantId || DEFAULT_TENANT_ID, order.billingPlanId || "") || {
+        id: order.billingPlanId || "",
+        name: order.billingPlanName || "Pro",
+        intervalUnit: order.billingIntervalUnit || "month",
+        intervalCount: order.billingIntervalCount || 1,
+        includedCredits: order.creditAmount || 0,
+      })
+    : null;
+  const creditType = order.orderKind === "subscription" ? "subscription_credit_grant" : "wallet_topup";
+  const user = await changeUserCredits(db, order.userId, creditDelta, creditType, {
     orderId: order.id,
+    tenantId: order.tenantId || DEFAULT_TENANT_ID,
+    orderKind: order.orderKind || "topup",
+    billingPlanId: order.billingPlanId || "",
     amount: order.baseAmount,
     asset: order.asset,
     network: order.network,
@@ -7384,6 +7470,7 @@ async function settleWalletOrderPayment(db, order, config, meta = {}) {
     transactionHash: order.transactionHash || "",
     chain: order.chain || order.network || "",
   });
+  if (subscriptionPlan) await activatePaidSubscription(db, order, subscriptionPlan);
   order.status = "paid";
   order.paidAt = order.paidAt || now;
   order.updatedAt = now;
@@ -20973,19 +21060,135 @@ async function handleRevokeApiSubtoken(req, res, tokenId) {
   return sendJson(res, 200, { ok: true, subtoken: apiSubtokenView(revoked) });
 }
 
+async function toolTopupPackageForRequest(req, input = {}) {
+  const tenant = requestTenantDescriptor(req);
+  if (!tenant.subscriptions) return null;
+  const plan = await getBillingPlanInDb(tenant.tenantId);
+  const packages = toolTopupPackagesForPlan(plan);
+  const packageId = String(input.packageId || input.package_id || "").trim();
+  const amount = normalizeTopupAmount(input.amount);
+  return packages.find((item) => item.id === packageId)
+    || packages.find((item) => normalizeTopupAmount(item.amount) === amount)
+    || null;
+}
+
+function addBillingInterval(value, unit = "month", count = 1) {
+  const date = new Date(value || Date.now());
+  const amount = Math.max(1, Math.trunc(Number(count || 1) || 1));
+  if (unit === "year") date.setUTCFullYear(date.getUTCFullYear() + amount);
+  else if (unit === "day") date.setUTCDate(date.getUTCDate() + amount);
+  else date.setUTCMonth(date.getUTCMonth() + amount);
+  return date.toISOString();
+}
+
+async function activatePaidSubscription(db, order, plan) {
+  const tenantId = normalizeTenantId(order.tenantId || DEFAULT_TENANT_ID);
+  const existing = await getUserSubscriptionInDb(order.userId, tenantId);
+  if (existing?.lastOrderId === order.id) return existing;
+  const now = new Date().toISOString();
+  const existingEnd = Date.parse(existing?.currentPeriodEnd || "");
+  const activeExisting = Number.isFinite(existingEnd) && existingEnd > Date.now();
+  const periodBase = activeExisting ? existing.currentPeriodEnd : now;
+  const subscription = await upsertUserSubscriptionInDb({
+    ...existing,
+    id: existing?.id || randomId("sub"),
+    tenantId,
+    userId: order.userId,
+    planId: plan.id,
+    planName: plan.name,
+    status: "active",
+    currentPeriodStart: activeExisting ? existing.currentPeriodStart : now,
+    currentPeriodEnd: addBillingInterval(periodBase, plan.intervalUnit, plan.intervalCount),
+    cancelAtPeriodEnd: false,
+    provider: order.paymentProvider || "manual",
+    lastOrderId: order.id,
+    renewalCount: Math.max(0, Number(existing?.renewalCount || 0)) + 1,
+    includedCredits: creditsAmount(plan.includedCredits || 0),
+    updatedAt: now,
+    createdAt: existing?.createdAt || now,
+  });
+  order.subscriptionId = subscription?.id || existing?.id || "";
+  order.subscriptionPeriodEnd = subscription?.currentPeriodEnd || "";
+  return subscription;
+}
+
+async function handleBillingSummary(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const billing = await billingViewForRequest(req, auth);
+  if (!billing.enabled) return sendJson(res, 404, { ok: false, code: "SUBSCRIPTIONS_DISABLED", message: "Subscriptions are not enabled for this site." });
+  return sendJson(res, 200, { ok: true, billing, user: userView(auth.user) });
+}
+
+async function handleCreateSubscriptionOrder(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const tenant = requestTenantDescriptor(req);
+  if (!tenant.subscriptions) return sendJson(res, 404, { ok: false, code: "SUBSCRIPTIONS_DISABLED", message: "Subscriptions are not enabled for this site." });
+  const body = await readJson(req);
+  const plan = await getBillingPlanInDb(tenant.tenantId, body.planId || body.plan_id);
+  if (!plan) return sendJson(res, 404, { ok: false, code: "BILLING_PLAN_NOT_FOUND", message: "Subscription plan not found." });
+  const config = await readAppConfig();
+  const walletOption = findWalletOption(config.wallet || {}, body.walletOptionId || body.walletNetwork || body.network, requestTenantOptions(req));
+  if (!walletOption?.address) return sendJson(res, 503, { ok: false, code: "WALLET_NOT_CONFIGURED", message: "USDT payment is not configured." });
+  const suffixDigits = clampNumber(config.wallet.suffixDigits, 6, 3, 6);
+  const payment = makeUniquePaymentAmount(plan.amount, suffixDigits);
+  let order = {
+    id: randomId("order"),
+    tenantId: tenant.tenantId,
+    userId: auth.user.id,
+    orderKind: "subscription",
+    billingPlanId: plan.id,
+    billingPlanName: plan.name,
+    billingIntervalUnit: plan.intervalUnit,
+    billingIntervalCount: plan.intervalCount,
+    baseAmount: plan.amount,
+    creditAmount: creditsAmount(plan.includedCredits),
+    packageCredits: creditsAmount(plan.includedCredits),
+    creditsPerUsd: walletCreditsPerUsd(config.wallet),
+    cnyCentsPerUsdt: walletCnyCentsPerUsdt(config.wallet),
+    suffix: payment.suffix,
+    payableAmount: payment.payableAmount,
+    payableAmountText: payment.payableAmountText,
+    asset: walletOption.asset || config.wallet.asset,
+    network: walletOption.network,
+    chain: normalizeWalletChain(walletOption.network),
+    walletOptionId: walletOption.id,
+    address: walletOption.address,
+    qrUrl: walletOption.qrUrl,
+    explorerUrl: walletOption.explorerUrl || "",
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  };
+  auth.db.walletOrders.unshift(order);
+  if (dbEnabled()) {
+    order = await createManualWalletOrderInDb({ order, suffixDigits });
+    auth.db.walletOrders[0] = order;
+  } else {
+    return sendJson(res, 503, { ok: false, code: "DATABASE_REQUIRED", message: "Subscriptions require database billing." });
+  }
+  return sendJson(res, 200, { ok: true, order });
+}
+
 async function handleCreatePaymentOrder(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
 
   const body = await readJson(req);
   const config = await readAppConfig();
-  const topupPackage = findTopupPackage(body);
+  const tenant = requestTenantDescriptor(req);
+  const availablePackages = tenant.subscriptions
+    ? toolTopupPackagesForPlan(await getBillingPlanInDb(tenant.tenantId))
+    : publicTopupPackages();
+  const topupPackage = tenant.subscriptions
+    ? await toolTopupPackageForRequest(req, body)
+    : findTopupPackage(body);
   if (!topupPackage) {
     return sendJson(res, 400, {
       ok: false,
       code: "INVALID_TOPUP_PACKAGE",
       message: "Please select one of the available top-up packages.",
-      packages: publicTopupPackages(),
+      packages: availablePackages,
     });
   }
   const walletOption = findWalletOption(config.wallet || {}, body.walletOptionId || body.walletNetwork || body.network, requestTenantOptions(req));
@@ -21004,7 +21207,9 @@ async function handleCreatePaymentOrder(req, res) {
   }
   let order = {
     id: randomId("order"),
+    tenantId: tenant.tenantId,
     userId: auth.user.id,
+    orderKind: "topup",
     baseAmount,
     creditAmount,
     packageId: topupPackage.id,
@@ -21481,6 +21686,10 @@ function publicTopupOrder(order = {}, wallet = {}, options = {}) {
   const walletOption = findWalletOption(wallet, order.walletOptionId || order.network, options);
   return {
     id: order.id || "",
+    tenantId: order.tenantId || DEFAULT_TENANT_ID,
+    orderKind: order.orderKind || "topup",
+    billingPlanId: order.billingPlanId || "",
+    billingPlanName: order.billingPlanName || "",
     paymentProvider,
     amount: order.baseAmount ?? "",
     creditAmount: creditsAmount(creditAmount),
@@ -21704,7 +21913,11 @@ async function handleGameFeed(req, res) {
   config = await ensureSceneEntriesPersisted(config);
   config = await refreshCompletedHomeVideoItems(config);
   const auth = await getAuth(req);
-  const publicView = publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, requestTenantOptions(req));
+  const publicView = await attachBillingViewToPublicConfig(
+    publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, requestTenantOptions(req)),
+    req,
+    auth?.user ? auth : null,
+  );
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const items = publicAssetUrlsForClient(homeVideo.items.map((item) => publicGameHomeVideoItem(item, auth?.user ? auth : null)));
   publicView.homeVideo.items = items;
@@ -28213,7 +28426,12 @@ async function handleRequest(req, res) {
       config = await ensureSceneEntriesPersisted(config);
       config = await refreshCompletedHomeVideoItems(config);
       const auth = await getAuth(req);
-      return sendJson(res, 200, { ok: true, config: publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, requestTenantOptions(req)) });
+      const publicView = await attachBillingViewToPublicConfig(
+        publicConfig(config, publicOriginFromRequest(req), auth?.user ? auth : null, requestTenantOptions(req)),
+        req,
+        auth?.user ? auth : null,
+      );
+      return sendJson(res, 200, { ok: true, config: publicView });
     }
 
     if (req.method === "GET" && url.pathname === "/api/public/characters") {
@@ -28340,6 +28558,14 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/pay/paypal/webhook") {
       return await handlePayPalWebhook(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/billing/summary") {
+      return await handleBillingSummary(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/billing/subscription/orders") {
+      return await handleCreateSubscriptionOrder(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/pay/orders") {

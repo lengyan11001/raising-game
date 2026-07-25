@@ -550,6 +550,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   state.user = user || null;
   const nextMultiplier = Number(state.user?.pricingMultiplier || 1);
   if ((state.user?.id || "") !== previousUserId) {
+    if (state.billing) state.billing = { ...state.billing, subscription: null };
     state.galleryUnlocks = [];
     state.galleryUnlocksLoaded = false;
     state.galleryUnlockMessage = "";
