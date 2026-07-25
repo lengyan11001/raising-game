@@ -572,6 +572,7 @@ els.topupBackBtn?.addEventListener("click", handleTopupBack);
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
 function openTopupDialog() {
   closeAccountMenu();
+  state.selectedBillingPlanId = "";
   setTopupStep("packages");
   setTopupMethod("usdt");
   renderTopupSummary();

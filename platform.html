@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-303-mobile-topup" />
+    <link rel="stylesheet" href="./platform.css?v=ai-306-tool-billing-lazy" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -602,6 +602,18 @@
               </div>
             </div>
             <div class="topup-stage topup-package-stage" id="topupPackageStage">
+              <section class="tool-subscription-panel" id="toolSubscriptionPanel" hidden>
+                <div class="tool-subscription-card">
+                  <div class="tool-subscription-copy">
+                    <span id="toolSubscriptionName">Pro</span>
+                    <strong id="toolSubscriptionPrice">$20 / month</strong>
+                    <small id="toolSubscriptionCredits">2,200 credits</small>
+                  </div>
+                  <button class="copy-btn tool-subscription-action" id="toolSubscriptionBtn" type="button">Subscribe</button>
+                </div>
+                <p class="tool-subscription-status" id="toolSubscriptionStatus"></p>
+              </section>
+              <div class="tool-topup-label" id="toolTopupLabel" hidden>Credits</div>
               <div class="topup-package-grid" id="topupPackageGrid"></div>
             </div>
             <div class="topup-stage topup-payment-stage" id="topupPaymentStage" hidden>
@@ -817,6 +829,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-301-i18n-topup"></script>
+    <script src="./platform.js?v=ai-306-tool-billing-lazy"></script>
   </body>
 </html>

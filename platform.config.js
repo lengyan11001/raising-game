@@ -116,6 +116,11 @@ const DEFAULT_TOPUP_PACKAGES = [
   { id: "usd-500", amount: 500, credits: 65000, currency: "USD" },
   { id: "usd-1000", amount: 1000, credits: 140000, currency: "USD" },
 ];
+const DEFAULT_TOOL_TOPUP_PACKAGES = [
+  { id: "tool-usd-10", amount: 10, credits: 1000, currency: "USD" },
+  { id: "tool-usd-20", amount: 20, credits: 2000, currency: "USD" },
+  { id: "tool-usd-50", amount: 50, credits: 5000, currency: "USD" },
+];
 const TOPUP_RECORDS_AUTO_REFRESH_MS = 15000;
 const TRON_USDT_CONTRACT = "TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj";
 const DEFAULT_PLATFORM_TAB = "gallery";
@@ -732,6 +737,8 @@ const state = {
   topupStep: "packages",
   topupPayStep: "transfer",
   selectedTopupPackageId: "",
+  selectedBillingPlanId: "",
+  billing: null,
   activeTopupOrder: null,
   paypalConfig: null,
   token: localStorage.getItem(TOKEN_KEY) || "",
@@ -997,6 +1004,13 @@ const els = {
   topupBackBtn: document.querySelector("#topupBackBtn"),
   topupPackageStage: document.querySelector("#topupPackageStage"),
   topupPackageGrid: document.querySelector("#topupPackageGrid"),
+  toolSubscriptionPanel: document.querySelector("#toolSubscriptionPanel"),
+  toolSubscriptionName: document.querySelector("#toolSubscriptionName"),
+  toolSubscriptionPrice: document.querySelector("#toolSubscriptionPrice"),
+  toolSubscriptionCredits: document.querySelector("#toolSubscriptionCredits"),
+  toolSubscriptionBtn: document.querySelector("#toolSubscriptionBtn"),
+  toolSubscriptionStatus: document.querySelector("#toolSubscriptionStatus"),
+  toolTopupLabel: document.querySelector("#toolTopupLabel"),
   topupPaymentStage: document.querySelector("#topupPaymentStage"),
   topupSelectedPackage: document.querySelector("#topupSelectedPackage"),
   topupCredits: document.querySelector("#topupCredits"),
