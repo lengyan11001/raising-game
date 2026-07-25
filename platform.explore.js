@@ -2,6 +2,7 @@ let googleAnalyticsMeasurementId = "";
 let playfluxGalleryRenderToken = 0;
 let playfluxGalleryBatchObserver = null;
 let playfluxGalleryMediaObserver = null;
+let playfluxGalleryScrollHandler = null;
 
 const PLAYFLUX_MOBILE_INITIAL_COUNT = 6;
 const PLAYFLUX_MOBILE_BATCH_SIZE = 6;
@@ -464,6 +465,8 @@ function renderPlayfluxTemplateGallery() {
       sentinel?.remove();
       playfluxGalleryBatchObserver?.disconnect();
       playfluxGalleryBatchObserver = null;
+      if (playfluxGalleryScrollHandler) window.removeEventListener("scroll", playfluxGalleryScrollHandler);
+      playfluxGalleryScrollHandler = null;
       return;
     }
     grid.insertAdjacentHTML("beforeend", next.map(renderPlayfluxTemplateCard).join(""));
@@ -475,14 +478,23 @@ function renderPlayfluxTemplateGallery() {
       sentinel?.remove();
       playfluxGalleryBatchObserver?.disconnect();
       playfluxGalleryBatchObserver = null;
+      if (playfluxGalleryScrollHandler) window.removeEventListener("scroll", playfluxGalleryScrollHandler);
+      playfluxGalleryScrollHandler = null;
     }
   };
   appendBatch(initialCount);
-  if (mobile && renderedCount < templates.length && sentinel && "IntersectionObserver" in window) {
-    playfluxGalleryBatchObserver = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) appendBatch();
-    }, { rootMargin: "120px 0px" });
-    playfluxGalleryBatchObserver.observe(sentinel);
+  if (mobile && renderedCount < templates.length && sentinel) {
+    let scheduled = false;
+    playfluxGalleryScrollHandler = () => {
+      if (scheduled || renderToken !== playfluxGalleryRenderToken) return;
+      scheduled = true;
+      window.requestAnimationFrame(() => {
+        scheduled = false;
+        if (!sentinel.isConnected || window.scrollY <= 0) return;
+        if (sentinel.getBoundingClientRect().top <= window.innerHeight + 160) appendBatch();
+      });
+    };
+    window.addEventListener("scroll", playfluxGalleryScrollHandler, { passive: true });
   } else if (renderedCount < templates.length) {
     appendBatch(templates.length - renderedCount);
   }
@@ -492,8 +504,10 @@ function resetPlayfluxGalleryObservers() {
   playfluxGalleryRenderToken += 1;
   playfluxGalleryBatchObserver?.disconnect();
   playfluxGalleryMediaObserver?.disconnect();
+  if (playfluxGalleryScrollHandler) window.removeEventListener("scroll", playfluxGalleryScrollHandler);
   playfluxGalleryBatchObserver = null;
   playfluxGalleryMediaObserver = null;
+  playfluxGalleryScrollHandler = null;
 }
 
 function bindPlayfluxTemplateCards(root) {
