@@ -8,6 +8,13 @@ const { execFile } = require("node:child_process");
 const { Readable } = require("node:stream");
 const { URL } = require("node:url");
 const {
+  CAPABILITIES: ALIYUN_VIDEO_CAPABILITIES,
+  OFFICIAL_SINGAPORE_CNY_PER_SECOND: ALIYUN_VIDEO_OFFICIAL_PRICING,
+  buildAliyunVideoRequest,
+  normalizeCapability: normalizeAliyunVideoCapability,
+  officialSingaporePurchaseRate,
+} = require("./aliyun-video");
+const {
   DEFAULT_TENANT_ID,
   normalizeTenantId,
   dbEnabled,
@@ -108,7 +115,7 @@ const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
   advanced: "advanced",
   tool: "advanced",
 });
-const TOOL_VIDEO_PROVIDER = ["wan27", "seedance"].includes(String(process.env.TOOL_VIDEO_PROVIDER || "").trim().toLowerCase())
+const TOOL_VIDEO_PROVIDER = ["wan27", "happyhorse", "seedance"].includes(String(process.env.TOOL_VIDEO_PROVIDER || "").trim().toLowerCase())
   ? String(process.env.TOOL_VIDEO_PROVIDER).trim().toLowerCase()
   : "wan27";
 const TOOL_TENANT_SPECS = Object.freeze({
@@ -394,6 +401,37 @@ const DEFAULT_ADVANCED_PRICING = {
     "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
   },
+  aliyunVideoCreditsPerSecondByCapability: {
+    "wan27-t2v": { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
+    "wan27-i2v": { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
+    "wan27-r2v": { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
+    "wan27-video-edit": { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
+    "wan-legacy": { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
+    "wan-animate-move": {
+      "wan-std": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["wan-animate-move"]?.["wan-std"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
+      "wan-pro": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["wan-animate-move"]?.["wan-pro"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+    },
+    "wan-animate-mix": {
+      "wan-std": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["wan-animate-mix"]?.["wan-std"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
+      "wan-pro": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["wan-animate-mix"]?.["wan-pro"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+    },
+    "happyhorse-t2v": {
+      "720p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-t2v"]?.["720P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
+      "1080p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-t2v"]?.["1080P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+    },
+    "happyhorse-i2v": {
+      "720p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-i2v"]?.["720P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
+      "1080p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-i2v"]?.["1080P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+    },
+    "happyhorse-r2v": {
+      "720p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-r2v"]?.["720P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
+      "1080p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-r2v"]?.["1080P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+    },
+    "happyhorse-video-edit": {
+      "720p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-video-edit"]?.["720P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
+      "1080p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-video-edit"]?.["1080P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+    },
+  },
   wan27ImagePro: {
     model: WAN27_IMAGE_PRO_MODEL,
     purchaseCnyPerImage: WAN27_IMAGE_PRO_PURCHASE_CNY,
@@ -443,6 +481,14 @@ const ALIYUN_DASHSCOPE_API_KEY =
 const ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER = process.env.ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ||
   '{"input":"disable", "output":"disable"}';
 const ALIYUN_WAN27_MODEL = process.env.ALIYUN_WAN27_MODEL || "wan2.7-i2v-2026-04-25";
+const ALIYUN_WAN27_T2V_MODEL = process.env.ALIYUN_WAN27_T2V_MODEL || "wan2.7-t2v-2026-06-12";
+const ALIYUN_WAN27_I2V_MODEL = process.env.ALIYUN_WAN27_I2V_MODEL || ALIYUN_WAN27_MODEL;
+const ALIYUN_WAN27_R2V_MODEL = process.env.ALIYUN_WAN27_R2V_MODEL || "wan2.7-r2v-2026-06-12";
+const ALIYUN_WAN27_VIDEO_EDIT_MODEL = process.env.ALIYUN_WAN27_VIDEO_EDIT_MODEL || "wan2.7-videoedit";
+const ALIYUN_HAPPYHORSE_T2V_MODEL = process.env.ALIYUN_HAPPYHORSE_T2V_MODEL || "happyhorse-1.1-t2v";
+const ALIYUN_HAPPYHORSE_I2V_MODEL = process.env.ALIYUN_HAPPYHORSE_I2V_MODEL || "happyhorse-1.1-i2v";
+const ALIYUN_HAPPYHORSE_R2V_MODEL = process.env.ALIYUN_HAPPYHORSE_R2V_MODEL || "happyhorse-1.1-r2v";
+const ALIYUN_HAPPYHORSE_VIDEO_EDIT_MODEL = process.env.ALIYUN_HAPPYHORSE_VIDEO_EDIT_MODEL || "happyhorse-1.0-video-edit";
 const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
   "auto_2K",
   "auto_3K",
@@ -1431,6 +1477,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const wan27 = source.wan27CreditsPerSecondByResolution && typeof source.wan27CreditsPerSecondByResolution === "object"
     ? source.wan27CreditsPerSecondByResolution
     : {};
+  const aliyunVideoSource = source.aliyunVideoCreditsPerSecondByCapability && typeof source.aliyunVideoCreditsPerSecondByCapability === "object"
+    ? source.aliyunVideoCreditsPerSecondByCapability
+    : {};
   const rawWan27ImageSource = source.wan27ImagePro && typeof source.wan27ImagePro === "object" && !Array.isArray(source.wan27ImagePro)
     ? source.wan27ImagePro
     : {};
@@ -1481,6 +1530,25 @@ function normalizeAdvancedPricing(pricing = {}) {
     "2K": pricingNumber(firstPresent(sourceMap["2K"], sourceMap["2k"]), fallbackMap["2K"] ?? SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6),
   });
   const normalizedSeedreamResolutions = ["1K", "2K"];
+  const normalizedWan27Rates = {
+    "720p": normalizeStoredCredits(wan27["720p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"]),
+    "1080p": normalizeStoredCredits(wan27["1080p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["1080p"]),
+  };
+  const aliyunVideoCreditsPerSecondByCapability = {};
+  for (const [capability, fallbackRates] of Object.entries(DEFAULT_ADVANCED_PRICING.aliyunVideoCreditsPerSecondByCapability || {})) {
+    const sourceRates = aliyunVideoSource[capability] && typeof aliyunVideoSource[capability] === "object"
+      ? aliyunVideoSource[capability]
+      : {};
+    const inheritsWan27Rates = capability.startsWith("wan27-") || capability === "wan-legacy";
+    aliyunVideoCreditsPerSecondByCapability[capability] = Object.fromEntries(
+      Object.keys(fallbackRates).map((rateKey) => {
+        const inheritedFallback = inheritsWan27Rates && normalizedWan27Rates[rateKey] !== undefined
+          ? normalizedWan27Rates[rateKey]
+          : fallbackRates[rateKey];
+        return [rateKey, normalizeStoredCredits(sourceRates[rateKey], inheritedFallback)];
+      }),
+    );
+  }
   return {
     unit: "credits",
     creditsPerCny,
@@ -1507,10 +1575,8 @@ function normalizeAdvancedPricing(pricing = {}) {
       "480p": normalizeStoredCredits(seedanceFastVideoInput["480p"], DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["480p"]),
       "720p": normalizeStoredCredits(seedanceFastVideoInput["720p"], DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["720p"]),
     },
-    wan27CreditsPerSecondByResolution: {
-      "720p": normalizeStoredCredits(wan27["720p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"]),
-      "1080p": normalizeStoredCredits(wan27["1080p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["1080p"]),
-    },
+    wan27CreditsPerSecondByResolution: normalizedWan27Rates,
+    aliyunVideoCreditsPerSecondByCapability,
     wan27ImagePro: {
       ...wan27ImageDefault,
       ...wan27ImageSource,
@@ -5224,6 +5290,7 @@ function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
   if (isSeedream5ImageProvider(value)) return "seedream5-image";
+  if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return "happyhorse";
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "wan27";
   if (["seedance", "vipeak2", "vp2"].includes(normalized) || normalized.includes("vipeak2")) return "seedance";
   return "seedance";
@@ -5239,6 +5306,7 @@ function publicProviderId(value = "") {
   const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "";
   if (isSeedream5ImageProvider(raw)) return "seedream5-image";
+  if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return "happyhorse";
   if (isWan27ImageProvider(raw) || ["vipeak1image", "vp1image"].includes(normalized) || normalized.includes("wan27image") || normalized.includes("wan2.7image")) return "vipeak1-image";
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "vipeak1";
   if (["seedance", "vipeak2", "vp2"].includes(normalized) || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina")) return "vipeak2";
@@ -5248,6 +5316,7 @@ function publicProviderId(value = "") {
 function publicProviderLabel(value = "") {
   const id = publicProviderId(value);
   if (id === "seedream5-image") return "Seedream 5.0 Image";
+  if (id === "happyhorse") return "HappyHorse";
   if (id === "vipeak1-image") return "Vipeak 1 Image";
   if (id === "vipeak1") return "Vipeak 1";
   if (id === "vipeak2") return "Vipeak 2";
@@ -5512,6 +5581,7 @@ function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
   if (isSeedream5ImageProvider(value)) return true;
+  if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return true;
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized)) return true;
   if (["seedance", "vipeak2", "vp2"].includes(normalized)) return true;
   return normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1") || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina") || normalized.includes("seedream");
@@ -5520,7 +5590,7 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan27/vipeak1, seedance/vipeak2, or seedream5-image.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan27/vipeak1, happyhorse, seedance/vipeak2, or seedream5-image.", { provider: value });
   }
 }
 
@@ -5546,7 +5616,7 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
     }
     return;
   }
-  if (normalizeAdvancedProvider(provider) === "wan27") {
+  if (["wan27", "happyhorse"].includes(normalizeAdvancedProvider(provider))) {
     if (!["720p", "1080p"].includes(raw)) {
       throw advancedValidationError("INVALID_RESOLUTION", "Vipeak 1 video resolution must be 720p or 1080p.", { resolution: value, allowed: ["720p", "1080p"] });
     }
@@ -5919,8 +5989,10 @@ function seedanceTokenPricing(options = {}) {
 }
 
 function advancedDurationBounds(provider = "seedance") {
-  if (normalizeAdvancedProvider(provider) === "seedream5-image") return { fallback: 1, min: 1, max: 1 };
-  return normalizeAdvancedProvider(provider) === "wan27"
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "seedream5-image") return { fallback: 1, min: 1, max: 1 };
+  if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
+  return normalizedProvider === "wan27"
     ? { fallback: 5, min: 2, max: 15 }
     : { fallback: 5, min: 5, max: 15 };
 }
@@ -5933,24 +6005,60 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   if (normalizedProvider === "seedream5-image") {
     return seedream5ImagePricingEstimate(advancedPricing, options);
   }
-  if (normalizedProvider === "wan27") {
+  if (isAliyunVideoProvider(normalizedProvider)) {
+    const capability = normalizeAliyunVideoCapability(firstPresent(
+      options.videoCapability,
+      options.aliyunVideoCapability,
+      options.wanCapability,
+      options.happyhorseCapability,
+      normalizedProvider === "happyhorse" ? "happyhorse-i2v" : "wan27-i2v",
+    ), { provider: normalizedProvider, model: options.model });
+    const definition = ALIYUN_VIDEO_CAPABILITIES[capability] || ALIYUN_VIDEO_CAPABILITIES[normalizedProvider === "happyhorse" ? "happyhorse-i2v" : "wan27-i2v"];
+    const aliyunDuration = clampNumber(
+      options.duration ?? options.durationSeconds,
+      Math.max(5, definition?.duration?.[0] || 0),
+      definition?.duration?.[0] ?? bounds.min,
+      definition?.duration?.[1] ?? bounds.max,
+    );
     const resolution = normalizeWan27Resolution(options.resolution);
     const publicResolution = normalizeAdvancedResolution(resolution);
-    const priceTable = advancedPricing.wan27CreditsPerSecondByResolution;
-    const creditsPerSecond = priceTable[publicResolution] || DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"];
-    const credits = creditsAmount(duration * creditsPerSecond);
+    const animateMode = String(firstPresent(options.animateMode, options.mode, options.parameters?.mode, "wan-std")).toLowerCase() === "wan-pro" ? "wan-pro" : "wan-std";
+    const rateKey = definition?.mediaKind === "animate" ? animateMode : publicResolution;
+    const priceTable = advancedPricing.aliyunVideoCreditsPerSecondByCapability?.[capability]
+      || advancedPricing.wan27CreditsPerSecondByResolution;
+    const fallbackTable = DEFAULT_ADVANCED_PRICING.aliyunVideoCreditsPerSecondByCapability?.[capability]
+      || DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution;
+    const creditsPerSecond = priceTable?.[rateKey] || fallbackTable?.[rateKey] || DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"];
+    const rawInputVideoSeconds = durationSecondsFromValue(firstPresent(
+      options.inputVideoSeconds,
+      options.videoInputSeconds,
+      options.referenceVideoDurationSeconds,
+      options.referenceVideoSeconds,
+    ));
+    const inputVideoSeconds = definition?.billing === "input_output"
+      ? (capability === "wan27-r2v" ? Math.min(5, rawInputVideoSeconds) : rawInputVideoSeconds)
+      : 0;
+    const outputCredits = creditsAmount(aliyunDuration * creditsPerSecond);
+    const inputVideoCredits = creditsAmount(inputVideoSeconds * creditsPerSecond);
+    const credits = creditsAmount(outputCredits + inputVideoCredits);
     return {
-      provider: "wan27",
-      providerLabel: "Wan2.7",
-      model: options.model || ALIYUN_WAN27_MODEL,
-      duration,
+      provider: normalizedProvider,
+      providerLabel: normalizedProvider === "happyhorse" ? "HappyHorse" : "Wan",
+      capability,
+      model: options.model || aliyunVideoModelForCapability(capability),
+      duration: aliyunDuration,
       resolution,
       publicResolution,
+      animateMode: definition?.mediaKind === "animate" ? animateMode : undefined,
       creditsPerSecond,
+      outputCredits,
+      inputVideoSeconds,
+      inputVideoCreditsPerSecond: creditsPerSecond,
+      inputVideoCredits,
       baseCredits: credits,
       credits,
       markup: 1,
-      source: "public_duration_rate",
+      source: "configured_capability_duration_rate",
     };
   }
   const resolution = normalizeAdvancedResolution(options.resolution);
@@ -10428,7 +10536,10 @@ function normalizeWan27MediaItem(item = {}) {
     error.statusCode = 400;
     throw error;
   }
-  return { type, url };
+  const normalized = { type, url };
+  const referenceVoice = String(item.reference_voice || item.referenceVoice || "").trim();
+  if (referenceVoice) normalized.reference_voice = referenceVoice;
+  return normalized;
 }
 
 async function dataUrlForUserAsset(asset = {}) {
@@ -10460,43 +10571,85 @@ function validateWan27MediaCombination(media = []) {
   }
 }
 
-async function submitWan27VideoTask({ prompt, imageUrl = "", media = [], body = {} }) {
+function isAliyunVideoProvider(provider = "") {
+  return ["wan27", "happyhorse"].includes(normalizeAdvancedProvider(provider));
+}
+
+function aliyunVideoModelForCapability(capability = "", requestedModel = "") {
+  const requested = String(requestedModel || "").trim();
+  if (requested) return requested;
+  const configured = {
+    "wan27-t2v": ALIYUN_WAN27_T2V_MODEL,
+    "wan27-i2v": ALIYUN_WAN27_I2V_MODEL,
+    "wan27-r2v": ALIYUN_WAN27_R2V_MODEL,
+    "wan27-video-edit": ALIYUN_WAN27_VIDEO_EDIT_MODEL,
+    "happyhorse-t2v": ALIYUN_HAPPYHORSE_T2V_MODEL,
+    "happyhorse-i2v": ALIYUN_HAPPYHORSE_I2V_MODEL,
+    "happyhorse-r2v": ALIYUN_HAPPYHORSE_R2V_MODEL,
+    "happyhorse-video-edit": ALIYUN_HAPPYHORSE_VIDEO_EDIT_MODEL,
+  };
+  return configured[capability] || ALIYUN_VIDEO_CAPABILITIES[capability]?.model || ALIYUN_WAN27_MODEL;
+}
+
+function aliyunVideoCapabilityForRequest(provider = "wan27", source = {}, media = []) {
+  const requested = firstPresent(
+    source.videoCapability,
+    source.aliyunVideoCapability,
+    source.wanCapability,
+    source.happyhorseCapability,
+    source.capability,
+  );
+  if (requested) return normalizeAliyunVideoCapability(requested, { provider, model: source.model, media });
+  if (normalizeAdvancedProvider(provider) === "happyhorse") {
+    return normalizeAliyunVideoCapability("", { provider: "happyhorse", model: source.model, media });
+  }
+  return normalizeAliyunVideoCapability(source.model ? "" : "wan27-i2v", { provider: "wan27", model: source.model, media });
+}
+
+async function submitAliyunVideoTask({ provider = "wan27", capability = "", prompt, imageUrl = "", media = [], body = {} }) {
   const source = { ...requestParamsFromBody(body), ...body };
   const normalizedMedia = Array.isArray(media) && media.length
     ? media.map(normalizeWan27MediaItem)
-    : [normalizeWan27MediaItem({ type: "first_frame", url: imageUrl })];
-  validateWan27MediaCombination(normalizedMedia);
-  const wanBounds = advancedDurationBounds("wan27");
+    : (imageUrl ? [normalizeWan27MediaItem({ type: "first_frame", url: imageUrl })] : []);
+  const resolvedCapability = capability || aliyunVideoCapabilityForRequest(provider, source, normalizedMedia);
+  const definition = ALIYUN_VIDEO_CAPABILITIES[resolvedCapability];
+  if (!definition) throw advancedValidationError("INVALID_ALIYUN_VIDEO_CAPABILITY", `Unsupported Alibaba video capability: ${resolvedCapability}.`);
   const parameterExtras = plainObject(source.parameters);
-  const inputExtras = plainObject(source.input);
-  const duration = clampNumber(firstPresent(parameterExtras.duration, source.duration, source.durationSeconds), wanBounds.fallback, wanBounds.min, wanBounds.max);
-  const seed = optionalWan27Seed(firstPresent(parameterExtras.seed, source.seed));
   const parameters = {
     ...parameterExtras,
-    resolution: normalizeWan27Resolution(firstPresent(parameterExtras.resolution, source.resolution)),
-    duration,
+    resolution: firstPresent(parameterExtras.resolution, source.resolution, "720p"),
+    duration: firstPresent(parameterExtras.duration, source.duration, source.durationSeconds),
+    ratio: firstPresent(parameterExtras.ratio, source.ratio, source.aspect_ratio),
     prompt_extend: boolFromRequest(firstPresent(parameterExtras.prompt_extend, source.prompt_extend, source.promptExtend), false),
     watermark: boolFromRequest(firstPresent(parameterExtras.watermark, source.watermark), false),
+    audio: boolFromRequest(firstPresent(parameterExtras.audio, source.audio, source.generateAudio, source.generate_audio), true),
+    audio_setting: firstPresent(parameterExtras.audio_setting, source.audio_setting),
+    mode: firstPresent(parameterExtras.mode, source.mode, source.animateMode),
   };
+  const seed = optionalWan27Seed(firstPresent(parameterExtras.seed, source.seed));
   if (seed !== null) parameters.seed = seed;
-
-  const payload = {
-    model: String(firstPresent(source.model, ALIYUN_WAN27_MODEL)),
-    input: {
-      ...inputExtras,
-      prompt: appendDefaultVideoNegativePrompt(prompt, source),
-      media: normalizedMedia,
-    },
+  Object.keys(parameters).forEach((key) => parameters[key] === undefined && delete parameters[key]);
+  const request = buildAliyunVideoRequest({
+    provider,
+    capability: resolvedCapability,
+    model: aliyunVideoModelForCapability(resolvedCapability, source.model),
+    prompt: appendDefaultVideoNegativePrompt(prompt, source),
+    media: normalizedMedia,
+    duration: source.duration,
+    resolution: source.resolution,
+    ratio: source.ratio,
     parameters,
-  };
+  });
+  const payload = request.payload;
   if (source.promptExtendText || source.prompt_extend_text || parameterExtras.prompt_extend_text) {
     payload.parameters.prompt_extend = true;
     payload.parameters.prompt_extend_text = String(firstPresent(parameterExtras.prompt_extend_text, source.prompt_extend_text, source.promptExtendText));
   }
-  console.log("[wan27-submit-advanced]", JSON.stringify({
+  console.log("[aliyun-video-submit-advanced]", JSON.stringify({
+    capability: resolvedCapability,
     model: payload.model,
-    mediaTypes: payload.input.media.map((item) => item.type),
-    mediaHosts: payload.input.media.map((item) => {
+    mediaTypes: normalizedMedia.map((item) => item.type),
+    mediaHosts: normalizedMedia.map((item) => {
       try {
         return new URL(item.url).host;
       } catch {
@@ -10504,14 +10657,18 @@ async function submitWan27VideoTask({ prompt, imageUrl = "", media = [], body = 
       }
     }),
     promptLength: prompt.length,
-    parameters,
+    parameters: payload.parameters,
   }, null, 2));
-  const raw = await aliyunDashscopeRequest("/api/v1/services/aigc/video-generation/video-synthesis", {
+  const raw = await aliyunDashscopeRequest(request.endpoint, {
     method: "POST",
     body: payload,
     asyncTask: true,
   });
-  return { task: normalizeWan27Task(raw), payload, raw };
+  return { task: normalizeWan27Task(raw), payload, raw, capability: resolvedCapability };
+}
+
+async function submitWan27VideoTask(options = {}) {
+  return submitAliyunVideoTask({ ...options, provider: "wan27" });
 }
 
 function normalizeWan27ImageTask(raw = {}) {
@@ -12015,6 +12172,160 @@ async function resolveWan27Media({ db, user, body, requestParams, fallbackAsset 
   return { mediaMode, media };
 }
 
+function aliyunMediaInput(value, defaults = {}) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return null;
+    if (text.startsWith("asset://")) return { ...defaults, assetId: text.slice("asset://".length) };
+    if (text.startsWith("data:")) return { ...defaults, dataUrl: text };
+    return { ...defaults, url: text };
+  }
+  if (typeof value !== "object") return null;
+  return {
+    ...defaults,
+    assetId: String(firstPresent(value.assetId, value.asset_id, value.userAssetId, "") || "").trim(),
+    dataUrl: String(firstPresent(value.dataUrl, value.data_url, "") || ""),
+    url: String(firstPresent(value.url, value.imageUrl, value.videoUrl, value.audioUrl, "") || "").trim(),
+    fileName: String(firstPresent(value.fileName, value.file_name, value.name, "") || ""),
+    referenceVoice: String(firstPresent(value.referenceVoice, value.reference_voice, "") || "").trim(),
+  };
+}
+
+function aliyunMediaInputs(values = [], defaults = {}) {
+  return arrayFromBody(values).map((item) => aliyunMediaInput(item, defaults)).filter(Boolean);
+}
+
+function aliyunReferenceImageInputs(body = {}) {
+  const values = [
+    ...arrayFromBody(body.referenceImages),
+    ...arrayFromBody(body.reference_images),
+    ...arrayFromBody(body.referenceImageDataUrls),
+    ...arrayFromBody(body.referenceImageUrls),
+    ...arrayFromBody(body.referenceImageAssetIds).map((assetId) => ({ assetId })),
+  ];
+  return aliyunMediaInputs(values, { mediaKind: "image", type: "reference_image" });
+}
+
+function aliyunReferenceVideoInputs(body = {}) {
+  const values = [
+    ...arrayFromBody(body.referenceVideos),
+    ...arrayFromBody(body.reference_videos),
+    ...arrayFromBody(body.referenceVideoUrls),
+    ...arrayFromBody(body.referenceVideoAssetIds).map((assetId) => ({ assetId })),
+  ];
+  return aliyunMediaInputs(values, { mediaKind: "video", type: "reference_video" });
+}
+
+function aliyunFirstFrameInput(body = {}, fallbackAsset = null) {
+  const input = aliyunMediaInput({
+    assetId: firstPresent(body.firstFrameAssetId, body.first_frame_asset_id, body.imageAssetId, body.image_asset_id, body.userAssetId),
+    dataUrl: firstPresent(body.firstFrameDataUrl, body.first_frame_data_url, body.imageDataUrl, body.image_data_url, body.dataUrl),
+    url: firstPresent(body.firstFrameUrl, body.first_frame_url, body.imageUrl, body.image_url),
+    fileName: firstPresent(body.firstFrameFileName, body.imageFileName, body.fileName),
+  }, { mediaKind: "image", type: "first_frame" });
+  if (!input?.assetId && !input?.dataUrl && !input?.url && fallbackAsset?.id) input.assetId = fallbackAsset.id;
+  return input;
+}
+
+function aliyunPrimaryVideoInput(body = {}) {
+  return aliyunMediaInput({
+    assetId: firstPresent(body.videoAssetId, body.inputVideoAssetId, body.referenceVideoAssetId, arrayFromBody(body.referenceVideoAssetIds)[0]),
+    dataUrl: firstPresent(body.videoDataUrl, body.inputVideoDataUrl, body.referenceVideoDataUrl),
+    url: firstPresent(body.videoUrl, body.inputVideoUrl, body.referenceVideoUrl, arrayFromBody(body.referenceVideoUrls)[0]),
+    fileName: firstPresent(body.videoFileName, body.inputVideoFileName, body.referenceVideoFileName),
+  }, { mediaKind: "video", type: "video" });
+}
+
+async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" } = {}) {
+  if (!input) return null;
+  let asset = null;
+  let url = String(input.url || "").trim();
+  if (url.startsWith("/")) url = publicUrlForAssetPath(url);
+  if (input.dataUrl) {
+    asset = await createUserWanMediaAssetFromDataUrl(db, user, {
+      dataUrl: input.dataUrl,
+      fileName: input.fileName || "",
+      name: label,
+    });
+  } else if (input.assetId) {
+    asset = (db.userAssets || []).find((entry) => entry.id === input.assetId && entry.userId === user.id && !isSoftDeleted(entry));
+    if (!asset) {
+      const error = new Error(`${label} asset not found.`);
+      error.statusCode = 404;
+      throw error;
+    }
+  }
+  if (asset) {
+    validateWan27MediaKind(asset, input.mediaKind, label);
+    asset = await ensurePublicUrlForUserMediaAsset(db, asset);
+    url = publicUrlForLocalAsset(asset);
+  }
+  if (!url || !isPublicHttpUrl(url)) {
+    const error = new Error(`${label} requires a public URL, uploaded file, or asset id.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  validateWan27MediaKind({ url }, input.mediaKind, label);
+  const resolved = {
+    type: input.type,
+    url,
+    key: input.key || "",
+    mediaKind: input.mediaKind,
+    userAssetId: asset?.id || "",
+    localUrl: asset?.localUrl || "",
+    mime: asset?.mime || "",
+  };
+  if (input.referenceVoice) resolved.referenceVoice = input.referenceVoice;
+  return resolved;
+}
+
+async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}, fallbackAsset = null } = {}) {
+  const provider = normalizeAdvancedProvider(requestParams.provider || body.provider);
+  const capability = aliyunVideoCapabilityForRequest(provider, requestParams, []);
+  if (["wan27-t2v", "happyhorse-t2v"].includes(capability)) return { capability, mediaMode: capability, media: [] };
+  if (capability === "wan27-i2v") {
+    const resolved = await resolveWan27Media({ db, user, body, requestParams, fallbackAsset });
+    return { ...resolved, capability };
+  }
+
+  let inputs = [];
+  if (capability === "wan27-r2v") {
+    const firstFrame = aliyunFirstFrameInput(body, null);
+    if (firstFrame?.assetId || firstFrame?.dataUrl || firstFrame?.url) inputs.push(firstFrame);
+    inputs.push(...aliyunReferenceImageInputs(body), ...aliyunReferenceVideoInputs(body));
+  } else if (capability === "wan27-video-edit" || capability === "happyhorse-video-edit") {
+    inputs = [aliyunPrimaryVideoInput(body), ...aliyunReferenceImageInputs(body)].filter(Boolean);
+  } else if (capability === "happyhorse-i2v") {
+    inputs = [aliyunFirstFrameInput(body, fallbackAsset)].filter(Boolean);
+  } else if (capability === "happyhorse-r2v") {
+    inputs = aliyunReferenceImageInputs(body);
+  } else if (capability === "wan-animate-move" || capability === "wan-animate-mix") {
+    const imageInput = aliyunFirstFrameInput(body, fallbackAsset);
+    if (imageInput) imageInput.type = "image_url";
+    const videoInput = aliyunPrimaryVideoInput(body);
+    if (videoInput) videoInput.type = "video_url";
+    inputs = [imageInput, videoInput].filter(Boolean);
+  } else if (capability === "wan-legacy") {
+    const model = String(requestParams.model || "").toLowerCase();
+    if (model.includes("t2v")) inputs = [];
+    else if (model.includes("r2v")) inputs = [...aliyunReferenceImageInputs(body), ...aliyunReferenceVideoInputs(body)];
+    else if (model.includes("vace")) inputs = [aliyunPrimaryVideoInput(body), ...aliyunReferenceImageInputs(body)].filter(Boolean);
+    else {
+      const resolved = await resolveWan27Media({ db, user, body, requestParams, fallbackAsset });
+      return { ...resolved, capability };
+    }
+  }
+
+  const media = [];
+  for (let index = 0; index < inputs.length; index += 1) {
+    const input = inputs[index];
+    const label = `${capability} ${input.type} ${index + 1}`;
+    media.push(await resolveAliyunVideoMediaInput({ db, user, input, label }));
+  }
+  return { capability, mediaMode: capability, media };
+}
+
 function publicUrlForLocalAsset(asset = {}) {
   if (isPublicHttpUrl(asset.publicUrl)) return asset.publicUrl;
   return publicUrlForAssetPath(asset.localUrl);
@@ -13107,7 +13418,8 @@ function isImageGenerationRecord(record = {}) {
     source.includes("video") ||
     provider === "seedance" ||
     provider === "wan27" ||
-    provider === "aliyun-wan27"
+    provider === "aliyun-wan27" ||
+    provider === "aliyun-happyhorse"
   ) return false;
   if (provider.includes("image") || kind.includes("image") || source.includes("image")) return true;
   return Boolean(generationRecordImageUrl(record)) && !Boolean(generationRecordVideoUrl(record));
@@ -13302,7 +13614,7 @@ function isStalePreSubmitGenerationRecord(record = {}, staleMs = GENERATION_SUBM
   if (!record.awaitingUpstreamTask || record.upstreamTaskId) return false;
   if (isSucceededStatus(record.status) || isFailedStatus(record.status)) return false;
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "aliyun-wan27", "apiz", "seedream5-image"].includes(provider)) return false;
+  if (!["seedance", "aliyun-wan27", "aliyun-happyhorse", "apiz", "seedream5-image"].includes(provider)) return false;
   const status = String(record.status || "").toLowerCase();
   if (!["preparing", "submitting", "submitted", "running", "processing", "queued", "pending"].includes(status)) return false;
   const time = generationRecordCreatedTime(record);
@@ -13715,7 +14027,7 @@ async function refreshGenerationRecordStatus(record = {}) {
       return record;
     }
   }
-  if (record.provider === "aliyun-wan27") {
+  if (["aliyun-wan27", "aliyun-happyhorse"].includes(record.provider)) {
     if (!ALIYUN_DASHSCOPE_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
     try {
       return await refreshWan27GenerationRecord(record, { download: true, reason: "query" });
@@ -15208,7 +15520,7 @@ function needsApizFailureRefund(record = {}) {
 
 function needsSeedanceFailureRefund(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "aliyun-wan27", "seedream5-image"].includes(provider)) return false;
+  if (!["seedance", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider)) return false;
   if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
   if (String(record.billingStatus || "").toLowerCase() === "refunded") return false;
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
@@ -15909,11 +16221,13 @@ async function handleAdvancedAccessRequest(req, res) {
 }
 
 function advancedRuntimeForProvider(provider, requestParams = {}) {
-  if (provider === "wan27") {
+  if (isAliyunVideoProvider(provider)) {
+    const normalizedProvider = normalizeAdvancedProvider(provider);
+    const capability = requestParams.videoCapability || aliyunVideoCapabilityForRequest(normalizedProvider, requestParams, []);
     return {
-      providerName: "aliyun-wan27",
-      recordSource: "advanced-wan27",
-      model: requestParams.model || ALIYUN_WAN27_MODEL,
+      providerName: normalizedProvider === "happyhorse" ? "aliyun-happyhorse" : "aliyun-wan27",
+      recordSource: normalizedProvider === "happyhorse" ? "advanced-happyhorse" : `advanced-${capability}`,
+      model: requestParams.model || aliyunVideoModelForCapability(capability),
       quality: normalizeWan27Resolution(requestParams.resolution),
     };
   }
@@ -16376,10 +16690,10 @@ async function runAdvancedGenerationJob(job = {}) {
       seedanceMediaAssets = [...frameMediaAssets, ...videoMediaAsset, ...publicVideoMediaAsset, ...audioMediaAssets, ...primaryMediaAsset, ...extraMediaAssets, ...directReferenceMediaAssets];
     }
 
-    let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || "first_frame";
+    let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || requestParams.videoCapability || "first_frame";
     let resolvedWan27Media = Array.isArray(wan27Media) ? wan27Media : [];
-    if (provider === "wan27" && !resolvedWan27Media.length) {
-      const resolved = await resolveWan27Media({
+    if (isAliyunVideoProvider(provider) && !resolvedWan27Media.length && !["wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
+      const resolved = await resolveAliyunVideoMedia({
         db,
         user: { id: userId },
         body: { dataUrl: userAsset ? "asset" : "", mediaMode: resolvedWan27MediaMode },
@@ -16389,8 +16703,8 @@ async function runAdvancedGenerationJob(job = {}) {
       resolvedWan27MediaMode = resolved.mediaMode;
       resolvedWan27Media = resolved.media;
     }
-    if (provider === "wan27" && resolvedWan27Media[0]) {
-      imageUrl = resolvedWan27Media.find((item) => item.type === "first_frame" || item.type === "first_clip")?.url || imageUrl;
+    if (isAliyunVideoProvider(provider) && resolvedWan27Media[0]) {
+      imageUrl = resolvedWan27Media.find((item) => ["first_frame", "first_clip", "reference_image", "image_url"].includes(item.type))?.url || imageUrl;
       sourceImageUrl = imageUrl || sourceImageUrl;
     }
 
@@ -16401,8 +16715,8 @@ async function runAdvancedGenerationJob(job = {}) {
       syntheticReferenceLocalUrl,
       syntheticReferenceUrl,
       referenceAssetUri,
-      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (seedanceMode || (referenceVideoAssetUri ? "reference_video" : extraReferenceAssetUris.length ? "multi_reference" : "text_to_video")),
-      mediaAssets: provider === "wan27" ? resolvedWan27Media : seedanceMediaAssets,
+      mediaMode: isAliyunVideoProvider(provider) ? resolvedWan27MediaMode : (seedanceMode || (referenceVideoAssetUri ? "reference_video" : extraReferenceAssetUris.length ? "multi_reference" : "text_to_video")),
+      mediaAssets: isAliyunVideoProvider(provider) ? resolvedWan27Media : seedanceMediaAssets,
       error: "",
     }, "advanced-reference-ready");
 
@@ -16420,7 +16734,8 @@ async function runAdvancedGenerationJob(job = {}) {
         generateAudio: requestParams.generateAudio,
         parameters: Object.keys(plainObject(requestParams.parameters)).length ? requestParams.parameters : undefined,
         input: Object.keys(plainObject(requestParams.input)).length ? requestParams.input : undefined,
-        mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (seedanceMode || undefined),
+        mediaMode: isAliyunVideoProvider(provider) ? resolvedWan27MediaMode : (seedanceMode || undefined),
+        videoCapability: isAliyunVideoProvider(provider) ? requestParams.videoCapability : undefined,
         seedanceMode: provider === "seedance" ? (seedanceMode || undefined) : undefined,
         seed: requestParams.seed === undefined || requestParams.seed === "" ? undefined : requestParams.seed,
       };
@@ -16447,7 +16762,7 @@ async function runAdvancedGenerationJob(job = {}) {
           if (requestParams[field] !== undefined) gatewayBody[field] = requestParams[field];
         });
       }
-      if (provider === "wan27") {
+      if (isAliyunVideoProvider(provider)) {
         const dbForGateway = await readDb();
         const assetMap = new Map((dbForGateway.userAssets || []).map((asset) => [asset.id, asset]));
         for (const item of resolvedWan27Media) {
@@ -16493,13 +16808,15 @@ async function runAdvancedGenerationJob(job = {}) {
       task = await gatewaySubmitAdvancedTask(gatewayBody);
       payload = gatewayBody;
       createResponse = task.raw;
-    } else if (provider === "wan27") {
-      if (!resolvedWan27Media.length) {
-        const error = new Error("Wan2.7 requires media input.");
+    } else if (isAliyunVideoProvider(provider)) {
+      if (!resolvedWan27Media.length && !["wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
+        const error = new Error(`${requestParams.videoCapability || "Alibaba video"} requires media input.`);
         error.statusCode = 400;
         throw error;
       }
-      const submitted = await submitWan27VideoTask({
+      const submitted = await submitAliyunVideoTask({
+        provider,
+        capability: requestParams.videoCapability,
         prompt,
         media: resolvedWan27Media,
         body: requestParams,
@@ -16570,8 +16887,8 @@ async function runAdvancedGenerationJob(job = {}) {
       syntheticReferenceLocalUrl,
       syntheticReferenceUrl,
       referenceAssetUri,
-      mediaMode: provider === "wan27" ? resolvedWan27MediaMode : (seedanceMode || (referenceVideoAssetUri ? "reference_video" : extraReferenceAssetUris.length ? "multi_reference" : "text_to_video")),
-      mediaAssets: provider === "wan27" ? resolvedWan27Media : seedanceMediaAssets,
+      mediaMode: isAliyunVideoProvider(provider) ? resolvedWan27MediaMode : (seedanceMode || (referenceVideoAssetUri ? "reference_video" : extraReferenceAssetUris.length ? "multi_reference" : "text_to_video")),
+      mediaAssets: isAliyunVideoProvider(provider) ? resolvedWan27Media : seedanceMediaAssets,
       params: requestParams,
       upstreamPayload: payload,
       ratio: payload?.ratio || requestParams.ratio || "",
@@ -17969,7 +18286,9 @@ async function handleAdvancedGenerate(req, res) {
   );
   const requestTenant = requestTenantDescriptor(req);
   const isToolVideoTemplateRequest = requestTenant.toolId === "video";
-  const toolVideoProvider = requestTenant.videoProvider === "seedance" ? "seedance" : "wan27";
+  const toolVideoProvider = ["seedance", "happyhorse", "wan27"].includes(requestTenant.videoProvider)
+    ? requestTenant.videoProvider
+    : "wan27";
   const providerHint = firstPresent(
     isToolVideoTemplateRequest ? toolVideoProvider : "",
     body.provider,
@@ -17995,7 +18314,7 @@ async function handleAdvancedGenerate(req, res) {
   if (!USE_GATEWAY_UPSTREAM && provider === "seedance" && !ARK_API_KEY && !canUseIgnexSeedance) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Vipeak 2 generation is not configured." });
   }
-  if (!USE_GATEWAY_UPSTREAM && provider === "wan27" && !ALIYUN_DASHSCOPE_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && isAliyunVideoProvider(provider) && !ALIYUN_DASHSCOPE_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Vipeak 1 generation is not configured." });
   }
   let mergedBody = mergedBodyBase;
@@ -18061,16 +18380,34 @@ async function handleAdvancedGenerate(req, res) {
     generateAudio: boolFromRequest(firstPresent(body.generateAudio, body.generate_audio, bodyParams.generateAudio, bodyParams.generate_audio, caseParams.generateAudio, caseParams.generate_audio), true),
   };
   requestParams.ratio = normalizeVideoRatio(requestParams.ratio);
-  requestParams.resolution = provider === "wan27" ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
+  requestParams.resolution = isAliyunVideoProvider(provider) ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
   requestParams.preprocessReference = false;
   requestParams.seed = firstPresent(body.seed, bodyParams.seed, mergedProviderParameters.seed, caseParams.seed, "");
   const normalizedSeedanceModel = provider === "seedance"
     ? seedanceConfiguredModelForRequest(requestedModel, requestParams.seedanceTier)
     : "";
   const forwardModelToGateway = provider !== "seedance" && requestedModel !== undefined;
+  const requestedVideoCapability = firstPresent(
+    isToolVideoTemplateRequest && toolVideoProvider === "wan27" ? "wan27-r2v" : "",
+    isToolVideoTemplateRequest && toolVideoProvider === "happyhorse" ? "happyhorse-video-edit" : "",
+    body.videoCapability,
+    body.aliyunVideoCapability,
+    body.wanCapability,
+    body.happyhorseCapability,
+    bodyParams.videoCapability,
+    bodyParams.aliyunVideoCapability,
+    caseParams.videoCapability,
+    caseParams.wanCapability,
+    caseParams.happyhorseCapability,
+    provider === "wan27" ? "wan27-i2v" : "",
+    provider === "happyhorse" ? "happyhorse-i2v" : "",
+  );
+  requestParams.videoCapability = isAliyunVideoProvider(provider)
+    ? normalizeAliyunVideoCapability(requestedVideoCapability, { provider, model: requestedModel })
+    : "";
   requestParams.model = provider === "seedance"
     ? normalizedSeedanceModel
-    : String(firstPresent(requestedModel, ALIYUN_WAN27_MODEL));
+    : String(firstPresent(requestedModel, aliyunVideoModelForCapability(requestParams.videoCapability)));
   requestParams.input = plainObject(firstPresent(body.input, bodyParams.input, caseParams.input, {}));
   requestParams.parameters = mergedProviderParameters;
   if (provider === "seedance" && requestParams.seedanceTier === "fast" && requestParams.resolution === "1080p") {
@@ -18126,7 +18463,7 @@ async function handleAdvancedGenerate(req, res) {
   let seedanceMode = "";
   let seedanceFirstFrameAsset = null;
   let seedanceEndFrameAsset = null;
-  if (provider !== "wan27") {
+  if (provider === "seedance") {
     seedanceMode = normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.vipeak2Mode, caseParams.mediaMode), mergedBody);
     requestParams.seedanceMode = seedanceMode;
     const firstFrameInput = seedanceFirstFrameInputFromBody(mergedBody, {
@@ -18282,7 +18619,7 @@ async function handleAdvancedGenerate(req, res) {
   }
   let wan27MediaMode = "";
   let wan27Media = [];
-  if (provider === "wan27") {
+  if (isAliyunVideoProvider(provider)) {
     requestParams.mediaMode = normalizeWan27MediaMode(firstPresent(
       body.mediaMode,
       body.wanMode,
@@ -18291,17 +18628,41 @@ async function handleAdvancedGenerate(req, res) {
       bodyParams.wanMode,
       bodyParams.wanMediaMode,
       caseParams.mediaMode,
-      "first_frame",
+      requestParams.videoCapability === "wan27-i2v" ? "first_frame" : requestParams.videoCapability,
     ));
-    const resolved = await resolveWan27Media({
+    const resolved = await resolveAliyunVideoMedia({
       db: auth.db,
       user: auth.user,
       body: mergedBody,
       requestParams,
       fallbackAsset: userAsset,
     });
-    wan27MediaMode = resolved.mediaMode;
+    wan27MediaMode = resolved.mediaMode || requestParams.videoCapability;
     wan27Media = resolved.media;
+    const capabilityDefinition = ALIYUN_VIDEO_CAPABILITIES[requestParams.videoCapability];
+    const billableVideos = wan27Media.filter((item) => ["video", "video_url", "reference_video", "first_clip"].includes(item.type));
+    if (capabilityDefinition?.mediaKind === "animate" && billableVideos[0]?.url) {
+      const actionDuration = await probeVideoDurationSeconds(billableVideos[0].url);
+      if (actionDuration > 0) requestParams.duration = clampNumber(actionDuration, requestParams.duration, 2, 30);
+    }
+    if (capabilityDefinition?.billing === "input_output") {
+      let probedInputSeconds = 0;
+      for (const item of billableVideos) {
+        probedInputSeconds += await probeVideoDurationSeconds(item.url) || 0;
+      }
+      const explicitInputSeconds = durationSecondsFromValue(firstPresent(
+        body.inputVideoSeconds,
+        body.videoInputSeconds,
+        body.referenceVideoDurationSeconds,
+        bodyParams.inputVideoSeconds,
+        bodyParams.videoInputSeconds,
+      ));
+      const fallbackInputSeconds = billableVideos.length ? billableVideos.length * requestParams.duration : 0;
+      requestParams.inputVideoSeconds = durationSecondsFromValue(Math.max(
+        explicitInputSeconds,
+        probedInputSeconds || fallbackInputSeconds,
+      ));
+    }
   }
   if (provider === "seedance") {
     requestParams.inputVideoSeconds = await seedanceVideoInputSecondsForPricingWithProbe(mergedBody, {
@@ -18319,6 +18680,31 @@ async function handleAdvancedGenerate(req, res) {
       hasReferenceImage: Boolean(userAsset || extraUserAssets.length || referenceImageAssetUris.length),
       hasReferenceVideo: Boolean(referenceVideoAssetIds.length || referenceVideoAssetUris.length),
     });
+  }
+  if (isAliyunVideoProvider(provider)) {
+    try {
+      buildAliyunVideoRequest({
+        provider,
+        capability: requestParams.videoCapability,
+        model: aliyunVideoModelForCapability(requestParams.videoCapability, requestParams.model),
+        prompt,
+        media: wan27Media,
+        parameters: {
+          ...plainObject(requestParams.parameters),
+          resolution: requestParams.resolution,
+          duration: requestParams.duration,
+          ratio: requestParams.ratio,
+          seed: requestParams.seed,
+          mode: firstPresent(requestParams.parameters?.mode, requestParams.animateMode),
+          audio: requestParams.generateAudio,
+        },
+      });
+    } catch (error) {
+      if (isToolVideoTemplateRequest) {
+        return sendJson(res, error.statusCode || 400, { ok: false, code: error.code || "INVALID_VIDEO_INPUT", message: "Video input is invalid." });
+      }
+      return sendAdvancedValidationError(res, error, "Alibaba video input is invalid.");
+    }
   }
   const rawPricing = advancedModelPricing(provider, {
     ...requestParams,
@@ -18340,7 +18726,7 @@ async function handleAdvancedGenerate(req, res) {
   }
   const runtime = advancedRuntimeForProvider(provider, requestParams);
   const taskId = localGenerationTaskId("cgt");
-  const primaryWanMedia = wan27Media.find((item) => item.type === "first_frame" || item.type === "first_clip") || wan27Media[0] || null;
+  const primaryWanMedia = wan27Media.find((item) => ["first_frame", "first_clip", "reference_image", "image_url"].includes(item.type)) || wan27Media[0] || null;
   const seedancePrimaryVisual = seedanceFirstFrameAsset || userAsset || seedanceVideoAsset || null;
   const initialImageUrl = primaryWanMedia?.localUrl || primaryWanMedia?.url || seedancePrimaryVisual?.localUrl || seedancePrimaryVisual?.publicUrl || "";
   const initialSourceImageUrl = primaryWanMedia?.localUrl || seedanceFirstFrameAsset?.sourceImageUrl || seedanceFirstFrameAsset?.localUrl || userAsset?.sourceImageUrl || userAsset?.localUrl || "";
@@ -18405,7 +18791,7 @@ async function handleAdvancedGenerate(req, res) {
         })),
       ]
     : [];
-  const initialMediaMode = provider === "wan27" ? wan27MediaMode : seedanceMode;
+  const initialMediaMode = isAliyunVideoProvider(provider) ? wan27MediaMode : seedanceMode;
 
   if (cost > 0) {
     await chargeUserWithSubtoken(auth, {
@@ -18445,7 +18831,7 @@ async function handleAdvancedGenerate(req, res) {
         referenceImageAssetUris,
         extraUserAssetIds,
         mediaMode: provider === "seedance" ? initialMediaMode : wan27MediaMode,
-        mediaAssets: provider === "wan27"
+        mediaAssets: isAliyunVideoProvider(provider)
           ? wan27Media.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", mediaKind: item.mediaKind || "" }))
           : initialSeedanceMediaAssets.map((item) => ({ type: item.type, key: item.key, userAssetId: item.userAssetId || "", audioUrl: item.audioUrl || "", videoUrl: item.videoUrl || "" })),
         referenceAssetUri: "",
@@ -18466,7 +18852,7 @@ async function handleAdvancedGenerate(req, res) {
     userId: auth.user.id,
     userAssetId: userAsset?.id || "",
     mediaMode: provider === "seedance" ? initialMediaMode : wan27MediaMode,
-    mediaAssets: provider === "wan27" ? wan27Media : initialSeedanceMediaAssets,
+    mediaAssets: isAliyunVideoProvider(provider) ? wan27Media : initialSeedanceMediaAssets,
     imageUrl: initialImageUrl,
     sourceImageUrl: initialSourceImageUrl,
     syntheticReferenceLocalUrl: "",
@@ -18600,7 +18986,18 @@ function advancedRegenerateBody(record = {}) {
     resolution: record.resolution || params.resolution || "720p",
     duration: record.duration || params.duration || 5,
   };
-  if (provider === "wan27") {
+  if (isAliyunVideoProvider(provider)) {
+    const capability = normalizeAliyunVideoCapability(params.videoCapability || record.mediaMode || "", {
+      provider,
+      model: params.model || record.model,
+      media: Array.isArray(record.mediaAssets) ? record.mediaAssets : [],
+    });
+    body.videoCapability = capability;
+    if (capability === "wan-legacy") body.model = params.model || record.model || "";
+    if (["wan-animate-move", "wan-animate-mix"].includes(capability)) {
+      body.animateMode = params.animateMode || params.parameters?.mode || "wan-std";
+      body.params = { parameters: { mode: body.animateMode } };
+    }
     const mediaMode = normalizeWan27MediaMode(record.mediaMode || params.mediaMode);
     body.mediaMode = mediaMode;
     const firstFrame = mediaAssetIdsByType(record, "first_frame")[0] || record.userAssetId || "";
@@ -18618,6 +19015,23 @@ function advancedRegenerateBody(record = {}) {
     if (!drivingAudio && (params.drivingAudioUrl || params.driving_audio_url)) body.drivingAudioUrl = params.drivingAudioUrl || params.driving_audio_url;
     if (!firstClip && (params.firstClipUrl || params.first_clip_url)) body.firstClipUrl = params.firstClipUrl || params.first_clip_url;
     if (params.seed) body.seed = params.seed;
+    const referenceImageIds = [...new Set(mediaAssetIdsByType(record, "reference_image"))];
+    if (referenceImageIds.length) body.referenceImages = referenceImageIds.map((assetId) => ({ assetId }));
+    const primaryImageId = mediaAssetIdsByTypes(record, ["image_url", "first_frame"])[0] || record.userAssetId || "";
+    if (primaryImageId && ["happyhorse-i2v", "wan-animate-move", "wan-animate-mix"].includes(capability)) {
+      body.firstFrameAssetId = primaryImageId;
+    }
+    const primaryVideoId = mediaAssetIdsByTypes(record, ["video", "video_url"])[0] || "";
+    const primaryVideoUrl = mediaAssetUrlByType(record, "video") || mediaAssetUrlByType(record, "video_url");
+    if (primaryVideoId) body.videoAssetId = primaryVideoId;
+    else if (primaryVideoUrl) body.videoUrl = primaryVideoUrl;
+    const referenceVideoIds = [...new Set(mediaAssetIdsByType(record, "reference_video"))];
+    if (referenceVideoIds.length) body.referenceVideoAssetIds = referenceVideoIds;
+    const referenceVideoUrls = (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+      .filter((asset) => asset?.type === "reference_video" && !asset.userAssetId)
+      .map((asset) => String(asset.videoUrl || asset.url || "").trim())
+      .filter(Boolean);
+    if (referenceVideoUrls.length) body.referenceVideoUrls = referenceVideoUrls;
   } else {
     const referenceIds = [
       ...mediaAssetIdsByType(record, "reference_image"),
@@ -18659,7 +19073,7 @@ async function handleRegenerateGenerationRecord(req, res, taskId) {
   if (source === "platform-template" || (record.templateId && ["image-to-video", "text-to-video"].includes(kind))) {
     return handlePlatformGenerate(withJsonBody(req, platformRegenerateBody(record)), res);
   }
-  if (source.includes("advanced") || ["seedance", "aliyun-wan27"].includes(String(record.provider || "").toLowerCase())) {
+  if (source.includes("advanced") || ["seedance", "aliyun-wan27", "aliyun-happyhorse"].includes(String(record.provider || "").toLowerCase())) {
     return handleAdvancedGenerate(withJsonBody(req, advancedRegenerateBody(record)), res);
   }
   return sendJson(res, 400, { ok: false, message: "This record cannot be regenerated yet." });
@@ -19457,6 +19871,9 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
     ratio: params.ratio || params.aspect_ratio,
     inputVideoSeconds,
     seedanceTier: params.seedanceTier,
+    videoCapability: params.videoCapability,
+    model: params.model,
+    mode: params.mode,
     seedreamTier: firstPresent(params.seedreamTier, params.seedream5Tier, params.seedanceTier),
     referenceImageCount: firstPresent(params.referenceImageCount, params.imageCount),
     advancedPricing: config.platform?.advancedPricing,
@@ -19481,7 +19898,7 @@ async function handleAdvancedEstimate(req, res) {
   const tenant = requestTenantDescriptor(req);
   const isToolVideoTemplateEstimate = tenant.toolId === "video";
   const effectiveProvider = isToolVideoTemplateEstimate
-    ? (tenant.videoProvider === "seedance" ? "seedance" : "wan27")
+    ? (["seedance", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : "wan27")
     : rawProvider;
   const provider = isWan27ImageProvider(effectiveProvider) ? "wan27-image" : normalizeAdvancedProvider(effectiveProvider);
   params.inputVideoSeconds = firstPresent(
@@ -21961,6 +22378,9 @@ async function handleGameFeed(req, res) {
     req,
     auth?.user ? auth : null,
   );
+  if (isToolVideoTemplateEstimate && !params.videoCapability) {
+    params.videoCapability = provider === "wan27" ? "wan27-r2v" : provider === "happyhorse" ? "happyhorse-video-edit" : "";
+  }
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const items = publicAssetUrlsForClient(homeVideo.items.map((item) => publicGameHomeVideoItem(item, auth?.user ? auth : null)));
   publicView.homeVideo.items = items;
@@ -25368,6 +25788,28 @@ const ADVANCED_PRICING_ROWS = [
   { key: "seedance-fast-video-input-720p", provider: "seedance", providerLabel: "Seedance Fast 视频输入加收", seedanceTier: "fast", resolution: "720p", rateKind: "video_input", unit: "input_second" },
   { key: "wan27-720p", provider: "wan27", providerLabel: "Wan2.7", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "wan27-1080p", provider: "wan27", providerLabel: "Wan2.7", resolution: "1080p", rateKind: "output", unit: "output_second" },
+  ...[
+    { capability: "wan27-t2v", provider: "wan27", providerLabel: "Wan2.7 Text to Video", rates: ["720p", "1080p"] },
+    { capability: "wan27-i2v", provider: "wan27", providerLabel: "Wan2.7 Image to Video", rates: ["720p", "1080p"] },
+    { capability: "wan27-r2v", provider: "wan27", providerLabel: "Wan2.7 Reference to Video", rates: ["720p", "1080p"] },
+    { capability: "wan27-video-edit", provider: "wan27", providerLabel: "Wan2.7 Video Edit", rates: ["720p", "1080p"] },
+    { capability: "wan-animate-move", provider: "wan27", providerLabel: "Wan Image to Action", rates: ["wan-std", "wan-pro"] },
+    { capability: "wan-animate-mix", provider: "wan27", providerLabel: "Wan Character Replacement", rates: ["wan-std", "wan-pro"] },
+    { capability: "happyhorse-t2v", provider: "happyhorse", providerLabel: "HappyHorse Text to Video", rates: ["720p", "1080p"] },
+    { capability: "happyhorse-i2v", provider: "happyhorse", providerLabel: "HappyHorse Image to Video", rates: ["720p", "1080p"] },
+    { capability: "happyhorse-r2v", provider: "happyhorse", providerLabel: "HappyHorse Reference to Video", rates: ["720p", "1080p"] },
+    { capability: "happyhorse-video-edit", provider: "happyhorse", providerLabel: "HappyHorse Video Edit", rates: ["720p", "1080p"] },
+  ].flatMap((item) => item.rates.map((rateKey) => ({
+    key: `aliyun-${item.capability}-${rateKey}`,
+    provider: item.provider,
+    providerLabel: item.providerLabel,
+    capability: item.capability,
+    resolution: rateKey,
+    rateKey,
+    mode: rateKey.startsWith("wan-") ? rateKey : "",
+    rateKind: "output",
+    unit: "output_second",
+  }))),
 ];
 
 const ADVANCED_PRICING_ROW_KEYS = new Set([
@@ -25441,9 +25883,13 @@ function yuanPerSecondRangeFromCredits(creditsPerSecondRange, creditsPerCny) {
   return creditsPerSecondRange.slice(0, 2).map((value) => yuanPerSecondFromCredits(value, creditsPerCny));
 }
 
-function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard") {
+function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard", capability = "", mode = "") {
   const normalized = normalizeAdvancedPricing(pricing);
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (capability && normalized.aliyunVideoCreditsPerSecondByCapability?.[capability]) {
+    const rateKey = mode || String(resolution || "").toLowerCase();
+    return pricingNumber(normalized.aliyunVideoCreditsPerSecondByCapability[capability][rateKey], 0);
+  }
   const isFast = normalizedProvider === "seedance" && normalizeSeedanceTier(seedanceTier) === "fast";
   const table = normalizedProvider === "seedance" && isFast && rateKind === "video_input"
     ? normalized.seedanceFastVideoInputCreditsPerSecondByResolution
@@ -25654,10 +26100,21 @@ function seedanceOfficialInputUsdPerSecond(resolution = "720p", seedanceTier = "
   return pricingNumber(baseUsdPerSecond * ratio, baseUsdPerSecond, 0, 6);
 }
 
-async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard") {
+async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard", capability = "", mode = "") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
+  if (capability && ALIYUN_VIDEO_OFFICIAL_PRICING[capability]) {
+    const purchaseCnyPerSecond = officialSingaporePurchaseRate(capability, {
+      resolution: publicResolution,
+      mode: mode || resolution,
+    });
+    return {
+      creditsPerSecond: purchaseCnyPerSecond === null ? null : pricingNumber(purchaseCnyPerSecond * ADVANCED_CREDITS_PER_CNY, 0),
+      source: "aliyun_singapore_official_model_pricing",
+      message: purchaseCnyPerSecond === null ? "Official Singapore price is unavailable for this rate." : "Alibaba Cloud Model Studio Singapore official per-second price.",
+    };
+  }
   if (USE_GATEWAY_UPSTREAM) {
     return await gatewayPurchaseCreditsPerSecond(normalizedProvider, publicResolution, rateKind, seedanceTier);
   }
@@ -25691,8 +26148,8 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
 async function adminAdvancedPricingView(config = {}) {
   const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
   const rows = await Promise.all(ADVANCED_PRICING_ROWS.map(async (row) => {
-    const saleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind, row.seedanceTier);
-    const purchase = await advancedPurchaseCreditsPerSecond(row.provider, row.resolution, row.rateKind, row.seedanceTier);
+    const saleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode);
+    const purchase = await advancedPurchaseCreditsPerSecond(row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode);
     return {
       ...row,
       purchaseCreditsPerSecond: purchase.creditsPerSecond,
@@ -25820,6 +26277,20 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
         const resolution = key.endsWith("-1k") ? "1K" : "2K";
         next.seedream5Image.pro.saleUsdPerImageByResolution[resolution] = pricingNumber(rawSaleUsd, next.seedream5Image.pro.saleUsdPerImageByResolution[resolution], 0, 6);
       }
+      continue;
+    }
+    if (key.startsWith("aliyun-")) {
+      const capability = String(row.capability || "").trim();
+      const rateKey = String(row.rateKey || row.mode || row.resolution || "").trim().toLowerCase();
+      if (!next.aliyunVideoCreditsPerSecondByCapability?.[capability]
+        || !(rateKey in next.aliyunVideoCreditsPerSecondByCapability[capability])) {
+        throw pricingPayloadError(`Unknown Alibaba video pricing rate: ${capability}/${rateKey}`);
+      }
+      const rawCredits = advancedPricingRowSaleCredits(row, next.creditsPerCny);
+      if (!Number.isFinite(rawCredits) || rawCredits < 0) {
+        throw pricingPayloadError(`Invalid sale price for ${key}`);
+      }
+      next.aliyunVideoCreditsPerSecondByCapability[capability][rateKey] = pricingNumber(rawCredits, 0);
       continue;
     }
     const rawCredits = advancedPricingRowSaleCredits(row, next.creditsPerCny);
@@ -27586,7 +28057,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
     } catch (error) {
       console.warn("[ignex-generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
-  } else if (record.provider === "aliyun-wan27" && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(record)) {
+  } else if (["aliyun-wan27", "aliyun-happyhorse"].includes(record.provider) && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(record)) {
     try {
       nextRecord = await refreshWan27GenerationRecord(record, { download: true, reason: "detail" });
     } catch (error) {
@@ -28434,7 +28905,25 @@ async function handleRequest(req, res) {
         aliyunConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ALIYUN_DASHSCOPE_API_KEY),
         generationConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(APIZ_API_KEY),
         baseUrl: publicOriginFromRequest(req),
-        models: { fast: MODEL_FAST, quality: MODEL_QUALITY, wan27: ALIYUN_WAN27_MODEL },
+        toolVideoProvider: TOOL_VIDEO_PROVIDER,
+        models: {
+          fast: MODEL_FAST,
+          quality: MODEL_QUALITY,
+          wan27: {
+            t2v: ALIYUN_WAN27_T2V_MODEL,
+            i2v: ALIYUN_WAN27_I2V_MODEL,
+            r2v: ALIYUN_WAN27_R2V_MODEL,
+            videoEdit: ALIYUN_WAN27_VIDEO_EDIT_MODEL,
+            animateMove: ALIYUN_WAN_ANIMATE_MOVE_MODEL,
+            animateMix: ALIYUN_WAN_ANIMATE_MIX_MODEL,
+          },
+          happyhorse: {
+            t2v: ALIYUN_HAPPYHORSE_T2V_MODEL,
+            i2v: ALIYUN_HAPPYHORSE_I2V_MODEL,
+            r2v: ALIYUN_HAPPYHORSE_R2V_MODEL,
+            videoEdit: ALIYUN_HAPPYHORSE_VIDEO_EDIT_MODEL,
+          },
+        },
       });
     }
 

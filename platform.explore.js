@@ -692,7 +692,8 @@ function playfluxTemplateNeedsSource(template = {}) {
 
 function playfluxTemplateVideoProvider() {
   if (!isToolTenant("video")) return "seedance";
-  return tenantStringFeature("videoProvider", "wan27") === "seedance" ? "seedance" : "wan27";
+  const provider = tenantStringFeature("videoProvider", "wan27");
+  return ["wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan27";
 }
 
 function playfluxTemplateRequiredSourceCount(template = {}) {
@@ -703,7 +704,7 @@ function playfluxTemplateRequiredSourceCount(template = {}) {
 
 function playfluxTemplateDefaultSourceMode(template = {}) {
   if (template.tab !== "video") return "";
-  if (playfluxTemplateVideoProvider() === "wan27") return "first_frame";
+  if (playfluxTemplateVideoProvider() !== "seedance") return "reference_video";
   return playfluxNormalizeSeedanceMediaMode(template.seedanceMode || "reference_images");
 }
 
@@ -851,10 +852,11 @@ function playfluxTemplateCachedEstimate(template = {}, sourceMode = playfluxTemp
 }
 
 function playfluxTemplateVideoInputSeconds(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template), duration = Number(template.duration || 5)) {
-  if (playfluxTemplateVideoProvider() !== "seedance") return 0;
-  if (!playfluxSeedanceModeNeedsReferenceVideo(sourceMode)) return 0;
+  const provider = playfluxTemplateVideoProvider();
+  if (provider === "seedance" && !playfluxSeedanceModeNeedsReferenceVideo(sourceMode)) return 0;
   const cached = playfluxTemplateCachedEstimate(template, sourceMode);
-  return Number(cached?.videoInputSeconds || template.referenceVideoDurationSeconds || duration);
+  const seconds = Number(cached?.videoInputSeconds || template.referenceVideoDurationSeconds || duration);
+  return provider === "wan27" ? Math.min(5, seconds) : seconds;
 }
 
 function playfluxTemplateCostLabel(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
@@ -864,12 +866,11 @@ function playfluxTemplateCostLabel(template = {}, sourceMode = playfluxTemplateD
     const ratio = template.ratio || "9:16";
     const provider = playfluxTemplateVideoProvider();
     const cached = playfluxTemplateCachedEstimate(template, sourceMode);
-    const pricing = cached || advancedPricing(duration, provider, resolution, ratio, provider === "seedance"
-      ? {
-          seedanceTier: "standard",
-          inputVideoSeconds: playfluxTemplateVideoInputSeconds(template, sourceMode, duration),
-        }
-      : {});
+    const pricing = cached || advancedPricing(duration, provider, resolution, ratio, {
+      seedanceTier: "standard",
+      inputVideoSeconds: playfluxTemplateVideoInputSeconds(template, sourceMode, duration),
+      videoCapability: provider === "wan27" ? "wan27-r2v" : provider === "happyhorse" ? "happyhorse-video-edit" : "",
+    });
     return t("cost.credits", { credits: formatCredits(pricing.credits) });
   }
   return assetImageModifyCostLabel();
@@ -900,18 +901,20 @@ async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "")
   const resolution = template.resolution || "720p";
   const ratio = normalizeVideoRatio(template.ratio || "9:16");
   const provider = playfluxTemplateVideoProvider();
-  const usesReferenceVideo = provider === "seedance" && playfluxSeedanceModeNeedsReferenceVideo(mode);
+    const usesReferenceVideo = provider !== "seedance" || playfluxSeedanceModeNeedsReferenceVideo(mode);
   try {
     const payload = await requestJson("/api/advanced/estimate", {
       method: "POST",
       body: {
         provider,
-        ...(provider === "seedance" ? { seedanceTier: "standard" } : { mediaMode: "first_frame" }),
+        ...(provider === "seedance"
+          ? { seedanceTier: "standard" }
+          : { videoCapability: provider === "wan27" ? "wan27-r2v" : "happyhorse-video-edit" }),
         templateId: template.id || "",
         duration,
         resolution,
         ratio,
-        inputVideoSeconds: usesReferenceVideo ? Number(template.referenceVideoDurationSeconds || duration) : 0,
+        inputVideoSeconds: usesReferenceVideo ? playfluxTemplateVideoInputSeconds(template, mode, duration) : 0,
         params: {
           source: "playflux",
           templateTab: "video",
@@ -942,7 +945,9 @@ function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seed
   return {
     taskId,
     status: "submitting",
-    model: provider === "seedance" ? "Seedance" : (provider === "wan27" ? "Wan 2.7" : "Wan 2.7 Image"),
+    model: isToolTenant("video") && template.tab === "video"
+      ? "Video"
+      : provider === "seedance" ? "Seedance" : provider === "happyhorse" ? "HappyHorse" : (provider === "wan27" ? "Wan 2.7" : "Wan 2.7 Image"),
     provider,
     source: "playflux-template",
     kind: template.tab === "video" ? "advanced-video" : "asset-image",
@@ -1007,8 +1012,8 @@ async function submitPlayfluxTemplate(template = {}, root) {
   const isAnime = effectiveTemplate.tab === "anime";
   const provider = isVideo ? playfluxTemplateVideoProvider() : "wan27-image-edit";
   const selectedVideoSourceMode = isVideo
-    ? (provider === "wan27"
-        ? "first_frame"
+    ? (provider !== "seedance"
+        ? "reference_video"
         : playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images"))
     : "";
   const pendingTaskId = `pending-playflux-${Date.now().toString(36)}`;
@@ -1031,12 +1036,26 @@ async function submitPlayfluxTemplate(template = {}, root) {
         ? {
             provider,
             templateId: effectiveTemplate.id || "",
-            mediaMode: "first_frame",
-            firstFrameDataUrl: dataUrl,
-            firstFrameFileName: file?.name || "template-source.png",
+            videoCapability: "wan27-r2v",
+            referenceImages: reference ? [reference] : [],
+            referenceVideoUrls: [playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "")].filter(Boolean),
             ratio,
             resolution,
             duration,
+            inputVideoSeconds: referenceVideoSeconds,
+            params: { ...recordBase.params },
+          }
+        : provider === "happyhorse"
+        ? {
+            provider,
+            templateId: effectiveTemplate.id || "",
+            videoCapability: "happyhorse-video-edit",
+            referenceImages: reference ? [reference] : [],
+            videoUrl: playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || ""),
+            ratio,
+            resolution,
+            duration,
+            inputVideoSeconds: referenceVideoSeconds,
             params: { ...recordBase.params },
           }
         : {
@@ -1264,7 +1283,7 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
     if (els.advancedProvider) els.advancedProvider.value = videoProvider;
     if (videoProvider === "wan27") {
       if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = "first_frame";
-    } else if (els.advancedSeedanceMediaMode) {
+    } else if (videoProvider === "seedance" && els.advancedSeedanceMediaMode) {
       els.advancedSeedanceMediaMode.value = playfluxNormalizeSeedanceMediaMode(sourceMode || template.seedanceMode || "reference_images");
     }
     if (els.advancedDuration) els.advancedDuration.value = String(template.duration || 5);
@@ -1292,7 +1311,7 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
     window.setTimeout(() => openAdvancedPresetDialog("character"), 120);
   } else if (openUpload) {
     triggerAdvancedLocalImageUpload({
-      sourceMode: videoProvider === "wan27" ? "first_frame" : (sourceMode === "first_last_frame" ? "first_last_frame" : "reference_images"),
+      sourceMode: videoProvider === "seedance" ? (sourceMode === "first_last_frame" ? "first_last_frame" : "reference_images") : "reference_video",
     });
   }
 }
