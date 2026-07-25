@@ -1792,7 +1792,7 @@ body.creator-picker-open {
 .tool-download-trigger svg { color: #2de2c8; }
 .tool-download-trigger[hidden] { display: none !important; }
 
-.tool-download-modal {
+dialog.tool-download-modal {
   width: min(390px, calc(100vw - 24px));
 }
 .tool-download-options {
