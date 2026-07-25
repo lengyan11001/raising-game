@@ -2883,7 +2883,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
           <p class="adm-muted">编辑积分、重置密码、切换角色或删除用户。</p>
         </div>
         <form class="adm-list-filters" id="usersFilterForm">
-          <input id="usersSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索用户名 / 用户ID / Token" />
+          <input id="usersSearchInput" type="search" value="${escapeHtml(q)}" placeholder="搜索用户名 / 用户ID / Token / 渠道" />
           <select id="usersRoleFilter">
             <option value="" ${role === "" ? "selected" : ""}>全部角色</option>
             <option value="user" ${role === "user" ? "selected" : ""}>普通用户</option>
@@ -2896,11 +2896,12 @@ async function renderUsers(pageArg = null, limitArg = null) {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-user-table">
-            <thead><tr><th>账号</th><th>角色</th><th>积分</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
+            <thead><tr><th>账号</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
                 <tr data-id="${escapeHtml(u.id)}">
                   <td><strong>${escapeHtml(u.username)}</strong><br/><span class="adm-muted adm-mono">${escapeHtml(u.id)}</span></td>
+                  <td><strong>${escapeHtml(u.tenantId || "main")}</strong><br/><span class="adm-muted">${escapeHtml(u.registrationChannel || "-")}</span></td>
                   <td><span class="adm-pill ${u.role === "admin" ? "is-admin" : ""}">${escapeHtml(u.role)}</span></td>
                   <td><strong>${escapeHtml(u.credits)}</strong></td>
                   <td><span class="adm-muted adm-mono">${escapeHtml(maskMiddle(u.apiToken || ""))}</span></td>

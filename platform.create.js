@@ -4388,10 +4388,22 @@ async function submitLogin() {
   }
   const endpoint = state.loginMode === "register" ? "/api/auth/register" : "/api/auth/login";
   const referralCode = localStorage.getItem(REFERRAL_CODE_KEY) || "";
+  let registrationAttribution = {};
+  try {
+    registrationAttribution = JSON.parse(localStorage.getItem(REGISTRATION_ATTRIBUTION_KEY) || "{}") || {};
+  } catch {
+    registrationAttribution = {};
+  }
   try {
     const payload = await requestJson(endpoint, {
       method: "POST",
-      body: { username, password, referralCode: state.loginMode === "register" ? referralCode : "" },
+      body: {
+        username,
+        password,
+        referralCode: state.loginMode === "register" ? referralCode : "",
+        channel: state.loginMode === "register" ? registrationAttribution.channel || "direct" : "",
+        attribution: state.loginMode === "register" ? registrationAttribution : {},
+      },
     });
     state.token = payload.token;
     setUser(payload.user);
@@ -4458,8 +4470,37 @@ function captureReferralCodeFromUrl() {
   if (ref) localStorage.setItem(REFERRAL_CODE_KEY, ref);
 }
 
+function captureRegistrationAttributionFromUrl() {
+  const params = new URLSearchParams(window.location.search || "");
+  const clean = (value, maxLength = 120) => String(value || "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+  const explicitChannel = clean(params.get("channel") || params.get("utm_source") || "", 80);
+  let previous = {};
+  try {
+    previous = JSON.parse(localStorage.getItem(REGISTRATION_ATTRIBUTION_KEY) || "{}") || {};
+  } catch {
+    previous = {};
+  }
+  if (!explicitChannel && previous.channel) return;
+  const attribution = {
+    channel: explicitChannel || "direct",
+    medium: clean(params.get("utm_medium"), 80),
+    campaign: clean(params.get("utm_campaign"), 120),
+    content: clean(params.get("utm_content"), 120),
+    landingPath: clean(window.location.pathname, 500),
+    capturedAt: new Date().toISOString(),
+  };
+  try {
+    localStorage.setItem(REGISTRATION_ATTRIBUTION_KEY, JSON.stringify(attribution));
+  } catch {}
+}
+
 async function bootstrap() {
   captureReferralCodeFromUrl();
+  captureRegistrationAttributionFromUrl();
   await loadMe();
   const payload = await requestJson("/api/config/public");
   const platform = payload.config?.platform || {};

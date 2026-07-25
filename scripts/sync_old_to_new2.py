@@ -18,6 +18,7 @@ DEFAULT_OLD_ROOT = Path(r"D:\raising-game-old-asyncfix")
 DEFAULT_NEW2_ROOT = Path(r"D:\raising-game-667zui")
 
 SHARED_APP_FILES = (
+    ".gitignore",
     "platform.html",
     "platform.css",
     "platform.js",
@@ -28,6 +29,17 @@ SHARED_APP_FILES = (
     "platform.create.js",
     "platform.main.js",
     "tool-video.css",
+    "downloads/123tops-video.apk",
+    "downloads/123tops-video.mobileconfig",
+    "mobile/android/AndroidManifest.xml",
+    "mobile/android/README.md",
+    "mobile/android/res/drawable/ic_launcher.xml",
+    "mobile/android/res/values/colors.xml",
+    "mobile/android/res/values/strings.xml",
+    "mobile/android/res/values/styles.xml",
+    "mobile/android/src/com/tops123/video/MainActivity.java",
+    "scripts/build_tool_android.ps1",
+    "scripts/build_tool_installers.ps1",
     "admin.html",
     "admin.js",
     "db.js",

@@ -4,6 +4,7 @@ const TOKEN_KEY = "raisingGameToken";
 const LANG_KEY = "raisingGameLanguage";
 const TAB_KEY = "raisingGamePlatformTab";
 const REFERRAL_CODE_KEY = "raisingGameReferralCode";
+const REGISTRATION_ATTRIBUTION_KEY = "raisingGameRegistrationAttribution";
 const AGE_GATE_ACCEPTED_KEY = "raisingGameAgeGateAccepted";
 const ALL_TABS = new Set(["gallery", "characters", "advanced", "workflow", "assets", "access", "history", "topups", "spending", "referral", "pricing"]);
 const DEFAULT_TEMPLATE_COVER = "/assets/admin/home/default-hero.jpg";
@@ -995,6 +996,9 @@ const els = {
   historyPager: document.querySelector("#historyPager"),
   topupDialog: document.querySelector("#topupDialog"),
   topupHeadBtn: document.querySelector("#topupHeadBtn"),
+  toolDownloadBtn: document.querySelector("#toolDownloadBtn"),
+  mobileToolDownloadBtn: document.querySelector("#mobileToolDownloadBtn"),
+  toolDownloadDialog: document.querySelector("#toolDownloadDialog"),
   topupMethodTabs: document.querySelector("#topupMethodTabs"),
   topupPaypalPanel: document.querySelector("#topupPaypalPanel"),
   topupUsdtPanel: document.querySelector("#topupUsdtPanel"),

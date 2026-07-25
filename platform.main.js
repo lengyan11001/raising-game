@@ -580,7 +580,39 @@ function openTopupDialog() {
   syncTopupAutoRefresh();
   refreshIcons();
 }
+
+const TOOL_ANDROID_APK_URL = "/downloads/123tops-video.apk";
+const TOOL_IOS_PROFILE_URL = "/downloads/123tops-video.mobileconfig";
+
+function toolInstallPlatform() {
+  const userAgent = String(navigator.userAgent || "");
+  const platform = String(navigator.platform || "");
+  if (/android/i.test(userAgent)) return "android";
+  if (/iPad|iPhone|iPod/i.test(userAgent) || (platform === "MacIntel" && Number(navigator.maxTouchPoints || 0) > 1)) return "ios";
+  return "desktop";
+}
+
+function openToolDownload() {
+  if (!tenantFeature("toolOnly", false)) return;
+  closeAccountMenu();
+  closeMobileDrawer();
+  const platform = toolInstallPlatform();
+  trackAnalyticsEvent("tool_install_click", { event_location: "header", platform });
+  if (platform === "android") {
+    window.location.assign(TOOL_ANDROID_APK_URL);
+    return;
+  }
+  if (platform === "ios") {
+    window.location.assign(TOOL_IOS_PROFILE_URL);
+    return;
+  }
+  if (!els.toolDownloadDialog?.open) els.toolDownloadDialog?.showModal();
+  refreshIcons();
+}
+
 els.topupHeadBtn?.addEventListener("click", openTopupDialog);
+els.toolDownloadBtn?.addEventListener("click", openToolDownload);
+els.mobileToolDownloadBtn?.addEventListener("click", openToolDownload);
 els.topupTriggerBtn?.addEventListener("click", openTopupDialog);
 els.topupQrDialog?.addEventListener("close", syncTopupAutoRefresh);
 els.previewDialog?.addEventListener("close", () => {

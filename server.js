@@ -584,6 +584,8 @@ const mimeTypes = new Map([
   [".webm", "video/webm"],
   [".mov", "video/quicktime"],
   [".m4v", "video/x-m4v"],
+  [".apk", "application/vnd.android.package-archive"],
+  [".mobileconfig", "application/x-apple-aspen-config"],
 ]);
 
 const DEFAULT_DB = {
@@ -20564,6 +20566,16 @@ async function handleRegister(req, res) {
   const username = String(body.username || "").trim().toLowerCase();
   const password = String(body.password || "");
   const referralCode = normalizeReferralCode(body.referralCode || body.referral || body.ref || "");
+  const attributionValue = (value, maxLength = 120) => String(value || "")
+    .normalize("NFKC")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+  const rawAttribution = body.attribution && typeof body.attribution === "object" && !Array.isArray(body.attribution)
+    ? body.attribution
+    : {};
+  const registrationChannel = attributionValue(body.channel || rawAttribution.channel || "direct", 80) || "direct";
   if (!/^[a-z0-9_]{3,24}$/.test(username)) {
     return sendJson(res, 400, { ok: false, message: "Username must be 3-24 chars: letters, digits or underscores." });
   }
@@ -20590,6 +20602,17 @@ async function handleRegister(req, res) {
     pricingMultiplier: 1,
     apiPricingMultiplier: 1,
     apiToken: makeUniqueApiToken(db),
+    registrationChannel,
+    registrationAttribution: {
+      channel: registrationChannel,
+      medium: attributionValue(rawAttribution.medium, 80),
+      campaign: attributionValue(rawAttribution.campaign, 120),
+      content: attributionValue(rawAttribution.content, 120),
+      landingPath: attributionValue(rawAttribution.landingPath, 500),
+      host: attributionValue(requestHostname(req), 160),
+      capturedAt: attributionValue(rawAttribution.capturedAt, 40),
+      registeredAt: now,
+    },
     createdAt: now,
     updatedAt: now,
   };
@@ -26894,9 +26917,11 @@ async function handleAdminListUsers(req, res, url) {
     walletOrders: orderByUser.get(u.id) || 0,
     advancedAccess: u.advancedAccess === true,
     advancedAccessRequestedAt: u.advancedAccessRequestedAt || "",
+    registrationChannel: u.registrationChannel || u.registrationAttribution?.channel || "",
+    registrationAttribution: u.registrationAttribution && typeof u.registrationAttribution === "object" ? u.registrationAttribution : {},
   }));
   if (query) {
-    list = list.filter((user) => [user.username, user.id, user.tenantId, user.apiToken, user.role]
+    list = list.filter((user) => [user.username, user.id, user.tenantId, user.apiToken, user.role, user.registrationChannel, user.registrationAttribution?.host]
       .some((value) => String(value || "").toLowerCase().includes(query)));
   }
   if (role) list = list.filter((user) => String(user.role || "").toLowerCase() === role);
@@ -28327,6 +28352,12 @@ async function serveStatic(req, res, url) {
       contentType.startsWith("image/") ||
       contentType.startsWith("font/") ||
       filePath.startsWith(path.normalize(path.join(ROOT, "assets", "ourdream")));
+    const extension = path.extname(filePath).toLowerCase();
+    const extraHeaders = extension === ".apk"
+      ? { "content-disposition": `attachment; filename="${path.basename(filePath).replace(/["\\]/g, "")}"`, "x-content-type-options": "nosniff" }
+      : extension === ".mobileconfig"
+        ? { "x-content-type-options": "nosniff" }
+        : {};
     res.writeHead(200, {
       "content-type": contentType,
       "content-length": stat.size,
@@ -28338,6 +28369,7 @@ async function serveStatic(req, res, url) {
           : contentType.startsWith("text/")
             ? "no-cache"
             : "public, max-age=60",
+      ...extraHeaders,
     });
     if (req.method === "HEAD") return res.end();
     return pipeFileStream(res, filePath);

@@ -472,6 +472,9 @@ function applyTenantFeatures() {
     }
   });
   if (toolOnly && toolId) document.body.classList.add(`tenant-tool-${toolId}`);
+  [els.toolDownloadBtn, els.mobileToolDownloadBtn].forEach((element) => {
+    if (element) element.hidden = !toolOnly;
+  });
   document.querySelectorAll(".tenant-menu-only").forEach((element) => {
     element.hidden = !accountMenuEnabled;
   });
