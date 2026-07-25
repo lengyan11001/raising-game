@@ -485,6 +485,8 @@ const ALIYUN_WAN27_T2V_MODEL = process.env.ALIYUN_WAN27_T2V_MODEL || "wan2.7-t2v
 const ALIYUN_WAN27_I2V_MODEL = process.env.ALIYUN_WAN27_I2V_MODEL || ALIYUN_WAN27_MODEL;
 const ALIYUN_WAN27_R2V_MODEL = process.env.ALIYUN_WAN27_R2V_MODEL || "wan2.7-r2v-2026-06-12";
 const ALIYUN_WAN27_VIDEO_EDIT_MODEL = process.env.ALIYUN_WAN27_VIDEO_EDIT_MODEL || "wan2.7-videoedit";
+const ALIYUN_WAN_ANIMATE_MOVE_MODEL = process.env.ALIYUN_WAN_ANIMATE_MOVE_MODEL || "wan2.2-animate-move";
+const ALIYUN_WAN_ANIMATE_MIX_MODEL = process.env.ALIYUN_WAN_ANIMATE_MIX_MODEL || "wan2.2-animate-mix";
 const ALIYUN_HAPPYHORSE_T2V_MODEL = process.env.ALIYUN_HAPPYHORSE_T2V_MODEL || "happyhorse-1.1-t2v";
 const ALIYUN_HAPPYHORSE_I2V_MODEL = process.env.ALIYUN_HAPPYHORSE_I2V_MODEL || "happyhorse-1.1-i2v";
 const ALIYUN_HAPPYHORSE_R2V_MODEL = process.env.ALIYUN_HAPPYHORSE_R2V_MODEL || "happyhorse-1.1-r2v";
@@ -10583,6 +10585,8 @@ function aliyunVideoModelForCapability(capability = "", requestedModel = "") {
     "wan27-i2v": ALIYUN_WAN27_I2V_MODEL,
     "wan27-r2v": ALIYUN_WAN27_R2V_MODEL,
     "wan27-video-edit": ALIYUN_WAN27_VIDEO_EDIT_MODEL,
+    "wan-animate-move": ALIYUN_WAN_ANIMATE_MOVE_MODEL,
+    "wan-animate-mix": ALIYUN_WAN_ANIMATE_MIX_MODEL,
     "happyhorse-t2v": ALIYUN_HAPPYHORSE_T2V_MODEL,
     "happyhorse-i2v": ALIYUN_HAPPYHORSE_I2V_MODEL,
     "happyhorse-r2v": ALIYUN_HAPPYHORSE_R2V_MODEL,
