@@ -690,6 +690,11 @@ function playfluxTemplateNeedsSource(template = {}) {
   return playfluxTemplateRequiredSourceCount(template) > 0;
 }
 
+function playfluxTemplateVideoProvider() {
+  if (!isToolTenant("video")) return "seedance";
+  return tenantStringFeature("videoProvider", "wan27") === "seedance" ? "seedance" : "wan27";
+}
+
 function playfluxTemplateRequiredSourceCount(template = {}) {
   if (template.tab === "video") return 1;
   if (!template.sourceRequired) return 0;
@@ -698,6 +703,7 @@ function playfluxTemplateRequiredSourceCount(template = {}) {
 
 function playfluxTemplateDefaultSourceMode(template = {}) {
   if (template.tab !== "video") return "";
+  if (playfluxTemplateVideoProvider() === "wan27") return "first_frame";
   return playfluxNormalizeSeedanceMediaMode(template.seedanceMode || "reference_images");
 }
 
@@ -824,8 +830,10 @@ function playfluxTemplateImagePrompt(template = {}, sourceImageCount = 0, previe
 }
 
 function playfluxTemplateEstimateCacheKey(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
-  const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(sourceMode);
+  const provider = template.tab === "video" ? playfluxTemplateVideoProvider() : "wan27-image-edit";
+  const usesReferenceVideo = provider === "seedance" && playfluxSeedanceModeNeedsReferenceVideo(sourceMode);
   return [
+    provider,
     template.id || "",
     template.tab || "",
     sourceMode || "",
@@ -843,6 +851,7 @@ function playfluxTemplateCachedEstimate(template = {}, sourceMode = playfluxTemp
 }
 
 function playfluxTemplateVideoInputSeconds(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template), duration = Number(template.duration || 5)) {
+  if (playfluxTemplateVideoProvider() !== "seedance") return 0;
   if (!playfluxSeedanceModeNeedsReferenceVideo(sourceMode)) return 0;
   const cached = playfluxTemplateCachedEstimate(template, sourceMode);
   return Number(cached?.videoInputSeconds || template.referenceVideoDurationSeconds || duration);
@@ -853,11 +862,14 @@ function playfluxTemplateCostLabel(template = {}, sourceMode = playfluxTemplateD
     const duration = Number(template.duration || 5);
     const resolution = template.resolution || "720p";
     const ratio = template.ratio || "9:16";
+    const provider = playfluxTemplateVideoProvider();
     const cached = playfluxTemplateCachedEstimate(template, sourceMode);
-    const pricing = cached || advancedPricing(duration, "seedance", resolution, ratio, {
-      seedanceTier: "standard",
-      inputVideoSeconds: playfluxTemplateVideoInputSeconds(template, sourceMode, duration),
-    });
+    const pricing = cached || advancedPricing(duration, provider, resolution, ratio, provider === "seedance"
+      ? {
+          seedanceTier: "standard",
+          inputVideoSeconds: playfluxTemplateVideoInputSeconds(template, sourceMode, duration),
+        }
+      : {});
     return t("cost.credits", { credits: formatCredits(pricing.credits) });
   }
   return assetImageModifyCostLabel();
@@ -887,17 +899,23 @@ async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "")
   const duration = Number(template.duration || 5);
   const resolution = template.resolution || "720p";
   const ratio = normalizeVideoRatio(template.ratio || "9:16");
-  const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(mode);
+  const provider = playfluxTemplateVideoProvider();
+  const usesReferenceVideo = provider === "seedance" && playfluxSeedanceModeNeedsReferenceVideo(mode);
   try {
     const payload = await requestJson("/api/advanced/estimate", {
       method: "POST",
       body: {
-        provider: "seedance",
-        seedanceTier: "standard",
+        provider,
+        ...(provider === "seedance" ? { seedanceTier: "standard" } : { mediaMode: "first_frame" }),
+        templateId: template.id || "",
         duration,
         resolution,
         ratio,
         inputVideoSeconds: usesReferenceVideo ? Number(template.referenceVideoDurationSeconds || duration) : 0,
+        params: {
+          source: "playflux",
+          templateTab: "video",
+        },
       },
     });
     const pricing = payload.pricing || payload.estimate || null;
@@ -924,7 +942,7 @@ function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seed
   return {
     taskId,
     status: "submitting",
-    model: provider === "seedance" ? "Seedance" : "Wan 2.7 Image",
+    model: provider === "seedance" ? "Seedance" : (provider === "wan27" ? "Wan 2.7" : "Wan 2.7 Image"),
     provider,
     source: "playflux-template",
     kind: template.tab === "video" ? "advanced-video" : "asset-image",
@@ -987,9 +1005,11 @@ async function submitPlayfluxTemplate(template = {}, root) {
   playfluxTemplateStatus(root, "Submitting...");
   const isVideo = effectiveTemplate.tab === "video";
   const isAnime = effectiveTemplate.tab === "anime";
-  const provider = isVideo ? "seedance" : "wan27-image-edit";
+  const provider = isVideo ? playfluxTemplateVideoProvider() : "wan27-image-edit";
   const selectedVideoSourceMode = isVideo
-    ? playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images")
+    ? (provider === "wan27"
+        ? "first_frame"
+        : playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images"))
     : "";
   const pendingTaskId = `pending-playflux-${Date.now().toString(36)}`;
   mergeAdvancedResultRecord(playfluxTemplateRecordBase(effectiveTemplate, pendingTaskId, provider));
@@ -1007,25 +1027,39 @@ async function submitPlayfluxTemplate(template = {}, root) {
       const usesReferenceVideo = playfluxSeedanceModeNeedsReferenceVideo(sourceMode);
       const referenceVideoSeconds = playfluxTemplateVideoInputSeconds(effectiveTemplate, sourceMode, duration);
       const recordBase = playfluxTemplateRecordBase(effectiveTemplate, "", provider);
+      const generateBody = provider === "wan27"
+        ? {
+            provider,
+            templateId: effectiveTemplate.id || "",
+            mediaMode: "first_frame",
+            firstFrameDataUrl: dataUrl,
+            firstFrameFileName: file?.name || "template-source.png",
+            ratio,
+            resolution,
+            duration,
+            params: { ...recordBase.params },
+          }
+        : {
+            provider,
+            seedanceTier: "standard",
+            templateId: effectiveTemplate.id || "",
+            seedanceMode: sourceMode,
+            referenceImages: (playfluxSeedanceModeNeedsReferenceImages(sourceMode) || usesReferenceVideo) && reference ? [seedanceImageRefPayload(reference)] : undefined,
+            referenceVideoUrls: usesReferenceVideo
+              ? [effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || ""].filter(Boolean)
+              : undefined,
+            firstFrameDataUrl: playfluxSeedanceModeNeedsFirstFrame(sourceMode) && reference ? dataUrl : undefined,
+            firstFrameUrl: "",
+            ratio,
+            resolution,
+            duration,
+            inputVideoSeconds: referenceVideoSeconds,
+            referenceVideoDurationSeconds: referenceVideoSeconds,
+            params: { ...recordBase.params },
+          };
       const payload = await requestJson("/api/advanced/generate", {
         method: "POST",
-        body: {
-          provider: "seedance",
-          seedanceTier: "standard",
-          templateId: effectiveTemplate.id || "",
-          seedanceMode: sourceMode,
-          referenceImages: (playfluxSeedanceModeNeedsReferenceImages(sourceMode) || usesReferenceVideo) && reference ? [seedanceImageRefPayload(reference)] : undefined,
-          firstFrameDataUrl: playfluxSeedanceModeNeedsFirstFrame(sourceMode) && reference ? dataUrl : undefined,
-          firstFrameUrl: "",
-          ratio,
-          resolution,
-          duration,
-          inputVideoSeconds: referenceVideoSeconds,
-          referenceVideoDurationSeconds: referenceVideoSeconds,
-          params: {
-            ...recordBase.params,
-          },
-        },
+        body: generateBody,
       });
       if (payload.user) setUser(payload.user);
       state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== pendingTaskId);
@@ -1223,11 +1257,16 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
   state.advancedFirstFrameAssetId = "";
   state.advancedSeedanceVideoAssetId = "";
   state.advancedSeedanceVideoPreviewUrl = "";
+  const videoProvider = playfluxTemplateVideoProvider();
   if (template.tab === "video") {
     state.advancedCreateKind = "video";
     state.advancedCreateMode = "video-image";
-    if (els.advancedProvider) els.advancedProvider.value = "seedance";
-    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = playfluxNormalizeSeedanceMediaMode(sourceMode || template.seedanceMode || "reference_images");
+    if (els.advancedProvider) els.advancedProvider.value = videoProvider;
+    if (videoProvider === "wan27") {
+      if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = "first_frame";
+    } else if (els.advancedSeedanceMediaMode) {
+      els.advancedSeedanceMediaMode.value = playfluxNormalizeSeedanceMediaMode(sourceMode || template.seedanceMode || "reference_images");
+    }
     if (els.advancedDuration) els.advancedDuration.value = String(template.duration || 5);
     if (els.advancedResolution) els.advancedResolution.value = template.resolution || "720p";
     if (els.advancedRatio) els.advancedRatio.value = normalizeVideoRatio(template.ratio || "9:16");
@@ -1252,7 +1291,9 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
   if (openCharacter) {
     window.setTimeout(() => openAdvancedPresetDialog("character"), 120);
   } else if (openUpload) {
-    triggerAdvancedLocalImageUpload({ sourceMode: sourceMode === "first_last_frame" ? "first_last_frame" : "reference_images" });
+    triggerAdvancedLocalImageUpload({
+      sourceMode: videoProvider === "wan27" ? "first_frame" : (sourceMode === "first_last_frame" ? "first_last_frame" : "reference_images"),
+    });
   }
 }
 
