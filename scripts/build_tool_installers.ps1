@@ -1,13 +1,56 @@
-param([switch]$SkipAndroid)
+param(
+  [string]$Channel = "",
+  [string]$OutputName = "",
+  [string]$BaseUrl = "https://123tops.com/",
+  [int]$VersionCode = 1,
+  [string]$VersionName = "1.0.0",
+  [switch]$SkipAndroid
+)
 
 $ErrorActionPreference = "Stop"
+
+function New-ChannelUrl {
+  param([string]$Url, [string]$ChannelName)
+  try {
+    $builder = New-Object System.UriBuilder $Url
+  } catch {
+    throw "BaseUrl must be a valid absolute URL: $Url"
+  }
+  if ($builder.Scheme -notin @("http", "https") -or -not $builder.Host) {
+    throw "BaseUrl must use http or https and include a host: $Url"
+  }
+  Add-Type -AssemblyName System.Web
+  $query = [System.Web.HttpUtility]::ParseQueryString($builder.Query)
+  $query.Set("channel", $ChannelName)
+  $builder.Query = $query.ToString()
+  return $builder.Uri.AbsoluteUri
+}
+
+if ($Channel -and $Channel -notmatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$") {
+  throw "Channel must be 1-64 characters using letters, digits, dot, underscore, or hyphen."
+}
+if (-not $OutputName) {
+  $OutputName = if ($Channel) { "123tops-video-$Channel" } else { "123tops-video" }
+}
+if ($OutputName -notmatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$") {
+  throw "OutputName must be a safe file name without an extension."
+}
+$androidChannel = if ($Channel) { $Channel } else { "android-app" }
+$iosChannel = if ($Channel) { $Channel } else { "ios-home-screen" }
+$iosUrl = New-ChannelUrl -Url $BaseUrl -ChannelName $iosChannel
+$iosUrlXml = [System.Security.SecurityElement]::Escape($iosUrl)
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $downloadRoot = Join-Path $repoRoot "downloads"
 $buildRoot = Join-Path $repoRoot "mobile\android\build"
 New-Item -ItemType Directory -Force -Path $downloadRoot, $buildRoot | Out-Null
 
 if (-not $SkipAndroid) {
-  & (Join-Path $PSScriptRoot "build_tool_android.ps1")
+  & (Join-Path $PSScriptRoot "build_tool_android.ps1") `
+    -Channel $androidChannel `
+    -OutputName $OutputName `
+    -BaseUrl $BaseUrl `
+    -VersionCode $VersionCode `
+    -VersionName $VersionName
   if ($LASTEXITCODE -ne 0) { throw "Android build failed with exit code $LASTEXITCODE" }
 }
 
@@ -62,7 +105,7 @@ $profile = @"
       <key>PayloadUUID</key><string>94AB5109-AAD6-4D68-A87E-1D3EB322FEF7</string>
       <key>PayloadVersion</key><integer>1</integer>
       <key>Precomposed</key><true/>
-      <key>URL</key><string>https://123tops.com/?channel=ios-home-screen</string>
+      <key>URL</key><string>$iosUrlXml</string>
     </dict>
   </array>
   <key>PayloadDescription</key><string>Installs 123Tops Video on the Home Screen.</string>
@@ -77,6 +120,6 @@ $profile = @"
 </plist>
 "@
 
-$profilePath = Join-Path $downloadRoot "123tops-video.mobileconfig"
+$profilePath = Join-Path $downloadRoot "$OutputName.mobileconfig"
 [System.IO.File]::WriteAllText($profilePath, $profile, (New-Object System.Text.UTF8Encoding($false)))
-Write-Host "Built $profilePath"
+Write-Host "Built $profilePath (channel=$iosChannel, url=$iosUrl)"

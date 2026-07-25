@@ -10,6 +10,8 @@ mobile/android/build/
 *.jks
 *.keystore
 *.idsig
+downloads/123tops-video-*.apk
+downloads/123tops-video-*.mobileconfig
 .env.local
 logs/
 data/

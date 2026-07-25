@@ -1,5 +1,8 @@
 param(
   [string]$SdkRoot = $env:ANDROID_SDK_ROOT,
+  [string]$Channel = "android-app",
+  [string]$OutputName = "123tops-video",
+  [string]$BaseUrl = "https://123tops.com/",
   [int]$VersionCode = 1,
   [string]$VersionName = "1.0.0"
 )
@@ -13,6 +16,33 @@ function Invoke-Checked {
     throw "Command failed with exit code ${LASTEXITCODE}: $Command"
   }
 }
+
+function New-ChannelUrl {
+  param([string]$Url, [string]$ChannelName)
+  try {
+    $builder = New-Object System.UriBuilder $Url
+  } catch {
+    throw "BaseUrl must be a valid absolute URL: $Url"
+  }
+  if ($builder.Scheme -notin @("http", "https") -or -not $builder.Host) {
+    throw "BaseUrl must use http or https and include a host: $Url"
+  }
+  Add-Type -AssemblyName System.Web
+  $query = [System.Web.HttpUtility]::ParseQueryString($builder.Query)
+  $query.Set("channel", $ChannelName)
+  $builder.Query = $query.ToString()
+  return $builder.Uri.AbsoluteUri
+}
+
+if ($Channel -notmatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$") {
+  throw "Channel must be 1-64 characters using letters, digits, dot, underscore, or hyphen."
+}
+if ($OutputName -notmatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$") {
+  throw "OutputName must be a safe file name without an extension."
+}
+if ($VersionCode -lt 1) { throw "VersionCode must be at least 1." }
+if ([string]::IsNullOrWhiteSpace($VersionName)) { throw "VersionName is required." }
+$startUrl = New-ChannelUrl -Url $BaseUrl -ChannelName $Channel
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $androidRoot = Join-Path $repoRoot "mobile\android"
@@ -51,9 +81,24 @@ if (Test-Path -LiteralPath $buildRoot) {
 $classesDir = Join-Path $buildRoot "classes"
 $dexDir = Join-Path $buildRoot "dex"
 $generatedDir = Join-Path $buildRoot "generated"
-New-Item -ItemType Directory -Force -Path $classesDir, $dexDir, $generatedDir, $downloadRoot | Out-Null
+$generatedSourceDir = Join-Path $buildRoot "source\com\tops123\video"
+New-Item -ItemType Directory -Force -Path $classesDir, $dexDir, $generatedDir, $generatedSourceDir, $downloadRoot | Out-Null
 
-$sourceFile = Join-Path $androidRoot "src\com\tops123\video\MainActivity.java"
+$sourceTemplate = Join-Path $androidRoot "src\com\tops123\video\MainActivity.java"
+$sourceFile = Join-Path $generatedSourceDir "MainActivity.java"
+$sourceText = [System.IO.File]::ReadAllText($sourceTemplate)
+$startUrlLiteral = $startUrl.Replace("\", "\\").Replace('"', '\"')
+$sourcePattern = 'private static final String START_URL = "[^"]+";'
+$generatedSource = [System.Text.RegularExpressions.Regex]::Replace(
+  $sourceText,
+  $sourcePattern,
+  "private static final String START_URL = `"$startUrlLiteral`";",
+  1
+)
+if ($generatedSource -eq $sourceText -and $sourceText -notmatch [System.Text.RegularExpressions.Regex]::Escape($startUrl)) {
+  throw "Could not inject the channel URL into MainActivity.java."
+}
+[System.IO.File]::WriteAllText($sourceFile, $generatedSource, (New-Object System.Text.UTF8Encoding($false)))
 Invoke-Checked $javac @(
   "-encoding", "UTF-8", "-source", "8", "-target", "8",
   "-bootclasspath", $androidJar,
@@ -112,7 +157,7 @@ if (Test-Path -LiteralPath $signingConfig) {
   [System.IO.File]::WriteAllText($signingConfig, ($signing | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
 }
 
-$finalApk = Join-Path $downloadRoot "123tops-video.apk"
+$finalApk = Join-Path $downloadRoot "$OutputName.apk"
 $env:APK_SIGNING_PASSWORD = [string]$signing.password
 try {
   Invoke-Checked $apksigner @(
@@ -129,4 +174,4 @@ try {
 }
 
 Invoke-Checked $apksigner @("verify", "--verbose", "--print-certs", $finalApk)
-Write-Host "Built $finalApk"
+Write-Host "Built $finalApk (channel=$Channel, url=$startUrl, versionCode=$VersionCode)"
