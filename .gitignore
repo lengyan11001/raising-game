@@ -6,6 +6,10 @@ server.log
 server.err.log
 tmp/
 node_modules/
+mobile/android/build/
+*.jks
+*.keystore
+*.idsig
 .env.local
 logs/
 data/
