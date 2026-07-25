@@ -1445,6 +1445,11 @@ function advancedDurationBounds(provider = "seedance", capability = "") {
       : ""
   );
   if (resolvedCapability === "wan27-video-edit") return { min: 2, max: 10, fallback: 5 };
+  if (resolvedCapability === "wan27-r2v"
+    && typeof state !== "undefined"
+    && (state.advancedWanClipAssetId || state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim())) {
+    return { min: 2, max: 10, fallback: 5 };
+  }
   if (["wan-animate-move", "wan-animate-mix"].includes(resolvedCapability)) return { min: 2, max: 30, fallback: 5 };
   if (normalized === "happyhorse") return { min: 3, max: 15, fallback: 5 };
   return normalized === "wan27"
@@ -1698,7 +1703,9 @@ function currentAdvancedResolution() {
 }
 
 function advancedVideoSettingsVisible() {
-  return state.advancedCreateKind === "video" && !advancedCreateModeIsSimpleEdit();
+  return state.advancedCreateKind === "video"
+    && !advancedCreateModeIsSimpleEdit()
+    && !["wan-animate-move", "wan-animate-mix"].includes(currentAdvancedVideoCapability());
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {

@@ -1117,6 +1117,7 @@ function updateAdvancedModelControls() {
   const simpleEdit = advancedCreateModeIsSimpleEdit();
   const simpleAction = state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt();
   const aliyunVideo = provider === "wan27" || provider === "happyhorse";
+  const animateCapability = ["wan-animate-move", "wan-animate-mix"].includes(capability);
   const legacyModel = String(els.advancedLegacyWanModel?.value || "");
   const legacyT2v = capability === "wan-legacy" && legacyModel.includes("t2v");
   const capabilityNeedsPrimary = ["wan27-i2v", "wan-animate-move", "wan-animate-mix", "happyhorse-i2v"].includes(capability)
@@ -1137,6 +1138,7 @@ function updateAdvancedModelControls() {
     const current = normalizeAdvancedResolution(els.advancedResolution.value, provider);
     els.advancedResolution.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedResolution.value = options[0];
+    els.advancedResolution.closest(".field")?.toggleAttribute("hidden", animateCapability);
   }
   if (els.advancedSeedanceTier) {
     const active = provider === "seedance";
@@ -1157,7 +1159,7 @@ function updateAdvancedModelControls() {
     const current = normalizeVideoRatio(els.advancedRatio.value || "9:16");
     els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedRatio.value = isImageEdit ? "9:16" : "9:16";
-    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || simpleAction);
+    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || simpleAction || animateCapability);
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !capabilityNeedsMedia;
@@ -1189,7 +1191,7 @@ function updateAdvancedModelControls() {
     item.hidden = simpleAction;
   });
   document.querySelectorAll(".advanced-duration-field").forEach((item) => {
-    item.hidden = isImageEdit || isSeedreamImage || simpleEdit;
+    item.hidden = isImageEdit || isSeedreamImage || simpleEdit || animateCapability;
   });
   document.querySelectorAll(".advanced-seedance-audio-field").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || provider !== "seedance";
