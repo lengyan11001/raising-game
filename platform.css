@@ -8409,18 +8409,25 @@ select:focus,
     white-space: nowrap;
   }
   .mobile-tool-download-trigger {
-    display: inline-flex;
+    display: inline-grid;
+    place-items: center;
     width: 38px;
     min-width: 38px;
     height: 38px;
     min-height: 38px;
     border-radius: 10px;
     padding: 0;
+    gap: 0;
+    line-height: 0;
+    box-sizing: border-box;
   }
   .mobile-tool-download-trigger span { display: none; }
   .mobile-tool-download-trigger svg {
+    display: block;
+    margin: 0;
     width: 17px;
     height: 17px;
+    transform: translateY(-1px);
   }
   .mobile-drawer-backdrop {
     position: fixed;
