@@ -160,6 +160,7 @@ a { color: inherit; text-decoration: none; }
 }
 .mobile-drawer-toggle,
 .mobile-drawer-backdrop,
+.mobile-topup-trigger,
 .mobile-drawer-account {
   display: none;
 }
@@ -8274,6 +8275,35 @@ select:focus,
     width: 19px;
     height: 19px;
   }
+  .mobile-topup-trigger {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 80;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    max-width: calc(100vw - 68px);
+    min-height: 38px;
+    padding: 8px 12px;
+    border-color: rgba(255,79,163,.68);
+    border-radius: 10px;
+    color: #fff;
+    background: linear-gradient(135deg, #ff5ab0, #f32eb0);
+    box-shadow: 0 12px 28px rgba(255,79,163,.24);
+  }
+  .mobile-topup-trigger svg {
+    width: 17px;
+    height: 17px;
+    flex: 0 0 auto;
+    color: #fff;
+  }
+  .mobile-topup-trigger span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .mobile-drawer-backdrop {
     position: fixed;
     inset: 0;
@@ -8404,7 +8434,6 @@ select:focus,
     color: #75e3e2;
     font-size: .82rem;
   }
-  .mobile-drawer-topup,
   .mobile-drawer-login {
     width: 100%;
     min-height: 36px;
