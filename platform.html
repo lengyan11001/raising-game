@@ -294,8 +294,11 @@
               <div class="wan-media-grid">
                 <label class="field wan-first-frame">
                   <span data-i18n="advanced.firstFrame">First frame</span>
-                  <div class="wan-frame-stack">
+                  <div class="wan-frame-upload">
+                    <input id="advancedWanFirstFrame" type="file" accept="image/*" />
                     <img class="wan-frame-preview" id="advancedWanFirstFramePreview" alt="Vipeak 1 first frame preview" />
+                    <span><i data-lucide="image-up"></i><span data-i18n="advanced.firstFrame">First frame</span></span>
+                    <button class="wan-frame-remove" type="button" data-remove-advanced-slot="wanFirstFrame" aria-label="Remove">&times;</button>
                   </div>
                 </label>
                 <label class="field wan-extra wan-last-frame">
@@ -873,6 +876,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-312-pricing-family"></script>
+    <script src="./platform.js?v=ai-313-media-inputs"></script>
   </body>
 </html>

@@ -1391,10 +1391,10 @@ const ADVANCED_VIDEO_CAPABILITY_GROUPS = Object.freeze({
     Object.freeze({ value: "wan-animate-mix", label: "Character Replacement" }),
   ]),
   happyhorse: Object.freeze([
-    Object.freeze({ value: "happyhorse-t2v", label: "Text to Video" }),
-    Object.freeze({ value: "happyhorse-i2v", label: "Image to Video" }),
-    Object.freeze({ value: "happyhorse-r2v", label: "Reference to Video" }),
-    Object.freeze({ value: "happyhorse-video-edit", label: "Video Edit" }),
+    Object.freeze({ value: "happyhorse-i2v", label: "First Frame" }),
+    Object.freeze({ value: "happyhorse-t2v", label: "Text Prompt" }),
+    Object.freeze({ value: "happyhorse-r2v", label: "Reference Images" }),
+    Object.freeze({ value: "happyhorse-video-edit", label: "Source Video + References" }),
   ]),
 });
 
@@ -1422,7 +1422,10 @@ function syncAdvancedVideoCapabilityOptions(preferredCapability = "") {
     .map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`)
     .join("");
   els.advancedVideoCapability.value = options.some((item) => item.value === current) ? current : (options[0]?.value || "");
-  els.advancedVideoCapability.closest(".field")?.toggleAttribute("hidden", options.length <= 1);
+  const field = els.advancedVideoCapability.closest(".field");
+  field?.toggleAttribute("hidden", options.length <= 1);
+  const label = field?.querySelector(":scope > span");
+  if (label) label.textContent = advancedEngineValue() === "happyhorse" ? "Input" : "Mode";
 }
 
 function currentAdvancedVideoCapability(value = els.advancedProvider?.value || "") {
@@ -2458,13 +2461,14 @@ function clearAdvancedMediaInputs() {
     els.advancedImage,
     els.advancedSeedanceFirstFrame,
     els.advancedSeedanceLastFrame,
+    els.advancedWanFirstFrame,
     els.advancedWanLastFrame,
     els.advancedWanClipFile,
   ].forEach((input) => {
     if (input) input.value = "";
   });
   [
-    [els.advancedWanFirstFramePreview, els.advancedImage],
+    [els.advancedWanFirstFramePreview, els.advancedWanFirstFrame],
     [els.advancedSeedanceFirstFramePreview, els.advancedSeedanceFirstFrame],
     [els.advancedSeedanceLastFramePreview, els.advancedSeedanceLastFrame],
     [els.advancedWanLastFramePreview, els.advancedWanLastFrame],

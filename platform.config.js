@@ -1103,6 +1103,7 @@ const els = {
   advancedWanSeed: document.querySelector("#advancedWanSeed"),
   advancedWanMediaPanel: document.querySelector("#advancedWanMediaPanel"),
   advancedWanMediaMode: document.querySelector("#advancedWanMediaMode"),
+  advancedWanFirstFrame: document.querySelector("#advancedWanFirstFrame"),
   advancedLegacyWanModel: document.querySelector("#advancedLegacyWanModel"),
   advancedWanAnimateMode: document.querySelector("#advancedWanAnimateMode"),
   advancedWanLastFrame: document.querySelector("#advancedWanLastFrame"),

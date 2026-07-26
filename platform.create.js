@@ -1239,7 +1239,12 @@ function updateAdvancedModelControls() {
       els.advancedImage.multiple = allowManualReferenceUpload && ((provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode)) || isSeedreamImage || (aliyunVideo && advancedAliyunReferenceImageLimit(capability) > 1) || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload()));
     }
     const forceUpload = allowManualReferenceUpload && (simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload());
-    els.advancedUploadBox.hidden = hidePresetUploadBox || (aliyunVideo && !capabilityNeedsMedia);
+    const usesDedicatedFrameUpload = provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode);
+    const usesDedicatedAliyunUpload = ["wan27-i2v", "happyhorse-i2v", "wan-animate-move", "wan-animate-mix"].includes(capability);
+    els.advancedUploadBox.hidden = hidePresetUploadBox
+      || usesDedicatedFrameUpload
+      || usesDedicatedAliyunUpload
+      || (aliyunVideo && !capabilityNeedsMedia);
     els.advancedUploadBox.classList.toggle("is-wan", aliyunVideo);
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     els.advancedUploadBox.classList.toggle("is-seedream5", isSeedreamImage);
@@ -1462,13 +1467,14 @@ function clearAdvancedCreationInputs() {
     els.advancedImage,
     els.advancedSeedanceFirstFrame,
     els.advancedSeedanceLastFrame,
+    els.advancedWanFirstFrame,
     els.advancedWanLastFrame,
     els.advancedWanClipFile,
   ].forEach((input) => {
     if (input) input.value = "";
   });
   [
-    [els.advancedWanFirstFramePreview, els.advancedImage],
+    [els.advancedWanFirstFramePreview, els.advancedWanFirstFrame],
     [els.advancedSeedanceFirstFramePreview, els.advancedSeedanceFirstFrame],
     [els.advancedSeedanceLastFramePreview, els.advancedSeedanceLastFrame],
     [els.advancedWanLastFramePreview, els.advancedWanLastFrame],
@@ -3020,6 +3026,14 @@ function removeAdvancedMediaSlot(slot = "") {
     els.advancedSeedanceLastFramePreview?.removeAttribute("src");
     els.advancedSeedanceLastFramePreview?.classList.remove("is-visible");
     els.advancedSeedanceLastFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  } else if (slot === "wanFirstFrame") {
+    state.advancedReferenceImages = [];
+    state.advancedUploadDataUrl = "";
+    state.advancedFirstFrameAssetId = "";
+    if (els.advancedWanFirstFrame) els.advancedWanFirstFrame.value = "";
+    els.advancedWanFirstFramePreview?.removeAttribute("src");
+    els.advancedWanFirstFramePreview?.classList.remove("is-visible");
+    els.advancedWanFirstFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
   } else if (slot === "wanLastFrame") {
     state.advancedWanLastFrameAssetId = "";
     state.advancedWanLastFrameDataUrl = "";
@@ -3446,9 +3460,11 @@ function renderAdvancedReferencePreviews() {
     if ((provider === "wan27" || provider === "happyhorse" || provider === "wan27-image-edit") && firstFrame) {
       els.advancedWanFirstFramePreview.src = firstFrame;
       els.advancedWanFirstFramePreview.classList.add("is-visible");
+      els.advancedWanFirstFrame?.closest(".wan-frame-upload")?.classList.add("has-image");
     } else {
       els.advancedWanFirstFramePreview.removeAttribute("src");
       els.advancedWanFirstFramePreview.classList.remove("is-visible");
+      els.advancedWanFirstFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
     }
   }
   if (els.advancedSeedanceFirstFramePreview) {

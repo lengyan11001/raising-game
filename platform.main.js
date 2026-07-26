@@ -421,6 +421,28 @@ els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
   els.advancedSeedanceLastFrame.value = "";
   updateAdvancedModelControls();
 });
+els.advancedWanFirstFrame?.addEventListener("change", async () => {
+  const file = els.advancedWanFirstFrame.files?.[0];
+  if (!file) return;
+  if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES || !String(file.type || "").startsWith("image/")) {
+    els.advancedWanFirstFrame.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
+    updateAdvancedModelControls();
+    return;
+  }
+  const dataUrl = await readFileAsDataUrl(file);
+  state.advancedReferenceImages = [stampAdvancedReferenceOrder({
+    dataUrl,
+    fileName: file.name || "",
+    name: file.name || "",
+  })];
+  state.advancedUploadDataUrl = dataUrl;
+  state.advancedFirstFrameAssetId = "";
+  state.advancedSourceImageAssetId = "";
+  state.activeAdvancedCaseId = "";
+  els.advancedWanFirstFrame.value = "";
+  updateAdvancedModelControls();
+});
 els.advancedSeedanceVideoUrls?.addEventListener("input", () => {
   updateAdvancedReferenceSummary();
   updateAdvancedButtonCost();
@@ -738,6 +760,7 @@ document.querySelectorAll("[data-remove-advanced-slot]").forEach((button) => {
 });
 els.advancedSeedanceLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
 els.advancedSeedanceFirstFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("primary"));
+els.advancedWanFirstFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("primary"));
 els.advancedWanLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
 els.advancedWanClipFile?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("video"));
 els.advancedWanAudioUrl?.addEventListener("input", updateAdvancedButtonCost);
