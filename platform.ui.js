@@ -1425,7 +1425,7 @@ function syncAdvancedVideoCapabilityOptions(preferredCapability = "") {
   const field = els.advancedVideoCapability.closest(".field");
   field?.toggleAttribute("hidden", options.length <= 1);
   const label = field?.querySelector(":scope > span");
-  if (label) label.textContent = advancedEngineValue() === "happyhorse" ? "Input" : "Mode";
+  if (label) label.textContent = "Mode";
 }
 
 function currentAdvancedVideoCapability(value = els.advancedProvider?.value || "") {

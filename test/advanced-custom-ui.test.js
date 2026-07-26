@@ -35,7 +35,7 @@ test("Seedance keeps only the two product modes", () => {
 test("Wan and HappyHorse task modes live in the parameter capability map", () => {
   assert.match(ui, /wan27:[\s\S]*?value: "wan27-i2v"[\s\S]*?value: "wan27-video-edit"/);
   assert.match(ui, /happyhorse:[\s\S]*?value: "happyhorse-i2v", label: "First Frame"[\s\S]*?value: "happyhorse-video-edit"/);
-  assert.match(ui, /advancedEngineValue\(\) === "happyhorse" \? "Input" : "Mode"/);
+  assert.match(ui, /label\.textContent = "Mode"/);
   assert.match(ui, /"wan-animate":[\s\S]*?value: "wan-animate-move"[\s\S]*?value: "wan-animate-mix"/);
 });
 
