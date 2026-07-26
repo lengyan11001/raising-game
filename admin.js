@@ -3539,6 +3539,7 @@ function pricingRowTitle(row = {}) {
 }
 
 function pricingRowUsage(row = {}) {
+  if (row.usageLabel) return row.usageLabel;
   if (String(row.variant || "").toLowerCase() === "audio") return "Audio video";
   if (String(row.variant || "").toLowerCase() === "silent") return "Silent video";
   if (String(row.billing || "").toLowerCase() === "input_output") return "Input + output video seconds";

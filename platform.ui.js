@@ -1636,9 +1636,12 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
     const animateMode = String(options.mode || options.animateMode || els.advancedWanAnimateMode?.value || "wan-std") === "wan-pro" ? "wan-pro" : "wan-std";
     const rateKey = ["wan-animate-move", "wan-animate-mix"].includes(capability) ? animateMode : normalizedResolution;
-    const byResolution = configPricing.aliyunVideoCreditsPerSecondByCapability?.[capability]
-      || configPricing.wan27CreditsPerSecondByResolution
-      || {};
+    const familyPricing = normalizedProvider === "happyhorse"
+      ? configPricing.happyhorseCreditsPerSecondByResolution
+      : configPricing.wan27CreditsPerSecondByResolution;
+    const byResolution = ["wan-animate-move", "wan-animate-mix"].includes(capability)
+      ? configPricing.aliyunVideoCreditsPerSecondByCapability?.[capability] || {}
+      : familyPricing || {};
     const fallbackPerSecond = normalizedResolution === "1080p" ? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND : ADVANCED_WAN27_720P_CREDITS_PER_SECOND;
     const perSecond = Number(byResolution[rateKey] || fallbackPerSecond) || fallbackPerSecond;
     const inputBillingCapabilities = new Set(["wan27-r2v", "wan27-video-edit", "happyhorse-video-edit"]);

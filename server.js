@@ -424,6 +424,20 @@ const DEFAULT_ADVANCED_PRICING = {
     "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
     "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND,
   },
+  happyhorseCreditsPerSecondByResolution: {
+    "720p": Math.max(
+      defaultAliyunSaleCredits("happyhorse-t2v", { resolution: "720p" }),
+      defaultAliyunSaleCredits("happyhorse-i2v", { resolution: "720p" }),
+      defaultAliyunSaleCredits("happyhorse-r2v", { resolution: "720p" }),
+      defaultAliyunSaleCredits("happyhorse-video-edit", { resolution: "720p" }),
+    ),
+    "1080p": Math.max(
+      defaultAliyunSaleCredits("happyhorse-t2v", { resolution: "1080p" }, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+      defaultAliyunSaleCredits("happyhorse-i2v", { resolution: "1080p" }, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+      defaultAliyunSaleCredits("happyhorse-r2v", { resolution: "1080p" }, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+      defaultAliyunSaleCredits("happyhorse-video-edit", { resolution: "1080p" }, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+    ),
+  },
   aliyunVideoCreditsPerSecondByCapability: {
     "wan27-t2v": { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
     "wan27-i2v": { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
@@ -1503,6 +1517,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const wan27 = source.wan27CreditsPerSecondByResolution && typeof source.wan27CreditsPerSecondByResolution === "object"
     ? source.wan27CreditsPerSecondByResolution
     : {};
+  const happyhorse = source.happyhorseCreditsPerSecondByResolution && typeof source.happyhorseCreditsPerSecondByResolution === "object"
+    ? source.happyhorseCreditsPerSecondByResolution
+    : {};
   const aliyunVideoSource = source.aliyunVideoCreditsPerSecondByCapability && typeof source.aliyunVideoCreditsPerSecondByCapability === "object"
     ? source.aliyunVideoCreditsPerSecondByCapability
     : {};
@@ -1563,18 +1580,33 @@ function normalizeAdvancedPricing(pricing = {}) {
     "720p": normalizeStoredCredits(wan27["720p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"]),
     "1080p": normalizeStoredCredits(wan27["1080p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["1080p"]),
   };
+  const happyhorseCapabilities = ["happyhorse-t2v", "happyhorse-i2v", "happyhorse-r2v", "happyhorse-video-edit"];
+  const normalizedHappyhorseRates = Object.fromEntries(["720p", "1080p"].map((resolution) => {
+    const legacyRates = happyhorseCapabilities
+      .map((capability) => aliyunVideoSource[capability]?.[resolution])
+      .filter((value) => Number.isFinite(Number(value)) && Number(value) >= 0)
+      .map((value) => normalizeStoredCredits(value, 0));
+    const fallback = legacyRates.length
+      ? Math.max(...legacyRates)
+      : DEFAULT_ADVANCED_PRICING.happyhorseCreditsPerSecondByResolution[resolution];
+    return [resolution, normalizeStoredCredits(happyhorse[resolution], fallback)];
+  }));
   const aliyunVideoCreditsPerSecondByCapability = {};
   for (const [capability, fallbackRates] of Object.entries(DEFAULT_ADVANCED_PRICING.aliyunVideoCreditsPerSecondByCapability || {})) {
     const sourceRates = aliyunVideoSource[capability] && typeof aliyunVideoSource[capability] === "object"
       ? aliyunVideoSource[capability]
       : {};
     const inheritsWan27Rates = capability.startsWith("wan27-") || capability === "wan-legacy";
+    const inheritsHappyhorseRates = capability.startsWith("happyhorse-");
     aliyunVideoCreditsPerSecondByCapability[capability] = Object.fromEntries(
       Object.keys(fallbackRates).map((rateKey) => {
-        const inheritedFallback = inheritsWan27Rates && normalizedWan27Rates[rateKey] !== undefined
+        const inheritedFallback = inheritsHappyhorseRates && normalizedHappyhorseRates[rateKey] !== undefined
+          ? normalizedHappyhorseRates[rateKey]
+          : inheritsWan27Rates && normalizedWan27Rates[rateKey] !== undefined
           ? normalizedWan27Rates[rateKey]
           : fallbackRates[rateKey];
-        return [rateKey, normalizeStoredCredits(sourceRates[rateKey], inheritedFallback)];
+        const value = inheritsHappyhorseRates ? normalizedHappyhorseRates[rateKey] : sourceRates[rateKey];
+        return [rateKey, normalizeStoredCredits(value, inheritedFallback)];
       }),
     );
   }
@@ -1624,6 +1656,7 @@ function normalizeAdvancedPricing(pricing = {}) {
       "720p": normalizeStoredCredits(seedanceFastVideoInput["720p"], DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["720p"]),
     },
     wan27CreditsPerSecondByResolution: normalizedWan27Rates,
+    happyhorseCreditsPerSecondByResolution: normalizedHappyhorseRates,
     aliyunVideoCreditsPerSecondByCapability,
     aliyunVideoCreditsPerSecondByModel,
     wan27ImagePro: {
@@ -1678,6 +1711,11 @@ function publicAdvancedPricingView(pricing = {}) {
     seedanceFastCreditsPerSecondByResolution: { ...normalized.seedanceFastCreditsPerSecondByResolution },
     seedanceFastVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceFastVideoInputCreditsPerSecondByResolution },
     wan27CreditsPerSecondByResolution: { ...normalized.wan27CreditsPerSecondByResolution },
+    happyhorseCreditsPerSecondByResolution: { ...normalized.happyhorseCreditsPerSecondByResolution },
+    aliyunVideoCreditsPerSecondByCapability: {
+      "wan-animate-move": { ...normalized.aliyunVideoCreditsPerSecondByCapability["wan-animate-move"] },
+      "wan-animate-mix": { ...normalized.aliyunVideoCreditsPerSecondByCapability["wan-animate-mix"] },
+    },
     vipeak1Image: {
       model: imagePricing.model || WAN27_IMAGE_PRO_MODEL,
       costCredits: imageCostCredits,
@@ -6091,10 +6129,22 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       : configuredModelTable?.[variantRateKey] !== undefined || fallbackModelTable?.[variantRateKey] !== undefined
       ? variantRateKey
       : publicResolution;
+    const familyPriceTable = capability.startsWith("happyhorse-")
+      ? advancedPricing.happyhorseCreditsPerSecondByResolution
+      : capability.startsWith("wan27-")
+      ? advancedPricing.wan27CreditsPerSecondByResolution
+      : null;
+    const fallbackFamilyPriceTable = capability.startsWith("happyhorse-")
+      ? DEFAULT_ADVANCED_PRICING.happyhorseCreditsPerSecondByResolution
+      : capability.startsWith("wan27-")
+      ? DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution
+      : null;
     const priceTable = configuredModelTable
+      || familyPriceTable
       || advancedPricing.aliyunVideoCreditsPerSecondByCapability?.[capability]
       || advancedPricing.wan27CreditsPerSecondByResolution;
     const fallbackTable = fallbackModelTable
+      || fallbackFamilyPriceTable
       || DEFAULT_ADVANCED_PRICING.aliyunVideoCreditsPerSecondByCapability?.[capability]
       || DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution;
     const creditsPerSecond = priceTable?.[rateKey] || fallbackTable?.[rateKey] || DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"];
@@ -25859,17 +25909,13 @@ const ADVANCED_PRICING_ROWS = [
   { key: "seedance-video-input-4k", provider: "seedance", providerLabel: "Seedance Standard 视频输入加收", seedanceTier: "standard", resolution: "4k", rateKind: "video_input", unit: "input_second" },
   { key: "seedance-fast-video-input-480p", provider: "seedance", providerLabel: "Seedance Fast 视频输入加收", seedanceTier: "fast", resolution: "480p", rateKind: "video_input", unit: "input_second" },
   { key: "seedance-fast-video-input-720p", provider: "seedance", providerLabel: "Seedance Fast 视频输入加收", seedanceTier: "fast", resolution: "720p", rateKind: "video_input", unit: "input_second" },
+  { key: "wan27-720p", provider: "wan27", providerLabel: "Wan2.7 Video", model: "wan2.7", resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan27-1080p", provider: "wan27", providerLabel: "Wan2.7 Video", model: "wan2.7", resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "happyhorse-720p", provider: "happyhorse", providerLabel: "HappyHorse Video", model: "happyhorse", resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "happyhorse-1080p", provider: "happyhorse", providerLabel: "HappyHorse Video", model: "happyhorse", resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   ...[
-    { capability: "wan27-t2v", provider: "wan27", providerLabel: "Wan2.7 Text to Video", model: ALIYUN_WAN27_T2V_MODEL, rates: ["720p", "1080p"] },
-    { capability: "wan27-i2v", provider: "wan27", providerLabel: "Wan2.7 Image to Video", model: ALIYUN_WAN27_I2V_MODEL, rates: ["720p", "1080p"] },
-    { capability: "wan27-r2v", provider: "wan27", providerLabel: "Wan2.7 Reference to Video", model: ALIYUN_WAN27_R2V_MODEL, rates: ["720p", "1080p"] },
-    { capability: "wan27-video-edit", provider: "wan27", providerLabel: "Wan2.7 Video Edit", model: ALIYUN_WAN27_VIDEO_EDIT_MODEL, rates: ["720p", "1080p"] },
     { capability: "wan-animate-move", provider: "wan27", providerLabel: "Wan Image to Action", model: ALIYUN_WAN_ANIMATE_MOVE_MODEL, rates: ["wan-std", "wan-pro"] },
     { capability: "wan-animate-mix", provider: "wan27", providerLabel: "Wan Character Replacement", model: ALIYUN_WAN_ANIMATE_MIX_MODEL, rates: ["wan-std", "wan-pro"] },
-    { capability: "happyhorse-t2v", provider: "happyhorse", providerLabel: "HappyHorse Text to Video", model: ALIYUN_HAPPYHORSE_T2V_MODEL, rates: ["720p", "1080p"] },
-    { capability: "happyhorse-i2v", provider: "happyhorse", providerLabel: "HappyHorse Image to Video", model: ALIYUN_HAPPYHORSE_I2V_MODEL, rates: ["720p", "1080p"] },
-    { capability: "happyhorse-r2v", provider: "happyhorse", providerLabel: "HappyHorse Reference to Video", model: ALIYUN_HAPPYHORSE_R2V_MODEL, rates: ["720p", "1080p"] },
-    { capability: "happyhorse-video-edit", provider: "happyhorse", providerLabel: "HappyHorse Video Edit", model: ALIYUN_HAPPYHORSE_VIDEO_EDIT_MODEL, rates: ["720p", "1080p"] },
   ].flatMap((item) => item.rates.map((rateKey) => ({
     key: `aliyun-${item.capability}-${rateKey}`,
     provider: item.provider,
@@ -25980,6 +26026,8 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     ? normalized.seedanceVideoInputCreditsPerSecondByResolution
     : normalizedProvider === "wan27"
     ? normalized.wan27CreditsPerSecondByResolution
+    : normalizedProvider === "happyhorse"
+    ? normalized.happyhorseCreditsPerSecondByResolution
     : normalized.seedanceCreditsPerSecondByResolution;
   return pricingNumber(table[normalizeAdvancedResolution(resolution)], 0);
 }
@@ -26222,6 +26270,22 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
       message: `BytePlus official 5s 16:9 example${normalizeSeedanceTier(seedanceTier) === "fast" ? " scaled by fast endpoint token rate" : ""}: ${exampleUsd} USD/video. Internal upstream rate: ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens returned by the API.`,
     };
   }
+  if (normalizedProvider === "happyhorse") {
+    const purchaseRates = ["happyhorse-t2v", "happyhorse-i2v", "happyhorse-r2v", "happyhorse-video-edit"]
+      .map((item) => officialSingaporePurchaseDetails(item, { resolution: publicResolution })?.usdPerSecond)
+      .filter((value) => Number.isFinite(Number(value)))
+      .map(Number);
+    const usdPerSecondRange = purchaseRates.length
+      ? [Math.min(...purchaseRates), Math.max(...purchaseRates)]
+      : null;
+    return {
+      creditsPerSecond: null,
+      creditsPerSecondRange: usdPerSecondRange?.map((value) => pricingNumber(value * DEFAULT_CREDITS_PER_USD, 0)),
+      usdPerSecondRange,
+      source: "aliyun_singapore_official_model_pricing",
+      message: "Alibaba Cloud Model Studio Singapore official price range for HappyHorse generation modes.",
+    };
+  }
   const wan27Purchase = officialSingaporePurchaseDetails("wan27-i2v", { resolution: publicResolution });
   return {
     creditsPerSecond: wan27Purchase ? pricingNumber(wan27Purchase.usdPerSecond * DEFAULT_CREDITS_PER_USD, 0) : null,
@@ -26241,7 +26305,8 @@ async function adminAdvancedPricingView(config = {}) {
       purchaseCreditsPerSecond: purchase.creditsPerSecond,
       purchaseCreditsPerSecondRange: Array.isArray(purchase.creditsPerSecondRange) ? purchase.creditsPerSecondRange.slice(0, 2) : null,
       purchaseUsdPerSecond: purchase.usdPerSecond ?? usdFromCny(yuanPerSecondFromCredits(purchase.creditsPerSecond, pricing.creditsPerCny)),
-      purchaseUsdPerSecondRange: usdRangeFromCny(yuanPerSecondRangeFromCredits(purchase.creditsPerSecondRange, pricing.creditsPerCny)),
+      purchaseUsdPerSecondRange: purchase.usdPerSecondRange
+        ?? usdRangeFromCny(yuanPerSecondRangeFromCredits(purchase.creditsPerSecondRange, pricing.creditsPerCny)),
       purchaseSource: purchase.source,
       purchaseMessage: purchase.message || "",
       saleCreditsPerSecond,
@@ -26394,6 +26459,8 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     const credits = pricingNumber(rawCredits, 0);
     if (key === "wan27-720p") next.wan27CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "wan27-1080p") next.wan27CreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "happyhorse-720p") next.happyhorseCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "happyhorse-1080p") next.happyhorseCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance-video-input-480p") next.seedanceVideoInputCreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance-video-input-720p") next.seedanceVideoInputCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "seedance-video-input-1080p") next.seedanceVideoInputCreditsPerSecondByResolution["1080p"] = credits;
