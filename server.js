@@ -13,7 +13,6 @@ const {
   OFFICIAL_SINGAPORE_USD_PER_SECOND: ALIYUN_VIDEO_OFFICIAL_PRICING,
   buildAliyunVideoRequest,
   normalizeCapability: normalizeAliyunVideoCapability,
-  officialSingaporeLegacyPricingRows,
   officialSingaporePurchaseDetails,
 } = require("./aliyun-video");
 const {
@@ -25861,21 +25860,22 @@ const ADVANCED_PRICING_ROWS = [
   { key: "seedance-fast-video-input-480p", provider: "seedance", providerLabel: "Seedance Fast 视频输入加收", seedanceTier: "fast", resolution: "480p", rateKind: "video_input", unit: "input_second" },
   { key: "seedance-fast-video-input-720p", provider: "seedance", providerLabel: "Seedance Fast 视频输入加收", seedanceTier: "fast", resolution: "720p", rateKind: "video_input", unit: "input_second" },
   ...[
-    { capability: "wan27-t2v", provider: "wan27", providerLabel: "Wan2.7 Text to Video", rates: ["720p", "1080p"] },
-    { capability: "wan27-i2v", provider: "wan27", providerLabel: "Wan2.7 Image to Video", rates: ["720p", "1080p"] },
-    { capability: "wan27-r2v", provider: "wan27", providerLabel: "Wan2.7 Reference to Video", rates: ["720p", "1080p"] },
-    { capability: "wan27-video-edit", provider: "wan27", providerLabel: "Wan2.7 Video Edit", rates: ["720p", "1080p"] },
-    { capability: "wan-animate-move", provider: "wan27", providerLabel: "Wan Image to Action", rates: ["wan-std", "wan-pro"] },
-    { capability: "wan-animate-mix", provider: "wan27", providerLabel: "Wan Character Replacement", rates: ["wan-std", "wan-pro"] },
-    { capability: "happyhorse-t2v", provider: "happyhorse", providerLabel: "HappyHorse Text to Video", rates: ["720p", "1080p"] },
-    { capability: "happyhorse-i2v", provider: "happyhorse", providerLabel: "HappyHorse Image to Video", rates: ["720p", "1080p"] },
-    { capability: "happyhorse-r2v", provider: "happyhorse", providerLabel: "HappyHorse Reference to Video", rates: ["720p", "1080p"] },
-    { capability: "happyhorse-video-edit", provider: "happyhorse", providerLabel: "HappyHorse Video Edit", rates: ["720p", "1080p"] },
+    { capability: "wan27-t2v", provider: "wan27", providerLabel: "Wan2.7 Text to Video", model: ALIYUN_WAN27_T2V_MODEL, rates: ["720p", "1080p"] },
+    { capability: "wan27-i2v", provider: "wan27", providerLabel: "Wan2.7 Image to Video", model: ALIYUN_WAN27_I2V_MODEL, rates: ["720p", "1080p"] },
+    { capability: "wan27-r2v", provider: "wan27", providerLabel: "Wan2.7 Reference to Video", model: ALIYUN_WAN27_R2V_MODEL, rates: ["720p", "1080p"] },
+    { capability: "wan27-video-edit", provider: "wan27", providerLabel: "Wan2.7 Video Edit", model: ALIYUN_WAN27_VIDEO_EDIT_MODEL, rates: ["720p", "1080p"] },
+    { capability: "wan-animate-move", provider: "wan27", providerLabel: "Wan Image to Action", model: ALIYUN_WAN_ANIMATE_MOVE_MODEL, rates: ["wan-std", "wan-pro"] },
+    { capability: "wan-animate-mix", provider: "wan27", providerLabel: "Wan Character Replacement", model: ALIYUN_WAN_ANIMATE_MIX_MODEL, rates: ["wan-std", "wan-pro"] },
+    { capability: "happyhorse-t2v", provider: "happyhorse", providerLabel: "HappyHorse Text to Video", model: ALIYUN_HAPPYHORSE_T2V_MODEL, rates: ["720p", "1080p"] },
+    { capability: "happyhorse-i2v", provider: "happyhorse", providerLabel: "HappyHorse Image to Video", model: ALIYUN_HAPPYHORSE_I2V_MODEL, rates: ["720p", "1080p"] },
+    { capability: "happyhorse-r2v", provider: "happyhorse", providerLabel: "HappyHorse Reference to Video", model: ALIYUN_HAPPYHORSE_R2V_MODEL, rates: ["720p", "1080p"] },
+    { capability: "happyhorse-video-edit", provider: "happyhorse", providerLabel: "HappyHorse Video Edit", model: ALIYUN_HAPPYHORSE_VIDEO_EDIT_MODEL, rates: ["720p", "1080p"] },
   ].flatMap((item) => item.rates.map((rateKey) => ({
     key: `aliyun-${item.capability}-${rateKey}`,
     provider: item.provider,
     providerLabel: item.providerLabel,
     capability: item.capability,
+    model: item.model,
     resolution: rateKey,
     rateKey,
     mode: rateKey.startsWith("wan-") ? rateKey : "",
@@ -25883,7 +25883,6 @@ const ADVANCED_PRICING_ROWS = [
     billing: ALIYUN_VIDEO_CAPABILITIES[item.capability]?.billing || "output",
     unit: "output_second",
   }))),
-  ...officialSingaporeLegacyPricingRows(),
 ];
 
 const ADVANCED_PRICING_ROW_KEYS = new Set([
@@ -26371,7 +26370,9 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     }
     if (key.startsWith("aliyun-")) {
       const capability = String(definedRow?.capability || "").trim();
-      const model = String(definedRow?.model || "").trim().toLowerCase();
+      const model = capability === "wan-legacy"
+        ? String(definedRow?.model || "").trim().toLowerCase()
+        : "";
       const rateKey = String(definedRow?.rateKey || definedRow?.mode || definedRow?.resolution || "").trim().toLowerCase();
       const targetRates = model
         ? next.aliyunVideoCreditsPerSecondByModel?.[model]

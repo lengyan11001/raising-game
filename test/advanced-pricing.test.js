@@ -8,21 +8,19 @@ const test = require("node:test");
 const root = path.resolve(__dirname, "..");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 
-test("legacy Wan sale prices are stored and billed by model", () => {
-  assert.match(server, /aliyunVideoCreditsPerSecondByModel:\s*defaultAliyunLegacySaleCreditsByModel\(\)/);
-  assert.match(server, /configuredModelTable\s*=\s*capability === "wan-legacy"/);
-  assert.match(server, /next\.aliyunVideoCreditsPerSecondByModel\?\.\[model\]/);
-});
-
 test("admin pricing rows use their server definition when saving", () => {
   assert.match(server, /ADVANCED_PRICING_ROWS_BY_KEY\.get\(key\)/);
-  assert.match(server, /officialSingaporeLegacyPricingRows\(\)/);
 });
 
-test("duplicate generic Wan 2.7 pricing rows are not rendered", () => {
+test("admin pricing keeps current models and omits early Wan models", () => {
   const pricingRowsSource = server.slice(
     server.indexOf("const ADVANCED_PRICING_ROWS = ["),
     server.indexOf("const ADVANCED_PRICING_ROW_KEYS"),
   );
   assert.doesNotMatch(pricingRowsSource, /key: "wan27-(?:720p|1080p)"/);
+  assert.doesNotMatch(pricingRowsSource, /officialSingaporeLegacyPricingRows\(\)/);
+  assert.doesNotMatch(pricingRowsSource, /providerLabel: "Wan Legacy"/);
+  assert.match(pricingRowsSource, /model: ALIYUN_WAN27_I2V_MODEL/);
+  assert.match(pricingRowsSource, /model: ALIYUN_WAN_ANIMATE_MIX_MODEL/);
+  assert.match(pricingRowsSource, /model: ALIYUN_HAPPYHORSE_I2V_MODEL/);
 });

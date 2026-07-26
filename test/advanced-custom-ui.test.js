@@ -17,6 +17,7 @@ test("Advanced engine list contains English model families, not task modes", () 
   const engine = elementMarkup("advancedProvider");
   assert.doesNotMatch(engine, /[\u3400-\u9fff]/);
   assert.match(engine, /value="wan27" selected>Wan 2\.7/);
+  assert.doesNotMatch(engine, /value="wan-legacy"/);
   assert.match(engine, /value="wan-animate">Wan Animate/);
   assert.match(engine, /value="happyhorse">HappyHorse/);
   assert.match(engine, /value="seedance">Seedance 2\.0/);
