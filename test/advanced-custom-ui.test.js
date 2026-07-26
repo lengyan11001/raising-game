@@ -45,3 +45,8 @@ test("frame modes use dedicated upload controls", () => {
   assert.match(create, /usesDedicatedFrameUpload = provider === "seedance" && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
   assert.match(create, /usesDedicatedAliyunUpload = \["wan27-i2v", "happyhorse-i2v"/);
 });
+
+test("reference and video edit modes use only the shared reference uploader", () => {
+  assert.match(create, /usesSharedReferenceUpload = \["wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"\]\.includes\(capability\)/);
+  assert.match(create, /usesSharedReferenceUpload \|\| !hasDedicatedWanPanelSlot/);
+});

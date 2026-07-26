@@ -1167,9 +1167,10 @@ function updateAdvancedModelControls() {
     item.hidden = simpleAction || simpleEdit || !capabilityNeedsMedia;
   });
   if (els.advancedWanMediaPanel) {
+    const usesSharedReferenceUpload = ["wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"].includes(capability);
     const hasDedicatedWanPanelSlot = capabilityNeedsPrimary || capabilityNeedsVideo
       || ((capability === "wan27-i2v" || capability === "wan-legacy") && (wanModeNeedsLastFrame(wanMode) || wanModeNeedsAudio(wanMode) || wanModeNeedsClip(wanMode)));
-    els.advancedWanMediaPanel.hidden = simpleAction || simpleEdit || !aliyunVideo || !hasDedicatedWanPanelSlot;
+    els.advancedWanMediaPanel.hidden = simpleAction || simpleEdit || !aliyunVideo || usesSharedReferenceUpload || !hasDedicatedWanPanelSlot;
   }
   document.querySelectorAll(".advanced-legacy-model-field").forEach((item) => {
     item.hidden = capability !== "wan-legacy";
