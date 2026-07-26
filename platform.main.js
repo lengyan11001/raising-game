@@ -178,7 +178,7 @@ els.advancedImage?.addEventListener("change", async () => {
       const capability = currentAdvancedVideoCapability();
       const allowedTypes = new Set(advancedAssetTargetItems().map((target) => target.type));
       const imageLimit = advancedAliyunReferenceImageLimit(capability);
-      const referenceImageMode = ["wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"].includes(capability)
+      const referenceImageMode = ["wan27-i2v", "wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"].includes(capability)
         || (capability === "wan-legacy" && /r2v|vace/.test(String(els.advancedLegacyWanModel?.value || "")));
       let skippedWrongType = false;
       let skippedTooLarge = false;
@@ -210,7 +210,7 @@ els.advancedImage?.addEventListener("change", async () => {
           state.advancedReferenceImages = referenceImageMode
             ? dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, imageLimit)
             : [ref];
-          state.advancedUploadDataUrl = ref.dataUrl || "";
+          state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || ref.dataUrl || "";
           state.advancedFirstFrameAssetId = "";
           state.advancedSourceImageAssetId = "";
         } else if (mime.startsWith("video/")) {

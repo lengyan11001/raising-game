@@ -39,14 +39,22 @@ test("Wan and HappyHorse task modes live in the parameter capability map", () =>
   assert.match(ui, /"wan-animate":[\s\S]*?value: "wan-animate-move"[\s\S]*?value: "wan-animate-mix"/);
 });
 
-test("frame modes use dedicated upload controls", () => {
+test("only explicit frame modes use dedicated upload controls", () => {
   assert.match(html, /id="advancedWanFirstFrame" type="file" accept="image\/\*"/);
   assert.match(main, /advancedWanFirstFrame\?\.addEventListener\("change"/);
   assert.match(create, /usesDedicatedFrameUpload = provider === "seedance" && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
-  assert.match(create, /usesDedicatedAliyunUpload = \["wan27-i2v", "happyhorse-i2v"/);
+  assert.match(create, /usesDedicatedAliyunUpload = \["wan-animate-move", "wan-animate-mix"\]/);
 });
 
 test("reference and video edit modes use only the shared reference uploader", () => {
-  assert.match(create, /usesSharedReferenceUpload = \["wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"\]\.includes\(capability\)/);
+  assert.match(create, /usesSharedReferenceUpload = \["wan27-i2v", "wan27-r2v", "wan27-video-edit", "happyhorse-i2v", "happyhorse-r2v", "happyhorse-video-edit"\]\.includes\(capability\)/);
   assert.match(create, /usesSharedReferenceUpload \|\| !hasDedicatedWanPanelSlot/);
+});
+
+test("Wan input combinations are inferred and media URLs are not exposed in the UI", () => {
+  assert.match(html, /id="advancedWanMediaMode" type="hidden" value="multimodal"/);
+  assert.doesNotMatch(html, /class="field wan-mode-field/);
+  assert.doesNotMatch(html, /id="advancedWan(?:Audio|Clip)Url"/);
+  assert.doesNotMatch(html, /id="advancedSeedance(?:Video|Audio)Urls"/);
+  assert.match(create, /capability === "wan27-i2v"\) return 2/);
 });

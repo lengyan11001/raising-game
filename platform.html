@@ -274,14 +274,6 @@
                     <button class="wan-frame-remove" type="button" data-remove-advanced-slot="seedanceLastFrame" aria-label="Remove">&times;</button>
                   </div>
                 </label>
-                <label class="field seedance-extra seedance-video-url seedance-video-field">
-                  <span data-i18n="advanced.seedanceVideoUrls">Reference video URLs</span>
-                  <input id="advancedSeedanceVideoUrls" type="text" placeholder="https://example.com/video1.mp4, https://example.com/video2.mp4" />
-                </label>
-                <label class="field seedance-extra seedance-audio-url seedance-video-field">
-                  <span data-i18n="advanced.seedanceAudioUrls">Reference audio URLs</span>
-                  <input id="advancedSeedanceAudioUrls" type="text" placeholder="https://example.com/audio1.mp3" />
-                </label>
               </div>
             </div>
             <div class="wan-media-panel advanced-wan-option" id="advancedWanMediaPanel" hidden>
@@ -310,10 +302,6 @@
                     <button class="wan-frame-remove" type="button" data-remove-advanced-slot="wanLastFrame" aria-label="Remove">&times;</button>
                   </div>
                 </label>
-                <label class="field wan-extra wan-audio">
-                  <span data-i18n="advanced.audioUrl">Driving audio URL</span>
-                  <input id="advancedWanAudioUrl" type="url" placeholder="https://.../audio.mp3" />
-                </label>
                 <label class="field wan-extra wan-clip">
                   <span data-i18n="advanced.clipUpload">Source video file</span>
                   <div class="wan-frame-upload wan-video-upload">
@@ -322,7 +310,6 @@
                     <span><i data-lucide="upload"></i><span data-i18n="advanced.clipUpload">Source video file</span></span>
                     <button class="wan-frame-remove" type="button" data-remove-advanced-slot="wanClip" aria-label="Remove">&times;</button>
                   </div>
-                  <input id="advancedWanClipUrl" type="url" placeholder="https://.../clip.mp4" />
                 </label>
               </div>
             </div>
@@ -344,14 +331,7 @@
                 <option value="reference_video" data-i18n="advanced.seedanceModeMultimodal">Multimodal References</option>
                 <option value="first_last_frame" data-i18n="advanced.seedanceModeFirstLast">First + Last Frame</option>
               </select></label>
-              <label class="field wan-mode-field advanced-wan-input-mode-field" hidden><span>Input</span><select id="advancedWanMediaMode">
-                <option value="first_frame">First Frame</option>
-                <option value="first_last_frame" data-i18n="advanced.wanModeFirstLast">First + Last Frame</option>
-                <option value="first_frame_audio">First Frame + Audio</option>
-                <option value="first_last_frame_audio">First + Last Frame + Audio</option>
-                <option value="first_clip">Video Extension</option>
-                <option value="first_clip_last_frame">Video Extension + Last Frame</option>
-              </select></label>
+              <input id="advancedWanMediaMode" type="hidden" value="multimodal" />
               <label class="field advanced-animate-mode-field" hidden><span>Quality</span><select id="advancedWanAnimateMode"><option value="wan-std">Standard</option><option value="wan-pro">Pro</option></select></label>
               <label class="field advanced-seedance-option advanced-tier-field" hidden><span>Tier</span><select id="advancedSeedanceTier"><option value="standard">Standard</option><option value="fast">Fast</option></select></label>
               <select id="advancedSeedreamTier" hidden aria-hidden="true"><option value="pro" selected>Pro</option></select>
@@ -876,6 +856,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-314-reference-upload"></script>
+    <script src="./platform.js?v=ai-315-multimodal-upload"></script>
   </body>
 </html>
