@@ -155,17 +155,61 @@ const LEGACY_WAN_MODELS = Object.freeze(new Set([
   "wan2.1-vace-plus",
 ]));
 
-const OFFICIAL_SINGAPORE_CNY_PER_SECOND = Object.freeze({
-  "wan27-t2v": Object.freeze({ "720P": 0.733924, "1080P": 1.100886 }),
-  "wan27-i2v": Object.freeze({ "720P": 0.733924, "1080P": 1.100886 }),
-  "wan27-r2v": Object.freeze({ "720P": 0.733924, "1080P": 1.100886 }),
-  "wan27-video-edit": Object.freeze({ "720P": 0.733924, "1080P": 1.100886 }),
-  "wan-animate-move": Object.freeze({ "wan-std": 0.880709, "wan-pro": 1.321063 }),
-  "wan-animate-mix": Object.freeze({ "wan-std": 1.321063, "wan-pro": 1.908202 }),
-  "happyhorse-t2v": Object.freeze({ "720P": 1.049188, "1080P": 1.348956 }),
-  "happyhorse-i2v": Object.freeze({ "720P": 1.049188, "1080P": 1.348956 }),
-  "happyhorse-r2v": Object.freeze({ "720P": 1.049188, "1080P": 1.348956 }),
-  "happyhorse-video-edit": Object.freeze({ "720P": 1.049188, "1080P": 1.798608 }),
+// Alibaba Cloud Model Studio international pricing for Singapore, checked 2026-07-26.
+const OFFICIAL_SINGAPORE_USD_PER_SECOND = Object.freeze({
+  "wan27-t2v": Object.freeze({ "720P": 0.10, "1080P": 0.15 }),
+  "wan27-i2v": Object.freeze({ "720P": 0.10, "1080P": 0.15 }),
+  "wan27-r2v": Object.freeze({ "720P": 0.10, "1080P": 0.15 }),
+  "wan27-video-edit": Object.freeze({ "720P": 0.10, "1080P": 0.15 }),
+  "wan-animate-move": Object.freeze({ "wan-std": 0.12, "wan-pro": 0.18 }),
+  "wan-animate-mix": Object.freeze({ "wan-std": 0.18, "wan-pro": 0.26 }),
+  "happyhorse-t2v": Object.freeze({ "720P": 0.084, "1080P": 0.108 }),
+  "happyhorse-i2v": Object.freeze({ "720P": 0.084, "1080P": 0.108 }),
+  "happyhorse-r2v": Object.freeze({ "720P": 0.084, "1080P": 0.108 }),
+  "happyhorse-video-edit": Object.freeze({ "720P": 0.112, "1080P": 0.192 }),
+});
+
+const OFFICIAL_SINGAPORE_LIST_USD_PER_SECOND = Object.freeze({
+  "happyhorse-t2v": Object.freeze({ "720P": 0.14, "1080P": 0.18 }),
+  "happyhorse-i2v": Object.freeze({ "720P": 0.14, "1080P": 0.18 }),
+  "happyhorse-r2v": Object.freeze({ "720P": 0.14, "1080P": 0.18 }),
+  "happyhorse-video-edit": Object.freeze({ "720P": 0.14, "1080P": 0.24 }),
+});
+
+const OFFICIAL_SINGAPORE_DISCOUNT_PERCENT = Object.freeze({
+  "happyhorse-t2v": 40,
+  "happyhorse-i2v": 40,
+  "happyhorse-r2v": 40,
+  "happyhorse-video-edit": 20,
+});
+
+const OFFICIAL_SINGAPORE_LEGACY_USD_PER_SECOND = Object.freeze({
+  "wan2.6-t2v": Object.freeze({ "720P": 0.10, "1080P": 0.15 }),
+  "wan2.5-t2v-preview": Object.freeze({ "480P": 0.05, "720P": 0.10, "1080P": 0.15 }),
+  "wan2.2-t2v-plus": Object.freeze({ "480P": 0.02, "1080P": 0.10 }),
+  "wan2.1-t2v-turbo": Object.freeze({ "480P": 0.036, "720P": 0.036 }),
+  "wan2.1-t2v-plus": Object.freeze({ "720P": 0.10 }),
+  "wan2.6-i2v-flash": Object.freeze({
+    "720P-audio": 0.05,
+    "1080P-audio": 0.075,
+    "720P-silent": 0.025,
+    "1080P-silent": 0.0375,
+  }),
+  "wan2.6-i2v": Object.freeze({ "720P": 0.10, "1080P": 0.15 }),
+  "wan2.5-i2v-preview": Object.freeze({ "480P": 0.05, "720P": 0.10, "1080P": 0.15 }),
+  "wan2.2-i2v-flash": Object.freeze({ "480P": 0.015, "720P": 0.036 }),
+  "wan2.2-i2v-plus": Object.freeze({ "480P": 0.02, "1080P": 0.10 }),
+  "wan2.1-i2v-turbo": Object.freeze({ "480P": 0.036, "720P": 0.036 }),
+  "wan2.1-i2v-plus": Object.freeze({ "720P": 0.10 }),
+  "wan2.6-r2v-flash": Object.freeze({
+    "720P-audio": 0.05,
+    "1080P-audio": 0.075,
+    "720P-silent": 0.025,
+    "1080P-silent": 0.0375,
+  }),
+  "wan2.6-r2v": Object.freeze({ "720P": 0.10, "1080P": 0.15 }),
+  "wan2.1-kf2v-plus": Object.freeze({ "720P": 0.10 }),
+  "wan2.1-vace-plus": Object.freeze({ "720P": 0.10 }),
 });
 
 function requestError(code, message, details = {}) {
@@ -405,26 +449,83 @@ function buildAliyunVideoRequest(options = {}) {
   };
 }
 
-function officialSingaporePurchaseRate(capability, { resolution = "720P", mode = "wan-std" } = {}) {
-  const table = OFFICIAL_SINGAPORE_CNY_PER_SECOND[normalizeCapability(capability)] || null;
-  if (!table) return null;
-  const key = capability === "wan-animate-move" || capability === "wan-animate-mix"
+function officialSingaporePurchaseDetails(capability, {
+  resolution = "720P",
+  mode = "wan-std",
+  model = "",
+  audio = true,
+} = {}) {
+  const normalizedCapability = normalizeCapability(capability, { model });
+  const normalizedResolution = normalizeResolution(resolution);
+  let table = OFFICIAL_SINGAPORE_USD_PER_SECOND[normalizedCapability] || null;
+  let rateKey = normalizedCapability === "wan-animate-move" || normalizedCapability === "wan-animate-mix"
     ? normalizeMode(mode)
-    : normalizeResolution(resolution);
-  const value = Number(table[key]);
-  return Number.isFinite(value) ? value : null;
+    : normalizedResolution;
+  const normalizedModel = String(model || "").trim().toLowerCase();
+  if (normalizedCapability === "wan-legacy") {
+    table = OFFICIAL_SINGAPORE_LEGACY_USD_PER_SECOND[normalizedModel] || null;
+    if (table && Object.keys(table).some((key) => key.endsWith("-audio") || key.endsWith("-silent"))) {
+      rateKey = `${normalizedResolution}-${audio === false ? "silent" : "audio"}`;
+    } else {
+      rateKey = normalizedResolution;
+    }
+  }
+  if (!table) return null;
+  const usdPerSecond = Number(table[rateKey]);
+  if (!Number.isFinite(usdPerSecond)) return null;
+  const listTable = OFFICIAL_SINGAPORE_LIST_USD_PER_SECOND[normalizedCapability] || null;
+  const listUsdPerSecond = Number(listTable?.[rateKey]);
+  const discountPercent = Number(OFFICIAL_SINGAPORE_DISCOUNT_PERCENT[normalizedCapability]);
+  return {
+    capability: normalizedCapability,
+    model: normalizedModel,
+    rateKey,
+    usdPerSecond,
+    listUsdPerSecond: Number.isFinite(listUsdPerSecond) ? listUsdPerSecond : usdPerSecond,
+    discountPercent: Number.isFinite(discountPercent) ? discountPercent : 0,
+    limitedTimeDiscount: Number.isFinite(discountPercent) && discountPercent > 0,
+  };
+}
+
+function officialSingaporePurchaseRate(capability, options = {}) {
+  return officialSingaporePurchaseDetails(capability, options)?.usdPerSecond ?? null;
+}
+
+function officialSingaporeLegacyPricingRows() {
+  return Object.entries(OFFICIAL_SINGAPORE_LEGACY_USD_PER_SECOND).flatMap(([model, rates]) => (
+    Object.keys(rates).map((rawRateKey) => {
+      const [resolution, variant = ""] = rawRateKey.toLowerCase().split("-");
+      return {
+        key: `aliyun-wan-legacy-${model}-${rawRateKey.toLowerCase()}`,
+        provider: "wan27",
+        providerLabel: model,
+        capability: "wan-legacy",
+        model,
+        resolution,
+        variant,
+        rateKey: rawRateKey.toLowerCase(),
+        rateKind: "output",
+        unit: "output_second",
+      };
+    })
+  ));
 }
 
 module.exports = {
   ANIMATE_SYNTHESIS_PATH,
   CAPABILITIES,
   LEGACY_WAN_MODELS,
-  OFFICIAL_SINGAPORE_CNY_PER_SECOND,
+  OFFICIAL_SINGAPORE_DISCOUNT_PERCENT,
+  OFFICIAL_SINGAPORE_LEGACY_USD_PER_SECOND,
+  OFFICIAL_SINGAPORE_LIST_USD_PER_SECOND,
+  OFFICIAL_SINGAPORE_USD_PER_SECOND,
   VIDEO_SYNTHESIS_PATH,
   buildAliyunVideoRequest,
   capabilityForModel,
   normalizeCapability,
   normalizeProvider,
   normalizeResolution,
+  officialSingaporeLegacyPricingRows,
+  officialSingaporePurchaseDetails,
   officialSingaporePurchaseRate,
 };

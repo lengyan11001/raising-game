@@ -674,6 +674,12 @@ els.advancedDuration?.addEventListener("input", () => {
 });
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
+  syncAdvancedVideoCapabilityOptions();
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+});
+els.advancedVideoCapability?.addEventListener("change", () => {
+  state.advancedAssetTarget = "primary";
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 });

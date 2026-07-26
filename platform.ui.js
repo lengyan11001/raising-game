@@ -1351,23 +1351,23 @@ function advancedProviderLabel(provider = currentAdvancedProvider()) {
   const normalized = normalizeAdvancedProvider(provider);
   const capability = currentAdvancedVideoCapability(provider);
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
-  if (normalized === "wan27-image-edit") return "Vipeak 1 Image";
+  if (normalized === "wan27-image-edit") return "Wan 2.7 Image";
   const labels = {
-    "wan27-t2v": "万相2.7 文生视频",
-    "wan27-i2v": "万相2.7 图生视频",
-    "wan27-r2v": "万相2.7 参考生视频",
-    "wan27-video-edit": "万相2.7 视频编辑",
-    "wan-legacy": "万相早期视频模型",
-    "wan-animate-move": "万相图生动作",
-    "wan-animate-mix": "万相视频换人",
-    "happyhorse-t2v": "HappyHorse 文生视频",
-    "happyhorse-i2v": "HappyHorse 图生视频",
-    "happyhorse-r2v": "HappyHorse 参考生视频",
-    "happyhorse-video-edit": "HappyHorse 视频编辑",
+    "wan27-t2v": "Wan 2.7 - Text to Video",
+    "wan27-i2v": "Wan 2.7 - Image to Video",
+    "wan27-r2v": "Wan 2.7 - Reference to Video",
+    "wan27-video-edit": "Wan 2.7 - Video Edit",
+    "wan-legacy": "Wan Legacy",
+    "wan-animate-move": "Wan Animate - Image Animation",
+    "wan-animate-mix": "Wan Animate - Character Replacement",
+    "happyhorse-t2v": "HappyHorse - Text to Video",
+    "happyhorse-i2v": "HappyHorse - Image to Video",
+    "happyhorse-r2v": "HappyHorse - Reference to Video",
+    "happyhorse-video-edit": "HappyHorse - Video Edit",
   };
   if (labels[capability]) return labels[capability];
   if (normalized === "happyhorse") return "HappyHorse";
-  return normalized === "wan27" ? "Vipeak 1" : "Vipeak 2";
+  return normalized === "wan27" ? "Wan 2.7" : "Seedance 2.0";
 }
 
 const ADVANCED_ALIYUN_VIDEO_CAPABILITIES = new Set([
@@ -1376,11 +1376,62 @@ const ADVANCED_ALIYUN_VIDEO_CAPABILITIES = new Set([
   "happyhorse-r2v", "happyhorse-video-edit",
 ]);
 
+const ADVANCED_VIDEO_CAPABILITY_GROUPS = Object.freeze({
+  wan27: Object.freeze([
+    Object.freeze({ value: "wan27-i2v", label: "Image to Video" }),
+    Object.freeze({ value: "wan27-t2v", label: "Text to Video" }),
+    Object.freeze({ value: "wan27-r2v", label: "Reference to Video" }),
+    Object.freeze({ value: "wan27-video-edit", label: "Video Edit" }),
+  ]),
+  "wan-legacy": Object.freeze([
+    Object.freeze({ value: "wan-legacy", label: "Legacy Model" }),
+  ]),
+  "wan-animate": Object.freeze([
+    Object.freeze({ value: "wan-animate-move", label: "Image Animation" }),
+    Object.freeze({ value: "wan-animate-mix", label: "Character Replacement" }),
+  ]),
+  happyhorse: Object.freeze([
+    Object.freeze({ value: "happyhorse-t2v", label: "Text to Video" }),
+    Object.freeze({ value: "happyhorse-i2v", label: "Image to Video" }),
+    Object.freeze({ value: "happyhorse-r2v", label: "Reference to Video" }),
+    Object.freeze({ value: "happyhorse-video-edit", label: "Video Edit" }),
+  ]),
+});
+
+function advancedEngineValue(provider = els.advancedProvider?.value || "", capability = "") {
+  const normalizedCapability = String(capability || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (normalizedCapability === "wan-legacy") return "wan-legacy";
+  if (["wan-animate-move", "wan-animate-mix"].includes(normalizedCapability)) return "wan-animate";
+  if (normalizedCapability.startsWith("happyhorse-")) return "happyhorse";
+  if (normalizedCapability.startsWith("wan27-")) return "wan27";
+  const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "wan27", "wan27-image-edit", "seedream5-image"].includes(raw)) return raw;
+  if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
+  return normalizeAdvancedProvider(provider);
+}
+
+function advancedVideoCapabilityOptions(engine = advancedEngineValue()) {
+  return ADVANCED_VIDEO_CAPABILITY_GROUPS[advancedEngineValue(engine)] || [];
+}
+
+function syncAdvancedVideoCapabilityOptions(preferredCapability = "") {
+  if (!els.advancedVideoCapability) return;
+  const options = advancedVideoCapabilityOptions();
+  const current = String(preferredCapability || els.advancedVideoCapability.value || "").trim();
+  els.advancedVideoCapability.innerHTML = options
+    .map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`)
+    .join("");
+  els.advancedVideoCapability.value = options.some((item) => item.value === current) ? current : (options[0]?.value || "");
+  els.advancedVideoCapability.closest(".field")?.toggleAttribute("hidden", options.length <= 1);
+}
+
 function currentAdvancedVideoCapability(value = els.advancedProvider?.value || "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(normalized)) return normalized;
-  if (normalizeAdvancedProvider(value) === "wan27") return "wan27-i2v";
-  if (normalizeAdvancedProvider(value) === "happyhorse") return "happyhorse-i2v";
+  const options = advancedVideoCapabilityOptions(advancedEngineValue(value));
+  const selected = String(els.advancedVideoCapability?.value || "").trim();
+  if (options.some((item) => item.value === selected)) return selected;
+  if (options.length) return options[0].value;
   return "";
 }
 

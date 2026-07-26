@@ -3539,6 +3539,9 @@ function pricingRowTitle(row = {}) {
 }
 
 function pricingRowUsage(row = {}) {
+  if (String(row.variant || "").toLowerCase() === "audio") return "Audio video";
+  if (String(row.variant || "").toLowerCase() === "silent") return "Silent video";
+  if (String(row.billing || "").toLowerCase() === "input_output") return "Input + output video seconds";
   if (String(row.unit || "").toLowerCase() === "reference_image") return "By reference images";
   if (isImagePricingRow(row)) return "按生成图片张数";
   if (String(row.rateKind || "") === "video_input") return "按输入视频秒数额外加收";

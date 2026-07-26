@@ -4,8 +4,11 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
   ANIMATE_SYNTHESIS_PATH,
+  LEGACY_WAN_MODELS,
   VIDEO_SYNTHESIS_PATH,
   buildAliyunVideoRequest,
+  officialSingaporeLegacyPricingRows,
+  officialSingaporePurchaseDetails,
   officialSingaporePurchaseRate,
 } = require("../aliyun-video");
 
@@ -114,7 +117,44 @@ test("builds every HappyHorse capability", () => {
 });
 
 test("contains official Singapore purchase rates", () => {
-  assert.equal(officialSingaporePurchaseRate("wan27-r2v", { resolution: "1080p" }), 1.100886);
-  assert.equal(officialSingaporePurchaseRate("wan-animate-mix", { mode: "wan-pro" }), 1.908202);
-  assert.equal(officialSingaporePurchaseRate("happyhorse-i2v", { resolution: "720p" }), 1.049188);
+  assert.equal(officialSingaporePurchaseRate("wan27-r2v", { resolution: "1080p" }), 0.15);
+  assert.equal(officialSingaporePurchaseRate("wan-animate-mix", { mode: "wan-pro" }), 0.26);
+  assert.equal(officialSingaporePurchaseRate("happyhorse-i2v", { resolution: "720p" }), 0.084);
+});
+
+test("reports HappyHorse effective and list prices", () => {
+  assert.deepEqual(officialSingaporePurchaseDetails("happyhorse-video-edit", { resolution: "1080p" }), {
+    capability: "happyhorse-video-edit",
+    model: "",
+    rateKey: "1080P",
+    usdPerSecond: 0.192,
+    listUsdPerSecond: 0.24,
+    discountPercent: 20,
+    limitedTimeDiscount: true,
+  });
+});
+
+test("prices legacy Wan models by model, resolution, and audio mode", () => {
+  assert.equal(officialSingaporePurchaseRate("wan-legacy", {
+    model: "wan2.5-t2v-preview",
+    resolution: "480p",
+  }), 0.05);
+  assert.equal(officialSingaporePurchaseRate("wan-legacy", {
+    model: "wan2.6-i2v-flash",
+    resolution: "1080p",
+    audio: true,
+  }), 0.075);
+  assert.equal(officialSingaporePurchaseRate("wan-legacy", {
+    model: "wan2.6-i2v-flash",
+    resolution: "1080p",
+    audio: false,
+  }), 0.0375);
+});
+
+test("builds admin pricing rows for every exposed legacy Wan model", () => {
+  const rows = officialSingaporeLegacyPricingRows();
+  const pricedModels = new Set(rows.map((row) => row.model));
+  assert.deepEqual([...pricedModels].sort(), [...LEGACY_WAN_MODELS].sort());
+  assert.equal(rows.filter((row) => row.model === "wan2.6-r2v-flash").length, 4);
+  assert.ok(rows.every((row) => row.key && row.rateKey && row.resolution));
 });

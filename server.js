@@ -9,10 +9,12 @@ const { Readable } = require("node:stream");
 const { URL } = require("node:url");
 const {
   CAPABILITIES: ALIYUN_VIDEO_CAPABILITIES,
-  OFFICIAL_SINGAPORE_CNY_PER_SECOND: ALIYUN_VIDEO_OFFICIAL_PRICING,
+  OFFICIAL_SINGAPORE_LEGACY_USD_PER_SECOND: ALIYUN_VIDEO_OFFICIAL_LEGACY_PRICING,
+  OFFICIAL_SINGAPORE_USD_PER_SECOND: ALIYUN_VIDEO_OFFICIAL_PRICING,
   buildAliyunVideoRequest,
   normalizeCapability: normalizeAliyunVideoCapability,
-  officialSingaporePurchaseRate,
+  officialSingaporeLegacyPricingRows,
+  officialSingaporePurchaseDetails,
 } = require("./aliyun-video");
 const {
   DEFAULT_TENANT_ID,
@@ -364,16 +366,38 @@ const ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_720P_CREDITS_PER_SECOND = 16;
 const ADVANCED_SEEDANCE_FAST_DISCOUNT = clampNumber(process.env.ADVANCED_SEEDANCE_FAST_DISCOUNT, 0.8, 0.01, 1);
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
-const ALIYUN_WAN27_720P_PURCHASE_CNY_PER_SECOND = pricingNumber(process.env.ALIYUN_WAN27_720P_PURCHASE_CNY_PER_SECOND, 0.5, 0, 6);
-const ALIYUN_WAN27_1080P_PURCHASE_CNY_PER_SECOND = pricingNumber(process.env.ALIYUN_WAN27_1080P_PURCHASE_CNY_PER_SECOND, 0.75, 0, 6);
+const ALIYUN_VIDEO_DEFAULT_MARKUP = 1.5;
 const WAN27_IMAGE_PRO_MODEL = process.env.ALIYUN_WAN27_IMAGE_PRO_MODEL || "wan2.7-image-pro";
-const WAN27_IMAGE_PRO_PURCHASE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_PURCHASE_CNY, 0.375, 0, 6);
+const WAN27_IMAGE_PRO_PURCHASE_USD = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_PURCHASE_USD, 0.075, 0, 6);
+const WAN27_IMAGE_PRO_PURCHASE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_PURCHASE_CNY, WAN27_IMAGE_PRO_PURCHASE_USD * INTERNAL_CNY_PER_USD, 0, 6);
 const WAN27_IMAGE_PRO_MARKUP = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_MARKUP, 1.5, 1);
 const WAN27_IMAGE_PRO_SALE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_SALE_CNY, WAN27_IMAGE_PRO_PURCHASE_CNY * WAN27_IMAGE_PRO_MARKUP, 0, 6);
 const SEEDREAM5_LITE_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_LITE_USD_PER_IMAGE, 0.035, 0, 6);
 const SEEDREAM5_PRO_1K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_1K_USD_PER_IMAGE, 0.045, 0, 6);
 const SEEDREAM5_PRO_2K_USD_PER_IMAGE = pricingNumber(process.env.SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0.09, 0, 6);
 const SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST = pricingNumber(process.env.SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST, 0.003, 0, 6);
+
+function defaultAliyunSaleCredits(capability, options = {}, fallback = ADVANCED_WAN27_720P_CREDITS_PER_SECOND) {
+  const purchase = officialSingaporePurchaseDetails(capability, options);
+  return purchase
+    ? pricingNumber(purchase.usdPerSecond * DEFAULT_CREDITS_PER_USD * ALIYUN_VIDEO_DEFAULT_MARKUP, fallback)
+    : fallback;
+}
+
+function defaultAliyunLegacySaleCreditsByModel() {
+  return Object.fromEntries(Object.entries(ALIYUN_VIDEO_OFFICIAL_LEGACY_PRICING).map(([model, rates]) => [
+    model,
+    Object.fromEntries(Object.keys(rates).map((rateKey) => [
+      rateKey.toLowerCase(),
+      defaultAliyunSaleCredits("wan-legacy", {
+        model,
+        resolution: rateKey.split("-")[0],
+        audio: !rateKey.endsWith("-silent"),
+      }),
+    ])),
+  ]));
+}
+
 const DEFAULT_ADVANCED_PRICING = {
   unit: "credits",
   creditsPerCny: ADVANCED_CREDITS_PER_CNY,
@@ -408,30 +432,31 @@ const DEFAULT_ADVANCED_PRICING = {
     "wan27-video-edit": { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
     "wan-legacy": { "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND, "1080p": ADVANCED_WAN27_1080P_CREDITS_PER_SECOND },
     "wan-animate-move": {
-      "wan-std": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["wan-animate-move"]?.["wan-std"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
-      "wan-pro": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["wan-animate-move"]?.["wan-pro"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+      "wan-std": defaultAliyunSaleCredits("wan-animate-move", { mode: "wan-std" }),
+      "wan-pro": defaultAliyunSaleCredits("wan-animate-move", { mode: "wan-pro" }, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
     },
     "wan-animate-mix": {
-      "wan-std": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["wan-animate-mix"]?.["wan-std"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
-      "wan-pro": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["wan-animate-mix"]?.["wan-pro"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+      "wan-std": defaultAliyunSaleCredits("wan-animate-mix", { mode: "wan-std" }),
+      "wan-pro": defaultAliyunSaleCredits("wan-animate-mix", { mode: "wan-pro" }, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
     },
     "happyhorse-t2v": {
-      "720p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-t2v"]?.["720P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
-      "1080p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-t2v"]?.["1080P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+      "720p": defaultAliyunSaleCredits("happyhorse-t2v", { resolution: "720p" }),
+      "1080p": defaultAliyunSaleCredits("happyhorse-t2v", { resolution: "1080p" }, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
     },
     "happyhorse-i2v": {
-      "720p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-i2v"]?.["720P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
-      "1080p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-i2v"]?.["1080P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+      "720p": defaultAliyunSaleCredits("happyhorse-i2v", { resolution: "720p" }),
+      "1080p": defaultAliyunSaleCredits("happyhorse-i2v", { resolution: "1080p" }, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
     },
     "happyhorse-r2v": {
-      "720p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-r2v"]?.["720P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
-      "1080p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-r2v"]?.["1080P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+      "720p": defaultAliyunSaleCredits("happyhorse-r2v", { resolution: "720p" }),
+      "1080p": defaultAliyunSaleCredits("happyhorse-r2v", { resolution: "1080p" }, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
     },
     "happyhorse-video-edit": {
-      "720p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-video-edit"]?.["720P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_720P_CREDITS_PER_SECOND),
-      "1080p": pricingNumber(ALIYUN_VIDEO_OFFICIAL_PRICING["happyhorse-video-edit"]?.["1080P"] * ADVANCED_CREDITS_PER_CNY * 1.5, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
+      "720p": defaultAliyunSaleCredits("happyhorse-video-edit", { resolution: "720p" }),
+      "1080p": defaultAliyunSaleCredits("happyhorse-video-edit", { resolution: "1080p" }, ADVANCED_WAN27_1080P_CREDITS_PER_SECOND),
     },
   },
+  aliyunVideoCreditsPerSecondByModel: defaultAliyunLegacySaleCreditsByModel(),
   wan27ImagePro: {
     model: WAN27_IMAGE_PRO_MODEL,
     purchaseCnyPerImage: WAN27_IMAGE_PRO_PURCHASE_CNY,
@@ -1482,6 +1507,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const aliyunVideoSource = source.aliyunVideoCreditsPerSecondByCapability && typeof source.aliyunVideoCreditsPerSecondByCapability === "object"
     ? source.aliyunVideoCreditsPerSecondByCapability
     : {};
+  const aliyunVideoModelSource = source.aliyunVideoCreditsPerSecondByModel && typeof source.aliyunVideoCreditsPerSecondByModel === "object"
+    ? source.aliyunVideoCreditsPerSecondByModel
+    : {};
   const rawWan27ImageSource = source.wan27ImagePro && typeof source.wan27ImagePro === "object" && !Array.isArray(source.wan27ImagePro)
     ? source.wan27ImagePro
     : {};
@@ -1551,6 +1579,25 @@ function normalizeAdvancedPricing(pricing = {}) {
       }),
     );
   }
+  const aliyunVideoCreditsPerSecondByModel = {};
+  const legacyCapabilityRates = aliyunVideoSource["wan-legacy"] && typeof aliyunVideoSource["wan-legacy"] === "object"
+    ? aliyunVideoSource["wan-legacy"]
+    : {};
+  for (const [model, fallbackRates] of Object.entries(DEFAULT_ADVANCED_PRICING.aliyunVideoCreditsPerSecondByModel || {})) {
+    const sourceRates = aliyunVideoModelSource[model] && typeof aliyunVideoModelSource[model] === "object"
+      ? aliyunVideoModelSource[model]
+      : {};
+    aliyunVideoCreditsPerSecondByModel[model] = Object.fromEntries(
+      Object.keys(fallbackRates).map((rateKey) => {
+        const resolution = rateKey.split("-")[0];
+        const inheritedLegacyRate = legacyCapabilityRates[resolution];
+        const fallback = Number.isFinite(Number(inheritedLegacyRate))
+          ? inheritedLegacyRate
+          : fallbackRates[rateKey];
+        return [rateKey, normalizeStoredCredits(sourceRates[rateKey], fallback)];
+      }),
+    );
+  }
   return {
     unit: "credits",
     creditsPerCny,
@@ -1579,6 +1626,7 @@ function normalizeAdvancedPricing(pricing = {}) {
     },
     wan27CreditsPerSecondByResolution: normalizedWan27Rates,
     aliyunVideoCreditsPerSecondByCapability,
+    aliyunVideoCreditsPerSecondByModel,
     wan27ImagePro: {
       ...wan27ImageDefault,
       ...wan27ImageSource,
@@ -6025,10 +6073,30 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     const resolution = normalizeWan27Resolution(options.resolution);
     const publicResolution = normalizeAdvancedResolution(resolution);
     const animateMode = String(firstPresent(options.animateMode, options.mode, options.parameters?.mode, "wan-std")).toLowerCase() === "wan-pro" ? "wan-pro" : "wan-std";
-    const rateKey = definition?.mediaKind === "animate" ? animateMode : publicResolution;
-    const priceTable = advancedPricing.aliyunVideoCreditsPerSecondByCapability?.[capability]
+    const model = String(options.model || aliyunVideoModelForCapability(capability)).trim().toLowerCase();
+    const audioEnabled = boolFromRequest(firstPresent(
+      options.parameters?.audio,
+      options.audio,
+      options.generateAudio,
+      options.generate_audio,
+    ), true);
+    const configuredModelTable = capability === "wan-legacy"
+      ? advancedPricing.aliyunVideoCreditsPerSecondByModel?.[model]
+      : null;
+    const fallbackModelTable = capability === "wan-legacy"
+      ? DEFAULT_ADVANCED_PRICING.aliyunVideoCreditsPerSecondByModel?.[model]
+      : null;
+    const variantRateKey = `${publicResolution}-${audioEnabled ? "audio" : "silent"}`;
+    const rateKey = definition?.mediaKind === "animate"
+      ? animateMode
+      : configuredModelTable?.[variantRateKey] !== undefined || fallbackModelTable?.[variantRateKey] !== undefined
+      ? variantRateKey
+      : publicResolution;
+    const priceTable = configuredModelTable
+      || advancedPricing.aliyunVideoCreditsPerSecondByCapability?.[capability]
       || advancedPricing.wan27CreditsPerSecondByResolution;
-    const fallbackTable = DEFAULT_ADVANCED_PRICING.aliyunVideoCreditsPerSecondByCapability?.[capability]
+    const fallbackTable = fallbackModelTable
+      || DEFAULT_ADVANCED_PRICING.aliyunVideoCreditsPerSecondByCapability?.[capability]
       || DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution;
     const creditsPerSecond = priceTable?.[rateKey] || fallbackTable?.[rateKey] || DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"];
     const rawInputVideoSeconds = durationSecondsFromValue(firstPresent(
@@ -6047,11 +6115,12 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       provider: normalizedProvider,
       providerLabel: normalizedProvider === "happyhorse" ? "HappyHorse" : "Wan",
       capability,
-      model: options.model || aliyunVideoModelForCapability(capability),
+      model,
       duration: aliyunDuration,
       resolution,
       publicResolution,
       animateMode: definition?.mediaKind === "animate" ? animateMode : undefined,
+      audio: audioEnabled,
       creditsPerSecond,
       outputCredits,
       inputVideoSeconds,
@@ -10444,6 +10513,7 @@ async function handleVolcengineGetGenerationTask(req, res, taskId) {
 
 function normalizeWan27Resolution(value = "") {
   const normalized = String(value || "").trim().toUpperCase();
+  if (normalized === "480P") return "480P";
   if (normalized === "1080P") return "1080P";
   return "720P";
 }
@@ -25790,8 +25860,6 @@ const ADVANCED_PRICING_ROWS = [
   { key: "seedance-video-input-4k", provider: "seedance", providerLabel: "Seedance Standard 视频输入加收", seedanceTier: "standard", resolution: "4k", rateKind: "video_input", unit: "input_second" },
   { key: "seedance-fast-video-input-480p", provider: "seedance", providerLabel: "Seedance Fast 视频输入加收", seedanceTier: "fast", resolution: "480p", rateKind: "video_input", unit: "input_second" },
   { key: "seedance-fast-video-input-720p", provider: "seedance", providerLabel: "Seedance Fast 视频输入加收", seedanceTier: "fast", resolution: "720p", rateKind: "video_input", unit: "input_second" },
-  { key: "wan27-720p", provider: "wan27", providerLabel: "Wan2.7", resolution: "720p", rateKind: "output", unit: "output_second" },
-  { key: "wan27-1080p", provider: "wan27", providerLabel: "Wan2.7", resolution: "1080p", rateKind: "output", unit: "output_second" },
   ...[
     { capability: "wan27-t2v", provider: "wan27", providerLabel: "Wan2.7 Text to Video", rates: ["720p", "1080p"] },
     { capability: "wan27-i2v", provider: "wan27", providerLabel: "Wan2.7 Image to Video", rates: ["720p", "1080p"] },
@@ -25812,8 +25880,10 @@ const ADVANCED_PRICING_ROWS = [
     rateKey,
     mode: rateKey.startsWith("wan-") ? rateKey : "",
     rateKind: "output",
+    billing: ALIYUN_VIDEO_CAPABILITIES[item.capability]?.billing || "output",
     unit: "output_second",
   }))),
+  ...officialSingaporeLegacyPricingRows(),
 ];
 
 const ADVANCED_PRICING_ROW_KEYS = new Set([
@@ -25823,6 +25893,7 @@ const ADVANCED_PRICING_ROW_KEYS = new Set([
   "seedream5-pro-2k",
   "seedream5-pro-reference",
 ]);
+const ADVANCED_PRICING_ROWS_BY_KEY = new Map(ADVANCED_PRICING_ROWS.map((row) => [row.key, row]));
 
 function pricingPayloadError(message, code = "INVALID_PRICING_ROWS") {
   const error = new Error(message);
@@ -25887,9 +25958,16 @@ function yuanPerSecondRangeFromCredits(creditsPerSecondRange, creditsPerCny) {
   return creditsPerSecondRange.slice(0, 2).map((value) => yuanPerSecondFromCredits(value, creditsPerCny));
 }
 
-function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard", capability = "", mode = "") {
+function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard", capability = "", mode = "", model = "", variant = "") {
   const normalized = normalizeAdvancedPricing(pricing);
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  const normalizedModel = String(model || "").trim().toLowerCase();
+  if (capability === "wan-legacy" && normalizedModel && normalized.aliyunVideoCreditsPerSecondByModel?.[normalizedModel]) {
+    const rateKey = variant
+      ? `${normalizeAdvancedResolution(resolution)}-${String(variant).toLowerCase()}`
+      : normalizeAdvancedResolution(resolution);
+    return pricingNumber(normalized.aliyunVideoCreditsPerSecondByModel[normalizedModel][rateKey], 0);
+  }
   if (capability && normalized.aliyunVideoCreditsPerSecondByCapability?.[capability]) {
     const rateKey = mode || String(resolution || "").toLowerCase();
     return pricingNumber(normalized.aliyunVideoCreditsPerSecondByCapability[capability][rateKey], 0);
@@ -26104,19 +26182,25 @@ function seedanceOfficialInputUsdPerSecond(resolution = "720p", seedanceTier = "
   return pricingNumber(baseUsdPerSecond * ratio, baseUsdPerSecond, 0, 6);
 }
 
-async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard", capability = "", mode = "") {
+async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolution = "720p", rateKind = "output", seedanceTier = "standard", capability = "", mode = "", model = "", variant = "") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
-  if (capability && ALIYUN_VIDEO_OFFICIAL_PRICING[capability]) {
-    const purchaseCnyPerSecond = officialSingaporePurchaseRate(capability, {
+  if (capability && (ALIYUN_VIDEO_OFFICIAL_PRICING[capability] || capability === "wan-legacy")) {
+    const purchase = officialSingaporePurchaseDetails(capability, {
       resolution: publicResolution,
       mode: mode || resolution,
+      model,
+      audio: String(variant || "audio").toLowerCase() !== "silent",
     });
+    const promotionMessage = purchase?.limitedTimeDiscount
+      ? ` Limited-time ${purchase.discountPercent}% discount applied; list price $${purchase.listUsdPerSecond}/second.`
+      : "";
     return {
-      creditsPerSecond: purchaseCnyPerSecond === null ? null : pricingNumber(purchaseCnyPerSecond * ADVANCED_CREDITS_PER_CNY, 0),
+      creditsPerSecond: purchase ? pricingNumber(purchase.usdPerSecond * DEFAULT_CREDITS_PER_USD, 0) : null,
+      usdPerSecond: purchase?.usdPerSecond ?? null,
       source: "aliyun_singapore_official_model_pricing",
-      message: purchaseCnyPerSecond === null ? "Official Singapore price is unavailable for this rate." : "Alibaba Cloud Model Studio Singapore official per-second price.",
+      message: purchase ? `Alibaba Cloud Model Studio Singapore official per-second price.${promotionMessage}` : "Official Singapore price is unavailable for this rate.",
     };
   }
   if (USE_GATEWAY_UPSTREAM) {
@@ -26139,26 +26223,25 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
       message: `BytePlus official 5s 16:9 example${normalizeSeedanceTier(seedanceTier) === "fast" ? " scaled by fast endpoint token rate" : ""}: ${exampleUsd} USD/video. Internal upstream rate: ${UPSTREAM_USD_CNY_RATE}. Actual billing follows completion_tokens returned by the API.`,
     };
   }
-  const wan27PurchaseCnyPerSecond = publicResolution === "1080p"
-    ? ALIYUN_WAN27_1080P_PURCHASE_CNY_PER_SECOND
-    : ALIYUN_WAN27_720P_PURCHASE_CNY_PER_SECOND;
+  const wan27Purchase = officialSingaporePurchaseDetails("wan27-i2v", { resolution: publicResolution });
   return {
-    creditsPerSecond: pricingNumber(wan27PurchaseCnyPerSecond * ADVANCED_CREDITS_PER_CNY, 0),
-    source: "aliyun_official_model_pricing",
-    message: "Alibaba Cloud Model Studio international official price for wan2.7-i2v-2026-04-25.",
+    creditsPerSecond: wan27Purchase ? pricingNumber(wan27Purchase.usdPerSecond * DEFAULT_CREDITS_PER_USD, 0) : null,
+    usdPerSecond: wan27Purchase?.usdPerSecond ?? null,
+    source: "aliyun_singapore_official_model_pricing",
+    message: "Alibaba Cloud Model Studio Singapore official price for wan2.7-i2v-2026-04-25.",
   };
 }
 
 async function adminAdvancedPricingView(config = {}) {
   const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
   const rows = await Promise.all(ADVANCED_PRICING_ROWS.map(async (row) => {
-    const saleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode);
-    const purchase = await advancedPurchaseCreditsPerSecond(row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode);
+    const saleCreditsPerSecond = advancedSaleCreditsPerSecond(pricing, row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode, row.model, row.variant);
+    const purchase = await advancedPurchaseCreditsPerSecond(row.provider, row.resolution, row.rateKind, row.seedanceTier, row.capability, row.mode, row.model, row.variant);
     return {
       ...row,
       purchaseCreditsPerSecond: purchase.creditsPerSecond,
       purchaseCreditsPerSecondRange: Array.isArray(purchase.creditsPerSecondRange) ? purchase.creditsPerSecondRange.slice(0, 2) : null,
-      purchaseUsdPerSecond: usdFromCny(yuanPerSecondFromCredits(purchase.creditsPerSecond, pricing.creditsPerCny)),
+      purchaseUsdPerSecond: purchase.usdPerSecond ?? usdFromCny(yuanPerSecondFromCredits(purchase.creditsPerSecond, pricing.creditsPerCny)),
       purchaseUsdPerSecondRange: usdRangeFromCny(yuanPerSecondRangeFromCredits(purchase.creditsPerSecondRange, pricing.creditsPerCny)),
       purchaseSource: purchase.source,
       purchaseMessage: purchase.message || "",
@@ -26169,7 +26252,7 @@ async function adminAdvancedPricingView(config = {}) {
   const gatewayImagePurchase = await gatewayPurchaseImageCredits();
   const imagePurchaseCredits = gatewayImagePurchase
     ? gatewayImagePurchase.credits
-    : pricingNumber(pricing.wan27ImagePro.purchaseCnyPerImage * pricing.creditsPerCny, 0);
+    : pricingNumber(WAN27_IMAGE_PRO_PURCHASE_USD * DEFAULT_CREDITS_PER_USD, 0);
   rows.push({
     key: "wan27-image",
     provider: "wan27-image",
@@ -26177,9 +26260,11 @@ async function adminAdvancedPricingView(config = {}) {
     resolution: "image",
     unit: "image",
     purchaseCreditsPerSecond: imagePurchaseCredits,
-    purchaseUsdPerSecond: usdFromCny(yuanPerSecondFromCredits(imagePurchaseCredits, pricing.creditsPerCny)),
-    purchaseSource: gatewayImagePurchase?.source || "aliyun_model_pricing",
-    purchaseMessage: gatewayImagePurchase?.message || "Official unit price per generated image. Failed calls are not charged upstream.",
+    purchaseUsdPerSecond: gatewayImagePurchase
+      ? purchaseUsdFromCredits(imagePurchaseCredits)
+      : WAN27_IMAGE_PRO_PURCHASE_USD,
+    purchaseSource: gatewayImagePurchase?.source || "aliyun_singapore_official_model_pricing",
+    purchaseMessage: gatewayImagePurchase?.message || "Alibaba Cloud Model Studio Singapore official price per generated image. Failed calls are not charged upstream.",
     saleCreditsPerSecond: advancedSaleImageCredits(pricing),
     saleUsdPerSecond: pricingNumber(advancedSaleImageCredits(pricing) / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
     model: pricing.wan27ImagePro.model,
@@ -26256,6 +26341,7 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
       throw pricingPayloadError(`Unknown pricing row: ${key || "empty"}`);
     }
     seen.add(key);
+    const definedRow = ADVANCED_PRICING_ROWS_BY_KEY.get(key) || null;
     if (key === "wan27-image") {
       const rawSale = advancedPricingRowSaleYuan(row, next.creditsPerCny);
       if (!Number.isFinite(rawSale) || rawSale < 0) {
@@ -26284,17 +26370,20 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
       continue;
     }
     if (key.startsWith("aliyun-")) {
-      const capability = String(row.capability || "").trim();
-      const rateKey = String(row.rateKey || row.mode || row.resolution || "").trim().toLowerCase();
-      if (!next.aliyunVideoCreditsPerSecondByCapability?.[capability]
-        || !(rateKey in next.aliyunVideoCreditsPerSecondByCapability[capability])) {
-        throw pricingPayloadError(`Unknown Alibaba video pricing rate: ${capability}/${rateKey}`);
+      const capability = String(definedRow?.capability || "").trim();
+      const model = String(definedRow?.model || "").trim().toLowerCase();
+      const rateKey = String(definedRow?.rateKey || definedRow?.mode || definedRow?.resolution || "").trim().toLowerCase();
+      const targetRates = model
+        ? next.aliyunVideoCreditsPerSecondByModel?.[model]
+        : next.aliyunVideoCreditsPerSecondByCapability?.[capability];
+      if (!targetRates || !(rateKey in targetRates)) {
+        throw pricingPayloadError(`Unknown Alibaba video pricing rate: ${model || capability}/${rateKey}`);
       }
       const rawCredits = advancedPricingRowSaleCredits(row, next.creditsPerCny);
       if (!Number.isFinite(rawCredits) || rawCredits < 0) {
         throw pricingPayloadError(`Invalid sale price for ${key}`);
       }
-      next.aliyunVideoCreditsPerSecondByCapability[capability][rateKey] = pricingNumber(rawCredits, 0);
+      targetRates[rateKey] = pricingNumber(rawCredits, 0);
       continue;
     }
     const rawCredits = advancedPricingRowSaleCredits(row, next.creditsPerCny);

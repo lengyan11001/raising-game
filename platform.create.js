@@ -94,11 +94,12 @@ function advancedAssetTargetItems() {
     if (needsVideo) targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
     if ((capability === "wan27-i2v" || capability === "wan-legacy") && wanModeNeedsLastFrame(wanMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
     if ((capability === "wan27-i2v" || capability === "wan-legacy") && wanModeNeedsAudio(wanMode)) targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
-  } else {
-    if (seedanceModeNeedsFirstFrame(seedanceMode)) {
-      targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+  } else if (seedanceModeNeedsFirstFrame(seedanceMode)) {
+    targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+    if (seedanceModeNeedsLastFrame(seedanceMode)) {
       targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
     }
+  } else {
     targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
     targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
     targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
@@ -1107,6 +1108,7 @@ async function addAssetToAdvancedTarget(assetId = "") {
 function updateAdvancedModelControls() {
   applyAdvancedCreateMode();
   const provider = currentAdvancedProvider();
+  syncAdvancedVideoCapabilityOptions();
   const capability = currentAdvancedVideoCapability();
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
@@ -1181,6 +1183,9 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || provider !== "seedance";
   });
+  if (els.advancedSeedanceMediaPanel) {
+    els.advancedSeedanceMediaPanel.hidden = simpleAction || simpleEdit || provider !== "seedance" || !seedanceModeNeedsFirstFrame(seedanceMode);
+  }
   document.querySelectorAll(".advanced-seedream5-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isSeedreamImage;
   });
@@ -1231,7 +1236,7 @@ function updateAdvancedModelControls() {
         aliyunTargetTypes.has("audio") ? "audio/*" : "",
       ].filter(Boolean).join(",");
       els.advancedImage.accept = aliyunVideo ? aliyunAccept : advancedCreateUploadAcceptValue();
-      els.advancedImage.multiple = allowManualReferenceUpload && (provider === "seedance" || isSeedreamImage || (aliyunVideo && advancedAliyunReferenceImageLimit(capability) > 1) || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload()));
+      els.advancedImage.multiple = allowManualReferenceUpload && ((provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode)) || isSeedreamImage || (aliyunVideo && advancedAliyunReferenceImageLimit(capability) > 1) || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload()));
     }
     const forceUpload = allowManualReferenceUpload && (simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload());
     els.advancedUploadBox.hidden = hidePresetUploadBox || (aliyunVideo && !capabilityNeedsMedia);
@@ -1275,7 +1280,12 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = 
   }
   updateAdvancedModelControls();
   els.advancedImage.accept = provider === "seedance" ? advancedCreateUploadAcceptValue() : "image/*";
-  els.advancedImage.multiple = !characterPresetUpload && (provider === "seedance" || provider === "seedream5-image" || (!advancedCreateModeUsesSingleUpload() && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "")));
+  els.advancedImage.multiple = !characterPresetUpload && (
+    provider === "seedream5-image"
+    || (provider === "seedance"
+      ? !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "")
+      : !advancedCreateModeUsesSingleUpload())
+  );
   els.advancedImage.click();
 }
 
@@ -1362,16 +1372,10 @@ function fillAdvancedCase(item = {}) {
   state.advancedCreateMode = ADVANCED_CUSTOM_MODE.id;
   renderAdvancedCreateControls();
   state.activeAdvancedCaseId = item.id || "";
-  const restoredCapability = String(params.videoCapability || record.mediaMode || "").trim();
+  const restoredCapability = String(params.videoCapability || item.mediaMode || "").trim();
   if (els.advancedProvider) {
-    const optionValue = ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(restoredCapability)
-      ? restoredCapability
-      : provider === "wan27" || provider === "happyhorse"
-      ? "wan27-i2v"
-      : provider === "happyhorse"
-      ? "happyhorse-i2v"
-      : provider;
-    els.advancedProvider.value = optionValue;
+    els.advancedProvider.value = advancedEngineValue(provider, restoredCapability);
+    syncAdvancedVideoCapabilityOptions(restoredCapability);
   }
   if (els.advancedLegacyWanModel && restoredCapability === "wan-legacy") {
     els.advancedLegacyWanModel.value = params.model || record.model || els.advancedLegacyWanModel.value;
@@ -2330,7 +2334,17 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   clearAdvancedCreationInputs();
   if (restoredPresetFlow) hydrateAdvancedPresetsFromParams(params);
   state.activeAdvancedCaseId = "";
-  if (els.advancedProvider) els.advancedProvider.value = provider;
+  const restoredCapability = String(params.videoCapability || record.mediaMode || "").trim();
+  if (els.advancedProvider) {
+    els.advancedProvider.value = advancedEngineValue(provider, restoredCapability);
+    syncAdvancedVideoCapabilityOptions(restoredCapability);
+  }
+  if (els.advancedLegacyWanModel && restoredCapability === "wan-legacy") {
+    els.advancedLegacyWanModel.value = params.model || record.model || els.advancedLegacyWanModel.value;
+  }
+  if (els.advancedWanAnimateMode && ["wan-animate-move", "wan-animate-mix"].includes(restoredCapability)) {
+    els.advancedWanAnimateMode.value = params.animateMode || params.parameters?.mode || "wan-std";
+  }
   if (els.advancedPrompt) {
     const rawPrompt = record.finalPrompt || record.prompt || params.prompt || "";
     els.advancedPrompt.value = restoredPresetFlow ? promptWithoutPresetParts(rawPrompt, params) : rawPrompt;
