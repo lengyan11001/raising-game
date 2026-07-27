@@ -59,12 +59,16 @@ test("mobile history opens one preview stream", () => {
   assert.match(explore, /document\.querySelectorAll\("\.history-media video"\)\.forEach\(\(video\) => video\.pause\(\)\)/);
 });
 
+test("history play icon stays centered after Lucide replaces its placeholder", () => {
+  assert.match(css, /\.history-poster > svg \{[\s\S]*?top: 50%;[\s\S]*?left: 50%;[\s\S]*?transform: translate\(-50%, -50%\);/);
+});
+
 test("opening a dialog always closes the mobile drawer", () => {
   assert.match(ui, /function prepareModalOpen\(\) \{\s*closeMobileDrawer\(\);\s*closeAccountMenu\(\);/);
   assert.match(ui, /function showInlineDialog[\s\S]*?prepareModalOpen\(\);/);
   assert.match(create, /function openLogin\(\)[\s\S]*?prepareModalOpen\(\);/);
   assert.match(main, /function openTopupDialog\(\)[\s\S]*?prepareModalOpen\(\);/);
   assert.match(explore, /function playPreview[\s\S]*?prepareModalOpen\(\);/);
-  assert.match(html, /platform\.js\?v=ai-321-mobile-history/);
-  assert.match(html, /platform\.css\?v=ai-321-mobile-history/);
+  assert.match(html, /platform\.js\?v=ai-322-history-play/);
+  assert.match(html, /platform\.css\?v=ai-322-history-play/);
 });
