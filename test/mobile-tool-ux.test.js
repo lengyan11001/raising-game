@@ -65,6 +65,6 @@ test("opening a dialog always closes the mobile drawer", () => {
   assert.match(create, /function openLogin\(\)[\s\S]*?prepareModalOpen\(\);/);
   assert.match(main, /function openTopupDialog\(\)[\s\S]*?prepareModalOpen\(\);/);
   assert.match(explore, /function playPreview[\s\S]*?prepareModalOpen\(\);/);
-  assert.match(html, /platform\.js\?v=ai-320-mobile-history/);
-  assert.match(html, /platform\.css\?v=ai-320-mobile-history/);
+  assert.match(html, /platform\.js\?v=ai-321-mobile-history/);
+  assert.match(html, /platform\.css\?v=ai-321-mobile-history/);
 });
