@@ -76,6 +76,7 @@ function setTab(tab) {
   }
   if (nextTab !== "history") {
     stopHistoryRefresh();
+    disconnectHistoryLoadMoreObserver();
     historyRecordsSignature = "";
   }
   if (nextTab !== "assets") {
@@ -98,7 +99,7 @@ function setTab(tab) {
   });
   syncGalleryShortcutNav();
   if (nextTab === DEFAULT_PLATFORM_TAB) renderTemplates();
-  if (nextTab === "history") loadHistory();
+  if (nextTab === "history") loadHistory({ page: isMobileHistoryLayout() ? 1 : state.historyRecordsPage || 1 });
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();
   if (nextTab === "referral") loadReferralSummary({ force: true });
@@ -3461,16 +3462,18 @@ function previewRatioFromItem(item = {}) {
 function playPreview({ title = "", previewUrl = "", ratio = "16:9" } = {}) {
   if (!previewUrl || !els.previewDialog || !els.previewVideo || !els.previewImage) return;
   prepareModalOpen();
+  document.querySelectorAll(".history-media video").forEach((video) => video.pause());
   els.previewTitle.textContent = title || t("common.preview");
   els.previewImage.hidden = true;
   els.previewImage.removeAttribute("src");
   els.previewVideo.pause();
+  els.previewVideo.preload = "auto";
   els.previewVideo.setAttribute("style", ratioStyle(ratio));
   els.previewVideo.src = previewUrl;
   els.previewVideo.hidden = false;
-  els.previewVideo.load();
   if (!els.previewDialog.open) els.previewDialog.showModal();
-  window.setTimeout(() => els.previewVideo.play().catch(() => {}), 80);
+  els.previewVideo.load();
+  els.previewVideo.play().catch(() => {});
 }
 
 function previewImage({ title = "", imageUrl = "" } = {}) {

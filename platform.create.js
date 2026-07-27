@@ -3785,8 +3785,54 @@ async function submitTemplate() {
   setAdvancedSideTab("assets");
 }
 
+function isMobileHistoryLayout() {
+  return window.matchMedia("(max-width: 720px)").matches;
+}
+
+function disconnectHistoryLoadMoreObserver() {
+  if (historyLoadMoreObserver) historyLoadMoreObserver.disconnect();
+  historyLoadMoreObserver = null;
+}
+
+function mergeHistoryRecordPages(primary = [], secondary = []) {
+  const seen = new Set();
+  return [...primary, ...secondary].filter((record, index) => {
+    const key = String(record?.taskId || record?.id || `${record?.createdAt || ""}-${index}`);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function setupHistoryInfiniteScroll() {
+  disconnectHistoryLoadMoreObserver();
+  if (!isMobileHistoryLayout() || state.tab !== "history" || !state.user) return;
+  if (Number(state.historyRecordsPage || 1) >= Number(state.historyRecordsTotalPages || 1)) return;
+  const sentinel = els.historyList?.querySelector("[data-history-load-more]");
+  if (!sentinel || !("IntersectionObserver" in window)) return;
+  historyLoadMoreObserver = new IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting) || historyLoading || historyRefreshInFlight) return;
+    disconnectHistoryLoadMoreObserver();
+    sentinel.classList.add("is-loading");
+    loadHistory({
+      silent: true,
+      append: true,
+      page: Number(state.historyRecordsPage || 1) + 1,
+    }).finally(() => {
+      if (state.tab === "history" && document.contains(sentinel)) setupHistoryInfiniteScroll();
+    });
+  }, { rootMargin: "360px 0px", threshold: 0.01 });
+  historyLoadMoreObserver.observe(sentinel);
+}
+
 function renderHistory(records = []) {
   if (!els.historyList) return;
+  disconnectHistoryLoadMoreObserver();
+  const mobileLayout = isMobileHistoryLayout();
+  if (els.historyPager) {
+    els.historyPager.hidden = mobileLayout;
+    if (mobileLayout) els.historyPager.innerHTML = "";
+  }
   const sortedRecords = [...records].sort((left, right) => new Date(right.createdAt || right.updatedAt || 0) - new Date(left.createdAt || left.updatedAt || 0));
   const expiryNotice = `
     <div class="history-expiry-note">
@@ -3810,15 +3856,20 @@ function renderHistory(records = []) {
   }
   if (!sortedRecords.length) {
     els.historyList.innerHTML = `${expiryNotice}<div class="history-empty-card"><strong>${escapeHtml(t("history.emptyTitle"))}</strong><p>${escapeHtml(t("history.emptyDesc"))}</p></div>`;
-    renderSimplePager(els.historyPager, {
-      page: state.historyRecordsPage,
-      totalPages: state.historyRecordsTotalPages,
-      total: state.historyRecordsTotal,
-    }, (page) => loadHistory({ page }), { jump: true });
+    if (!mobileLayout) {
+      renderSimplePager(els.historyPager, {
+        page: state.historyRecordsPage,
+        totalPages: state.historyRecordsTotalPages,
+        total: state.historyRecordsTotal,
+      }, (page) => loadHistory({ page }), { jump: true });
+    }
     refreshIcons();
     return;
   }
   state.historyRecords = sortedRecords;
+  const loadMoreHtml = mobileLayout && Number(state.historyRecordsPage || 1) < Number(state.historyRecordsTotalPages || 1)
+    ? `<div class="history-load-sentinel" data-history-load-more><i data-lucide="loader-circle"></i></div>`
+    : "";
   els.historyList.innerHTML = `${expiryNotice}${sortedRecords.map((record, index) => {
     const videoUrl = generationVideoUrl(record);
     const imageResultUrl = generationImageResultUrl(record);
@@ -3829,6 +3880,44 @@ function renderHistory(records = []) {
     const mediaStyle = ratioStyle(recordRatio);
     const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
     const canDownload = canDownloadGenerationRecord(record);
+    const regenerateAction = taskId ? `
+      <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
+        <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
+      </button>
+    ` : "";
+    const resultActions = taskId && (videoUrl || imageResultUrl) ? `
+      ${canDownload ? `
+        <button class="history-download history-download-file" type="button" data-history-download="${escapeHtml(String(index))}">
+          <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+        </button>
+      ` : ""}
+      <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
+        <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
+      </button>
+    ` : "";
+    const videoActions = taskId && videoUrl ? `
+      <button class="history-download history-extend" type="button" data-history-extend="${escapeHtml(taskId)}">
+        <i data-lucide="stretch-horizontal"></i>${escapeHtml(t("assets.extend"))}
+      </button>
+      <button class="history-download history-replace" type="button" data-history-replace="${escapeHtml(taskId)}">
+        <i data-lucide="replace"></i>${escapeHtml(t("assets.replace"))}
+      </button>
+      <button class="history-download history-frame" type="button" data-history-frame="${escapeHtml(taskId)}">
+        <i data-lucide="scan-line"></i>${escapeHtml(t("assets.extractFrame"))}
+      </button>
+    ` : "";
+    const detailAction = `
+      <button class="history-download history-params" type="button" data-history-detail="${index}">
+        <i data-lucide="sliders-horizontal"></i>${escapeHtml(t("history.viewParameters"))}
+      </button>
+    `;
+    const deleteAction = taskId ? `
+      <button class="history-download history-delete" type="button" data-history-delete="${escapeHtml(taskId)}">
+        <i data-lucide="trash-2"></i>${escapeHtml(t("history.delete"))}
+      </button>
+    ` : "";
+    const primaryActions = `${regenerateAction}${resultActions}${videoActions}`;
+    const allActions = `${primaryActions}${detailAction}${deleteAction}`;
     return `
       <article class="history-item is-${escapeHtml(statusClass(record.status))}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">
@@ -3838,49 +3927,25 @@ function renderHistory(records = []) {
               <i data-lucide="play"></i>
             </button>
             <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
-          ` : imageResultUrl ? `<img class="history-result-image" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
+          ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
         <div class="history-card-actions">
           <div class="history-record-actions${taskId || videoUrl ? "" : " history-record-actions-empty"}">
-            ${taskId ? `
-              <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
-                <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
-              </button>
-            ` : ""}
-            ${taskId && (videoUrl || imageResultUrl) ? `
-              ${canDownload ? `
-                <button class="history-download history-download-file" type="button" data-history-download="${escapeHtml(String(index))}">
-                  <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
-                </button>
-              ` : ""}
-              <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
-                <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
-              </button>
-            ` : ""}
-            ${taskId && videoUrl ? `
-              <button class="history-download history-extend" type="button" data-history-extend="${escapeHtml(taskId)}">
-                <i data-lucide="stretch-horizontal"></i>${escapeHtml(t("assets.extend"))}
-              </button>
-              <button class="history-download history-replace" type="button" data-history-replace="${escapeHtml(taskId)}">
-                <i data-lucide="replace"></i>${escapeHtml(t("assets.replace"))}
-              </button>
-              <button class="history-download history-frame" type="button" data-history-frame="${escapeHtml(taskId)}">
-                <i data-lucide="scan-line"></i>${escapeHtml(t("assets.extractFrame"))}
-              </button>
-            ` : ""}
+            ${primaryActions}
           </div>
-          <button class="history-download history-params" type="button" data-history-detail="${index}">
-            <i data-lucide="sliders-horizontal"></i>${escapeHtml(t("history.viewParameters"))}
-          </button>
-          ${taskId ? `
-            <button class="history-download history-delete" type="button" data-history-delete="${escapeHtml(taskId)}">
-              <i data-lucide="trash-2"></i>${escapeHtml(t("history.delete"))}
-            </button>
-          ` : ""}
+          ${detailAction}
+          ${deleteAction}
         </div>
+        <details class="history-actions-menu">
+          <summary class="history-download history-actions-trigger">
+            <i data-lucide="ellipsis"></i><span>${escapeHtml(t("history.actions"))}</span><i data-lucide="chevron-down"></i>
+          </summary>
+          <div class="history-actions-popover" role="menu">${allActions}</div>
+        </details>
       </article>
     `;
-  }).join("")}`;
+  }).join("")}${loadMoreHtml}`;
+  const allowInlinePreview = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
   els.historyList.querySelectorAll("[data-history-load-video]").forEach((button) => {
     const showVideo = () => {
       const key = button.dataset.historyLoadVideo || "";
@@ -3909,12 +3974,15 @@ function renderHistory(records = []) {
         ratio: record?.ratio || record?.params?.ratio || record?.params?.aspect_ratio || "16:9",
       });
     };
-    button.addEventListener("mouseenter", showVideo, { once: true });
-    button.addEventListener("focus", showVideo, { once: true });
+    if (allowInlinePreview) {
+      button.addEventListener("mouseenter", showVideo, { once: true });
+      button.addEventListener("focus", showVideo, { once: true });
+    }
     button.addEventListener("click", openModalPreview);
   });
-  els.historyList.querySelectorAll(".history-result-image").forEach((image, index) => {
+  els.historyList.querySelectorAll(".history-result-image").forEach((image) => {
     image.addEventListener("click", () => {
+      const index = Number(image.dataset.historyImage || -1);
       const record = sortedRecords[index];
       const previewUrl = image.getAttribute("src") || generationImageResultUrl(record);
       if (!previewUrl) return;
@@ -3951,11 +4019,27 @@ function renderHistory(records = []) {
   els.historyList.querySelectorAll("[data-history-delete]").forEach((button) => {
     button.addEventListener("click", () => deleteHistoryRecord(button.dataset.historyDelete || "", button));
   });
-  renderSimplePager(els.historyPager, {
-    page: state.historyRecordsPage,
-    totalPages: state.historyRecordsTotalPages,
-    total: state.historyRecordsTotal,
-  }, (page) => loadHistory({ page }), { jump: true });
+  const actionMenus = Array.from(els.historyList.querySelectorAll(".history-actions-menu"));
+  actionMenus.forEach((menu) => {
+    menu.addEventListener("toggle", () => {
+      if (!menu.open) return;
+      actionMenus.forEach((other) => {
+        if (other !== menu) other.open = false;
+      });
+    });
+    menu.querySelectorAll("button").forEach((button) => {
+      button.addEventListener("click", () => { menu.open = false; });
+    });
+  });
+  if (mobileLayout) {
+    setupHistoryInfiniteScroll();
+  } else {
+    renderSimplePager(els.historyPager, {
+      page: state.historyRecordsPage,
+      totalPages: state.historyRecordsTotalPages,
+      total: state.historyRecordsTotal,
+    }, (page) => loadHistory({ page }), { jump: true });
+  }
   refreshIcons();
 }
 
@@ -4076,7 +4160,7 @@ async function deleteHistoryRecord(taskId = "", button = null) {
     state.historyRecords = (state.historyRecords || []).filter((record) => String(record.taskId || "") !== String(taskId));
     state.historyRecordsTotal = Math.max(0, Number(state.historyRecordsTotal || 0) - 1);
     historyRecordsSignature = "";
-    await loadHistory({ silent: true, page: state.historyRecordsPage || 1 });
+    await loadHistory({ silent: true, page: 1, preserveMobile: true });
   } catch (error) {
     if (button) {
       button.disabled = false;
@@ -4141,7 +4225,7 @@ async function refreshPendingHistoryRecords(records = []) {
   candidates.forEach((record) => historyDetailRefreshInFlight.delete(String(record.taskId || "")));
   if (state.tab !== "history" || !state.user) return;
   if (settled.some((result) => result.status === "fulfilled")) {
-    window.setTimeout(() => loadHistory({ silent: true }), 500);
+    window.setTimeout(() => loadHistory({ silent: true, page: 1, preserveMobile: true }), 500);
   }
 }
 
@@ -4168,11 +4252,17 @@ function scheduleHistoryRefresh({ delayMs = 15000, force = false } = {}) {
   if (state.tab !== "history" || !state.user) return;
   historyRefreshTimer = window.setTimeout(() => {
     historyRefreshTimer = null;
-    if (state.tab === "history") loadHistory({ silent: true, refresh: true });
+    if (state.tab === "history") loadHistory({ silent: true, refresh: true, page: 1, preserveMobile: true });
   }, delayMs);
 }
 
-async function loadHistory({ silent = false, refresh = false, page = state.historyRecordsPage || 1 } = {}) {
+async function loadHistory({
+  silent = false,
+  refresh = false,
+  page = state.historyRecordsPage || 1,
+  append = false,
+  preserveMobile = false,
+} = {}) {
   if (!els.historyList) return;
   if (!state.user) {
     stopHistoryRefresh();
@@ -4181,29 +4271,42 @@ async function loadHistory({ silent = false, refresh = false, page = state.histo
     return;
   }
   if (historyLoading || historyRefreshInFlight) {
+    if (append) return;
     scheduleHistoryRefresh({ delayMs: 5000, force: true });
     return;
   }
   historyLoading = true;
   historyRefreshInFlight = true;
   const previousScrollTop = els.historyList.scrollTop || 0;
+  const previousRecords = Array.isArray(state.historyRecords) ? state.historyRecords : [];
+  const previousPage = Number(state.historyRecordsPage || 1);
   const requestedPage = Math.max(1, Number(page || 1) || 1);
-  if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
+  if (!silent && !append) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
   try {
     const historyUrl = `/api/generation-records?page=${encodeURIComponent(requestedPage)}&limit=${encodeURIComponent(state.historyRecordsLimit || 8)}${refresh ? "&refresh=1" : ""}`;
     const payload = await requestJson(historyUrl);
     if (payload.user) setUser(payload.user);
-    const records = payload.records || [];
-    state.historyRecordsPage = payload.page || requestedPage;
+    const incomingRecords = payload.records || [];
+    const mobileLayout = isMobileHistoryLayout();
+    const shouldAppend = mobileLayout && append && requestedPage > 1;
+    const shouldPreserve = mobileLayout && preserveMobile && previousRecords.length > 0;
+    const records = shouldAppend
+      ? mergeHistoryRecordPages(previousRecords, incomingRecords)
+      : shouldPreserve
+        ? mergeHistoryRecordPages(incomingRecords, previousRecords)
+        : incomingRecords;
+    state.historyRecordsPage = shouldAppend || shouldPreserve
+      ? Math.max(previousPage, Number(payload.page || requestedPage))
+      : payload.page || requestedPage;
     state.historyRecordsLimit = payload.limit || state.historyRecordsLimit || 8;
     state.historyRecordsTotal = payload.total || records.length;
     state.historyRecordsTotalPages = payload.totalPages || 1;
     state.historyRecords = records;
     const nextSignature = generationRecordsSignature(records);
-    if (!silent || nextSignature !== historyRecordsSignature) {
+    if (!silent || shouldAppend || nextSignature !== historyRecordsSignature) {
       renderHistory(records);
       historyRecordsSignature = nextSignature;
-      els.historyList.scrollTop = previousScrollTop;
+      if (!shouldAppend) els.historyList.scrollTop = previousScrollTop;
     }
     if (state.tab === "advanced" && state.advancedSideTab === "result" && !state.advancedResultRecords?.length) {
       renderAdvancedResultPanel();

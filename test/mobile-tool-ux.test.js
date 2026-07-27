@@ -42,12 +42,29 @@ test("mobile Video cards keep a stable poster while previews load", () => {
   assert.match(css, /\.playflux-template-media\.is-video-ready \.playflux-template-video \{[\s\S]*?opacity: 1;/);
 });
 
+test("mobile history scrolls through pages and uses one action menu", () => {
+  assert.match(create, /function setupHistoryInfiniteScroll\(\)/);
+  assert.match(create, /new IntersectionObserver/);
+  assert.match(create, /append: true/);
+  assert.match(create, /els\.historyPager\.hidden = mobileLayout/);
+  assert.match(create, /<details class="history-actions-menu">/);
+  assert.match(css, /\.history-card-actions \{ display: none; \}/);
+  assert.match(css, /\.history-actions-menu \{ display: block; \}/);
+});
+
+test("mobile history opens one preview stream", () => {
+  assert.match(create, /const allowInlinePreview = window\.matchMedia\("\(hover: hover\) and \(pointer: fine\)"\)\.matches/);
+  assert.match(create, /if \(allowInlinePreview\) \{[\s\S]*?addEventListener\("focus", showVideo/);
+  assert.match(html, /id="previewVideo" controls playsinline preload="auto"/);
+  assert.match(explore, /document\.querySelectorAll\("\.history-media video"\)\.forEach\(\(video\) => video\.pause\(\)\)/);
+});
+
 test("opening a dialog always closes the mobile drawer", () => {
   assert.match(ui, /function prepareModalOpen\(\) \{\s*closeMobileDrawer\(\);\s*closeAccountMenu\(\);/);
   assert.match(ui, /function showInlineDialog[\s\S]*?prepareModalOpen\(\);/);
   assert.match(create, /function openLogin\(\)[\s\S]*?prepareModalOpen\(\);/);
   assert.match(main, /function openTopupDialog\(\)[\s\S]*?prepareModalOpen\(\);/);
   assert.match(explore, /function playPreview[\s\S]*?prepareModalOpen\(\);/);
-  assert.match(html, /platform\.js\?v=ai-319-drawer-login/);
-  assert.match(html, /platform\.css\?v=ai-319-drawer-login/);
+  assert.match(html, /platform\.js\?v=ai-320-mobile-history/);
+  assert.match(html, /platform\.css\?v=ai-320-mobile-history/);
 });
