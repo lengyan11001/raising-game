@@ -120,7 +120,7 @@ const TOOL_VIDEO_DEFAULT_PROVIDER = "wan27";
 
 function toolVideoDefaultCapability(provider = TOOL_VIDEO_DEFAULT_PROVIDER) {
   const normalizedProvider = String(provider || "").trim().toLowerCase();
-  if (normalizedProvider === "wan27") return "wan27-r2v";
+  if (normalizedProvider === "wan27") return "wan-animate-mix";
   if (normalizedProvider === "happyhorse") return "happyhorse-video-edit";
   return "";
 }

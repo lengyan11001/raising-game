@@ -708,6 +708,22 @@ function playfluxTemplateVideoProvider() {
   return ["wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan27";
 }
 
+const PLAYFLUX_WAN_VIDEO_CAPABILITY = "wan-animate-mix";
+const PLAYFLUX_WAN_ANIMATE_MODE = "wan-std";
+
+function playfluxTemplateVideoCapability(provider = playfluxTemplateVideoProvider()) {
+  if (provider === "wan27") return PLAYFLUX_WAN_VIDEO_CAPABILITY;
+  if (provider === "happyhorse") return "happyhorse-video-edit";
+  return "";
+}
+
+function playfluxTemplateOutputDuration(template = {}, provider = playfluxTemplateVideoProvider()) {
+  const templateDuration = Number(template.duration || 5) || 5;
+  if (provider !== "wan27" || playfluxTemplateVideoCapability(provider) !== "wan-animate-mix") return templateDuration;
+  const actionDuration = Number(template.referenceVideoDurationSeconds || templateDuration) || templateDuration;
+  return Math.max(2, Math.min(30, actionDuration));
+}
+
 function playfluxTemplateRequiredSourceCount(template = {}) {
   if (template.tab === "video") return 1;
   if (!template.sourceRequired) return 0;
@@ -873,15 +889,16 @@ function playfluxTemplateVideoInputSeconds(template = {}, sourceMode = playfluxT
 
 function playfluxTemplateCostLabel(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
   if (template.tab === "video") {
-    const duration = Number(template.duration || 5);
+    const provider = playfluxTemplateVideoProvider();
+    const duration = playfluxTemplateOutputDuration(template, provider);
     const resolution = template.resolution || "720p";
     const ratio = template.ratio || "9:16";
-    const provider = playfluxTemplateVideoProvider();
     const cached = playfluxTemplateCachedEstimate(template, sourceMode);
     const pricing = cached || advancedPricing(duration, provider, resolution, ratio, {
       seedanceTier: "standard",
       inputVideoSeconds: playfluxTemplateVideoInputSeconds(template, sourceMode, duration),
-      videoCapability: provider === "wan27" ? "wan27-r2v" : provider === "happyhorse" ? "happyhorse-video-edit" : "",
+      videoCapability: playfluxTemplateVideoCapability(provider),
+      animateMode: provider === "wan27" ? PLAYFLUX_WAN_ANIMATE_MODE : undefined,
     });
     return t("cost.credits", { credits: formatCredits(pricing.credits) });
   }
@@ -909,7 +926,7 @@ async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "")
     renderPlayfluxTemplateCost(root, template, mode);
     return;
   }
-  const duration = Number(template.duration || 5);
+  const duration = playfluxTemplateOutputDuration(template, playfluxTemplateVideoProvider());
   const resolution = template.resolution || "720p";
   const ratio = normalizeVideoRatio(template.ratio || "9:16");
   const provider = playfluxTemplateVideoProvider();
@@ -921,7 +938,10 @@ async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "")
         provider,
         ...(provider === "seedance"
           ? { seedanceTier: "standard" }
-          : { videoCapability: provider === "wan27" ? "wan27-r2v" : "happyhorse-video-edit" }),
+          : {
+              videoCapability: playfluxTemplateVideoCapability(provider),
+              mode: provider === "wan27" ? PLAYFLUX_WAN_ANIMATE_MODE : undefined,
+            }),
         templateId: template.id || "",
         duration,
         resolution,
@@ -1048,14 +1068,16 @@ async function submitPlayfluxTemplate(template = {}, root) {
         ? {
             provider,
             templateId: effectiveTemplate.id || "",
-            videoCapability: "wan27-r2v",
-            referenceImages: reference ? [reference] : [],
-            referenceVideoUrls: [playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "")].filter(Boolean),
+            videoCapability: PLAYFLUX_WAN_VIDEO_CAPABILITY,
+            firstFrameDataUrl: dataUrl,
+            firstFrameFileName: file?.name || "",
+            videoUrl: playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || ""),
+            parameters: { mode: PLAYFLUX_WAN_ANIMATE_MODE },
             ratio,
             resolution,
             duration,
             inputVideoSeconds: referenceVideoSeconds,
-            params: { ...recordBase.params },
+            params: { ...recordBase.params, animateMode: PLAYFLUX_WAN_ANIMATE_MODE },
           }
         : provider === "happyhorse"
         ? {
