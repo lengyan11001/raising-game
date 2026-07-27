@@ -510,6 +510,7 @@ function applyTenantFeatures() {
 function applyLanguage() {
   applyStaticTranslations();
   applyTenantFeatures();
+  if (typeof renderVideoToolActions === "function") renderVideoToolActions();
   if (!state.config) {
     renderAccountMenu();
     renderTopupSummary();

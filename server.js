@@ -16,6 +16,13 @@ const {
   officialSingaporePurchaseDetails,
 } = require("./aliyun-video");
 const {
+  VIDEO_TOOL_FACE_SWAP_PROMPT,
+  VIDEO_TOOL_UNDRESS_KEYFRAME_PROMPT,
+  VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
+  VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
+  planVideoEditSegments,
+} = require("./video-tools");
+const {
   DEFAULT_TENANT_ID,
   normalizeTenantId,
   dbEnabled,
@@ -201,6 +208,10 @@ const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
 const GENERATED_POSTER_DIR = path.join(ROOT, "assets", "generated", "posters");
 const GENERATED_IMAGE_DIR = path.join(ROOT, "assets", "generated", "images");
 const GENERATED_CHARACTER_DIR = path.join(ROOT, "assets", "generated", "characters", "apiz");
+const VIDEO_TOOL_UPLOAD_PART_DIR = path.join(ROOT, "tmp", "video-tool-uploads");
+const VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES = 300 * 1024 * 1024;
+const VIDEO_TOOL_UPLOAD_CHUNK_MAX_BYTES = 10 * 1024 * 1024;
+const VIDEO_TOOL_UPLOAD_CHUNK_MAX_COUNT = 64;
 const ARK_BASE_URL = process.env.ARK_BASE_URL || "https://ark.ap-southeast.bytepluses.com/api/v3";
 const ARK_API_KEY =
   process.env.ARK_API_KEY ||
@@ -3237,7 +3248,7 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
     ? `    <script>window.__TENANT_FEATURES__=${jsonScriptValue(publicTenantFeatures(tenant))};</script>\n`
     : "";
   const withToolStyles = toolId === "video" && !withTenantShell.includes("tool-video.css")
-    ? withTenantShell.replace(/<\/head>/i, `${bootstrapScript}    <link rel="stylesheet" href="./tool-video.css?v=tool-video-4" />\n  </head>`)
+    ? withTenantShell.replace(/<\/head>/i, `${bootstrapScript}    <link rel="stylesheet" href="./tool-video.css?v=tool-video-5" />\n  </head>`)
     : withTenantShell;
   const withoutTitle = withToolStyles.replace(/<title>[\s\S]*?<\/title>/i, "");
   return withoutTitle.replace(/<\/head>/i, `${tags}\n  </head>`);
@@ -13707,6 +13718,7 @@ function generationRecordMatchesQuery(record = {}, query = "") {
 function shouldRefreshGenerationRecord(record = {}) {
   if (needsApizFailureRefund(record)) return true;
   if (needsSeedanceFailureRefund(record)) return true;
+  if (record.upstreamSource === "video-tool-orchestrator") return false;
   if (String(record.provider || "").toLowerCase() === "seedream5-image") {
     if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
     const imageStatus = String(record.status || "").toLowerCase();
@@ -14798,6 +14810,779 @@ async function handleWorkflowCompose(req, res) {
     });
   } catch (error) {
     return sendJson(res, error.statusCode || 500, { ok: false, message: error.message || "Failed to compose workflow output." });
+  }
+}
+
+function videoToolAction(value = "") {
+  const action = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (["face-swap", "faceswap", "replace-face"].includes(action)) return "face-swap";
+  if (["undress", "strip", "take-off"].includes(action)) return "undress";
+  return "";
+}
+
+function videoToolAsset(db, userId, assetId, mediaKind, label) {
+  const asset = (db.userAssets || []).find((entry) => (
+    entry.id === String(assetId || "").trim()
+    && entry.userId === userId
+    && !isSoftDeleted(entry)
+  ));
+  if (!asset) {
+    const error = new Error(`${label} not found.`);
+    error.statusCode = 404;
+    throw error;
+  }
+  validateWan27MediaKind(asset, mediaKind, label);
+  return asset;
+}
+
+function videoToolPricingAggregate(action, items = [], extras = {}) {
+  const rows = items.filter(Boolean);
+  return {
+    provider: action === "face-swap" ? "wan27" : "video-tool",
+    action,
+    credits: creditsAmount(rows.reduce((sum, item) => sum + Number(item.credits || 0), 0)),
+    originalCredits: creditsAmount(rows.reduce((sum, item) => sum + Number(item.originalCredits ?? item.credits ?? 0), 0)),
+    baseCredits: creditsAmount(rows.reduce((sum, item) => sum + Number(item.baseCredits ?? item.credits ?? 0), 0)),
+    source: "configured_video_tool_models",
+    components: rows,
+    ...extras,
+  };
+}
+
+function publicVideoToolPricing(pricing = {}) {
+  return {
+    credits: creditsAmount(pricing.credits || 0),
+    durationSeconds: Number(pricing.durationSeconds || 0),
+    segmentCount: Number(pricing.segmentCount || 1),
+    resolution: String(pricing.resolution || "720p"),
+  };
+}
+
+async function videoToolUndressPreset() {
+  const presets = await listWorkflowPresetsFromDb({ includeDeleted: false }) || [];
+  return presets.find((preset) => String(preset.id || "").trim().toLowerCase() === "nude")
+    || presets.find((preset) => String(preset.label || preset.name || "").trim().toLowerCase() === "nude")
+    || {};
+}
+
+async function videoToolPresetVideoDuration(preset = {}) {
+  const previewUrl = String(preset.previewUrl || "").trim();
+  if (!previewUrl) return 0;
+  const localPath = localAssetPathFromPublicValue(previewUrl);
+  if (localPath) return await probeLocalVideoDurationSeconds(localPath);
+  const publicUrl = publicHttpUrlForUpstream(previewUrl) || publicUrlForAssetPath(previewUrl);
+  return publicUrl ? await probeVideoDurationSeconds(publicUrl) : 0;
+}
+
+async function videoToolPricing(action, { durationSeconds = 0, user = null, auth = null } = {}) {
+  const config = await readAppConfig();
+  const pricingOptions = pricingContextForAuth(auth || {});
+  if (action === "face-swap") {
+    const segments = planVideoEditSegments(durationSeconds);
+    const components = segments.map((segment) => applyUserPricingToEstimate(advancedModelPricing("wan27", {
+      videoCapability: "wan27-video-edit",
+      model: ALIYUN_WAN27_VIDEO_EDIT_MODEL,
+      duration: segment.outputSeconds,
+      inputVideoSeconds: segment.inputSeconds,
+      resolution: "720p",
+      advancedPricing: config.platform?.advancedPricing,
+    }), user || 1, pricingOptions));
+    return videoToolPricingAggregate(action, components, {
+      durationSeconds: creditsAmount(durationSeconds),
+      segmentCount: segments.length,
+      segments,
+      resolution: "720p",
+      model: ALIYUN_WAN27_VIDEO_EDIT_MODEL,
+    });
+  }
+
+  const imagePricing = wan27ImageModifyPricing(config, user, pricingOptions);
+  const preset = await videoToolUndressPreset();
+  const referenceVideoSeconds = await videoToolPresetVideoDuration(preset) || 5;
+  const videoPricing = applyUserPricingToEstimate(advancedModelPricing("seedance", {
+    model: MODEL_QUALITY,
+    seedanceTier: "standard",
+    duration: 5,
+    inputVideoSeconds: referenceVideoSeconds,
+    resolution: "720p",
+    ratio: "9:16",
+    advancedPricing: config.platform?.advancedPricing,
+  }), user || 1, pricingOptions);
+  return videoToolPricingAggregate(action, [imagePricing, imagePricing, videoPricing], {
+    durationSeconds: 5,
+    segmentCount: 1,
+    referenceVideoSeconds,
+    resolution: "720p",
+    model: MODEL_QUALITY,
+  });
+}
+
+async function handleVideoToolEstimate(req, res) {
+  const auth = await getAuth(req);
+  const body = await readJson(req);
+  const action = videoToolAction(body.action);
+  if (!action) return sendJson(res, 400, { ok: false, message: "Unsupported video tool action." });
+  const durationSeconds = durationSecondsFromValue(body.durationSeconds || body.duration);
+  if (action === "face-swap" && !durationSeconds) {
+    return sendJson(res, 400, { ok: false, message: "Read the source video duration before estimating." });
+  }
+  try {
+    const pricing = await videoToolPricing(action, { durationSeconds, user: auth?.user || null, auth });
+    return sendJson(res, 200, { ok: true, pricing: publicVideoToolPricing(pricing) });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, { ok: false, message: error.message || "Unable to estimate this video." });
+  }
+}
+
+async function localVideoToolAssetPath(asset = {}, workDir = "") {
+  const localPath = localPathForUserAsset(asset);
+  if (localPath) {
+    try {
+      await fs.access(localPath);
+      return localPath;
+    } catch {}
+  }
+  const publicUrl = publicUrlForLocalAsset(asset);
+  if (!isPublicHttpUrl(publicUrl)) {
+    const error = new Error("Uploaded video is not accessible.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const downloaded = await downloadRemoteFileToBuffer(publicUrl, { label: "source video", maxBytes: 300 * 1024 * 1024 });
+  const filePath = path.join(workDir, "source-upload.mp4");
+  await fs.writeFile(filePath, downloaded.bytes);
+  return filePath;
+}
+
+async function publishVideoToolInput(filePath, taskId, index) {
+  const fileName = `${storagePathSegment(taskId)}-input-${index + 1}.mp4`;
+  const publicPath = `/assets/generated/videos/${fileName}`;
+  const publicFilePath = path.join(GENERATED_VIDEO_DIR, fileName);
+  await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
+  await fs.copyFile(filePath, publicFilePath);
+  return { url: publicUrlForAssetPath(publicPath), publicFilePath };
+}
+
+async function waitForAliyunVideoToolTask(upstreamTaskId, { timeoutMs = 45 * 60 * 1000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let lastRaw = null;
+  while (Date.now() < deadline) {
+    lastRaw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(upstreamTaskId)}`, { method: "GET" });
+    const task = normalizeWan27Task(lastRaw);
+    if (isSucceededStatus(task.status) && task.videoUrl) return { task, raw: lastRaw };
+    if (isFailedStatus(task.status)) {
+      const error = new Error(task.error || "Wan2.7 Video Edit failed.");
+      error.statusCode = 502;
+      error.payload = lastRaw;
+      throw error;
+    }
+    await delay(5000);
+  }
+  const error = new Error("Wan2.7 Video Edit timed out.");
+  error.statusCode = 504;
+  error.payload = lastRaw;
+  throw error;
+}
+
+async function waitForSeedanceVideoToolTask(upstreamTaskId, { timeoutMs = 45 * 60 * 1000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let lastRaw = null;
+  while (Date.now() < deadline) {
+    const task = USE_GATEWAY_UPSTREAM
+      ? await gatewayQueryTask(upstreamTaskId)
+      : normalizeTask(lastRaw = await arkRequest("GET", `/contents/generations/tasks/${encodeURIComponent(upstreamTaskId)}`));
+    if (isSucceededStatus(task.status) && task.videoUrl) return { task, raw: task.raw || lastRaw };
+    if (isFailedStatus(task.status)) {
+      const error = new Error(task.error || "Seedance video generation failed.");
+      error.statusCode = 502;
+      error.payload = task.raw || lastRaw;
+      throw error;
+    }
+    await delay(5000);
+  }
+  const error = new Error("Seedance video generation timed out.");
+  error.statusCode = 504;
+  error.payload = lastRaw;
+  throw error;
+}
+
+async function downloadVideoToolSegment(url, filePath) {
+  const downloaded = await downloadRemoteFileToBuffer(url, { label: "generated segment", maxBytes: 300 * 1024 * 1024 });
+  await fs.writeFile(filePath, downloaded.bytes);
+  return filePath;
+}
+
+async function composeVideoToolSegments(taskId, inputPaths = []) {
+  if (!inputPaths.length) throw new Error("No generated video segments were returned.");
+  await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
+  const listPath = path.join(GENERATED_VIDEO_DIR, `${storagePathSegment(taskId)}-segments.txt`);
+  const localVideoPath = path.join(GENERATED_VIDEO_DIR, videoFileName(taskId));
+  const localVideoUrl = `/assets/generated/videos/${videoFileName(taskId)}`;
+  const concatList = inputPaths.map((filePath) => `file '${String(filePath).replace(/'/g, "'\\''")}'`).join("\n");
+  await fs.writeFile(listPath, concatList, "utf8");
+  try {
+    await execFileQuiet("ffmpeg", [
+      "-y", "-f", "concat", "-safe", "0", "-i", listPath,
+      "-map", "0:v:0", "-map", "0:a?",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", localVideoPath,
+    ], { timeout: 30 * 60 * 1000 });
+  } finally {
+    await fs.rm(listPath, { force: true }).catch(() => {});
+  }
+  const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
+  const cdn = await uploadGeneratedMediaToTos({
+    taskId,
+    localVideoPath,
+    localPosterPath: poster.localPosterPath,
+  });
+  return { localVideoPath, localVideoUrl, ...poster, ...cdn };
+}
+
+async function createHiddenVideoToolImageAsset(db, user, imageUrl, taskId, stage) {
+  const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: `${stage} image`, maxBytes: 20 * 1024 * 1024 });
+  const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+  const asset = await createUserMediaAssetFromBytes(db, user, {
+    bytes: downloaded.bytes,
+    mime,
+    name: `${stage} image`,
+    fileName: `${storagePathSegment(taskId)}-${stage}${imageExtFromMime(mime)}`,
+    maxBytes: IMAGE_UPLOAD_MAX_BYTES,
+  });
+  asset.hidden = true;
+  asset.meta = { ...(asset.meta || {}), videoToolTaskId: taskId, videoToolStage: stage };
+  asset.updatedAt = new Date().toISOString();
+  db.userAssets = (db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(db);
+  return asset;
+}
+
+async function generateVideoToolImageStage({ db, user, sourceAsset, prompt, taskId, stage, config }) {
+  const preparedSource = await ensurePublicUrlForUserMediaAsset(db, sourceAsset);
+  const imageOptions = wan27ImageRequestOptions({}, {
+    defaultModel: normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro.model || WAN27_IMAGE_PRO_MODEL,
+    defaultRatio: "9:16",
+    defaultResolution: "2K",
+  });
+  const submit = USE_GATEWAY_UPSTREAM ? gatewaySubmitWan27ImageEditTask : submitWan27ImageModify;
+  const submitted = await submit({
+    imageUrls: [publicUrlForLocalAsset(preparedSource)],
+    prompt,
+    ratio: imageOptions.ratio,
+    resolution: imageOptions.resolution,
+    model: imageOptions.model,
+    input: imageOptions.input,
+    parameters: imageOptions.parameters,
+    waitForResult: true,
+  });
+  const imageUrl = submitted.task.imageUrls?.[0] || submitted.task.imageUrl || "";
+  if (!imageUrl) {
+    const error = new Error(submitted.task.error || `${stage} image generation returned no image.`);
+    error.statusCode = 502;
+    error.payload = submitted.raw;
+    throw error;
+  }
+  return {
+    asset: await createHiddenVideoToolImageAsset(db, user, imageUrl, taskId, stage),
+    upstreamTaskId: submitted.task.taskId || "",
+    upstreamPayload: submitted.payload,
+    response: submitted.raw,
+  };
+}
+
+async function updateVideoToolProgress(taskId, stage, updates = {}) {
+  const record = await getGenerationRecord(taskId);
+  return upsertGenerationRecord({
+    ...(record || {}),
+    taskId,
+    status: updates.status || "running",
+    params: {
+      ...plainObject(record?.params),
+      stage,
+      ...(updates.params || {}),
+    },
+    ...updates,
+    params: {
+      ...plainObject(record?.params),
+      stage,
+      ...(updates.params || {}),
+    },
+    lastUpdateReason: `video-tool-${stage}`,
+  });
+}
+
+async function refundVideoToolTask(taskId, message = "Video tool generation failed.") {
+  const record = await getGenerationRecord(taskId);
+  if (!record) return null;
+  const cost = creditsAmount(record.preDeductedCredits || 0);
+  const alreadyRefunded = String(record.billingStatus || "").toLowerCase() === "refunded";
+  if (cost > 0 && !alreadyRefunded) {
+    const db = await readDb();
+    await changeUserCredits(db, record.userId, cost, "video_tool_refund", { taskId, action: record.params?.toolAction || "", error: message });
+    await recordSubtokenAdjustment(record, {
+      taskId,
+      type: "video_tool_refund",
+      amount: -cost,
+      meta: { action: record.params?.toolAction || "", error: message },
+    });
+    if (!dbEnabled()) await writeDb(db);
+  }
+  return upsertGenerationRecord({
+    ...record,
+    taskId,
+    status: "failed",
+    awaitingUpstreamTask: false,
+    error: message,
+    finalCredits: 0,
+    originalFinalCredits: 0,
+    billingStatus: cost > 0 ? "refunded" : "free",
+    billingSettledAt: new Date().toISOString(),
+    failedAt: new Date().toISOString(),
+    lastUpdateReason: "video-tool-failed",
+  });
+}
+
+async function runVideoToolFaceSwap(job) {
+  const { taskId, userId, imageAssetId, videoAssetId, pricing } = job;
+  const db = await readDb();
+  const user = (db.users || []).find((entry) => entry.id === userId);
+  if (!user) throw new Error("User not found.");
+  let imageAsset = videoToolAsset(db, userId, imageAssetId, "image", "Face image");
+  const videoAsset = videoToolAsset(db, userId, videoAssetId, "video", "Source video");
+  const workDir = path.join(GENERATED_VIDEO_DIR, `${storagePathSegment(taskId)}-work`);
+  await fs.mkdir(workDir, { recursive: true });
+  const publicInputs = [];
+  try {
+    const priorRecord = await getGenerationRecord(taskId);
+    const priorParams = plainObject(priorRecord?.params);
+    const upstreamTaskIds = Array.isArray(priorParams.upstreamTaskIds) ? [...priorParams.upstreamTaskIds] : [];
+    imageAsset = await ensurePublicUrlForUserMediaAsset(db, imageAsset);
+    const sourcePath = await localVideoToolAssetPath(videoAsset, workDir);
+    const normalizedPath = path.join(workDir, "source-normalized.mp4");
+    await normalizeSeedanceVideoFileForRequest(sourcePath, normalizedPath, "Face Swap source video");
+    const actualDuration = await probeLocalVideoDurationSeconds(normalizedPath);
+    if (!actualDuration) throw new Error("Source video duration could not be read.");
+    const segments = planVideoEditSegments(actualDuration);
+    await updateVideoToolProgress(taskId, "splitting", {
+      duration: actualDuration,
+      params: { durationSeconds: actualDuration, segmentCount: segments.length, completedSegments: 0 },
+    });
+
+    const generatedPaths = [];
+    for (const segment of segments) {
+      const segmentPath = path.join(workDir, `source-${segment.index + 1}.mp4`);
+      const outputPath = path.join(workDir, `result-${segment.index + 1}.mp4`);
+      if (await probeLocalVideoDurationSeconds(outputPath)) {
+        generatedPaths.push(outputPath);
+        continue;
+      }
+      await execFileQuiet("ffmpeg", [
+        "-y", "-ss", String(segment.startSeconds), "-i", normalizedPath, "-t", String(segment.inputSeconds),
+        "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", segmentPath,
+      ], { timeout: 10 * 60 * 1000 });
+      await updateVideoToolProgress(taskId, "generating", {
+        params: { currentSegment: segment.index + 1, segmentCount: segments.length, completedSegments: segment.index },
+      });
+      let upstreamTaskId = String(upstreamTaskIds[segment.index] || "").trim();
+      if (!upstreamTaskId) {
+        const published = await publishVideoToolInput(segmentPath, taskId, segment.index);
+        publicInputs.push(published.publicFilePath);
+        const submitted = await submitAliyunVideoTask({
+          provider: "wan27",
+          capability: "wan27-video-edit",
+          prompt: VIDEO_TOOL_FACE_SWAP_PROMPT,
+          media: [
+            { type: "video", url: published.url },
+            { type: "reference_image", url: publicUrlForLocalAsset(imageAsset) },
+          ],
+          body: {
+            model: ALIYUN_WAN27_VIDEO_EDIT_MODEL,
+            videoCapability: "wan27-video-edit",
+            duration: segment.outputSeconds,
+            inputVideoSeconds: segment.inputSeconds,
+            resolution: "720p",
+            generateAudio: true,
+          },
+        });
+        upstreamTaskId = submitted.task.taskId || "";
+        if (!upstreamTaskId) throw new Error("Wan2.7 Video Edit did not return a task id.");
+        upstreamTaskIds[segment.index] = upstreamTaskId;
+        await updateVideoToolProgress(taskId, "generating", {
+          upstreamTaskId,
+          params: { upstreamTaskIds, currentSegment: segment.index + 1, segmentCount: segments.length, completedSegments: segment.index },
+        });
+      }
+      const completed = await waitForAliyunVideoToolTask(upstreamTaskId);
+      await downloadVideoToolSegment(completed.task.videoUrl, outputPath);
+      generatedPaths.push(outputPath);
+      await updateVideoToolProgress(taskId, "generating", {
+        upstreamTaskId,
+        params: { upstreamTaskIds, currentSegment: segment.index + 1, segmentCount: segments.length, completedSegments: segment.index + 1 },
+      });
+    }
+
+    await updateVideoToolProgress(taskId, "stitching", { params: { upstreamTaskIds, completedSegments: segments.length } });
+    const finalMedia = await composeVideoToolSegments(taskId, generatedPaths);
+    const completedAt = new Date().toISOString();
+    const record = await getGenerationRecord(taskId);
+    await upsertGenerationRecord({
+      ...record,
+      taskId,
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      upstreamTaskId: upstreamTaskIds[upstreamTaskIds.length - 1] || "",
+      videoUrl: localPublicAssetStorageEnabled()
+        ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || "")
+        : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || ""),
+      localVideoUrl: finalMedia.localVideoUrl,
+      localVideoPath: finalMedia.localVideoPath,
+      localPosterUrl: finalMedia.localPosterUrl || "",
+      localPosterPath: finalMedia.localPosterPath || "",
+      posterUrl: localPublicAssetStorageEnabled()
+        ? (finalMedia.localPosterUrl || finalMedia.cdnPosterUrl || "")
+        : (finalMedia.cdnPosterUrl || finalMedia.localPosterUrl || ""),
+      cdnVideoUrl: finalMedia.cdnVideoUrl || "",
+      cdnPosterUrl: finalMedia.cdnPosterUrl || "",
+      cdnError: finalMedia.cdnError || "",
+      error: "",
+      finalCredits: pricing.credits,
+      originalFinalCredits: pricing.originalCredits,
+      billingStatus: pricing.credits > 0 ? "settled" : "free",
+      billingSettledAt: completedAt,
+      completedAt,
+      params: { ...plainObject(record?.params), stage: "completed", upstreamTaskIds, completedSegments: segments.length },
+      lastUpdateReason: "video-tool-face-swap-succeeded",
+    });
+  } finally {
+    await Promise.all(publicInputs.map((filePath) => fs.rm(filePath, { force: true }).catch(() => {})));
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function runVideoToolUndress(job) {
+  const { taskId, userId, imageAssetId, pricing } = job;
+  const db = await readDb();
+  const user = (db.users || []).find((entry) => entry.id === userId);
+  if (!user) throw new Error("User not found.");
+  const sourceAsset = videoToolAsset(db, userId, imageAssetId, "image", "Source image");
+  const config = await readAppConfig();
+  const priorRecord = await getGenerationRecord(taskId);
+  const priorParams = plainObject(priorRecord?.params);
+  const upstreamTaskIds = Array.isArray(priorParams.upstreamTaskIds) ? [...priorParams.upstreamTaskIds] : [];
+
+  let keyframeAsset = priorParams.keyframeAssetId
+    ? videoToolAsset(db, userId, priorParams.keyframeAssetId, "image", "Generated keyframe")
+    : null;
+  if (!keyframeAsset) {
+    await updateVideoToolProgress(taskId, "keyframe");
+    const keyframe = await generateVideoToolImageStage({
+      db, user, sourceAsset, prompt: VIDEO_TOOL_UNDRESS_KEYFRAME_PROMPT, taskId, stage: "keyframe", config,
+    });
+    keyframeAsset = keyframe.asset;
+    if (keyframe.upstreamTaskId && !upstreamTaskIds.includes(keyframe.upstreamTaskId)) upstreamTaskIds.push(keyframe.upstreamTaskId);
+    await updateVideoToolProgress(taskId, "keyframe", {
+      params: { upstreamTaskIds, keyframeAssetId: keyframeAsset.id },
+    });
+  }
+
+  let targetAsset = priorParams.targetAssetId
+    ? videoToolAsset(db, userId, priorParams.targetAssetId, "image", "Generated target")
+    : null;
+  if (!targetAsset) {
+    await updateVideoToolProgress(taskId, "target", { params: { upstreamTaskIds, keyframeAssetId: keyframeAsset.id } });
+    const target = await generateVideoToolImageStage({
+      db, user, sourceAsset: keyframeAsset, prompt: VIDEO_TOOL_UNDRESS_TARGET_PROMPT, taskId, stage: "target", config,
+    });
+    targetAsset = target.asset;
+    if (target.upstreamTaskId && !upstreamTaskIds.includes(target.upstreamTaskId)) upstreamTaskIds.push(target.upstreamTaskId);
+    await updateVideoToolProgress(taskId, "target", {
+      params: { upstreamTaskIds, keyframeAssetId: keyframeAsset.id, targetAssetId: targetAsset.id },
+    });
+  }
+
+  const preparedTarget = USE_GATEWAY_UPSTREAM
+    ? { referenceAssetUri: publicUrlForLocalAsset(targetAsset), imageUrl: publicUrlForLocalAsset(targetAsset) }
+    : await prepareSeedanceReferenceAsset(db, targetAsset, false);
+  const preset = await videoToolUndressPreset();
+  let presetImageUri = "";
+  let presetVideoUri = "";
+  const posterUrl = publicHttpUrlForUpstream(preset.posterUrl) || publicUrlForAssetPath(preset.posterUrl || "");
+  if (posterUrl) {
+    const presetImage = await createUserMediaAssetFromPublicUrl(db, user, {
+      url: posterUrl,
+      name: "Undress reference image",
+      fileName: "undress-reference.png",
+      hidden: true,
+      meta: { videoToolTaskId: taskId, videoToolStage: "preset-image" },
+    });
+    presetImageUri = USE_GATEWAY_UPSTREAM
+      ? publicUrlForLocalAsset(presetImage)
+      : (await prepareSeedanceReferenceAsset(db, presetImage, false)).referenceAssetUri;
+  }
+  const previewUrl = publicHttpUrlForUpstream(preset.previewUrl) || publicUrlForAssetPath(preset.previewUrl || "");
+  if (previewUrl) {
+    const presetVideo = await createSeedanceReferenceVideoAssetFromUrl(db, user, previewUrl, 0);
+    if (presetVideo) {
+      presetVideoUri = USE_GATEWAY_UPSTREAM
+        ? publicUrlForLocalAsset(presetVideo)
+        : (await prepareSeedanceVideoAsset(db, presetVideo)).referenceAssetUri;
+    }
+  }
+
+  await updateVideoToolProgress(taskId, "generating", { params: { upstreamTaskIds } });
+  const latestRecord = await getGenerationRecord(taskId);
+  let upstreamTaskId = String(latestRecord?.params?.seedanceTaskId || "").trim();
+  if (!upstreamTaskId) {
+    const submitted = await submitSeedanceVideoTask({
+      config,
+      prompt: VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
+      referenceAssetUri: preparedTarget.referenceAssetUri || preparedTarget.imageUrl,
+      extraReferenceAssetUris: [presetImageUri].filter(Boolean),
+      referenceVideoAssetUri: presetVideoUri,
+      body: {
+        provider: "seedance",
+        model: MODEL_QUALITY,
+        seedanceTier: "standard",
+        seedanceMode: "reference_images",
+        ratio: "9:16",
+        resolution: "720p",
+        duration: 5,
+        generateAudio: true,
+      },
+      slug: "video-tool-undress",
+    });
+    upstreamTaskId = submitted.task.taskId || "";
+    if (!upstreamTaskId) throw new Error("Seedance did not return a task id.");
+    if (!upstreamTaskIds.includes(upstreamTaskId)) upstreamTaskIds.push(upstreamTaskId);
+    await updateVideoToolProgress(taskId, "generating", {
+      upstreamTaskId,
+      params: { upstreamTaskIds, seedanceTaskId: upstreamTaskId },
+    });
+  }
+  const completed = await waitForSeedanceVideoToolTask(upstreamTaskId);
+  const finalMedia = await downloadGeneratedVideo(taskId, completed.task.videoUrl);
+  const completedAt = new Date().toISOString();
+  const record = await getGenerationRecord(taskId);
+  await upsertGenerationRecord({
+    ...record,
+    taskId,
+    status: "succeeded",
+    awaitingUpstreamTask: false,
+    upstreamTaskId,
+    remoteVideoUrl: completed.task.videoUrl,
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || completed.task.videoUrl)
+      : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || completed.task.videoUrl),
+    localVideoUrl: finalMedia.localVideoUrl || "",
+    localVideoPath: finalMedia.localVideoPath || "",
+    localPosterUrl: finalMedia.localPosterUrl || "",
+    localPosterPath: finalMedia.localPosterPath || "",
+    posterUrl: localPublicAssetStorageEnabled()
+      ? (finalMedia.localPosterUrl || finalMedia.cdnPosterUrl || "")
+      : (finalMedia.cdnPosterUrl || finalMedia.localPosterUrl || ""),
+    cdnVideoUrl: finalMedia.cdnVideoUrl || "",
+    cdnPosterUrl: finalMedia.cdnPosterUrl || "",
+    cdnError: finalMedia.cdnError || "",
+    queryResponse: completed.raw || null,
+    error: "",
+    finalCredits: pricing.credits,
+    originalFinalCredits: pricing.originalCredits,
+    billingStatus: pricing.credits > 0 ? "settled" : "free",
+    billingSettledAt: completedAt,
+    completedAt,
+    params: { ...plainObject(record?.params), stage: "completed", upstreamTaskIds },
+    lastUpdateReason: "video-tool-undress-succeeded",
+  });
+}
+
+const activeVideoToolJobIds = new Set();
+
+function startVideoToolJob(job) {
+  if (!job?.taskId || activeVideoToolJobIds.has(job.taskId)) return false;
+  activeVideoToolJobIds.add(job.taskId);
+  setImmediate(() => {
+    const runner = job.action === "face-swap" ? runVideoToolFaceSwap : runVideoToolUndress;
+    runner(job).catch(async (error) => {
+      console.error("[video-tool-job-failed]", job.taskId, error.message || error);
+      try {
+        await refundVideoToolTask(job.taskId, error.message || "Video generation failed.");
+      } catch (refundError) {
+        console.error("[video-tool-refund-failed]", job.taskId, refundError.message || refundError);
+      }
+    }).finally(() => activeVideoToolJobIds.delete(job.taskId));
+  });
+  return true;
+}
+
+async function recoverVideoToolJobs(reason = "startup") {
+  const records = await readGenerationRecords();
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const recoverable = records.filter((record) => {
+    if (record.upstreamSource !== "video-tool-orchestrator") return false;
+    if (isSucceededStatus(record.status) || isFailedStatus(record.status)) return false;
+    if (String(record.billingStatus || "").toLowerCase() === "refunded") return false;
+    const createdAt = Date.parse(record.createdAt || record.updatedAt || "");
+    return !Number.isFinite(createdAt) || createdAt >= cutoff;
+  });
+  recoverable.forEach((record) => {
+    const action = videoToolAction(record.params?.toolAction || record.kind || record.source);
+    const assetIds = Array.isArray(record.userAssetIds) ? record.userAssetIds.filter(Boolean) : [];
+    const imageAssetId = record.userAssetId || assetIds[0] || "";
+    const videoAssetId = action === "face-swap" ? (assetIds.find((id) => id !== imageAssetId) || assetIds[1] || "") : "";
+    if (!action || !imageAssetId || (action === "face-swap" && !videoAssetId)) return;
+    const started = startVideoToolJob({
+      taskId: record.taskId,
+      action,
+      userId: record.userId,
+      imageAssetId,
+      videoAssetId,
+      pricing: plainObject(record.pricingEstimate),
+    });
+    if (started) console.log("[video-tool-job-recovered]", { reason, taskId: record.taskId, action });
+  });
+}
+
+function startVideoToolJobRecoveryScheduler() {
+  setTimeout(() => recoverVideoToolJobs("startup").catch((error) => {
+    console.error("[video-tool-recovery-failed]", error.message || error);
+  }), 10000).unref?.();
+}
+
+async function cleanupStaleVideoToolUploads() {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  let userDirs = [];
+  try {
+    userDirs = await fs.readdir(VIDEO_TOOL_UPLOAD_PART_DIR, { withFileTypes: true });
+  } catch (error) {
+    if (error.code !== "ENOENT") console.warn("[video-tool-upload-cleanup-failed]", error.message || error);
+    return;
+  }
+  for (const userDir of userDirs.filter((entry) => entry.isDirectory())) {
+    const userPath = path.join(VIDEO_TOOL_UPLOAD_PART_DIR, userDir.name);
+    const uploadDirs = await fs.readdir(userPath, { withFileTypes: true }).catch(() => []);
+    for (const uploadDir of uploadDirs.filter((entry) => entry.isDirectory())) {
+      const uploadPath = path.join(userPath, uploadDir.name);
+      const stat = await fs.stat(uploadPath).catch(() => null);
+      if (stat && stat.mtimeMs < cutoff) await fs.rm(uploadPath, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+}
+
+function startVideoToolUploadCleanupScheduler() {
+  setTimeout(() => cleanupStaleVideoToolUploads(), 30000).unref?.();
+  setInterval(() => cleanupStaleVideoToolUploads(), 6 * 60 * 60 * 1000).unref?.();
+}
+
+async function handleVideoToolGenerate(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const action = videoToolAction(body.action);
+  if (!action) return sendJson(res, 400, { ok: false, message: "Unsupported video tool action." });
+  try {
+    const imageAsset = videoToolAsset(auth.db, auth.user.id, body.imageAssetId, "image", "Source image");
+    let videoAsset = null;
+    let durationSeconds = 0;
+    if (action === "face-swap") {
+      videoAsset = videoToolAsset(auth.db, auth.user.id, body.videoAssetId, "video", "Source video");
+      const localPath = localPathForUserAsset(videoAsset);
+      durationSeconds = localPath ? await probeLocalVideoDurationSeconds(localPath) : 0;
+      if (!durationSeconds) durationSeconds = await probeVideoDurationSeconds(publicUrlForLocalAsset(videoAsset));
+      if (!durationSeconds) return sendJson(res, 400, { ok: false, message: "Source video duration could not be read." });
+    }
+    const pricing = await videoToolPricing(action, { durationSeconds, user: auth.user, auth });
+    const cost = pricing.credits;
+    if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+    try {
+      assertSubtokenCanSpend(auth, cost);
+    } catch (error) {
+      return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
+    }
+
+    const taskId = localGenerationTaskId(action === "face-swap" ? "face" : "undress");
+    if (cost > 0) {
+      await chargeUserWithSubtoken(auth, {
+        cost,
+        type: `video_tool_${action.replace(/-/g, "_")}`,
+        taskId,
+        meta: {
+          taskId,
+          action,
+          imageAssetId: imageAsset.id,
+          videoAssetId: videoAsset?.id || "",
+          durationSeconds: pricing.durationSeconds,
+          segmentCount: pricing.segmentCount,
+          model: pricing.model,
+          originalCost: pricing.originalCredits,
+          pricingSource: pricing.source,
+        },
+      });
+      if (!dbEnabled()) await writeDb(auth.db);
+    }
+    const record = await upsertGenerationRecord({
+      taskId,
+      status: "queued",
+      source: `video-tool-${action}`,
+      kind: `video-tool-${action}`,
+      provider: "video-tool",
+      upstreamSource: "video-tool-orchestrator",
+      model: pricing.model,
+      userId: auth.user.id,
+      userAssetId: imageAsset.id,
+      userAssetIds: [imageAsset.id, videoAsset?.id].filter(Boolean),
+      imageUrl: imageAsset.localUrl || imageAsset.publicUrl || "",
+      sourceImageUrl: imageAsset.localUrl || imageAsset.publicUrl || "",
+      mediaAssets: [
+        { type: "reference_image", userAssetId: imageAsset.id, localUrl: imageAsset.localUrl || "" },
+        ...(videoAsset ? [{ type: "video", userAssetId: videoAsset.id, localUrl: videoAsset.localUrl || "" }] : []),
+      ],
+      prompt: action === "face-swap" ? VIDEO_TOOL_FACE_SWAP_PROMPT : VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
+      finalPrompt: action === "face-swap" ? VIDEO_TOOL_FACE_SWAP_PROMPT : VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
+      params: {
+        toolAction: action,
+        stage: "queued",
+        durationSeconds: pricing.durationSeconds,
+        segmentCount: pricing.segmentCount,
+        completedSegments: 0,
+      },
+      ratio: action === "undress" ? "9:16" : "source",
+      resolution: "720p",
+      duration: pricing.durationSeconds,
+      preDeductedCredits: cost,
+      originalPreDeductedCredits: pricing.originalCredits,
+      finalCredits: null,
+      originalFinalCredits: null,
+      userPricingMultiplier: pricing.components?.[0]?.userPricingMultiplier ?? 1,
+      billingStatus: cost > 0 ? "pre_deducted" : "free",
+      billingSettledAt: "",
+      pricingEstimate: pricing,
+      awaitingUpstreamTask: false,
+      error: "",
+      apiTokenId: auth.tokenRecord?.id || "",
+      apiTokenName: auth.tokenRecord?.name || "",
+      apiTokenType: auth.tokenRecord?.quotaType || "",
+      apiTokenSource: auth.tokenSource || "",
+    });
+    startVideoToolJob({
+      taskId,
+      action,
+      userId: auth.user.id,
+      imageAssetId: imageAsset.id,
+      videoAssetId: videoAsset?.id || "",
+      pricing,
+    });
+    return sendJson(res, 202, {
+      ok: true,
+      async: true,
+      taskId,
+      pricing: publicVideoToolPricing(pricing),
+      record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)),
+      user: userView(auth.user),
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 500, { ok: false, message: error.message || "Video tool submission failed." });
   }
 }
 
@@ -22892,6 +23677,194 @@ async function handleUploadUserAsset(req, res) {
   return sendJson(res, 200, { ok: true, asset: publicUserAsset(userAsset) });
 }
 
+function decodedUploadFileName(value = "") {
+  const encoded = String(value || "").trim();
+  if (!encoded) return "";
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
+async function handleUploadVideoToolAsset(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  if (!dbEnabled()) {
+    return sendJson(res, 503, { ok: false, message: "Video tool uploads require database storage." });
+  }
+
+  const fileName = decodedUploadFileName(req.headers["x-file-name"] || "");
+  const declaredMime = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+  const inferredMime = imageMimeFromKnownPath(fileName) || videoMimeFromKnownPath(fileName);
+  const rawMime = declaredMime && declaredMime !== "application/octet-stream" ? declaredMime : inferredMime;
+  const mime = rawMime === "image/jpg" ? "image/jpeg" : rawMime;
+  const supportedImageMimes = new Set(["image/jpeg", "image/png", "image/webp", "image/bmp"]);
+  const supportedVideoMimes = new Set(["video/mp4", "video/webm", "video/quicktime", "video/x-m4v"]);
+  const isImage = supportedImageMimes.has(mime);
+  const isVideo = supportedVideoMimes.has(mime);
+  if (!isImage && !isVideo) {
+    return sendJson(res, 400, { ok: false, message: "Upload a JPG, PNG, WebP, BMP, MP4, WebM, MOV, or M4V file." });
+  }
+
+  const maxBytes = isImage ? IMAGE_UPLOAD_MAX_BYTES : VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES;
+  const uploadId = String(req.headers["x-upload-id"] || "").trim();
+  const chunkIndex = Number(req.headers["x-chunk-index"] || 0);
+  const chunkCount = Number(req.headers["x-chunk-count"] || 1);
+  const declaredFileSize = Number(req.headers["x-file-size"] || req.headers["content-length"] || 0);
+  if (!/^[a-z0-9-]{16,80}$/i.test(uploadId)) {
+    return sendJson(res, 400, { ok: false, message: "Upload id is invalid." });
+  }
+  if (!Number.isInteger(chunkIndex) || !Number.isInteger(chunkCount) || chunkIndex < 0 || chunkCount < 1 || chunkCount > VIDEO_TOOL_UPLOAD_CHUNK_MAX_COUNT || chunkIndex >= chunkCount) {
+    return sendJson(res, 400, { ok: false, message: "Upload chunk is invalid." });
+  }
+  if (!Number.isFinite(declaredFileSize) || declaredFileSize <= 0 || declaredFileSize > maxBytes) {
+    req.resume();
+    return sendJson(res, declaredFileSize > maxBytes ? 413 : 400, {
+      ok: false,
+      message: `${isImage ? "Image" : "Video"} must be ${Math.round(maxBytes / 1024 / 1024)}MB or smaller.`,
+    });
+  }
+  const contentLength = Number(req.headers["content-length"] || 0);
+  if (Number.isFinite(contentLength) && contentLength > VIDEO_TOOL_UPLOAD_CHUNK_MAX_BYTES) {
+    req.resume();
+    return sendJson(res, 413, {
+      ok: false,
+      message: `Upload chunks must be ${Math.round(VIDEO_TOOL_UPLOAD_CHUNK_MAX_BYTES / 1024 / 1024)}MB or smaller.`,
+    });
+  }
+
+  const dir = path.join(USER_UPLOAD_DIR, auth.user.id);
+  const uploadPartsDir = path.join(VIDEO_TOOL_UPLOAD_PART_DIR, storagePathSegment(auth.user.id), uploadId);
+  const chunkPath = path.join(uploadPartsDir, `${String(chunkIndex).padStart(3, "0")}.part`);
+  let fileHandle = null;
+  let localPath = "";
+  let chunkByteLength = 0;
+
+  try {
+    await fs.mkdir(uploadPartsDir, { recursive: true });
+    fileHandle = await fs.open(chunkPath, "w");
+    for await (const chunk of req) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      chunkByteLength += bytes.byteLength;
+      if (chunkByteLength > VIDEO_TOOL_UPLOAD_CHUNK_MAX_BYTES) {
+        const error = new Error(`Upload chunks must be ${Math.round(VIDEO_TOOL_UPLOAD_CHUNK_MAX_BYTES / 1024 / 1024)}MB or smaller.`);
+        error.statusCode = 413;
+        throw error;
+      }
+      await fileHandle.write(bytes);
+    }
+    await fileHandle.close();
+    fileHandle = null;
+    if (!chunkByteLength) {
+      const error = new Error("Uploaded file is empty.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (chunkIndex < chunkCount - 1) {
+      return sendJson(res, 200, {
+        ok: true,
+        pending: true,
+        uploadId,
+        receivedChunks: chunkIndex + 1,
+        chunkCount,
+      });
+    }
+
+    const partPaths = Array.from({ length: chunkCount }, (_, index) => path.join(uploadPartsDir, `${String(index).padStart(3, "0")}.part`));
+    const partStats = [];
+    for (const partPath of partPaths) {
+      try {
+        partStats.push(await fs.stat(partPath));
+      } catch {
+        const error = new Error("Upload is incomplete. Please select the file again.");
+        error.statusCode = 409;
+        throw error;
+      }
+    }
+    const byteLength = partStats.reduce((sum, stat) => sum + Number(stat.size || 0), 0);
+    if (byteLength !== declaredFileSize || byteLength > maxBytes) {
+      const error = new Error(byteLength > maxBytes
+        ? `${isImage ? "Image" : "Video"} must be ${Math.round(maxBytes / 1024 / 1024)}MB or smaller.`
+        : "Uploaded file size does not match the selected file.");
+      error.statusCode = byteLength > maxBytes ? 413 : 400;
+      throw error;
+    }
+
+    const assetId = randomId("asset");
+    const fallbackExt = isImage ? imageExtFromMime(mime) : videoExtFromMime(mime, fileName);
+    const storedFileName = `${assetId}${mediaExtFromMime(mime, fileName) || fallbackExt}`;
+    localPath = path.join(dir, storedFileName);
+    await fs.mkdir(dir, { recursive: true });
+    fileHandle = await fs.open(localPath, "wx");
+    for (const partPath of partPaths) {
+      for await (const partChunk of fsSync.createReadStream(partPath)) {
+        await fileHandle.write(partChunk);
+      }
+    }
+    await fileHandle.close();
+    fileHandle = null;
+
+    const imageBytes = isImage ? await fs.readFile(localPath) : null;
+    const imageDimensions = imageBytes ? imageDimensionsFromBuffer(imageBytes) : null;
+    const videoDimensions = isVideo ? await probeLocalVideoDimensions(localPath) : null;
+    const suppliedDuration = durationSecondsFromValue(req.headers["x-duration-seconds"] || 0);
+    const durationSeconds = isVideo
+      ? durationSecondsFromValue(videoDimensions?.durationSeconds || await probeLocalVideoDurationSeconds(localPath) || suppliedDuration)
+      : 0;
+    if (isImage && (!imageDimensions?.width || !imageDimensions?.height)) {
+      const error = new Error("Uploaded image could not be read.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (isVideo && (!videoDimensions?.width || !videoDimensions?.height || !durationSeconds)) {
+      const error = new Error("Uploaded video could not be read.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const localUrl = `/assets/user-uploads/${auth.user.id}/${storedFileName}`;
+    const displayName = String(fileName || (isVideo ? "Source video" : "Source image"))
+      .split(/[\\/]/)
+      .pop()
+      .slice(0, 60) || (isVideo ? "Source video" : "Source image");
+    const now = new Date().toISOString();
+    const userAsset = {
+      id: assetId,
+      userId: auth.user.id,
+      name: displayName,
+      mime,
+      localUrl,
+      publicUrl: publicUrlForAssetPath(localUrl),
+      cdnUrl: "",
+      objectStorageKey: "",
+      objectStorageError: "",
+      assetUri: "",
+      width: imageDimensions?.width || 0,
+      height: imageDimensions?.height || 0,
+      videoWidth: videoDimensions?.width || 0,
+      videoHeight: videoDimensions?.height || 0,
+      imageType: imageDimensions?.type || "",
+      durationSeconds,
+      hidden: true,
+      meta: { videoToolUpload: true, byteLength },
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: "",
+    };
+    auth.db.userAssets.unshift(userAsset);
+    await upsertUserAssetInDb(userAsset);
+    await fs.rm(uploadPartsDir, { recursive: true, force: true }).catch(() => {});
+    return sendJson(res, 200, { ok: true, asset: publicUserAsset(userAsset) });
+  } catch (error) {
+    if (fileHandle) await fileHandle.close().catch(() => {});
+    if (localPath) await fs.rm(localPath, { force: true }).catch(() => {});
+    await fs.rm(chunkPath, { force: true }).catch(() => {});
+    if (chunkIndex === chunkCount - 1) await fs.rm(uploadPartsDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
 async function handleUploadSeedanceCharacter(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -29177,6 +30150,18 @@ async function handleRequest(req, res) {
       return await handlePublicCharacters(req, res, url);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/video-tools/estimate") {
+      return await handleVideoToolEstimate(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/video-tools/upload") {
+      return await handleUploadVideoToolAsset(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/video-tools/generate") {
+      return await handleVideoToolGenerate(req, res);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/workflow/presets") {
       return await handleWorkflowPresets(req, res);
     }
@@ -29878,6 +30863,8 @@ async function bootstrap() {
   startWalletScanScheduler();
   startStaleSubmitGenerationRecordScheduler();
   startActiveGenerationRecordScheduler();
+  startVideoToolJobRecoveryScheduler();
+  startVideoToolUploadCleanupScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);

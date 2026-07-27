@@ -5,6 +5,7 @@
     "platform.ui.js",
     "platform.explore.js",
     "platform.create.js",
+    "platform.video-tools.js",
     "platform.main.js",
   ];
   const currentScript = document.currentScript;

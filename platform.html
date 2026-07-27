@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-325-reference-duration" />
+    <link rel="stylesheet" href="./platform.css?v=ai-326-video-tools" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body class="age-gate-locked">
@@ -509,6 +509,17 @@
       <span>Support</span>
     </button>
 
+    <div class="video-tool-fabs" id="videoToolFabs" hidden>
+      <button class="video-tool-fab is-undress" type="button" data-video-tool-action="undress">
+        <i data-lucide="sparkles"></i>
+        <span data-video-tool-label="undress">Undress</span>
+      </button>
+      <button class="video-tool-fab is-face-swap" type="button" data-video-tool-action="face-swap">
+        <i data-lucide="scan-face"></i>
+        <span data-video-tool-label="face-swap">Face Swap</span>
+      </button>
+    </div>
+
     <dialog id="templateDialog" class="modal">
       <form method="dialog">
         <header>
@@ -842,6 +853,19 @@
       </form>
     </dialog>
 
+    <dialog id="videoToolDialog" class="modal video-tool-dialog">
+      <form method="dialog" id="videoToolForm">
+        <header>
+          <div>
+            <span id="videoToolDialogKicker">Video tool</span>
+            <strong id="videoToolDialogTitle">Create</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body" id="videoToolDialogBody"></div>
+      </form>
+    </dialog>
+
     <dialog id="legalDialog" class="modal legal-modal">
       <form method="dialog">
         <header>
@@ -855,6 +879,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-325-reference-duration"></script>
+    <script src="./platform.js?v=ai-326-video-tools"></script>
   </body>
 </html>
