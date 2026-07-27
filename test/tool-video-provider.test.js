@@ -35,5 +35,5 @@ test("game feed does not contain Video tool estimate state", () => {
 test("Video tool frontend uses the shared tenant helper", () => {
   assert.match(explore, /isTenantTool\("video"\)/);
   assert.doesNotMatch(explore, /isToolTenant\(/);
-  assert.match(html, /platform\.js\?v=ai-317-tool-video-runtime/);
+  assert.match(html, /platform\.js\?v=ai-318-mobile-auth/);
 });

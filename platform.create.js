@@ -4551,11 +4551,14 @@ async function exportLedger(kind) {
 
 function openLogin() {
   if (state.user) return openAccount();
-  renderLoginMode();
+  prepareModalOpen();
+  renderLoginForm();
   els.loginDialog.showModal();
+  window.requestAnimationFrame(() => els.loginUsername?.focus());
 }
 
 function openAccount() {
+  prepareModalOpen();
   renderTokenDisplays();
   els.accountDialog?.showModal();
   refreshIcons();
@@ -4583,11 +4586,10 @@ function logout() {
   syncTopupAutoRefresh();
 }
 
-function renderLoginMode() {
-  const isRegister = state.loginMode === "register";
-  els.loginTitle.textContent = isRegister ? t("auth.createAccount") : t("auth.login");
-  els.loginSubmit.textContent = isRegister ? t("auth.createAndLogin") : t("auth.login");
-  els.toggleLoginMode.textContent = isRegister ? t("auth.alreadyAccount") : t("auth.createAccount");
+function renderLoginForm() {
+  const label = t("nav.login");
+  if (els.loginTitle) els.loginTitle.textContent = label;
+  if (els.loginSubmit) els.loginSubmit.textContent = label;
   els.loginMessage.textContent = "";
 }
 
@@ -4598,7 +4600,6 @@ async function submitLogin() {
     els.loginMessage.textContent = t("auth.invalid");
     return;
   }
-  const endpoint = state.loginMode === "register" ? "/api/auth/register" : "/api/auth/login";
   const referralCode = localStorage.getItem(REFERRAL_CODE_KEY) || "";
   let registrationAttribution = {};
   try {
@@ -4606,15 +4607,16 @@ async function submitLogin() {
   } catch {
     registrationAttribution = {};
   }
+  if (els.loginSubmit) els.loginSubmit.disabled = true;
   try {
-    const payload = await requestJson(endpoint, {
+    const payload = await requestJson("/api/auth/login-or-register", {
       method: "POST",
       body: {
         username,
         password,
-        referralCode: state.loginMode === "register" ? referralCode : "",
-        channel: state.loginMode === "register" ? registrationAttribution.channel || "direct" : "",
-        attribution: state.loginMode === "register" ? registrationAttribution : {},
+        referralCode,
+        channel: registrationAttribution.channel || "direct",
+        attribution: registrationAttribution,
       },
     });
     state.token = payload.token;
@@ -4631,6 +4633,8 @@ async function submitLogin() {
     if (tenantFeature("subscriptions", false)) loadBillingSummary();
   } catch (error) {
     els.loginMessage.textContent = error.message;
+  } finally {
+    if (els.loginSubmit) els.loginSubmit.disabled = false;
   }
 }
 

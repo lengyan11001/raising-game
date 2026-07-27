@@ -6304,7 +6304,19 @@ textarea {
 }
 textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 0 0 3px rgba(15,148,139,.12); }
 .job-note { margin: 0; color: var(--muted); line-height: 1.6; }
-.auth-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.auth-modal {
+  width: min(390px, calc(100vw - 28px));
+}
+.auth-modal .modal-body {
+  gap: 12px;
+}
+.auth-actions {
+  display: grid;
+}
+.auth-actions .generate-btn {
+  width: 100%;
+  justify-content: center;
+}
 .account-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7104,9 +7116,33 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 .playflux-template-media video {
   object-fit: cover;
 }
+.playflux-template-media {
+  overflow: hidden;
+  background: #111116;
+}
+.playflux-template-poster,
+.playflux-template-video {
+  transition: opacity .18s ease;
+}
+.playflux-template-poster {
+  z-index: 1;
+  opacity: 1;
+}
+.playflux-template-video {
+  z-index: 2;
+  opacity: 0;
+}
+.playflux-template-media.is-video-ready .playflux-template-poster {
+  opacity: 0;
+}
+.playflux-template-media.is-video-ready .playflux-template-video {
+  opacity: 1;
+}
 .playflux-template-shade {
   position: absolute;
   inset: 0;
+  z-index: 3;
+  pointer-events: none;
   background: linear-gradient(180deg, rgba(0,0,0,.06) 42%, rgba(0,0,0,.76) 100%);
 }
 .playflux-template-card strong {
@@ -7114,7 +7150,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   left: 10px;
   right: 44px;
   bottom: 10px;
-  z-index: 2;
+  z-index: 4;
   color: #fff;
   font-size: .9rem;
   font-weight: 950;
@@ -7136,7 +7172,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 .playflux-template-fav,
 .playflux-template-play {
   position: absolute;
-  z-index: 3;
+  z-index: 4;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7605,7 +7641,7 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   position: absolute;
   right: 9px;
   top: 9px;
-  z-index: 3;
+  z-index: 4;
   display: inline-grid;
   place-items: center;
   width: 32px;
@@ -8586,6 +8622,16 @@ select:focus,
     max-width: 100vw;
     margin: auto 0 0;
     border-radius: 18px 18px 0 0;
+  }
+  .auth-modal {
+    width: calc(100vw - 24px);
+    margin: auto;
+  }
+  .auth-modal header {
+    padding: 16px;
+  }
+  .auth-modal .modal-body {
+    padding: 16px;
   }
   .inline-modal.is-playflux-template form {
     max-height: min(88vh, 720px);

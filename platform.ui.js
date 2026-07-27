@@ -147,6 +147,7 @@ function renderSimplePager(holder, data, onPage, options = {}) {
 
 function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass = "", keepOpenOnConfirm = false, onOpen, onConfirm } = {}) {
   if (!els.inlineDialog || !els.inlineDialogForm || !els.inlineDialogBody) return Promise.resolve("close");
+  prepareModalOpen();
   els.inlineDialog.classList.remove("is-media-action", "is-frame-action", "is-playflux-template");
   String(dialogClass || "")
     .split(/\s+/)
@@ -362,6 +363,7 @@ function renderLegalDialog(type = "privacy") {
 }
 
 function openLegalDialog(type = "privacy") {
+  prepareModalOpen();
   if (els.legalDialog) els.legalDialog.dataset.doc = type;
   renderLegalDialog(type);
   els.legalDialog?.showModal();
@@ -526,7 +528,7 @@ function applyLanguage() {
   renderPricing();
   renderTokenDisplays();
   renderApiSubtokens();
-  renderLoginMode();
+  renderLoginForm();
   if (els.legalDialog?.open) renderLegalDialog(els.legalDialog.dataset.doc || "privacy");
   updateSubmitButtonCost();
   updateAdvancedButtonCost();
@@ -1229,6 +1231,7 @@ function statusLabel(status) {
 }
 
 function openMobileDrawer() {
+  if (document.querySelector("dialog[open]")) return;
   document.body.classList.add("mobile-drawer-open");
   if (els.mobileDrawerToggle) els.mobileDrawerToggle.setAttribute("aria-expanded", "true");
   if (els.mobileDrawerBackdrop) els.mobileDrawerBackdrop.hidden = false;
@@ -1368,6 +1371,11 @@ function advancedProviderLabel(provider = currentAdvancedProvider()) {
   if (labels[capability]) return labels[capability];
   if (normalized === "happyhorse") return "HappyHorse";
   return normalized === "wan27" ? "Wan 2.7" : "Seedance 2.0";
+}
+
+function prepareModalOpen() {
+  closeMobileDrawer();
+  closeAccountMenu();
 }
 
 const ADVANCED_ALIYUN_VIDEO_CAPABILITIES = new Set([
@@ -2153,6 +2161,7 @@ function advancedPresetCategoriesForSlot(slot = "") {
 
 function openAdvancedPresetDialog(slot = "") {
   if (!slot || !els.advancedPresetDialog) return;
+  prepareModalOpen();
   state.advancedPresetDialogSlot = slot;
   if (slot === "character" && !["system", "custom"].includes(state.advancedPresetCharacterSource)) {
     state.advancedPresetCharacterSource = "system";

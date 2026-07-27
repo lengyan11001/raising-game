@@ -623,7 +623,7 @@ els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) =>
 els.topupBackBtn?.addEventListener("click", handleTopupBack);
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
 function openTopupDialog() {
-  closeAccountMenu();
+  prepareModalOpen();
   state.selectedBillingPlanId = "";
   setTopupStep("packages");
   setTopupMethod("usdt");
@@ -777,11 +777,14 @@ document.addEventListener("click", (event) => {
   closeAccountMenu();
 });
 document.addEventListener("visibilitychange", syncTopupAutoRefresh);
-els.toggleLoginMode?.addEventListener("click", () => {
-  state.loginMode = state.loginMode === "login" ? "register" : "login";
-  renderLoginMode();
+els.loginForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === "cancel") {
+    els.loginDialog?.close("cancel");
+    return;
+  }
+  submitLogin();
 });
-els.loginSubmit?.addEventListener("click", submitLogin);
 els.languageSelect?.addEventListener("change", () => setLanguage(els.languageSelect.value));
 els.copyAccessBtn?.addEventListener("click", async () => {
   await navigator.clipboard.writeText(fullAccessCopy());
@@ -808,6 +811,7 @@ els.copyTokenBtn?.addEventListener("click", async () => {
   }, 1600);
 });
 function openSupportDialog() {
+  prepareModalOpen();
   if (els.supportEmail) els.supportEmail.value = "";
   if (els.supportSubject) els.supportSubject.value = "";
   if (els.supportMessage) els.supportMessage.value = "";

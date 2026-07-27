@@ -469,9 +469,12 @@ function renderPlayfluxTemplateGallery() {
       playfluxGalleryScrollHandler = null;
       return;
     }
-    grid.insertAdjacentHTML("beforeend", next.map(renderPlayfluxTemplateCard).join(""));
+    grid.insertAdjacentHTML("beforeend", next.map((template, index) => renderPlayfluxTemplateCard(template, {
+      eager: mobile && renderedCount + index < PLAYFLUX_MOBILE_INITIAL_COUNT,
+    })).join(""));
     renderedCount += next.length;
     bindPlayfluxTemplateCards(grid);
+    bindGalleryImageFallbacks(grid);
     observePlayfluxTemplateMedia(grid);
     refreshIcons();
     if (renderedCount >= templates.length) {
@@ -519,6 +522,9 @@ function bindPlayfluxTemplateCards(root) {
 
 function loadPlayfluxTemplateVideo(video) {
   if (!video || !video.dataset.src) return;
+  const revealVideo = () => video.closest(".playflux-template-media")?.classList.add("is-video-ready");
+  if (video.readyState >= 2) revealVideo();
+  else video.addEventListener("loadeddata", revealVideo, { once: true });
   if (!video.src) {
     video.src = video.dataset.src;
     video.load();
@@ -540,7 +546,10 @@ function observePlayfluxTemplateMedia(root) {
         if (entry.isIntersecting) loadPlayfluxTemplateVideo(video);
         else video.pause();
       });
-    }, { rootMargin: "180px 0px", threshold: 0.01 });
+    }, {
+      rootMargin: window.matchMedia?.("(max-width: 720px)")?.matches ? "80px 0px" : "180px 0px",
+      threshold: 0.01,
+    });
   }
   videos.forEach((video) => {
     video.dataset.playfluxObserved = "1";
@@ -548,15 +557,17 @@ function observePlayfluxTemplateMedia(root) {
   });
 }
 
-function renderPlayfluxTemplateCard(template = {}) {
+function renderPlayfluxTemplateCard(template = {}, { eager = false } = {}) {
   const isVideo = template.previewType === "video";
   const title = localizedTemplateTitle(template);
+  const posterUrl = template.posterUrl || (isVideo ? DEFAULT_TEMPLATE_COVER : template.previewUrl) || DEFAULT_TEMPLATE_COVER;
   return `
     <button class="playflux-template-card" type="button" data-playflux-template="${escapeHtml(template.id || "")}">
       <span class="playflux-template-media">
+        <img class="playflux-template-poster" src="${escapeHtml(posterUrl)}" data-cover-fallback="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(title)}" loading="${eager ? "eager" : "lazy"}" decoding="async"${eager ? ' fetchpriority="high"' : ""} />
         ${isVideo
-          ? `<video data-src="${escapeHtml(template.previewUrl || "")}" ${template.posterUrl ? `poster="${escapeHtml(template.posterUrl)}"` : ""} muted loop playsinline preload="none"></video>`
-          : `<img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(title)}" loading="lazy" />`}
+          ? `<video class="playflux-template-video" data-src="${escapeHtml(template.previewUrl || "")}" muted loop playsinline preload="none"></video>`
+          : ""}
         <span class="playflux-template-shade"></span>
         ${template.badge ? `<small class="playflux-template-badge">${escapeHtml(template.badge)}</small>` : ""}
         <span class="playflux-template-fav"><i data-lucide="heart"></i></span>
@@ -3449,6 +3460,7 @@ function previewRatioFromItem(item = {}) {
 
 function playPreview({ title = "", previewUrl = "", ratio = "16:9" } = {}) {
   if (!previewUrl || !els.previewDialog || !els.previewVideo || !els.previewImage) return;
+  prepareModalOpen();
   els.previewTitle.textContent = title || t("common.preview");
   els.previewImage.hidden = true;
   els.previewImage.removeAttribute("src");
@@ -3463,6 +3475,7 @@ function playPreview({ title = "", previewUrl = "", ratio = "16:9" } = {}) {
 
 function previewImage({ title = "", imageUrl = "" } = {}) {
   if (!imageUrl || !els.previewDialog || !els.previewVideo || !els.previewImage) return;
+  prepareModalOpen();
   els.previewTitle.textContent = title || t("common.preview");
   els.previewVideo.pause();
   els.previewVideo.hidden = true;
@@ -3547,6 +3560,7 @@ function publicHistoryParams(value) {
 function openHistoryDetail(index) {
   const record = state.historyRecords?.[Number(index || 0)];
   if (!record || !els.historyDetailDialog || !els.historyDetailBody) return;
+  prepareModalOpen();
   const title = publicModelText(record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle"));
   const videoUrl = generationVideoUrl(record);
   const imageResultUrl = generationImageResultUrl(record);
@@ -4203,6 +4217,7 @@ function renderTopupQrDialog(order = null) {
   }
   setTopupConfirmStatus(order.confirmationSubmittedAt ? t("topup.confirmSubmitted", {}, "Confirmation submitted. Waiting for chain verification.") : "", order.confirmationSubmittedAt ? "success" : "");
   setTopupQrStep("transfer");
+  prepareModalOpen();
   if (els.topupDialog?.open) els.topupDialog.close();
   if (!els.topupQrDialog.open) els.topupQrDialog.showModal();
   syncTopupAutoRefresh();
@@ -4296,6 +4311,7 @@ function handleTopupBack() {
       return;
     }
     els.topupQrDialog.close();
+    prepareModalOpen();
     if (!els.topupDialog?.open) els.topupDialog?.showModal();
     setTopupStep("payment");
     setTopupMethod("usdt");

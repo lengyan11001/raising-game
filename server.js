@@ -21131,8 +21131,7 @@ function getDemoTask(taskId) {
   };
 }
 
-async function handleRegister(req, res) {
-  const body = await readJson(req);
+async function registerWithBody(req, res, body = {}) {
   const tenantId = requestTenantId(req);
   const username = String(body.username || "").trim().toLowerCase();
   const password = String(body.password || "");
@@ -21208,14 +21207,20 @@ async function handleRegister(req, res) {
   return sendJson(res, 200, { ok: true, token, user: userView(user) });
 }
 
-async function handleLogin(req, res) {
-  const body = await readJson(req);
+async function handleRegister(req, res) {
+  return registerWithBody(req, res, await readJson(req));
+}
+
+async function loginWithBody(req, res, body = {}, { registerIfMissing = false } = {}) {
   const tenantId = requestTenantId(req);
   const username = String(body.username || "").trim().toLowerCase();
   const password = String(body.password || "");
   const db = await readDb();
   const user = await getUserByUsernameInDb(username, tenantId)
     || db.users.find((item) => item.username === username && recordBelongsToTenant(item, tenantId));
+  if (!user && registerIfMissing) {
+    return registerWithBody(req, res, body);
+  }
   if (!user || !verifyPassword(password, user.passwordHash)) {
     return sendJson(res, 401, { ok: false, message: "Wrong username or password." });
   }
@@ -21231,6 +21236,14 @@ async function handleLogin(req, res) {
     await writeDb(db);
   }
   return sendJson(res, 200, { ok: true, token, user: userView(user) });
+}
+
+async function handleLogin(req, res) {
+  return loginWithBody(req, res, await readJson(req));
+}
+
+async function handleLoginOrRegister(req, res) {
+  return loginWithBody(req, res, await readJson(req), { registerIfMissing: true });
 }
 
 async function handleMe(req, res) {
@@ -29214,6 +29227,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/auth/login") {
       return await handleLogin(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/login-or-register") {
+      return await handleLoginOrRegister(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/auth/me") {
