@@ -691,7 +691,7 @@ function playfluxTemplateNeedsSource(template = {}) {
 }
 
 function playfluxTemplateVideoProvider() {
-  if (!isToolTenant("video")) return "seedance";
+  if (!isTenantTool("video")) return "seedance";
   const provider = tenantStringFeature("videoProvider", "wan27");
   return ["wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan27";
 }
@@ -945,7 +945,7 @@ function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seed
   return {
     taskId,
     status: "submitting",
-    model: isToolTenant("video") && template.tab === "video"
+    model: isTenantTool("video") && template.tab === "video"
       ? "Video"
       : provider === "seedance" ? "Seedance" : provider === "happyhorse" ? "HappyHorse" : (provider === "wan27" ? "Wan 2.7" : "Wan 2.7 Image"),
     provider,
