@@ -26,6 +26,13 @@ test("login and registration share one form and one endpoint", () => {
   assert.match(server, /url\.pathname === "\/api\/auth\/login-or-register"/);
 });
 
+test("mobile drawer shows one authentication entry while logged out", () => {
+  assert.match(html, /class="mobile-drawer-user" id="mobileDrawerUser" hidden/);
+  assert.match(config, /mobileDrawerUser: document\.querySelector\("#mobileDrawerUser"\)/);
+  assert.match(ui, /els\.mobileDrawerUser\.hidden = !loggedIn/);
+  assert.match(ui, /els\.mobileDrawerLoginBtn\.hidden = loggedIn/);
+});
+
 test("mobile Video cards keep a stable poster while previews load", () => {
   assert.match(explore, /PLAYFLUX_MOBILE_INITIAL_COUNT = 6/);
   assert.match(explore, /class="playflux-template-poster"/);
@@ -41,6 +48,6 @@ test("opening a dialog always closes the mobile drawer", () => {
   assert.match(create, /function openLogin\(\)[\s\S]*?prepareModalOpen\(\);/);
   assert.match(main, /function openTopupDialog\(\)[\s\S]*?prepareModalOpen\(\);/);
   assert.match(explore, /function playPreview[\s\S]*?prepareModalOpen\(\);/);
-  assert.match(html, /platform\.js\?v=ai-318-mobile-auth/);
-  assert.match(html, /platform\.css\?v=ai-318-mobile-auth/);
+  assert.match(html, /platform\.js\?v=ai-319-drawer-login/);
+  assert.match(html, /platform\.css\?v=ai-319-drawer-login/);
 });

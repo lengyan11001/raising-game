@@ -1135,6 +1135,7 @@ const els = {
   legalBody: document.querySelector("#legalBody"),
   mobileDrawerToggle: document.querySelector("#mobileDrawerToggle"),
   mobileDrawerBackdrop: document.querySelector("#mobileDrawerBackdrop"),
+  mobileDrawerUser: document.querySelector("#mobileDrawerUser"),
   mobileDrawerUserName: document.querySelector("#mobileDrawerUserName"),
   mobileDrawerCredits: document.querySelector("#mobileDrawerCredits"),
   mobileDrawerTopupBtn: document.querySelector("#mobileDrawerTopupBtn"),
