@@ -3248,7 +3248,7 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
     ? `    <script>window.__TENANT_FEATURES__=${jsonScriptValue(publicTenantFeatures(tenant))};</script>\n`
     : "";
   const withToolStyles = toolId === "video" && !withTenantShell.includes("tool-video.css")
-    ? withTenantShell.replace(/<\/head>/i, `${bootstrapScript}    <link rel="stylesheet" href="./tool-video.css?v=tool-video-5" />\n  </head>`)
+    ? withTenantShell.replace(/<\/head>/i, `${bootstrapScript}    <link rel="stylesheet" href="./tool-video.css?v=tool-video-6" />\n  </head>`)
     : withTenantShell;
   const withoutTitle = withToolStyles.replace(/<title>[\s\S]*?<\/title>/i, "");
   return withoutTitle.replace(/<\/head>/i, `${tags}\n  </head>`);

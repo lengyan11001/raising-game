@@ -436,8 +436,18 @@ body.tenant-tool-video .video-tool-fab span {
   }
 
   .video-tool-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
+  }
+
+  .video-tool-summary span:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .video-tool-summary span:last-child strong {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
   }
 
   .video-tool-summary span {
