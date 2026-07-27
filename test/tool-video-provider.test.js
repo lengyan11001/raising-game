@@ -32,6 +32,14 @@ test("Video tool applies the image-identity-first prompt guide to Wan2.7", () =>
   assert.match(server, /requestParams\.videoCapability === "wan27-r2v"\s*\? "wan27-r2v"/);
   assert.match(server, /Image 1 is the user's selected character\/source image/);
   assert.match(server, /Use Video 1 only for motion, action, camera, and composition/);
+  assert.match(server, /Keep every major action beat at the same relative timestamp/);
+});
+
+test("Video tool matches Wan2.7 output duration and billing to the reference video", () => {
+  assert.match(explore, /Math\.max\(2, Math\.min\(10, Math\.round\(referenceDuration\)\)\)/);
+  assert.match(explore, /provider === "wan27" \? Math\.min\(duration, seconds\) : seconds/);
+  assert.match(server, /requestParams\.duration = Math\.max\(2, Math\.min\(10, Math\.round\(primaryVideoDuration\)\)\)/);
+  assert.match(server, /capability === "wan27-r2v" \? Math\.min\(aliyunDuration, rawInputVideoSeconds\)/);
 });
 
 test("Video tool estimate uses the same capability as generation", () => {
@@ -53,5 +61,5 @@ test("game feed does not contain Video tool estimate state", () => {
 test("Video tool frontend uses the shared tenant helper", () => {
   assert.match(explore, /isTenantTool\("video"\)/);
   assert.doesNotMatch(explore, /isToolTenant\(/);
-  assert.match(html, /platform\.js\?v=ai-324-wan-r2v-guided/);
+  assert.match(html, /platform\.js\?v=ai-325-reference-duration/);
 });

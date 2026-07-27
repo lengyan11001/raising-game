@@ -716,8 +716,11 @@ function playfluxTemplateVideoCapability(provider = playfluxTemplateVideoProvide
   return "";
 }
 
-function playfluxTemplateOutputDuration(template = {}) {
-  return Number(template.duration || 5) || 5;
+function playfluxTemplateOutputDuration(template = {}, provider = playfluxTemplateVideoProvider()) {
+  const configuredDuration = Number(template.duration || 5) || 5;
+  if (provider !== "wan27" || playfluxTemplateVideoCapability(provider) !== "wan27-r2v") return configuredDuration;
+  const referenceDuration = Number(template.referenceVideoDurationSeconds || configuredDuration) || configuredDuration;
+  return Math.max(2, Math.min(10, Math.round(referenceDuration)));
 }
 
 function playfluxTemplateRequiredSourceCount(template = {}) {
@@ -862,7 +865,7 @@ function playfluxTemplateEstimateCacheKey(template = {}, sourceMode = playfluxTe
     template.id || "",
     template.tab || "",
     sourceMode || "",
-    template.duration || 5,
+    playfluxTemplateOutputDuration(template, provider),
     template.resolution || "720p",
     template.ratio || "9:16",
     usesReferenceVideo ? Number(template.referenceVideoDurationSeconds || template.duration || 5) : 0,
@@ -880,13 +883,13 @@ function playfluxTemplateVideoInputSeconds(template = {}, sourceMode = playfluxT
   if (provider === "seedance" && !playfluxSeedanceModeNeedsReferenceVideo(sourceMode)) return 0;
   const cached = playfluxTemplateCachedEstimate(template, sourceMode);
   const seconds = Number(cached?.videoInputSeconds || template.referenceVideoDurationSeconds || duration);
-  return provider === "wan27" ? Math.min(5, seconds) : seconds;
+  return provider === "wan27" ? Math.min(duration, seconds) : seconds;
 }
 
 function playfluxTemplateCostLabel(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
   if (template.tab === "video") {
     const provider = playfluxTemplateVideoProvider();
-    const duration = playfluxTemplateOutputDuration(template);
+    const duration = playfluxTemplateOutputDuration(template, provider);
     const resolution = template.resolution || "720p";
     const ratio = template.ratio || "9:16";
     const cached = playfluxTemplateCachedEstimate(template, sourceMode);
@@ -921,10 +924,10 @@ async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "")
     renderPlayfluxTemplateCost(root, template, mode);
     return;
   }
-  const duration = playfluxTemplateOutputDuration(template);
+  const provider = playfluxTemplateVideoProvider();
+  const duration = playfluxTemplateOutputDuration(template, provider);
   const resolution = template.resolution || "720p";
   const ratio = normalizeVideoRatio(template.ratio || "9:16");
-  const provider = playfluxTemplateVideoProvider();
     const usesReferenceVideo = provider !== "seedance" || playfluxSeedanceModeNeedsReferenceVideo(mode);
   try {
     const payload = await requestJson("/api/advanced/estimate", {
@@ -1051,7 +1054,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
       const file = files[0] || null;
       const dataUrl = file ? await readFileAsDataUrl(file) : "";
       const sourceMode = selectedVideoSourceMode;
-      const duration = Number(effectiveTemplate.duration || 5);
+      const duration = playfluxTemplateOutputDuration(effectiveTemplate, provider);
       const resolution = effectiveTemplate.resolution || "720p";
       const ratio = normalizeVideoRatio(effectiveTemplate.ratio || "9:16");
       const reference = dataUrl ? { dataUrl, fileName: file.name || "", name: file.name || "Template source image" } : null;

@@ -1660,7 +1660,7 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
     const rawInputVideoSeconds = inputBillingCapabilities.has(capability)
       ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0)
       : 0;
-    const inputVideoSeconds = capability === "wan27-r2v" ? Math.min(5, rawInputVideoSeconds) : rawInputVideoSeconds;
+    const inputVideoSeconds = capability === "wan27-r2v" ? Math.min(seconds, rawInputVideoSeconds) : rawInputVideoSeconds;
     const outputCredits = creditsAmount(seconds * perSecond);
     const inputVideoCredits = creditsAmount(inputVideoSeconds * perSecond);
     const originalCredits = creditsAmount(outputCredits + inputVideoCredits);

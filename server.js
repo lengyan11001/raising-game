@@ -6164,7 +6164,7 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       options.referenceVideoSeconds,
     ));
     const inputVideoSeconds = definition?.billing === "input_output"
-      ? (capability === "wan27-r2v" ? Math.min(5, rawInputVideoSeconds) : rawInputVideoSeconds)
+      ? (capability === "wan27-r2v" ? Math.min(aliyunDuration, rawInputVideoSeconds) : rawInputVideoSeconds)
       : 0;
     const outputCredits = creditsAmount(aliyunDuration * creditsPerSecond);
     const inputVideoCredits = creditsAmount(inputVideoSeconds * creditsPerSecond);
@@ -9012,7 +9012,7 @@ function enhancePlayfluxReferenceVideoPrompt(prompt = "", { hasReferenceImage = 
     hasReferenceImage
       ? "Use Video 1 only for motion, action, camera, and composition. Do not copy identity, face, body, clothing, background, watermark, text, colors, or artifacts from Video 1. If Image 1 conflicts with Video 1, Image 1 always wins."
       : "Use Video 1 as the primary action, camera, and composition guide.",
-    "Generate one continuous cinematic shot with the same action rhythm as Video 1, coherent anatomy, stable hands, and no subtitles or watermark.",
+    "Reproduce the full Video 1 timeline from beginning to end. Keep every major action beat at the same relative timestamp; do not skip, reorder, compress, or invent actions. Preserve coherent anatomy, stable hands, and no subtitles or watermark.",
   ].filter(Boolean).join(" ");
   return [guide, base].filter(Boolean).join("\n\n");
 }
@@ -18775,15 +18775,22 @@ async function handleAdvancedGenerate(req, res) {
     wan27Media = resolved.media;
     const capabilityDefinition = ALIYUN_VIDEO_CAPABILITIES[requestParams.videoCapability];
     const billableVideos = wan27Media.filter((item) => ["video", "video_url", "reference_video", "first_clip"].includes(item.type));
-    if (capabilityDefinition?.mediaKind === "animate" && billableVideos[0]?.url) {
-      const actionDuration = await probeVideoDurationSeconds(billableVideos[0].url);
-      if (actionDuration > 0) requestParams.duration = clampNumber(actionDuration, requestParams.duration, 2, 30);
+    const shouldProbeBillableVideos = capabilityDefinition?.mediaKind === "animate"
+      || capabilityDefinition?.billing === "input_output";
+    const probedVideoDurations = [];
+    if (shouldProbeBillableVideos) {
+      for (const item of billableVideos) {
+        probedVideoDurations.push(await probeVideoDurationSeconds(item.url) || 0);
+      }
+    }
+    const primaryVideoDuration = probedVideoDurations[0] || 0;
+    if (capabilityDefinition?.mediaKind === "animate" && primaryVideoDuration > 0) {
+      requestParams.duration = clampNumber(primaryVideoDuration, requestParams.duration, 2, 30);
+    } else if (isToolVideoTemplateRequest && requestParams.videoCapability === "wan27-r2v" && primaryVideoDuration > 0) {
+      requestParams.duration = Math.max(2, Math.min(10, Math.round(primaryVideoDuration)));
     }
     if (capabilityDefinition?.billing === "input_output") {
-      let probedInputSeconds = 0;
-      for (const item of billableVideos) {
-        probedInputSeconds += await probeVideoDurationSeconds(item.url) || 0;
-      }
+      const probedInputSeconds = probedVideoDurations.reduce((sum, seconds) => sum + seconds, 0);
       const explicitInputSeconds = durationSecondsFromValue(firstPresent(
         body.inputVideoSeconds,
         body.videoInputSeconds,
