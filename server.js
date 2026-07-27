@@ -120,7 +120,7 @@ const TOOL_VIDEO_DEFAULT_PROVIDER = "wan27";
 
 function toolVideoDefaultCapability(provider = TOOL_VIDEO_DEFAULT_PROVIDER) {
   const normalizedProvider = String(provider || "").trim().toLowerCase();
-  if (normalizedProvider === "wan27") return "wan-animate-mix";
+  if (normalizedProvider === "wan27") return "wan27-r2v";
   if (normalizedProvider === "happyhorse") return "happyhorse-video-edit";
   return "";
 }
@@ -18751,7 +18751,7 @@ async function handleAdvancedGenerate(req, res) {
   let wan27MediaMode = "";
   let wan27Media = [];
   if (isAliyunVideoProvider(provider)) {
-    requestParams.mediaMode = normalizeWan27MediaMode(firstPresent(
+    const requestedWanMediaMode = firstPresent(
       body.mediaMode,
       body.wanMode,
       body.wanMediaMode,
@@ -18760,7 +18760,10 @@ async function handleAdvancedGenerate(req, res) {
       bodyParams.wanMediaMode,
       caseParams.mediaMode,
       requestParams.videoCapability === "wan27-i2v" ? "first_frame" : requestParams.videoCapability,
-    ));
+    );
+    requestParams.mediaMode = requestParams.videoCapability === "wan27-r2v"
+      ? "wan27-r2v"
+      : normalizeWan27MediaMode(requestedWanMediaMode);
     const resolved = await resolveAliyunVideoMedia({
       db: auth.db,
       user: auth.user,
@@ -18802,14 +18805,20 @@ async function handleAdvancedGenerate(req, res) {
       assetIds: referenceVideoAssetIds,
     });
   }
-  const isPlayfluxVideoReferenceRequest = provider === "seedance"
-    && String(firstPresent(requestParams.source, bodyParams.source, body.params?.source, "") || "").trim().toLowerCase() === "playflux"
-    && String(firstPresent(requestParams.templateTab, bodyParams.templateTab, body.params?.templateTab, "") || "").trim().toLowerCase() === "video"
-    && seedanceModeNeedsReferenceVideo(seedanceMode);
+  const isPlayfluxVideoTemplateRequest = String(firstPresent(requestParams.source, bodyParams.source, body.params?.source, "") || "").trim().toLowerCase() === "playflux"
+    && String(firstPresent(requestParams.templateTab, bodyParams.templateTab, body.params?.templateTab, "") || "").trim().toLowerCase() === "video";
+  const isPlayfluxVideoReferenceRequest = isPlayfluxVideoTemplateRequest && (
+    (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode))
+    || (provider === "wan27" && requestParams.videoCapability === "wan27-r2v")
+  );
   if (isPlayfluxVideoReferenceRequest) {
     prompt = enhancePlayfluxReferenceVideoPrompt(prompt, {
-      hasReferenceImage: Boolean(userAsset || extraUserAssets.length || referenceImageAssetUris.length),
-      hasReferenceVideo: Boolean(referenceVideoAssetIds.length || referenceVideoAssetUris.length),
+      hasReferenceImage: provider === "wan27"
+        ? wan27Media.some((item) => ["first_frame", "reference_image"].includes(item.type))
+        : Boolean(userAsset || extraUserAssets.length || referenceImageAssetUris.length),
+      hasReferenceVideo: provider === "wan27"
+        ? wan27Media.some((item) => item.type === "reference_video")
+        : Boolean(referenceVideoAssetIds.length || referenceVideoAssetUris.length),
     });
   }
   if (isAliyunVideoProvider(provider)) {

@@ -708,8 +708,7 @@ function playfluxTemplateVideoProvider() {
   return ["wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan27";
 }
 
-const PLAYFLUX_WAN_VIDEO_CAPABILITY = "wan-animate-mix";
-const PLAYFLUX_WAN_ANIMATE_MODE = "wan-std";
+const PLAYFLUX_WAN_VIDEO_CAPABILITY = "wan27-r2v";
 
 function playfluxTemplateVideoCapability(provider = playfluxTemplateVideoProvider()) {
   if (provider === "wan27") return PLAYFLUX_WAN_VIDEO_CAPABILITY;
@@ -717,11 +716,8 @@ function playfluxTemplateVideoCapability(provider = playfluxTemplateVideoProvide
   return "";
 }
 
-function playfluxTemplateOutputDuration(template = {}, provider = playfluxTemplateVideoProvider()) {
-  const templateDuration = Number(template.duration || 5) || 5;
-  if (provider !== "wan27" || playfluxTemplateVideoCapability(provider) !== "wan-animate-mix") return templateDuration;
-  const actionDuration = Number(template.referenceVideoDurationSeconds || templateDuration) || templateDuration;
-  return Math.max(2, Math.min(30, actionDuration));
+function playfluxTemplateOutputDuration(template = {}) {
+  return Number(template.duration || 5) || 5;
 }
 
 function playfluxTemplateRequiredSourceCount(template = {}) {
@@ -890,7 +886,7 @@ function playfluxTemplateVideoInputSeconds(template = {}, sourceMode = playfluxT
 function playfluxTemplateCostLabel(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
   if (template.tab === "video") {
     const provider = playfluxTemplateVideoProvider();
-    const duration = playfluxTemplateOutputDuration(template, provider);
+    const duration = playfluxTemplateOutputDuration(template);
     const resolution = template.resolution || "720p";
     const ratio = template.ratio || "9:16";
     const cached = playfluxTemplateCachedEstimate(template, sourceMode);
@@ -898,7 +894,6 @@ function playfluxTemplateCostLabel(template = {}, sourceMode = playfluxTemplateD
       seedanceTier: "standard",
       inputVideoSeconds: playfluxTemplateVideoInputSeconds(template, sourceMode, duration),
       videoCapability: playfluxTemplateVideoCapability(provider),
-      animateMode: provider === "wan27" ? PLAYFLUX_WAN_ANIMATE_MODE : undefined,
     });
     return t("cost.credits", { credits: formatCredits(pricing.credits) });
   }
@@ -926,7 +921,7 @@ async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "")
     renderPlayfluxTemplateCost(root, template, mode);
     return;
   }
-  const duration = playfluxTemplateOutputDuration(template, playfluxTemplateVideoProvider());
+  const duration = playfluxTemplateOutputDuration(template);
   const resolution = template.resolution || "720p";
   const ratio = normalizeVideoRatio(template.ratio || "9:16");
   const provider = playfluxTemplateVideoProvider();
@@ -940,7 +935,6 @@ async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "")
           ? { seedanceTier: "standard" }
           : {
               videoCapability: playfluxTemplateVideoCapability(provider),
-              mode: provider === "wan27" ? PLAYFLUX_WAN_ANIMATE_MODE : undefined,
             }),
         templateId: template.id || "",
         duration,
@@ -1069,15 +1063,13 @@ async function submitPlayfluxTemplate(template = {}, root) {
             provider,
             templateId: effectiveTemplate.id || "",
             videoCapability: PLAYFLUX_WAN_VIDEO_CAPABILITY,
-            firstFrameDataUrl: dataUrl,
-            firstFrameFileName: file?.name || "",
-            videoUrl: playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || ""),
-            parameters: { mode: PLAYFLUX_WAN_ANIMATE_MODE },
+            referenceImages: reference ? [reference] : [],
+            referenceVideoUrls: [playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "")].filter(Boolean),
             ratio,
             resolution,
             duration,
             inputVideoSeconds: referenceVideoSeconds,
-            params: { ...recordBase.params, animateMode: PLAYFLUX_WAN_ANIMATE_MODE },
+            params: { ...recordBase.params },
           }
         : provider === "happyhorse"
         ? {
