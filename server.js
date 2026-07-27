@@ -116,9 +116,18 @@ const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
   advanced: "advanced",
   tool: "advanced",
 });
+const TOOL_VIDEO_DEFAULT_PROVIDER = "wan27";
+
+function toolVideoDefaultCapability(provider = TOOL_VIDEO_DEFAULT_PROVIDER) {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+  if (normalizedProvider === "wan27") return "wan27-r2v";
+  if (normalizedProvider === "happyhorse") return "happyhorse-video-edit";
+  return "";
+}
+
 const TOOL_VIDEO_PROVIDER = ["wan27", "happyhorse", "seedance"].includes(String(process.env.TOOL_VIDEO_PROVIDER || "").trim().toLowerCase())
   ? String(process.env.TOOL_VIDEO_PROVIDER).trim().toLowerCase()
-  : "wan27";
+  : TOOL_VIDEO_DEFAULT_PROVIDER;
 const TOOL_TENANT_SPECS = Object.freeze({
   video: {
     id: "video",
@@ -18511,8 +18520,7 @@ async function handleAdvancedGenerate(req, res) {
     : "";
   const forwardModelToGateway = provider !== "seedance" && requestedModel !== undefined;
   const requestedVideoCapability = firstPresent(
-    isToolVideoTemplateRequest && toolVideoProvider === "wan27" ? "wan27-r2v" : "",
-    isToolVideoTemplateRequest && toolVideoProvider === "happyhorse" ? "happyhorse-video-edit" : "",
+    isToolVideoTemplateRequest ? toolVideoDefaultCapability(toolVideoProvider) : "",
     body.videoCapability,
     body.aliyunVideoCapability,
     body.wanCapability,
@@ -20024,6 +20032,9 @@ async function handleAdvancedEstimate(req, res) {
     ? (["seedance", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : "wan27")
     : rawProvider;
   const provider = isWan27ImageProvider(effectiveProvider) ? "wan27-image" : normalizeAdvancedProvider(effectiveProvider);
+  if (isToolVideoTemplateEstimate) {
+    params.videoCapability = toolVideoDefaultCapability(provider);
+  }
   params.inputVideoSeconds = firstPresent(
     body.inputVideoSeconds,
     body.videoInputSeconds,
@@ -22501,9 +22512,6 @@ async function handleGameFeed(req, res) {
     req,
     auth?.user ? auth : null,
   );
-  if (isToolVideoTemplateEstimate && !params.videoCapability) {
-    params.videoCapability = provider === "wan27" ? "wan27-r2v" : provider === "happyhorse" ? "happyhorse-video-edit" : "";
-  }
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
   const items = publicAssetUrlsForClient(homeVideo.items.map((item) => publicGameHomeVideoItem(item, auth?.user ? auth : null)));
   publicView.homeVideo.items = items;
