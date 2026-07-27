@@ -53,7 +53,7 @@ test("mobile history scrolls through pages and uses one action menu", () => {
 });
 
 test("mobile history opens one preview stream", () => {
-  assert.match(create, /const allowInlinePreview = window\.matchMedia\("\(hover: hover\) and \(pointer: fine\)"\)\.matches/);
+  assert.match(create, /const allowInlinePreview = !mobileLayout && window\.matchMedia\("\(hover: hover\) and \(pointer: fine\)"\)\.matches/);
   assert.match(create, /if \(allowInlinePreview\) \{[\s\S]*?addEventListener\("focus", showVideo/);
   assert.match(html, /id="previewVideo" controls playsinline preload="auto"/);
   assert.match(explore, /document\.querySelectorAll\("\.history-media video"\)\.forEach\(\(video\) => video\.pause\(\)\)/);

@@ -6489,10 +6489,10 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 .history-actions-popover {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  left: 0;
   z-index: 40;
   display: grid;
-  width: min(190px, calc(100vw - 32px));
+  width: 100%;
   max-height: min(330px, 52vh);
   gap: 5px;
   padding: 7px;

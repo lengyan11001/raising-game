@@ -3945,7 +3945,7 @@ function renderHistory(records = []) {
       </article>
     `;
   }).join("")}${loadMoreHtml}`;
-  const allowInlinePreview = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+  const allowInlinePreview = !mobileLayout && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
   els.historyList.querySelectorAll("[data-history-load-video]").forEach((button) => {
     const showVideo = () => {
       const key = button.dataset.historyLoadVideo || "";
