@@ -19,6 +19,8 @@ DEFAULT_NEW2_ROOT = Path(r"D:\raising-game-667zui")
 
 SHARED_APP_FILES = (
     ".gitignore",
+    "index.html",
+    "game.html",
     "platform.html",
     "platform.css",
     "platform.js",
@@ -28,6 +30,10 @@ SHARED_APP_FILES = (
     "platform.explore.js",
     "platform.create.js",
     "platform.main.js",
+    "platform.video-tools.js",
+    "platform.vitals.js",
+    "site-seo.js",
+    "assets/vendor/lucide-1.27.0.min.js",
     "tool-video.css",
     "downloads/123tops-video.apk",
     "downloads/123tops-video.mobileconfig",
@@ -43,6 +49,8 @@ SHARED_APP_FILES = (
     "admin.html",
     "admin.js",
     "db.js",
+    "test/site-seo.test.js",
+    "test/web-vitals.test.js",
 )
 
 SHARED_TOOLING_FILES = (

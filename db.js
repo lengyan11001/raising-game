@@ -414,6 +414,29 @@ async function ensureSchemaInner() {
       ON app_generation_records ((payload->>'userId'), created_at DESC);
   `);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_web_vitals (
+      event_id TEXT PRIMARY KEY,
+      hostname TEXT NOT NULL,
+      page_path TEXT NOT NULL,
+      device TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      value DOUBLE PRECISION NOT NULL,
+      rating TEXT NOT NULL DEFAULT '',
+      navigation_type TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK (metric IN ('LCP', 'INP', 'CLS')),
+      CHECK (device IN ('mobile', 'desktop', 'tablet', 'unknown'))
+    );
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_web_vitals_created_idx
+      ON app_web_vitals (created_at DESC);
+  `);
+  await query(`
+    CREATE INDEX IF NOT EXISTS app_web_vitals_dimensions_idx
+      ON app_web_vitals (hostname, page_path, device, metric, created_at DESC);
+  `);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_api_subtokens (
       id TEXT PRIMARY KEY,
       token TEXT NOT NULL UNIQUE,
@@ -945,6 +968,13 @@ async function getUserByUsernameInDb(username = "", tenantId = DEFAULT_TENANT_ID
     [cleanTenantId, cleanUsername],
   );
   return rows[0] ? userFromRow(rows[0]) : null;
+}
+
+async function getKvUpdatedAt(key) {
+  if (!dbEnabled()) return "";
+  await ensureSchema();
+  const { rows } = await query(`SELECT updated_at FROM app_kv WHERE key = $1`, [String(key || "")]);
+  return rows[0]?.updated_at ? new Date(rows[0].updated_at).toISOString() : "";
 }
 
 async function getUserByIdInDb(userId = "") {
@@ -1736,6 +1766,82 @@ async function patchGenerationRecordsInDb(predicate, updates) {
   return rows.map((row) => row.payload);
 }
 
+function webVitalRow(row = {}) {
+  return {
+    hostname: String(row.hostname || ""),
+    pagePath: String(row.page_path || row.pagePath || ""),
+    device: String(row.device || "unknown"),
+    metric: String(row.metric || ""),
+    count: Number(row.sample_count || row.count || 0),
+    p75: Number(row.p75 || 0),
+    goodPercent: Number(row.good_percent || row.goodPercent || 0),
+    lastSeen: row.last_seen ? new Date(row.last_seen).toISOString() : "",
+  };
+}
+
+async function insertWebVitalSamplesInDb(samples = []) {
+  if (!dbEnabled()) return 0;
+  const entries = (Array.isArray(samples) ? samples : []).filter((sample) => sample?.eventId);
+  if (!entries.length) return 0;
+  await ensureSchema();
+  let inserted = 0;
+  for (const sample of entries) {
+    const result = await query(
+      `
+        INSERT INTO app_web_vitals(event_id, hostname, page_path, device, metric, value, rating, navigation_type, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6::double precision, $7, $8, NOW())
+        ON CONFLICT (event_id) DO NOTHING
+      `,
+      [
+        String(sample.eventId || ""),
+        String(sample.hostname || ""),
+        String(sample.pagePath || "/"),
+        String(sample.device || "unknown"),
+        String(sample.metric || ""),
+        Number(sample.value || 0),
+        String(sample.rating || ""),
+        String(sample.navigationType || ""),
+      ],
+    );
+    inserted += Number(result.rowCount || 0);
+  }
+  return inserted;
+}
+
+async function getWebVitalsSummaryFromDb({ days = 28 } = {}) {
+  if (!dbEnabled()) return { days: 28, sampleCount: 0, overall: [], byHost: [], byRoute: [] };
+  await ensureSchema();
+  const periodDays = Math.max(1, Math.min(90, Math.trunc(Number(days || 28)) || 28));
+  const baseWhere = `created_at >= NOW() - ($1::int * INTERVAL '1 day')`;
+  const metricColumns = `
+    metric,
+    COUNT(*)::int AS sample_count,
+    percentile_cont(0.75) WITHIN GROUP (ORDER BY value) AS p75,
+    ROUND(100.0 * COUNT(*) FILTER (WHERE rating = 'good') / NULLIF(COUNT(*), 0), 1) AS good_percent,
+    MAX(created_at) AS last_seen
+  `;
+  const [overallResult, hostResult, routeResult, countResult] = await Promise.all([
+    query(`SELECT ${metricColumns} FROM app_web_vitals WHERE ${baseWhere} GROUP BY metric ORDER BY metric`, [periodDays]),
+    query(`SELECT hostname, ${metricColumns} FROM app_web_vitals WHERE ${baseWhere} GROUP BY hostname, metric ORDER BY hostname, metric`, [periodDays]),
+    query(`
+      SELECT hostname, page_path, device, ${metricColumns}
+      FROM app_web_vitals
+      WHERE ${baseWhere}
+      GROUP BY hostname, page_path, device, metric
+      ORDER BY sample_count DESC, hostname, page_path, device, metric
+      LIMIT 300
+    `, [periodDays]),
+    query(`SELECT COUNT(*)::int AS sample_count FROM app_web_vitals WHERE ${baseWhere}`, [periodDays]),
+  ]);
+  return {
+    days: periodDays,
+    sampleCount: Number(countResult.rows[0]?.sample_count || 0),
+    overall: overallResult.rows.map(webVitalRow),
+    byHost: hostResult.rows.map(webVitalRow),
+    byRoute: routeResult.rows.map(webVitalRow),
+  };
+}
+
 async function listApiSubtokensFromDb(parentUserId = "") {
   if (!dbEnabled()) {
     const records = await getKv("api_subtokens", []);
@@ -2155,10 +2261,13 @@ module.exports = {
   recordApiSubtokenUsageInDb,
   getKv,
   setKv,
+  getKvUpdatedAt,
   migrateGenerationRecordsKvToTable,
   getGenerationRecordsFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,
+  insertWebVitalSamplesInDb,
+  getWebVitalsSummaryFromDb,
 };

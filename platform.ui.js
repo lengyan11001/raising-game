@@ -1,6 +1,7 @@
 function refreshIcons() {
   window.lucide?.createIcons();
 }
+window.addEventListener("DOMContentLoaded", refreshIcons, { once: true });
 
 function showAgeForbidden() {
   state.ageGateDecision = "denied";

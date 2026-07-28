@@ -89,7 +89,7 @@ body.age-gate-denied main {
   letter-spacing: 0.08em;
 }
 
-.age-gate-card h1,
+.age-gate-card h2,
 .age-forbidden-card strong {
   display: block;
   margin: 18px 0 10px;
@@ -196,7 +196,7 @@ a { color: inherit; text-decoration: none; }
   width: 100%;
   height: 100%;
 }
-.brand strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.02rem; letter-spacing: 0; }
+.brand h1 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.02rem; letter-spacing: 0; }
 
 .language-switch {
   display: inline-flex;
@@ -518,6 +518,30 @@ main {
   min-height: calc(100vh - 64px);
   padding: 6px 38px 32px;
 }
+.seo-discovery {
+  width: min(1440px, calc(100vw - 44px));
+  margin: 18px auto 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .8rem;
+}
+.seo-discovery > strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: .88rem;
+}
+.seo-discovery > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+.seo-discovery a {
+  color: inherit;
+  text-decoration: none;
+}
+.seo-discovery a:hover { color: var(--text); }
 .site-foot {
   width: min(1440px, calc(100vw - 44px));
   margin: 34px auto 22px;
@@ -8584,7 +8608,7 @@ select:focus,
     min-width: 0;
   }
   .brand-mark { width: 26px; height: 26px; }
-  .brand strong { font-size: 1rem; }
+  .brand h1 { font-size: 1rem; }
   .head-actions {
     display: none !important;
   }
@@ -8677,6 +8701,8 @@ select:focus,
     align-items: stretch;
     flex-direction: column;
   }
+  .seo-discovery,
+  .site-foot { width: min(100% - 24px, 1440px); }
   .site-foot nav { justify-content: flex-start; }
   .footer-link { flex: 1 1 100%; text-align: left; }
   .pricing-panel { padding-bottom: 22px; }

@@ -7,7 +7,8 @@
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
     <link rel="stylesheet" href="./platform.css?v=ai-326-video-tools" />
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script src="./assets/vendor/lucide-1.27.0.min.js" defer></script>
+    <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
   <body class="age-gate-locked">
     <script>
@@ -23,7 +24,7 @@
     <section id="ageGate" class="age-gate" role="dialog" aria-modal="true" aria-labelledby="ageGateTitle">
       <div class="age-gate-card">
         <span class="age-gate-pill">18+</span>
-        <h1 id="ageGateTitle" data-i18n="age.title">Adults only</h1>
+        <h2 id="ageGateTitle" data-i18n="age.title">Adults only</h2>
         <p data-i18n="age.description">Confirm you are 18 or older before entering. If you are under 18, please exit.</p>
         <div class="age-gate-actions">
           <button id="ageGateDeclineBtn" class="secondary-btn age-gate-secondary" type="button" data-i18n="age.decline">Under 18, exit</button>
@@ -61,7 +62,7 @@
     <aside class="side-rail" aria-label="Workspace navigation">
       <a class="brand" href="/">
         <span class="brand-mark"><img src="/assets/brand/logo-mark.svg?v=old-brand-1" alt="" /></span>
-        <strong id="brandName">Vipeak AI</strong>
+        <h1 id="brandName">Vipeak AI</h1>
       </a>
       <nav class="top-tabs" aria-label="Main sections">
         <button class="top-tab is-active" data-tab="gallery" type="button">
