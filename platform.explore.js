@@ -98,6 +98,7 @@ function setTab(tab) {
     button.classList.toggle("is-active", active);
   });
   syncGalleryShortcutNav();
+  if (typeof renderVideoToolActions === "function") renderVideoToolActions();
   if (nextTab === DEFAULT_PLATFORM_TAB) renderTemplates();
   if (nextTab === "history") loadHistory({ page: isMobileHistoryLayout() ? 1 : state.historyRecordsPage || 1 });
   if (nextTab === "topups") loadTopupRecords();
@@ -167,6 +168,7 @@ function setGalleryMode(mode = DEFAULT_GALLERY_MODE) {
   const nextHash = galleryModeHash(state.galleryMode);
   window.history.replaceState(null, "", `${window.location.pathname}${sanitizedSearchWithoutCharacterParams()}${nextHash}`);
   renderTemplates();
+  if (typeof renderVideoToolActions === "function") renderVideoToolActions();
   closeMobileDrawer();
 }
 
@@ -703,7 +705,6 @@ function playfluxTemplateNeedsSource(template = {}) {
 }
 
 function playfluxTemplateVideoProvider() {
-  if (!isTenantTool("video")) return "seedance";
   const provider = tenantStringFeature("videoProvider", "wan27");
   return ["wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan27";
 }

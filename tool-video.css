@@ -195,7 +195,7 @@ body.tenant-tool-video .video-tool-fab {
   align-items: center;
   justify-content: flex-start;
   gap: 9px;
-  min-width: 122px;
+  min-width: 132px;
   min-height: 44px;
   padding: 9px 13px;
   border: 1px solid rgba(255, 255, 255, 0.15);
@@ -222,6 +222,10 @@ body.tenant-tool-video .video-tool-fab.is-undress svg {
   color: var(--video-coral);
 }
 
+body.tenant-tool-video .video-tool-fab.is-image-face-swap svg {
+  color: var(--video-gold);
+}
+
 body.tenant-tool-video .video-tool-fab span {
   font-size: 0.88rem;
   font-weight: 750;
@@ -235,12 +239,13 @@ body.tenant-tool-video .video-tool-fab span {
 
 .video-tool-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 210px));
+  justify-content: center;
   gap: 12px;
 }
 
 .video-tool-form-grid.is-single {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 210px);
 }
 
 .video-tool-upload {
@@ -248,7 +253,8 @@ body.tenant-tool-video .video-tool-fab span {
   display: grid;
   place-items: center;
   min-width: 0;
-  aspect-ratio: 16 / 10;
+  width: 100%;
+  aspect-ratio: 9 / 16;
   overflow: hidden;
   border: 1px dashed rgba(255, 255, 255, 0.22);
   border-radius: 8px;
@@ -258,7 +264,7 @@ body.tenant-tool-video .video-tool-fab span {
 }
 
 .video-tool-form-grid.is-single .video-tool-upload {
-  width: min(100%, 430px);
+  width: 100%;
   justify-self: center;
 }
 
@@ -288,7 +294,7 @@ body.tenant-tool-video .video-tool-fab span {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   background: #0b0c0f;
 }
 
@@ -326,6 +332,10 @@ body.tenant-tool-video .video-tool-fab span {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
+}
+
+.video-tool-summary.is-image-action {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .video-tool-summary span {
@@ -428,16 +438,20 @@ body.tenant-tool-video .video-tool-fab span {
   }
 
   .video-tool-form-grid.is-single {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 180px);
   }
 
   .video-tool-upload {
-    aspect-ratio: 4 / 3;
+    aspect-ratio: 9 / 16;
   }
 
   .video-tool-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
+  }
+
+  .video-tool-summary.is-image-action {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .video-tool-summary span:last-child {
