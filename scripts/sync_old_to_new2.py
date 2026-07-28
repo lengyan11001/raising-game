@@ -33,7 +33,7 @@ SHARED_APP_FILES = (
     "platform.video-tools.js",
     "platform.vitals.js",
     "site-seo.js",
-    "assets/vendor/lucide-1.27.0.min.js",
+    "vendor/lucide-1.27.0.min.js",
     "tool-video.css",
     "downloads/123tops-video.apk",
     "downloads/123tops-video.mobileconfig",
