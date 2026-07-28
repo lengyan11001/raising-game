@@ -23,6 +23,12 @@ const {
   planVideoEditSegments,
 } = require("./video-tools");
 const {
+  SEEDANCE_REFERENCE_VIDEO_MIN_SECONDS,
+  SEEDANCE_REFERENCE_VIDEO_MAX_SECONDS,
+  minimumImageTargetDimensions,
+  referenceVideoDurationViolation,
+} = require("./media-inputs");
+const {
   DEFAULT_TENANT_ID,
   normalizeTenantId,
   dbEnabled,
@@ -316,7 +322,8 @@ const WALLET_CHAIN_SCAN_INTERVAL_MS = Math.max(15000, Number(process.env.WALLET_
 const WALLET_CHAIN_SCAN_ORDER_TTL_HOURS = Math.max(1, Number(process.env.WALLET_CHAIN_SCAN_ORDER_TTL_HOURS || 72) || 72);
 const WALLET_CHAIN_SCAN_LOOKBACK_LIMIT = Math.max(20, Math.min(500, Number(process.env.WALLET_CHAIN_SCAN_LOOKBACK_LIMIT || 120) || 120));
 const WALLET_EVM_SCAN_BLOCK_LOOKBACK = Math.max(1000, Number(process.env.WALLET_EVM_SCAN_BLOCK_LOOKBACK || 140000) || 140000);
-const WALLET_EVM_SCAN_CHUNK_SIZE = Math.max(500, Math.min(10000, Number(process.env.WALLET_EVM_SCAN_CHUNK_SIZE || 5000) || 5000));
+const WALLET_EVM_SCAN_CHUNK_SIZE = Math.max(50, Math.min(5000, Number(process.env.WALLET_EVM_SCAN_CHUNK_SIZE || 1000) || 1000));
+const WALLET_EVM_SCAN_CURSOR_OVERLAP_BLOCKS = Math.max(20, Number(process.env.WALLET_EVM_SCAN_CURSOR_OVERLAP_BLOCKS || 200) || 200);
 const WALLET_EVM_CONFIRMATIONS = Math.max(1, Number(process.env.WALLET_EVM_CONFIRMATIONS || 12) || 12);
 const WALLET_SOLANA_CONFIRMATIONS = Math.max(1, Number(process.env.WALLET_SOLANA_CONFIRMATIONS || 32) || 32);
 const WALLET_TRON_CONFIRMATIONS = Math.max(1, Number(process.env.WALLET_TRON_CONFIRMATIONS || 1) || 1);
@@ -334,7 +341,7 @@ const WALLET_USDT_CONTRACTS = {
 };
 const WALLET_EVM_RPC_URLS = {
   ethereum: String(process.env.WALLET_ETHEREUM_RPC_URL || process.env.ETHEREUM_RPC_URL || "https://ethereum-rpc.publicnode.com,https://eth.drpc.org").split(",").map((url) => url.trim()).filter(Boolean),
-  bnb: String(process.env.WALLET_BNB_RPC_URL || process.env.BNB_RPC_URL || "https://bsc-rpc.publicnode.com,https://bsc-dataseed.binance.org").split(",").map((url) => url.trim()).filter(Boolean),
+  bnb: String(process.env.WALLET_BNB_RPC_URL || process.env.BNB_RPC_URL || "https://bsc.meowrpc.com,https://bsc-rpc.publicnode.com,https://bsc-dataseed.binance.org").split(",").map((url) => url.trim()).filter(Boolean),
   base: String(process.env.WALLET_BASE_RPC_URL || process.env.BASE_RPC_URL || "https://mainnet.base.org,https://base-rpc.publicnode.com").split(",").map((url) => url.trim()).filter(Boolean),
 };
 const GENERATION_PRICE_MARKUP = 1.2;
@@ -7217,17 +7224,48 @@ function evmScanConfig(chain = "") {
   };
 }
 
-async function scanEvmUsdtTransfersByRpc(chain, address) {
+const walletEvmScanCursors = new Map();
+
+function evmApproximateBlockSeconds(chain = "") {
+  if (chain === "bnb") return 3;
+  if (chain === "base") return 2;
+  return 12;
+}
+
+function walletOrdersOldestCreatedAtMs(orders = []) {
+  const timestamps = orders
+    .map((order) => Date.parse(order?.createdAt || ""))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  return timestamps.length ? Math.min(...timestamps) : Date.now() - WALLET_CHAIN_SCAN_ORDER_TTL_HOURS * 60 * 60 * 1000;
+}
+
+function initialEvmScanFromBlock(chain, currentBlock, orders = []) {
+  const oldestCreatedAtMs = walletOrdersOldestCreatedAtMs(orders);
+  const ageSeconds = Math.max(0, (Date.now() - oldestCreatedAtMs) / 1000);
+  const estimatedBlocks = Math.ceil(ageSeconds / evmApproximateBlockSeconds(chain)) + WALLET_EVM_SCAN_CURSOR_OVERLAP_BLOCKS;
+  return {
+    fromBlock: Math.max(0, currentBlock - Math.min(WALLET_EVM_SCAN_BLOCK_LOOKBACK, estimatedBlocks)),
+    oldestCreatedAtMs,
+  };
+}
+
+async function scanEvmUsdtTransfersByRpc(chain, address, { orders = [] } = {}) {
   const config = evmScanConfig(chain);
   const currentBlockHex = await evmRpc(chain, "eth_blockNumber", []);
   const currentBlock = Number(evmHexToBigInt(currentBlockHex));
   if (!currentBlock) return [];
-  const fromBlock = Math.max(0, currentBlock - WALLET_EVM_SCAN_BLOCK_LOOKBACK);
+  const initial = initialEvmScanFromBlock(chain, currentBlock, orders);
+  const cursorKey = `${chain}:${normalizeChainAddress(address, chain)}`;
+  const cursor = walletEvmScanCursors.get(cursorKey);
+  const fromBlock = cursor && cursor.oldestCreatedAtMs <= initial.oldestCreatedAtMs
+    ? Math.max(initial.fromBlock, Number(cursor.block || currentBlock) - WALLET_EVM_SCAN_CURSOR_OVERLAP_BLOCKS)
+    : initial.fromBlock;
   const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
   const toTopic = evmTopicAddress(address);
   if (!toTopic) return [];
   const logs = [];
   let successfulChunks = 0;
+  let failedChunks = 0;
   let lastError = null;
   for (let end = currentBlock; end >= fromBlock; end -= WALLET_EVM_SCAN_CHUNK_SIZE) {
     const start = Math.max(fromBlock, end - WALLET_EVM_SCAN_CHUNK_SIZE + 1);
@@ -7242,10 +7280,14 @@ async function scanEvmUsdtTransfersByRpc(chain, address) {
       if (Array.isArray(chunk)) logs.push(...chunk);
     } catch (error) {
       lastError = error;
+      failedChunks += 1;
     }
     if (logs.length >= WALLET_CHAIN_SCAN_LOOKBACK_LIMIT) break;
   }
   if (!successfulChunks && lastError) throw lastError;
+  if (!failedChunks) {
+    walletEvmScanCursors.set(cursorKey, { block: currentBlock, oldestCreatedAtMs: initial.oldestCreatedAtMs });
+  }
   return logs
     .sort((a, b) => Number(evmHexToBigInt(b.blockNumber || "0x0")) - Number(evmHexToBigInt(a.blockNumber || "0x0")))
     .slice(0, WALLET_CHAIN_SCAN_LOOKBACK_LIMIT)
@@ -7269,20 +7311,21 @@ async function scanEvmUsdtTransfersByRpc(chain, address) {
     });
 }
 
-async function scanEvmUsdtTransfers(chain, address) {
+async function scanEvmUsdtTransfers(chain, address, options = {}) {
   const config = evmScanConfig(chain);
+  if (!config.apiKey) return await scanEvmUsdtTransfersByRpc(chain, address, options);
   let payload = null;
   try {
     payload = await scanFetchJson(config.publicTokenUrl(address));
   } catch (error) {
-    return await scanEvmUsdtTransfersByRpc(chain, address);
+    return await scanEvmUsdtTransfersByRpc(chain, address, options);
   }
   if (payload && payload.status === "0" && !Array.isArray(payload.result)) {
-    return await scanEvmUsdtTransfersByRpc(chain, address);
+    return await scanEvmUsdtTransfersByRpc(chain, address, options);
   }
   const result = Array.isArray(payload?.result) ? payload.result : [];
   if (!result.length && !config.apiKey) {
-    return await scanEvmUsdtTransfersByRpc(chain, address);
+    return await scanEvmUsdtTransfersByRpc(chain, address, options);
   }
   const currentBlock = Math.max(...result.map((tx) => Number(tx.blockNumber || 0)).filter(Boolean), 0);
   return result
@@ -7410,10 +7453,10 @@ async function scanTronUsdtTransfers(address) {
     }));
 }
 
-async function scanWalletTransfers(chain, address) {
+async function scanWalletTransfers(chain, address, options = {}) {
   if (chain === "solana") return await scanSolanaUsdtTransfers(address);
   if (chain === "tron") return await scanTronUsdtTransfers(address);
-  if (["bnb", "base", "ethereum"].includes(chain)) return await scanEvmUsdtTransfers(chain, address);
+  if (["bnb", "base", "ethereum"].includes(chain)) return await scanEvmUsdtTransfers(chain, address, options);
   return [];
 }
 
@@ -7475,7 +7518,7 @@ async function scanAndSettleWalletOrders({ limit = 100, force = false } = {}) {
   for (const group of walletScanGroups(pending)) {
     let transfers = [];
     try {
-      transfers = await scanWalletTransfers(group.chain, group.address);
+      transfers = await scanWalletTransfers(group.chain, group.address, { orders: group.orders });
       scanned += 1;
     } catch (error) {
       errors.push({
@@ -8054,6 +8097,139 @@ function localPathForUserAsset(asset = {}) {
   return localPath;
 }
 
+function userAssetObjectStorageKey(asset = {}) {
+  return String(firstPresent(
+    asset.objectStorageKey,
+    asset.publicTosKey,
+    asset.tosKey,
+    asset.r2Key,
+  ) || "").trim();
+}
+
+function userAssetHasObjectStorageMirror(asset = {}) {
+  return Boolean(userAssetObjectStorageKey(asset));
+}
+
+function normalizedImageTempPath(sourcePath = "") {
+  const parsed = path.parse(sourcePath);
+  const extension = [".jpg", ".jpeg", ".png", ".webp", ".bmp"].includes(parsed.ext.toLowerCase()) ? parsed.ext : ".png";
+  return path.join(parsed.dir, `${parsed.name}.${Date.now()}.normalized${extension}`);
+}
+
+async function normalizeLocalImageMinimumDimensions(sourcePath = "", {
+  label = "Reference image",
+  minDimension = SEEDANCE_IMAGE_DIMENSION_MIN,
+  maxDimension = SEEDANCE_IMAGE_DIMENSION_MAX,
+} = {}) {
+  const initialBytes = await fs.readFile(sourcePath);
+  const initialDimensions = imageDimensionsFromBuffer(initialBytes);
+  if (!initialDimensions?.width || !initialDimensions?.height) {
+    throw advancedValidationError("IMAGE_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read.`);
+  }
+
+  let target;
+  try {
+    target = minimumImageTargetDimensions(initialDimensions.width, initialDimensions.height, { minDimension, maxDimension });
+  } catch (error) {
+    throw advancedValidationError(
+      "IMAGE_DIMENSIONS_UNSUPPORTED",
+      `${label} cannot be normalized within ${minDimension}-${maxDimension}px. Current image is ${initialDimensions.width}x${initialDimensions.height}.`,
+      { width: initialDimensions.width, height: initialDimensions.height, minDimension, maxDimension },
+    );
+  }
+  if (!target.changed) {
+    return { bytes: initialBytes, dimensions: initialDimensions, changed: false };
+  }
+
+  const tempPath = normalizedImageTempPath(sourcePath);
+  try {
+    await execFileQuiet("ffmpeg", [
+      "-y",
+      "-i",
+      sourcePath,
+      "-vf",
+      `scale=${target.width}:${target.height}:flags=lanczos`,
+      "-frames:v",
+      "1",
+      tempPath,
+    ], { timeout: 120000 });
+    const bytes = await fs.readFile(tempPath);
+    const dimensions = imageDimensionsFromBuffer(bytes);
+    if (!dimensions?.width || !dimensions?.height || dimensions.width < minDimension || dimensions.height < minDimension) {
+      throw advancedValidationError("IMAGE_NORMALIZE_FAILED", `${label} could not be normalized to the upstream minimum dimensions.`);
+    }
+    await fs.rename(tempPath, sourcePath);
+    return { bytes, dimensions, changed: true };
+  } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+    if (error?.code === "IMAGE_NORMALIZE_FAILED") throw error;
+    const wrapped = advancedValidationError("IMAGE_NORMALIZE_FAILED", `${label} could not be normalized for upstream generation.`);
+    wrapped.cause = error;
+    throw wrapped;
+  }
+}
+
+async function normalizeUserImageAssetForUpstream(db, userAsset, {
+  label = "Reference image",
+  minDimension = SEEDANCE_IMAGE_DIMENSION_MIN,
+  maxDimension = SEEDANCE_IMAGE_DIMENSION_MAX,
+} = {}) {
+  if (!userAsset || !String(userAsset.mime || "").toLowerCase().startsWith("image/")) return userAsset;
+  const localPath = localPathForUserAsset(userAsset);
+  if (!localPath) return userAsset;
+
+  const storedDimensions = storedImageDimensionsForAsset(userAsset);
+  const normalized = await normalizeLocalImageMinimumDimensions(localPath, { label, minDimension, maxDimension });
+  const dimensionsChanged = normalized.changed
+    || Number(storedDimensions?.width || 0) !== Number(normalized.dimensions.width || 0)
+    || Number(storedDimensions?.height || 0) !== Number(normalized.dimensions.height || 0);
+  const needsObjectUpload = objectStorageEnabled() && (dimensionsChanged || !userAssetHasObjectStorageMirror(userAsset));
+  let uploaded = null;
+  if (needsObjectUpload) {
+    uploaded = await uploadBufferToTos({
+      userId: userAsset.userId,
+      assetId: `${userAsset.id}-normalized`,
+      bytes: normalized.bytes,
+      mime: userAsset.mime || imageMimeFromPath(localPath),
+      extension: path.extname(localPath),
+    });
+  }
+
+  const metadataChanged = dimensionsChanged || Boolean(uploaded);
+  if (!metadataChanged) return userAsset;
+  userAsset.width = normalized.dimensions.width;
+  userAsset.height = normalized.dimensions.height;
+  userAsset.imageType = normalized.dimensions.type || userAsset.imageType || "";
+  if (dimensionsChanged) {
+    userAsset.assetId = "";
+    userAsset.assetUri = "";
+  }
+  if (uploaded) {
+    userAsset.publicUrl = uploaded.publicUrl;
+    userAsset.cdnUrl = uploaded.publicUrl;
+    userAsset.objectStorageKey = uploaded.key || "";
+    userAsset.publicTosKey = uploaded.key || "";
+    userAsset.tosKey = uploaded.key || "";
+    userAsset.objectStorageError = "";
+    userAsset.publicUploadedAt = new Date().toISOString();
+  } else if (!objectStorageEnabled()) {
+    userAsset.publicUrl = publicUrlForAssetPath(userAsset.localUrl) || userAsset.publicUrl || "";
+  }
+  if (normalized.changed) {
+    userAsset.meta = {
+      ...plainObject(userAsset.meta),
+      normalizedForUpstream: true,
+      normalizedWidth: normalized.dimensions.width,
+      normalizedHeight: normalized.dimensions.height,
+    };
+  }
+  userAsset.updatedAt = new Date().toISOString();
+  db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
+  if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+  else await writeDb(db);
+  return userAsset;
+}
+
 function storedImageDimensionsForAsset(asset = {}) {
   const width = Number(firstPresent(asset.width, asset.imageWidth, asset.meta?.width, asset.meta?.imageWidth));
   const height = Number(firstPresent(asset.height, asset.imageHeight, asset.meta?.height, asset.meta?.imageHeight));
@@ -8066,6 +8242,7 @@ function storedImageDimensionsForAsset(asset = {}) {
 async function validateSeedanceImageAssetForRequest(db, asset = {}, label = "Seedance image") {
   if (!asset) return null;
   validateWan27MediaKind(asset, "image", label);
+  asset = await normalizeUserImageAssetForUpstream(db, asset, { label });
   const storedDimensions = storedImageDimensionsForAsset(asset);
   if (storedDimensions) return assertSeedanceImageAspectRatio(storedDimensions, label);
 
@@ -8142,6 +8319,43 @@ async function validateSeedanceVideoAssetForRequest(db, asset = {}, label = "See
   if (dbEnabled()) await upsertUserAssetInDb(asset);
   else await writeDb(db);
   return dimensions;
+}
+
+async function validateSeedanceReferenceVideoDurationsForRequest({ assets = [], urls = [] } = {}) {
+  const entries = [];
+  const assetUrls = new Set();
+  const uniqueAssets = [...new Map(assets.filter(Boolean).map((asset) => [asset.id || asset.localUrl || asset.publicUrl, asset])).values()];
+  for (let index = 0; index < uniqueAssets.length; index += 1) {
+    const asset = uniqueAssets[index];
+    const localPath = localPathForUserAsset(asset);
+    let durationSeconds = durationSecondsFromValue(firstPresent(asset.durationSeconds, asset.meta?.durationSeconds));
+    if (!durationSeconds && localPath) durationSeconds = await probeLocalVideoDurationSeconds(localPath);
+    if (!durationSeconds && isPublicHttpUrl(asset.publicUrl)) durationSeconds = await probeVideoDurationSeconds(asset.publicUrl);
+    durationSeconds = durationSecondsFromValue(durationSeconds);
+    entries.push({ label: `Seedance reference video ${index + 1}`, durationSeconds });
+    [asset.localUrl, asset.publicUrl].map((value) => String(value || "").trim()).filter(Boolean).forEach((value) => assetUrls.add(value));
+  }
+
+  const uniqueItems = uniqueSeedanceReferenceVideoItems(arrayFromBody(urls));
+  for (let index = 0; index < uniqueItems.length; index += 1) {
+    const item = uniqueItems[index];
+    let url = seedanceReferenceVideoUrlFromItem(item);
+    if (!url || assetUrls.has(url) || isProviderAssetUri(url)) continue;
+    if (url.startsWith("/")) url = publicUrlForAssetPath(url);
+    const durationSeconds = seedanceVideoInputDurationFromItem(item)
+      || (isPublicHttpUrl(url) ? await probeVideoDurationSeconds(url) : 0);
+    entries.push({ label: `Seedance reference video ${entries.length + 1}`, durationSeconds });
+  }
+
+  const violation = referenceVideoDurationViolation(entries);
+  if (violation) {
+    throw advancedValidationError(
+      "SEEDANCE_REFERENCE_VIDEO_DURATION_INVALID",
+      `${violation.label} must be between ${SEEDANCE_REFERENCE_VIDEO_MIN_SECONDS}s and ${SEEDANCE_REFERENCE_VIDEO_MAX_SECONDS}s. Current duration is ${violation.durationSeconds}s.`,
+      violation,
+    );
+  }
+  return entries;
 }
 
 async function validateSeedanceRawImageUrlsForRequest(urls = []) {
@@ -10347,6 +10561,13 @@ async function handleVolcengineCreateGenerationTask(req, res) {
   }
 
   const pricingBody = officialSeedanceVideoInputsForPricing(payloadForValidation);
+  try {
+    await validateSeedanceReferenceVideoDurationsForRequest({ urls: pricingBody.reference_videos });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 400, {
+      error: { code: error.code || "INVALID_SEEDANCE_REFERENCE_VIDEO", message: error.message || "Seedance reference video is invalid." },
+    });
+  }
   const requestParams = {
     ...payloadForValidation,
     provider: "seedance",
@@ -12062,6 +12283,7 @@ async function validateSeedanceAdvancedMediaRules({
   extraUserAssets = [],
   referenceImageAssetUris = [],
   referenceVideoAssetIds = [],
+  referenceVideoAssets = [],
   referenceVideoAssetUris = [],
   referenceAudioAssetIds = [],
   referenceAudioAssetUris = [],
@@ -12138,6 +12360,10 @@ async function validateSeedanceAdvancedMediaRules({
       max: ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT,
     });
   }
+  await validateSeedanceReferenceVideoDurationsForRequest({
+    assets: referenceVideoAssets,
+    urls: [...arrayFromBody(referenceVideoAssetUris), ...rawReferenceVideoUrls],
+  });
   if (referenceAudioCount > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
     throw advancedValidationError("TOO_MANY_SEEDANCE_AUDIOS", `Vipeak 2 supports at most ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} reference audios.`, {
       referenceAudioCount,
@@ -12475,8 +12701,12 @@ function publicUrlForLocalAsset(asset = {}) {
 }
 
 async function ensurePublicUrlForUserMediaAsset(db, userAsset) {
-  if (isPublicHttpUrl(userAsset.publicUrl) && (!localPublicAssetStorageEnabled() || !userAsset.localUrl)) return userAsset;
-  const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
+  if (String(userAsset.mime || "").toLowerCase().startsWith("image/")) {
+    userAsset = await normalizeUserImageAssetForUpstream(db, userAsset, { label: "Upstream reference image" });
+  }
+  const needsObjectMirror = objectStorageEnabled() && Boolean(userAsset.localUrl) && !userAssetHasObjectStorageMirror(userAsset);
+  if (isPublicHttpUrl(userAsset.publicUrl) && !needsObjectMirror) return userAsset;
+  const localPublicUrl = !objectStorageEnabled() ? publicUrlForAssetPath(userAsset.localUrl) : "";
   if (localPublicUrl) {
     userAsset.publicUrl = localPublicUrl;
     userAsset.updatedAt = new Date().toISOString();
@@ -12497,6 +12727,10 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset) {
   });
   userAsset.publicUrl = uploaded.publicUrl;
   userAsset.publicTosKey = uploaded.key;
+  userAsset.objectStorageKey = uploaded.key;
+  userAsset.tosKey = uploaded.key;
+  userAsset.cdnUrl = uploaded.publicUrl;
+  userAsset.objectStorageError = "";
   userAsset.publicUploadedAt = new Date().toISOString();
   userAsset.updatedAt = new Date().toISOString();
   db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
@@ -12614,6 +12848,9 @@ function seedanceAssetCacheField(userAsset = {}) {
 
 async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   const assetType = seedanceAssetTypeForUserAsset(userAsset);
+  if (assetType === "Image") {
+    userAsset = await normalizeUserImageAssetForUpstream(db, userAsset, { label: "Seedance image asset" });
+  }
   const cacheField = seedanceAssetCacheField(userAsset);
   if (userAsset[cacheField] && (!localPublicAssetStorageEnabled() || !userAsset.localUrl || isLocalPublicAssetUrl(userAsset.publicUrl))) {
     if (assetType !== "Video") return userAsset;
@@ -12652,8 +12889,11 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     bytes = await fs.readFile(localPath);
   }
   const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
-  let uploaded = { publicUrl: localPublicUrl, key: "" };
-  if (assetType === "Video" && objectStorageEnabled()) {
+  let uploaded = {
+    publicUrl: isPublicHttpUrl(userAsset.publicUrl) ? userAsset.publicUrl : localPublicUrl,
+    key: userAssetObjectStorageKey(userAsset),
+  };
+  if (objectStorageEnabled() && (assetType === "Video" || !userAssetHasObjectStorageMirror(userAsset))) {
     uploaded = await uploadBufferToTos({
       userId: userAsset.userId,
       assetId: `${userAsset.id}-seedance`,
@@ -12699,6 +12939,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   if (uploaded.key) {
     userAsset.cdnUrl = uploaded.publicUrl || userAsset.cdnUrl || "";
     userAsset.objectStorageKey = uploaded.key;
+    userAsset.publicTosKey = uploaded.key;
     userAsset.objectStorageError = "";
     userAsset.publicUploadedAt = new Date().toISOString();
   }
@@ -19512,6 +19753,7 @@ async function handleAdvancedGenerate(req, res) {
         extraUserAssets,
         referenceImageAssetUris,
         referenceVideoAssetIds,
+        referenceVideoAssets: seedanceVideoAssets,
         referenceVideoAssetUris,
         referenceAudioAssetIds,
         referenceAudioAssetUris,
@@ -23824,6 +24066,13 @@ async function handleUploadVideoToolAsset(req, res) {
     }
 
     const localUrl = `/assets/user-uploads/${auth.user.id}/${storedFileName}`;
+    const mirrorBytes = imageBytes || await fs.readFile(localPath);
+    const objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes: mirrorBytes, mime });
+    if (objectStorageEnabled() && objectStorage.error) {
+      const error = new Error(`Object storage upload failed: ${objectStorage.error}`);
+      error.statusCode = 502;
+      throw error;
+    }
     const displayName = String(fileName || (isVideo ? "Source video" : "Source image"))
       .split(/[\\/]/)
       .pop()
@@ -23835,10 +24084,12 @@ async function handleUploadVideoToolAsset(req, res) {
       name: displayName,
       mime,
       localUrl,
-      publicUrl: publicUrlForAssetPath(localUrl),
-      cdnUrl: "",
-      objectStorageKey: "",
-      objectStorageError: "",
+      publicUrl: objectStorage.publicUrl || publicUrlForAssetPath(localUrl),
+      cdnUrl: objectStorage.publicUrl || "",
+      objectStorageKey: objectStorage.key || "",
+      publicTosKey: objectStorage.key || "",
+      tosKey: objectStorage.key || "",
+      objectStorageError: objectStorage.error || "",
       assetUri: "",
       width: imageDimensions?.width || 0,
       height: imageDimensions?.height || 0,
