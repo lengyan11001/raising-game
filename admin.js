@@ -3539,6 +3539,10 @@ function pricingRowTitle(row = {}) {
 }
 
 function pricingRowUsage(row = {}) {
+  if (row.usageLabel) return row.usageLabel;
+  if (String(row.variant || "").toLowerCase() === "audio") return "Audio video";
+  if (String(row.variant || "").toLowerCase() === "silent") return "Silent video";
+  if (String(row.billing || "").toLowerCase() === "input_output") return "Input + output video seconds";
   if (String(row.unit || "").toLowerCase() === "reference_image") return "By reference images";
   if (isImagePricingRow(row)) return "按生成图片张数";
   if (String(row.rateKind || "") === "video_input") return "按输入视频秒数额外加收";
@@ -3562,7 +3566,7 @@ function renderPricingTable(rows = []) {
         <tbody>
           ${rows.map((row) => `
             <tr data-provider="${escapeHtml(row.provider)}" data-resolution="${escapeHtml(row.resolution)}" data-rate-kind="${escapeHtml(row.rateKind || "")}" data-key="${escapeHtml(row.key || "")}" data-unit="${escapeHtml(row.unit || "")}">
-              <td><strong>${escapeHtml(pricingRowTitle(row))}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.key || row.provider || "")}</small></td>
+              <td><strong>${escapeHtml(pricingRowTitle(row))}</strong><br/><small class="adm-muted adm-mono">${escapeHtml(row.model || row.key || row.provider || "")}</small></td>
               <td>${escapeHtml(row.resolution)}<br/><small class="adm-muted">${escapeHtml(pricingRowUsage(row))}</small></td>
               <td>
                 <strong>${row.purchaseUsdPerSecondRange ? fmtPriceRange(row.purchaseUsdPerSecondRange, ` ${rowPriceUnit(row)}`) : row.purchaseUsdPerSecond === null || row.purchaseUsdPerSecond === undefined ? "-" : `${fmtPrice(row.purchaseUsdPerSecond)} ${rowPriceUnit(row)}`}</strong>
@@ -4646,7 +4650,7 @@ function geoTopicTypeLabel(type = "") {
 }
 
 function normalizeGeoAdminTab(value = "") {
-  const allowed = new Set(["basic", "realtime", "users", "offsite"]);
+  const allowed = new Set(["basic", "realtime", "users", "vitals", "offsite"]);
   return allowed.has(value) ? value : "basic";
 }
 
@@ -4820,6 +4824,50 @@ function renderGeoProbeAdviceList(advice = []) {
   `;
 }
 
+function webVitalValue(metric = "", value = 0) {
+  const number = Number(value || 0);
+  return metric === "CLS" ? number.toFixed(3) : `${Math.round(number)} ms`;
+}
+
+function webVitalTone(metric = "", value = 0) {
+  const thresholds = { LCP: [2500, 4000], INP: [200, 500], CLS: [0.1, 0.25] }[metric] || [];
+  if (Number(value) <= thresholds[0]) return "mint";
+  if (Number(value) <= thresholds[1]) return "amber";
+  return "rose";
+}
+
+function webVitalStatus(metric = "", value = 0) {
+  const tone = webVitalTone(metric, value);
+  return tone === "mint" ? "良好" : tone === "amber" ? "需要改进" : "较差";
+}
+
+function renderWebVitalCard(metric = "", rows = []) {
+  const row = (rows || []).find((item) => item.metric === metric);
+  if (!row) return statCard(metric, "-", "暂无真实用户样本", "activity", "violet");
+  return statCard(
+    `${metric} p75`,
+    webVitalValue(metric, row.p75),
+    `${webVitalStatus(metric, row.p75)} · ${row.count || 0} 个样本 · ${Number(row.goodPercent || 0).toFixed(1)}% 良好`,
+    metric === "LCP" ? "paintbrush" : metric === "INP" ? "mouse-pointer-click" : "move",
+    webVitalTone(metric, row.p75),
+  );
+}
+
+function renderWebVitalRow(item = {}, { showRoute = true } = {}) {
+  return `
+    <tr>
+      <td>${escapeHtml(item.hostname || "-")}</td>
+      ${showRoute ? `<td class="adm-mono">${escapeHtml(item.pagePath || "/")}</td><td>${escapeHtml(item.device || "-")}</td>` : ""}
+      <td><strong>${escapeHtml(item.metric || "-")}</strong></td>
+      <td>${escapeHtml(webVitalValue(item.metric, item.p75))}</td>
+      <td><span class="adm-pill ${webVitalTone(item.metric, item.p75) === "mint" ? "is-success" : webVitalTone(item.metric, item.p75) === "rose" ? "is-failed" : "is-pending"}">${escapeHtml(webVitalStatus(item.metric, item.p75))}</span></td>
+      <td>${escapeHtml(String(item.count || 0))}</td>
+      <td>${escapeHtml(Number(item.goodPercent || 0).toFixed(1))}%</td>
+      <td>${escapeHtml(fmtDate(item.lastSeen))}</td>
+    </tr>
+  `;
+}
+
 async function renderGeo() {
   const payload = await api("/api/admin/geo-report");
   if (!isActiveRoute("geo")) return;
@@ -4830,6 +4878,7 @@ async function renderGeo() {
   const coverage = payload.coverage || {};
   const visitorStats = payload.visitorStats || {};
   const indexNowHistory = payload.indexNowHistory || [];
+  const webVitals = payload.webVitals || {};
   const aiProbes = payload.aiProbes || defaultGeoProbePlan(payload);
   const geoProbeProviders = aiProbes.providers || [];
   const configuredGeoProbeProviders = geoProbeProviders.filter((provider) => provider.configured);
@@ -4860,6 +4909,7 @@ async function renderGeo() {
         ${renderGeoTabButton("basic", "基础检测", "shield-check", geoTab)}
         ${renderGeoTabButton("realtime", "实时测试", "radar", geoTab)}
         ${renderGeoTabButton("users", "真实用户", "users-round", geoTab)}
+        ${renderGeoTabButton("vitals", "网站性能", "gauge", geoTab)}
         ${renderGeoTabButton("offsite", "站外发布", "send-horizontal", geoTab)}
       </div>
 
@@ -5133,6 +5183,45 @@ async function renderGeo() {
               <thead><tr><th>路径</th><th>国家/地区</th><th>IP</th><th>时间</th><th>User-Agent</th></tr></thead>
               <tbody>
                 ${(visitorStats.recent || []).map(renderGeoVisitorRow).join("") || '<tr><td colspan="5" class="adm-muted">暂无真实用户访问记录。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="adm-geo-panel ${geoTab === "vitals" ? "" : "is-hidden"}" data-geo-panel="vitals">
+        <div class="adm-grid adm-grid-4">
+          ${statCard("近 28 天样本", webVitals.sampleCount || 0, "真实用户页面性能记录", "database", "violet")}
+          ${renderWebVitalCard("LCP", webVitals.overall || [])}
+          ${renderWebVitalCard("INP", webVitals.overall || [])}
+          ${renderWebVitalCard("CLS", webVitals.overall || [])}
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>各域名 p75</h3>
+            <span class="adm-muted">按老站、新站2和工具域名分别统计</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table">
+              <thead><tr><th>域名</th><th>指标</th><th>p75</th><th>状态</th><th>样本</th><th>良好占比</th><th>最近上报</th></tr></thead>
+              <tbody>
+                ${(webVitals.byHost || []).map((item) => renderWebVitalRow(item, { showRoute: false })).join("") || '<tr><td colspan="7" class="adm-muted">暂无真实用户性能数据。</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <header class="adm-card-head">
+            <h3>路径与设备明细</h3>
+            <span class="adm-muted">用于定位具体页面和移动端问题</span>
+          </header>
+          <div class="adm-card-body adm-table-wrap">
+            <table class="adm-table">
+              <thead><tr><th>域名</th><th>路径</th><th>设备</th><th>指标</th><th>p75</th><th>状态</th><th>样本</th><th>良好占比</th><th>最近上报</th></tr></thead>
+              <tbody>
+                ${(webVitals.byRoute || []).map((item) => renderWebVitalRow(item)).join("") || '<tr><td colspan="9" class="adm-muted">暂无路径性能数据。</td></tr>'}
               </tbody>
             </table>
           </div>

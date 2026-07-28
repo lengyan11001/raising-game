@@ -173,14 +173,23 @@ els.advancedImage?.addEventListener("change", async () => {
     }
     return;
   }
-  if (provider === "wan27") {
+  if (provider === "wan27" || provider === "happyhorse") {
     try {
+      const capability = currentAdvancedVideoCapability();
+      const allowedTypes = new Set(advancedAssetTargetItems().map((target) => target.type));
+      const imageLimit = advancedAliyunReferenceImageLimit(capability);
+      const referenceImageMode = ["wan27-i2v", "wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"].includes(capability)
+        || (capability === "wan-legacy" && /r2v|vace/.test(String(els.advancedLegacyWanModel?.value || "")));
       let skippedWrongType = false;
       let skippedTooLarge = false;
       let skippedTooLong = false;
       for (const file of files) {
         const mime = String(file.type || "").toLowerCase();
         if (mime.startsWith("image/")) {
+          if (!allowedTypes.has("image")) {
+            skippedWrongType = true;
+            continue;
+          }
           if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) {
             skippedTooLarge = true;
             continue;
@@ -198,17 +207,30 @@ els.advancedImage?.addEventListener("change", async () => {
             removeAdvancedPendingReference(pending.pendingId, { render: false });
           }
           ref = stampAdvancedReferenceOrder(ref);
-          state.advancedReferenceImages = [ref];
-          state.advancedUploadDataUrl = ref.dataUrl || "";
+          state.advancedReferenceImages = referenceImageMode
+            ? dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, imageLimit)
+            : [ref];
+          state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || ref.dataUrl || "";
           state.advancedFirstFrameAssetId = "";
           state.advancedSourceImageAssetId = "";
         } else if (mime.startsWith("video/")) {
+          if (!allowedTypes.has("video")) {
+            skippedWrongType = true;
+            continue;
+          }
           if (file.size > ADVANCED_WAN_CLIP_MAX_BYTES) {
             skippedTooLarge = true;
             continue;
           }
           const clipDuration = await readVideoDuration(file).catch(() => 0);
-          if (!clipDuration || clipDuration > ADVANCED_WAN_CLIP_MAX_SECONDS) {
+          const maxVideoSeconds = capability === "happyhorse-video-edit"
+            ? 60
+            : ["wan-animate-move", "wan-animate-mix"].includes(capability)
+            ? 30
+            : capability === "wan27-i2v"
+            ? ADVANCED_WAN_CLIP_MAX_SECONDS
+            : 10;
+          if (!clipDuration || clipDuration > maxVideoSeconds) {
             skippedTooLong = true;
             continue;
           }
@@ -221,6 +243,7 @@ els.advancedImage?.addEventListener("change", async () => {
           }
           state.advancedWanClipFileName = file.name || "";
           state.advancedWanClipAssetId = "";
+          state.advancedWanClipDurationSeconds = clipDuration;
           if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = "";
           if (els.advancedWanClipPreview) {
             els.advancedWanClipPreview.src = state.advancedWanClipDataUrl;
@@ -228,6 +251,10 @@ els.advancedImage?.addEventListener("change", async () => {
             els.advancedWanClipFile?.closest(".wan-frame-upload")?.classList.add("has-image");
           }
         } else if (mime.startsWith("audio/")) {
+          if (!allowedTypes.has("audio")) {
+            skippedWrongType = true;
+            continue;
+          }
           await uploadAdvancedWanAudioReference(file);
         } else {
           skippedWrongType = true;
@@ -394,6 +421,28 @@ els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
   els.advancedSeedanceLastFrame.value = "";
   updateAdvancedModelControls();
 });
+els.advancedWanFirstFrame?.addEventListener("change", async () => {
+  const file = els.advancedWanFirstFrame.files?.[0];
+  if (!file) return;
+  if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES || !String(file.type || "").startsWith("image/")) {
+    els.advancedWanFirstFrame.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
+    updateAdvancedModelControls();
+    return;
+  }
+  const dataUrl = await readFileAsDataUrl(file);
+  state.advancedReferenceImages = [stampAdvancedReferenceOrder({
+    dataUrl,
+    fileName: file.name || "",
+    name: file.name || "",
+  })];
+  state.advancedUploadDataUrl = dataUrl;
+  state.advancedFirstFrameAssetId = "";
+  state.advancedSourceImageAssetId = "";
+  state.activeAdvancedCaseId = "";
+  els.advancedWanFirstFrame.value = "";
+  updateAdvancedModelControls();
+});
 els.advancedSeedanceVideoUrls?.addEventListener("input", () => {
   updateAdvancedReferenceSummary();
   updateAdvancedButtonCost();
@@ -435,6 +484,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
     state.advancedWanClipDataUrl = "";
     state.advancedWanClipFileName = "";
     state.advancedWanClipAssetId = "";
+    state.advancedWanClipDurationSeconds = 0;
     state.advancedWanClipOrder = 0;
     els.advancedWanClipFile.value = "";
     els.advancedWanClipPreview?.removeAttribute("src");
@@ -448,6 +498,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
     state.advancedWanClipDataUrl = "";
     state.advancedWanClipFileName = "";
     state.advancedWanClipAssetId = "";
+    state.advancedWanClipDurationSeconds = 0;
     state.advancedWanClipOrder = 0;
     els.advancedWanClipFile.value = "";
     els.advancedWanClipPreview?.removeAttribute("src");
@@ -459,6 +510,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
   state.advancedWanClipDataUrl = await readFileAsDataUrl(file);
   state.advancedWanClipFileName = file.name || "";
   state.advancedWanClipAssetId = "";
+  state.advancedWanClipDurationSeconds = clipDuration;
   state.advancedWanClipOrder = nextAdvancedReferenceOrder();
   if (els.advancedWanClipPreview) {
     els.advancedWanClipPreview.src = state.advancedWanClipDataUrl;
@@ -468,7 +520,7 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
   updateAdvancedModelControls();
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
-els.refreshHistoryBtn?.addEventListener("click", () => loadHistory({ refresh: true }));
+els.refreshHistoryBtn?.addEventListener("click", () => loadHistory({ refresh: true, page: 1 }));
 els.refreshAssetsBtn?.addEventListener("click", () => loadUserAssets(state.userAssetsPage || 1));
 els.refreshAdvancedAssetsBtn?.addEventListener("click", () => loadAdvancedAssets(state.advancedAssetPage || 1));
 els.advancedSideTabs?.querySelectorAll("[data-advanced-side-tab]").forEach((button) => {
@@ -571,7 +623,7 @@ els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) =>
 els.topupBackBtn?.addEventListener("click", handleTopupBack);
 els.createTopupBtn?.addEventListener("click", createTopupOrder);
 function openTopupDialog() {
-  closeAccountMenu();
+  prepareModalOpen();
   state.selectedBillingPlanId = "";
   setTopupStep("packages");
   setTopupMethod("usdt");
@@ -618,6 +670,7 @@ els.topupQrDialog?.addEventListener("close", syncTopupAutoRefresh);
 els.previewDialog?.addEventListener("close", () => {
   if (!els.previewVideo) return;
   els.previewVideo.pause();
+  els.previewVideo.preload = "none";
   els.previewVideo.removeAttribute("src");
   els.previewVideo.removeAttribute("style");
   els.previewVideo.load();
@@ -644,7 +697,14 @@ els.advancedDuration?.addEventListener("input", () => {
 });
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
+  syncAdvancedVideoCapabilityOptions();
   updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+});
+els.advancedVideoCapability?.addEventListener("change", () => {
+  state.advancedAssetTarget = "primary";
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
 });
 els.advancedSeedanceTier?.addEventListener("change", () => {
   updateAdvancedModelControls();
@@ -656,6 +716,12 @@ els.advancedWanMediaMode?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
   updateAdvancedModelControls();
 });
+els.advancedLegacyWanModel?.addEventListener("change", () => {
+  state.advancedAssetTarget = "primary";
+  updateAdvancedModelControls();
+  updateAdvancedButtonCost();
+});
+els.advancedWanAnimateMode?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedSeedanceMediaMode?.addEventListener("change", () => {
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
   state.advancedAssetTarget = seedanceModeNeedsFirstFrame(seedanceMode) ? "primary" : "referenceImages";
@@ -695,6 +761,7 @@ document.querySelectorAll("[data-remove-advanced-slot]").forEach((button) => {
 });
 els.advancedSeedanceLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
 els.advancedSeedanceFirstFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("primary"));
+els.advancedWanFirstFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("primary"));
 els.advancedWanLastFrame?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("lastFrame"));
 els.advancedWanClipFile?.closest(".wan-frame-upload")?.addEventListener("click", () => setAdvancedAssetTarget("video"));
 els.advancedWanAudioUrl?.addEventListener("input", updateAdvancedButtonCost);
@@ -711,11 +778,14 @@ document.addEventListener("click", (event) => {
   closeAccountMenu();
 });
 document.addEventListener("visibilitychange", syncTopupAutoRefresh);
-els.toggleLoginMode?.addEventListener("click", () => {
-  state.loginMode = state.loginMode === "login" ? "register" : "login";
-  renderLoginMode();
+els.loginForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === "cancel") {
+    els.loginDialog?.close("cancel");
+    return;
+  }
+  submitLogin();
 });
-els.loginSubmit?.addEventListener("click", submitLogin);
 els.languageSelect?.addEventListener("change", () => setLanguage(els.languageSelect.value));
 els.copyAccessBtn?.addEventListener("click", async () => {
   await navigator.clipboard.writeText(fullAccessCopy());
@@ -742,6 +812,7 @@ els.copyTokenBtn?.addEventListener("click", async () => {
   }, 1600);
 });
 function openSupportDialog() {
+  prepareModalOpen();
   if (els.supportEmail) els.supportEmail.value = "";
   if (els.supportSubject) els.supportSubject.value = "";
   if (els.supportMessage) els.supportMessage.value = "";

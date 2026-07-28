@@ -6,8 +6,9 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-309-install-align" />
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="./platform.css?v=ai-326-video-tools" />
+    <script src="./assets/vendor/lucide-1.27.0.min.js" defer></script>
+    <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
   <body class="age-gate-locked">
     <script>
@@ -23,7 +24,7 @@
     <section id="ageGate" class="age-gate" role="dialog" aria-modal="true" aria-labelledby="ageGateTitle">
       <div class="age-gate-card">
         <span class="age-gate-pill">18+</span>
-        <h1 id="ageGateTitle" data-i18n="age.title">Adults only</h1>
+        <h2 id="ageGateTitle" data-i18n="age.title">Adults only</h2>
         <p data-i18n="age.description">Confirm you are 18 or older before entering. If you are under 18, please exit.</p>
         <div class="age-gate-actions">
           <button id="ageGateDeclineBtn" class="secondary-btn age-gate-secondary" type="button" data-i18n="age.decline">Under 18, exit</button>
@@ -61,7 +62,7 @@
     <aside class="side-rail" aria-label="Workspace navigation">
       <a class="brand" href="/">
         <span class="brand-mark"><img src="/assets/brand/logo-mark.svg?v=old-brand-1" alt="" /></span>
-        <strong id="brandName">Vipeak AI</strong>
+        <h1 id="brandName">Vipeak AI</h1>
       </a>
       <nav class="top-tabs" aria-label="Main sections">
         <button class="top-tab is-active" data-tab="gallery" type="button">
@@ -119,7 +120,7 @@
         </a>
       </nav>
       <div class="mobile-drawer-account">
-        <div class="mobile-drawer-user">
+        <div class="mobile-drawer-user" id="mobileDrawerUser" hidden>
           <span id="mobileDrawerUserName">Login / Sign up</span>
           <strong id="mobileDrawerCredits" hidden>0</strong>
         </div>
@@ -251,15 +252,9 @@
             <div class="wan-media-panel advanced-seedance-option" id="advancedSeedanceMediaPanel" hidden>
               <div class="wan-media-panel-head">
                 <div>
-                  <p class="wan-media-kicker">Vipeak 2</p>
-                  <h3 data-i18n="advanced.seedanceMode">Vipeak 2 input</h3>
+                  <p class="wan-media-kicker">Seedance 2.0</p>
+                  <h3>Frame input</h3>
                 </div>
-                <label class="field wan-mode-field">
-                  <select id="advancedSeedanceMediaMode">
-                    <option value="reference_video" data-i18n="advanced.seedanceModeMultimodal">Multimodal references</option>
-                    <option value="first_last_frame" data-i18n="advanced.seedanceModeFirstLast">First + last frame</option>
-                  </select>
-                </label>
               </div>
               <div class="wan-media-grid">
                 <label class="field seedance-extra seedance-first-frame">
@@ -280,34 +275,23 @@
                     <button class="wan-frame-remove" type="button" data-remove-advanced-slot="seedanceLastFrame" aria-label="Remove">&times;</button>
                   </div>
                 </label>
-                <label class="field seedance-extra seedance-video-url seedance-video-field">
-                  <span data-i18n="advanced.seedanceVideoUrls">Reference video URLs</span>
-                  <input id="advancedSeedanceVideoUrls" type="text" placeholder="https://example.com/video1.mp4, https://example.com/video2.mp4" />
-                </label>
-                <label class="field seedance-extra seedance-audio-url seedance-video-field">
-                  <span data-i18n="advanced.seedanceAudioUrls">Reference audio URLs</span>
-                  <input id="advancedSeedanceAudioUrls" type="text" placeholder="https://example.com/audio1.mp3" />
-                </label>
               </div>
             </div>
             <div class="wan-media-panel advanced-wan-option" id="advancedWanMediaPanel" hidden>
               <div class="wan-media-panel-head">
                 <div>
-                  <p class="wan-media-kicker">Vipeak 1</p>
-                  <h3 data-i18n="advanced.wanMode">Vipeak 1 input</h3>
+                  <p class="wan-media-kicker">Wan</p>
+                  <h3>Media input</h3>
                 </div>
-                <label class="field wan-mode-field">
-                  <select id="advancedWanMediaMode">
-                    <option value="multimodal" data-i18n="advanced.seedanceModeMultimodal">Multimodal references</option>
-                    <option value="first_last_frame" data-i18n="advanced.wanModeFirstLast">First + last image</option>
-                  </select>
-                </label>
               </div>
               <div class="wan-media-grid">
                 <label class="field wan-first-frame">
                   <span data-i18n="advanced.firstFrame">First frame</span>
-                  <div class="wan-frame-stack">
+                  <div class="wan-frame-upload">
+                    <input id="advancedWanFirstFrame" type="file" accept="image/*" />
                     <img class="wan-frame-preview" id="advancedWanFirstFramePreview" alt="Vipeak 1 first frame preview" />
+                    <span><i data-lucide="image-up"></i><span data-i18n="advanced.firstFrame">First frame</span></span>
+                    <button class="wan-frame-remove" type="button" data-remove-advanced-slot="wanFirstFrame" aria-label="Remove">&times;</button>
                   </div>
                 </label>
                 <label class="field wan-extra wan-last-frame">
@@ -319,10 +303,6 @@
                     <button class="wan-frame-remove" type="button" data-remove-advanced-slot="wanLastFrame" aria-label="Remove">&times;</button>
                   </div>
                 </label>
-                <label class="field wan-extra wan-audio">
-                  <span data-i18n="advanced.audioUrl">Driving audio URL</span>
-                  <input id="advancedWanAudioUrl" type="url" placeholder="https://.../audio.mp3" />
-                </label>
                 <label class="field wan-extra wan-clip">
                   <span data-i18n="advanced.clipUpload">Source video file</span>
                   <div class="wan-frame-upload wan-video-upload">
@@ -331,13 +311,30 @@
                     <span><i data-lucide="upload"></i><span data-i18n="advanced.clipUpload">Source video file</span></span>
                     <button class="wan-frame-remove" type="button" data-remove-advanced-slot="wanClip" aria-label="Remove">&times;</button>
                   </div>
-                  <input id="advancedWanClipUrl" type="url" placeholder="https://.../clip.mp4" />
                 </label>
               </div>
             </div>
             <div class="advanced-fields">
-              <label class="field advanced-provider-field"><span data-i18n="field.model">Engine</span><select id="advancedProvider"><option value="wan27" selected>Vipeak 1</option><option value="seedance">Vipeak 2</option><option value="wan27-image-edit">Vipeak 1 Image</option><option value="seedream5-image">Seedream 5.0 Image</option></select></label>
-              <label class="field advanced-seedance-option advanced-tier-field" hidden><span>Vipeak 2 tier</span><select id="advancedSeedanceTier"><option value="standard">Standard</option><option value="fast">Fast</option></select></label>
+              <label class="field advanced-provider-field"><span data-i18n="field.model">Engine</span><select id="advancedProvider">
+                <optgroup label="Video">
+                  <option value="wan27" selected>Wan 2.7</option>
+                  <option value="wan-animate">Wan Animate</option>
+                  <option value="happyhorse">HappyHorse</option>
+                  <option value="seedance">Seedance 2.0</option>
+                </optgroup>
+                <optgroup label="Image">
+                  <option value="wan27-image-edit">Wan 2.7 Image</option>
+                  <option value="seedream5-image">Seedream 5.0 Image</option>
+                </optgroup>
+              </select></label>
+              <label class="field advanced-video-capability-field" hidden><span>Mode</span><select id="advancedVideoCapability"></select></label>
+              <label class="field advanced-seedance-option advanced-seedance-mode-field" hidden><span>Mode</span><select id="advancedSeedanceMediaMode">
+                <option value="reference_video" data-i18n="advanced.seedanceModeMultimodal">Multimodal References</option>
+                <option value="first_last_frame" data-i18n="advanced.seedanceModeFirstLast">First + Last Frame</option>
+              </select></label>
+              <input id="advancedWanMediaMode" type="hidden" value="multimodal" />
+              <label class="field advanced-animate-mode-field" hidden><span>Quality</span><select id="advancedWanAnimateMode"><option value="wan-std">Standard</option><option value="wan-pro">Pro</option></select></label>
+              <label class="field advanced-seedance-option advanced-tier-field" hidden><span>Tier</span><select id="advancedSeedanceTier"><option value="standard">Standard</option><option value="fast">Fast</option></select></label>
               <select id="advancedSeedreamTier" hidden aria-hidden="true"><option value="pro" selected>Pro</option></select>
               <label class="field advanced-setting-field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
               <label class="field advanced-setting-field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
@@ -513,6 +510,17 @@
       <span>Support</span>
     </button>
 
+    <div class="video-tool-fabs" id="videoToolFabs" hidden>
+      <button class="video-tool-fab is-undress" type="button" data-video-tool-action="undress">
+        <i data-lucide="sparkles"></i>
+        <span data-video-tool-label="undress">Undress</span>
+      </button>
+      <button class="video-tool-fab is-face-swap" type="button" data-video-tool-action="face-swap">
+        <i data-lucide="scan-face"></i>
+        <span data-video-tool-label="face-swap">Face Swap</span>
+      </button>
+    </div>
+
     <dialog id="templateDialog" class="modal">
       <form method="dialog">
         <header>
@@ -539,17 +547,16 @@
     </dialog>
 
     <dialog id="loginDialog" class="modal auth-modal">
-      <form method="dialog">
+      <form method="dialog" id="loginForm">
         <header>
-          <strong id="loginTitle">Login</strong>
+          <strong id="loginTitle">Login / Sign up</strong>
           <button class="icon-btn" value="cancel" type="submit" aria-label="Close" data-i18n-aria="common.close"><i data-lucide="x"></i></button>
         </header>
         <div class="modal-body">
           <input id="loginUsername" type="text" autocomplete="username" placeholder="Username" data-i18n-placeholder="auth.username" />
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password, at least 6 characters" data-i18n-placeholder="auth.password" />
           <div class="auth-actions">
-            <button class="ghost-button" id="toggleLoginMode" type="button">Create account</button>
-            <button class="generate-btn" id="loginSubmit" type="button">Login</button>
+            <button class="generate-btn" id="loginSubmit" type="submit" value="continue">Login / Sign up</button>
           </div>
           <p class="job-note" id="loginMessage"></p>
         </div>
@@ -759,7 +766,7 @@
         </header>
         <div class="modal-body">
           <img id="previewImage" alt="Preview" hidden />
-          <video id="previewVideo" controls playsinline></video>
+          <video id="previewVideo" controls playsinline preload="auto"></video>
         </div>
       </form>
     </dialog>
@@ -847,6 +854,19 @@
       </form>
     </dialog>
 
+    <dialog id="videoToolDialog" class="modal video-tool-dialog">
+      <form method="dialog" id="videoToolForm">
+        <header>
+          <div>
+            <span id="videoToolDialogKicker">Video tool</span>
+            <strong id="videoToolDialogTitle">Create</strong>
+          </div>
+          <button class="icon-btn" value="cancel" type="submit" aria-label="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="modal-body" id="videoToolDialogBody"></div>
+      </form>
+    </dialog>
+
     <dialog id="legalDialog" class="modal legal-modal">
       <form method="dialog">
         <header>
@@ -860,6 +880,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-309-install-align"></script>
+    <script src="./platform.js?v=ai-326-video-tools"></script>
   </body>
 </html>

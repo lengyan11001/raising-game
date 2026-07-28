@@ -76,6 +76,7 @@ function setTab(tab) {
   }
   if (nextTab !== "history") {
     stopHistoryRefresh();
+    disconnectHistoryLoadMoreObserver();
     historyRecordsSignature = "";
   }
   if (nextTab !== "assets") {
@@ -98,7 +99,7 @@ function setTab(tab) {
   });
   syncGalleryShortcutNav();
   if (nextTab === DEFAULT_PLATFORM_TAB) renderTemplates();
-  if (nextTab === "history") loadHistory();
+  if (nextTab === "history") loadHistory({ page: isMobileHistoryLayout() ? 1 : state.historyRecordsPage || 1 });
   if (nextTab === "topups") loadTopupRecords();
   if (nextTab === "spending") loadSpendingRecords();
   if (nextTab === "referral") loadReferralSummary({ force: true });
@@ -469,9 +470,12 @@ function renderPlayfluxTemplateGallery() {
       playfluxGalleryScrollHandler = null;
       return;
     }
-    grid.insertAdjacentHTML("beforeend", next.map(renderPlayfluxTemplateCard).join(""));
+    grid.insertAdjacentHTML("beforeend", next.map((template, index) => renderPlayfluxTemplateCard(template, {
+      eager: mobile && renderedCount + index < PLAYFLUX_MOBILE_INITIAL_COUNT,
+    })).join(""));
     renderedCount += next.length;
     bindPlayfluxTemplateCards(grid);
+    bindGalleryImageFallbacks(grid);
     observePlayfluxTemplateMedia(grid);
     refreshIcons();
     if (renderedCount >= templates.length) {
@@ -519,6 +523,9 @@ function bindPlayfluxTemplateCards(root) {
 
 function loadPlayfluxTemplateVideo(video) {
   if (!video || !video.dataset.src) return;
+  const revealVideo = () => video.closest(".playflux-template-media")?.classList.add("is-video-ready");
+  if (video.readyState >= 2) revealVideo();
+  else video.addEventListener("loadeddata", revealVideo, { once: true });
   if (!video.src) {
     video.src = video.dataset.src;
     video.load();
@@ -540,7 +547,10 @@ function observePlayfluxTemplateMedia(root) {
         if (entry.isIntersecting) loadPlayfluxTemplateVideo(video);
         else video.pause();
       });
-    }, { rootMargin: "180px 0px", threshold: 0.01 });
+    }, {
+      rootMargin: window.matchMedia?.("(max-width: 720px)")?.matches ? "80px 0px" : "180px 0px",
+      threshold: 0.01,
+    });
   }
   videos.forEach((video) => {
     video.dataset.playfluxObserved = "1";
@@ -548,15 +558,17 @@ function observePlayfluxTemplateMedia(root) {
   });
 }
 
-function renderPlayfluxTemplateCard(template = {}) {
+function renderPlayfluxTemplateCard(template = {}, { eager = false } = {}) {
   const isVideo = template.previewType === "video";
   const title = localizedTemplateTitle(template);
+  const posterUrl = template.posterUrl || (isVideo ? DEFAULT_TEMPLATE_COVER : template.previewUrl) || DEFAULT_TEMPLATE_COVER;
   return `
     <button class="playflux-template-card" type="button" data-playflux-template="${escapeHtml(template.id || "")}">
       <span class="playflux-template-media">
+        <img class="playflux-template-poster" src="${escapeHtml(posterUrl)}" data-cover-fallback="${escapeHtml(DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(title)}" loading="${eager ? "eager" : "lazy"}" decoding="async"${eager ? ' fetchpriority="high"' : ""} />
         ${isVideo
-          ? `<video data-src="${escapeHtml(template.previewUrl || "")}" ${template.posterUrl ? `poster="${escapeHtml(template.posterUrl)}"` : ""} muted loop playsinline preload="none"></video>`
-          : `<img src="${escapeHtml(template.previewUrl || DEFAULT_TEMPLATE_COVER)}" alt="${escapeHtml(title)}" loading="lazy" />`}
+          ? `<video class="playflux-template-video" data-src="${escapeHtml(template.previewUrl || "")}" muted loop playsinline preload="none"></video>`
+          : ""}
         <span class="playflux-template-shade"></span>
         ${template.badge ? `<small class="playflux-template-badge">${escapeHtml(template.badge)}</small>` : ""}
         <span class="playflux-template-fav"><i data-lucide="heart"></i></span>
@@ -691,8 +703,24 @@ function playfluxTemplateNeedsSource(template = {}) {
 }
 
 function playfluxTemplateVideoProvider() {
-  if (!isToolTenant("video")) return "seedance";
-  return tenantStringFeature("videoProvider", "wan27") === "seedance" ? "seedance" : "wan27";
+  if (!isTenantTool("video")) return "seedance";
+  const provider = tenantStringFeature("videoProvider", "wan27");
+  return ["wan27", "happyhorse", "seedance"].includes(provider) ? provider : "wan27";
+}
+
+const PLAYFLUX_WAN_VIDEO_CAPABILITY = "wan27-r2v";
+
+function playfluxTemplateVideoCapability(provider = playfluxTemplateVideoProvider()) {
+  if (provider === "wan27") return PLAYFLUX_WAN_VIDEO_CAPABILITY;
+  if (provider === "happyhorse") return "happyhorse-video-edit";
+  return "";
+}
+
+function playfluxTemplateOutputDuration(template = {}, provider = playfluxTemplateVideoProvider()) {
+  const configuredDuration = Number(template.duration || 5) || 5;
+  if (provider !== "wan27" || playfluxTemplateVideoCapability(provider) !== "wan27-r2v") return configuredDuration;
+  const referenceDuration = Number(template.referenceVideoDurationSeconds || configuredDuration) || configuredDuration;
+  return Math.max(2, Math.min(10, Math.round(referenceDuration)));
 }
 
 function playfluxTemplateRequiredSourceCount(template = {}) {
@@ -703,7 +731,7 @@ function playfluxTemplateRequiredSourceCount(template = {}) {
 
 function playfluxTemplateDefaultSourceMode(template = {}) {
   if (template.tab !== "video") return "";
-  if (playfluxTemplateVideoProvider() === "wan27") return "first_frame";
+  if (playfluxTemplateVideoProvider() !== "seedance") return "reference_video";
   return playfluxNormalizeSeedanceMediaMode(template.seedanceMode || "reference_images");
 }
 
@@ -837,7 +865,7 @@ function playfluxTemplateEstimateCacheKey(template = {}, sourceMode = playfluxTe
     template.id || "",
     template.tab || "",
     sourceMode || "",
-    template.duration || 5,
+    playfluxTemplateOutputDuration(template, provider),
     template.resolution || "720p",
     template.ratio || "9:16",
     usesReferenceVideo ? Number(template.referenceVideoDurationSeconds || template.duration || 5) : 0,
@@ -851,25 +879,25 @@ function playfluxTemplateCachedEstimate(template = {}, sourceMode = playfluxTemp
 }
 
 function playfluxTemplateVideoInputSeconds(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template), duration = Number(template.duration || 5)) {
-  if (playfluxTemplateVideoProvider() !== "seedance") return 0;
-  if (!playfluxSeedanceModeNeedsReferenceVideo(sourceMode)) return 0;
+  const provider = playfluxTemplateVideoProvider();
+  if (provider === "seedance" && !playfluxSeedanceModeNeedsReferenceVideo(sourceMode)) return 0;
   const cached = playfluxTemplateCachedEstimate(template, sourceMode);
-  return Number(cached?.videoInputSeconds || template.referenceVideoDurationSeconds || duration);
+  const seconds = Number(cached?.videoInputSeconds || template.referenceVideoDurationSeconds || duration);
+  return provider === "wan27" ? Math.min(duration, seconds) : seconds;
 }
 
 function playfluxTemplateCostLabel(template = {}, sourceMode = playfluxTemplateDefaultSourceMode(template)) {
   if (template.tab === "video") {
-    const duration = Number(template.duration || 5);
+    const provider = playfluxTemplateVideoProvider();
+    const duration = playfluxTemplateOutputDuration(template, provider);
     const resolution = template.resolution || "720p";
     const ratio = template.ratio || "9:16";
-    const provider = playfluxTemplateVideoProvider();
     const cached = playfluxTemplateCachedEstimate(template, sourceMode);
-    const pricing = cached || advancedPricing(duration, provider, resolution, ratio, provider === "seedance"
-      ? {
-          seedanceTier: "standard",
-          inputVideoSeconds: playfluxTemplateVideoInputSeconds(template, sourceMode, duration),
-        }
-      : {});
+    const pricing = cached || advancedPricing(duration, provider, resolution, ratio, {
+      seedanceTier: "standard",
+      inputVideoSeconds: playfluxTemplateVideoInputSeconds(template, sourceMode, duration),
+      videoCapability: playfluxTemplateVideoCapability(provider),
+    });
     return t("cost.credits", { credits: formatCredits(pricing.credits) });
   }
   return assetImageModifyCostLabel();
@@ -896,22 +924,26 @@ async function refreshPlayfluxTemplateCost(root, template = {}, sourceMode = "")
     renderPlayfluxTemplateCost(root, template, mode);
     return;
   }
-  const duration = Number(template.duration || 5);
+  const provider = playfluxTemplateVideoProvider();
+  const duration = playfluxTemplateOutputDuration(template, provider);
   const resolution = template.resolution || "720p";
   const ratio = normalizeVideoRatio(template.ratio || "9:16");
-  const provider = playfluxTemplateVideoProvider();
-  const usesReferenceVideo = provider === "seedance" && playfluxSeedanceModeNeedsReferenceVideo(mode);
+    const usesReferenceVideo = provider !== "seedance" || playfluxSeedanceModeNeedsReferenceVideo(mode);
   try {
     const payload = await requestJson("/api/advanced/estimate", {
       method: "POST",
       body: {
         provider,
-        ...(provider === "seedance" ? { seedanceTier: "standard" } : { mediaMode: "first_frame" }),
+        ...(provider === "seedance"
+          ? { seedanceTier: "standard" }
+          : {
+              videoCapability: playfluxTemplateVideoCapability(provider),
+            }),
         templateId: template.id || "",
         duration,
         resolution,
         ratio,
-        inputVideoSeconds: usesReferenceVideo ? Number(template.referenceVideoDurationSeconds || duration) : 0,
+        inputVideoSeconds: usesReferenceVideo ? playfluxTemplateVideoInputSeconds(template, mode, duration) : 0,
         params: {
           source: "playflux",
           templateTab: "video",
@@ -942,7 +974,9 @@ function playfluxTemplateRecordBase(template = {}, taskId = "", provider = "seed
   return {
     taskId,
     status: "submitting",
-    model: provider === "seedance" ? "Seedance" : (provider === "wan27" ? "Wan 2.7" : "Wan 2.7 Image"),
+    model: isTenantTool("video") && template.tab === "video"
+      ? "Video"
+      : provider === "seedance" ? "Seedance" : provider === "happyhorse" ? "HappyHorse" : (provider === "wan27" ? "Wan 2.7" : "Wan 2.7 Image"),
     provider,
     source: "playflux-template",
     kind: template.tab === "video" ? "advanced-video" : "asset-image",
@@ -1007,8 +1041,8 @@ async function submitPlayfluxTemplate(template = {}, root) {
   const isAnime = effectiveTemplate.tab === "anime";
   const provider = isVideo ? playfluxTemplateVideoProvider() : "wan27-image-edit";
   const selectedVideoSourceMode = isVideo
-    ? (provider === "wan27"
-        ? "first_frame"
+    ? (provider !== "seedance"
+        ? "reference_video"
         : playfluxNormalizeSeedanceMediaMode(root.querySelector("[data-playflux-source-mode].is-active")?.dataset.playfluxSourceMode || effectiveTemplate.seedanceMode || "reference_images"))
     : "";
   const pendingTaskId = `pending-playflux-${Date.now().toString(36)}`;
@@ -1020,7 +1054,7 @@ async function submitPlayfluxTemplate(template = {}, root) {
       const file = files[0] || null;
       const dataUrl = file ? await readFileAsDataUrl(file) : "";
       const sourceMode = selectedVideoSourceMode;
-      const duration = Number(effectiveTemplate.duration || 5);
+      const duration = playfluxTemplateOutputDuration(effectiveTemplate, provider);
       const resolution = effectiveTemplate.resolution || "720p";
       const ratio = normalizeVideoRatio(effectiveTemplate.ratio || "9:16");
       const reference = dataUrl ? { dataUrl, fileName: file.name || "", name: file.name || "Template source image" } : null;
@@ -1031,12 +1065,26 @@ async function submitPlayfluxTemplate(template = {}, root) {
         ? {
             provider,
             templateId: effectiveTemplate.id || "",
-            mediaMode: "first_frame",
-            firstFrameDataUrl: dataUrl,
-            firstFrameFileName: file?.name || "template-source.png",
+            videoCapability: PLAYFLUX_WAN_VIDEO_CAPABILITY,
+            referenceImages: reference ? [reference] : [],
+            referenceVideoUrls: [playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || "")].filter(Boolean),
             ratio,
             resolution,
             duration,
+            inputVideoSeconds: referenceVideoSeconds,
+            params: { ...recordBase.params },
+          }
+        : provider === "happyhorse"
+        ? {
+            provider,
+            templateId: effectiveTemplate.id || "",
+            videoCapability: "happyhorse-video-edit",
+            referenceImages: reference ? [reference] : [],
+            videoUrl: playfluxTemplateAbsoluteUrl(effectiveTemplate.referenceVideoUrl || effectiveTemplate.previewUrl || ""),
+            ratio,
+            resolution,
+            duration,
+            inputVideoSeconds: referenceVideoSeconds,
             params: { ...recordBase.params },
           }
         : {
@@ -1264,7 +1312,7 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
     if (els.advancedProvider) els.advancedProvider.value = videoProvider;
     if (videoProvider === "wan27") {
       if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = "first_frame";
-    } else if (els.advancedSeedanceMediaMode) {
+    } else if (videoProvider === "seedance" && els.advancedSeedanceMediaMode) {
       els.advancedSeedanceMediaMode.value = playfluxNormalizeSeedanceMediaMode(sourceMode || template.seedanceMode || "reference_images");
     }
     if (els.advancedDuration) els.advancedDuration.value = String(template.duration || 5);
@@ -1292,7 +1340,7 @@ function applyPlayfluxTemplateToCreate(template = {}, { openCharacter = false, o
     window.setTimeout(() => openAdvancedPresetDialog("character"), 120);
   } else if (openUpload) {
     triggerAdvancedLocalImageUpload({
-      sourceMode: videoProvider === "wan27" ? "first_frame" : (sourceMode === "first_last_frame" ? "first_last_frame" : "reference_images"),
+      sourceMode: videoProvider === "seedance" ? (sourceMode === "first_last_frame" ? "first_last_frame" : "reference_images") : "reference_video",
     });
   }
 }
@@ -3430,20 +3478,24 @@ function previewRatioFromItem(item = {}) {
 
 function playPreview({ title = "", previewUrl = "", ratio = "16:9" } = {}) {
   if (!previewUrl || !els.previewDialog || !els.previewVideo || !els.previewImage) return;
+  prepareModalOpen();
+  document.querySelectorAll(".history-media video").forEach((video) => video.pause());
   els.previewTitle.textContent = title || t("common.preview");
   els.previewImage.hidden = true;
   els.previewImage.removeAttribute("src");
   els.previewVideo.pause();
+  els.previewVideo.preload = "auto";
   els.previewVideo.setAttribute("style", ratioStyle(ratio));
   els.previewVideo.src = previewUrl;
   els.previewVideo.hidden = false;
-  els.previewVideo.load();
   if (!els.previewDialog.open) els.previewDialog.showModal();
-  window.setTimeout(() => els.previewVideo.play().catch(() => {}), 80);
+  els.previewVideo.load();
+  els.previewVideo.play().catch(() => {});
 }
 
 function previewImage({ title = "", imageUrl = "" } = {}) {
   if (!imageUrl || !els.previewDialog || !els.previewVideo || !els.previewImage) return;
+  prepareModalOpen();
   els.previewTitle.textContent = title || t("common.preview");
   els.previewVideo.pause();
   els.previewVideo.hidden = true;
@@ -3528,6 +3580,7 @@ function publicHistoryParams(value) {
 function openHistoryDetail(index) {
   const record = state.historyRecords?.[Number(index || 0)];
   if (!record || !els.historyDetailDialog || !els.historyDetailBody) return;
+  prepareModalOpen();
   const title = publicModelText(record.templateTitle || record.sceneEntryName || record.sceneName || t("history.detailTitle"));
   const videoUrl = generationVideoUrl(record);
   const imageResultUrl = generationImageResultUrl(record);
@@ -4184,6 +4237,7 @@ function renderTopupQrDialog(order = null) {
   }
   setTopupConfirmStatus(order.confirmationSubmittedAt ? t("topup.confirmSubmitted", {}, "Confirmation submitted. Waiting for chain verification.") : "", order.confirmationSubmittedAt ? "success" : "");
   setTopupQrStep("transfer");
+  prepareModalOpen();
   if (els.topupDialog?.open) els.topupDialog.close();
   if (!els.topupQrDialog.open) els.topupQrDialog.showModal();
   syncTopupAutoRefresh();
@@ -4277,6 +4331,7 @@ function handleTopupBack() {
       return;
     }
     els.topupQrDialog.close();
+    prepareModalOpen();
     if (!els.topupDialog?.open) els.topupDialog?.showModal();
     setTopupStep("payment");
     setTopupMethod("usdt");

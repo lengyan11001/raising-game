@@ -57,9 +57,21 @@ function setAdvancedSideTab(tab = "assets", { silent = false, syncMobile = false
   refreshIcons();
 }
 
+function advancedAliyunReferenceImageLimit(capability = currentAdvancedVideoCapability()) {
+  if (capability === "wan27-i2v") return 2;
+  if (capability === "wan27-r2v") return 5;
+  if (capability === "wan27-video-edit") return 4;
+  if (capability === "happyhorse-r2v") return 9;
+  if (capability === "happyhorse-video-edit") return 5;
+  if (capability === "wan-legacy") return 5;
+  if (["wan27-t2v", "happyhorse-t2v"].includes(capability)) return 0;
+  return 1;
+}
+
 function advancedAssetTargetItems() {
   if (!advancedCreateModeAllowsManualReferenceUpload()) return [];
   const provider = currentAdvancedProvider();
+  const capability = currentAdvancedVideoCapability();
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
   const targets = [];
@@ -67,20 +79,38 @@ function advancedAssetTargetItems() {
     targets.push({ id: "sourceImages", label: t("advanced.assetTargetSourceImages"), type: "image" });
   } else if (provider === "seedream5-image") {
     targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
-  } else if (provider === "wan27") {
-    if (wanModeNeedsFirstFrame(wanMode)) targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
-    if (wanModeNeedsClip(wanMode)) targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
-    if (wanModeNeedsLastFrame(wanMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
-    if (wanModeNeedsAudio(wanMode)) targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
-  } else {
-    if (seedanceModeNeedsFirstFrame(seedanceMode)) {
-      targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+  } else if (provider === "wan27" || provider === "happyhorse") {
+    const legacyModel = String(els.advancedLegacyWanModel?.value || "");
+    const legacyT2v = capability === "wan-legacy" && legacyModel.includes("t2v");
+    const legacyR2v = capability === "wan-legacy" && legacyModel.includes("r2v");
+    const legacyEdit = capability === "wan-legacy" && legacyModel.includes("vace");
+    const needsPrimary = ["wan27-i2v", "wan-animate-move", "wan-animate-mix", "happyhorse-i2v"].includes(capability)
+      || (capability === "wan-legacy" && !legacyT2v && !legacyR2v && !legacyEdit);
+    const needsReferences = ["wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"].includes(capability)
+      || legacyR2v || legacyEdit;
+    const needsVideo = ["wan27-r2v", "wan27-video-edit", "wan-animate-move", "wan-animate-mix", "happyhorse-video-edit"].includes(capability)
+      || legacyR2v || legacyEdit;
+    if (needsPrimary) targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+    if (needsReferences) targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
+    if (needsVideo) targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
+    if (capability === "wan27-i2v") {
+      targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
+      targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
+    } else {
+      if (capability === "wan-legacy" && wanModeNeedsLastFrame(wanMode)) targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
+      if (capability === "wan-legacy" && wanModeNeedsAudio(wanMode)) targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
+    }
+  } else if (seedanceModeNeedsFirstFrame(seedanceMode)) {
+    targets.push({ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" });
+    if (seedanceModeNeedsLastFrame(seedanceMode)) {
       targets.push({ id: "lastFrame", label: t("advanced.assetTargetLastFrame"), type: "image" });
     }
+  } else {
     targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
     targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
     targets.push({ id: "audio", label: t("advanced.assetTargetAudio"), type: "audio" });
   }
+  if (["wan27-t2v", "happyhorse-t2v"].includes(capability) || (capability === "wan-legacy" && String(els.advancedLegacyWanModel?.value || "").includes("t2v"))) return [];
   return targets.length ? targets : [{ id: "primary", label: t("advanced.assetTargetPrimary"), type: "image" }];
 }
 
@@ -1016,7 +1046,21 @@ async function addAssetToAdvancedTarget(assetId = "") {
       state.advancedFirstFrameAssetId = "";
       state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || url;
     } else {
-      state.advancedReferenceImages = [stampAdvancedReferenceOrder({ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true })];
+      const ref = stampAdvancedReferenceOrder({ assetId: asset.id, dataUrl: url, fileName: asset.name || "", name: asset.name || "", fromLibrary: true });
+      if (currentAdvancedVideoCapability() === "wan27-i2v") {
+        const limit = advancedAliyunReferenceImageLimit("wan27-i2v");
+        state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, limit);
+        state.advancedFirstFrameAssetId = state.advancedReferenceImages[0]?.assetId || "";
+        state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+      } else if (target.id === "referenceImages") {
+        const limit = advancedAliyunReferenceImageLimit(currentAdvancedVideoCapability());
+        state.advancedReferenceImages = dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, limit);
+        state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+      } else {
+        state.advancedReferenceImages = [ref];
+        state.advancedFirstFrameAssetId = asset.id;
+        state.advancedUploadDataUrl = url;
+      }
     }
     if (els.advancedImage) els.advancedImage.value = "";
   } else if (target.id === "lastFrame") {
@@ -1045,6 +1089,7 @@ async function addAssetToAdvancedTarget(assetId = "") {
       state.advancedWanClipAssetId = asset.id;
       state.advancedWanClipDataUrl = "";
       state.advancedWanClipFileName = asset.name || "";
+      state.advancedWanClipDurationSeconds = Number(asset.durationSeconds || asset.duration || 0) || 0;
       state.advancedWanClipOrder = nextAdvancedReferenceOrder();
       if (els.advancedWanClipFile) els.advancedWanClipFile.value = "";
       if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = "";
@@ -1074,14 +1119,25 @@ async function addAssetToAdvancedTarget(assetId = "") {
 function updateAdvancedModelControls() {
   applyAdvancedCreateMode();
   const provider = currentAdvancedProvider();
+  syncAdvancedVideoCapabilityOptions();
+  const capability = currentAdvancedVideoCapability();
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "first_frame");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "text_to_video");
   const allowManualReferenceUpload = advancedCreateModeAllowsManualReferenceUpload();
-  const bounds = advancedDurationBounds(provider);
+  const bounds = advancedDurationBounds(provider, capability);
   const isImageEdit = provider === "wan27-image-edit";
   const isSeedreamImage = provider === "seedream5-image";
   const simpleEdit = advancedCreateModeIsSimpleEdit();
   const simpleAction = state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt();
+  const aliyunVideo = provider === "wan27" || provider === "happyhorse";
+  const animateCapability = ["wan-animate-move", "wan-animate-mix"].includes(capability);
+  const legacyModel = String(els.advancedLegacyWanModel?.value || "");
+  const legacyT2v = capability === "wan-legacy" && legacyModel.includes("t2v");
+  const capabilityNeedsPrimary = ["wan27-i2v", "wan-animate-move", "wan-animate-mix", "happyhorse-i2v"].includes(capability)
+    || (capability === "wan-legacy" && !legacyT2v && !legacyModel.includes("r2v") && !legacyModel.includes("vace"));
+  const capabilityNeedsVideo = ["wan27-r2v", "wan27-video-edit", "wan-animate-move", "wan-animate-mix", "happyhorse-video-edit"].includes(capability)
+    || (capability === "wan-legacy" && (legacyModel.includes("r2v") || legacyModel.includes("vace")));
+  const capabilityNeedsMedia = aliyunVideo && !["wan27-t2v", "happyhorse-t2v"].includes(capability) && !legacyT2v;
   if (els.advancedDuration) {
     els.advancedDuration.min = String(bounds.min);
     els.advancedDuration.max = String(bounds.max);
@@ -1095,6 +1151,7 @@ function updateAdvancedModelControls() {
     const current = normalizeAdvancedResolution(els.advancedResolution.value, provider);
     els.advancedResolution.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedResolution.value = options[0];
+    els.advancedResolution.closest(".field")?.toggleAttribute("hidden", animateCapability);
   }
   if (els.advancedSeedanceTier) {
     const active = provider === "seedance";
@@ -1115,14 +1172,29 @@ function updateAdvancedModelControls() {
     const current = normalizeVideoRatio(els.advancedRatio.value || "9:16");
     els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedRatio.value = isImageEdit ? "9:16" : "9:16";
-    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || simpleAction);
+    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || simpleAction || animateCapability);
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
-    item.hidden = simpleAction || simpleEdit || provider !== "wan27";
+    item.hidden = simpleAction || simpleEdit || !capabilityNeedsMedia;
+  });
+  if (els.advancedWanMediaPanel) {
+    const usesSharedReferenceUpload = ["wan27-i2v", "wan27-r2v", "wan27-video-edit", "happyhorse-i2v", "happyhorse-r2v", "happyhorse-video-edit"].includes(capability);
+    const hasDedicatedWanPanelSlot = capabilityNeedsPrimary || capabilityNeedsVideo
+      || ((capability === "wan27-i2v" || capability === "wan-legacy") && (wanModeNeedsLastFrame(wanMode) || wanModeNeedsAudio(wanMode) || wanModeNeedsClip(wanMode)));
+    els.advancedWanMediaPanel.hidden = simpleAction || simpleEdit || !aliyunVideo || usesSharedReferenceUpload || !hasDedicatedWanPanelSlot;
+  }
+  document.querySelectorAll(".advanced-legacy-model-field").forEach((item) => {
+    item.hidden = capability !== "wan-legacy";
+  });
+  document.querySelectorAll(".advanced-animate-mode-field").forEach((item) => {
+    item.hidden = !["wan-animate-move", "wan-animate-mix"].includes(capability);
   });
   document.querySelectorAll(".advanced-seedance-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || provider !== "seedance";
   });
+  if (els.advancedSeedanceMediaPanel) {
+    els.advancedSeedanceMediaPanel.hidden = simpleAction || simpleEdit || provider !== "seedance" || !seedanceModeNeedsFirstFrame(seedanceMode);
+  }
   document.querySelectorAll(".advanced-seedream5-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isSeedreamImage;
   });
@@ -1133,23 +1205,23 @@ function updateAdvancedModelControls() {
     item.hidden = simpleAction;
   });
   document.querySelectorAll(".advanced-duration-field").forEach((item) => {
-    item.hidden = isImageEdit || isSeedreamImage || simpleEdit;
+    item.hidden = isImageEdit || isSeedreamImage || simpleEdit || animateCapability;
   });
   document.querySelectorAll(".advanced-seedance-audio-field").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || provider !== "seedance";
   });
   syncAdvancedVideoSettingsControls();
   document.querySelectorAll(".wan-first-frame").forEach((item) => {
-    item.hidden = provider !== "wan27" || !wanModeNeedsFirstFrame(wanMode);
+    item.hidden = !capabilityNeedsPrimary || ((capability === "wan27-i2v" || capability === "wan-legacy") && !wanModeNeedsFirstFrame(wanMode));
   });
   document.querySelectorAll(".wan-last-frame").forEach((item) => {
-    item.hidden = provider !== "wan27" || !wanModeNeedsLastFrame(wanMode);
+    item.hidden = !(capability === "wan27-i2v" || capability === "wan-legacy") || !wanModeNeedsLastFrame(wanMode);
   });
   document.querySelectorAll(".wan-audio").forEach((item) => {
-    item.hidden = provider !== "wan27" || !wanModeNeedsAudio(wanMode);
+    item.hidden = !(capability === "wan27-i2v" || capability === "wan-legacy") || !wanModeNeedsAudio(wanMode);
   });
   document.querySelectorAll(".wan-clip").forEach((item) => {
-    item.hidden = provider !== "wan27" || !wanModeNeedsClip(wanMode);
+    item.hidden = !capabilityNeedsVideo && !((capability === "wan27-i2v" || capability === "wan-legacy") && wanModeNeedsClip(wanMode));
   });
   document.querySelectorAll(".seedance-last-frame").forEach((item) => {
     item.hidden = provider !== "seedance" || !seedanceModeNeedsLastFrame(seedanceMode);
@@ -1166,12 +1238,23 @@ function updateAdvancedModelControls() {
     const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
     const hidePresetUploadBox = !allowManualReferenceUpload;
     if (els.advancedImage) {
-      els.advancedImage.accept = advancedCreateUploadAcceptValue();
-      els.advancedImage.multiple = allowManualReferenceUpload && (provider === "seedance" || isSeedreamImage || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload()));
+      const aliyunTargetTypes = new Set(advancedAssetTargetItems().map((target) => target.type));
+      const aliyunAccept = [
+        aliyunTargetTypes.has("image") ? "image/*" : "",
+        aliyunTargetTypes.has("video") ? "video/mp4,video/webm,video/quicktime,video/*" : "",
+        aliyunTargetTypes.has("audio") ? "audio/*" : "",
+      ].filter(Boolean).join(",");
+      els.advancedImage.accept = aliyunVideo ? aliyunAccept : advancedCreateUploadAcceptValue();
+      els.advancedImage.multiple = allowManualReferenceUpload && ((provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode)) || isSeedreamImage || (aliyunVideo && advancedAliyunReferenceImageLimit(capability) > 1) || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload()));
     }
     const forceUpload = allowManualReferenceUpload && (simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload());
-    els.advancedUploadBox.hidden = hidePresetUploadBox || (provider !== "seedance" && !forceUpload && provider === "wan27" && !wanModeNeedsFirstFrame(wanMode));
-    els.advancedUploadBox.classList.toggle("is-wan", provider === "wan27");
+    const usesDedicatedFrameUpload = provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode);
+    const usesDedicatedAliyunUpload = ["wan-animate-move", "wan-animate-mix"].includes(capability);
+    els.advancedUploadBox.hidden = hidePresetUploadBox
+      || usesDedicatedFrameUpload
+      || usesDedicatedAliyunUpload
+      || (aliyunVideo && !capabilityNeedsMedia);
+    els.advancedUploadBox.classList.toggle("is-wan", aliyunVideo);
     els.advancedUploadBox.classList.toggle("is-seedance", provider === "seedance");
     els.advancedUploadBox.classList.toggle("is-seedream5", isSeedreamImage);
     els.advancedUploadBox.classList.toggle("is-image-edit", isImageEdit);
@@ -1181,8 +1264,8 @@ function updateAdvancedModelControls() {
       const imageEditLabel = t("advanced.assetTargetSourceImages");
       const videoEditLabel = t("advanced.assetTargetVideo");
       const seedanceLabel = t("advanced.uploadReference");
-      const uploadLabel = provider === "seedance" || provider === "wan27" || isSeedreamImage ? seedanceLabel : simpleEdit && isImageEdit ? imageEditLabel : simpleEdit && uploadIsVideo ? videoEditLabel : mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : seedanceLabel;
-      label.innerHTML = `<i data-lucide="${provider === "seedance" || provider === "wan27" || isSeedreamImage ? "plus" : uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(uploadLabel)}`;
+      const uploadLabel = provider === "seedance" || aliyunVideo || isSeedreamImage ? seedanceLabel : simpleEdit && isImageEdit ? imageEditLabel : simpleEdit && uploadIsVideo ? videoEditLabel : mixedUpload ? t("advanced.uploadImageVideo") : uploadIsVideo ? videoEditLabel : isImageEdit ? imageEditLabel : seedanceLabel;
+      label.innerHTML = `<i data-lucide="${provider === "seedance" || aliyunVideo || isSeedreamImage ? "plus" : uploadIsVideo ? "video" : "image-up"}"></i>${escapeHtml(uploadLabel)}`;
     }
     if (hidePresetUploadBox) els.advancedUploadBox.classList.remove("has-image");
   }
@@ -1211,7 +1294,12 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = 
   }
   updateAdvancedModelControls();
   els.advancedImage.accept = provider === "seedance" ? advancedCreateUploadAcceptValue() : "image/*";
-  els.advancedImage.multiple = !characterPresetUpload && (provider === "seedance" || provider === "seedream5-image" || (!advancedCreateModeUsesSingleUpload() && !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "")));
+  els.advancedImage.multiple = !characterPresetUpload && (
+    provider === "seedream5-image"
+    || (provider === "seedance"
+      ? !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "")
+      : !advancedCreateModeUsesSingleUpload())
+  );
   els.advancedImage.click();
 }
 
@@ -1298,7 +1386,17 @@ function fillAdvancedCase(item = {}) {
   state.advancedCreateMode = ADVANCED_CUSTOM_MODE.id;
   renderAdvancedCreateControls();
   state.activeAdvancedCaseId = item.id || "";
-  if (els.advancedProvider) els.advancedProvider.value = provider;
+  const restoredCapability = String(params.videoCapability || item.mediaMode || "").trim();
+  if (els.advancedProvider) {
+    els.advancedProvider.value = advancedEngineValue(provider, restoredCapability);
+    syncAdvancedVideoCapabilityOptions(restoredCapability);
+  }
+  if (els.advancedLegacyWanModel && restoredCapability === "wan-legacy") {
+    els.advancedLegacyWanModel.value = params.model || record.model || els.advancedLegacyWanModel.value;
+  }
+  if (els.advancedWanAnimateMode && ["wan-animate-move", "wan-animate-mix"].includes(restoredCapability)) {
+    els.advancedWanAnimateMode.value = params.animateMode || params.parameters?.mode || "wan-std";
+  }
   if (els.advancedPrompt) els.advancedPrompt.value = item.prompt || params.prompt || "";
   if (els.advancedRatio) els.advancedRatio.value = params.ratio || params.aspect_ratio || item.ratio || "9:16";
   if (els.advancedResolution) els.advancedResolution.value = params.resolution || item.resolution || "720p";
@@ -1355,6 +1453,7 @@ function clearAdvancedCreationInputs() {
   state.advancedWanClipDataUrl = "";
   state.advancedWanClipFileName = "";
   state.advancedWanClipAssetId = "";
+  state.advancedWanClipDurationSeconds = 0;
   state.advancedWanClipOrder = 0;
   state.advancedAudioAssetId = "";
   state.advancedAudioPreviewUrl = "";
@@ -1377,13 +1476,14 @@ function clearAdvancedCreationInputs() {
     els.advancedImage,
     els.advancedSeedanceFirstFrame,
     els.advancedSeedanceLastFrame,
+    els.advancedWanFirstFrame,
     els.advancedWanLastFrame,
     els.advancedWanClipFile,
   ].forEach((input) => {
     if (input) input.value = "";
   });
   [
-    [els.advancedWanFirstFramePreview, els.advancedImage],
+    [els.advancedWanFirstFramePreview, els.advancedWanFirstFrame],
     [els.advancedSeedanceFirstFramePreview, els.advancedSeedanceFirstFrame],
     [els.advancedSeedanceLastFramePreview, els.advancedSeedanceLastFrame],
     [els.advancedWanLastFramePreview, els.advancedWanLastFrame],
@@ -1600,12 +1700,19 @@ async function submitAdvancedGenerate() {
     }
     return;
   }
-  const bounds = advancedDurationBounds(provider);
+  const videoCapability = currentAdvancedVideoCapability();
+  const bounds = advancedDurationBounds(provider, videoCapability);
   const duration = Math.min(bounds.max, Math.max(bounds.min, Number(els.advancedDuration?.value || bounds.fallback)));
   const resolution = currentAdvancedResolution();
+  const legacyWanModel = videoCapability === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "").trim() : "";
+  const wanAnimateMode = ["wan-animate-move", "wan-animate-mix"].includes(videoCapability)
+    ? String(els.advancedWanAnimateMode?.value || "wan-std")
+    : "";
   const preprocessReference = false;
   const rawWanMediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
-  const mediaMode = provider === "wan27" ? resolvedWanSubmitMediaMode(rawWanMediaMode) : rawWanMediaMode;
+  const mediaMode = provider === "wan27" && (videoCapability === "wan27-i2v" || videoCapability === "wan-legacy")
+    ? resolvedWanSubmitMediaMode(rawWanMediaMode)
+    : videoCapability;
   const rawSeedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
   const presetReferenceImages = usingPresetFlow && provider === "seedance" ? advancedPresetReferenceImages() : [];
   const presetReferenceMode = provider === "seedance"
@@ -1623,6 +1730,20 @@ async function submitAdvancedGenerate() {
         ...(Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []),
       ]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT)
     : selectedAdvancedReferenceImages();
+  const isWanI2v = provider === "wan27" && videoCapability === "wan27-i2v";
+  const wanI2vFrames = isWanI2v
+    ? resolvedWanI2vFrames(referenceImages)
+    : { first: referenceImages[0] || null, last: null };
+  const wanFirstFrameReference = wanI2vFrames.first;
+  const wanLastFrameReference = wanI2vFrames.last;
+  const wanFirstFrameAssetId = isWanI2v
+    ? (wanFirstFrameReference?.assetId || "")
+    : (state.advancedFirstFrameAssetId || wanFirstFrameReference?.assetId || "");
+  const wanLastFrameAssetId = state.advancedWanLastFrameAssetId || wanLastFrameReference?.assetId || "";
+  const wanFirstFrameSource = isWanI2v
+    ? (wanFirstFrameReference?.dataUrl || wanFirstFrameReference?.url || "")
+    : (wanFirstFrameReference?.dataUrl || wanFirstFrameReference?.url || state.advancedUploadDataUrl || "");
+  const wanLastFrameSource = state.advancedWanLastFrameDataUrl || wanLastFrameReference?.dataUrl || wanLastFrameReference?.url || "";
   const caseVideoUrl = provider === "seedance" && advancedCreateModeNeedsReplacePair()
     ? absoluteHttpUrl(advancedCaseInputVideo(currentCase || {}))
     : "";
@@ -1641,7 +1762,14 @@ async function submitAdvancedGenerate() {
   const seedanceAudioUrls = seedanceFrameMode ? [] : [...seedanceAudioRefUrls, ...splitUrlList(els.advancedSeedanceAudioUrls?.value || "")];
   const seedanceGenerateAudio = provider === "seedance" ? advancedBoolFromValue(els.advancedSeedanceGenerateAudio?.value, true) : true;
   if (provider === "seedance") state.advancedSeedanceGenerateAudio = seedanceGenerateAudio;
-  const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0;
+  const selectedClipAsset = state.advancedWanClipAssetId
+    ? [...(state.advancedAssets || []), ...(state.userAssets || [])].find((asset) => asset.id === state.advancedWanClipAssetId)
+    : null;
+  const aliyunInputVideoSeconds = positiveDurationSeconds(
+    state.advancedWanClipDurationSeconds || selectedClipAsset?.durationSeconds || selectedClipAsset?.duration,
+    state.advancedWanClipAssetId || state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim() ? duration : 0,
+  );
+  const inputVideoSeconds = provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : aliyunInputVideoSeconds;
   const seedanceFirstFrameAssetId = state.advancedSeedanceFirstFrameAssetId || state.advancedFirstFrameAssetId || "";
   const seedanceFirstFrameData = state.advancedSeedanceFirstFrameDataUrl || "";
   if (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameData && !seedanceFirstFrameAssetId) {
@@ -1664,23 +1792,42 @@ async function submitAdvancedGenerate() {
     if (els.advancedNote) els.advancedNote.textContent = `${advancedProviderLabel(provider)} Fast does not support ${resolution === "4k" ? "4K" : "1080p"}.`;
     return;
   }
-  if (provider === "wan27") {
-    if (wanModeNeedsFirstFrame(mediaMode) && !state.advancedUploadDataUrl && !state.advancedFirstFrameAssetId) {
+  if (provider === "wan27" || provider === "happyhorse") {
+    const usesWanFrameModes = provider === "wan27" && (videoCapability === "wan27-i2v" || videoCapability === "wan-legacy");
+    const hasPrimaryImage = Boolean(wanFirstFrameSource || wanFirstFrameAssetId || referenceImages[0]);
+    const hasReferenceImages = referenceImages.length > 0;
+    const hasVideo = Boolean(state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim() || state.advancedWanClipAssetId);
+    if (["happyhorse-i2v", "wan-animate-move", "wan-animate-mix"].includes(videoCapability) && !hasPrimaryImage) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Image is required.";
+      return;
+    }
+    if (["wan27-r2v", "happyhorse-r2v"].includes(videoCapability) && !hasReferenceImages && !hasVideo) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Reference media is required.";
+      return;
+    }
+    if (["wan27-video-edit", "happyhorse-video-edit", "wan-animate-move", "wan-animate-mix"].includes(videoCapability) && !hasVideo) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Source video is required.";
+      return;
+    }
+    if (usesWanFrameModes && wanModeNeedsFirstFrame(mediaMode) && !wanFirstFrameSource && !wanFirstFrameAssetId) {
       els.advancedSubmitBtn.disabled = false;
       if (els.advancedNote) els.advancedNote.textContent = "First frame image is required.";
       return;
     }
-    if (wanModeNeedsLastFrame(mediaMode) && !state.advancedWanLastFrameDataUrl && !state.advancedWanLastFrameAssetId) {
+    if (usesWanFrameModes && wanModeNeedsLastFrame(mediaMode) && !wanLastFrameSource && !wanLastFrameAssetId) {
       els.advancedSubmitBtn.disabled = false;
       if (els.advancedNote) els.advancedNote.textContent = "Last frame image is required.";
       return;
     }
-    if (wanModeNeedsAudio(mediaMode) && !String(els.advancedWanAudioUrl?.value || "").trim() && !state.advancedAudioAssetId) {
+    if (usesWanFrameModes && wanModeNeedsAudio(mediaMode) && !state.advancedAudioAssetId) {
       els.advancedSubmitBtn.disabled = false;
-      if (els.advancedNote) els.advancedNote.textContent = "Driving audio URL is required.";
+      if (els.advancedNote) els.advancedNote.textContent = "Audio is required.";
       return;
     }
-    if (wanModeNeedsClip(mediaMode) && !state.advancedWanClipDataUrl && !String(els.advancedWanClipUrl?.value || "").trim() && !state.advancedWanClipAssetId) {
+    if (usesWanFrameModes && wanModeNeedsClip(mediaMode) && !state.advancedWanClipDataUrl && !state.advancedWanClipAssetId) {
       els.advancedSubmitBtn.disabled = false;
       if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipRequired");
       return;
@@ -1699,6 +1846,7 @@ async function submitAdvancedGenerate() {
         state.advancedWanLastFrameAssetId,
         state.advancedWanClipAssetId,
         state.advancedAudioAssetId,
+        ...referenceImages.map((item) => item.assetId || ""),
       ];
   const referencesReady = await guardAdvancedSubmitAssets(submitAssetIds);
   if (!referencesReady) {
@@ -1719,7 +1867,7 @@ async function submitAdvancedGenerate() {
     status: "submitting",
     model: advancedProviderLabel(provider),
     provider,
-    source: provider === "seedance" ? "advanced-seedance" : "advanced-wan27",
+    source: provider === "seedance" ? "advanced-seedance" : provider === "happyhorse" ? "advanced-happyhorse" : `advanced-${videoCapability || "wan27"}`,
     kind: "advanced-video",
     prompt,
     presets: advancedPresetSelection,
@@ -1727,6 +1875,9 @@ async function submitAdvancedGenerate() {
       createKind: state.advancedCreateKind,
       createMode: state.advancedCreateMode,
       presets: advancedPresetSelection,
+      videoCapability: videoCapability || undefined,
+      model: legacyWanModel || undefined,
+      animateMode: wanAnimateMode || undefined,
       ...(provider === "seedance" ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
     },
     ratio: els.advancedRatio?.value || "9:16",
@@ -1740,57 +1891,77 @@ async function submitAdvancedGenerate() {
   renderAdvancedResultPanel();
   if (els.advancedNote) els.advancedNote.textContent = "";
   try {
-    const firstFrameSource = provider === "seedance" ? state.advancedSeedanceFirstFrameDataUrl : state.advancedUploadDataUrl;
+    const firstFrameSource = provider === "seedance" ? state.advancedSeedanceFirstFrameDataUrl : wanFirstFrameSource;
     const firstFrameDataUrl = dataUrlValue(firstFrameSource);
     const firstFrameUrl = absoluteHttpUrl(firstFrameSource);
     const seedanceLastFrameDataUrl = dataUrlValue(state.advancedSeedanceLastFrameDataUrl);
     const seedanceLastFrameUrl = absoluteHttpUrl(state.advancedSeedanceLastFrameDataUrl);
-    const wanLastFrameDataUrl = dataUrlValue(state.advancedWanLastFrameDataUrl);
-    const wanLastFrameUrl = absoluteHttpUrl(state.advancedWanLastFrameDataUrl);
-    const wanClipDataUrl = dataUrlValue(selectedWanClipData(mediaMode));
-    const wanClipUrl = selectedWanClipUrl(mediaMode) || absoluteHttpUrl(selectedWanClipData(mediaMode));
+    const wanLastFrameDataUrl = dataUrlValue(wanLastFrameSource);
+    const wanLastFrameUrl = absoluteHttpUrl(wanLastFrameSource);
+    const capabilityUsesVideo = [
+      "wan27-r2v", "wan27-video-edit", "wan-animate-move", "wan-animate-mix", "happyhorse-video-edit",
+    ].includes(videoCapability) || (videoCapability === "wan-legacy" && /r2v|vace/.test(legacyWanModel));
+    const wanClipSource = capabilityUsesVideo ? state.advancedWanClipDataUrl : selectedWanClipData(mediaMode);
+    const wanClipDataUrl = dataUrlValue(wanClipSource);
+    const wanClipUrl = capabilityUsesVideo
+      ? (String(els.advancedWanClipUrl?.value || "").trim() || absoluteHttpUrl(wanClipSource))
+      : (selectedWanClipUrl(mediaMode) || absoluteHttpUrl(wanClipSource));
+    const wanClipFileName = capabilityUsesVideo ? state.advancedWanClipFileName : selectedWanClipFileName(mediaMode);
+    const aliyunPrimaryCapabilities = new Set(["wan27-i2v", "happyhorse-i2v", "wan-animate-move", "wan-animate-mix"]);
+    const usesAliyunPrimaryImage = aliyunPrimaryCapabilities.has(videoCapability)
+      || (videoCapability === "wan-legacy" && !/t2v|r2v|vace/.test(legacyWanModel));
+    const aliyunReferenceCapabilities = new Set(["wan27-r2v", "wan27-video-edit", "happyhorse-r2v", "happyhorse-video-edit"]);
+    const aliyunReferenceImages = aliyunReferenceCapabilities.has(videoCapability)
+      ? referenceImages.map(seedanceImageRefPayload)
+      : undefined;
     const payload = await requestJson("/api/advanced/generate", {
       method: "POST",
       body: {
         caseId: state.activeAdvancedCaseId,
         provider,
+        videoCapability: videoCapability || undefined,
+        model: legacyWanModel || undefined,
+        animateMode: wanAnimateMode || undefined,
         seedanceTier: provider === "seedance" ? seedanceTier : undefined,
         prompt,
         generateAudio: provider === "seedance" ? seedanceGenerateAudio : undefined,
         generate_audio: provider === "seedance" ? seedanceGenerateAudio : undefined,
-        dataUrl: provider === "wan27" && !state.advancedFirstFrameAssetId ? firstFrameDataUrl : undefined,
+        dataUrl: usesAliyunPrimaryImage && !wanFirstFrameAssetId ? firstFrameDataUrl : undefined,
         seedanceMode: provider === "seedance" ? seedanceMode : undefined,
         imageAssetId: provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) ? seedanceFirstFrameAssetId : undefined,
-        firstFrameAssetId: provider === "wan27" ? (state.advancedFirstFrameAssetId || "") : provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) ? seedanceFirstFrameAssetId : undefined,
-        firstFrameDataUrl: (provider === "wan27" && !state.advancedFirstFrameAssetId) || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId) ? firstFrameDataUrl : undefined,
-        firstFrameUrl: (provider === "wan27" && !state.advancedFirstFrameAssetId) || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId) ? firstFrameUrl : undefined,
+        firstFrameAssetId: usesAliyunPrimaryImage ? wanFirstFrameAssetId : provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) ? seedanceFirstFrameAssetId : undefined,
+        firstFrameDataUrl: (usesAliyunPrimaryImage && !wanFirstFrameAssetId) || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId) ? firstFrameDataUrl : undefined,
+        firstFrameUrl: (usesAliyunPrimaryImage && !wanFirstFrameAssetId) || (provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId) ? firstFrameUrl : undefined,
         imageUrl: provider === "seedance" && seedanceModeNeedsFirstFrame(seedanceMode) && !seedanceFirstFrameAssetId ? firstFrameUrl : undefined,
         endImageAssetId: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : undefined,
-        lastFrameAssetId: provider === "wan27" ? (state.advancedWanLastFrameAssetId || "") : provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : "",
+        lastFrameAssetId: provider === "wan27" ? wanLastFrameAssetId : provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) ? (state.advancedSeedanceLastFrameAssetId || "") : "",
         endImageDataUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameDataUrl : undefined,
         endImageUrl: provider === "seedance" && seedanceModeNeedsLastFrame(seedanceMode) && !state.advancedSeedanceLastFrameAssetId ? seedanceLastFrameUrl : undefined,
         referenceImages: provider === "seedance" && !seedanceFrameMode
           ? referenceImages.map(seedanceImageRefPayload)
-          : undefined,
+          : aliyunReferenceImages,
         referenceVideoAssetId: provider === "seedance" && !seedanceFrameMode ? (seedanceVideoAssetIds[0] || "") : undefined,
         referenceVideoAssetIds: provider === "seedance" && !seedanceFrameMode ? seedanceVideoAssetIds : undefined,
         referenceAudioAssetId: provider === "seedance" && !seedanceFrameMode ? (seedanceAudioAssetIds[0] || "") : undefined,
         referenceAudioAssetIds: provider === "seedance" && !seedanceFrameMode ? seedanceAudioAssetIds : undefined,
         referenceVideoUrls: provider === "seedance" && !seedanceFrameMode ? effectiveSeedanceVideoUrls : undefined,
-        inputVideoSeconds: provider === "seedance" && !seedanceFrameMode ? inputVideoSeconds : undefined,
         referenceVideoDurationSeconds: provider === "seedance" && !seedanceFrameMode ? inputVideoSeconds : undefined,
         referenceAudioUrls: provider === "seedance" && !seedanceFrameMode ? seedanceAudioUrls : undefined,
-        lastFrameDataUrl: !state.advancedWanLastFrameAssetId ? wanLastFrameDataUrl : "",
-        lastFrameUrl: !state.advancedWanLastFrameAssetId ? wanLastFrameUrl : "",
-        drivingAudioUrl: els.advancedWanAudioUrl?.value.trim() || "",
-        drivingAudioAssetId: provider === "wan27" ? (state.advancedAudioAssetId || "") : undefined,
+        videoAssetId: provider === "wan27" || provider === "happyhorse" ? (state.advancedWanClipAssetId || "") : undefined,
+        videoDataUrl: provider === "wan27" || provider === "happyhorse" ? wanClipDataUrl : undefined,
+        videoUrl: provider === "wan27" || provider === "happyhorse" ? wanClipUrl : undefined,
+        videoFileName: provider === "wan27" || provider === "happyhorse" ? wanClipFileName : undefined,
+        inputVideoSeconds: provider === "wan27" || provider === "happyhorse" ? inputVideoSeconds : provider === "seedance" && !seedanceFrameMode ? inputVideoSeconds : undefined,
+        lastFrameDataUrl: !wanLastFrameAssetId ? wanLastFrameDataUrl : "",
+        lastFrameUrl: !wanLastFrameAssetId ? wanLastFrameUrl : "",
+        drivingAudioAssetId: provider === "wan27" && wanModeNeedsAudio(mediaMode) ? (state.advancedAudioAssetId || "") : undefined,
         firstClipDataUrl: wanClipDataUrl,
         firstClipFileName: selectedWanClipFileName(mediaMode),
         firstClipAssetId: provider === "wan27" ? (state.advancedWanClipAssetId || "") : undefined,
         firstClipUrl: wanClipUrl,
         mediaMode,
         fileName: referenceImages[0]?.fileName || els.advancedImage?.files?.[0]?.name || "",
-        lastFrameFileName: els.advancedWanLastFrame?.files?.[0]?.name || "",
+        lastFrameFileName: wanLastFrameReference?.fileName || els.advancedWanLastFrame?.files?.[0]?.name || "",
         ratio: els.advancedRatio?.value || "9:16",
         resolution: els.advancedResolution?.value || "720p",
         duration,
@@ -1800,6 +1971,10 @@ async function submitAdvancedGenerate() {
           createKind: state.advancedCreateKind,
           createMode: state.advancedCreateMode,
           presets: advancedPresetSelection,
+          videoCapability: videoCapability || undefined,
+          model: legacyWanModel || undefined,
+          animateMode: wanAnimateMode || undefined,
+          parameters: wanAnimateMode ? { mode: wanAnimateMode } : undefined,
           ...(provider === "seedance" ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
         },
       },
@@ -1810,7 +1985,7 @@ async function submitAdvancedGenerate() {
       taskId,
       status: payload.task?.status || "submitted",
       provider,
-      source: provider === "seedance" ? "advanced-seedance" : "advanced-wan27",
+      source: provider === "seedance" ? "advanced-seedance" : provider === "happyhorse" ? "advanced-happyhorse" : `advanced-${videoCapability || "wan27"}`,
       kind: "advanced-video",
       prompt,
       presets: advancedPresetSelection,
@@ -1818,6 +1993,9 @@ async function submitAdvancedGenerate() {
         createKind: state.advancedCreateKind,
         createMode: state.advancedCreateMode,
         presets: advancedPresetSelection,
+        videoCapability: videoCapability || undefined,
+        model: legacyWanModel || undefined,
+        animateMode: wanAnimateMode || undefined,
         ...(provider === "seedance" ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
       },
       ratio: els.advancedRatio?.value || "9:16",
@@ -2184,7 +2362,17 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
   clearAdvancedCreationInputs();
   if (restoredPresetFlow) hydrateAdvancedPresetsFromParams(params);
   state.activeAdvancedCaseId = "";
-  if (els.advancedProvider) els.advancedProvider.value = provider;
+  const restoredCapability = String(params.videoCapability || record.mediaMode || "").trim();
+  if (els.advancedProvider) {
+    els.advancedProvider.value = advancedEngineValue(provider, restoredCapability);
+    syncAdvancedVideoCapabilityOptions(restoredCapability);
+  }
+  if (els.advancedLegacyWanModel && restoredCapability === "wan-legacy") {
+    els.advancedLegacyWanModel.value = params.model || record.model || els.advancedLegacyWanModel.value;
+  }
+  if (els.advancedWanAnimateMode && ["wan-animate-move", "wan-animate-mix"].includes(restoredCapability)) {
+    els.advancedWanAnimateMode.value = params.animateMode || params.parameters?.mode || "wan-std";
+  }
   if (els.advancedPrompt) {
     const rawPrompt = record.finalPrompt || record.prompt || params.prompt || "";
     els.advancedPrompt.value = restoredPresetFlow ? promptWithoutPresetParts(rawPrompt, params) : rawPrompt;
@@ -2233,10 +2421,11 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
       order: advancedReferenceOrderValue(item),
     })));
     if (els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = firstVideo.assetId ? "" : firstVideo.url || "";
-  } else if (provider === "wan27" && firstVideo) {
+  } else if ((provider === "wan27" || provider === "happyhorse") && firstVideo) {
     state.advancedWanClipAssetId = firstVideo.assetId || "";
     state.advancedWanClipDataUrl = firstVideo.assetId ? "" : firstVideo.url || "";
     state.advancedWanClipFileName = firstVideo.fileName || firstVideo.name || "";
+    state.advancedWanClipDurationSeconds = Number(firstVideo.durationSeconds || firstVideo.duration || 0) || 0;
     state.advancedWanClipOrder = advancedReferenceOrderValue(firstVideo);
     if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = firstVideo.assetId ? "" : firstVideo.url || "";
   }
@@ -2777,12 +2966,22 @@ function selectedWanClipUrl(mediaMode = "first_frame") {
   return wanModeNeedsClip(mediaMode) && !state.advancedWanClipAssetId ? (els.advancedWanClipUrl?.value.trim() || "") : "";
 }
 
+function resolvedWanI2vFrames(images = selectedAdvancedReferenceImages("wan27")) {
+  const references = Array.isArray(images) ? images : [];
+  const hasClip = Boolean(state.advancedWanClipAssetId || state.advancedWanClipDataUrl);
+  return {
+    first: hasClip ? null : (references[0] || null),
+    last: hasClip ? (references[0] || null) : (references[1] || null),
+  };
+}
+
 function resolvedWanSubmitMediaMode(rawMode = "first_frame") {
   const mode = normalizeWanMediaMode(rawMode);
   if (mode !== "multimodal") return mode;
-  const hasClip = Boolean(state.advancedWanClipAssetId || state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim());
-  const hasAudio = Boolean(state.advancedAudioAssetId || String(els.advancedWanAudioUrl?.value || "").trim());
-  const hasLast = Boolean(state.advancedWanLastFrameAssetId || state.advancedWanLastFrameDataUrl);
+  const frames = resolvedWanI2vFrames();
+  const hasClip = Boolean(state.advancedWanClipAssetId || state.advancedWanClipDataUrl);
+  const hasAudio = Boolean(state.advancedAudioAssetId);
+  const hasLast = Boolean(state.advancedWanLastFrameAssetId || state.advancedWanLastFrameDataUrl || frames.last);
   if (hasClip) return hasLast ? "first_clip_last_frame" : "first_clip";
   if (hasAudio) return hasLast ? "first_last_frame_audio" : "first_frame_audio";
   return hasLast ? "first_last_frame" : "first_frame";
@@ -2793,6 +2992,7 @@ function selectedAdvancedReferenceImages(provider = currentAdvancedProvider()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "wan27-image-edit") return images.slice(0, advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT);
   if (normalizedProvider === "seedream5-image") return images.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+  if (["wan27", "happyhorse"].includes(normalizedProvider)) return images.slice(0, advancedAliyunReferenceImageLimit());
   if (normalizedProvider !== "seedance") return images.slice(0, 1);
   return images;
 }
@@ -2858,6 +3058,14 @@ function removeAdvancedMediaSlot(slot = "") {
     els.advancedSeedanceLastFramePreview?.removeAttribute("src");
     els.advancedSeedanceLastFramePreview?.classList.remove("is-visible");
     els.advancedSeedanceLastFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
+  } else if (slot === "wanFirstFrame") {
+    state.advancedReferenceImages = [];
+    state.advancedUploadDataUrl = "";
+    state.advancedFirstFrameAssetId = "";
+    if (els.advancedWanFirstFrame) els.advancedWanFirstFrame.value = "";
+    els.advancedWanFirstFramePreview?.removeAttribute("src");
+    els.advancedWanFirstFramePreview?.classList.remove("is-visible");
+    els.advancedWanFirstFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
   } else if (slot === "wanLastFrame") {
     state.advancedWanLastFrameAssetId = "";
     state.advancedWanLastFrameDataUrl = "";
@@ -2869,6 +3077,7 @@ function removeAdvancedMediaSlot(slot = "") {
     state.advancedWanClipAssetId = "";
     state.advancedWanClipDataUrl = "";
     state.advancedWanClipFileName = "";
+    state.advancedWanClipDurationSeconds = 0;
     state.advancedWanClipOrder = 0;
     if (els.advancedWanClipFile) els.advancedWanClipFile.value = "";
     if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = "";
@@ -2892,12 +3101,13 @@ function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
   const pendingRefs = advancedPendingReferences(provider);
   const seedanceVideos = provider === "seedance" ? advancedSeedanceVideoReferences() : [];
   const seedanceAudios = provider === "seedance" ? advancedSeedanceAudioReferences() : [];
-  const wanClipUrl = provider === "wan27"
+  const aliyunVideo = provider === "wan27" || provider === "happyhorse";
+  const wanClipUrl = aliyunVideo
     ? (state.advancedWanClipDataUrl || (state.advancedWanClipAssetId
       ? assetPreviewUrl((state.advancedAssets || []).find((asset) => asset.id === state.advancedWanClipAssetId) || (state.userAssets || []).find((asset) => asset.id === state.advancedWanClipAssetId) || {})
       : "") || String(els.advancedWanClipUrl?.value || "").trim())
     : "";
-  const wanAudioUrl = provider === "wan27"
+  const wanAudioUrl = aliyunVideo
     ? (state.advancedAudioPreviewUrl || (state.advancedAudioAssetId
       ? assetPreviewUrl((state.advancedAssets || []).find((asset) => asset.id === state.advancedAudioAssetId) || (state.userAssets || []).find((asset) => asset.id === state.advancedAudioAssetId) || {})
       : "") || String(els.advancedWanAudioUrl?.value || "").trim())
@@ -2911,10 +3121,10 @@ function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
     item,
     order: advancedReferenceOrderValue(item, index + 1),
   }));
-  const videoSource = provider === "wan27" && wanClipUrl
+  const videoSource = aliyunVideo && wanClipUrl
     ? [{ url: wanClipUrl, previewUrl: wanClipUrl, name: state.advancedWanClipFileName || "Video reference", order: state.advancedWanClipOrder || advancedReferenceOrderValue(images[0], images.length + 1) + 1 }]
     : seedanceVideos;
-  const audioSource = provider === "wan27" && (state.advancedAudioAssetId || wanAudioUrl)
+  const audioSource = aliyunVideo && (state.advancedAudioAssetId || wanAudioUrl)
     ? [{ assetId: state.advancedAudioAssetId || "", url: wanAudioUrl, previewUrl: wanAudioUrl, name: state.advancedAudioFileName || "Audio reference", order: state.advancedAudioOrder || advancedReferenceOrderValue(images[0], images.length + 2) + 1 }]
     : seedanceAudios;
   const displayVideos = [...videoSource, ...pendingRefs.filter((item) => item.kind === "video")]
@@ -3279,12 +3489,14 @@ function renderAdvancedReferencePreviews() {
   if (els.advancedPromptMentions && !els.advancedPromptMentions.hidden) renderAdvancedPromptMentionMenu();
   if (els.advancedWanFirstFramePreview) {
     const firstFrame = images[0]?.dataUrl || state.advancedUploadDataUrl || "";
-    if ((provider === "wan27" || provider === "wan27-image-edit") && firstFrame) {
+    if ((provider === "wan27" || provider === "happyhorse" || provider === "wan27-image-edit") && firstFrame) {
       els.advancedWanFirstFramePreview.src = firstFrame;
       els.advancedWanFirstFramePreview.classList.add("is-visible");
+      els.advancedWanFirstFrame?.closest(".wan-frame-upload")?.classList.add("has-image");
     } else {
       els.advancedWanFirstFramePreview.removeAttribute("src");
       els.advancedWanFirstFramePreview.classList.remove("is-visible");
+      els.advancedWanFirstFrame?.closest(".wan-frame-upload")?.classList.remove("has-image");
     }
   }
   if (els.advancedSeedanceFirstFramePreview) {
@@ -3573,8 +3785,54 @@ async function submitTemplate() {
   setAdvancedSideTab("assets");
 }
 
+function isMobileHistoryLayout() {
+  return window.matchMedia("(max-width: 720px)").matches;
+}
+
+function disconnectHistoryLoadMoreObserver() {
+  if (historyLoadMoreObserver) historyLoadMoreObserver.disconnect();
+  historyLoadMoreObserver = null;
+}
+
+function mergeHistoryRecordPages(primary = [], secondary = []) {
+  const seen = new Set();
+  return [...primary, ...secondary].filter((record, index) => {
+    const key = String(record?.taskId || record?.id || `${record?.createdAt || ""}-${index}`);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function setupHistoryInfiniteScroll() {
+  disconnectHistoryLoadMoreObserver();
+  if (!isMobileHistoryLayout() || state.tab !== "history" || !state.user) return;
+  if (Number(state.historyRecordsPage || 1) >= Number(state.historyRecordsTotalPages || 1)) return;
+  const sentinel = els.historyList?.querySelector("[data-history-load-more]");
+  if (!sentinel || !("IntersectionObserver" in window)) return;
+  historyLoadMoreObserver = new IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting) || historyLoading || historyRefreshInFlight) return;
+    disconnectHistoryLoadMoreObserver();
+    sentinel.classList.add("is-loading");
+    loadHistory({
+      silent: true,
+      append: true,
+      page: Number(state.historyRecordsPage || 1) + 1,
+    }).finally(() => {
+      if (state.tab === "history" && document.contains(sentinel)) setupHistoryInfiniteScroll();
+    });
+  }, { rootMargin: "360px 0px", threshold: 0.01 });
+  historyLoadMoreObserver.observe(sentinel);
+}
+
 function renderHistory(records = []) {
   if (!els.historyList) return;
+  disconnectHistoryLoadMoreObserver();
+  const mobileLayout = isMobileHistoryLayout();
+  if (els.historyPager) {
+    els.historyPager.hidden = mobileLayout;
+    if (mobileLayout) els.historyPager.innerHTML = "";
+  }
   const sortedRecords = [...records].sort((left, right) => new Date(right.createdAt || right.updatedAt || 0) - new Date(left.createdAt || left.updatedAt || 0));
   const expiryNotice = `
     <div class="history-expiry-note">
@@ -3598,15 +3856,20 @@ function renderHistory(records = []) {
   }
   if (!sortedRecords.length) {
     els.historyList.innerHTML = `${expiryNotice}<div class="history-empty-card"><strong>${escapeHtml(t("history.emptyTitle"))}</strong><p>${escapeHtml(t("history.emptyDesc"))}</p></div>`;
-    renderSimplePager(els.historyPager, {
-      page: state.historyRecordsPage,
-      totalPages: state.historyRecordsTotalPages,
-      total: state.historyRecordsTotal,
-    }, (page) => loadHistory({ page }), { jump: true });
+    if (!mobileLayout) {
+      renderSimplePager(els.historyPager, {
+        page: state.historyRecordsPage,
+        totalPages: state.historyRecordsTotalPages,
+        total: state.historyRecordsTotal,
+      }, (page) => loadHistory({ page }), { jump: true });
+    }
     refreshIcons();
     return;
   }
   state.historyRecords = sortedRecords;
+  const loadMoreHtml = mobileLayout && Number(state.historyRecordsPage || 1) < Number(state.historyRecordsTotalPages || 1)
+    ? `<div class="history-load-sentinel" data-history-load-more><i data-lucide="loader-circle"></i></div>`
+    : "";
   els.historyList.innerHTML = `${expiryNotice}${sortedRecords.map((record, index) => {
     const videoUrl = generationVideoUrl(record);
     const imageResultUrl = generationImageResultUrl(record);
@@ -3617,6 +3880,44 @@ function renderHistory(records = []) {
     const mediaStyle = ratioStyle(recordRatio);
     const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
     const canDownload = canDownloadGenerationRecord(record);
+    const regenerateAction = taskId ? `
+      <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
+        <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
+      </button>
+    ` : "";
+    const resultActions = taskId && (videoUrl || imageResultUrl) ? `
+      ${canDownload ? `
+        <button class="history-download history-download-file" type="button" data-history-download="${escapeHtml(String(index))}">
+          <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
+        </button>
+      ` : ""}
+      <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
+        <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
+      </button>
+    ` : "";
+    const videoActions = taskId && videoUrl ? `
+      <button class="history-download history-extend" type="button" data-history-extend="${escapeHtml(taskId)}">
+        <i data-lucide="stretch-horizontal"></i>${escapeHtml(t("assets.extend"))}
+      </button>
+      <button class="history-download history-replace" type="button" data-history-replace="${escapeHtml(taskId)}">
+        <i data-lucide="replace"></i>${escapeHtml(t("assets.replace"))}
+      </button>
+      <button class="history-download history-frame" type="button" data-history-frame="${escapeHtml(taskId)}">
+        <i data-lucide="scan-line"></i>${escapeHtml(t("assets.extractFrame"))}
+      </button>
+    ` : "";
+    const detailAction = `
+      <button class="history-download history-params" type="button" data-history-detail="${index}">
+        <i data-lucide="sliders-horizontal"></i>${escapeHtml(t("history.viewParameters"))}
+      </button>
+    `;
+    const deleteAction = taskId ? `
+      <button class="history-download history-delete" type="button" data-history-delete="${escapeHtml(taskId)}">
+        <i data-lucide="trash-2"></i>${escapeHtml(t("history.delete"))}
+      </button>
+    ` : "";
+    const primaryActions = `${regenerateAction}${resultActions}${videoActions}`;
+    const allActions = `${primaryActions}${detailAction}${deleteAction}`;
     return `
       <article class="history-item is-${escapeHtml(statusClass(record.status))}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">
@@ -3626,49 +3927,25 @@ function renderHistory(records = []) {
               <i data-lucide="play"></i>
             </button>
             <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
-          ` : imageResultUrl ? `<img class="history-result-image" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
+          ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
         <div class="history-card-actions">
           <div class="history-record-actions${taskId || videoUrl ? "" : " history-record-actions-empty"}">
-            ${taskId ? `
-              <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
-                <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
-              </button>
-            ` : ""}
-            ${taskId && (videoUrl || imageResultUrl) ? `
-              ${canDownload ? `
-                <button class="history-download history-download-file" type="button" data-history-download="${escapeHtml(String(index))}">
-                  <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
-                </button>
-              ` : ""}
-              <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
-                <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
-              </button>
-            ` : ""}
-            ${taskId && videoUrl ? `
-              <button class="history-download history-extend" type="button" data-history-extend="${escapeHtml(taskId)}">
-                <i data-lucide="stretch-horizontal"></i>${escapeHtml(t("assets.extend"))}
-              </button>
-              <button class="history-download history-replace" type="button" data-history-replace="${escapeHtml(taskId)}">
-                <i data-lucide="replace"></i>${escapeHtml(t("assets.replace"))}
-              </button>
-              <button class="history-download history-frame" type="button" data-history-frame="${escapeHtml(taskId)}">
-                <i data-lucide="scan-line"></i>${escapeHtml(t("assets.extractFrame"))}
-              </button>
-            ` : ""}
+            ${primaryActions}
           </div>
-          <button class="history-download history-params" type="button" data-history-detail="${index}">
-            <i data-lucide="sliders-horizontal"></i>${escapeHtml(t("history.viewParameters"))}
-          </button>
-          ${taskId ? `
-            <button class="history-download history-delete" type="button" data-history-delete="${escapeHtml(taskId)}">
-              <i data-lucide="trash-2"></i>${escapeHtml(t("history.delete"))}
-            </button>
-          ` : ""}
+          ${detailAction}
+          ${deleteAction}
         </div>
+        <details class="history-actions-menu">
+          <summary class="history-download history-actions-trigger">
+            <i data-lucide="ellipsis"></i><span>${escapeHtml(t("history.actions"))}</span><i data-lucide="chevron-down"></i>
+          </summary>
+          <div class="history-actions-popover" role="menu">${allActions}</div>
+        </details>
       </article>
     `;
-  }).join("")}`;
+  }).join("")}${loadMoreHtml}`;
+  const allowInlinePreview = !mobileLayout && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
   els.historyList.querySelectorAll("[data-history-load-video]").forEach((button) => {
     const showVideo = () => {
       const key = button.dataset.historyLoadVideo || "";
@@ -3697,12 +3974,15 @@ function renderHistory(records = []) {
         ratio: record?.ratio || record?.params?.ratio || record?.params?.aspect_ratio || "16:9",
       });
     };
-    button.addEventListener("mouseenter", showVideo, { once: true });
-    button.addEventListener("focus", showVideo, { once: true });
+    if (allowInlinePreview) {
+      button.addEventListener("mouseenter", showVideo, { once: true });
+      button.addEventListener("focus", showVideo, { once: true });
+    }
     button.addEventListener("click", openModalPreview);
   });
-  els.historyList.querySelectorAll(".history-result-image").forEach((image, index) => {
+  els.historyList.querySelectorAll(".history-result-image").forEach((image) => {
     image.addEventListener("click", () => {
+      const index = Number(image.dataset.historyImage || -1);
       const record = sortedRecords[index];
       const previewUrl = image.getAttribute("src") || generationImageResultUrl(record);
       if (!previewUrl) return;
@@ -3739,11 +4019,27 @@ function renderHistory(records = []) {
   els.historyList.querySelectorAll("[data-history-delete]").forEach((button) => {
     button.addEventListener("click", () => deleteHistoryRecord(button.dataset.historyDelete || "", button));
   });
-  renderSimplePager(els.historyPager, {
-    page: state.historyRecordsPage,
-    totalPages: state.historyRecordsTotalPages,
-    total: state.historyRecordsTotal,
-  }, (page) => loadHistory({ page }), { jump: true });
+  const actionMenus = Array.from(els.historyList.querySelectorAll(".history-actions-menu"));
+  actionMenus.forEach((menu) => {
+    menu.addEventListener("toggle", () => {
+      if (!menu.open) return;
+      actionMenus.forEach((other) => {
+        if (other !== menu) other.open = false;
+      });
+    });
+    menu.querySelectorAll("button").forEach((button) => {
+      button.addEventListener("click", () => { menu.open = false; });
+    });
+  });
+  if (mobileLayout) {
+    setupHistoryInfiniteScroll();
+  } else {
+    renderSimplePager(els.historyPager, {
+      page: state.historyRecordsPage,
+      totalPages: state.historyRecordsTotalPages,
+      total: state.historyRecordsTotal,
+    }, (page) => loadHistory({ page }), { jump: true });
+  }
   refreshIcons();
 }
 
@@ -3864,7 +4160,7 @@ async function deleteHistoryRecord(taskId = "", button = null) {
     state.historyRecords = (state.historyRecords || []).filter((record) => String(record.taskId || "") !== String(taskId));
     state.historyRecordsTotal = Math.max(0, Number(state.historyRecordsTotal || 0) - 1);
     historyRecordsSignature = "";
-    await loadHistory({ silent: true, page: state.historyRecordsPage || 1 });
+    await loadHistory({ silent: true, page: 1, preserveMobile: true });
   } catch (error) {
     if (button) {
       button.disabled = false;
@@ -3929,7 +4225,7 @@ async function refreshPendingHistoryRecords(records = []) {
   candidates.forEach((record) => historyDetailRefreshInFlight.delete(String(record.taskId || "")));
   if (state.tab !== "history" || !state.user) return;
   if (settled.some((result) => result.status === "fulfilled")) {
-    window.setTimeout(() => loadHistory({ silent: true }), 500);
+    window.setTimeout(() => loadHistory({ silent: true, page: 1, preserveMobile: true }), 500);
   }
 }
 
@@ -3956,11 +4252,17 @@ function scheduleHistoryRefresh({ delayMs = 15000, force = false } = {}) {
   if (state.tab !== "history" || !state.user) return;
   historyRefreshTimer = window.setTimeout(() => {
     historyRefreshTimer = null;
-    if (state.tab === "history") loadHistory({ silent: true, refresh: true });
+    if (state.tab === "history") loadHistory({ silent: true, refresh: true, page: 1, preserveMobile: true });
   }, delayMs);
 }
 
-async function loadHistory({ silent = false, refresh = false, page = state.historyRecordsPage || 1 } = {}) {
+async function loadHistory({
+  silent = false,
+  refresh = false,
+  page = state.historyRecordsPage || 1,
+  append = false,
+  preserveMobile = false,
+} = {}) {
   if (!els.historyList) return;
   if (!state.user) {
     stopHistoryRefresh();
@@ -3969,29 +4271,42 @@ async function loadHistory({ silent = false, refresh = false, page = state.histo
     return;
   }
   if (historyLoading || historyRefreshInFlight) {
+    if (append) return;
     scheduleHistoryRefresh({ delayMs: 5000, force: true });
     return;
   }
   historyLoading = true;
   historyRefreshInFlight = true;
   const previousScrollTop = els.historyList.scrollTop || 0;
+  const previousRecords = Array.isArray(state.historyRecords) ? state.historyRecords : [];
+  const previousPage = Number(state.historyRecordsPage || 1);
   const requestedPage = Math.max(1, Number(page || 1) || 1);
-  if (!silent) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
+  if (!silent && !append) els.historyList.innerHTML = `<div class="job-note">${escapeHtml(t("history.loading"))}</div>`;
   try {
     const historyUrl = `/api/generation-records?page=${encodeURIComponent(requestedPage)}&limit=${encodeURIComponent(state.historyRecordsLimit || 8)}${refresh ? "&refresh=1" : ""}`;
     const payload = await requestJson(historyUrl);
     if (payload.user) setUser(payload.user);
-    const records = payload.records || [];
-    state.historyRecordsPage = payload.page || requestedPage;
+    const incomingRecords = payload.records || [];
+    const mobileLayout = isMobileHistoryLayout();
+    const shouldAppend = mobileLayout && append && requestedPage > 1;
+    const shouldPreserve = mobileLayout && preserveMobile && previousRecords.length > 0;
+    const records = shouldAppend
+      ? mergeHistoryRecordPages(previousRecords, incomingRecords)
+      : shouldPreserve
+        ? mergeHistoryRecordPages(incomingRecords, previousRecords)
+        : incomingRecords;
+    state.historyRecordsPage = shouldAppend || shouldPreserve
+      ? Math.max(previousPage, Number(payload.page || requestedPage))
+      : payload.page || requestedPage;
     state.historyRecordsLimit = payload.limit || state.historyRecordsLimit || 8;
     state.historyRecordsTotal = payload.total || records.length;
     state.historyRecordsTotalPages = payload.totalPages || 1;
     state.historyRecords = records;
     const nextSignature = generationRecordsSignature(records);
-    if (!silent || nextSignature !== historyRecordsSignature) {
+    if (!silent || shouldAppend || nextSignature !== historyRecordsSignature) {
       renderHistory(records);
       historyRecordsSignature = nextSignature;
-      els.historyList.scrollTop = previousScrollTop;
+      if (!shouldAppend) els.historyList.scrollTop = previousScrollTop;
     }
     if (state.tab === "advanced" && state.advancedSideTab === "result" && !state.advancedResultRecords?.length) {
       renderAdvancedResultPanel();
@@ -4339,11 +4654,14 @@ async function exportLedger(kind) {
 
 function openLogin() {
   if (state.user) return openAccount();
-  renderLoginMode();
+  prepareModalOpen();
+  renderLoginForm();
   els.loginDialog.showModal();
+  window.requestAnimationFrame(() => els.loginUsername?.focus());
 }
 
 function openAccount() {
+  prepareModalOpen();
   renderTokenDisplays();
   els.accountDialog?.showModal();
   refreshIcons();
@@ -4371,11 +4689,10 @@ function logout() {
   syncTopupAutoRefresh();
 }
 
-function renderLoginMode() {
-  const isRegister = state.loginMode === "register";
-  els.loginTitle.textContent = isRegister ? t("auth.createAccount") : t("auth.login");
-  els.loginSubmit.textContent = isRegister ? t("auth.createAndLogin") : t("auth.login");
-  els.toggleLoginMode.textContent = isRegister ? t("auth.alreadyAccount") : t("auth.createAccount");
+function renderLoginForm() {
+  const label = t("nav.login");
+  if (els.loginTitle) els.loginTitle.textContent = label;
+  if (els.loginSubmit) els.loginSubmit.textContent = label;
   els.loginMessage.textContent = "";
 }
 
@@ -4386,7 +4703,6 @@ async function submitLogin() {
     els.loginMessage.textContent = t("auth.invalid");
     return;
   }
-  const endpoint = state.loginMode === "register" ? "/api/auth/register" : "/api/auth/login";
   const referralCode = localStorage.getItem(REFERRAL_CODE_KEY) || "";
   let registrationAttribution = {};
   try {
@@ -4394,15 +4710,16 @@ async function submitLogin() {
   } catch {
     registrationAttribution = {};
   }
+  if (els.loginSubmit) els.loginSubmit.disabled = true;
   try {
-    const payload = await requestJson(endpoint, {
+    const payload = await requestJson("/api/auth/login-or-register", {
       method: "POST",
       body: {
         username,
         password,
-        referralCode: state.loginMode === "register" ? referralCode : "",
-        channel: state.loginMode === "register" ? registrationAttribution.channel || "direct" : "",
-        attribution: state.loginMode === "register" ? registrationAttribution : {},
+        referralCode,
+        channel: registrationAttribution.channel || "direct",
+        attribution: registrationAttribution,
       },
     });
     state.token = payload.token;
@@ -4419,6 +4736,8 @@ async function submitLogin() {
     if (tenantFeature("subscriptions", false)) loadBillingSummary();
   } catch (error) {
     els.loginMessage.textContent = error.message;
+  } finally {
+    if (els.loginSubmit) els.loginSubmit.disabled = false;
   }
 }
 

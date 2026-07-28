@@ -42,6 +42,7 @@ const {
   findUserUnlockInDb,
   getKv,
   setKv,
+  getKvUpdatedAt,
   listApiSubtokensFromDb,
   getApiSubtokenFromDbByToken,
   getApiSubtokenFromDbById,
@@ -54,7 +55,19 @@ const {
   upsertGenerationRecordInDb,
   replaceGenerationRecordsInDb,
   patchGenerationRecordsInDb,
+  insertWebVitalSamplesInDb,
+  getWebVitalsSummaryFromDb,
 } = require("./db");
+const {
+  buildSitemapXml: buildStableSitemapXml,
+  canonicalHostname,
+  canonicalizeOrigin,
+  collectionUpdatedAt,
+  itemUpdatedAt,
+  latestIsoTimestamp,
+  renderDiscoveryLinks,
+  siteVerificationToken,
+} = require("./site-seo");
 
 const ROOT = __dirname;
 const CHARACTER_TAKE_OFF_PROMPT = "脱掉所有衣服，保持裸体，不要出现肉色衣服";
@@ -90,6 +103,9 @@ const MAINLAND_BYPASS_MAX_AGE_SECONDS = Math.max(
 
 const PORT = Number(process.env.PORT || 4174);
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+const CANONICAL_HOST_ALIASES = String(process.env.CANONICAL_HOST_ALIASES || "").trim();
+const GOOGLE_SITE_VERIFICATION = String(process.env.GOOGLE_SITE_VERIFICATION || "").trim();
+const GOOGLE_SITE_VERIFICATION_BY_HOST = String(process.env.GOOGLE_SITE_VERIFICATION_BY_HOST || "").trim();
 const PRIMARY_PLATFORM_HOSTS = new Set(parseCsvList(process.env.PRIMARY_PLATFORM_HOSTS || "123vips.com,www.123vips.com"));
 const PRIMARY_PLATFORM_ROOT_HOSTS = new Set(parseCsvList(process.env.PRIMARY_PLATFORM_ROOT_HOSTS || "123vips.com"));
 const PUBLIC_TENANT_ROOT_HOSTS = new Set(parseCsvList(process.env.PUBLIC_TENANT_ROOT_HOSTS || "cloudtoken.ai,667zui.video"));
@@ -1055,7 +1071,8 @@ function requestOriginFromHeaders(req) {
 
 function pageOriginFromRequest(req) {
   const tenant = requestTenantDescriptor(req);
-  return tenant.toolOnly ? requestOriginFromHeaders(req) : publicOriginFromRequest(req);
+  const origin = tenant.toolOnly ? requestOriginFromHeaders(req) : publicOriginFromRequest(req);
+  return canonicalizeOrigin(origin, CANONICAL_HOST_ALIASES);
 }
 
 function parseCsvList(value = "") {
@@ -1180,6 +1197,28 @@ function absoluteUrlFromBase(value = "", baseUrl = "") {
   const base = String(baseUrl || "").trim().replace(/\/+$/, "");
   if (!base || !text.startsWith("/")) return text;
   return `${base}${text}`;
+}
+
+function canonicalRedirectLocation(req, url) {
+  if (req.method !== "GET" && req.method !== "HEAD") return "";
+  if (String(url.pathname || "").startsWith("/api/")) return "";
+  const hostname = requestHostname(req);
+  if (!hostname || /^(localhost|127\.0\.0\.1|::1)$/i.test(hostname)) return "";
+  const canonicalHost = canonicalHostname(hostname, CANONICAL_HOST_ALIASES);
+  if (!canonicalHost || canonicalHost === hostname) return "";
+  const protocol = String(req.headers["x-forwarded-proto"] || "https").split(",")[0].trim() || "https";
+  return `${protocol}://${canonicalHost}${url.pathname || "/"}${url.search || ""}`;
+}
+
+function sendCanonicalRedirect(req, res, url) {
+  const location = canonicalRedirectLocation(req, url);
+  if (!location) return false;
+  res.writeHead(308, {
+    location,
+    "cache-control": "public, max-age=3600",
+  });
+  res.end();
+  return true;
 }
 
 function hostnameMatchesRoot(hostname = "", root = "") {
@@ -2026,6 +2065,7 @@ function buildGeoTagsForSnapshot(characters = [], origin = "") {
       return {
         ...entry,
         ...copy,
+        updatedAt: collectionUpdatedAt(entry.characters),
       };
     });
 }
@@ -2060,6 +2100,7 @@ function buildGeoCategoriesForSnapshot(characters = [], origin = "") {
         path,
         url: scopedApiUrl(origin, path),
         characters: matched,
+        updatedAt: collectionUpdatedAt(matched),
         ...buildGeoCollectionCopy({
           label: category.label,
           characters: matched,
@@ -2073,23 +2114,61 @@ function buildGeoCategoriesForSnapshot(characters = [], origin = "") {
 
 async function geoSiteSnapshot(req) {
   const origin = pageOriginFromRequest(req);
-  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const [config, configUpdatedAt] = await Promise.all([
+    readAppConfig(),
+    getKvUpdatedAt("app_config"),
+  ]);
   const platform = normalizePlatformConfig(config.platform || {});
   const homeVideo = normalizeHomeVideo(config.homeVideo || {});
-  const characters = (homeVideo.items || [])
+  const allCharacters = (homeVideo.items || [])
     .filter((item) => item && !isSoftDeleted(item))
     .map((item) => ({
       ...item,
       geoPath: characterPublicPath(item),
       geoUrl: scopedApiUrl(origin, characterPublicPath(item)),
       geoPoster: characterPosterForGeo(item),
+      geoPosterAbsolute: absoluteUrlFromBase(characterPosterForGeo(item), origin),
+      geoUpdatedAt: itemUpdatedAt(item, configUpdatedAt),
       geoSummary: characterSummaryForGeo(item),
       geoTags: characterTagsForGeo(item),
       geoVideos: addCharacterVideoDescriptionsForGeo(item),
     }));
+  const toolOnly = Boolean(tenantOptions.toolOnly);
+  const characters = toolOnly ? [] : allCharacters;
+  characters.forEach((item) => {
+    item.geoPosterAbsolute = absoluteUrlFromBase(item.geoPoster, origin);
+  });
   const tags = buildGeoTagsForSnapshot(characters, origin);
   const categories = buildGeoCategoriesForSnapshot(characters, origin);
-  return { origin, config, platform, brand: siteBrandFromConfig(config), homeVideo, characters, tags, categories };
+  tags.forEach((tag) => {
+    tag.updatedAt = tag.updatedAt || collectionUpdatedAt(tag.characters, configUpdatedAt);
+    tag.characters.forEach((item) => { item.geoPosterAbsolute ||= absoluteUrlFromBase(item.geoPoster, origin); });
+  });
+  categories.forEach((category) => {
+    category.updatedAt = category.updatedAt || collectionUpdatedAt(category.characters, configUpdatedAt);
+    category.characters.forEach((item) => { item.geoPosterAbsolute ||= absoluteUrlFromBase(item.geoPoster, origin); });
+  });
+  const updatedAt = latestIsoTimestamp([
+    config.updatedAt,
+    config.updated_at,
+    platform.updatedAt,
+    homeVideo.updatedAt,
+    ...(toolOnly ? [] : characters.map((item) => item.geoUpdatedAt)),
+  ], configUpdatedAt);
+  return {
+    origin,
+    config,
+    platform,
+    brand: siteBrandFromConfig(config),
+    homeVideo,
+    characters,
+    tags,
+    categories,
+    tenantOptions,
+    toolOnly,
+    updatedAt,
+  };
 }
 
 function homeDescriptionForGeo(platform = {}) {
@@ -2972,6 +3051,17 @@ function jsonScriptValue(data) {
 }
 
 function geoMetaTags({ title, description, url, image, type = "website", jsonLd = [] }) {
+  let verificationToken = "";
+  try {
+    verificationToken = siteVerificationToken(
+      new URL(url).hostname,
+      GOOGLE_SITE_VERIFICATION,
+      GOOGLE_SITE_VERIFICATION_BY_HOST,
+    );
+  } catch {}
+  const verificationTag = verificationToken
+    ? `\n    <meta name="google-site-verification" content="${htmlEscape(verificationToken)}" />`
+    : "";
   const imageTag = image ? `
     <meta property="og:image" content="${htmlEscape(image)}" />
     <meta name="twitter:image" content="${htmlEscape(image)}" />` : "";
@@ -2979,7 +3069,7 @@ function geoMetaTags({ title, description, url, image, type = "website", jsonLd 
   return `
     <title>${htmlEscape(title)}</title>
     <meta name="description" content="${htmlEscape(description)}" />
-    <meta name="robots" content="index,follow,max-image-preview:large,max-video-preview:30,max-snippet:-1" />
+    <meta name="robots" content="index,follow,max-image-preview:large,max-video-preview:30,max-snippet:-1" />${verificationTag}
     <link rel="canonical" href="${htmlEscape(url)}" />
     <meta property="og:type" content="${htmlEscape(type)}" />
     <meta property="og:title" content="${htmlEscape(title)}" />
@@ -3045,7 +3135,7 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
     });
     if (displayBrand) {
       withTenantShell = withTenantShell.replace(
-        /(<strong\s+id="brandName"[^>]*>)([\s\S]*?)(<\/strong>)/i,
+        /(<h1\s+id="brandName"[^>]*>)([\s\S]*?)(<\/h1>)/i,
         `$1${htmlEscape(displayBrand)}$3`,
       );
       withTenantShell = withTenantShell.replace(
@@ -3070,6 +3160,10 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
         "$1hidden $2",
       );
     });
+  }
+  const discoveryLinks = renderDiscoveryLinks(snapshot);
+  if (discoveryLinks) {
+    withTenantShell = withTenantShell.replace(/<footer\s+class="site-foot"/i, `${discoveryLinks}\n\n    <footer class="site-foot"`);
   }
   const bootstrapScript = tenant.toolOnly && toolId
     ? `    <script>window.__TENANT_FEATURES__=${jsonScriptValue(publicTenantFeatures(tenant))};</script>\n`
@@ -3434,6 +3528,9 @@ function renderGeoCollectionHtml(snapshot, collection = {}, { kind = "tag" } = {
 
 function buildRobotsTxt(snapshot) {
   const indexNowKey = indexNowKeyForOrigin(snapshot.origin);
+  const toolDisallows = snapshot.toolOnly
+    ? ["Disallow: /characters/", "Disallow: /tags/", "Disallow: /categories/"]
+    : [];
   return [
     "User-agent: OAI-SearchBot",
     "Allow: /",
@@ -3458,57 +3555,15 @@ function buildRobotsTxt(snapshot) {
     "Disallow: /api/",
     "Disallow: /admin.html",
     "Disallow: /assets/user-uploads/",
+    ...toolDisallows,
     `Sitemap: ${scopedApiUrl(snapshot.origin, "/sitemap.xml")}`,
     `# IndexNow-Key: ${scopedApiUrl(snapshot.origin, `/${indexNowKey}.txt`)}`,
     "",
   ].join("\n");
 }
 
-function sitemapEntryXml({ loc, lastmod, changefreq = "weekly", priority = "0.7", image }) {
-  const imageXml = image ? `
-    <image:image>
-      <image:loc>${xmlEscape(image)}</image:loc>
-    </image:image>` : "";
-  return `  <url>
-    <loc>${xmlEscape(loc)}</loc>
-    <lastmod>${xmlEscape(lastmod || new Date().toISOString())}</lastmod>
-    <changefreq>${xmlEscape(changefreq)}</changefreq>
-    <priority>${xmlEscape(priority)}</priority>${imageXml}
-  </url>`;
-}
-
 function buildSitemapXml(snapshot) {
-  const now = new Date().toISOString();
-  const entries = [
-    sitemapEntryXml({ loc: scopedApiUrl(snapshot.origin, "/"), lastmod: now, changefreq: "daily", priority: "1.0" }),
-    sitemapEntryXml({ loc: scopedApiUrl(snapshot.origin, "/llms.txt"), lastmod: now, changefreq: "weekly", priority: "0.4" }),
-    ...(snapshot.categories || []).map((category) => sitemapEntryXml({
-      loc: category.url,
-      lastmod: now,
-      changefreq: "weekly",
-      priority: "0.75",
-      image: category.characters[0]?.geoPoster ? absoluteUrlFromBase(category.characters[0].geoPoster, snapshot.origin) : "",
-    })),
-    ...(snapshot.tags || []).map((tag) => sitemapEntryXml({
-      loc: tag.url,
-      lastmod: now,
-      changefreq: "weekly",
-      priority: "0.72",
-      image: tag.characters[0]?.geoPoster ? absoluteUrlFromBase(tag.characters[0].geoPoster, snapshot.origin) : "",
-    })),
-    ...snapshot.characters.map((item) => sitemapEntryXml({
-      loc: item.geoUrl,
-      lastmod: item.updatedAt || item.createdAt || now,
-      changefreq: "weekly",
-      priority: "0.8",
-      image: absoluteUrlFromBase(item.geoPoster, snapshot.origin),
-    })),
-  ];
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
-${entries.join("\n")}
-</urlset>
-`;
+  return buildStableSitemapXml(snapshot);
 }
 
 function buildLlmsTxt(snapshot, { full = false, apiAccess = true } = {}) {
@@ -3571,17 +3626,26 @@ async function servePlatformHtmlWithGeo(req, res) {
   const filePath = path.join(ROOT, "platform.html");
   const html = await fs.readFile(filePath, "utf8");
   const snapshot = await geoSiteSnapshot(req);
-  return sendHtml(res, 200, injectPlatformGeoHead(html, snapshot, requestTenantOptions(req)), { cacheControl: "no-cache", head: req.method === "HEAD" });
+  return sendHtml(res, 200, injectPlatformGeoHead(html, snapshot, requestTenantOptions(req)), {
+    cacheControl: "public, max-age=60, s-maxage=300, stale-while-revalidate=86400",
+    head: req.method === "HEAD",
+  });
 }
 
 async function handleRobotsTxt(req, res) {
   const snapshot = await geoSiteSnapshot(req);
-  return sendText(res, 200, buildRobotsTxt(snapshot), { head: req.method === "HEAD" });
+  return sendText(res, 200, buildRobotsTxt(snapshot), {
+    cacheControl: "public, max-age=3600, s-maxage=86400",
+    head: req.method === "HEAD",
+  });
 }
 
 async function handleSitemapXml(req, res) {
   const snapshot = await geoSiteSnapshot(req);
-  return sendXml(res, 200, buildSitemapXml(snapshot), { head: req.method === "HEAD" });
+  return sendXml(res, 200, buildSitemapXml(snapshot), {
+    cacheControl: "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400",
+    head: req.method === "HEAD",
+  });
 }
 
 async function handleLlmsTxt(req, res, { full = false } = {}) {
@@ -3615,7 +3679,74 @@ async function handleCharacterGeoPage(req, res, characterId) {
     String(candidate.id || "") === decoded
   ));
   if (!item) return sendText(res, 404, "Character not found");
-  return sendHtml(res, 200, renderCharacterGeoHtml(snapshot, item), { head: req.method === "HEAD" });
+  return sendHtml(res, 200, renderCharacterGeoHtml(snapshot, item), {
+    cacheControl: "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400",
+    head: req.method === "HEAD",
+  });
+}
+
+function webVitalRating(metric = "", value = 0) {
+  const thresholds = {
+    LCP: [2500, 4000],
+    INP: [200, 500],
+    CLS: [0.1, 0.25],
+  }[metric];
+  if (!thresholds) return "";
+  if (value <= thresholds[0]) return "good";
+  if (value <= thresholds[1]) return "needs-improvement";
+  return "poor";
+}
+
+function webVitalDevice(req, value = "") {
+  const supplied = String(value || "").trim().toLowerCase();
+  if (["mobile", "desktop", "tablet"].includes(supplied)) return supplied;
+  const userAgent = String(req.headers["user-agent"] || "");
+  if (/ipad|tablet|playbook|silk/i.test(userAgent)) return "tablet";
+  if (/mobile|iphone|ipod|android/i.test(userAgent)) return "mobile";
+  return userAgent ? "desktop" : "unknown";
+}
+
+function webVitalPagePath(value = "") {
+  const text = String(value || "/").trim().slice(0, 300);
+  try {
+    const parsed = new URL(text, "https://local.invalid");
+    const hash = String(parsed.hash || "").replace(/[^#a-z0-9/_-]/gi, "").slice(0, 80);
+    return `${parsed.pathname || "/"}${hash}`;
+  } catch {
+    return "/";
+  }
+}
+
+async function handleWebVitals(req, res) {
+  if (!dbEnabled()) return sendJson(res, 503, { ok: false, message: "Metrics storage is unavailable." });
+  const body = await readJson(req).catch(() => ({}));
+  const pageId = String(body.pageId || "").trim().replace(/[^a-z0-9_-]/gi, "").slice(0, 100) || crypto.randomUUID();
+  const hostname = canonicalHostname(requestHostname(req), CANONICAL_HOST_ALIASES) || "unknown";
+  const pagePath = webVitalPagePath(body.pagePath || body.path || "/");
+  const device = webVitalDevice(req, body.device);
+  const navigationType = compactPlainText(body.navigationType || "", 40);
+  const limits = { LCP: 120000, INP: 120000, CLS: 10 };
+  const samples = (Array.isArray(body.samples) ? body.samples : [])
+    .slice(0, 3)
+    .map((sample) => {
+      const metric = String(sample?.metric || sample?.name || "").trim().toUpperCase();
+      const value = Number(sample?.value);
+      if (!Object.hasOwn(limits, metric) || !Number.isFinite(value) || value < 0 || value > limits[metric]) return null;
+      return {
+        eventId: `${pageId}:${metric}`,
+        hostname,
+        pagePath,
+        device,
+        metric,
+        value,
+        rating: webVitalRating(metric, value),
+        navigationType,
+      };
+    })
+    .filter(Boolean);
+  if (!samples.length) return sendJson(res, 400, { ok: false, message: "No valid Web Vitals samples." });
+  const inserted = await insertWebVitalSamplesInDb(samples);
+  return sendJson(res, 202, { ok: true, accepted: samples.length, inserted });
 }
 
 async function handleTrackCharacterView(req, res) {
@@ -3640,7 +3771,10 @@ async function handleGeoTagPage(req, res, tagId) {
   const decoded = decodeURIComponent(String(tagId || ""));
   const tag = (snapshot.tags || []).find((candidate) => candidate.id === decoded || slugSegment(candidate.label) === decoded);
   if (!tag) return sendText(res, 404, "Tag not found", { head: req.method === "HEAD" });
-  return sendHtml(res, 200, renderGeoCollectionHtml(snapshot, tag, { kind: "tag" }), { head: req.method === "HEAD" });
+  return sendHtml(res, 200, renderGeoCollectionHtml(snapshot, tag, { kind: "tag" }), {
+    cacheControl: "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400",
+    head: req.method === "HEAD",
+  });
 }
 
 async function handleGeoCategoryPage(req, res, categoryId) {
@@ -3648,7 +3782,10 @@ async function handleGeoCategoryPage(req, res, categoryId) {
   const decoded = decodeURIComponent(String(categoryId || ""));
   const category = (snapshot.categories || []).find((candidate) => candidate.id === decoded || slugSegment(candidate.label) === decoded);
   if (!category) return sendText(res, 404, "Category not found", { head: req.method === "HEAD" });
-  return sendHtml(res, 200, renderGeoCollectionHtml(snapshot, category, { kind: "category" }), { head: req.method === "HEAD" });
+  return sendHtml(res, 200, renderGeoCollectionHtml(snapshot, category, { kind: "category" }), {
+    cacheControl: "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400",
+    head: req.method === "HEAD",
+  });
 }
 
 async function handleAdminSubmitIndexNow(req, res) {
@@ -4017,6 +4154,14 @@ async function handleAdminGeoReport(req, res) {
   const coverage = buildGeoCoverage(snapshot, visitorStats, indexNowHistory);
   const offsitePlan = buildGeoOffsitePlan(snapshot);
   const aiProbes = await readGeoAiProbes(snapshot);
+  const webVitals = await getWebVitalsSummaryFromDb({ days: 28 }).catch((error) => ({
+    days: 28,
+    sampleCount: 0,
+    overall: [],
+    byHost: [],
+    byRoute: [],
+    error: compactPlainText(error?.message || error, 180),
+  }));
   const sampleCharacter = snapshot.characters[0] || null;
   const sampleTag = (snapshot.tags || [])[0] || null;
   const sampleCategory = (snapshot.categories || [])[0] || null;
@@ -4074,7 +4219,7 @@ async function handleAdminGeoReport(req, res) {
       videoCount: snapshot.characters.reduce((sum, item) => sum + item.geoVideos.length, 0),
       tagCount: snapshot.tags?.length || 0,
       categoryCount: snapshot.categories?.length || 0,
-      sitemapUrlCount: 2 + (snapshot.tags?.length || 0) + (snapshot.categories?.length || 0) + snapshot.characters.length,
+      sitemapUrlCount: 1 + (snapshot.tags?.length || 0) + (snapshot.categories?.length || 0) + snapshot.characters.length,
       llmsUrl: scopedApiUrl(snapshot.origin, "/llms.txt"),
       sitemapUrl: scopedApiUrl(snapshot.origin, "/sitemap.xml"),
       indexNowUrlCount: indexNowUrls(snapshot).length,
@@ -4094,6 +4239,7 @@ async function handleAdminGeoReport(req, res) {
     indexNowHistory,
     coverage,
     aiProbes,
+    webVitals,
     offsitePlan,
     sampleTopics: [
       ...(snapshot.categories || []).slice(0, 6).map((item) => ({
@@ -28403,6 +28549,7 @@ async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   try {
+    if (sendCanonicalRedirect(req, res, url)) return;
     await recordGeoVisitStats(req, url);
 
     if ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/favicon.ico" || url.pathname === "/favicon.svg")) {
@@ -28504,6 +28651,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/analytics/character-view") {
       return await handleTrackCharacterView(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/analytics/web-vitals") {
+      return await handleWebVitals(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/game/feed") {

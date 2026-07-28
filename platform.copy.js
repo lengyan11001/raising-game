@@ -440,6 +440,7 @@ const I18N = {
     "history.emptyTitle": "No generation records yet.",
     "history.emptyDesc": "Your submitted gallery and advanced jobs will appear here.",
     "history.job": "Generation job",
+    "history.actions": "Actions",
     "history.viewParameters": "View parameters",
     "history.download": "Download",
     "history.loading": "Loading generation records...",
@@ -746,6 +747,7 @@ const I18N = {
     "history.emptyTitle": "Chưa có bản ghi tạo.",
     "history.emptyDesc": "Các job gallery và nâng cao đã gửi sẽ hiện ở đây.",
     "history.job": "Job tạo",
+    "history.actions": "Thao tác",
     "history.viewParameters": "Xem tham số",
     "history.download": "Download",
     "history.loading": "Đang tải bản ghi tạo...",
@@ -1035,6 +1037,7 @@ const I18N = {
     "history.emptyTitle": "生成記録はまだありません。",
     "history.emptyDesc": "送信したギャラリーと高度生成ジョブがここに表示されます。",
     "history.job": "生成ジョブ",
+    "history.actions": "操作",
     "history.viewParameters": "パラメータを表示",
     "history.download": "Download",
     "history.loading": "生成記録を読み込み中...",
@@ -1324,6 +1327,7 @@ const I18N = {
     "history.emptyTitle": "아직 생성 기록이 없습니다.",
     "history.emptyDesc": "제출한 갤러리 및 고급 작업이 여기에 표시됩니다.",
     "history.job": "생성 작업",
+    "history.actions": "작업",
     "history.viewParameters": "파라미터 보기",
     "history.download": "Download",
     "history.loading": "생성 기록 로딩 중...",
@@ -1613,6 +1617,7 @@ const I18N = {
     "history.emptyTitle": "Belum ada catatan pembuatan.",
     "history.emptyDesc": "Job galeri dan lanjutan yang dikirim akan muncul di sini.",
     "history.job": "Job pembuatan",
+    "history.actions": "Tindakan",
     "history.viewParameters": "Lihat parameter",
     "history.download": "Download",
     "history.loading": "Memuat catatan pembuatan...",
@@ -2742,6 +2747,7 @@ let activeAccessGuide = ACCESS_INTEGRATION_GUIDES[0];
 let activeHoverPreviewStop = null;
 let historyLoading = false;
 let historyRefreshTimer = null;
+let historyLoadMoreObserver = null;
 let historyRefreshInFlight = false;
 let historyRecordsSignature = "";
 const HISTORY_PENDING_REFRESH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -3230,6 +3236,7 @@ I18N.zh = {
   "history.emptyTitle": "暂无记录",
   "history.emptyDesc": "提交生成任务后会显示在这里。",
   "history.job": "任务",
+  "history.actions": "操作",
   "history.viewParameters": "查看参数",
   "history.download": "下载",
   "history.loading": "加载中...",

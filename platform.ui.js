@@ -1,6 +1,7 @@
 function refreshIcons() {
   window.lucide?.createIcons();
 }
+window.addEventListener("DOMContentLoaded", refreshIcons, { once: true });
 
 function showAgeForbidden() {
   state.ageGateDecision = "denied";
@@ -147,6 +148,7 @@ function renderSimplePager(holder, data, onPage, options = {}) {
 
 function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass = "", keepOpenOnConfirm = false, onOpen, onConfirm } = {}) {
   if (!els.inlineDialog || !els.inlineDialogForm || !els.inlineDialogBody) return Promise.resolve("close");
+  prepareModalOpen();
   els.inlineDialog.classList.remove("is-media-action", "is-frame-action", "is-playflux-template");
   String(dialogClass || "")
     .split(/\s+/)
@@ -362,6 +364,7 @@ function renderLegalDialog(type = "privacy") {
 }
 
 function openLegalDialog(type = "privacy") {
+  prepareModalOpen();
   if (els.legalDialog) els.legalDialog.dataset.doc = type;
   renderLegalDialog(type);
   els.legalDialog?.showModal();
@@ -508,6 +511,7 @@ function applyTenantFeatures() {
 function applyLanguage() {
   applyStaticTranslations();
   applyTenantFeatures();
+  if (typeof renderVideoToolActions === "function") renderVideoToolActions();
   if (!state.config) {
     renderAccountMenu();
     renderTopupSummary();
@@ -526,7 +530,7 @@ function applyLanguage() {
   renderPricing();
   renderTokenDisplays();
   renderApiSubtokens();
-  renderLoginMode();
+  renderLoginForm();
   if (els.legalDialog?.open) renderLegalDialog(els.legalDialog.dataset.doc || "privacy");
   updateSubmitButtonCost();
   updateAdvancedButtonCost();
@@ -1013,6 +1017,7 @@ function renderAccountMenu() {
   if (els.topupHeadBtn) els.topupHeadBtn.hidden = !loggedIn;
   if (els.topupTriggerBtn) els.topupTriggerBtn.hidden = !loggedIn;
   if (els.mobileDrawerTopupBtn) els.mobileDrawerTopupBtn.hidden = !loggedIn;
+  if (els.mobileDrawerUser) els.mobileDrawerUser.hidden = !loggedIn;
   if (els.mobileDrawerLoginBtn) els.mobileDrawerLoginBtn.hidden = loggedIn;
   document.querySelectorAll(".account-menu [data-tab]").forEach((button) => {
     button.hidden = !isTabAllowed(button.dataset.tab || "") || (!loggedIn && button.dataset.tab !== "pricing");
@@ -1229,6 +1234,7 @@ function statusLabel(status) {
 }
 
 function openMobileDrawer() {
+  if (document.querySelector("dialog[open]")) return;
   document.body.classList.add("mobile-drawer-open");
   if (els.mobileDrawerToggle) els.mobileDrawerToggle.setAttribute("aria-expanded", "true");
   if (els.mobileDrawerBackdrop) els.mobileDrawerBackdrop.hidden = false;
@@ -1340,6 +1346,8 @@ function normalizeAdvancedProvider(value = "") {
   if (!normalized) return DEFAULT_ADVANCED_PROVIDER;
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["wan27imageedit", "wan2.7imageedit", "wanimageedit", "imageedit", "wan27image", "vipeak1image", "vipeak1imageedit"].includes(normalized)) return "wan27-image-edit";
+  if (normalized.includes("happyhorse") || normalized === "horse" || normalized === "hh") return "happyhorse";
+  if (normalized.startsWith("wananimate") || normalized === "wanlegacy") return "wan27";
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized)) return "wan27";
   if (["seedance", "vipeak2", "vp2"].includes(normalized)) return "seedance";
   return normalized.includes("vipeak1") || normalized.includes("wan27") || normalized.includes("wan2.7") ? "wan27" : "seedance";
@@ -1347,9 +1355,98 @@ function normalizeAdvancedProvider(value = "") {
 
 function advancedProviderLabel(provider = currentAdvancedProvider()) {
   const normalized = normalizeAdvancedProvider(provider);
+  const capability = currentAdvancedVideoCapability(provider);
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
-  if (normalized === "wan27-image-edit") return "Vipeak 1 Image";
-  return normalized === "wan27" ? "Vipeak 1" : "Vipeak 2";
+  if (normalized === "wan27-image-edit") return "Wan 2.7 Image";
+  const labels = {
+    "wan27-t2v": "Wan 2.7 - Text to Video",
+    "wan27-i2v": "Wan 2.7 - Image to Video",
+    "wan27-r2v": "Wan 2.7 - Reference to Video",
+    "wan27-video-edit": "Wan 2.7 - Video Edit",
+    "wan-legacy": "Wan Legacy",
+    "wan-animate-move": "Wan Animate - Image Animation",
+    "wan-animate-mix": "Wan Animate - Character Replacement",
+    "happyhorse-t2v": "HappyHorse - Text to Video",
+    "happyhorse-i2v": "HappyHorse - Image to Video",
+    "happyhorse-r2v": "HappyHorse - Reference to Video",
+    "happyhorse-video-edit": "HappyHorse - Video Edit",
+  };
+  if (labels[capability]) return labels[capability];
+  if (normalized === "happyhorse") return "HappyHorse";
+  return normalized === "wan27" ? "Wan 2.7" : "Seedance 2.0";
+}
+
+function prepareModalOpen() {
+  closeMobileDrawer();
+  closeAccountMenu();
+}
+
+const ADVANCED_ALIYUN_VIDEO_CAPABILITIES = new Set([
+  "wan27-t2v", "wan27-i2v", "wan27-r2v", "wan27-video-edit", "wan-legacy",
+  "wan-animate-move", "wan-animate-mix", "happyhorse-t2v", "happyhorse-i2v",
+  "happyhorse-r2v", "happyhorse-video-edit",
+]);
+
+const ADVANCED_VIDEO_CAPABILITY_GROUPS = Object.freeze({
+  wan27: Object.freeze([
+    Object.freeze({ value: "wan27-i2v", label: "Image to Video" }),
+    Object.freeze({ value: "wan27-t2v", label: "Text to Video" }),
+    Object.freeze({ value: "wan27-r2v", label: "Reference to Video" }),
+    Object.freeze({ value: "wan27-video-edit", label: "Video Edit" }),
+  ]),
+  "wan-legacy": Object.freeze([
+    Object.freeze({ value: "wan-legacy", label: "Legacy Model" }),
+  ]),
+  "wan-animate": Object.freeze([
+    Object.freeze({ value: "wan-animate-move", label: "Image Animation" }),
+    Object.freeze({ value: "wan-animate-mix", label: "Character Replacement" }),
+  ]),
+  happyhorse: Object.freeze([
+    Object.freeze({ value: "happyhorse-i2v", label: "First Frame" }),
+    Object.freeze({ value: "happyhorse-t2v", label: "Text Prompt" }),
+    Object.freeze({ value: "happyhorse-r2v", label: "Reference Images" }),
+    Object.freeze({ value: "happyhorse-video-edit", label: "Source Video + References" }),
+  ]),
+});
+
+function advancedEngineValue(provider = els.advancedProvider?.value || "", capability = "") {
+  const normalizedCapability = String(capability || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (normalizedCapability === "wan-legacy") return "wan-legacy";
+  if (["wan-animate-move", "wan-animate-mix"].includes(normalizedCapability)) return "wan-animate";
+  if (normalizedCapability.startsWith("happyhorse-")) return "happyhorse";
+  if (normalizedCapability.startsWith("wan27-")) return "wan27";
+  const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "wan27", "wan27-image-edit", "seedream5-image"].includes(raw)) return raw;
+  if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
+  return normalizeAdvancedProvider(provider);
+}
+
+function advancedVideoCapabilityOptions(engine = advancedEngineValue()) {
+  return ADVANCED_VIDEO_CAPABILITY_GROUPS[advancedEngineValue(engine)] || [];
+}
+
+function syncAdvancedVideoCapabilityOptions(preferredCapability = "") {
+  if (!els.advancedVideoCapability) return;
+  const options = advancedVideoCapabilityOptions();
+  const current = String(preferredCapability || els.advancedVideoCapability.value || "").trim();
+  els.advancedVideoCapability.innerHTML = options
+    .map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`)
+    .join("");
+  els.advancedVideoCapability.value = options.some((item) => item.value === current) ? current : (options[0]?.value || "");
+  const field = els.advancedVideoCapability.closest(".field");
+  field?.toggleAttribute("hidden", options.length <= 1);
+  const label = field?.querySelector(":scope > span");
+  if (label) label.textContent = "Mode";
+}
+
+function currentAdvancedVideoCapability(value = els.advancedProvider?.value || "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(normalized)) return normalized;
+  const options = advancedVideoCapabilityOptions(advancedEngineValue(value));
+  const selected = String(els.advancedVideoCapability?.value || "").trim();
+  if (options.some((item) => item.value === selected)) return selected;
+  if (options.length) return options[0].value;
+  return "";
 }
 
 function publicModelText(value = "") {
@@ -1395,16 +1492,31 @@ function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return raw === "4k" ? "4K" : raw === "1k" ? "1K" : "2K";
-  if (normalizeAdvancedProvider(provider) === "wan27") return raw === "1080p" ? "1080p" : "720p";
+  if (["wan27", "happyhorse"].includes(normalizeAdvancedProvider(provider))) return raw === "1080p" ? "1080p" : "720p";
   if (raw === "480p") return "480p";
   if (raw === "4k" || raw === "2160p") return "4k";
   return raw === "1080p" ? "1080p" : "720p";
 }
 
-function advancedDurationBounds(provider = "seedance") {
+function advancedDurationBounds(provider = "seedance", capability = "") {
   const normalized = normalizeAdvancedProvider(provider);
   if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan27-image-edit") return { min: 1, max: 1, fallback: 1 };
+  const resolvedCapability = capability || (
+    typeof currentAdvancedVideoCapability === "function"
+    && typeof currentAdvancedProvider === "function"
+    && normalizeAdvancedProvider(currentAdvancedProvider()) === normalized
+      ? currentAdvancedVideoCapability()
+      : ""
+  );
+  if (resolvedCapability === "wan27-video-edit") return { min: 2, max: 10, fallback: 5 };
+  if (resolvedCapability === "wan27-r2v"
+    && typeof state !== "undefined"
+    && (state.advancedWanClipAssetId || state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim())) {
+    return { min: 2, max: 10, fallback: 5 };
+  }
+  if (["wan-animate-move", "wan-animate-mix"].includes(resolvedCapability)) return { min: 2, max: 30, fallback: 5 };
+  if (normalized === "happyhorse") return { min: 3, max: 15, fallback: 5 };
   return normalized === "wan27"
     ? { min: 2, max: 15, fallback: 5 }
     : { min: 5, max: 15, fallback: 5 };
@@ -1528,22 +1640,43 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       userPricingMultiplier: userPricingMultiplier(),
     };
   }
-  const bounds = advancedDurationBounds(normalizedProvider);
+  const bounds = advancedDurationBounds(normalizedProvider, options.videoCapability);
   const rawSeconds = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawSeconds) ? Math.min(bounds.max, Math.max(bounds.min, rawSeconds)) : bounds.fallback;
   const configPricing = state.config?.platform?.advancedPricing || {};
   const multiplier = userPricingMultiplier();
-  if (normalizedProvider === "wan27") {
+  if (normalizedProvider === "wan27" || normalizedProvider === "happyhorse") {
+    const capability = options.videoCapability || currentAdvancedVideoCapability();
     const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
-    const byResolution = configPricing.wan27CreditsPerSecondByResolution || {};
+    const animateMode = String(options.mode || options.animateMode || els.advancedWanAnimateMode?.value || "wan-std") === "wan-pro" ? "wan-pro" : "wan-std";
+    const rateKey = ["wan-animate-move", "wan-animate-mix"].includes(capability) ? animateMode : normalizedResolution;
+    const familyPricing = normalizedProvider === "happyhorse"
+      ? configPricing.happyhorseCreditsPerSecondByResolution
+      : configPricing.wan27CreditsPerSecondByResolution;
+    const byResolution = ["wan-animate-move", "wan-animate-mix"].includes(capability)
+      ? configPricing.aliyunVideoCreditsPerSecondByCapability?.[capability] || {}
+      : familyPricing || {};
     const fallbackPerSecond = normalizedResolution === "1080p" ? ADVANCED_WAN27_1080P_CREDITS_PER_SECOND : ADVANCED_WAN27_720P_CREDITS_PER_SECOND;
-    const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
-    const originalCredits = creditsAmount(seconds * perSecond);
+    const perSecond = Number(byResolution[rateKey] || fallbackPerSecond) || fallbackPerSecond;
+    const inputBillingCapabilities = new Set(["wan27-r2v", "wan27-video-edit", "happyhorse-video-edit"]);
+    const rawInputVideoSeconds = inputBillingCapabilities.has(capability)
+      ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0)
+      : 0;
+    const inputVideoSeconds = capability === "wan27-r2v" ? Math.min(seconds, rawInputVideoSeconds) : rawInputVideoSeconds;
+    const outputCredits = creditsAmount(seconds * perSecond);
+    const inputVideoCredits = creditsAmount(inputVideoSeconds * perSecond);
+    const originalCredits = creditsAmount(outputCredits + inputVideoCredits);
     return {
-      provider: "wan27",
+      provider: normalizedProvider,
+      capability,
       duration: seconds,
       resolution: normalizedResolution,
+      animateMode: ["wan-animate-move", "wan-animate-mix"].includes(capability) ? animateMode : undefined,
       creditsPerSecond: perSecond,
+      outputCredits,
+      inputVideoSeconds,
+      inputVideoCreditsPerSecond: perSecond,
+      inputVideoCredits,
       baseCredits: originalCredits,
       originalCredits,
       credits: creditsAmount(originalCredits * multiplier),
@@ -1638,7 +1771,9 @@ function currentAdvancedResolution() {
 }
 
 function advancedVideoSettingsVisible() {
-  return state.advancedCreateKind === "video" && !advancedCreateModeIsSimpleEdit();
+  return state.advancedCreateKind === "video"
+    && !advancedCreateModeIsSimpleEdit()
+    && !["wan-animate-move", "wan-animate-mix"].includes(currentAdvancedVideoCapability());
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
@@ -2029,6 +2164,7 @@ function advancedPresetCategoriesForSlot(slot = "") {
 
 function openAdvancedPresetDialog(slot = "") {
   if (!slot || !els.advancedPresetDialog) return;
+  prepareModalOpen();
   state.advancedPresetDialogSlot = slot;
   if (slot === "character" && !["system", "custom"].includes(state.advancedPresetCharacterSource)) {
     state.advancedPresetCharacterSource = "system";
@@ -2337,13 +2473,14 @@ function clearAdvancedMediaInputs() {
     els.advancedImage,
     els.advancedSeedanceFirstFrame,
     els.advancedSeedanceLastFrame,
+    els.advancedWanFirstFrame,
     els.advancedWanLastFrame,
     els.advancedWanClipFile,
   ].forEach((input) => {
     if (input) input.value = "";
   });
   [
-    [els.advancedWanFirstFramePreview, els.advancedImage],
+    [els.advancedWanFirstFramePreview, els.advancedWanFirstFrame],
     [els.advancedSeedanceFirstFramePreview, els.advancedSeedanceFirstFrame],
     [els.advancedSeedanceLastFramePreview, els.advancedSeedanceLastFrame],
     [els.advancedWanLastFramePreview, els.advancedWanLastFrame],
@@ -2722,13 +2859,17 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawDuration = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
-  const inputVideoSeconds = normalizedProvider === "seedance" ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0) : 0;
+  const inputVideoSeconds = ["seedance", "wan27", "happyhorse"].includes(normalizedProvider)
+    ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0)
+    : 0;
   const referenceVideoSignature = normalizedProvider === "seedance"
     ? (Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : []).map((item) => String(item || "").trim()).filter(Boolean).join(",")
     : "";
   return [
     normalizedProvider,
     normalizedProvider === "seedance" ? (String(options.seedanceTier || "").trim().toLowerCase() === "fast" ? "fast" : "standard") : "",
+    options.videoCapability || (typeof currentAdvancedVideoCapability === "function" ? currentAdvancedVideoCapability() : ""),
+    options.mode || options.animateMode || "",
     normalizeAdvancedResolution(resolution, normalizedProvider),
     normalizeVideoRatio(ratio),
     seconds,
@@ -2755,6 +2896,9 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
           inputVideoSeconds: positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0),
           referenceVideoUrls: Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : [],
           seedanceTier: options.seedanceTier,
+          videoCapability: options.videoCapability,
+          model: options.model,
+          mode: options.mode || options.animateMode,
           seedreamTier: options.seedreamTier || options.seedream5Tier,
           referenceImageCount: Math.max(0, Number(options.referenceImageCount || 0) || 0),
         },
@@ -2787,10 +2931,17 @@ function updateAdvancedButtonCost() {
     return;
   }
   const options = {
-    inputVideoSeconds: provider === "seedance" ? currentSeedanceVideoInputSeconds(duration, provider) : 0,
+    inputVideoSeconds: provider === "seedance"
+      ? currentSeedanceVideoInputSeconds(duration, provider)
+      : ["wan27", "happyhorse"].includes(provider)
+      ? positiveDurationSeconds(state.advancedWanClipDurationSeconds, state.advancedWanClipAssetId || state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim() ? duration : 0)
+      : 0,
     referenceVideoUrls: provider === "seedance" ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
     seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
     referenceImageCount: provider === "seedream5-image" ? selectedAdvancedReferenceImages("seedream5-image").length : 0,
+    videoCapability: currentAdvancedVideoCapability(),
+    model: currentAdvancedVideoCapability() === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "") : undefined,
+    mode: ["wan-animate-move", "wan-animate-mix"].includes(currentAdvancedVideoCapability()) ? String(els.advancedWanAnimateMode?.value || "wan-std") : undefined,
   };
   requestAdvancedEstimate(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options);
   els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;
