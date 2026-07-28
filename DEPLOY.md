@@ -17,8 +17,10 @@ Keep these on the server and out of Git:
 ## Old -> new2 shared-code rule
 
 `D:\raising-game-old-asyncfix` (`origin/old-site`) is the source of truth for shared UI,
-admin, DB helper, docs, and deploy tooling. `D:\raising-game-667zui`
-(`codex/site-667zui`) must be synced from old-site for those files.
+server behavior, admin, DB helper, docs, tests, and deploy tooling. `D:\raising-game-667zui`
+(`codex/site-667zui`) must be synced from old-site for those files. Site-specific upstream
+routing is selected by each server's environment (`UPSTREAM_MODE` and gateway credentials),
+not by maintaining a second server implementation.
 
 Before deploying new2, run this from the old-site worktree:
 
@@ -34,9 +36,9 @@ python .\scripts\sync_old_to_new2.py --check
 ```
 
 The sync script intentionally does not copy runtime data, `.env` files, uploads,
-generated media, or database content. `server.js` is not copied by default
-because upstream invocation can differ per site; use `--include-server` only
-when old-site server code is intentionally the source for that change.
+generated media, or database content. `server.js` and `video-tools.js` are included
+in the default sync. Do not patch new2's shared backend separately; change old-site
+first and sync it.
 
 ## Fixed deploy commands
 

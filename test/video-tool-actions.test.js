@@ -13,6 +13,7 @@ const html = read("platform.html");
 const loader = read("platform.js");
 const frontend = read("platform.video-tools.js");
 const css = read("tool-video.css");
+const sharedCss = read("platform.css");
 
 test("face swap plans source-timeline segments no longer than 10 seconds", () => {
   assert.deepEqual(planVideoEditSegments(8.0333), [
@@ -24,12 +25,22 @@ test("face swap plans source-timeline segments no longer than 10 seconds", () =>
   ]);
 });
 
-test("Video tenant exposes Undress and Face Swap as floating modal actions", () => {
-  assert.match(html, /id="videoToolFabs"[\s\S]*?data-video-tool-action="undress"[\s\S]*?data-video-tool-action="face-swap"/);
+test("Video exposes all three quick tools as floating modal actions", () => {
+  assert.match(html, /id="videoToolFabs"[\s\S]*?data-video-tool-action="undress"[\s\S]*?data-video-tool-action="face-swap"[\s\S]*?data-video-tool-action="image-face-swap"/);
   assert.match(html, /id="videoToolDialog"[\s\S]*?id="videoToolDialogBody"/);
   assert.match(css, /body\.tenant-tool-video \.video-tool-fabs \{[\s\S]*?position: fixed/);
-  assert.match(frontend, /videoToolIsEnabled\(\)/);
+  assert.match(sharedCss, /\.video-tool-fabs \{[\s\S]*?position: fixed/);
+  assert.match(frontend, /normalizeGalleryMode\(state\.galleryMode\) === "playflux-video"/);
   assert.match(loader, /"platform\.video-tools\.js"/);
+});
+
+test("Video tool upload slots show complete media in compact portrait controls", () => {
+  for (const source of [css, sharedCss]) {
+    assert.match(source, /\.video-tool-upload \{[\s\S]*?aspect-ratio: 9 \/ 16/);
+    assert.match(source, /\.video-tool-upload-preview \{[\s\S]*?object-fit: contain/);
+  }
+  assert.match(frontend, /videoToolUploadCard\("targetImage"/);
+  assert.match(frontend, /videoToolUploadCard\("image"[\s\S]*?copy\.faceImage/);
 });
 
 test("Video tool submission uploads local files and navigates to History immediately", () => {
@@ -57,6 +68,25 @@ test("server owns Video tool pricing, orchestration, splitting, and stitching", 
   assert.match(server, /upstreamTaskIds\[segment\.index\]/);
   assert.match(server, /billingStatus: cost > 0 \? "pre_deducted" : "free"/);
   assert.match(server, /refundVideoToolTask\(job\.taskId/);
+});
+
+test("image face swap uses Wan2.7 Image Pro with target image before face reference", () => {
+  assert.match(server, /action === "image-face-swap"[\s\S]*?wan27ImageModifyPricing/);
+  assert.match(server, /runVideoToolImageFaceSwap/);
+  assert.match(server, /imageUrls: \[targetUrl, faceUrl\]/);
+  assert.match(server, /prompt: IMAGE_TOOL_FACE_SWAP_PROMPT/);
+  assert.match(server, /source: `\$\{isImageAction \? "image" : "video"\}-tool-\$\{action\}`/);
+  assert.match(server, /userAssetIds: assetIds/);
+  assert.match(server, /targetImageAssetId: targetImageAsset\?\.id \|\| ""/);
+  assert.match(server, /imageResultUrl: savedImage\.cdnImageUrl \|\| savedImage\.localImageUrl/);
+  assert.match(frontend, /targetImageAssetId: targetImageAsset\?\.id \|\| undefined/);
+});
+
+test("video tool recovery restores image face swap asset order", () => {
+  const recovery = server.slice(server.indexOf("async function recoverVideoToolJobs"), server.indexOf("function startVideoToolJobRecoveryScheduler"));
+  assert.match(recovery, /targetImageAssetId = action === "image-face-swap"/);
+  assert.match(recovery, /assetIds\.find\(\(id\) => id !== targetImageAssetId\)/);
+  assert.match(recovery, /targetImageAssetId,/);
 });
 
 test("intermediate segment tasks stay out of History", () => {

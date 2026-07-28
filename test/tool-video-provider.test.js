@@ -10,10 +10,12 @@ const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 const explore = fs.readFileSync(path.join(root, "platform.explore.js"), "utf8");
 const html = fs.readFileSync(path.join(root, "platform.html"), "utf8");
 
-test("Video tool defaults to guided Wan2.7 Reference to Video", () => {
+test("all Video template surfaces default to guided Wan2.7 Reference to Video", () => {
   assert.match(server, /const TOOL_VIDEO_DEFAULT_PROVIDER = "wan27";/);
   assert.match(server, /if \(normalizedProvider === "wan27"\) return "wan27-r2v";/);
   assert.match(server, /isToolVideoTemplateRequest \? toolVideoDefaultCapability\(toolVideoProvider\) : ""/);
+  assert.match(explore, /tenantStringFeature\("videoProvider", "wan27"\)/);
+  assert.doesNotMatch(explore, /isTenantTool\("video"\)\s*\?\s*tenantStringFeature\("videoProvider"/);
 });
 
 test("Video tool submits the uploaded image and reference video to Wan2.7", () => {
@@ -40,6 +42,7 @@ test("Video tool matches Wan2.7 output duration and billing to the reference vid
   assert.match(explore, /provider === "wan27" \? Math\.min\(duration, seconds\) : seconds/);
   assert.match(server, /requestParams\.duration = Math\.max\(2, Math\.min\(10, Math\.round\(primaryVideoDuration\)\)\)/);
   assert.match(server, /capability === "wan27-r2v" \? Math\.min\(aliyunDuration, rawInputVideoSeconds\)/);
+  assert.match(server, /isVideoTemplateRequest && requestParams\.videoCapability === "wan27-r2v"/);
 });
 
 test("Video tool estimate uses the same capability as generation", () => {
@@ -58,8 +61,8 @@ test("game feed does not contain Video tool estimate state", () => {
   assert.doesNotMatch(gameFeedSource, /isToolVideoTemplateEstimate|params\.videoCapability|toolVideoDefaultCapability/);
 });
 
-test("Video tool frontend uses the shared tenant helper", () => {
-  assert.match(explore, /isTenantTool\("video"\)/);
-  assert.doesNotMatch(explore, /isToolTenant\(/);
+test("Video template provider is shared across old, new2, and tool tenant", () => {
+  assert.match(explore, /function playfluxTemplateVideoProvider\(\)/);
+  assert.match(explore, /return \["wan27", "happyhorse", "seedance"\]\.includes\(provider\) \? provider : "wan27"/);
   assert.match(html, /platform\.js\?v=ai-\d+-[a-z0-9-]+/);
 });

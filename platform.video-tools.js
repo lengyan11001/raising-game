@@ -4,8 +4,15 @@ const VIDEO_TOOL_COPY = {
   en: {
     undress: "Undress",
     faceSwap: "Face Swap",
+    imageFaceSwap: "Image Face Swap",
+    videoTool: "Video tool",
+    imageTool: "Image tool",
     image: "Image",
     video: "Video",
+    sourceImage: "Source image",
+    targetImage: "Target image",
+    faceImage: "Face reference",
+    sourceVideo: "Source video",
     uploadImage: "Upload image",
     uploadVideo: "Upload video",
     duration: "Duration",
@@ -21,6 +28,13 @@ const VIDEO_TOOL_COPY = {
     estimateFailed: "Unable to calculate the price.",
   },
   zh: {
+    imageFaceSwap: "\u56fe\u7247\u6362\u8138",
+    videoTool: "\u89c6\u9891\u5de5\u5177",
+    imageTool: "\u56fe\u7247\u5de5\u5177",
+    sourceImage: "\u539f\u59cb\u56fe\u7247",
+    targetImage: "\u76ee\u6807\u56fe\u7247",
+    faceImage: "\u4eba\u8138\u53c2\u8003",
+    sourceVideo: "\u539f\u59cb\u89c6\u9891",
     undress: "脱衣",
     faceSwap: "换脸",
     image: "图片",
@@ -120,8 +134,10 @@ const VIDEO_TOOL_COPY = {
 const videoToolUiState = {
   action: "",
   imageFile: null,
+  targetImageFile: null,
   videoFile: null,
   imageObjectUrl: "",
+  targetImageObjectUrl: "",
   videoObjectUrl: "",
   durationSeconds: 0,
   pricing: null,
@@ -135,11 +151,16 @@ const videoToolUiState = {
 const VIDEO_TOOL_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 
 function videoToolCopy() {
-  return VIDEO_TOOL_COPY[state.lang] || VIDEO_TOOL_COPY.en;
+  return { ...VIDEO_TOOL_COPY.en, ...(VIDEO_TOOL_COPY[state.lang] || {}) };
 }
 
 function videoToolIsEnabled() {
-  return document.body.classList.contains("tenant-tool-video") || (typeof isTenantTool === "function" && isTenantTool("video"));
+  const isVideoTenant = document.body.classList.contains("tenant-tool-video")
+    || (typeof isTenantTool === "function" && isTenantTool("video"));
+  const isVideoGallery = state.tab === DEFAULT_PLATFORM_TAB
+    && typeof normalizeGalleryMode === "function"
+    && normalizeGalleryMode(state.galleryMode) === "playflux-video";
+  return isVideoTenant || isVideoGallery;
 }
 
 function videoToolCredits(value) {
@@ -160,9 +181,11 @@ function revokeVideoToolObjectUrl(key) {
 
 function resetVideoToolDialogState(action = "") {
   revokeVideoToolObjectUrl("imageObjectUrl");
+  revokeVideoToolObjectUrl("targetImageObjectUrl");
   revokeVideoToolObjectUrl("videoObjectUrl");
   videoToolUiState.action = action;
   videoToolUiState.imageFile = null;
+  videoToolUiState.targetImageFile = null;
   videoToolUiState.videoFile = null;
   videoToolUiState.durationSeconds = 0;
   videoToolUiState.pricing = null;
@@ -213,7 +236,7 @@ async function estimateVideoToolAction() {
   }
 }
 
-function videoToolUploadCard(kind, file, objectUrl) {
+function videoToolUploadCard(kind, file, objectUrl, label = "") {
   const copy = videoToolCopy();
   const isVideo = kind === "video";
   const uploading = videoToolUiState.uploadKinds.has(kind);
@@ -223,7 +246,7 @@ function videoToolUploadCard(kind, file, objectUrl) {
       <input type="file" accept="${isVideo ? "video/mp4,video/webm,video/quicktime,video/*" : "image/jpeg,image/png,image/webp,image/bmp,image/*"}" data-video-tool-input="${kind}" ${videoToolUiState.submitting ? "disabled" : ""} />
       <span class="video-tool-upload-placeholder">
         <i data-lucide="${isVideo ? "video" : "image-up"}"></i>
-        <strong>${videoToolEscape(isVideo ? copy.uploadVideo : copy.uploadImage)}</strong>
+        <strong>${videoToolEscape(label || (isVideo ? copy.uploadVideo : copy.uploadImage))}</strong>
       </span>
       ${file && objectUrl ? (isVideo
         ? `<video class="video-tool-upload-preview" src="${videoToolEscape(objectUrl)}" muted playsinline preload="metadata"></video>`
@@ -236,7 +259,8 @@ function videoToolUploadCard(kind, file, objectUrl) {
 
 function videoToolCanSubmit() {
   const hasInputs = Boolean(videoToolUiState.imageFile)
-    && (videoToolUiState.action !== "face-swap" || Boolean(videoToolUiState.videoFile && videoToolUiState.durationSeconds));
+    && (videoToolUiState.action !== "face-swap" || Boolean(videoToolUiState.videoFile && videoToolUiState.durationSeconds))
+    && (videoToolUiState.action !== "image-face-swap" || Boolean(videoToolUiState.targetImageFile));
   return hasInputs && Boolean(videoToolUiState.pricing) && !videoToolUiState.estimating && !videoToolUiState.submitting;
 }
 
@@ -247,18 +271,24 @@ function renderVideoToolDialog() {
   if (!dialog || !body || !videoToolUiState.action) return;
   const copy = videoToolCopy();
   const faceSwap = videoToolUiState.action === "face-swap";
-  if (title) title.textContent = faceSwap ? copy.faceSwap : copy.undress;
+  const imageFaceSwap = videoToolUiState.action === "image-face-swap";
+  if (title) title.textContent = imageFaceSwap ? copy.imageFaceSwap : faceSwap ? copy.faceSwap : copy.undress;
+  const kicker = document.querySelector("#videoToolDialogKicker");
+  if (kicker) kicker.textContent = imageFaceSwap ? copy.imageTool : copy.videoTool;
   const duration = Number(videoToolUiState.pricing?.durationSeconds || videoToolUiState.durationSeconds || (faceSwap ? 0 : 5));
   const segmentCount = Number(videoToolUiState.pricing?.segmentCount || (faceSwap && duration ? Math.ceil(duration / 10) : 1));
   const price = videoToolUiState.pricing?.credits;
   body.innerHTML = `
-    <div class="video-tool-form-grid ${faceSwap ? "" : "is-single"}">
-      ${videoToolUploadCard("image", videoToolUiState.imageFile, videoToolUiState.imageObjectUrl)}
-      ${faceSwap ? videoToolUploadCard("video", videoToolUiState.videoFile, videoToolUiState.videoObjectUrl) : ""}
+    <div class="video-tool-form-grid ${faceSwap || imageFaceSwap ? "" : "is-single"}">
+      ${imageFaceSwap
+        ? videoToolUploadCard("targetImage", videoToolUiState.targetImageFile, videoToolUiState.targetImageObjectUrl, copy.targetImage)
+        : videoToolUploadCard("image", videoToolUiState.imageFile, videoToolUiState.imageObjectUrl, faceSwap ? copy.faceImage : copy.sourceImage)}
+      ${faceSwap ? videoToolUploadCard("video", videoToolUiState.videoFile, videoToolUiState.videoObjectUrl, copy.sourceVideo) : ""}
+      ${imageFaceSwap ? videoToolUploadCard("image", videoToolUiState.imageFile, videoToolUiState.imageObjectUrl, copy.faceImage) : ""}
     </div>
-    <div class="video-tool-summary">
-      <span>${videoToolEscape(copy.duration)}<strong>${duration ? `${duration.toFixed(duration >= 10 ? 1 : 2).replace(/\.0+$|(?<=\.\d)0+$/g, "")} ${videoToolEscape(copy.seconds)}` : "-"}</strong></span>
-      <span>${videoToolEscape(copy.segments)}<strong>${segmentCount || "-"}</strong></span>
+    <div class="video-tool-summary ${imageFaceSwap ? "is-image-action" : ""}">
+      ${imageFaceSwap ? "" : `<span>${videoToolEscape(copy.duration)}<strong>${duration ? `${duration.toFixed(duration >= 10 ? 1 : 2).replace(/\.0+$|(?<=\.\d)0+$/g, "")} ${videoToolEscape(copy.seconds)}` : "-"}</strong></span>`}
+      ${imageFaceSwap ? "" : `<span>${videoToolEscape(copy.segments)}<strong>${segmentCount || "-"}</strong></span>`}
       <span>${videoToolEscape(copy.price)}<strong>${videoToolUiState.estimating ? videoToolEscape(copy.estimating) : price !== undefined ? `${videoToolCredits(price)} ${videoToolEscape(copy.credits)}` : "-"}</strong></span>
     </div>
     <div class="video-tool-submit-row">
@@ -283,6 +313,10 @@ async function handleVideoToolFileChange(event) {
     revokeVideoToolObjectUrl("imageObjectUrl");
     videoToolUiState.imageFile = file;
     videoToolUiState.imageObjectUrl = URL.createObjectURL(file);
+  } else if (kind === "targetImage") {
+    revokeVideoToolObjectUrl("targetImageObjectUrl");
+    videoToolUiState.targetImageFile = file;
+    videoToolUiState.targetImageObjectUrl = URL.createObjectURL(file);
   } else {
     revokeVideoToolObjectUrl("videoObjectUrl");
     videoToolUiState.videoFile = file;
@@ -359,6 +393,9 @@ async function submitVideoToolAction() {
   videoToolUiState.message = "";
   renderVideoToolDialog();
   try {
+    const targetImageAsset = videoToolUiState.action === "image-face-swap"
+      ? await uploadVideoToolFile("targetImage", videoToolUiState.targetImageFile)
+      : null;
     const imageAsset = await uploadVideoToolFile("image", videoToolUiState.imageFile);
     const videoAsset = videoToolUiState.action === "face-swap"
       ? await uploadVideoToolFile("video", videoToolUiState.videoFile)
@@ -368,6 +405,7 @@ async function submitVideoToolAction() {
       body: {
         action: videoToolUiState.action,
         imageAssetId: imageAsset.id,
+        targetImageAssetId: targetImageAsset?.id || undefined,
         videoAssetId: videoAsset?.id || undefined,
       },
     });
@@ -392,7 +430,7 @@ function openVideoToolDialog(action) {
   if (typeof prepareModalOpen === "function") prepareModalOpen();
   renderVideoToolDialog();
   document.querySelector("#videoToolDialog")?.showModal();
-  if (action === "undress") estimateVideoToolAction();
+  if (["undress", "image-face-swap"].includes(action)) estimateVideoToolAction();
 }
 
 function renderVideoToolActions() {
@@ -403,6 +441,7 @@ function renderVideoToolActions() {
   const copy = videoToolCopy();
   root.querySelector('[data-video-tool-label="undress"]')?.replaceChildren(copy.undress);
   root.querySelector('[data-video-tool-label="face-swap"]')?.replaceChildren(copy.faceSwap);
+  root.querySelector('[data-video-tool-label="image-face-swap"]')?.replaceChildren(copy.imageFaceSwap);
   if (document.querySelector("#videoToolDialog")?.open && videoToolUiState.action) renderVideoToolDialog();
 }
 

@@ -19,8 +19,12 @@ DEFAULT_NEW2_ROOT = Path(r"D:\raising-game-667zui")
 
 SHARED_APP_FILES = (
     ".gitignore",
+    "package.json",
+    "package-lock.json",
     "index.html",
+    "app.js",
     "game.html",
+    "game.js",
     "platform.html",
     "platform.css",
     "platform.js",
@@ -48,8 +52,20 @@ SHARED_APP_FILES = (
     "scripts/build_tool_installers.ps1",
     "admin.html",
     "admin.js",
+    "aliyun-video.js",
     "db.js",
+    "media-inputs.js",
+    "server.js",
+    "video-tools.js",
+    "test/advanced-custom-ui.test.js",
+    "test/advanced-pricing.test.js",
+    "test/aliyun-video.test.js",
+    "test/media-inputs.test.js",
+    "test/mobile-tool-ux.test.js",
     "test/site-seo.test.js",
+    "test/tool-video-provider.test.js",
+    "test/video-tool-actions.test.js",
+    "test/wallet-scan.test.js",
     "test/web-vitals.test.js",
 )
 
@@ -60,19 +76,12 @@ SHARED_TOOLING_FILES = (
     "scripts/sync_old_to_new2.py",
 )
 
-OPTIONAL_SERVER_FILES = (
-    "server.js",
-)
-
-
 def normalized_root(value: str | None, fallback: Path) -> Path:
     return Path(value).resolve() if value else fallback.resolve()
 
 
 def selected_files(args: argparse.Namespace) -> list[str]:
     files = list(SHARED_APP_FILES) + list(SHARED_TOOLING_FILES)
-    if args.include_server:
-        files.extend(OPTIONAL_SERVER_FILES)
     if args.only:
         wanted = {item.strip().replace("\\", "/") for item in args.only.split(",") if item.strip()}
         files = [item for item in files if item.replace("\\", "/") in wanted]
@@ -93,7 +102,7 @@ def main() -> int:
     parser.add_argument("--old-root", default=None, help=f"Old site worktree. Default: {DEFAULT_OLD_ROOT}")
     parser.add_argument("--new2-root", default=None, help=f"New2 worktree. Default: {DEFAULT_NEW2_ROOT}")
     parser.add_argument("--check", action="store_true", help="Report drift without copying files.")
-    parser.add_argument("--include-server", action="store_true", help="Also compare/copy server.js. Use only when old-site server code is intended to be the source.")
+    parser.add_argument("--include-server", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--only", default="", help="Comma-separated subset from the selected shared file list.")
     args = parser.parse_args()
 

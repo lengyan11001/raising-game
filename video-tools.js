@@ -11,6 +11,15 @@ const VIDEO_TOOL_FACE_SWAP_PROMPT = [
   "No text, subtitles, logos, watermarks, split screens, or extra people.",
 ].join(" ");
 
+const IMAGE_TOOL_FACE_SWAP_PROMPT = [
+  "Image 1 is the target photo. Preserve its composition, body, pose, clothing, hairstyle, background, lighting, camera angle, and image style.",
+  "Image 2 is the facial identity reference. Replace only the main adult subject's facial identity in Image 1 with Image 2.",
+  "Preserve Image 2's facial structure, eyes, eyebrows, nose, mouth, jawline, skin tone, and recognizable identity.",
+  "Blend the new face naturally into Image 1 with matching perspective, expression, lighting, skin texture, and resolution.",
+  "Do not change anything else in Image 1. Produce one photorealistic full-frame image, not a collage, comparison, split screen, or text layout.",
+  "No text, subtitles, logos, watermarks, extra people, duplicated faces, or distorted facial features.",
+].join(" ");
+
 const VIDEO_TOOL_UNDRESS_KEYFRAME_PROMPT = [
   "Use Image 1 as the exact same consenting adult subject identity reference.",
   "Create the opening keyframe before clothing removal, preserving the clothing and outfit from Image 1.",
@@ -69,6 +78,7 @@ function planVideoEditSegments(durationSeconds, maxSeconds = VIDEO_EDIT_SEGMENT_
 module.exports = {
   VIDEO_EDIT_SEGMENT_MAX_SECONDS,
   VIDEO_TOOL_FACE_SWAP_PROMPT,
+  IMAGE_TOOL_FACE_SWAP_PROMPT,
   VIDEO_TOOL_UNDRESS_KEYFRAME_PROMPT,
   VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
   VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,

@@ -17,6 +17,7 @@ const {
 } = require("./aliyun-video");
 const {
   VIDEO_TOOL_FACE_SWAP_PROMPT,
+  IMAGE_TOOL_FACE_SWAP_PROMPT,
   VIDEO_TOOL_UNDRESS_KEYFRAME_PROMPT,
   VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
   VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
@@ -15202,6 +15203,7 @@ async function handleWorkflowCompose(req, res) {
 
 function videoToolAction(value = "") {
   const action = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (["image-face-swap", "image-faceswap", "photo-face-swap", "photo-faceswap"].includes(action)) return "image-face-swap";
   if (["face-swap", "faceswap", "replace-face"].includes(action)) return "face-swap";
   if (["undress", "strip", "take-off"].includes(action)) return "undress";
   return "";
@@ -15225,7 +15227,7 @@ function videoToolAsset(db, userId, assetId, mediaKind, label) {
 function videoToolPricingAggregate(action, items = [], extras = {}) {
   const rows = items.filter(Boolean);
   return {
-    provider: action === "face-swap" ? "wan27" : "video-tool",
+    provider: action === "image-face-swap" ? "wan27-image-edit" : action === "face-swap" ? "wan27" : "video-tool",
     action,
     credits: creditsAmount(rows.reduce((sum, item) => sum + Number(item.credits || 0), 0)),
     originalCredits: creditsAmount(rows.reduce((sum, item) => sum + Number(item.originalCredits ?? item.credits ?? 0), 0)),
@@ -15242,6 +15244,7 @@ function publicVideoToolPricing(pricing = {}) {
     durationSeconds: Number(pricing.durationSeconds || 0),
     segmentCount: Number(pricing.segmentCount || 1),
     resolution: String(pricing.resolution || "720p"),
+    outputKind: String(pricing.outputKind || "video"),
   };
 }
 
@@ -15264,6 +15267,16 @@ async function videoToolPresetVideoDuration(preset = {}) {
 async function videoToolPricing(action, { durationSeconds = 0, user = null, auth = null } = {}) {
   const config = await readAppConfig();
   const pricingOptions = pricingContextForAuth(auth || {});
+  if (action === "image-face-swap") {
+    const imagePricing = wan27ImageModifyPricing(config, user, pricingOptions);
+    return videoToolPricingAggregate(action, [imagePricing], {
+      durationSeconds: 0,
+      segmentCount: 1,
+      resolution: "2K",
+      model: imagePricing.model || WAN27_IMAGE_PRO_MODEL,
+      outputKind: "image",
+    });
+  }
   if (action === "face-swap") {
     const segments = planVideoEditSegments(durationSeconds);
     const components = segments.map((segment) => applyUserPricingToEstimate(advancedModelPricing("wan27", {
@@ -15388,6 +15401,29 @@ async function waitForSeedanceVideoToolTask(upstreamTaskId, { timeoutMs = 45 * 6
     await delay(5000);
   }
   const error = new Error("Seedance video generation timed out.");
+  error.statusCode = 504;
+  error.payload = lastRaw;
+  throw error;
+}
+
+async function waitForWan27ImageToolTask(upstreamTaskId, { timeoutMs = 20 * 60 * 1000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let lastRaw = null;
+  while (Date.now() < deadline) {
+    const task = USE_GATEWAY_UPSTREAM
+      ? await gatewayQueryTask(upstreamTaskId)
+      : normalizeWan27ImageTask(lastRaw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(upstreamTaskId)}`, { method: "GET" }));
+    const imageUrl = task.imageUrls?.[0] || task.imageUrl || "";
+    if (isSucceededStatus(task.status) && imageUrl) return { task: { ...task, imageUrl, imageUrls: [imageUrl] }, raw: task.raw || lastRaw };
+    if (isFailedStatus(task.status)) {
+      const error = new Error(task.error || "Wan2.7 image face swap failed.");
+      error.statusCode = 502;
+      error.payload = task.raw || lastRaw;
+      throw error;
+    }
+    await delay(4000);
+  }
+  const error = new Error("Wan2.7 image face swap timed out.");
   error.statusCode = 504;
   error.payload = lastRaw;
   throw error;
@@ -15527,6 +15563,102 @@ async function refundVideoToolTask(taskId, message = "Video tool generation fail
     billingSettledAt: new Date().toISOString(),
     failedAt: new Date().toISOString(),
     lastUpdateReason: "video-tool-failed",
+  });
+}
+
+function closestWan27ImageRatioForAsset(asset = {}) {
+  const dimensions = storedImageDimensionsForAsset(asset);
+  if (!dimensions) return "9:16";
+  const sourceRatio = dimensions.width / dimensions.height;
+  const candidates = [
+    ["9:16", 9 / 16],
+    ["3:4", 3 / 4],
+    ["1:1", 1],
+    ["4:3", 4 / 3],
+    ["16:9", 16 / 9],
+  ];
+  return candidates.reduce((best, candidate) => (
+    Math.abs(Math.log(sourceRatio / candidate[1])) < Math.abs(Math.log(sourceRatio / best[1])) ? candidate : best
+  ))[0];
+}
+
+async function runVideoToolImageFaceSwap(job) {
+  const { taskId, userId, imageAssetId, targetImageAssetId, pricing } = job;
+  const db = await readDb();
+  const user = (db.users || []).find((entry) => entry.id === userId);
+  if (!user) throw new Error("User not found.");
+  let targetAsset = videoToolAsset(db, userId, targetImageAssetId, "image", "Target image");
+  let faceAsset = videoToolAsset(db, userId, imageAssetId, "image", "Face reference");
+  targetAsset = await ensurePublicUrlForUserMediaAsset(db, targetAsset);
+  faceAsset = await ensurePublicUrlForUserMediaAsset(db, faceAsset);
+  const targetUrl = publicUrlForLocalAsset(targetAsset);
+  const faceUrl = publicUrlForLocalAsset(faceAsset);
+  if (!isPublicHttpUrl(targetUrl) || !isPublicHttpUrl(faceUrl)) throw new Error("Image face swap inputs are not publicly accessible.");
+
+  const config = await readAppConfig();
+  const imageOptions = wan27ImageRequestOptions({}, {
+    defaultModel: pricing.model || normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro.model || WAN27_IMAGE_PRO_MODEL,
+    defaultRatio: closestWan27ImageRatioForAsset(targetAsset),
+    defaultResolution: "2K",
+  });
+  const priorRecord = await getGenerationRecord(taskId);
+  let upstreamTaskId = String(priorRecord?.upstreamTaskId || "").trim();
+  let completed = null;
+  if (!upstreamTaskId) {
+    await updateVideoToolProgress(taskId, "generating");
+    const submit = USE_GATEWAY_UPSTREAM ? gatewaySubmitWan27ImageEditTask : submitWan27ImageModify;
+    const submitted = await submit({
+      imageUrls: [targetUrl, faceUrl],
+      prompt: IMAGE_TOOL_FACE_SWAP_PROMPT,
+      ratio: imageOptions.ratio,
+      resolution: imageOptions.resolution,
+      model: imageOptions.model,
+      input: imageOptions.input,
+      parameters: imageOptions.parameters,
+      waitForResult: false,
+    });
+    upstreamTaskId = submitted.task.taskId || "";
+    if (!upstreamTaskId && !submitted.task.imageUrls?.[0] && !submitted.task.imageUrl) {
+      throw new Error("Wan2.7 image face swap did not return a task id.");
+    }
+    await updateVideoToolProgress(taskId, "generating", {
+      upstreamTaskId,
+      upstreamPayload: submitted.payload,
+      createResponse: submitted.raw,
+      awaitingUpstreamTask: Boolean(upstreamTaskId),
+    });
+    if (submitted.task.imageUrls?.[0] || submitted.task.imageUrl) completed = submitted;
+  }
+  if (!completed) completed = await waitForWan27ImageToolTask(upstreamTaskId);
+  const imageUrl = completed.task.imageUrls?.[0] || completed.task.imageUrl || "";
+  if (!imageUrl) throw new Error("Wan2.7 image face swap returned no image.");
+
+  const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "image face swap result", maxBytes: 20 * 1024 * 1024 });
+  const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+  const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
+  const completedAt = new Date().toISOString();
+  const record = await getGenerationRecord(taskId);
+  await upsertGenerationRecord({
+    ...record,
+    taskId,
+    status: "succeeded",
+    awaitingUpstreamTask: false,
+    upstreamTaskId,
+    imageResultUrl: savedImage.cdnImageUrl || savedImage.localImageUrl,
+    localImageUrl: savedImage.localImageUrl,
+    localImagePath: savedImage.localImagePath,
+    cdnImageUrl: savedImage.cdnImageUrl,
+    cdnError: savedImage.cdnError,
+    remoteImageUrl: imageUrl,
+    providerImageUrl: imageUrl,
+    error: "",
+    finalCredits: pricing.credits,
+    originalFinalCredits: pricing.originalCredits,
+    billingStatus: pricing.credits > 0 ? "settled" : "free",
+    billingSettledAt: completedAt,
+    completedAt,
+    params: { ...plainObject(record?.params), stage: "completed" },
+    lastUpdateReason: "video-tool-image-face-swap-succeeded",
   });
 }
 
@@ -15790,7 +15922,11 @@ function startVideoToolJob(job) {
   if (!job?.taskId || activeVideoToolJobIds.has(job.taskId)) return false;
   activeVideoToolJobIds.add(job.taskId);
   setImmediate(() => {
-    const runner = job.action === "face-swap" ? runVideoToolFaceSwap : runVideoToolUndress;
+    const runner = job.action === "image-face-swap"
+      ? runVideoToolImageFaceSwap
+      : job.action === "face-swap"
+        ? runVideoToolFaceSwap
+        : runVideoToolUndress;
     runner(job).catch(async (error) => {
       console.error("[video-tool-job-failed]", job.taskId, error.message || error);
       try {
@@ -15816,14 +15952,23 @@ async function recoverVideoToolJobs(reason = "startup") {
   recoverable.forEach((record) => {
     const action = videoToolAction(record.params?.toolAction || record.kind || record.source);
     const assetIds = Array.isArray(record.userAssetIds) ? record.userAssetIds.filter(Boolean) : [];
-    const imageAssetId = record.userAssetId || assetIds[0] || "";
+    const targetImageAssetId = action === "image-face-swap" ? (record.userAssetId || assetIds[0] || "") : "";
+    const imageAssetId = action === "image-face-swap"
+      ? (assetIds.find((id) => id !== targetImageAssetId) || assetIds[1] || "")
+      : (record.userAssetId || assetIds[0] || "");
     const videoAssetId = action === "face-swap" ? (assetIds.find((id) => id !== imageAssetId) || assetIds[1] || "") : "";
-    if (!action || !imageAssetId || (action === "face-swap" && !videoAssetId)) return;
+    if (
+      !action
+      || !imageAssetId
+      || (action === "image-face-swap" && !targetImageAssetId)
+      || (action === "face-swap" && !videoAssetId)
+    ) return;
     const started = startVideoToolJob({
       taskId: record.taskId,
       action,
       userId: record.userId,
       imageAssetId,
+      targetImageAssetId,
       videoAssetId,
       pricing: plainObject(record.pricingEstimate),
     });
@@ -15869,7 +16014,16 @@ async function handleVideoToolGenerate(req, res) {
   const action = videoToolAction(body.action);
   if (!action) return sendJson(res, 400, { ok: false, message: "Unsupported video tool action." });
   try {
-    const imageAsset = videoToolAsset(auth.db, auth.user.id, body.imageAssetId, "image", "Source image");
+    const imageAsset = videoToolAsset(
+      auth.db,
+      auth.user.id,
+      body.imageAssetId,
+      "image",
+      action === "undress" ? "Source image" : "Face reference",
+    );
+    const targetImageAsset = action === "image-face-swap"
+      ? videoToolAsset(auth.db, auth.user.id, body.targetImageAssetId, "image", "Target image")
+      : null;
     let videoAsset = null;
     let durationSeconds = 0;
     if (action === "face-swap") {
@@ -15888,7 +16042,9 @@ async function handleVideoToolGenerate(req, res) {
       return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code || "SUBTOKEN_UNAVAILABLE", message: error.message });
     }
 
-    const taskId = localGenerationTaskId(action === "face-swap" ? "face" : "undress");
+    const taskId = localGenerationTaskId(
+      action === "image-face-swap" ? "image-face" : action === "face-swap" ? "face" : "undress",
+    );
     if (cost > 0) {
       await chargeUserWithSubtoken(auth, {
         cost,
@@ -15898,6 +16054,7 @@ async function handleVideoToolGenerate(req, res) {
           taskId,
           action,
           imageAssetId: imageAsset.id,
+          targetImageAssetId: targetImageAsset?.id || "",
           videoAssetId: videoAsset?.id || "",
           durationSeconds: pricing.durationSeconds,
           segmentCount: pricing.segmentCount,
@@ -15908,25 +16065,39 @@ async function handleVideoToolGenerate(req, res) {
       });
       if (!dbEnabled()) await writeDb(auth.db);
     }
+    const isImageAction = action === "image-face-swap";
+    const primaryAsset = targetImageAsset || imageAsset;
+    const assetIds = isImageAction
+      ? [targetImageAsset.id, imageAsset.id]
+      : [imageAsset.id, videoAsset?.id].filter(Boolean);
     const record = await upsertGenerationRecord({
       taskId,
       status: "queued",
-      source: `video-tool-${action}`,
-      kind: `video-tool-${action}`,
-      provider: "video-tool",
+      source: `${isImageAction ? "image" : "video"}-tool-${action}`,
+      kind: `${isImageAction ? "image" : "video"}-tool-${action}`,
+      provider: isImageAction ? "wan27-image-edit" : "video-tool",
       upstreamSource: "video-tool-orchestrator",
       model: pricing.model,
       userId: auth.user.id,
-      userAssetId: imageAsset.id,
-      userAssetIds: [imageAsset.id, videoAsset?.id].filter(Boolean),
-      imageUrl: imageAsset.localUrl || imageAsset.publicUrl || "",
-      sourceImageUrl: imageAsset.localUrl || imageAsset.publicUrl || "",
-      mediaAssets: [
-        { type: "reference_image", userAssetId: imageAsset.id, localUrl: imageAsset.localUrl || "" },
-        ...(videoAsset ? [{ type: "video", userAssetId: videoAsset.id, localUrl: videoAsset.localUrl || "" }] : []),
-      ],
-      prompt: action === "face-swap" ? VIDEO_TOOL_FACE_SWAP_PROMPT : VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
-      finalPrompt: action === "face-swap" ? VIDEO_TOOL_FACE_SWAP_PROMPT : VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
+      userAssetId: primaryAsset.id,
+      userAssetIds: assetIds,
+      imageUrl: primaryAsset.localUrl || primaryAsset.publicUrl || "",
+      sourceImageUrl: primaryAsset.localUrl || primaryAsset.publicUrl || "",
+      mediaAssets: isImageAction
+        ? [
+            { type: "target_image", userAssetId: targetImageAsset.id, localUrl: targetImageAsset.localUrl || "" },
+            { type: "reference_image", userAssetId: imageAsset.id, localUrl: imageAsset.localUrl || "" },
+          ]
+        : [
+            { type: "reference_image", userAssetId: imageAsset.id, localUrl: imageAsset.localUrl || "" },
+            ...(videoAsset ? [{ type: "video", userAssetId: videoAsset.id, localUrl: videoAsset.localUrl || "" }] : []),
+          ],
+      prompt: isImageAction
+        ? IMAGE_TOOL_FACE_SWAP_PROMPT
+        : action === "face-swap" ? VIDEO_TOOL_FACE_SWAP_PROMPT : VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
+      finalPrompt: isImageAction
+        ? IMAGE_TOOL_FACE_SWAP_PROMPT
+        : action === "face-swap" ? VIDEO_TOOL_FACE_SWAP_PROMPT : VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
       params: {
         toolAction: action,
         stage: "queued",
@@ -15934,9 +16105,9 @@ async function handleVideoToolGenerate(req, res) {
         segmentCount: pricing.segmentCount,
         completedSegments: 0,
       },
-      ratio: action === "undress" ? "9:16" : "source",
-      resolution: "720p",
-      duration: pricing.durationSeconds,
+      ratio: isImageAction ? closestWan27ImageRatioForAsset(targetImageAsset) : action === "undress" ? "9:16" : "source",
+      resolution: isImageAction ? "2K" : "720p",
+      duration: isImageAction ? "" : pricing.durationSeconds,
       preDeductedCredits: cost,
       originalPreDeductedCredits: pricing.originalCredits,
       finalCredits: null,
@@ -15957,6 +16128,7 @@ async function handleVideoToolGenerate(req, res) {
       action,
       userId: auth.user.id,
       imageAssetId: imageAsset.id,
+      targetImageAssetId: targetImageAsset?.id || "",
       videoAssetId: videoAsset?.id || "",
       pricing,
     });
@@ -19590,6 +19762,13 @@ async function handleAdvancedGenerate(req, res) {
   );
   const requestTenant = requestTenantDescriptor(req);
   const isToolVideoTemplateRequest = requestTenant.toolId === "video";
+  const isPlayfluxVideoTemplateRequest = requestSource === "playflux" && String(firstPresent(
+    selectedCase?.tab,
+    bodyParams.templateTab,
+    body.params?.templateTab,
+    "",
+  ) || "").trim().toLowerCase() === "video";
+  const isVideoTemplateRequest = isToolVideoTemplateRequest || isPlayfluxVideoTemplateRequest;
   const toolVideoProvider = ["seedance", "happyhorse", "wan27"].includes(requestTenant.videoProvider)
     ? requestTenant.videoProvider
     : "wan27";
@@ -19959,7 +20138,7 @@ async function handleAdvancedGenerate(req, res) {
     const primaryVideoDuration = probedVideoDurations[0] || 0;
     if (capabilityDefinition?.mediaKind === "animate" && primaryVideoDuration > 0) {
       requestParams.duration = clampNumber(primaryVideoDuration, requestParams.duration, 2, 30);
-    } else if (isToolVideoTemplateRequest && requestParams.videoCapability === "wan27-r2v" && primaryVideoDuration > 0) {
+    } else if (isVideoTemplateRequest && requestParams.videoCapability === "wan27-r2v" && primaryVideoDuration > 0) {
       requestParams.duration = Math.max(2, Math.min(10, Math.round(primaryVideoDuration)));
     }
     if (capabilityDefinition?.billing === "input_output") {
@@ -19985,8 +20164,6 @@ async function handleAdvancedGenerate(req, res) {
       assetIds: referenceVideoAssetIds,
     });
   }
-  const isPlayfluxVideoTemplateRequest = String(firstPresent(requestParams.source, bodyParams.source, body.params?.source, "") || "").trim().toLowerCase() === "playflux"
-    && String(firstPresent(requestParams.templateTab, bodyParams.templateTab, body.params?.templateTab, "") || "").trim().toLowerCase() === "video";
   const isPlayfluxVideoReferenceRequest = isPlayfluxVideoTemplateRequest && (
     (provider === "seedance" && seedanceModeNeedsReferenceVideo(seedanceMode))
     || (provider === "wan27" && requestParams.videoCapability === "wan27-r2v")
@@ -20020,7 +20197,7 @@ async function handleAdvancedGenerate(req, res) {
         },
       });
     } catch (error) {
-      if (isToolVideoTemplateRequest) {
+      if (isVideoTemplateRequest) {
         return sendJson(res, error.statusCode || 400, { ok: false, code: error.code || "INVALID_VIDEO_INPUT", message: "Video input is invalid." });
       }
       return sendAdvancedValidationError(res, error, "Alibaba video input is invalid.");
