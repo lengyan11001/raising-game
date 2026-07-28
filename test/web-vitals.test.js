@@ -33,3 +33,10 @@ test("server validates public metrics and exposes an admin summary", () => {
   assert.match(admin, /renderGeoTabButton\("vitals", "网站性能"/);
   assert.match(admin, /路径与设备明细/);
 });
+
+test("tool-only CSS does not block the age-gate LCP", () => {
+  const server = read("server.js");
+  assert.match(server, /rel="preload" href="\.\/tool-video\.css\?v=tool-video-6" as="style"/);
+  assert.match(server, /this\.rel='stylesheet'/);
+  assert.match(server, /<noscript><link rel="stylesheet"/);
+});
