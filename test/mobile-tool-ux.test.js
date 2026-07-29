@@ -51,9 +51,12 @@ test("mobile history scrolls through pages and uses one action menu", () => {
   assert.match(css, /\.history-card-actions \{ display: none; \}/);
   assert.match(css, /\.history-actions-menu \{ display: block; \}/);
   assert.doesNotMatch(html, /id="refreshHistoryBtn"/);
-  assert.match(html, /class="history-expiry-info"[\s\S]*?<summary[^>]*>!<\/summary>/);
+  assert.equal((html.match(/data-history-expiry-info/g) || []).length, 2);
+  assert.match(html, /class="history-expiry-info history-expiry-info-mobile"[\s\S]*?<summary[^>]*>!<\/summary>/);
+  assert.doesNotMatch(html, /history-panel-tools/);
   assert.doesNotMatch(create, /history-expiry-note|const expiryNotice/);
   assert.match(css, /\.history-expiry-popover \{[\s\S]*?position: absolute/);
+  assert.match(explore, /\[data-history-expiry-info\][\s\S]*?control\.hidden = nextTab !== "history"/);
 });
 
 test("mobile history opens one preview stream", () => {

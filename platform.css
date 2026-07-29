@@ -6377,19 +6377,16 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: start;
   grid-auto-flow: row dense;
-  margin-top: 6px;
+  margin-top: 0;
   max-height: calc(100vh - 210px);
   padding-right: 4px;
-}
-.history-panel-tools {
-  display: flex;
-  justify-content: flex-end;
-  min-height: 34px;
 }
 .history-expiry-info {
   position: relative;
   z-index: 12;
+  flex: 0 0 auto;
 }
+.history-expiry-info[hidden] { display: none !important; }
 .history-expiry-info summary {
   display: grid;
   place-items: center;
@@ -6427,6 +6424,14 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
 .history-expiry-info summary:focus-visible {
   outline: 2px solid rgba(245,158,11,.65);
   outline-offset: 2px;
+}
+@media (max-width: 720px) {
+  .history-expiry-info-mobile .history-expiry-popover {
+    position: fixed;
+    top: 56px;
+    right: 10px;
+    width: min(310px, calc(100vw - 20px));
+  }
 }
 .history-item {
   position: relative;

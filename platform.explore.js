@@ -92,6 +92,10 @@ function setTab(tab) {
   document.querySelectorAll("[data-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.panel !== nextTab;
   });
+  document.querySelectorAll("[data-history-expiry-info]").forEach((control) => {
+    control.hidden = nextTab !== "history";
+    if (control.hidden) control.open = false;
+  });
   document.querySelectorAll("[data-tab]").forEach((button) => {
     const active = button.dataset.tab === nextTab
       && (button.dataset.tab !== DEFAULT_PLATFORM_TAB || normalizeGalleryMode(state.galleryMode) === DEFAULT_GALLERY_MODE);
