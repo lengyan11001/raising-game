@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-330-history-notice" />
+    <link rel="stylesheet" href="./platform.css?v=ai-331-history-info-top" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -49,6 +49,10 @@
     </button>
     <button class="mobile-drawer-backdrop" id="mobileDrawerBackdrop" type="button" aria-label="Close menu" hidden></button>
     <div class="mobile-header-actions">
+      <details class="history-expiry-info history-expiry-info-mobile" data-history-expiry-info hidden>
+        <summary aria-label="Video links may expire after 24 hours. Download and save successful results in time." data-i18n-aria="history.expiryNotice">!</summary>
+        <div class="history-expiry-popover" role="tooltip" data-i18n="history.expiryNotice">Video links may expire after 24 hours. Download and save successful results in time.</div>
+      </details>
       <button class="topup-trigger tool-download-trigger mobile-tool-download-trigger" id="mobileToolDownloadBtn" type="button" hidden aria-label="Download" data-i18n-aria="install.download">
         <i data-lucide="download"></i>
         <span data-i18n="install.download">Download</span>
@@ -130,6 +134,10 @@
 
     <header class="site-head">
       <div class="head-actions account-menu-wrap tenant-menu-only" id="accountMenuWrap">
+        <details class="history-expiry-info history-expiry-info-desktop" data-history-expiry-info hidden>
+          <summary aria-label="Video links may expire after 24 hours. Download and save successful results in time." data-i18n-aria="history.expiryNotice">!</summary>
+          <div class="history-expiry-popover" role="tooltip" data-i18n="history.expiryNotice">Video links may expire after 24 hours. Download and save successful results in time.</div>
+        </details>
         <button class="topup-trigger tool-download-trigger" id="toolDownloadBtn" type="button" hidden>
           <i data-lucide="download"></i>
           <span data-i18n="install.download">Download</span>
@@ -428,12 +436,6 @@
       </section>
 
       <section class="history-panel" data-panel="history" hidden>
-        <div class="history-panel-tools">
-          <details class="history-expiry-info">
-            <summary aria-label="Video links may expire after 24 hours. Download and save successful results in time." data-i18n-aria="history.expiryNotice">!</summary>
-            <div class="history-expiry-popover" role="tooltip" data-i18n="history.expiryNotice">Video links may expire after 24 hours. Download and save successful results in time.</div>
-          </details>
-        </div>
         <div class="history-list compact-history" id="historyList"></div>
         <div class="ledger-pager history-pager" id="historyPager"></div>
       </section>
@@ -887,6 +889,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-330-history-notice"></script>
+    <script src="./platform.js?v=ai-331-history-info-top"></script>
   </body>
 </html>
