@@ -15227,7 +15227,7 @@ function videoToolAsset(db, userId, assetId, mediaKind, label) {
 function videoToolPricingAggregate(action, items = [], extras = {}) {
   const rows = items.filter(Boolean);
   return {
-    provider: action === "image-face-swap" ? "wan27-image-edit" : action === "face-swap" ? "wan27" : "video-tool",
+    provider: ["undress", "image-face-swap"].includes(action) ? "wan27-image-edit" : action === "face-swap" ? "wan27" : "video-tool",
     action,
     credits: creditsAmount(rows.reduce((sum, item) => sum + Number(item.credits || 0), 0)),
     originalCredits: creditsAmount(rows.reduce((sum, item) => sum + Number(item.originalCredits ?? item.credits ?? 0), 0)),
@@ -15267,7 +15267,7 @@ async function videoToolPresetVideoDuration(preset = {}) {
 async function videoToolPricing(action, { durationSeconds = 0, user = null, auth = null } = {}) {
   const config = await readAppConfig();
   const pricingOptions = pricingContextForAuth(auth || {});
-  if (action === "image-face-swap") {
+  if (["undress", "image-face-swap"].includes(action)) {
     const imagePricing = wan27ImageModifyPricing(config, user, pricingOptions);
     return videoToolPricingAggregate(action, [imagePricing], {
       durationSeconds: 0,
@@ -15296,25 +15296,7 @@ async function videoToolPricing(action, { durationSeconds = 0, user = null, auth
     });
   }
 
-  const imagePricing = wan27ImageModifyPricing(config, user, pricingOptions);
-  const preset = await videoToolUndressPreset();
-  const referenceVideoSeconds = await videoToolPresetVideoDuration(preset) || 5;
-  const videoPricing = applyUserPricingToEstimate(advancedModelPricing("seedance", {
-    model: MODEL_QUALITY,
-    seedanceTier: "standard",
-    duration: 5,
-    inputVideoSeconds: referenceVideoSeconds,
-    resolution: "720p",
-    ratio: "9:16",
-    advancedPricing: config.platform?.advancedPricing,
-  }), user || 1, pricingOptions);
-  return videoToolPricingAggregate(action, [imagePricing, imagePricing, videoPricing], {
-    durationSeconds: 5,
-    segmentCount: 1,
-    referenceVideoSeconds,
-    resolution: "720p",
-    model: MODEL_QUALITY,
-  });
+  throw new Error("Unsupported video tool action.");
 }
 
 async function handleVideoToolEstimate(req, res) {
@@ -15416,14 +15398,14 @@ async function waitForWan27ImageToolTask(upstreamTaskId, { timeoutMs = 20 * 60 *
     const imageUrl = task.imageUrls?.[0] || task.imageUrl || "";
     if (isSucceededStatus(task.status) && imageUrl) return { task: { ...task, imageUrl, imageUrls: [imageUrl] }, raw: task.raw || lastRaw };
     if (isFailedStatus(task.status)) {
-      const error = new Error(task.error || "Wan2.7 image face swap failed.");
+      const error = new Error(task.error || "Wan2.7 image edit failed.");
       error.statusCode = 502;
       error.payload = task.raw || lastRaw;
       throw error;
     }
     await delay(4000);
   }
-  const error = new Error("Wan2.7 image face swap timed out.");
+  const error = new Error("Wan2.7 image edit timed out.");
   error.statusCode = 504;
   error.payload = lastRaw;
   throw error;
@@ -15582,23 +15564,24 @@ function closestWan27ImageRatioForAsset(asset = {}) {
   ))[0];
 }
 
-async function runVideoToolImageFaceSwap(job) {
-  const { taskId, userId, imageAssetId, targetImageAssetId, pricing } = job;
+async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabel = "image edit", successReason = "image-edit" } = {}) {
+  const { taskId, userId, pricing } = job;
   const db = await readDb();
   const user = (db.users || []).find((entry) => entry.id === userId);
   if (!user) throw new Error("User not found.");
-  let targetAsset = videoToolAsset(db, userId, targetImageAssetId, "image", "Target image");
-  let faceAsset = videoToolAsset(db, userId, imageAssetId, "image", "Face reference");
-  targetAsset = await ensurePublicUrlForUserMediaAsset(db, targetAsset);
-  faceAsset = await ensurePublicUrlForUserMediaAsset(db, faceAsset);
-  const targetUrl = publicUrlForLocalAsset(targetAsset);
-  const faceUrl = publicUrlForLocalAsset(faceAsset);
-  if (!isPublicHttpUrl(targetUrl) || !isPublicHttpUrl(faceUrl)) throw new Error("Image face swap inputs are not publicly accessible.");
+  const assets = [];
+  for (const input of inputs) {
+    const asset = videoToolAsset(db, userId, input.assetId, "image", input.label || "Source image");
+    assets.push(await ensurePublicUrlForUserMediaAsset(db, asset));
+  }
+  if (!assets.length) throw new Error("Image edit input is required.");
+  const imageUrls = assets.map(publicUrlForLocalAsset);
+  if (imageUrls.some((url) => !isPublicHttpUrl(url))) throw new Error("Image edit inputs are not publicly accessible.");
 
   const config = await readAppConfig();
   const imageOptions = wan27ImageRequestOptions({}, {
     defaultModel: pricing.model || normalizeAdvancedPricing(config.platform?.advancedPricing).wan27ImagePro.model || WAN27_IMAGE_PRO_MODEL,
-    defaultRatio: closestWan27ImageRatioForAsset(targetAsset),
+    defaultRatio: closestWan27ImageRatioForAsset(assets[0]),
     defaultResolution: "2K",
   });
   const priorRecord = await getGenerationRecord(taskId);
@@ -15608,8 +15591,8 @@ async function runVideoToolImageFaceSwap(job) {
     await updateVideoToolProgress(taskId, "generating");
     const submit = USE_GATEWAY_UPSTREAM ? gatewaySubmitWan27ImageEditTask : submitWan27ImageModify;
     const submitted = await submit({
-      imageUrls: [targetUrl, faceUrl],
-      prompt: IMAGE_TOOL_FACE_SWAP_PROMPT,
+      imageUrls,
+      prompt,
       ratio: imageOptions.ratio,
       resolution: imageOptions.resolution,
       model: imageOptions.model,
@@ -15619,7 +15602,7 @@ async function runVideoToolImageFaceSwap(job) {
     });
     upstreamTaskId = submitted.task.taskId || "";
     if (!upstreamTaskId && !submitted.task.imageUrls?.[0] && !submitted.task.imageUrl) {
-      throw new Error("Wan2.7 image face swap did not return a task id.");
+      throw new Error(`Wan2.7 ${resultLabel} did not return a task id.`);
     }
     await updateVideoToolProgress(taskId, "generating", {
       upstreamTaskId,
@@ -15631,9 +15614,9 @@ async function runVideoToolImageFaceSwap(job) {
   }
   if (!completed) completed = await waitForWan27ImageToolTask(upstreamTaskId);
   const imageUrl = completed.task.imageUrls?.[0] || completed.task.imageUrl || "";
-  if (!imageUrl) throw new Error("Wan2.7 image face swap returned no image.");
+  if (!imageUrl) throw new Error(`Wan2.7 ${resultLabel} returned no image.`);
 
-  const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "image face swap result", maxBytes: 20 * 1024 * 1024 });
+  const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: `${resultLabel} result`, maxBytes: 20 * 1024 * 1024 });
   const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
   const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime);
   const completedAt = new Date().toISOString();
@@ -15658,7 +15641,19 @@ async function runVideoToolImageFaceSwap(job) {
     billingSettledAt: completedAt,
     completedAt,
     params: { ...plainObject(record?.params), stage: "completed" },
-    lastUpdateReason: "video-tool-image-face-swap-succeeded",
+    lastUpdateReason: `video-tool-${successReason}-succeeded`,
+  });
+}
+
+async function runVideoToolImageFaceSwap(job) {
+  return runVideoToolImageEdit(job, {
+    inputs: [
+      { assetId: job.targetImageAssetId, label: "Target image" },
+      { assetId: job.imageAssetId, label: "Face reference" },
+    ],
+    prompt: IMAGE_TOOL_FACE_SWAP_PROMPT,
+    resultLabel: "image face swap",
+    successReason: "image-face-swap",
   });
 }
 
@@ -15781,6 +15776,15 @@ async function runVideoToolFaceSwap(job) {
 }
 
 async function runVideoToolUndress(job) {
+  return runVideoToolImageEdit(job, {
+    inputs: [{ assetId: job.imageAssetId, label: "Source image" }],
+    prompt: VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
+    resultLabel: "undress image edit",
+    successReason: "undress",
+  });
+}
+
+async function runVideoToolUndressVideoLegacy(job) {
   const { taskId, userId, imageAssetId, pricing } = job;
   const db = await readDb();
   const user = (db.users || []).find((entry) => entry.id === userId);
@@ -15926,7 +15930,9 @@ function startVideoToolJob(job) {
       ? runVideoToolImageFaceSwap
       : job.action === "face-swap"
         ? runVideoToolFaceSwap
-        : runVideoToolUndress;
+        : job.action === "undress" && job.pricing?.outputKind !== "image"
+          ? runVideoToolUndressVideoLegacy
+          : runVideoToolUndress;
     runner(job).catch(async (error) => {
       console.error("[video-tool-job-failed]", job.taskId, error.message || error);
       try {
@@ -16065,9 +16071,10 @@ async function handleVideoToolGenerate(req, res) {
       });
       if (!dbEnabled()) await writeDb(auth.db);
     }
-    const isImageAction = action === "image-face-swap";
+    const isImageFaceSwap = action === "image-face-swap";
+    const isImageAction = action === "undress" || isImageFaceSwap;
     const primaryAsset = targetImageAsset || imageAsset;
-    const assetIds = isImageAction
+    const assetIds = isImageFaceSwap
       ? [targetImageAsset.id, imageAsset.id]
       : [imageAsset.id, videoAsset?.id].filter(Boolean);
     const record = await upsertGenerationRecord({
@@ -16083,7 +16090,7 @@ async function handleVideoToolGenerate(req, res) {
       userAssetIds: assetIds,
       imageUrl: primaryAsset.localUrl || primaryAsset.publicUrl || "",
       sourceImageUrl: primaryAsset.localUrl || primaryAsset.publicUrl || "",
-      mediaAssets: isImageAction
+      mediaAssets: isImageFaceSwap
         ? [
             { type: "target_image", userAssetId: targetImageAsset.id, localUrl: targetImageAsset.localUrl || "" },
             { type: "reference_image", userAssetId: imageAsset.id, localUrl: imageAsset.localUrl || "" },
@@ -16092,12 +16099,12 @@ async function handleVideoToolGenerate(req, res) {
             { type: "reference_image", userAssetId: imageAsset.id, localUrl: imageAsset.localUrl || "" },
             ...(videoAsset ? [{ type: "video", userAssetId: videoAsset.id, localUrl: videoAsset.localUrl || "" }] : []),
           ],
-      prompt: isImageAction
+      prompt: isImageFaceSwap
         ? IMAGE_TOOL_FACE_SWAP_PROMPT
-        : action === "face-swap" ? VIDEO_TOOL_FACE_SWAP_PROMPT : VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
-      finalPrompt: isImageAction
+        : action === "undress" ? VIDEO_TOOL_UNDRESS_TARGET_PROMPT : VIDEO_TOOL_FACE_SWAP_PROMPT,
+      finalPrompt: isImageFaceSwap
         ? IMAGE_TOOL_FACE_SWAP_PROMPT
-        : action === "face-swap" ? VIDEO_TOOL_FACE_SWAP_PROMPT : VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
+        : action === "undress" ? VIDEO_TOOL_UNDRESS_TARGET_PROMPT : VIDEO_TOOL_FACE_SWAP_PROMPT,
       params: {
         toolAction: action,
         stage: "queued",
@@ -16105,7 +16112,7 @@ async function handleVideoToolGenerate(req, res) {
         segmentCount: pricing.segmentCount,
         completedSegments: 0,
       },
-      ratio: isImageAction ? closestWan27ImageRatioForAsset(targetImageAsset) : action === "undress" ? "9:16" : "source",
+      ratio: isImageAction ? closestWan27ImageRatioForAsset(primaryAsset) : "source",
       resolution: isImageAction ? "2K" : "720p",
       duration: isImageAction ? "" : pricing.durationSeconds,
       preDeductedCredits: cost,

@@ -41,6 +41,10 @@ test("Video tool upload slots show complete media in compact portrait controls",
   }
   assert.match(frontend, /videoToolUploadCard\("targetImage"/);
   assert.match(frontend, /videoToolUploadCard\("image"[\s\S]*?copy\.faceImage/);
+  assert.match(sharedCss, /\.advanced-upload-previews img \{[\s\S]*?object-fit: contain/);
+  assert.match(sharedCss, /\.advanced-upload-previews video \{[\s\S]*?object-fit: contain/);
+  assert.match(sharedCss, /\.workflow-upload-preview img \{[\s\S]*?object-fit: contain/);
+  assert.match(sharedCss, /\.playflux-local-source-media img \{[\s\S]*?object-fit: contain/);
 });
 
 test("Video tool submission uploads local files and navigates to History immediately", () => {
@@ -73,13 +77,24 @@ test("server owns Video tool pricing, orchestration, splitting, and stitching", 
 test("image face swap uses Wan2.7 Image Pro with target image before face reference", () => {
   assert.match(server, /action === "image-face-swap"[\s\S]*?wan27ImageModifyPricing/);
   assert.match(server, /runVideoToolImageFaceSwap/);
-  assert.match(server, /imageUrls: \[targetUrl, faceUrl\]/);
+  assert.match(server, /inputs: \[[\s\S]*?job\.targetImageAssetId[\s\S]*?job\.imageAssetId/);
   assert.match(server, /prompt: IMAGE_TOOL_FACE_SWAP_PROMPT/);
   assert.match(server, /source: `\$\{isImageAction \? "image" : "video"\}-tool-\$\{action\}`/);
   assert.match(server, /userAssetIds: assetIds/);
   assert.match(server, /targetImageAssetId: targetImageAsset\?\.id \|\| ""/);
   assert.match(server, /imageResultUrl: savedImage\.cdnImageUrl \|\| savedImage\.localImageUrl/);
   assert.match(frontend, /targetImageAssetId: targetImageAsset\?\.id \|\| undefined/);
+});
+
+test("Undress is one Wan2.7 image edit and is recorded as an image", () => {
+  const pricing = server.slice(server.indexOf("async function videoToolPricing"), server.indexOf("async function handleVideoToolEstimate"));
+  assert.match(pricing, /\["undress", "image-face-swap"\]\.includes\(action\)/);
+  assert.match(pricing, /videoToolPricingAggregate\(action, \[imagePricing\]/);
+  assert.doesNotMatch(pricing, /submitSeedanceVideoTask|videoPricing/);
+  assert.match(server, /async function runVideoToolUndress\(job\)[\s\S]*?runVideoToolImageEdit\(job,[\s\S]*?VIDEO_TOOL_UNDRESS_TARGET_PROMPT/);
+  assert.match(server, /const isImageAction = action === "undress" \|\| isImageFaceSwap/);
+  assert.match(frontend, /const imageAction = videoToolUiState\.action === "undress" \|\| imageFaceSwap/);
+  assert.match(server, /job\.action === "undress" && job\.pricing\?\.outputKind !== "image"[\s\S]*?runVideoToolUndressVideoLegacy/);
 });
 
 test("video tool recovery restores image face swap asset order", () => {
