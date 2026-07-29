@@ -3834,16 +3834,9 @@ function renderHistory(records = []) {
     if (mobileLayout) els.historyPager.innerHTML = "";
   }
   const sortedRecords = [...records].sort((left, right) => new Date(right.createdAt || right.updatedAt || 0) - new Date(left.createdAt || left.updatedAt || 0));
-  const expiryNotice = `
-    <div class="history-expiry-note">
-      <i data-lucide="download"></i>
-      <span>${escapeHtml(t("history.expiryNotice"))}</span>
-    </div>
-  `;
   if (!state.user) {
     if (els.historyPager) els.historyPager.innerHTML = "";
     els.historyList.innerHTML = `
-      ${expiryNotice}
       <div class="history-empty-card">
         <strong>${escapeHtml(t("history.loginRequired"))}</strong>
         <p>${escapeHtml(t("history.loginDesc"))}</p>
@@ -3855,7 +3848,7 @@ function renderHistory(records = []) {
     return;
   }
   if (!sortedRecords.length) {
-    els.historyList.innerHTML = `${expiryNotice}<div class="history-empty-card"><strong>${escapeHtml(t("history.emptyTitle"))}</strong><p>${escapeHtml(t("history.emptyDesc"))}</p></div>`;
+    els.historyList.innerHTML = `<div class="history-empty-card"><strong>${escapeHtml(t("history.emptyTitle"))}</strong><p>${escapeHtml(t("history.emptyDesc"))}</p></div>`;
     if (!mobileLayout) {
       renderSimplePager(els.historyPager, {
         page: state.historyRecordsPage,
@@ -3870,7 +3863,7 @@ function renderHistory(records = []) {
   const loadMoreHtml = mobileLayout && Number(state.historyRecordsPage || 1) < Number(state.historyRecordsTotalPages || 1)
     ? `<div class="history-load-sentinel" data-history-load-more><i data-lucide="loader-circle"></i></div>`
     : "";
-  els.historyList.innerHTML = `${expiryNotice}${sortedRecords.map((record, index) => {
+  els.historyList.innerHTML = `${sortedRecords.map((record, index) => {
     const videoUrl = generationVideoUrl(record);
     const imageResultUrl = generationImageResultUrl(record);
     const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageResultUrl);

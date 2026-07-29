@@ -520,7 +520,6 @@ els.advancedWanClipFile?.addEventListener("change", async () => {
   updateAdvancedModelControls();
 });
 els.submitTemplateBtn?.addEventListener("click", submitTemplate);
-els.refreshHistoryBtn?.addEventListener("click", () => loadHistory({ refresh: true, page: 1 }));
 els.refreshAssetsBtn?.addEventListener("click", () => loadUserAssets(state.userAssetsPage || 1));
 els.refreshAdvancedAssetsBtn?.addEventListener("click", () => loadAdvancedAssets(state.advancedAssetPage || 1));
 els.advancedSideTabs?.querySelectorAll("[data-advanced-side-tab]").forEach((button) => {

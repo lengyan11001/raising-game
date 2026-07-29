@@ -960,7 +960,6 @@ const els = {
   toggleAccessTokenBtn: document.querySelector("#toggleAccessTokenBtn"),
   copyTokenBtn: document.querySelector("#copyTokenBtn"),
   historyList: document.querySelector("#historyList"),
-  refreshHistoryBtn: document.querySelector("#refreshHistoryBtn"),
   topupFilters: document.querySelector("#topupFilters"),
   topupSearch: document.querySelector("#topupSearch"),
   topupStatus: document.querySelector("#topupStatus"),

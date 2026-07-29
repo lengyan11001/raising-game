@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-329-complete-media" />
+    <link rel="stylesheet" href="./platform.css?v=ai-330-history-notice" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -428,8 +428,11 @@
       </section>
 
       <section class="history-panel" data-panel="history" hidden>
-        <div class="panel-actions">
-          <button class="ghost-button" id="refreshHistoryBtn" data-i18n="history.refresh" type="button"><i data-lucide="refresh-cw"></i>Refresh</button>
+        <div class="history-panel-tools">
+          <details class="history-expiry-info">
+            <summary aria-label="Video links may expire after 24 hours. Download and save successful results in time." data-i18n-aria="history.expiryNotice">!</summary>
+            <div class="history-expiry-popover" role="tooltip" data-i18n="history.expiryNotice">Video links may expire after 24 hours. Download and save successful results in time.</div>
+          </details>
         </div>
         <div class="history-list compact-history" id="historyList"></div>
         <div class="ledger-pager history-pager" id="historyPager"></div>
@@ -884,6 +887,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-329-complete-media"></script>
+    <script src="./platform.js?v=ai-330-history-notice"></script>
   </body>
 </html>
