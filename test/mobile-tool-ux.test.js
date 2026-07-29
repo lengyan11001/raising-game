@@ -50,6 +50,10 @@ test("mobile history scrolls through pages and uses one action menu", () => {
   assert.match(create, /<details class="history-actions-menu">/);
   assert.match(css, /\.history-card-actions \{ display: none; \}/);
   assert.match(css, /\.history-actions-menu \{ display: block; \}/);
+  assert.doesNotMatch(html, /id="refreshHistoryBtn"/);
+  assert.match(html, /class="history-expiry-info"[\s\S]*?<summary[^>]*>!<\/summary>/);
+  assert.doesNotMatch(create, /history-expiry-note|const expiryNotice/);
+  assert.match(css, /\.history-expiry-popover \{[\s\S]*?position: absolute/);
 });
 
 test("mobile history opens one preview stream", () => {
