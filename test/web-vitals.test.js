@@ -36,7 +36,8 @@ test("server validates public metrics and exposes an admin summary", () => {
 
 test("tool-only CSS does not block the age-gate LCP", () => {
   const server = read("server.js");
-  assert.match(server, /rel="preload" href="\.\/tool-video\.css\?v=tool-video-6" as="style"/);
+  assert.match(server, /const TOOL_VIDEO_STYLE_VERSION = crypto[\s\S]*?readFileSync\(path\.join\(ROOT, "tool-video\.css"\)\)[\s\S]*?\.slice\(0, 12\);/);
+  assert.match(server, /rel="preload" href="\.\/tool-video\.css\?v=\$\{TOOL_VIDEO_STYLE_VERSION\}" as="style"/);
   assert.match(server, /this\.rel='stylesheet'/);
   assert.match(server, /<noscript><link rel="stylesheet"/);
 });

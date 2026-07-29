@@ -92,6 +92,11 @@ const {
 } = require("./site-seo");
 
 const ROOT = __dirname;
+const TOOL_VIDEO_STYLE_VERSION = crypto
+  .createHash("sha256")
+  .update(fsSync.readFileSync(path.join(ROOT, "tool-video.css")))
+  .digest("hex")
+  .slice(0, 12);
 const CHARACTER_TAKE_OFF_PROMPT = "脱掉所有衣服，保持裸体，不要出现肉色衣服";
 
 function loadLocalEnv(filePath) {
@@ -3350,7 +3355,7 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
     ? `    <script>window.__TENANT_FEATURES__=${jsonScriptValue(publicTenantFeatures(tenant))};</script>\n`
     : "";
   const withToolStyles = toolId === "video" && !withTenantShell.includes("tool-video.css")
-    ? withTenantShell.replace(/<\/head>/i, `${bootstrapScript}    <link rel="preload" href="./tool-video.css?v=tool-video-6" as="style" onload="this.onload=null;this.rel='stylesheet'" />\n    <noscript><link rel="stylesheet" href="./tool-video.css?v=tool-video-6" /></noscript>\n  </head>`)
+    ? withTenantShell.replace(/<\/head>/i, `${bootstrapScript}    <link rel="preload" href="./tool-video.css?v=${TOOL_VIDEO_STYLE_VERSION}" as="style" onload="this.onload=null;this.rel='stylesheet'" />\n    <noscript><link rel="stylesheet" href="./tool-video.css?v=${TOOL_VIDEO_STYLE_VERSION}" /></noscript>\n  </head>`)
     : withTenantShell;
   const withoutTitle = withToolStyles.replace(/<title>[\s\S]*?<\/title>/i, "");
   return withoutTitle.replace(/<\/head>/i, `${tags}\n  </head>`);
