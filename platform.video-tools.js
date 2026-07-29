@@ -272,10 +272,11 @@ function renderVideoToolDialog() {
   const copy = videoToolCopy();
   const faceSwap = videoToolUiState.action === "face-swap";
   const imageFaceSwap = videoToolUiState.action === "image-face-swap";
+  const imageAction = videoToolUiState.action === "undress" || imageFaceSwap;
   if (title) title.textContent = imageFaceSwap ? copy.imageFaceSwap : faceSwap ? copy.faceSwap : copy.undress;
   const kicker = document.querySelector("#videoToolDialogKicker");
-  if (kicker) kicker.textContent = imageFaceSwap ? copy.imageTool : copy.videoTool;
-  const duration = Number(videoToolUiState.pricing?.durationSeconds || videoToolUiState.durationSeconds || (faceSwap ? 0 : 5));
+  if (kicker) kicker.textContent = imageAction ? copy.imageTool : copy.videoTool;
+  const duration = Number(videoToolUiState.pricing?.durationSeconds || videoToolUiState.durationSeconds || 0);
   const segmentCount = Number(videoToolUiState.pricing?.segmentCount || (faceSwap && duration ? Math.ceil(duration / 10) : 1));
   const price = videoToolUiState.pricing?.credits;
   body.innerHTML = `
@@ -286,9 +287,9 @@ function renderVideoToolDialog() {
       ${faceSwap ? videoToolUploadCard("video", videoToolUiState.videoFile, videoToolUiState.videoObjectUrl, copy.sourceVideo) : ""}
       ${imageFaceSwap ? videoToolUploadCard("image", videoToolUiState.imageFile, videoToolUiState.imageObjectUrl, copy.faceImage) : ""}
     </div>
-    <div class="video-tool-summary ${imageFaceSwap ? "is-image-action" : ""}">
-      ${imageFaceSwap ? "" : `<span>${videoToolEscape(copy.duration)}<strong>${duration ? `${duration.toFixed(duration >= 10 ? 1 : 2).replace(/\.0+$|(?<=\.\d)0+$/g, "")} ${videoToolEscape(copy.seconds)}` : "-"}</strong></span>`}
-      ${imageFaceSwap ? "" : `<span>${videoToolEscape(copy.segments)}<strong>${segmentCount || "-"}</strong></span>`}
+    <div class="video-tool-summary ${imageAction ? "is-image-action" : ""}">
+      ${imageAction ? "" : `<span>${videoToolEscape(copy.duration)}<strong>${duration ? `${duration.toFixed(duration >= 10 ? 1 : 2).replace(/\.0+$|(?<=\.\d)0+$/g, "")} ${videoToolEscape(copy.seconds)}` : "-"}</strong></span>`}
+      ${imageAction ? "" : `<span>${videoToolEscape(copy.segments)}<strong>${segmentCount || "-"}</strong></span>`}
       <span>${videoToolEscape(copy.price)}<strong>${videoToolUiState.estimating ? videoToolEscape(copy.estimating) : price !== undefined ? `${videoToolCredits(price)} ${videoToolEscape(copy.credits)}` : "-"}</strong></span>
     </div>
     <div class="video-tool-submit-row">
@@ -414,8 +415,8 @@ async function submitVideoToolAction() {
     showPlayfluxSubmittedHistory(payload.record || {
       taskId: payload.taskId,
       status: "queued",
-      source: `video-tool-${videoToolUiState.action}`,
-      kind: `video-tool-${videoToolUiState.action}`,
+      source: `${["undress", "image-face-swap"].includes(videoToolUiState.action) ? "image" : "video"}-tool-${videoToolUiState.action}`,
+      kind: `${["undress", "image-face-swap"].includes(videoToolUiState.action) ? "image" : "video"}-tool-${videoToolUiState.action}`,
       createdAt: new Date().toISOString(),
     });
   } catch (error) {
