@@ -59,6 +59,12 @@ def main() -> None:
         default=[],
         help="Reject deployment if the required env file contains this extended grep pattern.",
     )
+    parser.add_argument(
+        "--require-min-files",
+        action="append",
+        default=[],
+        help="Reject deployment unless PATH contains at least COUNT files. Format: /absolute/path=COUNT",
+    )
     parser.add_argument("--no-restart", action="store_true")
     args = parser.parse_args()
     if not PASSWORD:
@@ -87,10 +93,25 @@ systemctl cat {service_q} | grep -F -- {env_line_q} >/dev/null || {{ echo "Missi
 {forbidden_env_check}
 """
 
+    required_file_checks = []
+    for requirement in args.require_min_files:
+        path_text, separator, count_text = str(requirement or "").rpartition("=")
+        if not separator or not path_text.startswith("/") or not count_text.isdigit():
+            raise SystemExit(f"Invalid --require-min-files value: {requirement}")
+        minimum = int(count_text)
+        path_q = shlex.quote(path_text)
+        required_file_checks.append(
+            f"actual_files=$(find {path_q} -type f 2>/dev/null | wc -l); "
+            f"test \"$actual_files\" -ge {minimum} || "
+            f"{{ echo \"Required media incomplete: {path_text} has $actual_files files, expected at least {minimum}\"; exit 23; }}"
+        )
+    required_files_check = "\n".join(required_file_checks) or "true"
+
     command = f"""
 set -euo pipefail
 cd {args.remote_root}
 {env_check}
+{required_files_check}
 git fetch origin {args.branch}
 git checkout {args.branch}
 git reset --hard origin/{args.branch}

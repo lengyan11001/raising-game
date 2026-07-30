@@ -25,6 +25,7 @@ TARGETS = {
         "service": "raising-game-demo",
         "health_url": "https://123vips.com/api/health",
         "env_file": "/etc/raising-game-demo.env",
+        "required_file_counts": (("/opt/raising-game-demo/assets/ourdream/characters", 1000),),
         "password_env": ("OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
         "local_password_files": (
             {
@@ -41,6 +42,7 @@ TARGETS = {
         "service": "raising-game-667zui",
         "health_url": "https://667zui.video/api/health",
         "env_file": "/etc/raising-game-667zui.env",
+        "required_file_counts": (("/opt/raising-game-667zui/assets/ourdream/characters", 1000),),
         "password_env": ("NEW_SITE2_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
         "forbidden_env_patterns": (
             r"^(R2_BUCKET|CLOUDFLARE_R2_BUCKET)=\"?vipeak-media\"?$",
@@ -101,6 +103,8 @@ def main() -> None:
     print(f"[deploy-site] password_source={password_source or '<missing>'}")
     for pattern in target.get("forbidden_env_patterns", ()):
         print(f"[deploy-site] forbid_env_pattern={pattern}")
+    for required_path, minimum in target.get("required_file_counts", ()):
+        print(f"[deploy-site] require_min_files={required_path}={minimum}")
     if args.dry_run:
         return
     if args.site == "new2" and not args.skip_shared_sync_check:
@@ -134,6 +138,8 @@ def main() -> None:
         command.append("--no-restart")
     for pattern in target.get("forbidden_env_patterns", ()):
         command.extend(["--forbid-env-pattern", pattern])
+    for required_path, minimum in target.get("required_file_counts", ()):
+        command.extend(["--require-min-files", f"{required_path}={minimum}"])
     raise SystemExit(subprocess.call(command, env=env))
 
 

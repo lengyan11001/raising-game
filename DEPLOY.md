@@ -64,6 +64,12 @@ python .\scripts\deploy_site.py --site new2
 `deploy_site.py --site new2` runs the shared-code drift check before SSH. If it
 fails, sync first with `python .\scripts\sync_old_to_new2.py`.
 
+Both production targets also enforce a minimum character-media file count before
+pulling or restarting. This prevents a fresh server with an empty
+`assets/ourdream/characters/` directory from publishing broken Explore and SEO
+images. New2 must keep these files on its own server or its own storage; its
+runtime configuration must not point at the old site's R2 bucket or CDN.
+
 ## Server pull deploy
 
 Recommended flow:

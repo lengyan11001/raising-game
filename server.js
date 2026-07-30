@@ -90,6 +90,10 @@ const {
   renderDiscoveryLinks,
   siteVerificationToken,
 } = require("./site-seo");
+const {
+  applyPublicSecurityHeaders,
+  httpsRedirectLocation,
+} = require("./site-http");
 
 const ROOT = __dirname;
 const TOOL_VIDEO_STYLE_VERSION = crypto
@@ -1340,6 +1344,17 @@ function sendCanonicalRedirect(req, res, url) {
   return true;
 }
 
+function sendHttpsRedirect(req, res, url) {
+  const location = httpsRedirectLocation(req, url);
+  if (!location) return false;
+  res.writeHead(308, {
+    location,
+    "cache-control": "public, max-age=3600",
+  });
+  res.end();
+  return true;
+}
+
 function hostnameMatchesRoot(hostname = "", root = "") {
   const host = normalizeHostname(hostname);
   const base = normalizeHostname(root);
@@ -2245,7 +2260,6 @@ function buildGeoTagsForSnapshot(characters = [], origin = "") {
   });
   return [...tagMap.values()]
     .sort((a, b) => b.characters.length - a.characters.length || a.label.localeCompare(b.label))
-    .slice(0, 80)
     .map((entry) => {
       const copy = buildGeoCollectionCopy({ label: entry.label, characters: entry.characters, kind: "tag" });
       return {
@@ -2391,6 +2405,11 @@ function indexNowUrls(snapshot) {
     scopedApiUrl(snapshot.origin, "/sitemap.xml"),
     scopedApiUrl(snapshot.origin, "/llms.txt"),
     scopedApiUrl(snapshot.origin, "/llms-full.txt"),
+    ...(snapshot.toolOnly ? [] : [
+      scopedApiUrl(snapshot.origin, "/characters/"),
+      scopedApiUrl(snapshot.origin, "/tags/"),
+      scopedApiUrl(snapshot.origin, "/categories/"),
+    ]),
     ...(snapshot.tags || []).map((item) => item.url).filter(Boolean),
     ...(snapshot.categories || []).map((item) => item.url).filter(Boolean),
     ...snapshot.characters.map((item) => item.geoUrl).filter(Boolean),
@@ -3366,7 +3385,16 @@ function renderCharacterGeoHtml(snapshot, item = {}) {
   const url = scopedApiUrl(origin, characterPublicPath(item));
   const poster = absoluteUrlFromBase(characterPosterForGeo(item), origin);
   const name = compactPlainText(item.name || item.title || "AI Character", 90);
-  const title = `${name} | ${brand}`;
+  const duplicateNameCount = (snapshot.characters || []).filter((candidate) => (
+    compactPlainText(candidate.name || candidate.title || "AI Character", 90).toLowerCase() === name.toLowerCase()
+  )).length;
+  const distinctiveTags = characterTagsForGeo(item, 8)
+    .filter((tag) => !/^(adult|female|realistic)$/i.test(tag))
+    .slice(0, 2);
+  const titleQualifier = duplicateNameCount > 1 && distinctiveTags.length
+    ? ` - ${distinctiveTags.join(", ")}`
+    : "";
+  const title = `${name}${titleQualifier} | ${brand}`;
   const description = characterSummaryForGeo(item);
   const tags = characterTagsForGeo(item, 12);
   const videos = item.geoVideos || addCharacterVideoDescriptionsForGeo(item);
@@ -3707,6 +3735,91 @@ function renderGeoCollectionHtml(snapshot, collection = {}, { kind = "tag" } = {
         ${cards || `<p class="muted">No public character profiles are available for this collection yet.</p>`}
       </section>
       ${faq.length ? `<section class="faq" aria-label="Frequently asked questions">${faq.map((item) => `<article><h2>${htmlEscape(item.question)}</h2><p>${htmlEscape(item.answer)}</p></article>`).join("")}</section>` : ""}
+    </main>
+  </body>
+</html>`;
+}
+
+function renderGeoDirectoryHtml(snapshot, { kind = "characters" } = {}) {
+  const { origin, brand } = snapshot;
+  const definitions = {
+    characters: {
+      label: "AI Characters",
+      description: `Browse all ${snapshot.characters.length} public AI character profiles.`,
+      entries: snapshot.characters.map((item) => ({
+        label: item.name || item.title || item.id,
+        detail: (item.geoTags || []).slice(0, 4).join(", "),
+        path: item.geoPath,
+      })),
+    },
+    tags: {
+      label: "Character Tags",
+      description: `Browse all ${snapshot.tags.length} character topics and their public profiles.`,
+      entries: snapshot.tags.map((item) => ({
+        label: item.label,
+        detail: `${item.characters.length} profiles`,
+        path: item.path,
+      })),
+    },
+    categories: {
+      label: "Character Categories",
+      description: `Browse all ${snapshot.categories.length} public character categories.`,
+      entries: snapshot.categories.map((item) => ({
+        label: item.label,
+        detail: `${item.characters.length} profiles`,
+        path: item.path,
+      })),
+    },
+  };
+  const directory = definitions[kind] || definitions.characters;
+  const url = scopedApiUrl(origin, `/${kind}/`);
+  const title = `${directory.label} | ${brand}`;
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: title,
+    url,
+    description: directory.description,
+    mainEntity: {
+      "@type": "ItemList",
+      itemListElement: directory.entries.map((entry, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        name: entry.label,
+        url: scopedApiUrl(origin, entry.path),
+      })),
+    },
+  };
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    ${geoMetaTags({ title, description: directory.description, url, type: "website", jsonLd })}
+    <style>
+      :root { color-scheme:dark; --bg:#0b0b0f; --panel:#15151d; --line:rgba(255,255,255,.12); --ink:#f7f4fb; --muted:#aaa3b6; --pink:#ff45aa; }
+      * { box-sizing:border-box; }
+      body { margin:0; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); }
+      main { width:min(1120px,calc(100% - 32px)); margin:0 auto; padding:34px 0 58px; }
+      a { color:inherit; text-decoration:none; }
+      .back { display:inline-flex; min-height:44px; align-items:center; color:var(--muted); font-weight:800; }
+      h1 { margin:20px 0 8px; font-size:clamp(34px,6vw,68px); line-height:1; }
+      p { margin:0 0 26px; color:var(--muted); line-height:1.6; }
+      .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px; }
+      .item { display:grid; gap:4px; min-height:64px; padding:12px 14px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
+      .item:hover { border-color:var(--pink); }
+      .item strong { overflow-wrap:anywhere; }
+      .item small { color:var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back" href="/">Back to ${htmlEscape(brand)}</a>
+      <h1>${htmlEscape(directory.label)}</h1>
+      <p>${htmlEscape(directory.description)}</p>
+      <nav class="grid" aria-label="${htmlEscape(directory.label)}">
+        ${directory.entries.map((entry) => `<a class="item" href="${htmlEscape(entry.path)}"><strong>${htmlEscape(entry.label)}</strong><small>${htmlEscape(entry.detail || "View profile")}</small></a>`).join("")}
+      </nav>
     </main>
   </body>
 </html>`;
@@ -30631,6 +30744,8 @@ async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   try {
+    applyPublicSecurityHeaders(req, res);
+    if (sendHttpsRedirect(req, res, url)) return;
     if (sendCanonicalRedirect(req, res, url)) return;
     await recordGeoVisitStats(req, url);
 
@@ -30703,6 +30818,16 @@ async function handleRequest(req, res) {
 
     if ((req.method === "GET" || req.method === "HEAD") && isIndexNowKeyPath(req, url.pathname)) {
       return await handleIndexNowKey(req, res);
+    }
+
+    const geoDirectoryMatch = url.pathname.match(/^\/(characters|tags|categories)\/?$/);
+    if ((req.method === "GET" || req.method === "HEAD") && geoDirectoryMatch) {
+      const snapshot = await geoSiteSnapshot(req);
+      if (snapshot.toolOnly) return sendText(res, 404, "Not Found", { head: req.method === "HEAD" });
+      return sendHtml(res, 200, renderGeoDirectoryHtml(snapshot, { kind: geoDirectoryMatch[1] }), {
+        cacheControl: "public, max-age=300, stale-while-revalidate=600",
+        head: req.method === "HEAD",
+      });
     }
 
     const tagGeoMatch = url.pathname.match(/^\/tags\/([^/]+)\/?$/);

@@ -116,11 +116,15 @@ function sitemapEntryXml({ loc, lastmod, image = "" }) {
 
 function buildSitemapXml(snapshot = {}) {
   const fallbackUpdatedAt = snapshot.updatedAt || new Date(0).toISOString();
+  const origin = String(snapshot.origin || "").replace(/\/+$/, "");
   const entries = [
-    sitemapEntryXml({ loc: `${String(snapshot.origin || "").replace(/\/+$/, "")}/`, lastmod: fallbackUpdatedAt }),
+    sitemapEntryXml({ loc: `${origin}/`, lastmod: fallbackUpdatedAt }),
   ];
   if (!snapshot.toolOnly) {
     entries.push(
+      sitemapEntryXml({ loc: `${origin}/characters/`, lastmod: fallbackUpdatedAt }),
+      sitemapEntryXml({ loc: `${origin}/tags/`, lastmod: fallbackUpdatedAt }),
+      sitemapEntryXml({ loc: `${origin}/categories/`, lastmod: fallbackUpdatedAt }),
       ...(snapshot.categories || []).map((category) => sitemapEntryXml({
         loc: category.url,
         lastmod: category.updatedAt || fallbackUpdatedAt,
@@ -160,6 +164,9 @@ function htmlEscape(value = "") {
 function renderDiscoveryLinks(snapshot = {}) {
   if (snapshot.toolOnly) return "";
   const links = [
+    { label: "All characters", path: "/characters/" },
+    { label: "All tags", path: "/tags/" },
+    { label: "All categories", path: "/categories/" },
     ...(snapshot.categories || []).slice(0, 3).map((item) => ({ label: item.label, path: item.path })),
     ...(snapshot.tags || []).slice(0, 10).map((item) => ({ label: item.label, path: item.path })),
     ...(snapshot.characters || []).slice(0, 12).map((item) => ({
