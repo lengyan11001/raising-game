@@ -9467,9 +9467,15 @@ function videoNegativePromptFromBody(body = {}) {
 
 function isAdvancedCustomPrompt(body = {}) {
   const params = plainObject(body.params);
+  const preserveUserPrompt = boolFromRequest(firstPresent(
+    body.preserveUserPrompt,
+    body.preserve_user_prompt,
+    params.preserveUserPrompt,
+    params.preserve_user_prompt,
+  ), false);
   const createKind = String(firstPresent(body.createKind, body.create_kind, params.createKind, params.create_kind, "") || "").trim().toLowerCase();
   const createMode = String(firstPresent(body.createMode, body.create_mode, params.createMode, params.create_mode, "") || "").trim().toLowerCase();
-  return createKind === "custom" || createMode === "custom";
+  return preserveUserPrompt || createKind === "custom" || createMode === "custom";
 }
 
 function appendDefaultVideoNegativePrompt(prompt = "", body = {}) {
@@ -18348,6 +18354,12 @@ async function runAdvancedGenerationJob(job = {}) {
         caseId,
         provider,
         prompt,
+        preserveUserPrompt: requestParams.preserveUserPrompt || undefined,
+        params: requestParams.preserveUserPrompt ? {
+          createKind: requestParams.createKind || "custom",
+          createMode: requestParams.createMode || "custom",
+          preserveUserPrompt: true,
+        } : undefined,
         ratio: requestParams.ratio,
         resolution: requestParams.resolution,
         duration: requestParams.duration,
@@ -19995,6 +20007,7 @@ async function handleAdvancedGenerate(req, res) {
     ...caseParams,
     ...bodyParams,
     provider,
+    preserveUserPrompt: isAdvancedCustomPrompt(mergedBodyBase),
     seedanceTier: normalizeSeedanceTier(requestedSeedanceTier),
     ratio: firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, config.video.ratio, "9:16"),
     resolution: firstPresent(body.resolution, bodyParams.resolution, mergedProviderParameters.resolution, caseParams.resolution, config.video.resolution, "720p"),

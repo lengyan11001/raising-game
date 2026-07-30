@@ -65,8 +65,11 @@ test("Wan2.7 video edit follows source duration instead of exposing a manual dur
 
 test("custom Advanced prompts are forwarded without system negative text", () => {
   assert.match(server, /function isAdvancedCustomPrompt\(body = \{\}\)/);
-  assert.match(server, /return createKind === "custom" \|\| createMode === "custom"/);
+  assert.match(server, /return preserveUserPrompt \|\| createKind === "custom" \|\| createMode === "custom"/);
   assert.match(server, /if \(!base \|\| isAdvancedCustomPrompt\(body\)\) return base/);
+  assert.match(server, /preserveUserPrompt: isAdvancedCustomPrompt\(mergedBodyBase\)/);
+  assert.match(server, /preserveUserPrompt: requestParams\.preserveUserPrompt \|\| undefined/);
+  assert.match(server, /params: requestParams\.preserveUserPrompt \? \{/);
   assert.match(server, /prompt: appendDefaultVideoNegativePrompt\(prompt, source\)/);
   assert.match(server, /text: appendDefaultVideoNegativePrompt\(prompt, body\)/);
 });
