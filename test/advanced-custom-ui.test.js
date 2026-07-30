@@ -63,6 +63,14 @@ test("Wan2.7 video edit follows source duration instead of exposing a manual dur
   assert.match(server, /requestParams\.videoCapability === "wan27-video-edit" && requestParams\.followInputDuration/);
 });
 
+test("custom Advanced prompts are forwarded without system negative text", () => {
+  assert.match(server, /function isAdvancedCustomPrompt\(body = \{\}\)/);
+  assert.match(server, /return createKind === "custom" \|\| createMode === "custom"/);
+  assert.match(server, /if \(!base \|\| isAdvancedCustomPrompt\(body\)\) return base/);
+  assert.match(server, /prompt: appendDefaultVideoNegativePrompt\(prompt, source\)/);
+  assert.match(server, /text: appendDefaultVideoNegativePrompt\(prompt, body\)/);
+});
+
 test("shared video uploads use capability-specific duration limits", () => {
   assert.match(ui, /function advancedVideoInputDurationRule/);
   assert.match(ui, /"wan27-video-edit": \{ min: 1\.8, max: 10\.2, displayMin: 2, displayMax: 10 \}/);

@@ -9465,9 +9465,16 @@ function videoNegativePromptFromBody(body = {}) {
   ) || "").trim();
 }
 
+function isAdvancedCustomPrompt(body = {}) {
+  const params = plainObject(body.params);
+  const createKind = String(firstPresent(body.createKind, body.create_kind, params.createKind, params.create_kind, "") || "").trim().toLowerCase();
+  const createMode = String(firstPresent(body.createMode, body.create_mode, params.createMode, params.create_mode, "") || "").trim().toLowerCase();
+  return createKind === "custom" || createMode === "custom";
+}
+
 function appendDefaultVideoNegativePrompt(prompt = "", body = {}) {
   const base = String(prompt || "").trim();
-  if (!base) return "";
+  if (!base || isAdvancedCustomPrompt(body)) return base;
   const customNegative = videoNegativePromptFromBody(body);
   const negative = [DEFAULT_VIDEO_NEGATIVE_PROMPT, customNegative]
     .map((item) => String(item || "").trim())
