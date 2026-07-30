@@ -11,6 +11,7 @@ const {
 
 const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8");
 const admin = fs.readFileSync(path.resolve(__dirname, "..", "admin.js"), "utf8");
+const explore = fs.readFileSync(path.resolve(__dirname, "..", "platform.explore.js"), "utf8");
 
 test("small reference images are enlarged proportionally to the upstream minimum", () => {
   assert.deepEqual(minimumImageTargetDimensions(204, 204), {
@@ -56,4 +57,11 @@ test("admin reference previews fall back from upstream asset URIs to playable vi
   assert.match(admin, /const candidates = \[asset\.videoUrl, asset\.url, asset\.localUrl, asset\.publicUrl\]/);
   assert.match(admin, /candidates\.find\(\(url\) => isPreviewableVideoUrl\(url\)\)/);
   assert.match(admin, /candidates\.find\(\(url\) => !isInternalAssetUrl\(url\)\)/);
+});
+
+test("owner and admin parameter views show the payload actually sent upstream", () => {
+  assert.match(server, /includeUpstreamPayload: !externalApiCaller/);
+  assert.match(server, /publicRecord\.upstreamPayload = listGenerationRecordValue\(record\.upstreamPayload \|\| null\)/);
+  assert.match(explore, /params: record\.upstreamPayload \|\| record\.params \|\| null/);
+  assert.match(admin, /recordDetailJsonSectionHtml\("upstream", "实际发送参数", record\.upstreamPayload \|\| record\.params\)/);
 });

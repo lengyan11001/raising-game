@@ -2595,8 +2595,8 @@ function generationRecordDetailBody(record = {}, { loading = false, error = "" }
         <pre>${escapeHtml(record.finalPrompt || record.prompt || "")}</pre>
       </section>
       ${record.prompt && record.finalPrompt && record.prompt !== record.finalPrompt ? `<section class="adm-record-section"><header><strong>用户 Prompt</strong></header><pre>${escapeHtml(record.prompt)}</pre></section>` : ""}
-      ${recordDetailJsonSectionHtml("params", "参数", record.params)}
-      ${recordDetailJsonSectionHtml("upstream", "上游请求", record.upstreamPayload)}
+      ${recordDetailJsonSectionHtml("upstream", "实际发送参数", record.upstreamPayload || record.params)}
+      ${record.upstreamPayload ? recordDetailJsonSectionHtml("params", "内部参数", record.params) : ""}
       ${recordDetailJsonSectionHtml("create", "创建返回", record.createResponse)}
       ${recordDetailJsonSectionHtml("query", "查询返回", record.queryResponse)}
     </div>
@@ -2606,7 +2606,7 @@ function generationRecordDetailBody(record = {}, { loading = false, error = "" }
 function bindGenerationRecordDetailBody(bodyEl, record = {}) {
   const jsonMap = {
     params: record.params,
-    upstream: record.upstreamPayload,
+    upstream: record.upstreamPayload || record.params,
     create: record.createResponse,
     query: record.queryResponse,
   };

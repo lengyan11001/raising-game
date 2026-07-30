@@ -14091,6 +14091,7 @@ function generationRecordResponseOptionsForAuth(auth = {}) {
     includeStoredVideoUrls: !externalApiCaller,
     providerOnlyImageUrl: externalApiCaller,
     includeStoredImageUrls: !externalApiCaller,
+    includeUpstreamPayload: !externalApiCaller,
   };
 }
 
@@ -14169,6 +14170,9 @@ function publicGenerationRecord(record = {}, options = {}) {
   if (includeStoredImageUrls) {
     publicRecord.localImageUrl = String(record.localImageUrl || "");
     publicRecord.cdnImageUrl = String(record.cdnImageUrl || "");
+  }
+  if (options.includeUpstreamPayload === true) {
+    publicRecord.upstreamPayload = listGenerationRecordValue(record.upstreamPayload || null);
   }
   return publicRecord;
 }
