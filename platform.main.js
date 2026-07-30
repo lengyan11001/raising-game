@@ -182,7 +182,7 @@ els.advancedImage?.addEventListener("change", async () => {
         || (capability === "wan-legacy" && /r2v|vace/.test(String(els.advancedLegacyWanModel?.value || "")));
       let skippedWrongType = false;
       let skippedTooLarge = false;
-      let skippedTooLong = false;
+      let skippedDurationMessage = "";
       for (const file of files) {
         const mime = String(file.type || "").toLowerCase();
         if (mime.startsWith("image/")) {
@@ -223,15 +223,9 @@ els.advancedImage?.addEventListener("change", async () => {
             continue;
           }
           const clipDuration = await readVideoDuration(file).catch(() => 0);
-          const maxVideoSeconds = capability === "happyhorse-video-edit"
-            ? 60
-            : ["wan-animate-move", "wan-animate-mix"].includes(capability)
-            ? 30
-            : capability === "wan27-i2v"
-            ? ADVANCED_WAN_CLIP_MAX_SECONDS
-            : 10;
-          if (!clipDuration || clipDuration > maxVideoSeconds) {
-            skippedTooLong = true;
+          const durationMessage = advancedVideoInputDurationMessage(clipDuration, provider, capability);
+          if (durationMessage) {
+            skippedDurationMessage = durationMessage;
             continue;
           }
           const pending = addAdvancedPendingReference("video", file);
@@ -266,8 +260,8 @@ els.advancedImage?.addEventListener("change", async () => {
       if (skippedTooLarge && els.advancedNote) {
         els.advancedNote.textContent = t("advanced.referenceMediaTooMany", {}, "Some media files are too large.");
       }
-      if (skippedTooLong && els.advancedNote) {
-        els.advancedNote.textContent = t("advanced.clipTooLong");
+      if (skippedDurationMessage && els.advancedNote) {
+        els.advancedNote.textContent = skippedDurationMessage;
       }
       state.activeAdvancedCaseId = "";
       renderAdvancedPresetBuilder();

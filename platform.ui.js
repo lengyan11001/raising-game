@@ -1453,6 +1453,36 @@ function advancedVideoEditUsesSourceDuration(capability = currentAdvancedVideoCa
   return String(capability || "").trim() === "wan27-video-edit";
 }
 
+function advancedVideoInputDurationRule(provider = currentAdvancedProvider(), capability = currentAdvancedVideoCapability()) {
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "seedance") {
+    return { min: 1.8, max: 15.2, displayMin: 2, displayMax: 15 };
+  }
+  const rules = {
+    "wan27-i2v": { min: 1.8, max: 10.2, displayMin: 2, displayMax: 10 },
+    "wan27-r2v": { min: 1.8, max: 10.2, displayMin: 2, displayMax: 10 },
+    "wan27-video-edit": { min: 1.8, max: 10.2, displayMin: 2, displayMax: 10 },
+    "wan-animate-move": { min: 1.8, max: 30.2, displayMin: 2, displayMax: 30 },
+    "wan-animate-mix": { min: 1.8, max: 30.2, displayMin: 2, displayMax: 30 },
+    "happyhorse-video-edit": { min: 2.8, max: 60.2, displayMin: 3, displayMax: 60 },
+    "wan-legacy": { min: 1.8, max: ADVANCED_WAN_CLIP_MAX_SECONDS, displayMin: 2, displayMax: 5 },
+  };
+  return rules[String(capability || "").trim()] || null;
+}
+
+function advancedVideoInputDurationMessage(durationSeconds, provider = currentAdvancedProvider(), capability = currentAdvancedVideoCapability(), { allowUnknown = false } = {}) {
+  const seconds = Number(durationSeconds || 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return allowUnknown ? "" : t("advanced.clipDurationUnreadable");
+  }
+  const rule = advancedVideoInputDurationRule(provider, capability);
+  if (!rule || (seconds >= rule.min && seconds <= rule.max)) return "";
+  return t("advanced.clipDurationRange", {
+    min: rule.displayMin,
+    max: rule.displayMax,
+  });
+}
+
 function publicModelText(value = "") {
   return String(value ?? "")
     .replace(/\/api\/seedance\/characters\/upload/gi, "/api/vipeak2/characters/upload")

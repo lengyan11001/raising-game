@@ -251,6 +251,8 @@ const I18N = {
     "advanced.clipRequired": "Source video file or URL is required.",
     "advanced.clipTooLarge": "Source video must be 30MB or smaller.",
     "advanced.clipTooLong": "Source video must be 5 seconds or shorter.",
+    "advanced.clipDurationRange": "This mode accepts video inputs from {min} to {max} seconds.",
+    "advanced.clipDurationUnreadable": "Could not read the video duration.",
     "advanced.seedanceHandling": "Vipeak 2 image handling",
     "advanced.seedanceMode": "Vipeak 2 input",
     "advanced.seedanceModeMultimodal": "Multimodal references",
@@ -2814,6 +2816,8 @@ Object.assign(I18N.en, {
   "pricing.perCharacter": "Per character",
 });
 I18N.zh = {
+  "advanced.clipDurationRange": "当前模式支持 {min} 到 {max} 秒的视频。",
+  "advanced.clipDurationUnreadable": "无法读取视频时长。",
   ...(I18N.en || {}),
   "nav.gallery": "探索",
   "playflux.galleryTab": "视频模板",

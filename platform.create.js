@@ -834,9 +834,16 @@ async function uploadAdvancedMediaReference(file, kind = "video") {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.clipTooLarge");
     return null;
   }
+  const durationSeconds = await readMediaDuration(file);
+  if (kind === "video") {
+    const durationMessage = advancedVideoInputDurationMessage(durationSeconds, currentAdvancedProvider(), currentAdvancedVideoCapability());
+    if (durationMessage) {
+      if (els.advancedNote) els.advancedNote.textContent = durationMessage;
+      return null;
+    }
+  }
   const pending = addAdvancedPendingReference(kind, file);
   try {
-    const durationSeconds = await readMediaDuration(file);
     const payload = await requestJson("/api/user-assets", {
       method: "POST",
       body: {
@@ -1094,6 +1101,17 @@ async function addAssetToAdvancedTarget(assetId = "") {
     }
   } else if (target.id === "video") {
     if (!isVideoAsset(asset)) return;
+    const durationMessage = advancedVideoInputDurationMessage(
+      Number(asset.durationSeconds || asset.duration || 0),
+      provider,
+      currentAdvancedVideoCapability(),
+      { allowUnknown: true },
+    );
+    if (durationMessage) {
+      if (els.advancedAssetNote) els.advancedAssetNote.textContent = durationMessage;
+      if (els.advancedNote) els.advancedNote.textContent = durationMessage;
+      return;
+    }
     if (provider === "seedance") {
       addAdvancedSeedanceMediaReference(asset, "video");
       if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
@@ -1816,6 +1834,14 @@ async function submitAdvancedGenerate() {
     const hasPrimaryImage = Boolean(wanFirstFrameSource || wanFirstFrameAssetId || referenceImages[0]);
     const hasReferenceImages = referenceImages.length > 0;
     const hasVideo = Boolean(state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim() || state.advancedWanClipAssetId);
+    const durationMessage = hasVideo
+      ? advancedVideoInputDurationMessage(aliyunInputVideoSeconds, provider, videoCapability, { allowUnknown: true })
+      : "";
+    if (durationMessage) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = durationMessage;
+      return;
+    }
     if (["happyhorse-i2v", "wan-animate-move", "wan-animate-mix"].includes(videoCapability) && !hasPrimaryImage) {
       els.advancedSubmitBtn.disabled = false;
       if (els.advancedNote) els.advancedNote.textContent = "Image is required.";
