@@ -8,6 +8,7 @@ const {
   canonicalHostname,
   canonicalizeOrigin,
   collectionUpdatedAt,
+  publicGeoMediaUrl,
   renderDiscoveryLinks,
 } = require("../site-seo");
 
@@ -91,7 +92,9 @@ test("public directories link every sitemap collection without an arbitrary tag 
 });
 
 test("public character pages do not emit missing local media URLs", () => {
-  assert.match(serverSource, /function publicGeoMediaUrl/);
-  assert.match(serverSource, /!fs\.existsSync\(localPath\)/);
+  const existingUrl = "/assets/admin/home/default-hero.jpg";
+  assert.equal(publicGeoMediaUrl(existingUrl), existingUrl);
+  assert.equal(publicGeoMediaUrl("/assets/admin/home/missing-seo-image.jpg"), existingUrl);
+  assert.equal(publicGeoMediaUrl("https://cdn.example.com/image.jpg"), "https://cdn.example.com/image.jpg");
   assert.match(serverSource, /posterUrl: publicGeoMediaUrl\(posterUrl, fallbackPosterUrl\)/);
 });
