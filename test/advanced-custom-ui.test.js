@@ -63,6 +63,17 @@ test("Wan2.7 video edit follows source duration instead of exposing a manual dur
   assert.match(server, /requestParams\.videoCapability === "wan27-video-edit" && requestParams\.followInputDuration/);
 });
 
+test("shared video uploads use capability-specific duration limits", () => {
+  assert.match(ui, /function advancedVideoInputDurationRule/);
+  assert.match(ui, /"wan27-video-edit": \{ min: 1\.8, max: 10\.2, displayMin: 2, displayMax: 10 \}/);
+  assert.match(ui, /"wan-animate-move": \{ min: 1\.8, max: 30\.2, displayMin: 2, displayMax: 30 \}/);
+  assert.match(ui, /"happyhorse-video-edit": \{ min: 2\.8, max: 60\.2, displayMin: 3, displayMax: 60 \}/);
+  assert.match(create, /advancedVideoInputDurationMessage\(durationSeconds, currentAdvancedProvider\(\), currentAdvancedVideoCapability\(\)\)/);
+  assert.match(create, /advancedVideoInputDurationMessage\(aliyunInputVideoSeconds, provider, videoCapability, \{ allowUnknown: true \}\)/);
+  assert.match(main, /advancedVideoInputDurationMessage\(clipDuration, provider, capability\)/);
+  assert.doesNotMatch(main, /const maxVideoSeconds = capability/);
+});
+
 test("Wan input combinations are inferred and media URLs are not exposed in the UI", () => {
   assert.match(html, /id="advancedWanMediaMode" type="hidden" value="multimodal"/);
   assert.doesNotMatch(html, /class="field wan-mode-field/);
