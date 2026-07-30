@@ -5,7 +5,7 @@ const CONTENT_SECURITY_POLICY = [
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' https: data: blob:",
   "media-src 'self' https: blob:",
