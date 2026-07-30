@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const {
   buildSitemapXml,
@@ -8,6 +10,8 @@ const {
   collectionUpdatedAt,
   renderDiscoveryLinks,
 } = require("../site-seo");
+
+const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
 
 test("canonical aliases consolidate base and tool domains", () => {
   assert.equal(canonicalHostname("www.123vips.com"), "123vips.com");
@@ -43,6 +47,9 @@ test("main sitemap contains public content with stable lastmod values", () => {
   assert.match(xml, /<loc>https:\/\/123vips\.com\/<\/loc>/);
   assert.match(xml, /2026-07-19T00:00:00\.000Z/);
   assert.match(xml, /\/characters\/test/);
+  assert.match(xml, /\/characters\//);
+  assert.match(xml, /\/tags\//);
+  assert.match(xml, /\/categories\//);
   assert.doesNotMatch(xml, /llms\.txt/);
   assert.doesNotMatch(xml, /changefreq|priority/);
 });
@@ -72,4 +79,13 @@ test("base discovery links expose crawlable category, tag, and character paths",
   assert.match(html, /href="\/categories\/videos"/);
   assert.match(html, /href="\/tags\/portrait"/);
   assert.match(html, /href="\/characters\/aria"/);
+  assert.match(html, /href="\/characters\/"/);
+  assert.match(html, /href="\/tags\/"/);
+  assert.match(html, /href="\/categories\/"/);
+});
+
+test("public directories link every sitemap collection without an arbitrary tag cap", () => {
+  assert.doesNotMatch(serverSource, /sort\(\(a, b\) => b\.characters\.length[\s\S]{0,160}\.slice\(0, 80\)/);
+  assert.match(serverSource, /renderGeoDirectoryHtml/);
+  assert.match(serverSource, /geoDirectoryMatch = url\.pathname\.match/);
 });
