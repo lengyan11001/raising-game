@@ -1845,7 +1845,12 @@ function recordPrimaryImageUrl(record = {}) {
 }
 
 function recordMediaAssetVideoUrl(asset = {}) {
-  return asset.videoUrl || asset.url || asset.localUrl || "";
+  const candidates = [asset.videoUrl, asset.url, asset.localUrl, asset.publicUrl]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return candidates.find((url) => isPreviewableVideoUrl(url))
+    || candidates.find((url) => !isInternalAssetUrl(url))
+    || "";
 }
 
 function recordInputVideoAsset(record = {}) {

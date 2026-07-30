@@ -10,6 +10,7 @@ const {
 } = require("../media-inputs");
 
 const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8");
+const admin = fs.readFileSync(path.resolve(__dirname, "..", "admin.js"), "utf8");
 
 test("small reference images are enlarged proportionally to the upstream minimum", () => {
   assert.deepEqual(minimumImageTargetDimensions(204, 204), {
@@ -49,4 +50,10 @@ test("server applies media checks before upstream generation and mirrors tool up
   assert.match(server, /const objectStorage = await uploadLocalAssetMirrorToObjectStorage\(\{ localUrl, bytes: mirrorBytes, mime \}\)/);
   assert.match(server, /objectStorageKey: objectStorage\.key \|\| ""/);
   assert.match(server, /userAsset = await normalizeUserImageAssetForUpstream/);
+});
+
+test("admin reference previews fall back from upstream asset URIs to playable video URLs", () => {
+  assert.match(admin, /const candidates = \[asset\.videoUrl, asset\.url, asset\.localUrl, asset\.publicUrl\]/);
+  assert.match(admin, /candidates\.find\(\(url\) => isPreviewableVideoUrl\(url\)\)/);
+  assert.match(admin, /candidates\.find\(\(url\) => !isInternalAssetUrl\(url\)\)/);
 });
