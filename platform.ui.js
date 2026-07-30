@@ -1449,6 +1449,10 @@ function currentAdvancedVideoCapability(value = els.advancedProvider?.value || "
   return "";
 }
 
+function advancedVideoEditUsesSourceDuration(capability = currentAdvancedVideoCapability()) {
+  return String(capability || "").trim() === "wan27-video-edit";
+}
+
 function publicModelText(value = "") {
   return String(value ?? "")
     .replace(/\/api\/seedance\/characters\/upload/gi, "/api/vipeak2/characters/upload")
@@ -1555,6 +1559,22 @@ function positiveDurationSeconds(value, fallback = 0) {
   const next = Number(value);
   if (!Number.isFinite(next) || next <= 0) return Math.max(0, Number(fallback || 0) || 0);
   return Math.round(next * 10000) / 10000;
+}
+
+function currentAdvancedAliyunSourceVideoSeconds(fallback = 0) {
+  const selectedAsset = state.advancedWanClipAssetId
+    ? [...(state.advancedAssets || []), ...(state.userAssets || [])]
+      .find((asset) => asset.id === state.advancedWanClipAssetId)
+    : null;
+  const hasVideo = Boolean(
+    state.advancedWanClipAssetId
+    || state.advancedWanClipDataUrl
+    || String(els.advancedWanClipUrl?.value || "").trim()
+  );
+  return positiveDurationSeconds(
+    state.advancedWanClipDurationSeconds || selectedAsset?.durationSeconds || selectedAsset?.duration,
+    hasVideo ? fallback : 0,
+  );
 }
 
 function selectedSeedanceVideoAsset() {
@@ -1773,7 +1793,8 @@ function currentAdvancedResolution() {
 function advancedVideoSettingsVisible() {
   return state.advancedCreateKind === "video"
     && !advancedCreateModeIsSimpleEdit()
-    && !["wan-animate-move", "wan-animate-mix"].includes(currentAdvancedVideoCapability());
+    && !["wan-animate-move", "wan-animate-mix"].includes(currentAdvancedVideoCapability())
+    && !advancedVideoEditUsesSourceDuration();
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
@@ -2917,8 +2938,15 @@ function updateAdvancedButtonCost() {
   if (!els.advancedSubmitBtn) return;
   const rawDuration = Number(els.advancedDuration?.value || 5);
   const bounds = advancedDurationBounds(currentAdvancedProvider());
-  const duration = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
   const provider = currentAdvancedProvider();
+  const videoCapability = currentAdvancedVideoCapability();
+  const configuredDuration = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
+  const sourceVideoSeconds = advancedVideoEditUsesSourceDuration(videoCapability)
+    ? currentAdvancedAliyunSourceVideoSeconds(0)
+    : 0;
+  const duration = sourceVideoSeconds > 0
+    ? Math.min(bounds.max, Math.max(bounds.min, Math.ceil(sourceVideoSeconds)))
+    : configuredDuration;
   const seedanceTier = currentSeedanceTier();
   if (state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt()) {
     els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("common.generate"))}`;
@@ -2934,14 +2962,14 @@ function updateAdvancedButtonCost() {
     inputVideoSeconds: provider === "seedance"
       ? currentSeedanceVideoInputSeconds(duration, provider)
       : ["wan27", "happyhorse"].includes(provider)
-      ? positiveDurationSeconds(state.advancedWanClipDurationSeconds, state.advancedWanClipAssetId || state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim() ? duration : 0)
+      ? currentAdvancedAliyunSourceVideoSeconds(duration)
       : 0,
     referenceVideoUrls: provider === "seedance" ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
     seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
     referenceImageCount: provider === "seedream5-image" ? selectedAdvancedReferenceImages("seedream5-image").length : 0,
-    videoCapability: currentAdvancedVideoCapability(),
-    model: currentAdvancedVideoCapability() === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "") : undefined,
-    mode: ["wan-animate-move", "wan-animate-mix"].includes(currentAdvancedVideoCapability()) ? String(els.advancedWanAnimateMode?.value || "wan-std") : undefined,
+    videoCapability,
+    model: videoCapability === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "") : undefined,
+    mode: ["wan-animate-move", "wan-animate-mix"].includes(videoCapability) ? String(els.advancedWanAnimateMode?.value || "wan-std") : undefined,
   };
   requestAdvancedEstimate(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options);
   els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;

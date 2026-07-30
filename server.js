@@ -11250,10 +11250,12 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
   const definition = ALIYUN_VIDEO_CAPABILITIES[resolvedCapability];
   if (!definition) throw advancedValidationError("INVALID_ALIYUN_VIDEO_CAPABILITY", `Unsupported Alibaba video capability: ${resolvedCapability}.`);
   const parameterExtras = plainObject(source.parameters);
+  const followInputDuration = resolvedCapability === "wan27-video-edit"
+    && boolFromRequest(source.followInputDuration, false);
   const parameters = {
     ...parameterExtras,
     resolution: firstPresent(parameterExtras.resolution, source.resolution, "720p"),
-    duration: firstPresent(parameterExtras.duration, source.duration, source.durationSeconds),
+    duration: followInputDuration ? 0 : firstPresent(parameterExtras.duration, source.duration, source.durationSeconds),
     ratio: firstPresent(parameterExtras.ratio, source.ratio, source.aspect_ratio),
     prompt_extend: boolFromRequest(firstPresent(parameterExtras.prompt_extend, source.prompt_extend, source.promptExtend), false),
     watermark: boolFromRequest(firstPresent(parameterExtras.watermark, source.watermark), false),
@@ -20018,6 +20020,8 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.videoCapability = isAliyunVideoProvider(provider)
     ? normalizeAliyunVideoCapability(requestedVideoCapability, { provider, model: requestedModel })
     : "";
+  requestParams.followInputDuration = requestParams.videoCapability === "wan27-video-edit"
+    && boolFromRequest(firstPresent(body.followInputDuration, bodyParams.followInputDuration), false);
   requestParams.model = provider === "seedance"
     ? normalizedSeedanceModel
     : String(firstPresent(requestedModel, aliyunVideoModelForCapability(requestParams.videoCapability)));
@@ -20267,7 +20271,9 @@ async function handleAdvancedGenerate(req, res) {
       }
     }
     const primaryVideoDuration = probedVideoDurations[0] || 0;
-    if (capabilityDefinition?.mediaKind === "animate" && primaryVideoDuration > 0) {
+    if (requestParams.videoCapability === "wan27-video-edit" && requestParams.followInputDuration && primaryVideoDuration > 0) {
+      requestParams.duration = Math.max(2, Math.min(10, Math.ceil(primaryVideoDuration)));
+    } else if (capabilityDefinition?.mediaKind === "animate" && primaryVideoDuration > 0) {
       requestParams.duration = clampNumber(primaryVideoDuration, requestParams.duration, 2, 30);
     } else if (isVideoTemplateRequest && requestParams.videoCapability === "wan27-r2v" && primaryVideoDuration > 0) {
       requestParams.duration = Math.max(2, Math.min(10, Math.round(primaryVideoDuration)));

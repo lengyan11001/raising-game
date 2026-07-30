@@ -74,6 +74,7 @@ test("builds Wan2.7 video edit", () => {
     parameters: { audio_setting: "origin" },
   });
   assert.equal(request.payload.parameters.audio_setting, "origin");
+  assert.equal(request.payload.parameters.duration, 0);
 });
 
 test("supports Singapore legacy Wan models", () => {

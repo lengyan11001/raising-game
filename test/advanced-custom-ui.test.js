@@ -8,6 +8,7 @@ const html = fs.readFileSync(path.join(root, "platform.html"), "utf8");
 const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
 const main = fs.readFileSync(path.join(root, "platform.main.js"), "utf8");
+const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 
 function elementMarkup(id) {
   const match = html.match(new RegExp(`<select id="${id}"[^>]*>([\\s\\S]*?)<\\/select>`));
@@ -43,12 +44,23 @@ test("only explicit frame modes use dedicated upload controls", () => {
   assert.match(html, /id="advancedWanFirstFrame" type="file" accept="image\/\*"/);
   assert.match(main, /advancedWanFirstFrame\?\.addEventListener\("change"/);
   assert.match(create, /usesDedicatedFrameUpload = provider === "seedance" && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
-  assert.match(create, /usesDedicatedAliyunUpload = \["wan-animate-move", "wan-animate-mix"\]/);
+  assert.doesNotMatch(create, /usesDedicatedAliyunUpload/);
 });
 
-test("reference and video edit modes use only the shared reference uploader", () => {
-  assert.match(create, /usesSharedReferenceUpload = \["wan27-i2v", "wan27-r2v", "wan27-video-edit", "happyhorse-i2v", "happyhorse-r2v", "happyhorse-video-edit"\]\.includes\(capability\)/);
+test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", () => {
+  assert.match(create, /function advancedAliyunUsesSharedReferenceUpload/);
+  assert.match(create, /"wan-animate-move"/);
+  assert.match(create, /"wan-animate-mix"/);
   assert.match(create, /usesSharedReferenceUpload \|\| !hasDedicatedWanPanelSlot/);
+  assert.match(create, /aliyunTargetTypes\.size > 1/);
+});
+
+test("Wan2.7 video edit follows source duration instead of exposing a manual duration", () => {
+  assert.match(ui, /function advancedVideoEditUsesSourceDuration/);
+  assert.match(create, /followInputDuration: advancedVideoEditUsesSourceDuration\(videoCapability\)/);
+  assert.match(create, /Math\.ceil\(aliyunInputVideoSeconds\)/);
+  assert.match(server, /duration: followInputDuration \? 0/);
+  assert.match(server, /requestParams\.videoCapability === "wan27-video-edit" && requestParams\.followInputDuration/);
 });
 
 test("Wan input combinations are inferred and media URLs are not exposed in the UI", () => {
