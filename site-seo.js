@@ -1,5 +1,8 @@
 "use strict";
 
+const fs = require("node:fs");
+const path = require("node:path");
+
 const DEFAULT_CANONICAL_HOST_ALIASES = Object.freeze({
   "www.123vips.com": "123vips.com",
   "www.667zui.video": "667zui.video",
@@ -161,6 +164,32 @@ function htmlEscape(value = "") {
     .replace(/'/g, "&#39;");
 }
 
+function publicGeoMediaUrl(value = "", fallback = "/assets/admin/home/default-hero.jpg", root = __dirname) {
+  const mediaUrl = String(value || "").trim();
+  if (!mediaUrl) return fallback;
+  if (!mediaUrl.startsWith("/assets/")) return mediaUrl;
+  const pathname = mediaUrl.split(/[?#]/)[0];
+  let decodedPath = pathname;
+  try {
+    decodedPath = decodeURIComponent(pathname);
+  } catch {
+    return fallback;
+  }
+  const assetsRoot = path.resolve(root, "assets");
+  const localPath = path.resolve(root, decodedPath.replace(/^\/+/, ""));
+  const relativePath = path.relative(assetsRoot, localPath);
+  if (
+    !relativePath ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath) ||
+    !fs.existsSync(localPath)
+  ) {
+    return fallback;
+  }
+  return mediaUrl;
+}
+
 function renderDiscoveryLinks(snapshot = {}) {
   if (snapshot.toolOnly) return "";
   const links = [
@@ -191,6 +220,7 @@ module.exports = {
   itemUpdatedAt,
   latestIsoTimestamp,
   parseHostValueMap,
+  publicGeoMediaUrl,
   renderDiscoveryLinks,
   siteVerificationToken,
 };
