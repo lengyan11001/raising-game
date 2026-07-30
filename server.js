@@ -2107,8 +2107,34 @@ function geoCategoryPublicPath(category = {}) {
   return `/categories/${encodeURIComponent(slugSegment(category.id || category.label, "category"))}`;
 }
 
+function publicGeoMediaUrl(value = "", fallback = "/assets/admin/home/default-hero.jpg") {
+  const mediaUrl = String(value || "").trim();
+  if (!mediaUrl) return fallback;
+  if (!mediaUrl.startsWith("/assets/")) return mediaUrl;
+  const pathname = mediaUrl.split(/[?#]/)[0];
+  let decodedPath = pathname;
+  try {
+    decodedPath = decodeURIComponent(pathname);
+  } catch {
+    return fallback;
+  }
+  const assetsRoot = path.resolve(__dirname, "assets");
+  const localPath = path.resolve(__dirname, decodedPath.replace(/^\/+/, ""));
+  const relativePath = path.relative(assetsRoot, localPath);
+  if (
+    !relativePath ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath) ||
+    !fs.existsSync(localPath)
+  ) {
+    return fallback;
+  }
+  return mediaUrl;
+}
+
 function characterPosterForGeo(item = {}) {
-  return String(
+  const posterUrl = String(
     item.posterUrl ||
       item.localImageUrl ||
       item.syntheticReferenceLocalUrl ||
@@ -2118,6 +2144,7 @@ function characterPosterForGeo(item = {}) {
       item.thumbnailUrl ||
       "/assets/admin/home/default-hero.jpg"
   ).trim();
+  return publicGeoMediaUrl(posterUrl);
 }
 
 function characterTagsForGeo(item = {}, max = 10) {
@@ -2153,15 +2180,19 @@ function characterVideoDescriptionForGeo(item = {}, video = {}, index = 0) {
 }
 
 function publicCharacterVideosForGeo(item = {}) {
-  return publicCharacterVideoList(item).map(({ key, entry }, index) => ({
-    key,
-    title: compactPlainText(entry.title || entry.sceneEntryName || entry.sceneName || `Video ${index + 1}`, 90),
-    sceneId: entry.sceneId || sceneIdFromVideoKey(key) || "",
-    sceneEntryId: entry.sceneEntryId || "default",
-    posterUrl: String(entry.posterUrl || entry.coverUrl || entry.thumbnailUrl || characterPosterForGeo(item)).trim(),
-    duration: Number(entry.duration || item.duration || 0),
-    locked: index > 0,
-  }));
+  const fallbackPosterUrl = characterPosterForGeo(item);
+  return publicCharacterVideoList(item).map(({ key, entry }, index) => {
+    const posterUrl = String(entry.posterUrl || entry.coverUrl || entry.thumbnailUrl || fallbackPosterUrl).trim();
+    return {
+      key,
+      title: compactPlainText(entry.title || entry.sceneEntryName || entry.sceneName || `Video ${index + 1}`, 90),
+      sceneId: entry.sceneId || sceneIdFromVideoKey(key) || "",
+      sceneEntryId: entry.sceneEntryId || "default",
+      posterUrl: publicGeoMediaUrl(posterUrl, fallbackPosterUrl),
+      duration: Number(entry.duration || item.duration || 0),
+      locked: index > 0,
+    };
+  });
 }
 
 function addCharacterVideoDescriptionsForGeo(item = {}) {

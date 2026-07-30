@@ -89,3 +89,9 @@ test("public directories link every sitemap collection without an arbitrary tag 
   assert.match(serverSource, /renderGeoDirectoryHtml/);
   assert.match(serverSource, /geoDirectoryMatch = url\.pathname\.match/);
 });
+
+test("public character pages do not emit missing local media URLs", () => {
+  assert.match(serverSource, /function publicGeoMediaUrl/);
+  assert.match(serverSource, /!fs\.existsSync\(localPath\)/);
+  assert.match(serverSource, /posterUrl: publicGeoMediaUrl\(posterUrl, fallbackPosterUrl\)/);
+});
