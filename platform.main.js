@@ -749,7 +749,10 @@ els.advancedUploadBox?.addEventListener("click", () => {
   if (!advancedCreateModeAllowsManualReferenceUpload()) return;
   const provider = currentAdvancedProvider();
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
-  setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : provider === "seedream5-image" ? "referenceImages" : provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? "referenceImages" : advancedCreateUploadIsVideo() ? "video" : "primary");
+  const aliyunSharedTarget = ["wan27", "happyhorse"].includes(provider)
+    ? (advancedAssetTargetItems().find((target) => target.type === "image")?.id || advancedAssetTargetItems()[0]?.id || "primary")
+    : "";
+  setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : provider === "seedream5-image" ? "referenceImages" : provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? "referenceImages" : aliyunSharedTarget || (advancedCreateUploadIsVideo() ? "video" : "primary"));
 });
 document.querySelectorAll("[data-remove-advanced-slot]").forEach((button) => {
   button.addEventListener("click", (event) => {
