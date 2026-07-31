@@ -11,6 +11,7 @@ const {
 
 const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8");
 const admin = fs.readFileSync(path.resolve(__dirname, "..", "admin.js"), "utf8");
+const adminCss = fs.readFileSync(path.resolve(__dirname, "..", "admin.css"), "utf8");
 const explore = fs.readFileSync(path.resolve(__dirname, "..", "platform.explore.js"), "utf8");
 
 test("small reference images are enlarged proportionally to the upstream minimum", () => {
@@ -57,6 +58,13 @@ test("admin reference previews fall back from upstream asset URIs to playable vi
   assert.match(admin, /const candidates = \[asset\.videoUrl, asset\.url, asset\.localUrl, asset\.publicUrl\]/);
   assert.match(admin, /candidates\.find\(\(url\) => isPreviewableVideoUrl\(url\)\)/);
   assert.match(admin, /candidates\.find\(\(url\) => !isInternalAssetUrl\(url\)\)/);
+});
+
+test("admin user actions stay visible in wide tables", () => {
+  assert.match(admin, /class="adm-text-right adm-user-actions-cell"/);
+  assert.match(admin, /class="adm-btn adm-btn-sm adm-btn-ghost adm-user-action-btn"/);
+  assert.match(adminCss, /\.adm-user-table th\.adm-user-actions-cell,[\s\S]*?position: sticky;[\s\S]*?right: 0;/);
+  assert.match(adminCss, /\.adm-user-table \.adm-user-action-btn \{[\s\S]*?width: 34px;[\s\S]*?height: 34px;/);
 });
 
 test("owner and admin parameter views show the payload actually sent upstream", () => {

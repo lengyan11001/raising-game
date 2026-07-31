@@ -2901,7 +2901,7 @@ async function renderUsers(pageArg = null, limitArg = null) {
       <div class="adm-card">
         <div class="adm-card-body adm-table-wrap">
           <table class="adm-table adm-user-table">
-            <thead><tr><th>账号</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right">操作</th></tr></thead>
+            <thead><tr><th>账号</th><th>租户 / 渠道</th><th>角色</th><th>积分</th><th>API Token</th><th>前端折扣</th><th>API折扣</th><th>自定义角色</th><th>钱包订单</th><th>注册时间</th><th class="adm-text-right adm-user-actions-cell">操作</th></tr></thead>
             <tbody>
               ${users.map((u) => `
                 <tr data-id="${escapeHtml(u.id)}">
@@ -2915,12 +2915,12 @@ async function renderUsers(pageArg = null, limitArg = null) {
                   <td>${escapeHtml(u.customCharacters || 0)}</td>
                   <td>${escapeHtml(u.walletOrders || 0)}</td>
                   <td>${fmtDate(u.createdAt)}</td>
-                  <td>
+                  <td class="adm-user-actions-cell">
                     <div class="adm-row-actions">
-                      <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="edit-user"><i data-lucide="pencil"></i>编辑</button>
-                      <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="adjust-credits"><i data-lucide="coins"></i>积分</button>
-                      <button class="adm-btn adm-btn-sm adm-btn-ghost" data-act="reset-pwd"><i data-lucide="key-round"></i>重置密码</button>
-                      <button class="adm-btn adm-btn-sm adm-btn-danger" data-act="delete-user"><i data-lucide="trash-2"></i>删除</button>
+                      <button class="adm-btn adm-btn-sm adm-btn-ghost adm-user-action-btn" data-act="edit-user" type="button" title="编辑用户" aria-label="编辑用户"><i data-lucide="pencil"></i></button>
+                      <button class="adm-btn adm-btn-sm adm-btn-ghost adm-user-action-btn" data-act="adjust-credits" type="button" title="调整积分" aria-label="调整积分"><i data-lucide="coins"></i></button>
+                      <button class="adm-btn adm-btn-sm adm-btn-ghost adm-user-action-btn" data-act="reset-pwd" type="button" title="重置密码" aria-label="重置密码"><i data-lucide="key-round"></i></button>
+                      <button class="adm-btn adm-btn-sm adm-btn-danger adm-user-action-btn" data-act="delete-user" type="button" title="删除用户" aria-label="删除用户"><i data-lucide="trash-2"></i></button>
                     </div>
                   </td>
                 </tr>`).join("")}
