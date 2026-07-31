@@ -51,6 +51,7 @@ SHARED_APP_FILES = (
     "mobile/android/src/com/tops123/video/MainActivity.java",
     "scripts/build_tool_android.ps1",
     "scripts/build_tool_installers.ps1",
+    "admin.css",
     "admin.html",
     "admin.js",
     "aliyun-video.js",
