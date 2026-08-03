@@ -1250,7 +1250,8 @@ function updateAdvancedModelControls() {
     const imageRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
     const videoRatios = provider === "wan30" ? ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"] : ["9:16", "16:9", "1:1"];
     const options = isImageEdit ? imageRatios : videoRatios;
-    const current = normalizeVideoRatio(els.advancedRatio.value || "9:16");
+    const rawRatio = String(els.advancedRatio.value || "9:16").trim().toLowerCase();
+    const current = provider === "wan30" && rawRatio === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
     els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedRatio.value = provider === "wan30" ? "adaptive" : "9:16";
     els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || simpleAction || animateCapability);
