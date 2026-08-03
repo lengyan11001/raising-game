@@ -4620,13 +4620,6 @@ select option:checked {
 .wan-frame-remove:hover {
   background: rgba(220,38,38,.9);
 }
-.advanced-upload-box.is-wan .advanced-upload-previews {
-  grid-template-columns: minmax(120px, 1fr);
-  justify-content: center;
-}
-.advanced-upload-box.is-wan .advanced-upload-previews figure {
-  min-height: 0;
-}
 .advanced-upload-box.is-image-edit .advanced-upload-previews {
   grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   justify-content: start;

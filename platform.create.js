@@ -83,12 +83,23 @@ function advancedAliyunUsesSharedReferenceUpload(capability = currentAdvancedVid
   ].includes(capability);
 }
 
+function advancedUsesSharedReferenceUpload(provider = currentAdvancedProvider(), capability = currentAdvancedVideoCapability()) {
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  return ["seedance", "wan30"].includes(normalizedProvider) || advancedAliyunUsesSharedReferenceUpload(capability);
+}
+
 function advancedVideoReferenceLimit(provider = currentAdvancedProvider()) {
-  return normalizeAdvancedProvider(provider) === "wan30" ? ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT : ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT;
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "wan30") return ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT;
+  if (["wan27", "happyhorse"].includes(normalizedProvider)) return 1;
+  return ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT;
 }
 
 function advancedAudioReferenceLimit(provider = currentAdvancedProvider()) {
-  return normalizeAdvancedProvider(provider) === "wan30" ? ADVANCED_WAN30_AUDIO_REFERENCE_LIMIT : ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT;
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "wan30") return ADVANCED_WAN30_AUDIO_REFERENCE_LIMIT;
+  if (["wan27", "happyhorse"].includes(normalizedProvider)) return 1;
+  return ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT;
 }
 
 function advancedAssetTargetItems() {
@@ -637,12 +648,17 @@ async function uploadAdvancedVideoReference(file) {
 
 function advancedSeedanceVideoReferences() {
   const refs = Array.isArray(state.advancedSeedanceVideoReferences) ? [...state.advancedSeedanceVideoReferences] : [];
-  if (state.advancedSeedanceVideoAssetId || state.advancedSeedanceVideoPreviewUrl) {
+  const legacyAssetId = state.advancedSeedanceVideoAssetId || state.advancedWanClipAssetId || "";
+  const legacyUrl = state.advancedSeedanceVideoPreviewUrl || state.advancedWanClipDataUrl || String(els.advancedWanClipUrl?.value || "").trim();
+  if (legacyAssetId || legacyUrl) {
     const legacy = {
-      assetId: state.advancedSeedanceVideoAssetId || "",
-      url: state.advancedSeedanceVideoPreviewUrl || "",
-      previewUrl: state.advancedSeedanceVideoPreviewUrl || "",
-      name: "Video reference",
+      assetId: legacyAssetId,
+      url: legacyUrl,
+      previewUrl: legacyUrl,
+      name: state.advancedWanClipFileName || "Video reference",
+      fileName: state.advancedWanClipFileName || "",
+      durationSeconds: state.advancedWanClipDurationSeconds || 0,
+      order: state.advancedWanClipOrder || 0,
     };
     if (!refs.some((item) => item.assetId === legacy.assetId && item.url === legacy.url)) refs.unshift(legacy);
   }
@@ -654,6 +670,11 @@ function setAdvancedSeedanceVideoReferences(refs = []) {
   state.advancedSeedanceVideoReferences = next;
   state.advancedSeedanceVideoAssetId = next[0]?.assetId || "";
   state.advancedSeedanceVideoPreviewUrl = next[0]?.previewUrl || next[0]?.url || "";
+  state.advancedWanClipAssetId = next[0]?.assetId || "";
+  state.advancedWanClipDataUrl = next[0]?.assetId ? "" : (next[0]?.url || next[0]?.previewUrl || "");
+  state.advancedWanClipFileName = next[0]?.fileName || next[0]?.name || "";
+  state.advancedWanClipDurationSeconds = Number(next[0]?.durationSeconds || next[0]?.duration || 0) || 0;
+  state.advancedWanClipOrder = advancedReferenceOrderValue(next[0]);
 }
 
 function advancedSeedanceAudioReferences() {
@@ -672,6 +693,9 @@ function setAdvancedSeedanceAudioReferences(refs = []) {
   const next = refs.filter((item) => item && (item.assetId || item.url || item.previewUrl)).slice(0, advancedAudioReferenceLimit());
   state.advancedSeedanceAudioReferences = next;
   state.advancedAudioAssetId = next[0]?.assetId || "";
+  state.advancedAudioPreviewUrl = next[0]?.previewUrl || next[0]?.url || "";
+  state.advancedAudioFileName = next[0]?.fileName || next[0]?.name || "";
+  state.advancedAudioOrder = advancedReferenceOrderValue(next[0]);
 }
 
 function uniqueAdvancedAssetIds(assetIds = []) {
@@ -1153,6 +1177,8 @@ async function addAssetToAdvancedTarget(assetId = "") {
     if (provider === "seedance" || provider === "wan30") {
       addAdvancedSeedanceMediaReference(asset, "video");
       if (advancedCreateModeNeedsReplacePair()) state.advancedAssetTarget = "primary";
+    } else if (advancedAliyunUsesSharedReferenceUpload(currentAdvancedVideoCapability())) {
+      addAdvancedSeedanceMediaReference(asset, "video");
     } else {
       if (els.advancedWanMediaMode && !wanModeNeedsClip(els.advancedWanMediaMode.value)) els.advancedWanMediaMode.value = "first_clip";
       state.advancedWanClipAssetId = asset.id;
@@ -1170,7 +1196,7 @@ async function addAssetToAdvancedTarget(assetId = "") {
     }
   } else if (target.id === "audio") {
     if (!isAudioAsset(asset)) return;
-    if (provider === "seedance") {
+    if (advancedUsesSharedReferenceUpload(provider, currentAdvancedVideoCapability())) {
       addAdvancedSeedanceMediaReference(asset, "audio");
     } else if (els.advancedWanAudioUrl) {
       state.advancedAudioAssetId = asset.id;
@@ -1332,7 +1358,7 @@ function updateAdvancedModelControls() {
       els.advancedImage.multiple = allowManualReferenceUpload && (
         (["seedance", "wan30"].includes(provider) && !seedanceModeNeedsFirstFrame(seedanceMode))
         || isSeedreamImage
-        || (aliyunVideo && (advancedAliyunReferenceImageLimit(capability) > 1 || aliyunTargetTypes.size > 1))
+        || (aliyunVideo && advancedAliyunUsesSharedReferenceUpload(capability))
         || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload())
       );
     }
@@ -1380,11 +1406,20 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = 
     state.advancedAssetTarget = "sourceImages";
   }
   updateAdvancedModelControls();
-  els.advancedImage.accept = ["seedance", "wan30"].includes(provider) ? advancedCreateUploadAcceptValue() : "image/*";
+  const capability = currentAdvancedVideoCapability();
+  const sharedUpload = advancedUsesSharedReferenceUpload(provider, capability);
+  const allowedTypes = new Set(advancedAssetTargetItems().map((target) => target.type));
+  els.advancedImage.accept = sharedUpload
+    ? [
+        allowedTypes.has("image") ? "image/*" : "",
+        allowedTypes.has("video") ? "video/mp4,video/webm,video/quicktime,video/*" : "",
+        allowedTypes.has("audio") ? "audio/*" : "",
+      ].filter(Boolean).join(",") || advancedCreateUploadAcceptValue()
+    : "image/*";
   els.advancedImage.multiple = !characterPresetUpload && (
     provider === "seedream5-image"
-    || (["seedance", "wan30"].includes(provider)
-      ? !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || "")
+    || (sharedUpload
+      ? (!["seedance", "wan30"].includes(provider) || !seedanceModeNeedsFirstFrame(els.advancedSeedanceMediaMode?.value || ""))
       : !advancedCreateModeUsesSingleUpload())
   );
   els.advancedImage.click();
@@ -2547,7 +2582,7 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
     state.advancedWanLastFrameDataUrl = references[1].dataUrl || "";
   }
   const firstVideo = videos[0];
-  if (["seedance", "wan30"].includes(provider) && firstVideo) {
+  if (advancedUsesSharedReferenceUpload(provider, currentAdvancedVideoCapability()) && firstVideo) {
     setAdvancedSeedanceVideoReferences(videos.map((item) => ({
       assetId: item.assetId || "",
       url: item.url || "",
@@ -2556,18 +2591,13 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
       durationSeconds: item.durationSeconds || item.duration || 0,
       order: advancedReferenceOrderValue(item),
     })));
-    if (els.advancedSeedanceVideoUrls) els.advancedSeedanceVideoUrls.value = firstVideo.assetId ? "" : firstVideo.url || "";
-  } else if ((provider === "wan27" || provider === "happyhorse") && firstVideo) {
-    state.advancedWanClipAssetId = firstVideo.assetId || "";
-    state.advancedWanClipDataUrl = firstVideo.assetId ? "" : firstVideo.url || "";
-    state.advancedWanClipFileName = firstVideo.fileName || firstVideo.name || "";
-    state.advancedWanClipDurationSeconds = Number(firstVideo.durationSeconds || firstVideo.duration || 0) || 0;
-    state.advancedWanClipOrder = advancedReferenceOrderValue(firstVideo);
-    if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = firstVideo.assetId ? "" : firstVideo.url || "";
+    if (["seedance", "wan30"].includes(provider) && els.advancedSeedanceVideoUrls) {
+      els.advancedSeedanceVideoUrls.value = firstVideo.assetId ? "" : firstVideo.url || "";
+    }
   }
   const firstAudio = audios[0];
   if (firstAudio) {
-    if (["seedance", "wan30"].includes(provider)) {
+    if (advancedUsesSharedReferenceUpload(provider, currentAdvancedVideoCapability())) {
       setAdvancedSeedanceAudioReferences(audios.map((item) => ({
         assetId: item.assetId || "",
         url: item.url || "",
@@ -2576,11 +2606,6 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
         durationSeconds: item.durationSeconds || item.duration || 0,
         order: advancedReferenceOrderValue(item),
       })));
-    } else {
-      state.advancedAudioAssetId = firstAudio.assetId || "";
-      state.advancedAudioPreviewUrl = firstAudio.url || "";
-      state.advancedAudioFileName = firstAudio.fileName || firstAudio.name || "";
-      state.advancedAudioOrder = advancedReferenceOrderValue(firstAudio);
     }
     if (provider === "seedance" && els.advancedSeedanceAudioUrls) els.advancedSeedanceAudioUrls.value = firstAudio.assetId ? "" : firstAudio.url || "";
     if (provider === "wan27" && els.advancedWanAudioUrl) els.advancedWanAudioUrl.value = firstAudio.assetId ? "" : firstAudio.url || "";
@@ -3236,19 +3261,9 @@ function removeAdvancedMediaSlot(slot = "") {
 function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
   const images = selectedAdvancedReferenceImages();
   const pendingRefs = advancedPendingReferences(provider);
-  const seedanceVideos = ["seedance", "wan30"].includes(provider) ? advancedSeedanceVideoReferences() : [];
-  const seedanceAudios = ["seedance", "wan30"].includes(provider) ? advancedSeedanceAudioReferences() : [];
-  const aliyunVideo = provider === "wan27" || provider === "happyhorse";
-  const wanClipUrl = aliyunVideo
-    ? (state.advancedWanClipDataUrl || (state.advancedWanClipAssetId
-      ? assetPreviewUrl((state.advancedAssets || []).find((asset) => asset.id === state.advancedWanClipAssetId) || (state.userAssets || []).find((asset) => asset.id === state.advancedWanClipAssetId) || {})
-      : "") || String(els.advancedWanClipUrl?.value || "").trim())
-    : "";
-  const wanAudioUrl = aliyunVideo
-    ? (state.advancedAudioPreviewUrl || (state.advancedAudioAssetId
-      ? assetPreviewUrl((state.advancedAssets || []).find((asset) => asset.id === state.advancedAudioAssetId) || (state.userAssets || []).find((asset) => asset.id === state.advancedAudioAssetId) || {})
-      : "") || String(els.advancedWanAudioUrl?.value || "").trim())
-    : "";
+  const sharedUpload = advancedUsesSharedReferenceUpload(provider, currentAdvancedVideoCapability());
+  const referenceVideos = sharedUpload ? advancedSeedanceVideoReferences() : [];
+  const referenceAudios = sharedUpload ? advancedSeedanceAudioReferences() : [];
   const displayImages = [...images, ...pendingRefs.filter((item) => item.kind === "image")]
     .sort((left, right) => advancedReferenceOrderValue(left) - advancedReferenceOrderValue(right));
   const imageItems = displayImages.map((item, index) => ({
@@ -3258,13 +3273,7 @@ function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
     item,
     order: advancedReferenceOrderValue(item, index + 1),
   }));
-  const videoSource = aliyunVideo && wanClipUrl
-    ? [{ url: wanClipUrl, previewUrl: wanClipUrl, name: state.advancedWanClipFileName || "Video reference", order: state.advancedWanClipOrder || advancedReferenceOrderValue(images[0], images.length + 1) + 1 }]
-    : seedanceVideos;
-  const audioSource = aliyunVideo && (state.advancedAudioAssetId || wanAudioUrl)
-    ? [{ assetId: state.advancedAudioAssetId || "", url: wanAudioUrl, previewUrl: wanAudioUrl, name: state.advancedAudioFileName || "Audio reference", order: state.advancedAudioOrder || advancedReferenceOrderValue(images[0], images.length + 2) + 1 }]
-    : seedanceAudios;
-  const displayVideos = [...videoSource, ...pendingRefs.filter((item) => item.kind === "video")]
+  const displayVideos = [...referenceVideos, ...pendingRefs.filter((item) => item.kind === "video")]
     .sort((left, right) => advancedReferenceOrderValue(left) - advancedReferenceOrderValue(right));
   const videoItems = displayVideos.map((item, index) => ({
     kind: "video",
@@ -3273,7 +3282,7 @@ function advancedReferenceDisplayItems(provider = currentAdvancedProvider()) {
     item,
     order: advancedReferenceOrderValue(item, displayImages.length + index + 1),
   }));
-  const displayAudios = [...audioSource, ...pendingRefs.filter((item) => item.kind === "audio")]
+  const displayAudios = [...referenceAudios, ...pendingRefs.filter((item) => item.kind === "audio")]
     .sort((left, right) => advancedReferenceOrderValue(left) - advancedReferenceOrderValue(right));
   const audioItems = displayAudios.map((item, index) => ({
     kind: "audio",
@@ -3568,9 +3577,7 @@ function renderAdvancedReferencePreviews() {
     const url = item.dataUrl || item.previewUrl || item.url || "";
     const removeAttr = kind === "image"
       ? `data-remove-advanced-ref="${index}"`
-      : provider === "wan27"
-        ? `data-remove-wan-${kind}="${index}"`
-        : `data-remove-seedance-${kind}="${index}"`;
+      : `data-remove-shared-${kind}="${index}"`;
     const pendingText = t("advanced.uploadingReference", {}, "Uploading...");
     const media = pending
       ? `<div class="advanced-reference-pending"><i data-lucide="loader-2"></i><span>${escapeHtml(pendingText)}</span></div>`
@@ -3594,32 +3601,18 @@ function renderAdvancedReferencePreviews() {
       removeAdvancedReferenceImage(Number(button.dataset.removeAdvancedRef));
     });
   });
-  els.advancedUploadPreview.querySelectorAll("[data-remove-seedance-video]").forEach((button) => {
+  els.advancedUploadPreview.querySelectorAll("[data-remove-shared-video]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      removeAdvancedSeedanceMediaReference("video", Number(button.dataset.removeSeedanceVideo));
+      removeAdvancedSeedanceMediaReference("video", Number(button.dataset.removeSharedVideo));
     });
   });
-  els.advancedUploadPreview.querySelectorAll("[data-remove-seedance-audio]").forEach((button) => {
+  els.advancedUploadPreview.querySelectorAll("[data-remove-shared-audio]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      removeAdvancedSeedanceMediaReference("audio", Number(button.dataset.removeSeedanceAudio));
-    });
-  });
-  els.advancedUploadPreview.querySelectorAll("[data-remove-wan-video]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      removeAdvancedMediaSlot("wanClip");
-    });
-  });
-  els.advancedUploadPreview.querySelectorAll("[data-remove-wan-audio]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      removeAdvancedMediaSlot("wanAudio");
+      removeAdvancedSeedanceMediaReference("audio", Number(button.dataset.removeSharedAudio));
     });
   });
   els.advancedUploadBox?.classList.toggle("has-image", refs.length > 0);

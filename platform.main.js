@@ -183,6 +183,7 @@ els.advancedImage?.addEventListener("change", async () => {
         || (capability === "wan-legacy" && /r2v|vace/.test(String(els.advancedLegacyWanModel?.value || "")));
       let skippedWrongType = false;
       let skippedTooLarge = false;
+      let skippedTooMany = false;
       let skippedDurationMessage = "";
       for (const file of files) {
         const mime = String(file.type || "").toLowerCase();
@@ -219,38 +220,21 @@ els.advancedImage?.addEventListener("change", async () => {
             skippedWrongType = true;
             continue;
           }
-          if (file.size > ADVANCED_WAN_CLIP_MAX_BYTES) {
-            skippedTooLarge = true;
+          if (advancedSeedanceVideoReferences().length >= advancedVideoReferenceLimit(provider)) {
+            skippedTooMany = true;
             continue;
           }
-          const clipDuration = await readVideoDuration(file).catch(() => 0);
-          const durationMessage = advancedVideoInputDurationMessage(clipDuration, provider, capability);
-          if (durationMessage) {
-            skippedDurationMessage = durationMessage;
-            continue;
-          }
-          const pending = addAdvancedPendingReference("video", file);
-          try {
-            state.advancedWanClipDataUrl = await readFileAsDataUrl(file);
-            state.advancedWanClipOrder = pending.order;
-          } finally {
-            removeAdvancedPendingReference(pending.pendingId, { render: false });
-          }
-          state.advancedWanClipFileName = file.name || "";
-          state.advancedWanClipAssetId = "";
-          state.advancedWanClipDurationSeconds = clipDuration;
-          if (els.advancedWanClipUrl) els.advancedWanClipUrl.value = "";
-          if (els.advancedWanClipPreview) {
-            els.advancedWanClipPreview.src = state.advancedWanClipDataUrl;
-            els.advancedWanClipPreview.classList.add("is-visible");
-            els.advancedWanClipFile?.closest(".wan-frame-upload")?.classList.add("has-image");
-          }
+          await uploadAdvancedMediaReference(file, "video");
         } else if (mime.startsWith("audio/")) {
           if (!allowedTypes.has("audio")) {
             skippedWrongType = true;
             continue;
           }
-          await uploadAdvancedWanAudioReference(file);
+          if (advancedSeedanceAudioReferences().length >= advancedAudioReferenceLimit(provider)) {
+            skippedTooMany = true;
+            continue;
+          }
+          await uploadAdvancedMediaReference(file, "audio");
         } else {
           skippedWrongType = true;
         }
@@ -260,6 +244,9 @@ els.advancedImage?.addEventListener("change", async () => {
       }
       if (skippedTooLarge && els.advancedNote) {
         els.advancedNote.textContent = t("advanced.referenceMediaTooMany", {}, "Some media files are too large.");
+      }
+      if (skippedTooMany && els.advancedNote) {
+        els.advancedNote.textContent = t("advanced.referenceMediaTooMany", {}, "Too many reference media files.");
       }
       if (skippedDurationMessage && els.advancedNote) {
         els.advancedNote.textContent = skippedDurationMessage;
