@@ -1666,6 +1666,12 @@ function normalizeAdvancedPricing(pricing = {}) {
     const normalized = pricingNumber(value, fallback, 0, digits);
     return pricingNumber(normalized * legacyPricingScale, fallback, 0, digits);
   };
+  const normalizeSeedance25Credits = (value, fallback) => {
+    const numeric = Number(value);
+    const legacyRoundedDefault = pricingNumber(fallback, fallback);
+    const migratedValue = Number.isFinite(numeric) && numeric === legacyRoundedDefault ? fallback : value;
+    return normalizeStoredCredits(migratedValue, fallback, 6);
+  };
   const imageResolutionValues = Array.isArray(wan27ImageSource.resolutions) && wan27ImageSource.resolutions.length
     ? wan27ImageSource.resolutions
     : (Array.isArray(wan27ImageDefault.resolutions) ? wan27ImageDefault.resolutions : ["1K", "2K"]);
@@ -1752,8 +1758,8 @@ function normalizeAdvancedPricing(pricing = {}) {
     internalCnyPerUsd: INTERNAL_CNY_PER_USD,
     usdBillingConfigured: true,
     seedance25CreditsPerSecondByResolution: {
-      "480p": normalizeStoredCredits(seedance25["480p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["480p"], 6),
-      "720p": normalizeStoredCredits(seedance25["720p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["720p"], 6),
+      "480p": normalizeSeedance25Credits(seedance25["480p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["480p"]),
+      "720p": normalizeSeedance25Credits(seedance25["720p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["720p"]),
     },
     seedanceCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedance["480p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]),
@@ -29102,7 +29108,7 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     if (!Number.isFinite(rawCredits) || rawCredits < 0) {
       throw pricingPayloadError(`Invalid sale price for ${key}`);
     }
-    const credits = pricingNumber(rawCredits, 0);
+    const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") ? 6 : 4);
     if (key === "wan27-720p") next.wan27CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "wan27-1080p") next.wan27CreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance25-480p") next.seedance25CreditsPerSecondByResolution["480p"] = credits;
