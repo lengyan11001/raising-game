@@ -19,6 +19,7 @@ DEFAULT_NEW2_ROOT = Path(r"D:\raising-game-667zui")
 
 SHARED_APP_FILES = (
     ".gitignore",
+    ".env.example",
     "package.json",
     "package-lock.json",
     "index.html",

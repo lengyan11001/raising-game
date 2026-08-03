@@ -4,6 +4,15 @@ const VIDEO_SYNTHESIS_PATH = "/api/v1/services/aigc/video-generation/video-synth
 const ANIMATE_SYNTHESIS_PATH = "/api/v1/services/aigc/image2video/video-synthesis";
 
 const CAPABILITIES = Object.freeze({
+  "wan30-video": Object.freeze({
+    provider: "wan30",
+    model: "wan3.0-video",
+    endpoint: VIDEO_SYNTHESIS_PATH,
+    mediaKind: "wan30",
+    duration: [2, 30],
+    resolutions: ["480P", "720P", "1080P"],
+    billing: "free",
+  }),
   "wan27-t2v": Object.freeze({
     provider: "wan27",
     model: "wan2.7-t2v-2026-06-12",
@@ -106,6 +115,11 @@ const CAPABILITIES = Object.freeze({
 });
 
 const CAPABILITY_ALIASES = Object.freeze({
+  "wan30": "wan30-video",
+  "wan3": "wan30-video",
+  "wan3-video": "wan30-video",
+  "wan3.0": "wan30-video",
+  "wan3.0-video": "wan30-video",
   "wan-t2v": "wan27-t2v",
   "wan-text-to-video": "wan27-t2v",
   "text-to-video": "wan27-t2v",
@@ -227,6 +241,7 @@ function normalizeKey(value = "") {
 
 function normalizeProvider(value = "") {
   const normalized = normalizeKey(value);
+  if (["wan30", "wan3", "wan3.0"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
   if (normalized.includes("happyhorse") || normalized === "horse") return "happyhorse";
   return "wan27";
 }
@@ -245,6 +260,7 @@ function normalizeCapability(value = "", { provider = "wan27", model = "", media
   const normalized = normalizeKey(value);
   if (CAPABILITIES[normalized]) return normalized;
   if (CAPABILITY_ALIASES[normalized]) return CAPABILITY_ALIASES[normalized];
+  if (normalizeProvider(provider) === "wan30") return "wan30-video";
   if (normalizeProvider(provider) === "happyhorse") {
     const hasVideo = media.some((item) => item?.type === "video" || item?.type === "reference_video");
     const hasImage = media.some((item) => item?.type === "first_frame" || item?.type === "reference_image");
@@ -296,6 +312,25 @@ function assertCount(media, type, min, max, capability) {
 }
 
 function validateMedia(definition, media, parameters, capability) {
+  if (definition.mediaKind === "wan30") {
+    const referenceTypes = new Set(["reference_image", "reference_video", "reference_audio"]);
+    const frameTypes = new Set(["first_frame", "last_frame"]);
+    assertMediaTypes(media, new Set([...referenceTypes, ...frameTypes]), capability);
+    const hasReferences = media.some((item) => referenceTypes.has(item.type));
+    const hasFrames = media.some((item) => frameTypes.has(item.type));
+    if (hasReferences && hasFrames) {
+      throw requestError("INVALID_MEDIA_COMBINATION", `${capability} cannot mix reference media with first/last frames.`);
+    }
+    assertCount(media, "reference_image", 0, 10, capability);
+    assertCount(media, "reference_video", 0, 5, capability);
+    assertCount(media, "reference_audio", 0, 5, capability);
+    assertCount(media, "first_frame", hasFrames ? 1 : 0, 1, capability);
+    assertCount(media, "last_frame", 0, 1, capability);
+    if (media.some((item) => item.type === "last_frame") && media[0]?.type !== "first_frame") {
+      throw requestError("INVALID_MEDIA_COMBINATION", `${capability} requires first_frame before last_frame.`);
+    }
+    return;
+  }
   if (definition.mediaKind === "none") {
     if (media.length) throw requestError("MEDIA_NOT_SUPPORTED", `${capability} does not accept media inputs.`);
     return;
@@ -386,7 +421,12 @@ function buildAliyunVideoRequest(options = {}) {
 
   const sourceParameters = options.parameters && typeof options.parameters === "object" ? options.parameters : {};
   const prompt = String(options.prompt || "").trim();
-  if (!prompt) throw requestError("PROMPT_REQUIRED", "prompt is required.");
+  if (!prompt && !(definition.mediaKind === "wan30" && media.length)) {
+    throw requestError("PROMPT_OR_MEDIA_REQUIRED", definition.mediaKind === "wan30" ? "prompt or media is required." : "prompt is required.");
+  }
+  if (definition.mediaKind === "wan30" && prompt.length > 5000) {
+    throw requestError("PROMPT_TOO_LONG", "Wan 3.0 prompt must be 5000 characters or fewer.", { length: prompt.length, max: 5000 });
+  }
 
   if (definition.mediaKind === "animate") {
     validateMedia(definition, media, sourceParameters, capability);
@@ -408,16 +448,53 @@ function buildAliyunVideoRequest(options = {}) {
     };
   }
 
-  const resolution = normalizeResolution(sourceParameters.resolution || options.resolution);
+  const resolution = normalizeResolution(sourceParameters.resolution || options.resolution || (definition.mediaKind === "wan30" ? "1080P" : "720P"));
   if (!definition.resolutions.includes(resolution)) {
     throw requestError("INVALID_RESOLUTION", `${capability} supports ${definition.resolutions.join(", ")}.`, { resolution });
   }
-  const duration = boundedInteger(
-    sourceParameters.duration ?? options.duration,
-    definition.duration[0] === 0 ? 0 : Math.max(5, definition.duration[0]),
-    definition.duration[0],
-    definition.duration[1],
-  );
+  const rawDuration = sourceParameters.duration ?? options.duration;
+  const duration = definition.mediaKind === "wan30" && Number(rawDuration) === -1
+    ? -1
+    : boundedInteger(
+        rawDuration,
+        definition.duration[0] === 0 ? 0 : Math.max(5, definition.duration[0]),
+        definition.duration[0],
+        definition.duration[1],
+      );
+  if (definition.mediaKind === "wan30") {
+    const allowedRatios = new Set(["16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]);
+    const ratio = String(sourceParameters.ratio || options.ratio || "adaptive").trim().toLowerCase();
+    if (!allowedRatios.has(ratio)) {
+      throw requestError("INVALID_RATIO", `wan30-video supports ${[...allowedRatios].join(", ")}.`, { ratio });
+    }
+    const seedValue = sourceParameters.seed;
+    let seed;
+    if (seedValue !== undefined && seedValue !== "") {
+      seed = boundedInteger(seedValue, 0, 0, 2147483647, "seed");
+    }
+    validateMedia(definition, media, { duration }, capability);
+    return {
+      capability,
+      definition,
+      endpoint: definition.endpoint,
+      payload: {
+        model,
+        input: {
+          ...(prompt ? { prompt } : {}),
+          ...(media.length ? { media } : {}),
+        },
+        parameters: {
+          resolution,
+          ratio,
+          duration,
+          audio: sourceParameters.audio === undefined ? true : Boolean(sourceParameters.audio),
+          enable_thinking: false,
+          watermark: sourceParameters.watermark === undefined ? false : Boolean(sourceParameters.watermark),
+          ...(seed === undefined ? {} : { seed }),
+        },
+      },
+    };
+  }
   const parameters = {
     resolution,
     duration,

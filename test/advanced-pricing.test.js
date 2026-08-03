@@ -38,3 +38,14 @@ test("runtime billing uses family prices for Wan2.7 and HappyHorse", () => {
   assert.match(pricingSource, /capability\.startsWith\("happyhorse-"\)[\s\S]*happyhorseCreditsPerSecondByResolution/);
   assert.match(pricingSource, /capability\.startsWith\("wan27-"\)[\s\S]*wan27CreditsPerSecondByResolution/);
 });
+
+test("Wan3.0 invitation access is explicitly free and never uses fallback pricing", () => {
+  const pricingSource = server.slice(
+    server.indexOf("function advancedModelPricing("),
+    server.indexOf("function seedream5ImagePricingEstimate("),
+  );
+  assert.match(pricingSource, /normalizedProvider === "wan30"/);
+  assert.match(pricingSource, /billing: "free"/);
+  assert.match(pricingSource, /credits: 0/);
+  assert.match(pricingSource, /source: "wan30_invitation_free"/);
+});

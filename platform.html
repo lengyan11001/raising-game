@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-335-upstream-history" />
+    <link rel="stylesheet" href="./platform.css?v=ai-338-wan30-adaptive" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -260,7 +260,7 @@
             <div class="wan-media-panel advanced-seedance-option" id="advancedSeedanceMediaPanel" hidden>
               <div class="wan-media-panel-head">
                 <div>
-                  <p class="wan-media-kicker">Seedance 2.0</p>
+                  <p class="wan-media-kicker" id="advancedFrameEngineLabel">Seedance 2.0</p>
                   <h3>Frame input</h3>
                 </div>
               </div>
@@ -325,6 +325,7 @@
             <div class="advanced-fields">
               <label class="field advanced-provider-field"><span data-i18n="field.model">Engine</span><select id="advancedProvider">
                 <optgroup label="Video">
+                  <option value="wan30">Wan 3.0</option>
                   <option value="wan27" selected>Wan 2.7</option>
                   <option value="wan-animate">Wan Animate</option>
                   <option value="happyhorse">HappyHorse</option>
@@ -346,7 +347,7 @@
               <select id="advancedSeedreamTier" hidden aria-hidden="true"><option value="pro" selected>Pro</option></select>
               <label class="field advanced-setting-field"><span data-i18n="field.ratio">Ratio</span><select id="advancedRatio"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select></label>
               <label class="field advanced-setting-field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
-              <label class="field advanced-duration-field"><span data-i18n="field.duration">Duration</span><input id="advancedDuration" type="number" min="5" max="15" value="5" /></label>
+              <label class="field advanced-duration-field"><span data-i18n="field.duration">Duration</span><select id="advancedDuration"><option value="5" selected>5s</option></select></label>
               <label class="field advanced-setting-field advanced-seedance-audio-field" hidden><span data-i18n="advanced.seedanceGenerateAudio">Audio</span><select id="advancedSeedanceGenerateAudio"><option value="true" selected>On</option><option value="false">Off</option></select></label>
               <input id="advancedPreprocessReference" type="hidden" value="no" />
               <label class="field advanced-wan-option advanced-seed-field" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="0" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
@@ -889,6 +890,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-335-upstream-history"></script>
+    <script src="./platform.js?v=ai-338-wan30-adaptive"></script>
   </body>
 </html>

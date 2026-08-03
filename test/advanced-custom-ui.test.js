@@ -19,6 +19,7 @@ function elementMarkup(id) {
 test("Advanced engine list contains English model families, not task modes", () => {
   const engine = elementMarkup("advancedProvider");
   assert.doesNotMatch(engine, /[\u3400-\u9fff]/);
+  assert.match(engine, /value="wan30">Wan 3\.0/);
   assert.match(engine, /value="wan27" selected>Wan 2\.7/);
   assert.doesNotMatch(engine, /value="wan-legacy"/);
   assert.match(engine, /value="wan-animate">Wan Animate/);
@@ -34,6 +35,7 @@ test("Seedance keeps only the two product modes", () => {
 });
 
 test("Wan and HappyHorse task modes live in the parameter capability map", () => {
+  assert.match(ui, /wan30:[\s\S]*?value: "wan30-video"/);
   assert.match(ui, /wan27:[\s\S]*?value: "wan27-i2v"[\s\S]*?value: "wan27-video-edit"/);
   assert.match(ui, /happyhorse:[\s\S]*?value: "happyhorse-i2v", label: "First Frame"[\s\S]*?value: "happyhorse-video-edit"/);
   assert.match(ui, /label\.textContent = "Mode"/);
@@ -43,7 +45,7 @@ test("Wan and HappyHorse task modes live in the parameter capability map", () =>
 test("only explicit frame modes use dedicated upload controls", () => {
   assert.match(html, /id="advancedWanFirstFrame" type="file" accept="image\/\*"/);
   assert.match(main, /advancedWanFirstFrame\?\.addEventListener\("change"/);
-  assert.match(create, /usesDedicatedFrameUpload = provider === "seedance" && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.match(create, /usesDedicatedFrameUpload = \["seedance", "wan30"\]\.includes\(provider\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
   assert.doesNotMatch(create, /usesDedicatedAliyunUpload/);
 });
 
@@ -53,6 +55,18 @@ test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", ()
   assert.match(create, /"wan-animate-mix"/);
   assert.match(create, /usesSharedReferenceUpload \|\| !hasDedicatedWanPanelSlot/);
   assert.match(create, /aliyunTargetTypes\.size > 1/);
+  assert.match(create, /"wan30-video"/);
+  assert.match(main, /provider === "seedance" \|\| provider === "wan30"/);
+});
+
+test("Wan3.0 exposes free multimodal and frame controls without link fields", () => {
+  assert.match(create, /provider === "wan30" \? \["480p", "720p", "1080p"\]/);
+  assert.match(create, /provider === "wan30" \? \["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"\]/);
+  assert.match(create, /els\.advancedRatio\.value \|\| \(provider === "wan30" \? "adaptive" : "9:16"\)/);
+  assert.match(create, /provider === "wan30" && rawRatio === "adaptive" \? "adaptive"/);
+  assert.match(create, /\? \[-1, \.\.\.Array\.from\(\{ length: 29 \}/);
+  assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
+  assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
 });
 
 test("Wan2.7 video edit follows source duration instead of exposing a manual duration", () => {

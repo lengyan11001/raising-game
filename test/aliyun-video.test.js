@@ -15,6 +15,67 @@ const {
 const image = (url = "https://example.com/person.png") => ({ type: "reference_image", url });
 const video = (url = "https://example.com/action.mp4") => ({ type: "reference_video", url });
 
+test("builds Wan3.0 multimodal requests for the mainland endpoint contract", () => {
+  const request = buildAliyunVideoRequest({
+    provider: "wan30",
+    capability: "wan30-video",
+    prompt: "Image 1 follows Video 1 and Audio 1",
+    media: [
+      image(),
+      video(),
+      { type: "reference_audio", url: "https://example.com/voice.mp3" },
+    ],
+    duration: -1,
+    resolution: "1080p",
+    ratio: "adaptive",
+    parameters: { audio: false, enable_thinking: true, watermark: false, prompt_extend: true },
+  });
+  assert.equal(request.endpoint, VIDEO_SYNTHESIS_PATH);
+  assert.equal(request.payload.model, "wan3.0-video");
+  assert.deepEqual(request.payload.input.media.map((item) => item.type), ["reference_image", "reference_video", "reference_audio"]);
+  assert.deepEqual(request.payload.parameters, {
+    resolution: "1080P",
+    ratio: "adaptive",
+    duration: -1,
+    audio: false,
+    enable_thinking: false,
+    watermark: false,
+  });
+});
+
+test("builds Wan3.0 strict first and last frames", () => {
+  const request = buildAliyunVideoRequest({
+    capability: "wan30-video",
+    media: [
+      { type: "first_frame", url: "https://example.com/first.png" },
+      { type: "last_frame", url: "https://example.com/last.png" },
+    ],
+    duration: 30,
+    resolution: "480P",
+    parameters: { seed: 2147483647 },
+  });
+  assert.equal(request.payload.input.prompt, undefined);
+  assert.equal(request.payload.parameters.ratio, "adaptive");
+  assert.equal(request.payload.parameters.seed, 2147483647);
+});
+
+test("rejects invalid Wan3.0 combinations and limits", () => {
+  assert.throws(() => buildAliyunVideoRequest({
+    capability: "wan30-video",
+    prompt: "Create",
+    media: [image(), { type: "first_frame", url: "https://example.com/first.png" }],
+    duration: 5,
+  }), /cannot mix reference media/);
+  assert.throws(() => buildAliyunVideoRequest({
+    capability: "wan30-video",
+    prompt: "Create",
+    media: Array.from({ length: 11 }, (_, index) => image(`https://example.com/${index}.png`)),
+    duration: 5,
+  }), /0-10 reference_image/);
+  assert.throws(() => buildAliyunVideoRequest({ capability: "wan30-video", prompt: "Create", duration: 1 }), /between 2 and 30/);
+  assert.throws(() => buildAliyunVideoRequest({ capability: "wan30-video", prompt: "Create", duration: 5, ratio: "2:1" }), /supports 16:9/);
+});
+
 test("builds Wan2.7 text-to-video", () => {
   const request = buildAliyunVideoRequest({
     capability: "wan27-t2v",

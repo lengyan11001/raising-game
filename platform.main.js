@@ -95,8 +95,9 @@ els.advancedImage?.addEventListener("change", async () => {
     }
     return;
   }
-  if (provider === "seedance") {
-    const localCharacterUpload = state.advancedLocalUploadSlot === "character" && state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference();
+  if (provider === "seedance" || provider === "wan30") {
+    const localCharacterUpload = provider === "seedance" && state.advancedLocalUploadSlot === "character" && state.advancedCreateKind !== "custom" && advancedCreateModeUsesCharacterPresetReference();
+    const imageLimit = provider === "wan30" ? ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
     try {
       let skippedWrongType = false;
       let skippedTooLarge = false;
@@ -109,7 +110,7 @@ els.advancedImage?.addEventListener("change", async () => {
             continue;
           }
           const existingImages = localCharacterUpload ? [] : (Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []);
-          if (!localCharacterUpload && existingImages.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+          if (!localCharacterUpload && existingImages.length >= imageLimit) {
             skippedTooMany = true;
             continue;
           }
@@ -126,7 +127,7 @@ els.advancedImage?.addEventListener("change", async () => {
             removeAdvancedPendingReference(pending.pendingId, { render: false });
           }
           ref = stampAdvancedReferenceOrder(ref);
-          state.advancedReferenceImages = localCharacterUpload ? [ref] : dedupeAdvancedReferenceImages([...existingImages, ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+          state.advancedReferenceImages = localCharacterUpload ? [ref] : dedupeAdvancedReferenceImages([...existingImages, ref]).slice(0, imageLimit);
           if (localCharacterUpload) setAdvancedLocalCharacterPreset(ref);
           state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
           state.advancedSourceImageAssetId = "";
@@ -136,13 +137,13 @@ els.advancedImage?.addEventListener("change", async () => {
           }
           if (localCharacterUpload) break;
         } else if (!localCharacterUpload && mime.startsWith("video/")) {
-          if (advancedSeedanceVideoReferences().length >= ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
+          if (advancedSeedanceVideoReferences().length >= advancedVideoReferenceLimit(provider)) {
             skippedTooMany = true;
             continue;
           }
           await uploadAdvancedMediaReference(file, "video");
         } else if (!localCharacterUpload && mime.startsWith("audio/")) {
-          if (advancedSeedanceAudioReferences().length >= ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
+          if (advancedSeedanceAudioReferences().length >= advancedAudioReferenceLimit(provider)) {
             skippedTooMany = true;
             continue;
           }
@@ -690,6 +691,13 @@ els.advancedDuration?.addEventListener("input", () => {
 });
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
+  if (currentAdvancedProvider() === "wan30") {
+    if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
+    if (els.advancedRatio) els.advancedRatio.value = "adaptive";
+    if (els.advancedResolution) els.advancedResolution.value = "1080p";
+    if (els.advancedDuration) els.advancedDuration.value = "5";
+    if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = "true";
+  }
   syncAdvancedVideoCapabilityOptions();
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
@@ -743,10 +751,10 @@ els.advancedUploadBox?.addEventListener("click", () => {
   if (!advancedCreateModeAllowsManualReferenceUpload()) return;
   const provider = currentAdvancedProvider();
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "");
-  const aliyunSharedTarget = ["wan27", "happyhorse"].includes(provider)
+  const aliyunSharedTarget = ["wan30", "wan27", "happyhorse"].includes(provider)
     ? (advancedAssetTargetItems().find((target) => target.type === "image")?.id || advancedAssetTargetItems()[0]?.id || "primary")
     : "";
-  setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : provider === "seedream5-image" ? "referenceImages" : provider === "seedance" && !seedanceModeNeedsFirstFrame(seedanceMode) ? "referenceImages" : aliyunSharedTarget || (advancedCreateUploadIsVideo() ? "video" : "primary"));
+  setAdvancedAssetTarget(provider === "wan27-image-edit" ? "sourceImages" : provider === "seedream5-image" ? "referenceImages" : ["seedance", "wan30"].includes(provider) && !seedanceModeNeedsFirstFrame(seedanceMode) ? "referenceImages" : aliyunSharedTarget || (advancedCreateUploadIsVideo() ? "video" : "primary"));
 });
 document.querySelectorAll("[data-remove-advanced-slot]").forEach((button) => {
   button.addEventListener("click", (event) => {
