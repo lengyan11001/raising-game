@@ -62,6 +62,7 @@ test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", ()
 test("Wan3.0 exposes free multimodal and frame controls without link fields", () => {
   assert.match(create, /provider === "wan30" \? \["480p", "720p", "1080p"\]/);
   assert.match(create, /provider === "wan30" \? \["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"\]/);
+  assert.match(create, /els\.advancedRatio\.value \|\| \(provider === "wan30" \? "adaptive" : "9:16"\)/);
   assert.match(create, /provider === "wan30" && rawRatio === "adaptive" \? "adaptive"/);
   assert.match(create, /\? \[-1, \.\.\.Array\.from\(\{ length: 29 \}/);
   assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
