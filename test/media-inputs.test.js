@@ -6,6 +6,7 @@ const path = require("node:path");
 const test = require("node:test");
 const {
   minimumImageTargetDimensions,
+  pngBufferHasTransparency,
   referenceVideoDurationViolation,
 } = require("../media-inputs");
 
@@ -27,6 +28,27 @@ test("small reference images are enlarged proportionally to the upstream minimum
     changed: false,
     scale: 1,
   });
+});
+
+test("PNG alpha channels and transparency chunks are detected without false positives", () => {
+  const pngHeader = Buffer.alloc(33);
+  pngHeader[0] = 0x89;
+  pngHeader.write("PNG", 1, "ascii");
+  pngHeader.writeUInt32BE(13, 8);
+  pngHeader.write("IHDR", 12, "ascii");
+  pngHeader[25] = 6;
+  assert.equal(pngBufferHasTransparency(pngHeader), true);
+
+  pngHeader[25] = 2;
+  pngHeader.writeUInt32BE(0, 8);
+  pngHeader.write("IDAT", 12, "ascii");
+  assert.equal(pngBufferHasTransparency(pngHeader), false);
+
+  const transparentPalettePng = Buffer.alloc(45);
+  pngHeader.copy(transparentPalettePng, 0, 0, 33);
+  transparentPalettePng.writeUInt32BE(1, 8);
+  transparentPalettePng.write("tRNS", 12, "ascii");
+  assert.equal(pngBufferHasTransparency(transparentPalettePng), true);
 });
 
 test("every Seedance reference video is checked against the asset duration bounds", () => {
@@ -52,6 +74,10 @@ test("server applies media checks before upstream generation and mirrors tool up
   assert.match(server, /const objectStorage = await uploadLocalAssetMirrorToObjectStorage\(\{ localUrl, bytes: mirrorBytes, mime \}\)/);
   assert.match(server, /objectStorageKey: objectStorage\.key \|\| ""/);
   assert.match(server, /userAsset = await normalizeUserImageAssetForUpstream/);
+  assert.match(server, /flattenedTransparency: true/);
+  assert.match(server, /format=rgb24/);
+  assert.match(server, /imageMinDimension: wan30 \? 240/);
+  assert.match(server, /asset_version=\$\{Date\.now\(\)\}/);
 });
 
 test("admin reference previews fall back from upstream asset URIs to playable video URLs", () => {
