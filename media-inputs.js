@@ -8,6 +8,23 @@ function finitePositiveNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
+function pngBufferHasTransparency(bytes) {
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
+  if (buffer.length < 33 || buffer[0] !== 0x89 || buffer.toString("ascii", 1, 4) !== "PNG") return false;
+  const colorType = buffer[25];
+  if (colorType === 4 || colorType === 6) return true;
+
+  let offset = 8;
+  while (offset + 12 <= buffer.length) {
+    const chunkLength = buffer.readUInt32BE(offset);
+    const chunkType = buffer.toString("ascii", offset + 4, offset + 8);
+    if (chunkType === "tRNS") return true;
+    if (chunkType === "IDAT" || chunkType === "IEND") return false;
+    offset += chunkLength + 12;
+  }
+  return false;
+}
+
 function minimumImageTargetDimensions(width, height, { minDimension = 300, maxDimension = 6000 } = {}) {
   const sourceWidth = finitePositiveNumber(width);
   const sourceHeight = finitePositiveNumber(height);
@@ -59,5 +76,6 @@ module.exports = {
   SEEDANCE_REFERENCE_VIDEO_MIN_SECONDS,
   SEEDANCE_REFERENCE_VIDEO_MAX_SECONDS,
   minimumImageTargetDimensions,
+  pngBufferHasTransparency,
   referenceVideoDurationViolation,
 };

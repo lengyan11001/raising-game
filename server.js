@@ -27,6 +27,7 @@ const {
   SEEDANCE_REFERENCE_VIDEO_MIN_SECONDS,
   SEEDANCE_REFERENCE_VIDEO_MAX_SECONDS,
   minimumImageTargetDimensions,
+  pngBufferHasTransparency,
   referenceVideoDurationViolation,
 } = require("./media-inputs");
 const {
@@ -8430,6 +8431,7 @@ async function normalizeLocalImageMinimumDimensions(sourcePath = "", {
   label = "Reference image",
   minDimension = SEEDANCE_IMAGE_DIMENSION_MIN,
   maxDimension = SEEDANCE_IMAGE_DIMENSION_MAX,
+  flattenTransparency = true,
 } = {}) {
   const initialBytes = await fs.readFile(sourcePath);
   const initialDimensions = imageDimensionsFromBuffer(initialBytes);
@@ -8447,32 +8449,56 @@ async function normalizeLocalImageMinimumDimensions(sourcePath = "", {
       { width: initialDimensions.width, height: initialDimensions.height, minDimension, maxDimension },
     );
   }
-  if (!target.changed) {
-    return { bytes: initialBytes, dimensions: initialDimensions, changed: false };
+  const transparencyFlattened = Boolean(
+    flattenTransparency
+    && initialDimensions.type === "png"
+    && pngBufferHasTransparency(initialBytes),
+  );
+  if (!target.changed && !transparencyFlattened) {
+    return { bytes: initialBytes, dimensions: initialDimensions, changed: false, transparencyFlattened: false };
   }
 
   const tempPath = normalizedImageTempPath(sourcePath);
   try {
-    await execFileQuiet("ffmpeg", [
-      "-y",
-      "-i",
-      sourcePath,
-      "-vf",
-      `scale=${target.width}:${target.height}:flags=lanczos`,
-      "-frames:v",
-      "1",
-      tempPath,
-    ], { timeout: 120000 });
+    const ffmpegArgs = transparencyFlattened
+      ? [
+          "-y",
+          "-f",
+          "lavfi",
+          "-i",
+          `color=c=white:s=${initialDimensions.width}x${initialDimensions.height}`,
+          "-i",
+          sourcePath,
+          "-filter_complex",
+          `[0:v][1:v]overlay=shortest=1:format=auto,scale=${target.width}:${target.height}:flags=lanczos,format=rgb24`,
+          "-frames:v",
+          "1",
+          tempPath,
+        ]
+      : [
+          "-y",
+          "-i",
+          sourcePath,
+          "-vf",
+          `scale=${target.width}:${target.height}:flags=lanczos`,
+          "-frames:v",
+          "1",
+          tempPath,
+        ];
+    await execFileQuiet("ffmpeg", ffmpegArgs, { timeout: 120000 });
     const bytes = await fs.readFile(tempPath);
     const dimensions = imageDimensionsFromBuffer(bytes);
     if (!dimensions?.width || !dimensions?.height || dimensions.width < minDimension || dimensions.height < minDimension) {
       throw advancedValidationError("IMAGE_NORMALIZE_FAILED", `${label} could not be normalized to the upstream minimum dimensions.`);
     }
+    if (transparencyFlattened && pngBufferHasTransparency(bytes)) {
+      throw advancedValidationError("IMAGE_TRANSPARENCY_NORMALIZE_FAILED", `${label} transparency could not be removed for upstream generation.`);
+    }
     await fs.rename(tempPath, sourcePath);
-    return { bytes, dimensions, changed: true };
+    return { bytes, dimensions, changed: true, transparencyFlattened };
   } catch (error) {
     await fs.rm(tempPath, { force: true }).catch(() => {});
-    if (error?.code === "IMAGE_NORMALIZE_FAILED") throw error;
+    if (["IMAGE_NORMALIZE_FAILED", "IMAGE_TRANSPARENCY_NORMALIZE_FAILED"].includes(error?.code)) throw error;
     const wrapped = advancedValidationError("IMAGE_NORMALIZE_FAILED", `${label} could not be normalized for upstream generation.`);
     wrapped.cause = error;
     throw wrapped;
@@ -8483,13 +8509,19 @@ async function normalizeUserImageAssetForUpstream(db, userAsset, {
   label = "Reference image",
   minDimension = SEEDANCE_IMAGE_DIMENSION_MIN,
   maxDimension = SEEDANCE_IMAGE_DIMENSION_MAX,
+  flattenTransparency = true,
 } = {}) {
   if (!userAsset || !String(userAsset.mime || "").toLowerCase().startsWith("image/")) return userAsset;
   const localPath = localPathForUserAsset(userAsset);
   if (!localPath) return userAsset;
 
   const storedDimensions = storedImageDimensionsForAsset(userAsset);
-  const normalized = await normalizeLocalImageMinimumDimensions(localPath, { label, minDimension, maxDimension });
+  const normalized = await normalizeLocalImageMinimumDimensions(localPath, {
+    label,
+    minDimension,
+    maxDimension,
+    flattenTransparency,
+  });
   const dimensionsChanged = normalized.changed
     || Number(storedDimensions?.width || 0) !== Number(normalized.dimensions.width || 0)
     || Number(storedDimensions?.height || 0) !== Number(normalized.dimensions.height || 0);
@@ -8510,6 +8542,7 @@ async function normalizeUserImageAssetForUpstream(db, userAsset, {
   userAsset.width = normalized.dimensions.width;
   userAsset.height = normalized.dimensions.height;
   userAsset.imageType = normalized.dimensions.type || userAsset.imageType || "";
+  userAsset.sizeBytes = normalized.bytes.byteLength;
   if (dimensionsChanged) {
     userAsset.assetId = "";
     userAsset.assetUri = "";
@@ -8523,7 +8556,10 @@ async function normalizeUserImageAssetForUpstream(db, userAsset, {
     userAsset.objectStorageError = "";
     userAsset.publicUploadedAt = new Date().toISOString();
   } else if (!objectStorageEnabled()) {
-    userAsset.publicUrl = publicUrlForAssetPath(userAsset.localUrl) || userAsset.publicUrl || "";
+    const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
+    userAsset.publicUrl = normalized.changed && localPublicUrl
+      ? `${localPublicUrl}${localPublicUrl.includes("?") ? "&" : "?"}asset_version=${Date.now()}`
+      : localPublicUrl || userAsset.publicUrl || "";
   }
   if (normalized.changed) {
     userAsset.meta = {
@@ -8531,6 +8567,7 @@ async function normalizeUserImageAssetForUpstream(db, userAsset, {
       normalizedForUpstream: true,
       normalizedWidth: normalized.dimensions.width,
       normalizedHeight: normalized.dimensions.height,
+      ...(normalized.transparencyFlattened ? { flattenedTransparency: true } : {}),
     };
   }
   userAsset.updatedAt = new Date().toISOString();
@@ -13002,7 +13039,12 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
   }
   if (asset) {
     validateWan27MediaKind(asset, input.mediaKind, label);
-    asset = await ensurePublicUrlForUserMediaAsset(db, asset, { normalizeImage: normalizeAdvancedProvider(input.provider || "") !== "wan30" });
+    const wan30 = normalizeAdvancedProvider(input.provider || "") === "wan30";
+    asset = await ensurePublicUrlForUserMediaAsset(db, asset, {
+      normalizeImage: true,
+      imageMinDimension: wan30 ? 240 : SEEDANCE_IMAGE_DIMENSION_MIN,
+      imageMaxDimension: wan30 ? 8000 : SEEDANCE_IMAGE_DIMENSION_MAX,
+    });
     url = publicUrlForLocalAsset(asset);
   }
   if (!url || !isPublicHttpUrl(url)) {
@@ -13026,14 +13068,6 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
   };
   if (input.referenceVoice) resolved.referenceVoice = input.referenceVoice;
   return resolved;
-}
-
-function pngBufferHasTransparency(bytes) {
-  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
-  if (buffer.length < 33 || buffer[0] !== 0x89 || buffer.toString("ascii", 1, 4) !== "PNG") return false;
-  const colorType = buffer[25];
-  if (colorType === 4 || colorType === 6) return true;
-  return buffer.includes(Buffer.from("tRNS", "ascii"));
 }
 
 async function localBytesForResolvedMedia(item = {}) {
@@ -13188,9 +13222,17 @@ function publicUrlForLocalAsset(asset = {}) {
   return publicUrlForAssetPath(asset.localUrl);
 }
 
-async function ensurePublicUrlForUserMediaAsset(db, userAsset, { normalizeImage = true } = {}) {
+async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
+  normalizeImage = true,
+  imageMinDimension = SEEDANCE_IMAGE_DIMENSION_MIN,
+  imageMaxDimension = SEEDANCE_IMAGE_DIMENSION_MAX,
+} = {}) {
   if (normalizeImage && String(userAsset.mime || "").toLowerCase().startsWith("image/")) {
-    userAsset = await normalizeUserImageAssetForUpstream(db, userAsset, { label: "Upstream reference image" });
+    userAsset = await normalizeUserImageAssetForUpstream(db, userAsset, {
+      label: "Upstream reference image",
+      minDimension: imageMinDimension,
+      maxDimension: imageMaxDimension,
+    });
   }
   const needsObjectMirror = objectStorageEnabled() && Boolean(userAsset.localUrl) && !userAssetHasObjectStorageMirror(userAsset);
   if (isPublicHttpUrl(userAsset.publicUrl) && !needsObjectMirror) return userAsset;
