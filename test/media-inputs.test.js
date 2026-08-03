@@ -8,6 +8,7 @@ const {
   minimumImageTargetDimensions,
   pngBufferHasTransparency,
   referenceVideoDurationViolation,
+  upstreamAssetOriginUrl,
 } = require("../media-inputs");
 
 const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8");
@@ -51,6 +52,18 @@ test("PNG alpha channels and transparency chunks are detected without false posi
   assert.equal(pngBufferHasTransparency(transparentPalettePng), true);
 });
 
+test("upstream asset URLs use the site origin and a stable content version", () => {
+  assert.equal(
+    upstreamAssetOriginUrl(
+      "https://123vips.com/",
+      "/assets/user-uploads/user-1/reference.png",
+      1785744000000,
+    ),
+    "https://123vips.com/assets/user-uploads/user-1/reference.png?upstream_asset=1785744000000",
+  );
+  assert.equal(upstreamAssetOriginUrl("https://123vips.com", "https://other.example/reference.png", 1), "");
+});
+
 test("every Seedance reference video is checked against the asset duration bounds", () => {
   assert.equal(referenceVideoDurationViolation([
     { label: "Video 1", durationSeconds: 8 },
@@ -78,6 +91,8 @@ test("server applies media checks before upstream generation and mirrors tool up
   assert.match(server, /format=rgb24/);
   assert.match(server, /imageMinDimension: wan30 \? 240/);
   assert.match(server, /asset_version=\$\{Date\.now\(\)\}/);
+  assert.match(server, /wan30 \? publicOriginUrlForUpstreamAsset\(asset\)/);
+  assert.match(server, /!url\.searchParams\.has\("upstream_asset"\)/);
 });
 
 test("admin reference previews fall back from upstream asset URIs to playable video URLs", () => {

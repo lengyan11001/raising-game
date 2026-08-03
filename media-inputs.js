@@ -25,6 +25,19 @@ function pngBufferHasTransparency(bytes) {
   return false;
 }
 
+function upstreamAssetOriginUrl(baseUrl = "", localUrl = "", version = "") {
+  const base = String(baseUrl || "").trim().replace(/\/+$/, "");
+  const local = String(localUrl || "").trim();
+  if (!base || !local.startsWith("/assets/")) return "";
+  try {
+    const url = new URL(local, `${base}/`);
+    url.searchParams.set("upstream_asset", String(version || "1"));
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
 function minimumImageTargetDimensions(width, height, { minDimension = 300, maxDimension = 6000 } = {}) {
   const sourceWidth = finitePositiveNumber(width);
   const sourceHeight = finitePositiveNumber(height);
@@ -78,4 +91,5 @@ module.exports = {
   minimumImageTargetDimensions,
   pngBufferHasTransparency,
   referenceVideoDurationViolation,
+  upstreamAssetOriginUrl,
 };
