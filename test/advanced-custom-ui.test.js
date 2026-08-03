@@ -96,6 +96,12 @@ test("custom Advanced prompts are forwarded without system negative text", () =>
   assert.match(server, /text: appendDefaultVideoNegativePrompt\(prompt, body\)/);
 });
 
+test("Seedance 2.5 server pricing preserves the six-decimal CNY conversion", () => {
+  assert.match(server, /const normalizeStoredCredits = \(value, fallback, digits = 4\)/);
+  assert.match(server, /seedance25\["480p"\][\s\S]*?seedance25CreditsPerSecondByResolution\["480p"\], 6\)/);
+  assert.match(server, /seedance25\["720p"\][\s\S]*?seedance25CreditsPerSecondByResolution\["720p"\], 6\)/);
+});
+
 test("shared video uploads use capability-specific duration limits", () => {
   assert.match(ui, /function advancedVideoInputDurationRule/);
   assert.match(ui, /"wan27-video-edit": \{ min: 1\.8, max: 10\.2, displayMin: 2, displayMax: 10 \}/);

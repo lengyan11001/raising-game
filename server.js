@@ -1662,9 +1662,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const creditsPerCny = hasLegacyCnyPricing
     ? ADVANCED_CREDITS_PER_CNY
     : pricingNumber(source.creditsPerCny, DEFAULT_ADVANCED_PRICING.creditsPerCny, 0.0001);
-  const normalizeStoredCredits = (value, fallback) => {
-    const normalized = pricingNumber(value, fallback);
-    return pricingNumber(normalized * legacyPricingScale, fallback);
+  const normalizeStoredCredits = (value, fallback, digits = 4) => {
+    const normalized = pricingNumber(value, fallback, 0, digits);
+    return pricingNumber(normalized * legacyPricingScale, fallback, 0, digits);
   };
   const imageResolutionValues = Array.isArray(wan27ImageSource.resolutions) && wan27ImageSource.resolutions.length
     ? wan27ImageSource.resolutions
@@ -1752,8 +1752,8 @@ function normalizeAdvancedPricing(pricing = {}) {
     internalCnyPerUsd: INTERNAL_CNY_PER_USD,
     usdBillingConfigured: true,
     seedance25CreditsPerSecondByResolution: {
-      "480p": normalizeStoredCredits(seedance25["480p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["480p"]),
-      "720p": normalizeStoredCredits(seedance25["720p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["720p"]),
+      "480p": normalizeStoredCredits(seedance25["480p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["480p"], 6),
+      "720p": normalizeStoredCredits(seedance25["720p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["720p"], 6),
     },
     seedanceCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedance["480p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]),
