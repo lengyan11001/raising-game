@@ -57,6 +57,8 @@ test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", ()
   assert.match(create, /"wan-animate-mix"/);
   assert.match(create, /usesSharedReferenceUpload \|\| !hasDedicatedWanPanelSlot/);
   assert.match(create, /aliyunVideo && advancedAliyunUsesSharedReferenceUpload\(capability\)/);
+  assert.match(create, /const sharedReferenceUpload = advancedUsesSharedReferenceUpload\(provider, capability\)/);
+  assert.match(create, /els\.advancedImage\.accept = sharedReferenceUpload \? sharedAccept : advancedCreateUploadAcceptValue\(\)/);
   assert.match(create, /"wan30-video"/);
   assert.match(main, /await uploadAdvancedMediaReference\(file, "video"\)/);
   assert.match(main, /await uploadAdvancedMediaReference\(file, "audio"\)/);

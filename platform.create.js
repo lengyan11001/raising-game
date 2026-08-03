@@ -1377,13 +1377,14 @@ function updateAdvancedModelControls() {
     const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
     const hidePresetUploadBox = !allowManualReferenceUpload;
     if (els.advancedImage) {
-      const aliyunTargetTypes = new Set(advancedAssetTargetItems().map((target) => target.type));
-      const aliyunAccept = [
-        aliyunTargetTypes.has("image") ? "image/*" : "",
-        aliyunTargetTypes.has("video") ? "video/mp4,video/webm,video/quicktime,video/*" : "",
-        aliyunTargetTypes.has("audio") ? "audio/*" : "",
+      const sharedReferenceUpload = advancedUsesSharedReferenceUpload(provider, capability);
+      const allowedTargetTypes = new Set(advancedAssetTargetItems().map((target) => target.type));
+      const sharedAccept = [
+        allowedTargetTypes.has("image") ? "image/*" : "",
+        allowedTargetTypes.has("video") ? "video/mp4,video/webm,video/quicktime,video/*" : "",
+        allowedTargetTypes.has("audio") ? "audio/*" : "",
       ].filter(Boolean).join(",");
-      els.advancedImage.accept = aliyunVideo ? aliyunAccept : advancedCreateUploadAcceptValue();
+      els.advancedImage.accept = sharedReferenceUpload ? sharedAccept : advancedCreateUploadAcceptValue();
       els.advancedImage.multiple = allowManualReferenceUpload && (
         (["seedance", "seedance25", "wan30"].includes(provider) && !seedanceModeNeedsFirstFrame(seedanceMode) && !(provider === "seedance25" && ["edit", "extend"].includes(seedanceMode)))
         || isSeedreamImage
