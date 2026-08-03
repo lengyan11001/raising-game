@@ -560,9 +560,11 @@ const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_M
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_REFERENCE_LIMIT || process.env.ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT, 9, 1, 9));
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT, 3, 1, 3));
 const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT, 3, 1, 3));
-const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 80, 1, 200) * 1024 * 1024);
+const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 140, 1, 200) * 1024 * 1024);
 const IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
 const MEDIA_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
+const WAN30_VIDEO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+const WAN30_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;
 const VIDEO_DURATION_PROBE_TIMEOUT_MS = Math.max(3000, Number(process.env.VIDEO_DURATION_PROBE_TIMEOUT_MS || 10000) || 10000);
 const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_DASHSCOPE_API_KEY =
@@ -570,6 +572,9 @@ const ALIYUN_DASHSCOPE_API_KEY =
   process.env.DASHSCOPE_API_KEY ||
   process.env.BAILIAN_API_KEY ||
   "";
+const ALIYUN_WAN30_BASE_URL = (process.env.ALIYUN_WAN30_BASE_URL || "https://dashscope.aliyuncs.com").replace(/\/+$/, "");
+const ALIYUN_WAN30_API_KEY = process.env.ALIYUN_WAN30_API_KEY || ALIYUN_DASHSCOPE_API_KEY;
+const ALIYUN_WAN30_MODEL = process.env.ALIYUN_WAN30_MODEL || "wan3.0-video";
 const ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER = process.env.ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ||
   '{"input":"disable", "output":"disable"}';
 const ALIYUN_WAN27_MODEL = process.env.ALIYUN_WAN27_MODEL || "wan2.7-i2v-2026-04-25";
@@ -5675,6 +5680,7 @@ function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
   if (isSeedream5ImageProvider(value)) return "seedream5-image";
+  if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return "happyhorse";
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "wan27";
   if (["seedance", "vipeak2", "vp2"].includes(normalized) || normalized.includes("vipeak2")) return "seedance";
@@ -5691,6 +5697,7 @@ function publicProviderId(value = "") {
   const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "";
   if (isSeedream5ImageProvider(raw)) return "seedream5-image";
+  if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return "happyhorse";
   if (isWan27ImageProvider(raw) || ["vipeak1image", "vp1image"].includes(normalized) || normalized.includes("wan27image") || normalized.includes("wan2.7image")) return "vipeak1-image";
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "vipeak1";
@@ -5701,6 +5708,7 @@ function publicProviderId(value = "") {
 function publicProviderLabel(value = "") {
   const id = publicProviderId(value);
   if (id === "seedream5-image") return "Seedream 5.0 Image";
+  if (id === "wan30") return "Wan 3.0";
   if (id === "happyhorse") return "HappyHorse";
   if (id === "vipeak1-image") return "Vipeak 1 Image";
   if (id === "vipeak1") return "Vipeak 1";
@@ -5927,6 +5935,7 @@ function normalizeAdvancedResolution(value = "") {
 }
 
 function normalizeVideoRatio(value = "") {
+  if (String(value || "").trim().toLowerCase() === "adaptive") return "adaptive";
   const normalized = String(value || "").trim().replace(/[：xX]/g, ":");
   if (/^\d+\s*:\s*\d+$/.test(normalized)) {
     const [width, height] = normalized.split(":").map((part) => Math.max(1, Number(part.trim()) || 1));
@@ -5966,6 +5975,7 @@ function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
   if (isSeedream5ImageProvider(value)) return true;
+  if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return true;
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return true;
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized)) return true;
   if (["seedance", "vipeak2", "vp2"].includes(normalized)) return true;
@@ -5975,7 +5985,7 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan27/vipeak1, happyhorse, seedance/vipeak2, or seedream5-image.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance/vipeak2, or seedream5-image.", { provider: value });
   }
 }
 
@@ -5983,6 +5993,7 @@ function assertAdvancedDurationInput(provider = "seedance", value) {
   if (value === undefined || value === null || value === "") return;
   const bounds = advancedDurationBounds(provider);
   const duration = Number(value);
+  if (normalizeAdvancedProvider(provider) === "wan30" && duration === -1) return;
   if (!Number.isFinite(duration) || !Number.isInteger(duration) || duration < bounds.min || duration > bounds.max) {
     throw advancedValidationError(
       "INVALID_DURATION",
@@ -5995,6 +6006,12 @@ function assertAdvancedDurationInput(provider = "seedance", value) {
 function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceTier = "standard" } = {}) {
   if (value === undefined || value === null || value === "") return;
   const raw = String(value || "").trim().toLowerCase();
+  if (normalizeAdvancedProvider(provider) === "wan30") {
+    if (!["480p", "720p", "1080p"].includes(raw)) {
+      throw advancedValidationError("INVALID_RESOLUTION", "Wan 3.0 resolution must be one of: 480P, 720P, 1080P.", { resolution: value, allowed: ["480P", "720P", "1080P"] });
+    }
+    return;
+  }
   if (normalizeAdvancedProvider(provider) === "seedream5-image") {
     if (!["1k", "2k"].includes(raw)) {
       throw advancedValidationError("INVALID_RESOLUTION", "Seedream 5.0 Image resolution must be one of: 1K, 2K.", { resolution: value, allowed: ["1K", "2K"] });
@@ -6014,8 +6031,9 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
   }
 }
 
-function assertAdvancedRatioInput(value) {
+function assertAdvancedRatioInput(value, provider = "seedance") {
   if (value === undefined || value === null || value === "") return;
+  if (normalizeAdvancedProvider(provider) === "wan30" && String(value || "").trim().toLowerCase() === "adaptive") return;
   const normalized = String(value || "").trim().replace(/[锛歺X]/g, ":");
   if (!/^\d+\s*:\s*\d+$/.test(normalized)) {
     throw advancedValidationError("INVALID_RATIO", "ratio must use width:height format, for example 9:16, 16:9, or 1:1.", { ratio: value });
@@ -6376,6 +6394,7 @@ function seedanceTokenPricing(options = {}) {
 function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "seedream5-image") return { fallback: 1, min: 1, max: 1 };
+  if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
   if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
   return normalizedProvider === "wan27"
     ? { fallback: 5, min: 2, max: 15 }
@@ -6384,6 +6403,26 @@ function advancedDurationBounds(provider = "seedance") {
 
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "wan30") {
+    const requestedDuration = Number(options.duration ?? options.durationSeconds ?? 5);
+    return {
+      provider: "wan30",
+      capability: "wan30-video",
+      duration: requestedDuration === -1 ? -1 : clampNumber(requestedDuration, 5, 2, 30),
+      resolution: normalizeWan27Resolution(options.resolution || "1080P"),
+      ratio: normalizeVideoRatio(options.ratio || "adaptive"),
+      billing: "free",
+      creditsPerSecond: 0,
+      outputCredits: 0,
+      inputVideoCredits: 0,
+      baseCredits: 0,
+      originalCredits: 0,
+      credits: 0,
+      markup: 1,
+      userPricingMultiplier: 1,
+      source: "wan30_invitation_free",
+    };
+  }
   const bounds = advancedDurationBounds(normalizedProvider);
   const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, bounds.min, bounds.max);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
@@ -8766,6 +8805,7 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
     objectStorageKey: objectStorage.key || "",
     objectStorageError: objectStorage.error || "",
     assetUri: "",
+    sizeBytes: bytes.byteLength,
     width: imageDimensions?.width || 0,
     height: imageDimensions?.height || 0,
     videoWidth: videoDimensions?.width || 0,
@@ -8824,19 +8864,31 @@ function isAutoPresetReferenceAsset(asset = {}) {
   return /^(character|action|outfit|scene)-[a-z0-9_-]+\.(jpg|jpeg|png|webp)$/i.test(name);
 }
 
-async function createUserWanMediaAssetFromDataUrl(db, user, { dataUrl, name = "Wan media", fileName = "" } = {}) {
+function userMediaUploadLimits(provider = "") {
+  if (normalizeAdvancedProvider(provider) === "wan30") {
+    return {
+      image: IMAGE_UPLOAD_MAX_BYTES,
+      video: WAN30_VIDEO_UPLOAD_MAX_BYTES,
+      audio: WAN30_AUDIO_UPLOAD_MAX_BYTES,
+    };
+  }
+  return { image: IMAGE_UPLOAD_MAX_BYTES, video: MEDIA_UPLOAD_MAX_BYTES, audio: MEDIA_UPLOAD_MAX_BYTES };
+}
+
+async function createUserWanMediaAssetFromDataUrl(db, user, { dataUrl, name = "Wan media", fileName = "", provider = "" } = {}) {
   const { mime, bytes } = decodeWanMediaDataUrl(dataUrl);
-  const isImage = mime.startsWith("image/");
+  const limits = userMediaUploadLimits(provider);
+  const maxBytes = mime.startsWith("image/") ? limits.image : mime.startsWith("audio/") ? limits.audio : limits.video;
   return createUserMediaAssetFromBytes(db, user, {
     bytes,
     mime,
     name,
     fileName,
-    maxBytes: isImage ? IMAGE_UPLOAD_MAX_BYTES : MEDIA_UPLOAD_MAX_BYTES,
+    maxBytes,
   });
 }
 
-async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload", fileName = "", durationSeconds = 0, sourceUrl = "", hidden = false, meta = {} } = {}) {
+async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload", fileName = "", durationSeconds = 0, sourceUrl = "", hidden = false, meta = {}, provider = "" } = {}) {
   const mediaUrl = String(url || "").trim();
   if (!isPublicHttpUrl(mediaUrl)) {
     const error = new Error("Asset URL must be a public http(s) URL.");
@@ -8867,9 +8919,10 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
     return existing;
   }
   const fallbackName = path.basename(new URL(mediaUrl).pathname) || "";
+  const limits = userMediaUploadLimits(provider);
   const downloaded = await downloadRemoteFileToBuffer(mediaUrl, {
     label: "asset",
-    maxBytes: MEDIA_UPLOAD_MAX_BYTES,
+    maxBytes: Math.max(limits.image, limits.video, limits.audio),
     timeoutMs: 120000,
   });
   const pathname = new URL(mediaUrl).pathname;
@@ -8901,7 +8954,7 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
     error.statusCode = 400;
     throw error;
   }
-  const maxBytes = mime.startsWith("image/") ? IMAGE_UPLOAD_MAX_BYTES : MEDIA_UPLOAD_MAX_BYTES;
+  const maxBytes = mime.startsWith("image/") ? limits.image : mime.startsWith("audio/") ? limits.audio : limits.video;
   const asset = await createUserMediaAssetFromBytes(db, user, {
     bytes: downloaded.bytes,
     mime,
@@ -11138,17 +11191,21 @@ function normalizeWan27Task(raw = {}) {
   };
 }
 
-async function aliyunDashscopeRequest(pathname, { method = "POST", body = null, asyncTask = false } = {}) {
-  if (!ALIYUN_DASHSCOPE_API_KEY) {
-    const error = new Error("Wan2.7 generation is not configured.");
+async function aliyunDashscopeRequest(pathname, { method = "POST", body = null, asyncTask = false, provider = "wan27" } = {}) {
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  const wan30 = normalizedProvider === "wan30" || String(provider || "").toLowerCase() === "aliyun-wan30";
+  const baseUrl = wan30 ? ALIYUN_WAN30_BASE_URL : ALIYUN_DASHSCOPE_BASE_URL;
+  const apiKey = wan30 ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY;
+  if (!apiKey) {
+    const error = new Error(`${wan30 ? "Wan3.0" : "Alibaba video"} generation is not configured.`);
     error.statusCode = 503;
-    error.code = "MISSING_ALIYUN_DASHSCOPE_API_KEY";
+    error.code = wan30 ? "MISSING_ALIYUN_WAN30_API_KEY" : "MISSING_ALIYUN_DASHSCOPE_API_KEY";
     throw error;
   }
-  const response = await fetch(`${ALIYUN_DASHSCOPE_BASE_URL}${pathname}`, {
+  const response = await fetch(`${baseUrl}${pathname}`, {
     method,
     headers: {
-      authorization: `Bearer ${ALIYUN_DASHSCOPE_API_KEY}`,
+      authorization: `Bearer ${apiKey}`,
       accept: "application/json",
       ...(body ? { "content-type": "application/json" } : {}),
       ...(body && ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ? { "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER } : {}),
@@ -11165,7 +11222,7 @@ async function aliyunDashscopeRequest(pathname, { method = "POST", body = null, 
     payload = { text };
   }
   if (!response.ok || payload.code >= 400) {
-    const error = new Error(payload.message || payload.error?.message || payload.output?.message || `Wan2.7 request failed: ${response.status}`);
+    const error = new Error(payload.message || payload.error?.message || payload.output?.message || `Alibaba video request failed: ${response.status}`);
     error.statusCode = response.status || 502;
     error.payload = payload;
     error.code = payload.code || payload.error?.code || "";
@@ -11218,13 +11275,14 @@ function validateWan27MediaCombination(media = []) {
 }
 
 function isAliyunVideoProvider(provider = "") {
-  return ["wan27", "happyhorse"].includes(normalizeAdvancedProvider(provider));
+  return ["wan30", "wan27", "happyhorse"].includes(normalizeAdvancedProvider(provider));
 }
 
 function aliyunVideoModelForCapability(capability = "", requestedModel = "") {
   const requested = String(requestedModel || "").trim();
   if (requested) return requested;
   const configured = {
+    "wan30-video": ALIYUN_WAN30_MODEL,
     "wan27-t2v": ALIYUN_WAN27_T2V_MODEL,
     "wan27-i2v": ALIYUN_WAN27_I2V_MODEL,
     "wan27-r2v": ALIYUN_WAN27_R2V_MODEL,
@@ -11248,6 +11306,7 @@ function aliyunVideoCapabilityForRequest(provider = "wan27", source = {}, media 
     source.capability,
   );
   if (requested) return normalizeAliyunVideoCapability(requested, { provider, model: source.model, media });
+  if (normalizeAdvancedProvider(provider) === "wan30") return "wan30-video";
   if (normalizeAdvancedProvider(provider) === "happyhorse") {
     return normalizeAliyunVideoCapability("", { provider: "happyhorse", model: source.model, media });
   }
@@ -11313,6 +11372,7 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
     method: "POST",
     body: payload,
     asyncTask: true,
+    provider,
   });
   return { task: normalizeWan27Task(raw), payload, raw, capability: resolvedCapability };
 }
@@ -11485,6 +11545,7 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
   if (!queryTaskId) return record;
   const raw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(queryTaskId)}`, {
     method: "GET",
+    provider: record.provider === "aliyun-wan30" ? "wan30" : "wan27",
   });
   const task = normalizeWan27Task(raw);
   const taskAgeMs = Date.now() - Date.parse(record.createdAt || "");
@@ -12872,6 +12933,16 @@ function aliyunReferenceVideoInputs(body = {}) {
   return aliyunMediaInputs(values, { mediaKind: "video", type: "reference_video" });
 }
 
+function aliyunReferenceAudioInputs(body = {}) {
+  const values = [
+    ...arrayFromBody(body.referenceAudios),
+    ...arrayFromBody(body.reference_audios),
+    ...arrayFromBody(body.referenceAudioUrls),
+    ...arrayFromBody(body.referenceAudioAssetIds).map((assetId) => ({ assetId })),
+  ];
+  return aliyunMediaInputs(values, { mediaKind: "audio", type: "reference_audio" });
+}
+
 function aliyunFirstFrameInput(body = {}, fallbackAsset = null) {
   const input = aliyunMediaInput({
     assetId: firstPresent(body.firstFrameAssetId, body.first_frame_asset_id, body.imageAssetId, body.image_asset_id, body.userAssetId),
@@ -12881,6 +12952,15 @@ function aliyunFirstFrameInput(body = {}, fallbackAsset = null) {
   }, { mediaKind: "image", type: "first_frame" });
   if (!input?.assetId && !input?.dataUrl && !input?.url && fallbackAsset?.id) input.assetId = fallbackAsset.id;
   return input;
+}
+
+function aliyunLastFrameInput(body = {}) {
+  return aliyunMediaInput({
+    assetId: firstPresent(body.lastFrameAssetId, body.last_frame_asset_id, body.endImageAssetId, body.end_image_asset_id),
+    dataUrl: firstPresent(body.lastFrameDataUrl, body.last_frame_data_url, body.endImageDataUrl, body.end_image_data_url),
+    url: firstPresent(body.lastFrameUrl, body.last_frame_url, body.endImageUrl, body.end_image_url),
+    fileName: firstPresent(body.lastFrameFileName, body.endImageFileName),
+  }, { mediaKind: "image", type: "last_frame" });
 }
 
 function aliyunPrimaryVideoInput(body = {}) {
@@ -12902,6 +12982,7 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
       dataUrl: input.dataUrl,
       fileName: input.fileName || "",
       name: label,
+      provider: input.provider || "",
     });
   } else if (input.assetId) {
     asset = (db.userAssets || []).find((entry) => entry.id === input.assetId && entry.userId === user.id && !isSoftDeleted(entry));
@@ -12910,10 +12991,18 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
       error.statusCode = 404;
       throw error;
     }
+  } else if (normalizeAdvancedProvider(input.provider || "") === "wan30" && url) {
+    asset = await createUserMediaAssetFromPublicUrl(db, user, {
+      url,
+      fileName: input.fileName || "",
+      name: label,
+      sourceUrl: url,
+      provider: "wan30",
+    });
   }
   if (asset) {
     validateWan27MediaKind(asset, input.mediaKind, label);
-    asset = await ensurePublicUrlForUserMediaAsset(db, asset);
+    asset = await ensurePublicUrlForUserMediaAsset(db, asset, { normalizeImage: normalizeAdvancedProvider(input.provider || "") !== "wan30" });
     url = publicUrlForLocalAsset(asset);
   }
   if (!url || !isPublicHttpUrl(url)) {
@@ -12930,14 +13019,127 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
     userAssetId: asset?.id || "",
     localUrl: asset?.localUrl || "",
     mime: asset?.mime || "",
+    sizeBytes: Number(asset?.sizeBytes || 0),
+    width: Number(asset?.width || asset?.videoWidth || 0),
+    height: Number(asset?.height || asset?.videoHeight || 0),
+    durationSeconds: durationSecondsFromValue(asset?.durationSeconds),
   };
   if (input.referenceVoice) resolved.referenceVoice = input.referenceVoice;
   return resolved;
 }
 
+function pngBufferHasTransparency(bytes) {
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
+  if (buffer.length < 33 || buffer[0] !== 0x89 || buffer.toString("ascii", 1, 4) !== "PNG") return false;
+  const colorType = buffer[25];
+  if (colorType === 4 || colorType === 6) return true;
+  return buffer.includes(Buffer.from("tRNS", "ascii"));
+}
+
+async function localBytesForResolvedMedia(item = {}) {
+  const localUrl = String(item.localUrl || "").trim();
+  if (!localUrl) return null;
+  const localPath = path.normalize(path.join(ROOT, localUrl.replace(/^\//, "")));
+  const rootWithSep = ROOT.endsWith(path.sep) ? ROOT : `${ROOT}${path.sep}`;
+  if (localPath !== ROOT && !localPath.startsWith(rootWithSep)) return null;
+  try {
+    return await fs.readFile(localPath);
+  } catch {
+    return null;
+  }
+}
+
+async function validateWan30ResolvedMedia(media = [], requestParams = {}) {
+  const imageTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/bmp"]);
+  const videoTypes = new Set(["video/mp4", "video/quicktime"]);
+  const audioTypes = new Set(["audio/mpeg", "audio/wav", "audio/x-wav"]);
+  let totalVideoSeconds = 0;
+  let totalAudioSeconds = 0;
+  for (let index = 0; index < media.length; index += 1) {
+    const item = media[index];
+    const label = `${String(item.type || "media").replace(/_/g, " ")} ${index + 1}`;
+    const mime = String(item.mime || "").toLowerCase();
+    let sizeBytes = Number(item.sizeBytes || 0);
+    const bytes = await localBytesForResolvedMedia(item);
+    if (!sizeBytes && bytes) sizeBytes = bytes.byteLength;
+    if (["reference_image", "first_frame", "last_frame"].includes(item.type)) {
+      if (!imageTypes.has(mime)) throw advancedValidationError("WAN30_IMAGE_FORMAT_INVALID", `${label} must be JPG, JPEG, PNG, BMP, or WebP.`);
+      if (sizeBytes > IMAGE_UPLOAD_MAX_BYTES) throw advancedValidationError("WAN30_IMAGE_TOO_LARGE", `${label} must be 20MB or smaller.`);
+      const dimensions = item.width && item.height ? { width: item.width, height: item.height } : imageDimensionsFromBuffer(bytes || []);
+      const width = Number(dimensions?.width || 0);
+      const height = Number(dimensions?.height || 0);
+      if (!width || !height || width < 240 || width > 8000 || height < 240 || height > 8000) {
+        throw advancedValidationError("WAN30_IMAGE_DIMENSIONS_INVALID", `${label} width and height must each be between 240px and 8000px.`, { width, height });
+      }
+      if (Math.max(width / height, height / width) > 8) {
+        throw advancedValidationError("WAN30_IMAGE_RATIO_INVALID", `${label} aspect ratio must not exceed 8:1.`, { width, height });
+      }
+      if (mime === "image/png" && bytes && pngBufferHasTransparency(bytes)) {
+        throw advancedValidationError("WAN30_PNG_ALPHA_UNSUPPORTED", `${label} PNG must not contain transparency.`);
+      }
+      continue;
+    }
+    if (item.type === "reference_video") {
+      if (!videoTypes.has(mime)) throw advancedValidationError("WAN30_VIDEO_FORMAT_INVALID", `${label} must be MP4 or MOV.`);
+      if (sizeBytes >= WAN30_VIDEO_UPLOAD_MAX_BYTES) throw advancedValidationError("WAN30_VIDEO_TOO_LARGE", `${label} must be smaller than 100MB.`);
+      const width = Number(item.width || 0);
+      const height = Number(item.height || 0);
+      if (!width || !height || width < 240 || width > 4096 || height < 240 || height > 4096) {
+        throw advancedValidationError("WAN30_VIDEO_DIMENSIONS_INVALID", `${label} width and height must each be between 240px and 4096px.`, { width, height });
+      }
+      if (Math.max(width / height, height / width) > 8) {
+        throw advancedValidationError("WAN30_VIDEO_RATIO_INVALID", `${label} aspect ratio must not exceed 8:1.`, { width, height });
+      }
+      const seconds = durationSecondsFromValue(item.durationSeconds) || await probeVideoDurationSeconds(item.url);
+      if (seconds < 1 || seconds > 15) throw advancedValidationError("WAN30_VIDEO_DURATION_INVALID", `${label} duration must be between 1 and 15 seconds.`, { duration: seconds });
+      totalVideoSeconds += seconds;
+      continue;
+    }
+    if (item.type === "reference_audio") {
+      if (!audioTypes.has(mime)) throw advancedValidationError("WAN30_AUDIO_FORMAT_INVALID", `${label} must be WAV or MP3.`);
+      if (sizeBytes >= WAN30_AUDIO_UPLOAD_MAX_BYTES) throw advancedValidationError("WAN30_AUDIO_TOO_LARGE", `${label} must be smaller than 15MB.`);
+      const seconds = durationSecondsFromValue(item.durationSeconds) || await probeVideoDurationSeconds(item.url);
+      if (seconds < 1 || seconds > 15) throw advancedValidationError("WAN30_AUDIO_DURATION_INVALID", `${label} duration must be between 1 and 15 seconds.`, { duration: seconds });
+      totalAudioSeconds += seconds;
+    }
+  }
+  if (totalVideoSeconds > 15) throw advancedValidationError("WAN30_VIDEO_TOTAL_DURATION_INVALID", "Wan 3.0 reference videos must total 15 seconds or less.", { totalVideoSeconds });
+  if (totalAudioSeconds > 15) throw advancedValidationError("WAN30_AUDIO_TOTAL_DURATION_INVALID", "Wan 3.0 reference audios must total 15 seconds or less.", { totalAudioSeconds });
+  const outputDuration = Number(requestParams.duration);
+  if (totalVideoSeconds > 0 && outputDuration !== -1 && totalVideoSeconds + outputDuration > 30) {
+    throw advancedValidationError("WAN30_TOTAL_VIDEO_DURATION_INVALID", "Wan 3.0 input video duration plus output duration must not exceed 30 seconds.", { inputVideoSeconds: totalVideoSeconds, outputDuration });
+  }
+  return { totalVideoSeconds, totalAudioSeconds };
+}
+
 async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}, fallbackAsset = null } = {}) {
   const provider = normalizeAdvancedProvider(requestParams.provider || body.provider);
   const capability = aliyunVideoCapabilityForRequest(provider, requestParams, []);
+  if (capability === "wan30-video") {
+    const rawMode = String(firstPresent(requestParams.mediaMode, body.mediaMode, body.wan30Mode, "multimodal") || "").trim().toLowerCase();
+    const frameMode = ["first_frame", "first_last_frame", "frames"].includes(rawMode);
+    let inputs = frameMode
+      ? [aliyunFirstFrameInput(body, fallbackAsset), aliyunLastFrameInput(body)].filter(Boolean)
+      : [...aliyunReferenceImageInputs(body), ...aliyunReferenceVideoInputs(body), ...aliyunReferenceAudioInputs(body)];
+    const inputCounts = {
+      images: inputs.filter((item) => item.type === "reference_image").length,
+      videos: inputs.filter((item) => item.type === "reference_video").length,
+      audios: inputs.filter((item) => item.type === "reference_audio").length,
+    };
+    if (inputCounts.images > 10 || inputCounts.videos > 5 || inputCounts.audios > 5) {
+      throw advancedValidationError("WAN30_MEDIA_COUNT_INVALID", "Wan 3.0 accepts up to 10 images, 5 videos, and 5 audios.", inputCounts);
+    }
+    inputs = inputs.map((input) => ({ ...input, provider: "wan30" }));
+    const media = [];
+    for (let index = 0; index < inputs.length; index += 1) {
+      media.push(await resolveAliyunVideoMediaInput({ db, user, input: inputs[index], label: `Wan 3.0 ${inputs[index].type} ${index + 1}` }));
+    }
+    if (frameMode && (!media.some((item) => item.type === "first_frame") || !media.some((item) => item.type === "last_frame"))) {
+      throw advancedValidationError("WAN30_FRAMES_REQUIRED", "Wan 3.0 First + Last Frame mode requires both frame images.");
+    }
+    await validateWan30ResolvedMedia(media, requestParams);
+    return { capability, mediaMode: frameMode ? "first_last_frame" : "multimodal", media };
+  }
   if (["wan27-t2v", "happyhorse-t2v"].includes(capability)) return { capability, mediaMode: capability, media: [] };
   if (capability === "wan27-i2v") {
     const resolved = await resolveWan27Media({ db, user, body, requestParams, fallbackAsset });
@@ -12986,8 +13188,8 @@ function publicUrlForLocalAsset(asset = {}) {
   return publicUrlForAssetPath(asset.localUrl);
 }
 
-async function ensurePublicUrlForUserMediaAsset(db, userAsset) {
-  if (String(userAsset.mime || "").toLowerCase().startsWith("image/")) {
+async function ensurePublicUrlForUserMediaAsset(db, userAsset, { normalizeImage = true } = {}) {
+  if (normalizeImage && String(userAsset.mime || "").toLowerCase().startsWith("image/")) {
     userAsset = await normalizeUserImageAssetForUpstream(db, userAsset, { label: "Upstream reference image" });
   }
   const needsObjectMirror = objectStorageEnabled() && Boolean(userAsset.localUrl) && !userAssetHasObjectStorageMirror(userAsset);
@@ -14088,6 +14290,7 @@ function isImageGenerationRecord(record = {}) {
     source.includes("video") ||
     provider === "seedance" ||
     provider === "wan27" ||
+    provider === "aliyun-wan30" ||
     provider === "aliyun-wan27" ||
     provider === "aliyun-happyhorse"
   ) return false;
@@ -14289,7 +14492,7 @@ function isStalePreSubmitGenerationRecord(record = {}, staleMs = GENERATION_SUBM
   if (!record.awaitingUpstreamTask || record.upstreamTaskId) return false;
   if (isSucceededStatus(record.status) || isFailedStatus(record.status)) return false;
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "aliyun-wan27", "aliyun-happyhorse", "apiz", "seedream5-image"].includes(provider)) return false;
+  if (!["seedance", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "apiz", "seedream5-image"].includes(provider)) return false;
   const status = String(record.status || "").toLowerCase();
   if (!["preparing", "submitting", "submitted", "running", "processing", "queued", "pending"].includes(status)) return false;
   const time = generationRecordCreatedTime(record);
@@ -14702,8 +14905,9 @@ async function refreshGenerationRecordStatus(record = {}) {
       return record;
     }
   }
-  if (["aliyun-wan27", "aliyun-happyhorse"].includes(record.provider)) {
-    if (!ALIYUN_DASHSCOPE_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+  if (["aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(record.provider)) {
+    const configured = record.provider === "aliyun-wan30" ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY;
+    if (!configured || !shouldRefreshGenerationRecord(record)) return record;
     try {
       return await refreshWan27GenerationRecord(record, { download: true, reason: "query" });
     } catch (error) {
@@ -17146,7 +17350,7 @@ function needsApizFailureRefund(record = {}) {
 
 function needsSeedanceFailureRefund(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider)) return false;
+  if (!["seedance", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider)) return false;
   if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
   if (String(record.billingStatus || "").toLowerCase() === "refunded") return false;
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
@@ -17851,8 +18055,8 @@ function advancedRuntimeForProvider(provider, requestParams = {}) {
     const normalizedProvider = normalizeAdvancedProvider(provider);
     const capability = requestParams.videoCapability || aliyunVideoCapabilityForRequest(normalizedProvider, requestParams, []);
     return {
-      providerName: normalizedProvider === "happyhorse" ? "aliyun-happyhorse" : "aliyun-wan27",
-      recordSource: normalizedProvider === "happyhorse" ? "advanced-happyhorse" : `advanced-${capability}`,
+      providerName: normalizedProvider === "wan30" ? "aliyun-wan30" : normalizedProvider === "happyhorse" ? "aliyun-happyhorse" : "aliyun-wan27",
+      recordSource: normalizedProvider === "wan30" ? "advanced-wan30" : normalizedProvider === "happyhorse" ? "advanced-happyhorse" : `advanced-${capability}`,
       model: requestParams.model || aliyunVideoModelForCapability(capability),
       quality: normalizeWan27Resolution(requestParams.resolution),
     };
@@ -18318,7 +18522,7 @@ async function runAdvancedGenerationJob(job = {}) {
 
     let resolvedWan27MediaMode = wan27MediaMode || requestParams.mediaMode || requestParams.videoCapability || "first_frame";
     let resolvedWan27Media = Array.isArray(wan27Media) ? wan27Media : [];
-    if (isAliyunVideoProvider(provider) && !resolvedWan27Media.length && !["wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
+    if (isAliyunVideoProvider(provider) && !resolvedWan27Media.length && !["wan30-video", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
       const resolved = await resolveAliyunVideoMedia({
         db,
         user: { id: userId },
@@ -18397,14 +18601,42 @@ async function runAdvancedGenerationJob(job = {}) {
       if (isAliyunVideoProvider(provider)) {
         const dbForGateway = await readDb();
         const assetMap = new Map((dbForGateway.userAssets || []).map((asset) => [asset.id, asset]));
+        const wan30References = { referenceImages: [], referenceVideos: [], referenceAudios: [] };
         for (const item of resolvedWan27Media) {
           const asset = item.userAssetId ? assetMap.get(item.userAssetId) : null;
+          if (provider === "wan30") {
+            const dataUrl = asset ? await dataUrlForUserAsset(asset) : "";
+            const entry = dataUrl
+              ? { dataUrl, fileName: asset?.name || "" }
+              : { url: item.url || "", fileName: asset?.name || "" };
+            if (item.type === "first_frame") {
+              if (dataUrl) gatewayBody.firstFrameDataUrl = dataUrl;
+              else gatewayBody.firstFrameUrl = item.url;
+              gatewayBody.firstFrameFileName = asset?.name || "";
+            } else if (item.type === "last_frame") {
+              if (dataUrl) gatewayBody.lastFrameDataUrl = dataUrl;
+              else gatewayBody.lastFrameUrl = item.url;
+              gatewayBody.lastFrameFileName = asset?.name || "";
+            } else if (item.type === "reference_image") {
+              wan30References.referenceImages.push(entry);
+            } else if (item.type === "reference_video") {
+              wan30References.referenceVideos.push(entry);
+            } else if (item.type === "reference_audio") {
+              wan30References.referenceAudios.push(entry);
+            }
+            continue;
+          }
           if (asset) {
             gatewayBody[`${item.key}DataUrl`] = await dataUrlForUserAsset(asset);
             gatewayBody[`${item.key}FileName`] = asset.name || "";
           } else if (item.url) {
             gatewayBody[`${item.key}Url`] = item.url;
           }
+        }
+        if (provider === "wan30") {
+          Object.entries(wan30References).forEach(([key, value]) => {
+            if (value.length) gatewayBody[key] = value;
+          });
         }
       } else {
         const dbForGateway = await readDb();
@@ -18441,7 +18673,7 @@ async function runAdvancedGenerationJob(job = {}) {
       payload = gatewayBody;
       createResponse = task.raw;
     } else if (isAliyunVideoProvider(provider)) {
-      if (!resolvedWan27Media.length && !["wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
+      if (!resolvedWan27Media.length && !["wan30-video", "wan27-t2v", "happyhorse-t2v"].includes(requestParams.videoCapability)) {
         const error = new Error(`${requestParams.videoCapability || "Alibaba video"} requires media input.`);
         error.statusCode = 400;
         throw error;
@@ -19925,7 +20157,7 @@ async function handleAdvancedGenerate(req, res) {
     "",
   ) || "").trim().toLowerCase() === "video";
   const isVideoTemplateRequest = isToolVideoTemplateRequest || isPlayfluxVideoTemplateRequest;
-  const toolVideoProvider = ["seedance", "happyhorse", "wan27"].includes(requestTenant.videoProvider)
+  const toolVideoProvider = ["seedance", "wan30", "happyhorse", "wan27"].includes(requestTenant.videoProvider)
     ? requestTenant.videoProvider
     : "wan27";
   const providerHint = firstPresent(
@@ -19953,8 +20185,9 @@ async function handleAdvancedGenerate(req, res) {
   if (!USE_GATEWAY_UPSTREAM && provider === "seedance" && !ARK_API_KEY && !canUseIgnexSeedance) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Vipeak 2 generation is not configured." });
   }
-  if (!USE_GATEWAY_UPSTREAM && isAliyunVideoProvider(provider) && !ALIYUN_DASHSCOPE_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Vipeak 1 generation is not configured." });
+  const aliyunProviderConfigured = provider === "wan30" ? Boolean(ALIYUN_WAN30_API_KEY) : Boolean(ALIYUN_DASHSCOPE_API_KEY);
+  if (!USE_GATEWAY_UPSTREAM && isAliyunVideoProvider(provider) && !aliyunProviderConfigured) {
+    return sendJson(res, 503, { ok: false, code: provider === "wan30" ? "MISSING_ALIYUN_WAN30_API_KEY" : "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: `${publicProviderLabel(provider)} generation is not configured.` });
   }
   let mergedBody = mergedBodyBase;
   let seedanceContentExpanded = false;
@@ -19974,7 +20207,7 @@ async function handleAdvancedGenerate(req, res) {
     provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
     "",
   )).trim();
-  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  if (!prompt && provider !== "wan30") return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   if (provider === "seedream5-image") {
     return await handleAdvancedSeedream5ImageGenerate(req, res, {
       auth,
@@ -19998,7 +20231,7 @@ async function handleAdvancedGenerate(req, res) {
   try {
     assertAdvancedDurationInput(provider, rawDurationInput);
     assertAdvancedResolutionInput(provider, rawResolutionInput, { seedanceTier: requestedSeedanceTier });
-    assertAdvancedRatioInput(rawRatioInput);
+    assertAdvancedRatioInput(rawRatioInput, provider);
   } catch (error) {
     return sendAdvancedValidationError(res, error);
   }
@@ -20009,14 +20242,16 @@ async function handleAdvancedGenerate(req, res) {
     provider,
     preserveUserPrompt: isAdvancedCustomPrompt(mergedBodyBase),
     seedanceTier: normalizeSeedanceTier(requestedSeedanceTier),
-    ratio: firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, config.video.ratio, "9:16"),
-    resolution: firstPresent(body.resolution, bodyParams.resolution, mergedProviderParameters.resolution, caseParams.resolution, config.video.resolution, "720p"),
-    duration: clampNumber(
-      rawDurationInput,
-      config.video.duration || durationBounds.fallback,
-      durationBounds.min,
-      durationBounds.max,
-    ),
+    ratio: firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, caseParams.ratio, caseParams.aspect_ratio, provider === "wan30" ? "adaptive" : config.video.ratio, provider === "wan30" ? "adaptive" : "9:16"),
+    resolution: firstPresent(body.resolution, bodyParams.resolution, mergedProviderParameters.resolution, caseParams.resolution, provider === "wan30" ? "1080p" : config.video.resolution, provider === "wan30" ? "1080p" : "720p"),
+    duration: provider === "wan30" && Number(rawDurationInput) === -1
+      ? -1
+      : clampNumber(
+          rawDurationInput,
+          config.video.duration || durationBounds.fallback,
+          durationBounds.min,
+          durationBounds.max,
+        ),
     generateAudio: boolFromRequest(firstPresent(body.generateAudio, body.generate_audio, bodyParams.generateAudio, bodyParams.generate_audio, caseParams.generateAudio, caseParams.generate_audio), true),
   };
   requestParams.ratio = normalizeVideoRatio(requestParams.ratio);
@@ -20040,6 +20275,7 @@ async function handleAdvancedGenerate(req, res) {
     caseParams.happyhorseCapability,
     provider === "wan27" ? "wan27-i2v" : "",
     provider === "happyhorse" ? "happyhorse-i2v" : "",
+    provider === "wan30" ? "wan30-video" : "",
   );
   requestParams.videoCapability = isAliyunVideoProvider(provider)
     ? normalizeAliyunVideoCapability(requestedVideoCapability, { provider, model: requestedModel })
@@ -20272,9 +20508,11 @@ async function handleAdvancedGenerate(req, res) {
       caseParams.mediaMode,
       requestParams.videoCapability === "wan27-i2v" ? "first_frame" : requestParams.videoCapability,
     );
-    requestParams.mediaMode = requestParams.videoCapability === "wan27-r2v"
-      ? "wan27-r2v"
-      : normalizeWan27MediaMode(requestedWanMediaMode);
+    requestParams.mediaMode = provider === "wan30"
+      ? (["first_frame", "first_last_frame", "frames"].includes(String(requestedWanMediaMode || "").trim().toLowerCase()) ? "first_last_frame" : "multimodal")
+      : requestParams.videoCapability === "wan27-r2v"
+        ? "wan27-r2v"
+        : normalizeWan27MediaMode(requestedWanMediaMode);
     const resolved = await resolveAliyunVideoMedia({
       db: auth.db,
       user: auth.user,
@@ -20656,7 +20894,9 @@ function advancedRegenerateBody(record = {}) {
       body.animateMode = params.animateMode || params.parameters?.mode || "wan-std";
       body.params = { parameters: { mode: body.animateMode } };
     }
-    const mediaMode = normalizeWan27MediaMode(record.mediaMode || params.mediaMode);
+    const mediaMode = provider === "wan30"
+      ? (String(record.mediaMode || params.mediaMode || "multimodal").toLowerCase() === "first_last_frame" ? "first_last_frame" : "multimodal")
+      : normalizeWan27MediaMode(record.mediaMode || params.mediaMode);
     body.mediaMode = mediaMode;
     const firstFrame = mediaAssetIdsByType(record, "first_frame")[0] || record.userAssetId || "";
     const lastFrame = mediaAssetIdsByType(record, "last_frame")[0] || "";
@@ -20690,6 +20930,16 @@ function advancedRegenerateBody(record = {}) {
       .map((asset) => String(asset.videoUrl || asset.url || "").trim())
       .filter(Boolean);
     if (referenceVideoUrls.length) body.referenceVideoUrls = referenceVideoUrls;
+    if (provider === "wan30") {
+      const referenceAudioIds = [...new Set(mediaAssetIdsByType(record, "reference_audio"))];
+      if (referenceAudioIds.length) body.referenceAudioAssetIds = referenceAudioIds;
+      const referenceAudioUrls = (Array.isArray(record.mediaAssets) ? record.mediaAssets : [])
+        .filter((asset) => asset?.type === "reference_audio" && !asset.userAssetId)
+        .map((asset) => String(asset.audioUrl || asset.url || "").trim())
+        .filter(Boolean);
+      if (referenceAudioUrls.length) body.referenceAudioUrls = referenceAudioUrls;
+      body.generateAudio = boolFromRequest(firstPresent(params.generateAudio, params.generate_audio), true);
+    }
   } else {
     const referenceIds = [
       ...mediaAssetIdsByType(record, "reference_image"),
@@ -20731,7 +20981,7 @@ async function handleRegenerateGenerationRecord(req, res, taskId) {
   if (source === "platform-template" || (record.templateId && ["image-to-video", "text-to-video"].includes(kind))) {
     return handlePlatformGenerate(withJsonBody(req, platformRegenerateBody(record)), res);
   }
-  if (source.includes("advanced") || ["seedance", "aliyun-wan27", "aliyun-happyhorse"].includes(String(record.provider || "").toLowerCase())) {
+  if (source.includes("advanced") || ["seedance", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(String(record.provider || "").toLowerCase())) {
     return handleAdvancedGenerate(withJsonBody(req, advancedRegenerateBody(record)), res);
   }
   return sendJson(res, 400, { ok: false, message: "This record cannot be regenerated yet." });
@@ -24376,6 +24626,7 @@ async function handleUploadUserAsset(req, res) {
   if (!auth) return;
 
   const body = await readJson(req);
+  const uploadProvider = normalizeAdvancedProvider(body.provider || "");
   const publicUrl = String(body.url || body.imageUrl || body.videoUrl || body.audioUrl || "").trim();
   if (publicUrl) {
     const userAsset = await createUserMediaAssetFromPublicUrl(auth.db, auth.user, {
@@ -24383,6 +24634,7 @@ async function handleUploadUserAsset(req, res) {
       name: body.name || body.fileName || "Upload",
       fileName: body.fileName || body.name || "",
       durationSeconds: firstPresent(body.durationSeconds, body.duration, body.videoDurationSeconds, body.audioDurationSeconds),
+      provider: uploadProvider,
     });
     return sendJson(res, 200, { ok: true, asset: publicUserAsset(userAsset) });
   }
@@ -24391,7 +24643,8 @@ async function handleUploadUserAsset(req, res) {
   if (!mime.startsWith("image/") && !mime.startsWith("video/") && !mime.startsWith("audio/")) {
     return sendJson(res, 400, { ok: false, message: "Only image, video, or audio assets are supported." });
   }
-  const maxBytes = mime.startsWith("image/") ? IMAGE_UPLOAD_MAX_BYTES : MEDIA_UPLOAD_MAX_BYTES;
+  const limits = userMediaUploadLimits(uploadProvider);
+  const maxBytes = mime.startsWith("image/") ? limits.image : mime.startsWith("audio/") ? limits.audio : limits.video;
   const userAsset = await createUserMediaAssetFromBytes(auth.db, auth.user, {
     bytes,
     mime,
@@ -29963,7 +30216,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
     } catch (error) {
       console.warn("[ignex-generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
-  } else if (["aliyun-wan27", "aliyun-happyhorse"].includes(record.provider) && ALIYUN_DASHSCOPE_API_KEY && shouldRefreshGenerationRecord(record)) {
+  } else if (["aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(record.provider) && (record.provider === "aliyun-wan30" ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY) && shouldRefreshGenerationRecord(record)) {
     try {
       nextRecord = await refreshWan27GenerationRecord(record, { download: true, reason: "detail" });
     } catch (error) {
@@ -30812,12 +31065,14 @@ async function handleRequest(req, res) {
         gatewayConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : false,
         arkConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ARK_API_KEY),
         aliyunConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ALIYUN_DASHSCOPE_API_KEY),
+        wan30Configured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(ALIYUN_WAN30_API_KEY),
         generationConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(APIZ_API_KEY),
         baseUrl: publicOriginFromRequest(req),
         toolVideoProvider: TOOL_VIDEO_PROVIDER,
         models: {
           fast: MODEL_FAST,
           quality: MODEL_QUALITY,
+          wan30: ALIYUN_WAN30_MODEL,
           wan27: {
             t2v: ALIYUN_WAN27_T2V_MODEL,
             i2v: ALIYUN_WAN27_I2V_MODEL,

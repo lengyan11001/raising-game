@@ -33,7 +33,12 @@ const DEFAULT_ADVANCED_PROVIDER = "wan27";
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 9;
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = 3;
 const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = 3;
+const ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT = 10;
+const ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT = 5;
+const ADVANCED_WAN30_AUDIO_REFERENCE_LIMIT = 5;
 const ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES = 20 * 1024 * 1024;
+const ADVANCED_WAN30_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+const ADVANCED_WAN30_AUDIO_MAX_BYTES = 15 * 1024 * 1024;
 const ADVANCED_SEEDANCE_MAX_PIXELS = 2086876;
 const ADVANCED_WAN_CLIP_MAX_BYTES = 30 * 1024 * 1024;
 const ADVANCED_WAN_CLIP_MAX_SECONDS = 5.05;
@@ -498,7 +503,7 @@ function currentAdvancedSeedanceUploadMode() {
 function advancedCreateUploadIsVideo(mode = state.advancedCreateMode) {
   const provider = currentAdvancedProvider();
   if (provider === "seedream5-image") return false;
-  if (provider === "seedance") return false;
+  if (provider === "seedance" || provider === "wan30") return false;
   return advancedCreateModeAcceptsVideoUpload(mode) && !advancedCreateModeAcceptsImageUpload(mode);
 }
 
@@ -1090,6 +1095,7 @@ const els = {
   advancedVideoDurationChoices: document.querySelector("#advancedVideoDurationChoices"),
   advancedPreprocessReference: document.querySelector("#advancedPreprocessReference"),
   advancedSeedanceMediaPanel: document.querySelector("#advancedSeedanceMediaPanel"),
+  advancedFrameEngineLabel: document.querySelector("#advancedFrameEngineLabel"),
   advancedSeedanceMediaMode: document.querySelector("#advancedSeedanceMediaMode"),
   advancedSeedanceFirstFrame: document.querySelector("#advancedSeedanceFirstFrame"),
   advancedSeedanceFirstFramePreview: document.querySelector("#advancedSeedanceFirstFramePreview"),

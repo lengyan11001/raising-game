@@ -1346,6 +1346,7 @@ function normalizeAdvancedProvider(value = "") {
   if (!normalized) return DEFAULT_ADVANCED_PROVIDER;
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["wan27imageedit", "wan2.7imageedit", "wanimageedit", "imageedit", "wan27image", "vipeak1image", "vipeak1imageedit"].includes(normalized)) return "wan27-image-edit";
+  if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
   if (normalized.includes("happyhorse") || normalized === "horse" || normalized === "hh") return "happyhorse";
   if (normalized.startsWith("wananimate") || normalized === "wanlegacy") return "wan27";
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized)) return "wan27";
@@ -1358,6 +1359,7 @@ function advancedProviderLabel(provider = currentAdvancedProvider()) {
   const capability = currentAdvancedVideoCapability(provider);
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
   if (normalized === "wan27-image-edit") return "Wan 2.7 Image";
+  if (normalized === "wan30") return "Wan 3.0";
   const labels = {
     "wan27-t2v": "Wan 2.7 - Text to Video",
     "wan27-i2v": "Wan 2.7 - Image to Video",
@@ -1382,12 +1384,16 @@ function prepareModalOpen() {
 }
 
 const ADVANCED_ALIYUN_VIDEO_CAPABILITIES = new Set([
+  "wan30-video",
   "wan27-t2v", "wan27-i2v", "wan27-r2v", "wan27-video-edit", "wan-legacy",
   "wan-animate-move", "wan-animate-mix", "happyhorse-t2v", "happyhorse-i2v",
   "happyhorse-r2v", "happyhorse-video-edit",
 ]);
 
 const ADVANCED_VIDEO_CAPABILITY_GROUPS = Object.freeze({
+  wan30: Object.freeze([
+    Object.freeze({ value: "wan30-video", label: "Wan 3.0 Video" }),
+  ]),
   wan27: Object.freeze([
     Object.freeze({ value: "wan27-i2v", label: "Image to Video" }),
     Object.freeze({ value: "wan27-t2v", label: "Text to Video" }),
@@ -1414,9 +1420,10 @@ function advancedEngineValue(provider = els.advancedProvider?.value || "", capab
   if (normalizedCapability === "wan-legacy") return "wan-legacy";
   if (["wan-animate-move", "wan-animate-mix"].includes(normalizedCapability)) return "wan-animate";
   if (normalizedCapability.startsWith("happyhorse-")) return "happyhorse";
+  if (normalizedCapability.startsWith("wan30-")) return "wan30";
   if (normalizedCapability.startsWith("wan27-")) return "wan27";
   const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
-  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "wan27", "wan27-image-edit", "seedream5-image"].includes(raw)) return raw;
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "wan30", "wan27", "wan27-image-edit", "seedream5-image"].includes(raw)) return raw;
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
   return normalizeAdvancedProvider(provider);
 }
@@ -1459,6 +1466,7 @@ function advancedVideoInputDurationRule(provider = currentAdvancedProvider(), ca
     return { min: 1.8, max: 15.2, displayMin: 2, displayMax: 15 };
   }
   const rules = {
+    "wan30-video": { min: 1, max: 15.2, displayMin: 1, displayMax: 15 },
     "wan27-i2v": { min: 1.8, max: 10.2, displayMin: 2, displayMax: 10 },
     "wan27-r2v": { min: 1.8, max: 10.2, displayMin: 2, displayMax: 10 },
     "wan27-video-edit": { min: 1.8, max: 10.2, displayMin: 2, displayMax: 10 },
@@ -1526,6 +1534,7 @@ function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return raw === "4k" ? "4K" : raw === "1k" ? "1K" : "2K";
+  if (normalizeAdvancedProvider(provider) === "wan30") return raw === "480p" ? "480p" : raw === "720p" ? "720p" : "1080p";
   if (["wan27", "happyhorse"].includes(normalizeAdvancedProvider(provider))) return raw === "1080p" ? "1080p" : "720p";
   if (raw === "480p") return "480p";
   if (raw === "4k" || raw === "2160p") return "4k";
@@ -1536,6 +1545,7 @@ function advancedDurationBounds(provider = "seedance", capability = "") {
   const normalized = normalizeAdvancedProvider(provider);
   if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan27-image-edit") return { min: 1, max: 1, fallback: 1 };
+  if (normalized === "wan30") return { min: -1, max: 30, fallback: 5 };
   const resolvedCapability = capability || (
     typeof currentAdvancedVideoCapability === "function"
     && typeof currentAdvancedProvider === "function"
@@ -1557,6 +1567,7 @@ function advancedDurationBounds(provider = "seedance", capability = "") {
 }
 
 function normalizeVideoRatio(value = "") {
+  if (String(value || "").trim().toLowerCase() === "adaptive") return "adaptive";
   const normalized = String(value || "").trim().replace(/[：xX]/g, ":");
   if (/^\d+\s*:\s*\d+$/.test(normalized)) {
     const [width, height] = normalized.split(":").map((part) => Math.max(1, Number(part.trim()) || 1));
@@ -1566,6 +1577,7 @@ function normalizeVideoRatio(value = "") {
 }
 
 function ratioStyle(value = "") {
+  if (normalizeVideoRatio(value) === "adaptive") return "--video-ratio:16 / 9;--video-ratio-value:1.7777777778;";
   const [width, height] = normalizeVideoRatio(value).split(":").map((part) => Math.max(1, Number(part) || 1));
   return `--video-ratio:${width} / ${height};--video-ratio-value:${width / height};`;
 }
@@ -1644,6 +1656,22 @@ function currentSeedanceEstimateReferenceVideoUrls(provider = currentAdvancedPro
 
 function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "wan30") {
+    const requestedDuration = Number(duration ?? 5);
+    return {
+      provider: "wan30",
+      capability: "wan30-video",
+      duration: requestedDuration === -1 ? -1 : Math.min(30, Math.max(2, Number.isFinite(requestedDuration) ? requestedDuration : 5)),
+      resolution: normalizeAdvancedResolution(resolution || "1080p", normalizedProvider),
+      ratio: normalizeVideoRatio(ratio || "adaptive"),
+      billing: "free",
+      baseCredits: 0,
+      originalCredits: 0,
+      credits: 0,
+      markup: 1,
+      userPricingMultiplier: 1,
+    };
+  }
   if (normalizedProvider === "seedream5-image") {
     const configPricing = state.config?.platform?.advancedPricing || {};
     const seedreamPricing = configPricing.seedream5Image || {};
