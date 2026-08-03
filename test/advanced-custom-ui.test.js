@@ -8,6 +8,7 @@ const html = fs.readFileSync(path.join(root, "platform.html"), "utf8");
 const ui = fs.readFileSync(path.join(root, "platform.ui.js"), "utf8");
 const create = fs.readFileSync(path.join(root, "platform.create.js"), "utf8");
 const main = fs.readFileSync(path.join(root, "platform.main.js"), "utf8");
+const css = fs.readFileSync(path.join(root, "platform.css"), "utf8");
 const server = fs.readFileSync(path.join(root, "server.js"), "utf8");
 
 function elementMarkup(id) {
@@ -51,12 +52,17 @@ test("only explicit frame modes use dedicated upload controls", () => {
 
 test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", () => {
   assert.match(create, /function advancedAliyunUsesSharedReferenceUpload/);
+  assert.match(create, /function advancedUsesSharedReferenceUpload/);
   assert.match(create, /"wan-animate-move"/);
   assert.match(create, /"wan-animate-mix"/);
   assert.match(create, /usesSharedReferenceUpload \|\| !hasDedicatedWanPanelSlot/);
-  assert.match(create, /aliyunTargetTypes\.size > 1/);
+  assert.match(create, /aliyunVideo && advancedAliyunUsesSharedReferenceUpload\(capability\)/);
   assert.match(create, /"wan30-video"/);
-  assert.match(main, /provider === "seedance" \|\| provider === "wan30"/);
+  assert.match(main, /await uploadAdvancedMediaReference\(file, "video"\)/);
+  assert.match(main, /await uploadAdvancedMediaReference\(file, "audio"\)/);
+  assert.match(create, /data-remove-shared-video/);
+  assert.match(create, /data-remove-shared-audio/);
+  assert.doesNotMatch(css, /\.advanced-upload-box\.is-wan \.advanced-upload-previews\s*\{[\s\S]*?grid-template-columns:\s*minmax\(120px, 1fr\)/);
 });
 
 test("Wan3.0 exposes free multimodal and frame controls without link fields", () => {
@@ -95,7 +101,7 @@ test("shared video uploads use capability-specific duration limits", () => {
   assert.match(ui, /"happyhorse-video-edit": \{ min: 2\.8, max: 60\.2, displayMin: 3, displayMax: 60 \}/);
   assert.match(create, /advancedVideoInputDurationMessage\(durationSeconds, currentAdvancedProvider\(\), currentAdvancedVideoCapability\(\)\)/);
   assert.match(create, /advancedVideoInputDurationMessage\(aliyunInputVideoSeconds, provider, videoCapability, \{ allowUnknown: true \}\)/);
-  assert.match(main, /advancedVideoInputDurationMessage\(clipDuration, provider, capability\)/);
+  assert.match(main, /await uploadAdvancedMediaReference\(file, "video"\)/);
   assert.doesNotMatch(main, /const maxVideoSeconds = capability/);
 });
 
