@@ -85,15 +85,13 @@ test("Wan2.7 video edit follows source duration instead of exposing a manual dur
   assert.match(server, /requestParams\.videoCapability === "wan27-video-edit" && requestParams\.followInputDuration/);
 });
 
-test("custom Advanced prompts are forwarded without system negative text", () => {
-  assert.match(server, /function isAdvancedCustomPrompt\(body = \{\}\)/);
-  assert.match(server, /return preserveUserPrompt \|\| createKind === "custom" \|\| createMode === "custom"/);
-  assert.match(server, /if \(!base \|\| isAdvancedCustomPrompt\(body\)\) return base/);
-  assert.match(server, /preserveUserPrompt: isAdvancedCustomPrompt\(mergedBodyBase\)/);
-  assert.match(server, /preserveUserPrompt: requestParams\.preserveUserPrompt \|\| undefined/);
-  assert.match(server, /params: requestParams\.preserveUserPrompt \? \{/);
-  assert.match(server, /prompt: appendDefaultVideoNegativePrompt\(prompt, source\)/);
-  assert.match(server, /text: appendDefaultVideoNegativePrompt\(prompt, body\)/);
+test("video prompts are forwarded without a system negative prompt", () => {
+  assert.doesNotMatch(server, /DEFAULT_VIDEO_NEGATIVE_PROMPT/);
+  assert.doesNotMatch(server, /appendDefaultVideoNegativePrompt/);
+  assert.doesNotMatch(server, /Negative prompt: extra fingers/);
+  assert.match(server, /const content = \[\{ type: "text", text: String\(prompt \|\| ""\)\.trim\(\) \}\]/);
+  assert.match(server, /prompt,\s*media: normalizedMedia/);
+  assert.match(server, /const submittedFinalPrompt = finalPrompt/);
 });
 
 test("Seedance 2.5 server pricing migrates old rounded defaults and preserves six decimals", () => {

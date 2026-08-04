@@ -9598,41 +9598,6 @@ function makeInteractiveSceneVideoPrompt(scene = {}, primaryName = "", partnerNa
   return [userPrompt || base, interaction].filter(Boolean).join(" ");
 }
 
-const DEFAULT_VIDEO_NEGATIVE_PROMPT = [
-  "extra fingers",
-  "missing fingers",
-  "fused fingers",
-  "malformed hands",
-  "distorted hands",
-  "extra arms",
-  "extra legs",
-  "extra limbs",
-  "missing limbs",
-  "duplicated body parts",
-  "multiple hands on one arm",
-  "deformed anatomy",
-  "bad anatomy",
-  "distorted face",
-  "duplicate person unless explicitly requested",
-  "unintended extra people",
-  "mutation",
-  "warped body",
-  "broken joints",
-  "unnatural fingers",
-].join(", ");
-
-function videoNegativePromptFromBody(body = {}) {
-  return String(firstPresent(
-    body.negativePrompt,
-    body.negative_prompt,
-    body.params?.negativePrompt,
-    body.params?.negative_prompt,
-    body.parameters?.negativePrompt,
-    body.parameters?.negative_prompt,
-    "",
-  ) || "").trim();
-}
-
 function isAdvancedCustomPrompt(body = {}) {
   const params = plainObject(body.params);
   const preserveUserPrompt = boolFromRequest(firstPresent(
@@ -9644,34 +9609,6 @@ function isAdvancedCustomPrompt(body = {}) {
   const createKind = String(firstPresent(body.createKind, body.create_kind, params.createKind, params.create_kind, "") || "").trim().toLowerCase();
   const createMode = String(firstPresent(body.createMode, body.create_mode, params.createMode, params.create_mode, "") || "").trim().toLowerCase();
   return preserveUserPrompt || createKind === "custom" || createMode === "custom";
-}
-
-function appendDefaultVideoNegativePrompt(prompt = "", body = {}) {
-  const base = String(prompt || "").trim();
-  if (!base || isAdvancedCustomPrompt(body)) return base;
-  const customNegative = videoNegativePromptFromBody(body);
-  const negative = [DEFAULT_VIDEO_NEGATIVE_PROMPT, customNegative]
-    .map((item) => String(item || "").trim())
-    .filter(Boolean)
-    .filter((item, index, list) => list.findIndex((value) => value.toLowerCase() === item.toLowerCase()) === index)
-    .join(", ");
-  if (!negative) return base;
-  const marker = "Negative prompt:";
-  if (base.toLowerCase().includes(marker.toLowerCase())) {
-    const lower = base.toLowerCase();
-    const index = lower.lastIndexOf(marker.toLowerCase());
-    const before = base.slice(0, index).trim();
-    const existing = base.slice(index + marker.length).trim();
-    const merged = [existing, negative]
-      .join(", ")
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .filter((item, itemIndex, list) => list.findIndex((value) => value.toLowerCase() === item.toLowerCase()) === itemIndex)
-      .join(", ");
-    return [before, `${marker} ${merged}`].filter(Boolean).join("\n");
-  }
-  return [base, `${marker} ${negative}`].filter(Boolean).join("\n");
 }
 
 function enhancePlayfluxReferenceVideoPrompt(prompt = "", { hasReferenceImage = false, hasReferenceVideo = false } = {}) {
@@ -9694,29 +9631,6 @@ function enhancePlayfluxReferenceVideoPrompt(prompt = "", { hasReferenceImage = 
   return [guide, base].filter(Boolean).join("\n\n");
 }
 
-function applyDefaultVideoNegativePromptToSeedancePayload(payload = {}, body = {}) {
-  if (!payload || typeof payload !== "object") return payload;
-  if (typeof payload.prompt === "string" && payload.prompt.trim()) {
-    payload.prompt = appendDefaultVideoNegativePrompt(payload.prompt, body);
-  }
-  if (Array.isArray(payload.content)) {
-    let hasText = false;
-    payload.content = payload.content.map((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) return item;
-      if (item.type === "text" || item.text !== undefined) {
-        hasText = true;
-        return { ...item, text: appendDefaultVideoNegativePrompt(item.text || payload.prompt || "", body) };
-      }
-      return item;
-    });
-    if (!hasText) {
-      const text = appendDefaultVideoNegativePrompt(payload.prompt || "", body);
-      if (text) payload.content.unshift({ type: "text", text });
-    }
-  }
-  return payload;
-}
-
 function seedanceContentFromReferences({
   prompt = "",
   referenceAssetUri = "",
@@ -9726,9 +9640,8 @@ function seedanceContentFromReferences({
   referenceVideoAssetUri = "",
   extraReferenceVideoAssetUris = [],
   referenceAudioAssetUris = [],
-  body = {},
 } = {}) {
-  const content = [{ type: "text", text: appendDefaultVideoNegativePrompt(prompt, body) }];
+  const content = [{ type: "text", text: String(prompt || "").trim() }];
   if (firstFrameAssetUri) {
     content.push({
       type: "image_url",
@@ -9857,7 +9770,7 @@ function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body 
     )).filter(Boolean);
   }
   if (!Array.isArray(payload.content) || !payload.content.length) payload.content = [{ type: "text", text: String(prompt || "") }];
-  return applyDefaultVideoNegativePromptToSeedancePayload(payload, source);
+  return payload;
 }
 
 function pivoxSeedanceContentFromReferences(args = {}) {
@@ -10724,7 +10637,7 @@ async function prepareOfficialSeedancePayloadForArk(db, user, body = {}, { prepa
       if (!item || typeof item !== "object" || Array.isArray(item)) return item;
       return Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined));
     });
-    return applyDefaultVideoNegativePromptToSeedancePayload(payload, source);
+    return payload;
   }
 
   if (typeof payload.image_url === "string") {
@@ -10762,7 +10675,7 @@ async function prepareOfficialSeedancePayloadForArk(db, user, body = {}, { prepa
     return Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined));
   });
   stripSeedanceCompatibilityAliases(payload);
-  return applyDefaultVideoNegativePromptToSeedancePayload(payload, source);
+  return payload;
 }
 
 async function preparePivoxMediaUrlForUser(db, user, value = "", name = "Seedance media") {
@@ -11457,7 +11370,7 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
     provider,
     capability: resolvedCapability,
     model: aliyunVideoModelForCapability(resolvedCapability, source.model),
-    prompt: appendDefaultVideoNegativePrompt(prompt, source),
+    prompt,
     media: normalizedMedia,
     duration: source.duration,
     resolution: source.resolution,
@@ -31391,7 +31304,7 @@ async function handleCreateSceneVideo(req, res) {
   const finalPrompt = partnerReferenceAssetUri
     ? makeInteractiveSceneVideoPrompt(sceneConfig, resolvedCompanionName || body.companionName || "", partnerCharacterName, userPrompt)
     : prompt;
-  const submittedFinalPrompt = appendDefaultVideoNegativePrompt(finalPrompt, body);
+  const submittedFinalPrompt = finalPrompt;
 
   const payload = {
     model,
