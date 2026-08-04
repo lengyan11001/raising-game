@@ -619,15 +619,6 @@ const APIZ_SEEDREAM_IMAGE_SIZES = new Set([
   "landscape_16_9",
 ]);
 
-const TOS = {
-  accessKey: process.env.TOS_ACCESS_KEY_ID,
-  secretKey: process.env.TOS_SECRET_ACCESS_KEY,
-  endpoint: process.env.TOS_ENDPOINT,
-  region: process.env.TOS_REGION,
-  bucket: process.env.TOS_BUCKET,
-  publicDomain: process.env.TOS_PUBLIC_DOMAIN,
-};
-const DISABLE_TOS_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_TOS_STORAGE || ""));
 const R2 = {
   accessKey: process.env.R2_ACCESS_KEY_ID || process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
   secretKey: process.env.R2_SECRET_ACCESS_KEY || process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
@@ -645,8 +636,8 @@ const SITE_STORAGE_SLUG = storagePathSegment(
   process.env.SITE_STORAGE_SLUG || process.env.TENANT_SLUG || defaultStorageSlug(),
   "raising-game",
 );
-const TOS_KEY_PREFIX = storageKeyPrefix(
-  process.env.TOS_KEY_PREFIX || process.env.STORAGE_KEY_PREFIX || `seedance-assets/${SITE_STORAGE_SLUG}`,
+const OBJECT_STORAGE_KEY_PREFIX = storageKeyPrefix(
+  process.env.R2_KEY_PREFIX || process.env.STORAGE_KEY_PREFIX || `seedance-assets/${SITE_STORAGE_SLUG}`,
 );
 
 function defaultStorageSlug() {
@@ -677,13 +668,13 @@ function storageKeyPrefix(value = "") {
     .join("/") || "seedance-assets/raising-game";
 }
 
-function tosStorageKey(...parts) {
+function objectStoragePath(...parts) {
   const suffix = parts
     .flat()
     .map((part) => storagePathSegment(part, "asset"))
     .filter(Boolean)
     .join("/");
-  return [TOS_KEY_PREFIX, suffix].filter(Boolean).join("/");
+  return [OBJECT_STORAGE_KEY_PREFIX, suffix].filter(Boolean).join("/");
 }
 
 function storageObjectName(kind = "asset", id = "item") {
@@ -8489,8 +8480,6 @@ function localPathForUserAsset(asset = {}) {
 function userAssetObjectStorageKey(asset = {}) {
   return String(firstPresent(
     asset.objectStorageKey,
-    asset.publicTosKey,
-    asset.tosKey,
     asset.r2Key,
   ) || "").trim();
 }
@@ -8500,9 +8489,7 @@ function userAssetHasObjectStorageMirror(asset = {}) {
 }
 
 function configuredObjectStoragePublicDomain() {
-  if (r2Enabled()) return String(R2.publicDomain || "").trim();
-  if (tosEnabled()) return String(TOS.publicDomain || "").trim();
-  return "";
+  return r2Enabled() ? String(R2.publicDomain || "").trim() : "";
 }
 
 function userAssetHasConfiguredObjectStorageMirror(asset = {}) {
@@ -8619,7 +8606,7 @@ async function normalizeUserImageAssetForUpstream(db, userAsset, {
   const needsObjectUpload = objectStorageEnabled() && (dimensionsChanged || !userAssetHasConfiguredObjectStorageMirror(userAsset));
   let uploaded = null;
   if (needsObjectUpload) {
-    uploaded = await uploadBufferToTos({
+    uploaded = await uploadBufferToR2({
       userId: userAsset.userId,
       assetId: `${userAsset.id}-normalized`,
       bytes: normalized.bytes,
@@ -8642,8 +8629,7 @@ async function normalizeUserImageAssetForUpstream(db, userAsset, {
     userAsset.publicUrl = uploaded.publicUrl;
     userAsset.cdnUrl = uploaded.publicUrl;
     userAsset.objectStorageKey = uploaded.key || "";
-    userAsset.publicTosKey = uploaded.key || "";
-    userAsset.tosKey = uploaded.key || "";
+    userAsset.r2Key = uploaded.key || "";
     userAsset.objectStorageError = "";
     userAsset.publicUploadedAt = new Date().toISOString();
   } else if (!objectStorageEnabled()) {
@@ -9126,7 +9112,7 @@ async function refreshSeedancePresetVideoAssetFromSourceIfNeeded(db, asset = {},
   const refreshedBytes = await fs.readFile(targetPath);
   const refreshedMime = asset.mime || videoMimeFromPath(targetPath) || "video/mp4";
   if (objectStorageEnabled()) {
-    const uploaded = await uploadBufferToTos({
+    const uploaded = await uploadBufferToR2({
       userId: asset.userId,
       assetId: `${asset.id}-seedance-refresh`,
       bytes: refreshedBytes,
@@ -9300,37 +9286,6 @@ function encodePathname(input) {
     .join("/");
 }
 
-function makeTosAuth({ method, key, body, contentType }) {
-  const host = `${TOS.bucket}.${TOS.endpoint}`;
-  const { xDate, date } = amzDate();
-  const payloadHash = sha256Hex(body);
-  const canonicalUri = `/${encodePathname(key)}`;
-  const headers = {
-    "content-type": contentType,
-    host,
-    "x-tos-content-sha256": payloadHash,
-    "x-tos-date": xDate,
-  };
-  const sortedKeys = Object.keys(headers).sort();
-  const signedHeaders = sortedKeys.join(";");
-  const canonicalHeaders = sortedKeys.map((header) => `${header}:${headers[header]}\n`).join("");
-  const canonicalRequest = [method, canonicalUri, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
-  const scope = `${date}/${TOS.region}/tos/request`;
-  const stringToSign = ["TOS4-HMAC-SHA256", xDate, scope, sha256Hex(canonicalRequest)].join("\n");
-  const signature = hmac(signKey(TOS.secretKey, date, TOS.region, "tos"), stringToSign, "hex");
-
-  return {
-    host,
-    canonicalUri,
-    headers: {
-      "content-type": contentType,
-      "x-tos-content-sha256": payloadHash,
-      "x-tos-date": xDate,
-      authorization: `TOS4-HMAC-SHA256 Credential=${TOS.accessKey}/${scope},SignedHeaders=${signedHeaders},Signature=${signature}`,
-    },
-  };
-}
-
 function r2EndpointUrl() {
   const endpoint = String(R2.endpoint || "").trim().replace(/\/+$/, "");
   if (!endpoint) return null;
@@ -9397,72 +9352,13 @@ function makeArkOpenApiAuth({ action, body }) {
   };
 }
 
-async function uploadBufferToTos({ userId, assetId, bytes, mime, extension = "" }) {
-  if (r2Enabled()) {
-    const fileName = `${storagePathSegment(assetId, "asset")}-${Date.now()}${extension || mediaExtFromMime(mime) || imageExtFromMime(mime)}`;
-    return uploadStaticAssetToR2({
-      key: tosStorageKey("users", userId, fileName),
-      bytes,
-      mime,
-    });
-  }
-  requireValue("TOS_ACCESS_KEY_ID", TOS.accessKey);
-  requireValue("TOS_SECRET_ACCESS_KEY", TOS.secretKey);
-  requireValue("TOS_ENDPOINT", TOS.endpoint);
-  requireValue("TOS_REGION", TOS.region);
-  requireValue("TOS_BUCKET", TOS.bucket);
-  requireValue("TOS_PUBLIC_DOMAIN", TOS.publicDomain);
-
+async function uploadBufferToR2({ userId, assetId, bytes, mime, extension = "" }) {
   const fileName = `${storagePathSegment(assetId, "asset")}-${Date.now()}${extension || mediaExtFromMime(mime) || imageExtFromMime(mime)}`;
-  const key = tosStorageKey("users", userId, fileName);
-  const auth = makeTosAuth({ method: "PUT", key, body: bytes, contentType: mime });
-  const url = `https://${auth.host}${auth.canonicalUri}`;
-  const response = await fetch(url, { method: "PUT", headers: auth.headers, body: bytes });
-  const text = await response.text();
-  if (!response.ok) {
-    throw tosUploadError(response.status, text);
-  }
-
-  return {
-    key,
-    tosUrl: url,
-    publicUrl: `${TOS.publicDomain.replace(/\/$/, "")}/${key}`,
-  };
-}
-
-async function uploadBufferDirectlyToTos({ userId, assetId, bytes, mime, extension = "" }) {
-  const fileName = `${storagePathSegment(assetId, "asset")}-${Date.now()}${extension || mediaExtFromMime(mime) || imageExtFromMime(mime)}`;
-  return uploadStaticAssetToTos({
-    key: tosStorageKey("users", userId, fileName),
+  return uploadStaticAssetToR2({
+    key: objectStoragePath("users", userId, fileName),
     bytes,
     mime,
   });
-}
-
-function tosConfigured() {
-  return Boolean(TOS.accessKey && TOS.secretKey && TOS.endpoint && TOS.region && TOS.bucket && TOS.publicDomain);
-}
-
-function tosUploadError(status = 502, responseText = "") {
-  let payload = {};
-  try {
-    payload = JSON.parse(String(responseText || ""));
-  } catch {
-    payload = {};
-  }
-  const code = String(payload.Code || "TOSUploadFailed");
-  const message = String(payload.Message || "Object storage rejected the upload.");
-  const requestId = String(payload.RequestId || "");
-  const error = new Error(`TOS upload failed: ${Number(status) || 502} ${code}: ${message}${requestId ? ` (RequestId: ${requestId})` : ""}`);
-  error.statusCode = 502;
-  error.code = code;
-  error.requestId = requestId;
-  return error;
-}
-
-function tosEnabled() {
-  if (DISABLE_TOS_STORAGE) return false;
-  return tosConfigured();
 }
 
 function r2Enabled() {
@@ -9471,33 +9367,11 @@ function r2Enabled() {
 }
 
 function objectStorageEnabled() {
-  return r2Enabled() || tosEnabled();
+  return r2Enabled();
 }
 
 function localPublicAssetStorageEnabled() {
   return !objectStorageEnabled();
-}
-
-async function uploadStaticAssetToTos({ key, bytes, mime }) {
-  requireValue("TOS_ACCESS_KEY_ID", TOS.accessKey);
-  requireValue("TOS_SECRET_ACCESS_KEY", TOS.secretKey);
-  requireValue("TOS_ENDPOINT", TOS.endpoint);
-  requireValue("TOS_REGION", TOS.region);
-  requireValue("TOS_BUCKET", TOS.bucket);
-  requireValue("TOS_PUBLIC_DOMAIN", TOS.publicDomain);
-
-  const auth = makeTosAuth({ method: "PUT", key, body: bytes, contentType: mime });
-  const url = `https://${auth.host}${auth.canonicalUri}`;
-  const response = await fetch(url, { method: "PUT", headers: auth.headers, body: bytes });
-  const text = await response.text();
-  if (!response.ok) {
-    throw tosUploadError(response.status, text);
-  }
-  return {
-    key,
-    tosUrl: url,
-    publicUrl: `${TOS.publicDomain.replace(/\/$/, "")}/${key}`,
-  };
 }
 
 async function uploadStaticAssetToR2({ key, bytes, mime }) {
@@ -9523,8 +9397,7 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
 }
 
 async function uploadStaticAssetToObjectStorage({ key, bytes, mime }) {
-  if (r2Enabled()) return uploadStaticAssetToR2({ key, bytes, mime });
-  return uploadStaticAssetToTos({ key, bytes, mime });
+  return uploadStaticAssetToR2({ key, bytes, mime });
 }
 
 function localAssetMirrorKey(localUrl = "") {
@@ -11779,8 +11652,8 @@ async function createHomeSyntheticReference(item) {
   const bytes = await fs.readFile(sourcePath);
   const localSourcePublicUrl = publicUrlForAssetPath(sourceUrl);
   let uploaded = { publicUrl: localSourcePublicUrl, key: "" };
-  if (!uploaded.publicUrl) {
-    uploaded = await uploadBufferToTos({
+  if (objectStorageEnabled()) {
+    uploaded = await uploadBufferToR2({
       userId: "admin",
       assetId: `${item.id || "home-role"}-source`,
       bytes,
@@ -11807,7 +11680,7 @@ async function createHomeSyntheticReference(item) {
     raw: generated.raw,
     payload: generated.payload,
     sourcePublicUrl: uploaded.publicUrl,
-    sourceTosKey: uploaded.key,
+    sourceR2Key: uploaded.key,
     local,
   };
 }
@@ -11866,7 +11739,7 @@ async function ensureSyntheticReferenceForHomeItem(config, itemId, options = {})
       ...item,
       referenceAssetUri: "",
       publicImageUrl: "",
-      tosKey: "",
+      r2Key: "",
     };
     config.homeVideo = replaceHomeVideoItem(config.homeVideo, working);
     await writeAppConfig(config);
@@ -11890,7 +11763,7 @@ async function ensureSyntheticReferenceForHomeItem(config, itemId, options = {})
       syntheticReferenceModel: synthetic.model,
       syntheticReferencePrompt: synthetic.prompt,
       sourcePublicUrl: synthetic.sourcePublicUrl,
-      sourceTosKey: synthetic.sourceTosKey,
+      sourceR2Key: synthetic.sourceR2Key,
       status: "reference_ready",
       updatedAt: new Date().toISOString(),
     };
@@ -11957,8 +11830,8 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
   validateSeedanceImageBytes(bytes, "Seedance home image");
   const localPublicUrl = publicUrlForAssetPath(localUrl);
   let uploaded = { publicUrl: localPublicUrl, key: "" };
-  if (!uploaded.publicUrl) {
-    uploaded = await uploadBufferToTos({
+  if (objectStorageEnabled()) {
+    uploaded = await uploadBufferToR2({
       userId: "admin",
       assetId: `${item.id || "home-video-reference"}-ref`,
       bytes,
@@ -11984,7 +11857,7 @@ async function ensureSeedanceAssetForHomeItem(config, itemId) {
     ...item,
     publicImageUrl: uploaded.publicUrl,
     referenceAssetUri: `asset://${assetId}`,
-    tosKey: uploaded.key,
+    r2Key: uploaded.key,
     updatedAt: new Date().toISOString(),
   };
   config.homeVideo = replaceHomeVideoItem(config.homeVideo, next);
@@ -13078,8 +12951,8 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
       imageMinDimension: wan30 ? 240 : SEEDANCE_IMAGE_DIMENSION_MIN,
       imageMaxDimension: wan30 ? 8000 : SEEDANCE_IMAGE_DIMENSION_MAX,
     });
-    if (wan30) asset = await ensureWan30TosMirrorForUserMediaAsset(db, asset);
-    const wan30PublicUrl = firstPresent(asset.wan30RequestUrl, asset.wan30PublicUrl);
+    if (wan30) asset = await ensureWan30R2MirrorForUserMediaAsset(db, asset);
+    const wan30PublicUrl = asset.wan30PublicUrl;
     url = wan30 && isPublicHttpUrl(wan30PublicUrl)
       ? wan30PublicUrl
       : publicUrlForLocalAsset(asset);
@@ -13259,29 +13132,26 @@ function publicUrlForLocalAsset(asset = {}) {
   return publicUrlForAssetPath(asset.localUrl);
 }
 
-async function ensureWan30TosMirrorForUserMediaAsset(db, userAsset) {
-  if (!tosConfigured() || !userAsset?.localUrl) return userAsset;
-  if (publicUrlMatchesStorageBase(userAsset.wan30PublicUrl, TOS.publicDomain)) return userAsset;
+async function ensureWan30R2MirrorForUserMediaAsset(db, userAsset) {
+  if (!userAsset?.localUrl) return userAsset;
+  if (!r2Enabled()) {
+    const error = new Error("Cloudflare R2 object storage is not configured.");
+    error.statusCode = 503;
+    throw error;
+  }
+  if (publicUrlMatchesStorageBase(userAsset.wan30PublicUrl, R2.publicDomain)) return userAsset;
 
   const localPath = localPathForUserAsset(userAsset);
   const bytes = await fs.readFile(localPath);
-  let uploaded;
-  try {
-    uploaded = await uploadBufferDirectlyToTos({
-      userId: userAsset.userId,
-      assetId: `${userAsset.id}-wan30`,
-      bytes,
-      mime: userAsset.mime || "application/octet-stream",
-      extension: path.extname(localPath),
-    });
-  } catch (error) {
-    const originUrl = absoluteUrlFromBase(userAsset.localUrl, configuredPublicBaseUrl());
-    if (!isPublicHttpUrl(originUrl)) throw error;
-    console.warn("[wan30-tos-mirror-failed]", userAsset.id, error.code || "TOSUploadFailed", error.requestId || "");
-    return { ...userAsset, wan30RequestUrl: originUrl };
-  }
+  const uploaded = await uploadBufferToR2({
+    userId: userAsset.userId,
+    assetId: `${userAsset.id}-wan30`,
+    bytes,
+    mime: userAsset.mime || "application/octet-stream",
+    extension: path.extname(localPath),
+  });
   userAsset.wan30PublicUrl = uploaded.publicUrl;
-  userAsset.wan30TosKey = uploaded.key;
+  userAsset.wan30R2Key = uploaded.key;
   userAsset.wan30SourceSizeBytes = bytes.byteLength;
   userAsset.wan30UploadedAt = new Date().toISOString();
   userAsset.updatedAt = userAsset.wan30UploadedAt;
@@ -13317,7 +13187,7 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
 
   const localPath = path.join(ROOT, String(userAsset.localUrl || "").replace(/^\//, ""));
   const bytes = await fs.readFile(localPath);
-  const uploaded = await uploadBufferToTos({
+  const uploaded = await uploadBufferToR2({
     userId: userAsset.userId,
     assetId: `${userAsset.id}-wan`,
     bytes,
@@ -13325,9 +13195,8 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
     extension: path.extname(localPath),
   });
   userAsset.publicUrl = uploaded.publicUrl;
-  userAsset.publicTosKey = uploaded.key;
   userAsset.objectStorageKey = uploaded.key;
-  userAsset.tosKey = uploaded.key;
+  userAsset.r2Key = uploaded.key;
   userAsset.cdnUrl = uploaded.publicUrl;
   userAsset.objectStorageError = "";
   userAsset.publicUploadedAt = new Date().toISOString();
@@ -13343,8 +13212,9 @@ function normalizeSeedreamImageSize(value) {
 }
 
 async function ensurePublicUrlForUserAsset(db, userAsset) {
-  if (isPublicHttpUrl(userAsset.publicUrl) && (!localPublicAssetStorageEnabled() || !userAsset.localUrl)) return userAsset;
-  const localPublicUrl = publicUrlForAssetPath(userAsset.localUrl);
+  const needsObjectMirror = objectStorageEnabled() && Boolean(userAsset.localUrl) && !userAssetHasConfiguredObjectStorageMirror(userAsset);
+  if (isPublicHttpUrl(userAsset.publicUrl) && !needsObjectMirror) return userAsset;
+  const localPublicUrl = !objectStorageEnabled() ? publicUrlForAssetPath(userAsset.localUrl) : "";
   if (localPublicUrl) {
     userAsset.publicUrl = localPublicUrl;
     userAsset.updatedAt = new Date().toISOString();
@@ -13356,7 +13226,7 @@ async function ensurePublicUrlForUserAsset(db, userAsset) {
 
   const localPath = path.join(ROOT, userAsset.localUrl.replace(/^\//, ""));
   const bytes = await fs.readFile(localPath);
-  const uploaded = await uploadBufferToTos({
+  const uploaded = await uploadBufferToR2({
     userId: userAsset.userId,
     assetId: `${userAsset.id}-apiz`,
     bytes,
@@ -13364,7 +13234,8 @@ async function ensurePublicUrlForUserAsset(db, userAsset) {
   });
 
   userAsset.publicUrl = uploaded.publicUrl;
-  userAsset.publicTosKey = uploaded.key;
+  userAsset.objectStorageKey = uploaded.key;
+  userAsset.r2Key = uploaded.key;
   userAsset.publicUploadedAt = new Date().toISOString();
   if (dbEnabled()) await upsertUserAssetInDb(userAsset);
   else await writeDb(db);
@@ -13493,7 +13364,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     key: userAssetObjectStorageKey(userAsset),
   };
   if (objectStorageEnabled() && (assetType === "Video" || !userAssetHasConfiguredObjectStorageMirror(userAsset))) {
-    uploaded = await uploadBufferToTos({
+    uploaded = await uploadBufferToR2({
       userId: userAsset.userId,
       assetId: `${userAsset.id}-seedance`,
       bytes,
@@ -13501,7 +13372,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
       extension: path.extname(localPath),
     });
   } else if (!uploaded.publicUrl) {
-    uploaded = await uploadBufferToTos({
+    uploaded = await uploadBufferToR2({
       userId: userAsset.userId,
       assetId: userAsset.id,
       bytes,
@@ -13534,11 +13405,11 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     userAsset.assetUri = `asset://${assetId}`;
   }
   userAsset.publicUrl = uploaded.publicUrl;
-  userAsset.tosKey = uploaded.key;
+  userAsset.r2Key = uploaded.key;
   if (uploaded.key) {
     userAsset.cdnUrl = uploaded.publicUrl || userAsset.cdnUrl || "";
     userAsset.objectStorageKey = uploaded.key;
-    userAsset.publicTosKey = uploaded.key;
+    userAsset.r2Key = uploaded.key;
     userAsset.objectStorageError = "";
     userAsset.publicUploadedAt = new Date().toISOString();
   }
@@ -13582,9 +13453,9 @@ async function ensureSyntheticReferenceForUserAsset(db, userAsset) {
     syntheticReferencePrompt: prepared.syntheticReferencePrompt || userAsset.syntheticReferencePrompt || "",
     syntheticReferenceAssetUri: prepared.referenceAssetUri || userAsset.syntheticReferenceAssetUri || "",
     syntheticReferencePublicUrl: prepared.publicImageUrl || userAsset.syntheticReferencePublicUrl || "",
-    syntheticReferenceTosKey: prepared.tosKey || userAsset.syntheticReferenceTosKey || "",
+    syntheticReferenceR2Key: prepared.r2Key || userAsset.syntheticReferenceR2Key || "",
     sourcePublicUrl: prepared.sourcePublicUrl || userAsset.sourcePublicUrl || "",
-    sourceTosKey: prepared.sourceTosKey || userAsset.sourceTosKey || "",
+    sourceR2Key: prepared.sourceR2Key || userAsset.sourceR2Key || "",
     updatedAt: new Date().toISOString(),
   };
 
@@ -14735,7 +14606,7 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
     localPosterUrl = poster.localPosterUrl || localPosterUrl;
   }
   if (objectStorageEnabled() && (!cdnVideoUrl || (localPosterPath && !cdnPosterUrl))) {
-    const cdn = await uploadGeneratedMediaToTos({ taskId: record.taskId, localVideoPath, localPosterPath });
+    const cdn = await uploadGeneratedMediaToObjectStorage({ taskId: record.taskId, localVideoPath, localPosterPath });
     cdnVideoUrl = cdn.cdnVideoUrl || cdnVideoUrl;
     cdnPosterUrl = cdn.cdnPosterUrl || cdnPosterUrl;
     cdnError = cdn.cdnError || cdnError;
@@ -15327,7 +15198,7 @@ async function createGeneratedVideoPoster(taskId, videoPath) {
   return captured ? { localPosterPath, localPosterUrl } : { localPosterPath: "", localPosterUrl: "" };
 }
 
-async function uploadGeneratedMediaToTos({ taskId, localVideoPath, localPosterPath = "" } = {}) {
+async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, localPosterPath = "" } = {}) {
   const result = { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
   if (!objectStorageEnabled()) return result;
   try {
@@ -15335,7 +15206,7 @@ async function uploadGeneratedMediaToTos({ taskId, localVideoPath, localPosterPa
       const videoBytes = await fs.readFile(localVideoPath);
       const videoExt = path.extname(localVideoPath) || ".mp4";
       const videoUpload = await uploadStaticAssetToObjectStorage({
-        key: tosStorageKey("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
+        key: objectStoragePath("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
         bytes: videoBytes,
         mime: videoMimeFromPath(localVideoPath),
       });
@@ -15344,7 +15215,7 @@ async function uploadGeneratedMediaToTos({ taskId, localVideoPath, localPosterPa
     if (localPosterPath) {
       const posterBytes = await fs.readFile(localPosterPath);
       const posterUpload = await uploadStaticAssetToObjectStorage({
-        key: tosStorageKey("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
+        key: objectStoragePath("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
         bytes: posterBytes,
         mime: "image/jpeg",
       });
@@ -15422,7 +15293,7 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
   const bytes = Buffer.from(await response.arrayBuffer());
   await fs.writeFile(localVideoPath, bytes);
   const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
-  const cdn = await uploadGeneratedMediaToTos({
+  const cdn = await uploadGeneratedMediaToObjectStorage({
     taskId,
     localVideoPath,
     localPosterPath: poster.localPosterPath,
@@ -15456,7 +15327,7 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png") {
   if (objectStorageEnabled()) {
     try {
       const upload = await uploadStaticAssetToObjectStorage({
-        key: tosStorageKey("generated", "images", fileName),
+        key: objectStoragePath("generated", "images", fileName),
         bytes,
         mime: imageMime,
       });
@@ -15964,7 +15835,7 @@ async function composeVideoToolSegments(taskId, inputPaths = []) {
     await fs.rm(listPath, { force: true }).catch(() => {});
   }
   const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
-  const cdn = await uploadGeneratedMediaToTos({
+  const cdn = await uploadGeneratedMediaToObjectStorage({
     taskId,
     localVideoPath,
     localPosterPath: poster.localPosterPath,
@@ -16744,7 +16615,7 @@ async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } 
 
   if (objectStorageEnabled()) {
     try {
-      const baseKey = tosStorageKey("admin", "advanced-cases", safeId, Date.now());
+      const baseKey = objectStoragePath("admin", "advanced-cases", safeId, Date.now());
       const videoUpload = await uploadStaticAssetToObjectStorage({
         key: `${baseKey}${videoExt}`,
         bytes: videoDownload.bytes,
@@ -16834,7 +16705,7 @@ async function ingestPlatformTemplateMedia({ videoUrl, coverUrl = "", templateId
 
   if (objectStorageEnabled()) {
     try {
-      const baseKey = tosStorageKey("admin", "platform-templates", safeId, stamp);
+      const baseKey = objectStoragePath("admin", "platform-templates", safeId, stamp);
       const videoUpload = await uploadStaticAssetToObjectStorage({
         key: `${baseKey}${videoExt}`,
         bytes: videoDownload.bytes,
@@ -25444,8 +25315,7 @@ async function handleUploadVideoToolAsset(req, res) {
       publicUrl: objectStorage.publicUrl || publicUrlForAssetPath(localUrl),
       cdnUrl: objectStorage.publicUrl || "",
       objectStorageKey: objectStorage.key || "",
-      publicTosKey: objectStorage.key || "",
-      tosKey: objectStorage.key || "",
+      r2Key: objectStorage.key || "",
       objectStorageError: objectStorage.error || "",
       assetUri: "",
       width: imageDimensions?.width || 0,
@@ -27576,8 +27446,8 @@ async function ensureCharacterReferenceForRecord(record) {
     const sourceBytes = await fs.readFile(sourcePath);
     const localSourcePublicUrl = publicUrlForAssetPath(sourceUrl);
     let uploaded = { publicUrl: localSourcePublicUrl, key: "" };
-    if (!uploaded.publicUrl) {
-      uploaded = await uploadBufferToTos({
+    if (objectStorageEnabled()) {
+      uploaded = await uploadBufferToR2({
         userId: record.userId || "user",
         assetId: `${record.id}-source`,
         bytes: sourceBytes,
@@ -27613,7 +27483,7 @@ async function ensureCharacterReferenceForRecord(record) {
     record.localImageUrl = record.syntheticReferenceLocalUrl;
     record.imageMime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
     record.sourcePublicUrl = uploaded.publicUrl;
-    record.sourceTosKey = uploaded.key;
+    record.sourceR2Key = uploaded.key;
     record.status = "reference_ready";
     record.updatedAt = new Date().toISOString();
   }
@@ -27624,8 +27494,8 @@ async function ensureCharacterReferenceForRecord(record) {
   validateSeedanceImageBytes(refBytes, "Seedance character reference image");
   const localRefPublicUrl = publicUrlForAssetPath(localUrl);
   let uploadedRef = { publicUrl: localRefPublicUrl, key: "" };
-  if (!uploadedRef.publicUrl) {
-    uploadedRef = await uploadBufferToTos({
+  if (objectStorageEnabled()) {
+    uploadedRef = await uploadBufferToR2({
       userId: record.userId || "user",
       assetId: `${record.id}-ref`,
       bytes: refBytes,
@@ -27649,7 +27519,7 @@ async function ensureCharacterReferenceForRecord(record) {
 
   record.publicImageUrl = uploadedRef.publicUrl;
   record.referenceAssetUri = `asset://${assetId}`;
-  record.tosKey = uploadedRef.key;
+  record.r2Key = uploadedRef.key;
   record.updatedAt = new Date().toISOString();
   return record;
 }
@@ -28084,7 +27954,7 @@ async function handleStartMyCharacterMainVideo(req, res, characterId) {
     record.syntheticReferenceUrl = "";
     record.syntheticReferenceTaskId = "";
     record.publicImageUrl = "";
-    record.tosKey = "";
+    record.r2Key = "";
     record.error = "";
     const src = record.sourceImageUrl || record.localImageUrl || record.posterUrl;
     if (src) {
@@ -29287,7 +29157,7 @@ async function handleAdminRebuildHomeItemReference(req, res, itemId) {
         ...before,
         referenceAssetUri: "",
         publicImageUrl: "",
-        tosKey: "",
+        r2Key: "",
         syntheticReferenceLocalUrl: "",
         syntheticReferenceUrl: "",
         syntheticReferenceTaskId: "",
@@ -31711,6 +31581,7 @@ async function handleRequest(req, res) {
         aliyunConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ALIYUN_DASHSCOPE_API_KEY),
         wan30Configured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(ALIYUN_WAN30_API_KEY),
         generationConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(APIZ_API_KEY),
+        r2Configured: r2Enabled(),
         baseUrl: publicOriginFromRequest(req),
         toolVideoProvider: TOOL_VIDEO_PROVIDER,
         models: {

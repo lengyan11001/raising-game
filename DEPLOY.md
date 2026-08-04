@@ -96,6 +96,20 @@ Production systemd must load runtime secrets and per-site settings from:
 `raising-game-demo.service` must include `EnvironmentFile=/etc/raising-game-demo.env`.
 The local deploy helper checks this before restarting.
 
+## Object storage
+
+Production object storage is Cloudflare R2 only. Do not configure or restore a
+TOS fallback. Each site must use its own bucket and public base URL:
+
+- old site: `vipeak-media` via `https://media.123vips.com`
+- new2: `vipeak-media-667zui` via its dedicated R2 public domain
+
+Both environment files must define `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY`, `R2_REGION=auto`, `R2_BUCKET`, and
+`R2_PUBLIC_BASE_URL`. Remove every `TOS_*` entry. The fixed deploy helper rejects
+a deployment if R2 is incomplete, if TOS settings remain, or if new2 points at
+the old site's bucket/domain.
+
 From the local machine, use the helper only after pushing:
 
 ```powershell
