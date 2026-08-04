@@ -99,6 +99,9 @@ test("server applies media checks before upstream generation and mirrors tool up
   assert.match(server, /if \(wan30\) asset = await ensureWan30TosMirrorForUserMediaAsset\(db, asset\)/);
   assert.match(server, /userAsset\.wan30PublicUrl = uploaded\.publicUrl/);
   assert.match(server, /if \(!tosConfigured\(\) \|\| !userAsset\?\.localUrl\) return userAsset/);
+  assert.match(server, /return \{ \.\.\.userAsset, wan30RequestUrl: originUrl \}/);
+  assert.match(server, /firstPresent\(asset\.wan30RequestUrl, asset\.wan30PublicUrl\)/);
+  assert.doesNotMatch(server, /TOS upload failed: \$\{response\.status\} \$\{text\}/);
   assert.doesNotMatch(server, /publicOriginUrlForUpstreamAsset/);
   assert.match(server, /url = publicUrlForLocalAsset\(asset\)/);
   assert.match(server, /!userAssetHasConfiguredObjectStorageMirror\(userAsset\)/);

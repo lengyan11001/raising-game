@@ -9420,9 +9420,7 @@ async function uploadBufferToTos({ userId, assetId, bytes, mime, extension = "" 
   const response = await fetch(url, { method: "PUT", headers: auth.headers, body: bytes });
   const text = await response.text();
   if (!response.ok) {
-    const error = new Error(`TOS upload failed: ${response.status} ${text}`);
-    error.statusCode = 502;
-    throw error;
+    throw tosUploadError(response.status, text);
   }
 
   return {
@@ -9443,6 +9441,23 @@ async function uploadBufferDirectlyToTos({ userId, assetId, bytes, mime, extensi
 
 function tosConfigured() {
   return Boolean(TOS.accessKey && TOS.secretKey && TOS.endpoint && TOS.region && TOS.bucket && TOS.publicDomain);
+}
+
+function tosUploadError(status = 502, responseText = "") {
+  let payload = {};
+  try {
+    payload = JSON.parse(String(responseText || ""));
+  } catch {
+    payload = {};
+  }
+  const code = String(payload.Code || "TOSUploadFailed");
+  const message = String(payload.Message || "Object storage rejected the upload.");
+  const requestId = String(payload.RequestId || "");
+  const error = new Error(`TOS upload failed: ${Number(status) || 502} ${code}: ${message}${requestId ? ` (RequestId: ${requestId})` : ""}`);
+  error.statusCode = 502;
+  error.code = code;
+  error.requestId = requestId;
+  return error;
 }
 
 function tosEnabled() {
@@ -9476,7 +9491,7 @@ async function uploadStaticAssetToTos({ key, bytes, mime }) {
   const response = await fetch(url, { method: "PUT", headers: auth.headers, body: bytes });
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`TOS upload failed: ${response.status} ${text}`);
+    throw tosUploadError(response.status, text);
   }
   return {
     key,
@@ -13064,8 +13079,9 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
       imageMaxDimension: wan30 ? 8000 : SEEDANCE_IMAGE_DIMENSION_MAX,
     });
     if (wan30) asset = await ensureWan30TosMirrorForUserMediaAsset(db, asset);
-    url = wan30 && isPublicHttpUrl(asset.wan30PublicUrl)
-      ? asset.wan30PublicUrl
+    const wan30PublicUrl = firstPresent(asset.wan30RequestUrl, asset.wan30PublicUrl);
+    url = wan30 && isPublicHttpUrl(wan30PublicUrl)
+      ? wan30PublicUrl
       : publicUrlForLocalAsset(asset);
   }
   if (!url || !isPublicHttpUrl(url)) {
@@ -13249,13 +13265,21 @@ async function ensureWan30TosMirrorForUserMediaAsset(db, userAsset) {
 
   const localPath = localPathForUserAsset(userAsset);
   const bytes = await fs.readFile(localPath);
-  const uploaded = await uploadBufferDirectlyToTos({
-    userId: userAsset.userId,
-    assetId: `${userAsset.id}-wan30`,
-    bytes,
-    mime: userAsset.mime || "application/octet-stream",
-    extension: path.extname(localPath),
-  });
+  let uploaded;
+  try {
+    uploaded = await uploadBufferDirectlyToTos({
+      userId: userAsset.userId,
+      assetId: `${userAsset.id}-wan30`,
+      bytes,
+      mime: userAsset.mime || "application/octet-stream",
+      extension: path.extname(localPath),
+    });
+  } catch (error) {
+    const originUrl = absoluteUrlFromBase(userAsset.localUrl, configuredPublicBaseUrl());
+    if (!isPublicHttpUrl(originUrl)) throw error;
+    console.warn("[wan30-tos-mirror-failed]", userAsset.id, error.code || "TOSUploadFailed", error.requestId || "");
+    return { ...userAsset, wan30RequestUrl: originUrl };
+  }
   userAsset.wan30PublicUrl = uploaded.publicUrl;
   userAsset.wan30TosKey = uploaded.key;
   userAsset.wan30SourceSizeBytes = bytes.byteLength;
