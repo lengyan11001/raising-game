@@ -38,7 +38,6 @@ const {
   minimumImageTargetDimensions,
   pngBufferHasTransparency,
   referenceVideoDurationViolation,
-  upstreamAssetOriginUrl,
 } = require("./media-inputs");
 const {
   DEFAULT_TENANT_ID,
@@ -13036,7 +13035,7 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
       imageMinDimension: wan30 ? 240 : SEEDANCE_IMAGE_DIMENSION_MIN,
       imageMaxDimension: wan30 ? 8000 : SEEDANCE_IMAGE_DIMENSION_MAX,
     });
-    url = wan30 ? publicOriginUrlForUpstreamAsset(asset) : publicUrlForLocalAsset(asset);
+    url = publicUrlForLocalAsset(asset);
   }
   if (!url || !isPublicHttpUrl(url)) {
     const error = new Error(`${label} requires a public URL, uploaded file, or asset id.`);
@@ -13211,15 +13210,6 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
 function publicUrlForLocalAsset(asset = {}) {
   if (isPublicHttpUrl(asset.publicUrl)) return asset.publicUrl;
   return publicUrlForAssetPath(asset.localUrl);
-}
-
-function publicOriginUrlForUpstreamAsset(asset = {}) {
-  const updatedAt = Date.parse(String(asset.updatedAt || asset.createdAt || ""));
-  const version = Number.isFinite(updatedAt) && updatedAt > 0
-    ? updatedAt
-    : Number(asset.sizeBytes || 0) || 1;
-  return upstreamAssetOriginUrl(configuredPublicBaseUrl(), asset.localUrl, version)
-    || publicUrlForLocalAsset(asset);
 }
 
 async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
@@ -31524,7 +31514,6 @@ async function serveStatic(req, res, url) {
     (req.method === "GET" || req.method === "HEAD") &&
     pathname.startsWith("/assets/") &&
     !pathname.startsWith("/assets/generated/") &&
-    !url.searchParams.has("upstream_asset") &&
     !DISABLE_R2_STORAGE &&
     R2.publicDomain;
   if (shouldRedirectAssetToR2) {
