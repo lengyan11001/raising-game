@@ -9666,6 +9666,7 @@ function seedanceContentFromReferences({
   referenceVideoAssetUri = "",
   extraReferenceVideoAssetUris = [],
   referenceAudioAssetUris = [],
+  body = {},
 } = {}) {
   const content = [{ type: "text", text: String(prompt || "").trim() }];
   if (firstFrameAssetUri) {
@@ -18618,7 +18619,7 @@ function advancedRuntimeForProvider(provider, requestParams = {}) {
 function startAdvancedGenerationJob(job) {
   setImmediate(() => {
     runAdvancedGenerationJob(job).catch((error) => {
-      console.error("[advanced-generation-job-failed]", job.taskId, error.message || error);
+      console.error("[advanced-generation-job-failed]", job.taskId, error.stack || error.message || error);
     });
   });
 }
@@ -19313,7 +19314,7 @@ async function runAdvancedGenerationJob(job = {}) {
       ...fixedBilling,
     }, "advanced-submit");
   } catch (error) {
-    console.warn("[advanced-generation-job-error]", taskId, error.message || error);
+    console.warn("[advanced-generation-job-error]", taskId, error.stack || error.message || error);
     try {
       await updateGenerationRecord(taskId, {
         status: "failed",

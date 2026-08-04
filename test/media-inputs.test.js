@@ -87,6 +87,7 @@ test("every Seedance reference video is checked against the asset duration bound
 });
 
 test("server applies media checks before upstream generation and mirrors tool uploads", () => {
+  assert.match(server, /function seedanceContentFromReferences\(\{[\s\S]*?referenceAudioAssetUris = \[\],[\s\S]*?body = \{\},/);
   assert.match(server, /await validateSeedanceReferenceVideoDurationsForRequest\(\{ urls: pricingBody\.reference_videos \}\)/);
   assert.match(server, /referenceVideoAssets: seedanceVideoAssets/);
   assert.match(server, /const objectStorage = await uploadLocalAssetMirrorToObjectStorage\(\{ localUrl, bytes: mirrorBytes, mime \}\)/);
@@ -101,6 +102,7 @@ test("server applies media checks before upstream generation and mirrors tool up
   assert.doesNotMatch(server, /publicOriginUrlForUpstreamAsset/);
   assert.match(server, /url = publicUrlForLocalAsset\(asset\)/);
   assert.match(server, /!userAssetHasConfiguredObjectStorageMirror\(userAsset\)/);
+  assert.match(server, /\[advanced-generation-job-error\]", taskId, error\.stack \|\| error\.message/);
 });
 
 test("admin reference previews fall back from upstream asset URIs to playable video URLs", () => {
