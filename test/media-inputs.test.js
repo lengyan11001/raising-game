@@ -7,6 +7,7 @@ const test = require("node:test");
 const {
   minimumImageTargetDimensions,
   pngBufferHasTransparency,
+  publicUrlMatchesStorageBase,
   referenceVideoDurationViolation,
 } = require("../media-inputs");
 
@@ -51,6 +52,23 @@ test("PNG alpha channels and transparency chunks are detected without false posi
   assert.equal(pngBufferHasTransparency(transparentPalettePng), true);
 });
 
+test("object storage mirrors must belong to the currently configured public domain", () => {
+  assert.equal(
+    publicUrlMatchesStorageBase(
+      "https://cdn-video.51sux.com/seedance-assets/raising-game/users/reference.png",
+      "https://cdn-video.51sux.com",
+    ),
+    true,
+  );
+  assert.equal(
+    publicUrlMatchesStorageBase(
+      "https://media.123vips.com/assets/user-uploads/reference.png",
+      "https://cdn-video.51sux.com",
+    ),
+    false,
+  );
+});
+
 test("every Seedance reference video is checked against the asset duration bounds", () => {
   assert.equal(referenceVideoDurationViolation([
     { label: "Video 1", durationSeconds: 8 },
@@ -79,7 +97,7 @@ test("server applies media checks before upstream generation and mirrors tool up
   assert.match(server, /imageMinDimension: wan30 \? 240/);
   assert.doesNotMatch(server, /publicOriginUrlForUpstreamAsset/);
   assert.match(server, /url = publicUrlForLocalAsset\(asset\)/);
-  assert.match(server, /const needsObjectMirror = objectStorageEnabled\(\)/);
+  assert.match(server, /!userAssetHasConfiguredObjectStorageMirror\(userAsset\)/);
 });
 
 test("admin reference previews fall back from upstream asset URIs to playable video URLs", () => {

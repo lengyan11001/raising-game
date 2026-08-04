@@ -25,6 +25,19 @@ function pngBufferHasTransparency(bytes) {
   return false;
 }
 
+function publicUrlMatchesStorageBase(value = "", baseUrl = "") {
+  try {
+    const url = new URL(String(value || "").trim());
+    const base = new URL(String(baseUrl || "").trim());
+    const basePath = base.pathname.replace(/\/+$/, "");
+    return url.protocol === base.protocol
+      && url.host === base.host
+      && (!basePath || url.pathname === basePath || url.pathname.startsWith(`${basePath}/`));
+  } catch {
+    return false;
+  }
+}
+
 function minimumImageTargetDimensions(width, height, { minDimension = 300, maxDimension = 6000 } = {}) {
   const sourceWidth = finitePositiveNumber(width);
   const sourceHeight = finitePositiveNumber(height);
@@ -77,5 +90,6 @@ module.exports = {
   SEEDANCE_REFERENCE_VIDEO_MAX_SECONDS,
   minimumImageTargetDimensions,
   pngBufferHasTransparency,
+  publicUrlMatchesStorageBase,
   referenceVideoDurationViolation,
 };

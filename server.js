@@ -37,6 +37,7 @@ const {
   SEEDANCE_REFERENCE_VIDEO_MAX_SECONDS,
   minimumImageTargetDimensions,
   pngBufferHasTransparency,
+  publicUrlMatchesStorageBase,
   referenceVideoDurationViolation,
 } = require("./media-inputs");
 const {
@@ -8498,6 +8499,19 @@ function userAssetHasObjectStorageMirror(asset = {}) {
   return Boolean(userAssetObjectStorageKey(asset));
 }
 
+function configuredObjectStoragePublicDomain() {
+  if (r2Enabled()) return String(R2.publicDomain || "").trim();
+  if (tosEnabled()) return String(TOS.publicDomain || "").trim();
+  return "";
+}
+
+function userAssetHasConfiguredObjectStorageMirror(asset = {}) {
+  const publicDomain = configuredObjectStoragePublicDomain();
+  return userAssetHasObjectStorageMirror(asset)
+    && Boolean(publicDomain)
+    && [asset.publicUrl, asset.cdnUrl].some((value) => publicUrlMatchesStorageBase(value, publicDomain));
+}
+
 function normalizedImageTempPath(sourcePath = "") {
   const parsed = path.parse(sourcePath);
   const extension = [".jpg", ".jpeg", ".png", ".webp", ".bmp"].includes(parsed.ext.toLowerCase()) ? parsed.ext : ".png";
@@ -8602,7 +8616,7 @@ async function normalizeUserImageAssetForUpstream(db, userAsset, {
   const dimensionsChanged = normalized.changed
     || Number(storedDimensions?.width || 0) !== Number(normalized.dimensions.width || 0)
     || Number(storedDimensions?.height || 0) !== Number(normalized.dimensions.height || 0);
-  const needsObjectUpload = objectStorageEnabled() && (dimensionsChanged || !userAssetHasObjectStorageMirror(userAsset));
+  const needsObjectUpload = objectStorageEnabled() && (dimensionsChanged || !userAssetHasConfiguredObjectStorageMirror(userAsset));
   let uploaded = null;
   if (needsObjectUpload) {
     uploaded = await uploadBufferToTos({
@@ -13224,7 +13238,7 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
       maxDimension: imageMaxDimension,
     });
   }
-  const needsObjectMirror = objectStorageEnabled() && Boolean(userAsset.localUrl) && !userAssetHasObjectStorageMirror(userAsset);
+  const needsObjectMirror = objectStorageEnabled() && Boolean(userAsset.localUrl) && !userAssetHasConfiguredObjectStorageMirror(userAsset);
   if (isPublicHttpUrl(userAsset.publicUrl) && !needsObjectMirror) return userAsset;
   const localPublicUrl = !objectStorageEnabled() ? publicUrlForAssetPath(userAsset.localUrl) : "";
   if (localPublicUrl) {
@@ -13413,7 +13427,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     publicUrl: isPublicHttpUrl(userAsset.publicUrl) ? userAsset.publicUrl : localPublicUrl,
     key: userAssetObjectStorageKey(userAsset),
   };
-  if (objectStorageEnabled() && (assetType === "Video" || !userAssetHasObjectStorageMirror(userAsset))) {
+  if (objectStorageEnabled() && (assetType === "Video" || !userAssetHasConfiguredObjectStorageMirror(userAsset))) {
     uploaded = await uploadBufferToTos({
       userId: userAsset.userId,
       assetId: `${userAsset.id}-seedance`,
