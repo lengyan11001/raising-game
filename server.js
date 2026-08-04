@@ -11182,7 +11182,13 @@ function normalizeWan27Task(raw = {}) {
   };
 }
 
-async function aliyunDashscopeRequest(pathname, { method = "POST", body = null, asyncTask = false, provider = "wan27" } = {}) {
+async function aliyunDashscopeRequest(pathname, {
+  method = "POST",
+  body = null,
+  asyncTask = false,
+  provider = "wan27",
+  timeoutMs = 0,
+} = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const wan30 = normalizedProvider === "wan30" || String(provider || "").toLowerCase() === "aliyun-wan30";
   const baseUrl = wan30 ? ALIYUN_WAN30_BASE_URL : ALIYUN_DASHSCOPE_BASE_URL;
@@ -11193,33 +11199,52 @@ async function aliyunDashscopeRequest(pathname, { method = "POST", body = null, 
     error.code = wan30 ? "MISSING_ALIYUN_WAN30_API_KEY" : "MISSING_ALIYUN_DASHSCOPE_API_KEY";
     throw error;
   }
-  const response = await fetch(`${baseUrl}${pathname}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${apiKey}`,
-      accept: "application/json",
-      ...(body ? { "content-type": "application/json" } : {}),
-      ...(body && ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ? { "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER } : {}),
-      ...(asyncTask ? { "X-DashScope-Async": "enable" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(180000),
-  });
-  const text = await response.text();
-  let payload = {};
-  try {
-    payload = text ? JSON.parse(text) : {};
-  } catch {
-    payload = { text };
+  const normalizedMethod = String(method || "POST").toUpperCase();
+  const queryRequest = normalizedMethod === "GET";
+  const maxAttempts = queryRequest ? 2 : 1;
+  const requestTimeoutMs = Math.max(5000, Number(timeoutMs || (queryRequest ? 20000 : 180000)) || 180000);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(`${baseUrl}${pathname}`, {
+        method: normalizedMethod,
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          accept: "application/json",
+          ...(body ? { "content-type": "application/json" } : {}),
+          ...(body && ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER ? { "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER } : {}),
+          ...(asyncTask ? { "X-DashScope-Async": "enable" } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(requestTimeoutMs),
+      });
+      const text = await response.text();
+      let payload = {};
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch {
+        payload = { text };
+      }
+      if (!response.ok || payload.code >= 400) {
+        const error = new Error(payload.message || payload.error?.message || payload.output?.message || `Alibaba video request failed: ${response.status}`);
+        error.statusCode = response.status || 502;
+        error.payload = payload;
+        error.code = payload.code || payload.error?.code || "";
+        error.retryable = queryRequest && (response.status === 429 || response.status >= 500);
+        throw error;
+      }
+      return payload;
+    } catch (error) {
+      lastError = error;
+      const transientNetworkError = queryRequest
+        && !error.statusCode
+        && /fetch failed|timeout|timed out|abort|econn|network|socket|dns/i.test(String(error.message || error));
+      if (attempt >= maxAttempts || (!error.retryable && !transientNetworkError)) throw error;
+      await delay(800 * attempt);
+    }
   }
-  if (!response.ok || payload.code >= 400) {
-    const error = new Error(payload.message || payload.error?.message || payload.output?.message || `Alibaba video request failed: ${response.status}`);
-    error.statusCode = response.status || 502;
-    error.payload = payload;
-    error.code = payload.code || payload.error?.code || "";
-    throw error;
-  }
-  return payload;
+  throw lastError || new Error("Alibaba video request failed.");
 }
 
 function normalizeWan27MediaItem(item = {}) {
@@ -32566,7 +32591,7 @@ async function scanActiveGenerationRecords(reason = "timer") {
       .slice(0, GENERATION_ACTIVE_SCAN_BATCH_SIZE);
     if (!activeRecords.length) return;
     const refreshed = [];
-    for (const record of activeRecords) {
+    await Promise.all(activeRecords.map(async (record) => {
       try {
         const nextRecord = await refreshGenerationRecordStatus(record);
         if (nextRecord && nextRecord.status !== record.status) {
@@ -32575,7 +32600,7 @@ async function scanActiveGenerationRecords(reason = "timer") {
       } catch (error) {
         console.warn("[active-generation-record-refresh-failed]", record.taskId, error.message || error);
       }
-    }
+    }));
     if (refreshed.length) {
       console.log("[active-generation-records-refreshed]", { reason, count: refreshed.length, records: refreshed });
     }
