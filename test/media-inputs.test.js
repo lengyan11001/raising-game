@@ -109,6 +109,48 @@ test("server applies media checks before upstream generation and mirrors tool up
   assert.match(server, /\[advanced-generation-job-error\]", taskId, error\.stack \|\| error\.message/);
 });
 
+test("R2 failures are terminal and never silently fall back to the origin", () => {
+  assert.match(server, /async function uploadLocalAssetMirrorToObjectStorage[\s\S]*?const upload = await uploadStaticAssetToObjectStorage/);
+  assert.match(server, /R2 upload completed without a public URL/);
+  assert.doesNotMatch(server, /async function uploadLocalAssetMirrorToObjectStorage[\s\S]*?catch \(error\) \{[\s\S]*?publicUrl: ""/);
+  assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?const videoUpload = await uploadStaticAssetToObjectStorage/);
+  assert.match(server, /async function saveGeneratedImageFile[\s\S]*?const upload = await uploadStaticAssetToObjectStorage/);
+});
+
+test("new2 gateway preserves its own R2 URLs for every video provider", () => {
+  assert.match(server, /gatewayBody\.imageUrl = publicHttpUrlForUserAsset\(asset\)/);
+  assert.match(server, /gatewayBody\.preservePublicMediaUrls = true/);
+  assert.match(server, /gatewayBody\.referenceImageAssetUris = allImages/);
+  assert.match(server, /gatewayBody\.referenceVideoUrls = allVideos/);
+  assert.match(server, /gatewayBody\.referenceAudioUrls = allAudios/);
+  assert.match(server, /const entry = \{ url: publicUrl, fileName: asset\?\.name \|\| "" \}/);
+  assert.doesNotMatch(server, /gatewayBody\.firstFrameDataUrl = await dataUrlForUserAsset/);
+  assert.doesNotMatch(server, /gatewayBody\[`\$\{item\.key\}DataUrl`\] = await dataUrlForUserAsset/);
+  assert.doesNotMatch(server, /gatewayBody\.referenceVideoAssetIds = gatewayVideoIds/);
+});
+
+test("Seedance gateway URLs enter the upstream asset library without an old-site R2 copy", () => {
+  assert.match(server, /async function ensureSeedanceAssetUriForPublicUrl/);
+  assert.match(server, /URL: publicUrl,[\s\S]*?AssetType: normalizedType/);
+  assert.match(server, /ensureSeedanceAssetUriForPublicUrl\(uri, "Video"/);
+  assert.match(server, /ensureSeedanceAssetUriForPublicUrl\(uri, "Audio"/);
+  assert.match(server, /ensureSeedanceAssetUriForPublicUrl\(requestParams\.image_url, "Image"/);
+  assert.match(server, /provider: "seedance25",[\s\S]*?preservePublicMediaUrls: true/);
+  assert.doesNotMatch(server, /normalizeAdvancedProvider\(input\.provider \|\| ""\) === "wan30" && url/);
+});
+
+test("Seedance 2.5 and Seedream use the gateway without copying new2 media into the old bucket", () => {
+  assert.match(server, /if \(!USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY\)/);
+  assert.match(server, /record\.provider === "seedance25" && record\.upstreamSource !== "gateway"/);
+  assert.match(server, /provider: "seedance25",[\s\S]*?referenceImages: upstreamInput\.imageFiles\.map/);
+  assert.match(server, /if \(!USE_GATEWAY_UPSTREAM && !ARK_API_KEY\)/);
+  assert.match(server, /provider: "seedream5-image",[\s\S]*?referenceImages: referencePayloadUrls\.map/);
+  assert.match(server, /const publicInputs = preservePublicMediaUrls[\s\S]*?createSeedream5ImageAssetUrisFromUrls\(publicInputs/);
+  assert.match(server, /record\.referenceAssetUri = publicUrl/);
+  assert.match(server, /gatewayBody\.imageUrl = publicInputImageUrl/);
+  assert.doesNotMatch(server, /gatewayBody\.dataUrl = await dataUrlForUserAsset/);
+});
+
 test("admin reference previews fall back from upstream asset URIs to playable video URLs", () => {
   assert.match(admin, /const candidates = \[asset\.videoUrl, asset\.url, asset\.localUrl, asset\.publicUrl\]/);
   assert.match(admin, /candidates\.find\(\(url\) => isPreviewableVideoUrl\(url\)\)/);

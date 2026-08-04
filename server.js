@@ -8903,7 +8903,13 @@ async function createUserMediaAssetFromBytes(db, user, { bytes, mime, name = "Up
   const imageDimensions = mime.startsWith("image/") ? imageDimensionsFromBuffer(bytes) : null;
   const videoDimensions = mime.startsWith("video/") ? await probeLocalVideoDimensions(localPath) : null;
   const localUrl = `/assets/user-uploads/${user.id}/${storedFileName}`;
-  const objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
+  let objectStorage;
+  try {
+    objectStorage = await uploadLocalAssetMirrorToObjectStorage({ localUrl, bytes, mime });
+  } catch (error) {
+    await fs.rm(localPath, { force: true }).catch(() => {});
+    throw error;
+  }
   const displayName = String(fileName || name || "Upload")
     .split(/[\\/]/)
     .pop()
@@ -9381,19 +9387,31 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
   requireValue("R2_BUCKET", R2.bucket);
   requireValue("R2_PUBLIC_BASE_URL", R2.publicDomain);
 
-  const auth = makeR2Auth({ method: "PUT", key, body: bytes, contentType: mime || "application/octet-stream" });
-  const response = await fetch(auth.url, { method: "PUT", headers: auth.headers, body: bytes });
-  const text = await response.text();
-  if (!response.ok) {
-    const error = new Error(`R2 upload failed: ${response.status} ${text}`);
-    error.statusCode = 502;
-    throw error;
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const auth = makeR2Auth({ method: "PUT", key, body: bytes, contentType: mime || "application/octet-stream" });
+      const response = await fetch(auth.url, { method: "PUT", headers: auth.headers, body: bytes });
+      const text = await response.text();
+      if (response.ok) {
+        return {
+          key,
+          r2Url: auth.url,
+          publicUrl: `${R2.publicDomain.replace(/\/$/, "")}/${key}`,
+        };
+      }
+      const error = new Error(`R2 upload failed: ${response.status} ${text}`);
+      error.statusCode = 502;
+      error.retryable = response.status === 429 || response.status >= 500;
+      lastError = error;
+      if (attempt >= 3 || !error.retryable) throw error;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= 3 || error.retryable === false || (error.statusCode && error.statusCode !== 502)) throw error;
+    }
+    await delay(500 * attempt);
   }
-  return {
-    key,
-    r2Url: auth.url,
-    publicUrl: `${R2.publicDomain.replace(/\/$/, "")}/${key}`,
-  };
+  throw lastError || new Error("R2 upload failed.");
 }
 
 async function uploadStaticAssetToObjectStorage({ key, bytes, mime }) {
@@ -9410,12 +9428,42 @@ async function uploadLocalAssetMirrorToObjectStorage({ localUrl = "", bytes, mim
   if (!objectStorageEnabled()) return { publicUrl: "", key: "", error: "" };
   const key = localAssetMirrorKey(localUrl);
   if (!key) return { publicUrl: "", key: "", error: "" };
-  try {
-    const upload = await uploadStaticAssetToObjectStorage({ key, bytes, mime });
-    return { publicUrl: upload.publicUrl || "", key: upload.key || key, error: "" };
-  } catch (error) {
-    return { publicUrl: "", key, error: error.message || "Object storage upload failed" };
+  const upload = await uploadStaticAssetToObjectStorage({ key, bytes, mime });
+  if (!upload.publicUrl) {
+    const error = new Error("R2 upload completed without a public URL.");
+    error.statusCode = 502;
+    error.code = "R2_PUBLIC_URL_MISSING";
+    throw error;
   }
+  return { publicUrl: upload.publicUrl, key: upload.key || key, error: "" };
+}
+
+async function publishLocalAssetUrlToObjectStorage(localUrl = "") {
+  const value = String(localUrl || "").trim();
+  if (!value.startsWith("/assets/")) {
+    const error = new Error("Only local asset URLs can be published to R2.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const localPath = path.resolve(ROOT, value.replace(/^\/+/, ""));
+  const relative = path.relative(path.resolve(ROOT), localPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    const error = new Error("Asset path is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const bytes = await fs.readFile(localPath);
+  const mime = imageMimeFromKnownPath(localPath)
+    || videoMimeFromKnownPath(localPath)
+    || audioMimeFromKnownPath(localPath)
+    || "application/octet-stream";
+  const mirror = await uploadLocalAssetMirrorToObjectStorage({ localUrl: value, bytes, mime });
+  if (objectStorageEnabled() && !mirror.publicUrl) {
+    const error = new Error("Asset could not be published to R2.");
+    error.statusCode = 502;
+    throw error;
+  }
+  return mirror.publicUrl || publicUrlForAssetPath(value);
 }
 
 function makeHomeSyntheticReferencePrompt(item = {}) {
@@ -12184,15 +12232,15 @@ function seedanceReferenceAssetUrisFromBody(body = {}) {
     ...arrayFromBody(body.reference_images),
   ].map((item) => (
       typeof item === "string"
-        ? (item.trim().startsWith("asset://") ? item : "")
+        ? ((item.trim().startsWith("asset://") || isPublicHttpUrl(item.trim())) ? item : "")
         : (item?.assetId || item?.userAssetId || item?.imageAssetId
           ? ""
-          : String(item?.assetUri || item?.referenceAssetUri || item?.seedanceAssetUri || ""))
+          : String(item?.assetUri || item?.referenceAssetUri || item?.seedanceAssetUri || item?.url || item?.imageUrl || ""))
     )).map((item) => String(item || "").trim()).filter(Boolean);
   const inputs = [...explicitInputs, ...referenceImageInputs];
-  const invalid = inputs.find((uri) => !uri.startsWith("asset://"));
+  const invalid = inputs.find((uri) => !uri.startsWith("asset://") && !isPublicHttpUrl(uri));
   if (invalid) {
-    const error = new Error("Seedance reference assetUri must start with asset://.");
+    const error = new Error("Seedance reference media must use asset:// or a public http(s) URL.");
     error.statusCode = 400;
     throw error;
   }
@@ -12934,14 +12982,6 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
       error.statusCode = 404;
       throw error;
     }
-  } else if (normalizeAdvancedProvider(input.provider || "") === "wan30" && url) {
-    asset = await createUserMediaAssetFromPublicUrl(db, user, {
-      url,
-      fileName: input.fileName || "",
-      name: label,
-      sourceUrl: url,
-      provider: "wan30",
-    });
   }
   if (asset) {
     validateWan27MediaKind(asset, input.mediaKind, label);
@@ -13207,6 +13247,44 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
   return userAsset;
 }
 
+async function ensureSeedanceGatewayPublicAsset(db, userAsset) {
+  if (!userAsset) return null;
+  const mime = String(userAsset.mime || "").toLowerCase();
+  if (mime.startsWith("image/")) {
+    await validateSeedanceImageAssetForRequest(db, userAsset, "Seedance gateway image");
+    return ensurePublicUrlForUserMediaAsset(db, userAsset);
+  }
+  if (mime.startsWith("video/")) {
+    const before = storedVideoDimensionsForAsset(userAsset);
+    const dimensions = await validateSeedanceVideoAssetForRequest(db, userAsset, "Seedance gateway video");
+    const dimensionsChanged = Number(before?.width || 0) !== Number(dimensions?.width || 0)
+      || Number(before?.height || 0) !== Number(dimensions?.height || 0);
+    if (dimensionsChanged || !userAssetHasConfiguredObjectStorageMirror(userAsset)) {
+      const localPath = localPathForUserAsset(userAsset);
+      const bytes = await fs.readFile(localPath);
+      const uploaded = await uploadBufferToR2({
+        userId: userAsset.userId,
+        assetId: `${userAsset.id}-seedance-gateway`,
+        bytes,
+        mime: userAsset.mime || videoMimeFromPath(localPath) || "video/mp4",
+        extension: path.extname(localPath),
+      });
+      userAsset.publicUrl = uploaded.publicUrl;
+      userAsset.cdnUrl = uploaded.publicUrl;
+      userAsset.objectStorageKey = uploaded.key;
+      userAsset.r2Key = uploaded.key;
+      userAsset.objectStorageError = "";
+      userAsset.publicUploadedAt = new Date().toISOString();
+      userAsset.updatedAt = userAsset.publicUploadedAt;
+      db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
+      if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+      else await writeDb(db);
+    }
+    return userAsset;
+  }
+  return ensurePublicUrlForUserMediaAsset(db, userAsset, { normalizeImage: false });
+}
+
 function normalizeSeedreamImageSize(value) {
   return APIZ_SEEDREAM_IMAGE_SIZES.has(value) ? value : "auto_3K";
 }
@@ -13316,6 +13394,36 @@ function seedanceAssetCacheField(userAsset = {}) {
   return "assetUri";
 }
 
+const SEEDANCE_PUBLIC_ASSET_URI_CACHE = new Map();
+
+async function ensureSeedanceAssetUriForPublicUrl(url = "", assetType = "Image", name = "reference") {
+  const publicUrl = publicHttpUrlForUpstream(url);
+  if (String(url || "").startsWith("asset://")) return String(url).trim();
+  if (!isPublicHttpUrl(publicUrl)) {
+    throw advancedValidationError("INVALID_SEEDANCE_ASSET_URL", "Seedance media must use a public http(s) URL.", { assetType });
+  }
+  const normalizedType = ["Image", "Video", "Audio"].includes(assetType) ? assetType : "Image";
+  const cacheKey = `${normalizedType}:${publicUrl}`;
+  if (SEEDANCE_PUBLIC_ASSET_URI_CACHE.has(cacheKey)) return SEEDANCE_PUBLIC_ASSET_URI_CACHE.get(cacheKey);
+  const created = await arkOpenApiAction("CreateAsset", {
+    GroupId: ARK_OPENAPI.groupId,
+    URL: publicUrl,
+    AssetType: normalizedType,
+    Moderation: { Strategy: "Skip" },
+    Name: storageObjectName("gateway", name),
+    ProjectName: ARK_OPENAPI.projectName,
+  });
+  const assetId = extractAssetId(created);
+  if (!assetId) {
+    const error = new Error(`CreateAsset did not return asset id: ${JSON.stringify(created)}`);
+    error.statusCode = 502;
+    throw error;
+  }
+  const assetUri = `asset://${assetId}`;
+  SEEDANCE_PUBLIC_ASSET_URI_CACHE.set(cacheKey, assetUri);
+  return assetUri;
+}
+
 async function ensureSeedanceAssetForUserAsset(db, userAsset) {
   const assetType = seedanceAssetTypeForUserAsset(userAsset);
   if (assetType === "Image") {
@@ -13379,30 +13487,18 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
       mime: userAsset.mime || "image/png",
     });
   }
-  const created = await arkOpenApiAction("CreateAsset", {
-    GroupId: ARK_OPENAPI.groupId,
-    URL: uploaded.publicUrl,
-    AssetType: assetType,
-    Moderation: { Strategy: "Skip" },
-    Name: storageObjectName("user", userAsset.id),
-    ProjectName: ARK_OPENAPI.projectName,
-  });
-  const assetId = extractAssetId(created);
-  if (!assetId) {
-    const error = new Error(`CreateAsset did not return asset id: ${JSON.stringify(created)}`);
-    error.statusCode = 502;
-    throw error;
-  }
+  const assetUri = await ensureSeedanceAssetUriForPublicUrl(uploaded.publicUrl, assetType, userAsset.id);
+  const assetId = assetUri.slice("asset://".length);
 
   if (assetType === "Video") {
     userAsset.seedanceVideoAssetId = assetId;
-    userAsset.seedanceVideoAssetUri = `asset://${assetId}`;
+    userAsset.seedanceVideoAssetUri = assetUri;
   } else if (assetType === "Audio") {
     userAsset.seedanceAudioAssetId = assetId;
-    userAsset.seedanceAudioAssetUri = `asset://${assetId}`;
+    userAsset.seedanceAudioAssetUri = assetUri;
   } else {
     userAsset.assetId = assetId;
-    userAsset.assetUri = `asset://${assetId}`;
+    userAsset.assetUri = assetUri;
   }
   userAsset.publicUrl = uploaded.publicUrl;
   userAsset.r2Key = uploaded.key;
@@ -14829,7 +14925,7 @@ async function refreshGenerationRecordStatus(record = {}) {
       return record;
     }
   }
-  if (record.provider === "seedance25") {
+  if (record.provider === "seedance25" && record.upstreamSource !== "gateway") {
     if (!SEEDANCE25_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
     try {
       return await refreshSeedance25GenerationRecord(record, "query");
@@ -15201,28 +15297,24 @@ async function createGeneratedVideoPoster(taskId, videoPath) {
 async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, localPosterPath = "" } = {}) {
   const result = { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
   if (!objectStorageEnabled()) return result;
-  try {
-    if (localVideoPath) {
-      const videoBytes = await fs.readFile(localVideoPath);
-      const videoExt = path.extname(localVideoPath) || ".mp4";
-      const videoUpload = await uploadStaticAssetToObjectStorage({
-        key: objectStoragePath("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
-        bytes: videoBytes,
-        mime: videoMimeFromPath(localVideoPath),
-      });
-      result.cdnVideoUrl = videoUpload.publicUrl;
-    }
-    if (localPosterPath) {
-      const posterBytes = await fs.readFile(localPosterPath);
-      const posterUpload = await uploadStaticAssetToObjectStorage({
-        key: objectStoragePath("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
-        bytes: posterBytes,
-        mime: "image/jpeg",
-      });
-      result.cdnPosterUrl = posterUpload.publicUrl;
-    }
-  } catch (error) {
-    result.cdnError = error.message || "CDN upload failed";
+  if (localVideoPath) {
+    const videoBytes = await fs.readFile(localVideoPath);
+    const videoExt = path.extname(localVideoPath) || ".mp4";
+    const videoUpload = await uploadStaticAssetToObjectStorage({
+      key: objectStoragePath("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
+      bytes: videoBytes,
+      mime: videoMimeFromPath(localVideoPath),
+    });
+    result.cdnVideoUrl = videoUpload.publicUrl;
+  }
+  if (localPosterPath) {
+    const posterBytes = await fs.readFile(localPosterPath);
+    const posterUpload = await uploadStaticAssetToObjectStorage({
+      key: objectStoragePath("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
+      bytes: posterBytes,
+      mime: "image/jpeg",
+    });
+    result.cdnPosterUrl = posterUpload.publicUrl;
   }
   return result;
 }
@@ -15325,16 +15417,12 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png") {
     cdnError: "",
   };
   if (objectStorageEnabled()) {
-    try {
-      const upload = await uploadStaticAssetToObjectStorage({
-        key: objectStoragePath("generated", "images", fileName),
-        bytes,
-        mime: imageMime,
-      });
-      result.cdnImageUrl = upload.publicUrl || "";
-    } catch (error) {
-      result.cdnError = error.message || "CDN upload failed";
-    }
+    const upload = await uploadStaticAssetToObjectStorage({
+      key: objectStoragePath("generated", "images", fileName),
+      bytes,
+      mime: imageMime,
+    });
+    result.cdnImageUrl = upload.publicUrl || "";
   }
   return result;
 }
@@ -16614,26 +16702,22 @@ async function ingestAdvancedCaseMedia({ videoUrl, coverUrl = "", caseId = "" } 
   };
 
   if (objectStorageEnabled()) {
-    try {
-      const baseKey = objectStoragePath("admin", "advanced-cases", safeId, Date.now());
-      const videoUpload = await uploadStaticAssetToObjectStorage({
-        key: `${baseKey}${videoExt}`,
-        bytes: videoDownload.bytes,
-        mime: videoDownload.mime && videoDownload.mime.startsWith("video/") ? videoDownload.mime : videoMimeFromPath(videoName),
+    const baseKey = objectStoragePath("admin", "advanced-cases", safeId, Date.now());
+    const videoUpload = await uploadStaticAssetToObjectStorage({
+      key: `${baseKey}${videoExt}`,
+      bytes: videoDownload.bytes,
+      mime: videoDownload.mime && videoDownload.mime.startsWith("video/") ? videoDownload.mime : videoMimeFromPath(videoName),
+    });
+    result.cdnVideoUrl = videoUpload.publicUrl;
+    result.previewUrl = videoUpload.publicUrl;
+    if (coverBytes && localCoverUrl) {
+      const coverUpload = await uploadStaticAssetToObjectStorage({
+        key: `${baseKey}-cover${path.extname(coverPath) || ".jpg"}`,
+        bytes: coverBytes,
+        mime: coverMime || "image/jpeg",
       });
-      result.cdnVideoUrl = videoUpload.publicUrl;
-      result.previewUrl = videoUpload.publicUrl;
-      if (coverBytes && localCoverUrl) {
-        const coverUpload = await uploadStaticAssetToObjectStorage({
-          key: `${baseKey}-cover${path.extname(coverPath) || ".jpg"}`,
-          bytes: coverBytes,
-          mime: coverMime || "image/jpeg",
-        });
-        result.cdnCoverUrl = coverUpload.publicUrl;
-        result.coverUrl = coverUpload.publicUrl;
-      }
-    } catch (error) {
-      result.cdnError = error.message || "CDN upload failed";
+      result.cdnCoverUrl = coverUpload.publicUrl;
+      result.coverUrl = coverUpload.publicUrl;
     }
   }
 
@@ -16704,26 +16788,22 @@ async function ingestPlatformTemplateMedia({ videoUrl, coverUrl = "", templateId
   };
 
   if (objectStorageEnabled()) {
-    try {
-      const baseKey = objectStoragePath("admin", "platform-templates", safeId, stamp);
-      const videoUpload = await uploadStaticAssetToObjectStorage({
-        key: `${baseKey}${videoExt}`,
-        bytes: videoDownload.bytes,
-        mime: videoDownload.mime && videoDownload.mime.startsWith("video/") ? videoDownload.mime : videoMimeFromPath(videoName),
+    const baseKey = objectStoragePath("admin", "platform-templates", safeId, stamp);
+    const videoUpload = await uploadStaticAssetToObjectStorage({
+      key: `${baseKey}${videoExt}`,
+      bytes: videoDownload.bytes,
+      mime: videoDownload.mime && videoDownload.mime.startsWith("video/") ? videoDownload.mime : videoMimeFromPath(videoName),
+    });
+    result.cdnVideoUrl = videoUpload.publicUrl;
+    result.previewUrl = videoUpload.publicUrl;
+    if (coverBytes && localCoverUrl) {
+      const coverUpload = await uploadStaticAssetToObjectStorage({
+        key: `${baseKey}-cover${path.extname(coverPath) || ".jpg"}`,
+        bytes: coverBytes,
+        mime: coverMime || "image/jpeg",
       });
-      result.cdnVideoUrl = videoUpload.publicUrl;
-      result.previewUrl = videoUpload.publicUrl;
-      if (coverBytes && localCoverUrl) {
-        const coverUpload = await uploadStaticAssetToObjectStorage({
-          key: `${baseKey}-cover${path.extname(coverPath) || ".jpg"}`,
-          bytes: coverBytes,
-          mime: coverMime || "image/jpeg",
-        });
-        result.cdnCoverUrl = coverUpload.publicUrl;
-        result.coverUrl = coverUpload.publicUrl;
-      }
-    } catch (error) {
-      result.cdnError = error.message || "CDN upload failed";
+      result.cdnCoverUrl = coverUpload.publicUrl;
+      result.coverUrl = coverUpload.publicUrl;
     }
   }
 
@@ -17058,8 +17138,7 @@ async function gatewaySeedanceReferenceFromUri(uri = "", label = "Reference") {
   if (value.startsWith("asset://")) return { url: value, name: label };
   if (value.startsWith("/")) {
     const localPath = path.normalize(path.join(ROOT, value.replace(/^\/+/, "")));
-    const mime = imageMimeFromKnownPath(localPath) || videoMimeFromPath(localPath);
-    return { dataUrl: await dataUrlForLocalAssetUrl(value, mime), fileName: path.basename(localPath), name: label };
+    return { url: await publishLocalAssetUrlToObjectStorage(value), fileName: path.basename(localPath), name: label };
   }
   return { url: gatewayAbsoluteAssetUrl(value), name: label };
 }
@@ -17067,7 +17146,7 @@ async function gatewaySeedanceReferenceFromUri(uri = "", label = "Reference") {
 async function gatewaySeedanceVideoUrlFromUri(uri = "") {
   const value = String(uri || "").trim();
   if (!value) return "";
-  if (value.startsWith("/")) return publicUrlForAssetPath(value) || value;
+  if (value.startsWith("/")) return publishLocalAssetUrlToObjectStorage(value);
   return gatewayAbsoluteAssetUrl(value);
 }
 
@@ -17109,6 +17188,7 @@ async function gatewaySeedanceBodyFromReferences({
     seedanceMode: "reference_video",
     model: directPayload.model,
     parameters: {},
+    preservePublicMediaUrls: true,
   };
   ["seed", "web_search", "watermark", "draft", "service_tier", "fps", "camera_fixed"].forEach((field) => {
     if (directPayload[field] !== undefined) gatewayBody[field] = directPayload[field];
@@ -17130,7 +17210,10 @@ async function gatewaySeedanceBodyFromReferences({
     if (item) referenceImages.push(item);
   }
   if (referenceImages.length && !firstFrame && !lastFrame) {
-    gatewayBody.referenceImages = referenceImages.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+    gatewayBody.referenceImageAssetUris = referenceImages
+      .map((item) => item.url || "")
+      .filter(Boolean)
+      .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
     gatewayBody.seedanceMode = "reference_video";
   }
 
@@ -17736,13 +17819,14 @@ async function runPlatformGenerationJob(job = {}) {
     };
     if (USE_GATEWAY_UPSTREAM && userAssetId) {
       const db = await readDb();
-      const asset = (db.userAssets || []).find((entry) => entry.id === userAssetId && entry.userId === userId && !isSoftDeleted(entry));
+      let asset = (db.userAssets || []).find((entry) => entry.id === userAssetId && entry.userId === userId && !isSoftDeleted(entry));
       if (!asset) {
         const error = new Error("Reference image not found.");
         error.statusCode = 404;
         throw error;
       }
-      gatewayBody.dataUrl = await dataUrlForUserAsset(asset);
+      asset = await ensurePublicUrlForUserAsset(db, asset);
+      gatewayBody.imageUrl = publicHttpUrlForUserAsset(asset);
       gatewayBody.fileName = asset.name || "";
     } else if (userAssetId) {
       gatewayBody.userAssetId = userAssetId;
@@ -17978,6 +18062,8 @@ async function handlePlatformGenerate(req, res) {
         userAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
         imageUrl = userAsset.publicUrl;
       }
+    } else if (isPublicHttpUrl(body.imageUrl)) {
+      imageUrl = publicHttpUrlForUpstream(body.imageUrl);
     }
     if (!imageUrl) return sendJson(res, 400, { ok: false, message: "这个模板需要先上传一张图片。" });
   }
@@ -18206,8 +18292,28 @@ async function runSeedance25GenerationJob(job = {}) {
     await updateGenerationRecord(taskId, { status: "submitting", awaitingUpstreamTask: true, error: "" }, "seedance25-submitting");
     upstreamPayload = buildSeedance25TaskPayload(upstreamInput, SEEDANCE25_MODEL_ID);
     if (SEEDANCE25_INNER_MODEL_ID !== SEEDANCE25_INNER_MODEL) upstreamPayload.params.model = SEEDANCE25_INNER_MODEL_ID;
-    const raw = await seedance25Request("/api/v3/tasks/create", upstreamPayload);
-    const upstreamTaskId = apizTaskId(raw);
+    const gatewayBody = USE_GATEWAY_UPSTREAM ? {
+      provider: "seedance25",
+      prompt: upstreamInput.prompt,
+      functionMode: upstreamInput.mode,
+      seedanceMode: upstreamInput.mode,
+      resolution: upstreamInput.resolution,
+      ratio: upstreamInput.ratio,
+      duration: upstreamInput.duration,
+      seed: upstreamInput.seed,
+      referenceImages: upstreamInput.imageFiles.map((url) => ({ url })),
+      referenceVideoUrls: upstreamInput.videoFiles,
+      referenceAudioUrls: upstreamInput.audioFiles,
+      firstFrameUrl: upstreamInput.firstFrameUrl,
+      lastFrameUrl: upstreamInput.lastFrameUrl,
+      preservePublicMediaUrls: true,
+    } : null;
+    const submitted = USE_GATEWAY_UPSTREAM
+      ? await gatewaySubmitAdvancedTask(gatewayBody)
+      : await seedance25Request("/api/v3/tasks/create", upstreamPayload);
+    if (USE_GATEWAY_UPSTREAM) upstreamPayload = gatewayBody;
+    const raw = USE_GATEWAY_UPSTREAM ? submitted.raw || submitted : submitted;
+    const upstreamTaskId = USE_GATEWAY_UPSTREAM ? submitted.taskId : apizTaskId(raw);
     if (!upstreamTaskId) {
       const error = new Error("Seedance 2.5 service did not return a task id.");
       error.statusCode = 502;
@@ -18220,7 +18326,7 @@ async function runSeedance25GenerationJob(job = {}) {
       upstreamTaskId,
       awaitingUpstreamTask: false,
       provider: "seedance25",
-      upstreamSource: "apiz-seedance25",
+      upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25",
       upstreamModel: SEEDANCE25_MODEL_ID,
       source: "advanced-seedance25",
       model: "Seedance 2.5",
@@ -18242,7 +18348,7 @@ async function runSeedance25GenerationJob(job = {}) {
       status: "failed",
       awaitingUpstreamTask: false,
       provider: "seedance25",
-      upstreamSource: "apiz-seedance25",
+      upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25",
       source: "advanced-seedance25",
       model: "Seedance 2.5",
       mediaMode: upstreamInput?.mode || "",
@@ -18271,7 +18377,7 @@ function startSeedance25GenerationJob(job = {}) {
 
 async function handleAdvancedSeedance25Generate(req, res, context = {}) {
   const { auth, body, bodyParams, caseParams, selectedCase, config, prompt } = context;
-  if (!SEEDANCE25_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "SEEDANCE25_NOT_CONFIGURED", message: "Seedance 2.5 generation is not configured." });
   }
   const merged = mergedRequestForMedia(body, caseParams);
@@ -18431,7 +18537,7 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       awaitingUpstreamTask: true,
       model: "Seedance 2.5",
       provider: "seedance25",
-      upstreamSource: "apiz-seedance25",
+      upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25",
       source: "advanced-seedance25",
       kind: "advanced-video",
       templateId: selectedCase?.id || "",
@@ -18566,8 +18672,8 @@ async function runAdvancedGenerationJob(job = {}) {
   let referenceVideoAssetUri = "";
   let extraReferenceVideoAssetUris = [];
   let resolvedReferenceAudioAssetUris = [];
-  const directReferenceAssetUris = Array.isArray(referenceImageAssetUris)
-    ? [...new Set(referenceImageAssetUris.map((uri) => String(uri || "").trim()).filter((uri) => uri.startsWith("asset://")))]
+  let directReferenceAssetUris = Array.isArray(referenceImageAssetUris)
+    ? [...new Set(referenceImageAssetUris.map((uri) => String(uri || "").trim()).filter((uri) => uri.startsWith("asset://") || isPublicHttpUrl(uri)))]
     : [];
   let payload = null;
   let createResponse = null;
@@ -18587,6 +18693,16 @@ async function runAdvancedGenerationJob(job = {}) {
     useIgnexSeedance = provider === "seedance" && !USE_GATEWAY_UPSTREAM && seedanceIgnexEnabledForUser(jobUser);
     useExternalSeedanceHttp = useIgnexSeedance;
     upstreamSource = useIgnexSeedance ? "ignex" : (USE_GATEWAY_UPSTREAM ? "gateway" : "direct");
+    if (provider === "seedance" && !USE_GATEWAY_UPSTREAM && !useExternalSeedanceHttp) {
+      const preparedUris = [];
+      for (let index = 0; index < directReferenceAssetUris.length; index += 1) {
+        const uri = directReferenceAssetUris[index];
+        preparedUris.push(isPublicHttpUrl(uri)
+          ? await ensureSeedanceAssetUriForPublicUrl(uri, "Image", `reference-image-${index + 1}`)
+          : uri);
+      }
+      directReferenceAssetUris = [...new Set(preparedUris)];
+    }
     if (userAssetId) {
       userAsset = (db.userAssets || []).find((asset) => asset.id === userAssetId && asset.userId === userId && !isSoftDeleted(asset));
       if (!userAsset) {
@@ -18750,18 +18866,14 @@ async function runAdvancedGenerationJob(job = {}) {
           }
           continue;
         }
-        const urlAsset = await createSeedanceReferenceVideoAssetFromUrl(db, jobUser || { id: userId }, uri, index);
-        if (!urlAsset) {
+        if (!isPublicHttpUrl(uri)) {
           unresolvedReferenceVideoUris.push(uri);
           continue;
         }
-        const preparedVideo = await prepareSeedanceVideoAsset(db, urlAsset);
-        if (preparedVideo.asset?.id && preparedVideo.asset.id !== seedanceVideoAsset?.id && !extraSeedanceVideoAssets.some((asset) => asset?.id === preparedVideo.asset.id)) {
-          extraSeedanceVideoAssets.push(preparedVideo.asset);
-        }
-        if (preparedVideo.referenceAssetUri && preparedVideo.referenceAssetUri !== referenceVideoAssetUri && !extraReferenceVideoAssetUris.includes(preparedVideo.referenceAssetUri)) {
-          extraReferenceVideoAssetUris.push(preparedVideo.referenceAssetUri);
-          extraReferenceVideoUriQueue.push(preparedVideo.referenceAssetUri);
+        const preparedVideoUri = await ensureSeedanceAssetUriForPublicUrl(uri, "Video", `reference-video-${index + 1}`);
+        if (preparedVideoUri !== referenceVideoAssetUri && !extraReferenceVideoAssetUris.includes(preparedVideoUri)) {
+          extraReferenceVideoAssetUris.push(preparedVideoUri);
+          extraReferenceVideoUriQueue.push(preparedVideoUri);
         }
       }
       referenceVideoAssetUris = unresolvedReferenceVideoUris;
@@ -18780,14 +18892,11 @@ async function runAdvancedGenerationJob(job = {}) {
           remainingReferenceAudioUris.push(uri);
           continue;
         }
-        const urlAsset = await createSeedanceReferenceAudioAssetFromUrl(db, jobUser || { id: userId }, uri, index);
-        if (!urlAsset) {
+        if (!isPublicHttpUrl(uri)) {
           remainingReferenceAudioUris.push(uri);
           continue;
         }
-        if (!seedanceAudioAssets.some((asset) => asset?.id === urlAsset.id)) {
-          seedanceAudioAssets.push(urlAsset);
-        }
+        remainingReferenceAudioUris.push(await ensureSeedanceAssetUriForPublicUrl(uri, "Audio", `reference-audio-${index + 1}`));
       }
       referenceAudioAssetUris = remainingReferenceAudioUris;
       if (remainingReferenceAudioUris.length) requestParams.reference_audios = remainingReferenceAudioUris;
@@ -19045,19 +19154,22 @@ async function runAdvancedGenerationJob(job = {}) {
         const assetMap = new Map((dbForGateway.userAssets || []).map((asset) => [asset.id, asset]));
         const wan30References = { referenceImages: [], referenceVideos: [], referenceAudios: [] };
         for (const item of resolvedWan27Media) {
-          const asset = item.userAssetId ? assetMap.get(item.userAssetId) : null;
+          let asset = item.userAssetId ? assetMap.get(item.userAssetId) : null;
+          if (asset) asset = await ensurePublicUrlForUserMediaAsset(dbForGateway, asset, {
+            imageMinDimension: provider === "wan30" ? 240 : SEEDANCE_IMAGE_DIMENSION_MIN,
+            imageMaxDimension: provider === "wan30" ? 8000 : SEEDANCE_IMAGE_DIMENSION_MAX,
+          });
+          const publicUrl = asset ? publicHttpUrlForUserAsset(asset) : gatewayAbsoluteAssetUrl(item.url || "");
+          if (!isPublicHttpUrl(publicUrl)) {
+            throw advancedValidationError("GATEWAY_MEDIA_NOT_PUBLIC", "Gateway media could not be published to R2.", { key: item.key || "" });
+          }
           if (provider === "wan30") {
-            const dataUrl = asset ? await dataUrlForUserAsset(asset) : "";
-            const entry = dataUrl
-              ? { dataUrl, fileName: asset?.name || "" }
-              : { url: item.url || "", fileName: asset?.name || "" };
+            const entry = { url: publicUrl, fileName: asset?.name || "" };
             if (item.type === "first_frame") {
-              if (dataUrl) gatewayBody.firstFrameDataUrl = dataUrl;
-              else gatewayBody.firstFrameUrl = item.url;
+              gatewayBody.firstFrameUrl = publicUrl;
               gatewayBody.firstFrameFileName = asset?.name || "";
             } else if (item.type === "last_frame") {
-              if (dataUrl) gatewayBody.lastFrameDataUrl = dataUrl;
-              else gatewayBody.lastFrameUrl = item.url;
+              gatewayBody.lastFrameUrl = publicUrl;
               gatewayBody.lastFrameFileName = asset?.name || "";
             } else if (item.type === "reference_image") {
               wan30References.referenceImages.push(entry);
@@ -19068,12 +19180,8 @@ async function runAdvancedGenerationJob(job = {}) {
             }
             continue;
           }
-          if (asset) {
-            gatewayBody[`${item.key}DataUrl`] = await dataUrlForUserAsset(asset);
-            gatewayBody[`${item.key}FileName`] = asset.name || "";
-          } else if (item.url) {
-            gatewayBody[`${item.key}Url`] = item.url;
-          }
+          gatewayBody[`${item.key}Url`] = publicUrl;
+          if (asset?.name) gatewayBody[`${item.key}FileName`] = asset.name;
         }
         if (provider === "wan30") {
           Object.entries(wan30References).forEach(([key, value]) => {
@@ -19084,32 +19192,38 @@ async function runAdvancedGenerationJob(job = {}) {
         const dbForGateway = await readDb();
         const assetMap = new Map((dbForGateway.userAssets || []).map((asset) => [asset.id, asset]));
         const referenceImages = [];
-        const gatewayVideoIds = [];
+        const referenceVideos = [];
+        const referenceAudios = [];
         for (const item of seedanceMediaAssets) {
-          const asset = item.userAssetId ? assetMap.get(item.userAssetId) : null;
-          if (asset && item.type === "reference_video") {
-            gatewayVideoIds.push(asset.id);
-          } else if (asset && item.type === "image_url") {
-            gatewayBody.firstFrameDataUrl = await dataUrlForUserAsset(asset);
+          let asset = item.userAssetId ? assetMap.get(item.userAssetId) : null;
+          if (asset) asset = await ensureSeedanceGatewayPublicAsset(dbForGateway, asset);
+          let mediaUrl = asset
+            ? publicHttpUrlForUserAsset(asset)
+            : String(firstPresent(item.referenceAssetUri, item.imageUrl, item.videoUrl, item.audioUrl, "") || "").trim();
+          if (mediaUrl.startsWith("/")) mediaUrl = await publishLocalAssetUrlToObjectStorage(mediaUrl);
+          else if (mediaUrl && !mediaUrl.startsWith("asset://")) mediaUrl = gatewayAbsoluteAssetUrl(mediaUrl);
+          if (!mediaUrl) continue;
+          if (item.type === "reference_video") {
+            referenceVideos.push(mediaUrl);
+          } else if (item.type === "reference_audio") {
+            referenceAudios.push(mediaUrl);
+          } else if (item.type === "image_url") {
+            gatewayBody.firstFrameUrl = mediaUrl;
             gatewayBody.seedanceMode = seedanceMode || "first_frame";
-          } else if (asset && item.type === "end_image_url") {
-            gatewayBody.endImageDataUrl = await dataUrlForUserAsset(asset);
+          } else if (item.type === "end_image_url") {
+            gatewayBody.endImageUrl = mediaUrl;
             gatewayBody.seedanceMode = "first_last_frame";
-          } else if (asset) {
-            referenceImages.push({
-              dataUrl: await dataUrlForUserAsset(asset),
-              fileName: asset.name || "",
-              name: asset.name || "Reference",
-            });
+          } else {
+            referenceImages.push(mediaUrl);
           }
         }
-        if (gatewayVideoIds.length) {
-          gatewayBody.referenceVideoAssetId = gatewayVideoIds[0];
-          gatewayBody.referenceVideoAssetIds = gatewayVideoIds;
-        }
-        if (referenceVideoAssetUris.length) gatewayBody.referenceVideoUrls = referenceVideoAssetUris;
-        if (resolvedReferenceAudioAssetUris.length) gatewayBody.referenceAudios = resolvedReferenceAudioAssetUris;
-        if (referenceImages.length) gatewayBody.referenceImages = referenceImages;
+        gatewayBody.preservePublicMediaUrls = true;
+        const allImages = [...referenceImages, ...directReferenceAssetUris].filter((uri, index, list) => uri && list.indexOf(uri) === index);
+        const allVideos = [...referenceVideos, ...referenceVideoAssetUris].filter((uri, index, list) => uri && list.indexOf(uri) === index);
+        const allAudios = [...referenceAudios, ...resolvedReferenceAudioAssetUris].filter((uri, index, list) => uri && list.indexOf(uri) === index);
+        if (allImages.length) gatewayBody.referenceImageAssetUris = allImages.slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+        if (allVideos.length) gatewayBody.referenceVideoUrls = allVideos.slice(0, ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT);
+        if (allAudios.length) gatewayBody.referenceAudioUrls = allAudios.slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
       }
       task = await gatewaySubmitAdvancedTask(gatewayBody);
       payload = gatewayBody;
@@ -19132,13 +19246,19 @@ async function runAdvancedGenerationJob(job = {}) {
       createResponse = submitted.raw;
     } else {
       const submitSeedanceTask = useIgnexSeedance ? submitIgnexSeedanceVideoTask : submitSeedanceVideoTask;
+      const firstFrameForSubmit = !useExternalSeedanceHttp && isPublicHttpUrl(requestParams.image_url)
+        ? await ensureSeedanceAssetUriForPublicUrl(requestParams.image_url, "Image", "first-frame")
+        : requestParams.image_url || "";
+      const lastFrameForSubmit = !useExternalSeedanceHttp && isPublicHttpUrl(requestParams.end_image_url)
+        ? await ensureSeedanceAssetUriForPublicUrl(requestParams.end_image_url, "Image", "last-frame")
+        : requestParams.end_image_url || "";
       const submitted = await submitSeedanceTask({
         config,
         prompt,
         referenceAssetUri,
         extraReferenceAssetUris,
-        firstFrameAssetUri: seedanceImageUrl || requestParams.image_url || "",
-        lastFrameAssetUri: seedanceEndImageUrl || requestParams.end_image_url || "",
+        firstFrameAssetUri: seedanceImageUrl || firstFrameForSubmit,
+        lastFrameAssetUri: seedanceEndImageUrl || lastFrameForSubmit,
         referenceVideoAssetUri,
         extraReferenceVideoAssetUris: [...extraReferenceVideoAssetUris, ...referenceVideoAssetUris],
         referenceAudioAssetUris: resolvedReferenceAudioAssetUris,
@@ -20056,16 +20176,29 @@ async function createSeedream5ImageAssetUrisFromUrls(urls = [], { name = "Seedre
 
 async function prepareSeedream5ReferenceImages(db, user, body = {}) {
   const inputs = seedream5ReferenceInputsFromBody(body);
-  const assets = await createUserImageAssetsFromInputs(db, user, inputs, { name: "Seedream reference image" });
+  const preservePublicMediaUrls = boolFromRequest(body.preservePublicMediaUrls, false);
+  const publicInputs = preservePublicMediaUrls
+    ? inputs.map((item) => {
+        const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
+        return isPublicHttpUrl(value) ? publicHttpUrlForUpstream(value) : "";
+      }).filter(Boolean)
+    : [];
+  const localInputs = inputs.filter((item) => {
+    const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
+    return !preservePublicMediaUrls || !isPublicHttpUrl(value);
+  });
+  const assets = await createUserImageAssetsFromInputs(db, user, localInputs, { name: "Seedream reference image" });
   const preparedAssets = [];
-  const publicImageUrls = [];
+  const publicImageUrls = [...publicInputs];
   const upstreamImageAssetUris = [];
   for (const asset of assets) {
     validateWan27MediaKind(asset, "image", "Seedream reference image");
-    const prepared = await ensureSeedanceAssetForUserAsset(db, asset);
+    const prepared = USE_GATEWAY_UPSTREAM
+      ? await ensurePublicUrlForUserMediaAsset(db, asset)
+      : await ensureSeedanceAssetForUserAsset(db, asset);
     const publicUrl = publicUrlForLocalAsset(prepared);
     const assetUri = String(prepared.assetUri || "").trim();
-    if (!assetUri.startsWith("asset://")) {
+    if (!USE_GATEWAY_UPSTREAM && !assetUri.startsWith("asset://")) {
       throw advancedValidationError("SEEDREAM_REFERENCE_ASSET_UPLOAD_FAILED", "Failed to upload Seedream reference image to the upstream asset library.", { assetId: asset.id || "" });
     }
     if (publicUrl && !isPublicHttpUrl(publicUrl)) {
@@ -20073,7 +20206,10 @@ async function prepareSeedream5ReferenceImages(db, user, body = {}) {
     }
     preparedAssets.push(prepared);
     if (publicUrl) publicImageUrls.push(publicUrl);
-    upstreamImageAssetUris.push(assetUri);
+    if (assetUri) upstreamImageAssetUris.push(assetUri);
+  }
+  if (!USE_GATEWAY_UPSTREAM && publicInputs.length) {
+    upstreamImageAssetUris.push(...await createSeedream5ImageAssetUrisFromUrls(publicInputs, { name: "Seedream gateway reference image" }));
   }
   return {
     inputs,
@@ -20247,6 +20383,41 @@ async function runSeedream5ImageGenerationJob(job = {}) {
     upstreamPayload = payload;
     await upsertGenerationRecord({ taskId, upstreamPayload });
 
+    if (USE_GATEWAY_UPSTREAM) {
+      const gatewayBody = {
+        provider: "seedream5-image",
+        model,
+        prompt,
+        resolution,
+        size: resolution,
+        seedreamTier: tier,
+        referenceImages: referencePayloadUrls.map((url) => ({ url })),
+        preservePublicMediaUrls: true,
+        watermark: payload.watermark,
+        ...(outputFormat ? { output_format: outputFormat } : {}),
+        ...(optimizePromptOptions ? { optimize_prompt_options: optimizePromptOptions } : {}),
+        ...(sequentialValue ? { sequential_image_generation: sequentialValue } : {}),
+      };
+      const submitted = await gatewaySubmitAdvancedTask(gatewayBody);
+      if (!submitted.taskId) {
+        const error = new Error("Seedream gateway did not return a task id.");
+        error.statusCode = 502;
+        error.payload = submitted.raw || submitted;
+        throw error;
+      }
+      await upsertGenerationRecord({
+        taskId,
+        upstreamTaskId: submitted.taskId,
+        upstreamSource: "gateway",
+        awaitingUpstreamTask: true,
+        status: submitted.status || "submitted",
+        upstreamPayload: gatewayBody,
+        createResponse: submitted.raw || submitted,
+        error: "",
+      });
+      return;
+    }
+
     const raw = await submitSeedream5ImageGeneration(payload, taskId);
     const imageUrl = seedream5OutputImageUrls(raw)[0] || "";
     await upsertGenerationRecord({
@@ -20333,7 +20504,7 @@ function startSeedream5ImageGenerationJob(job = {}) {
 async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
   const auth = context.auth || await requireUser(req, res);
   if (!auth) return;
-  if (!ARK_API_KEY) {
+  if (!USE_GATEWAY_UPSTREAM && !ARK_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Seedream 5.0 Image generation is not configured." });
   }
   const body = context.body || await readJson(req);
@@ -20453,7 +20624,7 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
     source: "advanced-seedream5-image",
     kind: "advanced-image",
     provider: "seedream5-image",
-    upstreamSource: "direct",
+    upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
     userId: auth.user.id,
     userAssetIds: [],
     userAssetId: "",
@@ -20793,6 +20964,10 @@ async function handleAdvancedGenerate(req, res) {
   let seedanceMode = "";
   let seedanceFirstFrameAsset = null;
   let seedanceEndFrameAsset = null;
+  const preservePublicMediaUrls = boolFromRequest(firstPresent(
+    body.preservePublicMediaUrls,
+    bodyParams.preservePublicMediaUrls,
+  ), false);
   if (provider === "seedance") {
     seedanceMode = normalizeSeedanceMode(firstPresent(body.seedanceMode, body.vipeak2Mode, body.mediaMode, bodyParams.seedanceMode, bodyParams.vipeak2Mode, bodyParams.mediaMode, caseParams.seedanceMode, caseParams.vipeak2Mode, caseParams.mediaMode), mergedBody);
     requestParams.seedanceMode = seedanceMode;
@@ -20801,16 +20976,28 @@ async function handleAdvancedGenerate(req, res) {
       includeUserAssetId: seedanceModeNeedsFirstFrame(seedanceMode),
     });
     const endFrameInput = seedanceEndFrameInputFromBody(mergedBody);
+    const firstFramePublicUrl = preservePublicMediaUrls && isPublicHttpUrl(firstFrameInput?.url)
+      ? publicHttpUrlForUpstream(firstFrameInput.url)
+      : "";
+    const endFramePublicUrl = preservePublicMediaUrls && isPublicHttpUrl(endFrameInput?.url)
+      ? publicHttpUrlForUpstream(endFrameInput.url)
+      : "";
     if (seedanceModeNeedsFirstFrame(seedanceMode)) {
-      seedanceFirstFrameAsset = await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, firstFrameInput, { name: "Seedance first frame" });
-      const rawFirstFrameUrl = String(firstPresent(mergedBody.image_url, mergedBody.firstFrameRawUrl, "") || "").trim();
+      seedanceFirstFrameAsset = firstFramePublicUrl
+        ? null
+        : await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, firstFrameInput, { name: "Seedance first frame" });
+      const rawFirstFrameUrl = String(firstPresent(firstFramePublicUrl, mergedBody.image_url, mergedBody.firstFrameRawUrl, "") || "").trim();
+      if (rawFirstFrameUrl) requestParams.image_url = rawFirstFrameUrl;
       if (!seedanceFirstFrameAsset && !rawFirstFrameUrl) {
         return sendJson(res, 400, { ok: false, message: "Vipeak 2 image-to-video requires imageUrl, firstFrameUrl, imageAssetId, firstFrameAssetId, or dataUrl." });
       }
     }
     if (seedanceModeNeedsEndFrame(seedanceMode)) {
-      seedanceEndFrameAsset = await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, endFrameInput, { name: "Seedance end frame" });
-      const rawEndFrameUrl = String(firstPresent(mergedBody.end_image_url, mergedBody.endImageRawUrl, "") || "").trim();
+      seedanceEndFrameAsset = endFramePublicUrl
+        ? null
+        : await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, endFrameInput, { name: "Seedance end frame" });
+      const rawEndFrameUrl = String(firstPresent(endFramePublicUrl, mergedBody.end_image_url, mergedBody.endImageRawUrl, "") || "").trim();
+      if (rawEndFrameUrl) requestParams.end_image_url = rawEndFrameUrl;
       if (!seedanceEndFrameAsset && !rawEndFrameUrl) {
         return sendJson(res, 400, { ok: false, message: "Vipeak 2 first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl." });
       }
@@ -20869,7 +21056,22 @@ async function handleAdvancedGenerate(req, res) {
       requestParams.reference_audios = referenceAudioAssetUris;
     }
     const referenceInputs = seedanceReferenceInputsFromBody(mergedBody, { includeDataUrlFallback: !seedanceModeNeedsFirstFrame(seedanceMode) });
-    const createdReferenceAssets = await createUserImageAssetsFromInputs(auth.db, auth.user, referenceInputs, {
+    const publicReferenceImageUrls = preservePublicMediaUrls
+      ? referenceInputs.map((item) => {
+          const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
+          return isPublicHttpUrl(value) ? publicHttpUrlForUpstream(value) : "";
+        }).filter(Boolean)
+      : [];
+    if (publicReferenceImageUrls.length) {
+      referenceImageAssetUris = [...new Set([...referenceImageAssetUris, ...publicReferenceImageUrls])]
+        .slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+      requestParams.referenceImageAssetUris = referenceImageAssetUris;
+    }
+    const localReferenceInputs = referenceInputs.filter((item) => {
+      const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
+      return !preservePublicMediaUrls || !isPublicHttpUrl(value);
+    });
+    const createdReferenceAssets = await createUserImageAssetsFromInputs(auth.db, auth.user, localReferenceInputs, {
       name: selectedCase?.title || "Advanced reference",
     });
     if (createdReferenceAssets.length) {
@@ -27424,7 +27626,13 @@ async function runMyCharacterImageGenerationJob(job = {}) {
 }
 
 async function ensureCharacterReferenceForRecord(record) {
-  if (record.referenceAssetUri && (!localPublicAssetStorageEnabled() || isLocalPublicAssetUrl(record.publicImageUrl))) return record;
+  if (record.referenceAssetUri) {
+    const reusableGatewayReference = USE_GATEWAY_UPSTREAM
+      && (String(record.referenceAssetUri).startsWith("asset://") || publicUrlMatchesStorageBase(record.referenceAssetUri, R2.publicDomain));
+    const reusableDirectReference = !USE_GATEWAY_UPSTREAM
+      && (!localPublicAssetStorageEnabled() || isLocalPublicAssetUrl(record.publicImageUrl));
+    if (reusableGatewayReference || reusableDirectReference) return record;
+  }
   const sourceUrl = record.sourceImageUrl || record.localImageUrl || record.posterUrl;
   if (!sourceUrl || /^https?:\/\//i.test(sourceUrl)) {
     const error = new Error("Character image must be uploaded locally first before creating the upstream asset.");
@@ -27433,9 +27641,16 @@ async function ensureCharacterReferenceForRecord(record) {
   }
 
   if (USE_GATEWAY_UPSTREAM) {
-    const publicUrl = publicUrlForAssetPath(sourceUrl) || record.publicImageUrl || sourceUrl;
+    const publicUrl = sourceUrl.startsWith("/")
+      ? await publishLocalAssetUrlToObjectStorage(sourceUrl)
+      : publicHttpUrlForUpstream(record.publicImageUrl || sourceUrl);
+    if (!isPublicHttpUrl(publicUrl)) {
+      const error = new Error("Character reference could not be published to R2.");
+      error.statusCode = 502;
+      throw error;
+    }
     record.publicImageUrl = publicUrl;
-    record.referenceAssetUri = publicUrl || sourceUrl;
+    record.referenceAssetUri = publicUrl;
     record.status = record.status === "draft" || record.status === "image_uploaded" ? "reference_ready" : record.status;
     record.updatedAt = new Date().toISOString();
     return record;
@@ -30975,6 +31190,7 @@ async function handleCreateCharacterImage(req, res) {
   const body = await readJson(req);
   const config = await readAppConfig();
   let userAsset = null;
+  let publicInputImageUrl = "";
   if (body.dataUrl) {
     userAsset = await createUserAssetFromDataUrl(auth.db, auth.user, {
       dataUrl: body.dataUrl,
@@ -30983,6 +31199,8 @@ async function handleCreateCharacterImage(req, res) {
     });
   } else if (body.userAssetId) {
     userAsset = auth.db.userAssets.find((asset) => asset.id === body.userAssetId && asset.userId === auth.user.id);
+  } else if (isPublicHttpUrl(body.imageUrl)) {
+    publicInputImageUrl = publicHttpUrlForUpstream(body.imageUrl);
   }
   if (body.userAssetId && !userAsset) {
     return sendJson(res, 404, { ok: false, message: "User asset not found." });
@@ -30999,7 +31217,7 @@ async function handleCreateCharacterImage(req, res) {
     "Use a pure flat chroma green background (#00ff00) in every cell for clean cutout; no gradient, no studio backdrop, no floor line, no cast shadow touching the frame border, and do not use green anywhere on the character.",
     "Mature seductive fashion editorial pose, confident eye contact, fitted evening or club outfit, elegant and sensual but non-nude and non-explicit.",
   ].filter(Boolean).join(" ");
-  const model = userAsset ? config.characterImage.editModel : config.characterImage.textModel;
+  const model = userAsset || publicInputImageUrl ? config.characterImage.editModel : config.characterImage.textModel;
   const params = {
     prompt,
     image_size: normalizeSeedreamImageSize(config.characterImage.imageSize),
@@ -31011,6 +31229,9 @@ async function handleCreateCharacterImage(req, res) {
   if (userAsset) {
     const publicAsset = await ensurePublicUrlForUserAsset(auth.db, userAsset);
     params.image_urls = [publicAsset.publicUrl];
+    publicInputImageUrl = publicAsset.publicUrl;
+  } else if (publicInputImageUrl) {
+    params.image_urls = [publicInputImageUrl];
   }
 
   if (body.dryRun === true) {
@@ -31019,9 +31240,9 @@ async function handleCreateCharacterImage(req, res) {
 
   if (USE_GATEWAY_UPSTREAM) {
     const gatewayBody = { prompt };
-    if (userAsset) {
-      gatewayBody.dataUrl = await dataUrlForUserAsset(userAsset);
-      gatewayBody.fileName = userAsset.name || body.fileName || "";
+    if (publicInputImageUrl) {
+      gatewayBody.imageUrl = publicInputImageUrl;
+      gatewayBody.fileName = userAsset?.name || body.fileName || "";
     }
     const submitted = await gatewayRequest("POST", "/api/character-image", gatewayBody);
     return sendJson(res, 200, submitted);
