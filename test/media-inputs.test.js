@@ -95,6 +95,9 @@ test("server applies media checks before upstream generation and mirrors tool up
   assert.match(server, /flattenedTransparency: true/);
   assert.match(server, /format=rgb24/);
   assert.match(server, /imageMinDimension: wan30 \? 240/);
+  assert.match(server, /if \(wan30\) asset = await ensureWan30TosMirrorForUserMediaAsset\(db, asset\)/);
+  assert.match(server, /userAsset\.wan30PublicUrl = uploaded\.publicUrl/);
+  assert.match(server, /if \(!tosConfigured\(\) \|\| !userAsset\?\.localUrl\) return userAsset/);
   assert.doesNotMatch(server, /publicOriginUrlForUpstreamAsset/);
   assert.match(server, /url = publicUrlForLocalAsset\(asset\)/);
   assert.match(server, /!userAssetHasConfiguredObjectStorageMirror\(userAsset\)/);
