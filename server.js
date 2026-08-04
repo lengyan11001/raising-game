@@ -9432,9 +9432,22 @@ async function uploadBufferToTos({ userId, assetId, bytes, mime, extension = "" 
   };
 }
 
+async function uploadBufferDirectlyToTos({ userId, assetId, bytes, mime, extension = "" }) {
+  const fileName = `${storagePathSegment(assetId, "asset")}-${Date.now()}${extension || mediaExtFromMime(mime) || imageExtFromMime(mime)}`;
+  return uploadStaticAssetToTos({
+    key: tosStorageKey("users", userId, fileName),
+    bytes,
+    mime,
+  });
+}
+
+function tosConfigured() {
+  return Boolean(TOS.accessKey && TOS.secretKey && TOS.endpoint && TOS.region && TOS.bucket && TOS.publicDomain);
+}
+
 function tosEnabled() {
   if (DISABLE_TOS_STORAGE) return false;
-  return Boolean(TOS.accessKey && TOS.secretKey && TOS.endpoint && TOS.region && TOS.bucket && TOS.publicDomain);
+  return tosConfigured();
 }
 
 function r2Enabled() {
@@ -13049,7 +13062,10 @@ async function resolveAliyunVideoMediaInput({ db, user, input, label = "Media" }
       imageMinDimension: wan30 ? 240 : SEEDANCE_IMAGE_DIMENSION_MIN,
       imageMaxDimension: wan30 ? 8000 : SEEDANCE_IMAGE_DIMENSION_MAX,
     });
-    url = publicUrlForLocalAsset(asset);
+    if (wan30) asset = await ensureWan30TosMirrorForUserMediaAsset(db, asset);
+    url = wan30 && isPublicHttpUrl(asset.wan30PublicUrl)
+      ? asset.wan30PublicUrl
+      : publicUrlForLocalAsset(asset);
   }
   if (!url || !isPublicHttpUrl(url)) {
     const error = new Error(`${label} requires a public URL, uploaded file, or asset id.`);
@@ -13224,6 +13240,30 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
 function publicUrlForLocalAsset(asset = {}) {
   if (isPublicHttpUrl(asset.publicUrl)) return asset.publicUrl;
   return publicUrlForAssetPath(asset.localUrl);
+}
+
+async function ensureWan30TosMirrorForUserMediaAsset(db, userAsset) {
+  if (!tosConfigured() || !userAsset?.localUrl) return userAsset;
+  if (publicUrlMatchesStorageBase(userAsset.wan30PublicUrl, TOS.publicDomain)) return userAsset;
+
+  const localPath = localPathForUserAsset(userAsset);
+  const bytes = await fs.readFile(localPath);
+  const uploaded = await uploadBufferDirectlyToTos({
+    userId: userAsset.userId,
+    assetId: `${userAsset.id}-wan30`,
+    bytes,
+    mime: userAsset.mime || "application/octet-stream",
+    extension: path.extname(localPath),
+  });
+  userAsset.wan30PublicUrl = uploaded.publicUrl;
+  userAsset.wan30TosKey = uploaded.key;
+  userAsset.wan30SourceSizeBytes = bytes.byteLength;
+  userAsset.wan30UploadedAt = new Date().toISOString();
+  userAsset.updatedAt = userAsset.wan30UploadedAt;
+  db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
+  if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+  else await writeDb(db);
+  return userAsset;
 }
 
 async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
