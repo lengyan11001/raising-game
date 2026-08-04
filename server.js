@@ -16,6 +16,15 @@ const {
   officialSingaporePurchaseDetails,
 } = require("./aliyun-video");
 const {
+  SEEDANCE25_CNY_PER_POINT,
+  SEEDANCE25_CNY_PER_USD,
+  SEEDANCE25_INNER_MODEL,
+  SEEDANCE25_POINTS_PER_SECOND,
+  buildSeedance25TaskPayload,
+  normalizeSeedance25Mode,
+  purchaseSiteCreditsPerSecond: seedance25PurchaseSiteCreditsPerSecond,
+} = require("./seedance25");
+const {
   VIDEO_TOOL_FACE_SWAP_PROMPT,
   IMAGE_TOOL_FACE_SWAP_PROMPT,
   VIDEO_TOOL_UNDRESS_KEYFRAME_PROMPT,
@@ -299,6 +308,11 @@ const SEEDREAM5_IMAGE_IN_FLIGHT = new Map();
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
+const SEEDANCE25_API_BASE_URL = (process.env.SEEDANCE25_API_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
+const SEEDANCE25_API_KEY = String(process.env.SEEDANCE25_API_KEY || "").trim();
+const SEEDANCE25_MODEL_ID = String(process.env.SEEDANCE25_MODEL_ID || "st-ai/super-seed2-lite").trim();
+const SEEDANCE25_INNER_MODEL_ID = String(process.env.SEEDANCE25_INNER_MODEL || SEEDANCE25_INNER_MODEL).trim();
+const SEEDANCE25_TRANSFER_URL_CACHE = new Map();
 const APIZ_SEEDANCE_API_BASE_URL = "";
 const APIZ_SEEDANCE_API_KEY = "";
 const APIZ_SEEDANCE_MODEL_ID = "";
@@ -456,6 +470,10 @@ function defaultAliyunLegacySaleCreditsByModel() {
 const DEFAULT_ADVANCED_PRICING = {
   unit: "credits",
   creditsPerCny: ADVANCED_CREDITS_PER_CNY,
+  seedance25CreditsPerSecondByResolution: {
+    "480p": seedance25PurchaseSiteCreditsPerSecond("480p"),
+    "720p": seedance25PurchaseSiteCreditsPerSecond("720p"),
+  },
   seedanceCreditsPerSecondByResolution: {
     "480p": Math.ceil(ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND * 0.5),
     "720p": ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND,
@@ -1597,6 +1615,9 @@ function pricingNumber(value, fallback = 0, min = 0, digits = 4) {
 
 function normalizeAdvancedPricing(pricing = {}) {
   const source = pricing && typeof pricing === "object" && !Array.isArray(pricing) ? pricing : {};
+  const seedance25 = source.seedance25CreditsPerSecondByResolution && typeof source.seedance25CreditsPerSecondByResolution === "object"
+    ? source.seedance25CreditsPerSecondByResolution
+    : {};
   const seedance = source.seedanceCreditsPerSecondByResolution && typeof source.seedanceCreditsPerSecondByResolution === "object"
     ? source.seedanceCreditsPerSecondByResolution
     : {};
@@ -1641,9 +1662,15 @@ function normalizeAdvancedPricing(pricing = {}) {
   const creditsPerCny = hasLegacyCnyPricing
     ? ADVANCED_CREDITS_PER_CNY
     : pricingNumber(source.creditsPerCny, DEFAULT_ADVANCED_PRICING.creditsPerCny, 0.0001);
-  const normalizeStoredCredits = (value, fallback) => {
-    const normalized = pricingNumber(value, fallback);
-    return pricingNumber(normalized * legacyPricingScale, fallback);
+  const normalizeStoredCredits = (value, fallback, digits = 4) => {
+    const normalized = pricingNumber(value, fallback, 0, digits);
+    return pricingNumber(normalized * legacyPricingScale, fallback, 0, digits);
+  };
+  const normalizeSeedance25Credits = (value, fallback) => {
+    const numeric = Number(value);
+    const legacyRoundedDefault = pricingNumber(fallback, fallback);
+    const migratedValue = Number.isFinite(numeric) && numeric === legacyRoundedDefault ? fallback : value;
+    return normalizeStoredCredits(migratedValue, fallback, 6);
   };
   const imageResolutionValues = Array.isArray(wan27ImageSource.resolutions) && wan27ImageSource.resolutions.length
     ? wan27ImageSource.resolutions
@@ -1730,6 +1757,10 @@ function normalizeAdvancedPricing(pricing = {}) {
     creditsPerUsd: DEFAULT_CREDITS_PER_USD,
     internalCnyPerUsd: INTERNAL_CNY_PER_USD,
     usdBillingConfigured: true,
+    seedance25CreditsPerSecondByResolution: {
+      "480p": normalizeSeedance25Credits(seedance25["480p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["480p"]),
+      "720p": normalizeSeedance25Credits(seedance25["720p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["720p"]),
+    },
     seedanceCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedance["480p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]),
       "720p": normalizeStoredCredits(seedance["720p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"]),
@@ -5682,6 +5713,7 @@ function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
   if (isSeedream5ImageProvider(value)) return "seedream5-image";
+  if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return "happyhorse";
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "wan27";
@@ -5699,6 +5731,7 @@ function publicProviderId(value = "") {
   const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "";
   if (isSeedream5ImageProvider(raw)) return "seedream5-image";
+  if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return "happyhorse";
   if (isWan27ImageProvider(raw) || ["vipeak1image", "vp1image"].includes(normalized) || normalized.includes("wan27image") || normalized.includes("wan2.7image")) return "vipeak1-image";
@@ -5710,6 +5743,7 @@ function publicProviderId(value = "") {
 function publicProviderLabel(value = "") {
   const id = publicProviderId(value);
   if (id === "seedream5-image") return "Seedream 5.0 Image";
+  if (id === "seedance25") return "Seedance 2.5";
   if (id === "wan30") return "Wan 3.0";
   if (id === "happyhorse") return "HappyHorse";
   if (id === "vipeak1-image") return "Vipeak 1 Image";
@@ -5977,6 +6011,7 @@ function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
   if (isSeedream5ImageProvider(value)) return true;
+  if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return true;
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return true;
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return true;
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized)) return true;
@@ -5987,7 +6022,7 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance/vipeak2, or seedream5-image.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, or seedream5-image.", { provider: value });
   }
 }
 
@@ -6008,6 +6043,12 @@ function assertAdvancedDurationInput(provider = "seedance", value) {
 function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceTier = "standard" } = {}) {
   if (value === undefined || value === null || value === "") return;
   const raw = String(value || "").trim().toLowerCase();
+  if (normalizeAdvancedProvider(provider) === "seedance25") {
+    if (!["480p", "720p"].includes(raw)) {
+      throw advancedValidationError("INVALID_RESOLUTION", "Seedance 2.5 resolution must be 480p or 720p.", { resolution: value, allowed: ["480p", "720p"] });
+    }
+    return;
+  }
   if (normalizeAdvancedProvider(provider) === "wan30") {
     if (!["480p", "720p", "1080p"].includes(raw)) {
       throw advancedValidationError("INVALID_RESOLUTION", "Wan 3.0 resolution must be one of: 480P, 720P, 1080P.", { resolution: value, allowed: ["480P", "720P", "1080P"] });
@@ -6035,7 +6076,7 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
 
 function assertAdvancedRatioInput(value, provider = "seedance") {
   if (value === undefined || value === null || value === "") return;
-  if (normalizeAdvancedProvider(provider) === "wan30" && String(value || "").trim().toLowerCase() === "adaptive") return;
+  if (["wan30", "seedance25"].includes(normalizeAdvancedProvider(provider)) && String(value || "").trim().toLowerCase() === "adaptive") return;
   const normalized = String(value || "").trim().replace(/[锛歺X]/g, ":");
   if (!/^\d+\s*:\s*\d+$/.test(normalized)) {
     throw advancedValidationError("INVALID_RATIO", "ratio must use width:height format, for example 9:16, 16:9, or 1:1.", { ratio: value });
@@ -6397,6 +6438,7 @@ function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "seedream5-image") return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
+  if (normalizedProvider === "seedance25") return { fallback: 4, min: 4, max: 30 };
   if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
   return normalizedProvider === "wan27"
     ? { fallback: 5, min: 2, max: 15 }
@@ -6430,6 +6472,41 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
   if (normalizedProvider === "seedream5-image") {
     return seedream5ImagePricingEstimate(advancedPricing, options);
+  }
+  if (normalizedProvider === "seedance25") {
+    const mode = normalizeSeedance25Mode(firstPresent(options.functionMode, options.seedanceMode, options.mode));
+    const resolution = ["480p", "720p"].includes(String(options.resolution || "").toLowerCase())
+      ? String(options.resolution).toLowerCase()
+      : "480p";
+    const requestedDuration = clampNumber(options.duration ?? options.durationSeconds, 4, 4, 30);
+    const inputVideoSeconds = durationSecondsFromValue(firstPresent(
+      options.inputVideoSeconds,
+      options.videoInputSeconds,
+      options.referenceVideoDurationSeconds,
+    ));
+    const billingSeconds = mode === "edit" ? inputVideoSeconds : requestedDuration;
+    const configuredRates = advancedPricing.seedance25CreditsPerSecondByResolution || {};
+    const fallbackRates = DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution;
+    const creditsPerSecond = pricingNumber(configuredRates[resolution], fallbackRates[resolution], 0, 6);
+    const credits = creditsAmount(billingSeconds * creditsPerSecond);
+    return {
+      provider: "seedance25",
+      providerLabel: "Seedance 2.5",
+      model: "Seedance 2.5",
+      mode,
+      duration: mode === "edit" ? billingSeconds : requestedDuration,
+      requestedDuration: mode === "edit" ? null : requestedDuration,
+      inputVideoSeconds: mode === "edit" ? inputVideoSeconds : 0,
+      resolution,
+      ratio: mode === "omini" ? String(options.ratio || "1:1") : "adaptive",
+      creditsPerSecond,
+      outputCredits: credits,
+      inputVideoCredits: 0,
+      baseCredits: credits,
+      credits,
+      markup: 1,
+      source: "configured_seedance25_duration_rate",
+    };
   }
   if (isAliyunVideoProvider(normalizedProvider)) {
     const capability = normalizeAliyunVideoCapability(firstPresent(
@@ -9521,41 +9598,6 @@ function makeInteractiveSceneVideoPrompt(scene = {}, primaryName = "", partnerNa
   return [userPrompt || base, interaction].filter(Boolean).join(" ");
 }
 
-const DEFAULT_VIDEO_NEGATIVE_PROMPT = [
-  "extra fingers",
-  "missing fingers",
-  "fused fingers",
-  "malformed hands",
-  "distorted hands",
-  "extra arms",
-  "extra legs",
-  "extra limbs",
-  "missing limbs",
-  "duplicated body parts",
-  "multiple hands on one arm",
-  "deformed anatomy",
-  "bad anatomy",
-  "distorted face",
-  "duplicate person unless explicitly requested",
-  "unintended extra people",
-  "mutation",
-  "warped body",
-  "broken joints",
-  "unnatural fingers",
-].join(", ");
-
-function videoNegativePromptFromBody(body = {}) {
-  return String(firstPresent(
-    body.negativePrompt,
-    body.negative_prompt,
-    body.params?.negativePrompt,
-    body.params?.negative_prompt,
-    body.parameters?.negativePrompt,
-    body.parameters?.negative_prompt,
-    "",
-  ) || "").trim();
-}
-
 function isAdvancedCustomPrompt(body = {}) {
   const params = plainObject(body.params);
   const preserveUserPrompt = boolFromRequest(firstPresent(
@@ -9567,34 +9609,6 @@ function isAdvancedCustomPrompt(body = {}) {
   const createKind = String(firstPresent(body.createKind, body.create_kind, params.createKind, params.create_kind, "") || "").trim().toLowerCase();
   const createMode = String(firstPresent(body.createMode, body.create_mode, params.createMode, params.create_mode, "") || "").trim().toLowerCase();
   return preserveUserPrompt || createKind === "custom" || createMode === "custom";
-}
-
-function appendDefaultVideoNegativePrompt(prompt = "", body = {}) {
-  const base = String(prompt || "").trim();
-  if (!base || isAdvancedCustomPrompt(body)) return base;
-  const customNegative = videoNegativePromptFromBody(body);
-  const negative = [DEFAULT_VIDEO_NEGATIVE_PROMPT, customNegative]
-    .map((item) => String(item || "").trim())
-    .filter(Boolean)
-    .filter((item, index, list) => list.findIndex((value) => value.toLowerCase() === item.toLowerCase()) === index)
-    .join(", ");
-  if (!negative) return base;
-  const marker = "Negative prompt:";
-  if (base.toLowerCase().includes(marker.toLowerCase())) {
-    const lower = base.toLowerCase();
-    const index = lower.lastIndexOf(marker.toLowerCase());
-    const before = base.slice(0, index).trim();
-    const existing = base.slice(index + marker.length).trim();
-    const merged = [existing, negative]
-      .join(", ")
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .filter((item, itemIndex, list) => list.findIndex((value) => value.toLowerCase() === item.toLowerCase()) === itemIndex)
-      .join(", ");
-    return [before, `${marker} ${merged}`].filter(Boolean).join("\n");
-  }
-  return [base, `${marker} ${negative}`].filter(Boolean).join("\n");
 }
 
 function enhancePlayfluxReferenceVideoPrompt(prompt = "", { hasReferenceImage = false, hasReferenceVideo = false } = {}) {
@@ -9617,29 +9631,6 @@ function enhancePlayfluxReferenceVideoPrompt(prompt = "", { hasReferenceImage = 
   return [guide, base].filter(Boolean).join("\n\n");
 }
 
-function applyDefaultVideoNegativePromptToSeedancePayload(payload = {}, body = {}) {
-  if (!payload || typeof payload !== "object") return payload;
-  if (typeof payload.prompt === "string" && payload.prompt.trim()) {
-    payload.prompt = appendDefaultVideoNegativePrompt(payload.prompt, body);
-  }
-  if (Array.isArray(payload.content)) {
-    let hasText = false;
-    payload.content = payload.content.map((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) return item;
-      if (item.type === "text" || item.text !== undefined) {
-        hasText = true;
-        return { ...item, text: appendDefaultVideoNegativePrompt(item.text || payload.prompt || "", body) };
-      }
-      return item;
-    });
-    if (!hasText) {
-      const text = appendDefaultVideoNegativePrompt(payload.prompt || "", body);
-      if (text) payload.content.unshift({ type: "text", text });
-    }
-  }
-  return payload;
-}
-
 function seedanceContentFromReferences({
   prompt = "",
   referenceAssetUri = "",
@@ -9649,9 +9640,8 @@ function seedanceContentFromReferences({
   referenceVideoAssetUri = "",
   extraReferenceVideoAssetUris = [],
   referenceAudioAssetUris = [],
-  body = {},
 } = {}) {
-  const content = [{ type: "text", text: appendDefaultVideoNegativePrompt(prompt, body) }];
+  const content = [{ type: "text", text: String(prompt || "").trim() }];
   if (firstFrameAssetUri) {
     content.push({
       type: "image_url",
@@ -9780,7 +9770,7 @@ function seedancePayloadFromBody({ config = {}, prompt = "", content = [], body 
     )).filter(Boolean);
   }
   if (!Array.isArray(payload.content) || !payload.content.length) payload.content = [{ type: "text", text: String(prompt || "") }];
-  return applyDefaultVideoNegativePromptToSeedancePayload(payload, source);
+  return payload;
 }
 
 function pivoxSeedanceContentFromReferences(args = {}) {
@@ -10647,7 +10637,7 @@ async function prepareOfficialSeedancePayloadForArk(db, user, body = {}, { prepa
       if (!item || typeof item !== "object" || Array.isArray(item)) return item;
       return Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined));
     });
-    return applyDefaultVideoNegativePromptToSeedancePayload(payload, source);
+    return payload;
   }
 
   if (typeof payload.image_url === "string") {
@@ -10685,7 +10675,7 @@ async function prepareOfficialSeedancePayloadForArk(db, user, body = {}, { prepa
     return Object.fromEntries(Object.entries(item).filter(([, value]) => value !== undefined));
   });
   stripSeedanceCompatibilityAliases(payload);
-  return applyDefaultVideoNegativePromptToSeedancePayload(payload, source);
+  return payload;
 }
 
 async function preparePivoxMediaUrlForUser(db, user, value = "", name = "Seedance media") {
@@ -11380,7 +11370,7 @@ async function submitAliyunVideoTask({ provider = "wan27", capability = "", prom
     provider,
     capability: resolvedCapability,
     model: aliyunVideoModelForCapability(resolvedCapability, source.model),
-    prompt: appendDefaultVideoNegativePrompt(prompt, source),
+    prompt,
     media: normalizedMedia,
     duration: source.duration,
     resolution: source.resolution,
@@ -13689,6 +13679,66 @@ async function apizRequest(pathname, body) {
   return payload.data || payload;
 }
 
+async function seedance25Request(pathname, body = {}, { auth = true, timeoutMs = 180000 } = {}) {
+  if (auth && !SEEDANCE25_API_KEY) {
+    const error = new Error("Seedance 2.5 generation is not configured.");
+    error.statusCode = 503;
+    error.code = "SEEDANCE25_NOT_CONFIGURED";
+    throw error;
+  }
+  let response;
+  try {
+    response = await fetch(`${SEEDANCE25_API_BASE_URL}${pathname}`, {
+      method: "POST",
+      headers: {
+        ...(auth ? { authorization: `Bearer ${SEEDANCE25_API_KEY}` } : {}),
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (cause) {
+    const error = new Error("Seedance 2.5 service request failed.");
+    error.statusCode = 502;
+    error.code = "SEEDANCE25_FETCH_FAILED";
+    error.cause = cause;
+    throw error;
+  }
+  const responseText = await response.text();
+  let payload = {};
+  try {
+    payload = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    payload = { message: responseText };
+  }
+  if (!response.ok || Number(payload?.code || 0) >= 400 || payload?.error) {
+    const error = new Error(payload?.error?.message || payload?.message || payload?.detail || `Seedance 2.5 request failed: ${response.status}`);
+    error.statusCode = response.status || 502;
+    error.code = payload?.error?.code || payload?.code || "SEEDANCE25_REQUEST_FAILED";
+    error.payload = payload;
+    throw error;
+  }
+  return payload?.data || payload;
+}
+
+async function transferSeedance25EditVideoUrl(url = "") {
+  const source = String(url || "").trim();
+  if (!source) return "";
+  if (SEEDANCE25_TRANSFER_URL_CACHE.has(source)) return SEEDANCE25_TRANSFER_URL_CACHE.get(source);
+  const transferred = await seedance25Request("/api/v3/tools/transfer-url", { url: source, type: "video" }, { auth: false });
+  const cdnUrl = String(transferred?.cdn_url || transferred?.cdnUrl || transferred?.url || "").trim();
+  if (!isPublicHttpUrl(cdnUrl)) {
+    const error = new Error("Seedance 2.5 could not prepare the source video.");
+    error.statusCode = 502;
+    error.code = "SEEDANCE25_VIDEO_TRANSFER_FAILED";
+    error.payload = transferred;
+    throw error;
+  }
+  SEEDANCE25_TRANSFER_URL_CACHE.set(source, cdnUrl);
+  return cdnUrl;
+}
+
 function apizModelPathId(modelId = "") {
   return encodeURIComponent(String(modelId || "").trim()).replace(/%2F/gi, "/");
 }
@@ -14341,6 +14391,7 @@ function isImageGenerationRecord(record = {}) {
     kind.includes("video") ||
     source.includes("video") ||
     provider === "seedance" ||
+    provider === "seedance25" ||
     provider === "wan27" ||
     provider === "aliyun-wan30" ||
     provider === "aliyun-wan27" ||
@@ -14835,6 +14886,15 @@ async function refreshGenerationRecordStatus(record = {}) {
       return await refreshApizGenerationRecord(record);
     } catch (error) {
       console.warn("[apiz-generation-record-refresh-failed]", record.taskId, error.message || error);
+      return record;
+    }
+  }
+  if (record.provider === "seedance25") {
+    if (!SEEDANCE25_API_KEY || !shouldRefreshGenerationRecord(record)) return record;
+    try {
+      return await refreshSeedance25GenerationRecord(record, "query");
+    } catch (error) {
+      console.warn("[seedance25-generation-record-refresh-failed]", record.taskId, error.message || error);
       return record;
     }
   }
@@ -17402,7 +17462,7 @@ function needsApizFailureRefund(record = {}) {
 
 function needsSeedanceFailureRefund(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider)) return false;
+  if (!["seedance", "seedance25", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider)) return false;
   if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
   if (String(record.billingStatus || "").toLowerCase() === "refunded") return false;
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
@@ -18102,7 +18162,397 @@ async function handleAdvancedAccessRequest(req, res) {
   return sendJson(res, 200, { ok: true, user: userView(auth.user) });
 }
 
+function seedance25InputAssetId(item, keys = ["assetId", "userAssetId", "id"]) {
+  if (typeof item === "string") return "";
+  if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+  return String(firstPresent(...keys.map((key) => item[key]), "") || "").trim();
+}
+
+function seedance25InputUrl(item, kind = "image") {
+  if (typeof item === "string") return String(item || "").trim();
+  if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+  const keys = kind === "video"
+    ? ["url", "videoUrl", "video_url", "previewUrl"]
+    : kind === "audio"
+    ? ["url", "audioUrl", "audio_url", "previewUrl"]
+    : ["url", "imageUrl", "image_url", "previewUrl"];
+  return String(firstPresent(...keys.map((key) => item[key]), "") || "").trim();
+}
+
+function seedance25ReferenceInputs(body = {}, kind = "image") {
+  const items = kind === "video"
+    ? [
+        ...arrayFromBody(body.referenceVideos),
+        ...arrayFromBody(body.referenceVideoUrls),
+        ...arrayFromBody(body.videoUrls),
+        ...arrayFromBody(body.reference_videos),
+      ]
+    : kind === "audio"
+    ? [
+        ...arrayFromBody(body.referenceAudios),
+        ...arrayFromBody(body.referenceAudioUrls),
+        ...arrayFromBody(body.audioUrls),
+        ...arrayFromBody(body.reference_audios),
+      ]
+    : [
+        ...arrayFromBody(body.referenceImages),
+        ...arrayFromBody(body.reference_images),
+      ];
+  const explicitIds = kind === "video"
+    ? [body.referenceVideoAssetId, body.videoAssetId, ...arrayFromBody(body.referenceVideoAssetIds), ...arrayFromBody(body.videoAssetIds)]
+    : kind === "audio"
+    ? [body.referenceAudioAssetId, body.audioAssetId, ...arrayFromBody(body.referenceAudioAssetIds), ...arrayFromBody(body.audioAssetIds)]
+    : [body.referenceImageAssetId, body.userAssetId, ...arrayFromBody(body.extraReferenceAssetIds), ...arrayFromBody(body.extraUserAssetIds)];
+  const assetIds = [...explicitIds, ...items.map((item) => seedance25InputAssetId(item))]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const urls = items
+    .filter((item) => !seedance25InputAssetId(item))
+    .map((item) => seedance25InputUrl(item, kind))
+    .filter(Boolean);
+  const inlineInputs = kind === "image"
+    ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item) && String(item.dataUrl || "").startsWith("data:image/"))
+    : [];
+  return { assetIds: [...new Set(assetIds)], urls: [...new Set(urls)], inlineInputs };
+}
+
+function seedance25OwnedAssets(db, userId, assetIds = [], kind = "image") {
+  const assets = assetIds.map((assetId) => (
+    (db.userAssets || []).find((asset) => asset.id === assetId && asset.userId === userId && !isSoftDeleted(asset))
+  ));
+  const missingIndex = assets.findIndex((asset) => !asset);
+  if (missingIndex >= 0) {
+    const error = new Error(`Reference ${kind} not found.`);
+    error.statusCode = 404;
+    error.code = `REFERENCE_${kind.toUpperCase()}_NOT_FOUND`;
+    error.details = { assetId: assetIds[missingIndex] };
+    throw error;
+  }
+  assets.forEach((asset) => validateWan27MediaKind(asset, kind, `Seedance 2.5 reference ${kind}`));
+  return assets;
+}
+
+async function seedance25PublicAssetUrls(db, assets = []) {
+  const urls = [];
+  for (const asset of assets) {
+    const prepared = await ensurePublicUrlForUserAsset(db, asset);
+    const url = publicHttpUrlForUserAsset(prepared);
+    if (!url) {
+      const error = new Error("Reference asset could not be published for generation.");
+      error.statusCode = 502;
+      error.code = "SEEDANCE25_ASSET_PUBLISH_FAILED";
+      throw error;
+    }
+    urls.push(url);
+  }
+  return urls;
+}
+
+function seedance25PublicInputUrls(urls = [], kind = "image") {
+  const normalized = urls.map((value, index) => {
+    const url = publicHttpUrlForUpstream(value);
+    if (!isPublicHttpUrl(url)) {
+      throw advancedValidationError("INVALID_MEDIA_URL", `Seedance 2.5 ${kind} ${index + 1} must be a public URL.`);
+    }
+    return url;
+  });
+  return [...new Set(normalized)];
+}
+
+async function runSeedance25GenerationJob(job = {}) {
+  const { taskId, upstreamInput, mediaAssets, pricing, cost } = job;
+  let upstreamPayload = null;
+  try {
+    await updateGenerationRecord(taskId, { status: "submitting", awaitingUpstreamTask: true, error: "" }, "seedance25-submitting");
+    upstreamPayload = buildSeedance25TaskPayload(upstreamInput, SEEDANCE25_MODEL_ID);
+    if (SEEDANCE25_INNER_MODEL_ID !== SEEDANCE25_INNER_MODEL) upstreamPayload.params.model = SEEDANCE25_INNER_MODEL_ID;
+    const raw = await seedance25Request("/api/v3/tasks/create", upstreamPayload);
+    const upstreamTaskId = apizTaskId(raw);
+    if (!upstreamTaskId) {
+      const error = new Error("Seedance 2.5 service did not return a task id.");
+      error.statusCode = 502;
+      error.code = "SEEDANCE25_TASK_ID_MISSING";
+      error.payload = raw;
+      throw error;
+    }
+    await updateGenerationRecord(taskId, {
+      status: apizStatus(raw) || "submitted",
+      upstreamTaskId,
+      awaitingUpstreamTask: false,
+      provider: "seedance25",
+      upstreamSource: "apiz-seedance25",
+      upstreamModel: SEEDANCE25_MODEL_ID,
+      source: "advanced-seedance25",
+      model: "Seedance 2.5",
+      mediaMode: upstreamInput.mode,
+      mediaAssets,
+      upstreamPayload,
+      createResponse: raw,
+      submittedAt: new Date().toISOString(),
+      error: "",
+      pricingEstimate: pricing,
+      finalCredits: cost,
+      originalFinalCredits: pricing?.originalCredits ?? cost,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: cost > 0 ? new Date().toISOString() : "",
+    }, "seedance25-submit");
+  } catch (error) {
+    console.warn("[seedance25-generation-job-error]", taskId, error.message || error);
+    await updateGenerationRecord(taskId, {
+      status: "failed",
+      awaitingUpstreamTask: false,
+      provider: "seedance25",
+      upstreamSource: "apiz-seedance25",
+      source: "advanced-seedance25",
+      model: "Seedance 2.5",
+      mediaMode: upstreamInput?.mode || "",
+      mediaAssets,
+      upstreamPayload,
+      createResponse: error.payload || null,
+      error: error.message || "Seedance 2.5 generation failed.",
+      code: error.code || "",
+      failedAt: new Date().toISOString(),
+      pricingEstimate: pricing,
+      preDeductedCredits: cost,
+      originalPreDeductedCredits: pricing?.originalCredits ?? cost,
+      finalCredits: cost,
+      originalFinalCredits: pricing?.originalCredits ?? cost,
+    }, "seedance25-failed");
+  }
+}
+
+function startSeedance25GenerationJob(job = {}) {
+  setImmediate(() => {
+    runSeedance25GenerationJob(job).catch((error) => {
+      console.error("[seedance25-generation-job-failed]", job.taskId, error.message || error);
+    });
+  });
+}
+
+async function handleAdvancedSeedance25Generate(req, res, context = {}) {
+  const { auth, body, bodyParams, caseParams, selectedCase, config, prompt } = context;
+  if (!SEEDANCE25_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "SEEDANCE25_NOT_CONFIGURED", message: "Seedance 2.5 generation is not configured." });
+  }
+  const merged = mergedRequestForMedia(body, caseParams);
+  const mode = normalizeSeedance25Mode(firstPresent(
+    body.functionMode,
+    body.seedanceMode,
+    body.mediaMode,
+    bodyParams.functionMode,
+    bodyParams.seedanceMode,
+    caseParams.functionMode,
+    caseParams.seedanceMode,
+  ));
+  const resolution = String(firstPresent(body.resolution, bodyParams.resolution, caseParams.resolution, "480p")).trim().toLowerCase();
+  const requestedRatio = String(firstPresent(body.ratio, bodyParams.ratio, caseParams.ratio, mode === "omini" ? "1:1" : "adaptive")).trim().toLowerCase();
+  const ratio = mode === "omini" ? requestedRatio : "adaptive";
+  const duration = Number(firstPresent(body.duration, bodyParams.duration, caseParams.duration, 4));
+  const seed = firstPresent(body.seed, bodyParams.seed, caseParams.seed, "");
+
+  try {
+    const imageInputs = seedance25ReferenceInputs(merged, "image");
+    const videoInputs = seedance25ReferenceInputs(merged, "video");
+    const audioInputs = seedance25ReferenceInputs(merged, "audio");
+    const firstFrameAssetId = String(firstPresent(body.firstFrameAssetId, body.imageAssetId, bodyParams.firstFrameAssetId, bodyParams.imageAssetId, "") || "").trim();
+    const lastFrameAssetId = String(firstPresent(body.lastFrameAssetId, body.endImageAssetId, bodyParams.lastFrameAssetId, bodyParams.endImageAssetId, "") || "").trim();
+    if (mode === "first_last_frame") {
+      imageInputs.assetIds = imageInputs.assetIds.filter((id) => id !== firstFrameAssetId && id !== lastFrameAssetId);
+    }
+
+    const createdImageAssets = imageInputs.inlineInputs.length
+      ? await createUserImageAssetsFromInputs(auth.db, auth.user, imageInputs.inlineInputs, { name: "Seedance 2.5 reference" })
+      : [];
+    const imageAssets = [
+      ...seedance25OwnedAssets(auth.db, auth.user.id, imageInputs.assetIds, "image"),
+      ...createdImageAssets,
+    ];
+    const videoAssets = seedance25OwnedAssets(auth.db, auth.user.id, videoInputs.assetIds, "video");
+    const audioAssets = seedance25OwnedAssets(auth.db, auth.user.id, audioInputs.assetIds, "audio");
+    const firstFrameInput = !firstFrameAssetId ? seedanceFirstFrameInputFromBody(merged, { includeDataUrlFallback: true }) : null;
+    const lastFrameInput = !lastFrameAssetId ? seedanceEndFrameInputFromBody(merged) : null;
+    const firstFrameAsset = firstFrameAssetId
+      ? seedance25OwnedAssets(auth.db, auth.user.id, [firstFrameAssetId], "image")[0]
+      : firstFrameInput?.dataUrl
+      ? await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, firstFrameInput, { name: "Seedance 2.5 first frame" })
+      : null;
+    const lastFrameAsset = lastFrameAssetId
+      ? seedance25OwnedAssets(auth.db, auth.user.id, [lastFrameAssetId], "image")[0]
+      : lastFrameInput?.dataUrl
+      ? await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, lastFrameInput, { name: "Seedance 2.5 last frame" })
+      : null;
+
+    const imageUrls = [...await seedance25PublicAssetUrls(auth.db, imageAssets), ...seedance25PublicInputUrls(imageInputs.urls, "image")];
+    let videoUrls = [...await seedance25PublicAssetUrls(auth.db, videoAssets), ...seedance25PublicInputUrls(videoInputs.urls, "video")];
+    const audioUrls = [...await seedance25PublicAssetUrls(auth.db, audioAssets), ...seedance25PublicInputUrls(audioInputs.urls, "audio")];
+    const firstFrameUrl = firstFrameAsset
+      ? (await seedance25PublicAssetUrls(auth.db, [firstFrameAsset]))[0]
+      : publicHttpUrlForUpstream(firstPresent(firstFrameInput?.url, body.firstFrameUrl, body.imageUrl, bodyParams.firstFrameUrl, bodyParams.imageUrl, ""));
+    const lastFrameUrl = lastFrameAsset
+      ? (await seedance25PublicAssetUrls(auth.db, [lastFrameAsset]))[0]
+      : publicHttpUrlForUpstream(firstPresent(lastFrameInput?.url, body.lastFrameUrl, body.endImageUrl, bodyParams.lastFrameUrl, bodyParams.endImageUrl, ""));
+
+    let inputVideoSeconds = 0;
+    if (mode === "edit" && videoUrls.length === 1) {
+      inputVideoSeconds = durationSecondsFromValue(firstPresent(
+        body.inputVideoSeconds,
+        body.referenceVideoDurationSeconds,
+        bodyParams.inputVideoSeconds,
+        videoAssets[0]?.durationSeconds,
+        videoAssets[0]?.duration,
+      ));
+      if (!inputVideoSeconds) inputVideoSeconds = durationSecondsFromValue(await probeVideoDurationSeconds(videoUrls[0]));
+      if (!inputVideoSeconds) {
+        throw advancedValidationError("SEEDANCE25_VIDEO_DURATION_REQUIRED", "Source video duration could not be read.");
+      }
+      videoUrls = [await transferSeedance25EditVideoUrl(videoUrls[0])];
+    }
+
+    const upstreamInput = {
+      mode,
+      prompt,
+      resolution,
+      ratio,
+      duration,
+      seed,
+      imageFiles: imageUrls,
+      videoFiles: videoUrls,
+      audioFiles: audioUrls,
+      firstFrameUrl,
+      lastFrameUrl,
+    };
+    buildSeedance25TaskPayload(upstreamInput, SEEDANCE25_MODEL_ID);
+
+    const rawPricing = advancedModelPricing("seedance25", {
+      duration,
+      resolution,
+      ratio,
+      mode,
+      inputVideoSeconds,
+      advancedPricing: config.platform?.advancedPricing,
+    });
+    const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+    const cost = pricing.credits;
+    if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+    assertSubtokenCanSpend(auth, cost);
+
+    const taskId = localGenerationTaskId("cgt");
+    const mediaAssets = [
+      ...imageUrls.map((url, index) => ({ type: "reference_image", key: `image_${index + 1}`, userAssetId: imageAssets[index]?.id || "", imageUrl: url })),
+      ...videoUrls.map((url, index) => ({ type: "reference_video", key: `video_${index + 1}`, userAssetId: videoAssets[index]?.id || "", videoUrl: url })),
+      ...audioUrls.map((url, index) => ({ type: "reference_audio", key: `audio_${index + 1}`, userAssetId: audioAssets[index]?.id || "", audioUrl: url })),
+      ...(firstFrameUrl ? [{ type: "image_url", key: "image_url", userAssetId: firstFrameAsset?.id || "", imageUrl: firstFrameUrl }] : []),
+      ...(lastFrameUrl ? [{ type: "end_image_url", key: "end_image_url", userAssetId: lastFrameAsset?.id || "", imageUrl: lastFrameUrl }] : []),
+    ];
+    const requestParams = {
+      provider: "seedance25",
+      model: "Seedance 2.5",
+      functionMode: mode,
+      seedanceMode: mode,
+      prompt,
+      resolution,
+      ratio,
+      ...(mode === "edit" ? { inputVideoSeconds } : { duration }),
+      ...(seed === "" || seed === undefined || seed === null ? {} : { seed: Number(seed) }),
+      referenceImageAssetIds: imageAssets.map((asset) => asset.id),
+      referenceVideoAssetIds: videoAssets.map((asset) => asset.id),
+      referenceAudioAssetIds: audioAssets.map((asset) => asset.id),
+      firstFrameAssetId: firstFrameAsset?.id || "",
+      lastFrameAssetId: lastFrameAsset?.id || "",
+      createKind: firstPresent(bodyParams.createKind, body.params?.createKind, "custom"),
+      createMode: firstPresent(bodyParams.createMode, body.params?.createMode, "custom"),
+      preserveUserPrompt: true,
+    };
+
+    if (cost > 0) {
+      await chargeUserWithSubtoken(auth, {
+        cost,
+        type: "advanced_generation",
+        taskId,
+        meta: {
+          taskId,
+          provider: "seedance25",
+          model: "Seedance 2.5",
+          mode,
+          duration: pricing.duration,
+          resolution,
+          creditsPerSecond: pricing.creditsPerSecond,
+          baseCredits: pricing.baseCredits,
+          originalCost: pricing.originalCredits,
+          pricingMultiplier: pricing.userPricingMultiplier,
+        },
+      });
+      if (!dbEnabled()) await writeDb(auth.db);
+    }
+
+    const record = await upsertGenerationRecord({
+      taskId,
+      status: "preparing",
+      awaitingUpstreamTask: true,
+      model: "Seedance 2.5",
+      provider: "seedance25",
+      upstreamSource: "apiz-seedance25",
+      source: "advanced-seedance25",
+      kind: "advanced-video",
+      templateId: selectedCase?.id || "",
+      templateTitle: selectedCase?.title || "Advanced generation",
+      userId: auth.user.id,
+      userAssetId: firstFrameAsset?.id || imageAssets[0]?.id || videoAssets[0]?.id || "",
+      mediaMode: mode,
+      mediaAssets,
+      imageUrl: firstFrameUrl || imageUrls[0] || "",
+      sourceImageUrl: firstFrameUrl || imageUrls[0] || "",
+      prompt,
+      finalPrompt: prompt,
+      params: requestParams,
+      upstreamPayload: null,
+      ratio,
+      resolution,
+      duration: pricing.duration,
+      quality: resolution,
+      error: "",
+      preDeductedCredits: cost,
+      originalPreDeductedCredits: pricing.originalCredits,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits,
+      userPricingMultiplier: pricing.userPricingMultiplier,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: cost > 0 ? new Date().toISOString() : "",
+      pricingEstimate: pricing,
+      apiTokenId: auth.tokenRecord?.id || "",
+      apiTokenName: auth.tokenRecord?.name || "",
+      apiTokenType: auth.tokenRecord?.quotaType || "",
+      apiTokenSource: auth.tokenSource || "",
+    });
+    startSeedance25GenerationJob({ taskId, upstreamInput, mediaAssets, pricing, cost });
+    const latestDb = await readDb();
+    const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
+    return sendJson(res, 200, {
+      ok: true,
+      task: { taskId, status: record.status },
+      taskId,
+      record: publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth)),
+      user: userView(latestUser),
+      pricing,
+      cost,
+    });
+  } catch (error) {
+    if (["INSUFFICIENT_CREDITS", "SUBTOKEN_QUOTA_EXCEEDED"].includes(error.code)) {
+      return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code, message: error.message });
+    }
+    return sendAdvancedValidationError(res, error, "Seedance 2.5 request is invalid.");
+  }
+}
+
 function advancedRuntimeForProvider(provider, requestParams = {}) {
+  if (normalizeAdvancedProvider(provider) === "seedance25") {
+    return {
+      providerName: "seedance25",
+      recordSource: "advanced-seedance25",
+      model: "Seedance 2.5",
+      quality: String(requestParams.resolution || "480p").toLowerCase(),
+    };
+  }
   if (isAliyunVideoProvider(provider)) {
     const normalizedProvider = normalizeAdvancedProvider(provider);
     const capability = requestParams.videoCapability || aliyunVideoCapabilityForRequest(normalizedProvider, requestParams, []);
@@ -20271,6 +20721,17 @@ async function handleAdvancedGenerate(req, res) {
       prompt,
     });
   }
+  if (provider === "seedance25") {
+    return await handleAdvancedSeedance25Generate(req, res, {
+      auth,
+      body,
+      bodyParams,
+      caseParams,
+      selectedCase,
+      config,
+      prompt,
+    });
+  }
   const durationBounds = advancedDurationBounds(provider);
   const mergedProviderParameters = {
     ...plainObject(caseParams.parameters),
@@ -21033,7 +21494,7 @@ async function handleRegenerateGenerationRecord(req, res, taskId) {
   if (source === "platform-template" || (record.templateId && ["image-to-video", "text-to-video"].includes(kind))) {
     return handlePlatformGenerate(withJsonBody(req, platformRegenerateBody(record)), res);
   }
-  if (source.includes("advanced") || ["seedance", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(String(record.provider || "").toLowerCase())) {
+  if (source.includes("advanced") || ["seedance", "seedance25", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(String(record.provider || "").toLowerCase())) {
     return handleAdvancedGenerate(withJsonBody(req, advancedRegenerateBody(record)), res);
   }
   return sendJson(res, 400, { ok: false, message: "This record cannot be regenerated yet." });
@@ -21833,7 +22294,7 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
     seedanceTier: params.seedanceTier,
     videoCapability: params.videoCapability,
     model: params.model,
-    mode: params.mode,
+    mode: firstPresent(params.mode, params.functionMode, params.seedanceMode),
     seedreamTier: firstPresent(params.seedreamTier, params.seedream5Tier, params.seedanceTier),
     referenceImageCount: firstPresent(params.referenceImageCount, params.imageCount),
     advancedPricing: config.platform?.advancedPricing,
@@ -22413,6 +22874,44 @@ async function refreshApizGenerationRecord(record) {
     queryResponse: task,
   });
   return settleApizGenerationRecord(nextRecord, gatewayTask ? { ...task, status, videoUrl: resultUrl, error: gatewayTask.error } : task, "query");
+}
+
+async function refreshSeedance25GenerationRecord(record, reason = "query") {
+  if (String(record.provider || "").toLowerCase() !== "seedance25") return record;
+  const queryTaskId = record.upstreamTaskId || record.taskId;
+  const task = await seedance25Request("/api/v3/tasks/query", { task_id: queryTaskId });
+  const status = apizStatus(task);
+  const resultUrl = apizResultUrl(task);
+  const media = isSucceededStatus(status) && resultUrl && !record.localVideoUrl
+    ? await maybeDownloadApizVideo(record, resultUrl)
+    : {};
+  return upsertAndSettleGenerationRecord({
+    taskId: record.taskId,
+    upstreamTaskId: apizTaskId(task) || queryTaskId,
+    status,
+    awaitingUpstreamTask: false,
+    remoteVideoUrl: resultUrl || record.remoteVideoUrl || "",
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (media.localVideoUrl || media.cdnVideoUrl || resultUrl || record.videoUrl || "")
+      : (media.cdnVideoUrl || media.localVideoUrl || resultUrl || record.videoUrl || ""),
+    localVideoUrl: media.localVideoUrl || record.localVideoUrl || "",
+    localVideoPath: media.localVideoPath || record.localVideoPath || "",
+    localPosterUrl: media.localPosterUrl || record.localPosterUrl || "",
+    localPosterPath: media.localPosterPath || record.localPosterPath || "",
+    posterUrl: localPublicAssetStorageEnabled()
+      ? (media.localPosterUrl || media.cdnPosterUrl || record.posterUrl || "")
+      : (media.cdnPosterUrl || media.localPosterUrl || record.posterUrl || ""),
+    cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
+    cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
+    cdnError: media.cdnError || record.cdnError || "",
+    error: task?.error?.message
+      || (typeof task?.error === "string" ? task.error : "")
+      || (isFailedStatus(status) ? String(task?.message || "Seedance 2.5 generation failed.") : "")
+      || media.downloadError
+      || "",
+    queryResponse: task,
+    completedAt: isSucceededStatus(status) ? (record.completedAt || new Date().toISOString()) : record.completedAt || "",
+  }, `seedance25-${reason}`);
 }
 
 function isCompletedStatus(status) {
@@ -27947,6 +28446,8 @@ async function handleAdminGetConfig(req, res) {
 }
 
 const ADVANCED_PRICING_ROWS = [
+  { key: "seedance25-480p", provider: "seedance25", providerLabel: "Seedance 2.5", resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "seedance25-720p", provider: "seedance25", providerLabel: "Seedance 2.5", resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "seedance-480p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "480p", rateKind: "output", unit: "output_second" },
   { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "1080p", rateKind: "output", unit: "output_second" },
@@ -28068,7 +28569,9 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
     return pricingNumber(normalized.aliyunVideoCreditsPerSecondByCapability[capability][rateKey], 0);
   }
   const isFast = normalizedProvider === "seedance" && normalizeSeedanceTier(seedanceTier) === "fast";
-  const table = normalizedProvider === "seedance" && isFast && rateKind === "video_input"
+  const table = normalizedProvider === "seedance25"
+    ? normalized.seedance25CreditsPerSecondByResolution
+    : normalizedProvider === "seedance" && isFast && rateKind === "video_input"
     ? normalized.seedanceFastVideoInputCreditsPerSecondByResolution
     : normalizedProvider === "seedance" && isFast
     ? normalized.seedanceFastCreditsPerSecondByResolution
@@ -28283,6 +28786,18 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
+  if (normalizedProvider === "seedance25") {
+    const pointsPerSecond = SEEDANCE25_POINTS_PER_SECOND[publicResolution];
+    const usdPerSecond = Number.isFinite(Number(pointsPerSecond))
+      ? pricingNumber((Number(pointsPerSecond) * SEEDANCE25_CNY_PER_POINT) / SEEDANCE25_CNY_PER_USD, 0, 0, 6)
+      : null;
+    return {
+      creditsPerSecond: usdPerSecond === null ? null : pricingNumber(usdPerSecond * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      usdPerSecond,
+      source: "apiz_seedance25_points_pricing",
+      message: `APIZ Seedance 2.5 ${publicResolution} purchase price: ${pointsPerSecond} APIZ points/second at 0.01 CNY/point, converted at 6.67 CNY/USD and 100 site credits/USD.`,
+    };
+  }
   if (capability && (ALIYUN_VIDEO_OFFICIAL_PRICING[capability] || capability === "wan-legacy")) {
     const purchase = officialSingaporePurchaseDetails(capability, {
       resolution: publicResolution,
@@ -28506,9 +29021,11 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     if (!Number.isFinite(rawCredits) || rawCredits < 0) {
       throw pricingPayloadError(`Invalid sale price for ${key}`);
     }
-    const credits = pricingNumber(rawCredits, 0);
+    const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") ? 6 : 4);
     if (key === "wan27-720p") next.wan27CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "wan27-1080p") next.wan27CreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "seedance25-480p") next.seedance25CreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "seedance25-720p") next.seedance25CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "happyhorse-720p") next.happyhorseCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "happyhorse-1080p") next.happyhorseCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance-video-input-480p") next.seedanceVideoInputCreditsPerSecondByResolution["480p"] = credits;
@@ -30256,6 +30773,12 @@ async function handleGetGenerationRecord(req, res, taskId) {
     } catch (error) {
       console.warn("[apiz-generation-record-refresh-failed]", taskId, error.message || error);
     }
+  } else if (record.provider === "seedance25" && SEEDANCE25_API_KEY && shouldRefreshGenerationRecord(record)) {
+    try {
+      nextRecord = await refreshSeedance25GenerationRecord(record, "detail");
+    } catch (error) {
+      console.warn("[seedance25-generation-record-detail-refresh-failed]", taskId, error.message || error);
+    }
   } else if (record.upstreamSource === "gateway" && shouldRefreshGenerationRecord(record)) {
     try {
       nextRecord = await refreshGenerationRecordStatus(record);
@@ -30781,7 +31304,7 @@ async function handleCreateSceneVideo(req, res) {
   const finalPrompt = partnerReferenceAssetUri
     ? makeInteractiveSceneVideoPrompt(sceneConfig, resolvedCompanionName || body.companionName || "", partnerCharacterName, userPrompt)
     : prompt;
-  const submittedFinalPrompt = appendDefaultVideoNegativePrompt(finalPrompt, body);
+  const submittedFinalPrompt = finalPrompt;
 
   const payload = {
     model,

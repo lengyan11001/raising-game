@@ -46,7 +46,7 @@ test("Wan and HappyHorse task modes live in the parameter capability map", () =>
 test("only explicit frame modes use dedicated upload controls", () => {
   assert.match(html, /id="advancedWanFirstFrame" type="file" accept="image\/\*"/);
   assert.match(main, /advancedWanFirstFrame\?\.addEventListener\("change"/);
-  assert.match(create, /usesDedicatedFrameUpload = \["seedance", "wan30"\]\.includes\(provider\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.match(create, /usesDedicatedFrameUpload = \["seedance", "seedance25", "wan30"\]\.includes\(provider\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
   assert.doesNotMatch(create, /usesDedicatedAliyunUpload/);
 });
 
@@ -57,6 +57,8 @@ test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", ()
   assert.match(create, /"wan-animate-mix"/);
   assert.match(create, /usesSharedReferenceUpload \|\| !hasDedicatedWanPanelSlot/);
   assert.match(create, /aliyunVideo && advancedAliyunUsesSharedReferenceUpload\(capability\)/);
+  assert.match(create, /const sharedReferenceUpload = advancedUsesSharedReferenceUpload\(provider, capability\)/);
+  assert.match(create, /els\.advancedImage\.accept = sharedReferenceUpload \? sharedAccept : advancedCreateUploadAcceptValue\(\)/);
   assert.match(create, /"wan30-video"/);
   assert.match(main, /await uploadAdvancedMediaReference\(file, "video"\)/);
   assert.match(main, /await uploadAdvancedMediaReference\(file, "audio"\)/);
@@ -66,10 +68,10 @@ test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", ()
 });
 
 test("Wan3.0 exposes free multimodal and frame controls without link fields", () => {
-  assert.match(create, /provider === "wan30" \? \["480p", "720p", "1080p"\]/);
-  assert.match(create, /provider === "wan30" \? \["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"\]/);
-  assert.match(create, /els\.advancedRatio\.value \|\| \(provider === "wan30" \? "adaptive" : "9:16"\)/);
-  assert.match(create, /provider === "wan30" && rawRatio === "adaptive" \? "adaptive"/);
+  assert.match(create, /provider === "wan30"\s*\? \["480p", "720p", "1080p"\]/);
+  assert.match(create, /provider === "wan30" \|\| provider === "seedance25"\s*\? \["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
+  assert.match(create, /els\.advancedRatio\.value \|\| \(\["wan30", "seedance25"\]\.includes\(provider\) \? "adaptive" : "9:16"\)/);
+  assert.match(create, /\["wan30", "seedance25"\]\.includes\(provider\) && rawRatio === "adaptive" \? "adaptive"/);
   assert.match(create, /\? \[-1, \.\.\.Array\.from\(\{ length: 29 \}/);
   assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
   assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
@@ -83,15 +85,22 @@ test("Wan2.7 video edit follows source duration instead of exposing a manual dur
   assert.match(server, /requestParams\.videoCapability === "wan27-video-edit" && requestParams\.followInputDuration/);
 });
 
-test("custom Advanced prompts are forwarded without system negative text", () => {
-  assert.match(server, /function isAdvancedCustomPrompt\(body = \{\}\)/);
-  assert.match(server, /return preserveUserPrompt \|\| createKind === "custom" \|\| createMode === "custom"/);
-  assert.match(server, /if \(!base \|\| isAdvancedCustomPrompt\(body\)\) return base/);
-  assert.match(server, /preserveUserPrompt: isAdvancedCustomPrompt\(mergedBodyBase\)/);
-  assert.match(server, /preserveUserPrompt: requestParams\.preserveUserPrompt \|\| undefined/);
-  assert.match(server, /params: requestParams\.preserveUserPrompt \? \{/);
-  assert.match(server, /prompt: appendDefaultVideoNegativePrompt\(prompt, source\)/);
-  assert.match(server, /text: appendDefaultVideoNegativePrompt\(prompt, body\)/);
+test("video prompts are forwarded without a system negative prompt", () => {
+  assert.doesNotMatch(server, /DEFAULT_VIDEO_NEGATIVE_PROMPT/);
+  assert.doesNotMatch(server, /appendDefaultVideoNegativePrompt/);
+  assert.doesNotMatch(server, /Negative prompt: extra fingers/);
+  assert.match(server, /const content = \[\{ type: "text", text: String\(prompt \|\| ""\)\.trim\(\) \}\]/);
+  assert.match(server, /prompt,\s*media: normalizedMedia/);
+  assert.match(server, /const submittedFinalPrompt = finalPrompt/);
+});
+
+test("Seedance 2.5 server pricing migrates old rounded defaults and preserves six decimals", () => {
+  assert.match(server, /const normalizeStoredCredits = \(value, fallback, digits = 4\)/);
+  assert.match(server, /const normalizeSeedance25Credits = \(value, fallback\)/);
+  assert.match(server, /numeric === legacyRoundedDefault \? fallback : value/);
+  assert.match(server, /"480p": normalizeSeedance25Credits\(seedance25\["480p"\]/);
+  assert.match(server, /"720p": normalizeSeedance25Credits\(seedance25\["720p"\]/);
+  assert.match(server, /key\.startsWith\("seedance25-"\) \? 6 : 4/);
 });
 
 test("shared video uploads use capability-specific duration limits", () => {

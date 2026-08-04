@@ -33,6 +33,12 @@ const DEFAULT_ADVANCED_PROVIDER = "wan27";
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 9;
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = 3;
 const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = 3;
+const ADVANCED_SEEDANCE25_IMAGE_REFERENCE_LIMIT = 30;
+const ADVANCED_SEEDANCE25_VIDEO_REFERENCE_LIMIT = 10;
+const ADVANCED_SEEDANCE25_AUDIO_REFERENCE_LIMIT = 10;
+const ADVANCED_SEEDANCE25_TOTAL_REFERENCE_LIMIT = 50;
+const ADVANCED_SEEDANCE25_480P_CREDITS_PER_SECOND = 19.490255;
+const ADVANCED_SEEDANCE25_720P_CREDITS_PER_SECOND = 38.98051;
 const ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT = 10;
 const ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT = 5;
 const ADVANCED_WAN30_AUDIO_REFERENCE_LIMIT = 5;
@@ -424,6 +430,9 @@ const ADVANCED_CREATE_MODES = {
 
 function normalizeSeedanceMediaMode(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["omini", "omni"].includes(normalized)) return "omini";
+  if (["edit", "video_edit"].includes(normalized)) return "edit";
+  if (["extend", "video_extend", "extension"].includes(normalized)) return "extend";
   if (["text", "t2v", "text_video", "text_to_video", "reference", "references", "reference_images", "multi_reference", "multimodal", "multi_modal", "reference_video", "video_reference", "video"].includes(normalized)) return "reference_video";
   if (["image", "i2v", "first", "first_image", "first_frame", "image_to_video"].includes(normalized)) return "first_last_frame";
   if (["first_last", "first_last_frame", "first_and_last", "start_end", "last_frame"].includes(normalized)) return "first_last_frame";
@@ -439,11 +448,11 @@ function seedanceModeNeedsLastFrame(mode = "") {
 }
 
 function seedanceModeNeedsReferenceImages(mode = "") {
-  return normalizeSeedanceMediaMode(mode) === "reference_video";
+  return ["reference_video", "omini"].includes(normalizeSeedanceMediaMode(mode));
 }
 
 function seedanceModeNeedsReferenceVideo(mode = "") {
-  return normalizeSeedanceMediaMode(mode) === "reference_video";
+  return ["reference_video", "omini", "edit", "extend"].includes(normalizeSeedanceMediaMode(mode));
 }
 
 function advancedCreateModeUsesAutoPrompt(mode = state.advancedCreateMode) {

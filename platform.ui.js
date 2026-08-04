@@ -1345,6 +1345,7 @@ function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return DEFAULT_ADVANCED_PROVIDER;
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
+  if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["wan27imageedit", "wan2.7imageedit", "wanimageedit", "imageedit", "wan27image", "vipeak1image", "vipeak1imageedit"].includes(normalized)) return "wan27-image-edit";
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
   if (normalized.includes("happyhorse") || normalized === "horse" || normalized === "hh") return "happyhorse";
@@ -1360,6 +1361,7 @@ function advancedProviderLabel(provider = currentAdvancedProvider()) {
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
   if (normalized === "wan27-image-edit") return "Wan 2.7 Image";
   if (normalized === "wan30") return "Wan 3.0";
+  if (normalized === "seedance25") return "Seedance 2.5";
   const labels = {
     "wan27-t2v": "Wan 2.7 - Text to Video",
     "wan27-i2v": "Wan 2.7 - Image to Video",
@@ -1423,7 +1425,7 @@ function advancedEngineValue(provider = els.advancedProvider?.value || "", capab
   if (normalizedCapability.startsWith("wan30-")) return "wan30";
   if (normalizedCapability.startsWith("wan27-")) return "wan27";
   const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
-  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "wan30", "wan27", "wan27-image-edit", "seedream5-image"].includes(raw)) return raw;
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "wan30", "wan27", "wan27-image-edit", "seedream5-image"].includes(raw)) return raw;
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
   return normalizeAdvancedProvider(provider);
 }
@@ -1446,6 +1448,36 @@ function syncAdvancedVideoCapabilityOptions(preferredCapability = "") {
   if (label) label.textContent = "Mode";
 }
 
+const ADVANCED_SEEDANCE_MODE_OPTIONS = Object.freeze({
+  seedance: Object.freeze([
+    Object.freeze({ value: "reference_video", label: "Multimodal References" }),
+    Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
+  ]),
+  seedance25: Object.freeze([
+    Object.freeze({ value: "omini", label: "Multimodal References" }),
+    Object.freeze({ value: "edit", label: "Video Edit" }),
+    Object.freeze({ value: "extend", label: "Video Extend" }),
+    Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
+  ]),
+  wan30: Object.freeze([
+    Object.freeze({ value: "reference_video", label: "Multimodal References" }),
+    Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
+  ]),
+});
+
+function syncAdvancedSeedanceModeOptions(provider = currentAdvancedProvider()) {
+  if (!els.advancedSeedanceMediaMode) return;
+  const normalizedProvider = normalizeAdvancedProvider(provider);
+  const options = ADVANCED_SEEDANCE_MODE_OPTIONS[normalizedProvider] || [];
+  const current = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode.value || "");
+  els.advancedSeedanceMediaMode.innerHTML = options
+    .map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`)
+    .join("");
+  els.advancedSeedanceMediaMode.value = options.some((item) => item.value === current)
+    ? current
+    : (options[0]?.value || "reference_video");
+}
+
 function currentAdvancedVideoCapability(value = els.advancedProvider?.value || "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(normalized)) return normalized;
@@ -1462,6 +1494,7 @@ function advancedVideoEditUsesSourceDuration(capability = currentAdvancedVideoCa
 
 function advancedVideoInputDurationRule(provider = currentAdvancedProvider(), capability = currentAdvancedVideoCapability()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "seedance25") return null;
   if (normalizedProvider === "seedance") {
     return { min: 1.8, max: 15.2, displayMin: 2, displayMax: 15 };
   }
@@ -1546,6 +1579,7 @@ function advancedDurationBounds(provider = "seedance", capability = "") {
   if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan27-image-edit") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan30") return { min: -1, max: 30, fallback: 5 };
+  if (normalized === "seedance25") return { min: 4, max: 30, fallback: 4 };
   const resolvedCapability = capability || (
     typeof currentAdvancedVideoCapability === "function"
     && typeof currentAdvancedProvider === "function"
@@ -1629,7 +1663,7 @@ function selectedSeedanceVideoAsset() {
 }
 
 function currentSeedanceVideoInputSeconds(duration = 5, provider = currentAdvancedProvider()) {
-  if (normalizeAdvancedProvider(provider) !== "seedance") return 0;
+  if (!["seedance", "seedance25"].includes(normalizeAdvancedProvider(provider))) return 0;
   const videoUrlCount = splitUrlList(els.advancedSeedanceVideoUrls?.value || "").length;
   const hasVideoUrl = videoUrlCount > 0;
   const videoRefs = typeof advancedSeedanceVideoReferences === "function" ? advancedSeedanceVideoReferences() : [];
@@ -1643,7 +1677,7 @@ function currentSeedanceVideoInputSeconds(duration = 5, provider = currentAdvanc
 }
 
 function currentSeedanceEstimateReferenceVideoUrls(provider = currentAdvancedProvider()) {
-  if (normalizeAdvancedProvider(provider) !== "seedance") return [];
+  if (!["seedance", "seedance25"].includes(normalizeAdvancedProvider(provider))) return [];
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
   if (seedanceModeNeedsFirstFrame(seedanceMode)) return [];
   const videoRefs = typeof advancedSeedanceVideoReferences === "function" ? advancedSeedanceVideoReferences() : [];
@@ -1723,6 +1757,34 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   const seconds = Number.isFinite(rawSeconds) ? Math.min(bounds.max, Math.max(bounds.min, rawSeconds)) : bounds.fallback;
   const configPricing = state.config?.platform?.advancedPricing || {};
   const multiplier = userPricingMultiplier();
+  if (normalizedProvider === "seedance25") {
+    const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
+    const mode = normalizeSeedanceMediaMode(options.mode || els.advancedSeedanceMediaMode?.value || "omini");
+    const inputVideoSeconds = positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0);
+    const billingSeconds = mode === "edit" ? inputVideoSeconds : seconds;
+    const byResolution = configPricing.seedance25CreditsPerSecondByResolution || {};
+    const fallbackPerSecond = normalizedResolution === "720p"
+      ? ADVANCED_SEEDANCE25_720P_CREDITS_PER_SECOND
+      : ADVANCED_SEEDANCE25_480P_CREDITS_PER_SECOND;
+    const perSecond = Number(byResolution[normalizedResolution] || fallbackPerSecond) || fallbackPerSecond;
+    const originalCredits = creditsAmount(billingSeconds * perSecond);
+    return {
+      provider: "seedance25",
+      mode,
+      duration: billingSeconds,
+      requestedDuration: mode === "edit" ? null : seconds,
+      inputVideoSeconds: mode === "edit" ? inputVideoSeconds : 0,
+      resolution: normalizedResolution,
+      ratio: mode === "omini" ? normalizeVideoRatio(ratio) : "adaptive",
+      creditsPerSecond: perSecond,
+      outputCredits: originalCredits,
+      baseCredits: originalCredits,
+      originalCredits,
+      credits: creditsAmount(originalCredits * multiplier),
+      markup: 1,
+      userPricingMultiplier: multiplier,
+    };
+  }
   if (normalizedProvider === "wan27" || normalizedProvider === "happyhorse") {
     const capability = options.videoCapability || currentAdvancedVideoCapability();
     const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
@@ -1844,7 +1906,7 @@ function currentSeedreamTier() {
 function currentAdvancedResolution() {
   const provider = currentAdvancedProvider();
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  const fallback = normalizedProvider === "seedream5-image" ? "2K" : normalizedProvider === "seedance" ? "480p" : "720p";
+  const fallback = normalizedProvider === "seedream5-image" ? "2K" : ["seedance", "seedance25"].includes(normalizedProvider) ? "480p" : "720p";
   return normalizeAdvancedResolution(els.advancedResolution?.value || fallback, provider);
 }
 
@@ -1852,11 +1914,13 @@ function advancedVideoSettingsVisible() {
   return state.advancedCreateKind === "video"
     && !advancedCreateModeIsSimpleEdit()
     && !["wan-animate-move", "wan-animate-mix"].includes(currentAdvancedVideoCapability())
-    && !advancedVideoEditUsesSourceDuration();
+    && !advancedVideoEditUsesSourceDuration()
+    && !(currentAdvancedProvider() === "seedance25" && normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "") === "edit");
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return ["1K", "2K"];
+  if (normalizeAdvancedProvider(provider) === "seedance25") return ["480p", "720p"];
   return normalizeAdvancedProvider(provider) === "seedance"
     ? ["480p", "720p", "1080p", "4k"]
     : ["720p", "1080p"];
@@ -2938,10 +3002,10 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
   const bounds = advancedDurationBounds(normalizedProvider);
   const rawDuration = Number(duration || bounds.fallback);
   const seconds = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
-  const inputVideoSeconds = ["seedance", "wan27", "happyhorse"].includes(normalizedProvider)
+  const inputVideoSeconds = ["seedance", "seedance25", "wan27", "happyhorse"].includes(normalizedProvider)
     ? positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0)
     : 0;
-  const referenceVideoSignature = normalizedProvider === "seedance"
+  const referenceVideoSignature = ["seedance", "seedance25"].includes(normalizedProvider)
     ? (Array.isArray(options.referenceVideoUrls) ? options.referenceVideoUrls : []).map((item) => String(item || "").trim()).filter(Boolean).join(",")
     : "";
   return [
@@ -3001,6 +3065,8 @@ function updateAdvancedButtonCost() {
   const configuredDuration = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
   const sourceVideoSeconds = advancedVideoEditUsesSourceDuration(videoCapability)
     ? currentAdvancedAliyunSourceVideoSeconds(0)
+    : provider === "seedance25" && normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "") === "edit"
+    ? currentSeedanceVideoInputSeconds(0, provider)
     : 0;
   const duration = sourceVideoSeconds > 0
     ? Math.min(bounds.max, Math.max(bounds.min, Math.ceil(sourceVideoSeconds)))
@@ -3017,17 +3083,21 @@ function updateAdvancedButtonCost() {
     return;
   }
   const options = {
-    inputVideoSeconds: provider === "seedance"
+    inputVideoSeconds: ["seedance", "seedance25"].includes(provider)
       ? currentSeedanceVideoInputSeconds(duration, provider)
       : ["wan27", "happyhorse"].includes(provider)
       ? currentAdvancedAliyunSourceVideoSeconds(duration)
       : 0,
-    referenceVideoUrls: provider === "seedance" ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
+    referenceVideoUrls: ["seedance", "seedance25"].includes(provider) ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
     seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
     referenceImageCount: provider === "seedream5-image" ? selectedAdvancedReferenceImages("seedream5-image").length : 0,
     videoCapability,
     model: videoCapability === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "") : undefined,
-    mode: ["wan-animate-move", "wan-animate-mix"].includes(videoCapability) ? String(els.advancedWanAnimateMode?.value || "wan-std") : undefined,
+    mode: provider === "seedance25"
+      ? normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "omini")
+      : ["wan-animate-move", "wan-animate-mix"].includes(videoCapability)
+      ? String(els.advancedWanAnimateMode?.value || "wan-std")
+      : undefined,
   };
   requestAdvancedEstimate(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options);
   els.advancedSubmitBtn.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(t("template.generate", { cost: advancedButtonCostLabel(duration, provider, currentAdvancedResolution(), currentAdvancedRatio(), options) }))}`;
