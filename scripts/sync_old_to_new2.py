@@ -80,6 +80,7 @@ SHARED_TOOLING_FILES = (
     "scripts/check-r2-storage.js",
     "scripts/deploy_site.py",
     "scripts/deploy_pull.py",
+    "scripts/generate-official-presets.js",
     "scripts/sync_old_to_new2.py",
 )
 
