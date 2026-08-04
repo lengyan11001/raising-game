@@ -60,6 +60,12 @@ def main() -> None:
         help="Reject deployment if the required env file contains this extended grep pattern.",
     )
     parser.add_argument(
+        "--require-env-pattern",
+        action="append",
+        default=[],
+        help="Reject deployment unless the required env file contains this extended grep pattern.",
+    )
+    parser.add_argument(
         "--require-min-files",
         action="append",
         default=[],
@@ -87,10 +93,19 @@ def main() -> None:
                 f"{{ echo \"Forbidden env pattern in {args.env_file}: {pattern}\"; exit 22; }} || true"
             )
         forbidden_env_check = "\n".join(forbidden_checks)
+        required_checks = []
+        for pattern in args.require_env_pattern:
+            pattern_q = shlex.quote(pattern)
+            required_checks.append(
+                f"grep -E -- {pattern_q} {env_file_q} >/dev/null || "
+                f"{{ echo \"Missing required env pattern in {args.env_file}: {pattern}\"; exit 24; }}"
+            )
+        required_env_check = "\n".join(required_checks)
         env_check = f"""
 test -f {env_file_q} || {{ echo "Missing required env file: {args.env_file}"; exit 20; }}
 systemctl cat {service_q} | grep -F -- {env_line_q} >/dev/null || {{ echo "Missing systemd EnvironmentFile={args.env_file} in {args.service}"; exit 21; }}
 {forbidden_env_check}
+{required_env_check}
 """
 
     required_file_checks = []

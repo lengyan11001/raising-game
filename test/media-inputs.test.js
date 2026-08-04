@@ -15,6 +15,7 @@ const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8
 const admin = fs.readFileSync(path.resolve(__dirname, "..", "admin.js"), "utf8");
 const adminCss = fs.readFileSync(path.resolve(__dirname, "..", "admin.css"), "utf8");
 const explore = fs.readFileSync(path.resolve(__dirname, "..", "platform.explore.js"), "utf8");
+const officialPresets = fs.readFileSync(path.resolve(__dirname, "..", "scripts", "generate-official-presets.js"), "utf8");
 
 test("small reference images are enlarged proportionally to the upstream minimum", () => {
   assert.deepEqual(minimumImageTargetDimensions(204, 204), {
@@ -55,15 +56,15 @@ test("PNG alpha channels and transparency chunks are detected without false posi
 test("object storage mirrors must belong to the currently configured public domain", () => {
   assert.equal(
     publicUrlMatchesStorageBase(
-      "https://cdn-video.51sux.com/seedance-assets/raising-game/users/reference.png",
-      "https://cdn-video.51sux.com",
+      "https://media.123vips.com/seedance-assets/raising-game/users/reference.png",
+      "https://media.123vips.com",
     ),
     true,
   );
   assert.equal(
     publicUrlMatchesStorageBase(
       "https://media.123vips.com/assets/user-uploads/reference.png",
-      "https://cdn-video.51sux.com",
+      "https://pub-new2.r2.dev",
     ),
     false,
   );
@@ -96,12 +97,12 @@ test("server applies media checks before upstream generation and mirrors tool up
   assert.match(server, /flattenedTransparency: true/);
   assert.match(server, /format=rgb24/);
   assert.match(server, /imageMinDimension: wan30 \? 240/);
-  assert.match(server, /if \(wan30\) asset = await ensureWan30TosMirrorForUserMediaAsset\(db, asset\)/);
+  assert.match(server, /if \(wan30\) asset = await ensureWan30R2MirrorForUserMediaAsset\(db, asset\)/);
   assert.match(server, /userAsset\.wan30PublicUrl = uploaded\.publicUrl/);
-  assert.match(server, /if \(!tosConfigured\(\) \|\| !userAsset\?\.localUrl\) return userAsset/);
-  assert.match(server, /return \{ \.\.\.userAsset, wan30RequestUrl: originUrl \}/);
-  assert.match(server, /firstPresent\(asset\.wan30RequestUrl, asset\.wan30PublicUrl\)/);
-  assert.doesNotMatch(server, /TOS upload failed: \$\{response\.status\} \$\{text\}/);
+  assert.match(server, /if \(!r2Enabled\(\)\) \{/);
+  assert.match(server, /userAsset\.wan30R2Key = uploaded\.key/);
+  assert.doesNotMatch(server, /\bTOS\b|TOS_|makeTosAuth|uploadStaticAssetToTos|uploadBufferToTos/);
+  assert.doesNotMatch(officialPresets, /\bTOS\b|TOS_|makeTosAuth/);
   assert.doesNotMatch(server, /publicOriginUrlForUpstreamAsset/);
   assert.match(server, /url = publicUrlForLocalAsset\(asset\)/);
   assert.match(server, /!userAssetHasConfiguredObjectStorageMirror\(userAsset\)/);

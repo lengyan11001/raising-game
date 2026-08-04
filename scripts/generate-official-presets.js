@@ -12,13 +12,17 @@ const SELECTED_IDS = new Set(
     .filter(Boolean),
 );
 
-const TOS = {
-  accessKey: process.env.TOS_ACCESS_KEY_ID,
-  secretKey: process.env.TOS_SECRET_ACCESS_KEY,
-  endpoint: process.env.TOS_ENDPOINT,
-  region: process.env.TOS_REGION,
-  bucket: process.env.TOS_BUCKET,
-  publicDomain: process.env.TOS_PUBLIC_DOMAIN,
+const R2 = {
+  accessKey: process.env.R2_ACCESS_KEY_ID || process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
+  secretKey: process.env.R2_SECRET_ACCESS_KEY || process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+  endpoint: process.env.R2_ENDPOINT || process.env.CLOUDFLARE_R2_ENDPOINT,
+  region: process.env.R2_REGION || process.env.CLOUDFLARE_R2_REGION || "auto",
+  bucket: process.env.R2_BUCKET || process.env.CLOUDFLARE_R2_BUCKET,
+  publicDomain:
+    process.env.R2_PUBLIC_BASE_URL ||
+    process.env.R2_PUBLIC_DOMAIN ||
+    process.env.CLOUDFLARE_R2_PUBLIC_BASE_URL ||
+    process.env.CLOUDFLARE_R2_PUBLIC_DOMAIN,
 };
 
 const jobs = [
@@ -57,8 +61,8 @@ function hmac(key, data, encoding) {
   return crypto.createHmac("sha256", key).update(data).digest(encoding);
 }
 
-function signKey(secret, date, region, service) {
-  return hmac(hmac(hmac(hmac(secret, date), region), service), "request");
+function signAwsKey(secret, date, region, service) {
+  return hmac(hmac(hmac(hmac(`AWS4${secret}`, date), region), service), "aws4_request");
 }
 
 function amzDate() {
@@ -73,33 +77,37 @@ function encodePathname(input) {
     .join("/");
 }
 
-function makeTosAuth({ method, key, body, contentType }) {
-  const host = `${TOS.bucket}.${TOS.endpoint}`;
+function r2EndpointUrl() {
+  const endpoint = String(R2.endpoint || "").trim().replace(/\/+$/, "");
+  if (!endpoint) return null;
+  return new URL(/^https?:\/\//i.test(endpoint) ? endpoint : `https://${endpoint}`);
+}
+
+function makeR2Auth({ method, key, body, contentType }) {
+  const endpoint = r2EndpointUrl();
+  if (!endpoint) throw new Error("Missing R2_ENDPOINT");
   const { xDate, date } = amzDate();
   const payloadHash = sha256Hex(body);
-  const canonicalUri = `/${encodePathname(key)}`;
+  const canonicalUri = `/${encodeURIComponent(R2.bucket)}/${encodePathname(key)}`;
   const headers = {
     "content-type": contentType,
-    host,
-    "x-tos-content-sha256": payloadHash,
-    "x-tos-date": xDate,
+    host: endpoint.host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": xDate,
   };
   const sortedKeys = Object.keys(headers).sort();
   const signedHeaders = sortedKeys.join(";");
   const canonicalHeaders = sortedKeys.map((header) => `${header}:${headers[header]}\n`).join("");
   const canonicalRequest = [method, canonicalUri, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
-  const scope = `${date}/${TOS.region}/tos/request`;
-  const stringToSign = ["TOS4-HMAC-SHA256", xDate, scope, sha256Hex(canonicalRequest)].join("\n");
-  const signature = hmac(signKey(TOS.secretKey, date, TOS.region, "tos"), stringToSign, "hex");
+  const scope = `${date}/${R2.region}/s3/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", xDate, scope, sha256Hex(canonicalRequest)].join("\n");
+  const signature = hmac(signAwsKey(R2.secretKey, date, R2.region, "s3"), stringToSign, "hex");
 
   return {
-    host,
-    canonicalUri,
+    url: `${endpoint.protocol}//${endpoint.host}${canonicalUri}`,
     headers: {
-      "content-type": contentType,
-      "x-tos-content-sha256": payloadHash,
-      "x-tos-date": xDate,
-      authorization: `TOS4-HMAC-SHA256 Credential=${TOS.accessKey}/${scope},SignedHeaders=${signedHeaders},Signature=${signature}`,
+      ...headers,
+      authorization: `AWS4-HMAC-SHA256 Credential=${R2.accessKey}/${scope},SignedHeaders=${signedHeaders},Signature=${signature}`,
     },
   };
 }
@@ -107,15 +115,15 @@ function makeTosAuth({ method, key, body, contentType }) {
 async function uploadImage(filePath, id) {
   const body = await fs.readFile(filePath);
   const key = `seedance-assets/raising-game/official-presets/${id}/reference-${Date.now()}.jpg`;
-  const auth = makeTosAuth({ method: "PUT", key, body, contentType: "image/jpeg" });
-  const response = await fetch(`https://${auth.host}${auth.canonicalUri}`, {
+  const auth = makeR2Auth({ method: "PUT", key, body, contentType: "image/jpeg" });
+  const response = await fetch(auth.url, {
     method: "PUT",
     headers: auth.headers,
     body,
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`TOS upload failed for ${id}: ${response.status} ${text}`);
-  return `${TOS.publicDomain.replace(/\/$/, "")}/${key}`;
+  if (!response.ok) throw new Error(`R2 upload failed for ${id}: ${response.status} ${text}`);
+  return `${R2.publicDomain.replace(/\/$/, "")}/${key}`;
 }
 
 async function apizRequest(pathname, body) {
@@ -228,12 +236,11 @@ async function runJob(job) {
 }
 
 async function main() {
-  requireValue("TOS_ACCESS_KEY_ID", TOS.accessKey);
-  requireValue("TOS_SECRET_ACCESS_KEY", TOS.secretKey);
-  requireValue("TOS_ENDPOINT", TOS.endpoint);
-  requireValue("TOS_REGION", TOS.region);
-  requireValue("TOS_BUCKET", TOS.bucket);
-  requireValue("TOS_PUBLIC_DOMAIN", TOS.publicDomain);
+  requireValue("R2_ACCESS_KEY_ID", R2.accessKey);
+  requireValue("R2_SECRET_ACCESS_KEY", R2.secretKey);
+  requireValue("R2_ENDPOINT", R2.endpoint);
+  requireValue("R2_BUCKET", R2.bucket);
+  requireValue("R2_PUBLIC_BASE_URL", R2.publicDomain);
   const selectedJobs = SELECTED_IDS.size ? jobs.filter((job) => SELECTED_IDS.has(job.id)) : jobs;
   const results = [];
   for (const job of selectedJobs) {

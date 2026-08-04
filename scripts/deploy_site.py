@@ -33,6 +33,14 @@ TARGETS = {
                 "pattern": r'(?m)^PASSWORD\s*=\s*"([^"]+)"',
             },
         ),
+        "forbidden_env_patterns": (r"^TOS_",),
+        "required_env_patterns": (
+            r"^R2_ACCESS_KEY_ID=.+$",
+            r"^R2_SECRET_ACCESS_KEY=.+$",
+            r"^R2_ENDPOINT=.+\.r2\.cloudflarestorage\.com/?\"?$",
+            r"^R2_BUCKET=\"?vipeak-media\"?$",
+            r"^R2_PUBLIC_BASE_URL=\"?https://media\.123vips\.com\"?$",
+        ),
     },
     "new2": {
         "host": "198.200.37.82",
@@ -49,6 +57,14 @@ TARGETS = {
             r"^(R2_PUBLIC_BASE_URL|R2_PUBLIC_DOMAIN|CLOUDFLARE_R2_PUBLIC_BASE_URL|CLOUDFLARE_R2_PUBLIC_DOMAIN)=\"?https://media\.123vips\.com\"?$",
             r"^TOS_BUCKET=\"?fal-task\"?$",
             r"^TOS_PUBLIC_DOMAIN=\"?https://cdn-video\.51sux\.com\"?$",
+            r"^TOS_",
+        ),
+        "required_env_patterns": (
+            r"^R2_ACCESS_KEY_ID=.+$",
+            r"^R2_SECRET_ACCESS_KEY=.+$",
+            r"^R2_ENDPOINT=.+\.r2\.cloudflarestorage\.com/?\"?$",
+            r"^R2_BUCKET=\"?vipeak-media-667zui\"?$",
+            r"^R2_PUBLIC_BASE_URL=\"?https://pub-[a-z0-9]+\.r2\.dev\"?$",
         ),
     },
 }
@@ -103,6 +119,8 @@ def main() -> None:
     print(f"[deploy-site] password_source={password_source or '<missing>'}")
     for pattern in target.get("forbidden_env_patterns", ()):
         print(f"[deploy-site] forbid_env_pattern={pattern}")
+    for pattern in target.get("required_env_patterns", ()):
+        print(f"[deploy-site] require_env_pattern={pattern}")
     for required_path, minimum in target.get("required_file_counts", ()):
         print(f"[deploy-site] require_min_files={required_path}={minimum}")
     if args.dry_run:
@@ -138,6 +156,8 @@ def main() -> None:
         command.append("--no-restart")
     for pattern in target.get("forbidden_env_patterns", ()):
         command.extend(["--forbid-env-pattern", pattern])
+    for pattern in target.get("required_env_patterns", ()):
+        command.extend(["--require-env-pattern", pattern])
     for required_path, minimum in target.get("required_file_counts", ()):
         command.extend(["--require-min-files", f"{required_path}={minimum}"])
     raise SystemExit(subprocess.call(command, env=env))
