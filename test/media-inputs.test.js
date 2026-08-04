@@ -117,6 +117,14 @@ test("R2 failures are terminal and never silently fall back to the origin", () =
   assert.match(server, /async function saveGeneratedImageFile[\s\S]*?const upload = await uploadStaticAssetToObjectStorage/);
 });
 
+test("Alibaba task polling cannot block generation status for minutes", () => {
+  assert.match(server, /const queryRequest = normalizedMethod === "GET"/);
+  assert.match(server, /const maxAttempts = queryRequest \? 2 : 1/);
+  assert.match(server, /queryRequest \? 20000 : 180000/);
+  assert.match(server, /transientNetworkError = queryRequest/);
+  assert.match(server, /await Promise\.all\(activeRecords\.map\(async \(record\) => \{/);
+});
+
 test("new2 gateway preserves its own R2 URLs for every video provider", () => {
   assert.match(server, /gatewayBody\.imageUrl = publicHttpUrlForUserAsset\(asset\)/);
   assert.match(server, /gatewayBody\.preservePublicMediaUrls = true/);
