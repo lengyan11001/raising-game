@@ -632,6 +632,7 @@ const ALIYUN_DASHSCOPE_API_KEY =
   process.env.DASHSCOPE_API_KEY ||
   process.env.BAILIAN_API_KEY ||
   "";
+const ALIYUN_QWEN_IMAGE3_API_KEY = String(process.env.ALIYUN_QWEN_IMAGE3_API_KEY || "").trim();
 const ALIYUN_WAN30_BASE_URL = (process.env.ALIYUN_WAN30_BASE_URL || "https://dashscope.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_WAN30_API_KEY = process.env.ALIYUN_WAN30_API_KEY || ALIYUN_DASHSCOPE_API_KEY;
 const ALIYUN_WAN30_MODEL = process.env.ALIYUN_WAN30_MODEL || "wan3.0-video";
@@ -11350,11 +11351,11 @@ async function aliyunDashscopeRequest(pathname, {
   const wan30 = normalizedProvider === "wan30" || String(provider || "").toLowerCase() === "aliyun-wan30";
   const qwenImage3 = normalizedProvider === "qwen-image3";
   const baseUrl = qwenImage3 ? QWEN_IMAGE3_SINGAPORE_BASE_URL : wan30 ? ALIYUN_WAN30_BASE_URL : ALIYUN_DASHSCOPE_BASE_URL;
-  const apiKey = wan30 ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY;
+  const apiKey = qwenImage3 ? ALIYUN_QWEN_IMAGE3_API_KEY : wan30 ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY;
   if (!apiKey) {
-    const error = new Error(`${wan30 ? "Wan3.0" : "Alibaba video"} generation is not configured.`);
+    const error = new Error(`${qwenImage3 ? "Qwen Image 3.0" : wan30 ? "Wan3.0" : "Alibaba video"} generation is not configured.`);
     error.statusCode = 503;
-    error.code = wan30 ? "MISSING_ALIYUN_WAN30_API_KEY" : "MISSING_ALIYUN_DASHSCOPE_API_KEY";
+    error.code = qwenImage3 ? "MISSING_ALIYUN_QWEN_IMAGE3_API_KEY" : wan30 ? "MISSING_ALIYUN_WAN30_API_KEY" : "MISSING_ALIYUN_DASHSCOPE_API_KEY";
     throw error;
   }
   const normalizedMethod = String(method || "POST").toUpperCase();
@@ -21261,8 +21262,8 @@ function startQwenImage3GenerationJob(job = {}) {
 async function handleAdvancedQwenImage3Generate(req, res, context = {}) {
   const auth = context.auth || await requireUser(req, res);
   if (!auth) return;
-  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Qwen Image 3.0 generation is not configured." });
+  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_QWEN_IMAGE3_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_QWEN_IMAGE3_API_KEY", message: "Qwen Image 3.0 generation is not configured." });
   }
   const body = context.body || await readJson(req);
   const bodyParams = context.bodyParams || requestParamsFromBody(body);
@@ -32661,6 +32662,7 @@ async function handleRequest(req, res) {
         gatewayConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : false,
         arkConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ARK_API_KEY),
         aliyunConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ALIYUN_DASHSCOPE_API_KEY),
+        qwenImage3Configured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(ALIYUN_QWEN_IMAGE3_API_KEY),
         wan30Configured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(ALIYUN_WAN30_API_KEY),
         generationConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(APIZ_API_KEY),
         r2Configured: r2Enabled(),

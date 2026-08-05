@@ -123,6 +123,7 @@ def redacted_env_summary(content: str) -> str:
         "DASHSCOPE_API_KEY",
         "BAILIAN_API_KEY",
         "ALIYUN_DASHSCOPE_BASE_URL",
+        "ALIYUN_QWEN_IMAGE3_API_KEY",
         "ALIYUN_WAN27_MODEL",
         "ARK_API_KEY",
     }
