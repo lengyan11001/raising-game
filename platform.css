@@ -3820,6 +3820,17 @@ dialog.tool-download-modal {
   border-color: rgba(239,68,68,.28);
   background: rgba(255,255,255,.84);
 }
+.advanced-result-image-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.advanced-result-image-grid.is-multiple {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.advanced-result-image-grid.is-multiple .advanced-result-media {
+  min-height: 132px;
+}
 .advanced-result-media {
   position: relative;
   display: grid;

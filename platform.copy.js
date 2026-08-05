@@ -1934,6 +1934,39 @@ Media roles: first_frame, last_frame, reference_image, reference_video, referenc
 
 Limits: duration 5-15 seconds. Standard supports 480p, 720p, 1080p, and 4k. Fast supports 480p and 720p. Images: JPG/PNG/WebP/BMP, max 20MB each, width and height 300-6000px, aspect ratio 0.4-2.5. Video references: max 3, pixel count 409600-8847360. Audio references: max 3, MP3/WAV/M4A/MP4 audio/AAC/OGG/WebM, max 30MB each, and must be used with at least one image or video reference. Set generate_audio=false when no generated voice/effects/music is needed.`;
 
+const QWEN_IMAGE3_ACCESS_COPY = `Qwen Image 3.0 uses the async V3 image endpoint.
+
+POST ${apiUrl("/api/v3/images/generations")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{
+  "model": "qwen-image-3.0-pro",
+  "prompt": "Keep the subject identity and create a clean studio campaign image.",
+  "image": ["asset://reference-1", "https://example.com/reference-2.png"],
+  "size": "2048*2048",
+  "n": 1,
+  "negative_prompt": "blur, text artifacts",
+  "prompt_extend": true,
+  "prompt_extend_mode": "direct",
+  "seed": 42,
+  "watermark": false
+}
+
+Models: qwen-image-3.0-pro or qwen-image-3.0.
+prompt is required. image is optional and accepts 1-3 public URLs, supported data URLs, or asset:// ids.
+Reference formats: JPG/JPEG/PNG/BMP/TIFF/WebP/GIF, max 10MB each. Recommended width and height: 384-2048px.
+size uses width*height. Pixel area must be 512*512 through 2048*2048 and aspect ratio must be 1:8 through 8:1. Omit size to use the default.
+n is an integer from 1 to 6. seed is an integer from 0 to 2147483647.
+prompt_extend defaults to true. prompt_extend_mode may be direct; agent is available only for text-to-image requests without reference images.
+negative_prompt is optional. watermark defaults to false.
+
+The create response returns id/task_id. Poll:
+GET ${apiUrl("/api/v3/contents/generations/tasks/<taskId>")}
+Authorization: Bearer <user-token>
+
+When status is succeeded, read content.image_url, content.image_urls, or data[].url.`;
+
 const LIVE_HTTP_ACCESS_COPY = `Production generation endpoints:
 
 1) Create and poll a Seedance video task:
@@ -1960,7 +1993,10 @@ Authorization: Bearer <user-token>
 
 When status is succeeded, read content.image_url.
 
-3) Optional BytePlus-compatible asset upload for reusable files:
+3) Create and poll a Qwen Image 3.0 task:
+${QWEN_IMAGE3_ACCESS_COPY}
+
+4) Optional BytePlus-compatible asset upload for reusable files:
 POST ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}
 Authorization: Bearer <user-token>
 Content-Type: application/json

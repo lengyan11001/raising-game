@@ -1053,6 +1053,16 @@ function generationImageResultUrl(record) {
   return record?.cdnImageUrl || record?.imageResultUrl || record?.localImageUrl || record?.remoteImageUrl || "";
 }
 
+function generationImageResultUrls(record = {}) {
+  return [...new Set([
+    ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
+    ...(Array.isArray(record.imageResultUrls) ? record.imageResultUrls : []),
+    ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
+    ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
+    generationImageResultUrl(record),
+  ].map((item) => String(item || "").trim()).filter(Boolean))];
+}
+
 function generationPosterUrl(record) {
   return record?.cdnPosterUrl || record?.posterUrl || record?.localPosterUrl || generationImageResultUrl(record) || "";
 }
@@ -1344,6 +1354,7 @@ function advancedCaseDuration(item = {}) {
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return DEFAULT_ADVANCED_PROVIDER;
+  if (["qwenimage3", "qwenimage30", "qwenimage3pro", "qwenimage30pro"].includes(normalized) || normalized.includes("qwenimage3.0")) return "qwen-image3";
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["wan27imageedit", "wan2.7imageedit", "wanimageedit", "imageedit", "wan27image", "vipeak1image", "vipeak1imageedit"].includes(normalized)) return "wan27-image-edit";
@@ -1358,6 +1369,7 @@ function normalizeAdvancedProvider(value = "") {
 function advancedProviderLabel(provider = currentAdvancedProvider()) {
   const normalized = normalizeAdvancedProvider(provider);
   const capability = currentAdvancedVideoCapability(provider);
+  if (normalized === "qwen-image3") return "Qwen Image 3.0";
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
   if (normalized === "wan27-image-edit") return "Wan 2.7 Image";
   if (normalized === "wan30") return "Wan 3.0";
@@ -1425,7 +1437,7 @@ function advancedEngineValue(provider = els.advancedProvider?.value || "", capab
   if (normalizedCapability.startsWith("wan30-")) return "wan30";
   if (normalizedCapability.startsWith("wan27-")) return "wan27";
   const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
-  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "wan30", "wan27", "wan27-image-edit", "seedream5-image"].includes(raw)) return raw;
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "wan30", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3"].includes(raw)) return raw;
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
   return normalizeAdvancedProvider(provider);
 }
@@ -1565,6 +1577,7 @@ function advancedCaseProvider(item = {}) {
 
 function normalizeAdvancedResolution(value = "", provider = "seedance") {
   const raw = String(value || "").trim().toLowerCase();
+  if (normalizeAdvancedProvider(provider) === "qwen-image3") return raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return raw === "4k" ? "4K" : raw === "1k" ? "1K" : "2K";
   if (normalizeAdvancedProvider(provider) === "wan30") return raw === "480p" ? "480p" : raw === "720p" ? "720p" : "1080p";
@@ -1576,6 +1589,7 @@ function normalizeAdvancedResolution(value = "", provider = "seedance") {
 
 function advancedDurationBounds(provider = "seedance", capability = "") {
   const normalized = normalizeAdvancedProvider(provider);
+  if (normalized === "qwen-image3") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan27-image-edit") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan30") return { min: -1, max: 30, fallback: 5 };
@@ -1704,6 +1718,47 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       credits: 0,
       markup: 1,
       userPricingMultiplier: 1,
+    };
+  }
+  if (normalizedProvider === "qwen-image3") {
+    const configPricing = state.config?.platform?.advancedPricing || {};
+    const qwenPricing = configPricing.qwenImage3 || {};
+    const creditsPerUsd = Number(configPricing.creditsPerUsd || state.wallet?.creditsPerUsd || 100) || 100;
+    const tier = options.qwenTier || currentQwenImage3Tier();
+    const normalizedTier = tier === "standard" ? "standard" : "pro";
+    const normalizedResolution = normalizeAdvancedResolution(resolution || qwenPricing.defaultResolution || "2K", normalizedProvider);
+    const referenceImageCount = Math.max(0, Math.min(ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT, Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("qwen-image3").length) || 0));
+    const outputImageCount = Math.max(1, Math.min(6, Number(options.outputImageCount ?? els.advancedQwenOutputCount?.value ?? 1) || 1));
+    const tierPricing = qwenPricing[normalizedTier] || {};
+    const fallbackOutputUsd = normalizedTier === "standard"
+      ? ADVANCED_QWEN_IMAGE3_STANDARD_USD_PER_IMAGE
+      : normalizedResolution === "1K"
+      ? ADVANCED_QWEN_IMAGE3_PRO_1K_USD_PER_IMAGE
+      : ADVANCED_QWEN_IMAGE3_PRO_2K_USD_PER_IMAGE;
+    const outputUsdPerImage = Number(tierPricing.saleUsdPerImageByResolution?.[normalizedResolution] ?? fallbackOutputUsd);
+    const inputUsdPerReferenceImage = Number(tierPricing.saleUsdPerReferenceImage ?? ADVANCED_QWEN_IMAGE3_USD_PER_REFERENCE_IMAGE);
+    const outputUsd = Math.max(0, outputUsdPerImage * outputImageCount);
+    const inputUsd = Math.max(0, inputUsdPerReferenceImage * referenceImageCount);
+    const totalUsd = outputUsd + inputUsd;
+    const originalCredits = creditsAmount(totalUsd * creditsPerUsd);
+    const multiplier = userPricingMultiplier();
+    return {
+      provider: "qwen-image3",
+      qwenTier: normalizedTier,
+      duration: 1,
+      resolution: normalizedResolution,
+      referenceImageCount,
+      outputImageCount,
+      outputUsdPerImage,
+      inputUsdPerReferenceImage,
+      outputUsd,
+      inputUsd,
+      totalUsd,
+      baseCredits: originalCredits,
+      originalCredits,
+      credits: creditsAmount(originalCredits * multiplier),
+      markup: 1,
+      userPricingMultiplier: multiplier,
     };
   }
   if (normalizedProvider === "seedream5-image") {
@@ -1903,10 +1958,14 @@ function currentSeedreamTier() {
   return "pro";
 }
 
+function currentQwenImage3Tier() {
+  return els.advancedQwenTier?.value === "standard" ? "standard" : "pro";
+}
+
 function currentAdvancedResolution() {
   const provider = currentAdvancedProvider();
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  const fallback = normalizedProvider === "seedream5-image" ? "2K" : ["seedance", "seedance25"].includes(normalizedProvider) ? "480p" : "720p";
+  const fallback = ["seedream5-image", "qwen-image3"].includes(normalizedProvider) ? "2K" : ["seedance", "seedance25"].includes(normalizedProvider) ? "480p" : "720p";
   return normalizeAdvancedResolution(els.advancedResolution?.value || fallback, provider);
 }
 
@@ -1919,6 +1978,7 @@ function advancedVideoSettingsVisible() {
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
+  if (normalizeAdvancedProvider(provider) === "qwen-image3") return ["1K", "2K"];
   if (normalizeAdvancedProvider(provider) === "seedream5-image") return ["1K", "2K"];
   if (normalizeAdvancedProvider(provider) === "seedance25") return ["480p", "720p"];
   return normalizeAdvancedProvider(provider) === "seedance"
@@ -2767,6 +2827,14 @@ function wanModeNeedsClip(mode) {
 }
 
 function advancedCostLabel(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
+  if (normalizeAdvancedProvider(provider) === "qwen-image3") {
+    const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
+    const pricing = state.advancedEstimate && state.advancedEstimateKey === key
+      ? state.advancedEstimate
+      : advancedPricing(duration, provider, resolution, ratio, options);
+    const tier = String(pricing.qwenTier || options.qwenTier || "pro") === "standard" ? "Standard" : "Pro";
+    return `${t("cost.credits", { credits: formatCredits(pricing.credits) })} - ${tier} ${pricing.resolution || normalizeAdvancedResolution(resolution, provider)}`;
+  }
   if (normalizeAdvancedProvider(provider) === "seedream5-image") {
     const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
     const pricing = state.advancedEstimate && state.advancedEstimateKey === key
@@ -2972,7 +3040,7 @@ function advancedButtonCostLabel(duration, provider = "seedance", resolution = "
   const fullLabel = advancedCostLabel(duration, provider, resolution, ratio, options);
   if (state.advancedCreateKind === "custom") return fullLabel;
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (normalizedProvider === "seedream5-image") return fullLabel;
+  if (["seedream5-image", "qwen-image3"].includes(normalizedProvider)) return fullLabel;
   if (normalizedProvider === "wan27-image-edit") return assetImageModifyCostLabel();
   const pricing = state.advancedEstimate && state.advancedEstimateKey === advancedEstimateKey(duration, provider, resolution, ratio, options)
     ? state.advancedEstimate
@@ -2982,6 +3050,17 @@ function advancedButtonCostLabel(duration, provider = "seedance", resolution = "
 
 function advancedEstimateKey(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "qwen-image3") {
+    return [
+      normalizedProvider,
+      options.qwenTier || currentQwenImage3Tier(),
+      normalizeAdvancedResolution(resolution, normalizedProvider),
+      normalizeVideoRatio(ratio),
+      Math.max(0, Number(options.referenceImageCount ?? selectedAdvancedReferenceImages("qwen-image3").length) || 0),
+      Math.max(1, Number(options.outputImageCount ?? els.advancedQwenOutputCount?.value ?? 1) || 1),
+      Number(state.user?.pricingMultiplier || 1),
+    ].join("|");
+  }
   if (normalizedProvider === "seedream5-image") {
     return [
       normalizedProvider,
@@ -3018,6 +3097,9 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
     seconds,
     inputVideoSeconds,
     referenceVideoSignature,
+    options.qwenTier || "",
+    Math.max(0, Number(options.referenceImageCount || 0) || 0),
+    Math.max(1, Number(options.outputImageCount || 1) || 1),
     Number(state.user?.pricingMultiplier || 1),
   ].join("|");
 }
@@ -3043,6 +3125,9 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
           model: options.model,
           mode: options.mode || options.animateMode,
           seedreamTier: options.seedreamTier || options.seedream5Tier,
+          qwenTier: options.qwenTier,
+          outputImageCount: Math.max(1, Number(options.outputImageCount || 1) || 1),
+          n: Math.max(1, Number(options.outputImageCount || 1) || 1),
           referenceImageCount: Math.max(0, Number(options.referenceImageCount || 0) || 0),
         },
       });
@@ -3090,7 +3175,9 @@ function updateAdvancedButtonCost() {
       : 0,
     referenceVideoUrls: ["seedance", "seedance25"].includes(provider) ? currentSeedanceEstimateReferenceVideoUrls(provider) : [],
     seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
-    referenceImageCount: provider === "seedream5-image" ? selectedAdvancedReferenceImages("seedream5-image").length : 0,
+    qwenTier: provider === "qwen-image3" ? currentQwenImage3Tier() : undefined,
+    outputImageCount: provider === "qwen-image3" ? Number(els.advancedQwenOutputCount?.value || 1) : 1,
+    referenceImageCount: ["seedream5-image", "qwen-image3"].includes(provider) ? selectedAdvancedReferenceImages(provider).length : 0,
     videoCapability,
     model: videoCapability === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "") : undefined,
     mode: provider === "seedance25"
