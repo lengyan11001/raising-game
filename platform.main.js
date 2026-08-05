@@ -36,8 +36,9 @@ els.advancedImage?.addEventListener("change", async () => {
   const provider = currentAdvancedProvider();
   const files = Array.from(els.advancedImage.files || []);
   if (!files.length) return;
-  if (provider === "seedream5-image") {
+  if (["seedream5-image", "qwen-image3"].includes(provider)) {
     try {
+      const imageLimit = provider === "qwen-image3" ? ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
       let skippedWrongType = false;
       let skippedTooLarge = false;
       let skippedTooMany = false;
@@ -47,12 +48,12 @@ els.advancedImage?.addEventListener("change", async () => {
           skippedWrongType = true;
           continue;
         }
-        if (file.size > ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES) {
+        if (file.size > (provider === "qwen-image3" ? ADVANCED_QWEN_IMAGE3_REFERENCE_MAX_BYTES : ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES)) {
           skippedTooLarge = true;
           continue;
         }
         const existingImages = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
-        if (existingImages.length >= ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+        if (existingImages.length >= imageLimit) {
           skippedTooMany = true;
           continue;
         }
@@ -69,7 +70,7 @@ els.advancedImage?.addEventListener("change", async () => {
           removeAdvancedPendingReference(pending.pendingId, { render: false });
         }
         ref = stampAdvancedReferenceOrder(ref);
-        state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existingImages, ref]).slice(0, ADVANCED_SEEDANCE_REFERENCE_LIMIT);
+        state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existingImages, ref]).slice(0, imageLimit);
         state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
         state.advancedFirstFrameAssetId = "";
         state.advancedSourceImageAssetId = "";
@@ -81,7 +82,7 @@ els.advancedImage?.addEventListener("change", async () => {
         els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
       }
       if (skippedTooMany && els.advancedNote) {
-        els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: ADVANCED_SEEDANCE_REFERENCE_LIMIT });
+        els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: imageLimit });
       }
       state.activeAdvancedCaseId = "";
       state.advancedAssetTarget = "referenceImages";
@@ -710,6 +711,12 @@ els.advancedProvider?.addEventListener("change", () => {
     if (els.advancedDuration) els.advancedDuration.value = "5";
     if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = "true";
   }
+  if (currentAdvancedProvider() === "qwen-image3") {
+    if (els.advancedRatio) els.advancedRatio.value = "1:1";
+    if (els.advancedResolution) els.advancedResolution.value = "2K";
+    if (els.advancedDuration) els.advancedDuration.value = "1";
+    state.advancedAssetTarget = "referenceImages";
+  }
   syncAdvancedVideoCapabilityOptions();
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
@@ -724,6 +731,12 @@ els.advancedSeedanceTier?.addEventListener("change", () => {
 });
 els.advancedSeedreamTier?.addEventListener("change", () => {
   updateAdvancedModelControls();
+});
+[els.advancedQwenTier, els.advancedQwenOutputCount, els.advancedQwenPromptExtend, els.advancedQwenWatermark].forEach((control) => {
+  control?.addEventListener("change", () => {
+    state.advancedEstimateKey = "";
+    updateAdvancedButtonCost();
+  });
 });
 els.advancedWanMediaMode?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
@@ -797,7 +810,7 @@ els.advancedUploadBox?.addEventListener("click", () => {
     : "";
   setAdvancedAssetTarget(provider === "wan27-image-edit"
     ? "sourceImages"
-    : provider === "seedream5-image"
+    : ["seedream5-image", "qwen-image3"].includes(provider)
     ? "referenceImages"
     : provider === "seedance25" && ["edit", "extend"].includes(seedanceMode)
     ? "video"

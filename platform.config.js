@@ -29,6 +29,12 @@ const ADVANCED_SEEDREAM5_LITE_USD_PER_IMAGE = 0.035;
 const ADVANCED_SEEDREAM5_PRO_1K_USD_PER_IMAGE = 0.045;
 const ADVANCED_SEEDREAM5_PRO_2K_USD_PER_IMAGE = 0.09;
 const ADVANCED_SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST = 0.003;
+const ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT = 3;
+const ADVANCED_QWEN_IMAGE3_REFERENCE_MAX_BYTES = 10 * 1024 * 1024;
+const ADVANCED_QWEN_IMAGE3_PRO_1K_USD_PER_IMAGE = 0.03438;
+const ADVANCED_QWEN_IMAGE3_PRO_2K_USD_PER_IMAGE = 0.068761;
+const ADVANCED_QWEN_IMAGE3_STANDARD_USD_PER_IMAGE = 0.024754;
+const ADVANCED_QWEN_IMAGE3_USD_PER_REFERENCE_IMAGE = 0.00275;
 const DEFAULT_ADVANCED_PROVIDER = "wan27";
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = 9;
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = 3;
@@ -1096,6 +1102,10 @@ const els = {
   advancedVideoCapability: document.querySelector("#advancedVideoCapability"),
   advancedSeedanceTier: document.querySelector("#advancedSeedanceTier"),
   advancedSeedreamTier: document.querySelector("#advancedSeedreamTier"),
+  advancedQwenTier: document.querySelector("#advancedQwenTier"),
+  advancedQwenOutputCount: document.querySelector("#advancedQwenOutputCount"),
+  advancedQwenPromptExtend: document.querySelector("#advancedQwenPromptExtend"),
+  advancedQwenWatermark: document.querySelector("#advancedQwenWatermark"),
   advancedRatio: document.querySelector("#advancedRatio"),
   advancedResolution: document.querySelector("#advancedResolution"),
   advancedDuration: document.querySelector("#advancedDuration"),

@@ -25,6 +25,23 @@ const {
   purchaseSiteCreditsPerSecond: seedance25PurchaseSiteCreditsPerSecond,
 } = require("./seedance25");
 const {
+  QWEN_IMAGE3_MODELS,
+  QWEN_IMAGE3_OFFICIAL_USD,
+  QWEN_IMAGE3_OUTPUT_MAX,
+  QWEN_IMAGE3_REFERENCE_LIMIT,
+  QWEN_IMAGE3_SEED_MAX,
+  QWEN_IMAGE3_SIZE_MAX_PIXELS,
+  QWEN_IMAGE3_SIZE_MIN_PIXELS,
+  buildQwenImage3Request,
+  normalizeQwenImage3Resolution,
+  normalizeQwenImage3Tier,
+  qwenImage3ModelForTier,
+  qwenImage3OfficialPricing,
+  qwenImage3OutputUrls,
+  qwenImage3ResolutionForSize,
+  qwenImage3Size,
+} = require("./qwen-image3");
+const {
   VIDEO_TOOL_FACE_SWAP_PROMPT,
   IMAGE_TOOL_FACE_SWAP_PROMPT,
   VIDEO_TOOL_UNDRESS_KEYFRAME_PROMPT,
@@ -305,6 +322,9 @@ const PIVOX_ASSET_GROUP_CACHE = new Map();
 const PIVOX_ASSET_URI_CACHE = new Map();
 const SEEDREAM5_ASSET_URI_CACHE = new Map();
 const SEEDREAM5_IMAGE_IN_FLIGHT = new Map();
+const QWEN_IMAGE3_IN_FLIGHT = new Map();
+let qwenImage3SubmitTail = Promise.resolve();
+let qwenImage3LastSubmitAt = 0;
 
 const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
@@ -575,6 +595,25 @@ const DEFAULT_ADVANCED_PRICING = {
     defaultResolution: "2K",
     defaultTier: "pro",
   },
+  qwenImage3: {
+    pro: {
+      model: QWEN_IMAGE3_MODELS.pro,
+      purchaseUsdPerImageByResolution: { ...QWEN_IMAGE3_OFFICIAL_USD.pro.outputPerImage },
+      saleUsdPerImageByResolution: { ...QWEN_IMAGE3_OFFICIAL_USD.pro.outputPerImage },
+      purchaseUsdPerReferenceImage: QWEN_IMAGE3_OFFICIAL_USD.pro.inputPerReferenceImage,
+      saleUsdPerReferenceImage: QWEN_IMAGE3_OFFICIAL_USD.pro.inputPerReferenceImage,
+    },
+    standard: {
+      model: QWEN_IMAGE3_MODELS.standard,
+      purchaseUsdPerImageByResolution: { ...QWEN_IMAGE3_OFFICIAL_USD.standard.outputPerImage },
+      saleUsdPerImageByResolution: { ...QWEN_IMAGE3_OFFICIAL_USD.standard.outputPerImage },
+      purchaseUsdPerReferenceImage: QWEN_IMAGE3_OFFICIAL_USD.standard.inputPerReferenceImage,
+      saleUsdPerReferenceImage: QWEN_IMAGE3_OFFICIAL_USD.standard.inputPerReferenceImage,
+    },
+    resolutions: ["1K", "2K"],
+    defaultResolution: "2K",
+    defaultTier: "pro",
+  },
 };
 const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_MARKUP, 1.5, 1, 100);
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_REFERENCE_LIMIT || process.env.ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT, 9, 1, 9));
@@ -587,6 +626,7 @@ const WAN30_VIDEO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 const WAN30_AUDIO_UPLOAD_MAX_BYTES = 15 * 1024 * 1024;
 const VIDEO_DURATION_PROBE_TIMEOUT_MS = Math.max(3000, Number(process.env.VIDEO_DURATION_PROBE_TIMEOUT_MS || 10000) || 10000);
 const ALIYUN_DASHSCOPE_BASE_URL = (process.env.ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
+const QWEN_IMAGE3_SINGAPORE_BASE_URL = "https://dashscope-intl.aliyuncs.com";
 const ALIYUN_DASHSCOPE_API_KEY =
   process.env.ALIYUN_DASHSCOPE_API_KEY ||
   process.env.DASHSCOPE_API_KEY ||
@@ -1639,6 +1679,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const rawSeedream5ImageSource = source.seedream5Image && typeof source.seedream5Image === "object" && !Array.isArray(source.seedream5Image)
     ? source.seedream5Image
     : {};
+  const rawQwenImage3Source = source.qwenImage3 && typeof source.qwenImage3 === "object" && !Array.isArray(source.qwenImage3)
+    ? source.qwenImage3
+    : {};
   const wan27ImageSource = { ...rawWan27ImageSource };
   if (Number(wan27ImageSource.saleCnyPerImage) === 0.8432 && !rawWan27ImageSource.userConfigured) {
     wan27ImageSource.saleCnyPerImage = WAN27_IMAGE_PRO_SALE_CNY;
@@ -1689,6 +1732,36 @@ function normalizeAdvancedPricing(pricing = {}) {
     "2K": pricingNumber(firstPresent(sourceMap["2K"], sourceMap["2k"]), fallbackMap["2K"] ?? SEEDREAM5_PRO_2K_USD_PER_IMAGE, 0, 6),
   });
   const normalizedSeedreamResolutions = ["1K", "2K"];
+  const qwenImage3Default = DEFAULT_ADVANCED_PRICING.qwenImage3 || {};
+  const normalizeQwenImage3TierPricing = (tier) => {
+    const sourceTier = rawQwenImage3Source[tier] && typeof rawQwenImage3Source[tier] === "object"
+      ? rawQwenImage3Source[tier]
+      : {};
+    const defaultTier = qwenImage3Default[tier] || {};
+    const official = QWEN_IMAGE3_OFFICIAL_USD[tier];
+    const purchaseMap = sourceTier.purchaseUsdPerImageByResolution && typeof sourceTier.purchaseUsdPerImageByResolution === "object"
+      ? sourceTier.purchaseUsdPerImageByResolution
+      : {};
+    const saleMap = sourceTier.saleUsdPerImageByResolution && typeof sourceTier.saleUsdPerImageByResolution === "object"
+      ? sourceTier.saleUsdPerImageByResolution
+      : {};
+    return {
+      ...defaultTier,
+      ...sourceTier,
+      model: qwenImage3ModelForTier(tier, sourceTier.model || defaultTier.model),
+      purchaseUsdPerImageByResolution: {
+        "1K": pricingNumber(firstPresent(purchaseMap["1K"], purchaseMap["1k"]), defaultTier.purchaseUsdPerImageByResolution?.["1K"] ?? official.outputPerImage["1K"], 0, 6),
+        "2K": pricingNumber(firstPresent(purchaseMap["2K"], purchaseMap["2k"]), defaultTier.purchaseUsdPerImageByResolution?.["2K"] ?? official.outputPerImage["2K"], 0, 6),
+      },
+      saleUsdPerImageByResolution: {
+        "1K": pricingNumber(firstPresent(saleMap["1K"], saleMap["1k"]), defaultTier.saleUsdPerImageByResolution?.["1K"] ?? purchaseMap["1K"] ?? official.outputPerImage["1K"], 0, 6),
+        "2K": pricingNumber(firstPresent(saleMap["2K"], saleMap["2k"]), defaultTier.saleUsdPerImageByResolution?.["2K"] ?? purchaseMap["2K"] ?? official.outputPerImage["2K"], 0, 6),
+      },
+      purchaseUsdPerReferenceImage: pricingNumber(sourceTier.purchaseUsdPerReferenceImage, defaultTier.purchaseUsdPerReferenceImage ?? official.inputPerReferenceImage, 0, 6),
+      saleUsdPerReferenceImage: pricingNumber(sourceTier.saleUsdPerReferenceImage, defaultTier.saleUsdPerReferenceImage ?? sourceTier.purchaseUsdPerReferenceImage ?? official.inputPerReferenceImage, 0, 6),
+      userConfigured: sourceTier.userConfigured === true,
+    };
+  };
   const normalizedWan27Rates = {
     "720p": normalizeStoredCredits(wan27["720p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["720p"]),
     "1080p": normalizeStoredCredits(wan27["1080p"], DEFAULT_ADVANCED_PRICING.wan27CreditsPerSecondByResolution["1080p"]),
@@ -1807,6 +1880,13 @@ function normalizeAdvancedPricing(pricing = {}) {
       defaultResolution: normalizeSeedream5Resolution(seedreamSource.defaultResolution || seedreamDefault.defaultResolution || "2K"),
       defaultTier: "pro",
     },
+    qwenImage3: {
+      pro: normalizeQwenImage3TierPricing("pro"),
+      standard: normalizeQwenImage3TierPricing("standard"),
+      resolutions: ["1K", "2K"],
+      defaultResolution: normalizeQwenImage3Resolution(rawQwenImage3Source.defaultResolution || qwenImage3Default.defaultResolution || "2K"),
+      defaultTier: normalizeQwenImage3Tier(rawQwenImage3Source.defaultTier || qwenImage3Default.defaultTier || "pro"),
+    },
   };
 }
 
@@ -1814,6 +1894,7 @@ function publicAdvancedPricingView(pricing = {}) {
   const normalized = normalizeAdvancedPricing(pricing);
   const imagePricing = normalized.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro || {};
   const seedreamPricing = normalized.seedream5Image || DEFAULT_ADVANCED_PRICING.seedream5Image || {};
+  const qwenPricing = normalized.qwenImage3 || DEFAULT_ADVANCED_PRICING.qwenImage3 || {};
   const imageCostCredits = pricingNumber(
     Number(imagePricing.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY),
     0,
@@ -1851,6 +1932,19 @@ function publicAdvancedPricingView(pricing = {}) {
           ...(seedreamPricing.pro?.saleUsdPerImageByResolution || DEFAULT_ADVANCED_PRICING.seedream5Image.pro.saleUsdPerImageByResolution),
         },
         referenceUsdPerImageAfterFirst: seedreamPricing.pro?.referenceUsdPerImageAfterFirst ?? SEEDREAM5_PRO_REFERENCE_USD_PER_IMAGE_AFTER_FIRST,
+      },
+    },
+    qwenImage3: {
+      resolutions: ["1K", "2K"],
+      defaultResolution: qwenPricing.defaultResolution || "2K",
+      defaultTier: qwenPricing.defaultTier || "pro",
+      pro: {
+        saleUsdPerImageByResolution: { ...qwenPricing.pro.saleUsdPerImageByResolution },
+        saleUsdPerReferenceImage: qwenPricing.pro.saleUsdPerReferenceImage,
+      },
+      standard: {
+        saleUsdPerImageByResolution: { ...qwenPricing.standard.saleUsdPerImageByResolution },
+        saleUsdPerReferenceImage: qwenPricing.standard.saleUsdPerReferenceImage,
       },
     },
   };
@@ -5700,9 +5794,16 @@ function isSeedream5ImageProvider(value = "") {
   ].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50");
 }
 
+function isQwenImage3Provider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return ["qwenimage3", "qwenimage30", "qwenimage3pro", "qwenimage30pro"].includes(normalized)
+    || normalized.includes("qwenimage3.0");
+}
+
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
+  if (isQwenImage3Provider(value)) return "qwen-image3";
   if (isSeedream5ImageProvider(value)) return "seedream5-image";
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
@@ -5721,6 +5822,7 @@ function publicProviderId(value = "") {
   const raw = String(value || "").trim();
   const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "";
+  if (isQwenImage3Provider(raw)) return "qwen-image3";
   if (isSeedream5ImageProvider(raw)) return "seedream5-image";
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
@@ -5733,6 +5835,7 @@ function publicProviderId(value = "") {
 
 function publicProviderLabel(value = "") {
   const id = publicProviderId(value);
+  if (id === "qwen-image3") return "Qwen Image 3.0";
   if (id === "seedream5-image") return "Seedream 5.0 Image";
   if (id === "seedance25") return "Seedance 2.5";
   if (id === "wan30") return "Wan 3.0";
@@ -6001,19 +6104,20 @@ function sendReferenceAssetNotFound(res, kind = "image", assetId = "") {
 function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
+  if (isQwenImage3Provider(value)) return true;
   if (isSeedream5ImageProvider(value)) return true;
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return true;
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return true;
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return true;
   if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized)) return true;
   if (["seedance", "vipeak2", "vp2"].includes(normalized)) return true;
-  return normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1") || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina") || normalized.includes("seedream");
+  return normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1") || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina") || normalized.includes("seedream") || normalized.includes("qwenimage3");
 }
 
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, or seedream5-image.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedream5-image, or qwen-image3.", { provider: value });
   }
 }
 
@@ -6427,7 +6531,7 @@ function seedanceTokenPricing(options = {}) {
 
 function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (normalizedProvider === "seedream5-image") return { fallback: 1, min: 1, max: 1 };
+  if (["seedream5-image", "qwen-image3"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
   if (normalizedProvider === "seedance25") return { fallback: 4, min: 4, max: 30 };
   if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
@@ -6461,6 +6565,9 @@ function advancedModelPricing(provider = "seedance", options = {}) {
   const bounds = advancedDurationBounds(normalizedProvider);
   const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, bounds.min, bounds.max);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
+  if (normalizedProvider === "qwen-image3") {
+    return qwenImage3PricingEstimate(advancedPricing, options);
+  }
   if (normalizedProvider === "seedream5-image") {
     return seedream5ImagePricingEstimate(advancedPricing, options);
   }
@@ -7601,6 +7708,56 @@ function evmScanConfig(chain = "") {
     usdtContract: WALLET_USDT_CONTRACTS.ethereum,
     publicTokenUrl: (address) => `https://api.etherscan.io/api?module=account&action=tokentx&contractaddress=${encodeURIComponent(WALLET_USDT_CONTRACTS.ethereum)}&address=${encodeURIComponent(address)}&page=1&offset=${WALLET_CHAIN_SCAN_LOOKBACK_LIMIT}&sort=desc${ETHERSCAN_API_KEY ? `&apikey=${encodeURIComponent(ETHERSCAN_API_KEY)}` : ""}`,
     source: "public-etherscan",
+  };
+}
+
+function qwenImage3PricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, options = {}) {
+  const pricing = normalizeAdvancedPricing(advancedPricing);
+  const qwenPricing = pricing.qwenImage3 || DEFAULT_ADVANCED_PRICING.qwenImage3;
+  const tier = normalizeQwenImage3Tier(options.qwenTier || options.qwenImageTier || options.tier, options.model);
+  const size = String(options.size || "").trim();
+  const resolution = size
+    ? qwenImage3ResolutionForSize(size, options.resolution || qwenPricing.defaultResolution)
+    : normalizeQwenImage3Resolution(options.resolution || qwenPricing.defaultResolution || "2K");
+  const referenceImageCount = Math.max(0, Math.min(QWEN_IMAGE3_REFERENCE_LIMIT, Math.floor(Number(options.referenceImageCount) || 0)));
+  const outputImageCount = Math.max(1, Math.min(QWEN_IMAGE3_OUTPUT_MAX, Math.floor(Number(options.outputImageCount ?? options.n ?? 1) || 1)));
+  const tierConfig = qwenPricing[tier] || qwenPricing.pro;
+  const outputUsdPerImage = pricingNumber(
+    tierConfig.saleUsdPerImageByResolution?.[resolution],
+    QWEN_IMAGE3_OFFICIAL_USD[tier].outputPerImage[resolution],
+    0,
+    6,
+  );
+  const inputUsdPerReferenceImage = pricingNumber(
+    tierConfig.saleUsdPerReferenceImage,
+    QWEN_IMAGE3_OFFICIAL_USD[tier].inputPerReferenceImage,
+    0,
+    6,
+  );
+  const outputUsd = pricingNumber(outputUsdPerImage * outputImageCount, 0, 0, 6);
+  const inputUsd = pricingNumber(inputUsdPerReferenceImage * referenceImageCount, 0, 0, 6);
+  const totalUsd = pricingNumber(outputUsd + inputUsd, 0, 0, 6);
+  const credits = creditsAmount(totalUsd * DEFAULT_CREDITS_PER_USD);
+  return {
+    provider: "qwen-image3",
+    providerLabel: "Qwen Image 3.0",
+    model: qwenImage3ModelForTier(tier, options.model || tierConfig.model),
+    qwenTier: tier,
+    resolution,
+    size: size || qwenImage3Size({ resolution, ratio: options.ratio || "1:1" }),
+    referenceImageCount,
+    outputImageCount,
+    outputUsdPerImage,
+    inputUsdPerReferenceImage,
+    outputUsd,
+    inputUsd,
+    totalUsd,
+    baseCredits: credits,
+    originalCredits: credits,
+    credits,
+    markup: 1,
+    userPricingMultiplier: 1,
+    source: "aliyun_singapore_qwen_image3_official_pricing",
   };
 }
 
@@ -11191,7 +11348,8 @@ async function aliyunDashscopeRequest(pathname, {
 } = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const wan30 = normalizedProvider === "wan30" || String(provider || "").toLowerCase() === "aliyun-wan30";
-  const baseUrl = wan30 ? ALIYUN_WAN30_BASE_URL : ALIYUN_DASHSCOPE_BASE_URL;
+  const qwenImage3 = normalizedProvider === "qwen-image3";
+  const baseUrl = qwenImage3 ? QWEN_IMAGE3_SINGAPORE_BASE_URL : wan30 ? ALIYUN_WAN30_BASE_URL : ALIYUN_DASHSCOPE_BASE_URL;
   const apiKey = wan30 ? ALIYUN_WAN30_API_KEY : ALIYUN_DASHSCOPE_API_KEY;
   if (!apiKey) {
     const error = new Error(`${wan30 ? "Wan3.0" : "Alibaba video"} generation is not configured.`);
@@ -14486,6 +14644,18 @@ function publicGenerationRecord(record = {}, options = {}) {
   const providerOnlyImageUrl = options.providerOnlyImageUrl === true;
   const publicImageUrl = providerOnlyImageUrl ? providerImageUrl : generationRecordImageUrl(record);
   const includeStoredImageUrls = options.includeStoredImageUrls !== false;
+  const providerImageUrls = [...new Set([
+    ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
+    ...(Array.isArray(record.providerImageUrls) ? record.providerImageUrls : []),
+    ...collectOutputImageUrls(record.queryResponse),
+    ...collectOutputImageUrls(record.createResponse),
+  ].map((item) => String(item || "").trim()).filter(Boolean))];
+  const storedImageUrls = [...new Set([
+    ...(Array.isArray(record.imageResultUrls) ? record.imageResultUrls : []),
+    ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
+    ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
+  ].map((item) => String(item || "").trim()).filter(Boolean))];
+  const publicImageUrls = providerOnlyImageUrl ? providerImageUrls : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
   const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
   const publicRecord = {
     taskId: String(record.taskId || ""),
@@ -14528,7 +14698,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     upstreamVideoUrl: providerVideoUrl,
     remoteVideoUrl: String(record.remoteVideoUrl || ""),
     imageResultUrl: publicImageUrl,
+    imageResultUrls: publicImageUrls,
     providerImageUrl,
+    providerImageUrls,
     upstreamImageUrl: providerImageUrl,
     remoteImageUrl: String(record.remoteImageUrl || ""),
     error: publicModelText(record.error || ""),
@@ -14550,6 +14722,8 @@ function publicGenerationRecord(record = {}, options = {}) {
   if (includeStoredImageUrls) {
     publicRecord.localImageUrl = String(record.localImageUrl || "");
     publicRecord.cdnImageUrl = String(record.cdnImageUrl || "");
+    publicRecord.localImageUrls = Array.isArray(record.localImageUrls) ? record.localImageUrls.map(String) : [];
+    publicRecord.cdnImageUrls = Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls.map(String) : [];
   }
   if (options.includeUpstreamPayload === true) {
     publicRecord.upstreamPayload = listGenerationRecordValue(record.upstreamPayload || null);
@@ -14617,7 +14791,7 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (needsApizFailureRefund(record)) return true;
   if (needsSeedanceFailureRefund(record)) return true;
   if (record.upstreamSource === "video-tool-orchestrator") return false;
-  if (String(record.provider || "").toLowerCase() === "seedream5-image") {
+  if (["seedream5-image", "qwen-image3"].includes(String(record.provider || "").toLowerCase())) {
     if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
     const imageStatus = String(record.status || "").toLowerCase();
     if (isFailedStatus(imageStatus)) return false;
@@ -14656,7 +14830,7 @@ function isStalePreSubmitGenerationRecord(record = {}, staleMs = GENERATION_SUBM
   if (!record.awaitingUpstreamTask || record.upstreamTaskId) return false;
   if (isSucceededStatus(record.status) || isFailedStatus(record.status)) return false;
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "apiz", "seedream5-image"].includes(provider)) return false;
+  if (!["seedance", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "apiz", "seedream5-image", "qwen-image3"].includes(provider)) return false;
   const status = String(record.status || "").toLowerCase();
   if (!["preparing", "submitting", "submitted", "running", "processing", "queued", "pending"].includes(status)) return false;
   const time = generationRecordCreatedTime(record);
@@ -14965,7 +15139,13 @@ async function refreshGenerationRecordStatus(record = {}) {
       const queryTaskId = record.upstreamTaskId || record.taskId;
       const task = await gatewayQueryTask(queryTaskId);
       if (isImageGenerationRecord(record)) {
-        const imageUrl = task.imageUrl || task.imageUrls?.[0] || record.remoteImageUrl || "";
+        const remoteImageUrls = [...new Set([
+          ...(Array.isArray(task.imageUrls) ? task.imageUrls : []),
+          task.imageUrl,
+          ...(Array.isArray(record.remoteImageUrls) ? record.remoteImageUrls : []),
+          record.remoteImageUrl,
+        ].map((value) => String(value || "").trim()).filter(Boolean))];
+        const imageUrl = remoteImageUrls[0] || "";
         const failed = isFailedStatus(task.status);
         if (!imageUrl && !failed) {
           return await updateAssetImageModifyRecord(record.taskId, {
@@ -15008,22 +15188,42 @@ async function refreshGenerationRecordStatus(record = {}) {
             failedAt: new Date().toISOString(),
           }, "gateway-image-failed");
         }
-        let savedImage = null;
-        if (!record.localImageUrl && imageUrl) {
-          const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: "gateway image", maxBytes: 20 * 1024 * 1024 });
-          const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
-          savedImage = await saveGeneratedImageFile(record.taskId, downloaded.bytes, mime);
+        const storedImageUrls = [...new Set([
+          ...(Array.isArray(record.imageResultUrls) ? record.imageResultUrls : []),
+          ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
+          ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
+          record.imageResultUrl,
+          record.cdnImageUrl,
+          record.localImageUrl,
+        ].map((value) => String(value || "").trim()).filter(Boolean))];
+        const savedImages = [];
+        if (imageUrl && storedImageUrls.length < remoteImageUrls.length) {
+          for (let index = 0; index < remoteImageUrls.length; index += 1) {
+            const downloaded = await downloadRemoteFileToBuffer(remoteImageUrls[index], { label: `gateway image ${index + 1}`, maxBytes: 30 * 1024 * 1024 });
+            const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+            savedImages.push(await saveGeneratedImageFile(index ? `${record.taskId}-${index + 1}` : record.taskId, downloaded.bytes, mime));
+          }
         }
+        const localImageUrls = savedImages.length ? savedImages.map((item) => item.localImageUrl).filter(Boolean) : (record.localImageUrls || []);
+        const cdnImageUrls = savedImages.length ? savedImages.map((item) => item.cdnImageUrl).filter(Boolean) : (record.cdnImageUrls || []);
+        const resultImageUrls = savedImages.length
+          ? savedImages.map((item) => item.cdnImageUrl || item.localImageUrl).filter(Boolean)
+          : (record.imageResultUrls?.length ? record.imageResultUrls : storedImageUrls.length ? storedImageUrls : remoteImageUrls);
+        const savedImage = savedImages[0] || null;
         return await updateAssetImageModifyRecord(record.taskId, {
           upstreamTaskId: task.taskId || queryTaskId,
           status: "succeeded",
           awaitingUpstreamTask: false,
-          imageResultUrl: savedImage?.cdnImageUrl || savedImage?.localImageUrl || record.imageResultUrl || record.localImageUrl || imageUrl,
+          imageResultUrl: resultImageUrls[0] || imageUrl,
+          imageResultUrls: resultImageUrls,
           localImageUrl: savedImage?.localImageUrl || record.localImageUrl || "",
+          localImageUrls,
           localImagePath: savedImage?.localImagePath || record.localImagePath || "",
           cdnImageUrl: savedImage?.cdnImageUrl || record.cdnImageUrl || "",
-          cdnError: savedImage?.cdnError || record.cdnError || "",
+          cdnImageUrls,
+          cdnError: savedImages.map((item) => item.cdnError).filter(Boolean).join("; ") || record.cdnError || "",
           remoteImageUrl: imageUrl,
+          remoteImageUrls,
           queryResponse: task.raw,
           finalCredits: record.preDeductedCredits || record.finalCredits || 0,
           originalFinalCredits: record.originalPreDeductedCredits || record.originalFinalCredits || 0,
@@ -17098,13 +17298,21 @@ function gatewayTaskFromPayload(payload = {}) {
     record.downloadUrl,
     collectOutputImageUrls(payload)[0],
   ));
+  const imageUrls = [...new Set([
+    imageUrl,
+    ...(Array.isArray(record.imageResultUrls) ? record.imageResultUrls : []),
+    ...(Array.isArray(record.cdnImageUrls) ? record.cdnImageUrls : []),
+    ...(Array.isArray(record.localImageUrls) ? record.localImageUrls : []),
+    ...(Array.isArray(record.providerImageUrls) ? record.providerImageUrls : []),
+    ...collectOutputImageUrls(payload),
+  ].map(gatewayAbsoluteAssetUrl).filter(Boolean))];
   return {
     taskId: record.taskId || task.taskId || payload.taskId || payload.data?.taskId || "",
     upstreamTaskId: record.upstreamTaskId || task.upstreamTaskId || "",
     status: record.status || task.status || "submitted",
     videoUrl,
-    imageUrl,
-    imageUrls: imageUrl ? [imageUrl] : [],
+    imageUrl: imageUrls[0] || imageUrl,
+    imageUrls,
     error: record.error || task.error || payload.error || "",
     record,
     raw: payload,
@@ -19720,6 +19928,10 @@ function byteplusTaskFromRecord(record = {}, options = {}) {
     const content = {};
     if (publicRecord.videoUrl || publicRecord.downloadUrl) content.video_url = publicRecord.videoUrl || publicRecord.downloadUrl;
     if (publicRecord.imageResultUrl) content.image_url = publicRecord.imageResultUrl;
+    if (Array.isArray(publicRecord.imageResultUrls) && publicRecord.imageResultUrls.length) {
+      content.image_urls = publicRecord.imageResultUrls;
+      response.data = publicRecord.imageResultUrls.map((url) => ({ url }));
+    }
     if (Object.keys(content).length) response.content = content;
     const usage = usageFromGenerationRecord(record);
     if (usage) response.usage = usage;
@@ -19777,6 +19989,35 @@ function byteplusV3ImageGenerationToAdvancedBody(body = {}) {
   const source = { ...requestParamsFromBody(body), ...body };
   const model = String(source.model || "").trim();
   if (!model) throw byteplusHttpError(400, "model is required.", "model");
+  const qwenTier = normalizeQwenImage3Tier("", model);
+  const qwenModel = qwenImage3ModelForTier(qwenTier, model);
+  if (model === QWEN_IMAGE3_MODELS.pro || model === QWEN_IMAGE3_MODELS.standard) {
+    const prompt = String(source.prompt || "").trim();
+    if (!prompt) throw byteplusHttpError(400, "prompt is required.", "prompt");
+    const advancedBody = {
+      provider: "qwen-image3",
+      model: qwenModel,
+      qwenTier,
+      prompt,
+      resolution: normalizeQwenImage3Resolution(firstPresent(source.resolution, "2K")),
+      size: firstPresent(source.size, source.resolution, "2K"),
+      ratio: firstPresent(source.ratio, source.aspect_ratio, "1:1"),
+      n: firstPresent(source.n, 1),
+      negative_prompt: String(firstPresent(source.negative_prompt, source.negativePrompt, "")),
+      prompt_extend: boolFromRequest(firstPresent(source.prompt_extend, source.promptExtend), true),
+      prompt_extend_mode: firstPresent(source.prompt_extend_mode, source.promptExtendMode, "direct"),
+      watermark: boolFromRequest(source.watermark, false),
+    };
+    if (source.seed !== undefined) advancedBody.seed = source.seed;
+    [
+      "image", "images", "imageUrls", "image_urls", "referenceImages", "reference_images",
+      "referenceImageUrls", "reference_image_urls", "imageAssetId", "imageAssetIds",
+      "referenceImageAssetId", "referenceImageAssetIds", "assetId", "assetIds", "userAssetId", "userAssetIds",
+    ].forEach((field) => {
+      if (source[field] !== undefined) advancedBody[field] = source[field];
+    });
+    return advancedBody;
+  }
   const resolvedModel = seedream5ModelForTier(model, "pro");
   if (resolvedModel !== SEEDREAM5_PRO_ENDPOINT_ID) {
     throw byteplusHttpError(400, "model must be seedream-5.0-pro.", "model", "InvalidParameter.UnsupportedModel");
@@ -19827,7 +20068,11 @@ async function handleByteplusV3ImageGeneration(req, res) {
     const body = await readJson(req);
     const advancedBody = byteplusV3ImageGenerationToAdvancedBody(body);
     const captured = captureJsonResponse();
-    await handleAdvancedSeedream5ImageGenerate(withJsonBody(req, advancedBody), captured, { auth });
+    if (advancedBody.provider === "qwen-image3") {
+      await handleAdvancedQwenImage3Generate(withJsonBody(req, advancedBody), captured, { auth });
+    } else {
+      await handleAdvancedSeedream5ImageGenerate(withJsonBody(req, advancedBody), captured, { auth });
+    }
     const payload = capturedJsonPayload(captured);
     if (captured.statusCode >= 400 || !payload?.taskId) {
       return sendByteplusError(res, captured.statusCode || 400, {
@@ -19846,7 +20091,7 @@ async function handleByteplusV3ImageGeneration(req, res) {
       created: Math.floor(Date.now() / 1000),
       id: payload.taskId,
       task_id: payload.taskId,
-      model: "seedream-5.0-pro",
+      model: advancedBody.model,
       object: "image.generation.task",
       status,
       data,
@@ -20760,6 +21005,355 @@ async function handleAdvancedSeedream5ImageGenerate(req, res, context = {}) {
   });
 }
 
+function qwenImage3ReferenceInputsFromBody(body = {}) {
+  const inputs = seedream5ReferenceInputsFromBody(body);
+  if (inputs.length > QWEN_IMAGE3_REFERENCE_LIMIT) {
+    throw advancedValidationError(
+      "QWEN_IMAGE3_TOO_MANY_REFERENCES",
+      `Qwen Image 3.0 supports at most ${QWEN_IMAGE3_REFERENCE_LIMIT} reference images.`,
+      { count: inputs.length, max: QWEN_IMAGE3_REFERENCE_LIMIT },
+    );
+  }
+  return inputs;
+}
+
+async function prepareQwenImage3ReferenceImages(db, user, body = {}) {
+  const inputs = qwenImage3ReferenceInputsFromBody(body);
+  const preservePublicMediaUrls = boolFromRequest(body.preservePublicMediaUrls, false);
+  const publicInputs = preservePublicMediaUrls
+    ? inputs.map((item) => {
+        const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
+        return isPublicHttpUrl(value) ? publicHttpUrlForUpstream(value) : "";
+      }).filter(Boolean)
+    : [];
+  const localInputs = inputs.filter((item) => {
+    const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
+    return !preservePublicMediaUrls || !isPublicHttpUrl(value);
+  });
+  const assets = await createUserImageAssetsFromInputs(db, user, localInputs, { name: "Qwen Image 3.0 reference" });
+  const preparedAssets = [];
+  const publicImageUrls = [...publicInputs];
+  for (const asset of assets) {
+    validateWan27MediaKind(asset, "image", "Qwen Image 3.0 reference");
+    if (Number(asset.sizeBytes || 0) > 10 * 1024 * 1024) {
+      throw advancedValidationError("QWEN_IMAGE3_REFERENCE_TOO_LARGE", "Qwen Image 3.0 reference images must be 10MB or smaller.", { assetId: asset.id || "" });
+    }
+    const mime = String(asset.mime || "").toLowerCase();
+    if (mime && !["image/jpeg", "image/png", "image/bmp", "image/tiff", "image/webp", "image/gif"].includes(mime)) {
+      throw advancedValidationError("QWEN_IMAGE3_REFERENCE_FORMAT", "Qwen Image 3.0 reference images must be JPG, JPEG, PNG, BMP, TIFF, WebP, or GIF.", { assetId: asset.id || "", mime });
+    }
+    const prepared = await ensurePublicUrlForUserMediaAsset(db, asset);
+    const publicUrl = publicUrlForLocalAsset(prepared);
+    if (!isPublicHttpUrl(publicUrl)) {
+      throw advancedValidationError("QWEN_IMAGE3_REFERENCE_NOT_PUBLIC", "Failed to prepare Qwen Image 3.0 reference image URL.", { assetId: asset.id || "" });
+    }
+    preparedAssets.push(prepared);
+    publicImageUrls.push(publicUrl);
+  }
+  return {
+    inputs,
+    assets: preparedAssets,
+    publicImageUrls: [...new Set(publicImageUrls)],
+  };
+}
+
+function qwenImage3RequestFingerprint({ userId = "", model = "", prompt = "", size = "", outputImageCount = 1, negativePrompt = "", promptExtend = true, promptExtendMode = "direct", watermark = false, seed = null, referenceInputs = [] } = {}) {
+  const references = (Array.isArray(referenceInputs) ? referenceInputs : []).map((item) => {
+    if (typeof item === "string") return item.trim();
+    const value = String(item?.assetId || item?.url || item?.imageUrl || item?.image_url || item?.dataUrl || item?.fileName || "").trim();
+    return /^data:/i.test(value) ? `data:${crypto.createHash("sha256").update(value).digest("hex")}` : value;
+  }).filter(Boolean);
+  return crypto.createHash("sha256").update(JSON.stringify({
+    provider: "qwen-image3",
+    userId: String(userId || ""),
+    model,
+    prompt: String(prompt || "").trim(),
+    size,
+    outputImageCount,
+    negativePrompt: String(negativePrompt || "").trim(),
+    promptExtend: Boolean(promptExtend),
+    promptExtendMode: String(promptExtendMode || "direct"),
+    watermark: Boolean(watermark),
+    seed: seed === undefined || seed === null || seed === "" ? null : Number(seed),
+    references,
+  })).digest("hex").slice(0, 32);
+}
+
+async function withQwenImage3InFlight(fingerprint, fn) {
+  const key = String(fingerprint || "").trim();
+  if (!key) return await fn();
+  while (QWEN_IMAGE3_IN_FLIGHT.has(key)) await QWEN_IMAGE3_IN_FLIGHT.get(key).catch(() => {});
+  let release = () => {};
+  const lock = new Promise((resolve) => { release = resolve; });
+  QWEN_IMAGE3_IN_FLIGHT.set(key, lock);
+  try {
+    return await fn();
+  } finally {
+    if (QWEN_IMAGE3_IN_FLIGHT.get(key) === lock) QWEN_IMAGE3_IN_FLIGHT.delete(key);
+    release();
+  }
+}
+
+async function findActiveQwenImage3Duplicate({ userId = "", fingerprint = "" } = {}) {
+  const cutoff = Date.now() - 5 * 60 * 1000;
+  const settledCutoff = Date.now() - 3 * 60 * 1000;
+  const records = await listGenerationRecordsForUser(userId, 80);
+  return records.find((record) => (
+    record?.provider === "qwen-image3"
+    && String(record.requestFingerprint || record.params?.requestFingerprint || "") === fingerprint
+    && (
+      (isActiveGenerationStatus(record.status) && generationRecordCreatedMs(record) >= cutoff)
+      || (isSucceededStatus(record.status) && seedream5ImageRecordHasResult(record) && generationRecordUpdatedMs(record) >= settledCutoff)
+    )
+  )) || null;
+}
+
+function queueQwenImage3Submit(submit) {
+  const run = qwenImage3SubmitTail.catch(() => {}).then(async () => {
+    const waitMs = Math.max(0, 61000 - (Date.now() - qwenImage3LastSubmitAt));
+    if (waitMs) await delay(waitMs);
+    qwenImage3LastSubmitAt = Date.now();
+    return await submit();
+  });
+  qwenImage3SubmitTail = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+async function runQwenImage3GenerationJob(job = {}) {
+  const { taskId = "", userId = "", body = {}, bodyParams = {}, initialParams = {}, prompt = "", tier = "pro", model = "", resolution = "2K", ratio = "1:1", size = "", outputImageCount = 1, negativePrompt = "", promptExtend = true, promptExtendMode = "direct", watermark = false, seed = null, pricing = {}, cost = 0 } = job;
+  if (!taskId || !userId) return;
+  let upstreamPayload = null;
+  try {
+    const db = await readDb();
+    const user = (db.users || []).find((entry) => entry.id === userId);
+    if (!user) throw Object.assign(new Error("User not found for Qwen Image 3.0 job."), { statusCode: 404 });
+    const prepared = await prepareQwenImage3ReferenceImages(db, user, { ...bodyParams, ...body });
+    const previewUrls = prepared.assets.map((asset) => asset.localUrl || asset.publicUrl || "").filter(Boolean);
+    await upsertGenerationRecord({
+      taskId,
+      status: "running",
+      userAssetIds: prepared.assets.map((asset) => asset.id),
+      userAssetId: prepared.assets[0]?.id || "",
+      imageUrl: previewUrls[0] || "",
+      imageUrls: previewUrls,
+      sourceImageUrl: previewUrls[0] || "",
+      sourceImageUrls: previewUrls,
+      params: { ...initialParams, referenceImageCount: prepared.publicImageUrls.length },
+    });
+    const payload = buildQwenImage3Request({
+      model,
+      tier,
+      prompt,
+      referenceImages: prepared.publicImageUrls,
+      resolution,
+      ratio,
+      size,
+      n: outputImageCount,
+      negativePrompt,
+      promptExtend,
+      promptExtendMode,
+      watermark,
+      seed,
+    });
+    upstreamPayload = payload;
+    await upsertGenerationRecord({ taskId, upstreamPayload });
+    if (USE_GATEWAY_UPSTREAM) {
+      const gatewayBody = {
+        provider: "qwen-image3",
+        model,
+        qwenTier: tier,
+        prompt,
+        referenceImages: prepared.publicImageUrls.map((url) => ({ url })),
+        preservePublicMediaUrls: true,
+        resolution,
+        ratio,
+        size: payload.parameters.size,
+        n: outputImageCount,
+        negative_prompt: negativePrompt,
+        prompt_extend: promptExtend,
+        prompt_extend_mode: promptExtendMode,
+        watermark,
+        ...(seed === null ? {} : { seed }),
+      };
+      const submitted = await gatewaySubmitAdvancedTask(gatewayBody);
+      if (!submitted.taskId) throw Object.assign(new Error("Qwen Image 3.0 gateway did not return a task id."), { statusCode: 502, payload: submitted.raw || submitted });
+      await upsertGenerationRecord({
+        taskId,
+        upstreamTaskId: submitted.taskId,
+        upstreamSource: "gateway",
+        awaitingUpstreamTask: true,
+        status: submitted.status || "submitted",
+        upstreamPayload: gatewayBody,
+        createResponse: submitted.raw || submitted,
+        error: "",
+      });
+      return;
+    }
+    const raw = await queueQwenImage3Submit(() => aliyunDashscopeRequest(
+      "/api/v1/services/aigc/multimodal-generation/generation",
+      { body: payload, provider: "qwen-image3", timeoutMs: 10 * 60 * 1000 },
+    ));
+    const remoteImageUrls = qwenImage3OutputUrls(raw);
+    if (!remoteImageUrls.length) throw Object.assign(new Error("Qwen Image 3.0 returned no image."), { statusCode: 502, payload: raw });
+    const savedImages = [];
+    for (let index = 0; index < remoteImageUrls.length; index += 1) {
+      const downloaded = await downloadRemoteFileToBuffer(remoteImageUrls[index], { label: `qwen image ${index + 1}`, maxBytes: 30 * 1024 * 1024 });
+      const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
+      savedImages.push(await saveGeneratedImageFile(index ? `${taskId}-${index + 1}` : taskId, downloaded.bytes, mime));
+    }
+    const resultUrls = savedImages.map((item) => item.cdnImageUrl || item.localImageUrl).filter(Boolean);
+    await upsertGenerationRecord({
+      taskId,
+      upstreamTaskId: String(raw.request_id || raw.requestId || ""),
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      createResponse: raw,
+      imageResultUrl: resultUrls[0] || "",
+      imageResultUrls: resultUrls,
+      localImageUrl: savedImages[0]?.localImageUrl || "",
+      localImageUrls: savedImages.map((item) => item.localImageUrl).filter(Boolean),
+      cdnImageUrl: savedImages[0]?.cdnImageUrl || "",
+      cdnImageUrls: savedImages.map((item) => item.cdnImageUrl).filter(Boolean),
+      remoteImageUrl: remoteImageUrls[0] || "",
+      remoteImageUrls,
+      finalCredits: cost,
+      originalFinalCredits: pricing.originalCredits ?? cost,
+      billingStatus: cost > 0 ? "settled" : "free",
+      billingSettledAt: new Date().toISOString(),
+      error: "",
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    console.warn("[qwen-image3-error]", taskId, errorInfo.message || error.message || error);
+    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
+    if (cost > 0 && currentRecord?.billingStatus !== "refunded") {
+      try {
+        const db = await readDb();
+        await changeUserCredits(db, userId, cost, "advanced_qwen_image3_refund", { taskId, error: error.message || "Qwen Image 3.0 failed." });
+        await recordSubtokenAdjustment(currentRecord || { taskId, userId }, { taskId, type: "advanced_qwen_image3_refund", amount: -cost, meta: { error: error.message || "Qwen Image 3.0 failed." } });
+        if (!dbEnabled()) await writeDb(db);
+      } catch (refundError) {
+        console.error("[qwen-image3-refund-failed]", taskId, refundError.message || refundError);
+      }
+    }
+    await upsertGenerationRecord({
+      taskId,
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || "Qwen Image 3.0 failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      upstreamPayload,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    });
+  }
+}
+
+function startQwenImage3GenerationJob(job = {}) {
+  setImmediate(() => runQwenImage3GenerationJob(job).catch((error) => console.error("[qwen-image3-job-unhandled]", job.taskId || "", error.message || error)));
+}
+
+async function handleAdvancedQwenImage3Generate(req, res, context = {}) {
+  const auth = context.auth || await requireUser(req, res);
+  if (!auth) return;
+  if (!USE_GATEWAY_UPSTREAM && !ALIYUN_DASHSCOPE_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: "Qwen Image 3.0 generation is not configured." });
+  }
+  const body = context.body || await readJson(req);
+  const bodyParams = context.bodyParams || requestParamsFromBody(body);
+  const caseParams = context.caseParams || {};
+  const selectedCase = context.selectedCase || null;
+  const config = context.config || await readAppConfig();
+  const merged = { ...plainObject(caseParams.parameters), ...plainObject(bodyParams.parameters), ...plainObject(body.parameters) };
+  const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, selectedCase?.prompt, caseParams.prompt, "")).trim();
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  let referenceInputs;
+  let tier;
+  let model;
+  let resolution;
+  let ratio;
+  let size;
+  let outputImageCount;
+  let seed;
+  try {
+    referenceInputs = qwenImage3ReferenceInputsFromBody({ ...bodyParams, ...body });
+    tier = normalizeQwenImage3Tier(firstPresent(body.qwenTier, body.qwenImageTier, bodyParams.qwenTier, merged.qwenTier, caseParams.qwenTier), firstPresent(body.model, bodyParams.model, merged.model, caseParams.model));
+    model = qwenImage3ModelForTier(tier, firstPresent(body.model, bodyParams.model, merged.model, caseParams.model));
+    resolution = normalizeQwenImage3Resolution(firstPresent(body.resolution, bodyParams.resolution, merged.resolution, config.platform?.advancedPricing?.qwenImage3?.defaultResolution, "2K"));
+    ratio = normalizeVideoRatio(firstPresent(body.ratio, body.aspect_ratio, bodyParams.ratio, bodyParams.aspect_ratio, merged.ratio, "1:1"));
+    size = qwenImage3Size({ size: firstPresent(body.size, bodyParams.size, merged.size, ""), resolution, ratio });
+    resolution = qwenImage3ResolutionForSize(size, resolution);
+    outputImageCount = qwenImage3OfficialPricing({ tier, resolution, referenceImageCount: referenceInputs.length, outputImageCount: firstPresent(body.n, body.outputImageCount, bodyParams.n, merged.n, 1) }).outputImageCount;
+    seed = firstPresent(body.seed, bodyParams.seed, merged.seed, null);
+    buildQwenImage3Request({ model, tier, prompt, resolution, ratio, size, n: outputImageCount, seed });
+  } catch (error) {
+    return sendAdvancedValidationError(res, error, "Qwen Image 3.0 request is invalid.");
+  }
+  const negativePrompt = String(firstPresent(body.negative_prompt, body.negativePrompt, bodyParams.negative_prompt, merged.negative_prompt, "")).trim();
+  const promptExtend = boolFromRequest(firstPresent(body.prompt_extend, body.promptExtend, bodyParams.prompt_extend, merged.prompt_extend), true);
+  const promptExtendMode = String(firstPresent(body.prompt_extend_mode, body.promptExtendMode, bodyParams.prompt_extend_mode, merged.prompt_extend_mode, "direct")).trim().toLowerCase() === "agent" ? "agent" : "direct";
+  const watermark = boolFromRequest(firstPresent(body.watermark, bodyParams.watermark, merged.watermark), false);
+  const requestFingerprint = qwenImage3RequestFingerprint({ userId: auth.user.id, model, prompt, size, outputImageCount, negativePrompt, promptExtend, promptExtendMode, watermark, seed, referenceInputs });
+  const requestTrace = requestTraceForGeneration(req);
+  return await withQwenImage3InFlight(requestFingerprint, async () => {
+    const duplicateRecord = await findActiveQwenImage3Duplicate({ userId: auth.user.id, fingerprint: requestFingerprint });
+    if (duplicateRecord) {
+      return sendJson(res, 200, { ok: true, async: !isSucceededStatus(duplicateRecord.status), duplicate: true, taskId: duplicateRecord.taskId, record: publicGenerationRecord(duplicateRecord, generationRecordResponseOptionsForAuth(auth)) });
+    }
+    const rawPricing = advancedModelPricing("qwen-image3", { advancedPricing: config.platform?.advancedPricing, qwenTier: tier, model, resolution, size, referenceImageCount: referenceInputs.length, outputImageCount });
+    const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+    const cost = pricing.credits;
+    if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+    try { assertSubtokenCanSpend(auth, cost); } catch (error) { return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code, message: error.message }); }
+    const taskId = localGenerationTaskId("img");
+    const initialRecord = {
+      taskId,
+      status: "submitting",
+      model,
+      source: "advanced-qwen-image3",
+      kind: "advanced-image",
+      provider: "qwen-image3",
+      upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
+      userId: auth.user.id,
+      prompt,
+      finalPrompt: prompt,
+      params: { ...plainObject(bodyParams), provider: "qwen-image3", qwenTier: tier, resolution, ratio, size, n: outputImageCount, referenceImageCount: referenceInputs.length, negative_prompt: negativePrompt, prompt_extend: promptExtend, prompt_extend_mode: promptExtendMode, watermark, ...(seed === null ? {} : { seed }), requestFingerprint },
+      requestFingerprint,
+      ratio,
+      resolution,
+      preDeductedCredits: cost,
+      originalPreDeductedCredits: pricing.originalCredits ?? cost,
+      finalCredits: null,
+      originalFinalCredits: null,
+      userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+      billingStatus: cost > 0 ? "pre_deducted" : "free",
+      billingSettledAt: "",
+      pricingEstimate: pricing,
+      awaitingUpstreamTask: true,
+      error: "",
+      apiTokenId: auth.tokenRecord?.id || "",
+      apiTokenName: auth.tokenRecord?.name || "",
+      apiTokenType: auth.tokenRecord?.quotaType || "",
+      apiTokenSource: auth.tokenSource || "",
+      ...requestTrace,
+    };
+    await upsertGenerationRecord(initialRecord);
+    if (cost > 0) {
+      await chargeUserWithSubtoken(auth, { cost, type: "advanced_qwen_image3", taskId, meta: { taskId, provider: "qwen-image3", model, qwenTier: tier, resolution, size, outputImageCount, referenceImageCount: referenceInputs.length, pricingSource: pricing.source } });
+      if (!dbEnabled()) await writeDb(auth.db);
+    }
+    startQwenImage3GenerationJob({ taskId, userId: auth.user.id, body, bodyParams, initialParams: initialRecord.params, prompt, tier, model, resolution, ratio, size, outputImageCount, negativePrompt, promptExtend, promptExtendMode, watermark, seed, pricing, cost });
+    const latestDb = await readDb();
+    const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+    return sendJson(res, 200, { ok: true, async: true, taskId, user: userView(latestUser), pricing, cost, record: publicGenerationRecord(initialRecord, generationRecordResponseOptionsForAuth(auth)), params: initialRecord.params });
+  });
+}
+
 async function handleAdvancedGenerate(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -20846,6 +21440,17 @@ async function handleAdvancedGenerate(req, res) {
     "",
   )).trim();
   if (!prompt && provider !== "wan30") return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  if (provider === "qwen-image3") {
+    return await handleAdvancedQwenImage3Generate(req, res, {
+      auth,
+      body,
+      bodyParams,
+      caseParams,
+      selectedCase,
+      config,
+      prompt,
+    });
+  }
   if (provider === "seedream5-image") {
     return await handleAdvancedSeedream5ImageGenerate(req, res, {
       auth,
@@ -22097,6 +22702,24 @@ function seedream5ImageParameterFields() {
   ];
 }
 
+function qwenImage3ParameterFields() {
+  return [
+    { name: "/api/v3/images/generations", type: "endpoint", required: "Yes", description: "Create an asynchronous Qwen Image 3.0 task.", default: "-" },
+    { name: "/api/v3/contents/generations/tasks/<taskId>", type: "endpoint", required: "Yes", description: "Query progress and final content.image_url, content.image_urls, or data[].url.", default: "-" },
+    { name: "model", type: "enum", required: "Yes", description: "`qwen-image-3.0-pro` or `qwen-image-3.0`.", default: "qwen-image-3.0-pro" },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty image prompt or edit instruction.", default: "-" },
+    { name: "image", type: "string or array", required: "No", description: `Optional 1-${QWEN_IMAGE3_REFERENCE_LIMIT} reference images. Use public image URLs, supported image data URLs, or asset:// ids returned by upload.`, default: "-" },
+    { name: "size", type: "string", required: "No", description: "Use `1K`, `2K`, or `width*height`. Pixel area must be 512*512 through 2048*2048 and aspect ratio must be 1:8 through 8:1.", default: "2K" },
+    { name: "n", type: "integer", required: "No", description: `Number of output images, integer 1-${QWEN_IMAGE3_OUTPUT_MAX}.`, default: "1" },
+    { name: "negative_prompt", type: "string", required: "No", description: "Optional negative prompt supplied by the caller.", default: "-" },
+    { name: "prompt_extend", type: "boolean", required: "No", description: "Enable prompt extension.", default: "true" },
+    { name: "prompt_extend_mode", type: "enum", required: "No", description: "`direct`; `agent` is accepted only for text-to-image without reference images.", default: "direct" },
+    { name: "seed", type: "integer", required: "No", description: `Integer 0-${QWEN_IMAGE3_SEED_MAX}.`, default: "-" },
+    { name: "watermark", type: "boolean", required: "No", description: "Whether to add an upstream watermark.", default: "false" },
+    { name: "image input limits", type: "rule", required: "For image", description: "JPG/JPEG, PNG, BMP, TIFF, WebP, or GIF; max 10MB per image. Recommended width and height are 384-2048px.", default: "-" },
+  ];
+}
+
 function byteplusV3ParameterFields() {
   return [
     { name: "model", type: "string", required: "Yes", description: "`dreamina-seedance-2-0-260128` for standard or `dreamina-seedance-2-0-fast-260128` for fast. `dreamina-seedance-2-0-hc`, `dreamina-seedance-2-0-fast-hc`, and `dreamina-seedance-2-0-mini-hc` aliases are accepted.", default: "-" },
@@ -22295,6 +22918,30 @@ function advancedGenerateConstraintsDoc() {
       unsupportedFields: ["sequential_image_generation", "sequential_image_generation_options", "seed", "guidance_scale"],
       mediaUrl: "Use public http(s) image URLs, supported image data URLs, or asset:// ids returned by upload.",
     },
+    qwenImage3: {
+      provider: "qwen-image3",
+      route: "/api/v3/images/generations",
+      models: QWEN_IMAGE3_MODELS,
+      referenceImages: { min: 0, max: QWEN_IMAGE3_REFERENCE_LIMIT },
+      outputImages: { min: 1, max: QWEN_IMAGE3_OUTPUT_MAX },
+      size: {
+        presets: ["1K", "2K"],
+        minPixelArea: QWEN_IMAGE3_SIZE_MIN_PIXELS,
+        maxPixelArea: QWEN_IMAGE3_SIZE_MAX_PIXELS,
+        minAspectRatio: 1 / 8,
+        maxAspectRatio: 8,
+      },
+      imageInput: {
+        formats: ["JPG", "JPEG", "PNG", "BMP", "TIFF", "WebP", "GIF"],
+        maxBytes: 10 * 1024 * 1024,
+        recommendedWidthPx: { min: 384, max: 2048 },
+        recommendedHeightPx: { min: 384, max: 2048 },
+      },
+      promptExtendMode: ["direct", "agent"],
+      seed: { integer: true, min: 0, max: QWEN_IMAGE3_SEED_MAX },
+      mediaUrl: "Use public http(s) image URLs, supported image data URLs, or asset:// ids returned by upload.",
+      region: "Singapore",
+    },
   };
 }
 
@@ -22303,13 +22950,15 @@ function externalAdvancedApiDoc(origin) {
   const byteplusTaskDetail = `${origin}/api/v3/contents/generations/tasks/<taskId>`;
   const seedream5ImageGenerate = `${origin}/api/v3/images/generations`;
   const seedream5ImageTaskDetail = byteplusTaskDetail;
+  const qwenImage3Generate = seedream5ImageGenerate;
+  const qwenImage3TaskDetail = byteplusTaskDetail;
   const byteplusAssetAction = `${origin}/?Action=CreateAsset&Version=2024-01-01`;
   const advancedGenerate = `${origin}/api/advanced/generate`;
   const wan27ImageEdit = `${origin}/api/vipeak1/image-edit`;
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Seedance video integrations use the BytePlus-compatible V3 task route. Seedream 5.0 Pro image generation uses the V3 images route. Wan2.7 video and Wan image generation keep their dedicated endpoints.",
+    summary: "Seedance video integrations use the BytePlus-compatible V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. Wan2.7 video and Wan image generation keep their dedicated endpoints.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     endpoints: {
@@ -22317,6 +22966,8 @@ function externalAdvancedApiDoc(origin) {
       byteplusTaskDetail,
       seedream5ImageGenerate,
       seedream5ImageTaskDetail,
+      qwenImage3Generate,
+      qwenImage3TaskDetail,
       byteplusAssetAction,
       advancedGenerate,
       wan27ImageEdit,
@@ -22367,6 +23018,30 @@ function externalAdvancedApiDoc(origin) {
         watermark: false,
         output_format: "png",
         optimize_prompt_options: { mode: "standard" },
+      },
+    },
+    qwenImage3ResponseShape: {
+      id: "img-...",
+      task_id: "img-...",
+      status: "queued",
+      data: [],
+    },
+    qwenImage3Example: {
+      method: "POST",
+      url: qwenImage3Generate,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        model: QWEN_IMAGE3_MODELS.pro,
+        prompt: "Keep the subject identity and create a clean studio campaign image.",
+        image: ["asset://asset-id-from-upload"],
+        size: "2K",
+        n: 1,
+        prompt_extend: true,
+        prompt_extend_mode: "direct",
+        watermark: false,
       },
     },
     wan27Example: {
@@ -22463,6 +23138,9 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
     model: params.model,
     mode: firstPresent(params.mode, params.functionMode, params.seedanceMode),
     seedreamTier: firstPresent(params.seedreamTier, params.seedream5Tier, params.seedanceTier),
+    qwenTier: firstPresent(params.qwenTier, params.qwenImageTier, params.tier),
+    size: params.size,
+    outputImageCount: firstPresent(params.outputImageCount, params.n),
     referenceImageCount: firstPresent(params.referenceImageCount, params.imageCount),
     advancedPricing: config.platform?.advancedPricing,
   });
@@ -22680,6 +23358,8 @@ async function buildModelDocs(req) {
       byteplusTaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
       seedream5ImageGenerate: `${origin}/api/v3/images/generations`,
       seedream5ImageTaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
+      qwenImage3Generate: `${origin}/api/v3/images/generations`,
+      qwenImage3TaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
       byteplusAssetAction: `${origin}/?Action=CreateAsset&Version=2024-01-01`,
       advancedGenerate: `${origin}/api/advanced/generate`,
       wan27ImageEdit: `${origin}/api/vipeak1/image-edit`,
@@ -22736,6 +23416,7 @@ function advancedConstraintsMarkdown(doc = {}) {
   const wan27 = constraints.wan27 || {};
   const wan27Image = constraints.wan27Image || {};
   const seedream5Image = constraints.seedream5Image || {};
+  const qwenImage3 = constraints.qwenImage3 || {};
   return [
     "**Parameter Rules**",
     "",
@@ -22764,6 +23445,17 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- \`response_format\`: \`url\`. The async create response does not return base64 image data. \`output_format\`: ${(seedream5Image.output_format || ["png", "jpeg"]).map((item) => `\`${item}\``).join(", ")}.`,
     `- Reference image limits: max ${Math.round((seedream5Image.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB, width/height > 14px, aspect ratio 1/16-16, total pixels <= ${seedream5Image.imageInput?.maxPixelCount || 36000000}.`,
     "- Unsupported for this model: `sequential_image_generation`, `sequential_image_generation_options`, `seed`, `guidance_scale`.",
+    "",
+    "Qwen Image 3.0:",
+    "",
+    `- Endpoint: \`${qwenImage3.route || "/api/v3/images/generations"}\` with \`model: "${qwenImage3.models?.pro || QWEN_IMAGE3_MODELS.pro}"\` or \`model: "${qwenImage3.models?.standard || QWEN_IMAGE3_MODELS.standard}"\`.`,
+    "- Create is async: response returns `id`/`task_id`; poll `/api/v3/contents/generations/tasks/<taskId>` and read `content.image_url`, `content.image_urls`, or `data[].url` when succeeded.",
+    `- \`image\`: optional reference image or array of 1-${qwenImage3.referenceImages?.max ?? QWEN_IMAGE3_REFERENCE_LIMIT} images. Use public URLs, supported image data URLs, or \`asset://\` ids.`,
+    `- \`size\`: \`${(qwenImage3.size?.presets || ["1K", "2K"]).join("\`, \`")}\` or \`width*height\`; pixel area ${qwenImage3.size?.minPixelArea ?? QWEN_IMAGE3_SIZE_MIN_PIXELS}-${qwenImage3.size?.maxPixelArea ?? QWEN_IMAGE3_SIZE_MAX_PIXELS}, aspect ratio 1:8-8:1.`,
+    `- \`n\`: integer ${qwenImage3.outputImages?.min ?? 1}-${qwenImage3.outputImages?.max ?? QWEN_IMAGE3_OUTPUT_MAX}. \`seed\`: integer ${qwenImage3.seed?.min ?? 0}-${qwenImage3.seed?.max ?? QWEN_IMAGE3_SEED_MAX}.`,
+    "- `prompt_extend_mode`: `direct`; `agent` is accepted only for text-to-image without reference images.",
+    "- Reference images: JPG/JPEG/PNG/BMP/TIFF/WebP/GIF, max 10MB each; recommended width and height 384-2048px.",
+    "- This integration uses the Alibaba Cloud Model Studio Singapore endpoint.",
     "",
     "Wan2.7 video:",
     "",
@@ -22846,6 +23538,31 @@ function externalAdvancedApiMarkdown(doc = {}) {
       "Authorization: Bearer <user-token>",
     ].join("\n")),
     "",
+    "**Qwen Image 3.0 through V3**",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.qwenImage3Generate, "/api/v3/images/generations")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.qwenImage3Example?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Qwen Image 3.0 fields**",
+    "",
+    docsParameterMarkdown(qwenImage3ParameterFields()),
+    "",
+    "**Qwen Image 3.0 response and polling**",
+    "",
+    "The create response is asynchronous. Poll the V3 task detail endpoint. When `status` is `succeeded`, read `content.image_url`, `content.image_urls`, or `data[].url`.",
+    "",
+    markdownCodeBlock("json", doc.qwenImage3ResponseShape || { id: "img-...", task_id: "img-...", status: "queued", data: [] }),
+    "",
+    markdownCodeBlock("http", [
+      `GET ${route(endpoints.qwenImage3TaskDetail || endpoints.byteplusTaskDetail, "/api/v3/contents/generations/tasks/<taskId>")}`,
+      "Authorization: Bearer <user-token>",
+    ].join("\n")),
+    "",
     "**Wan2.7 video**",
     "",
     "Wan2.7 video generation keeps the Advanced endpoint. This is not the Seedance route.",
@@ -22923,10 +23640,10 @@ function buildModelDocsMarkdown(docs) {
     "1. Read `/api/models` or this Markdown file for request shapes and limits.",
     "2. For reusable media, create assets with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>` in V3 content or image fields.",
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
-    "4. Create a Seedream 5.0 Pro image task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
+    "4. Create a Seedream 5.0 Pro or Qwen Image 3.0 task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
     "5. Create Wan2.7 video with `/api/advanced/generate` and `provider: \"wan27\"`.",
     "6. Create or edit Wan images with `/api/vipeak1/image-edit`.",
-    "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for Seedance video and Seedream image tasks, or use `/api/generation-records/<taskId>` for Advanced/Wan records.",
+    "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for Seedance, Seedream, and Qwen tasks, or use `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",
     "## Seedance V3 Example",
     "",
@@ -28667,6 +29384,12 @@ const ADVANCED_PRICING_ROW_KEYS = new Set([
   "seedream5-pro-1k",
   "seedream5-pro-2k",
   "seedream5-pro-reference",
+  "qwen-image3-pro-1k",
+  "qwen-image3-pro-2k",
+  "qwen-image3-pro-reference",
+  "qwen-image3-standard-1k",
+  "qwen-image3-standard-2k",
+  "qwen-image3-standard-reference",
 ]);
 const ADVANCED_PRICING_ROWS_BY_KEY = new Map(ADVANCED_PRICING_ROWS.map((row) => [row.key, row]));
 
@@ -28683,6 +29406,11 @@ function advancedPricingRowKey(row = {}) {
   const providerRaw = String(row.provider || "").toLowerCase();
   const unitRaw = String(row.unit || "").toLowerCase();
   const resolutionRaw = String(row.resolution || "").toLowerCase();
+  if (isQwenImage3Provider(providerRaw)) {
+    const tier = String(row.qwenTier || row.tier || row.model || "").toLowerCase().includes("standard") || String(row.model || "").trim() === QWEN_IMAGE3_MODELS.standard ? "standard" : "pro";
+    if (unitRaw === "reference_image" || resolutionRaw === "reference") return `qwen-image3-${tier}-reference`;
+    return `qwen-image3-${tier}-${normalizeQwenImage3Resolution(row.resolution).toLowerCase()}`;
+  }
   if (isSeedream5ImageProvider(providerRaw)) {
     if (unitRaw === "reference_image" || resolutionRaw === "reference" || resolutionRaw === "reference_image") return "seedream5-pro-reference";
     return `seedream5-pro-${normalizeSeedream5Resolution(row.resolution).toLowerCase()}`;
@@ -29039,6 +29767,44 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
   };
 }
 
+async function gatewayPurchaseQwenImage3Credits(tier = "pro", resolution = "2K") {
+  if (!USE_GATEWAY_UPSTREAM) return null;
+  const normalizedTier = normalizeQwenImage3Tier(tier);
+  const normalizedResolution = normalizeQwenImage3Resolution(resolution);
+  try {
+    const estimate = await gatewayAdvancedEstimate("qwen-image3", {
+      qwenTier: normalizedTier,
+      model: QWEN_IMAGE3_MODELS[normalizedTier],
+      resolution: normalizedResolution,
+      referenceImageCount: 0,
+      outputImageCount: 1,
+      n: 1,
+    });
+    const credits = Number(estimate?.credits ?? estimate?.cost);
+    if (!Number.isFinite(credits)) throw new Error("Gateway estimate did not include a usable Qwen Image 3.0 credit amount.");
+    return { credits: creditsAmount(credits), source: "gateway_upstream", message: "Old-site Qwen Image 3.0 sale price through the configured upstream token." };
+  } catch (error) {
+    return { credits: null, source: "gateway_unavailable", message: error.message || String(error) };
+  }
+}
+
+async function gatewayPurchaseQwenImage3ReferenceCredits(tier = "pro") {
+  if (!USE_GATEWAY_UPSTREAM) return null;
+  const normalizedTier = normalizeQwenImage3Tier(tier);
+  try {
+    const [baseEstimate, referenceEstimate] = await Promise.all([
+      gatewayAdvancedEstimate("qwen-image3", { qwenTier: normalizedTier, resolution: "1K", referenceImageCount: 0, outputImageCount: 1 }),
+      gatewayAdvancedEstimate("qwen-image3", { qwenTier: normalizedTier, resolution: "1K", referenceImageCount: 1, outputImageCount: 1 }),
+    ]);
+    const baseCredits = Number(baseEstimate?.credits ?? baseEstimate?.cost);
+    const referenceCredits = Number(referenceEstimate?.credits ?? referenceEstimate?.cost);
+    if (!Number.isFinite(baseCredits) || !Number.isFinite(referenceCredits)) throw new Error("Gateway estimate did not include a usable Qwen Image 3.0 reference credit amount.");
+    return { credits: creditsAmount(Math.max(0, referenceCredits - baseCredits)), source: "gateway_upstream", message: "Old-site Qwen Image 3.0 sale add-on per reference image." };
+  } catch (error) {
+    return { credits: null, source: "gateway_unavailable", message: error.message || String(error) };
+  }
+}
+
 async function adminAdvancedPricingView(config = {}) {
   const pricing = normalizeAdvancedPricing(config.platform?.advancedPricing);
   const rows = await Promise.all(ADVANCED_PRICING_ROWS.map(async (row) => {
@@ -29129,6 +29895,59 @@ async function adminAdvancedPricingView(config = {}) {
       model: "seedream-5.0-pro",
     });
   }
+  for (const tier of ["pro", "standard"]) {
+    const tierConfig = pricing.qwenImage3?.[tier] || DEFAULT_ADVANCED_PRICING.qwenImage3[tier];
+    for (const resolution of ["1K", "2K"]) {
+      const officialUsd = QWEN_IMAGE3_OFFICIAL_USD[tier].outputPerImage[resolution];
+      const gatewayPurchase = await gatewayPurchaseQwenImage3Credits(tier, resolution);
+      const hasGatewayPurchase = Number.isFinite(Number(gatewayPurchase?.credits));
+      const purchaseCredits = hasGatewayPurchase ? Number(gatewayPurchase.credits) : pricingNumber(officialUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+      const configuredSaleUsd = pricingNumber(tierConfig.saleUsdPerImageByResolution?.[resolution], officialUsd, 0, 6);
+      const saleCredits = hasGatewayPurchase && !tierConfig.userConfigured
+        ? purchaseCredits
+        : pricingNumber(configuredSaleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+      rows.push({
+        key: `qwen-image3-${tier}-${resolution.toLowerCase()}`,
+        provider: "qwen-image3",
+        providerLabel: `Qwen Image 3.0 ${tier === "pro" ? "Pro" : "Standard"}`,
+        qwenTier: tier,
+        resolution,
+        unit: "image",
+        purchaseCreditsPerSecond: purchaseCredits,
+        purchaseUsdPerSecond: hasGatewayPurchase ? purchaseUsdFromCredits(purchaseCredits) : officialUsd,
+        purchaseSource: gatewayPurchase?.source || "aliyun_singapore_official_model_pricing",
+        purchaseMessage: gatewayPurchase?.message || "Alibaba Cloud Model Studio Singapore official output image price.",
+        saleCreditsPerSecond: saleCredits,
+        saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+        model: QWEN_IMAGE3_MODELS[tier],
+      });
+    }
+    {
+      const officialUsd = QWEN_IMAGE3_OFFICIAL_USD[tier].inputPerReferenceImage;
+      const gatewayPurchase = await gatewayPurchaseQwenImage3ReferenceCredits(tier);
+      const hasGatewayPurchase = Number.isFinite(Number(gatewayPurchase?.credits));
+      const purchaseCredits = hasGatewayPurchase ? Number(gatewayPurchase.credits) : pricingNumber(officialUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+      const configuredSaleUsd = pricingNumber(tierConfig.saleUsdPerReferenceImage, officialUsd, 0, 6);
+      const saleCredits = hasGatewayPurchase && !tierConfig.userConfigured
+        ? purchaseCredits
+        : pricingNumber(configuredSaleUsd * DEFAULT_CREDITS_PER_USD, 0, 0, 6);
+      rows.push({
+        key: `qwen-image3-${tier}-reference`,
+        provider: "qwen-image3",
+        providerLabel: `Qwen Image 3.0 ${tier === "pro" ? "Pro" : "Standard"} Reference`,
+        qwenTier: tier,
+        resolution: "reference",
+        unit: "reference_image",
+        purchaseCreditsPerSecond: purchaseCredits,
+        purchaseUsdPerSecond: hasGatewayPurchase ? purchaseUsdFromCredits(purchaseCredits) : officialUsd,
+        purchaseSource: gatewayPurchase?.source || "aliyun_singapore_official_model_pricing",
+        purchaseMessage: gatewayPurchase?.message || "Alibaba Cloud Model Studio Singapore official input price per reference image.",
+        saleCreditsPerSecond: saleCredits,
+        saleUsdPerSecond: pricingNumber(saleCredits / DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+        model: QWEN_IMAGE3_MODELS[tier],
+      });
+    }
+  }
   return {
     unit: "credits",
     creditsPerUsd: DEFAULT_CREDITS_PER_USD,
@@ -29174,6 +29993,23 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
       } else {
         const resolution = key.endsWith("-1k") ? "1K" : "2K";
         next.seedream5Image.pro.saleUsdPerImageByResolution[resolution] = pricingNumber(rawSaleUsd, next.seedream5Image.pro.saleUsdPerImageByResolution[resolution], 0, 6);
+      }
+      continue;
+    }
+    if (key.startsWith("qwen-image3-")) {
+      const rawSaleUsd = row.saleUsdPerSecond !== undefined
+        ? Number(row.saleUsdPerSecond)
+        : row.saleCreditsPerSecond !== undefined
+        ? Number(row.saleCreditsPerSecond) / DEFAULT_CREDITS_PER_USD
+        : NaN;
+      if (!Number.isFinite(rawSaleUsd) || rawSaleUsd < 0) throw pricingPayloadError(`Invalid sale price for ${key}`);
+      const tier = key.includes("-standard-") ? "standard" : "pro";
+      next.qwenImage3[tier].userConfigured = true;
+      if (key.endsWith("-reference")) {
+        next.qwenImage3[tier].saleUsdPerReferenceImage = pricingNumber(rawSaleUsd, next.qwenImage3[tier].saleUsdPerReferenceImage, 0, 6);
+      } else {
+        const resolution = key.endsWith("-1k") ? "1K" : "2K";
+        next.qwenImage3[tier].saleUsdPerImageByResolution[resolution] = pricingNumber(rawSaleUsd, next.qwenImage3[tier].saleUsdPerImageByResolution[resolution], 0, 6);
       }
       continue;
     }
