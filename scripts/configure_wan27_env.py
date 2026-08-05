@@ -20,6 +20,7 @@ DEFAULT_ENV_FILE = "/etc/raising-game-demo.env"
 DEFAULT_SERVICE = "raising-game-demo"
 DEFAULT_HEALTH_URL = "https://123vips.com/api/health"
 DEFAULT_BASE_URL = "https://dashscope-intl.aliyuncs.com"
+DEFAULT_WAN30_BASE_URL = "https://dashscope.aliyuncs.com"
 DEFAULT_MODEL = "wan2.7-i2v-2026-04-25"
 
 
@@ -123,6 +124,8 @@ def redacted_env_summary(content: str) -> str:
         "DASHSCOPE_API_KEY",
         "BAILIAN_API_KEY",
         "ALIYUN_DASHSCOPE_BASE_URL",
+        "ALIYUN_WAN30_API_KEY",
+        "ALIYUN_WAN30_BASE_URL",
         "ALIYUN_QWEN_IMAGE3_API_KEY",
         "ALIYUN_WAN27_MODEL",
         "ARK_API_KEY",
@@ -158,6 +161,7 @@ def main() -> None:
     parser.add_argument("--service", default=DEFAULT_SERVICE)
     parser.add_argument("--health-url", default=DEFAULT_HEALTH_URL)
     parser.add_argument("--base-url", default=os.environ.get("ALIYUN_DASHSCOPE_BASE_URL", DEFAULT_BASE_URL))
+    parser.add_argument("--wan30-base-url", default=os.environ.get("ALIYUN_WAN30_BASE_URL", DEFAULT_WAN30_BASE_URL))
     parser.add_argument("--model", default=os.environ.get("ALIYUN_WAN27_MODEL", DEFAULT_MODEL))
     parser.add_argument("--check-only", action="store_true", help="Only inspect current env and health.")
     parser.add_argument("--model-only", action="store_true", help="Only update ALIYUN_WAN27_MODEL and keep the existing key.")
@@ -175,6 +179,8 @@ def main() -> None:
         dashscope_key = getpass.getpass("ALIYUN_DASHSCOPE_API_KEY: ")
     if not args.check_only and not args.model_only and not dashscope_key.strip():
         raise SystemExit("ALIYUN_DASHSCOPE_API_KEY is required unless --check-only is used.")
+    qwen_image3_key = os.environ.get("ALIYUN_QWEN_IMAGE3_API_KEY", "").strip()
+    wan30_key = os.environ.get("ALIYUN_WAN30_API_KEY", "").strip()
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -195,6 +201,11 @@ def main() -> None:
                 "ALIYUN_DASHSCOPE_BASE_URL": args.base_url,
                 **updates,
             }
+            if qwen_image3_key:
+                updates["ALIYUN_QWEN_IMAGE3_API_KEY"] = qwen_image3_key
+            if wan30_key:
+                updates["ALIYUN_WAN30_API_KEY"] = wan30_key
+                updates["ALIYUN_WAN30_BASE_URL"] = args.wan30_base_url
         next_content = upsert_env(content, updates)
         write_remote_file(client, args.env_file, next_content)
 
