@@ -10,13 +10,13 @@ const UNDRESS_TOOL_EXAMPLE_MEDIA = Object.freeze({
   }),
   image_video: Object.freeze({
     input: "/api/undress-tool/examples/image_video/input",
-    result: "/api/undress-tool/examples/image_video/result",
+    result: "https://media.123vips.com/undress-tool/examples/v1/image-video-result.mp4",
     inputType: "image",
     resultType: "video",
   }),
   video: Object.freeze({
-    input: "/api/undress-tool/examples/video/input",
-    result: "/api/undress-tool/examples/video/result",
+    input: "https://media.123vips.com/undress-tool/examples/v1/video-input.mp4",
+    result: "https://media.123vips.com/undress-tool/examples/v1/video-result.mp4",
     inputType: "video",
     resultType: "video",
   }),
@@ -164,10 +164,10 @@ function undressToolExampleHtml() {
   const example = UNDRESS_TOOL_EXAMPLE_MEDIA[undressToolState.generationType];
   if (!example) return "";
   const inputMedia = example.inputType === "video"
-    ? `<video src="${undressToolEscape(example.input)}" controls playsinline preload="metadata"></video>`
+    ? undressToolExampleVideoHtml(example.input)
     : `<img src="${undressToolEscape(example.input)}" alt="" loading="eager" />`;
   const resultMedia = example.resultType === "video"
-    ? `<video src="${undressToolEscape(example.result)}" controls playsinline preload="metadata"></video>`
+    ? undressToolExampleVideoHtml(example.result)
     : `<img src="${undressToolEscape(example.result)}" alt="" loading="eager" />`;
   return `
     <div class="undress-tool-example-flow" aria-label="Example result">
@@ -176,6 +176,36 @@ function undressToolExampleHtml() {
       <div class="undress-tool-example-media">${resultMedia}</div>
     </div>
   `;
+}
+
+function undressToolExampleVideoHtml(src) {
+  return `
+    <video src="${undressToolEscape(src)}" controls playsinline preload="auto"></video>
+    <button class="undress-tool-example-play" type="button" data-undress-example-play aria-label="Play video">
+      <i data-lucide="play"></i>
+    </button>
+  `;
+}
+
+function bindUndressToolExampleVideos(body) {
+  body.querySelectorAll("[data-undress-example-play]").forEach((button) => {
+    const video = button.parentElement?.querySelector("video");
+    if (!video) return;
+    const showButton = () => {
+      button.classList.remove("is-playing", "is-loading");
+    };
+    video.addEventListener("playing", () => button.classList.add("is-playing"));
+    video.addEventListener("waiting", () => button.classList.add("is-loading"));
+    video.addEventListener("canplay", () => button.classList.remove("is-loading"));
+    video.addEventListener("pause", showButton);
+    video.addEventListener("ended", showButton);
+    button.addEventListener("click", () => {
+      button.classList.add("is-loading");
+      const playback = video.play();
+      if (playback?.catch) playback.catch(showButton);
+    });
+    video.load();
+  });
 }
 
 function renderUndressToolDialog() {
@@ -244,6 +274,7 @@ function renderUndressToolDialog() {
   body.querySelectorAll("[data-undress-tool-type]").forEach((button) => button.addEventListener("click", handleUndressToolType));
   body.querySelector("[data-undress-tool-input]")?.addEventListener("change", handleUndressToolFile);
   body.querySelector("[data-undress-tool-submit]")?.addEventListener("click", submitUndressTool);
+  bindUndressToolExampleVideos(body);
   if (typeof refreshIcons === "function") refreshIcons();
 }
 

@@ -168,6 +168,40 @@ body.tenant-tool-undress .video-tool-dialog {
   background: #08090c;
 }
 
+.undress-tool-example-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.44);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(8, 9, 12, 0.76);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.34);
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+}
+
+.undress-tool-example-play svg {
+  width: 20px;
+  height: 20px;
+  margin-left: 2px;
+  fill: currentColor;
+}
+
+.undress-tool-example-play.is-playing {
+  display: none;
+}
+
+.undress-tool-example-play.is-loading svg {
+  animation: spin 0.8s linear infinite;
+}
+
 .undress-tool-example-arrow {
   display: grid;
   place-items: center;

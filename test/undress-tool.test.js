@@ -105,15 +105,18 @@ test("the create dialog has three explicit generation types with matching upload
 test("all three generation tabs show compact server-backed before and after examples", () => {
   assert.match(frontend, /UNDRESS_TOOL_EXAMPLE_MEDIA/);
   assert.match(frontend, /\/api\/undress-tool\/examples\/image\/input/);
-  assert.match(frontend, /\/api\/undress-tool\/examples\/image_video\/result/);
-  assert.match(frontend, /\/api\/undress-tool\/examples\/video\/input/);
-  assert.match(frontend, /\/api\/undress-tool\/examples\/video\/result/);
-  assert.match(frontend, /example\.inputType === "video"[\s\S]*?controls playsinline preload="metadata"/);
+  assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/image-video-result\.mp4/);
+  assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/video-input\.mp4/);
+  assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/video-result\.mp4/);
+  assert.match(frontend, /controls playsinline preload="auto"/);
   assert.match(frontend, /undress-tool-example-arrow[\s\S]*?data-lucide="arrow-right"/);
-  assert.match(frontend, /example\.resultType === "video"[\s\S]*?controls playsinline preload="metadata"/);
+  assert.match(frontend, /data-undress-example-play/);
+  assert.match(frontend, /const playback = video\.play\(\)/);
+  assert.match(frontend, /bindUndressToolExampleVideos\(body\)/);
   assert.doesNotMatch(frontend, /undress-20260806121918-0726d2|cgt-20260728161747-915edb/);
   assert.match(css, /\.undress-tool-example-media[\s\S]*?aspect-ratio: 9 \/ 14/);
   assert.match(css, /\.undress-tool-example-media img,[\s\S]*?object-fit: contain/);
+  assert.match(css, /\.undress-tool-example-play[\s\S]*?width: 44px[\s\S]*?height: 44px/);
 
   const handler = server.slice(server.indexOf("async function handleUndressToolExampleMedia"), server.indexOf("async function handleUndressToolEstimate"));
   assert.match(server, /undress-20260806121918-0726d2/);
