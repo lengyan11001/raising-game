@@ -70,19 +70,19 @@ test("tool sitemap and discovery links do not expose base content", () => {
   assert.equal(renderDiscoveryLinks(snapshot), "");
 });
 
-test("base discovery links expose crawlable category, tag, and character paths", () => {
+test("base discovery footer stays compact and links only to public directories", () => {
   const html = renderDiscoveryLinks({
     toolOnly: false,
     categories: [{ label: "Videos", path: "/categories/videos" }],
     tags: [{ label: "Portrait", path: "/tags/portrait" }],
     characters: [{ name: "Aria", geoPath: "/characters/aria" }],
   });
-  assert.match(html, /href="\/categories\/videos"/);
-  assert.match(html, /href="\/tags\/portrait"/);
-  assert.match(html, /href="\/characters\/aria"/);
   assert.match(html, /href="\/characters\/"/);
   assert.match(html, /href="\/tags\/"/);
   assert.match(html, /href="\/categories\/"/);
+  assert.doesNotMatch(html, /href="\/categories\/videos"/);
+  assert.doesNotMatch(html, /href="\/tags\/portrait"/);
+  assert.doesNotMatch(html, /href="\/characters\/aria"/);
 });
 
 test("public directories link every sitemap collection without an arbitrary tag cap", () => {
