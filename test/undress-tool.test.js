@@ -70,7 +70,17 @@ test("image and video share one upload control while video is always precharged 
 
 test("History renders an unlock action instead of media for locked results", () => {
   assert.match(history, /const resultLocked = record\.resultLocked === true/);
-  assert.match(history, /data-history-unlock/);
+  assert.match(history, /history-unlock-overlay/);
+  assert.match(history, /const detailAction = isUndressHistory \? ""/);
+  assert.match(history, /isUndressHistory \? "" : `<div class="history-card-actions/);
   assert.match(history, /\/api\/undress-tool\/tasks\/\$\{encodeURIComponent\(taskId\)\}\/unlock/);
   assert.match(history, /is-result-locked/);
+});
+
+test("insufficient unlock balance opens a top-up dialog", () => {
+  assert.match(history, /async function showUndressInsufficientCreditsDialog/);
+  assert.match(history, /error\.statusCode === 402 \|\| error\.code === "INSUFFICIENT_CREDITS"/);
+  assert.match(history, /if \(result === "confirm"\) openTopupDialog\(\)/);
+  assert.match(frontend, /showUndressInsufficientCreditsDialog\(error\)/);
+  assert.match(css, /\.history-unlock-overlay[\s\S]*?position: absolute/);
 });

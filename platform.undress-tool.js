@@ -290,6 +290,9 @@ async function submitUndressTool() {
     undressToolState.message = error.message || String(error);
     undressToolState.submitting = false;
     renderUndressToolDialog();
+    if ((error.statusCode === 402 || error.code === "INSUFFICIENT_CREDITS") && typeof showUndressInsufficientCreditsDialog === "function") {
+      await showUndressInsufficientCreditsDialog(error);
+    }
   }
 }
 

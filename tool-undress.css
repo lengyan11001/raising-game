@@ -162,9 +162,76 @@ body.tenant-tool-undress .history-item.is-result-locked .history-placeholder svg
   animation: none;
 }
 
-body.tenant-tool-undress .history-unlock {
+body.tenant-tool-undress .history-unlock-overlay {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  max-width: calc(100% - 28px);
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 6px;
   color: #0b0c0f;
   background: var(--undress-teal);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+  transform: translateX(-50%);
+  cursor: pointer;
+  line-height: 1.25;
+  text-align: center;
+}
+
+body.tenant-tool-undress .history-unlock-overlay:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+body.tenant-tool-undress .history-unlock-overlay svg {
+  width: 17px;
+  height: 17px;
+  color: currentColor !important;
+}
+
+body.tenant-tool-undress .history-placeholder .history-unlock-overlay span {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+body.tenant-tool-undress .history-item {
+  padding: 0;
+  overflow: hidden;
+}
+
+body.tenant-tool-undress .history-item.is-result-locked .history-placeholder {
+  min-height: 280px;
+  max-height: none;
+  border-radius: 0;
+}
+
+body.tenant-tool-undress .undress-credit-alert {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 18px 8px 8px;
+  color: var(--undress-text);
+  text-align: center;
+}
+
+body.tenant-tool-undress .undress-credit-alert svg {
+  width: 34px;
+  height: 34px;
+  color: var(--undress-accent);
+}
+
+body.tenant-tool-undress .undress-credit-alert p {
+  margin: 0;
+  color: var(--undress-muted);
+  line-height: 1.6;
 }
 
 @media (min-width: 721px) {

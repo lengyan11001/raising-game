@@ -4114,25 +4114,32 @@ function renderHistory(records = []) {
     const mediaStyle = ratioStyle(recordRatio);
     const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
     const canDownload = canDownloadGenerationRecord(record);
+    const isUndressHistory = isTenantTool("undress");
     const regenerateAction = taskId && !resultLocked && !isTenantTool("undress") ? `
       <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
         <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
       </button>
     ` : "";
-    const unlockAction = taskId && resultLocked ? `
+    const unlockAction = taskId && resultLocked && !isUndressHistory ? `
       <button class="history-download history-unlock" type="button" data-history-unlock="${escapeHtml(taskId)}">
         <i data-lucide="unlock"></i>${escapeHtml(t("history.unlockResult", { credits: formatCredits(record.unlockCredits || 0) }, `Unlock · ${formatCredits(record.unlockCredits || 0)} credits`))}
       </button>
     ` : "";
-    const resultActions = taskId && (videoUrl || imageResultUrl) ? `
+    const unlockOverlay = taskId && resultLocked && isUndressHistory ? `
+      <button class="history-unlock-overlay" type="button" data-history-unlock="${escapeHtml(taskId)}">
+        <i data-lucide="unlock"></i>
+        <span>${escapeHtml(t("history.unlockResult", { credits: formatCredits(record.unlockCredits || 0) }, `Unlock · ${formatCredits(record.unlockCredits || 0)} credits`))}</span>
+      </button>
+    ` : "";
+    const resultActions = !isUndressHistory && taskId && (videoUrl || imageResultUrl) ? `
       ${canDownload ? `
         <button class="history-download history-download-file" type="button" data-history-download="${escapeHtml(String(index))}">
           <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
         </button>
       ` : ""}
-      ${isTenantTool("undress") ? "" : `<button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
+      <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
         <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
-      </button>`}
+      </button>
     ` : "";
     const videoActions = taskId && videoUrl && !isTenantTool("undress") ? `
       <button class="history-download history-extend" type="button" data-history-extend="${escapeHtml(taskId)}">
@@ -4145,12 +4152,12 @@ function renderHistory(records = []) {
         <i data-lucide="scan-line"></i>${escapeHtml(t("assets.extractFrame"))}
       </button>
     ` : "";
-    const detailAction = `
+    const detailAction = isUndressHistory ? "" : `
       <button class="history-download history-params" type="button" data-history-detail="${index}">
         <i data-lucide="sliders-horizontal"></i>${escapeHtml(t("history.viewParameters"))}
       </button>
     `;
-    const deleteAction = taskId ? `
+    const deleteAction = taskId && !isUndressHistory ? `
       <button class="history-download history-delete" type="button" data-history-delete="${escapeHtml(taskId)}">
         <i data-lucide="trash-2"></i>${escapeHtml(t("history.delete"))}
       </button>
@@ -4158,9 +4165,9 @@ function renderHistory(records = []) {
     const primaryActions = `${unlockAction}${regenerateAction}${resultActions}${videoActions}`;
     const allActions = `${primaryActions}${detailAction}${deleteAction}`;
     return `
-      <article class="history-item is-${escapeHtml(statusClass(record.status))}${resultLocked ? " is-result-locked" : ""}">
+      <article class="history-item is-${escapeHtml(statusClass(record.status))}${resultLocked ? " is-result-locked" : ""}" data-history-index="${index}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">
-          ${resultLocked ? `<div class="history-placeholder"><i data-lucide="lock"></i><span>${escapeHtml(t("history.resultLocked", {}, "Result ready"))}</span></div>` : videoUrl ? `
+          ${resultLocked ? `<div class="history-placeholder"><i data-lucide="lock"></i><span>${escapeHtml(t("history.resultLocked", {}, "Result ready"))}</span>${unlockOverlay}</div>` : videoUrl ? `
             <button class="history-poster" type="button" data-history-load-video="${escapeHtml(mediaKey)}" aria-label="${escapeHtml(t("common.preview"))}">
               ${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(statusLabel(record.status))}</span>`}
               <i data-lucide="play"></i>
@@ -4168,7 +4175,7 @@ function renderHistory(records = []) {
             <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
           ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
-        <div class="history-card-actions">
+        ${isUndressHistory ? "" : `<div class="history-card-actions">
           <div class="history-record-actions${taskId || videoUrl ? "" : " history-record-actions-empty"}">
             ${primaryActions}
           </div>
@@ -4180,7 +4187,7 @@ function renderHistory(records = []) {
             <i data-lucide="ellipsis"></i><span>${escapeHtml(t("history.actions"))}</span><i data-lucide="chevron-down"></i>
           </summary>
           <div class="history-actions-popover" role="menu">${allActions}</div>
-        </details>
+        </details>`}
       </article>
     `;
   }).join("")}${loadMoreHtml}`;
@@ -4204,7 +4211,7 @@ function renderHistory(records = []) {
       const escapedKey = window.CSS?.escape ? CSS.escape(key) : key.replace(/["\\]/g, "\\$&");
       const video = els.historyList.querySelector(`[data-history-video="${escapedKey}"]`);
       const previewUrl = video?.dataset?.src || video?.src || "";
-      const index = Number(button.closest(".history-item")?.querySelector("[data-history-detail]")?.dataset.historyDetail || -1);
+      const index = Number(button.closest(".history-item")?.dataset.historyIndex || -1);
       const record = Number.isInteger(index) && index >= 0 ? sortedRecords[index] : null;
       if (!previewUrl) return;
       playPreview({
@@ -4285,6 +4292,29 @@ function renderHistory(records = []) {
   refreshIcons();
 }
 
+async function showUndressInsufficientCreditsDialog(error) {
+  const zh = state.lang === "zh";
+  const cost = Number(error?.payload?.cost || 0);
+  const credits = Number(error?.payload?.credits || state.user?.credits || 0);
+  const detail = cost > 0
+    ? (zh
+      ? `\u9700\u8981 ${formatCredits(cost)} \u79ef\u5206\uff0c\u5f53\u524d\u4f59\u989d ${formatCredits(credits)} \u79ef\u5206\u3002`
+      : `Unlocking needs ${formatCredits(cost)} credits. Your balance is ${formatCredits(credits)} credits.`)
+    : (zh ? "\u4f59\u989d\u4e0d\u8db3\uff0c\u8bf7\u5145\u503c\u540e\u518d\u89e3\u9501\u3002" : "Your balance is insufficient. Top up before unlocking.");
+  const result = await showInlineDialog({
+    title: zh ? "\u4f59\u989d\u4e0d\u8db3" : "Insufficient balance",
+    body: `<div class="undress-credit-alert"><i data-lucide="wallet-cards"></i><p>${escapeHtml(detail)}</p></div>`,
+    confirmText: zh ? "\u53bb\u5145\u503c" : "Top up",
+    onOpen: () => {
+      if (els.inlineDialogConfirm) {
+        els.inlineDialogConfirm.innerHTML = `<i data-lucide="wallet"></i>${escapeHtml(zh ? "\u53bb\u5145\u503c" : "Top up")}`;
+      }
+      refreshIcons();
+    },
+  });
+  if (result === "confirm") openTopupDialog();
+}
+
 async function unlockHistoryRecord(taskId, button) {
   if (!taskId || !button) return;
   const originalHtml = button.innerHTML;
@@ -4305,6 +4335,11 @@ async function unlockHistoryRecord(taskId, button) {
   } catch (error) {
     button.disabled = false;
     button.innerHTML = originalHtml;
+    refreshIcons();
+    if (error.statusCode === 402 || error.code === "INSUFFICIENT_CREDITS") {
+      await showUndressInsufficientCreditsDialog(error);
+      return;
+    }
     const note = document.createElement("div");
     note.className = "job-note history-action-note";
     note.textContent = error.message || String(error);
