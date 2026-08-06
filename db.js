@@ -1653,6 +1653,92 @@ async function getGenerationRecordsFromDb({ limit = 500, userId = "", includeDel
   return rows.map((row) => row.payload);
 }
 
+async function getAdminGenerationRecordsPageFromDb({
+  page = 1,
+  limit = 20,
+  search = "",
+  provider = "",
+  status = "",
+  kind = "",
+} = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.min(100, Math.max(1, Number(limit || 20)));
+  const params = [];
+  const where = [];
+  const addParam = (value) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const providerExpression = `COALESCE(
+    NULLIF(records.payload->>'provider', ''),
+    CASE WHEN COALESCE(records.payload->>'source', '') LIKE '%platform%' THEN 'apiz' ELSE 'seedance' END
+  )`;
+  const cleanSearch = String(search || "").trim().toLowerCase();
+  if (cleanSearch) {
+    const placeholder = addParam(`%${cleanSearch}%`);
+    where.push(`LOWER(CONCAT_WS(' ',
+      records.task_id,
+      records.payload->>'upstreamTaskId',
+      records.payload->>'userId',
+      records.payload->>'username',
+      users.username,
+      records.payload->>'source',
+      records.payload->>'kind',
+      records.payload->>'provider',
+      records.payload->>'status',
+      records.payload->>'templateId',
+      records.payload->>'templateTitle',
+      records.payload->>'sceneId',
+      records.payload->>'sceneName',
+      records.payload->>'sceneEntryId',
+      records.payload->>'sceneEntryName',
+      records.payload->>'companionId',
+      records.payload->>'companionName',
+      records.payload->>'prompt',
+      records.payload->>'finalPrompt',
+      records.payload->>'model',
+      records.payload->>'error'
+    )) LIKE ${placeholder}`);
+  }
+  if (provider) where.push(`${providerExpression} = ${addParam(String(provider))}`);
+  if (status) where.push(`LOWER(COALESCE(records.payload->>'status', '')) = ${addParam(String(status).toLowerCase())}`);
+  if (kind) where.push(`COALESCE(records.payload->>'kind', '') = ${addParam(String(kind))}`);
+  const fromSql = `
+    FROM app_generation_records records
+    LEFT JOIN app_users users ON users.id = records.payload->>'userId'
+  `;
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const [totalResult, filteredResult] = await Promise.all([
+    query(`SELECT COUNT(*)::int AS count FROM app_generation_records`),
+    query(`SELECT COUNT(*)::int AS count ${fromSql} ${whereSql}`, params),
+  ]);
+  const total = totalResult.rows[0]?.count || 0;
+  const filtered = filteredResult.rows[0]?.count || 0;
+  const totalPages = Math.max(1, Math.ceil(filtered / safeLimit));
+  const safePage = Math.min(totalPages, Math.max(1, Number(page || 1)));
+  const pageParams = [...params, safeLimit, (safePage - 1) * safeLimit];
+  const rows = await query(
+    `
+      SELECT records.payload
+      ${fromSql}
+      ${whereSql}
+      ORDER BY records.created_at DESC, records.updated_at DESC
+      LIMIT $${params.length + 1}
+      OFFSET $${params.length + 2}
+    `,
+    pageParams,
+  );
+  return {
+    records: rows.rows.map((row) => row.payload),
+    page: safePage,
+    limit: safeLimit,
+    total,
+    filtered,
+    totalPages,
+  };
+}
+
 async function getGenerationRecordFromDb(taskId) {
   if (!dbEnabled()) return null;
   const id = String(taskId || "").trim();
@@ -2264,6 +2350,7 @@ module.exports = {
   getKvUpdatedAt,
   migrateGenerationRecordsKvToTable,
   getGenerationRecordsFromDb,
+  getAdminGenerationRecordsPageFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
   replaceGenerationRecordsInDb,

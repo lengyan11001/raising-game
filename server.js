@@ -101,6 +101,7 @@ const {
   revokeApiSubtokenInDb,
   recordApiSubtokenUsageInDb,
   getGenerationRecordsFromDb,
+  getAdminGenerationRecordsPageFromDb,
   getGenerationRecordFromDb,
   upsertGenerationRecordInDb,
   replaceGenerationRecordsInDb,
@@ -31685,8 +31686,39 @@ async function handleAdminListGenerationRecords(req, res, url) {
   const status = String(url.searchParams.get("status") || "").trim().toLowerCase();
   const kind = String(url.searchParams.get("kind") || "").trim();
   const userMap = new Map((auth.db.users || []).map((user) => [user.id, user]));
-  let records = await readGenerationRecords();
   const refreshRequested = generationListRefreshRequested(url);
+  if (dbEnabled()) {
+    const loadPage = () => getAdminGenerationRecordsPageFromDb({
+      page: paging.page,
+      limit: paging.limit,
+      search: query,
+      provider,
+      status,
+      kind,
+    });
+    let result = await loadPage();
+    if (refreshRequested) {
+      const refreshable = result.records
+        .filter((record) => needsApizFailureRefund(record)
+          || needsSeedanceFailureRefund(record)
+          || shouldRefreshGenerationRecordFromList(record))
+        .slice(0, 20);
+      if (refreshable.length) {
+        await Promise.all(refreshable.map(refreshGenerationRecordStatus));
+        result = await loadPage();
+      }
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      records: result.records.map((record) => adminGenerationRecordListView(record, userMap)),
+      page: result.page,
+      limit: result.limit,
+      total: result.total,
+      filtered: result.filtered,
+      totalPages: result.totalPages,
+    });
+  }
+  let records = await readGenerationRecords();
   const refundable = refreshRequested
     ? records.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 20)
     : [];
