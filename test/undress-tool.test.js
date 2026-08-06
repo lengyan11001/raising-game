@@ -102,6 +102,25 @@ test("the create dialog has three explicit generation types with matching upload
   assert.match(css, /\.undress-tool-type-switch[\s\S]*?grid-template-columns: repeat\(3/);
 });
 
+test("image and image-to-video tabs show compact server-backed before and after examples", () => {
+  assert.match(frontend, /UNDRESS_TOOL_EXAMPLE_MEDIA/);
+  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/input/);
+  assert.match(frontend, /\/api\/undress-tool\/examples\/image_video\/result/);
+  assert.match(frontend, /undress-tool-example-arrow[\s\S]*?data-lucide="arrow-right"/);
+  assert.match(frontend, /example\.resultType === "video"[\s\S]*?muted autoplay loop playsinline/);
+  assert.doesNotMatch(frontend, /undress-20260806121918-0726d2|cgt-20260728161747-915edb/);
+  assert.match(css, /\.undress-tool-example-media[\s\S]*?aspect-ratio: 9 \/ 14/);
+  assert.match(css, /\.undress-tool-example-media img,[\s\S]*?object-fit: contain/);
+
+  const handler = server.slice(server.indexOf("async function handleUndressToolExampleMedia"), server.indexOf("async function handleUndressToolEstimate"));
+  assert.match(server, /undress-20260806121918-0726d2/);
+  assert.match(server, /cgt-20260728161747-915edb/);
+  assert.match(handler, /undressToolRequestAllowed\(req\)/);
+  assert.match(handler, /getGenerationRecord\(definition\.taskId\)/);
+  assert.match(handler, /sendInternalAsset\(res, filePath, mime, stat\)/);
+  assert.match(server, /undressToolExampleMatch[\s\S]*?handleUndressToolExampleMedia/);
+});
+
 test("image-to-video clones the reference Wan2.7 task and uses configured pricing", () => {
   const pricing = server.slice(server.indexOf("async function videoToolPricing"), server.indexOf("async function handleVideoToolEstimate"));
   const runner = server.slice(server.indexOf("async function runVideoToolUndressImageVideo"), server.indexOf("async function runVideoToolUndressVideoLegacy"));

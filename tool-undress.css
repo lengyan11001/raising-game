@@ -140,6 +140,50 @@ body.tenant-tool-undress .video-tool-dialog {
   background: var(--undress-teal);
 }
 
+.undress-tool-example-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 112px) 30px minmax(0, 112px);
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 auto 14px;
+}
+
+.undress-tool-example-media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9 / 14;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 7px;
+  background: #08090c;
+}
+
+.undress-tool-example-media img,
+.undress-tool-example-media video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #08090c;
+}
+
+.undress-tool-example-arrow {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--undress-line);
+  border-radius: 50%;
+  color: var(--undress-teal);
+  background: #17181e;
+}
+
+.undress-tool-example-arrow svg {
+  width: 16px;
+  height: 16px;
+}
+
 body.tenant-tool-undress .video-tool-form-grid.is-single {
   grid-template-columns: minmax(0, 230px);
 }
@@ -446,6 +490,11 @@ body.tenant-tool-undress .undress-unlock-confirm small {
 
   body.tenant-tool-undress .video-tool-form-grid.is-single {
     grid-template-columns: minmax(0, min(62vw, 230px));
+  }
+
+  .undress-tool-example-flow {
+    grid-template-columns: minmax(0, min(27vw, 104px)) 28px minmax(0, min(27vw, 104px));
+    gap: 6px;
   }
 
   body.tenant-tool-undress .mobile-header-actions {

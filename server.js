@@ -17205,6 +17205,18 @@ async function handleVideoToolGenerate(req, res) {
 }
 
 const UNDRESS_TOOL_TENANT_ID = "tool-undress-14vips";
+const UNDRESS_TOOL_EXAMPLES = Object.freeze({
+  image: Object.freeze({
+    taskId: "undress-20260806121918-0726d2",
+    inputType: "image",
+    resultType: "image",
+  }),
+  image_video: Object.freeze({
+    taskId: "cgt-20260728161747-915edb",
+    inputType: "image",
+    resultType: "video",
+  }),
+});
 
 function undressToolRequestAllowed(req) {
   const tenant = requestTenantDescriptor(req);
@@ -17296,6 +17308,69 @@ function undressToolGenerationDefinition(value = "") {
     },
   };
   return definitions[generationType] || null;
+}
+
+function undressToolExampleLocalPath(record = {}, definition = {}, side = "input") {
+  const mediaAssets = Array.isArray(record.mediaAssets) ? record.mediaAssets : [];
+  const candidates = side === "result"
+    ? (definition.resultType === "video"
+      ? [record.localVideoPath, record.localVideoUrl, record.videoUrl]
+      : [record.localImagePath, record.localImageUrl, record.imageResultUrl])
+    : [
+      ...mediaAssets.map((asset) => asset?.localUrl),
+      record.sourceImageUrl,
+      record.imageUrl,
+    ];
+  const assetsRoot = path.resolve(ROOT, "assets");
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (!value) continue;
+    let filePath = "";
+    if (value.startsWith("/assets/")) {
+      filePath = path.resolve(ROOT, value.replace(/^\/+/, ""));
+    } else if (path.isAbsolute(value)) {
+      filePath = path.normalize(value);
+    } else {
+      let pathname = value;
+      if (isPublicHttpUrl(value)) {
+        try { pathname = new URL(value).pathname; } catch { pathname = ""; }
+      }
+      if (pathname.startsWith("/assets/")) {
+        filePath = path.resolve(ROOT, pathname.replace(/^\/+/, ""));
+      }
+    }
+    if (!filePath) continue;
+    const relative = path.relative(assetsRoot, filePath);
+    if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) return filePath;
+  }
+  return "";
+}
+
+async function handleUndressToolExampleMedia(req, res, generationType, side) {
+  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const definition = UNDRESS_TOOL_EXAMPLES[generationType];
+  if (!definition || !["input", "result"].includes(side)) return sendText(res, 404, "Not Found");
+  const record = await getGenerationRecord(definition.taskId);
+  if (!record || !isSucceededStatus(record.status)) return sendText(res, 404, "Not Found");
+  const mediaType = side === "input" ? definition.inputType : definition.resultType;
+  const filePath = undressToolExampleLocalPath(record, definition, side);
+  if (!filePath) return sendText(res, 404, "Not Found");
+  try {
+    const stat = await fs.stat(filePath);
+    const mime = mediaType === "video"
+      ? videoMimeFromKnownPath(filePath) || "video/mp4"
+      : imageMimeFromKnownPath(filePath) || "image/jpeg";
+    if (sendInternalAsset(res, filePath, mime, stat)) return;
+    res.writeHead(200, {
+      "content-type": mime,
+      "content-length": stat.size,
+      "cache-control": "public, max-age=604800, immutable",
+    });
+    if (req.method === "HEAD") return res.end();
+    return pipeFileStream(res, filePath);
+  } catch {
+    return sendText(res, 404, "Not Found");
+  }
 }
 
 async function handleUndressToolEstimate(req, res) {
@@ -33564,6 +33639,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/video-tools/generate") {
       return await handleVideoToolGenerate(req, res);
+    }
+    const undressToolExampleMatch = url.pathname.match(/^\/api\/undress-tool\/examples\/(image|image_video)\/(input|result)$/);
+    if (["GET", "HEAD"].includes(req.method) && undressToolExampleMatch) {
+      return await handleUndressToolExampleMedia(req, res, undressToolExampleMatch[1], undressToolExampleMatch[2]);
     }
     if (req.method === "POST" && url.pathname === "/api/undress-tool/estimate") {
       return await handleUndressToolEstimate(req, res);
