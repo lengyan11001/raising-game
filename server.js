@@ -17272,6 +17272,11 @@ const UNDRESS_TOOL_EXAMPLES = Object.freeze({
     inputType: "image",
     resultType: "video",
   }),
+  video: Object.freeze({
+    taskId: "video-20260806194724-f15971",
+    inputType: "video",
+    resultType: "video",
+  }),
 });
 
 function undressToolRequestAllowed(req) {
@@ -33696,7 +33701,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && url.pathname === "/api/video-tools/generate") {
       return await handleVideoToolGenerate(req, res);
     }
-    const undressToolExampleMatch = url.pathname.match(/^\/api\/undress-tool\/examples\/(image|image_video)\/(input|result)$/);
+    const undressToolExampleMatch = url.pathname.match(/^\/api\/undress-tool\/examples\/(image|image_video|video)\/(input|result)$/);
     if (["GET", "HEAD"].includes(req.method) && undressToolExampleMatch) {
       return await handleUndressToolExampleMedia(req, res, undressToolExampleMatch[1], undressToolExampleMatch[2]);
     }

@@ -5,11 +5,19 @@ const UNDRESS_TOOL_EXAMPLE_MEDIA = Object.freeze({
   image: Object.freeze({
     input: "/api/undress-tool/examples/image/input",
     result: "/api/undress-tool/examples/image/result",
+    inputType: "image",
     resultType: "image",
   }),
   image_video: Object.freeze({
     input: "/api/undress-tool/examples/image_video/input",
     result: "/api/undress-tool/examples/image_video/result",
+    inputType: "image",
+    resultType: "video",
+  }),
+  video: Object.freeze({
+    input: "/api/undress-tool/examples/video/input",
+    result: "/api/undress-tool/examples/video/result",
+    inputType: "video",
     resultType: "video",
   }),
 });
@@ -155,12 +163,15 @@ function undressToolCanSubmit() {
 function undressToolExampleHtml() {
   const example = UNDRESS_TOOL_EXAMPLE_MEDIA[undressToolState.generationType];
   if (!example) return "";
+  const inputMedia = example.inputType === "video"
+    ? `<video src="${undressToolEscape(example.input)}" muted autoplay loop playsinline preload="metadata"></video>`
+    : `<img src="${undressToolEscape(example.input)}" alt="" loading="eager" />`;
   const resultMedia = example.resultType === "video"
     ? `<video src="${undressToolEscape(example.result)}" muted autoplay loop playsinline preload="metadata"></video>`
     : `<img src="${undressToolEscape(example.result)}" alt="" loading="eager" />`;
   return `
     <div class="undress-tool-example-flow" aria-label="Example result">
-      <div class="undress-tool-example-media"><img src="${undressToolEscape(example.input)}" alt="" loading="eager" /></div>
+      <div class="undress-tool-example-media">${inputMedia}</div>
       <span class="undress-tool-example-arrow" aria-hidden="true"><i data-lucide="arrow-right"></i></span>
       <div class="undress-tool-example-media">${resultMedia}</div>
     </div>
