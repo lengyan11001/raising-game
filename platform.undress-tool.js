@@ -101,6 +101,8 @@ function resetUndressToolFile() {
   undressToolState.mediaKind = "";
   undressToolState.durationSeconds = 0;
   undressToolState.estimate = null;
+  undressToolState.estimating = false;
+  undressToolState.submitting = false;
   undressToolState.message = "";
   undressToolState.uploadProgress = 0;
 }
@@ -124,7 +126,9 @@ function renderUndressToolDialog() {
       : `<img class="video-tool-upload-preview" src="${undressToolEscape(undressToolState.objectUrl)}" alt="" />`
     : "";
   const estimate = undressToolState.estimate;
-  let priceText = state.user ? undressToolText("estimating") : undressToolText("signIn");
+  let priceText = file
+    ? (state.user ? undressToolText("estimating") : undressToolText("signIn"))
+    : "";
   if (estimate) {
     if (undressToolState.mediaKind === "image") {
       priceText = estimate.freeImageAvailable
@@ -147,7 +151,7 @@ function renderUndressToolDialog() {
         ${undressToolState.submitting && undressToolState.uploadProgress < 100 ? `<span class="video-tool-upload-progress">${undressToolEscape(undressToolText("uploading"))} ${undressToolState.uploadProgress}%</span>` : ""}
       </label>
     </div>
-    <div class="undress-tool-price-note">${undressToolEscape(undressToolState.estimating ? undressToolText("estimating") : priceText)}</div>
+    ${file ? `<div class="undress-tool-price-note">${undressToolEscape(undressToolState.estimating ? undressToolText("estimating") : priceText)}</div>` : ""}
     <div class="video-tool-submit-row">
       <div class="job-note">${undressToolEscape(undressToolState.message)}</div>
       <button class="generate-btn" type="button" data-undress-tool-submit ${undressToolCanSubmit() ? "" : "disabled"}>

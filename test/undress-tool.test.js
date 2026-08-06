@@ -68,6 +68,14 @@ test("image and video share one upload control while video is always precharged 
   assert.match(css, /\.video-tool-upload-preview[\s\S]*?object-fit: contain/);
 });
 
+test("reopening the upload dialog resets transient progress state", () => {
+  const resetBlock = frontend.slice(frontend.indexOf("function resetUndressToolFile"), frontend.indexOf("function undressToolCanSubmit"));
+  assert.match(resetBlock, /undressToolState\.estimating = false/);
+  assert.match(resetBlock, /undressToolState\.submitting = false/);
+  assert.match(resetBlock, /undressToolState\.uploadProgress = 0/);
+  assert.match(frontend, /file \? `<div class="undress-tool-price-note"/);
+});
+
 test("History renders an unlock action instead of media for locked results", () => {
   assert.match(history, /const resultLocked = record\.resultLocked === true/);
   assert.match(history, /history-unlock-overlay/);
