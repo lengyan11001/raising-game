@@ -74,6 +74,20 @@ test("server owns Video tool pricing, orchestration, splitting, and stitching", 
   assert.match(server, /refundVideoToolTask\(job\.taskId/);
 });
 
+test("video edit segments are published to R2 and upstream payloads remain inspectable", () => {
+  const publish = server.slice(server.indexOf("async function publishVideoToolInput"), server.indexOf("async function waitForAliyunVideoToolTask"));
+  const runner = server.slice(server.indexOf("async function runVideoToolFaceSwap"), server.indexOf("async function runVideoToolUndress"));
+  assert.match(publish, /uploadStaticAssetToObjectStorage\(\{/);
+  assert.match(publish, /objectStoragePath\("generated", "videos", fileName\)/);
+  assert.match(publish, /return \{ url: upload\.publicUrl/);
+  assert.match(runner, /upstreamInputUrls\[segment\.index\] = published\.url/);
+  assert.match(runner, /upstreamPayload: submitted\.payload/);
+  assert.match(runner, /createResponse: submitted\.raw/);
+  assert.match(runner, /queryResponse: completed\.raw/);
+  assert.match(runner, /waitForAliyunVideoToolTask\(upstreamTaskId, \{ inputUrls: upstreamInputUrls \}\)/);
+  assert.match(server, /returned the submitted input video instead of a generated result/);
+});
+
 test("image face swap uses Wan2.7 Image Pro with target image before face reference", () => {
   assert.match(server, /action === "image-face-swap"[\s\S]*?wan27ImageModifyPricing/);
   assert.match(server, /runVideoToolImageFaceSwap/);

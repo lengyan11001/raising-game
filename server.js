@@ -11370,6 +11370,27 @@ function optionalWan27Seed(value) {
   return Math.min(2147483647, Math.floor(seed));
 }
 
+function comparableHttpMediaUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const parsed = new URL(text);
+    return `${parsed.protocol.toLowerCase()}//${parsed.hostname.toLowerCase()}${parsed.pathname}`;
+  } catch {
+    return text.replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase();
+  }
+}
+
+function isSameHttpMediaUrl(left = "", right = "") {
+  const first = comparableHttpMediaUrl(left);
+  const second = comparableHttpMediaUrl(right);
+  return Boolean(first && second && first === second);
+}
+
+function isSubmittedWan27InputVideo(videoUrl = "", inputUrls = []) {
+  return (Array.isArray(inputUrls) ? inputUrls : []).some((inputUrl) => isSameHttpMediaUrl(videoUrl, inputUrl));
+}
+
 function normalizeWan27Task(raw = {}) {
   const output = raw.output || raw.data?.output || raw.data || raw;
   const task = raw.task || raw.data?.task || {};
@@ -16282,16 +16303,33 @@ async function publishVideoToolInput(filePath, taskId, index) {
   const publicFilePath = path.join(GENERATED_VIDEO_DIR, fileName);
   await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
   await fs.copyFile(filePath, publicFilePath);
-  return { url: publicUrlForAssetPath(publicPath), publicFilePath };
+  if (objectStorageEnabled()) {
+    const upload = await uploadStaticAssetToObjectStorage({
+      key: objectStoragePath("generated", "videos", fileName),
+      bytes: await fs.readFile(publicFilePath),
+      mime: videoMimeFromPath(publicFilePath),
+    });
+    if (!upload.publicUrl) throw new Error("Video tool input could not be published to R2.");
+    return { url: upload.publicUrl, publicFilePath, storageKey: upload.key || "" };
+  }
+  return { url: publicUrlForAssetPath(publicPath), publicFilePath, storageKey: "" };
 }
 
-async function waitForAliyunVideoToolTask(upstreamTaskId, { timeoutMs = 45 * 60 * 1000 } = {}) {
+async function waitForAliyunVideoToolTask(upstreamTaskId, { timeoutMs = 45 * 60 * 1000, inputUrls = [] } = {}) {
   const deadline = Date.now() + timeoutMs;
   let lastRaw = null;
   while (Date.now() < deadline) {
     lastRaw = await aliyunDashscopeRequest(`/api/v1/tasks/${encodeURIComponent(upstreamTaskId)}`, { method: "GET" });
     const task = normalizeWan27Task(lastRaw);
-    if (isSucceededStatus(task.status) && task.videoUrl) return { task, raw: lastRaw };
+    if (isSucceededStatus(task.status) && task.videoUrl) {
+      if (isSubmittedWan27InputVideo(task.videoUrl, inputUrls)) {
+        const error = new Error("Wan2.7 Video Edit returned the submitted input video instead of a generated result.");
+        error.statusCode = 502;
+        error.payload = lastRaw;
+        throw error;
+      }
+      return { task, raw: lastRaw };
+    }
     if (isFailedStatus(task.status)) {
       const error = new Error(task.error || "Wan2.7 Video Edit failed.");
       error.statusCode = 502;
@@ -16457,7 +16495,7 @@ async function updateVideoToolProgress(taskId, stage, updates = {}) {
   });
 }
 
-async function refundVideoToolTask(taskId, message = "Video tool generation failed.") {
+async function refundVideoToolTask(taskId, message = "Video tool generation failed.", errorPayload = null) {
   const record = await getGenerationRecord(taskId);
   if (!record) return null;
   const cost = creditsAmount(record.preDeductedCredits || 0);
@@ -16490,6 +16528,7 @@ async function refundVideoToolTask(taskId, message = "Video tool generation fail
     billingStatus: cost > 0 ? "refunded" : freeClaimId ? "free_released" : "free",
     billingSettledAt: new Date().toISOString(),
     failedAt: new Date().toISOString(),
+    queryResponse: errorPayload || record.queryResponse || null,
     lastUpdateReason: "video-tool-failed",
   });
 }
@@ -16630,10 +16669,12 @@ async function runVideoToolFaceSwap(job) {
   const workDir = path.join(GENERATED_VIDEO_DIR, `${storagePathSegment(taskId)}-work`);
   await fs.mkdir(workDir, { recursive: true });
   const publicInputs = [];
+  const upstreamInputUrls = [];
   try {
     const priorRecord = await getGenerationRecord(taskId);
     const priorParams = plainObject(priorRecord?.params);
     const upstreamTaskIds = Array.isArray(priorParams.upstreamTaskIds) ? [...priorParams.upstreamTaskIds] : [];
+    upstreamInputUrls.push(...(Array.isArray(priorParams.upstreamInputUrls) ? priorParams.upstreamInputUrls.filter(Boolean) : []));
     if (imageAsset) imageAsset = await ensurePublicUrlForUserMediaAsset(db, imageAsset);
     const sourcePath = await localVideoToolAssetPath(videoAsset, workDir);
     const normalizedPath = path.join(workDir, "source-normalized.mp4");
@@ -16666,6 +16707,7 @@ async function runVideoToolFaceSwap(job) {
       if (!upstreamTaskId) {
         const published = await publishVideoToolInput(segmentPath, taskId, segment.index);
         publicInputs.push(published.publicFilePath);
+        upstreamInputUrls[segment.index] = published.url;
         const submitted = await submitAliyunVideoTask({
           provider: "wan27",
           capability: "wan27-video-edit",
@@ -16688,15 +16730,28 @@ async function runVideoToolFaceSwap(job) {
         upstreamTaskIds[segment.index] = upstreamTaskId;
         await updateVideoToolProgress(taskId, "generating", {
           upstreamTaskId,
-          params: { upstreamTaskIds, currentSegment: segment.index + 1, segmentCount: segments.length, completedSegments: segment.index },
+          upstreamPayload: submitted.payload,
+          createResponse: submitted.raw,
+          params: {
+            upstreamTaskIds,
+            upstreamInputUrls,
+            currentSegment: segment.index + 1,
+            segmentCount: segments.length,
+            completedSegments: segment.index,
+          },
         });
       }
-      const completed = await waitForAliyunVideoToolTask(upstreamTaskId);
+      const completed = await waitForAliyunVideoToolTask(upstreamTaskId, { inputUrls: upstreamInputUrls });
+      await updateVideoToolProgress(taskId, "generating", {
+        upstreamTaskId,
+        queryResponse: completed.raw,
+        params: { upstreamTaskIds, upstreamInputUrls, currentSegment: segment.index + 1, segmentCount: segments.length, completedSegments: segment.index },
+      });
       await downloadVideoToolSegment(completed.task.videoUrl, outputPath);
       generatedPaths.push(outputPath);
       await updateVideoToolProgress(taskId, "generating", {
         upstreamTaskId,
-        params: { upstreamTaskIds, currentSegment: segment.index + 1, segmentCount: segments.length, completedSegments: segment.index + 1 },
+        params: { upstreamTaskIds, upstreamInputUrls, currentSegment: segment.index + 1, segmentCount: segments.length, completedSegments: segment.index + 1 },
       });
     }
 
@@ -16729,7 +16784,8 @@ async function runVideoToolFaceSwap(job) {
       billingStatus: pricing.credits > 0 ? "settled" : "free",
       billingSettledAt: completedAt,
       completedAt,
-      params: { ...plainObject(record?.params), stage: "completed", upstreamTaskIds, completedSegments: segments.length },
+      queryResponse: record?.queryResponse || null,
+      params: { ...plainObject(record?.params), stage: "completed", upstreamTaskIds, upstreamInputUrls, completedSegments: segments.length },
       lastUpdateReason: undressVideo ? "video-tool-undress-video-succeeded" : "video-tool-face-swap-succeeded",
     });
   } finally {
@@ -16986,7 +17042,7 @@ function startVideoToolJob(job) {
     runner(job).catch(async (error) => {
       console.error("[video-tool-job-failed]", job.taskId, error.message || error);
       try {
-        await refundVideoToolTask(job.taskId, error.message || "Video generation failed.");
+        await refundVideoToolTask(job.taskId, error.message || "Video generation failed.", error.payload || null);
       } catch (refundError) {
         console.error("[video-tool-refund-failed]", job.taskId, refundError.message || refundError);
       }
