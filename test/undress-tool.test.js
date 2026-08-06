@@ -11,6 +11,7 @@ const server = read("server.js");
 const db = read("db.js");
 const loader = read("platform.js");
 const frontend = read("platform.undress-tool.js");
+const ui = read("platform.ui.js");
 const history = read("platform.create.js");
 const css = read("tool-undress.css");
 const videoTools = read("video-tools.js");
@@ -28,6 +29,7 @@ test("undress.14vips.com is an isolated tenant without API or asset-library acce
     /video-tools|public\/characters|workflow|advanced/,
   );
   assert.match(server, /if \(undressToolRequestAllowed\(req\)\)[\s\S]*?allowedToolPath[\s\S]*?return sendText\(res, 404, "Not Found"\)/);
+  assert.match(ui, /function requestAdvancedEstimate[\s\S]*?tenantFeature\("toolOnly", false\)/);
 });
 
 test("the first image claim is atomic, persistent, and released only after a failed claim", () => {
