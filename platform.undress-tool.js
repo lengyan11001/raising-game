@@ -164,10 +164,10 @@ function undressToolExampleHtml() {
   const example = UNDRESS_TOOL_EXAMPLE_MEDIA[undressToolState.generationType];
   if (!example) return "";
   const inputMedia = example.inputType === "video"
-    ? `<video src="${undressToolEscape(example.input)}" muted autoplay loop playsinline preload="metadata"></video>`
+    ? `<video src="${undressToolEscape(example.input)}" controls playsinline preload="metadata"></video>`
     : `<img src="${undressToolEscape(example.input)}" alt="" loading="eager" />`;
   const resultMedia = example.resultType === "video"
-    ? `<video src="${undressToolEscape(example.result)}" muted autoplay loop playsinline preload="metadata"></video>`
+    ? `<video src="${undressToolEscape(example.result)}" controls playsinline preload="metadata"></video>`
     : `<img src="${undressToolEscape(example.result)}" alt="" loading="eager" />`;
   return `
     <div class="undress-tool-example-flow" aria-label="Example result">

@@ -108,9 +108,9 @@ test("all three generation tabs show compact server-backed before and after exam
   assert.match(frontend, /\/api\/undress-tool\/examples\/image_video\/result/);
   assert.match(frontend, /\/api\/undress-tool\/examples\/video\/input/);
   assert.match(frontend, /\/api\/undress-tool\/examples\/video\/result/);
-  assert.match(frontend, /example\.inputType === "video"/);
+  assert.match(frontend, /example\.inputType === "video"[\s\S]*?controls playsinline preload="metadata"/);
   assert.match(frontend, /undress-tool-example-arrow[\s\S]*?data-lucide="arrow-right"/);
-  assert.match(frontend, /example\.resultType === "video"[\s\S]*?muted autoplay loop playsinline/);
+  assert.match(frontend, /example\.resultType === "video"[\s\S]*?controls playsinline preload="metadata"/);
   assert.doesNotMatch(frontend, /undress-20260806121918-0726d2|cgt-20260728161747-915edb/);
   assert.match(css, /\.undress-tool-example-media[\s\S]*?aspect-ratio: 9 \/ 14/);
   assert.match(css, /\.undress-tool-example-media img,[\s\S]*?object-fit: contain/);
