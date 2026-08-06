@@ -32469,6 +32469,36 @@ async function handleAdminGetGenerationRecord(req, res, taskId) {
   return sendJson(res, 200, { ok: true, record: adminGenerationRecordView(record, userMap) });
 }
 
+async function handleAdminGenerationRecordMedia(req, res, taskId) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const record = await getGenerationRecord(decodeURIComponent(taskId));
+  if (!record) return sendJson(res, 404, { ok: false, message: "Generation record not found." });
+  const target = generationRecordDownloadTarget(record);
+  const localPath = target?.localPath || localDownloadPathFromRecord(record, !isImageGenerationRecord(record), target?.url || "");
+  if (!localPath) return sendJson(res, 404, { ok: false, message: "Generated media is not available locally." });
+  const normalizedPath = path.normalize(localPath);
+  const relative = path.relative(ROOT, normalizedPath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return sendJson(res, 403, { ok: false, message: "Generated media path is not allowed." });
+  }
+  try {
+    const stat = await fs.stat(normalizedPath);
+    const mime = target?.mime || (isImageGenerationRecord(record) ? imageMimeFromKnownPath(normalizedPath) || "image/png" : videoMimeFromKnownPath(normalizedPath) || "video/mp4");
+    if (sendInternalAsset(res, normalizedPath, mime, stat, { privateCache: true })) return;
+    res.writeHead(200, {
+      "content-type": mime,
+      "content-length": stat.size,
+      "cache-control": "private, no-store",
+      "content-disposition": `inline; filename="${path.basename(normalizedPath).replace(/[^a-z0-9._-]/gi, "-")}"`,
+    });
+    if (req.method === "HEAD") return res.end();
+    return pipeFileStream(res, normalizedPath);
+  } catch (error) {
+    return sendJson(res, error.code === "ENOENT" ? 404 : 500, { ok: false, message: error.code === "ENOENT" ? "Generated media is missing." : "Generated media could not be opened." });
+  }
+}
+
 async function handleListGenerationRecords(req, res, url) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -33984,6 +34014,10 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/admin/generation-records") {
       return await handleAdminListGenerationRecords(req, res, url);
+    }
+    const adminGenerationRecordMediaMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)\/media$/);
+    if (["GET", "HEAD"].includes(req.method) && adminGenerationRecordMediaMatch) {
+      return await handleAdminGenerationRecordMedia(req, res, adminGenerationRecordMediaMatch[1]);
     }
     const adminGenerationRecordMatch = url.pathname.match(/^\/api\/admin\/generation-records\/([^/]+)$/);
     if (req.method === "GET" && adminGenerationRecordMatch) {

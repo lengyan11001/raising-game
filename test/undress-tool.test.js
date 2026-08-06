@@ -12,6 +12,7 @@ const db = read("db.js");
 const loader = read("platform.js");
 const frontend = read("platform.undress-tool.js");
 const ui = read("platform.ui.js");
+const admin = read("admin.js");
 const history = read("platform.create.js");
 const css = read("tool-undress.css");
 const videoTools = read("video-tools.js");
@@ -64,6 +65,20 @@ test("locked free results expose no media and cannot be downloaded or added to a
   assert.match(publicView, /publicUndressLockedPreviewUrl\(record\.lockedPreviewUrl\)/);
   assert.match(server, /lockedPreviewUrl: ""/);
   assert.match(server, /fs\.rm\(lockedPreviewPath, \{ force: true \}\)/);
+});
+
+test("admins can inspect locked originals without making the public asset path accessible", () => {
+  const handler = server.slice(server.indexOf("async function handleAdminGenerationRecordMedia"), server.indexOf("async function handleListGenerationRecords"));
+  assert.match(handler, /requireAdmin\(req, res\)/);
+  assert.match(handler, /generationRecordDownloadTarget\(record\)/);
+  assert.match(handler, /sendInternalAsset\(res, normalizedPath, mime, stat, \{ privateCache: true \}\)/);
+  assert.match(server, /adminGenerationRecordMediaMatch[\s\S]*?handleAdminGenerationRecordMedia/);
+  assert.match(admin, /fetchAdminGenerationRecordPreview/);
+  assert.match(admin, /authorization: `Bearer \$\{state\.token\}`/);
+  assert.match(admin, /URL\.createObjectURL\(blob\)/);
+  assert.match(admin, /record\.resultLocked \? record\.lockedPreviewUrl/);
+  assert.doesNotMatch(admin, /admPreview/);
+  assert.match(server, /lockedRecord\?\.resultLocked === true[\s\S]*?sendText\(res, 403, "Unlock required"\)/);
 });
 
 test("the create dialog has three explicit generation types with matching uploads", () => {

@@ -1900,15 +1900,8 @@ function toAbsoluteHttpUrl(value = "") {
 }
 
 function adminPreviewMediaUrl(value = "") {
+  if (/^blob:/i.test(String(value || "").trim())) return String(value).trim();
   const url = toAbsoluteHttpUrl(value);
-  if (!url) return "";
-  try {
-    const parsed = new URL(url, window.location.origin);
-    if (parsed.origin === window.location.origin && parsed.pathname.startsWith("/assets/generated/")) {
-      parsed.searchParams.set("admPreview", "adm-76");
-      return parsed.toString();
-    }
-  } catch {}
   return url;
 }
 
@@ -1921,7 +1914,11 @@ function recordRatioStyle(record = {}) {
 function recordPreviewHtml(record) {
   const localVideo = adminPreviewMediaUrl(recordVideoUrl(record));
   const remoteVideo = recordRemoteVideoUrl(record);
-  const imageResult = adminPreviewMediaUrl(recordImageResultUrl(record));
+  const imageResult = adminPreviewMediaUrl(
+    record.adminResultPreviewUrl
+    || (record.resultLocked ? record.lockedPreviewUrl : "")
+    || recordImageResultUrl(record),
+  );
   const poster = adminPreviewMediaUrl(recordResultPosterUrl(record));
   const posterAttr = poster ? ` poster="${escapeHtml(poster)}"` : "";
   if (localVideo) return `<video src="${escapeHtml(localVideo)}" controls preload="metadata" playsinline${posterAttr} style="${escapeHtml(recordRatioStyle(record))}"></video>`;
@@ -2152,7 +2149,7 @@ function renderGenerationRecordTable(records, payload = {}, load = null) {
 function generationRecordRowHtml(record, index) {
   const video = recordVideoUrl(record);
   const remoteVideo = recordRemoteVideoUrl(record);
-  const imageResult = recordImageResultUrl(record);
+  const imageResult = record.resultLocked && record.lockedPreviewUrl ? record.lockedPreviewUrl : recordImageResultUrl(record);
   const poster = recordResultPosterUrl(record);
   const canPromote = Boolean(video || remoteVideo);
   const label = record.templateTitle || record.sceneEntryName || record.sceneName || record.companionName || record.kind || "任务";
@@ -2563,7 +2560,7 @@ function generationRecordDetailBody(record = {}, { loading = false, error = "" }
   const remoteVideo = recordRemoteVideoUrl(record);
   const imageResult = recordImageResultUrl(record);
   const videoHref = adminPreviewMediaUrl(video) || video;
-  const imageResultHref = adminPreviewMediaUrl(imageResult) || imageResult;
+  const imageResultHref = adminPreviewMediaUrl(record.adminResultPreviewUrl || imageResult) || imageResult;
   return `
     <div class="adm-record-detail">
       ${loading ? '<div class="adm-record-detail-loading"><div class="adm-spinner"></div><span>正在加载完整详情...</span></div>' : ""}
@@ -2647,6 +2644,26 @@ async function fetchAdminGenerationRecordDetail(record = {}) {
   return payload.record || record;
 }
 
+async function fetchAdminGenerationRecordPreview(record = {}) {
+  if (!record?.taskId || record.resultLocked !== true) return record;
+  const response = await fetch(`/api/admin/generation-records/${encodeURIComponent(record.taskId)}/media`, {
+    method: "GET",
+    headers: state.token ? { authorization: `Bearer ${state.token}` } : {},
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    let payload = null;
+    try { payload = await response.json(); } catch {}
+    if (response.status === 401 || payload?.code === "LOGIN_REQUIRED") handleAuthExpired();
+    throw new Error(payload?.message || `Preview failed (${response.status}).`);
+  }
+  const blob = await response.blob();
+  if (!String(blob.type || "").startsWith("image/") && !String(blob.type || "").startsWith("video/")) {
+    throw new Error("Preview response is not media.");
+  }
+  return { ...record, adminResultPreviewUrl: URL.createObjectURL(blob) };
+}
+
 async function openGenerationRecordDetail(record) {
   const taskId = record?.taskId || "";
   const token = `record-detail-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -2663,6 +2680,11 @@ async function openGenerationRecordDetail(record) {
   });
   try {
     record = await fetchAdminGenerationRecordDetail(record);
+    try {
+      record = await fetchAdminGenerationRecordPreview(record);
+    } catch (previewError) {
+      toast(previewError.message || "Preview failed.", "error");
+    }
   } catch (error) {
     if (isActive()) {
       els.dialogBody.innerHTML = generationRecordDetailBody(record, { error: error.message || "加载详情失败。" });
@@ -2671,10 +2693,17 @@ async function openGenerationRecordDetail(record) {
     toast(error.message || "加载详情失败。", "error");
     return;
   }
-  if (!isActive()) return;
+  if (!isActive()) {
+    if (record.adminResultPreviewUrl) URL.revokeObjectURL(record.adminResultPreviewUrl);
+    return;
+  }
   els.dialogTitle.textContent = `生成详情 · ${record.taskId || taskId}`;
   els.dialogBody.innerHTML = generationRecordDetailBody(record);
   bindGenerationRecordDetailBody(els.dialogBody, record);
+  if (record.adminResultPreviewUrl) {
+    const previewUrl = record.adminResultPreviewUrl;
+    els.dialog.addEventListener("close", () => URL.revokeObjectURL(previewUrl), { once: true });
+  }
 }
 
 /* ============ SCENES ============ */
