@@ -54,6 +54,13 @@ test("locked free results expose no media and cannot be downloaded or added to a
   assert.match(server, /objectStoragePath\("generated", "images", fileName\)/);
   assert.match(server, /async function handleUnlockUndressToolResult/);
   assert.match(server, /type: "undress_tool_image_unlock"/);
+  assert.match(server, /GENERATED_LOCKED_PREVIEW_DIR/);
+  assert.match(server, /async function createUndressLockedPreview/);
+  assert.match(server, /scale=64:64:force_original_aspect_ratio=decrease/);
+  assert.match(publicView, /lockedPreviewUrl: record\.resultLocked === true && undressToolRecord/);
+  assert.match(publicView, /publicUndressLockedPreviewUrl\(record\.lockedPreviewUrl\)/);
+  assert.match(server, /lockedPreviewUrl: ""/);
+  assert.match(server, /fs\.rm\(lockedPreviewPath, \{ force: true \}\)/);
 });
 
 test("image and video share one upload control while video is always precharged and segmented", () => {
@@ -83,6 +90,16 @@ test("History renders an unlock action instead of media for locked results", () 
   assert.match(history, /isUndressHistory \? "" : `<div class="history-card-actions/);
   assert.match(history, /\/api\/undress-tool\/tasks\/\$\{encodeURIComponent\(taskId\)\}\/unlock/);
   assert.match(history, /is-result-locked/);
+  assert.match(history, /record\.lockedPreviewUrl/);
+  assert.match(history, /history-locked-preview/);
+  assert.doesNotMatch(
+    history.slice(history.indexOf("const unlockOverlay"), history.indexOf("const resultActions")),
+    /record\.unlockCredits/,
+  );
+  assert.match(history, /async function showUndressUnlockConfirm/);
+  assert.match(history, /This unlock will deduct/);
+  assert.match(history, /await showUndressUnlockConfirm\(record\)/);
+  assert.match(server, /ownRecords\.map\(ensureUndressLockedPreview\)/);
 });
 
 test("insufficient unlock balance opens a top-up dialog", () => {

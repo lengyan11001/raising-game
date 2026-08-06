@@ -158,8 +158,57 @@ body.tenant-tool-undress .history-item.is-result-locked .history-media {
 }
 
 body.tenant-tool-undress .history-item.is-result-locked .history-placeholder svg {
-  color: var(--undress-accent);
   animation: none;
+}
+
+body.tenant-tool-undress .history-locked-preview-wrap {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: #111217;
+}
+
+body.tenant-tool-undress .history-locked-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.82) saturate(0.72);
+  transform: scale(1.04);
+}
+
+body.tenant-tool-undress .history-locked-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(7, 8, 11, 0.38);
+  backdrop-filter: blur(3px);
+}
+
+body.tenant-tool-undress .history-locked-mark {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(8, 9, 12, 0.72);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  transform: translate(-50%, -50%);
+}
+
+body.tenant-tool-undress .history-locked-mark svg {
+  width: 19px;
+  height: 19px;
+  color: currentColor !important;
 }
 
 body.tenant-tool-undress .history-unlock-overlay {
@@ -171,18 +220,20 @@ body.tenant-tool-undress .history-unlock-overlay {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 42px;
+  min-height: 40px;
   max-width: calc(100% - 28px);
-  padding: 10px 16px;
-  border: 0;
-  border-radius: 6px;
+  padding: 9px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
   color: #0b0c0f;
   background: var(--undress-teal);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38), inset 0 1px rgba(255, 255, 255, 0.3);
   transform: translateX(-50%);
   cursor: pointer;
-  line-height: 1.25;
+  font-weight: 700;
+  line-height: 1;
   text-align: center;
+  white-space: nowrap;
 }
 
 body.tenant-tool-undress .history-unlock-overlay:disabled {
@@ -199,7 +250,7 @@ body.tenant-tool-undress .history-unlock-overlay svg {
 body.tenant-tool-undress .history-placeholder .history-unlock-overlay span {
   overflow: visible;
   text-overflow: clip;
-  white-space: normal;
+  white-space: nowrap;
 }
 
 body.tenant-tool-undress .history-item {
@@ -232,6 +283,27 @@ body.tenant-tool-undress .undress-credit-alert p {
   margin: 0;
   color: var(--undress-muted);
   line-height: 1.6;
+}
+
+body.tenant-tool-undress .undress-unlock-confirm {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 16px 8px 8px;
+  color: var(--undress-muted);
+  text-align: center;
+}
+
+body.tenant-tool-undress .undress-unlock-confirm strong {
+  color: var(--undress-text);
+  font-size: 1.8rem;
+  line-height: 1.1;
+}
+
+body.tenant-tool-undress .undress-unlock-confirm small {
+  color: var(--undress-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 @media (min-width: 721px) {

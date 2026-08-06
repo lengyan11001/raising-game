@@ -294,6 +294,7 @@ const ADMIN_PLATFORM_TEMPLATE_DIR = path.join(ROOT, "assets", "admin", "platform
 const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
 const GENERATED_POSTER_DIR = path.join(ROOT, "assets", "generated", "posters");
 const GENERATED_IMAGE_DIR = path.join(ROOT, "assets", "generated", "images");
+const GENERATED_LOCKED_PREVIEW_DIR = path.join(ROOT, "assets", "generated", "locked-previews");
 const GENERATED_CHARACTER_DIR = path.join(ROOT, "assets", "generated", "characters", "apiz");
 const VIDEO_TOOL_UPLOAD_PART_DIR = path.join(ROOT, "tmp", "video-tool-uploads");
 const VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES = 300 * 1024 * 1024;
@@ -14785,6 +14786,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     resultLocked: record.resultLocked === true,
     unlockCredits: creditsAmount(record.unlockCredits || 0),
     unlockType: String(record.unlockType || ""),
+    lockedPreviewUrl: record.resultLocked === true && undressToolRecord
+      ? publicUndressLockedPreviewUrl(record.lockedPreviewUrl)
+      : "",
   };
   if (includeStoredVideoUrls) {
     publicRecord.localVideoUrl = String(record.localVideoUrl || "");
@@ -16162,6 +16166,96 @@ async function localVideoToolAssetPath(asset = {}, workDir = "") {
   return filePath;
 }
 
+function publicUndressLockedPreviewUrl(value = "") {
+  const pathname = String(value || "").trim().split("?")[0];
+  return /^\/assets\/generated\/locked-previews\/[a-z0-9_-]+\.jpg$/i.test(pathname) ? pathname : "";
+}
+
+function undressLockedPreviewFile(taskId = "") {
+  const safeTaskId = String(taskId || randomId("locked-preview")).replace(/[^a-z0-9_-]/gi, "_");
+  const fileName = `${safeTaskId}.jpg`;
+  return {
+    filePath: path.join(GENERATED_LOCKED_PREVIEW_DIR, fileName),
+    publicUrl: `/assets/generated/locked-previews/${fileName}`,
+  };
+}
+
+async function createUndressLockedPreview(taskId, sourceImagePath) {
+  const preview = undressLockedPreviewFile(taskId);
+  const tempPath = path.join(
+    GENERATED_LOCKED_PREVIEW_DIR,
+    `.${path.basename(preview.filePath, ".jpg")}-${process.pid}-${Date.now()}.jpg`,
+  );
+  await fs.mkdir(GENERATED_LOCKED_PREVIEW_DIR, { recursive: true });
+  try {
+    await execFileQuiet("ffmpeg", [
+      "-y",
+      "-i",
+      sourceImagePath,
+      "-vf",
+      "scale=64:64:force_original_aspect_ratio=decrease:flags=area,boxblur=2:1,eq=brightness=-0.08:saturation=0.55",
+      "-frames:v",
+      "1",
+      "-q:v",
+      "14",
+      "-map_metadata",
+      "-1",
+      tempPath,
+    ], { timeout: 60000 });
+    await fs.rm(preview.filePath, { force: true });
+    await fs.rename(tempPath, preview.filePath);
+    return {
+      lockedPreviewPath: preview.filePath,
+      lockedPreviewUrl: preview.publicUrl,
+    };
+  } finally {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+  }
+}
+
+async function existingUndressLockedImagePath(record = {}) {
+  const candidates = [
+    String(record.localImagePath || "").trim(),
+    localAssetPathFromPublicValue(record.localImageUrl || ""),
+    localAssetPathFromPublicValue(record.imageResultUrl || ""),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    const filePath = path.normalize(candidate);
+    const relative = path.relative(GENERATED_IMAGE_DIR, filePath);
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) continue;
+    try {
+      await fs.access(filePath);
+      return filePath;
+    } catch {}
+  }
+  return "";
+}
+
+async function ensureUndressLockedPreview(record = {}) {
+  const isUndressRecord = String(record.source || "").startsWith("undress-tool-")
+    || String(record.kind || "").includes("tool-undress");
+  if (!isUndressRecord || record.resultLocked !== true || !isSucceededStatus(record.status)) return record;
+
+  const previewUrl = publicUndressLockedPreviewUrl(record.lockedPreviewUrl);
+  const previewFile = previewUrl ? localAssetPathFromPublicValue(previewUrl) : "";
+  if (previewFile) {
+    try {
+      await fs.access(previewFile);
+      return record;
+    } catch {}
+  }
+
+  const sourceImagePath = await existingUndressLockedImagePath(record);
+  if (!sourceImagePath) return record;
+  try {
+    const preview = await createUndressLockedPreview(record.taskId, sourceImagePath);
+    return await upsertGenerationRecord({ taskId: record.taskId, ...preview });
+  } catch (error) {
+    console.warn("[undress-locked-preview-failed]", record.taskId, error.message || error);
+    return record;
+  }
+}
+
 async function publishVideoToolInput(filePath, taskId, index) {
   const fileName = `${storagePathSegment(taskId)}-input-${index + 1}.mp4`;
   const publicPath = `/assets/generated/videos/${fileName}`;
@@ -16453,6 +16547,14 @@ async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabe
   const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: `${resultLabel} result`, maxBytes: 20 * 1024 * 1024 });
   const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
   const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime, { publish: !freeImageGeneration });
+  let lockedPreview = {};
+  if (freeImageGeneration) {
+    try {
+      lockedPreview = await createUndressLockedPreview(taskId, savedImage.localImagePath);
+    } catch (error) {
+      console.warn("[undress-locked-preview-failed]", taskId, error.message || error);
+    }
+  }
   const completedAt = new Date().toISOString();
   const record = await getGenerationRecord(taskId);
   await upsertGenerationRecord({
@@ -16466,6 +16568,7 @@ async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabe
     localImagePath: savedImage.localImagePath,
     cdnImageUrl: savedImage.cdnImageUrl,
     cdnError: savedImage.cdnError,
+    ...lockedPreview,
     remoteImageUrl: imageUrl,
     providerImageUrl: imageUrl,
     error: "",
@@ -17276,6 +17379,8 @@ async function handleUnlockUndressToolResult(req, res, taskId) {
       ...record,
       taskId,
       resultLocked: false,
+      lockedPreviewUrl: "",
+      lockedPreviewPath: "",
       unlockedAt,
       imageResultUrl: publishedImageUrl || record.localImageUrl || record.imageResultUrl || "",
       cdnImageUrl: publishedImageUrl,
@@ -17286,6 +17391,8 @@ async function handleUnlockUndressToolResult(req, res, taskId) {
       billingSettledAt: unlockedAt,
       lastUpdateReason: "undress-tool-image-unlocked",
     });
+    const lockedPreviewPath = String(record.lockedPreviewPath || localAssetPathFromPublicValue(record.lockedPreviewUrl || "")).trim();
+    if (lockedPreviewPath) await fs.rm(lockedPreviewPath, { force: true }).catch(() => {});
     if (record.freeImageClaimId) {
       await markToolFreeGenerationUnlockedInDb({ id: record.freeImageClaimId, userId: auth.user.id, taskId }).catch((error) => {
         console.warn("[undress-free-claim-unlock-mark-failed]", taskId, error.message || error);
@@ -32225,6 +32332,11 @@ async function handleListGenerationRecords(req, res, url) {
     });
   }
 
+  if (undressToolRequestAllowed(req)) {
+    const recordsWithLockedPreviews = await Promise.all(ownRecords.map(ensureUndressLockedPreview));
+    recordsWithLockedPreviews.forEach((record, index) => { ownRecords[index] = record; });
+  }
+
   return sendJson(res, 200, {
     ok: true,
     records: ownRecords.map((record) => publicGenerationRecord(record, generationRecordResponseOptionsForAuth(auth))),
@@ -32319,6 +32431,8 @@ async function handleGetGenerationRecord(req, res, taskId) {
       console.warn("[generation-record-detail-refresh-failed]", taskId, error.message || error);
     }
   }
+
+  if (undressToolRequestAllowed(req)) nextRecord = await ensureUndressLockedPreview(nextRecord);
 
   return sendJson(res, 200, {
     ok: true,

@@ -4128,7 +4128,7 @@ function renderHistory(records = []) {
     const unlockOverlay = taskId && resultLocked && isUndressHistory ? `
       <button class="history-unlock-overlay" type="button" data-history-unlock="${escapeHtml(taskId)}">
         <i data-lucide="unlock"></i>
-        <span>${escapeHtml(t("history.unlockResult", { credits: formatCredits(record.unlockCredits || 0) }, `Unlock · ${formatCredits(record.unlockCredits || 0)} credits`))}</span>
+        <span>${escapeHtml(state.lang === "zh" ? "解锁" : "Unlock")}</span>
       </button>
     ` : "";
     const resultActions = !isUndressHistory && taskId && (videoUrl || imageResultUrl) ? `
@@ -4167,7 +4167,11 @@ function renderHistory(records = []) {
     return `
       <article class="history-item is-${escapeHtml(statusClass(record.status))}${resultLocked ? " is-result-locked" : ""}" data-history-index="${index}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">
-          ${resultLocked ? `<div class="history-placeholder"><i data-lucide="lock"></i><span>${escapeHtml(t("history.resultLocked", {}, "Result ready"))}</span>${unlockOverlay}</div>` : videoUrl ? `
+          ${resultLocked ? `<div class="history-placeholder history-locked-preview-wrap">
+            ${record.lockedPreviewUrl ? `<img class="history-locked-preview" src="${escapeHtml(record.lockedPreviewUrl)}" alt="" loading="lazy" decoding="async" draggable="false" /><span class="history-locked-scrim" aria-hidden="true"></span>` : ""}
+            <span class="history-locked-mark" aria-hidden="true"><i data-lucide="lock-keyhole"></i></span>
+            ${unlockOverlay}
+          </div>` : videoUrl ? `
             <button class="history-poster" type="button" data-history-load-video="${escapeHtml(mediaKey)}" aria-label="${escapeHtml(t("common.preview"))}">
               ${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(statusLabel(record.status))}</span>`}
               <i data-lucide="play"></i>
@@ -4242,7 +4246,11 @@ function renderHistory(records = []) {
     button.addEventListener("click", () => regenerateHistoryRecord(button.dataset.historyRegenerate || "", button));
   });
   els.historyList.querySelectorAll("[data-history-unlock]").forEach((button) => {
-    button.addEventListener("click", () => unlockHistoryRecord(button.dataset.historyUnlock || "", button));
+    button.addEventListener("click", () => {
+      const taskId = button.dataset.historyUnlock || "";
+      const record = sortedRecords.find((item) => String(item.taskId || "") === String(taskId));
+      unlockHistoryRecord(taskId, button, record);
+    });
   });
   els.historyList.querySelectorAll("[data-history-add-asset]").forEach((button) => {
     button.addEventListener("click", () => addHistoryRecordToAssets(button.dataset.historyAddAsset || "", button));
@@ -4315,8 +4323,29 @@ async function showUndressInsufficientCreditsDialog(error) {
   if (result === "confirm") openTopupDialog();
 }
 
-async function unlockHistoryRecord(taskId, button) {
+async function showUndressUnlockConfirm(record = {}) {
+  const zh = state.lang === "zh";
+  const cost = formatCredits(record.unlockCredits || 0);
+  const result = await showInlineDialog({
+    title: zh ? "确认解锁" : "Unlock result?",
+    body: `<div class="undress-unlock-confirm">
+      <span>${escapeHtml(zh ? "本次解锁将扣除" : "This unlock will deduct")}</span>
+      <strong>${escapeHtml(cost)} <small>${escapeHtml(zh ? "积分" : "credits")}</small></strong>
+    </div>`,
+    confirmText: zh ? "确认解锁" : "Unlock",
+    onOpen: () => {
+      if (els.inlineDialogConfirm) {
+        els.inlineDialogConfirm.innerHTML = `<i data-lucide="unlock"></i>${escapeHtml(zh ? "确认解锁" : "Unlock")}`;
+      }
+      refreshIcons();
+    },
+  });
+  return result === "confirm";
+}
+
+async function unlockHistoryRecord(taskId, button, record = {}) {
   if (!taskId || !button) return;
+  if (!(await showUndressUnlockConfirm(record))) return;
   const originalHtml = button.innerHTML;
   button.disabled = true;
   button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.unlocking", {}, "Unlocking..."))}`;
