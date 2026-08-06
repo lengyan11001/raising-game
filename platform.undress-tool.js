@@ -6,7 +6,11 @@ const UNDRESS_TOOL_COPY = {
   en: {
     create: "Create",
     title: "Undress",
-    upload: "Upload image or video",
+    imageOnly: "Image",
+    imageVideo: "Image to video",
+    videoOnly: "Video",
+    uploadImage: "Upload image",
+    uploadVideo: "Upload video",
     image: "Image",
     video: "Video",
     generate: "Generate",
@@ -18,11 +22,17 @@ const UNDRESS_TOOL_COPY = {
     videoPrice: "{seconds} sec / {segments} segment(s) / {credits} credits",
     signIn: "Sign in to see your price.",
     readFailed: "Unable to read this video.",
+    imageRequired: "Upload an image for this type.",
+    videoRequired: "Upload a video for this type.",
   },
   zh: {
     create: "\u521b\u5efa",
     title: "\u8131\u8863",
-    upload: "\u4e0a\u4f20\u56fe\u7247\u6216\u89c6\u9891",
+    imageOnly: "\u56fe\u7247",
+    imageVideo: "\u56fe\u7247\u751f\u89c6\u9891",
+    videoOnly: "\u89c6\u9891",
+    uploadImage: "\u4e0a\u4f20\u56fe\u7247",
+    uploadVideo: "\u4e0a\u4f20\u89c6\u9891",
     image: "\u56fe\u7247",
     video: "\u89c6\u9891",
     generate: "\u751f\u6210",
@@ -34,10 +44,13 @@ const UNDRESS_TOOL_COPY = {
     videoPrice: "{seconds} \u79d2 \u00b7 {segments} \u6bb5 \u00b7 {credits} \u79ef\u5206",
     signIn: "\u767b\u5f55\u540e\u663e\u793a\u4ef7\u683c\u3002",
     readFailed: "\u65e0\u6cd5\u8bfb\u53d6\u8fd9\u4e2a\u89c6\u9891\u3002",
+    imageRequired: "\u8fd9\u4e2a\u7c7b\u578b\u9700\u8981\u4e0a\u4f20\u56fe\u7247\u3002",
+    videoRequired: "\u8fd9\u4e2a\u7c7b\u578b\u9700\u8981\u4e0a\u4f20\u89c6\u9891\u3002",
   },
 };
 
 const undressToolState = {
+  generationType: "image",
   file: null,
   objectUrl: "",
   mediaKind: "",
@@ -84,6 +97,16 @@ function undressToolFileKind(file) {
   return mime.startsWith("video/") || ["mp4", "webm", "mov", "m4v"].includes(extension) ? "video" : "image";
 }
 
+function undressToolExpectedMediaKind() {
+  return undressToolState.generationType === "video" ? "video" : "image";
+}
+
+function undressToolAccept() {
+  return undressToolExpectedMediaKind() === "video"
+    ? "video/mp4,video/webm,video/quicktime,video/x-m4v"
+    : "image/jpeg,image/png,image/webp,image/bmp";
+}
+
 function undressToolFileMime(file) {
   const declared = String(file?.type || "").toLowerCase();
   if (declared && declared !== "application/octet-stream") return declared;
@@ -108,7 +131,13 @@ function resetUndressToolFile() {
 }
 
 function undressToolCanSubmit() {
-  return Boolean(undressToolState.file && undressToolState.mediaKind && !undressToolState.submitting && !undressToolState.estimating);
+  return Boolean(
+    undressToolState.generationType
+    && undressToolState.file
+    && undressToolState.mediaKind === undressToolExpectedMediaKind()
+    && !undressToolState.submitting
+    && !undressToolState.estimating,
+  );
 }
 
 function renderUndressToolDialog() {
@@ -126,11 +155,17 @@ function renderUndressToolDialog() {
       : `<img class="video-tool-upload-preview" src="${undressToolEscape(undressToolState.objectUrl)}" alt="" />`
     : "";
   const estimate = undressToolState.estimate;
+  const expectedMediaKind = undressToolExpectedMediaKind();
+  const typeOptions = [
+    ["image", "imageOnly", "image"],
+    ["image_video", "imageVideo", "clapperboard"],
+    ["video", "videoOnly", "video"],
+  ];
   let priceText = file
     ? (state.user ? undressToolText("estimating") : undressToolText("signIn"))
     : "";
   if (estimate) {
-    if (undressToolState.mediaKind === "image") {
+    if (undressToolState.generationType === "image") {
       priceText = estimate.freeImageAvailable
         ? undressToolText("firstFree", { credits: undressToolCredits(estimate.unlockCredits) })
         : undressToolText("imagePrice", { credits: undressToolCredits(estimate.chargeCredits) });
@@ -143,11 +178,18 @@ function renderUndressToolDialog() {
     }
   }
   body.innerHTML = `
+    <div class="undress-tool-type-switch" role="group">
+      ${typeOptions.map(([value, label, icon]) => `
+        <button class="undress-tool-type-option${undressToolState.generationType === value ? " is-active" : ""}" type="button" data-undress-tool-type="${value}">
+          <i data-lucide="${icon}"></i><span>${undressToolEscape(undressToolText(label))}</span>
+        </button>
+      `).join("")}
+    </div>
     <div class="video-tool-form-grid is-single">
       <label class="video-tool-upload">
-        <input type="file" accept="image/jpeg,image/png,image/webp,image/bmp,video/mp4,video/webm,video/quicktime,video/x-m4v" data-undress-tool-input />
-        ${mediaPreview || `<span class="video-tool-upload-placeholder"><i data-lucide="upload"></i><span>${undressToolEscape(undressToolText("upload"))}</span></span>`}
-        ${file ? `<span class="undress-tool-kind">${undressToolEscape(undressToolText(undressToolState.mediaKind))}</span><span class="video-tool-upload-name">${undressToolEscape(file.name || "")}</span>` : ""}
+        <input type="file" accept="${undressToolAccept()}" data-undress-tool-input />
+        ${mediaPreview || `<span class="video-tool-upload-placeholder"><i data-lucide="upload"></i><span>${undressToolEscape(undressToolText(expectedMediaKind === "video" ? "uploadVideo" : "uploadImage"))}</span></span>`}
+        ${file ? `<span class="undress-tool-kind">${undressToolEscape(undressToolText(undressToolState.generationType === "image_video" ? "imageVideo" : undressToolState.generationType === "video" ? "videoOnly" : "imageOnly"))}</span><span class="video-tool-upload-name">${undressToolEscape(file.name || "")}</span>` : ""}
         ${undressToolState.submitting && undressToolState.uploadProgress < 100 ? `<span class="video-tool-upload-progress">${undressToolEscape(undressToolText("uploading"))} ${undressToolState.uploadProgress}%</span>` : ""}
       </label>
     </div>
@@ -160,6 +202,7 @@ function renderUndressToolDialog() {
       </button>
     </div>
   `;
+  body.querySelectorAll("[data-undress-tool-type]").forEach((button) => button.addEventListener("click", handleUndressToolType));
   body.querySelector("[data-undress-tool-input]")?.addEventListener("change", handleUndressToolFile);
   body.querySelector("[data-undress-tool-submit]")?.addEventListener("click", submitUndressTool);
   if (typeof refreshIcons === "function") refreshIcons();
@@ -184,7 +227,7 @@ function readUndressVideoDuration(file) {
 }
 
 async function estimateUndressTool() {
-  if (!state.user || !undressToolState.mediaKind) return;
+  if (!state.user || !undressToolState.generationType || !undressToolState.mediaKind) return;
   undressToolState.estimating = true;
   undressToolState.estimate = null;
   renderUndressToolDialog();
@@ -192,6 +235,7 @@ async function estimateUndressTool() {
     undressToolState.estimate = await requestJson("/api/undress-tool/estimate", {
       method: "POST",
       body: {
+        generationType: undressToolState.generationType,
         mediaKind: undressToolState.mediaKind,
         durationSeconds: undressToolState.durationSeconds,
       },
@@ -204,13 +248,29 @@ async function estimateUndressTool() {
   }
 }
 
+function handleUndressToolType(event) {
+  const generationType = String(event.currentTarget.dataset.undressToolType || "");
+  if (!["image", "image_video", "video"].includes(generationType) || generationType === undressToolState.generationType) return;
+  resetUndressToolFile();
+  undressToolState.generationType = generationType;
+  renderUndressToolDialog();
+}
+
 async function handleUndressToolFile(event) {
   const file = event.currentTarget.files?.[0] || null;
   if (!file) return;
+  const mediaKind = undressToolFileKind(file);
+  const expectedMediaKind = undressToolExpectedMediaKind();
+  if (mediaKind !== expectedMediaKind) {
+    resetUndressToolFile();
+    undressToolState.message = undressToolText(expectedMediaKind === "video" ? "videoRequired" : "imageRequired");
+    renderUndressToolDialog();
+    return;
+  }
   if (undressToolState.objectUrl) URL.revokeObjectURL(undressToolState.objectUrl);
   undressToolState.file = file;
   undressToolState.objectUrl = URL.createObjectURL(file);
-  undressToolState.mediaKind = undressToolFileKind(file);
+  undressToolState.mediaKind = mediaKind;
   undressToolState.durationSeconds = 0;
   undressToolState.estimate = null;
   undressToolState.message = "";
@@ -278,15 +338,15 @@ async function submitUndressTool() {
     const asset = await uploadUndressToolFile(undressToolState.file);
     const payload = await requestJson("/api/undress-tool/generate", {
       method: "POST",
-      body: { assetId: asset.id },
+      body: { assetId: asset.id, generationType: undressToolState.generationType },
     });
     if (payload.user) setUser(payload.user);
     undressToolDialog()?.close("submitted");
     showPlayfluxSubmittedHistory(payload.record || {
       taskId: payload.taskId,
       status: "queued",
-      source: undressToolState.mediaKind === "video" ? "undress-tool-video" : "undress-tool-image",
-      kind: undressToolState.mediaKind === "video" ? "video-tool-undress-video" : "image-tool-undress",
+      source: undressToolState.generationType === "video" ? "undress-tool-video" : undressToolState.generationType === "image_video" ? "undress-tool-image-video" : "undress-tool-image",
+      kind: undressToolState.generationType === "video" ? "video-tool-undress-video" : undressToolState.generationType === "image_video" ? "video-tool-undress-image-video" : "image-tool-undress",
       createdAt: new Date().toISOString(),
     });
     resetUndressToolFile();

@@ -13,6 +13,7 @@ const loader = read("platform.js");
 const frontend = read("platform.undress-tool.js");
 const history = read("platform.create.js");
 const css = read("tool-undress.css");
+const videoTools = read("video-tools.js");
 
 test("undress.14vips.com is an isolated tenant without API or asset-library access", () => {
   assert.match(server, /undress\.14vips\.com=undress/);
@@ -63,16 +64,47 @@ test("locked free results expose no media and cannot be downloaded or added to a
   assert.match(server, /fs\.rm\(lockedPreviewPath, \{ force: true \}\)/);
 });
 
-test("image and video share one upload control while video is always precharged and segmented", () => {
+test("the create dialog has three explicit generation types with matching uploads", () => {
   assert.match(loader, /"platform\.undress-tool\.js"/);
-  assert.match(frontend, /accept="image\/jpeg,image\/png,image\/webp,image\/bmp,video\/mp4/);
+  assert.match(frontend, /generationType: "image"/);
+  assert.match(frontend, /\["image", "imageOnly", "image"\]/);
+  assert.match(frontend, /\["image_video", "imageVideo", "clapperboard"\]/);
+  assert.match(frontend, /\["video", "videoOnly", "video"\]/);
+  assert.match(frontend, /undressToolExpectedMediaKind\(\)/);
+  assert.match(frontend, /"video\/mp4,video\/webm,video\/quicktime,video\/x-m4v"/);
+  assert.match(frontend, /"image\/jpeg,image\/png,image\/webp,image\/bmp"/);
+  assert.match(frontend, /generationType: undressToolState\.generationType/);
   assert.match(frontend, /requestJson\("\/api\/undress-tool\/generate"/);
   assert.match(frontend, /showPlayfluxSubmittedHistory/);
-  assert.match(server, /const action = mediaKind === "video" \? "undress-video" : "undress"/);
-  assert.match(server, /const freeClaimId = mediaKind === "image"/);
+  assert.match(server, /undressToolGenerationDefinition\(body\.generationType\)/);
+  assert.match(server, /mediaKind !== generation\.mediaKind/);
+  assert.match(server, /const freeClaimId = generationType === "image"/);
   assert.match(server, /planVideoEditSegments\(actualDuration\)/);
   assert.match(server, /composeVideoToolSegments\(taskId, generatedPaths\)/);
   assert.match(css, /\.video-tool-upload-preview[\s\S]*?object-fit: contain/);
+  assert.match(css, /\.undress-tool-type-switch[\s\S]*?grid-template-columns: repeat\(3/);
+});
+
+test("image-to-video clones the reference Wan2.7 task and uses configured pricing", () => {
+  const pricing = server.slice(server.indexOf("async function videoToolPricing"), server.indexOf("async function handleVideoToolEstimate"));
+  const runner = server.slice(server.indexOf("async function runVideoToolUndressImageVideo"), server.indexOf("async function runVideoToolUndressVideoLegacy"));
+  assert.match(pricing, /action === "undress-image-video"/);
+  assert.match(pricing, /applyUserPricingToEstimate\(advancedModelPricing\("wan27"/);
+  assert.match(pricing, /videoCapability: "wan27-i2v"/);
+  assert.match(pricing, /duration: 5/);
+  assert.match(pricing, /resolution: "720P"/);
+  assert.match(runner, /capability: "wan27-i2v"/);
+  assert.match(runner, /model: ALIYUN_WAN27_I2V_MODEL/);
+  assert.match(runner, /media: \[\{ type: "first_frame", url: imageUrl \}\]/);
+  assert.match(runner, /mediaMode: "first_frame"/);
+  assert.match(runner, /duration: 5/);
+  assert.match(runner, /resolution: "720P"/);
+  assert.match(runner, /ratio: "9:16"/);
+  assert.match(runner, /generateAudio: true/);
+  assert.match(runner, /prompt_extend: false/);
+  assert.match(videoTools, /她脱掉衣服，全裸露出胸部用手抚摸一只胸，并微笑着说：今天又是美好的一天/);
+  assert.doesNotMatch(videoTools, /Negative prompt:/);
+  assert.match(server, /job\.action === "undress-image-video"[\s\S]*?runVideoToolUndressImageVideo/);
 });
 
 test("reopening the upload dialog resets transient progress state", () => {

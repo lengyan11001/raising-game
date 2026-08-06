@@ -95,6 +95,51 @@ body.tenant-tool-undress .video-tool-dialog {
   background: #111217;
 }
 
+.undress-tool-type-switch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 4px;
+  border: 1px solid var(--undress-line);
+  border-radius: 8px;
+  background: #0b0c10;
+}
+
+.undress-tool-type-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--undress-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.undress-tool-type-option svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+
+.undress-tool-type-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.undress-tool-type-option.is-active {
+  color: #0b0c0f;
+  background: var(--undress-teal);
+}
+
 body.tenant-tool-undress .video-tool-form-grid.is-single {
   grid-template-columns: minmax(0, 230px);
 }

@@ -88,9 +88,10 @@ test("image face swap uses Wan2.7 Image Pro with target image before face refere
 
 test("Undress is one Wan2.7 image edit and is recorded as an image", () => {
   const pricing = server.slice(server.indexOf("async function videoToolPricing"), server.indexOf("async function handleVideoToolEstimate"));
-  assert.match(pricing, /\["undress", "image-face-swap"\]\.includes\(action\)/);
-  assert.match(pricing, /videoToolPricingAggregate\(action, \[imagePricing\]/);
-  assert.doesNotMatch(pricing, /submitSeedanceVideoTask|videoPricing/);
+  const imagePricing = pricing.slice(0, pricing.indexOf('if (action === "undress-image-video")'));
+  assert.match(imagePricing, /\["undress", "image-face-swap"\]\.includes\(action\)/);
+  assert.match(imagePricing, /videoToolPricingAggregate\(action, \[imagePricing\]/);
+  assert.doesNotMatch(imagePricing, /submitSeedanceVideoTask|videoPricing/);
   assert.match(server, /async function runVideoToolUndress\(job\)[\s\S]*?runVideoToolImageEdit\(job,[\s\S]*?VIDEO_TOOL_UNDRESS_TARGET_PROMPT/);
   assert.match(server, /const isImageAction = action === "undress" \|\| isImageFaceSwap/);
   assert.match(frontend, /const imageAction = videoToolUiState\.action === "undress" \|\| imageFaceSwap/);

@@ -52,6 +52,8 @@ const VIDEO_TOOL_UNDRESS_EDIT_PROMPT = [
   "No text, subtitles, logos, watermarks, split screens, duplicated people, or extra people.",
 ].join(" ");
 
+const VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT = "她脱掉衣服，全裸露出胸部用手抚摸一只胸，并微笑着说：今天又是美好的一天";
+
 function positiveDuration(value) {
   const duration = Number(value);
   return Number.isFinite(duration) && duration > 0 ? duration : 0;
@@ -92,5 +94,6 @@ module.exports = {
   VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
   VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
   VIDEO_TOOL_UNDRESS_EDIT_PROMPT,
+  VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
   planVideoEditSegments,
 };

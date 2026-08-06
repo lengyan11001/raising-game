@@ -48,6 +48,7 @@ const {
   VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
   VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
   VIDEO_TOOL_UNDRESS_EDIT_PROMPT,
+  VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
   planVideoEditSegments,
 } = require("./video-tools");
 const {
@@ -16034,6 +16035,7 @@ function videoToolAction(value = "") {
   const action = String(value || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
   if (["image-face-swap", "image-faceswap", "photo-face-swap", "photo-faceswap"].includes(action)) return "image-face-swap";
   if (["face-swap", "faceswap", "replace-face"].includes(action)) return "face-swap";
+  if (["undress-image-video", "image-video-undress", "undress-tool-image-video", "video-tool-undress-image-video"].includes(action)) return "undress-image-video";
   if (["undress-video", "video-undress", "strip-video"].includes(action)) return "undress-video";
   if (["undress", "strip", "take-off"].includes(action)) return "undress";
   return "";
@@ -16057,7 +16059,7 @@ function videoToolAsset(db, userId, assetId, mediaKind, label) {
 function videoToolPricingAggregate(action, items = [], extras = {}) {
   const rows = items.filter(Boolean);
   return {
-    provider: ["undress", "image-face-swap"].includes(action) ? "wan27-image-edit" : ["face-swap", "undress-video"].includes(action) ? "wan27" : "video-tool",
+    provider: ["undress", "image-face-swap"].includes(action) ? "wan27-image-edit" : ["undress-image-video", "face-swap", "undress-video"].includes(action) ? "wan27" : "video-tool",
     action,
     credits: creditsAmount(rows.reduce((sum, item) => sum + Number(item.credits || 0), 0)),
     originalCredits: creditsAmount(rows.reduce((sum, item) => sum + Number(item.originalCredits ?? item.credits ?? 0), 0)),
@@ -16105,6 +16107,24 @@ async function videoToolPricing(action, { durationSeconds = 0, user = null, auth
       resolution: "2K",
       model: imagePricing.model || WAN27_IMAGE_PRO_MODEL,
       outputKind: "image",
+    });
+  }
+  if (action === "undress-image-video") {
+    const videoPricing = applyUserPricingToEstimate(advancedModelPricing("wan27", {
+      videoCapability: "wan27-i2v",
+      model: ALIYUN_WAN27_I2V_MODEL,
+      duration: 5,
+      resolution: "720P",
+      ratio: "9:16",
+      generateAudio: true,
+      advancedPricing: config.platform?.advancedPricing,
+    }), user || 1, pricingOptions);
+    return videoToolPricingAggregate(action, [videoPricing], {
+      durationSeconds: 5,
+      segmentCount: 1,
+      resolution: "720p",
+      model: ALIYUN_WAN27_I2V_MODEL,
+      outputKind: "video",
     });
   }
   if (["face-swap", "undress-video"].includes(action)) {
@@ -16727,6 +16747,91 @@ async function runVideoToolUndress(job) {
   });
 }
 
+async function runVideoToolUndressImageVideo(job) {
+  const { taskId, userId, imageAssetId, pricing } = job;
+  const db = await readDb();
+  const user = (db.users || []).find((entry) => entry.id === userId);
+  if (!user) throw new Error("User not found.");
+  const sourceAsset = await ensurePublicUrlForUserMediaAsset(
+    db,
+    videoToolAsset(db, userId, imageAssetId, "image", "Source image"),
+  );
+  const imageUrl = publicUrlForLocalAsset(sourceAsset);
+  if (!isPublicHttpUrl(imageUrl)) throw new Error("Source image is not publicly accessible.");
+
+  const priorRecord = await getGenerationRecord(taskId);
+  let upstreamTaskId = String(priorRecord?.upstreamTaskId || "").trim();
+  let completed = null;
+  if (!upstreamTaskId) {
+    await updateVideoToolProgress(taskId, "generating");
+    const submitted = await submitAliyunVideoTask({
+      provider: "wan27",
+      capability: "wan27-i2v",
+      prompt: VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
+      media: [{ type: "first_frame", url: imageUrl }],
+      body: {
+        model: ALIYUN_WAN27_I2V_MODEL,
+        videoCapability: "wan27-i2v",
+        mediaMode: "first_frame",
+        duration: 5,
+        resolution: "720P",
+        ratio: "9:16",
+        generateAudio: true,
+        prompt_extend: false,
+        watermark: false,
+      },
+    });
+    upstreamTaskId = submitted.task.taskId || "";
+    if (!upstreamTaskId && !submitted.task.videoUrl) {
+      throw new Error("Wan2.7 image-to-video did not return a task id.");
+    }
+    await updateVideoToolProgress(taskId, "generating", {
+      upstreamTaskId,
+      upstreamPayload: submitted.payload,
+      createResponse: submitted.raw,
+      awaitingUpstreamTask: Boolean(upstreamTaskId),
+    });
+    if (submitted.task.videoUrl) completed = submitted;
+  }
+  if (!completed) completed = await waitForAliyunVideoToolTask(upstreamTaskId);
+  const videoUrl = completed.task.videoUrl || "";
+  if (!videoUrl) throw new Error("Wan2.7 image-to-video returned no video.");
+
+  const finalMedia = await downloadGeneratedVideo(taskId, videoUrl);
+  const completedAt = new Date().toISOString();
+  const record = await getGenerationRecord(taskId);
+  await upsertGenerationRecord({
+    ...record,
+    taskId,
+    status: "succeeded",
+    awaitingUpstreamTask: false,
+    upstreamTaskId,
+    remoteVideoUrl: videoUrl,
+    videoUrl: localPublicAssetStorageEnabled()
+      ? (finalMedia.localVideoUrl || finalMedia.cdnVideoUrl || videoUrl)
+      : (finalMedia.cdnVideoUrl || finalMedia.localVideoUrl || videoUrl),
+    localVideoUrl: finalMedia.localVideoUrl || "",
+    localVideoPath: finalMedia.localVideoPath || "",
+    localPosterUrl: finalMedia.localPosterUrl || "",
+    localPosterPath: finalMedia.localPosterPath || "",
+    posterUrl: localPublicAssetStorageEnabled()
+      ? (finalMedia.localPosterUrl || finalMedia.cdnPosterUrl || "")
+      : (finalMedia.cdnPosterUrl || finalMedia.localPosterUrl || ""),
+    cdnVideoUrl: finalMedia.cdnVideoUrl || "",
+    cdnPosterUrl: finalMedia.cdnPosterUrl || "",
+    cdnError: finalMedia.cdnError || "",
+    queryResponse: completed.raw || null,
+    error: "",
+    finalCredits: pricing.credits,
+    originalFinalCredits: pricing.originalCredits,
+    billingStatus: pricing.credits > 0 ? "settled" : "free",
+    billingSettledAt: completedAt,
+    completedAt,
+    params: { ...plainObject(record?.params), stage: "completed" },
+    lastUpdateReason: "video-tool-undress-image-video-succeeded",
+  });
+}
+
 async function runVideoToolUndressVideoLegacy(job) {
   const { taskId, userId, imageAssetId, pricing } = job;
   const db = await readDb();
@@ -16871,6 +16976,8 @@ function startVideoToolJob(job) {
   setImmediate(() => {
     const runner = job.action === "image-face-swap"
       ? runVideoToolImageFaceSwap
+      : job.action === "undress-image-video"
+        ? runVideoToolUndressImageVideo
       : ["face-swap", "undress-video"].includes(job.action)
         ? runVideoToolFaceSwap
         : job.action === "undress" && job.pricing?.outputKind !== "image"
@@ -17157,24 +17264,59 @@ async function claimUndressToolFreeImage({ userId = "", tenantId = "", taskId = 
   });
 }
 
+function undressToolGenerationDefinition(value = "") {
+  const generationType = String(value || "").trim().toLowerCase().replace(/-/g, "_");
+  const definitions = {
+    image: {
+      generationType: "image",
+      mediaKind: "image",
+      action: "undress",
+      source: "undress-tool-image",
+      kind: "image-tool-undress",
+      provider: "wan27-image-edit",
+      prompt: VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
+    },
+    image_video: {
+      generationType: "image_video",
+      mediaKind: "image",
+      action: "undress-image-video",
+      source: "undress-tool-image-video",
+      kind: "video-tool-undress-image-video",
+      provider: "wan27",
+      prompt: VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
+    },
+    video: {
+      generationType: "video",
+      mediaKind: "video",
+      action: "undress-video",
+      source: "undress-tool-video",
+      kind: "video-tool-undress-video",
+      provider: "video-tool",
+      prompt: VIDEO_TOOL_UNDRESS_EDIT_PROMPT,
+    },
+  };
+  return definitions[generationType] || null;
+}
+
 async function handleUndressToolEstimate(req, res) {
   if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
   const auth = await requireUser(req, res);
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, message: "This tool requires database storage." });
   const body = await readJson(req);
-  const mediaKind = String(body.mediaKind || body.kind || "image").trim().toLowerCase() === "video" ? "video" : "image";
+  const generation = undressToolGenerationDefinition(body.generationType);
+  if (!generation) return sendJson(res, 400, { ok: false, message: "Select a generation type." });
   const durationSeconds = durationSecondsFromValue(body.durationSeconds || body.duration);
-  if (mediaKind === "video" && !durationSeconds) {
+  if (generation.generationType === "video" && !durationSeconds) {
     return sendJson(res, 400, { ok: false, message: "Read the source video duration before estimating." });
   }
   try {
-    const action = mediaKind === "video" ? "undress-video" : "undress";
-    const pricing = await videoToolPricing(action, { durationSeconds, user: auth.user, auth });
-    const freeImageAvailable = mediaKind === "image" && await undressToolFreeImageAvailable(auth.user.id);
+    const pricing = await videoToolPricing(generation.action, { durationSeconds, user: auth.user, auth });
+    const freeImageAvailable = generation.generationType === "image" && await undressToolFreeImageAvailable(auth.user.id);
     return sendJson(res, 200, {
       ok: true,
-      mediaKind,
+      generationType: generation.generationType,
+      mediaKind: generation.mediaKind,
       freeImageAvailable,
       chargeCredits: freeImageAvailable ? 0 : pricing.credits,
       unlockCredits: freeImageAvailable ? pricing.credits : 0,
@@ -17191,6 +17333,8 @@ async function handleUndressToolGenerate(req, res) {
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, message: "This tool requires database storage." });
   const body = await readJson(req);
+  const generation = undressToolGenerationDefinition(body.generationType);
+  if (!generation) return sendJson(res, 400, { ok: false, message: "Select a generation type." });
   const uploaded = (auth.db.userAssets || []).find((entry) => (
     entry.id === String(body.assetId || "").trim()
     && entry.userId === auth.user.id
@@ -17200,11 +17344,23 @@ async function handleUndressToolGenerate(req, res) {
   const mime = String(uploaded.mime || "").toLowerCase();
   const mediaKind = mime.startsWith("video/") ? "video" : mime.startsWith("image/") ? "image" : "";
   if (!mediaKind) return sendJson(res, 400, { ok: false, message: "Upload one image or video." });
+  if (mediaKind !== generation.mediaKind) {
+    return sendJson(res, 400, {
+      ok: false,
+      message: generation.mediaKind === "video" ? "Upload a video for this generation type." : "Upload an image for this generation type.",
+    });
+  }
 
-  const action = mediaKind === "video" ? "undress-video" : "undress";
-  const asset = videoToolAsset(auth.db, auth.user.id, uploaded.id, mediaKind, mediaKind === "video" ? "Source video" : "Source image");
+  const { action, generationType } = generation;
+  const asset = videoToolAsset(
+    auth.db,
+    auth.user.id,
+    uploaded.id,
+    generation.mediaKind,
+    generation.mediaKind === "video" ? "Source video" : "Source image",
+  );
   let durationSeconds = 0;
-  if (mediaKind === "video") {
+  if (generationType === "video") {
     const localPath = localPathForUserAsset(asset);
     durationSeconds = durationSecondsFromValue(asset.durationSeconds)
       || (localPath ? await probeLocalVideoDurationSeconds(localPath) : 0)
@@ -17212,13 +17368,13 @@ async function handleUndressToolGenerate(req, res) {
     if (!durationSeconds) return sendJson(res, 400, { ok: false, message: "Source video duration could not be read." });
   }
 
-  const taskId = localGenerationTaskId(mediaKind === "video" ? "undress-video" : "undress");
-  const freeClaimId = mediaKind === "image" ? undressToolFreeImageClaimId(auth.user.id) : "";
+  const taskId = localGenerationTaskId(generationType.replace(/_/g, "-"));
+  const freeClaimId = generationType === "image" ? undressToolFreeImageClaimId(auth.user.id) : "";
   let freeClaim = null;
   let recordCreated = false;
   try {
     const pricing = await videoToolPricing(action, { durationSeconds, user: auth.user, auth });
-    if (mediaKind === "image") {
+    if (generationType === "image") {
       freeClaim = await claimUndressToolFreeImage({
         userId: auth.user.id,
         tenantId: requestTenantId(req),
@@ -17236,7 +17392,7 @@ async function handleUndressToolGenerate(req, res) {
     if (cost > 0) {
       await chargeUserWithSubtoken(auth, {
         cost,
-        type: `undress_tool_${mediaKind}_generate`,
+        type: `undress_tool_${generationType}_generate`,
         taskId,
         meta: {
           taskId,
@@ -17255,30 +17411,35 @@ async function handleUndressToolGenerate(req, res) {
     const record = await upsertGenerationRecord({
       taskId,
       status: "queued",
-      source: mediaKind === "video" ? "undress-tool-video" : "undress-tool-image",
-      kind: mediaKind === "video" ? "video-tool-undress-video" : "image-tool-undress",
-      provider: mediaKind === "video" ? "video-tool" : "wan27-image-edit",
+      source: generation.source,
+      kind: generation.kind,
+      provider: generation.provider,
       upstreamSource: "video-tool-orchestrator",
       model: pricing.model,
       userId: auth.user.id,
       userAssetId: asset.id,
       userAssetIds: [asset.id],
-      imageUrl: mediaKind === "image" ? (asset.localUrl || asset.publicUrl || "") : "",
-      sourceImageUrl: mediaKind === "image" ? (asset.localUrl || asset.publicUrl || "") : "",
-      mediaAssets: [{ type: mediaKind === "video" ? "video" : "reference_image", userAssetId: asset.id, localUrl: asset.localUrl || "" }],
-      prompt: mediaKind === "video" ? VIDEO_TOOL_UNDRESS_EDIT_PROMPT : VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
-      finalPrompt: mediaKind === "video" ? VIDEO_TOOL_UNDRESS_EDIT_PROMPT : VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
+      imageUrl: generation.mediaKind === "image" ? (asset.localUrl || asset.publicUrl || "") : "",
+      sourceImageUrl: generation.mediaKind === "image" ? (asset.localUrl || asset.publicUrl || "") : "",
+      mediaAssets: [{
+        type: generationType === "video" ? "video" : generationType === "image_video" ? "first_frame" : "reference_image",
+        userAssetId: asset.id,
+        localUrl: asset.localUrl || "",
+      }],
+      prompt: generation.prompt,
+      finalPrompt: generation.prompt,
       params: {
         toolAction: action,
+        generationType,
         stage: "queued",
         durationSeconds: pricing.durationSeconds,
         segmentCount: pricing.segmentCount,
         completedSegments: 0,
         freeImageClaimId: freeImageGeneration ? freeClaimId : "",
       },
-      ratio: mediaKind === "image" ? closestWan27ImageRatioForAsset(asset) : "source",
-      resolution: mediaKind === "image" ? "2K" : "720p",
-      duration: mediaKind === "video" ? pricing.durationSeconds : "",
+      ratio: generationType === "image" ? closestWan27ImageRatioForAsset(asset) : generationType === "image_video" ? "9:16" : "source",
+      resolution: generationType === "image" ? "2K" : "720p",
+      duration: generationType === "image" ? "" : pricing.durationSeconds,
       preDeductedCredits: cost,
       originalPreDeductedCredits: freeImageGeneration ? 0 : pricing.originalCredits,
       finalCredits: null,
@@ -17306,8 +17467,8 @@ async function handleUndressToolGenerate(req, res) {
       taskId,
       action,
       userId: auth.user.id,
-      imageAssetId: mediaKind === "image" ? asset.id : "",
-      videoAssetId: mediaKind === "video" ? asset.id : "",
+      imageAssetId: generation.mediaKind === "image" ? asset.id : "",
+      videoAssetId: generation.mediaKind === "video" ? asset.id : "",
       pricing,
     });
     return sendJson(res, 202, {
