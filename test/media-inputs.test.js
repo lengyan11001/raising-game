@@ -172,6 +172,15 @@ test("admin user actions stay visible in wide tables", () => {
   assert.match(adminCss, /\.adm-user-table \.adm-user-action-btn \{[\s\S]*?width: 34px;[\s\S]*?height: 34px;/);
 });
 
+test("admin generation search queries the complete database instead of the latest 500 records", () => {
+  const dbSource = fs.readFileSync(path.join(__dirname, "..", "db.js"), "utf8");
+  const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+  assert.match(dbSource, /async function getAdminGenerationRecordsPageFromDb/);
+  assert.match(dbSource, /LEFT JOIN app_users users ON users\.id = records\.payload->>'userId'/);
+  assert.match(dbSource, /users\.username/);
+  assert.match(serverSource, /getAdminGenerationRecordsPageFromDb\(\{/);
+});
+
 test("owner and admin parameter views show the payload actually sent upstream", () => {
   assert.match(server, /includeUpstreamPayload: !externalApiCaller/);
   assert.match(server, /publicRecord\.upstreamPayload = listGenerationRecordValue\(record\.upstreamPayload \|\| null\)/);
