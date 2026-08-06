@@ -4106,6 +4106,7 @@ function renderHistory(records = []) {
   els.historyList.innerHTML = `${sortedRecords.map((record, index) => {
     const videoUrl = generationVideoUrl(record);
     const imageResultUrl = generationImageResultUrl(record);
+    const resultLocked = record.resultLocked === true;
     const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageResultUrl);
     const taskId = record.taskId || "";
     const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
@@ -4113,9 +4114,14 @@ function renderHistory(records = []) {
     const mediaStyle = ratioStyle(recordRatio);
     const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
     const canDownload = canDownloadGenerationRecord(record);
-    const regenerateAction = taskId ? `
+    const regenerateAction = taskId && !resultLocked && !isTenantTool("undress") ? `
       <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
         <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
+      </button>
+    ` : "";
+    const unlockAction = taskId && resultLocked ? `
+      <button class="history-download history-unlock" type="button" data-history-unlock="${escapeHtml(taskId)}">
+        <i data-lucide="unlock"></i>${escapeHtml(t("history.unlockResult", { credits: formatCredits(record.unlockCredits || 0) }, `Unlock · ${formatCredits(record.unlockCredits || 0)} credits`))}
       </button>
     ` : "";
     const resultActions = taskId && (videoUrl || imageResultUrl) ? `
@@ -4124,11 +4130,11 @@ function renderHistory(records = []) {
           <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
         </button>
       ` : ""}
-      <button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
+      ${isTenantTool("undress") ? "" : `<button class="history-download history-add-asset" type="button" data-history-add-asset="${escapeHtml(taskId)}">
         <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
-      </button>
+      </button>`}
     ` : "";
-    const videoActions = taskId && videoUrl ? `
+    const videoActions = taskId && videoUrl && !isTenantTool("undress") ? `
       <button class="history-download history-extend" type="button" data-history-extend="${escapeHtml(taskId)}">
         <i data-lucide="stretch-horizontal"></i>${escapeHtml(t("assets.extend"))}
       </button>
@@ -4149,12 +4155,12 @@ function renderHistory(records = []) {
         <i data-lucide="trash-2"></i>${escapeHtml(t("history.delete"))}
       </button>
     ` : "";
-    const primaryActions = `${regenerateAction}${resultActions}${videoActions}`;
+    const primaryActions = `${unlockAction}${regenerateAction}${resultActions}${videoActions}`;
     const allActions = `${primaryActions}${detailAction}${deleteAction}`;
     return `
-      <article class="history-item is-${escapeHtml(statusClass(record.status))}">
+      <article class="history-item is-${escapeHtml(statusClass(record.status))}${resultLocked ? " is-result-locked" : ""}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">
-          ${videoUrl ? `
+          ${resultLocked ? `<div class="history-placeholder"><i data-lucide="lock"></i><span>${escapeHtml(t("history.resultLocked", {}, "Result ready"))}</span></div>` : videoUrl ? `
             <button class="history-poster" type="button" data-history-load-video="${escapeHtml(mediaKey)}" aria-label="${escapeHtml(t("common.preview"))}">
               ${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(statusLabel(record.status))}</span>`}
               <i data-lucide="play"></i>
@@ -4228,6 +4234,9 @@ function renderHistory(records = []) {
   els.historyList.querySelectorAll("[data-history-regenerate]").forEach((button) => {
     button.addEventListener("click", () => regenerateHistoryRecord(button.dataset.historyRegenerate || "", button));
   });
+  els.historyList.querySelectorAll("[data-history-unlock]").forEach((button) => {
+    button.addEventListener("click", () => unlockHistoryRecord(button.dataset.historyUnlock || "", button));
+  });
   els.historyList.querySelectorAll("[data-history-add-asset]").forEach((button) => {
     button.addEventListener("click", () => addHistoryRecordToAssets(button.dataset.historyAddAsset || "", button));
   });
@@ -4274,6 +4283,35 @@ function renderHistory(records = []) {
     }, (page) => loadHistory({ page }), { jump: true });
   }
   refreshIcons();
+}
+
+async function unlockHistoryRecord(taskId, button) {
+  if (!taskId || !button) return;
+  const originalHtml = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.unlocking", {}, "Unlocking..."))}`;
+  refreshIcons();
+  try {
+    const payload = await requestJson(`/api/undress-tool/tasks/${encodeURIComponent(taskId)}/unlock`, { method: "POST" });
+    if (payload.user) setUser(payload.user);
+    if (payload.record) {
+      state.historyRecords = (state.historyRecords || []).map((record) => (
+        String(record.taskId || "") === String(taskId) ? payload.record : record
+      ));
+      renderHistory(state.historyRecords);
+    } else {
+      await loadHistory({ silent: true });
+    }
+  } catch (error) {
+    button.disabled = false;
+    button.innerHTML = originalHtml;
+    const note = document.createElement("div");
+    note.className = "job-note history-action-note";
+    note.textContent = error.message || String(error);
+    els.historyList?.prepend(note);
+    window.setTimeout(() => note.remove(), 5000);
+    refreshIcons();
+  }
 }
 
 async function regenerateHistoryRecord(taskId, button) {
@@ -5074,7 +5112,7 @@ async function bootstrap() {
   await ensureRouteHomeCharacterLoaded().catch((error) => console.warn("route character preload failed", error.message || error));
   applyRouteCharacterDetail({ allowTabSwitch: true });
   els.brandName.textContent = platform.brand || "Vipeak AI";
-  await loadAdvancedPresets();
+  if (isTabAllowed("advanced")) await loadAdvancedPresets();
   applyTenantFeatures();
   normalizeTenantRouteAfterConfig();
   renderCategories();
@@ -5088,5 +5126,5 @@ async function bootstrap() {
   renderTokenDisplays();
   setTab(state.tab);
   refreshIcons();
-  loadPlatformEstimates();
+  if (!isTenantTool("undress")) loadPlatformEstimates();
 }
