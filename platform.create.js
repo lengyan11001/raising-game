@@ -678,6 +678,50 @@ function advancedSeedanceVideoReferences() {
   return refs.filter((item) => item && (item.assetId || item.url || item.previewUrl)).slice(0, advancedVideoReferenceLimit());
 }
 
+async function uploadAdvancedImageReference(file, { provider = currentAdvancedProvider(), order = 0 } = {}) {
+  if (!state.user) {
+    openLogin();
+    return null;
+  }
+  if (!file) return null;
+  if (!String(file.type || "").toLowerCase().startsWith("image/")) {
+    if (els.advancedNote) els.advancedNote.textContent = t("advanced.seedanceFirstRequired");
+    return null;
+  }
+
+  const pending = addAdvancedPendingReference("image", file, { provider, order });
+  try {
+    const payload = await requestJson("/api/user-assets", {
+      method: "POST",
+      body: {
+        dataUrl: await readFileAsDataUrl(file),
+        name: file.name || "Image reference",
+        fileName: file.name || "",
+        provider,
+      },
+    });
+    const asset = payload.asset || null;
+    if (!asset?.id || !isImageAsset(asset)) {
+      throw new Error(t("assets.uploadFailed", { message: "Invalid image asset" }));
+    }
+    state.advancedAssets = [asset, ...(state.advancedAssets || []).filter((item) => item.id !== asset.id)];
+    state.userAssets = [asset, ...(state.userAssets || []).filter((item) => item.id !== asset.id)];
+    removeAdvancedPendingReference(pending.pendingId, { render: false });
+    renderAdvancedAssets();
+    return stampAdvancedReferenceOrder({
+      assetId: asset.id,
+      dataUrl: assetPreviewUrl(asset),
+      fileName: file.name || asset.name || "",
+      name: file.name || asset.name || "",
+      fromLibrary: true,
+      order: pending.order,
+    });
+  } catch (error) {
+    removeAdvancedPendingReference(pending.pendingId);
+    throw error;
+  }
+}
+
 function setAdvancedSeedanceVideoReferences(refs = []) {
   const next = refs.filter((item) => item && (item.assetId || item.url || item.previewUrl)).slice(0, advancedVideoReferenceLimit());
   state.advancedSeedanceVideoReferences = next;
