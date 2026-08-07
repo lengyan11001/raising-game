@@ -33476,9 +33476,37 @@ async function handleGetSceneVideo(req, res, taskId) {
   });
 }
 
+const PRIVATE_STATIC_ROOT_FILES = new Set([
+  "/.env.example",
+  "/.gitignore",
+  "/agents.md",
+  "/aliyun-video.js",
+  "/db.js",
+  "/deploy.md",
+  "/design_v1.md",
+  "/media-inputs.js",
+  "/package-lock.json",
+  "/package.json",
+  "/qwen-image3.js",
+  "/readme.md",
+  "/seedance25.js",
+  "/server.js",
+  "/session_handoff_2026-06-06.md",
+  "/site-http.js",
+  "/site-seo.js",
+  "/video-tools.js",
+]);
+
+function privateStaticPath(pathname = "") {
+  const normalized = String(pathname || "").replace(/\\/g, "/").toLowerCase();
+  return PRIVATE_STATIC_ROOT_FILES.has(normalized)
+    || ["/.git/", "/data/", "/mobile/", "/scripts/", "/test/", "/tmp/"].some((prefix) => normalized.startsWith(prefix));
+}
+
 async function serveStatic(req, res, url) {
   let pathname = decodeURIComponent(url.pathname === "/" ? (isCmsHostRequest(req) ? "/admin.html" : "/platform.html") : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
+  if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
   const lockedUndressImageMatch = pathname.match(/^\/assets\/generated\/images\/([^/]+)\.[a-z0-9]+$/i);
   if (lockedUndressImageMatch) {
     const lockedRecord = await getGenerationRecord(lockedUndressImageMatch[1]);
