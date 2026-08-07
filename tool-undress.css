@@ -316,7 +316,7 @@ body.tenant-tool-undress .history-panel {
 }
 
 body.tenant-tool-undress .history-panel .history-list {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   max-height: none;
   overflow: visible;
@@ -608,13 +608,13 @@ body.tenant-tool-undress .history-item.is-result-locked .history-placeholder {
   }
 
   body.tenant-tool-undress .history-panel .history-list {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
     padding: 2px 0 76px;
   }
 
   body.tenant-tool-undress .history-media {
-    height: min(390px, 108vw);
+    height: min(300px, 72vw);
   }
 
   body.tenant-tool-undress .undress-history-footer {
