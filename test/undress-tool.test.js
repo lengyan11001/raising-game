@@ -202,7 +202,10 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(history, /class="history-undress-download"[\s\S]*?data-history-download/);
   assert.match(history, /\$\{undressDownloadAction\}[\s\S]*?<\/div>/);
   assert.match(css, /\.history-undress-download[\s\S]*?position: absolute[\s\S]*?border-radius: 50%/);
-  assert.match(html, /platform\.js\?v=ai-357-undress-download/);
+  assert.match(ui, /directSignedDownload = payload\.source === "r2_signed"/);
+  assert.match(ui, /if \(directSignedDownload\) \{[\s\S]*?triggerBrowserDownload\(href, fileName\)/);
+  assert.match(history, /data-history-download[\s\S]*?button\.disabled = true[\s\S]*?await downloadGenerationRecord\(record\)[\s\S]*?button\.disabled = false/);
+  assert.match(html, /platform\.js\?v=ai-358-undress-download/);
 });
 
 test("insufficient unlock balance opens a top-up dialog", () => {
