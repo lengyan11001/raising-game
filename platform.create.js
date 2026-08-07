@@ -4306,9 +4306,14 @@ function renderHistory(records = []) {
     button.addEventListener("click", () => addHistoryRecordToAssets(button.dataset.historyAddAsset || "", button));
   });
   els.historyList.querySelectorAll("[data-history-download]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const record = sortedRecords[Number(button.dataset.historyDownload || 0)];
-      downloadGenerationRecord(record);
+      button.disabled = true;
+      try {
+        await downloadGenerationRecord(record);
+      } finally {
+        button.disabled = false;
+      }
     });
   });
   els.historyList.querySelectorAll("[data-history-replace]").forEach((button) => {

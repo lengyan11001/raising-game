@@ -1131,6 +1131,7 @@ async function downloadGenerationRecord(record = {}) {
   let href = generationRecordDownloadHref(record);
   if (!href) return;
   let fileName = generationRecordDownloadName(record);
+  let directSignedDownload = false;
   const taskId = String(record?.taskId || "").trim();
   const legacyHref = taskId && !taskId.startsWith("pending-")
     ? `/api/generation-records/${encodeURIComponent(taskId)}/download`
@@ -1141,10 +1142,15 @@ async function downloadGenerationRecord(record = {}) {
       if (payload.url) {
         href = payload.url;
         fileName = payload.fileName || fileName;
+        directSignedDownload = payload.source === "r2_signed";
       }
     } catch {
       // Fall through to the public URL or legacy download endpoint.
     }
+  }
+  if (directSignedDownload) {
+    triggerBrowserDownload(href, fileName);
+    return;
   }
   try {
     await saveDownloadFromFetch(href, fileName);
