@@ -57,19 +57,8 @@ els.advancedImage?.addEventListener("change", async () => {
           skippedTooMany = true;
           continue;
         }
-        const pending = addAdvancedPendingReference("image", file);
-        let ref = null;
-        try {
-          ref = {
-            dataUrl: await readFileAsDataUrl(file),
-            fileName: file.name || "",
-            name: file.name || "",
-            order: pending.order,
-          };
-        } finally {
-          removeAdvancedPendingReference(pending.pendingId, { render: false });
-        }
-        ref = stampAdvancedReferenceOrder(ref);
+        const ref = await uploadAdvancedImageReference(file, { provider });
+        if (!ref) continue;
         state.advancedReferenceImages = dedupeAdvancedReferenceImages([...existingImages, ref]).slice(0, imageLimit);
         state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
         state.advancedFirstFrameAssetId = "";
@@ -124,19 +113,8 @@ els.advancedImage?.addEventListener("change", async () => {
             skippedTooMany = true;
             continue;
           }
-          const pending = addAdvancedPendingReference("image", file);
-          let ref = null;
-          try {
-            ref = {
-              dataUrl: await readFileAsDataUrl(file),
-              fileName: file.name || "",
-              name: file.name || "",
-              order: pending.order,
-            };
-          } finally {
-            removeAdvancedPendingReference(pending.pendingId, { render: false });
-          }
-          ref = stampAdvancedReferenceOrder(ref);
+          const ref = await uploadAdvancedImageReference(file, { provider });
+          if (!ref) continue;
           state.advancedReferenceImages = localCharacterUpload ? [ref] : dedupeAdvancedReferenceImages([...existingImages, ref]).slice(0, imageLimit);
           if (localCharacterUpload) setAdvancedLocalCharacterPreset(ref);
           state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
@@ -214,19 +192,8 @@ els.advancedImage?.addEventListener("change", async () => {
             skippedTooLarge = true;
             continue;
           }
-          const pending = addAdvancedPendingReference("image", file);
-          let ref = null;
-          try {
-            ref = {
-              dataUrl: await readFileAsDataUrl(file),
-              fileName: file.name || "",
-              name: file.name || "",
-              order: pending.order,
-            };
-          } finally {
-            removeAdvancedPendingReference(pending.pendingId, { render: false });
-          }
-          ref = stampAdvancedReferenceOrder(ref);
+          const ref = await uploadAdvancedImageReference(file, { provider });
+          if (!ref) continue;
           state.advancedReferenceImages = referenceImageMode
             ? dedupeAdvancedReferenceImages([...(state.advancedReferenceImages || []), ref]).slice(0, imageLimit)
             : [ref];
@@ -332,17 +299,17 @@ els.advancedImage?.addEventListener("change", async () => {
       return;
     }
     const selectedFiles = files.slice(0, roomLeft);
-    const pendingRefs = selectedFiles.map((file) => addAdvancedPendingReference("image", file));
-    let addedImages = [];
+    const addedImages = [];
     try {
-      addedImages = await Promise.all(selectedFiles.map(async (file, index) => ({
-        dataUrl: await readFileAsDataUrl(file),
-        fileName: file.name || "",
-        name: file.name || "",
-        order: pendingRefs[index]?.order || 0,
-      })));
-    } finally {
-      pendingRefs.forEach((item) => removeAdvancedPendingReference(item.pendingId, { render: false }));
+      for (const file of selectedFiles) {
+        const ref = await uploadAdvancedImageReference(file, { provider });
+        if (ref) addedImages.push(ref);
+      }
+    } catch (error) {
+      els.advancedImage.value = "";
+      if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+      updateAdvancedModelControls();
+      return;
     }
     state.advancedSourceImageAssetId = "";
     state.advancedFirstFrameAssetId = "";
@@ -371,19 +338,17 @@ els.advancedImage?.addEventListener("change", async () => {
   const selectedFile = files[0];
   state.advancedSourceImageAssetId = "";
   state.advancedFirstFrameAssetId = "";
-  const pending = addAdvancedPendingReference("image", selectedFile);
-  let selectedDataUrl = "";
+  let selectedReference = null;
   try {
-    selectedDataUrl = await readFileAsDataUrl(selectedFile);
-  } finally {
-    removeAdvancedPendingReference(pending.pendingId, { render: false });
+    selectedReference = await uploadAdvancedImageReference(selectedFile, { provider });
+  } catch (error) {
+    els.advancedImage.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+    updateAdvancedModelControls();
+    return;
   }
-  state.advancedReferenceImages = [{
-    dataUrl: selectedDataUrl,
-    fileName: selectedFile.name || "",
-    name: selectedFile.name || "",
-    order: pending.order,
-  }].map(stampAdvancedReferenceOrder);
+  if (!selectedReference) return;
+  state.advancedReferenceImages = [selectedReference];
   state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
   state.advancedSeedanceVideoAssetId = "";
   state.advancedSeedanceVideoPreviewUrl = "";
@@ -400,9 +365,18 @@ els.advancedSeedanceFirstFrame?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
-  state.advancedSeedanceFirstFrameDataUrl = await readFileAsDataUrl(file);
-  state.advancedSeedanceFirstFrameAssetId = "";
-  state.advancedFirstFrameAssetId = "";
+  try {
+    const ref = await uploadAdvancedImageReference(file);
+    if (!ref) return;
+    state.advancedSeedanceFirstFrameDataUrl = ref.dataUrl;
+    state.advancedSeedanceFirstFrameAssetId = ref.assetId;
+    state.advancedFirstFrameAssetId = ref.assetId;
+  } catch (error) {
+    els.advancedSeedanceFirstFrame.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+    updateAdvancedModelControls();
+    return;
+  }
   state.advancedUploadDataUrl = state.advancedSeedanceFirstFrameDataUrl;
   els.advancedSeedanceFirstFrame.value = "";
   updateAdvancedModelControls();
@@ -416,8 +390,17 @@ els.advancedSeedanceLastFrame?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
-  state.advancedSeedanceLastFrameDataUrl = await readFileAsDataUrl(file);
-  state.advancedSeedanceLastFrameAssetId = "";
+  try {
+    const ref = await uploadAdvancedImageReference(file);
+    if (!ref) return;
+    state.advancedSeedanceLastFrameDataUrl = ref.dataUrl;
+    state.advancedSeedanceLastFrameAssetId = ref.assetId;
+  } catch (error) {
+    els.advancedSeedanceLastFrame.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+    updateAdvancedModelControls();
+    return;
+  }
   els.advancedSeedanceLastFrame.value = "";
   updateAdvancedModelControls();
 });
@@ -430,14 +413,19 @@ els.advancedWanFirstFrame?.addEventListener("change", async () => {
     updateAdvancedModelControls();
     return;
   }
-  const dataUrl = await readFileAsDataUrl(file);
-  state.advancedReferenceImages = [stampAdvancedReferenceOrder({
-    dataUrl,
-    fileName: file.name || "",
-    name: file.name || "",
-  })];
-  state.advancedUploadDataUrl = dataUrl;
-  state.advancedFirstFrameAssetId = "";
+  let ref = null;
+  try {
+    ref = await uploadAdvancedImageReference(file);
+  } catch (error) {
+    els.advancedWanFirstFrame.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+    updateAdvancedModelControls();
+    return;
+  }
+  if (!ref) return;
+  state.advancedReferenceImages = [ref];
+  state.advancedUploadDataUrl = ref.dataUrl;
+  state.advancedFirstFrameAssetId = ref.assetId;
   state.advancedSourceImageAssetId = "";
   state.activeAdvancedCaseId = "";
   els.advancedWanFirstFrame.value = "";
@@ -468,8 +456,19 @@ els.advancedWanLastFrame?.addEventListener("change", async () => {
     if (els.advancedNote) els.advancedNote.textContent = "Last frame image must be 20MB or smaller.";
     return;
   }
-  state.advancedWanLastFrameDataUrl = await readFileAsDataUrl(file);
-  state.advancedWanLastFrameAssetId = "";
+  try {
+    const ref = await uploadAdvancedImageReference(file);
+    if (!ref) return;
+    state.advancedWanLastFrameDataUrl = ref.dataUrl;
+    state.advancedWanLastFrameAssetId = ref.assetId;
+  } catch (error) {
+    state.advancedWanLastFrameDataUrl = "";
+    state.advancedWanLastFrameAssetId = "";
+    els.advancedWanLastFrame.value = "";
+    if (els.advancedNote) els.advancedNote.textContent = error.message || String(error);
+    updateAdvancedModelControls();
+    return;
+  }
   if (els.advancedWanLastFramePreview) {
     els.advancedWanLastFramePreview.src = state.advancedWanLastFrameDataUrl;
     els.advancedWanLastFramePreview.classList.add("is-visible");

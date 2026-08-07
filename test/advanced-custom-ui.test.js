@@ -77,6 +77,17 @@ test("Wan3.0 exposes free multimodal and frame controls without link fields", ()
   assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
 });
 
+test("Advanced image files enter the asset library before generation", () => {
+  assert.match(create, /async function uploadAdvancedImageReference/);
+  assert.match(create, /requestJson\("\/api\/user-assets", \{[\s\S]*?provider,/);
+  assert.match(create, /assetId: asset\.id,[\s\S]*?dataUrl: assetPreviewUrl\(asset\)/);
+  assert.match(main, /const ref = await uploadAdvancedImageReference\(file, \{ provider \}\)/);
+  assert.match(main, /state\.advancedSeedanceFirstFrameAssetId = ref\.assetId/);
+  assert.match(main, /state\.advancedSeedanceLastFrameAssetId = ref\.assetId/);
+  assert.match(ui, /assetId: item\.assetId \|\| "",[\s\S]*?dataUrl: url/);
+  assert.match(ui, /id: "local-upload-character",[\s\S]*?assetId: ref\.assetId \|\| ""/);
+});
+
 test("Wan2.7 video edit follows source duration instead of exposing a manual duration", () => {
   assert.match(ui, /function advancedVideoEditUsesSourceDuration/);
   assert.match(create, /followInputDuration: advancedVideoEditUsesSourceDuration\(videoCapability\)/);

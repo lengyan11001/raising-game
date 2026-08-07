@@ -2212,6 +2212,7 @@ function advancedPresetReferenceImage(slot = "", item = selectedAdvancedPreset(s
   const url = presetImageUrl(item);
   if (!url) return null;
   return {
+    assetId: item.assetId || "",
     dataUrl: url,
     url,
     imageUrl: url,
@@ -2239,6 +2240,7 @@ function setAdvancedLocalCharacterPreset(ref = {}) {
     ...(state.advancedSelectedPresets || {}),
     character: {
       id: "local-upload-character",
+      assetId: ref.assetId || "",
       label: t("advancedPreset.localImage"),
       category: t("advancedPreset.character"),
       prompt: "Use the uploaded image as the main consenting adult subject. Preserve identity, face, hairstyle, body type, and overall character consistency.",

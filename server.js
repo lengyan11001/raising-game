@@ -9619,7 +9619,12 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
       const auth = makeR2Auth({ method: "PUT", key, body: bytes, contentType: mime || "application/octet-stream" });
-      const response = await fetch(auth.url, { method: "PUT", headers: auth.headers, body: bytes });
+      const response = await fetch(auth.url, {
+        method: "PUT",
+        headers: auth.headers,
+        body: bytes,
+        signal: AbortSignal.timeout(25000),
+      });
       const text = await response.text();
       if (response.ok) {
         return {
@@ -9634,8 +9639,15 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
       lastError = error;
       if (attempt >= 3 || !error.retryable) throw error;
     } catch (error) {
-      lastError = error;
-      if (attempt >= 3 || error.retryable === false || (error.statusCode && error.statusCode !== 502)) throw error;
+      const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
+      const uploadError = timeout ? new Error("R2 upload timed out after 25 seconds.") : error;
+      if (timeout) {
+        uploadError.code = "R2_UPLOAD_TIMEOUT";
+        uploadError.retryable = true;
+      }
+      if (!uploadError.statusCode) uploadError.statusCode = 502;
+      lastError = uploadError;
+      if (attempt >= 3 || uploadError.retryable === false || uploadError.statusCode !== 502) throw uploadError;
     }
     await delay(500 * attempt);
   }
@@ -13455,6 +13467,17 @@ async function ensureWan30R2MirrorForUserMediaAsset(db, userAsset) {
     throw error;
   }
   if (publicUrlMatchesStorageBase(userAsset.wan30PublicUrl, R2.publicDomain)) return userAsset;
+  if (publicUrlMatchesStorageBase(userAsset.publicUrl, R2.publicDomain)) {
+    userAsset.wan30PublicUrl = userAsset.publicUrl;
+    userAsset.wan30R2Key = userAsset.objectStorageKey || userAsset.r2Key || "";
+    userAsset.wan30SourceSizeBytes = Number(userAsset.sizeBytes || 0);
+    userAsset.wan30UploadedAt = userAsset.publicUploadedAt || userAsset.updatedAt || new Date().toISOString();
+    userAsset.updatedAt = new Date().toISOString();
+    db.userAssets = (db.userAssets || []).map((asset) => (asset.id === userAsset.id ? userAsset : asset));
+    if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+    else await writeDb(db);
+    return userAsset;
+  }
 
   const localPath = localPathForUserAsset(userAsset);
   const bytes = await fs.readFile(localPath);
