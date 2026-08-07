@@ -417,11 +417,19 @@ body.tenant-tool-undress .history-item {
   overflow: hidden;
 }
 
-body.tenant-tool-undress .history-undress-download {
+body.tenant-tool-undress .history-undress-result-actions {
   position: absolute;
-  right: 12px;
+  left: 50%;
   bottom: 12px;
   z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transform: translateX(-50%);
+}
+
+body.tenant-tool-undress .history-undress-result-actions button {
   display: grid;
   place-items: center;
   width: 42px;
@@ -435,17 +443,32 @@ body.tenant-tool-undress .history-undress-download {
   cursor: pointer;
 }
 
+body.tenant-tool-undress .history-undress-download {
+  color: #0b0c0f;
+  background: var(--undress-teal);
+}
+
 body.tenant-tool-undress .history-undress-download:hover {
   border-color: rgba(255, 255, 255, 0.42);
   background: #55ead6;
 }
 
-body.tenant-tool-undress .history-undress-download:disabled {
+body.tenant-tool-undress .history-undress-delete {
+  color: #fff;
+  background: var(--undress-accent);
+}
+
+body.tenant-tool-undress .history-undress-delete:hover {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: #ff6a8e;
+}
+
+body.tenant-tool-undress .history-undress-result-actions button:disabled {
   cursor: wait;
   opacity: 0.72;
 }
 
-body.tenant-tool-undress .history-undress-download svg {
+body.tenant-tool-undress .history-undress-result-actions button svg {
   width: 19px;
   height: 19px;
   color: currentColor !important;
