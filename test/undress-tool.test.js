@@ -206,7 +206,7 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(css, /\.undress-history-footer[\s\S]*?padding:/);
   assert.match(css, /\.history-undress-result-actions[\s\S]*?border-radius: 10px/);
   assert.match(css, /\.history-undress-result-actions button[\s\S]*?width: 34px[\s\S]*?border-radius: 8px/);
-  assert.match(css, /@media \(max-width: 720px\)[\s\S]*?\.history-panel \.history-list[\s\S]*?grid-template-columns: 1fr/);
+  assert.match(css, /\.history-panel \.history-list[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(ui, /if \(legacyHref\) \{[\s\S]*?await saveDownloadFromFetch\(legacyHref, fileName\)[\s\S]*?return;/);
   assert.doesNotMatch(ui, /directSignedDownload/);
   assert.match(history, /data-history-download[\s\S]*?button\.disabled = true[\s\S]*?await downloadGenerationRecord\(record\)[\s\S]*?button\.disabled = false/);
