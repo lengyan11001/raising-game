@@ -3574,7 +3574,10 @@ function injectPlatformGeoHead(html = "", snapshot, tenantOptions = null) {
     withToolStyles = withToolStyles.replace(/<\/head>/i, `    <link rel="preload" href="./tool-video.css?v=${TOOL_VIDEO_STYLE_VERSION}" as="style" onload="this.onload=null;this.rel='stylesheet'" />\n    <noscript><link rel="stylesheet" href="./tool-video.css?v=${TOOL_VIDEO_STYLE_VERSION}" /></noscript>\n  </head>`);
   }
   if (toolId === "undress" && !withToolStyles.includes("tool-undress.css")) {
-    withToolStyles = withToolStyles.replace(/<\/head>/i, `    <link rel="stylesheet" href="./tool-undress.css?v=${TOOL_UNDRESS_STYLE_VERSION}" />\n  </head>`);
+    withToolStyles = withToolStyles.replace(
+      /<\/head>/i,
+      `    <link rel="preload" href="https://media.123vips.com/assets/home/ambient/home-ambient-poster.webp" as="image" fetchpriority="high" />\n    <link rel="stylesheet" href="./tool-undress.css?v=${TOOL_UNDRESS_STYLE_VERSION}" />\n  </head>`,
+    );
   }
   const withoutTitle = withToolStyles.replace(/<title>[\s\S]*?<\/title>/i, "");
   return withoutTitle.replace(/<\/head>/i, `${tags}\n  </head>`);

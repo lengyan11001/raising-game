@@ -278,6 +278,49 @@ function renderUndressToolDialog() {
   if (typeof refreshIcons === "function") refreshIcons();
 }
 
+let undressAmbientLoadScheduled = false;
+
+function undressAmbientCanPlay(active = state.tab === DEFAULT_PLATFORM_TAB) {
+  return Boolean(
+    active
+    && isTenantTool("undress")
+    && !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
+    && !navigator.connection?.saveData
+  );
+}
+
+function syncUndressAmbientVideo(active = state.tab === DEFAULT_PLATFORM_TAB) {
+  const ambient = document.querySelector("#undressAmbient");
+  const video = document.querySelector("#undressAmbientVideo");
+  if (!video) return;
+  if (!undressAmbientCanPlay(active)) {
+    video.pause();
+    ambient?.classList.remove("is-playing");
+    return;
+  }
+  if (video.dataset.loaded === "true") {
+    video.play().catch(() => {});
+    return;
+  }
+  if (undressAmbientLoadScheduled) return;
+  undressAmbientLoadScheduled = true;
+  const hydrate = () => {
+    undressAmbientLoadScheduled = false;
+    if (!undressAmbientCanPlay(state.tab === DEFAULT_PLATFORM_TAB) || video.dataset.loaded === "true") return;
+    video.querySelectorAll("source[data-src]").forEach((source) => {
+      source.src = source.dataset.src || "";
+    });
+    video.dataset.loaded = "true";
+    video.load();
+    video.play().catch(() => {});
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(hydrate, { timeout: 800 });
+  } else {
+    window.setTimeout(hydrate, 250);
+  }
+}
+
 function readUndressVideoDuration(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -445,6 +488,14 @@ function renderUndressToolHome() {
   if (!workspace) return;
   workspace.innerHTML = `
     <section class="undress-tool-home">
+      <div class="undress-ambient" id="undressAmbient" aria-hidden="true">
+        <video id="undressAmbientVideo" muted loop playsinline preload="none" poster="https://media.123vips.com/assets/home/ambient/home-ambient-poster.webp" tabindex="-1">
+          <source data-src="https://media.123vips.com/assets/home/ambient/home-ambient-desktop.webm" type="video/webm" media="(min-width: 721px)">
+          <source data-src="https://media.123vips.com/assets/home/ambient/home-ambient-desktop.mp4" type="video/mp4" media="(min-width: 721px)">
+          <source data-src="https://media.123vips.com/assets/home/ambient/home-ambient-mobile.webm" type="video/webm">
+          <source data-src="https://media.123vips.com/assets/home/ambient/home-ambient-mobile.mp4" type="video/mp4">
+        </video>
+      </div>
       <div class="undress-tool-home-inner">
         <span class="undress-tool-mark"><i data-lucide="sparkles"></i></span>
         <h2>${undressToolEscape(undressToolText("title"))}</h2>
@@ -453,6 +504,11 @@ function renderUndressToolHome() {
     </section>
   `;
   workspace.querySelector("[data-undress-tool-open]")?.addEventListener("click", () => openUndressToolDialog({ reset: true }));
+  const ambient = workspace.querySelector("#undressAmbient");
+  const ambientVideo = workspace.querySelector("#undressAmbientVideo");
+  ambientVideo?.addEventListener("playing", () => ambient?.classList.add("is-playing"));
+  ambientVideo?.addEventListener("pause", () => ambient?.classList.remove("is-playing"));
+  syncUndressAmbientVideo(state.tab === DEFAULT_PLATFORM_TAB);
   const galleryTab = document.querySelector('[data-tab="gallery"]');
   const galleryLabel = galleryTab?.querySelector("span");
   if (galleryLabel) {

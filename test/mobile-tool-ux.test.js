@@ -12,9 +12,26 @@ const html = read("platform.html");
 const config = read("platform.config.js");
 const create = read("platform.create.js");
 const explore = read("platform.explore.js");
+const undress = read("platform.undress-tool.js");
 const main = read("platform.main.js");
 const ui = read("platform.ui.js");
 const css = read("platform.css");
+const undressCss = read("tool-undress.css");
+
+test("Undress alone gets a responsive idle-loaded ambient background", () => {
+  assert.doesNotMatch(html, /id="undressAmbientVideo"/);
+  assert.match(undress, /id="undressAmbientVideo" muted loop playsinline preload="none" poster="https:\/\/media\.123vips\.com\/assets\/home\/ambient\/home-ambient-poster\.webp"/);
+  assert.match(undress, /home-ambient-desktop\.webm[\s\S]*?media="\(min-width: 721px\)"/);
+  assert.match(undress, /home-ambient-mobile\.webm/);
+  assert.match(undress, /function syncUndressAmbientVideo/);
+  assert.match(undress, /isTenantTool\("undress"\)/);
+  assert.match(undress, /requestIdleCallback\(hydrate, \{ timeout: 800 \}\)/);
+  assert.match(undress, /navigator\.connection\?\.saveData/);
+  assert.match(explore, /typeof syncUndressAmbientVideo === "function"/);
+  assert.doesNotMatch(css, /gallery-ambient/);
+  assert.match(undressCss, /body\.tenant-tool-undress \.undress-ambient[\s\S]*?position: fixed/);
+  assert.match(server, /home-ambient-poster\.webp" as="image" fetchpriority="high"/);
+});
 
 test("login and registration share one form and one endpoint", () => {
   assert.match(html, /<form method="dialog" id="loginForm">/);
