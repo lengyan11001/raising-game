@@ -196,6 +196,13 @@ test("History renders an unlock action instead of media for locked results", () 
   assert.match(server, /ownRecords\.map\(ensureUndressLockedPreview\)/);
 });
 
+test("Undress results expose a download action only after the result is unlocked", () => {
+  assert.match(history, /const undressDownloadAction = isUndressHistory && !resultLocked && canDownload/);
+  assert.match(history, /class="history-undress-download"[\s\S]*?data-history-download/);
+  assert.match(history, /\$\{undressDownloadAction\}[\s\S]*?<\/div>/);
+  assert.match(css, /\.history-undress-download[\s\S]*?position: absolute[\s\S]*?border-radius: 50%/);
+});
+
 test("insufficient unlock balance opens a top-up dialog", () => {
   assert.match(history, /async function showUndressInsufficientCreditsDialog/);
   assert.match(history, /error\.statusCode === 402 \|\| error\.code === "INSUFFICIENT_CREDITS"/);
