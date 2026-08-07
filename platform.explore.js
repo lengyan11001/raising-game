@@ -92,6 +92,7 @@ function setTab(tab) {
   document.querySelectorAll("[data-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.panel !== nextTab;
   });
+  if (typeof syncUndressAmbientVideo === "function") syncUndressAmbientVideo(nextTab === DEFAULT_PLATFORM_TAB);
   document.querySelectorAll("[data-history-expiry-info]").forEach((control) => {
     control.hidden = nextTab !== "history";
     if (control.hidden) control.open = false;
