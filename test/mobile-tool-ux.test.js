@@ -33,6 +33,17 @@ test("mobile drawer shows one authentication entry while logged out", () => {
   assert.match(ui, /els\.mobileDrawerLoginBtn\.hidden = loggedIn/);
 });
 
+test("legal documents are tucked into account menus instead of a visible footer", () => {
+  assert.match(html, /class="account-legal-menu mobile-drawer-legal"/);
+  assert.equal((html.match(/class="account-legal-menu(?: mobile-drawer-legal)?"/g) || []).length, 2);
+  assert.equal((html.match(/data-legal-doc="privacy"/g) || []).length, 3);
+  assert.equal((html.match(/data-legal-doc="registration"/g) || []).length, 3);
+  assert.equal((html.match(/data-legal-doc="disclaimer"/g) || []).length, 3);
+  assert.match(css, /\.site-foot \{[\s\S]*?display: none;/);
+  assert.doesNotMatch(css, /\.seo-discovery\s*\{[^}]*display:\s*none/);
+  assert.match(main, /document\.querySelectorAll\("\[data-legal-doc\]"\)/);
+});
+
 test("mobile Video cards keep a stable poster while previews load", () => {
   assert.match(explore, /PLAYFLUX_MOBILE_INITIAL_COUNT = 6/);
   assert.match(explore, /class="playflux-template-poster"/);

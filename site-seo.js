@@ -193,17 +193,10 @@ function publicGeoMediaUrl(value = "", fallback = "/assets/admin/home/default-he
 function renderDiscoveryLinks(snapshot = {}) {
   if (snapshot.toolOnly) return "";
   const links = [
-    { label: "All characters", path: "/characters/" },
-    { label: "All tags", path: "/tags/" },
-    { label: "All categories", path: "/categories/" },
-    ...(snapshot.categories || []).slice(0, 3).map((item) => ({ label: item.label, path: item.path })),
-    ...(snapshot.tags || []).slice(0, 10).map((item) => ({ label: item.label, path: item.path })),
-    ...(snapshot.characters || []).slice(0, 12).map((item) => ({
-      label: item.name || item.title || item.id,
-      path: item.geoPath,
-    })),
-  ].filter((item) => item.label && item.path);
-  if (!links.length) return "";
+    { label: "Characters", path: "/characters/" },
+    { label: "Tags", path: "/tags/" },
+    { label: "Categories", path: "/categories/" },
+  ];
   return `
     <nav class="seo-discovery" aria-label="Browse public collections">
       <strong>Browse</strong>

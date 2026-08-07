@@ -3105,6 +3105,7 @@ function advancedEstimateKey(duration, provider = "seedance", resolution = "720p
 }
 
 function requestAdvancedEstimate(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
+  if (tenantFeature("toolOnly", false)) return;
   if (normalizeAdvancedProvider(provider) === "wan27-image-edit") return;
   const key = advancedEstimateKey(duration, provider, resolution, ratio, options);
   if (!state.user || state.advancedEstimateKey === key) return;

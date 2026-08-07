@@ -43,6 +43,17 @@ const VIDEO_TOOL_UNDRESS_VIDEO_PROMPT = [
   "Smooth realistic motion, stable anatomy, no text, subtitles, logos, watermarks, split screens, or extra people.",
 ].join(" ");
 
+const VIDEO_TOOL_UNDRESS_EDIT_PROMPT = [
+  "Use the source video as the exact timeline, motion, action, pose, camera, framing, scene, lighting, cuts, and audio reference.",
+  "The main subject is a consenting adult. Remove the subject's clothing while preserving the same adult identity, face, hairstyle, body proportions, and skin tone.",
+  "Preserve the source video's duration and every major action beat at the same relative timestamp.",
+  "Keep motion temporally stable and photorealistic, with consistent anatomy and identity in every frame.",
+  "Do not change the background, camera motion, framing, pacing, or audio unless required for a natural result.",
+  "No text, subtitles, logos, watermarks, split screens, duplicated people, or extra people.",
+].join(" ");
+
+const VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT = "她脱掉衣服，全裸露出胸部用手抚摸一只胸，并微笑着说：今天又是美好的一天";
+
 function positiveDuration(value) {
   const duration = Number(value);
   return Number.isFinite(duration) && duration > 0 ? duration : 0;
@@ -82,5 +93,7 @@ module.exports = {
   VIDEO_TOOL_UNDRESS_KEYFRAME_PROMPT,
   VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
   VIDEO_TOOL_UNDRESS_VIDEO_PROMPT,
+  VIDEO_TOOL_UNDRESS_EDIT_PROMPT,
+  VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
   planVideoEditSegments,
 };

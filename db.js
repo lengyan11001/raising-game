@@ -239,6 +239,7 @@ async function ensureSchemaInner() {
       )
     FROM unnest(ARRAY[
       'tool-video-123tops',
+      'tool-undress-14vips',
       'tool-image',
       'tool-anime',
       'tool-characters',
@@ -1293,6 +1294,124 @@ async function upsertUserUnlockInDb(unlock = {}) {
   return unlock;
 }
 
+async function claimToolFreeGenerationInDb({ id = "", userId = "", tenantId = "", taskId = "", kind = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanTenantId = normalizeTenantId(tenantId || DEFAULT_TENANT_ID);
+  const cleanTaskId = String(taskId || "").trim();
+  if (!cleanId || !cleanUserId || !cleanTaskId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const payload = {
+    id: cleanId,
+    userId: cleanUserId,
+    tenantId: cleanTenantId,
+    taskId: cleanTaskId,
+    kind: String(kind || "").trim(),
+    status: "claimed",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { rows } = await query(
+    `
+      INSERT INTO app_user_unlocks(id, user_id, payload, created_at, updated_at)
+      VALUES ($1, $2, $3::jsonb, $4::timestamptz, $4::timestamptz)
+      ON CONFLICT (id) DO NOTHING
+      RETURNING *
+    `,
+    [cleanId, cleanUserId, JSON.stringify(payload), now],
+  );
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function getToolFreeGenerationClaimInDb({ id = "", userId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanId || !cleanUserId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_user_unlocks WHERE id = $1 AND user_id = $2 LIMIT 1`,
+    [cleanId, cleanUserId],
+  );
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function completeToolFreeGenerationInDb({ id = "", userId = "", taskId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanTaskId = String(taskId || "").trim();
+  if (!cleanId || !cleanUserId || !cleanTaskId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const { rows } = await query(
+    `
+      UPDATE app_user_unlocks
+      SET payload = payload || jsonb_build_object(
+            'status', 'generated',
+            'completedAt', $4::text,
+            'updatedAt', $4::text
+          ),
+          updated_at = $4::timestamptz
+      WHERE id = $1
+        AND user_id = $2
+        AND payload->>'taskId' = $3
+      RETURNING *
+    `,
+    [cleanId, cleanUserId, cleanTaskId, now],
+  );
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function markToolFreeGenerationUnlockedInDb({ id = "", userId = "", taskId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanTaskId = String(taskId || "").trim();
+  if (!cleanId || !cleanUserId || !cleanTaskId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const { rows } = await query(
+    `
+      UPDATE app_user_unlocks
+      SET payload = payload || jsonb_build_object(
+            'status', 'unlocked',
+            'unlockedAt', $4::text,
+            'updatedAt', $4::text
+          ),
+          updated_at = $4::timestamptz
+      WHERE id = $1
+        AND user_id = $2
+        AND payload->>'taskId' = $3
+      RETURNING *
+    `,
+    [cleanId, cleanUserId, cleanTaskId, now],
+  );
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
+async function releaseToolFreeGenerationClaimInDb({ id = "", userId = "", taskId = "" } = {}) {
+  if (!dbEnabled()) return false;
+  const cleanId = String(id || "").trim();
+  const cleanUserId = String(userId || "").trim();
+  const cleanTaskId = String(taskId || "").trim();
+  if (!cleanId || !cleanUserId || !cleanTaskId) return false;
+  await ensureSchema();
+  const result = await query(
+    `
+      DELETE FROM app_user_unlocks
+      WHERE id = $1
+        AND user_id = $2
+        AND payload->>'taskId' = $3
+        AND COALESCE(payload->>'status', 'claimed') = 'claimed'
+    `,
+    [cleanId, cleanUserId, cleanTaskId],
+  );
+  return Number(result.rowCount || 0) > 0;
+}
+
 async function listAdminHomeItemsFromDb({ includeDeleted = false } = {}) {
   if (!dbEnabled()) return null;
   await ensureSchema();
@@ -2329,6 +2448,11 @@ module.exports = {
   upsertUserAssetInDb,
   upsertUserCharacterInDb,
   upsertUserUnlockInDb,
+  claimToolFreeGenerationInDb,
+  getToolFreeGenerationClaimInDb,
+  completeToolFreeGenerationInDb,
+  markToolFreeGenerationUnlockedInDb,
+  releaseToolFreeGenerationClaimInDb,
   listAdminHomeItemsFromDb,
   upsertAdminHomeItemInDb,
   replaceAdminHomeItemsInDb,

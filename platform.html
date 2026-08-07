@@ -6,7 +6,7 @@
     <title>Vipeak AI</title>
     <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
     <link rel="shortcut icon" href="/favicon.ico?v=old-brand-1" />
-    <link rel="stylesheet" href="./platform.css?v=ai-344-qwen-image3" />
+    <link rel="stylesheet" href="./platform.css?v=ai-354-legal-menu" />
     <script src="./vendor/lucide-1.27.0.min.js?v=1.27.0" defer></script>
     <script src="./platform.vitals.js?v=web-vitals-1" defer></script>
   </head>
@@ -129,6 +129,18 @@
           <strong id="mobileDrawerCredits" hidden>0</strong>
         </div>
         <button class="ghost-button mobile-drawer-login" id="mobileDrawerLoginBtn" type="button" data-i18n="nav.login">Login / Sign up</button>
+        <details class="account-legal-menu mobile-drawer-legal">
+          <summary class="menu-item">
+            <i data-lucide="shield-check"></i>
+            <span data-i18n="legal.kicker">Legal</span>
+            <i class="account-legal-chevron" data-lucide="chevron-down"></i>
+          </summary>
+          <div class="account-legal-links">
+            <button class="menu-item" data-legal-doc="privacy" data-i18n="legal.privacy" type="button">Privacy Policy</button>
+            <button class="menu-item" data-legal-doc="registration" data-i18n="legal.registration" type="button">User Registration Agreement</button>
+            <button class="menu-item" data-legal-doc="disclaimer" data-i18n="legal.disclaimer" type="button">Disclaimer</button>
+          </div>
+        </details>
       </div>
     </aside>
 
@@ -173,6 +185,18 @@
           <button class="menu-item" data-tab="spending" data-i18n="nav.spending" type="button">Spending</button>
           <button class="menu-item" id="menuLoginBtn" data-i18n="nav.login" type="button">Login / Sign up</button>
           <button class="menu-item" id="menuCopyTokenBtn" data-i18n="common.copyToken" type="button">Copy token</button>
+          <details class="account-legal-menu">
+            <summary class="menu-item">
+              <i data-lucide="shield-check"></i>
+              <span data-i18n="legal.kicker">Legal</span>
+              <i class="account-legal-chevron" data-lucide="chevron-down"></i>
+            </summary>
+            <div class="account-legal-links">
+              <button class="menu-item" data-legal-doc="privacy" data-i18n="legal.privacy" type="button">Privacy Policy</button>
+              <button class="menu-item" data-legal-doc="registration" data-i18n="legal.registration" type="button">User Registration Agreement</button>
+              <button class="menu-item" data-legal-doc="disclaimer" data-i18n="legal.disclaimer" type="button">Disclaimer</button>
+            </div>
+          </details>
           <button class="menu-item" id="menuLogoutBtn" data-i18n="account.logout" type="button">Log out</button>
         </div>
       </div>
@@ -896,6 +920,6 @@
       </form>
     </dialog>
 
-    <script src="./platform.js?v=ai-344-qwen-image3"></script>
+    <script src="./platform.js?v=ai-354-legal-menu"></script>
   </body>
 </html>

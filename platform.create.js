@@ -4106,6 +4106,7 @@ function renderHistory(records = []) {
   els.historyList.innerHTML = `${sortedRecords.map((record, index) => {
     const videoUrl = generationVideoUrl(record);
     const imageResultUrl = generationImageResultUrl(record);
+    const resultLocked = record.resultLocked === true;
     const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageResultUrl);
     const taskId = record.taskId || "";
     const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
@@ -4113,12 +4114,24 @@ function renderHistory(records = []) {
     const mediaStyle = ratioStyle(recordRatio);
     const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
     const canDownload = canDownloadGenerationRecord(record);
-    const regenerateAction = taskId ? `
+    const isUndressHistory = isTenantTool("undress");
+    const regenerateAction = taskId && !resultLocked && !isTenantTool("undress") ? `
       <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
         <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
       </button>
     ` : "";
-    const resultActions = taskId && (videoUrl || imageResultUrl) ? `
+    const unlockAction = taskId && resultLocked && !isUndressHistory ? `
+      <button class="history-download history-unlock" type="button" data-history-unlock="${escapeHtml(taskId)}">
+        <i data-lucide="unlock"></i>${escapeHtml(t("history.unlockResult", { credits: formatCredits(record.unlockCredits || 0) }, `Unlock · ${formatCredits(record.unlockCredits || 0)} credits`))}
+      </button>
+    ` : "";
+    const unlockOverlay = taskId && resultLocked && isUndressHistory ? `
+      <button class="history-unlock-overlay" type="button" data-history-unlock="${escapeHtml(taskId)}">
+        <i data-lucide="unlock"></i>
+        <span>${escapeHtml(state.lang === "zh" ? "解锁" : "Unlock")}</span>
+      </button>
+    ` : "";
+    const resultActions = !isUndressHistory && taskId && (videoUrl || imageResultUrl) ? `
       ${canDownload ? `
         <button class="history-download history-download-file" type="button" data-history-download="${escapeHtml(String(index))}">
           <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
@@ -4128,7 +4141,7 @@ function renderHistory(records = []) {
         <i data-lucide="folder-plus"></i>${escapeHtml(t("history.addAsset"))}
       </button>
     ` : "";
-    const videoActions = taskId && videoUrl ? `
+    const videoActions = taskId && videoUrl && !isTenantTool("undress") ? `
       <button class="history-download history-extend" type="button" data-history-extend="${escapeHtml(taskId)}">
         <i data-lucide="stretch-horizontal"></i>${escapeHtml(t("assets.extend"))}
       </button>
@@ -4139,22 +4152,26 @@ function renderHistory(records = []) {
         <i data-lucide="scan-line"></i>${escapeHtml(t("assets.extractFrame"))}
       </button>
     ` : "";
-    const detailAction = `
+    const detailAction = isUndressHistory ? "" : `
       <button class="history-download history-params" type="button" data-history-detail="${index}">
         <i data-lucide="sliders-horizontal"></i>${escapeHtml(t("history.viewParameters"))}
       </button>
     `;
-    const deleteAction = taskId ? `
+    const deleteAction = taskId && !isUndressHistory ? `
       <button class="history-download history-delete" type="button" data-history-delete="${escapeHtml(taskId)}">
         <i data-lucide="trash-2"></i>${escapeHtml(t("history.delete"))}
       </button>
     ` : "";
-    const primaryActions = `${regenerateAction}${resultActions}${videoActions}`;
+    const primaryActions = `${unlockAction}${regenerateAction}${resultActions}${videoActions}`;
     const allActions = `${primaryActions}${detailAction}${deleteAction}`;
     return `
-      <article class="history-item is-${escapeHtml(statusClass(record.status))}">
+      <article class="history-item is-${escapeHtml(statusClass(record.status))}${resultLocked ? " is-result-locked" : ""}" data-history-index="${index}">
         <div class="history-media" style="${escapeHtml(mediaStyle)}">
-          ${videoUrl ? `
+          ${resultLocked ? `<div class="history-placeholder history-locked-preview-wrap">
+            ${record.lockedPreviewUrl ? `<img class="history-locked-preview" src="${escapeHtml(record.lockedPreviewUrl)}" alt="" loading="lazy" decoding="async" draggable="false" /><span class="history-locked-scrim" aria-hidden="true"></span>` : ""}
+            <span class="history-locked-mark" aria-hidden="true"><i data-lucide="lock-keyhole"></i></span>
+            ${unlockOverlay}
+          </div>` : videoUrl ? `
             <button class="history-poster" type="button" data-history-load-video="${escapeHtml(mediaKey)}" aria-label="${escapeHtml(t("common.preview"))}">
               ${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(statusLabel(record.status))}</span>`}
               <i data-lucide="play"></i>
@@ -4162,7 +4179,7 @@ function renderHistory(records = []) {
             <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
           ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
         </div>
-        <div class="history-card-actions">
+        ${isUndressHistory ? "" : `<div class="history-card-actions">
           <div class="history-record-actions${taskId || videoUrl ? "" : " history-record-actions-empty"}">
             ${primaryActions}
           </div>
@@ -4174,7 +4191,7 @@ function renderHistory(records = []) {
             <i data-lucide="ellipsis"></i><span>${escapeHtml(t("history.actions"))}</span><i data-lucide="chevron-down"></i>
           </summary>
           <div class="history-actions-popover" role="menu">${allActions}</div>
-        </details>
+        </details>`}
       </article>
     `;
   }).join("")}${loadMoreHtml}`;
@@ -4198,7 +4215,7 @@ function renderHistory(records = []) {
       const escapedKey = window.CSS?.escape ? CSS.escape(key) : key.replace(/["\\]/g, "\\$&");
       const video = els.historyList.querySelector(`[data-history-video="${escapedKey}"]`);
       const previewUrl = video?.dataset?.src || video?.src || "";
-      const index = Number(button.closest(".history-item")?.querySelector("[data-history-detail]")?.dataset.historyDetail || -1);
+      const index = Number(button.closest(".history-item")?.dataset.historyIndex || -1);
       const record = Number.isInteger(index) && index >= 0 ? sortedRecords[index] : null;
       if (!previewUrl) return;
       playPreview({
@@ -4227,6 +4244,13 @@ function renderHistory(records = []) {
   });
   els.historyList.querySelectorAll("[data-history-regenerate]").forEach((button) => {
     button.addEventListener("click", () => regenerateHistoryRecord(button.dataset.historyRegenerate || "", button));
+  });
+  els.historyList.querySelectorAll("[data-history-unlock]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const taskId = button.dataset.historyUnlock || "";
+      const record = sortedRecords.find((item) => String(item.taskId || "") === String(taskId));
+      unlockHistoryRecord(taskId, button, record);
+    });
   });
   els.historyList.querySelectorAll("[data-history-add-asset]").forEach((button) => {
     button.addEventListener("click", () => addHistoryRecordToAssets(button.dataset.historyAddAsset || "", button));
@@ -4274,6 +4298,84 @@ function renderHistory(records = []) {
     }, (page) => loadHistory({ page }), { jump: true });
   }
   refreshIcons();
+}
+
+async function showUndressInsufficientCreditsDialog(error) {
+  const zh = state.lang === "zh";
+  const cost = Number(error?.payload?.cost || 0);
+  const credits = Number(error?.payload?.credits || state.user?.credits || 0);
+  const detail = cost > 0
+    ? (zh
+      ? `\u9700\u8981 ${formatCredits(cost)} \u79ef\u5206\uff0c\u5f53\u524d\u4f59\u989d ${formatCredits(credits)} \u79ef\u5206\u3002`
+      : `Unlocking needs ${formatCredits(cost)} credits. Your balance is ${formatCredits(credits)} credits.`)
+    : (zh ? "\u4f59\u989d\u4e0d\u8db3\uff0c\u8bf7\u5145\u503c\u540e\u518d\u89e3\u9501\u3002" : "Your balance is insufficient. Top up before unlocking.");
+  const result = await showInlineDialog({
+    title: zh ? "\u4f59\u989d\u4e0d\u8db3" : "Insufficient balance",
+    body: `<div class="undress-credit-alert"><i data-lucide="wallet-cards"></i><p>${escapeHtml(detail)}</p></div>`,
+    confirmText: zh ? "\u53bb\u5145\u503c" : "Top up",
+    onOpen: () => {
+      if (els.inlineDialogConfirm) {
+        els.inlineDialogConfirm.innerHTML = `<i data-lucide="wallet"></i>${escapeHtml(zh ? "\u53bb\u5145\u503c" : "Top up")}`;
+      }
+      refreshIcons();
+    },
+  });
+  if (result === "confirm") openTopupDialog();
+}
+
+async function showUndressUnlockConfirm(record = {}) {
+  const zh = state.lang === "zh";
+  const cost = formatCredits(record.unlockCredits || 0);
+  const result = await showInlineDialog({
+    title: zh ? "确认解锁" : "Unlock result?",
+    body: `<div class="undress-unlock-confirm">
+      <span>${escapeHtml(zh ? "本次解锁将扣除" : "This unlock will deduct")}</span>
+      <strong>${escapeHtml(cost)} <small>${escapeHtml(zh ? "积分" : "credits")}</small></strong>
+    </div>`,
+    confirmText: zh ? "确认解锁" : "Unlock",
+    onOpen: () => {
+      if (els.inlineDialogConfirm) {
+        els.inlineDialogConfirm.innerHTML = `<i data-lucide="unlock"></i>${escapeHtml(zh ? "确认解锁" : "Unlock")}`;
+      }
+      refreshIcons();
+    },
+  });
+  return result === "confirm";
+}
+
+async function unlockHistoryRecord(taskId, button, record = {}) {
+  if (!taskId || !button) return;
+  if (!(await showUndressUnlockConfirm(record))) return;
+  const originalHtml = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = `<i data-lucide="loader-circle"></i>${escapeHtml(t("history.unlocking", {}, "Unlocking..."))}`;
+  refreshIcons();
+  try {
+    const payload = await requestJson(`/api/undress-tool/tasks/${encodeURIComponent(taskId)}/unlock`, { method: "POST" });
+    if (payload.user) setUser(payload.user);
+    if (payload.record) {
+      state.historyRecords = (state.historyRecords || []).map((record) => (
+        String(record.taskId || "") === String(taskId) ? payload.record : record
+      ));
+      renderHistory(state.historyRecords);
+    } else {
+      await loadHistory({ silent: true });
+    }
+  } catch (error) {
+    button.disabled = false;
+    button.innerHTML = originalHtml;
+    refreshIcons();
+    if (error.statusCode === 402 || error.code === "INSUFFICIENT_CREDITS") {
+      await showUndressInsufficientCreditsDialog(error);
+      return;
+    }
+    const note = document.createElement("div");
+    note.className = "job-note history-action-note";
+    note.textContent = error.message || String(error);
+    els.historyList?.prepend(note);
+    window.setTimeout(() => note.remove(), 5000);
+    refreshIcons();
+  }
 }
 
 async function regenerateHistoryRecord(taskId, button) {
@@ -5074,7 +5176,7 @@ async function bootstrap() {
   await ensureRouteHomeCharacterLoaded().catch((error) => console.warn("route character preload failed", error.message || error));
   applyRouteCharacterDetail({ allowTabSwitch: true });
   els.brandName.textContent = platform.brand || "Vipeak AI";
-  await loadAdvancedPresets();
+  if (isTabAllowed("advanced")) await loadAdvancedPresets();
   applyTenantFeatures();
   normalizeTenantRouteAfterConfig();
   renderCategories();
@@ -5088,5 +5190,5 @@ async function bootstrap() {
   renderTokenDisplays();
   setTab(state.tab);
   refreshIcons();
-  loadPlatformEstimates();
+  if (!isTenantTool("undress")) loadPlatformEstimates();
 }
