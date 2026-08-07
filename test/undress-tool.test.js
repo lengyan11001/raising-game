@@ -199,16 +199,18 @@ test("History renders an unlock action instead of media for locked results", () 
 
 test("Undress results expose a download action only after the result is unlocked", () => {
   assert.match(history, /const undressDownloadAction = isUndressHistory && !resultLocked && canDownload/);
-  assert.match(history, /const undressDeleteAction = isUndressHistory && !resultLocked && taskId/);
+  assert.match(history, /const undressDeleteAction = isUndressHistory && !resultLocked && taskId[\s\S]*?statusClass\(record\.status\) === "failed"/);
   assert.match(history, /history-undress-result-actions[\s\S]*?data-history-delete/);
   assert.match(history, /class="history-undress-download"[\s\S]*?data-history-download/);
   assert.match(history, /\$\{undressResultActions\}[\s\S]*?<\/div>/);
-  assert.match(css, /\.history-undress-result-actions[\s\S]*?left: 50%[\s\S]*?transform: translateX\(-50%\)/);
-  assert.match(css, /\.history-undress-result-actions button[\s\S]*?border-radius: 50%/);
+  assert.match(css, /\.undress-history-footer[\s\S]*?padding:/);
+  assert.match(css, /\.history-undress-result-actions[\s\S]*?border-radius: 10px/);
+  assert.match(css, /\.history-undress-result-actions button[\s\S]*?width: 34px[\s\S]*?border-radius: 8px/);
+  assert.match(css, /@media \(max-width: 720px\)[\s\S]*?\.history-panel \.history-list[\s\S]*?grid-template-columns: 1fr/);
   assert.match(ui, /if \(legacyHref\) \{[\s\S]*?await saveDownloadFromFetch\(legacyHref, fileName\)[\s\S]*?return;/);
   assert.doesNotMatch(ui, /directSignedDownload/);
   assert.match(history, /data-history-download[\s\S]*?button\.disabled = true[\s\S]*?await downloadGenerationRecord\(record\)[\s\S]*?button\.disabled = false/);
-  assert.match(html, /platform\.js\?v=ai-360-undress-actions/);
+  assert.match(html, /platform\.js\?v=ai-361-undress-layout/);
 });
 
 test("insufficient unlock balance opens a top-up dialog", () => {
