@@ -4159,6 +4159,16 @@ function renderHistory(records = []) {
     const posterUrl = isSucceeded ? generationPosterUrl(record) : "";
     const canDownload = canDownloadGenerationRecord(record);
     const isUndressHistory = isTenantTool("undress");
+    const recordStatusClass = statusClass(record.status);
+    const recordStatusLabel = statusLabel(record.status);
+    const recordStatusIcon = resultLocked
+      ? "lock-keyhole"
+      : recordStatusClass === "failed"
+        ? "circle-alert"
+        : isSucceeded
+          ? "check-circle-2"
+          : "loader-circle";
+    const recordDate = formatDateTime(record.createdAt || record.updatedAt);
     const regenerateAction = taskId && !resultLocked && !isTenantTool("undress") ? `
       <button class="history-download history-regenerate" type="button" data-history-regenerate="${escapeHtml(taskId)}">
         <i data-lucide="refresh-cw"></i>${escapeHtml(t("history.regenerate"))}
@@ -4180,7 +4190,7 @@ function renderHistory(records = []) {
         <i data-lucide="download"></i>
       </button>
     ` : "";
-    const undressDeleteAction = isUndressHistory && !resultLocked && taskId && (videoUrl || imageResultUrl) ? `
+    const undressDeleteAction = isUndressHistory && !resultLocked && taskId && (videoUrl || imageResultUrl || statusClass(record.status) === "failed") ? `
       <button class="history-undress-delete" type="button" data-history-delete="${escapeHtml(taskId)}" aria-label="${escapeHtml(t("history.delete"))}" title="${escapeHtml(t("history.delete"))}">
         <i data-lucide="trash-2"></i>
       </button>
@@ -4234,9 +4244,15 @@ function renderHistory(records = []) {
               <i data-lucide="play"></i>
             </button>
             <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
-          ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
-          ${undressResultActions}
+          ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="${recordStatusIcon}"></i><span>${escapeHtml(recordStatusLabel)}</span></div>`}
         </div>
+        ${isUndressHistory ? `<div class="undress-history-footer">
+          <div class="undress-history-meta">
+            <span class="undress-history-status is-${escapeHtml(recordStatusClass)}"><i data-lucide="${escapeHtml(recordStatusIcon)}"></i>${escapeHtml(recordStatusLabel)}</span>
+            ${recordDate ? `<time datetime="${escapeHtml(record.createdAt || record.updatedAt || "")}">${escapeHtml(recordDate)}</time>` : ""}
+          </div>
+          ${undressResultActions}
+        </div>` : ""}
         ${isUndressHistory ? "" : `<div class="history-card-actions">
           <div class="history-record-actions${taskId || videoUrl ? "" : " history-record-actions-empty"}">
             ${primaryActions}
