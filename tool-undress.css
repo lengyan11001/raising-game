@@ -417,6 +417,40 @@ body.tenant-tool-undress .history-item {
   overflow: hidden;
 }
 
+body.tenant-tool-undress .history-undress-download {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  color: #0b0c0f;
+  background: var(--undress-teal);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.38);
+  cursor: pointer;
+}
+
+body.tenant-tool-undress .history-undress-download:hover {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: #55ead6;
+}
+
+body.tenant-tool-undress .history-undress-download:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+body.tenant-tool-undress .history-undress-download svg {
+  width: 19px;
+  height: 19px;
+  color: currentColor !important;
+}
+
 body.tenant-tool-undress .history-item.is-result-locked .history-placeholder {
   min-height: 280px;
   max-height: none;

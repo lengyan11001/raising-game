@@ -4175,6 +4175,11 @@ function renderHistory(records = []) {
         <span>${escapeHtml(state.lang === "zh" ? "解锁" : "Unlock")}</span>
       </button>
     ` : "";
+    const undressDownloadAction = isUndressHistory && !resultLocked && canDownload && (videoUrl || imageResultUrl) ? `
+      <button class="history-undress-download" type="button" data-history-download="${escapeHtml(String(index))}" aria-label="${escapeHtml(t("history.download"))}" title="${escapeHtml(t("history.download"))}">
+        <i data-lucide="download"></i>
+      </button>
+    ` : "";
     const resultActions = !isUndressHistory && taskId && (videoUrl || imageResultUrl) ? `
       ${canDownload ? `
         <button class="history-download history-download-file" type="button" data-history-download="${escapeHtml(String(index))}">
@@ -4222,6 +4227,7 @@ function renderHistory(records = []) {
             </button>
             <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
           ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="loader-circle"></i><span>${escapeHtml(statusLabel(record.status))}</span></div>`}
+          ${undressDownloadAction}
         </div>
         ${isUndressHistory ? "" : `<div class="history-card-actions">
           <div class="history-record-actions${taskId || videoUrl ? "" : " history-record-actions-empty"}">
