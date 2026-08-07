@@ -537,11 +537,13 @@ body.tenant-tool-undress .history-item {
 }
 
 body.tenant-tool-undress .history-undress-result-actions {
+  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   min-height: 36px;
+  width: max-content;
   padding: 3px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
