@@ -46,6 +46,21 @@ test("the first image claim is atomic, persistent, and released only after a fai
   assert.match(server, /refundVideoToolTask[\s\S]*?releaseToolFreeGenerationClaimInDb/);
 });
 
+test("only users who have never recharged can receive the locked free image", () => {
+  assert.match(db, /async function hasUserRechargeInDb/);
+  assert.match(db, /LOWER\(status\) = 'paid'/);
+  assert.match(db, /type IN \('wallet_topup', 'subscription_credit_grant'\)/);
+  const eligibility = server.slice(
+    server.indexOf("async function undressToolFreeImageAvailable"),
+    server.indexOf("function undressToolGenerationDefinition"),
+  );
+  assert.match(eligibility, /hasUserRechargeInDb\(userId\)/);
+  assert.match(eligibility, /if \(await hasUserRechargeInDb\(userId\)\) return null/);
+  assert.match(server, /freeImageGeneration = recordBeforeSave\?\.freeImageGeneration === true && preDeductedCredits <= 0/);
+  assert.match(server, /resultLocked: freeImageGeneration/);
+  assert.match(server, /unlockType: freeImageGeneration \? "undress_image" : ""/);
+});
+
 test("locked free results expose no media and cannot be downloaded or added to assets", () => {
   const publicView = server.slice(server.indexOf("function publicGenerationRecord"), server.indexOf("function adminGenerationRecordView"));
   assert.match(publicView, /record\.resultLocked === true/);

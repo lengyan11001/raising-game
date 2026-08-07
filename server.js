@@ -88,6 +88,7 @@ const {
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
   getToolFreeGenerationClaimInDb,
+  hasUserRechargeInDb,
   completeToolFreeGenerationInDb,
   markToolFreeGenerationUnlockedInDb,
   releaseToolFreeGenerationClaimInDb,
@@ -16602,7 +16603,8 @@ async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabe
   if (!imageUrl) throw new Error(`Wan2.7 ${resultLabel} returned no image.`);
 
   const recordBeforeSave = await getGenerationRecord(taskId);
-  const freeImageGeneration = recordBeforeSave?.freeImageGeneration === true;
+  const preDeductedCredits = creditsAmount(recordBeforeSave?.preDeductedCredits || 0);
+  const freeImageGeneration = recordBeforeSave?.freeImageGeneration === true && preDeductedCredits <= 0;
   const downloaded = await downloadRemoteFileToBuffer(imageUrl, { label: `${resultLabel} result`, maxBytes: 20 * 1024 * 1024 });
   const mime = String(downloaded.mime || "").startsWith("image/") ? downloaded.mime : "image/png";
   const savedImage = await saveGeneratedImageFile(taskId, downloaded.bytes, mime, { publish: !freeImageGeneration });
@@ -16635,6 +16637,10 @@ async function runVideoToolImageEdit(job, { inputs = [], prompt = "", resultLabe
     originalFinalCredits: freeImageGeneration ? 0 : pricing.originalCredits,
     billingStatus: freeImageGeneration ? "free_locked" : pricing.credits > 0 ? "settled" : "free",
     billingSettledAt: completedAt,
+    resultLocked: freeImageGeneration,
+    unlockCredits: freeImageGeneration ? creditsAmount(record?.unlockCredits || pricing.credits) : 0,
+    unlockType: freeImageGeneration ? "undress_image" : "",
+    freeImageGeneration,
     completedAt,
     params: { ...plainObject(record?.params), stage: "completed" },
     lastUpdateReason: `video-tool-${successReason}-succeeded`,
@@ -17312,11 +17318,13 @@ function undressToolFreeImageClaimId(userId = "") {
 
 async function undressToolFreeImageAvailable(userId = "") {
   if (!dbEnabled()) return false;
+  if (await hasUserRechargeInDb(userId)) return false;
   const id = undressToolFreeImageClaimId(userId);
   return !(await getToolFreeGenerationClaimInDb({ id, userId }));
 }
 
 async function claimUndressToolFreeImage({ userId = "", tenantId = "", taskId = "" } = {}) {
+  if (await hasUserRechargeInDb(userId)) return null;
   const id = undressToolFreeImageClaimId(userId);
   const existing = await getToolFreeGenerationClaimInDb({ id, userId });
   if (existing && String(existing.status || "") === "claimed") {

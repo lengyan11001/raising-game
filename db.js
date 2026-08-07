@@ -1338,6 +1338,34 @@ async function getToolFreeGenerationClaimInDb({ id = "", userId = "" } = {}) {
   return rows[0] ? recordFromPayloadRow(rows[0]) : null;
 }
 
+async function hasUserRechargeInDb(userId = "") {
+  if (!dbEnabled()) return false;
+  const cleanUserId = String(userId || "").trim();
+  if (!cleanUserId) return false;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT (
+        EXISTS (
+          SELECT 1
+          FROM app_wallet_orders
+          WHERE user_id = $1
+            AND LOWER(status) = 'paid'
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM app_credit_ledger
+          WHERE user_id = $1
+            AND delta > 0
+            AND type IN ('wallet_topup', 'subscription_credit_grant')
+        )
+      ) AS has_recharge
+    `,
+    [cleanUserId],
+  );
+  return rows[0]?.has_recharge === true;
+}
+
 async function completeToolFreeGenerationInDb({ id = "", userId = "", taskId = "" } = {}) {
   if (!dbEnabled()) return null;
   const cleanId = String(id || "").trim();
@@ -2450,6 +2478,7 @@ module.exports = {
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
   getToolFreeGenerationClaimInDb,
+  hasUserRechargeInDb,
   completeToolFreeGenerationInDb,
   markToolFreeGenerationUnlockedInDb,
   releaseToolFreeGenerationClaimInDb,
