@@ -429,6 +429,10 @@ body.tenant-tool-undress .undress-unlock-confirm small {
   font-weight: 600;
 }
 
+body.tenant-tool-undress .inline-modal.is-undress-unlock .inline-actions {
+  justify-content: center;
+}
+
 @media (min-width: 721px) {
   body.tenant-tool-undress {
     padding-top: 76px;

@@ -4328,6 +4328,7 @@ async function showUndressUnlockConfirm(record = {}) {
   const cost = formatCredits(record.unlockCredits || 0);
   const result = await showInlineDialog({
     title: zh ? "确认解锁" : "Unlock result?",
+    dialogClass: "is-undress-unlock",
     body: `<div class="undress-unlock-confirm">
       <span>${escapeHtml(zh ? "本次解锁将扣除" : "This unlock will deduct")}</span>
       <strong>${escapeHtml(cost)} <small>${escapeHtml(zh ? "积分" : "credits")}</small></strong>

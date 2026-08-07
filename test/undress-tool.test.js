@@ -174,6 +174,9 @@ test("History renders an unlock action instead of media for locked results", () 
   );
   assert.match(history, /async function showUndressUnlockConfirm/);
   assert.match(history, /This unlock will deduct/);
+  assert.match(history, /dialogClass: "is-undress-unlock"/);
+  assert.match(css, /\.inline-modal\.is-undress-unlock \.inline-actions[\s\S]*?justify-content: center/);
+  assert.match(ui, /classList\.remove\([^\n]*"is-undress-unlock"\)/);
   assert.match(history, /await showUndressUnlockConfirm\(record\)/);
   assert.match(server, /ownRecords\.map\(ensureUndressLockedPreview\)/);
 });
