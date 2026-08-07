@@ -10,6 +10,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const server = read("server.js");
 const db = read("db.js");
 const loader = read("platform.js");
+const html = read("platform.html");
 const frontend = read("platform.undress-tool.js");
 const ui = read("platform.ui.js");
 const admin = read("admin.js");
@@ -201,6 +202,7 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(history, /class="history-undress-download"[\s\S]*?data-history-download/);
   assert.match(history, /\$\{undressDownloadAction\}[\s\S]*?<\/div>/);
   assert.match(css, /\.history-undress-download[\s\S]*?position: absolute[\s\S]*?border-radius: 50%/);
+  assert.match(html, /platform\.js\?v=ai-357-undress-download/);
 });
 
 test("insufficient unlock balance opens a top-up dialog", () => {
