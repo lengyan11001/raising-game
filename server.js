@@ -10,6 +10,10 @@ const {
   migrateFileDataToDb,
   getKv,
   setKv,
+  getGenerationRecordsFromDb,
+  getGenerationRecordFromDb,
+  upsertGenerationRecordInDb,
+  replaceGenerationRecordsInDb,
 } = require("./db");
 
 const ROOT = __dirname;
@@ -4866,15 +4870,21 @@ async function estimatePlatformPreDeductCredits(model, params = {}, template = {
 }
 
 async function readGenerationRecords() {
+  const databaseRecords = await getGenerationRecordsFromDb({ limit: 500, includeDeleted: true });
+  if (Array.isArray(databaseRecords)) return databaseRecords;
   const records = await getKv("generation_records", []);
   return Array.isArray(records) ? records : [];
 }
 
 async function writeGenerationRecords(records) {
+  const databaseRecords = await replaceGenerationRecordsInDb(records);
+  if (Array.isArray(databaseRecords)) return databaseRecords;
   await setKv("generation_records", records);
 }
 
 async function upsertGenerationRecord(nextRecord) {
+  const databaseRecord = await upsertGenerationRecordInDb(nextRecord);
+  if (databaseRecord) return databaseRecord;
   const records = await readGenerationRecords();
   const index = records.findIndex((record) => record.taskId === nextRecord.taskId);
   const now = new Date().toISOString();
@@ -4908,6 +4918,8 @@ async function updateGenerationRecord(taskId, updates = {}, reason = "update") {
 }
 
 async function getGenerationRecord(taskId) {
+  const databaseRecord = await getGenerationRecordFromDb(taskId);
+  if (databaseRecord) return databaseRecord;
   const records = await readGenerationRecords();
   return records.find((record) => record.taskId === taskId) || null;
 }

@@ -59,6 +59,16 @@ async function ensureSchema() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS app_generation_records (
+      task_id TEXT PRIMARY KEY,
+      payload JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_generation_records_created_at_idx ON app_generation_records (created_at DESC);`);
+  await query(`CREATE INDEX IF NOT EXISTS app_generation_records_user_created_idx ON app_generation_records ((payload->>'userId'), created_at DESC);`);
 }
 
 async function getKv(key, fallback) {
@@ -81,6 +91,81 @@ async function setKv(key, value) {
     `,
     [key, JSON.stringify(value)],
   );
+}
+
+function generationRecordTimestamp(record, field, fallback) {
+  const value = record?.[field];
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date.toISOString() : fallback;
+}
+
+async function getGenerationRecordsFromDb({ limit = 500, userId = "", includeDeleted = true } = {}) {
+  if (!dbEnabled()) return null;
+  await ensureSchema();
+  const safeLimit = Math.min(500, Math.max(1, Number(limit || 500)));
+  const params = [];
+  const where = [];
+  if (userId) {
+    params.push(String(userId));
+    where.push(`payload->>'userId' = $${params.length}`);
+  }
+  if (!includeDeleted) where.push(`COALESCE(payload->>'deletedAt', '') = ''`);
+  params.push(safeLimit);
+  const { rows } = await query(
+    `SELECT payload FROM app_generation_records ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC, updated_at DESC LIMIT $${params.length}`,
+    params,
+  );
+  return rows.map((row) => row.payload);
+}
+
+async function getGenerationRecordFromDb(taskId) {
+  if (!dbEnabled()) return null;
+  const id = String(taskId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT payload FROM app_generation_records WHERE task_id = $1`, [id]);
+  return rows[0]?.payload || null;
+}
+
+async function upsertGenerationRecordInDb(nextRecord = {}) {
+  if (!dbEnabled()) return null;
+  const taskId = String(nextRecord?.taskId || "").trim();
+  if (!taskId) throw new Error("Generation record taskId is required");
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const createdAt = generationRecordTimestamp(nextRecord, "createdAt", now);
+  const payload = {
+    ...nextRecord,
+    taskId,
+    createdAt,
+    updatedAt: now,
+  };
+  const { rows } = await query(
+    `
+      INSERT INTO app_generation_records(task_id, payload, created_at, updated_at)
+      VALUES ($1, $2::jsonb, $3::timestamptz, $4::timestamptz)
+      ON CONFLICT (task_id)
+      DO UPDATE SET
+        payload = app_generation_records.payload || EXCLUDED.payload || jsonb_build_object(
+          'taskId', EXCLUDED.task_id,
+          'createdAt', COALESCE(app_generation_records.payload->>'createdAt', EXCLUDED.payload->>'createdAt', $3::text),
+          'updatedAt', $4::text
+        ),
+        created_at = LEAST(app_generation_records.created_at, EXCLUDED.created_at),
+        updated_at = $4::timestamptz
+      RETURNING payload
+    `,
+    [taskId, JSON.stringify(payload), createdAt, now],
+  );
+  return rows[0]?.payload || null;
+}
+
+async function replaceGenerationRecordsInDb(records = []) {
+  if (!dbEnabled()) return null;
+  if (!Array.isArray(records)) return [];
+  await ensureSchema();
+  for (const record of records) await upsertGenerationRecordInDb(record);
+  return records;
 }
 
 async function writeJsonFile(filePath, payload) {
@@ -120,6 +205,11 @@ async function migrateFileDataToDb({ defaultDb, defaultConfig }) {
       await setKv(key, fallback);
     }
   }
+  const legacyRecords = await getKv("generation_records", []);
+  if (Array.isArray(legacyRecords) && legacyRecords.length) {
+    const { rows } = await query(`SELECT COUNT(*)::int AS count FROM app_generation_records`);
+    if (!Number(rows[0]?.count || 0)) await replaceGenerationRecordsInDb(legacyRecords);
+  }
 }
 
 module.exports = {
@@ -127,5 +217,9 @@ module.exports = {
   ensureSchema,
   getKv,
   setKv,
+  getGenerationRecordsFromDb,
+  getGenerationRecordFromDb,
+  upsertGenerationRecordInDb,
+  replaceGenerationRecordsInDb,
   migrateFileDataToDb,
 };
