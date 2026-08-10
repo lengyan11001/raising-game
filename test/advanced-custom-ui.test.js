@@ -125,7 +125,9 @@ test("Seedance 2.5 server pricing migrates old rounded defaults and preserves si
   assert.match(server, /const normalizeStoredCredits = \(value, fallback, digits = 4\)/);
   assert.match(server, /const normalizeSeedance25Credits = \(value, fallback, resolution\)/);
   assert.match(server, /const previousPointsPerSecond = resolution === "720p" \? 260 : 130/);
-  assert.match(server, /\[previousDefault, previousRoundedDefault\]\.some/);
+  assert.match(server, /const previousIntegerDefault = Math\.round\(previousDefault\)/);
+  assert.match(server, /\[previousDefault, previousRoundedDefault, previousIntegerDefault\]\.some/);
+  assert.match(server, /const SEEDANCE25_MODEL_ID = SEEDANCE25_MODEL/);
   assert.match(server, /"480p": normalizeSeedance25Credits\(seedance25\["480p"\]/);
   assert.match(server, /"720p": normalizeSeedance25Credits\(seedance25\["720p"\]/);
   assert.match(server, /key\.startsWith\("seedance25-"\) \|\| key\.startsWith\("seedance-nsfw-"\) \? 6 : 4/);

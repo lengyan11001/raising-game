@@ -373,7 +373,7 @@ const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").repla
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
 const SEEDANCE25_API_BASE_URL = (process.env.SEEDANCE25_API_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const SEEDANCE25_API_KEY = String(process.env.SEEDANCE25_API_KEY || "").trim();
-const SEEDANCE25_MODEL_ID = String(process.env.SEEDANCE25_MODEL_ID || SEEDANCE25_MODEL).trim();
+const SEEDANCE25_MODEL_ID = SEEDANCE25_MODEL;
 const SEEDANCE25_DIRECT_ENDPOINT = String(process.env.SEEDANCE25_DIRECT_ENDPOINT_ID || SEEDANCE25_DIRECT_ENDPOINT_ID).trim();
 const APIZ_SEEDANCE_API_BASE_URL = "";
 const APIZ_SEEDANCE_API_KEY = "";
@@ -1807,7 +1807,8 @@ function normalizeAdvancedPricing(pricing = {}) {
       6,
     );
     const previousRoundedDefault = pricingNumber(previousDefault, previousDefault);
-    const migratedValue = Number.isFinite(numeric) && [previousDefault, previousRoundedDefault].some((candidate) => Math.abs(numeric - candidate) < 0.0000001)
+    const previousIntegerDefault = Math.round(previousDefault);
+    const migratedValue = Number.isFinite(numeric) && [previousDefault, previousRoundedDefault, previousIntegerDefault].some((candidate) => Math.abs(numeric - candidate) < 0.0000001)
       ? fallback
       : value;
     return normalizeStoredCredits(migratedValue, fallback, 6);
