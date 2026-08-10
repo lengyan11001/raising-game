@@ -26,6 +26,17 @@ const {
   purchaseSiteCreditsPerSecond: seedance25PurchaseSiteCreditsPerSecond,
 } = require("./seedance25");
 const {
+  SEEDANCE25_DIRECT_ENDPOINT_ID,
+  SEEDANCE25_DIRECT_LABEL,
+  SEEDANCE25_DIRECT_MODEL,
+  SEEDANCE25_DIRECT_PROVIDER,
+  SEEDANCE25_DIRECT_USD_PER_MILLION_TOKENS,
+  buildSeedance25DirectTaskPayload,
+  directEstimatedCompletionTokens,
+  directPurchaseUsdPerSecond,
+  normalizeSeedance25DirectMode,
+} = require("./seedance25-direct");
+const {
   QWEN_IMAGE3_MODELS,
   QWEN_IMAGE3_OFFICIAL_USD,
   QWEN_IMAGE3_OUTPUT_MAX,
@@ -362,6 +373,7 @@ const SEEDANCE25_API_BASE_URL = (process.env.SEEDANCE25_API_BASE_URL || "https:/
 const SEEDANCE25_API_KEY = String(process.env.SEEDANCE25_API_KEY || "").trim();
 const SEEDANCE25_MODEL_ID = String(process.env.SEEDANCE25_MODEL_ID || "st-ai/super-seed2-lite").trim();
 const SEEDANCE25_INNER_MODEL_ID = String(process.env.SEEDANCE25_INNER_MODEL || SEEDANCE25_INNER_MODEL).trim();
+const SEEDANCE25_DIRECT_ENDPOINT = String(process.env.SEEDANCE25_DIRECT_ENDPOINT_ID || SEEDANCE25_DIRECT_ENDPOINT_ID).trim();
 const SEEDANCE25_TRANSFER_URL_CACHE = new Map();
 const APIZ_SEEDANCE_API_BASE_URL = "";
 const APIZ_SEEDANCE_API_KEY = "";
@@ -526,6 +538,15 @@ function defaultWan30SaleCreditsPerSecond(resolution = "1080p") {
   );
 }
 
+function defaultSeedance25DirectSaleCreditsPerSecond(resolution = "480p", { hasVideoInput = false } = {}) {
+  return pricingNumber(
+    directPurchaseUsdPerSecond(resolution, { hasVideoInput }) * DEFAULT_CREDITS_PER_USD * ALIYUN_VIDEO_DEFAULT_MARKUP,
+    0,
+    0,
+    6,
+  );
+}
+
 function defaultAliyunLegacySaleCreditsByModel() {
   return Object.fromEntries(Object.entries(ALIYUN_VIDEO_OFFICIAL_LEGACY_PRICING).map(([model, rates]) => [
     model,
@@ -546,6 +567,14 @@ const DEFAULT_ADVANCED_PRICING = {
   seedance25CreditsPerSecondByResolution: {
     "480p": seedance25PurchaseSiteCreditsPerSecond("480p"),
     "720p": seedance25PurchaseSiteCreditsPerSecond("720p"),
+  },
+  seedanceNsfwCreditsPerSecondByResolution: {
+    "480p": defaultSeedance25DirectSaleCreditsPerSecond("480p"),
+    "720p": defaultSeedance25DirectSaleCreditsPerSecond("720p"),
+  },
+  seedanceNsfwVideoCreditsPerSecondByResolution: {
+    "480p": defaultSeedance25DirectSaleCreditsPerSecond("480p", { hasVideoInput: true }),
+    "720p": defaultSeedance25DirectSaleCreditsPerSecond("720p", { hasVideoInput: true }),
   },
   seedanceCreditsPerSecondByResolution: {
     "480p": Math.ceil(ADVANCED_SEEDANCE_720P_CREDITS_PER_SECOND * 0.5),
@@ -1708,6 +1737,12 @@ function normalizeAdvancedPricing(pricing = {}) {
   const seedance25 = source.seedance25CreditsPerSecondByResolution && typeof source.seedance25CreditsPerSecondByResolution === "object"
     ? source.seedance25CreditsPerSecondByResolution
     : {};
+  const seedanceNsfw = source.seedanceNsfwCreditsPerSecondByResolution && typeof source.seedanceNsfwCreditsPerSecondByResolution === "object"
+    ? source.seedanceNsfwCreditsPerSecondByResolution
+    : {};
+  const seedanceNsfwVideo = source.seedanceNsfwVideoCreditsPerSecondByResolution && typeof source.seedanceNsfwVideoCreditsPerSecondByResolution === "object"
+    ? source.seedanceNsfwVideoCreditsPerSecondByResolution
+    : {};
   const seedance = source.seedanceCreditsPerSecondByResolution && typeof source.seedanceCreditsPerSecondByResolution === "object"
     ? source.seedanceCreditsPerSecondByResolution
     : {};
@@ -1887,6 +1922,14 @@ function normalizeAdvancedPricing(pricing = {}) {
       "480p": normalizeSeedance25Credits(seedance25["480p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["480p"]),
       "720p": normalizeSeedance25Credits(seedance25["720p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["720p"]),
     },
+    seedanceNsfwCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(seedanceNsfw["480p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution["480p"], 6),
+      "720p": normalizeStoredCredits(seedanceNsfw["720p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution["720p"], 6),
+    },
+    seedanceNsfwVideoCreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(seedanceNsfwVideo["480p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwVideoCreditsPerSecondByResolution["480p"], 6),
+      "720p": normalizeStoredCredits(seedanceNsfwVideo["720p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwVideoCreditsPerSecondByResolution["720p"], 6),
+    },
     seedanceCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedance["480p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["480p"]),
       "720p": normalizeStoredCredits(seedance["720p"], DEFAULT_ADVANCED_PRICING.seedanceCreditsPerSecondByResolution["720p"]),
@@ -1971,6 +2014,9 @@ function publicAdvancedPricingView(pricing = {}) {
   return {
     unit: "credits",
     creditsPerUsd: normalized.creditsPerUsd || DEFAULT_CREDITS_PER_USD,
+    seedance25CreditsPerSecondByResolution: { ...normalized.seedance25CreditsPerSecondByResolution },
+    seedanceNsfwCreditsPerSecondByResolution: { ...normalized.seedanceNsfwCreditsPerSecondByResolution },
+    seedanceNsfwVideoCreditsPerSecondByResolution: { ...normalized.seedanceNsfwVideoCreditsPerSecondByResolution },
     seedanceCreditsPerSecondByResolution: { ...normalized.seedanceCreditsPerSecondByResolution },
     seedanceVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceVideoInputCreditsPerSecondByResolution },
     seedanceFastCreditsPerSecondByResolution: { ...normalized.seedanceFastCreditsPerSecondByResolution },
@@ -5918,6 +5964,7 @@ function normalizeAdvancedProvider(value = "") {
   if (!normalized) return "wan27";
   if (isQwenImage3Provider(value)) return "qwen-image3";
   if (isSeedream5ImageProvider(value)) return "seedream5-image";
+  if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return SEEDANCE25_DIRECT_PROVIDER;
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return "happyhorse";
@@ -5937,6 +5984,7 @@ function publicProviderId(value = "") {
   if (!normalized) return "";
   if (isQwenImage3Provider(raw)) return "qwen-image3";
   if (isSeedream5ImageProvider(raw)) return "seedream5-image";
+  if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return SEEDANCE25_DIRECT_PROVIDER;
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return "happyhorse";
@@ -5950,6 +5998,7 @@ function publicProviderLabel(value = "") {
   const id = publicProviderId(value);
   if (id === "qwen-image3") return "Qwen Image 3.0";
   if (id === "seedream5-image") return "Seedream 5.0 Image";
+  if (id === SEEDANCE25_DIRECT_PROVIDER) return SEEDANCE25_DIRECT_LABEL;
   if (id === "seedance25") return "Seedance 2.5";
   if (id === "wan30") return "Wan 3.0";
   if (id === "happyhorse") return "HappyHorse";
@@ -5961,6 +6010,7 @@ function publicProviderLabel(value = "") {
 
 function publicModelText(value = "") {
   return String(value ?? "")
+    .replace(/Seedance\s*\(NSFW\)/gi, "__SEEDANCE_NSFW_LABEL__")
     .replace(/\/api\/seedance\/characters\/upload/gi, "/api/vipeak2/characters/upload")
     .replace(/\/api\/wan27\/image-edit/gi, "/api/vipeak1/image-edit")
     .replace(/dreamina-seedance-2-0-fast-260128/gi, "vipeak2-fast")
@@ -5983,7 +6033,8 @@ function publicModelText(value = "") {
     .replace(/\bseedance\b/g, "vipeak2")
     .replace(/\bwan27-image\b/g, "vipeak1-image")
     .replace(/\bwan27\b/g, "vipeak1")
-    .replace(/\bSeedance\b/g, "Vipeak 2");
+    .replace(/\bSeedance\b/g, "Vipeak 2")
+    .replace(/__SEEDANCE_NSFW_LABEL__/g, SEEDANCE25_DIRECT_LABEL);
 }
 
 function publicModelKey(key = "") {
@@ -6219,6 +6270,7 @@ function isExplicitAdvancedProvider(value = "") {
   if (!normalized) return true;
   if (isQwenImage3Provider(value)) return true;
   if (isSeedream5ImageProvider(value)) return true;
+  if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return true;
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return true;
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return true;
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return true;
@@ -6230,7 +6282,7 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedream5-image, or qwen-image3.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedream5-image, or qwen-image3.", { provider: value });
   }
 }
 
@@ -6251,9 +6303,9 @@ function assertAdvancedDurationInput(provider = "seedance", value) {
 function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceTier = "standard" } = {}) {
   if (value === undefined || value === null || value === "") return;
   const raw = String(value || "").trim().toLowerCase();
-  if (normalizeAdvancedProvider(provider) === "seedance25") {
+  if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizeAdvancedProvider(provider))) {
     if (!["480p", "720p"].includes(raw)) {
-      throw advancedValidationError("INVALID_RESOLUTION", "Seedance 2.5 resolution must be 480p or 720p.", { resolution: value, allowed: ["480p", "720p"] });
+      throw advancedValidationError("INVALID_RESOLUTION", `${publicProviderLabel(provider)} resolution must be 480p or 720p.`, { resolution: value, allowed: ["480p", "720p"] });
     }
     return;
   }
@@ -6284,7 +6336,7 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
 
 function assertAdvancedRatioInput(value, provider = "seedance") {
   if (value === undefined || value === null || value === "") return;
-  if (["wan30", "seedance25"].includes(normalizeAdvancedProvider(provider)) && String(value || "").trim().toLowerCase() === "adaptive") return;
+  if (["wan30", "seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizeAdvancedProvider(provider)) && String(value || "").trim().toLowerCase() === "adaptive") return;
   const normalized = String(value || "").trim().replace(/[锛歺X]/g, ":");
   if (!/^\d+\s*:\s*\d+$/.test(normalized)) {
     throw advancedValidationError("INVALID_RATIO", "ratio must use width:height format, for example 9:16, 16:9, or 1:1.", { ratio: value });
@@ -6646,7 +6698,7 @@ function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (["seedream5-image", "qwen-image3"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
-  if (normalizedProvider === "seedance25") return { fallback: 4, min: 4, max: 30 };
+  if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizedProvider)) return { fallback: 4, min: 4, max: 30 };
   if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
   return normalizedProvider === "wan27"
     ? { fallback: 5, min: 2, max: 15 }
@@ -6727,6 +6779,62 @@ function advancedModelPricing(provider = "seedance", options = {}) {
       credits,
       markup: 1,
       source: "configured_seedance25_duration_rate",
+    };
+  }
+  if (normalizedProvider === SEEDANCE25_DIRECT_PROVIDER) {
+    const mode = normalizeSeedance25DirectMode(firstPresent(options.functionMode, options.seedanceMode, options.mode));
+    const resolution = ["480p", "720p"].includes(String(options.resolution || "").toLowerCase())
+      ? String(options.resolution).toLowerCase()
+      : "480p";
+    const inputVideoSeconds = durationSecondsFromValue(firstPresent(
+      options.inputVideoSeconds,
+      options.videoInputSeconds,
+      options.referenceVideoDurationSeconds,
+    ));
+    const requestedDuration = clampNumber(options.duration ?? options.durationSeconds, 4, 4, 30);
+    const duration = mode === "edit" && inputVideoSeconds > 0
+      ? clampNumber(Math.ceil(inputVideoSeconds), 4, 4, 30)
+      : requestedDuration;
+    const hasVideoInput = inputVideoSeconds > 0;
+    const configuredRates = hasVideoInput
+      ? advancedPricing.seedanceNsfwVideoCreditsPerSecondByResolution || {}
+      : advancedPricing.seedanceNsfwCreditsPerSecondByResolution || {};
+    const fallbackRates = hasVideoInput
+      ? DEFAULT_ADVANCED_PRICING.seedanceNsfwVideoCreditsPerSecondByResolution
+      : DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution;
+    const creditsPerSecond = pricingNumber(configuredRates[resolution], fallbackRates[resolution], 0, 6);
+    const billingSeconds = duration + (hasVideoInput ? inputVideoSeconds : 0);
+    const credits = creditsAmount(billingSeconds * creditsPerSecond);
+    const usdPerMillionTokens = hasVideoInput
+      ? SEEDANCE25_DIRECT_USD_PER_MILLION_TOKENS.withVideo
+      : SEEDANCE25_DIRECT_USD_PER_MILLION_TOKENS.withoutVideo;
+    const purchaseCreditsPerSecond = directPurchaseUsdPerSecond(resolution, { hasVideoInput }) * DEFAULT_CREDITS_PER_USD;
+    const markup = purchaseCreditsPerSecond > 0 ? pricingNumber(creditsPerSecond / purchaseCreditsPerSecond, ALIYUN_VIDEO_DEFAULT_MARKUP, 0, 8) : ALIYUN_VIDEO_DEFAULT_MARKUP;
+    const estimatedCompletionTokens = directEstimatedCompletionTokens({ resolution, outputSeconds: duration, inputVideoSeconds });
+    return {
+      provider: SEEDANCE25_DIRECT_PROVIDER,
+      providerLabel: SEEDANCE25_DIRECT_LABEL,
+      model: SEEDANCE25_DIRECT_MODEL,
+      endpoint: SEEDANCE25_DIRECT_ENDPOINT,
+      mode,
+      duration,
+      requestedDuration,
+      inputVideoSeconds,
+      hasVideoInput,
+      billingSeconds,
+      resolution,
+      ratio: String(options.ratio || "adaptive"),
+      creditsPerSecond,
+      outputCredits: creditsAmount(duration * creditsPerSecond),
+      inputVideoCreditsPerSecond: hasVideoInput ? creditsPerSecond : 0,
+      inputVideoCredits: hasVideoInput ? creditsAmount(inputVideoSeconds * creditsPerSecond) : 0,
+      baseCredits: credits,
+      credits,
+      estimatedCompletionTokens,
+      usdPerMillionTokens,
+      yuanPerMillionTokens: pricingNumber(usdPerMillionTokens * UPSTREAM_USD_CNY_RATE, 0, 0, 6),
+      markup,
+      source: "seedance25_direct_token_estimate",
     };
   }
   if (isAliyunVideoProvider(normalizedProvider)) {
@@ -14778,6 +14886,7 @@ function isImageGenerationRecord(record = {}) {
     source.includes("video") ||
     provider === "seedance" ||
     provider === "seedance25" ||
+    provider === SEEDANCE25_DIRECT_PROVIDER ||
     provider === "wan27" ||
     provider === "aliyun-wan30" ||
     provider === "aliyun-wan27" ||
@@ -18642,7 +18751,7 @@ function needsApizFailureRefund(record = {}) {
 
 function needsSeedanceFailureRefund(record = {}) {
   const provider = String(record.provider || "").toLowerCase();
-  if (!["seedance", "seedance25", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider)) return false;
+  if (!["seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse", "seedream5-image"].includes(provider)) return false;
   if (!record.taskId || !record.userId || !isFailedStatus(record.status)) return false;
   if (String(record.billingStatus || "").toLowerCase() === "refunded") return false;
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
@@ -18653,11 +18762,12 @@ function needsSeedanceFailureRefund(record = {}) {
 }
 
 function seedanceUsesTokenPricing(record = {}) {
-  if (String(record.provider || "").toLowerCase() !== "seedance") return false;
+  const provider = String(record.provider || "").toLowerCase();
+  if (!["seedance", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) return false;
   if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   const pricing = record.pricingEstimate && typeof record.pricingEstimate === "object" ? record.pricingEstimate : {};
   if (String(pricing.source || "") === "public_duration_rate") return false;
-  if (String(pricing.source || "") === "seedance_token_estimate") return true;
+  if (["seedance_token_estimate", "seedance25_direct_token_estimate"].includes(String(pricing.source || ""))) return true;
   return String(record.source || "").includes("advanced") && record.billingSettledAt === "";
 }
 
@@ -18704,6 +18814,8 @@ function seedanceFinalCreditsFromUsage(record = {}) {
   const completionTokens = extractUsageCompletionTokens(record.queryResponse) ?? extractUsageCompletionTokens(record.createResponse);
   if (!completionTokens) return null;
   const pricing = record.pricingEstimate && typeof record.pricingEstimate === "object" ? record.pricingEstimate : {};
+  const directSeedance25 = String(record.provider || "").toLowerCase() === SEEDANCE25_DIRECT_PROVIDER
+    || String(pricing.source || "") === "seedance25_direct_token_estimate";
   const resolution = normalizeAdvancedResolution(record.resolution || pricing.resolution || record.params?.resolution);
   const usdPerMillionTokens = Number(pricing.usdPerMillionTokens || seedanceUsdPerMillionTokens(resolution, {
     model: record.model || pricing.model,
@@ -18712,7 +18824,9 @@ function seedanceFinalCreditsFromUsage(record = {}) {
   }));
   const yuanPerMillionTokens = Number(pricing.yuanPerMillionTokens || pricingNumber(usdPerMillionTokens * UPSTREAM_USD_CNY_RATE, 0, 0, 6));
   const markup = Number(pricing.markup || ADVANCED_GENERATION_MARKUP) || ADVANCED_GENERATION_MARKUP;
-  const baseCredits = creditsAmount((completionTokens * yuanPerMillionTokens * ADVANCED_CREDITS_PER_CNY) / 1000000);
+  const baseCredits = directSeedance25
+    ? creditsAmount((completionTokens * usdPerMillionTokens * DEFAULT_CREDITS_PER_USD) / 1000000)
+    : creditsAmount((completionTokens * yuanPerMillionTokens * ADVANCED_CREDITS_PER_CNY) / 1000000);
   const originalCredits = creditsAmount(Math.round(baseCredits * markup));
   const pricingMultiplier = normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? pricing.userPricingMultiplier ?? 1);
   return {
@@ -19536,13 +19650,47 @@ function seedance25PublicInputUrls(urls = [], kind = "image") {
 }
 
 async function runSeedance25GenerationJob(job = {}) {
-  const { taskId, upstreamInput, mediaAssets, pricing, cost } = job;
+  const { taskId, upstreamInput, mediaAssets, pricing, cost, provider = "seedance25" } = job;
+  const direct = normalizeAdvancedProvider(provider) === SEEDANCE25_DIRECT_PROVIDER;
+  const providerLabel = direct ? SEEDANCE25_DIRECT_LABEL : "Seedance 2.5";
+  const recordSource = direct ? "advanced-seedance-nsfw" : "advanced-seedance25";
+  const upstreamSource = direct ? "byteplus-direct-seedance25" : (USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25");
   let upstreamPayload = null;
   try {
-    await updateGenerationRecord(taskId, { status: "submitting", awaitingUpstreamTask: true, error: "" }, "seedance25-submitting");
-    upstreamPayload = buildSeedance25TaskPayload(upstreamInput, SEEDANCE25_MODEL_ID);
-    if (SEEDANCE25_INNER_MODEL_ID !== SEEDANCE25_INNER_MODEL) upstreamPayload.params.model = SEEDANCE25_INNER_MODEL_ID;
-    const gatewayBody = USE_GATEWAY_UPSTREAM ? {
+    await updateGenerationRecord(taskId, { status: "submitting", awaitingUpstreamTask: true, error: "" }, direct ? "seedance-nsfw-submitting" : "seedance25-submitting");
+    let submitted;
+    if (direct) {
+      const imageAssets = [];
+      for (let index = 0; index < upstreamInput.imageFiles.length; index += 1) {
+        imageAssets.push(await ensureSeedanceAssetUriForPublicUrl(upstreamInput.imageFiles[index], "Image", `seedance-nsfw-image-${index + 1}`));
+      }
+      const videoAssets = [];
+      for (let index = 0; index < upstreamInput.videoFiles.length; index += 1) {
+        videoAssets.push(await ensureSeedanceAssetUriForPublicUrl(upstreamInput.videoFiles[index], "Video", `seedance-nsfw-video-${index + 1}`));
+      }
+      const audioAssets = [];
+      for (let index = 0; index < upstreamInput.audioFiles.length; index += 1) {
+        audioAssets.push(await ensureSeedanceAssetUriForPublicUrl(upstreamInput.audioFiles[index], "Audio", `seedance-nsfw-audio-${index + 1}`));
+      }
+      const firstFrameAsset = upstreamInput.firstFrameUrl
+        ? await ensureSeedanceAssetUriForPublicUrl(upstreamInput.firstFrameUrl, "Image", "seedance-nsfw-first-frame")
+        : "";
+      const lastFrameAsset = upstreamInput.lastFrameUrl
+        ? await ensureSeedanceAssetUriForPublicUrl(upstreamInput.lastFrameUrl, "Image", "seedance-nsfw-last-frame")
+        : "";
+      upstreamPayload = buildSeedance25DirectTaskPayload({
+        ...upstreamInput,
+        imageAssets,
+        videoAssets,
+        audioAssets,
+        firstFrameAsset,
+        lastFrameAsset,
+      }, SEEDANCE25_DIRECT_ENDPOINT);
+      submitted = await arkRequest("POST", "/contents/generations/tasks", upstreamPayload);
+    } else {
+      upstreamPayload = buildSeedance25TaskPayload(upstreamInput, SEEDANCE25_MODEL_ID);
+      if (SEEDANCE25_INNER_MODEL_ID !== SEEDANCE25_INNER_MODEL) upstreamPayload.params.model = SEEDANCE25_INNER_MODEL_ID;
+      const gatewayBody = USE_GATEWAY_UPSTREAM ? {
       provider: "seedance25",
       prompt: upstreamInput.prompt,
       functionMode: upstreamInput.mode,
@@ -19557,29 +19705,31 @@ async function runSeedance25GenerationJob(job = {}) {
       firstFrameUrl: upstreamInput.firstFrameUrl,
       lastFrameUrl: upstreamInput.lastFrameUrl,
       preservePublicMediaUrls: true,
-    } : null;
-    const submitted = USE_GATEWAY_UPSTREAM
-      ? await gatewaySubmitAdvancedTask(gatewayBody)
-      : await seedance25Request("/api/v3/tasks/create", upstreamPayload);
-    if (USE_GATEWAY_UPSTREAM) upstreamPayload = gatewayBody;
-    const raw = USE_GATEWAY_UPSTREAM ? submitted.raw || submitted : submitted;
-    const upstreamTaskId = USE_GATEWAY_UPSTREAM ? submitted.taskId : apizTaskId(raw);
+      } : null;
+      submitted = USE_GATEWAY_UPSTREAM
+        ? await gatewaySubmitAdvancedTask(gatewayBody)
+        : await seedance25Request("/api/v3/tasks/create", upstreamPayload);
+      if (USE_GATEWAY_UPSTREAM) upstreamPayload = gatewayBody;
+    }
+    const raw = !direct && USE_GATEWAY_UPSTREAM ? submitted.raw || submitted : submitted;
+    const directTask = direct ? normalizeTask(raw) : null;
+    const upstreamTaskId = direct ? directTask.taskId : USE_GATEWAY_UPSTREAM ? submitted.taskId : apizTaskId(raw);
     if (!upstreamTaskId) {
-      const error = new Error("Seedance 2.5 service did not return a task id.");
+      const error = new Error(`${providerLabel} service did not return a task id.`);
       error.statusCode = 502;
-      error.code = "SEEDANCE25_TASK_ID_MISSING";
+      error.code = direct ? "SEEDANCE25_DIRECT_TASK_ID_MISSING" : "SEEDANCE25_TASK_ID_MISSING";
       error.payload = raw;
       throw error;
     }
     await updateGenerationRecord(taskId, {
-      status: apizStatus(raw) || "submitted",
+      status: direct ? directTask.status || "submitted" : apizStatus(raw) || "submitted",
       upstreamTaskId,
       awaitingUpstreamTask: false,
-      provider: "seedance25",
-      upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25",
-      upstreamModel: SEEDANCE25_MODEL_ID,
-      source: "advanced-seedance25",
-      model: "Seedance 2.5",
+      provider: direct ? SEEDANCE25_DIRECT_PROVIDER : "seedance25",
+      upstreamSource,
+      upstreamModel: direct ? SEEDANCE25_DIRECT_ENDPOINT : SEEDANCE25_MODEL_ID,
+      source: recordSource,
+      model: providerLabel,
       mediaMode: upstreamInput.mode,
       mediaAssets,
       upstreamPayload,
@@ -19589,23 +19739,23 @@ async function runSeedance25GenerationJob(job = {}) {
       pricingEstimate: pricing,
       finalCredits: cost,
       originalFinalCredits: pricing?.originalCredits ?? cost,
-      billingStatus: cost > 0 ? "settled" : "free",
-      billingSettledAt: cost > 0 ? new Date().toISOString() : "",
-    }, "seedance25-submit");
+      billingStatus: cost > 0 ? (direct ? "pre_deducted" : "settled") : "free",
+      billingSettledAt: cost > 0 && !direct ? new Date().toISOString() : "",
+    }, direct ? "seedance-nsfw-submit" : "seedance25-submit");
   } catch (error) {
-    console.warn("[seedance25-generation-job-error]", taskId, error.message || error);
+    console.warn(direct ? "[seedance-nsfw-generation-job-error]" : "[seedance25-generation-job-error]", taskId, error.message || error);
     await updateGenerationRecord(taskId, {
       status: "failed",
       awaitingUpstreamTask: false,
-      provider: "seedance25",
-      upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25",
-      source: "advanced-seedance25",
-      model: "Seedance 2.5",
+      provider: direct ? SEEDANCE25_DIRECT_PROVIDER : "seedance25",
+      upstreamSource,
+      source: recordSource,
+      model: providerLabel,
       mediaMode: upstreamInput?.mode || "",
       mediaAssets,
       upstreamPayload,
       createResponse: error.payload || null,
-      error: error.message || "Seedance 2.5 generation failed.",
+      error: error.message || `${providerLabel} generation failed.`,
       code: error.code || "",
       failedAt: new Date().toISOString(),
       pricingEstimate: pricing,
@@ -19613,7 +19763,7 @@ async function runSeedance25GenerationJob(job = {}) {
       originalPreDeductedCredits: pricing?.originalCredits ?? cost,
       finalCredits: cost,
       originalFinalCredits: pricing?.originalCredits ?? cost,
-    }, "seedance25-failed");
+    }, direct ? "seedance-nsfw-failed" : "seedance25-failed");
   }
 }
 
@@ -19627,11 +19777,18 @@ function startSeedance25GenerationJob(job = {}) {
 
 async function handleAdvancedSeedance25Generate(req, res, context = {}) {
   const { auth, body, bodyParams, caseParams, selectedCase, config, prompt } = context;
-  if (!USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY) {
+  const provider = normalizeAdvancedProvider(context.provider || body.provider || bodyParams.provider || "seedance25");
+  const direct = provider === SEEDANCE25_DIRECT_PROVIDER;
+  const providerLabel = direct ? SEEDANCE25_DIRECT_LABEL : "Seedance 2.5";
+  if (direct && !ARK_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "SEEDANCE25_DIRECT_NOT_CONFIGURED", message: `${providerLabel} generation is not configured.` });
+  }
+  if (!direct && !USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "SEEDANCE25_NOT_CONFIGURED", message: "Seedance 2.5 generation is not configured." });
   }
   const merged = mergedRequestForMedia(body, caseParams);
-  const mode = normalizeSeedance25Mode(firstPresent(
+  const modeNormalizer = direct ? normalizeSeedance25DirectMode : normalizeSeedance25Mode;
+  const mode = modeNormalizer(firstPresent(
     body.functionMode,
     body.seedanceMode,
     body.mediaMode,
@@ -19645,6 +19802,7 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
   const ratio = mode === "omini" ? requestedRatio : "adaptive";
   const duration = Number(firstPresent(body.duration, bodyParams.duration, caseParams.duration, 4));
   const seed = firstPresent(body.seed, bodyParams.seed, caseParams.seed, "");
+  const generateAudio = boolFromRequest(firstPresent(body.generateAudio, body.generate_audio, bodyParams.generateAudio, bodyParams.generate_audio), true);
 
   try {
     const imageInputs = seedance25ReferenceInputs(merged, "image");
@@ -19689,7 +19847,20 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       : publicHttpUrlForUpstream(firstPresent(lastFrameInput?.url, body.lastFrameUrl, body.endImageUrl, bodyParams.lastFrameUrl, bodyParams.endImageUrl, ""));
 
     let inputVideoSeconds = 0;
-    if (mode === "edit" && videoUrls.length === 1) {
+    if (direct && videoUrls.length) {
+      inputVideoSeconds = durationSecondsFromValue(firstPresent(
+        body.inputVideoSeconds,
+        body.referenceVideoDurationSeconds,
+        bodyParams.inputVideoSeconds,
+      ));
+      if (!inputVideoSeconds) {
+        inputVideoSeconds = videoAssets.reduce((sum, asset) => sum + durationSecondsFromValue(asset?.durationSeconds || asset?.duration), 0);
+      }
+      if (!inputVideoSeconds) {
+        const durations = await Promise.all(videoUrls.map((url) => probeVideoDurationSeconds(url).catch(() => 0)));
+        inputVideoSeconds = durations.reduce((sum, seconds) => sum + durationSecondsFromValue(seconds), 0);
+      }
+    } else if (mode === "edit" && videoUrls.length === 1) {
       inputVideoSeconds = durationSecondsFromValue(firstPresent(
         body.inputVideoSeconds,
         body.referenceVideoDurationSeconds,
@@ -19716,10 +19887,13 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       audioFiles: audioUrls,
       firstFrameUrl,
       lastFrameUrl,
+      inputVideoSeconds,
+      generateAudio,
     };
-    buildSeedance25TaskPayload(upstreamInput, SEEDANCE25_MODEL_ID);
+    if (direct) buildSeedance25DirectTaskPayload(upstreamInput, SEEDANCE25_DIRECT_ENDPOINT);
+    else buildSeedance25TaskPayload(upstreamInput, SEEDANCE25_MODEL_ID);
 
-    const rawPricing = advancedModelPricing("seedance25", {
+    const rawPricing = advancedModelPricing(provider, {
       duration,
       resolution,
       ratio,
@@ -19741,8 +19915,8 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       ...(lastFrameUrl ? [{ type: "end_image_url", key: "end_image_url", userAssetId: lastFrameAsset?.id || "", imageUrl: lastFrameUrl }] : []),
     ];
     const requestParams = {
-      provider: "seedance25",
-      model: "Seedance 2.5",
+      provider,
+      model: providerLabel,
       functionMode: mode,
       seedanceMode: mode,
       prompt,
@@ -19755,6 +19929,8 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       referenceAudioAssetIds: audioAssets.map((asset) => asset.id),
       firstFrameAssetId: firstFrameAsset?.id || "",
       lastFrameAssetId: lastFrameAsset?.id || "",
+      generateAudio,
+      generate_audio: generateAudio,
       createKind: firstPresent(bodyParams.createKind, body.params?.createKind, "custom"),
       createMode: firstPresent(bodyParams.createMode, body.params?.createMode, "custom"),
       preserveUserPrompt: true,
@@ -19767,8 +19943,8 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
         taskId,
         meta: {
           taskId,
-          provider: "seedance25",
-          model: "Seedance 2.5",
+          provider,
+          model: providerLabel,
           mode,
           duration: pricing.duration,
           resolution,
@@ -19785,10 +19961,10 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       taskId,
       status: "preparing",
       awaitingUpstreamTask: true,
-      model: "Seedance 2.5",
-      provider: "seedance25",
-      upstreamSource: USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25",
-      source: "advanced-seedance25",
+      model: providerLabel,
+      provider,
+      upstreamSource: direct ? "byteplus-direct-seedance25" : (USE_GATEWAY_UPSTREAM ? "gateway" : "apiz-seedance25"),
+      source: direct ? "advanced-seedance-nsfw" : "advanced-seedance25",
       kind: "advanced-video",
       templateId: selectedCase?.id || "",
       templateTitle: selectedCase?.title || "Advanced generation",
@@ -19812,15 +19988,15 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       finalCredits: cost,
       originalFinalCredits: pricing.originalCredits,
       userPricingMultiplier: pricing.userPricingMultiplier,
-      billingStatus: cost > 0 ? "settled" : "free",
-      billingSettledAt: cost > 0 ? new Date().toISOString() : "",
+      billingStatus: cost > 0 ? (direct ? "pre_deducted" : "settled") : "free",
+      billingSettledAt: cost > 0 && !direct ? new Date().toISOString() : "",
       pricingEstimate: pricing,
       apiTokenId: auth.tokenRecord?.id || "",
       apiTokenName: auth.tokenRecord?.name || "",
       apiTokenType: auth.tokenRecord?.quotaType || "",
       apiTokenSource: auth.tokenSource || "",
     });
-    startSeedance25GenerationJob({ taskId, upstreamInput, mediaAssets, pricing, cost });
+    startSeedance25GenerationJob({ taskId, upstreamInput, mediaAssets, pricing, cost, provider });
     const latestDb = await readDb();
     const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
     return sendJson(res, 200, {
@@ -19836,7 +20012,7 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
     if (["INSUFFICIENT_CREDITS", "SUBTOKEN_QUOTA_EXCEEDED"].includes(error.code)) {
       return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code, message: error.message });
     }
-    return sendAdvancedValidationError(res, error, "Seedance 2.5 request is invalid.");
+    return sendAdvancedValidationError(res, error, `${providerLabel} request is invalid.`);
   }
 }
 
@@ -22434,6 +22610,9 @@ async function handleAdvancedGenerate(req, res) {
   if (!USE_GATEWAY_UPSTREAM && provider === "seedance" && !ARK_API_KEY && !canUseIgnexSeedance) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Vipeak 2 generation is not configured." });
   }
+  if (provider === SEEDANCE25_DIRECT_PROVIDER && !ARK_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: `${SEEDANCE25_DIRECT_LABEL} generation is not configured.` });
+  }
   const aliyunProviderConfigured = provider === "wan30" ? Boolean(ALIYUN_WAN30_API_KEY) : Boolean(ALIYUN_DASHSCOPE_API_KEY);
   if (!USE_GATEWAY_UPSTREAM && isAliyunVideoProvider(provider) && !aliyunProviderConfigured) {
     return sendJson(res, 503, { ok: false, code: provider === "wan30" ? "MISSING_ALIYUN_WAN30_API_KEY" : "MISSING_ALIYUN_DASHSCOPE_API_KEY", message: `${publicProviderLabel(provider)} generation is not configured.` });
@@ -22456,7 +22635,7 @@ async function handleAdvancedGenerate(req, res) {
     provider === "seedance" ? seedancePromptFromContent(mergedBodyBase.content) : "",
     "",
   )).trim();
-  if (!prompt && provider !== "wan30") return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
   if (provider === "qwen-image3") {
     return await handleAdvancedQwenImage3Generate(req, res, {
       auth,
@@ -22479,7 +22658,7 @@ async function handleAdvancedGenerate(req, res) {
       prompt,
     });
   }
-  if (provider === "seedance25") {
+  if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) {
     return await handleAdvancedSeedance25Generate(req, res, {
       auth,
       body,
@@ -22488,6 +22667,7 @@ async function handleAdvancedGenerate(req, res) {
       selectedCase,
       config,
       prompt,
+      provider,
     });
   }
   const durationBounds = advancedDurationBounds(provider);
@@ -23283,7 +23463,7 @@ async function handleRegenerateGenerationRecord(req, res, taskId) {
   if (source === "platform-template" || (record.templateId && ["image-to-video", "text-to-video"].includes(kind))) {
     return handlePlatformGenerate(withJsonBody(req, platformRegenerateBody(record)), res);
   }
-  if (source.includes("advanced") || ["seedance", "seedance25", "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(String(record.provider || "").toLowerCase())) {
+  if (source.includes("advanced") || ["seedance", "seedance25", SEEDANCE25_DIRECT_PROVIDER, "aliyun-wan30", "aliyun-wan27", "aliyun-happyhorse"].includes(String(record.provider || "").toLowerCase())) {
     return handleAdvancedGenerate(withJsonBody(req, advancedRegenerateBody(record)), res);
   }
   return sendJson(res, 400, { ok: false, message: "This record cannot be regenerated yet." });
@@ -23797,6 +23977,26 @@ function seedance25VideoParameterFields() {
   ];
 }
 
+function seedanceNsfwVideoParameterFields() {
+  return [
+    { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: `Create an asynchronous ${SEEDANCE25_DIRECT_LABEL} video task.`, default: "-" },
+    { name: "provider", type: "string", required: "Yes", description: "Use `seedance-nsfw`.", default: "seedance-nsfw" },
+    { name: "prompt", type: "string", required: "Unless media is supplied", description: "Video prompt, up to 6000 characters. References keep request order as Image 1, Video 1, Audio 1, etc.", default: "-" },
+    { name: "functionMode / seedanceMode / mediaMode", type: "enum", required: "No", description: "`reference`/`omini`, `first_last_frame`, `edit`, or `extend`.", default: "reference" },
+    { name: "referenceImages", type: "array", required: "For image references", description: "0-30 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName.", default: "[]" },
+    { name: "referenceVideos / referenceVideoAssetIds", type: "array", required: "For video references", description: "Reference mode accepts 0-10 videos. Edit and extend require exactly one source video.", default: "[]" },
+    { name: "referenceAudios / referenceAudioAssetIds", type: "array", required: "For audio references", description: "0-10 audios. Audio-only reference generation is supported by this direct model.", default: "[]" },
+    { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first_last_frame", description: "First-frame image.", default: "-" },
+    { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For first_last_frame", description: "Last-frame image. Both frames are required and cannot be mixed with reference media.", default: "-" },
+    { name: "resolution", type: "enum", required: "No", description: "`480p` or `720p`.", default: "480p" },
+    { name: "ratio", type: "enum", required: "No", description: "`16:9`, `21:9`, `9:16`, `4:3`, `3:4`, `1:1`, or `adaptive`.", default: "adaptive" },
+    { name: "duration", type: "integer", required: "No", description: "Output duration from 4-30 seconds. Edit follows the source-video duration.", default: "4" },
+    { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Generate output audio. The upstream default is true.", default: "true" },
+    { name: "seed", type: "integer", required: "No", description: "`-1` for random, or an integer from 0 to 4294967295.", default: "-1" },
+    { name: "reference total", type: "rule", required: "For reference mode", description: "At most 50 images, videos, and audios combined.", default: "-" },
+  ];
+}
+
 function happyhorseVideoParameterFields() {
   return [
     { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous HappyHorse video task.", default: "-" },
@@ -23995,6 +24195,25 @@ function advancedGenerateConstraintsDoc() {
         extend: "Requires exactly one source video; duration is the number of seconds to extend.",
       },
     },
+    seedanceNsfw: {
+      provider: SEEDANCE25_DIRECT_PROVIDER,
+      route: "/api/advanced/generate",
+      model: SEEDANCE25_DIRECT_LABEL,
+      modes: ["reference", "first_last_frame", "edit", "extend"],
+      durationSeconds: { integer: true, min: 4, max: 30, sourceDurationFor: ["edit"] },
+      resolution: [...SEEDANCE25_DIRECT_RESOLUTIONS],
+      ratio: [...SEEDANCE25_DIRECT_RATIOS],
+      referenceLimits: { images: 30, videos: 10, audios: 10, total: 50 },
+      audioOnly: true,
+      generateAudio: { type: "boolean", default: true },
+      seed: { integer: true, min: -1, max: 4294967295 },
+      modeRules: {
+        reference: "Accepts image, video, and audio references. Audio-only reference generation is supported.",
+        first_last_frame: "Requires both frame images and cannot be mixed with reference media.",
+        edit: "Requires exactly one source video; output duration follows the source-video duration.",
+        extend: "Requires exactly one source video; duration is the number of seconds to extend.",
+      },
+    },
     wan27: {
       provider: "wan27",
       route: "/api/advanced/generate",
@@ -24123,7 +24342,7 @@ function externalAdvancedApiDoc(origin) {
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced route. Wan image generation uses its dedicated endpoint.",
+    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. Wan 3.0, Seedance 2.5, Seedance (NSFW), Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced route. Wan image generation uses its dedicated endpoint.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
     supportedModels: [
@@ -24131,6 +24350,7 @@ function externalAdvancedApiDoc(origin) {
       { name: "Seedance 2.0 Fast", model: "dreamina-seedance-2-0-fast-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Wan 3.0 Video", provider: "wan30", capability: "wan30-video", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: SEEDANCE25_DIRECT_LABEL, provider: SEEDANCE25_DIRECT_PROVIDER, capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Wan2.7 Video", provider: "wan27", capability: "wan27-t2v / wan27-i2v / wan27-r2v / wan27-video-edit", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "HappyHorse Video", provider: "happyhorse", capability: "happyhorse-t2v / happyhorse-i2v / happyhorse-r2v / happyhorse-video-edit", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Wan Animate", provider: "wan27", capability: "wan-animate-move / wan-animate-mix", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
@@ -24258,6 +24478,25 @@ function externalAdvancedApiDoc(origin) {
         ratio: "9:16",
         resolution: "720p",
         duration: 8,
+      },
+    },
+    seedanceNsfwExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        provider: SEEDANCE25_DIRECT_PROVIDER,
+        functionMode: "reference",
+        prompt: "Use Image 1 as the subject and Video 1 as the action reference.",
+        referenceImages: [{ assetId: "uploaded-image-asset-id" }],
+        referenceVideos: [{ assetId: "uploaded-video-asset-id" }],
+        ratio: "9:16",
+        resolution: "720p",
+        duration: 8,
+        generateAudio: true,
       },
     },
     wan27Example: {
@@ -24666,6 +24905,7 @@ function advancedConstraintsMarkdown(doc = {}) {
   const seedance = constraints.seedance || {};
   const wan30 = constraints.wan30 || {};
   const seedance25 = constraints.seedance25 || {};
+  const seedanceNsfw = constraints.seedanceNsfw || {};
   const wan27 = constraints.wan27 || {};
   const happyhorse = constraints.happyhorse || {};
   const wanAnimate = constraints.wanAnimate || {};
@@ -24731,6 +24971,15 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- \`resolution\`: ${(seedance25.resolution || ["480p", "720p"]).map((item) => `\`${item}\``).join(", ")}.`,
     `- Reference mode: at least one reference; max ${seedance25.referenceLimits?.images ?? 30} images, ${seedance25.referenceLimits?.videos ?? 10} videos, ${seedance25.referenceLimits?.audios ?? 10} audios, and ${seedance25.referenceLimits?.total ?? 50} assets total. Audio-only is not supported.`,
     "- First/last frame mode requires both frame images and cannot be mixed with reference media. Edit and extend require exactly one source video.",
+    "",
+    "Seedance (NSFW) video:",
+    "",
+    `- Endpoint: \`${seedanceNsfw.route || "/api/advanced/generate"}\` with \`provider: "${seedanceNsfw.provider || SEEDANCE25_DIRECT_PROVIDER}"\`.`,
+    "- Modes: `reference`, `first_last_frame`, `edit`, `extend`. `omini` is accepted as the reference-mode alias.",
+    `- \`duration\`: integer ${seedanceNsfw.durationSeconds?.min ?? 4}-${seedanceNsfw.durationSeconds?.max ?? 30} seconds. Edit follows the source-video duration; extend uses duration as the extension length.`,
+    `- \`resolution\`: ${(seedanceNsfw.resolution || SEEDANCE25_DIRECT_RESOLUTIONS).map((item) => `\`${item}\``).join(", ")}. \`ratio\`: ${(seedanceNsfw.ratio || SEEDANCE25_DIRECT_RATIOS).map((item) => `\`${item}\``).join(", ")}.`,
+    `- References: max ${seedanceNsfw.referenceLimits?.images ?? 30} images, ${seedanceNsfw.referenceLimits?.videos ?? 10} videos, ${seedanceNsfw.referenceLimits?.audios ?? 10} audios, and ${seedanceNsfw.referenceLimits?.total ?? 50} assets total. Audio-only reference generation is supported.`,
+    "- `generateAudio`/`generate_audio`: boolean, default `true`. First/last frame mode cannot be mixed with reference media; edit and extend require exactly one source video.",
     "",
     "Wan2.7 video:",
     "",
@@ -24912,6 +25161,20 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     docsParameterMarkdown(seedance25VideoParameterFields()),
     "",
+    "**Seedance (NSFW) video**",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.seedanceNsfwExample?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Seedance (NSFW) fields**",
+    "",
+    docsParameterMarkdown(seedanceNsfwVideoParameterFields()),
+    "",
     "**Wan2.7 video**",
     "",
     markdownCodeBlock("http", [
@@ -24956,7 +25219,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "",
     "**Advanced task polling**",
     "",
-    "Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate return `taskId`. Poll the generation record until its status is terminal.",
+    "Wan 3.0, Seedance 2.5, Seedance (NSFW), Wan2.7, HappyHorse, and Wan Animate return `taskId`. Poll the generation record until its status is terminal.",
     "",
     markdownCodeBlock("http", [
       `GET ${route(endpoints.generationRecordDetail, "/api/generation-records/<taskId>")}`,
@@ -25025,7 +25288,7 @@ function buildModelDocsMarkdown(docs) {
     "2. For V3 reusable media, create assets with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>`. For Advanced models, upload with `/api/user-assets`, then use the returned `asset.id`.",
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
     "4. Create a Seedream 5.0 Pro or Qwen Image 3.0 task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
-    "5. Create Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, or Wan Animate tasks with `/api/advanced/generate` and the documented provider/capability.",
+    "5. Create Wan 3.0, Seedance 2.5, Seedance (NSFW), Wan2.7, HappyHorse, or Wan Animate tasks with `/api/advanced/generate` and the documented provider/capability.",
     "6. Create or edit Wan2.7 images with `/api/vipeak1/image-edit`.",
     "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for V3 tasks and `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",
@@ -30729,6 +30992,10 @@ async function handleAdminGetConfig(req, res) {
 const ADVANCED_PRICING_ROWS = [
   { key: "seedance25-480p", provider: "seedance25", providerLabel: "Seedance 2.5", resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "seedance25-720p", provider: "seedance25", providerLabel: "Seedance 2.5", resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "seedance-nsfw-480p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: SEEDANCE25_DIRECT_LABEL, model: SEEDANCE25_DIRECT_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "Without input video" },
+  { key: "seedance-nsfw-720p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: SEEDANCE25_DIRECT_LABEL, model: SEEDANCE25_DIRECT_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "Without input video" },
+  { key: "seedance-nsfw-video-input-480p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: `${SEEDANCE25_DIRECT_LABEL} + Video`, model: SEEDANCE25_DIRECT_MODEL, resolution: "480p", rateKind: "video_input", unit: "combined_second", usageLabel: "Input + output video seconds" },
+  { key: "seedance-nsfw-video-input-720p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: `${SEEDANCE25_DIRECT_LABEL} + Video`, model: SEEDANCE25_DIRECT_MODEL, resolution: "720p", rateKind: "video_input", unit: "combined_second", usageLabel: "Input + output video seconds" },
   { key: "wan30-480p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "wan30-720p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "wan30-1080p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
@@ -30812,6 +31079,7 @@ function advancedPricingRowKey(row = {}) {
   if (provider === "seedance" && isFast && isVideoInput) return `seedance-fast-video-input-${resolution}`;
   if (provider === "seedance" && isFast) return `seedance-fast-${resolution}`;
   if (provider === "seedance" && isVideoInput) return `seedance-video-input-${resolution}`;
+  if (provider === SEEDANCE25_DIRECT_PROVIDER && isVideoInput) return `seedance-nsfw-video-input-${resolution}`;
   return `${provider}-${resolution}`;
 }
 
@@ -30866,6 +31134,10 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
   const isFast = normalizedProvider === "seedance" && normalizeSeedanceTier(seedanceTier) === "fast";
   const table = normalizedProvider === "seedance25"
     ? normalized.seedance25CreditsPerSecondByResolution
+    : normalizedProvider === SEEDANCE25_DIRECT_PROVIDER && rateKind === "video_input"
+    ? normalized.seedanceNsfwVideoCreditsPerSecondByResolution
+    : normalizedProvider === SEEDANCE25_DIRECT_PROVIDER
+    ? normalized.seedanceNsfwCreditsPerSecondByResolution
     : normalizedProvider === "wan30"
     ? normalized.wan30CreditsPerSecondByResolution
     : normalizedProvider === "seedance" && isFast && rateKind === "video_input"
@@ -31093,6 +31365,19 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
       message: cnyPerSecond === null
         ? "Alibaba Cloud Model Studio Beijing official price is unavailable for this resolution."
         : `Alibaba Cloud Model Studio Beijing official Wan 3.0 price: ${cnyPerSecond} CNY/second, converted at ${ALIYUN_WAN30_CNY_PER_USD} CNY/USD and ${DEFAULT_CREDITS_PER_USD} site credits/USD. No free quota.`,
+    };
+  }
+  if (normalizedProvider === SEEDANCE25_DIRECT_PROVIDER) {
+    const hasVideoInput = rateKind === "video_input";
+    const usdPerSecond = directPurchaseUsdPerSecond(publicResolution, { hasVideoInput });
+    const usdPerMillionTokens = hasVideoInput
+      ? SEEDANCE25_DIRECT_USD_PER_MILLION_TOKENS.withVideo
+      : SEEDANCE25_DIRECT_USD_PER_MILLION_TOKENS.withoutVideo;
+    return {
+      creditsPerSecond: pricingNumber(usdPerSecond * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      usdPerSecond,
+      source: "byteplus_official_seedance25_token_pricing",
+      message: `BytePlus official Seedance 2.5 price: $${usdPerMillionTokens}/million tokens (${hasVideoInput ? "with input video" : "without input video"}); the displayed per-second purchase price uses ${publicResolution} 16:9 at 24fps. Actual upstream billing uses completion_tokens.`,
     };
   }
   if (normalizedProvider === "seedance25") {
@@ -31438,7 +31723,7 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     if (!Number.isFinite(rawCredits) || rawCredits < 0) {
       throw pricingPayloadError(`Invalid sale price for ${key}`);
     }
-    const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") ? 6 : 4);
+    const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") || key.startsWith("seedance-nsfw-") ? 6 : 4);
     if (key === "wan27-720p") next.wan27CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "wan27-1080p") next.wan27CreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "wan30-480p") next.wan30CreditsPerSecondByResolution["480p"] = credits;
@@ -31446,6 +31731,10 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     else if (key === "wan30-1080p") next.wan30CreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance25-480p") next.seedance25CreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance25-720p") next.seedance25CreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "seedance-nsfw-480p") next.seedanceNsfwCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "seedance-nsfw-720p") next.seedanceNsfwCreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "seedance-nsfw-video-input-480p") next.seedanceNsfwVideoCreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "seedance-nsfw-video-input-720p") next.seedanceNsfwVideoCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "happyhorse-720p") next.happyhorseCreditsPerSecondByResolution["720p"] = credits;
     else if (key === "happyhorse-1080p") next.happyhorseCreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance-video-input-480p") next.seedanceVideoInputCreditsPerSecondByResolution["480p"] = credits;
@@ -34022,6 +34311,7 @@ const PRIVATE_STATIC_ROOT_FILES = new Set([
   "/qwen-image3.js",
   "/readme.md",
   "/seedance25.js",
+  "/seedance25-direct.js",
   "/server.js",
   "/session_handoff_2026-06-06.md",
   "/site-http.js",

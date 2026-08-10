@@ -24,6 +24,10 @@ test("admin pricing keeps current models and omits early Wan models", () => {
   assert.match(pricingRowsSource, /key: "wan30-480p"/);
   assert.match(pricingRowsSource, /key: "wan30-720p"/);
   assert.match(pricingRowsSource, /key: "wan30-1080p"/);
+  assert.match(pricingRowsSource, /key: "seedance-nsfw-480p"/);
+  assert.match(pricingRowsSource, /key: "seedance-nsfw-720p"/);
+  assert.match(pricingRowsSource, /key: "seedance-nsfw-video-input-480p"/);
+  assert.match(pricingRowsSource, /key: "seedance-nsfw-video-input-720p"/);
   assert.doesNotMatch(pricingRowsSource, /capability: "wan27-(?:t2v|i2v|r2v|video-edit)"/);
   assert.doesNotMatch(pricingRowsSource, /capability: "happyhorse-(?:t2v|i2v|r2v|video-edit)"/);
   assert.doesNotMatch(pricingRowsSource, /officialSingaporeLegacyPricingRows\(\)/);
@@ -69,4 +73,16 @@ test("Wan3.0 adaptive duration pre-deducts the maximum and settles from the outp
   assert.match(server, /async function settleWan30AdaptiveDuration/);
   assert.match(server, /const actualDuration = await probeVideoDurationSeconds\(resultUrl\)/);
   assert.match(server, /Math\.min\(30, actualDuration\) \* creditsPerSecond/);
+});
+
+test("Seedance NSFW prices video input from combined input and output seconds", () => {
+  const pricingSource = server.slice(
+    server.indexOf("function advancedModelPricing("),
+    server.indexOf("function seedream5ImagePricingEstimate("),
+  );
+  assert.match(pricingSource, /normalizedProvider === SEEDANCE25_DIRECT_PROVIDER/);
+  assert.match(pricingSource, /seedanceNsfwVideoCreditsPerSecondByResolution/);
+  assert.match(pricingSource, /billingSeconds = duration \+ \(hasVideoInput \? inputVideoSeconds : 0\)/);
+  assert.match(pricingSource, /source: "seedance25_direct_token_estimate"/);
+  assert.match(server, /directSeedance25[\s\S]*completionTokens \* usdPerMillionTokens \* DEFAULT_CREDITS_PER_USD/);
 });

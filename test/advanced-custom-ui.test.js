@@ -26,6 +26,7 @@ test("Advanced engine list contains English model families, not task modes", () 
   assert.match(engine, /value="wan-animate">Wan Animate/);
   assert.match(engine, /value="happyhorse">HappyHorse/);
   assert.match(engine, /value="seedance">Seedance 2\.0/);
+  assert.match(engine, /value="seedance-nsfw">Seedance \(NSFW\)/);
   assert.doesNotMatch(engine, /value="(?:wan27|happyhorse)-(?:t2v|i2v|r2v|video-edit)"/);
 });
 
@@ -46,7 +47,7 @@ test("Wan and HappyHorse task modes live in the parameter capability map", () =>
 test("only explicit frame modes use dedicated upload controls", () => {
   assert.match(html, /id="advancedWanFirstFrame" type="file" accept="image\/\*"/);
   assert.match(main, /advancedWanFirstFrame\?\.addEventListener\("change"/);
-  assert.match(create, /usesDedicatedFrameUpload = \["seedance", "seedance25", "wan30"\]\.includes\(provider\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.match(create, /usesDedicatedFrameUpload = \["seedance", "seedance25", "seedance-nsfw", "wan30"\]\.includes\(provider\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
   assert.doesNotMatch(create, /usesDedicatedAliyunUpload/);
 });
 
@@ -69,9 +70,9 @@ test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", ()
 
 test("Wan3.0 exposes free multimodal and frame controls without link fields", () => {
   assert.match(create, /provider === "wan30"\s*\? \["480p", "720p", "1080p"\]/);
-  assert.match(create, /provider === "wan30" \|\| provider === "seedance25"\s*\? \["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
-  assert.match(create, /els\.advancedRatio\.value \|\| \(\["wan30", "seedance25"\]\.includes\(provider\) \? "adaptive" : "9:16"\)/);
-  assert.match(create, /\["wan30", "seedance25"\]\.includes\(provider\) && rawRatio === "adaptive" \? "adaptive"/);
+  assert.match(create, /provider === "wan30" \|\| \["seedance25", "seedance-nsfw"\]\.includes\(provider\)\s*\? \["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
+  assert.match(create, /els\.advancedRatio\.value \|\| \(\["wan30", "seedance25", "seedance-nsfw"\]\.includes\(provider\) \? "adaptive" : "9:16"\)/);
+  assert.match(create, /\["wan30", "seedance25", "seedance-nsfw"\]\.includes\(provider\) && rawRatio === "adaptive" \? "adaptive"/);
   assert.match(create, /\? \[-1, \.\.\.Array\.from\(\{ length: 29 \}/);
   assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
   assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
@@ -111,7 +112,7 @@ test("Seedance 2.5 server pricing migrates old rounded defaults and preserves si
   assert.match(server, /numeric === legacyRoundedDefault \? fallback : value/);
   assert.match(server, /"480p": normalizeSeedance25Credits\(seedance25\["480p"\]/);
   assert.match(server, /"720p": normalizeSeedance25Credits\(seedance25\["720p"\]/);
-  assert.match(server, /key\.startsWith\("seedance25-"\) \? 6 : 4/);
+  assert.match(server, /key\.startsWith\("seedance25-"\) \|\| key\.startsWith\("seedance-nsfw-"\) \? 6 : 4/);
 });
 
 test("shared video uploads use capability-specific duration limits", () => {
