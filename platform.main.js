@@ -698,7 +698,7 @@ els.advancedProvider?.addEventListener("change", () => {
   if (["seedance25", "seedance-nsfw"].includes(currentAdvancedProvider())) {
     syncAdvancedSeedanceModeOptions(currentAdvancedProvider());
     if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "omini";
-    if (els.advancedRatio) els.advancedRatio.value = "1:1";
+    if (els.advancedRatio) els.advancedRatio.value = currentAdvancedProvider() === "seedance25" ? "16:9" : "1:1";
     if (els.advancedResolution) els.advancedResolution.value = "480p";
     if (els.advancedDuration) els.advancedDuration.value = "4";
     state.advancedAssetTarget = "referenceImages";
@@ -756,7 +756,7 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
       state.advancedReferenceImages = [];
       setAdvancedSeedanceVideoReferences([]);
       setAdvancedSeedanceAudioReferences([]);
-    } else if (["edit", "extend"].includes(seedanceMode)) {
+    } else if (provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)) {
       state.advancedReferenceImages = [];
       setAdvancedSeedanceVideoReferences(advancedSeedanceVideoReferences().slice(0, 1));
       setAdvancedSeedanceAudioReferences([]);
@@ -771,11 +771,15 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
       state.advancedSeedanceLastFrameDataUrl = "";
     }
     syncAdvancedPromptMentionLabels(previousPromptRefs);
-    if (els.advancedRatio) els.advancedRatio.value = seedanceMode === "omini" ? "1:1" : "adaptive";
+    if (els.advancedRatio) {
+      els.advancedRatio.value = provider === "seedance25"
+        ? "16:9"
+        : seedanceMode === "omini" ? "1:1" : "adaptive";
+    }
   }
   state.advancedAssetTarget = seedanceModeNeedsFirstFrame(seedanceMode)
     ? "primary"
-    : ["seedance25", "seedance-nsfw"].includes(provider) && ["edit", "extend"].includes(seedanceMode)
+    : provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)
     ? "video"
     : "referenceImages";
   updateAdvancedModelControls();
@@ -783,7 +787,7 @@ els.advancedSeedanceMediaMode?.addEventListener("change", () => {
 });
 els.advancedRatio?.addEventListener("change", updateAdvancedButtonCost);
 els.advancedResolution?.addEventListener("change", () => {
-  syncAdvancedVideoSettingsControls();
+  updateAdvancedModelControls();
   updateAdvancedButtonCost();
 });
 els.advancedVideoResolutionChoices?.addEventListener("click", (event) => {
@@ -811,7 +815,7 @@ els.advancedUploadBox?.addEventListener("click", () => {
     ? "sourceImages"
     : ["seedream5-image", "qwen-image3"].includes(provider)
     ? "referenceImages"
-    : ["seedance25", "seedance-nsfw"].includes(provider) && ["edit", "extend"].includes(seedanceMode)
+    : provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)
     ? "video"
     : ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !seedanceModeNeedsFirstFrame(seedanceMode)
     ? "referenceImages"

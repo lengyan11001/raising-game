@@ -1475,8 +1475,6 @@ const ADVANCED_SEEDANCE_MODE_OPTIONS = Object.freeze({
   ]),
   seedance25: Object.freeze([
     Object.freeze({ value: "omini", label: "Multimodal References" }),
-    Object.freeze({ value: "edit", label: "Video Edit" }),
-    Object.freeze({ value: "extend", label: "Video Extend" }),
     Object.freeze({ value: "first_last_frame", label: "First + Last Frame" }),
   ]),
   "seedance-nsfw": Object.freeze([
@@ -1842,8 +1840,7 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   if (normalizedProvider === "seedance25") {
     const normalizedResolution = normalizeAdvancedResolution(resolution, normalizedProvider);
     const mode = normalizeSeedanceMediaMode(options.mode || els.advancedSeedanceMediaMode?.value || "omini");
-    const inputVideoSeconds = positiveDurationSeconds(options.inputVideoSeconds ?? options.videoInputSeconds, 0);
-    const billingSeconds = mode === "edit" ? inputVideoSeconds : seconds;
+    const billingSeconds = normalizedResolution === "720p" ? Math.min(29, seconds) : seconds;
     const byResolution = configPricing.seedance25CreditsPerSecondByResolution || {};
     const fallbackPerSecond = normalizedResolution === "720p"
       ? ADVANCED_SEEDANCE25_720P_CREDITS_PER_SECOND
@@ -1854,10 +1851,10 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
       provider: "seedance25",
       mode,
       duration: billingSeconds,
-      requestedDuration: mode === "edit" ? null : seconds,
-      inputVideoSeconds: mode === "edit" ? inputVideoSeconds : 0,
+      requestedDuration: billingSeconds,
+      inputVideoSeconds: 0,
       resolution: normalizedResolution,
-      ratio: mode === "omini" ? normalizeVideoRatio(ratio) : "adaptive",
+      ratio: normalizeVideoRatio(ratio || "16:9"),
       creditsPerSecond: perSecond,
       outputCredits: originalCredits,
       baseCredits: originalCredits,
@@ -2038,7 +2035,7 @@ function advancedVideoSettingsVisible() {
     && !advancedCreateModeIsSimpleEdit()
     && !["wan-animate-move", "wan-animate-mix"].includes(currentAdvancedVideoCapability())
     && !advancedVideoEditUsesSourceDuration()
-    && !(["seedance25", "seedance-nsfw"].includes(currentAdvancedProvider()) && normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "") === "edit");
+    && !(currentAdvancedProvider() === "seedance-nsfw" && normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "") === "edit");
 }
 
 function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
@@ -2052,10 +2049,11 @@ function advancedVideoResolutionOptions(provider = currentAdvancedProvider()) {
 
 function advancedVideoDurationOptions(provider = currentAdvancedProvider()) {
   const bounds = advancedDurationBounds(provider);
-  const base = [bounds.min, 5, 8, 10, bounds.max]
-    .filter((value, index, list) => Number.isFinite(value) && value >= bounds.min && value <= bounds.max && list.indexOf(value) === index);
+  const max = normalizeAdvancedProvider(provider) === "seedance25" && currentAdvancedResolution() === "720p" ? 29 : bounds.max;
+  const base = [bounds.min, 5, 8, 10, max]
+    .filter((value, index, list) => Number.isFinite(value) && value >= bounds.min && value <= max && list.indexOf(value) === index);
   const current = Number(els.advancedDuration?.value || bounds.min);
-  if (Number.isFinite(current) && current >= bounds.min && current <= bounds.max && !base.includes(current)) base.push(current);
+  if (Number.isFinite(current) && current >= bounds.min && current <= max && !base.includes(current)) base.push(current);
   return base.sort((a, b) => a - b);
 }
 
@@ -2083,8 +2081,9 @@ function syncAdvancedVideoSettingsControls() {
   }
 
   const bounds = advancedDurationBounds(provider);
+  const maxDuration = normalizeAdvancedProvider(provider) === "seedance25" && selectedResolution === "720p" ? 29 : bounds.max;
   const rawDuration = Number(els.advancedDuration?.value || bounds.min);
-  const selectedDuration = Math.min(bounds.max, Math.max(bounds.min, Number.isFinite(rawDuration) ? rawDuration : bounds.min));
+  const selectedDuration = Math.min(maxDuration, Math.max(bounds.min, Number.isFinite(rawDuration) ? rawDuration : bounds.min));
   if (els.advancedDuration && Number(els.advancedDuration.value) !== selectedDuration) {
     els.advancedDuration.value = String(selectedDuration);
   }
@@ -3214,10 +3213,11 @@ function updateAdvancedButtonCost() {
   const bounds = advancedDurationBounds(currentAdvancedProvider());
   const provider = currentAdvancedProvider();
   const videoCapability = currentAdvancedVideoCapability();
-  const configuredDuration = Number.isFinite(rawDuration) ? Math.min(bounds.max, Math.max(bounds.min, rawDuration)) : bounds.fallback;
+  const durationMax = provider === "seedance25" && currentAdvancedResolution() === "720p" ? 29 : bounds.max;
+  const configuredDuration = Number.isFinite(rawDuration) ? Math.min(durationMax, Math.max(bounds.min, rawDuration)) : bounds.fallback;
   const sourceVideoSeconds = advancedVideoEditUsesSourceDuration(videoCapability)
     ? currentAdvancedAliyunSourceVideoSeconds(0)
-    : ["seedance25", "seedance-nsfw"].includes(provider) && normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "") === "edit"
+    : provider === "seedance-nsfw" && normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "") === "edit"
     ? currentSeedanceVideoInputSeconds(0, provider)
     : 0;
   const duration = sourceVideoSeconds > 0

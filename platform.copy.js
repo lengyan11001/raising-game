@@ -1986,7 +1986,7 @@ Content-Type: application/json
 {"provider":"wan30","videoCapability":"wan30-video","mediaMode":"multimodal","prompt":"Use Image 1 as the character and Video 1 as the motion reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}
 
 Seedance 2.5 reference example:
-{"provider":"seedance25","functionMode":"reference","prompt":"Use Image 1 as the subject and Video 1 as the action reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8}
+{"provider":"seedance25","functionMode":"reference","prompt":"Use Image 1 as the subject and Video 1 as the action reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}
 
 Seedance2.5 (NSFW) reference example:
 {"provider":"seedance-nsfw","functionMode":"reference","prompt":"Use Image 1 as the subject and Video 1 as the action reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}

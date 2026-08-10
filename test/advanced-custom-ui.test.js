@@ -34,6 +34,8 @@ test("Seedance keeps only the two product modes", () => {
   const mode = elementMarkup("advancedSeedanceMediaMode");
   const values = [...mode.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(values, ["reference_video", "first_last_frame"]);
+  assert.match(ui, /seedance25: Object\.freeze\(\[[\s\S]*?value: "omini"[\s\S]*?value: "first_last_frame"/);
+  assert.doesNotMatch(ui.match(/seedance25: Object\.freeze\(\[([\s\S]*?)\]\)/)?.[1] || "", /value: "(?:edit|extend)"/);
 });
 
 test("Wan and HappyHorse task modes live in the parameter capability map", () => {
@@ -70,9 +72,10 @@ test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", ()
 
 test("Wan3.0 exposes free multimodal and frame controls without link fields", () => {
   assert.match(create, /provider === "wan30"\s*\? \["480p", "720p", "1080p"\]/);
-  assert.match(create, /provider === "wan30" \|\| \["seedance25", "seedance-nsfw"\]\.includes\(provider\)\s*\? \["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
-  assert.match(create, /els\.advancedRatio\.value \|\| \(\["wan30", "seedance25", "seedance-nsfw"\]\.includes\(provider\) \? "adaptive" : "9:16"\)/);
-  assert.match(create, /\["wan30", "seedance25", "seedance-nsfw"\]\.includes\(provider\) && rawRatio === "adaptive" \? "adaptive"/);
+  assert.match(create, /provider === "seedance25"\s*\? \["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
+  assert.match(create, /const fallbackRatio = provider === "seedance25" \? "16:9"/);
+  assert.match(create, /\["wan30", "seedance-nsfw"\]\.includes\(provider\) && rawRatio === "adaptive" \? "adaptive"/);
+  assert.match(create, /provider === "seedance25" && normalizeAdvancedResolution[\s\S]*?=== "720p"\s*\? 29/);
   assert.match(create, /\? \[-1, \.\.\.Array\.from\(\{ length: 29 \}/);
   assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
   assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
@@ -119,8 +122,9 @@ test("video prompts are forwarded without a system negative prompt", () => {
 
 test("Seedance 2.5 server pricing migrates old rounded defaults and preserves six decimals", () => {
   assert.match(server, /const normalizeStoredCredits = \(value, fallback, digits = 4\)/);
-  assert.match(server, /const normalizeSeedance25Credits = \(value, fallback\)/);
-  assert.match(server, /numeric === legacyRoundedDefault \? fallback : value/);
+  assert.match(server, /const normalizeSeedance25Credits = \(value, fallback, resolution\)/);
+  assert.match(server, /const previousPointsPerSecond = resolution === "720p" \? 260 : 130/);
+  assert.match(server, /\[previousDefault, previousRoundedDefault\]\.some/);
   assert.match(server, /"480p": normalizeSeedance25Credits\(seedance25\["480p"\]/);
   assert.match(server, /"720p": normalizeSeedance25Credits\(seedance25\["720p"\]/);
   assert.match(server, /key\.startsWith\("seedance25-"\) \|\| key\.startsWith\("seedance-nsfw-"\) \? 6 : 4/);

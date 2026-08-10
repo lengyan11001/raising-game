@@ -18,7 +18,7 @@ const {
 const {
   SEEDANCE25_CNY_PER_POINT,
   SEEDANCE25_CNY_PER_USD,
-  SEEDANCE25_INNER_MODEL,
+  SEEDANCE25_MODEL,
   SEEDANCE25_POINTS_PER_SECOND,
   SEEDANCE25_RATIOS,
   buildSeedance25TaskPayload,
@@ -371,10 +371,8 @@ const APIZ_BASE_URL = (process.env.APIZ_BASE_URL || "https://api.apiz.ai").repla
 const APIZ_API_KEY = process.env.APIZ_API_KEY || process.env.XSKILL_API_KEY || "";
 const SEEDANCE25_API_BASE_URL = (process.env.SEEDANCE25_API_BASE_URL || "https://api.apiz.ai").replace(/\/+$/, "");
 const SEEDANCE25_API_KEY = String(process.env.SEEDANCE25_API_KEY || "").trim();
-const SEEDANCE25_MODEL_ID = String(process.env.SEEDANCE25_MODEL_ID || "st-ai/super-seed2-lite").trim();
-const SEEDANCE25_INNER_MODEL_ID = String(process.env.SEEDANCE25_INNER_MODEL || SEEDANCE25_INNER_MODEL).trim();
+const SEEDANCE25_MODEL_ID = String(process.env.SEEDANCE25_MODEL_ID || SEEDANCE25_MODEL).trim();
 const SEEDANCE25_DIRECT_ENDPOINT = String(process.env.SEEDANCE25_DIRECT_ENDPOINT_ID || SEEDANCE25_DIRECT_ENDPOINT_ID).trim();
-const SEEDANCE25_TRANSFER_URL_CACHE = new Map();
 const APIZ_SEEDANCE_API_BASE_URL = "";
 const APIZ_SEEDANCE_API_KEY = "";
 const APIZ_SEEDANCE_MODEL_ID = "";
@@ -1797,10 +1795,19 @@ function normalizeAdvancedPricing(pricing = {}) {
     const normalized = pricingNumber(value, fallback, 0, digits);
     return pricingNumber(normalized * legacyPricingScale, fallback, 0, digits);
   };
-  const normalizeSeedance25Credits = (value, fallback) => {
+  const normalizeSeedance25Credits = (value, fallback, resolution) => {
     const numeric = Number(value);
-    const legacyRoundedDefault = pricingNumber(fallback, fallback);
-    const migratedValue = Number.isFinite(numeric) && numeric === legacyRoundedDefault ? fallback : value;
+    const previousPointsPerSecond = resolution === "720p" ? 260 : 130;
+    const previousDefault = pricingNumber(
+      (previousPointsPerSecond * SEEDANCE25_CNY_PER_POINT / SEEDANCE25_CNY_PER_USD) * DEFAULT_CREDITS_PER_USD,
+      0,
+      0,
+      6,
+    );
+    const previousRoundedDefault = pricingNumber(previousDefault, previousDefault);
+    const migratedValue = Number.isFinite(numeric) && [previousDefault, previousRoundedDefault].some((candidate) => Math.abs(numeric - candidate) < 0.0000001)
+      ? fallback
+      : value;
     return normalizeStoredCredits(migratedValue, fallback, 6);
   };
   const imageResolutionValues = Array.isArray(wan27ImageSource.resolutions) && wan27ImageSource.resolutions.length
@@ -1919,8 +1926,8 @@ function normalizeAdvancedPricing(pricing = {}) {
     internalCnyPerUsd: INTERNAL_CNY_PER_USD,
     usdBillingConfigured: true,
     seedance25CreditsPerSecondByResolution: {
-      "480p": normalizeSeedance25Credits(seedance25["480p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["480p"]),
-      "720p": normalizeSeedance25Credits(seedance25["720p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["720p"]),
+      "480p": normalizeSeedance25Credits(seedance25["480p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["480p"], "480p"),
+      "720p": normalizeSeedance25Credits(seedance25["720p"], DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution["720p"], "720p"),
     },
     seedanceNsfwCreditsPerSecondByResolution: {
       "480p": normalizeStoredCredits(seedanceNsfw["480p"], DEFAULT_ADVANCED_PRICING.seedanceNsfwCreditsPerSecondByResolution["480p"], 6),
@@ -6751,27 +6758,22 @@ function advancedModelPricing(provider = "seedance", options = {}) {
     const resolution = ["480p", "720p"].includes(String(options.resolution || "").toLowerCase())
       ? String(options.resolution).toLowerCase()
       : "480p";
-    const requestedDuration = clampNumber(options.duration ?? options.durationSeconds, 4, 4, 30);
-    const inputVideoSeconds = durationSecondsFromValue(firstPresent(
-      options.inputVideoSeconds,
-      options.videoInputSeconds,
-      options.referenceVideoDurationSeconds,
-    ));
-    const billingSeconds = mode === "edit" ? inputVideoSeconds : requestedDuration;
+    const maxDuration = resolution === "720p" ? 29 : 30;
+    const requestedDuration = clampNumber(options.duration ?? options.durationSeconds, 4, 4, maxDuration);
     const configuredRates = advancedPricing.seedance25CreditsPerSecondByResolution || {};
     const fallbackRates = DEFAULT_ADVANCED_PRICING.seedance25CreditsPerSecondByResolution;
     const creditsPerSecond = pricingNumber(configuredRates[resolution], fallbackRates[resolution], 0, 6);
-    const credits = creditsAmount(billingSeconds * creditsPerSecond);
+    const credits = creditsAmount(requestedDuration * creditsPerSecond);
     return {
       provider: "seedance25",
       providerLabel: "Seedance 2.5",
-      model: "Seedance 2.5",
+      model: SEEDANCE25_MODEL_ID,
       mode,
-      duration: mode === "edit" ? billingSeconds : requestedDuration,
-      requestedDuration: mode === "edit" ? null : requestedDuration,
-      inputVideoSeconds: mode === "edit" ? inputVideoSeconds : 0,
+      duration: requestedDuration,
+      requestedDuration,
+      inputVideoSeconds: 0,
       resolution,
-      ratio: mode === "omini" ? String(options.ratio || "1:1") : "adaptive",
+      ratio: String(options.ratio || "16:9"),
       creditsPerSecond,
       outputCredits: credits,
       inputVideoCredits: 0,
@@ -14216,23 +14218,6 @@ async function seedance25Request(pathname, body = {}, { auth = true, timeoutMs =
   return payload?.data || payload;
 }
 
-async function transferSeedance25EditVideoUrl(url = "") {
-  const source = String(url || "").trim();
-  if (!source) return "";
-  if (SEEDANCE25_TRANSFER_URL_CACHE.has(source)) return SEEDANCE25_TRANSFER_URL_CACHE.get(source);
-  const transferred = await seedance25Request("/api/v3/tools/transfer-url", { url: source, type: "video" }, { auth: false });
-  const cdnUrl = String(transferred?.cdn_url || transferred?.cdnUrl || transferred?.url || "").trim();
-  if (!isPublicHttpUrl(cdnUrl)) {
-    const error = new Error("Seedance 2.5 could not prepare the source video.");
-    error.statusCode = 502;
-    error.code = "SEEDANCE25_VIDEO_TRANSFER_FAILED";
-    error.payload = transferred;
-    throw error;
-  }
-  SEEDANCE25_TRANSFER_URL_CACHE.set(source, cdnUrl);
-  return cdnUrl;
-}
-
 function apizModelPathId(modelId = "") {
   return encodeURIComponent(String(modelId || "").trim()).replace(/%2F/gi, "/");
 }
@@ -19689,7 +19674,6 @@ async function runSeedance25GenerationJob(job = {}) {
       submitted = await arkRequest("POST", "/contents/generations/tasks", upstreamPayload);
     } else {
       upstreamPayload = buildSeedance25TaskPayload(upstreamInput, SEEDANCE25_MODEL_ID);
-      if (SEEDANCE25_INNER_MODEL_ID !== SEEDANCE25_INNER_MODEL) upstreamPayload.params.model = SEEDANCE25_INNER_MODEL_ID;
       const gatewayBody = USE_GATEWAY_UPSTREAM ? {
       provider: "seedance25",
       prompt: upstreamInput.prompt,
@@ -19798,10 +19782,10 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
     caseParams.seedanceMode,
   ));
   const resolution = String(firstPresent(body.resolution, bodyParams.resolution, caseParams.resolution, "480p")).trim().toLowerCase();
-  const requestedRatio = String(firstPresent(body.ratio, bodyParams.ratio, caseParams.ratio, mode === "omini" ? "1:1" : "adaptive")).trim().toLowerCase();
-  const ratio = mode === "omini" ? requestedRatio : "adaptive";
+  const requestedRatio = String(firstPresent(body.ratio, bodyParams.ratio, caseParams.ratio, direct && mode !== "omini" ? "adaptive" : "16:9")).trim().toLowerCase();
+  const ratio = direct && mode !== "omini" ? "adaptive" : requestedRatio;
   const duration = Number(firstPresent(body.duration, bodyParams.duration, caseParams.duration, 4));
-  const seed = firstPresent(body.seed, bodyParams.seed, caseParams.seed, "");
+  const seed = direct ? firstPresent(body.seed, bodyParams.seed, caseParams.seed, "") : "";
   const generateAudio = boolFromRequest(firstPresent(body.generateAudio, body.generate_audio, bodyParams.generateAudio, bodyParams.generate_audio), true);
 
   try {
@@ -19860,19 +19844,6 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
         const durations = await Promise.all(videoUrls.map((url) => probeVideoDurationSeconds(url).catch(() => 0)));
         inputVideoSeconds = durations.reduce((sum, seconds) => sum + durationSecondsFromValue(seconds), 0);
       }
-    } else if (mode === "edit" && videoUrls.length === 1) {
-      inputVideoSeconds = durationSecondsFromValue(firstPresent(
-        body.inputVideoSeconds,
-        body.referenceVideoDurationSeconds,
-        bodyParams.inputVideoSeconds,
-        videoAssets[0]?.durationSeconds,
-        videoAssets[0]?.duration,
-      ));
-      if (!inputVideoSeconds) inputVideoSeconds = durationSecondsFromValue(await probeVideoDurationSeconds(videoUrls[0]));
-      if (!inputVideoSeconds) {
-        throw advancedValidationError("SEEDANCE25_VIDEO_DURATION_REQUIRED", "Source video duration could not be read.");
-      }
-      videoUrls = [await transferSeedance25EditVideoUrl(videoUrls[0])];
     }
 
     const upstreamInput = {
@@ -23962,17 +23933,17 @@ function seedance25VideoParameterFields() {
   return [
     { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous Seedance 2.5 video task.", default: "-" },
     { name: "provider", type: "string", required: "Yes", description: "Use `seedance25`.", default: "seedance25" },
-    { name: "prompt", type: "string", required: "Yes", description: "Video prompt, 1-6000 characters.", default: "-" },
-    { name: "functionMode / seedanceMode / mediaMode", type: "enum", required: "No", description: "`reference` (multimodal reference generation), `first_last_frame`, `edit`, or `extend`. `omini` is also accepted as the reference-mode alias.", default: "reference" },
+    { name: "prompt", type: "string", required: "Yes", description: "Video prompt, 1-5000 characters.", default: "-" },
+    { name: "functionMode / seedanceMode / mediaMode", type: "enum", required: "No", description: "`reference` (multimodal reference generation) or `first_last_frame`. `omini` is accepted as the reference-mode alias.", default: "reference" },
     { name: "referenceImages", type: "array", required: "For reference mode", description: "0-30 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName.", default: "[]" },
-    { name: "referenceVideos / referenceVideoUrls / referenceVideoAssetIds", type: "array", required: "For reference, edit, or extend", description: "Reference mode accepts 0-10 videos. Edit and extend require exactly one source video.", default: "[]" },
+    { name: "referenceVideos / referenceVideoUrls / referenceVideoAssetIds", type: "array", required: "For video references", description: "Reference mode accepts 0-10 videos.", default: "[]" },
     { name: "referenceAudios / referenceAudioUrls / referenceAudioAssetIds", type: "array", required: "For reference mode", description: "0-10 audios. Audio-only reference generation is not supported; include at least one image or video.", default: "[]" },
     { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first_last_frame", description: "First-frame image.", default: "-" },
     { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For first_last_frame", description: "Last-frame image. Both frames are required and cannot be mixed with reference media.", default: "-" },
     { name: "resolution", type: "enum", required: "No", description: "`480p` or `720p`.", default: "480p" },
-    { name: "ratio", type: "enum", required: "No", description: "Reference mode supports `16:9`, `21:9`, `9:16`, `4:3`, `3:4`, `1:1`, or `adaptive`. Other modes use adaptive ratio.", default: "adaptive" },
-    { name: "duration", type: "integer", required: "Except edit", description: "Output duration or extension duration, integer 4-30 seconds. Omit for edit; edit follows the source-video duration.", default: "4" },
-    { name: "seed", type: "integer", required: "No", description: "Integer from 0 to 4294967295.", default: "-" },
+    { name: "ratio", type: "enum", required: "No", description: "`21:9`, `16:9`, `4:3`, `1:1`, `3:4`, or `9:16`.", default: "16:9" },
+    { name: "duration", type: "integer", required: "No", description: "Integer 4-30 seconds for 480p, or 4-29 seconds for 720p.", default: "4" },
+    { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Generate native audio. This does not change the upstream price.", default: "true" },
     { name: "reference total", type: "rule", required: "For reference mode", description: "At least one reference is required; at most 50 images, videos, and audios combined.", default: "-" },
   ];
 }
@@ -24182,17 +24153,15 @@ function advancedGenerateConstraintsDoc() {
     seedance25: {
       provider: "seedance25",
       route: "/api/advanced/generate",
-      modes: ["reference", "first_last_frame", "edit", "extend"],
-      durationSeconds: { integer: true, min: 4, max: 30, omittedFor: ["edit"] },
+      modes: ["reference", "first_last_frame"],
+      durationSeconds: { integer: true, byResolution: { "480p": { min: 4, max: 30 }, "720p": { min: 4, max: 29 } } },
       resolution: ["480p", "720p"],
       ratio: SEEDANCE25_RATIOS,
       referenceLimits: { images: 30, videos: 10, audios: 10, total: 50 },
-      seed: { integer: true, min: 0, max: 4294967295 },
+      generateAudio: { type: "boolean", default: true, affectsPrice: false },
       modeRules: {
         reference: "Requires at least one image, video, or audio. Audio-only generation is not supported.",
         first_last_frame: "Requires both frame images and cannot be mixed with reference media.",
-        edit: "Requires exactly one source video and omits duration.",
-        extend: "Requires exactly one source video; duration is the number of seconds to extend.",
       },
     },
     seedanceNsfw: {
@@ -24349,7 +24318,7 @@ function externalAdvancedApiDoc(origin) {
       { name: "Seedance 2.0 Standard", model: "dreamina-seedance-2-0-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Seedance 2.0 Fast", model: "dreamina-seedance-2-0-fast-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Wan 3.0 Video", provider: "wan30", capability: "wan30-video", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
-      { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: SEEDANCE25_DIRECT_LABEL, provider: SEEDANCE25_DIRECT_PROVIDER, capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Wan2.7 Video", provider: "wan27", capability: "wan27-t2v / wan27-i2v / wan27-r2v / wan27-video-edit", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "HappyHorse Video", provider: "happyhorse", capability: "happyhorse-t2v / happyhorse-i2v / happyhorse-r2v / happyhorse-video-edit", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
@@ -24478,6 +24447,7 @@ function externalAdvancedApiDoc(origin) {
         ratio: "9:16",
         resolution: "720p",
         duration: 8,
+        generateAudio: true,
       },
     },
     seedanceNsfwExample: {
@@ -24966,11 +24936,11 @@ function advancedConstraintsMarkdown(doc = {}) {
     "Seedance 2.5 video:",
     "",
     `- Endpoint: \`${seedance25.route || "/api/advanced/generate"}\` with \`provider: "seedance25"\`.`,
-    "- Modes: `reference`, `first_last_frame`, `edit`, `extend`. `omini` is accepted as the reference-mode alias.",
-    `- \`duration\`: integer ${seedance25.durationSeconds?.min ?? 4}-${seedance25.durationSeconds?.max ?? 30} seconds, except edit mode, which follows the source-video duration and omits duration.`,
+    "- Modes: `reference`, `first_last_frame`. `omini` is accepted as the reference-mode alias.",
+    "- `duration`: integer 4-30 seconds for `480p`, or 4-29 seconds for `720p`.",
     `- \`resolution\`: ${(seedance25.resolution || ["480p", "720p"]).map((item) => `\`${item}\``).join(", ")}.`,
     `- Reference mode: at least one reference; max ${seedance25.referenceLimits?.images ?? 30} images, ${seedance25.referenceLimits?.videos ?? 10} videos, ${seedance25.referenceLimits?.audios ?? 10} audios, and ${seedance25.referenceLimits?.total ?? 50} assets total. Audio-only is not supported.`,
-    "- First/last frame mode requires both frame images and cannot be mixed with reference media. Edit and extend require exactly one source video.",
+    "- First/last frame mode requires both frame images and cannot be mixed with reference media. `generateAudio`/`generate_audio` defaults to `true` and does not change the upstream price.",
     "",
     "Seedance2.5 (NSFW) video:",
     "",
@@ -30990,8 +30960,8 @@ async function handleAdminGetConfig(req, res) {
 }
 
 const ADVANCED_PRICING_ROWS = [
-  { key: "seedance25-480p", provider: "seedance25", providerLabel: "Seedance 2.5", resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
-  { key: "seedance25-720p", provider: "seedance25", providerLabel: "Seedance 2.5", resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "seedance25-480p", provider: "seedance25", providerLabel: "Seedance 2.5", model: SEEDANCE25_MODEL_ID, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "References / first-last frames" },
+  { key: "seedance25-720p", provider: "seedance25", providerLabel: "Seedance 2.5", model: SEEDANCE25_MODEL_ID, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "References / first-last frames" },
   { key: "seedance-nsfw-480p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: SEEDANCE25_DIRECT_LABEL, model: SEEDANCE25_DIRECT_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "Without input video" },
   { key: "seedance-nsfw-720p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: SEEDANCE25_DIRECT_LABEL, model: SEEDANCE25_DIRECT_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "Without input video" },
   { key: "seedance-nsfw-video-input-480p", provider: SEEDANCE25_DIRECT_PROVIDER, providerLabel: `${SEEDANCE25_DIRECT_LABEL} + Video`, model: SEEDANCE25_DIRECT_MODEL, resolution: "480p", rateKind: "video_input", unit: "combined_second", usageLabel: "Input + output video seconds" },

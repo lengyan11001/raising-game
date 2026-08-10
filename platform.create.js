@@ -90,9 +90,14 @@ function advancedUsesSharedReferenceUpload(provider = currentAdvancedProvider(),
 
 function advancedVideoReferenceLimit(provider = currentAdvancedProvider()) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedance25", "seedance-nsfw"].includes(normalizedProvider)) {
+  if (normalizedProvider === "seedance-nsfw") {
     const mode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "omini");
     return ["edit", "extend"].includes(mode) ? 1 : mode === "omini" ? ADVANCED_SEEDANCE25_VIDEO_REFERENCE_LIMIT : 0;
+  }
+  if (normalizedProvider === "seedance25") {
+    return normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "omini") === "omini"
+      ? ADVANCED_SEEDANCE25_VIDEO_REFERENCE_LIMIT
+      : 0;
   }
   if (normalizedProvider === "wan30") return ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT;
   if (["wan27", "happyhorse"].includes(normalizedProvider)) return 1;
@@ -122,7 +127,7 @@ function advancedAssetTargetItems() {
     targets.push({ id: "sourceImages", label: t("advanced.assetTargetSourceImages"), type: "image" });
   } else if (["seedream5-image", "qwen-image3"].includes(provider)) {
     targets.push({ id: "referenceImages", label: t("advanced.assetTargetReferenceImages"), type: "image" });
-  } else if (["seedance25", "seedance-nsfw"].includes(provider) && ["edit", "extend"].includes(seedanceMode)) {
+  } else if (provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)) {
     targets.push({ id: "video", label: t("advanced.assetTargetVideo"), type: "video" });
   } else if (provider === "wan27" || provider === "happyhorse") {
     const legacyModel = String(els.advancedLegacyWanModel?.value || "");
@@ -1304,17 +1309,20 @@ function updateAdvancedModelControls() {
     || (capability === "wan-legacy" && (legacyModel.includes("r2v") || legacyModel.includes("vace")));
   const capabilityNeedsMedia = aliyunVideo && !["wan27-t2v", "happyhorse-t2v"].includes(capability) && !legacyT2v;
   if (els.advancedDuration) {
+    const durationMax = provider === "seedance25" && normalizeAdvancedResolution(els.advancedResolution?.value, provider) === "720p"
+      ? 29
+      : bounds.max;
     const rawDuration = Number(els.advancedDuration.value || bounds.fallback);
     const selectedDuration = isImageEdit || isStandaloneImage
       ? "1"
       : provider === "wan30" && rawDuration === -1
         ? "-1"
-        : String(Math.min(bounds.max, Math.max(provider === "wan30" ? 2 : bounds.min, Number.isFinite(rawDuration) ? rawDuration : bounds.fallback)));
+        : String(Math.min(durationMax, Math.max(provider === "wan30" ? 2 : bounds.min, Number.isFinite(rawDuration) ? rawDuration : bounds.fallback)));
     const durationValues = isImageEdit || isStandaloneImage
       ? [1]
       : provider === "wan30"
         ? [-1, ...Array.from({ length: 29 }, (_, index) => index + 2)]
-        : Array.from({ length: bounds.max - bounds.min + 1 }, (_, index) => bounds.min + index);
+        : Array.from({ length: durationMax - bounds.min + 1 }, (_, index) => bounds.min + index);
     els.advancedDuration.innerHTML = durationValues
       .map((value) => `<option value="${value}"${String(value) === selectedDuration ? " selected" : ""}>${value === -1 ? "Auto" : `${value}s`}</option>`)
       .join("");
@@ -1353,17 +1361,20 @@ function updateAdvancedModelControls() {
   });
   if (els.advancedRatio) {
     const imageRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
-    const seedance25ReferenceMode = ["seedance25", "seedance-nsfw"].includes(provider) && seedanceMode === "omini";
-    const videoRatios = provider === "wan30" || ["seedance25", "seedance-nsfw"].includes(provider)
+    const seedanceNsfwReferenceMode = provider === "seedance-nsfw" && seedanceMode === "omini";
+    const videoRatios = provider === "seedance25"
+      ? ["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"]
+      : provider === "wan30" || provider === "seedance-nsfw"
       ? ["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"]
       : ["9:16", "16:9", "1:1"];
     const options = isImageEdit || isQwenImage ? imageRatios : videoRatios;
-    if (["seedance25", "seedance-nsfw"].includes(provider) && !seedance25ReferenceMode) els.advancedRatio.value = "adaptive";
-    const rawRatio = String(els.advancedRatio.value || (["wan30", "seedance25", "seedance-nsfw"].includes(provider) ? "adaptive" : "9:16")).trim().toLowerCase();
-    const current = ["wan30", "seedance25", "seedance-nsfw"].includes(provider) && rawRatio === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
+    if (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode) els.advancedRatio.value = "adaptive";
+    const fallbackRatio = provider === "seedance25" ? "16:9" : ["wan30", "seedance-nsfw"].includes(provider) ? "adaptive" : "9:16";
+    const rawRatio = String(els.advancedRatio.value || fallbackRatio).trim().toLowerCase();
+    const current = ["wan30", "seedance-nsfw"].includes(provider) && rawRatio === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
     els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
-    if (!options.includes(current)) els.advancedRatio.value = ["wan30", "seedance25", "seedance-nsfw"].includes(provider) ? "adaptive" : "9:16";
-    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || simpleAction || animateCapability || (["seedance25", "seedance-nsfw"].includes(provider) && !seedance25ReferenceMode));
+    if (!options.includes(current)) els.advancedRatio.value = fallbackRatio;
+    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode));
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !capabilityNeedsMedia;
@@ -1398,12 +1409,12 @@ function updateAdvancedModelControls() {
     item.hidden = simpleAction;
   });
   document.querySelectorAll(".advanced-duration-field").forEach((item) => {
-    item.hidden = isImageEdit || isStandaloneImage || simpleEdit || animateCapability || advancedVideoEditUsesSourceDuration(capability) || (["seedance25", "seedance-nsfw"].includes(provider) && seedanceMode === "edit");
+    item.hidden = isImageEdit || isStandaloneImage || simpleEdit || animateCapability || advancedVideoEditUsesSourceDuration(capability) || (provider === "seedance-nsfw" && seedanceMode === "edit");
   });
   document.querySelectorAll(".advanced-seedance-audio-field").forEach((item) => {
-    item.hidden = simpleAction || simpleEdit || !["seedance", "seedance-nsfw", "wan30"].includes(provider);
+    item.hidden = simpleAction || simpleEdit || !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider);
   });
-  if (["seedance25", "seedance-nsfw", "qwen-image3"].includes(provider)) {
+  if (["seedance-nsfw", "qwen-image3"].includes(provider)) {
     els.advancedWanSeed?.closest(".field")?.removeAttribute("hidden");
   }
   syncAdvancedVideoSettingsControls();
@@ -1443,7 +1454,7 @@ function updateAdvancedModelControls() {
       ].filter(Boolean).join(",");
       els.advancedImage.accept = sharedReferenceUpload ? sharedAccept : advancedCreateUploadAcceptValue();
       els.advancedImage.multiple = allowManualReferenceUpload && (
-        (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !seedanceModeNeedsFirstFrame(seedanceMode) && !(["seedance25", "seedance-nsfw"].includes(provider) && ["edit", "extend"].includes(seedanceMode)))
+        (["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && !seedanceModeNeedsFirstFrame(seedanceMode) && !(provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode)))
         || isStandaloneImage
         || (aliyunVideo && advancedAliyunUsesSharedReferenceUpload(capability))
         || (!uploadIsVideo && !advancedCreateModeUsesSingleUpload())
@@ -1488,7 +1499,7 @@ function triggerAdvancedLocalImageUpload({ sourceMode = "", presetSlot = "" } = 
     els.advancedSeedanceMediaMode.value = mode;
     state.advancedAssetTarget = seedanceModeNeedsFirstFrame(mode)
       ? "primary"
-      : ["seedance25", "seedance-nsfw"].includes(provider) && ["edit", "extend"].includes(mode)
+      : provider === "seedance-nsfw" && ["edit", "extend"].includes(mode)
       ? "video"
       : "referenceImages";
   } else if (["seedream5-image", "qwen-image3"].includes(provider)) {
@@ -1955,7 +1966,7 @@ async function submitAdvancedGenerate() {
   if (presetReferenceMode && els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = "reference_video";
   const sharedReferenceProvider = ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider);
   const seedanceFrameMode = sharedReferenceProvider && seedanceModeNeedsFirstFrame(seedanceMode);
-  const seedance25VideoOnlyMode = ["seedance25", "seedance-nsfw"].includes(provider) && ["edit", "extend"].includes(seedanceMode);
+  const seedance25VideoOnlyMode = provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode);
   const referenceImages = seedanceFrameMode || seedance25VideoOnlyMode
     ? []
     : presetReferenceMode
@@ -2062,12 +2073,17 @@ async function submitAdvancedGenerate() {
   }
   if (["seedance25", "seedance-nsfw"].includes(provider)) {
     const totalReferences = referenceImages.length + seedanceVideoRefs.length + seedanceAudioRefs.length;
+    if (provider === "seedance25" && resolution === "720p" && duration > 29) {
+      els.advancedSubmitBtn.disabled = false;
+      if (els.advancedNote) els.advancedNote.textContent = "Seedance 2.5 720p supports 4-29 seconds.";
+      return;
+    }
     if (seedanceMode === "omini" && totalReferences === 0) {
       els.advancedSubmitBtn.disabled = false;
       if (els.advancedNote) els.advancedNote.textContent = "Add at least one image, video, or audio reference.";
       return;
     }
-    if (seedanceMode === "omini" && seedanceAudioRefs.length > 0 && !referenceImages.length && !seedanceVideoRefs.length) {
+    if (provider === "seedance25" && seedanceMode === "omini" && seedanceAudioRefs.length > 0 && !referenceImages.length && !seedanceVideoRefs.length) {
       els.advancedSubmitBtn.disabled = false;
       if (els.advancedNote) els.advancedNote.textContent = "Audio must be combined with an image or video reference.";
       return;
@@ -2077,7 +2093,7 @@ async function submitAdvancedGenerate() {
       if (els.advancedNote) els.advancedNote.textContent = `Seedance 2.5 supports at most ${ADVANCED_SEEDANCE25_TOTAL_REFERENCE_LIMIT} references.`;
       return;
     }
-    if (["edit", "extend"].includes(seedanceMode) && seedanceVideoRefs.length !== 1) {
+    if (provider === "seedance-nsfw" && ["edit", "extend"].includes(seedanceMode) && seedanceVideoRefs.length !== 1) {
       els.advancedSubmitBtn.disabled = false;
       if (els.advancedNote) els.advancedNote.textContent = `${seedanceMode === "edit" ? "Video Edit" : "Video Extend"} requires exactly one source video.`;
       return;
@@ -2187,7 +2203,7 @@ async function submitAdvancedGenerate() {
       videoCapability: videoCapability || undefined,
       model: legacyWanModel || undefined,
       animateMode: wanAnimateMode || undefined,
-      ...(["seedance", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
+      ...(["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
     },
     ratio: els.advancedRatio?.value || (provider === "wan30" ? "adaptive" : "9:16"),
     resolution,
@@ -2233,8 +2249,8 @@ async function submitAdvancedGenerate() {
         animateMode: wanAnimateMode || undefined,
         seedanceTier: provider === "seedance" ? seedanceTier : undefined,
         prompt,
-        generateAudio: ["seedance", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
-        generate_audio: ["seedance", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
+        generateAudio: ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
+        generate_audio: ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? seedanceGenerateAudio : undefined,
         dataUrl: usesAliyunPrimaryImage && !wanFirstFrameAssetId ? firstFrameDataUrl : undefined,
         seedanceMode: ["seedance", "seedance25", "seedance-nsfw"].includes(provider) ? seedanceMode : undefined,
         functionMode: ["seedance25", "seedance-nsfw"].includes(provider) ? seedanceMode : undefined,
@@ -2273,7 +2289,7 @@ async function submitAdvancedGenerate() {
         mediaMode,
         fileName: referenceImages[0]?.fileName || els.advancedImage?.files?.[0]?.name || "",
         lastFrameFileName: wanLastFrameReference?.fileName || els.advancedWanLastFrame?.files?.[0]?.name || "",
-        ratio: ["seedance25", "seedance-nsfw"].includes(provider) && seedanceMode !== "omini" ? "adaptive" : els.advancedRatio?.value || (provider === "wan30" ? "adaptive" : "9:16"),
+        ratio: provider === "seedance-nsfw" && seedanceMode !== "omini" ? "adaptive" : els.advancedRatio?.value || (provider === "seedance25" ? "16:9" : provider === "wan30" ? "adaptive" : "9:16"),
         resolution: els.advancedResolution?.value || (["seedance25", "seedance-nsfw"].includes(provider) ? "480p" : provider === "wan30" ? "1080p" : "720p"),
         duration,
         preprocessReference,
@@ -2286,7 +2302,7 @@ async function submitAdvancedGenerate() {
           model: legacyWanModel || undefined,
           animateMode: wanAnimateMode || undefined,
           parameters: wanAnimateMode ? { mode: wanAnimateMode } : undefined,
-          ...(["seedance", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
+          ...(["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) ? { generateAudio: seedanceGenerateAudio, generate_audio: seedanceGenerateAudio } : {}),
         },
       },
     });
