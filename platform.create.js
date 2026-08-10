@@ -2381,25 +2381,60 @@ function pastedImageFilesFromEvent(event) {
     .filter(Boolean);
 }
 
+function advancedPromptPasteImageRule() {
+  if (state.advancedCreateKind !== "custom") return { allowed: false, limit: 0, target: "references" };
+  const provider = currentAdvancedProvider();
+  const capability = currentAdvancedVideoCapability();
+  const imageTargets = advancedAssetTargetItems().filter((target) => target.type === "image");
+  if (!imageTargets.length) return { allowed: false, limit: 0, target: "references" };
+
+  const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
+  const sharedFrameProvider = ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider);
+  if (sharedFrameProvider && seedanceModeNeedsFirstFrame(seedanceMode)) {
+    return { allowed: true, limit: 2, target: "frames", replaceExisting: false };
+  }
+
+  let limit = 1;
+  if (provider === "qwen-image3") limit = ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT;
+  else if (provider === "seedream5-image") limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+  else if (provider === "wan27-image-edit") limit = advancedCreateModeUsesSingleUpload() ? 1 : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+  else if (provider === "wan30") limit = ADVANCED_WAN30_IMAGE_REFERENCE_LIMIT;
+  else if (["seedance25", "seedance-nsfw"].includes(provider)) limit = ADVANCED_SEEDANCE25_IMAGE_REFERENCE_LIMIT;
+  else if (provider === "seedance") limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+  else if (["wan27", "happyhorse"].includes(provider)) limit = advancedAliyunReferenceImageLimit(capability);
+  else if (advancedUsesSharedReferenceUpload(provider, capability)) limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+
+  return {
+    allowed: limit > 0,
+    limit: Math.max(0, limit),
+    target: "references",
+    replaceExisting: limit === 1,
+  };
+}
+
 function advancedPromptPasteTargetIsReferenceImages() {
-  if (state.advancedCreateKind !== "custom") return false;
-  if (!["seedance", "seedance25", "seedance-nsfw", "seedream5-image", "qwen-image3"].includes(currentAdvancedProvider())) return false;
-  if (["seedream5-image", "qwen-image3"].includes(currentAdvancedProvider())) return true;
-  return seedanceModeNeedsReferenceImages(els.advancedSeedanceMediaMode?.value || "");
+  return advancedPromptPasteImageRule().allowed;
 }
 
 async function handleAdvancedPromptPaste(event) {
   const files = pastedImageFilesFromEvent(event);
-  if (!files.length || !advancedPromptPasteTargetIsReferenceImages()) return;
+  const rule = advancedPromptPasteImageRule();
+  if (!files.length || !rule.allowed) return;
   event.preventDefault();
-  const referenceLimit = currentAdvancedProvider() === "qwen-image3" ? ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT : ADVANCED_SEEDANCE_REFERENCE_LIMIT;
+  const provider = currentAdvancedProvider();
+  const referenceLimit = rule.limit;
   const maxBytes = currentAdvancedProvider() === "qwen-image3" ? ADVANCED_QWEN_IMAGE3_REFERENCE_MAX_BYTES : ADVANCED_SEEDANCE_REFERENCE_MAX_BYTES;
   const validFiles = files.filter((file) => file.size <= maxBytes);
   if (validFiles.length !== files.length && els.advancedNote) {
     els.advancedNote.textContent = t("advanced.referenceImageTooLarge");
   }
-  const existing = Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : [];
-  const roomLeft = Math.max(0, referenceLimit - existing.length);
+  const previousPromptRefs = advancedPromptMentionSnapshot();
+  const existing = rule.replaceExisting ? [] : (Array.isArray(state.advancedReferenceImages) ? state.advancedReferenceImages : []);
+  const occupiedFrameSlots = rule.target === "frames"
+    ? Number(Boolean(state.advancedSeedanceFirstFrameDataUrl || state.advancedSeedanceFirstFrameAssetId))
+      + Number(Boolean(state.advancedSeedanceLastFrameDataUrl || state.advancedSeedanceLastFrameAssetId))
+    : 0;
+  const roomLeft = Math.max(0, referenceLimit - (rule.target === "frames" ? occupiedFrameSlots : existing.length));
   if (!roomLeft) {
     if (els.advancedNote) els.advancedNote.textContent = t("advanced.referenceImageTooMany", { count: referenceLimit });
     updateAdvancedModelControls();
@@ -2415,10 +2450,30 @@ async function handleAdvancedPromptPaste(event) {
     fileName: file.name || `pasted-reference-${Date.now()}-${index + 1}.png`,
   })));
   state.activeAdvancedCaseId = "";
-  state.advancedReferenceImages = [...existing, ...addedImages.map(stampAdvancedReferenceOrder)].slice(0, referenceLimit);
-  state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
-  state.advancedFirstFrameAssetId = "";
-  state.advancedSourceImageAssetId = "";
+  if (rule.target === "frames") {
+    state.advancedReferenceImages = [];
+    addedImages.forEach((image) => {
+      if (!state.advancedSeedanceFirstFrameDataUrl && !state.advancedSeedanceFirstFrameAssetId) {
+        state.advancedSeedanceFirstFrameDataUrl = image.dataUrl;
+        state.advancedSeedanceFirstFrameAssetId = "";
+        state.advancedFirstFrameAssetId = "";
+      } else if (!state.advancedSeedanceLastFrameDataUrl && !state.advancedSeedanceLastFrameAssetId) {
+        state.advancedSeedanceLastFrameDataUrl = image.dataUrl;
+        state.advancedSeedanceLastFrameAssetId = "";
+      }
+    });
+    state.advancedUploadDataUrl = state.advancedSeedanceFirstFrameDataUrl || "";
+  } else {
+    state.advancedReferenceImages = dedupeAdvancedReferenceImages([
+      ...existing,
+      ...addedImages.map(stampAdvancedReferenceOrder),
+    ]).slice(0, referenceLimit);
+    state.advancedUploadDataUrl = state.advancedReferenceImages[0]?.dataUrl || "";
+    state.advancedFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameAssetId = "";
+    state.advancedSeedanceFirstFrameDataUrl = "";
+    state.advancedSourceImageAssetId = provider === "wan27-image-edit" ? (state.advancedReferenceImages[0]?.assetId || "") : "";
+  }
   state.advancedWanClipAssetId = "";
   if (els.advancedImage) els.advancedImage.value = "";
   if (validFiles.length > selectedFiles.length && els.advancedNote) {
@@ -2426,6 +2481,7 @@ async function handleAdvancedPromptPaste(event) {
   } else if (els.advancedNote && validFiles.length === files.length) {
     els.advancedNote.textContent = "";
   }
+  syncAdvancedPromptMentionLabels(previousPromptRefs);
   updateAdvancedModelControls();
   updateAdvancedButtonCost();
 }

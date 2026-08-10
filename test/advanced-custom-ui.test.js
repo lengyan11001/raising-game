@@ -89,6 +89,17 @@ test("Advanced image files enter the asset library before generation", () => {
   assert.match(ui, /id: "local-upload-character",[\s\S]*?assetId: ref\.assetId \|\| ""/);
 });
 
+test("prompt image paste and @ mentions follow the shared upload control for every model", () => {
+  assert.match(create, /function advancedPromptPasteImageRule\(\)/);
+  assert.match(create, /const imageTargets = advancedAssetTargetItems\(\)\.filter\(\(target\) => target\.type === "image"\)/);
+  assert.match(create, /else if \(\["wan27", "happyhorse"\]\.includes\(provider\)\) limit = advancedAliyunReferenceImageLimit\(capability\)/);
+  assert.match(create, /else if \(advancedUsesSharedReferenceUpload\(provider, capability\)\) limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT/);
+  assert.match(create, /sharedFrameProvider && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.match(create, /rule\.target === "frames"/);
+  assert.match(create, /syncAdvancedPromptMentionLabels\(previousPromptRefs\)/);
+  assert.doesNotMatch(create, /if \(!\["seedance", "seedance25", "seedance-nsfw", "seedream5-image", "qwen-image3"\]\.includes\(currentAdvancedProvider\(\)\)\) return false/);
+});
+
 test("Wan2.7 video edit follows source duration instead of exposing a manual duration", () => {
   assert.match(ui, /function advancedVideoEditUsesSourceDuration/);
   assert.match(create, /followInputDuration: advancedVideoEditUsesSourceDuration\(videoCapability\)/);
