@@ -11,7 +11,7 @@ const CAPABILITIES = Object.freeze({
     mediaKind: "wan30",
     duration: [2, 30],
     resolutions: ["480P", "720P", "1080P"],
-    billing: "free",
+    billing: "output",
   }),
   "wan27-t2v": Object.freeze({
     provider: "wan27",

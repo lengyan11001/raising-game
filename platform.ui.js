@@ -1707,18 +1707,31 @@ function advancedPricing(duration, provider = "seedance", resolution = "720p", r
   const normalizedProvider = normalizeAdvancedProvider(provider);
   if (normalizedProvider === "wan30") {
     const requestedDuration = Number(duration ?? 5);
+    const adaptiveDuration = requestedDuration === -1;
+    const billingDuration = adaptiveDuration ? 30 : Math.min(30, Math.max(2, Number.isFinite(requestedDuration) ? requestedDuration : 5));
+    const normalizedResolution = normalizeAdvancedResolution(resolution || "1080p", normalizedProvider);
+    const configuredRates = state.config?.platform?.advancedPricing?.wan30CreditsPerSecondByResolution || {};
+    const fallbackRates = { "480p": 6.7466, "720p": 13.4933, "1080p": 26.9865 };
+    const creditsPerSecond = Number(configuredRates[normalizedResolution] ?? fallbackRates[normalizedResolution] ?? fallbackRates["1080p"]);
+    const originalCredits = creditsAmount(billingDuration * creditsPerSecond);
+    const multiplier = userPricingMultiplier();
     return {
       provider: "wan30",
       capability: "wan30-video",
-      duration: requestedDuration === -1 ? -1 : Math.min(30, Math.max(2, Number.isFinite(requestedDuration) ? requestedDuration : 5)),
-      resolution: normalizeAdvancedResolution(resolution || "1080p", normalizedProvider),
+      duration: adaptiveDuration ? -1 : billingDuration,
+      billingDuration,
+      adaptiveDuration,
+      resolution: normalizedResolution,
       ratio: normalizeVideoRatio(ratio || "adaptive"),
-      billing: "free",
-      baseCredits: 0,
-      originalCredits: 0,
-      credits: 0,
+      billing: "output",
+      creditsPerSecond,
+      outputCredits: originalCredits,
+      baseCredits: originalCredits,
+      originalCredits,
+      credits: creditsAmount(originalCredits * multiplier),
       markup: 1,
-      userPricingMultiplier: 1,
+      userPricingMultiplier: multiplier,
+      source: "configured_wan30_output_duration_rate",
     };
   }
   if (normalizedProvider === "qwen-image3") {

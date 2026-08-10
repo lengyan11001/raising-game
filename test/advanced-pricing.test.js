@@ -21,6 +21,9 @@ test("admin pricing keeps current models and omits early Wan models", () => {
   assert.match(pricingRowsSource, /key: "wan27-1080p"/);
   assert.match(pricingRowsSource, /key: "happyhorse-720p"/);
   assert.match(pricingRowsSource, /key: "happyhorse-1080p"/);
+  assert.match(pricingRowsSource, /key: "wan30-480p"/);
+  assert.match(pricingRowsSource, /key: "wan30-720p"/);
+  assert.match(pricingRowsSource, /key: "wan30-1080p"/);
   assert.doesNotMatch(pricingRowsSource, /capability: "wan27-(?:t2v|i2v|r2v|video-edit)"/);
   assert.doesNotMatch(pricingRowsSource, /capability: "happyhorse-(?:t2v|i2v|r2v|video-edit)"/);
   assert.doesNotMatch(pricingRowsSource, /officialSingaporeLegacyPricingRows\(\)/);
@@ -39,13 +42,31 @@ test("runtime billing uses family prices for Wan2.7 and HappyHorse", () => {
   assert.match(pricingSource, /capability\.startsWith\("wan27-"\)[\s\S]*wan27CreditsPerSecondByResolution/);
 });
 
-test("Wan3.0 invitation access is explicitly free and never uses fallback pricing", () => {
+test("Wan3.0 uses configured per-second billing", () => {
   const pricingSource = server.slice(
     server.indexOf("function advancedModelPricing("),
     server.indexOf("function seedream5ImagePricingEstimate("),
   );
   assert.match(pricingSource, /normalizedProvider === "wan30"/);
-  assert.match(pricingSource, /billing: "free"/);
-  assert.match(pricingSource, /credits: 0/);
-  assert.match(pricingSource, /source: "wan30_invitation_free"/);
+  assert.match(pricingSource, /wan30CreditsPerSecondByResolution/);
+  assert.match(pricingSource, /billing: "output"/);
+  assert.match(pricingSource, /billingDuration/);
+  assert.match(pricingSource, /source: "configured_wan30_output_duration_rate"/);
+  assert.doesNotMatch(pricingSource, /wan30_invitation_free/);
+});
+
+test("Wan3.0 purchase prices match the Alibaba Cloud Beijing price card", () => {
+  assert.match(server, /const ALIYUN_WAN30_CNY_PER_USD = pricingNumber\([^\n]+, 6\.67,/);
+  assert.match(server, /"480p": 0\.3,/);
+  assert.match(server, /"720p": 0\.6,/);
+  assert.match(server, /"1080p": 1\.2,/);
+  assert.match(server, /source: "aliyun_beijing_official_model_pricing"/);
+});
+
+test("Wan3.0 adaptive duration pre-deducts the maximum and settles from the output video", () => {
+  assert.match(server, /const billingDuration = adaptiveDuration \? 30 : duration/);
+  assert.match(server, /billingStatus: cost > 0 \? \(pricing\.adaptiveDuration \? "pre_deducted" : "settled"\)/);
+  assert.match(server, /async function settleWan30AdaptiveDuration/);
+  assert.match(server, /const actualDuration = await probeVideoDurationSeconds\(resultUrl\)/);
+  assert.match(server, /Math\.min\(30, actualDuration\) \* creditsPerSecond/);
 });

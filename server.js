@@ -485,6 +485,12 @@ const ADVANCED_SEEDANCE_FAST_DISCOUNT = clampNumber(process.env.ADVANCED_SEEDANC
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
 const ALIYUN_VIDEO_DEFAULT_MARKUP = 1.5;
+const ALIYUN_WAN30_CNY_PER_USD = pricingNumber(process.env.ALIYUN_WAN30_CNY_PER_USD, 6.67, 0.0001, 6);
+const ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND = Object.freeze({
+  "480p": 0.3,
+  "720p": 0.6,
+  "1080p": 1.2,
+});
 const WAN27_IMAGE_PRO_MODEL = process.env.ALIYUN_WAN27_IMAGE_PRO_MODEL || "wan2.7-image-pro";
 const WAN27_IMAGE_PRO_PURCHASE_USD = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_PURCHASE_USD, 0.075, 0, 6);
 const WAN27_IMAGE_PRO_PURCHASE_CNY = pricingNumber(process.env.ALIYUN_WAN27_IMAGE_PRO_PURCHASE_CNY, WAN27_IMAGE_PRO_PURCHASE_USD * INTERNAL_CNY_PER_USD, 0, 6);
@@ -500,6 +506,23 @@ function defaultAliyunSaleCredits(capability, options = {}, fallback = ADVANCED_
   return purchase
     ? pricingNumber(purchase.usdPerSecond * DEFAULT_CREDITS_PER_USD * ALIYUN_VIDEO_DEFAULT_MARKUP, fallback)
     : fallback;
+}
+
+function wan30PurchaseUsdPerSecond(resolution = "1080p") {
+  const normalized = normalizeAdvancedResolution(resolution);
+  const cnyPerSecond = ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[normalized] ?? ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND["1080p"];
+  return pricingNumber(cnyPerSecond / ALIYUN_WAN30_CNY_PER_USD, 0, 0, 8);
+}
+
+function defaultWan30SaleCreditsPerSecond(resolution = "1080p") {
+  const normalized = normalizeAdvancedResolution(resolution);
+  const cnyPerSecond = ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[normalized] ?? ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND["1080p"];
+  return pricingNumber(
+    (cnyPerSecond / ALIYUN_WAN30_CNY_PER_USD) * DEFAULT_CREDITS_PER_USD * ALIYUN_VIDEO_DEFAULT_MARKUP,
+    0,
+    0,
+    6,
+  );
 }
 
 function defaultAliyunLegacySaleCreditsByModel() {
@@ -542,6 +565,11 @@ const DEFAULT_ADVANCED_PRICING = {
   seedanceFastVideoInputCreditsPerSecondByResolution: {
     "480p": ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_480P_CREDITS_PER_SECOND,
     "720p": ADVANCED_SEEDANCE_FAST_VIDEO_INPUT_720P_CREDITS_PER_SECOND,
+  },
+  wan30CreditsPerSecondByResolution: {
+    "480p": defaultWan30SaleCreditsPerSecond("480p"),
+    "720p": defaultWan30SaleCreditsPerSecond("720p"),
+    "1080p": defaultWan30SaleCreditsPerSecond("1080p"),
   },
   wan27CreditsPerSecondByResolution: {
     "720p": ADVANCED_WAN27_720P_CREDITS_PER_SECOND,
@@ -1691,6 +1719,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const seedanceFastVideoInput = source.seedanceFastVideoInputCreditsPerSecondByResolution && typeof source.seedanceFastVideoInputCreditsPerSecondByResolution === "object"
     ? source.seedanceFastVideoInputCreditsPerSecondByResolution
     : {};
+  const wan30 = source.wan30CreditsPerSecondByResolution && typeof source.wan30CreditsPerSecondByResolution === "object"
+    ? source.wan30CreditsPerSecondByResolution
+    : {};
   const wan27 = source.wan27CreditsPerSecondByResolution && typeof source.wan27CreditsPerSecondByResolution === "object"
     ? source.wan27CreditsPerSecondByResolution
     : {};
@@ -1875,6 +1906,11 @@ function normalizeAdvancedPricing(pricing = {}) {
       "480p": normalizeStoredCredits(seedanceFastVideoInput["480p"], DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["480p"]),
       "720p": normalizeStoredCredits(seedanceFastVideoInput["720p"], DEFAULT_ADVANCED_PRICING.seedanceFastVideoInputCreditsPerSecondByResolution["720p"]),
     },
+    wan30CreditsPerSecondByResolution: {
+      "480p": normalizeStoredCredits(wan30["480p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["480p"], 6),
+      "720p": normalizeStoredCredits(wan30["720p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["720p"], 6),
+      "1080p": normalizeStoredCredits(wan30["1080p"], DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution["1080p"], 6),
+    },
     wan27CreditsPerSecondByResolution: normalizedWan27Rates,
     happyhorseCreditsPerSecondByResolution: normalizedHappyhorseRates,
     aliyunVideoCreditsPerSecondByCapability,
@@ -1938,6 +1974,7 @@ function publicAdvancedPricingView(pricing = {}) {
     seedanceVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceVideoInputCreditsPerSecondByResolution },
     seedanceFastCreditsPerSecondByResolution: { ...normalized.seedanceFastCreditsPerSecondByResolution },
     seedanceFastVideoInputCreditsPerSecondByResolution: { ...normalized.seedanceFastVideoInputCreditsPerSecondByResolution },
+    wan30CreditsPerSecondByResolution: { ...normalized.wan30CreditsPerSecondByResolution },
     wan27CreditsPerSecondByResolution: { ...normalized.wan27CreditsPerSecondByResolution },
     happyhorseCreditsPerSecondByResolution: { ...normalized.happyhorseCreditsPerSecondByResolution },
     aliyunVideoCreditsPerSecondByCapability: {
@@ -6616,29 +6653,39 @@ function advancedDurationBounds(provider = "seedance") {
 
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
   if (normalizedProvider === "wan30") {
     const requestedDuration = Number(options.duration ?? options.durationSeconds ?? 5);
+    const adaptiveDuration = requestedDuration === -1;
+    const duration = adaptiveDuration ? -1 : clampNumber(requestedDuration, 5, 2, 30);
+    const billingDuration = adaptiveDuration ? 30 : duration;
+    const resolution = normalizeAdvancedResolution(options.resolution || "1080p");
+    const configuredRates = advancedPricing.wan30CreditsPerSecondByResolution || {};
+    const fallbackRates = DEFAULT_ADVANCED_PRICING.wan30CreditsPerSecondByResolution;
+    const creditsPerSecond = pricingNumber(configuredRates[resolution], fallbackRates[resolution], 0, 6);
+    const credits = creditsAmount(billingDuration * creditsPerSecond);
     return {
       provider: "wan30",
+      providerLabel: "Wan 3.0",
       capability: "wan30-video",
-      duration: requestedDuration === -1 ? -1 : clampNumber(requestedDuration, 5, 2, 30),
-      resolution: normalizeWan27Resolution(options.resolution || "1080P"),
+      model: options.model || ALIYUN_WAN30_MODEL,
+      duration,
+      billingDuration,
+      adaptiveDuration,
+      resolution,
       ratio: normalizeVideoRatio(options.ratio || "adaptive"),
-      billing: "free",
-      creditsPerSecond: 0,
-      outputCredits: 0,
+      billing: "output",
+      creditsPerSecond,
+      outputCredits: credits,
       inputVideoCredits: 0,
-      baseCredits: 0,
-      originalCredits: 0,
-      credits: 0,
+      baseCredits: credits,
+      credits,
       markup: 1,
-      userPricingMultiplier: 1,
-      source: "wan30_invitation_free",
+      source: "configured_wan30_output_duration_rate",
     };
   }
   const bounds = advancedDurationBounds(normalizedProvider);
   const duration = clampNumber(options.duration ?? options.durationSeconds, bounds.fallback, bounds.min, bounds.max);
-  const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
   if (normalizedProvider === "qwen-image3") {
     return qwenImage3PricingEstimate(advancedPricing, options);
   }
@@ -18679,8 +18726,101 @@ function seedanceFinalCreditsFromUsage(record = {}) {
   };
 }
 
+function usesWan30AdaptiveDurationPricing(record = {}) {
+  const pricing = record.pricingEstimate && typeof record.pricingEstimate === "object" ? record.pricingEstimate : {};
+  return String(record.provider || "").toLowerCase() === "aliyun-wan30"
+    && pricing.adaptiveDuration === true
+    && Number(pricing.creditsPerSecond) > 0;
+}
+
+async function settleWan30AdaptiveDuration(record = {}, reason = "query") {
+  if (!usesWan30AdaptiveDurationPricing(record) || !isSucceededStatus(record.status) || record.billingSettledAt) return record;
+  const resultUrl = String(record.remoteVideoUrl || record.videoUrl || record.cdnVideoUrl || record.localVideoUrl || "").trim();
+  if (!resultUrl) return record;
+  const actualDuration = await probeVideoDurationSeconds(resultUrl);
+  if (!(actualDuration > 0)) return record;
+
+  const pricing = record.pricingEstimate || {};
+  const creditsPerSecond = Number(pricing.creditsPerSecond || 0);
+  const originalFinalCredits = creditsAmount(Math.min(30, actualDuration) * creditsPerSecond);
+  const pricingMultiplier = normalizeUserPricingMultiplier(record.userPricingMultiplier ?? record.pricingMultiplier ?? pricing.userPricingMultiplier ?? 1);
+  const finalCredits = applyUserPricingMultiplierToCredits(originalFinalCredits, pricingMultiplier);
+  const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  const delta = preDeducted - finalCredits;
+  let billingStatus = "settled";
+  const db = await readDb();
+
+  try {
+    if (delta > 0) {
+      await changeUserCredits(db, record.userId, delta, "generation_refund", {
+        taskId: record.taskId,
+        provider: record.provider,
+        reason,
+        preDeducted,
+        finalCredits,
+        originalFinalCredits,
+        pricingMultiplier,
+        generatedDurationSeconds: actualDuration,
+      });
+      await recordSubtokenAdjustment(record, {
+        taskId: record.taskId,
+        type: "generation_refund",
+        amount: -delta,
+        meta: { provider: record.provider, reason, preDeducted, finalCredits, originalFinalCredits, generatedDurationSeconds: actualDuration },
+      });
+      if (!dbEnabled()) await writeDb(db);
+    } else if (delta < 0) {
+      await changeUserCredits(db, record.userId, delta, "generation_settle", {
+        taskId: record.taskId,
+        provider: record.provider,
+        reason,
+        preDeducted,
+        finalCredits,
+        originalFinalCredits,
+        pricingMultiplier,
+        generatedDurationSeconds: actualDuration,
+      });
+      await recordSubtokenAdjustment(record, {
+        taskId: record.taskId,
+        type: "generation_settle",
+        amount: Math.abs(delta),
+        meta: { provider: record.provider, reason, preDeducted, finalCredits, originalFinalCredits, generatedDurationSeconds: actualDuration },
+      });
+      if (!dbEnabled()) await writeDb(db);
+    }
+  } catch (error) {
+    if (error.code === "INSUFFICIENT_CREDITS" || error.code === "SUBTOKEN_QUOTA_EXCEEDED") {
+      billingStatus = "settle_pending_insufficient";
+      return upsertGenerationRecord({
+        taskId: record.taskId,
+        finalCredits,
+        originalFinalCredits,
+        userPricingMultiplier: pricingMultiplier,
+        generatedDurationSeconds: actualDuration,
+        billingStatus,
+        billingError: error.message || "Not enough credits or sub token quota for final settlement.",
+      });
+    }
+    throw error;
+  }
+
+  return upsertGenerationRecord({
+    taskId: record.taskId,
+    finalCredits,
+    originalFinalCredits,
+    userPricingMultiplier: pricingMultiplier,
+    generatedDurationSeconds: actualDuration,
+    billingStatus,
+    billingSettledAt: new Date().toISOString(),
+    billingError: "",
+  });
+}
+
 async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
   const preDeducted = creditsAmount(record.preDeductedCredits || 0);
+  if (usesWan30AdaptiveDurationPricing(record) && isSucceededStatus(record.status) && !record.billingSettledAt) {
+    return settleWan30AdaptiveDuration(record, reason);
+  }
   if (
     seedanceUsesTokenPricing(record) &&
     record.taskId &&
@@ -20400,11 +20540,11 @@ async function runAdvancedGenerationJob(job = {}) {
       runtime.model,
     ));
     const fixedBilling = {
-      finalCredits: cost,
-      originalFinalCredits: pricing?.originalCredits ?? cost,
+      finalCredits: pricing?.adaptiveDuration ? null : cost,
+      originalFinalCredits: pricing?.adaptiveDuration ? null : (pricing?.originalCredits ?? cost),
       userPricingMultiplier: pricing?.userPricingMultiplier ?? 1,
-      billingStatus: cost > 0 ? "settled" : "free",
-      billingSettledAt: cost > 0 ? submittedAt : "",
+      billingStatus: cost > 0 ? (pricing?.adaptiveDuration ? "pre_deducted" : "settled") : "free",
+      billingSettledAt: cost > 0 && !pricing?.adaptiveDuration ? submittedAt : "",
     };
     await updateGenerationRecord(taskId, {
       status: task.status || "submitted",
@@ -22927,11 +23067,11 @@ async function handleAdvancedGenerate(req, res) {
     error: "",
     preDeductedCredits: cost,
     originalPreDeductedCredits: pricing.originalCredits,
-    finalCredits: cost,
-    originalFinalCredits: pricing.originalCredits,
+    finalCredits: pricing.adaptiveDuration ? null : cost,
+    originalFinalCredits: pricing.adaptiveDuration ? null : pricing.originalCredits,
     userPricingMultiplier: pricing.userPricingMultiplier,
-    billingStatus: cost > 0 ? "settled" : "free",
-    billingSettledAt: cost > 0 ? new Date().toISOString() : "",
+    billingStatus: cost > 0 ? (pricing.adaptiveDuration ? "pre_deducted" : "settled") : "free",
+    billingSettledAt: cost > 0 && !pricing.adaptiveDuration ? new Date().toISOString() : "",
     pricingEstimate: pricing,
     createResponse: null,
     awaitingUpstreamTask: true,
@@ -30220,6 +30360,9 @@ async function handleAdminGetConfig(req, res) {
 const ADVANCED_PRICING_ROWS = [
   { key: "seedance25-480p", provider: "seedance25", providerLabel: "Seedance 2.5", resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "seedance25-720p", provider: "seedance25", providerLabel: "Seedance 2.5", resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-480p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-720p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
+  { key: "wan30-1080p", provider: "wan30", providerLabel: "Wan 3.0 Video", model: ALIYUN_WAN30_MODEL, resolution: "1080p", rateKind: "output", unit: "output_second", usageLabel: "All modes" },
   { key: "seedance-480p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "480p", rateKind: "output", unit: "output_second" },
   { key: "seedance-720p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "720p", rateKind: "output", unit: "output_second" },
   { key: "seedance-1080p", provider: "seedance", providerLabel: "Seedance Standard", seedanceTier: "standard", resolution: "1080p", rateKind: "output", unit: "output_second" },
@@ -30354,6 +30497,8 @@ function advancedSaleCreditsPerSecond(pricing = DEFAULT_ADVANCED_PRICING, provid
   const isFast = normalizedProvider === "seedance" && normalizeSeedanceTier(seedanceTier) === "fast";
   const table = normalizedProvider === "seedance25"
     ? normalized.seedance25CreditsPerSecondByResolution
+    : normalizedProvider === "wan30"
+    ? normalized.wan30CreditsPerSecondByResolution
     : normalizedProvider === "seedance" && isFast && rateKind === "video_input"
     ? normalized.seedanceFastVideoInputCreditsPerSecondByResolution
     : normalizedProvider === "seedance" && isFast
@@ -30569,6 +30714,18 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const publicResolution = normalizeAdvancedResolution(resolution);
   const duration = normalizedProvider === "wan27" ? 5 : 5;
+  if (normalizedProvider === "wan30") {
+    const cnyPerSecond = ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND[publicResolution] ?? null;
+    const usdPerSecond = cnyPerSecond === null ? null : wan30PurchaseUsdPerSecond(publicResolution);
+    return {
+      creditsPerSecond: usdPerSecond === null ? null : pricingNumber(usdPerSecond * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
+      usdPerSecond,
+      source: "aliyun_beijing_official_model_pricing",
+      message: cnyPerSecond === null
+        ? "Alibaba Cloud Model Studio Beijing official price is unavailable for this resolution."
+        : `Alibaba Cloud Model Studio Beijing official Wan 3.0 price: ${cnyPerSecond} CNY/second, converted at ${ALIYUN_WAN30_CNY_PER_USD} CNY/USD and ${DEFAULT_CREDITS_PER_USD} site credits/USD. No free quota.`,
+    };
+  }
   if (normalizedProvider === "seedance25") {
     const pointsPerSecond = SEEDANCE25_POINTS_PER_SECOND[publicResolution];
     const usdPerSecond = Number.isFinite(Number(pointsPerSecond))
@@ -30915,6 +31072,9 @@ function advancedPricingFromBody(body = {}, currentPricing = DEFAULT_ADVANCED_PR
     const credits = pricingNumber(rawCredits, 0, 0, key.startsWith("seedance25-") ? 6 : 4);
     if (key === "wan27-720p") next.wan27CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "wan27-1080p") next.wan27CreditsPerSecondByResolution["1080p"] = credits;
+    else if (key === "wan30-480p") next.wan30CreditsPerSecondByResolution["480p"] = credits;
+    else if (key === "wan30-720p") next.wan30CreditsPerSecondByResolution["720p"] = credits;
+    else if (key === "wan30-1080p") next.wan30CreditsPerSecondByResolution["1080p"] = credits;
     else if (key === "seedance25-480p") next.seedance25CreditsPerSecondByResolution["480p"] = credits;
     else if (key === "seedance25-720p") next.seedance25CreditsPerSecondByResolution["720p"] = credits;
     else if (key === "happyhorse-720p") next.happyhorseCreditsPerSecondByResolution["720p"] = credits;
