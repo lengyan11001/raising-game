@@ -19608,6 +19608,24 @@ function seedance25PublicInputUrls(urls = [], kind = "image") {
   return [...new Set(normalized)];
 }
 
+function arkAssetStillProcessing(error) {
+  return /asset is still processing|not available yet/i.test(String(error?.message || error || ""));
+}
+
+async function submitArkTaskAfterAssetsReady(payload, { attempts = 12, waitMs = 10000 } = {}) {
+  const maxAttempts = Math.max(1, Number(attempts) || 1);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await arkRequest("POST", "/contents/generations/tasks", payload);
+    } catch (error) {
+      if (!arkAssetStillProcessing(error) || attempt >= maxAttempts) throw error;
+      console.warn(`[ark-assets-processing] generation submit attempt ${attempt}/${maxAttempts}; retrying in ${waitMs}ms`);
+      await delay(waitMs);
+    }
+  }
+  throw new Error("Ark generation submit failed while waiting for assets.");
+}
+
 async function runSeedance25GenerationJob(job = {}) {
   const { taskId, upstreamInput, mediaAssets, pricing, cost, provider = "seedance25" } = job;
   const direct = normalizeAdvancedProvider(provider) === SEEDANCE25_DIRECT_PROVIDER;
@@ -19645,7 +19663,7 @@ async function runSeedance25GenerationJob(job = {}) {
         firstFrameAsset,
         lastFrameAsset,
       }, SEEDANCE25_DIRECT_ENDPOINT);
-      submitted = await arkRequest("POST", "/contents/generations/tasks", upstreamPayload);
+      submitted = await submitArkTaskAfterAssetsReady(upstreamPayload);
     } else {
       upstreamPayload = buildSeedance25TaskPayload(upstreamInput, SEEDANCE25_MODEL_ID);
       const gatewayBody = USE_GATEWAY_UPSTREAM ? {

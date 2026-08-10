@@ -134,6 +134,13 @@ test("Seedance 2.5 server pricing migrates old rounded defaults and preserves si
   assert.match(server, /key\.startsWith\("seedance25-"\) \|\| key\.startsWith\("seedance-nsfw-"\) \? 6 : 4/);
 });
 
+test("direct Seedance 2.5 waits until every uploaded Ark asset is available", () => {
+  assert.match(server, /function arkAssetStillProcessing\(error\)/);
+  assert.match(server, /asset is still processing\|not available yet/i);
+  assert.match(server, /async function submitArkTaskAfterAssetsReady\(payload, \{ attempts = 12, waitMs = 10000 \} = \{\}\)/);
+  assert.match(server, /submitted = await submitArkTaskAfterAssetsReady\(upstreamPayload\)/);
+});
+
 test("shared video uploads use capability-specific duration limits", () => {
   assert.match(ui, /function advancedVideoInputDurationRule/);
   assert.match(ui, /"wan27-video-edit": \{ min: 1\.8, max: 10\.2, displayMin: 2, displayMax: 10 \}/);
