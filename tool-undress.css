@@ -77,7 +77,7 @@ body.tenant-tool-undress .undress-ambient.is-playing video {
   display: grid;
   justify-items: center;
   gap: 22px;
-  width: min(440px, 100%);
+  width: min(560px, 100%);
   text-align: center;
 }
 
@@ -101,7 +101,22 @@ body.tenant-tool-undress .undress-ambient.is-playing video {
   margin: 0;
   color: var(--undress-text);
   font-size: 2rem;
+  line-height: 1.2;
   letter-spacing: 0;
+}
+
+.undress-tool-copy {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.undress-tool-copy p {
+  max-width: 540px;
+  margin: 0;
+  color: var(--undress-muted);
+  font-size: 0.98rem;
+  line-height: 1.65;
 }
 
 .undress-tool-create {
@@ -754,6 +769,12 @@ body.tenant-tool-undress .inline-modal.is-undress-unlock .inline-actions {
 
   .undress-tool-home h2 {
     font-size: 1.55rem;
+  }
+
+  .undress-tool-copy p {
+    max-width: 340px;
+    font-size: 0.9rem;
+    line-height: 1.55;
   }
 
   body.tenant-tool-undress .video-tool-dialog {

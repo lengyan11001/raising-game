@@ -25,7 +25,8 @@ const UNDRESS_TOOL_EXAMPLE_MEDIA = Object.freeze({
 const UNDRESS_TOOL_COPY = {
   en: {
     create: "Create",
-    title: "Undress",
+    title: "Your fantasy, your rules.",
+    subtitle: "Create custom adult images and turn your favorite photos into short AI videos.",
     imageOnly: "Image",
     imageVideo: "Image to video",
     videoOnly: "Video",
@@ -47,7 +48,8 @@ const UNDRESS_TOOL_COPY = {
   },
   zh: {
     create: "\u521b\u5efa",
-    title: "\u8131\u8863",
+    title: "\u4f60\u7684\u5e7b\u60f3\uff0c\u4f60\u505a\u4e3b\u3002",
+    subtitle: "\u521b\u5efa\u81ea\u5b9a\u4e49\u7684\u6210\u4eba\u5185\u5bb9\u56fe\u7247\uff0c\u5c06\u4f60\u559c\u6b22\u7684\u56fe\u7247\u8f6c\u6362\u6210\u7b80\u77ed\u7684AI\u89c6\u9891\u3002",
     imageOnly: "\u56fe\u7247",
     imageVideo: "\u56fe\u7247\u751f\u89c6\u9891",
     videoOnly: "\u89c6\u9891",
@@ -498,7 +500,10 @@ function renderUndressToolHome() {
       </div>
       <div class="undress-tool-home-inner">
         <span class="undress-tool-mark"><i data-lucide="sparkles"></i></span>
-        <h2>${undressToolEscape(undressToolText("title"))}</h2>
+        <div class="undress-tool-copy">
+          <h2>${undressToolEscape(undressToolText("title"))}</h2>
+          <p>${undressToolEscape(undressToolText("subtitle"))}</p>
+        </div>
         <button class="undress-tool-create" type="button" data-undress-tool-open><i data-lucide="upload"></i>${undressToolEscape(undressToolText("create"))}</button>
       </div>
     </section>
