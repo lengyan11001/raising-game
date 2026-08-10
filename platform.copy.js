@@ -1967,6 +1967,42 @@ Authorization: Bearer <user-token>
 
 When status is succeeded, read content.image_url, content.image_urls, or data[].url.`;
 
+const ADVANCED_VIDEO_ACCESS_COPY = `Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced endpoint.
+
+Optional reusable asset upload:
+POST ${apiUrl("/api/user-assets")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{"videoUrl":"https://example.com/reference.mp4","fileName":"reference.mp4","durationSeconds":8}
+
+The response returns asset.id. Use that id in Advanced request fields such as firstFrameAssetId, videoAssetId, or referenceImages[].assetId. Do not add the asset:// prefix for this endpoint.
+
+Wan 3.0 multimodal example:
+POST ${apiUrl("/api/advanced/generate")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{"provider":"wan30","videoCapability":"wan30-video","mediaMode":"multimodal","prompt":"Use Image 1 as the character and Video 1 as the motion reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8,"generateAudio":true}
+
+Seedance 2.5 reference example:
+{"provider":"seedance25","functionMode":"reference","prompt":"Use Image 1 as the subject and Video 1 as the action reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"ratio":"9:16","resolution":"720p","duration":8}
+
+Wan2.7 reference example:
+{"provider":"wan27","videoCapability":"wan27-r2v","prompt":"Use Image 1 as the subject and Video 1 as the motion reference.","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"referenceVideos":[{"assetId":"uploaded-video-asset-id"}],"resolution":"720p","duration":5}
+
+HappyHorse video-edit example:
+{"provider":"happyhorse","videoCapability":"happyhorse-video-edit","prompt":"Keep the source timing and replace the subject using Image 1.","videoAssetId":"uploaded-video-asset-id","referenceImages":[{"assetId":"uploaded-image-asset-id"}],"resolution":"720p","duration":5}
+
+Wan Animate character-replacement example:
+{"provider":"wan27","videoCapability":"wan-animate-mix","prompt":"Replace the source-video character with the person in the image.","firstFrameAssetId":"uploaded-image-asset-id","videoAssetId":"uploaded-video-asset-id","parameters":{"mode":"wan-pro"}}
+
+The create response returns taskId. Poll:
+GET ${apiUrl("/api/generation-records/<taskId>")}
+Authorization: Bearer <user-token>
+
+Full current model fields and limits: ${apiUrl("/docs/models.md")}`;
+
 const LIVE_HTTP_ACCESS_COPY = `Production generation endpoints:
 
 1) Create and poll a Seedance video task:
@@ -1996,7 +2032,17 @@ When status is succeeded, read content.image_url.
 3) Create and poll a Qwen Image 3.0 task:
 ${QWEN_IMAGE3_ACCESS_COPY}
 
-4) Optional BytePlus-compatible asset upload for reusable files:
+4) Create and poll Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, or Wan Animate video tasks:
+${ADVANCED_VIDEO_ACCESS_COPY}
+
+5) Create or edit a Wan2.7 image:
+POST ${apiUrl("/api/vipeak1/image-edit")}
+Authorization: Bearer <user-token>
+Content-Type: application/json
+
+{"prompt":"Edit the reference image into a cinematic portrait while preserving identity.","imageAssetIds":["uploaded-image-asset-id"],"ratio":"9:16","resolution":"2K","async":true,"watermark":false}
+
+6) Optional BytePlus-compatible asset upload for reusable V3 files:
 POST ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}
 Authorization: Bearer <user-token>
 Content-Type: application/json

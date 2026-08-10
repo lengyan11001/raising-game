@@ -101,5 +101,5 @@ test("Advanced exposes Qwen Image 3.0 with multi-reference input and complete pa
 test("live model documentation includes the Qwen V3 request and limits", () => {
   assert.match(serverSource, /function qwenImage3ParameterFields\(\)/);
   assert.match(serverSource, /\*\*Qwen Image 3\.0 through V3\*\*/);
-  assert.match(serverSource, /This integration uses the Alibaba Cloud Model Studio Singapore endpoint/);
+  assert.doesNotMatch(serverSource, /This integration uses the Alibaba Cloud Model Studio Singapore endpoint/);
 });

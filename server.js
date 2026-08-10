@@ -20,6 +20,7 @@ const {
   SEEDANCE25_CNY_PER_USD,
   SEEDANCE25_INNER_MODEL,
   SEEDANCE25_POINTS_PER_SECOND,
+  SEEDANCE25_RATIOS,
   buildSeedance25TaskPayload,
   normalizeSeedance25Mode,
   purchaseSiteCreditsPerSecond: seedance25PurchaseSiteCreditsPerSecond,
@@ -4124,12 +4125,13 @@ function buildLlmsTxt(snapshot, { full = false, apiAccess = true } = {}) {
   if (apiAccess) coreUrls.push(`- API guide: ${scopedApiUrl(snapshot.origin, "/#access")}`);
   const apiLines = apiAccess ? [
     "## API",
-    "- Primary Seedance generation endpoint: POST /api/v3/contents/generations/tasks",
-    "- Query Seedance V3 tasks: GET /api/v3/contents/generations/tasks/<taskId>",
-    "- Wan2.7 video endpoint: POST /api/advanced/generate with provider=wan27",
-    "- Wan image endpoint: POST /api/vipeak1/image-edit",
+    "- Seedance 2.0 video: POST /api/v3/contents/generations/tasks",
+    "- Seedream 5.0 Pro and Qwen Image 3.0: POST /api/v3/images/generations",
+    "- Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate: POST /api/advanced/generate",
+    "- Wan2.7 image generation/edit: POST /api/vipeak1/image-edit",
+    "- Query V3 tasks: GET /api/v3/contents/generations/tasks/<taskId>",
+    "- Query Advanced tasks: GET /api/generation-records/<taskId>",
     "- Public model guide: GET /models.md",
-    "- Seedance clients must use the BytePlus-compatible content[] request shape.",
     "",
   ] : [];
   const lines = [
@@ -23672,18 +23674,23 @@ function wan27VideoParameterFields() {
   const bounds = advancedDurationBounds("wan27");
   return [
     { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Wan2.7 video generation endpoint.", default: "-" },
-    { name: "provider", type: "string", required: "Yes", description: "Use `wan27` or `vipeak1` for Wan2.7 video.", default: "wan27" },
-    { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt.", default: "-" },
-    { name: "mediaMode", type: "enum", required: "No", description: "`first_frame`, `first_last_frame`, `first_frame_audio`, `first_last_frame_audio`, `first_clip`, or `first_clip_last_frame`.", default: "first_frame" },
-    { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first-frame modes", description: `First-frame image. Use public URL, supported data URL, or uploaded asset id. Images max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}.`, default: "-" },
+    { name: "provider", type: "string", required: "Yes", description: "Use `wan27`.", default: "wan27" },
+    { name: "videoCapability", type: "enum", required: "Yes", description: "`wan27-t2v`, `wan27-i2v`, `wan27-r2v`, or `wan27-video-edit`.", default: "wan27-i2v" },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt or edit instruction.", default: "-" },
+    { name: "mediaMode", type: "enum", required: "For wan27-i2v", description: "`first_frame`, `first_last_frame`, `first_frame_audio`, `first_last_frame_audio`, `first_clip`, or `first_clip_last_frame`.", default: "first_frame" },
+    { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first-frame modes; optional for r2v", description: `First-frame image. Use public URL, supported data URL, or uploaded asset id. Images max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}.`, default: "-" },
     { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For last-frame modes", description: `Last-frame image. Use public URL, supported data URL, or uploaded asset id. Images max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}.`, default: "-" },
     { name: "firstClipUrl / firstClipDataUrl / firstClipAssetId", type: "string", required: "For first_clip modes", description: `Source video clip. Use public URL, supported data URL, or uploaded asset id. Uploaded video max ${docsMb(MEDIA_UPLOAD_MAX_BYTES)}.`, default: "-" },
     { name: "drivingAudioUrl / drivingAudioDataUrl / drivingAudioAssetId", type: "string", required: "For audio modes", description: `Driving audio. Use public URL, supported data URL, or uploaded asset id. Uploaded audio max ${docsMb(MEDIA_UPLOAD_MAX_BYTES)}.`, default: "-" },
+    { name: "referenceImages / referenceVideos", type: "array", required: "For wan27-r2v", description: "Reference generation requires 1-5 reference images/videos in total. Each item accepts assetId, URL, or dataUrl. One optional first frame may also be supplied.", default: "[]" },
+    { name: "videoUrl / videoDataUrl / videoAssetId", type: "string", required: "For wan27-video-edit", description: "Exactly one source video. Video edit also accepts 0-4 reference images.", default: "-" },
     { name: "resolution", type: "string", required: "No", description: "Supported values: `720p`, `1080p`.", default: "720p" },
-    { name: "duration", type: "integer", required: "No", description: `Video duration in seconds, integer ${bounds.min}-${bounds.max}.`, default: String(bounds.fallback) },
+    { name: "duration", type: "integer", required: "No", description: `Video duration in seconds, integer ${bounds.min}-${bounds.max}. Reference generation with a video and video edit are limited to 2-10 seconds.`, default: String(bounds.fallback) },
+    { name: "followInputDuration", type: "boolean", required: "No", description: "For wan27-video-edit, set true to use the source-video duration, capped at 10 seconds.", default: "false" },
+    { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Whether generated audio should be requested when supported by the selected capability.", default: "true" },
     { name: "seed", type: "integer", required: "No", description: "Optional deterministic seed when supported by the model.", default: "-" },
     { name: "prompt_extend / promptExtend", type: "boolean", required: "No", description: "Whether to enable prompt extension.", default: "false" },
-    { name: "watermark", type: "boolean", required: "No", description: "Pass-through watermark flag.", default: "false" },
+    { name: "watermark", type: "boolean", required: "No", description: "Whether to add a watermark.", default: "false" },
   ];
 }
 
@@ -23732,6 +23739,92 @@ function qwenImage3ParameterFields() {
     { name: "seed", type: "integer", required: "No", description: `Integer 0-${QWEN_IMAGE3_SEED_MAX}.`, default: "-" },
     { name: "watermark", type: "boolean", required: "No", description: "Whether to add an upstream watermark.", default: "false" },
     { name: "image input limits", type: "rule", required: "For image", description: "JPG/JPEG, PNG, BMP, TIFF, WebP, or GIF; max 10MB per image. Recommended width and height are 384-2048px.", default: "-" },
+  ];
+}
+
+function advancedAssetParameterFields() {
+  return [
+    { name: "/api/user-assets", type: "endpoint", required: "No", description: "Upload a reusable image, video, or audio for Advanced generation. Reuse the returned asset.id in later requests.", default: "-" },
+    { name: "url / imageUrl / videoUrl / audioUrl", type: "string", required: "For URL upload", description: "Public http(s) media URL. The server imports the file into your asset library.", default: "-" },
+    { name: "dataUrl", type: "string", required: "For inline upload", description: "Base64 image, video, or audio data URL.", default: "-" },
+    { name: "name / fileName", type: "string", required: "No", description: "Asset display name and original file name.", default: "Upload" },
+    { name: "durationSeconds", type: "number", required: "No", description: "Known media duration in seconds. Supplying it avoids an extra duration probe when applicable.", default: "-" },
+    { name: "provider", type: "string", required: "No", description: "Set to `wan30` when uploading media for Wan 3.0 so its media-size limits are applied.", default: "-" },
+  ];
+}
+
+function wan30VideoParameterFields() {
+  return [
+    { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous Wan 3.0 video task.", default: "-" },
+    { name: "provider", type: "string", required: "Yes", description: "Use `wan30`.", default: "wan30" },
+    { name: "videoCapability", type: "string", required: "No", description: "Use `wan30-video` when explicitly supplied.", default: "wan30-video" },
+    { name: "prompt", type: "string", required: "Unless media is supplied", description: "Video prompt, up to 5000 characters. When using references, name them in request order as Image 1, Video 1, Audio 1, etc.", default: "-" },
+    { name: "mediaMode", type: "enum", required: "No", description: "`multimodal` for reference media or `first_last_frame` for explicit first and last frames. These modes cannot be mixed.", default: "multimodal" },
+    { name: "referenceImages", type: "array", required: "For image references", description: "0-10 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName.", default: "[]" },
+    { name: "referenceVideos", type: "array", required: "For video references", description: "0-5 videos. Each item accepts assetId, url/videoUrl, or dataUrl plus optional fileName.", default: "[]" },
+    { name: "referenceAudios", type: "array", required: "For audio references", description: "0-5 audios. Each item accepts assetId, url/audioUrl, or dataUrl plus optional fileName.", default: "[]" },
+    { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first_last_frame", description: "First-frame image.", default: "-" },
+    { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For first_last_frame", description: "Last-frame image. Both frame images are required.", default: "-" },
+    { name: "resolution", type: "enum", required: "No", description: "`480p`, `720p`, or `1080p`.", default: "1080p" },
+    { name: "ratio", type: "enum", required: "No", description: "`16:9`, `4:3`, `1:1`, `3:4`, `9:16`, or `adaptive`.", default: "adaptive" },
+    { name: "duration", type: "integer", required: "No", description: "Output duration from 2-30 seconds. Use `-1` for adaptive output duration.", default: "5" },
+    { name: "generateAudio / generate_audio", type: "boolean", required: "No", description: "Whether the output should include generated audio.", default: "true" },
+    { name: "seed", type: "integer", required: "No", description: "Integer from 0 to 2147483647.", default: "-" },
+    { name: "watermark", type: "boolean", required: "No", description: "Whether to add a watermark.", default: "false" },
+    { name: "image limits", type: "rule", required: "For image", description: "JPG/JPEG, PNG, BMP, or WebP; max 20MB; width and height 240-8000px; aspect ratio no wider than 8:1. PNG transparency is not supported.", default: "-" },
+    { name: "video limits", type: "rule", required: "For video", description: "MP4 or MOV; smaller than 100MB; width and height 240-4096px; aspect ratio no wider than 8:1; each video 1-15 seconds; all reference videos together at most 15 seconds.", default: "-" },
+    { name: "audio limits", type: "rule", required: "For audio", description: "MP3 or WAV; smaller than 15MB; each audio 1-15 seconds; all reference audios together at most 15 seconds.", default: "-" },
+    { name: "duration combination", type: "rule", required: "When video references are used", description: "If duration is not `-1`, total input-video seconds plus output duration must not exceed 30 seconds.", default: "-" },
+  ];
+}
+
+function seedance25VideoParameterFields() {
+  return [
+    { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous Seedance 2.5 video task.", default: "-" },
+    { name: "provider", type: "string", required: "Yes", description: "Use `seedance25`.", default: "seedance25" },
+    { name: "prompt", type: "string", required: "Yes", description: "Video prompt, 1-6000 characters.", default: "-" },
+    { name: "functionMode / seedanceMode / mediaMode", type: "enum", required: "No", description: "`reference` (multimodal reference generation), `first_last_frame`, `edit`, or `extend`. `omini` is also accepted as the reference-mode alias.", default: "reference" },
+    { name: "referenceImages", type: "array", required: "For reference mode", description: "0-30 images. Each item accepts assetId, url/imageUrl, or dataUrl plus optional fileName.", default: "[]" },
+    { name: "referenceVideos / referenceVideoUrls / referenceVideoAssetIds", type: "array", required: "For reference, edit, or extend", description: "Reference mode accepts 0-10 videos. Edit and extend require exactly one source video.", default: "[]" },
+    { name: "referenceAudios / referenceAudioUrls / referenceAudioAssetIds", type: "array", required: "For reference mode", description: "0-10 audios. Audio-only reference generation is not supported; include at least one image or video.", default: "[]" },
+    { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first_last_frame", description: "First-frame image.", default: "-" },
+    { name: "lastFrameUrl / lastFrameDataUrl / lastFrameAssetId", type: "string", required: "For first_last_frame", description: "Last-frame image. Both frames are required and cannot be mixed with reference media.", default: "-" },
+    { name: "resolution", type: "enum", required: "No", description: "`480p` or `720p`.", default: "480p" },
+    { name: "ratio", type: "enum", required: "No", description: "Reference mode supports `16:9`, `21:9`, `9:16`, `4:3`, `3:4`, `1:1`, or `adaptive`. Other modes use adaptive ratio.", default: "adaptive" },
+    { name: "duration", type: "integer", required: "Except edit", description: "Output duration or extension duration, integer 4-30 seconds. Omit for edit; edit follows the source-video duration.", default: "4" },
+    { name: "seed", type: "integer", required: "No", description: "Integer from 0 to 4294967295.", default: "-" },
+    { name: "reference total", type: "rule", required: "For reference mode", description: "At least one reference is required; at most 50 images, videos, and audios combined.", default: "-" },
+  ];
+}
+
+function happyhorseVideoParameterFields() {
+  return [
+    { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous HappyHorse video task.", default: "-" },
+    { name: "provider", type: "string", required: "Yes", description: "Use `happyhorse`.", default: "happyhorse" },
+    { name: "videoCapability", type: "enum", required: "Yes", description: "`happyhorse-t2v`, `happyhorse-i2v`, `happyhorse-r2v`, or `happyhorse-video-edit`.", default: "happyhorse-i2v" },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt or edit instruction.", default: "-" },
+    { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For happyhorse-i2v", description: "Exactly one first-frame image.", default: "-" },
+    { name: "referenceImages", type: "array", required: "For happyhorse-r2v", description: "Reference generation requires 1-9 images. Video edit accepts 0-5 reference images. Each item accepts assetId, url/imageUrl, or dataUrl.", default: "[]" },
+    { name: "videoUrl / videoDataUrl / videoAssetId", type: "string", required: "For happyhorse-video-edit", description: "Exactly one source video.", default: "-" },
+    { name: "resolution", type: "enum", required: "No", description: "`720p` or `1080p`.", default: "720p" },
+    { name: "duration", type: "integer", required: "No", description: "Integer 3-15 seconds.", default: "5" },
+    { name: "seed", type: "integer", required: "No", description: "Optional deterministic seed when supported.", default: "-" },
+    { name: "prompt_extend / promptExtend", type: "boolean", required: "No", description: "Whether to enable prompt extension.", default: "false" },
+    { name: "watermark", type: "boolean", required: "No", description: "Whether to add a watermark.", default: "false" },
+  ];
+}
+
+function wanAnimateVideoParameterFields() {
+  return [
+    { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Create an asynchronous Wan Animate task.", default: "-" },
+    { name: "provider", type: "string", required: "Yes", description: "Use `wan27`.", default: "wan27" },
+    { name: "videoCapability", type: "enum", required: "Yes", description: "`wan-animate-move` for image animation or `wan-animate-mix` for character replacement.", default: "wan-animate-move" },
+    { name: "prompt", type: "string", required: "Yes", description: "Non-empty animation or replacement instruction.", default: "-" },
+    { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "Yes", description: "Exactly one source/reference image.", default: "-" },
+    { name: "videoUrl / videoDataUrl / videoAssetId", type: "string", required: "Yes", description: "Exactly one motion/source video.", default: "-" },
+    { name: "parameters.mode", type: "enum", required: "No", description: "`wan-std` or `wan-pro`.", default: "wan-std" },
+    { name: "duration", type: "integer", required: "No", description: "Omit this field. Output duration follows the source video; supported source duration is 2-30 seconds.", default: "source video duration" },
+    { name: "watermark", type: "boolean", required: "No", description: "Whether to add a watermark.", default: "false" },
   ];
 }
 
@@ -23813,7 +23906,7 @@ function docsAdvancedExampleBody(item = {}) {
 function advancedGenerateConstraintsDoc() {
   return {
     common: {
-      route: "/api/v3/contents/generations/tasks",
+      routes: ["/api/v3/contents/generations/tasks", "/api/v3/images/generations", "/api/advanced/generate", "/api/vipeak1/image-edit"],
       auth: "Authorization: Bearer <user-token>",
       prompt: "Required non-empty string.",
       ratio: {
@@ -23868,10 +23961,45 @@ function advancedGenerateConstraintsDoc() {
       },
       mediaUrl: "Use public http(s) URLs, supported data URLs, or asset:// ids returned by CreateAsset.",
     },
+    wan30: {
+      provider: "wan30",
+      route: "/api/advanced/generate",
+      capability: "wan30-video",
+      model: ALIYUN_WAN30_MODEL,
+      mediaMode: ["multimodal", "first_last_frame"],
+      durationSeconds: { integer: true, min: 2, max: 30, adaptive: -1 },
+      resolution: ["480p", "720p", "1080p"],
+      ratio: ["16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
+      referenceLimits: { images: 10, videos: 5, audios: 5 },
+      imageInput: { formats: ["JPG", "JPEG", "PNG", "BMP", "WebP"], maxBytes: IMAGE_UPLOAD_MAX_BYTES, widthPx: { min: 240, max: 8000 }, heightPx: { min: 240, max: 8000 }, maxAspectRatio: 8, pngTransparency: false },
+      videoInput: { formats: ["MP4", "MOV"], maxBytesExclusive: WAN30_VIDEO_UPLOAD_MAX_BYTES, widthPx: { min: 240, max: 4096 }, heightPx: { min: 240, max: 4096 }, maxAspectRatio: 8, durationSeconds: { min: 1, max: 15 }, maxTotalDurationSeconds: 15 },
+      audioInput: { formats: ["MP3", "WAV"], maxBytesExclusive: WAN30_AUDIO_UPLOAD_MAX_BYTES, durationSeconds: { min: 1, max: 15 }, maxTotalDurationSeconds: 15 },
+      modeRules: {
+        multimodal: "Accepts image, video, and audio references within the listed limits.",
+        first_last_frame: "Requires both frame images and cannot be mixed with reference media.",
+      },
+    },
+    seedance25: {
+      provider: "seedance25",
+      route: "/api/advanced/generate",
+      modes: ["reference", "first_last_frame", "edit", "extend"],
+      durationSeconds: { integer: true, min: 4, max: 30, omittedFor: ["edit"] },
+      resolution: ["480p", "720p"],
+      ratio: SEEDANCE25_RATIOS,
+      referenceLimits: { images: 30, videos: 10, audios: 10, total: 50 },
+      seed: { integer: true, min: 0, max: 4294967295 },
+      modeRules: {
+        reference: "Requires at least one image, video, or audio. Audio-only generation is not supported.",
+        first_last_frame: "Requires both frame images and cannot be mixed with reference media.",
+        edit: "Requires exactly one source video and omits duration.",
+        extend: "Requires exactly one source video; duration is the number of seconds to extend.",
+      },
+    },
     wan27: {
       provider: "wan27",
       route: "/api/advanced/generate",
       model: ALIYUN_WAN27_MODEL,
+      capabilities: ["wan27-t2v", "wan27-i2v", "wan27-r2v", "wan27-video-edit"],
       mediaMode: Array.from(WAN27_MEDIA_MODE),
       durationSeconds: { integer: true, min: advancedDurationBounds("wan27").min, max: advancedDurationBounds("wan27").max },
       resolution: ["720p", "1080p"],
@@ -23895,6 +24023,27 @@ function advancedGenerateConstraintsDoc() {
         maxBytes: MEDIA_UPLOAD_MAX_BYTES,
       },
       mediaUrl: "Use public http(s) URLs, supported data URLs, or uploaded asset ids.",
+    },
+    happyhorse: {
+      provider: "happyhorse",
+      route: "/api/advanced/generate",
+      capabilities: ["happyhorse-t2v", "happyhorse-i2v", "happyhorse-r2v", "happyhorse-video-edit"],
+      durationSeconds: { integer: true, min: 3, max: 15 },
+      resolution: ["720p", "1080p"],
+      modeRules: {
+        "happyhorse-t2v": "Does not accept media.",
+        "happyhorse-i2v": "Requires exactly one first-frame image.",
+        "happyhorse-r2v": "Requires 1-9 reference images.",
+        "happyhorse-video-edit": "Requires exactly one source video and accepts 0-5 reference images.",
+      },
+    },
+    wanAnimate: {
+      provider: "wan27",
+      route: "/api/advanced/generate",
+      capabilities: ["wan-animate-move", "wan-animate-mix"],
+      modes: ["wan-std", "wan-pro"],
+      sourceDurationSeconds: { min: 2, max: 30 },
+      mediaRule: "Requires exactly one image and one source video. Omit duration; output duration follows the source video.",
     },
     wan27Image: {
       provider: "wan27-image",
@@ -23968,14 +24117,27 @@ function externalAdvancedApiDoc(origin) {
   const qwenImage3Generate = seedream5ImageGenerate;
   const qwenImage3TaskDetail = byteplusTaskDetail;
   const byteplusAssetAction = `${origin}/?Action=CreateAsset&Version=2024-01-01`;
+  const userAssets = `${origin}/api/user-assets`;
   const advancedGenerate = `${origin}/api/advanced/generate`;
   const wan27ImageEdit = `${origin}/api/vipeak1/image-edit`;
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
-    summary: "Seedance video integrations use the BytePlus-compatible V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. Wan2.7 video and Wan image generation keep their dedicated endpoints.",
+    summary: "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 images route. Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate use the asynchronous Advanced route. Wan image generation uses its dedicated endpoint.",
     recommendedRoute: byteplusGenerate,
     constraints: advancedGenerateConstraintsDoc(),
+    supportedModels: [
+      { name: "Seedance 2.0 Standard", model: "dreamina-seedance-2-0-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
+      { name: "Seedance 2.0 Fast", model: "dreamina-seedance-2-0-fast-260128", create: "/api/v3/contents/generations/tasks", result: "/api/v3/contents/generations/tasks/<taskId>" },
+      { name: "Wan 3.0 Video", provider: "wan30", capability: "wan30-video", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Seedance 2.5", provider: "seedance25", capability: "reference / first_last_frame / edit / extend", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Wan2.7 Video", provider: "wan27", capability: "wan27-t2v / wan27-i2v / wan27-r2v / wan27-video-edit", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "HappyHorse Video", provider: "happyhorse", capability: "happyhorse-t2v / happyhorse-i2v / happyhorse-r2v / happyhorse-video-edit", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Wan Animate", provider: "wan27", capability: "wan-animate-move / wan-animate-mix", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
+      { name: "Seedream 5.0 Pro", model: "seedream-5.0-pro", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
+      { name: "Qwen Image 3.0", model: "qwen-image-3.0-pro / qwen-image-3.0", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
+      { name: "Wan2.7 Image", model: WAN27_IMAGE_PRO_MODEL, create: "/api/vipeak1/image-edit", result: "/api/generation-records/<taskId>" },
+    ],
     endpoints: {
       byteplusGenerate,
       byteplusTaskDetail,
@@ -23984,6 +24146,7 @@ function externalAdvancedApiDoc(origin) {
       qwenImage3Generate,
       qwenImage3TaskDetail,
       byteplusAssetAction,
+      userAssets,
       advancedGenerate,
       wan27ImageEdit,
       generationRecordDetail,
@@ -24059,6 +24222,44 @@ function externalAdvancedApiDoc(origin) {
         watermark: false,
       },
     },
+    wan30Example: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        provider: "wan30",
+        videoCapability: "wan30-video",
+        mediaMode: "multimodal",
+        prompt: "Use Image 1 as the character and Video 1 as the motion reference.",
+        referenceImages: [{ assetId: "uploaded-image-asset-id" }],
+        referenceVideos: [{ assetId: "uploaded-video-asset-id" }],
+        ratio: "9:16",
+        resolution: "720p",
+        duration: 8,
+        generateAudio: true,
+      },
+    },
+    seedance25Example: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        provider: "seedance25",
+        functionMode: "reference",
+        prompt: "Use Image 1 as the subject and Video 1 as the action reference.",
+        referenceImages: [{ assetId: "uploaded-image-asset-id" }],
+        referenceVideos: [{ assetId: "uploaded-video-asset-id" }],
+        ratio: "9:16",
+        resolution: "720p",
+        duration: 8,
+      },
+    },
     wan27Example: {
       method: "POST",
       url: advancedGenerate,
@@ -24068,13 +24269,47 @@ function externalAdvancedApiDoc(origin) {
       },
       body: {
         provider: "wan27",
-        prompt: "Create a 5 second cinematic shot from the first frame.",
-        mediaMode: "first_frame",
-        firstFrameUrl: "https://example.com/first-frame.png",
+        videoCapability: "wan27-r2v",
+        prompt: "Use Image 1 as the subject and Video 1 as the motion reference.",
+        referenceImages: [{ assetId: "uploaded-image-asset-id" }],
+        referenceVideos: [{ assetId: "uploaded-video-asset-id" }],
         resolution: "720p",
         duration: 5,
         prompt_extend: false,
         watermark: false,
+      },
+    },
+    happyhorseExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        provider: "happyhorse",
+        videoCapability: "happyhorse-video-edit",
+        prompt: "Keep the source timing and replace the subject using Image 1.",
+        videoAssetId: "uploaded-video-asset-id",
+        referenceImages: [{ assetId: "uploaded-image-asset-id" }],
+        resolution: "720p",
+        duration: 5,
+      },
+    },
+    wanAnimateExample: {
+      method: "POST",
+      url: advancedGenerate,
+      headers: {
+        Authorization: "Bearer <user-token>",
+        "Content-Type": "application/json",
+      },
+      body: {
+        provider: "wan27",
+        videoCapability: "wan-animate-mix",
+        prompt: "Replace the source-video character with the person in the image.",
+        firstFrameAssetId: "uploaded-image-asset-id",
+        videoAssetId: "uploaded-video-asset-id",
+        parameters: { mode: "wan-pro" },
       },
     },
     wan27ImageExample: {
@@ -24376,6 +24611,7 @@ async function buildModelDocs(req) {
       qwenImage3Generate: `${origin}/api/v3/images/generations`,
       qwenImage3TaskDetail: `${origin}/api/v3/contents/generations/tasks/<taskId>`,
       byteplusAssetAction: `${origin}/?Action=CreateAsset&Version=2024-01-01`,
+      advancedAssetUpload: `${origin}/api/user-assets`,
       advancedGenerate: `${origin}/api/advanced/generate`,
       wan27ImageEdit: `${origin}/api/vipeak1/image-edit`,
       generationRecordDetail: `${origin}/api/generation-records/<taskId>`,
@@ -24428,7 +24664,11 @@ function advancedDocMarkdown(item) {
 function advancedConstraintsMarkdown(doc = {}) {
   const constraints = doc.constraints || advancedGenerateConstraintsDoc();
   const seedance = constraints.seedance || {};
+  const wan30 = constraints.wan30 || {};
+  const seedance25 = constraints.seedance25 || {};
   const wan27 = constraints.wan27 || {};
+  const happyhorse = constraints.happyhorse || {};
+  const wanAnimate = constraints.wanAnimate || {};
   const wan27Image = constraints.wan27Image || {};
   const seedream5Image = constraints.seedream5Image || {};
   const qwenImage3 = constraints.qwenImage3 || {};
@@ -24470,17 +24710,53 @@ function advancedConstraintsMarkdown(doc = {}) {
     `- \`n\`: integer ${qwenImage3.outputImages?.min ?? 1}-${qwenImage3.outputImages?.max ?? QWEN_IMAGE3_OUTPUT_MAX}. \`seed\`: integer ${qwenImage3.seed?.min ?? 0}-${qwenImage3.seed?.max ?? QWEN_IMAGE3_SEED_MAX}.`,
     "- `prompt_extend_mode`: `direct`; `agent` is accepted only for text-to-image without reference images.",
     "- Reference images: JPG/JPEG/PNG/BMP/TIFF/WebP/GIF, max 10MB each; recommended width and height 384-2048px.",
-    "- This integration uses the Alibaba Cloud Model Studio Singapore endpoint.",
+    "",
+    "Wan 3.0 video:",
+    "",
+    `- Endpoint: \`${wan30.route || "/api/advanced/generate"}\` with \`provider: "wan30"\` and \`videoCapability: "wan30-video"\`.`,
+    `- \`mediaMode\`: ${(wan30.mediaMode || ["multimodal", "first_last_frame"]).map((item) => `\`${item}\``).join(", ")}. First/last frames cannot be mixed with reference media.`,
+    `- \`duration\`: integer ${wan30.durationSeconds?.min ?? 2}-${wan30.durationSeconds?.max ?? 30} seconds, or \`-1\` for adaptive duration.`,
+    `- \`resolution\`: ${(wan30.resolution || ["480p", "720p", "1080p"]).map((item) => `\`${item}\``).join(", ")}. \`ratio\`: ${(wan30.ratio || ["16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- References: max ${wan30.referenceLimits?.images ?? 10} images, ${wan30.referenceLimits?.videos ?? 5} videos, and ${wan30.referenceLimits?.audios ?? 5} audios.`,
+    "- Images: JPG/JPEG/PNG/BMP/WebP, max 20MB, width/height 240-8000px, aspect ratio at most 8:1; transparent PNG is not supported.",
+    "- Videos: MP4/MOV, smaller than 100MB, width/height 240-4096px, aspect ratio at most 8:1, each 1-15 seconds, total video references at most 15 seconds.",
+    "- Audios: MP3/WAV, smaller than 15MB, each 1-15 seconds, total audio references at most 15 seconds.",
+    "- With video references and a fixed output duration, input-video seconds plus output duration must not exceed 30 seconds.",
+    "",
+    "Seedance 2.5 video:",
+    "",
+    `- Endpoint: \`${seedance25.route || "/api/advanced/generate"}\` with \`provider: "seedance25"\`.`,
+    "- Modes: `reference`, `first_last_frame`, `edit`, `extend`. `omini` is accepted as the reference-mode alias.",
+    `- \`duration\`: integer ${seedance25.durationSeconds?.min ?? 4}-${seedance25.durationSeconds?.max ?? 30} seconds, except edit mode, which follows the source-video duration and omits duration.`,
+    `- \`resolution\`: ${(seedance25.resolution || ["480p", "720p"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- Reference mode: at least one reference; max ${seedance25.referenceLimits?.images ?? 30} images, ${seedance25.referenceLimits?.videos ?? 10} videos, ${seedance25.referenceLimits?.audios ?? 10} audios, and ${seedance25.referenceLimits?.total ?? 50} assets total. Audio-only is not supported.`,
+    "- First/last frame mode requires both frame images and cannot be mixed with reference media. Edit and extend require exactly one source video.",
     "",
     "Wan2.7 video:",
     "",
     `- Endpoint: \`${wan27.route || "/api/advanced/generate"}\` with \`provider: "wan27"\`.`,
+    `- \`videoCapability\`: ${(wan27.capabilities || ["wan27-t2v", "wan27-i2v", "wan27-r2v", "wan27-video-edit"]).map((item) => `\`${item}\``).join(", ")}.`,
     `- \`mediaMode\`: ${(wan27.mediaMode || Array.from(WAN27_MEDIA_MODE)).map((item) => `\`${item}\``).join(", ")}.`,
     `- Valid media combinations: ${(wan27.mediaCombinations || []).join("; ")}.`,
     `- \`duration\`: integer ${wan27.durationSeconds?.min ?? advancedDurationBounds("wan27").min}-${wan27.durationSeconds?.max ?? advancedDurationBounds("wan27").max} seconds.`,
     `- \`resolution\`: ${(wan27.resolution || ["720p", "1080p"]).map((item) => `\`${item}\``).join(", ")}.`,
     `- Image inputs: JPG/PNG/WebP/BMP, max ${Math.round((wan27.imageInput?.maxBytes || IMAGE_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB. Video/audio uploads max ${Math.round((wan27.videoInput?.maxBytes || MEDIA_UPLOAD_MAX_BYTES) / 1024 / 1024)}MB.`,
     "- Media inputs can use public URLs, supported data URLs, or uploaded asset ids.",
+    "- Reference-to-video requires 1-5 reference images/videos; with a reference video, output duration is limited to 2-10 seconds. Video edit requires one source video and accepts up to 4 reference images.",
+    "",
+    "HappyHorse video:",
+    "",
+    `- Endpoint: \`${happyhorse.route || "/api/advanced/generate"}\` with \`provider: "happyhorse"\`.`,
+    `- \`videoCapability\`: ${(happyhorse.capabilities || ["happyhorse-t2v", "happyhorse-i2v", "happyhorse-r2v", "happyhorse-video-edit"]).map((item) => `\`${item}\``).join(", ")}.`,
+    `- \`duration\`: integer ${happyhorse.durationSeconds?.min ?? 3}-${happyhorse.durationSeconds?.max ?? 15} seconds. \`resolution\`: ${(happyhorse.resolution || ["720p", "1080p"]).map((item) => `\`${item}\``).join(", ")}.`,
+    "- Text-to-video accepts no media. Image-to-video requires one first frame. Reference-to-video requires 1-9 images. Video edit requires one video and accepts up to 5 reference images.",
+    "",
+    "Wan Animate:",
+    "",
+    `- Endpoint: \`${wanAnimate.route || "/api/advanced/generate"}\` with \`provider: "wan27"\`.`,
+    `- \`videoCapability\`: ${(wanAnimate.capabilities || ["wan-animate-move", "wan-animate-mix"]).map((item) => `\`${item}\``).join(", ")}.`,
+    "- Requires exactly one image and one source video. Omit duration; output duration follows the 2-30 second source video.",
+    `- \`parameters.mode\`: ${(wanAnimate.modes || ["wan-std", "wan-pro"]).map((item) => `\`${item}\``).join(", ")}.`,
     "",
     "Wan image generation/edit:",
     "",
@@ -24496,14 +24772,24 @@ function advancedConstraintsMarkdown(doc = {}) {
 function externalAdvancedApiMarkdown(doc = {}) {
   const route = (url, fallback = "") => String(url || fallback || "").replace(String(doc.baseUrl || ""), "");
   const endpoints = doc.endpoints || {};
+  const supportedModels = Array.isArray(doc.supportedModels) ? doc.supportedModels : [];
+  const supportedModelTable = markdownTable(["Model", "Model / Provider", "Capability", "Create", "Result"], supportedModels.map((item) => ({
+    Model: item.name || "",
+    "Model / Provider": item.model || item.provider || "",
+    Capability: item.capability || "-",
+    Create: item.create || "",
+    Result: item.result || "",
+  })));
   return [
     "## Advanced External API",
     "",
     "Use this section to call video and image generation APIs and check parameter limits.",
     "",
-    `Recommended route: \`${route(doc.recommendedRoute, "/api/v3/contents/generations/tasks")}\``,
+    "**Supported models**",
     "",
-    "- Seedance video integrations use the BytePlus-compatible V3 task route.",
+    supportedModelTable,
+    "",
+    "Seedance 2.0 uses the V3 task route. Other video models use the Advanced route. Image models use the V3 image route or the dedicated Wan image route shown below.",
     "",
     "**Seedance through BytePlus-compatible V3**",
     "",
@@ -24578,9 +24864,55 @@ function externalAdvancedApiMarkdown(doc = {}) {
       "Authorization: Bearer <user-token>",
     ].join("\n")),
     "",
-    "**Wan2.7 video**",
+    "**Reusable assets for Advanced models**",
     "",
-    "Wan2.7 video generation keeps the Advanced endpoint. This is not the Seedance route.",
+    "Upload by public URL or data URL, then reuse `asset.id` in Advanced requests. This asset id is not prefixed with `asset://`.",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.userAssets, "/api/user-assets")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify({
+        videoUrl: "https://example.com/reference.mp4",
+        fileName: "reference.mp4",
+        durationSeconds: 8,
+      }, null, 2),
+    ].join("\n")),
+    "",
+    "**Advanced asset fields**",
+    "",
+    docsParameterMarkdown(advancedAssetParameterFields()),
+    "",
+    "**Wan 3.0 video**",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.wan30Example?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Wan 3.0 fields**",
+    "",
+    docsParameterMarkdown(wan30VideoParameterFields()),
+    "",
+    "**Seedance 2.5 video**",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.seedance25Example?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Seedance 2.5 fields**",
+    "",
+    docsParameterMarkdown(seedance25VideoParameterFields()),
+    "",
+    "**Wan2.7 video**",
     "",
     markdownCodeBlock("http", [
       `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
@@ -24593,6 +24925,43 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "**Wan2.7 video fields**",
     "",
     docsParameterMarkdown(wan27VideoParameterFields()),
+    "",
+    "**HappyHorse video**",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.happyhorseExample?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**HappyHorse fields**",
+    "",
+    docsParameterMarkdown(happyhorseVideoParameterFields()),
+    "",
+    "**Wan Animate**",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(endpoints.advancedGenerate, "/api/advanced/generate")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(doc.wanAnimateExample?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Wan Animate fields**",
+    "",
+    docsParameterMarkdown(wanAnimateVideoParameterFields()),
+    "",
+    "**Advanced task polling**",
+    "",
+    "Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate return `taskId`. Poll the generation record until its status is terminal.",
+    "",
+    markdownCodeBlock("http", [
+      `GET ${route(endpoints.generationRecordDetail, "/api/generation-records/<taskId>")}`,
+      "Authorization: Bearer <user-token>",
+    ].join("\n")),
     "",
     "**Wan image generation/edit**",
     "",
@@ -24640,7 +25009,7 @@ function buildModelDocsMarkdown(docs) {
     "",
     `Base URL: ${docs.baseUrl}`,
     "",
-    "This document is generated from the live admin configuration. When templates or cases change, this page changes with them.",
+    "This is the caller-facing source of truth for supported models, request fields, media combinations, and result polling.",
     "",
     "## Authentication",
     "",
@@ -24653,12 +25022,12 @@ function buildModelDocsMarkdown(docs) {
     "## Quick Start",
     "",
     "1. Read `/api/models` or this Markdown file for request shapes and limits.",
-    "2. For reusable media, create assets with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>` in V3 content or image fields.",
+    "2. For V3 reusable media, create assets with `/?Action=CreateAsset&Version=2024-01-01`, then use `asset://<asset-id>`. For Advanced models, upload with `/api/user-assets`, then use the returned `asset.id`.",
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
     "4. Create a Seedream 5.0 Pro or Qwen Image 3.0 task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
-    "5. Create Wan2.7 video with `/api/advanced/generate` and `provider: \"wan27\"`.",
-    "6. Create or edit Wan images with `/api/vipeak1/image-edit`.",
-    "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for Seedance, Seedream, and Qwen tasks, or use `/api/generation-records/<taskId>` for Advanced/Wan records.",
+    "5. Create Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, or Wan Animate tasks with `/api/advanced/generate` and the documented provider/capability.",
+    "6. Create or edit Wan2.7 images with `/api/vipeak1/image-edit`.",
+    "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for V3 tasks and `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",
     "## Seedance V3 Example",
     "",
