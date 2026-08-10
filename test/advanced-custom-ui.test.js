@@ -36,6 +36,7 @@ test("Seedance keeps only the two product modes", () => {
   assert.deepEqual(values, ["reference_video", "first_last_frame"]);
   assert.match(ui, /seedance25: Object\.freeze\(\[[\s\S]*?value: "omini"[\s\S]*?value: "first_last_frame"/);
   assert.doesNotMatch(ui.match(/seedance25: Object\.freeze\(\[([\s\S]*?)\]\)/)?.[1] || "", /value: "(?:edit|extend)"/);
+  assert.match(server, /SEEDANCE25_DIRECT_RATIOS,[\s\S]*SEEDANCE25_DIRECT_RESOLUTIONS,[\s\S]*require\("\.\/seedance25-direct"\)/);
 });
 
 test("Wan and HappyHorse task modes live in the parameter capability map", () => {
