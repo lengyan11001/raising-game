@@ -692,7 +692,7 @@ async function tokenAccessPackageMarkdown() {
     `- Seedream 5.0 image generate: ${seedreamImageUrl}`,
     `- Qwen Image 3.0 generate: ${seedreamImageUrl}`,
     `- Wan 3.0 / Seedance 2.5 / Seedance2.5 (NSFW) / Wan2.7 / HappyHorse / Wan Animate: ${apiUrl("/api/advanced/generate")}`,
-    `- Wan2.7 image generate/edit: ${apiUrl("/api/vipeak1/image-edit")}`,
+    `- Wan2.7 image generate/edit: ${apiUrl("/api/wan27/image-edit")}`,
     `- Advanced asset upload: ${apiUrl("/api/user-assets")}`,
     `- Advanced task detail: ${apiUrl("/api/generation-records/<taskId>")}`,
     `- V3 task detail: ${taskUrl}`,
@@ -1549,37 +1549,11 @@ function advancedVideoInputDurationMessage(durationSeconds, provider = currentAd
 }
 
 function publicModelText(value = "") {
-  return String(value ?? "")
-    .replace(/\/api\/seedance\/characters\/upload/gi, "/api/vipeak2/characters/upload")
-    .replace(/\/api\/wan27\/image-edit/gi, "/api/vipeak1/image-edit")
-    .replace(/dreamina-seedance-2-0-fast-260128/gi, "vipeak2-fast")
-    .replace(/dreamina-seedance-2-0-260128/gi, "vipeak2-standard")
-    .replace(/ep-20260721180102-9hm6g/gi, "seedream5-lite")
-    .replace(/ep-20260721175949-xw978/gi, "seedream5-pro")
-    .replace(/wan2\.7-image-pro/gi, "vipeak1-image")
-    .replace(/wan2\.7-i2v-2026-04-25/gi, "vipeak1-video")
-    .replace(/Wan2\.7 Image Edit/gi, "Vipeak 1 Image")
-    .replace(/Wan2\.7 Image Pro/gi, "Vipeak 1 Image")
-    .replace(/Wan2\.7/gi, "Vipeak 1")
-    .replace(/\bseedanceMode\b/g, "vipeak2Mode")
-    .replace(/\bseedanceTier\b/g, "vipeak2Tier")
-    .replace(/\bseedanceReferenceAssetUri\b/g, "vipeak2ReferenceAssetUri")
-    .replace(/\bseedanceCharacterAssetUri\b/g, "vipeak2CharacterAssetUri")
-    .replace(/\bseedanceReferenceAssetUris\b/g, "vipeak2ReferenceAssetUris")
-    .replace(/\bseedance\s+callers\b/gi, "Vipeak 2 callers")
-    .replace(/\bseedance\b/g, "vipeak2")
-    .replace(/\bwan27-image\b/g, "vipeak1-image")
-    .replace(/\bwan27\b/g, "vipeak1")
-    .replace(/\bSeedance\b/g, "Vipeak 2");
+  return String(value ?? "");
 }
 
 function publicModelKey(key = "") {
-  return String(key || "")
-    .replace(/seedance/g, "vipeak2")
-    .replace(/Seedance/g, "Vipeak2")
-    .replace(/wan27Image/g, "vipeak1Image")
-    .replace(/wan27/g, "vipeak1")
-    .replace(/Wan27/g, "Vipeak1");
+  return String(key || "");
 }
 
 function advancedCaseProvider(item = {}) {
@@ -3004,7 +2978,7 @@ function renderPricing() {
     const inputPerSecond = seedanceInputCreditsPerSecond(resolution, tier);
     return {
       category: "参考视频加收",
-      model: `Vipeak 2 ${tier === "fast" ? "Fast" : "Standard"}`,
+      model: `Seedance 2.0 ${tier === "fast" ? "Fast" : "Standard"}`,
       spec: resolution,
       unit: `${publicCredits(inputPerSecond)}/秒`,
       common: commonDurations.map((duration) => `${duration}s +${publicCredits(inputPerSecond * duration)}`).join(" / "),
@@ -3017,14 +2991,14 @@ function renderPricing() {
     * creditsPerUsd
   );
   const rows = [
-    ...seedanceResolutions.map((resolution) => generationRow("视频生成", "Vipeak 2 Standard", resolution, "seedance", { seedanceTier: "standard" }, "支持 5-15 秒")),
-    ...seedanceFastResolutions.map((resolution) => generationRow("视频生成", "Vipeak 2 Fast", resolution, "seedance", { seedanceTier: "fast" }, "Fast 支持 480p / 720p")),
-    ...wanResolutions.map((resolution) => generationRow("视频生成", "Vipeak 1", resolution, "wan27", {}, "支持 2-15 秒")),
+    ...seedanceResolutions.map((resolution) => generationRow("视频生成", "Seedance 2.0 Standard", resolution, "seedance", { seedanceTier: "standard" }, "支持 5-15 秒")),
+    ...seedanceFastResolutions.map((resolution) => generationRow("视频生成", "Seedance 2.0 Fast", resolution, "seedance", { seedanceTier: "fast" }, "Fast 支持 480p / 720p")),
+    ...wanResolutions.map((resolution) => generationRow("视频生成", "Wan2.7", resolution, "wan27", {}, "支持 2-15 秒")),
     ...seedanceResolutions.map((resolution) => videoInputRow(resolution, "standard")),
     ...seedanceFastResolutions.map((resolution) => videoInputRow(resolution, "fast")),
     {
       category: "图片生成/编辑",
-      model: "Vipeak 1 Image",
+      model: "Wan2.7 Image",
       spec: "1K / 2K / 4K",
       unit: `${publicCredits(assetImageModifyCostCredits())}/张`,
       common: `单张 ${publicCredits(assetImageModifyCostCredits())}`,

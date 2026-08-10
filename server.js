@@ -4185,7 +4185,7 @@ function buildLlmsTxt(snapshot, { full = false, apiAccess = true } = {}) {
     "- Seedance 2.0 video: POST /api/v3/contents/generations/tasks",
     "- Seedream 5.0 Pro and Qwen Image 3.0: POST /api/v3/images/generations",
     "- Wan 3.0, Seedance 2.5, Wan2.7, HappyHorse, and Wan Animate: POST /api/advanced/generate",
-    "- Wan2.7 image generation/edit: POST /api/vipeak1/image-edit",
+    "- Wan2.7 image generation/edit: POST /api/wan27/image-edit",
     "- Query V3 tasks: GET /api/v3/contents/generations/tasks/<taskId>",
     "- Query Advanced tasks: GET /api/generation-records/<taskId>",
     "- Public model guide: GET /models.md",
@@ -5999,9 +5999,9 @@ function publicProviderId(value = "") {
   if (["seedance25", "seedance2.5", "seedancev25"].includes(normalized) || normalized.includes("seedance25") || normalized.includes("seedance2.5")) return "seedance25";
   if (["wan30", "wan3", "wan3.0", "wan3video", "wan3.0video"].includes(normalized) || normalized.includes("wan30") || normalized.includes("wan3.0")) return "wan30";
   if (["happyhorse", "horse", "hh"].includes(normalized) || normalized.includes("happyhorse")) return "happyhorse";
-  if (isWan27ImageProvider(raw) || ["vipeak1image", "vp1image"].includes(normalized) || normalized.includes("wan27image") || normalized.includes("wan2.7image")) return "vipeak1-image";
-  if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "vipeak1";
-  if (["seedance", "vipeak2", "vp2"].includes(normalized) || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina")) return "vipeak2";
+  if (isWan27ImageProvider(raw) || ["vipeak1image", "vp1image"].includes(normalized) || normalized.includes("wan27image") || normalized.includes("wan2.7image")) return "wan27-image";
+  if (["wan27", "wan2.7", "wan", "vipeak1", "vp1"].includes(normalized) || normalized.includes("wan27") || normalized.includes("wan2.7") || normalized.includes("vipeak1")) return "wan27";
+  if (["seedance", "vipeak2", "vp2"].includes(normalized) || normalized.includes("seedance") || normalized.includes("vipeak2") || normalized.includes("dreamina")) return "seedance";
   return raw;
 }
 
@@ -6013,48 +6013,18 @@ function publicProviderLabel(value = "") {
   if (id === "seedance25") return "Seedance 2.5";
   if (id === "wan30") return "Wan 3.0";
   if (id === "happyhorse") return "HappyHorse";
-  if (id === "vipeak1-image") return "Vipeak 1 Image";
-  if (id === "vipeak1") return "Vipeak 1";
-  if (id === "vipeak2") return "Vipeak 2";
+  if (id === "wan27-image") return "Wan2.7 Image";
+  if (id === "wan27") return "Wan2.7";
+  if (id === "seedance") return "Seedance 2.0";
   return id;
 }
 
 function publicModelText(value = "") {
-  return String(value ?? "")
-    .replace(/Seedance\s*\(NSFW\)/gi, "__SEEDANCE_NSFW_LABEL__")
-    .replace(/\/api\/seedance\/characters\/upload/gi, "/api/vipeak2/characters/upload")
-    .replace(/\/api\/wan27\/image-edit/gi, "/api/vipeak1/image-edit")
-    .replace(/dreamina-seedance-2-0-fast-260128/gi, "vipeak2-fast")
-    .replace(/dreamina-seedance-2-0-260128/gi, "vipeak2-standard")
-    .replace(/ep-20260721180102-9hm6g/gi, "seedream-5.0-pro")
-    .replace(/ep-20260721175949-xw978/gi, "seedream-5.0-pro")
-    .replace(/ep-20260429142538-fkm9d/gi, "dreamina-seedance-2-0-fast-260128")
-    .replace(/ep-20260429142513-zg667/gi, "dreamina-seedance-2-0-260128")
-    .replace(/wan2\.7-image-pro/gi, "vipeak1-image")
-    .replace(/wan2\.7-i2v-2026-04-25/gi, "vipeak1-video")
-    .replace(/Wan2\.7 Image Edit/gi, "Vipeak 1 Image")
-    .replace(/Wan2\.7 Image Pro/gi, "Vipeak 1 Image")
-    .replace(/Wan2\.7/gi, "Vipeak 1")
-    .replace(/\bseedanceMode\b/g, "vipeak2Mode")
-    .replace(/\bseedanceTier\b/g, "vipeak2Tier")
-    .replace(/\bseedanceReferenceAssetUri\b/g, "vipeak2ReferenceAssetUri")
-    .replace(/\bseedanceCharacterAssetUri\b/g, "vipeak2CharacterAssetUri")
-    .replace(/\bseedanceReferenceAssetUris\b/g, "vipeak2ReferenceAssetUris")
-    .replace(/\bseedance\s+callers\b/gi, "Vipeak 2 callers")
-    .replace(/\bseedance\b/g, "vipeak2")
-    .replace(/\bwan27-image\b/g, "vipeak1-image")
-    .replace(/\bwan27\b/g, "vipeak1")
-    .replace(/\bSeedance\b/g, "Vipeak 2")
-    .replace(/__SEEDANCE_NSFW_LABEL__/g, SEEDANCE25_DIRECT_LABEL);
+  return String(value ?? "");
 }
 
 function publicModelKey(key = "") {
-  return String(key || "")
-    .replace(/seedance/g, "vipeak2")
-    .replace(/Seedance/g, "Vipeak2")
-    .replace(/wan27Image/g, "vipeak1Image")
-    .replace(/wan27/g, "vipeak1")
-    .replace(/Wan27/g, "Vipeak1");
+  return String(key || "");
 }
 
 function publicModelValue(value) {
@@ -6334,14 +6304,14 @@ function assertAdvancedResolutionInput(provider = "seedance", value, { seedanceT
   }
   if (["wan27", "happyhorse"].includes(normalizeAdvancedProvider(provider))) {
     if (!["720p", "1080p"].includes(raw)) {
-      throw advancedValidationError("INVALID_RESOLUTION", "Vipeak 1 video resolution must be 720p or 1080p.", { resolution: value, allowed: ["720p", "1080p"] });
+    throw advancedValidationError("INVALID_RESOLUTION", "Wan2.7 video resolution must be 720p or 1080p.", { resolution: value, allowed: ["720p", "1080p"] });
     }
     return;
   }
   const normalized = normalizeAdvancedResolution(value);
   const allowed = normalizeSeedanceTier(seedanceTier) === "fast" ? ["480p", "720p"] : ["480p", "720p", "1080p", "4k"];
   if (!["480p", "720p", "1080p", "4k", "2160p"].includes(raw) || !allowed.includes(normalized)) {
-    throw advancedValidationError("INVALID_RESOLUTION", `Vipeak 2 ${normalizeSeedanceTier(seedanceTier)} resolution must be one of: ${allowed.join(", ")}.`, { resolution: value, allowed });
+    throw advancedValidationError("INVALID_RESOLUTION", `Seedance ${normalizeSeedanceTier(seedanceTier)} resolution must be one of: ${allowed.join(", ")}.`, { resolution: value, allowed });
   }
 }
 
@@ -8715,7 +8685,7 @@ function assertSeedanceVideoPixelCount(dimensions, label = "Seedance video") {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     throw advancedValidationError(
       "SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE",
-      `${label} dimensions could not be read. Re-upload the video before using it with Vipeak 2.`,
+      `${label} dimensions could not be read. Re-upload the video before using it with Seedance.`,
     );
   }
   const pixelCount = width * height;
@@ -8799,7 +8769,7 @@ async function normalizeSeedanceVideoFileForRequest(sourcePath = "", targetPath 
   const sourceDimensions = await probeLocalVideoDimensions(sourcePath);
   const targetDimensions = seedanceVideoTargetDimensions(sourceDimensions);
   if (!targetDimensions) {
-    throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Vipeak 2.`);
+    throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Seedance.`);
   }
   const sourcePixelCount = Number(sourceDimensions.width || 0) * Number(sourceDimensions.height || 0);
   const outputPath = targetPath || sourcePath;
@@ -8847,7 +8817,7 @@ async function normalizeSeedanceVideoFileForRequest(sourcePath = "", targetPath 
     if (error?.code === "SEEDANCE_VIDEO_PIXEL_COUNT_INVALID" || error?.code === "SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE") throw error;
     const wrapped = advancedValidationError(
       "SEEDANCE_VIDEO_NORMALIZE_FAILED",
-      `${label} could not be normalized for Vipeak 2. Re-upload a video between ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN} and ${SEEDANCE_VIDEO_PIXEL_COUNT_MAX} pixels.`,
+      `${label} could not be normalized for Seedance. Re-upload a video between ${SEEDANCE_VIDEO_PIXEL_COUNT_MIN} and ${SEEDANCE_VIDEO_PIXEL_COUNT_MAX} pixels.`,
       {
         width: sourceDimensions.width,
         height: sourceDimensions.height,
@@ -9077,7 +9047,7 @@ async function validateSeedanceImageAssetForRequest(db, asset = {}, label = "See
     bytes = downloaded.bytes;
   }
   if (!bytes) {
-    throw advancedValidationError("SEEDANCE_IMAGE_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the image before using it with Vipeak 2.`, { assetId: asset.id || "" });
+    throw advancedValidationError("SEEDANCE_IMAGE_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the image before using it with Seedance.`, { assetId: asset.id || "" });
   }
   const dimensions = validateSeedanceImageBytes(bytes, label);
   asset.width = dimensions.width;
@@ -9124,7 +9094,7 @@ async function validateSeedanceVideoAssetForRequest(db, asset = {}, label = "See
   }
 
   if (!localPath) {
-    throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Vipeak 2.`, { assetId: asset.id || "" });
+    throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Seedance.`, { assetId: asset.id || "" });
   }
   const dimensions = await normalizeSeedanceVideoFileForRequest(localPath, localPath, label);
   asset.videoWidth = dimensions.width;
@@ -10211,7 +10181,7 @@ async function pivoxAssetGroupForUser(user = {}, model = "") {
   const raw = await pivoxRequest("POST", "/v1/asset-groups", {
     model,
     name: `vipeak-${safeUser}`,
-    description: "Vipeak reusable Seedance references",
+    description: "Reusable Seedance references",
   });
   const groupId = String(raw?.id || raw?.group_id || raw?.data?.id || raw?.data?.group_id || "").trim();
   if (!groupId) {
@@ -11903,7 +11873,7 @@ async function submitWan27ImageModify({
   const orderedImages = arrayFromBody(imageUrls).map((item) => String(item || "").trim()).filter(Boolean);
   if (!orderedImages.length && imageUrl) orderedImages.push(String(imageUrl || "").trim());
   if (normalizeWan27ImageResolution(resolution) === "4K" && orderedImages.length) {
-    const error = new Error("Vipeak 1 Image 4K is only available for text-to-image without reference images.");
+    const error = new Error("Wan2.7 Image 4K is only available for text-to-image without reference images.");
     error.statusCode = 400;
     error.code = "WAN27_IMAGE_4K_TEXT_ONLY";
     throw error;
@@ -13135,18 +13105,18 @@ async function validateSeedanceAdvancedMediaRules({
   if (seedanceModeNeedsFirstFrame(mode) && (referenceImageCount > 0 || referenceVideoCount > 0 || referenceAudioCount > 0 || requestParams.draft || requestParams.draft_task || requestParams.draftTask)) {
     throw advancedValidationError(
       "SEEDANCE_FRAME_REFERENCE_MIX_UNSUPPORTED",
-      "Vipeak 2 first/last-frame mode cannot be mixed with reference images, reference videos, reference audios, or draft references. Use reference_video mode for multimodal references, or remove the extra references.",
+      "Seedance first/last-frame mode cannot be mixed with reference images, reference videos, reference audios, or draft references. Use reference_video mode for multimodal references, or remove the extra references.",
     );
   }
 
   if (totalImageInputs > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
-    throw advancedValidationError("TOO_MANY_SEEDANCE_IMAGES", `Vipeak 2 supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs total.`, {
+    throw advancedValidationError("TOO_MANY_SEEDANCE_IMAGES", `Seedance supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} image inputs total.`, {
       totalImageInputs,
       max: ADVANCED_SEEDANCE_REFERENCE_LIMIT,
     });
   }
   if (referenceVideoCount > ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT) {
-    throw advancedValidationError("TOO_MANY_SEEDANCE_VIDEOS", `Vipeak 2 supports at most ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} reference videos.`, {
+    throw advancedValidationError("TOO_MANY_SEEDANCE_VIDEOS", `Seedance supports at most ${ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT} reference videos.`, {
       referenceVideoCount,
       max: ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT,
     });
@@ -13156,20 +13126,20 @@ async function validateSeedanceAdvancedMediaRules({
     urls: [...arrayFromBody(referenceVideoAssetUris), ...rawReferenceVideoUrls],
   });
   if (referenceAudioCount > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
-    throw advancedValidationError("TOO_MANY_SEEDANCE_AUDIOS", `Vipeak 2 supports at most ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} reference audios.`, {
+    throw advancedValidationError("TOO_MANY_SEEDANCE_AUDIOS", `Seedance supports at most ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} reference audios.`, {
       referenceAudioCount,
       max: ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT,
     });
   }
   if (seedanceModeNeedsFirstFrame(mode) && !firstFrameCount) {
-    throw advancedValidationError("MISSING_FIRST_FRAME", "Vipeak 2 first-frame mode requires imageUrl, firstFrameUrl, imageAssetId, firstFrameAssetId, or dataUrl.");
+    throw advancedValidationError("MISSING_FIRST_FRAME", "Seedance first-frame mode requires imageUrl, firstFrameUrl, imageAssetId, firstFrameAssetId, or dataUrl.");
   }
   if (seedanceModeNeedsEndFrame(mode) && !lastFrameCount) {
-    throw advancedValidationError("MISSING_LAST_FRAME", "Vipeak 2 first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl.");
+    throw advancedValidationError("MISSING_LAST_FRAME", "Seedance first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl.");
   }
   const hasReferenceMedia = referenceImageCount > 0 || referenceVideoCount > 0 || referenceAudioCount > 0;
   if (referenceAudioCount > 0 && firstFrameCount + lastFrameCount + referenceImageCount + referenceVideoCount < 1) {
-    throw advancedValidationError("AUDIO_REQUIRES_VISUAL_MEDIA", "Vipeak 2 audio references must be combined with an image or video reference.");
+    throw advancedValidationError("AUDIO_REQUIRES_VISUAL_MEDIA", "Seedance audio references must be combined with an image or video reference.");
   }
 }
 
@@ -13910,7 +13880,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
 
   const localPath = localPathForUserAsset(userAsset);
   if (!localPath) {
-    throw advancedValidationError("ASSET_FILE_MISSING", "Asset local file is missing. Re-upload the asset before using it with Vipeak 2.", { assetId: userAsset.id || "" });
+    throw advancedValidationError("ASSET_FILE_MISSING", "Asset local file is missing. Re-upload the asset before using it with Seedance.", { assetId: userAsset.id || "" });
   }
   let bytes = null;
   if (assetType === "Image") {
@@ -22583,7 +22553,7 @@ async function handleAdvancedGenerate(req, res) {
     return sendJson(res, 503, { ok: false, code: "GATEWAY_TOKEN_NOT_CONFIGURED", message: "Gateway upstream token is not configured." });
   }
   if (!USE_GATEWAY_UPSTREAM && provider === "seedance" && !ARK_API_KEY && !canUseIgnexSeedance) {
-    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Vipeak 2 generation is not configured." });
+    return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: "Seedance generation is not configured." });
   }
   if (provider === SEEDANCE25_DIRECT_PROVIDER && !ARK_API_KEY) {
     return sendJson(res, 503, { ok: false, code: "MISSING_ARK_API_KEY", message: `${SEEDANCE25_DIRECT_LABEL} generation is not configured.` });
@@ -22599,7 +22569,7 @@ async function handleAdvancedGenerate(req, res) {
       seedanceContentExpanded = seedanceContentHasMedia(mergedBodyBase.content);
       mergedBody = seedanceBodyWithContentMediaFields(mergedBodyBase);
     } catch (error) {
-      return sendAdvancedValidationError(res, error, "Vipeak 2 content is invalid.");
+      return sendAdvancedValidationError(res, error, "Seedance content is invalid.");
     }
   }
   let prompt = String(firstPresent(
@@ -22714,10 +22684,10 @@ async function handleAdvancedGenerate(req, res) {
   requestParams.input = plainObject(firstPresent(body.input, bodyParams.input, caseParams.input, {}));
   requestParams.parameters = mergedProviderParameters;
   if (provider === "seedance" && requestParams.seedanceTier === "fast" && requestParams.resolution === "1080p") {
-    return sendJson(res, 400, { ok: false, code: "INVALID_SEEDANCE_FAST_RESOLUTION", message: "Vipeak 2 Fast does not support 1080p." });
+    return sendJson(res, 400, { ok: false, code: "INVALID_SEEDANCE_FAST_RESOLUTION", message: "Seedance Fast does not support 1080p." });
   }
   if (provider === "seedance" && requestParams.seedanceTier === "fast" && requestParams.resolution === "4k") {
-    return sendJson(res, 400, { ok: false, code: "INVALID_SEEDANCE_FAST_RESOLUTION", message: "Vipeak 2 Fast does not support 4K." });
+    return sendJson(res, 400, { ok: false, code: "INVALID_SEEDANCE_FAST_RESOLUTION", message: "Seedance Fast does not support 4K." });
   }
   if (provider === "seedance") {
     [
@@ -22791,7 +22761,7 @@ async function handleAdvancedGenerate(req, res) {
       const rawFirstFrameUrl = String(firstPresent(firstFramePublicUrl, mergedBody.image_url, mergedBody.firstFrameRawUrl, "") || "").trim();
       if (rawFirstFrameUrl) requestParams.image_url = rawFirstFrameUrl;
       if (!seedanceFirstFrameAsset && !rawFirstFrameUrl) {
-        return sendJson(res, 400, { ok: false, message: "Vipeak 2 image-to-video requires imageUrl, firstFrameUrl, imageAssetId, firstFrameAssetId, or dataUrl." });
+        return sendJson(res, 400, { ok: false, message: "Seedance image-to-video requires imageUrl, firstFrameUrl, imageAssetId, firstFrameAssetId, or dataUrl." });
       }
     }
     if (seedanceModeNeedsEndFrame(seedanceMode)) {
@@ -22801,7 +22771,7 @@ async function handleAdvancedGenerate(req, res) {
       const rawEndFrameUrl = String(firstPresent(endFramePublicUrl, mergedBody.end_image_url, mergedBody.endImageRawUrl, "") || "").trim();
       if (rawEndFrameUrl) requestParams.end_image_url = rawEndFrameUrl;
       if (!seedanceEndFrameAsset && !rawEndFrameUrl) {
-        return sendJson(res, 400, { ok: false, message: "Vipeak 2 first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl." });
+        return sendJson(res, 400, { ok: false, message: "Seedance first/last-frame mode requires endImageUrl, lastFrameUrl, endImageAssetId, lastFrameAssetId, or endImageDataUrl." });
       }
     } else if (endFrameInput) {
       seedanceEndFrameAsset = await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, endFrameInput, { name: "Seedance end frame" });
@@ -22817,33 +22787,33 @@ async function handleAdvancedGenerate(req, res) {
       try {
         validateWan27MediaKind(seedanceVideoAsset, "video", "Seedance reference video");
       } catch (error) {
-        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference video must be a video.") });
+        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Seedance reference video must be a video.") });
       }
       seedanceVideoAssets = referenceVideoAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
       if (seedanceVideoAssets.some((asset) => !asset)) return sendReferenceAssetNotFound(res, "video", referenceVideoAssetIds[seedanceVideoAssets.findIndex((asset) => !asset)] || "");
       try {
         seedanceVideoAssets.forEach((asset) => validateWan27MediaKind(asset, "video", "Seedance reference video"));
       } catch (error) {
-        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference video must be a video.") });
+        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Seedance reference video must be a video.") });
       }
     }
     try {
       referenceImageAssetUris = seedanceReferenceAssetUrisFromBody(mergedBody);
       if (referenceImageAssetUris.length) requestParams.referenceImageAssetUris = referenceImageAssetUris;
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference image assetUri is invalid.") });
+      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Seedance reference image assetUri is invalid.") });
     }
     try {
       referenceVideoAssetUris = seedanceReferenceVideoUrlInputsFromBody(mergedBody);
       if (referenceVideoAssetUris.length) requestParams.reference_videos = referenceVideoAssetUris;
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference video is invalid.") });
+      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Seedance reference video is invalid.") });
     }
     try {
       referenceAudioAssetUris = seedanceReferenceAudioInputsFromBody(mergedBody);
       referenceAudioAssetIds = seedanceReferenceAudioAssetIdsFromBody(mergedBody);
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference audio is invalid.") });
+      return sendJson(res, error.statusCode || 400, { ok: false, message: publicModelText(error.message || "Seedance reference audio is invalid.") });
     }
     if (referenceAudioAssetIds.length) {
       seedanceAudioAssets = referenceAudioAssetIds.map((assetId) => auth.db.userAssets.find((asset) => asset.id === assetId && asset.userId === auth.user.id && !isSoftDeleted(asset)));
@@ -22851,7 +22821,7 @@ async function handleAdvancedGenerate(req, res) {
       try {
         seedanceAudioAssets.forEach((asset) => validateWan27MediaKind(asset, "audio", "Seedance reference audio"));
       } catch (error) {
-        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference audio must be audio.") });
+        return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Seedance reference audio must be audio.") });
       }
     }
     if (referenceAudioAssetUris.length) {
@@ -22889,7 +22859,7 @@ async function handleAdvancedGenerate(req, res) {
         try {
           foundAssets.forEach((asset) => validateWan27MediaKind(asset, "image", "Seedance reference image"));
         } catch (error) {
-          return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Vipeak 2 reference image must be an image.") });
+          return sendJson(res, 400, { ok: false, message: publicModelText(error.message || "Seedance reference image must be an image.") });
         }
         [userAsset, ...extraUserAssets] = foundAssets;
       }
@@ -22936,7 +22906,7 @@ async function handleAdvancedGenerate(req, res) {
         referenceAudioAssetUris,
       });
     } catch (error) {
-      return sendAdvancedValidationError(res, error, "Vipeak 2 media input is invalid.");
+      return sendAdvancedValidationError(res, error, "Seedance media input is invalid.");
     }
   } else {
     const firstFrameDataUrl = firstPresent(body.firstFrameDataUrl, body.first_frame_data_url, body.dataUrl, bodyParams.firstFrameDataUrl, bodyParams.first_frame_data_url, bodyParams.dataUrl);
@@ -23851,7 +23821,7 @@ function wan27VideoParameterFields() {
 
 function wan27ImageParameterFields() {
   return [
-    { name: "/api/vipeak1/image-edit", type: "endpoint", required: "Yes", description: "Wan image generation/edit endpoint. `/api/wan27/image-edit` remains accepted as an alias.", default: "-" },
+    { name: "/api/wan27/image-edit", type: "endpoint", required: "Yes", description: "Wan2.7 image generation/edit endpoint.", default: "-" },
     { name: "prompt", type: "string", required: "Yes", description: "Non-empty image prompt or edit instruction.", default: "-" },
     { name: "imageUrls / imageAssetIds", type: "array", required: "No", description: `0-9 reference images. Use public image URLs or uploaded image asset ids. Images max ${docsMb(IMAGE_UPLOAD_MAX_BYTES)}.`, default: "[]" },
     { name: "imageUrl / imageAssetId", type: "string", required: "No", description: "Single reference image URL or uploaded image asset id.", default: "-" },
@@ -24081,7 +24051,7 @@ function docsAdvancedExampleBody(item = {}) {
 function advancedGenerateConstraintsDoc() {
   return {
     common: {
-      routes: ["/api/v3/contents/generations/tasks", "/api/v3/images/generations", "/api/advanced/generate", "/api/vipeak1/image-edit"],
+      routes: ["/api/v3/contents/generations/tasks", "/api/v3/images/generations", "/api/advanced/generate", "/api/wan27/image-edit"],
       auth: "Authorization: Bearer <user-token>",
       prompt: "Required non-empty string.",
       ratio: {
@@ -24239,8 +24209,7 @@ function advancedGenerateConstraintsDoc() {
     },
     wan27Image: {
       provider: "wan27-image",
-      route: "/api/vipeak1/image-edit",
-      aliasRoute: "/api/wan27/image-edit",
+      route: "/api/wan27/image-edit",
       model: WAN27_IMAGE_PRO_MODEL,
       referenceImages: { min: 0, max: 9 },
       resolution: {
@@ -24311,7 +24280,7 @@ function externalAdvancedApiDoc(origin) {
   const byteplusAssetAction = `${origin}/?Action=CreateAsset&Version=2024-01-01`;
   const userAssets = `${origin}/api/user-assets`;
   const advancedGenerate = `${origin}/api/advanced/generate`;
-  const wan27ImageEdit = `${origin}/api/vipeak1/image-edit`;
+  const wan27ImageEdit = `${origin}/api/wan27/image-edit`;
   const generationRecordDetail = `${origin}/api/generation-records/<taskId>`;
   return {
     baseUrl: origin,
@@ -24329,7 +24298,7 @@ function externalAdvancedApiDoc(origin) {
       { name: "Wan Animate", provider: "wan27", capability: "wan-animate-move / wan-animate-mix", create: "/api/advanced/generate", result: "/api/generation-records/<taskId>" },
       { name: "Seedream 5.0 Pro", model: "seedream-5.0-pro", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
       { name: "Qwen Image 3.0", model: "qwen-image-3.0-pro / qwen-image-3.0", create: "/api/v3/images/generations", result: "/api/v3/contents/generations/tasks/<taskId>" },
-      { name: "Wan2.7 Image", model: WAN27_IMAGE_PRO_MODEL, create: "/api/vipeak1/image-edit", result: "/api/generation-records/<taskId>" },
+      { name: "Wan2.7 Image", model: WAN27_IMAGE_PRO_MODEL, create: "/api/wan27/image-edit", result: "/api/generation-records/<taskId>" },
     ],
     endpoints: {
       byteplusGenerate,
@@ -24826,7 +24795,7 @@ async function buildModelDocs(req) {
       byteplusAssetAction: `${origin}/?Action=CreateAsset&Version=2024-01-01`,
       advancedAssetUpload: `${origin}/api/user-assets`,
       advancedGenerate: `${origin}/api/advanced/generate`,
-      wan27ImageEdit: `${origin}/api/vipeak1/image-edit`,
+      wan27ImageEdit: `${origin}/api/wan27/image-edit`,
       generationRecordDetail: `${origin}/api/generation-records/<taskId>`,
     },
     templates,
@@ -24983,7 +24952,7 @@ function advancedConstraintsMarkdown(doc = {}) {
     "",
     "Wan image generation/edit:",
     "",
-    `- Endpoint: \`${wan27Image.route || "/api/vipeak1/image-edit"}\` (alias \`${wan27Image.aliasRoute || "/api/wan27/image-edit"}\`).`,
+    `- Endpoint: \`${wan27Image.route || "/api/wan27/image-edit"}\`.`,
     `- Reference images: ${wan27Image.referenceImages?.min ?? 0}-${wan27Image.referenceImages?.max ?? 9} images. Send no images for text-to-image, or images for image edit/reference generation.`,
     `- \`resolution\`: text-to-image supports ${(wan27Image.resolution?.textToImage || ["1K", "2K", "4K"]).map((item) => `\`${item}\``).join(", ")}; reference-image generation supports ${(wan27Image.resolution?.referenceImage || ["1K", "2K"]).map((item) => `\`${item}\``).join(", ")}.`,
     `- \`ratio\`: ${(wan27Image.ratio || ["1:1", "3:4", "4:3", "9:16", "16:9"]).map((item) => `\`${item}\``).join(", ")}.`,
@@ -25205,7 +25174,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
     "Wan image generation and image edit keep the Wan image endpoint.",
     "",
     markdownCodeBlock("http", [
-      `POST ${route(endpoints.wan27ImageEdit, "/api/vipeak1/image-edit")}`,
+      `POST ${route(endpoints.wan27ImageEdit, "/api/wan27/image-edit")}`,
       "Authorization: Bearer <user-token>",
       "Content-Type: application/json",
       "",
@@ -25263,7 +25232,7 @@ function buildModelDocsMarkdown(docs) {
     "3. Create a Seedance video task with `/api/v3/contents/generations/tasks`; the create response returns `id`.",
     "4. Create a Seedream 5.0 Pro or Qwen Image 3.0 task with `/api/v3/images/generations`; the create response returns `id`/`task_id`.",
     "5. Create Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, or Wan Animate tasks with `/api/advanced/generate` and the documented provider/capability.",
-    "6. Create or edit Wan2.7 images with `/api/vipeak1/image-edit`.",
+    "6. Create or edit Wan2.7 images with `/api/wan27/image-edit`.",
     "7. Poll `/api/v3/contents/generations/tasks/<taskId>` for V3 tasks and `/api/generation-records/<taskId>` for Advanced/Wan records.",
     "",
     "## Seedance V3 Example",
@@ -25776,7 +25745,7 @@ async function ignexAssetGroupId() {
   }
   const created = await ignexAssetAction("CreateAssetGroup", {
     Name: IGNEX_ASSET_GROUP_NAME,
-    Description: "Vipeak Seedance reusable references",
+    Description: "Reusable Seedance references",
     GroupType: "AIGC",
     ProjectName: IGNEX_PROJECT_NAME,
   });
@@ -28455,7 +28424,7 @@ async function handleModifySystemCharacterImage(req, res, characterId) {
   });
   const { ratio, resolution, model } = imageOptions;
   if (resolution === "4K") {
-    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Vipeak 1 Image 4K is only available for text-to-image without reference images." });
+    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Wan2.7 Image 4K is only available for text-to-image without reference images." });
   }
   const pricing = wan27ImageModifyPricing(config, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;
@@ -28695,7 +28664,7 @@ async function handleWan27ImageEdit(req, res) {
   });
   const { ratio, resolution, model } = imageOptions;
   if (resolution === "4K" && sourceAssets.length + externalImageUrls.length > 0) {
-    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Vipeak 1 Image 4K is only available for text-to-image without reference images." });
+    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Wan2.7 Image 4K is only available for text-to-image without reference images." });
   }
   const pricing = wan27ImageModifyPricing(config, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;
@@ -29011,7 +28980,7 @@ async function handleModifyUserAssetImage(req, res, assetId) {
   });
   const { ratio, resolution, model } = imageOptions;
   if (resolution === "4K") {
-    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Vipeak 1 Image 4K is only available for text-to-image without reference images." });
+    return sendJson(res, 400, { ok: false, code: "WAN27_IMAGE_4K_TEXT_ONLY", message: "Wan2.7 Image 4K is only available for text-to-image without reference images." });
   }
   const pricing = wan27ImageModifyPricing(config, auth.user, pricingContextForAuth(auth));
   const cost = pricing.credits;

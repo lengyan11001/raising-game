@@ -236,7 +236,7 @@ const I18N = {
     "advancedPreset.localImage": "Local image",
     "advanced.uploadReference": "Upload reference content",
     "advanced.uploadImageVideo": "Upload image/video",
-    "advanced.wanMode": "Vipeak 1 input",
+    "advanced.wanMode": "Wan2.7 input",
     "advanced.wanModeFirst": "Single image",
     "advanced.wanModeFirstLast": "First + last image",
     "advanced.wanModeFirstAudio": "Image + audio",
@@ -253,8 +253,8 @@ const I18N = {
     "advanced.clipTooLong": "Source video must be 5 seconds or shorter.",
     "advanced.clipDurationRange": "This mode accepts video inputs from {min} to {max} seconds.",
     "advanced.clipDurationUnreadable": "Could not read the video duration.",
-    "advanced.seedanceHandling": "Vipeak 2 image handling",
-    "advanced.seedanceMode": "Vipeak 2 input",
+    "advanced.seedanceHandling": "Seedance image handling",
+    "advanced.seedanceMode": "Seedance input",
     "advanced.seedanceModeMultimodal": "Multimodal references",
     "advanced.seedanceModeText": "Text only",
     "advanced.seedanceModeFirst": "First frame image",
@@ -275,7 +275,7 @@ const I18N = {
     "advanced.originalImage": "Use original image",
     "advanced.seedanceReferenceHint": "",
     "advanced.seedanceReferenceCount": "{count} reference image(s) selected.",
-    "advanced.wanFirstFrameHint": "Vipeak 1 first frame selected.",
+    "advanced.wanFirstFrameHint": "Wan2.7 first frame selected.",
     "advanced.referenceImageTooLarge": "Each reference image must be 20MB or smaller.",
     "advanced.referenceImageTooMany": "This mode supports up to {count} reference images.",
     "advanced.randomSeed": "Random seed",
@@ -308,8 +308,8 @@ const I18N = {
     "advanced.waitingApproval": "Waiting for approval",
     "advanced.requestSubmitted": "Request submitted.",
     "advanced.promptRequired": "Prompt is required.",
-    "advanced.referenceSeedance": "Reference selected. Vipeak 2 will use {mode}.",
-    "advanced.referenceWan": "First frame selected. Vipeak 1 will use it as the opening frame.",
+    "advanced.referenceSeedance": "Reference selected. Seedance will use {mode}.",
+    "advanced.referenceWan": "First frame selected. Wan2.7 will use it as the opening frame.",
     "advanced.safeReference": "safe reference",
     "advanced.originalReference": "original image",
     "advanced.submitting": "Submitting advanced generation{note} - {cost}...",
@@ -360,8 +360,8 @@ const I18N = {
     "assets.generating": "Generating...",
     "assets.extend": "Extend",
     "assets.replace": "Replace",
-    "assets.seedanceReady": "Vipeak 2 ready",
-    "assets.seedancePending": "Vipeak 2 asset will be created on first use",
+    "assets.seedanceReady": "Seedance ready",
+    "assets.seedancePending": "Seedance asset will be created on first use",
     "assets.used": "Loaded into Advanced.",
     "assets.replaced": "Replace prompt loaded.",
     "assets.extended": "Extend prompt loaded.",
@@ -2039,7 +2039,7 @@ ${QWEN_IMAGE3_ACCESS_COPY}
 ${ADVANCED_VIDEO_ACCESS_COPY}
 
 5) Create or edit a Wan2.7 image:
-POST ${apiUrl("/api/vipeak1/image-edit")}
+POST ${apiUrl("/api/wan27/image-edit")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
@@ -2415,7 +2415,7 @@ Content-Type: application/json
     summary: "Use /api/advanced/generate with provider=wan27. Seedance still uses V3; this endpoint is for Wan2.7 video.",
     request: [
       { name: "/api/advanced/generate", type: "endpoint", required: "Yes", description: "Wan2.7 video generation endpoint.", default: "-" },
-      { name: "provider", type: "string", required: "Yes", description: "wan27 or vipeak1.", default: "wan27" },
+      { name: "provider", type: "string", required: "Yes", description: "Use wan27.", default: "wan27" },
       { name: "prompt", type: "string", required: "Yes", description: "Non-empty video prompt.", default: "-" },
       { name: "mediaMode", type: "enum", required: "No", description: "first_frame, first_last_frame, first_frame_audio, first_last_frame_audio, first_clip, or first_clip_last_frame.", default: "first_frame" },
       { name: "firstFrameUrl / firstFrameDataUrl / firstFrameAssetId", type: "string", required: "For first-frame modes", description: "First-frame image. Use public URL, supported data URL, or uploaded asset id. Images max 20MB.", default: "-" },
@@ -2473,9 +2473,9 @@ Content-Type: application/json
   },
   wanImageParams: {
     title: "Wan Image Parameters",
-    summary: "Use /api/vipeak1/image-edit for Wan text-to-image and image edit/reference generation.",
+    summary: "Use /api/wan27/image-edit for Wan text-to-image and image edit/reference generation.",
     request: [
-      { name: "/api/vipeak1/image-edit", type: "endpoint", required: "Yes", description: "Wan image generation/edit endpoint. /api/wan27/image-edit remains accepted as an alias.", default: "-" },
+      { name: "/api/wan27/image-edit", type: "endpoint", required: "Yes", description: "Wan2.7 image generation/edit endpoint.", default: "-" },
       { name: "prompt", type: "string", required: "Yes", description: "Non-empty image prompt or edit instruction.", default: "-" },
       { name: "imageUrls / imageAssetIds", type: "array", required: "No", description: "0-9 reference images. Use public image URLs or uploaded image asset ids. Images max 20MB.", default: "[]" },
       { name: "imageUrl / imageAssetId", type: "string", required: "No", description: "Single reference image URL or uploaded image asset id.", default: "-" },
@@ -2490,7 +2490,7 @@ Content-Type: application/json
       { name: "imageUrl / imageResultUrl", type: "string", required: "No", description: "Result image URL when ready.", default: "-" },
       { name: "record", type: "object", required: "No", description: "Generation record with status, parameters, and result URLs.", default: "-" },
     ],
-    example: `POST ${apiUrl("/api/vipeak1/image-edit")}
+    example: `POST ${apiUrl("/api/wan27/image-edit")}
 Authorization: Bearer <user-token>
 Content-Type: application/json
 
@@ -2623,7 +2623,7 @@ ACCESS_PARAM_GUIDES = [
     docs: "wanImageParams",
     title: "Wan Image Params",
     subtitle: "Image",
-    desc: "Parameter table for Wan image generation/edit through /api/vipeak1/image-edit.",
+    desc: "Parameter table for Wan image generation/edit through /api/wan27/image-edit.",
     copy: ACCESS_DOCS.wanImageParams.example,
   },
 ];
@@ -2874,13 +2874,13 @@ Object.assign(I18N.en, {
   "pricing.title": "Price list",
   "pricing.subtitle": "Check the final credit cost for common generation parameters.",
   "pricing.topupRate": "$1 = {credits} credits",
-  "pricing.outputTitle": "Vipeak 2 video generation",
+  "pricing.outputTitle": "Seedance 2.0 video generation",
   "pricing.outputDesc": "Charged by generated video duration and resolution.",
-  "pricing.inputTitle": "Vipeak 2 video input add-on",
+  "pricing.inputTitle": "Seedance 2.0 video input add-on",
   "pricing.inputDesc": "Added only when a video is used as input. This is charged on top of generated video duration.",
-  "pricing.vipeak1VideoTitle": "Vipeak 1 video generation",
+  "pricing.vipeak1VideoTitle": "Wan2.7 video generation",
   "pricing.vipeak1VideoDesc": "Charged by generated video duration and resolution.",
-  "pricing.imageTitle": "Vipeak 1 image generation / edit",
+  "pricing.imageTitle": "Wan2.7 image generation / edit",
   "pricing.imageDesc": "Text-to-image supports 1K, 2K, and 4K. Reference images and edits support 1K or 2K.",
   "pricing.unlockTitle": "Character video unlock",
   "pricing.unlockDesc": "Logged-in users can watch the first character video. Unlocking deducts credits for the remaining videos of that character.",
@@ -3142,7 +3142,7 @@ I18N.zh = {
   "advanced.promptVideoEdit": "描述要如何编辑视频...",
   "advanced.uploadReference": "上传参考内容",
   "advanced.uploadImageVideo": "上传图片/视频",
-  "advanced.wanMode": "Vipeak 1 输入",
+  "advanced.wanMode": "Wan2.7 输入",
   "advanced.wanModeFirst": "单张图片",
   "advanced.wanModeFirstLast": "首尾帧图片",
   "advanced.wanModeFirstAudio": "图片 + 音频",
@@ -3157,8 +3157,8 @@ I18N.zh = {
   "advanced.clipRequired": "需要上传源视频文件或填写 URL。",
   "advanced.clipTooLarge": "源视频不能超过 30MB。",
   "advanced.clipTooLong": "源视频不能超过 5 秒。",
-  "advanced.seedanceHandling": "Vipeak 2 图片处理",
-  "advanced.seedanceMode": "Vipeak 2 输入",
+  "advanced.seedanceHandling": "Seedance 图片处理",
+  "advanced.seedanceMode": "Seedance 输入",
   "advanced.seedanceModeMultimodal": "多模态参考",
   "advanced.seedanceModeText": "仅文本",
   "advanced.seedanceModeFirst": "首帧图片",
@@ -3429,13 +3429,13 @@ Object.assign(I18N.zh, {
   "pricing.title": "价目表",
   "pricing.subtitle": "查看不同生成参数对应的最终扣分规则。",
   "pricing.topupRate": "$1 = {credits} 积分",
-  "pricing.outputTitle": "Vipeak 2 视频生成",
+  "pricing.outputTitle": "Seedance 2.0 视频生成",
   "pricing.outputDesc": "按生成视频时长和分辨率扣分。",
-  "pricing.inputTitle": "Vipeak 2 视频输入加收",
+  "pricing.inputTitle": "Seedance 2.0 视频输入加收",
   "pricing.inputDesc": "只有传入视频作为参考、编辑、续写、替换等输入时才加收；这不是总价，会叠加基础生成费用。",
-  "pricing.vipeak1VideoTitle": "Vipeak 1 视频生成",
+  "pricing.vipeak1VideoTitle": "Wan2.7 视频生成",
   "pricing.vipeak1VideoDesc": "按生成视频时长和分辨率扣分。",
-  "pricing.imageTitle": "Vipeak 1 图片生成 / 编辑",
+  "pricing.imageTitle": "Wan2.7 图片生成 / 编辑",
   "pricing.imageDesc": "文生图支持 1K、2K、4K；参考图和图片编辑支持 1K 或 2K。",
   "pricing.unlockTitle": "角色视频解锁",
   "pricing.unlockDesc": "登录用户可观看当前角色第一个视频；解锁会扣除当前角色剩余视频的费用。",

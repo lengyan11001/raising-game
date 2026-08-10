@@ -48,8 +48,18 @@ test("external docs cover advanced request fields and polling without internal c
 test("Copy token plus docs advertises all model routes and loads the live markdown source", () => {
   assert.match(copySource, /const ADVANCED_VIDEO_ACCESS_COPY/);
   assert.match(copySource, /Wan 3\.0, Seedance 2\.5, Seedance2\.5 \(NSFW\), Wan2\.7, HappyHorse, and Wan Animate/);
-  assert.match(copySource, /\/api\/vipeak1\/image-edit/);
+  assert.match(copySource, /\/api\/wan27\/image-edit/);
+  assert.doesNotMatch(copySource, /\/api\/vipeak1\/image-edit/);
   assert.match(uiSource, /fetchLatestModelDocsMarkdown/);
   assert.match(uiSource, /\/api\/advanced\/generate/);
   assert.match(uiSource, /\/api\/generation-records\/<taskId>/);
+});
+
+test("public responses keep real provider, parameter, and model names", () => {
+  assert.match(serverSource, /function publicModelText\(value = ""\) \{\s*return String\(value \?\? ""\);\s*\}/);
+  assert.match(serverSource, /function publicModelKey\(key = ""\) \{\s*return String\(key \|\| ""\);\s*\}/);
+  assert.match(serverSource, /return "wan27-image"/);
+  assert.match(serverSource, /return "wan27"/);
+  assert.match(serverSource, /return "seedance"/);
+  assert.doesNotMatch(uiSource, /\.replace\(\/\\bseedance\\b\/g, "vipeak2"\)/);
 });
