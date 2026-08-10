@@ -26,7 +26,7 @@ test("Advanced engine list contains English model families, not task modes", () 
   assert.match(engine, /value="wan-animate">Wan Animate/);
   assert.match(engine, /value="happyhorse">HappyHorse/);
   assert.match(engine, /value="seedance">Seedance 2\.0/);
-  assert.match(engine, /value="seedance-nsfw">Seedance \(NSFW\)/);
+  assert.match(engine, /value="seedance-nsfw">Seedance2\.5 \(NSFW\)/);
   assert.doesNotMatch(engine, /value="(?:wan27|happyhorse)-(?:t2v|i2v|r2v|video-edit)"/);
 });
 

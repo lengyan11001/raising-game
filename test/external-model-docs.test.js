@@ -15,7 +15,7 @@ test("external model docs list every currently supported model family", () => {
     "Seedance 2.0 Fast",
     "Wan 3.0 Video",
     "Seedance 2.5",
-    "Seedance (NSFW)",
+    "Seedance2.5 (NSFW)",
     "Wan2.7 Video",
     "HappyHorse Video",
     "Wan Animate",
@@ -47,7 +47,7 @@ test("external docs cover advanced request fields and polling without internal c
 
 test("Copy token plus docs advertises all model routes and loads the live markdown source", () => {
   assert.match(copySource, /const ADVANCED_VIDEO_ACCESS_COPY/);
-  assert.match(copySource, /Wan 3\.0, Seedance 2\.5, Seedance \(NSFW\), Wan2\.7, HappyHorse, and Wan Animate/);
+  assert.match(copySource, /Wan 3\.0, Seedance 2\.5, Seedance2\.5 \(NSFW\), Wan2\.7, HappyHorse, and Wan Animate/);
   assert.match(copySource, /\/api\/vipeak1\/image-edit/);
   assert.match(uiSource, /fetchLatestModelDocsMarkdown/);
   assert.match(uiSource, /\/api\/advanced\/generate/);

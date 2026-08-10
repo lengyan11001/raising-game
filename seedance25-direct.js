@@ -1,7 +1,7 @@
 "use strict";
 
 const SEEDANCE25_DIRECT_PROVIDER = "seedance-nsfw";
-const SEEDANCE25_DIRECT_LABEL = "Seedance (NSFW)";
+const SEEDANCE25_DIRECT_LABEL = "Seedance2.5 (NSFW)";
 const SEEDANCE25_DIRECT_MODEL = "dreamina-seedance-2-5-260628";
 const SEEDANCE25_DIRECT_ENDPOINT_ID = "ep-20260810163546-xzn5m";
 const SEEDANCE25_DIRECT_RESOLUTIONS = Object.freeze(["480p", "720p"]);
@@ -75,10 +75,10 @@ function validateSeedance25DirectInput(input = {}) {
   }
   if (prompt.length > 6000) throw directInputError("SEEDANCE25_DIRECT_PROMPT_TOO_LONG", "Prompt must not exceed 6000 characters.", { max: 6000 });
   if (!SEEDANCE25_DIRECT_RESOLUTIONS.includes(resolution)) {
-    throw directInputError("SEEDANCE25_DIRECT_INVALID_RESOLUTION", "Seedance (NSFW) resolution must be 480p or 720p.", { allowed: SEEDANCE25_DIRECT_RESOLUTIONS });
+    throw directInputError("SEEDANCE25_DIRECT_INVALID_RESOLUTION", "Seedance2.5 (NSFW) resolution must be 480p or 720p.", { allowed: SEEDANCE25_DIRECT_RESOLUTIONS });
   }
   if (!SEEDANCE25_DIRECT_RATIOS.includes(ratio)) {
-    throw directInputError("SEEDANCE25_DIRECT_INVALID_RATIO", "Seedance (NSFW) ratio is not supported.", { allowed: SEEDANCE25_DIRECT_RATIOS });
+    throw directInputError("SEEDANCE25_DIRECT_INVALID_RATIO", "Seedance2.5 (NSFW) ratio is not supported.", { allowed: SEEDANCE25_DIRECT_RATIOS });
   }
   if (seed !== null && (!Number.isInteger(seed) || seed < -1 || seed > 4294967295)) {
     throw directInputError("SEEDANCE25_DIRECT_INVALID_SEED", "Seed must be -1 or an integer from 0 to 4294967295.");
@@ -87,14 +87,14 @@ function validateSeedance25DirectInput(input = {}) {
   let duration = Number(input.duration);
   if (mode === "edit" && Number(input.inputVideoSeconds) > 0) duration = Math.ceil(Number(input.inputVideoSeconds));
   if (!Number.isInteger(duration) || duration < 4 || duration > 30) {
-    throw directInputError("SEEDANCE25_DIRECT_INVALID_DURATION", "Seedance (NSFW) duration must be an integer from 4 to 30 seconds.", { min: 4, max: 30 });
+    throw directInputError("SEEDANCE25_DIRECT_INVALID_DURATION", "Seedance2.5 (NSFW) duration must be an integer from 4 to 30 seconds.", { min: 4, max: 30 });
   }
 
   if (mode === "omini") {
-    if (images.length > 30) throw directInputError("SEEDANCE25_DIRECT_TOO_MANY_IMAGES", "Seedance (NSFW) supports at most 30 reference images.");
-    if (videos.length > 10) throw directInputError("SEEDANCE25_DIRECT_TOO_MANY_VIDEOS", "Seedance (NSFW) supports at most 10 reference videos.");
-    if (audios.length > 10) throw directInputError("SEEDANCE25_DIRECT_TOO_MANY_AUDIOS", "Seedance (NSFW) supports at most 10 reference audios.");
-    if (images.length + videos.length + audios.length > 50) throw directInputError("SEEDANCE25_DIRECT_TOO_MANY_ASSETS", "Seedance (NSFW) supports at most 50 reference assets in total.");
+    if (images.length > 30) throw directInputError("SEEDANCE25_DIRECT_TOO_MANY_IMAGES", "Seedance2.5 (NSFW) supports at most 30 reference images.");
+    if (videos.length > 10) throw directInputError("SEEDANCE25_DIRECT_TOO_MANY_VIDEOS", "Seedance2.5 (NSFW) supports at most 10 reference videos.");
+    if (audios.length > 10) throw directInputError("SEEDANCE25_DIRECT_TOO_MANY_AUDIOS", "Seedance2.5 (NSFW) supports at most 10 reference audios.");
+    if (images.length + videos.length + audios.length > 50) throw directInputError("SEEDANCE25_DIRECT_TOO_MANY_ASSETS", "Seedance2.5 (NSFW) supports at most 50 reference assets in total.");
   } else if (mode === "edit" || mode === "extend") {
     if (videos.length !== 1) throw directInputError("SEEDANCE25_DIRECT_SOURCE_VIDEO_REQUIRED", `${mode === "edit" ? "Video edit" : "Video extend"} requires exactly one source video.`);
     if (images.length || audios.length || firstFrameAsset || lastFrameAsset) {

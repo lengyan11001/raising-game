@@ -691,14 +691,14 @@ async function tokenAccessPackageMarkdown() {
     `- Seedance V3 generate: ${apiUrl("/api/v3/contents/generations/tasks")}`,
     `- Seedream 5.0 image generate: ${seedreamImageUrl}`,
     `- Qwen Image 3.0 generate: ${seedreamImageUrl}`,
-    `- Wan 3.0 / Seedance 2.5 / Seedance (NSFW) / Wan2.7 / HappyHorse / Wan Animate: ${apiUrl("/api/advanced/generate")}`,
+    `- Wan 3.0 / Seedance 2.5 / Seedance2.5 (NSFW) / Wan2.7 / HappyHorse / Wan Animate: ${apiUrl("/api/advanced/generate")}`,
     `- Wan2.7 image generate/edit: ${apiUrl("/api/vipeak1/image-edit")}`,
     `- Advanced asset upload: ${apiUrl("/api/user-assets")}`,
     `- Advanced task detail: ${apiUrl("/api/generation-records/<taskId>")}`,
     `- V3 task detail: ${taskUrl}`,
     `- BytePlus-compatible asset upload: ${apiUrl("/?Action=CreateAsset&Version=2024-01-01")}`,
     "",
-    "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 image route. Wan 3.0, Seedance 2.5, Seedance (NSFW), Wan2.7, HappyHorse, and Wan Animate use the Advanced route. The detailed model document below is the source of truth for fields and limits.",
+    "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro and Qwen Image 3.0 use the V3 image route. Wan 3.0, Seedance 2.5, Seedance2.5 (NSFW), Wan2.7, HappyHorse, and Wan Animate use the Advanced route. The detailed model document below is the source of truth for fields and limits.",
     "",
     "## Quick Start",
     "",
@@ -1380,7 +1380,7 @@ function advancedProviderLabel(provider = currentAdvancedProvider()) {
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
   if (normalized === "wan27-image-edit") return "Wan 2.7 Image";
   if (normalized === "wan30") return "Wan 3.0";
-  if (normalized === "seedance-nsfw") return "Seedance (NSFW)";
+  if (normalized === "seedance-nsfw") return "Seedance2.5 (NSFW)";
   if (normalized === "seedance25") return "Seedance 2.5";
   const labels = {
     "wan27-t2v": "Wan 2.7 - Text to Video",
