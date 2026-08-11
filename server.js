@@ -12591,12 +12591,33 @@ async function createSingleSeedanceImageAssetFromInput(db, user, input, { name =
   return asset;
 }
 
+function seedanceReferenceImageInputIdentity(item) {
+  if (!item) return "";
+  if (typeof item === "string") return item.trim();
+  const dataUrl = String(item.dataUrl || "").trim();
+  if (dataUrl) return dataUrl;
+  const url = String(item.url || item.imageUrl || item.image_url || "").trim();
+  if (url) return url;
+  const assetId = String(item.assetId || item.userAssetId || item.imageAssetId || "").trim();
+  return assetId ? `asset:${assetId}` : "";
+}
+
+function uniqueSeedanceReferenceImageInputs(inputs = []) {
+  const seen = new Set();
+  return inputs.filter((item) => {
+    const identity = seedanceReferenceImageInputIdentity(item);
+    if (!identity || seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
+
 function seedanceReferenceInputsFromBody(body = {}, { includeDataUrlFallback = true } = {}) {
-  const inputs = [
+  const inputs = uniqueSeedanceReferenceImageInputs([
     ...arrayFromBody(body.referenceImages),
     ...arrayFromBody(body.reference_images),
     ...arrayFromBody(body.referenceImageDataUrls),
-  ];
+  ]);
   const filteredInputs = inputs.filter((item) => {
     if (!item) return false;
     if (typeof item === "string") {
@@ -12611,10 +12632,10 @@ function seedanceReferenceInputsFromBody(body = {}, { includeDataUrlFallback = t
     throw error;
   }
   if (filteredInputs.length) return filteredInputs;
-  const fallbackInputs = [
+  const fallbackInputs = uniqueSeedanceReferenceImageInputs([
     includeDataUrlFallback && body.dataUrl ? { dataUrl: body.dataUrl, fileName: body.fileName || "", name: "Advanced reference 1" } : null,
     ...seedanceExtraReferenceInputsFromBody(body),
-  ].filter(Boolean);
+  ].filter(Boolean));
   if (fallbackInputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
     error.statusCode = 400;
@@ -12624,12 +12645,12 @@ function seedanceReferenceInputsFromBody(body = {}, { includeDataUrlFallback = t
 }
 
 function seedanceExtraReferenceInputsFromBody(body = {}) {
-  const inputs = [
+  const inputs = uniqueSeedanceReferenceImageInputs([
     ...arrayFromBody(body.extraReferenceDataUrls),
     ...arrayFromBody(body.extraReferenceImages),
     ...arrayFromBody(body.extraDataUrls),
     ...arrayFromBody(body.referenceDataUrls),
-  ].filter((item) => {
+  ]).filter((item) => {
     if (!item) return false;
     if (typeof item === "string") {
       const text = item.trim();
@@ -22894,6 +22915,17 @@ async function handleAdvancedGenerate(req, res) {
       const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
       return !preservePublicMediaUrls || !isPublicHttpUrl(value);
     });
+    if (localReferenceInputs.length && referenceImageAssetUris.length) {
+      const localReferenceUriKeys = new Set(localReferenceInputs.map((item) => {
+        const value = typeof item === "string" ? item : firstPresent(item?.url, item?.imageUrl, item?.image_url, "");
+        return isPublicHttpUrl(value) ? publicHttpUrlForUpstream(value) : "";
+      }).filter(Boolean));
+      referenceImageAssetUris = referenceImageAssetUris.filter((uri) => (
+        !localReferenceUriKeys.has(isPublicHttpUrl(uri) ? publicHttpUrlForUpstream(uri) : uri)
+      ));
+      if (referenceImageAssetUris.length) requestParams.referenceImageAssetUris = referenceImageAssetUris;
+      else delete requestParams.referenceImageAssetUris;
+    }
     const createdReferenceAssets = await createUserImageAssetsFromInputs(auth.db, auth.user, localReferenceInputs, {
       name: selectedCase?.title || "Advanced reference",
     });
