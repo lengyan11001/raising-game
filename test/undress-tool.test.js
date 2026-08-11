@@ -174,6 +174,17 @@ test("image-to-video clones the reference Wan2.7 task and uses configured pricin
   assert.match(server, /job\.action === "undress-image-video"[\s\S]*?runVideoToolUndressImageVideo/);
 });
 
+test("generated Undress videos are fast-started and show their poster while previewing", () => {
+  assert.match(server, /async function ensureGeneratedVideoFastStart/);
+  assert.match(server, /"-movflags",[\s\S]*?"\+faststart"/);
+  assert.match(server, /await ensureGeneratedVideoFastStart\(localVideoPath\)/);
+  assert.match(server, /fastStartUpdated \|\| !cdnVideoUrl/);
+  assert.match(server, /cacheBustedMediaUrl\(cdn\.cdnVideoUrl \|\| cdnVideoUrl, Date\.now\(\)\)/);
+  assert.match(server, /record\.localVideoUrl && !record\.playbackOptimizedAt/);
+  assert.match(server, /playbackOptimizedAt: finalMedia\.playbackOptimizedAt \|\| completedAt/);
+  assert.match(history, /posterUrl: generationPosterUrl\(record\)/);
+});
+
 test("reopening the upload dialog resets transient progress state", () => {
   const resetBlock = frontend.slice(frontend.indexOf("function resetUndressToolFile"), frontend.indexOf("function undressToolCanSubmit"));
   assert.match(resetBlock, /undressToolState\.estimating = false/);
@@ -201,7 +212,7 @@ test("History renders an unlock action instead of media for locked results", () 
   assert.match(css, /\.inline-modal\.is-undress-unlock \.inline-actions[\s\S]*?justify-content: center/);
   assert.match(ui, /classList\.remove\([^\n]*"is-undress-unlock"\)/);
   assert.match(history, /await showUndressUnlockConfirm\(record\)/);
-  assert.match(server, /ownRecords\.map\(ensureUndressLockedPreview\)/);
+  assert.match(server, /record\.localVideoUrl[\s\S]*?ensureGenerationRecordMediaOptimized\(record\)[\s\S]*?ensureUndressLockedPreview\(optimized\)/);
 });
 
 test("Undress results expose a download action only after the result is unlocked", () => {

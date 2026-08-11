@@ -670,6 +670,7 @@ els.previewDialog?.addEventListener("close", () => {
   els.previewVideo.pause();
   els.previewVideo.preload = "none";
   els.previewVideo.removeAttribute("src");
+  els.previewVideo.removeAttribute("poster");
   els.previewVideo.removeAttribute("style");
   els.previewVideo.load();
 });
