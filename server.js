@@ -9441,6 +9441,8 @@ async function createUserMediaAssetFromPublicUrl(db, user, { url, name = "Upload
     label: "asset",
     maxBytes: Math.max(limits.image, limits.video, limits.audio),
     timeoutMs: 120000,
+    retryCount: 2,
+    retryDelayMs: 750,
   });
   const pathname = new URL(mediaUrl).pathname;
   const responseMime = String(downloaded.mime || "").replace("image/jpg", "image/jpeg");
@@ -16042,11 +16044,39 @@ function requireHttpUrl(value = "", label = "URL") {
   return parsed.toString();
 }
 
-async function downloadRemoteFileToBuffer(fileUrl, { label = "file", maxBytes = 200 * 1024 * 1024, timeoutMs = 15 * 60 * 1000 } = {}) {
-  const response = await fetch(fileUrl, { redirect: "follow", signal: AbortSignal.timeout(timeoutMs) });
+async function downloadRemoteFileToBuffer(fileUrl, {
+  label = "file",
+  maxBytes = 200 * 1024 * 1024,
+  timeoutMs = 15 * 60 * 1000,
+  retryCount = 0,
+  retryDelayMs = 500,
+} = {}) {
+  const retries = Math.max(0, Math.min(3, Math.floor(Number(retryCount) || 0)));
+  let response = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      response = await fetch(fileUrl, { redirect: "follow", signal: AbortSignal.timeout(timeoutMs) });
+    } catch (cause) {
+      if (attempt < retries) {
+        await delay(Math.max(100, Number(retryDelayMs) || 500) * (attempt + 1));
+        continue;
+      }
+      const error = new Error(`Failed to download ${label}: ${cause?.message || "network error"}`);
+      error.statusCode = 502;
+      error.code = "REMOTE_DOWNLOAD_FAILED";
+      throw error;
+    }
+    const retryableStatus = [408, 425, 429].includes(response.status) || response.status >= 500;
+    if (response.ok || !retryableStatus || attempt >= retries) break;
+    try {
+      await response.body?.cancel();
+    } catch {}
+    await delay(Math.max(100, Number(retryDelayMs) || 500) * (attempt + 1));
+  }
   if (!response.ok) {
     const error = new Error(`Failed to download ${label}: ${response.status}`);
-    error.statusCode = 400;
+    error.statusCode = [408, 425, 429].includes(response.status) || response.status >= 500 ? 502 : 400;
+    error.code = error.statusCode === 502 ? "REMOTE_DOWNLOAD_FAILED" : "INVALID_REMOTE_MEDIA";
     throw error;
   }
   const contentLength = Number(response.headers.get("content-length") || 0);
