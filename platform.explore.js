@@ -3482,7 +3482,7 @@ function previewRatioFromItem(item = {}) {
   return item.ratio || params.ratio || params.aspect_ratio || requestJson.ratio || requestJson.aspect_ratio || "16:9";
 }
 
-function playPreview({ title = "", previewUrl = "", ratio = "16:9" } = {}) {
+function playPreview({ title = "", previewUrl = "", posterUrl = "", ratio = "16:9" } = {}) {
   if (!previewUrl || !els.previewDialog || !els.previewVideo || !els.previewImage) return;
   prepareModalOpen();
   document.querySelectorAll(".history-media video").forEach((video) => video.pause());
@@ -3490,8 +3490,10 @@ function playPreview({ title = "", previewUrl = "", ratio = "16:9" } = {}) {
   els.previewImage.hidden = true;
   els.previewImage.removeAttribute("src");
   els.previewVideo.pause();
-  els.previewVideo.preload = "auto";
+  els.previewVideo.preload = "metadata";
   els.previewVideo.setAttribute("style", ratioStyle(ratio));
+  if (posterUrl) els.previewVideo.poster = posterUrl;
+  else els.previewVideo.removeAttribute("poster");
   els.previewVideo.src = previewUrl;
   els.previewVideo.hidden = false;
   if (!els.previewDialog.open) els.previewDialog.showModal();

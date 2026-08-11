@@ -4367,6 +4367,7 @@ function renderHistory(records = []) {
       playPreview({
         title: record?.templateTitle || record?.sceneName || record?.taskId || t("common.preview"),
         previewUrl,
+        posterUrl: generationPosterUrl(record),
         ratio: record?.ratio || record?.params?.ratio || record?.params?.aspect_ratio || "16:9",
       });
     };

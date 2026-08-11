@@ -15270,14 +15270,23 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
   let cdnVideoUrl = record.cdnVideoUrl || "";
   let cdnPosterUrl = record.cdnPosterUrl || "";
   let cdnError = record.cdnError || "";
+  const fastStartNeeded = await generatedVideoNeedsFastStart(localVideoPath);
+  const fastStartUpdated = fastStartNeeded
+    ? await ensureGeneratedVideoFastStart(localVideoPath)
+    : false;
+  const playbackOptimizedAt = !fastStartNeeded || fastStartUpdated
+    ? (String(record.playbackOptimizedAt || "") || new Date().toISOString())
+    : "";
   if (!localPosterUrl) {
     const poster = await createGeneratedVideoPoster(record.taskId, localVideoPath);
     localPosterPath = poster.localPosterPath || localPosterPath;
     localPosterUrl = poster.localPosterUrl || localPosterUrl;
   }
-  if (objectStorageEnabled() && (!cdnVideoUrl || (localPosterPath && !cdnPosterUrl))) {
+  if (objectStorageEnabled() && (fastStartUpdated || !cdnVideoUrl || (localPosterPath && !cdnPosterUrl))) {
     const cdn = await uploadGeneratedMediaToObjectStorage({ taskId: record.taskId, localVideoPath, localPosterPath });
-    cdnVideoUrl = cdn.cdnVideoUrl || cdnVideoUrl;
+    cdnVideoUrl = fastStartUpdated
+      ? cacheBustedMediaUrl(cdn.cdnVideoUrl || cdnVideoUrl, Date.now())
+      : (cdn.cdnVideoUrl || cdnVideoUrl);
     cdnPosterUrl = cdn.cdnPosterUrl || cdnPosterUrl;
     cdnError = cdn.cdnError || cdnError;
   }
@@ -15285,7 +15294,8 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
     localPosterUrl === (record.localPosterUrl || "") &&
     cdnVideoUrl === (record.cdnVideoUrl || "") &&
     cdnPosterUrl === (record.cdnPosterUrl || "") &&
-    cdnError === (record.cdnError || "")
+    cdnError === (record.cdnError || "") &&
+    playbackOptimizedAt === String(record.playbackOptimizedAt || "")
   ) {
     return record;
   }
@@ -15304,6 +15314,7 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
     cdnVideoUrl,
     cdnPosterUrl,
     cdnError,
+    playbackOptimizedAt,
   });
 }
 
@@ -15878,6 +15889,62 @@ function posterFileName(taskId) {
   return `${String(taskId).replace(/[^a-z0-9_-]/gi, "_")}.jpg`;
 }
 
+async function generatedVideoNeedsFastStart(videoPath = "") {
+  if (!videoPath || path.extname(videoPath).toLowerCase() !== ".mp4") return false;
+  const handle = await fs.open(videoPath, "r");
+  try {
+    const stat = await handle.stat();
+    const bytes = Buffer.alloc(Math.min(stat.size, 1024 * 1024));
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+    const header = bytes.subarray(0, bytesRead);
+    const moovOffset = header.indexOf("moov");
+    const mdatOffset = header.indexOf("mdat");
+    return mdatOffset >= 0 && (moovOffset < 0 || moovOffset > mdatOffset);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function ensureGeneratedVideoFastStart(videoPath = "") {
+  if (!(await generatedVideoNeedsFastStart(videoPath))) return false;
+  const tempPath = `${videoPath}.${Date.now()}.faststart.mp4`;
+  try {
+    await execFileQuiet("ffmpeg", [
+      "-y",
+      "-i",
+      videoPath,
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a?",
+      "-c",
+      "copy",
+      "-movflags",
+      "+faststart",
+      tempPath,
+    ], { timeout: 120000 });
+    await fs.copyFile(tempPath, videoPath);
+    return true;
+  } catch (error) {
+    console.warn("[generated-video-faststart-failed]", videoPath, error.message || error);
+    return false;
+  } finally {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+  }
+}
+
+function cacheBustedMediaUrl(url = "", version = "") {
+  const value = String(url || "").trim();
+  if (!value || !version) return value;
+  try {
+    const parsed = new URL(value);
+    parsed.searchParams.set("v", String(version));
+    return parsed.toString();
+  } catch {
+    return value;
+  }
+}
+
 async function createGeneratedVideoPoster(taskId, videoPath) {
   if (!taskId || !videoPath) return { localPosterPath: "", localPosterUrl: "" };
   await fs.mkdir(GENERATED_POSTER_DIR, { recursive: true });
@@ -15966,6 +16033,7 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
         cdnVideoUrl: optimized.cdnVideoUrl || "",
         cdnPosterUrl: optimized.cdnPosterUrl || "",
         cdnError: optimized.cdnError || "",
+        playbackOptimizedAt: optimized.playbackOptimizedAt || "",
       };
     } catch {
       // Fall through and re-download if the record points to a missing file.
@@ -15984,6 +16052,8 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
 
   const bytes = Buffer.from(await response.arrayBuffer());
   await fs.writeFile(localVideoPath, bytes);
+  const fastStartNeeded = await generatedVideoNeedsFastStart(localVideoPath);
+  const fastStartReady = !fastStartNeeded || await ensureGeneratedVideoFastStart(localVideoPath);
   const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
   const cdn = await uploadGeneratedMediaToObjectStorage({
     taskId,
@@ -15994,6 +16064,7 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
   return {
     localVideoPath,
     localVideoUrl,
+    playbackOptimizedAt: fastStartReady ? new Date().toISOString() : "",
     ...poster,
     ...cdn,
   };
@@ -16683,7 +16754,7 @@ async function composeVideoToolSegments(taskId, inputPaths = []) {
     localVideoPath,
     localPosterPath: poster.localPosterPath,
   });
-  return { localVideoPath, localVideoUrl, ...poster, ...cdn };
+  return { localVideoPath, localVideoUrl, playbackOptimizedAt: new Date().toISOString(), ...poster, ...cdn };
 }
 
 async function createHiddenVideoToolImageAsset(db, user, imageUrl, taskId, stage) {
@@ -17047,6 +17118,7 @@ async function runVideoToolFaceSwap(job) {
       cdnVideoUrl: finalMedia.cdnVideoUrl || "",
       cdnPosterUrl: finalMedia.cdnPosterUrl || "",
       cdnError: finalMedia.cdnError || "",
+      playbackOptimizedAt: finalMedia.playbackOptimizedAt || completedAt,
       error: "",
       finalCredits: pricing.credits,
       originalFinalCredits: pricing.originalCredits,
@@ -17145,6 +17217,7 @@ async function runVideoToolUndressImageVideo(job) {
     cdnVideoUrl: finalMedia.cdnVideoUrl || "",
     cdnPosterUrl: finalMedia.cdnPosterUrl || "",
     cdnError: finalMedia.cdnError || "",
+    playbackOptimizedAt: finalMedia.playbackOptimizedAt || completedAt,
     queryResponse: completed.raw || null,
     error: "",
     finalCredits: pricing.credits,
@@ -33720,8 +33793,14 @@ async function handleListGenerationRecords(req, res, url) {
   }
 
   if (undressToolRequestAllowed(req)) {
-    const recordsWithLockedPreviews = await Promise.all(ownRecords.map(ensureUndressLockedPreview));
-    recordsWithLockedPreviews.forEach((record, index) => { ownRecords[index] = record; });
+    const optimizedRecords = [];
+    for (const record of ownRecords) {
+      const optimized = record.localVideoUrl && !record.playbackOptimizedAt
+        ? await ensureGenerationRecordMediaOptimized(record)
+        : record;
+      optimizedRecords.push(await ensureUndressLockedPreview(optimized));
+    }
+    optimizedRecords.forEach((record, index) => { ownRecords[index] = record; });
   }
 
   return sendJson(res, 200, {
@@ -33819,7 +33898,10 @@ async function handleGetGenerationRecord(req, res, taskId) {
     }
   }
 
-  if (undressToolRequestAllowed(req)) nextRecord = await ensureUndressLockedPreview(nextRecord);
+  if (undressToolRequestAllowed(req)) {
+    if (nextRecord.localVideoUrl) nextRecord = await ensureGenerationRecordMediaOptimized(nextRecord);
+    nextRecord = await ensureUndressLockedPreview(nextRecord);
+  }
 
   return sendJson(res, 200, {
     ok: true,
