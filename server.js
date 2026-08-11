@@ -5829,7 +5829,7 @@ function publicReferralSummary(req, db = {}, user = {}) {
     .map((entry) => String(entry.meta?.referredUserId || ""))
     .filter(Boolean));
   const rewardCount = rewardedUserIds.size || (referral.rewardedAt ? 1 : 0);
-  const origin = publicOriginFromRequest(req);
+  const origin = pageOriginFromRequest(req);
   return {
     code,
     inviteUrl: `${origin}/?ref=${encodeURIComponent(code)}`,
