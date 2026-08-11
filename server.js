@@ -12594,12 +12594,12 @@ async function createSingleSeedanceImageAssetFromInput(db, user, input, { name =
 function seedanceReferenceImageInputIdentity(item) {
   if (!item) return "";
   if (typeof item === "string") return item.trim();
+  const assetId = String(item.assetId || item.userAssetId || item.imageAssetId || "").trim();
+  if (assetId) return `asset:${assetId}`;
   const dataUrl = String(item.dataUrl || "").trim();
   if (dataUrl) return dataUrl;
-  const url = String(item.url || item.imageUrl || item.image_url || "").trim();
-  if (url) return url;
-  const assetId = String(item.assetId || item.userAssetId || item.imageAssetId || "").trim();
-  return assetId ? `asset:${assetId}` : "";
+  const url = String(item.url || item.imageUrl || item.image_url || item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || "").trim();
+  return url;
 }
 
 function uniqueSeedanceReferenceImageInputs(inputs = []) {
@@ -12671,12 +12671,13 @@ function seedanceExtraReferenceAssetIdsFromBody(body = {}) {
     ...arrayFromBody(body.extraReferenceAssetIds),
     ...arrayFromBody(body.extraUserAssetIds),
   ].map((item) => String(item || "").trim()).filter(Boolean);
-  if (assetIds.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+  const uniqueAssetIds = [...new Set(assetIds)];
+  if (uniqueAssetIds.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
     error.statusCode = 400;
     throw error;
   }
-  return assetIds;
+  return uniqueAssetIds;
 }
 
 function seedanceReferenceAssetIdsFromBody(body = {}, { includeUserAssetId = true, includeImageAssetId = true } = {}) {
@@ -12686,12 +12687,13 @@ function seedanceReferenceAssetIdsFromBody(body = {}, { includeUserAssetId = tru
     includeImageAssetId ? body.imageAssetId : "",
     ...seedanceExtraReferenceAssetIdsFromBody(body),
   ].map((item) => String(item || "").trim()).filter(Boolean);
-  if (assetIds.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
+  const uniqueAssetIds = [...new Set(assetIds)];
+  if (uniqueAssetIds.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`);
     error.statusCode = 400;
     throw error;
   }
-  return assetIds;
+  return uniqueAssetIds;
 }
 
 function seedanceReferenceAssetUrisFromBody(body = {}) {
@@ -12926,15 +12928,17 @@ function seedanceReferenceAudioAssetIdsFromBody(body = {}) {
     ...arrayFromBody(body.referenceAudioAssetIds),
     ...arrayFromBody(body.audioAssetIds),
   ].map((item) => String(item || "").trim()).filter(Boolean);
-  if (ids.length > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
+  const uniqueIds = [...new Set(ids)];
+  if (uniqueIds.length > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} reference audios.`);
     error.statusCode = 400;
     throw error;
   }
-  return ids;
+  return uniqueIds;
 }
 
 function seedanceReferenceAudioInputsFromBody(body = {}) {
+  const seen = new Set();
   const inputs = [
     ...arrayFromBody(body.referenceAudios),
     ...arrayFromBody(body.referenceAudioUrls),
@@ -12944,6 +12948,13 @@ function seedanceReferenceAudioInputsFromBody(body = {}) {
     if (!item) return false;
     if (typeof item === "string") return item.trim();
     return item.url || item.audioUrl || item.audio_url || item.assetUri;
+  }).filter((item) => {
+    const url = typeof item === "string"
+      ? item.trim()
+      : String(item.url || item.audioUrl || item.audio_url || item.assetUri || "").trim();
+    if (!url || seen.has(url)) return false;
+    seen.add(url);
+    return true;
   });
   if (inputs.length > ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT) {
     const error = new Error(`Seedance supports up to ${ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT} reference audios.`);
@@ -13377,7 +13388,31 @@ function aliyunMediaInput(value, defaults = {}) {
 }
 
 function aliyunMediaInputs(values = [], defaults = {}) {
-  return arrayFromBody(values).map((item) => aliyunMediaInput(item, defaults)).filter(Boolean);
+  const seen = new Set();
+  return arrayFromBody(values).map((item) => aliyunMediaInput(item, defaults)).filter((input) => {
+    if (!input) return false;
+    const locator = input.dataUrl
+      ? `data:${input.dataUrl}`
+      : input.assetId
+      ? `asset:${input.assetId}`
+      : input.url
+      ? `url:${input.url}`
+      : "";
+    const identity = `${input.type || defaults.type || "media"}:${locator}`;
+    if (!locator || seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
+
+function uniqueResolvedAliyunMedia(media = []) {
+  const seen = new Set();
+  return media.filter((item) => {
+    const identity = `${item?.type || "media"}:${String(item?.url || "").trim()}`;
+    if (!item?.url || seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
 }
 
 function aliyunReferenceImageInputs(body = {}) {
@@ -13582,18 +13617,19 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
     let inputs = frameMode
       ? [aliyunFirstFrameInput(body, fallbackAsset), aliyunLastFrameInput(body)].filter(Boolean)
       : [...aliyunReferenceImageInputs(body), ...aliyunReferenceVideoInputs(body), ...aliyunReferenceAudioInputs(body)];
+    inputs = inputs.map((input) => ({ ...input, provider: "wan30" }));
+    const resolvedMedia = [];
+    for (let index = 0; index < inputs.length; index += 1) {
+      resolvedMedia.push(await resolveAliyunVideoMediaInput({ db, user, input: inputs[index], label: `Wan 3.0 ${inputs[index].type} ${index + 1}` }));
+    }
+    const media = uniqueResolvedAliyunMedia(resolvedMedia);
     const inputCounts = {
-      images: inputs.filter((item) => item.type === "reference_image").length,
-      videos: inputs.filter((item) => item.type === "reference_video").length,
-      audios: inputs.filter((item) => item.type === "reference_audio").length,
+      images: media.filter((item) => item.type === "reference_image").length,
+      videos: media.filter((item) => item.type === "reference_video").length,
+      audios: media.filter((item) => item.type === "reference_audio").length,
     };
     if (inputCounts.images > 10 || inputCounts.videos > 5 || inputCounts.audios > 5) {
       throw advancedValidationError("WAN30_MEDIA_COUNT_INVALID", "Wan 3.0 accepts up to 10 images, 5 videos, and 5 audios.", inputCounts);
-    }
-    inputs = inputs.map((input) => ({ ...input, provider: "wan30" }));
-    const media = [];
-    for (let index = 0; index < inputs.length; index += 1) {
-      media.push(await resolveAliyunVideoMediaInput({ db, user, input: inputs[index], label: `Wan 3.0 ${inputs[index].type} ${index + 1}` }));
     }
     if (frameMode && (!media.some((item) => item.type === "first_frame") || !media.some((item) => item.type === "last_frame"))) {
       throw advancedValidationError("WAN30_FRAMES_REQUIRED", "Wan 3.0 First + Last Frame mode requires both frame images.");
@@ -13641,7 +13677,7 @@ async function resolveAliyunVideoMedia({ db, user, body = {}, requestParams = {}
     const label = `${capability} ${input.type} ${index + 1}`;
     media.push(await resolveAliyunVideoMediaInput({ db, user, input, label }));
   }
-  return { capability, mediaMode: capability, media };
+  return { capability, mediaMode: capability, media: uniqueResolvedAliyunMedia(media) };
 }
 
 function publicUrlForLocalAsset(asset = {}) {
@@ -19583,7 +19619,7 @@ function seedance25InputUrl(item, kind = "image") {
 }
 
 function seedance25ReferenceInputs(body = {}, kind = "image") {
-  const items = kind === "video"
+  const rawItems = kind === "video"
     ? [
         ...arrayFromBody(body.referenceVideos),
         ...arrayFromBody(body.referenceVideoUrls),
@@ -19601,6 +19637,16 @@ function seedance25ReferenceInputs(body = {}, kind = "image") {
         ...arrayFromBody(body.referenceImages),
         ...arrayFromBody(body.reference_images),
       ];
+  const seenItems = new Set();
+  const items = rawItems.filter((item) => {
+    const assetId = seedance25InputAssetId(item);
+    const dataUrl = kind === "image" && item && typeof item === "object" ? String(item.dataUrl || "").trim() : "";
+    const url = seedance25InputUrl(item, kind);
+    const identity = assetId ? `asset:${assetId}` : dataUrl ? `data:${dataUrl}` : url ? `url:${url}` : "";
+    if (!identity || seenItems.has(identity)) return false;
+    seenItems.add(identity);
+    return true;
+  });
   const explicitIds = kind === "video"
     ? [body.referenceVideoAssetId, body.videoAssetId, ...arrayFromBody(body.referenceVideoAssetIds), ...arrayFromBody(body.videoAssetIds)]
     : kind === "audio"
@@ -19614,7 +19660,7 @@ function seedance25ReferenceInputs(body = {}, kind = "image") {
     .map((item) => seedance25InputUrl(item, kind))
     .filter(Boolean);
   const inlineInputs = kind === "image"
-    ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item) && String(item.dataUrl || "").startsWith("data:image/"))
+    ? items.filter((item) => item && typeof item === "object" && !Array.isArray(item) && !seedance25InputAssetId(item) && String(item.dataUrl || "").startsWith("data:image/"))
     : [];
   return { assetIds: [...new Set(assetIds)], urls: [...new Set(urls)], inlineInputs };
 }
@@ -19866,9 +19912,9 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       ? await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, lastFrameInput, { name: "Seedance 2.5 last frame" })
       : null;
 
-    const imageUrls = [...await seedance25PublicAssetUrls(auth.db, imageAssets), ...seedance25PublicInputUrls(imageInputs.urls, "image")];
-    let videoUrls = [...await seedance25PublicAssetUrls(auth.db, videoAssets), ...seedance25PublicInputUrls(videoInputs.urls, "video")];
-    const audioUrls = [...await seedance25PublicAssetUrls(auth.db, audioAssets), ...seedance25PublicInputUrls(audioInputs.urls, "audio")];
+    const imageUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, imageAssets), ...seedance25PublicInputUrls(imageInputs.urls, "image")])];
+    let videoUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, videoAssets), ...seedance25PublicInputUrls(videoInputs.urls, "video")])];
+    const audioUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, audioAssets), ...seedance25PublicInputUrls(audioInputs.urls, "audio")])];
     const firstFrameUrl = firstFrameAsset
       ? (await seedance25PublicAssetUrls(auth.db, [firstFrameAsset]))[0]
       : publicHttpUrlForUpstream(firstPresent(firstFrameInput?.url, body.firstFrameUrl, body.imageUrl, bodyParams.firstFrameUrl, bodyParams.imageUrl, ""));
@@ -21576,7 +21622,7 @@ function seedream5ReferenceInputsFromBody(body = {}) {
     ...arrayFromBody(body.image),
     ...arrayFromBody(contentSummary.referenceImages),
   ];
-  const assetIds = [
+  const assetIds = [...new Set([
     body.userAssetId,
     body.assetId,
     body.imageAssetId,
@@ -21585,8 +21631,8 @@ function seedream5ReferenceInputsFromBody(body = {}) {
     ...arrayFromBody(body.assetIds),
     ...arrayFromBody(body.imageAssetIds),
     ...arrayFromBody(body.referenceImageAssetIds),
-  ].map((item) => String(item || "").trim()).filter(Boolean);
-  const inputs = [
+  ].map((item) => String(item || "").trim()).filter(Boolean))];
+  const inputs = uniqueSeedanceReferenceImageInputs([
     ...assetIds.map((assetId) => ({ assetId })),
     ...directInputs,
   ].filter((item) => {
@@ -21596,11 +21642,12 @@ function seedream5ReferenceInputsFromBody(body = {}) {
   }).map((item) => {
     if (typeof item !== "string") {
       const rawAssetUri = String(item.assetUri || item.referenceAssetUri || item.seedanceAssetUri || item.url || item.imageUrl || "").trim();
-      return rawAssetUri.startsWith("asset://") ? { assetId: item.assetId || byteplusAssetIdFromUri(rawAssetUri) } : item;
+      if (rawAssetUri.startsWith("asset://")) return { assetId: item.assetId || byteplusAssetIdFromUri(rawAssetUri) };
+      return rawAssetUri && !item.url && !item.imageUrl ? { ...item, url: rawAssetUri } : item;
     }
     const text = item.trim();
     return text.startsWith("asset://") ? { assetId: byteplusAssetIdFromUri(text) } : text;
-  });
+  }));
   if (inputs.length > ADVANCED_SEEDANCE_REFERENCE_LIMIT) {
     throw advancedValidationError("TOO_MANY_SEEDREAM_IMAGES", `Seedream 5.0 Image supports at most ${ADVANCED_SEEDANCE_REFERENCE_LIMIT} reference images.`, {
       count: inputs.length,
@@ -28691,7 +28738,7 @@ function imageEditAssetIdsFromBody(body = {}) {
   for (const key of ["imageAssetId", "image_asset_id", "assetId", "asset_id", "userAssetId", "user_asset_id"]) {
     if (body[key] !== undefined && body[key] !== null && body[key] !== "") ids.push(...arrayFromBody(body[key]));
   }
-  return ids.map((value) => String(value || "").trim()).filter(Boolean);
+  return [...new Set(ids.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
 function imageEditUrlsFromBody(body = {}) {
@@ -28719,15 +28766,11 @@ async function handleWan27ImageEdit(req, res) {
   const mergedBody = { ...bodyParams, ...body };
   const asyncResponse = boolFromRequest(firstPresent(mergedBody.async, mergedBody.asyncResponse, mergedBody.returnImmediately), false);
   const assetIds = imageEditAssetIdsFromBody(mergedBody);
-  const externalImageUrls = imageEditUrlsFromBody(mergedBody);
+  let externalImageUrls = imageEditUrlsFromBody(mergedBody);
   const invalidExternalImageUrl = externalImageUrls.find((url) => !isPublicHttpUrl(url));
   if (invalidExternalImageUrl) {
     return sendJson(res, 400, { ok: false, code: "INVALID_IMAGE_URL", message: "Wan2.7 image URLs must be public http(s) URLs." });
   }
-  if (assetIds.length + externalImageUrls.length > 9) {
-    return sendJson(res, 400, { ok: false, code: "TOO_MANY_IMAGES", message: "Wan2.7 image edit supports 0 to 9 input images." });
-  }
-
   const sourceAssets = [];
   for (const assetId of assetIds) {
     const asset = auth.db.userAssets.find((entry) => entry.id === assetId && entry.userId === auth.user.id && !isSoftDeleted(entry));
@@ -28736,6 +28779,17 @@ async function handleWan27ImageEdit(req, res) {
       return sendJson(res, 400, { ok: false, message: "Wan2.7 image edit only accepts image assets." });
     }
     sourceAssets.push(asset);
+  }
+  const sourceAssetUrlKeys = new Set(sourceAssets.flatMap((asset) => [
+    asset.publicUrl,
+    asset.objectStorageUrl,
+    asset.cdnUrl,
+    asset.sourceImageUrl,
+    publicUrlForAssetPath(asset.localUrl),
+  ]).map((url) => (isPublicHttpUrl(url) ? publicHttpUrlForUpstream(url) : "")).filter(Boolean));
+  externalImageUrls = externalImageUrls.filter((url) => !sourceAssetUrlKeys.has(publicHttpUrlForUpstream(url)));
+  if (assetIds.length + externalImageUrls.length > 9) {
+    return sendJson(res, 400, { ok: false, code: "TOO_MANY_IMAGES", message: "Wan2.7 image edit supports 0 to 9 input images." });
   }
 
   const config = await readAppConfig();
@@ -28761,10 +28815,10 @@ async function handleWan27ImageEdit(req, res) {
   }
 
   const taskId = localGenerationTaskId("img");
-  const previewUrls = [
+  const previewUrls = [...new Set([
     ...sourceAssets.map((asset) => asset.localUrl || asset.publicUrl || ""),
     ...externalImageUrls,
-  ];
+  ].filter(Boolean))];
   const initialRecord = {
     taskId,
     status: "submitting",
@@ -28842,19 +28896,20 @@ async function handleWan27ImageEdit(req, res) {
     for (const asset of sourceAssets) {
       preparedAssets.push(await ensurePublicUrlForUserMediaAsset(auth.db, asset));
     }
-    const publicImageUrls = [
-      ...preparedAssets.map((asset) => asset.publicUrl || publicUrlForLocalAsset(asset)).filter(Boolean),
-      ...externalImageUrls,
-    ];
-    if (publicImageUrls.length !== sourceAssets.length + externalImageUrls.length) {
+    const preparedAssetUrls = preparedAssets.map((asset) => asset.publicUrl || publicUrlForLocalAsset(asset) || "");
+    if (preparedAssetUrls.some((url) => !url)) {
       const error = new Error("Failed to prepare all source images for Wan2.7 image edit.");
       error.statusCode = 502;
       throw error;
     }
-    const referenceUrls = [
+    const publicImageUrls = [...new Set([
+      ...preparedAssetUrls,
+      ...externalImageUrls,
+    ])];
+    const referenceUrls = [...new Set([
       ...preparedAssets.map((asset) => asset.localUrl || asset.publicUrl || ""),
       ...externalImageUrls,
-    ];
+    ].filter(Boolean))];
     await updateAssetImageModifyRecord(taskId, {
       imageUrl: referenceUrls[0] || "",
       imageUrls: referenceUrls,
