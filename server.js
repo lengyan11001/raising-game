@@ -9891,6 +9891,19 @@ function makeHomeSyntheticReferencePrompt(item = {}) {
   ].filter(Boolean).join(" ");
 }
 
+function makeSeedancePreprocessedReferencePrompt(item = {}) {
+  const extra = String(item.referencePrompt || "").trim();
+  return [
+    "Recreate Figure 1 as a faithful synthetic reference image while preserving its original meaning and visual identity.",
+    "Preserve the exact number of people and each person's perceived gender presentation, age group, face identity, hairstyle, body proportions, clothing, pose, and position.",
+    "A male person must remain male, a female person must remain female, and a scene with no people must remain a scene with no people. Never swap gender, add a person, remove a person, or replace one person with another.",
+    "Preserve the original environment, objects, composition, camera angle, lighting, aspect ratio, and any multi-view sheet or collage layout. Do not turn a scene, object image, or multi-view sheet into a single-person studio portrait.",
+    "Keep the result photorealistic and visually close to Figure 1. Only normalize explicit or disallowed details into a fully clothed, non-explicit equivalent when necessary; otherwise do not redesign the source.",
+    "No added text, logo, watermark, unrelated objects, or unrelated people.",
+    extra ? `Extra direction: ${extra}` : "",
+  ].filter(Boolean).join(" ");
+}
+
 const HOME_SCENE_DIRECTIONS = {
   room: {
     label: "Suite Night",
@@ -14044,7 +14057,14 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
 
 async function ensureSyntheticReferenceForUserAsset(db, userAsset) {
   if (!userAsset) return null;
-  if (userAsset.syntheticReferenceAssetUri) return userAsset;
+  const preprocessVersion = "preserve-source-v2";
+  const reusable = userAsset.syntheticReferenceAssetUri
+    && userAsset.syntheticReferenceVersion === preprocessVersion;
+  if (reusable) return userAsset;
+
+  // References produced by the old prompt forced every input into a female
+  // character portrait, including male characters and empty scene images.
+  const resetLegacyReference = userAsset.syntheticReferenceVersion !== preprocessVersion;
 
   const prepared = await ensureCharacterReferenceForRecord({
     id: userAsset.id,
@@ -14056,12 +14076,13 @@ async function ensureSyntheticReferenceForUserAsset(db, userAsset) {
     posterUrl: userAsset.sourceImageUrl || userAsset.localUrl,
     sourceImageMime: userAsset.sourceImageMime || userAsset.mime || "",
     imageMime: userAsset.sourceImageMime || userAsset.mime || "",
-    syntheticReferenceLocalUrl: userAsset.syntheticReferenceLocalUrl || "",
-    syntheticReferenceUrl: userAsset.syntheticReferenceUrl || "",
-    syntheticReferenceTaskId: userAsset.syntheticReferenceTaskId || "",
-    syntheticReferenceModel: userAsset.syntheticReferenceModel || "",
-    syntheticReferencePrompt: userAsset.syntheticReferencePrompt || "",
-    referenceAssetUri: userAsset.syntheticReferenceAssetUri || "",
+    syntheticReferenceLocalUrl: resetLegacyReference ? "" : (userAsset.syntheticReferenceLocalUrl || ""),
+    syntheticReferenceUrl: resetLegacyReference ? "" : (userAsset.syntheticReferenceUrl || ""),
+    syntheticReferenceTaskId: resetLegacyReference ? "" : (userAsset.syntheticReferenceTaskId || ""),
+    syntheticReferenceModel: resetLegacyReference ? "" : (userAsset.syntheticReferenceModel || ""),
+    syntheticReferencePrompt: resetLegacyReference ? "" : (userAsset.syntheticReferencePrompt || ""),
+    referenceAssetUri: resetLegacyReference ? "" : (userAsset.syntheticReferenceAssetUri || ""),
+    preserveSourceComposition: true,
   });
 
   const next = {
@@ -14073,6 +14094,7 @@ async function ensureSyntheticReferenceForUserAsset(db, userAsset) {
     syntheticReferenceTaskId: prepared.syntheticReferenceTaskId || userAsset.syntheticReferenceTaskId || "",
     syntheticReferenceModel: prepared.syntheticReferenceModel || userAsset.syntheticReferenceModel || "",
     syntheticReferencePrompt: prepared.syntheticReferencePrompt || userAsset.syntheticReferencePrompt || "",
+    syntheticReferenceVersion: preprocessVersion,
     syntheticReferenceAssetUri: prepared.referenceAssetUri || userAsset.syntheticReferenceAssetUri || "",
     syntheticReferencePublicUrl: prepared.publicImageUrl || userAsset.syntheticReferencePublicUrl || "",
     syntheticReferenceR2Key: prepared.r2Key || userAsset.syntheticReferenceR2Key || "",
@@ -30482,7 +30504,9 @@ async function ensureCharacterReferenceForRecord(record) {
         mime: record.sourceImageMime || record.imageMime || imageMimeFromPath(sourcePath),
       });
     }
-    const refPrompt = makeHomeSyntheticReferencePrompt(record);
+    const refPrompt = record.preserveSourceComposition === true
+      ? makeSeedancePreprocessedReferencePrompt(record)
+      : makeHomeSyntheticReferencePrompt(record);
     const model = process.env.HOME_REFERENCE_MODEL || process.env.OFFICIAL_PRESET_MODEL || "";
     const generated = await createSeedream5ImageDirect({
       prompt: refPrompt,
