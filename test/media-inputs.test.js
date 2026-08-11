@@ -170,6 +170,12 @@ test("all multimodal adapters deduplicate compatibility aliases before counting 
   assert.match(server, /const publicImageUrls = \[\.\.\.new Set\(\[/);
 });
 
+test("public asset ingestion retries transient source failures and reports them as gateway errors", () => {
+  assert.match(server, /label: "asset",[\s\S]*?retryCount: 2,[\s\S]*?retryDelayMs: 750/);
+  assert.match(server, /const retryableStatus = \[408, 425, 429\]\.includes\(response\.status\) \|\| response\.status >= 500/);
+  assert.match(server, /error\.statusCode = 502;[\s\S]*?error\.code = "REMOTE_DOWNLOAD_FAILED"/);
+});
+
 test("Seedance 2.5 and Seedream use the gateway without copying new2 media into the old bucket", () => {
   assert.match(server, /if \(!direct && !USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY\)/);
   assert.match(server, /if \(direct && !ARK_API_KEY\)/);
