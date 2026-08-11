@@ -3936,6 +3936,32 @@ dialog.tool-download-modal {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 9px;
 }
+.advanced-checkbox-control {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(255,255,255,.72);
+  cursor: pointer;
+}
+.advanced-checkbox-control input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: #ff4fa3;
+  box-shadow: none;
+}
+.advanced-checkbox-control span {
+  min-width: 0;
+  font-weight: 800;
+  line-height: 1.2;
+}
 .advanced-prompt-field {
   position: relative;
   overflow: visible;
@@ -8239,6 +8265,10 @@ select,
 .file-picker-control input {
   border-color: rgba(255,255,255,.12);
   color: var(--text);
+  background: #202126;
+}
+.advanced-checkbox-control {
+  border-color: rgba(255,255,255,.12);
   background: #202126;
 }
 .advanced-asset-toolbar input[type="search"]::placeholder,
