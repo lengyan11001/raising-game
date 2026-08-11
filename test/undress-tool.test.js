@@ -21,7 +21,7 @@ const videoTools = read("video-tools.js");
 test("undress.14vips.com is an isolated tenant without API or asset-library access", () => {
   assert.match(server, /undress\.14vips\.com=undress/);
   assert.match(server, /tenantId: "tool-undress-14vips"/);
-  assert.match(server, /allowedTabs: \["gallery", "history", "topups", "spending"\]/);
+  assert.match(server, /allowedTabs: \["gallery", "history", "topups", "spending", "referral"\]/);
   assert.match(server, /assetLibrary: false/);
   assert.match(db, /'tool-undress-14vips'/);
   assert.match(server, /function undressToolApiPathAllowed/);
