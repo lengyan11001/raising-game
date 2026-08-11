@@ -176,6 +176,18 @@ test("public asset ingestion retries transient source failures and reports them 
   assert.match(server, /error\.statusCode = 502;[\s\S]*?error\.code = "REMOTE_DOWNLOAD_FAILED"/);
 });
 
+test("BytePlus CreateAsset relays source URLs upstream and V3 reuses the returned asset id", () => {
+  assert.match(server, /async function createByteplusUpstreamAsset[\s\S]*?arkOpenApiAction\("CreateAsset", payload\)/);
+  assert.match(server, /if \(USE_GATEWAY_UPSTREAM\)[\s\S]*?Action=CreateAsset&Version=2024-01-01/);
+  assert.match(server, /byteplusUpstreamAsset: true/);
+  assert.match(server, /const passthroughAssetUri = localAsset\?\.byteplusUpstreamAsset/);
+  assert.match(server, /target\.referenceImageAssetUris\.push\(directValue\)/);
+  assert.match(server, /if \(actionKey === "createasset"\) \{[\s\S]*?const created = await createByteplusUpstreamAsset/);
+  assert.match(server, /GroupId: USE_GATEWAY_UPSTREAM \? "" : ARK_OPENAPI\.groupId/);
+  assert.match(server, /ProjectName: USE_GATEWAY_UPSTREAM \? "" : ARK_OPENAPI\.projectName/);
+  assert.match(server, /byteplusActionEnvelope\("CreateAsset", \{ Id: assetId \}\)/);
+});
+
 test("Seedance 2.5 and Seedream use the gateway without copying new2 media into the old bucket", () => {
   assert.match(server, /if \(!direct && !USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY\)/);
   assert.match(server, /if \(direct && !ARK_API_KEY\)/);
