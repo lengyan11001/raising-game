@@ -150,6 +150,14 @@ test("Seedance gateway URLs enter the upstream asset library without an old-site
   assert.doesNotMatch(server, /normalizeAdvancedProvider\(input\.provider \|\| ""\) === "wan30" && url/);
 });
 
+test("Seedance API references are deduplicated before the nine-image limit and upstream upload", () => {
+  assert.match(server, /function uniqueSeedanceReferenceImageInputs\(inputs = \[\]\)/);
+  assert.match(server, /const inputs = uniqueSeedanceReferenceImageInputs\(\[[\s\S]*?body\.referenceImages[\s\S]*?body\.reference_images/);
+  assert.match(server, /const localReferenceUriKeys = new Set\(localReferenceInputs\.map/);
+  assert.match(server, /referenceImageAssetUris = referenceImageAssetUris\.filter\(\(uri\) => \([\s\S]*?!localReferenceUriKeys\.has/);
+  assert.match(server, /else delete requestParams\.referenceImageAssetUris/);
+});
+
 test("Seedance 2.5 and Seedream use the gateway without copying new2 media into the old bucket", () => {
   assert.match(server, /if \(!direct && !USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY\)/);
   assert.match(server, /if \(direct && !ARK_API_KEY\)/);
