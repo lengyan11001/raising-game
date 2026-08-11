@@ -247,9 +247,9 @@ const TOOL_TENANT_SPECS = Object.freeze({
     description: "Private AI image and video editing.",
     defaultTab: "gallery",
     defaultGalleryMode: "characters",
-    allowedTabs: ["gallery", "history", "topups", "spending"],
+    allowedTabs: ["gallery", "history", "topups", "spending", "referral"],
     allowedGalleryModes: ["characters"],
-    disabledTabs: ["access", "assets", "workflow", "referral", "characters", "advanced"],
+    disabledTabs: ["access", "assets", "workflow", "characters", "advanced"],
     assetLibrary: false,
   },
   video: {
@@ -260,9 +260,9 @@ const TOOL_TENANT_SPECS = Object.freeze({
     description: "AI video creation workspace.",
     defaultTab: "gallery",
     defaultGalleryMode: "playflux-video",
-    allowedTabs: ["gallery", "history", "topups", "spending", "pricing"],
+    allowedTabs: ["gallery", "history", "topups", "spending", "pricing", "referral"],
     allowedGalleryModes: ["playflux-video"],
-    disabledTabs: ["access", "assets", "workflow", "referral"],
+    disabledTabs: ["access", "assets", "workflow"],
     assetLibrary: false,
     videoProvider: TOOL_VIDEO_PROVIDER,
   },
@@ -315,7 +315,7 @@ const VIPEAK_TELEGRAM_CHANNEL_URL = "https://t.me/VipeakAILab";
 const VIPEAK_TELEGRAM_SUPPORT_URL = "https://t.me/VipeakSupportBot";
 const CHARACTER_UNLOCK_COST_CREDITS = 750;
 const PUBLIC_CHARACTER_PAGE_SIZE = 20;
-const REFERRAL_REWARD_CREDITS = 750;
+const REFERRAL_REWARD_CREDITS = 100;
 const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
 const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
 const ADMIN_ADVANCED_CASE_DIR = path.join(ROOT, "assets", "admin", "advanced-cases");
