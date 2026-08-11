@@ -148,6 +148,19 @@ const {
 } = require("./site-http");
 
 const ROOT = __dirname;
+const PLATFORM_ASSET_FILES = Object.freeze([
+  "platform.css",
+  "platform.js",
+  "platform.config.js",
+  "platform.copy.js",
+  "platform.ui.js",
+  "platform.explore.js",
+  "platform.create.js",
+  "platform.video-tools.js",
+  "platform.undress-tool.js",
+  "platform.main.js",
+]);
+let platformAssetVersionPromise = null;
 const TOOL_VIDEO_STYLE_VERSION = crypto
   .createHash("sha256")
   .update(fsSync.readFileSync(path.join(ROOT, "tool-video.css")))
@@ -4220,11 +4233,31 @@ function buildLlmsTxt(snapshot, { full = false, apiAccess = true } = {}) {
   return `${lines.join("\n")}\n`;
 }
 
+async function currentPlatformAssetVersion() {
+  if (!platformAssetVersionPromise) {
+    platformAssetVersionPromise = Promise.all(
+      PLATFORM_ASSET_FILES.map((fileName) => fs.stat(path.join(ROOT, fileName))),
+    ).then((stats) => {
+      const latestMtime = Math.max(...stats.map((stat) => Number(stat.mtimeMs || 0)));
+      return latestMtime > 0 ? Math.floor(latestMtime).toString(36) : "current";
+    }).catch(() => "current");
+  }
+  return platformAssetVersionPromise;
+}
+
+function applyPlatformAssetVersion(html = "", version = "current") {
+  return String(html).replace(
+    /(\.\/platform\.(?:css|js))(?:\?v=[^"']*)?/g,
+    `$1?v=${encodeURIComponent(version)}`,
+  );
+}
+
 async function servePlatformHtmlWithGeo(req, res) {
   const filePath = path.join(ROOT, "platform.html");
   const html = await fs.readFile(filePath, "utf8");
+  const versionedHtml = applyPlatformAssetVersion(html, await currentPlatformAssetVersion());
   const snapshot = await geoSiteSnapshot(req);
-  return sendHtml(res, 200, injectPlatformGeoHead(html, snapshot, requestTenantOptions(req)), {
+  return sendHtml(res, 200, injectPlatformGeoHead(versionedHtml, snapshot, requestTenantOptions(req)), {
     cacheControl: "public, max-age=60, s-maxage=300, stale-while-revalidate=86400",
     head: req.method === "HEAD",
   });

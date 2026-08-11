@@ -141,6 +141,14 @@ test("direct Seedance 2.5 waits until every uploaded Ark asset is available", ()
   assert.match(server, /submitted = await submitArkTaskAfterAssetsReady\(upstreamPayload\)/);
 });
 
+test("Safari duration pickers refresh pricing and deployments invalidate split frontend chunks", () => {
+  assert.match(main, /advancedDuration\?\.addEventListener\("input", handleAdvancedDurationSelection\)/);
+  assert.match(main, /advancedDuration\?\.addEventListener\("change", handleAdvancedDurationSelection\)/);
+  assert.match(server, /const PLATFORM_ASSET_FILES = Object\.freeze/);
+  assert.match(server, /function applyPlatformAssetVersion/);
+  assert.match(server, /applyPlatformAssetVersion\(html, await currentPlatformAssetVersion\(\)\)/);
+});
+
 test("shared video uploads use capability-specific duration limits", () => {
   assert.match(ui, /function advancedVideoInputDurationRule/);
   assert.match(ui, /"wan27-video-edit": \{ min: 1\.8, max: 10\.2, displayMin: 2, displayMax: 10 \}/);

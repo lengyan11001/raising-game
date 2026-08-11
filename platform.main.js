@@ -689,10 +689,13 @@ els.advancedPresetDialog?.addEventListener("close", () => {
   state.advancedPresetSearch = "";
   if (els.advancedPresetSearch) els.advancedPresetSearch.value = "";
 });
-els.advancedDuration?.addEventListener("input", () => {
+function handleAdvancedDurationSelection() {
   syncAdvancedVideoSettingsControls();
   updateAdvancedButtonCost();
-});
+}
+els.advancedDuration?.addEventListener("input", handleAdvancedDurationSelection);
+// iOS Safari reliably emits change, but not input, for native select pickers.
+els.advancedDuration?.addEventListener("change", handleAdvancedDurationSelection);
 els.advancedProvider?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
   if (["seedance25", "seedance-nsfw"].includes(currentAdvancedProvider())) {

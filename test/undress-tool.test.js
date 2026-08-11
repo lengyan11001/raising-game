@@ -217,7 +217,7 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(ui, /if \(legacyHref\) \{[\s\S]*?await saveDownloadFromFetch\(legacyHref, fileName\)[\s\S]*?return;/);
   assert.doesNotMatch(ui, /directSignedDownload/);
   assert.match(history, /data-history-download[\s\S]*?button\.disabled = true[\s\S]*?await downloadGenerationRecord\(record\)[\s\S]*?button\.disabled = false/);
-  assert.match(html, /platform\.js\?v=ai-363-model-docs/);
+  assert.match(html, /platform\.js\?v=ai-\d+-[a-z0-9-]+/);
 });
 
 test("insufficient unlock balance opens a top-up dialog", () => {
