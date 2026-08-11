@@ -381,7 +381,13 @@
               <label class="field advanced-setting-field"><span data-i18n="field.resolution">Resolution</span><select id="advancedResolution"><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
               <label class="field advanced-duration-field"><span data-i18n="field.duration">Duration</span><select id="advancedDuration"><option value="5" selected>5s</option></select></label>
               <label class="field advanced-setting-field advanced-seedance-audio-field" hidden><span data-i18n="advanced.seedanceGenerateAudio">Audio</span><select id="advancedSeedanceGenerateAudio"><option value="true" selected>On</option><option value="false">Off</option></select></label>
-              <input id="advancedPreprocessReference" type="hidden" value="no" />
+              <label class="field advanced-seedance-preprocess-field" hidden>
+                <span>Preprocess</span>
+                <div class="advanced-checkbox-control">
+                  <input id="advancedPreprocessReference" type="checkbox" />
+                  <span>On</span>
+                </div>
+              </label>
               <label class="field advanced-wan-option advanced-seed-field" hidden><span data-i18n="advanced.randomSeed">Random seed</span><input id="advancedWanSeed" type="number" min="0" step="1" placeholder="Optional" data-i18n-placeholder="common.optional" /></label>
             </div>
             <button class="generate-btn" id="advancedSubmitBtn" type="button"><i data-lucide="sparkles"></i>Generate</button>

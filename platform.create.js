@@ -1414,6 +1414,13 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-seedance-audio-field").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider);
   });
+  const seedanceImagePreprocessAvailable = ["seedance", "seedance25", "seedance-nsfw"].includes(provider)
+    && !["edit", "extend"].includes(seedanceMode);
+  els.advancedPreprocessReference?.closest(".advanced-seedance-preprocess-field")
+    ?.toggleAttribute("hidden", simpleAction || simpleEdit || !seedanceImagePreprocessAvailable);
+  if (!seedanceImagePreprocessAvailable && els.advancedPreprocessReference) {
+    els.advancedPreprocessReference.checked = false;
+  }
   if (["seedance-nsfw", "qwen-image3"].includes(provider)) {
     els.advancedWanSeed?.closest(".field")?.removeAttribute("hidden");
   }
@@ -1482,7 +1489,6 @@ function updateAdvancedModelControls() {
   }
   renderAdvancedReferencePreviews();
   updateAdvancedReferenceSummary();
-  if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
   if (els.advancedNote && (state.advancedUploadDataUrl || state.advancedSeedanceFirstFrameDataUrl || advancedSeedanceVideoReferences().length || advancedSeedanceAudioReferences().length)) els.advancedNote.textContent = "";
   updateAdvancedButtonCost();
 }
@@ -1625,7 +1631,7 @@ function fillAdvancedCase(item = {}) {
   if (els.advancedRatio) els.advancedRatio.value = params.ratio || params.aspect_ratio || item.ratio || "9:16";
   if (els.advancedResolution) els.advancedResolution.value = params.resolution || item.resolution || "720p";
   if (els.advancedDuration) els.advancedDuration.value = params.duration || item.duration || 5;
-  if (els.advancedPreprocessReference) els.advancedPreprocessReference.value = "no";
+  if (els.advancedPreprocessReference) els.advancedPreprocessReference.checked = params.preprocessReference === true;
   if (els.advancedWanSeed) els.advancedWanSeed.value = params.seed || "";
   state.advancedSourceImageAssetId = "";
   state.advancedFirstFrameAssetId = "";
@@ -1696,6 +1702,7 @@ function clearAdvancedCreationInputs() {
     if (input) input.value = "";
   });
   if (els.advancedSeedanceGenerateAudio) els.advancedSeedanceGenerateAudio.value = "true";
+  if (els.advancedPreprocessReference) els.advancedPreprocessReference.checked = false;
   [
     els.advancedImage,
     els.advancedSeedanceFirstFrame,
@@ -1949,7 +1956,8 @@ async function submitAdvancedGenerate() {
   const wanAnimateMode = ["wan-animate-move", "wan-animate-mix"].includes(videoCapability)
     ? String(els.advancedWanAnimateMode?.value || "wan-std")
     : "";
-  const preprocessReference = false;
+  const preprocessReference = ["seedance", "seedance25", "seedance-nsfw"].includes(provider)
+    && Boolean(els.advancedPreprocessReference?.checked);
   const rawWanMediaMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
   const rawSeedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
   const mediaMode = provider === "wan30"

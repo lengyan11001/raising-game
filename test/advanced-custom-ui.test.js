@@ -141,6 +141,17 @@ test("direct Seedance 2.5 waits until every uploaded Ark asset is available", ()
   assert.match(server, /submitted = await submitArkTaskAfterAssetsReady\(upstreamPayload\)/);
 });
 
+test("Seedance image preprocessing is shared by the model family and remains opt-in", () => {
+  assert.match(html, /id="advancedPreprocessReference" type="checkbox"/);
+  assert.doesNotMatch(html, /id="advancedPreprocessReference"[^>]*checked/);
+  assert.match(create, /\["seedance", "seedance25", "seedance-nsfw"\]\.includes\(provider\)[\s\S]*Boolean\(els\.advancedPreprocessReference\?\.checked\)/);
+  assert.match(create, /els\.advancedPreprocessReference\.checked = false/);
+  assert.match(server, /requestParams\.preprocessReference = provider === "seedance" && boolFromRequest/);
+  assert.match(server, /const preprocessReference = boolFromRequest\(firstPresent\([\s\S]*body\.preprocessReference/);
+  assert.match(server, /prepareSeedanceReferenceAsset\(db, userAsset, true\)/);
+  assert.match(server, /seedance25PublicAssetUrls\(db, imageAssets, \{ preprocessReference: true \}\)/);
+});
+
 test("Safari duration pickers refresh pricing and deployments invalidate split frontend chunks", () => {
   assert.match(main, /advancedDuration\?\.addEventListener\("input", handleAdvancedDurationSelection\)/);
   assert.match(main, /advancedDuration\?\.addEventListener\("change", handleAdvancedDurationSelection\)/);

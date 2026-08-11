@@ -14093,12 +14093,20 @@ async function prepareSeedanceReferenceAsset(db, userAsset, preprocess = false) 
   const prepared = preprocess
     ? await ensureSyntheticReferenceForUserAsset(db, userAsset)
     : await ensureSeedanceAssetForUserAsset(db, userAsset);
+  const publicImageUrl = preprocess
+    ? publicHttpUrlForUpstream(firstPresent(
+        prepared.syntheticReferencePublicUrl,
+        prepared.syntheticReferenceUrl,
+        prepared.publicUrl,
+      ))
+    : publicHttpUrlForUserAsset(prepared);
   return {
     asset: prepared,
     referenceAssetUri: preprocess ? (prepared.syntheticReferenceAssetUri || prepared.assetUri || "") : (prepared.assetUri || ""),
     imageUrl: preprocess
       ? (prepared.syntheticReferenceLocalUrl || prepared.syntheticReferenceUrl || prepared.publicUrl || prepared.localUrl || "")
       : (prepared.publicUrl || prepared.localUrl || ""),
+    publicImageUrl,
     sourceImageUrl: prepared.sourceImageUrl || prepared.localUrl || "",
   };
 }
@@ -19785,11 +19793,20 @@ function seedance25OwnedAssets(db, userId, assetIds = [], kind = "image") {
   return assets;
 }
 
-async function seedance25PublicAssetUrls(db, assets = []) {
+async function seedance25PublicAssetUrls(db, assets = [], { preprocessReference = false } = {}) {
   const urls = [];
   for (const asset of assets) {
-    const prepared = await ensurePublicUrlForUserAsset(db, asset);
-    const url = publicHttpUrlForUserAsset(prepared);
+    const preparedReference = preprocessReference
+      ? await prepareSeedanceReferenceAsset(db, asset, true)
+      : null;
+    const prepared = preparedReference?.asset || await ensurePublicUrlForUserAsset(db, asset);
+    const url = preprocessReference
+      ? publicHttpUrlForUpstream(firstPresent(
+          preparedReference?.publicImageUrl,
+          prepared.syntheticReferencePublicUrl,
+          prepared.syntheticReferenceUrl,
+        ))
+      : publicHttpUrlForUserAsset(prepared);
     if (!url) {
       const error = new Error("Reference asset could not be published for generation.");
       error.statusCode = 502;
@@ -19831,7 +19848,20 @@ async function submitArkTaskAfterAssetsReady(payload, { attempts = 12, waitMs = 
 }
 
 async function runSeedance25GenerationJob(job = {}) {
-  const { taskId, upstreamInput, mediaAssets, pricing, cost, provider = "seedance25" } = job;
+  const {
+    taskId,
+    upstreamInput: initialUpstreamInput = {},
+    mediaAssets: initialMediaAssets = [],
+    pricing,
+    cost,
+    provider = "seedance25",
+    preprocessReference = false,
+    imageAssetIds = [],
+    firstFrameAssetId = "",
+    lastFrameAssetId = "",
+  } = job;
+  let upstreamInput = initialUpstreamInput;
+  let mediaAssets = initialMediaAssets;
   const direct = normalizeAdvancedProvider(provider) === SEEDANCE25_DIRECT_PROVIDER;
   const providerLabel = direct ? SEEDANCE25_DIRECT_LABEL : "Seedance 2.5";
   const recordSource = direct ? "advanced-seedance-nsfw" : "advanced-seedance25";
@@ -19839,6 +19869,39 @@ async function runSeedance25GenerationJob(job = {}) {
   let upstreamPayload = null;
   try {
     await updateGenerationRecord(taskId, { status: "submitting", awaitingUpstreamTask: true, error: "" }, direct ? "seedance-nsfw-submitting" : "seedance25-submitting");
+    if (preprocessReference) {
+      const db = await readDb();
+      const record = await getGenerationRecord(taskId);
+      const userId = String(record?.userId || "");
+      const imageAssets = seedance25OwnedAssets(db, userId, imageAssetIds, "image");
+      const firstFrameAsset = firstFrameAssetId
+        ? seedance25OwnedAssets(db, userId, [firstFrameAssetId], "image")[0]
+        : null;
+      const lastFrameAsset = lastFrameAssetId
+        ? seedance25OwnedAssets(db, userId, [lastFrameAssetId], "image")[0]
+        : null;
+      const imageFiles = await seedance25PublicAssetUrls(db, imageAssets, { preprocessReference: true });
+      const firstFrameUrl = firstFrameAsset
+        ? (await seedance25PublicAssetUrls(db, [firstFrameAsset], { preprocessReference: true }))[0]
+        : initialUpstreamInput.firstFrameUrl;
+      const lastFrameUrl = lastFrameAsset
+        ? (await seedance25PublicAssetUrls(db, [lastFrameAsset], { preprocessReference: true }))[0]
+        : initialUpstreamInput.lastFrameUrl;
+      upstreamInput = { ...initialUpstreamInput, imageFiles, firstFrameUrl, lastFrameUrl };
+      mediaAssets = [
+        ...imageFiles.map((url, index) => ({ type: "reference_image", key: `image_${index + 1}`, userAssetId: imageAssets[index]?.id || "", imageUrl: url })),
+        ...initialMediaAssets.filter((item) => !["reference_image", "image_url", "end_image_url"].includes(item.type)),
+        ...(firstFrameUrl ? [{ type: "image_url", key: "image_url", userAssetId: firstFrameAsset?.id || "", imageUrl: firstFrameUrl }] : []),
+        ...(lastFrameUrl ? [{ type: "end_image_url", key: "end_image_url", userAssetId: lastFrameAsset?.id || "", imageUrl: lastFrameUrl }] : []),
+      ];
+      const primaryPreparedAsset = firstFrameAsset || imageAssets[0] || null;
+      await updateGenerationRecord(taskId, {
+        mediaAssets,
+        imageUrl: firstFrameUrl || imageFiles[0] || record?.imageUrl || "",
+        syntheticReferenceLocalUrl: primaryPreparedAsset?.syntheticReferenceLocalUrl || "",
+        syntheticReferenceUrl: primaryPreparedAsset?.syntheticReferenceUrl || "",
+      }, direct ? "seedance-nsfw-reference-preprocessed" : "seedance25-reference-preprocessed");
+    }
     let submitted;
     if (direct) {
       const imageAssets = [];
@@ -19983,6 +20046,11 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
   const duration = Number(firstPresent(body.duration, bodyParams.duration, caseParams.duration, 4));
   const seed = direct ? firstPresent(body.seed, bodyParams.seed, caseParams.seed, "") : "";
   const generateAudio = boolFromRequest(firstPresent(body.generateAudio, body.generate_audio, bodyParams.generateAudio, bodyParams.generate_audio), true);
+  const preprocessReference = boolFromRequest(firstPresent(
+    body.preprocessReference,
+    bodyParams.preprocessReference,
+    caseParams.preprocessReference,
+  ), false);
 
   try {
     const imageInputs = seedance25ReferenceInputs(merged, "image");
@@ -19997,9 +20065,13 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
     const createdImageAssets = imageInputs.inlineInputs.length
       ? await createUserImageAssetsFromInputs(auth.db, auth.user, imageInputs.inlineInputs, { name: "Seedance 2.5 reference" })
       : [];
+    const createdUrlImageAssets = preprocessReference && imageInputs.urls.length
+      ? await createUserImageAssetsFromInputs(auth.db, auth.user, imageInputs.urls, { name: "Seedance 2.5 reference" })
+      : [];
     const imageAssets = [
       ...seedance25OwnedAssets(auth.db, auth.user.id, imageInputs.assetIds, "image"),
       ...createdImageAssets,
+      ...createdUrlImageAssets,
     ];
     const videoAssets = seedance25OwnedAssets(auth.db, auth.user.id, videoInputs.assetIds, "video");
     const audioAssets = seedance25OwnedAssets(auth.db, auth.user.id, audioInputs.assetIds, "audio");
@@ -20007,16 +20079,16 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
     const lastFrameInput = !lastFrameAssetId ? seedanceEndFrameInputFromBody(merged) : null;
     const firstFrameAsset = firstFrameAssetId
       ? seedance25OwnedAssets(auth.db, auth.user.id, [firstFrameAssetId], "image")[0]
-      : firstFrameInput?.dataUrl
+      : firstFrameInput && (firstFrameInput.dataUrl || preprocessReference)
       ? await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, firstFrameInput, { name: "Seedance 2.5 first frame" })
       : null;
     const lastFrameAsset = lastFrameAssetId
       ? seedance25OwnedAssets(auth.db, auth.user.id, [lastFrameAssetId], "image")[0]
-      : lastFrameInput?.dataUrl
+      : lastFrameInput && (lastFrameInput.dataUrl || preprocessReference)
       ? await createSingleSeedanceImageAssetFromInput(auth.db, auth.user, lastFrameInput, { name: "Seedance 2.5 last frame" })
       : null;
 
-    const imageUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, imageAssets), ...seedance25PublicInputUrls(imageInputs.urls, "image")])];
+    const imageUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, imageAssets), ...(preprocessReference ? [] : seedance25PublicInputUrls(imageInputs.urls, "image"))])];
     let videoUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, videoAssets), ...seedance25PublicInputUrls(videoInputs.urls, "video")])];
     const audioUrls = [...new Set([...await seedance25PublicAssetUrls(auth.db, audioAssets), ...seedance25PublicInputUrls(audioInputs.urls, "audio")])];
     const firstFrameUrl = firstFrameAsset
@@ -20096,6 +20168,7 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       referenceAudioAssetIds: audioAssets.map((asset) => asset.id),
       firstFrameAssetId: firstFrameAsset?.id || "",
       lastFrameAssetId: lastFrameAsset?.id || "",
+      preprocessReference,
       generateAudio,
       generate_audio: generateAudio,
       createKind: firstPresent(bodyParams.createKind, body.params?.createKind, "custom"),
@@ -20119,6 +20192,7 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
           baseCredits: pricing.baseCredits,
           originalCost: pricing.originalCredits,
           pricingMultiplier: pricing.userPricingMultiplier,
+          preprocessReference,
         },
       });
       if (!dbEnabled()) await writeDb(auth.db);
@@ -20163,7 +20237,18 @@ async function handleAdvancedSeedance25Generate(req, res, context = {}) {
       apiTokenType: auth.tokenRecord?.quotaType || "",
       apiTokenSource: auth.tokenSource || "",
     });
-    startSeedance25GenerationJob({ taskId, upstreamInput, mediaAssets, pricing, cost, provider });
+    startSeedance25GenerationJob({
+      taskId,
+      upstreamInput,
+      mediaAssets,
+      pricing,
+      cost,
+      provider,
+      preprocessReference,
+      imageAssetIds: imageAssets.map((asset) => asset.id),
+      firstFrameAssetId: firstFrameAsset?.id || "",
+      lastFrameAssetId: lastFrameAsset?.id || "",
+    });
     const latestDb = await readDb();
     const latestUser = latestDb.users.find((user) => user.id === auth.user.id) || auth.user;
     return sendJson(res, 200, {
@@ -20273,6 +20358,7 @@ async function runAdvancedGenerationJob(job = {}) {
   let useIgnexSeedance = false;
   let useExternalSeedanceHttp = false;
   let upstreamSource = USE_GATEWAY_UPSTREAM ? "gateway" : "direct";
+  const preprocessSeedanceImages = provider === "seedance" && requestParams.preprocessReference === true;
 
   try {
     await updateGenerationRecord(taskId, {
@@ -20371,7 +20457,17 @@ async function runAdvancedGenerationJob(job = {}) {
 
     if (userAsset) {
       if (provider === "seedance") {
-        if (USE_GATEWAY_UPSTREAM) {
+        if (preprocessSeedanceImages) {
+          const prepared = await prepareSeedanceReferenceAsset(db, userAsset, true);
+          userAsset = prepared.asset;
+          referenceAssetUri = USE_GATEWAY_UPSTREAM || useExternalSeedanceHttp
+            ? (prepared.publicImageUrl || prepared.imageUrl)
+            : prepared.referenceAssetUri;
+          imageUrl = prepared.imageUrl;
+          sourceImageUrl = prepared.sourceImageUrl;
+          syntheticReferenceLocalUrl = userAsset.syntheticReferenceLocalUrl || "";
+          syntheticReferenceUrl = userAsset.syntheticReferenceUrl || "";
+        } else if (USE_GATEWAY_UPSTREAM) {
           imageUrl = userAsset.localUrl || userAsset.publicUrl || "";
           sourceImageUrl = userAsset.sourceImageUrl || userAsset.localUrl || "";
         } else if (useExternalSeedanceHttp) {
@@ -20524,7 +20620,15 @@ async function runAdvancedGenerationJob(job = {}) {
       resolvedReferenceAudioAssetUris = resolvedReferenceAudioAssetUris.slice(0, ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT);
     }
     if (provider === "seedance" && seedanceFirstFrameAsset) {
-      if (USE_GATEWAY_UPSTREAM) {
+      if (preprocessSeedanceImages) {
+        const preparedFrame = await prepareSeedanceReferenceAsset(db, seedanceFirstFrameAsset, true);
+        seedanceFirstFrameAsset = preparedFrame.asset;
+        seedanceImageUrl = USE_GATEWAY_UPSTREAM || useExternalSeedanceHttp
+          ? (preparedFrame.publicImageUrl || preparedFrame.imageUrl)
+          : preparedFrame.referenceAssetUri;
+        imageUrl = imageUrl || preparedFrame.imageUrl;
+        sourceImageUrl = sourceImageUrl || preparedFrame.sourceImageUrl;
+      } else if (USE_GATEWAY_UPSTREAM) {
         imageUrl = imageUrl || seedanceFirstFrameAsset.localUrl || seedanceFirstFrameAsset.publicUrl || "";
         sourceImageUrl = sourceImageUrl || seedanceFirstFrameAsset.sourceImageUrl || seedanceFirstFrameAsset.localUrl || "";
       } else if (useExternalSeedanceHttp) {
@@ -20540,7 +20644,13 @@ async function runAdvancedGenerationJob(job = {}) {
       }
     }
     if (provider === "seedance" && seedanceEndFrameAsset) {
-      if (useExternalSeedanceHttp) {
+      if (preprocessSeedanceImages) {
+        const preparedEndFrame = await prepareSeedanceReferenceAsset(db, seedanceEndFrameAsset, true);
+        seedanceEndFrameAsset = preparedEndFrame.asset;
+        seedanceEndImageUrl = USE_GATEWAY_UPSTREAM || useExternalSeedanceHttp
+          ? (preparedEndFrame.publicImageUrl || preparedEndFrame.imageUrl)
+          : preparedEndFrame.referenceAssetUri;
+      } else if (useExternalSeedanceHttp) {
         seedanceEndImageUrl = publicHttpUrlForUserAsset(seedanceEndFrameAsset);
       } else if (!USE_GATEWAY_UPSTREAM) {
         const preparedEndFrame = await prepareSeedanceReferenceAsset(db, seedanceEndFrameAsset, false);
@@ -20631,6 +20741,25 @@ async function runAdvancedGenerationJob(job = {}) {
       }] : [];
       const extraMediaAssets = [];
       for (let index = 0; index < extraUserAssets.length; index += 1) {
+        if (preprocessSeedanceImages) {
+          const prepared = await prepareSeedanceReferenceAsset(db, extraUserAssets[index], true);
+          const referenceUri = USE_GATEWAY_UPSTREAM || useExternalSeedanceHttp
+            ? (prepared.publicImageUrl || prepared.imageUrl)
+            : prepared.referenceAssetUri;
+          if (!referenceUri || referenceUri === referenceAssetUri || extraReferenceAssetUris.includes(referenceUri)) continue;
+          extraReferenceAssetUris.push(referenceUri);
+          extraMediaAssets.push({
+            type: "reference_image",
+            key: `extra_${index + 1}`,
+            userAssetId: prepared.asset?.id || extraUserAssets[index]?.id || "",
+            referenceAssetUri: referenceUri,
+            imageUrl: prepared.imageUrl,
+            sourceImageUrl: prepared.sourceImageUrl,
+            localUrl: prepared.asset?.syntheticReferenceLocalUrl || prepared.asset?.localUrl || "",
+            mime: prepared.asset?.mime || "",
+          });
+          continue;
+        }
         if (USE_GATEWAY_UPSTREAM || useExternalSeedanceHttp) {
           const asset = extraUserAssets[index];
           const referenceUrl = useExternalSeedanceHttp ? publicHttpUrlForUserAsset(asset) : "";
@@ -20789,10 +20918,14 @@ async function runAdvancedGenerationJob(job = {}) {
         const referenceAudios = [];
         for (const item of seedanceMediaAssets) {
           let asset = item.userAssetId ? assetMap.get(item.userAssetId) : null;
-          if (asset) asset = await ensureSeedanceGatewayPublicAsset(dbForGateway, asset);
-          let mediaUrl = asset
-            ? publicHttpUrlForUserAsset(asset)
-            : String(firstPresent(item.referenceAssetUri, item.imageUrl, item.videoUrl, item.audioUrl, "") || "").trim();
+          const preprocessedImage = requestParams.preprocessReference === true
+            && ["reference_image", "image_url", "end_image_url"].includes(item.type);
+          if (asset && !preprocessedImage) asset = await ensureSeedanceGatewayPublicAsset(dbForGateway, asset);
+          let mediaUrl = preprocessedImage
+            ? String(firstPresent(item.referenceAssetUri, item.imageUrl, "") || "").trim()
+            : asset
+              ? publicHttpUrlForUserAsset(asset)
+              : String(firstPresent(item.referenceAssetUri, item.imageUrl, item.videoUrl, item.audioUrl, "") || "").trim();
           if (mediaUrl.startsWith("/")) mediaUrl = await publishLocalAssetUrlToObjectStorage(mediaUrl);
           else if (mediaUrl && !mediaUrl.startsWith("asset://")) mediaUrl = gatewayAbsoluteAssetUrl(mediaUrl);
           if (!mediaUrl) continue;
@@ -22972,7 +23105,11 @@ async function handleAdvancedGenerate(req, res) {
   };
   requestParams.ratio = normalizeVideoRatio(requestParams.ratio);
   requestParams.resolution = isAliyunVideoProvider(provider) ? normalizeWan27Resolution(requestParams.resolution) : normalizeAdvancedResolution(requestParams.resolution);
-  requestParams.preprocessReference = false;
+  requestParams.preprocessReference = provider === "seedance" && boolFromRequest(firstPresent(
+    body.preprocessReference,
+    bodyParams.preprocessReference,
+    caseParams.preprocessReference,
+  ), false);
   requestParams.seed = firstPresent(body.seed, bodyParams.seed, mergedProviderParameters.seed, caseParams.seed, "");
   const normalizedSeedanceModel = provider === "seedance"
     ? seedanceConfiguredModelForRequest(requestedModel, requestParams.seedanceTier)
@@ -23056,7 +23193,7 @@ async function handleAdvancedGenerate(req, res) {
   let seedanceMode = "";
   let seedanceFirstFrameAsset = null;
   let seedanceEndFrameAsset = null;
-  const preservePublicMediaUrls = boolFromRequest(firstPresent(
+  const preservePublicMediaUrls = requestParams.preprocessReference !== true && boolFromRequest(firstPresent(
     body.preservePublicMediaUrls,
     bodyParams.preservePublicMediaUrls,
   ), false);
