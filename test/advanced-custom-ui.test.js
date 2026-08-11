@@ -152,6 +152,11 @@ test("Seedance image preprocessing is shared by the model family and remains opt
   assert.match(server, /seedance25PublicAssetUrls\(db, imageAssets, \{ preprocessReference: true \}\)/);
   assert.match(server, /preprocessReference: provider === "seedance" \? requestParams\.preprocessReference : undefined/);
   assert.match(server, /provider: "seedance25",[\s\S]*?preprocessReference,[\s\S]*?functionMode: upstreamInput\.mode/);
+  assert.match(server, /function makeSeedancePreprocessedReferencePrompt\(item = \{\}\)/);
+  assert.match(server, /A male person must remain male, a female person must remain female/);
+  assert.match(server, /a scene with no people must remain a scene with no people/);
+  assert.match(server, /const preprocessVersion = "preserve-source-v2"/);
+  assert.match(server, /preserveSourceComposition: true/);
 });
 
 test("Safari duration pickers refresh pricing and deployments invalidate split frontend chunks", () => {
