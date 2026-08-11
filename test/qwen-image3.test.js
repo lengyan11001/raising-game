@@ -57,6 +57,15 @@ test("validates reference, output, seed, and size limits", () => {
   assert.throws(() => qwenImage3Size({ size: "100*100" }), /pixel area/);
 });
 
+test("duplicate Qwen references do not consume the reference limit twice", () => {
+  const payload = buildQwenImage3Request({
+    prompt: "x",
+    referenceImages: ["https://example.com/1.png", "https://example.com/2.png", "https://example.com/3.png", "https://example.com/1.png"],
+  });
+  const images = payload.input.messages[0].content.filter((item) => item.image).map((item) => item.image);
+  assert.deepEqual(images, ["https://example.com/1.png", "https://example.com/2.png", "https://example.com/3.png"]);
+});
+
 test("calculates official Pro and Standard image charges", () => {
   const pro = qwenImage3OfficialPricing({ tier: "pro", resolution: "2K", referenceImageCount: 3, outputImageCount: 2 });
   assert.equal(pro.inputUsd, 0.00825);

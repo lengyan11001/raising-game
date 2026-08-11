@@ -116,10 +116,11 @@ function normalizeReferenceImages(values = []) {
       return String(item.url || item.imageUrl || item.image_url || item.dataUrl || item.assetUri || "").trim();
     })
     .filter(Boolean);
-  if (images.length > QWEN_IMAGE3_REFERENCE_LIMIT) {
+  const uniqueImages = [...new Set(images)];
+  if (uniqueImages.length > QWEN_IMAGE3_REFERENCE_LIMIT) {
     throw qwenImage3Error("QWEN_IMAGE3_TOO_MANY_REFERENCES", `Qwen Image 3.0 supports at most ${QWEN_IMAGE3_REFERENCE_LIMIT} reference images.`);
   }
-  return [...new Set(images)];
+  return uniqueImages;
 }
 
 function normalizeOutputCount(value = 1) {

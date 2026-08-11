@@ -158,6 +158,18 @@ test("Seedance API references are deduplicated before the nine-image limit and u
   assert.match(server, /else delete requestParams\.referenceImageAssetUris/);
 });
 
+test("all multimodal adapters deduplicate compatibility aliases before counting and sending", () => {
+  assert.match(server, /function seedanceReferenceAudioInputsFromBody[\s\S]*?const seen = new Set\(\)/);
+  assert.match(server, /function seedance25ReferenceInputs[\s\S]*?const seenItems = new Set\(\)/);
+  assert.match(server, /const imageUrls = \[\.\.\.new Set\(\[\.\.\.await seedance25PublicAssetUrls/);
+  assert.match(server, /function aliyunMediaInputs[\s\S]*?const seen = new Set\(\)/);
+  assert.match(server, /function uniqueResolvedAliyunMedia/);
+  assert.match(server, /const media = uniqueResolvedAliyunMedia\(resolvedMedia\)/);
+  assert.match(server, /const inputs = uniqueSeedanceReferenceImageInputs\(\[[\s\S]*?assetIds\.map/);
+  assert.match(server, /function imageEditAssetIdsFromBody[\s\S]*?return \[\.\.\.new Set/);
+  assert.match(server, /const publicImageUrls = \[\.\.\.new Set\(\[/);
+});
+
 test("Seedance 2.5 and Seedream use the gateway without copying new2 media into the old bucket", () => {
   assert.match(server, /if \(!direct && !USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY\)/);
   assert.match(server, /if \(direct && !ARK_API_KEY\)/);
