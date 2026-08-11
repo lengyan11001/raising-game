@@ -19869,7 +19869,7 @@ async function runSeedance25GenerationJob(job = {}) {
   let upstreamPayload = null;
   try {
     await updateGenerationRecord(taskId, { status: "submitting", awaitingUpstreamTask: true, error: "" }, direct ? "seedance-nsfw-submitting" : "seedance25-submitting");
-    if (preprocessReference) {
+    if (preprocessReference && (direct || !USE_GATEWAY_UPSTREAM)) {
       const db = await readDb();
       const record = await getGenerationRecord(taskId);
       const userId = String(record?.userId || "");
@@ -19936,6 +19936,7 @@ async function runSeedance25GenerationJob(job = {}) {
       const gatewayBody = USE_GATEWAY_UPSTREAM ? {
       provider: "seedance25",
       prompt: upstreamInput.prompt,
+      preprocessReference,
       functionMode: upstreamInput.mode,
       seedanceMode: upstreamInput.mode,
       resolution: upstreamInput.resolution,
@@ -20358,7 +20359,9 @@ async function runAdvancedGenerationJob(job = {}) {
   let useIgnexSeedance = false;
   let useExternalSeedanceHttp = false;
   let upstreamSource = USE_GATEWAY_UPSTREAM ? "gateway" : "direct";
-  const preprocessSeedanceImages = provider === "seedance" && requestParams.preprocessReference === true;
+  const preprocessSeedanceImages = provider === "seedance"
+    && requestParams.preprocessReference === true
+    && !USE_GATEWAY_UPSTREAM;
 
   try {
     await updateGenerationRecord(taskId, {
@@ -20841,6 +20844,7 @@ async function runAdvancedGenerationJob(job = {}) {
         resolution: requestParams.resolution,
         duration: requestParams.duration,
         generateAudio: requestParams.generateAudio,
+        preprocessReference: provider === "seedance" ? requestParams.preprocessReference : undefined,
         parameters: Object.keys(plainObject(requestParams.parameters)).length ? requestParams.parameters : undefined,
         input: Object.keys(plainObject(requestParams.input)).length ? requestParams.input : undefined,
         mediaMode: isAliyunVideoProvider(provider) ? resolvedWan27MediaMode : (seedanceMode || undefined),
@@ -20918,7 +20922,7 @@ async function runAdvancedGenerationJob(job = {}) {
         const referenceAudios = [];
         for (const item of seedanceMediaAssets) {
           let asset = item.userAssetId ? assetMap.get(item.userAssetId) : null;
-          const preprocessedImage = requestParams.preprocessReference === true
+          const preprocessedImage = preprocessSeedanceImages
             && ["reference_image", "image_url", "end_image_url"].includes(item.type);
           if (asset && !preprocessedImage) asset = await ensureSeedanceGatewayPublicAsset(dbForGateway, asset);
           let mediaUrl = preprocessedImage

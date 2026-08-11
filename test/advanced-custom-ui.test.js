@@ -150,6 +150,8 @@ test("Seedance image preprocessing is shared by the model family and remains opt
   assert.match(server, /const preprocessReference = boolFromRequest\(firstPresent\([\s\S]*body\.preprocessReference/);
   assert.match(server, /prepareSeedanceReferenceAsset\(db, userAsset, true\)/);
   assert.match(server, /seedance25PublicAssetUrls\(db, imageAssets, \{ preprocessReference: true \}\)/);
+  assert.match(server, /preprocessReference: provider === "seedance" \? requestParams\.preprocessReference : undefined/);
+  assert.match(server, /provider: "seedance25",[\s\S]*?preprocessReference,[\s\S]*?functionMode: upstreamInput\.mode/);
 });
 
 test("Safari duration pickers refresh pricing and deployments invalidate split frontend chunks", () => {
