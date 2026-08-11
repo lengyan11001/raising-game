@@ -604,13 +604,41 @@ els.spendingFilters?.addEventListener("submit", (event) => {
 });
 els.exportTopupsBtn?.addEventListener("click", () => exportLedger("topups"));
 els.exportSpendingBtn?.addEventListener("click", () => exportLedger("spending"));
+async function copyReferralText(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Safari can reject Clipboard API writes even after a direct button click.
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.readOnly = true;
+  textarea.style.position = "fixed";
+  textarea.style.inset = "0 auto auto -9999px";
+  textarea.style.fontSize = "16px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  return copied;
+}
+
 els.copyReferralBtn?.addEventListener("click", async () => {
   if (!state.user) return openLogin();
-  if (!state.referral?.inviteUrl) await loadReferralSummary();
+  if (!state.referral?.inviteUrl) await loadReferralSummary({ force: true });
   const inviteUrl = state.referral?.inviteUrl || "";
-  if (!inviteUrl) return;
-  await navigator.clipboard.writeText(inviteUrl);
-  if (els.referralNote) els.referralNote.textContent = t("referral.linkCopied");
+  if (!inviteUrl) {
+    if (els.referralNote) els.referralNote.textContent = t("referral.copyFailed");
+    return;
+  }
+  const copied = await copyReferralText(inviteUrl);
+  if (els.referralNote) els.referralNote.textContent = copied ? t("referral.linkCopied") : t("referral.copyFailed");
 });
 document.querySelectorAll("[data-legal-doc]").forEach((button) => {
   button.addEventListener("click", () => openLegalDialog(button.dataset.legalDoc || "privacy"));

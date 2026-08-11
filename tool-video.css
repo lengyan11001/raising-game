@@ -18,7 +18,7 @@ body.tenant-tool-video .aurora {
   display: none;
 }
 
-body.tenant-tool-video .top-tab[data-tab]:not([data-tab="history"]),
+body.tenant-tool-video .top-tab[data-tab]:not([data-tab="history"]):not([data-tab="referral"]),
 body.tenant-tool-video .top-tab[data-gallery-shortcut]:not([data-gallery-shortcut="playflux-video"]) {
   display: none !important;
 }

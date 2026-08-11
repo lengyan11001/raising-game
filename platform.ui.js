@@ -595,7 +595,10 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   if (state.tab === "assets") loadUserAssets();
   if (state.tab === "advanced") loadAdvancedAssets();
   if (state.tab === "access") loadApiSubtokens({ force: true });
-  if (state.tab === "referral" && !state.user) renderReferral();
+  if (state.tab === "referral") {
+    if (state.user && !skipReferralRefresh) loadReferralSummary({ force: true });
+    else renderReferral();
+  }
   if (state.tab === "characters") {
     renderCharactersPanel();
     if (state.user) loadMyCharacters({ silent: true }).catch(() => {});
@@ -1025,7 +1028,8 @@ function renderAccountMenu() {
   if (els.mobileDrawerUser) els.mobileDrawerUser.hidden = !loggedIn;
   if (els.mobileDrawerLoginBtn) els.mobileDrawerLoginBtn.hidden = loggedIn;
   document.querySelectorAll(".account-menu [data-tab]").forEach((button) => {
-    button.hidden = !isTabAllowed(button.dataset.tab || "") || (!loggedIn && button.dataset.tab !== "pricing");
+    const publicTab = ["pricing", "referral"].includes(button.dataset.tab || "");
+    button.hidden = !isTabAllowed(button.dataset.tab || "") || (!loggedIn && !publicTab);
   });
   if (els.menuLoginBtn) els.menuLoginBtn.hidden = loggedIn;
   if (els.menuCopyTokenBtn) els.menuCopyTokenBtn.disabled = !state.token || !state.user?.apiToken;
