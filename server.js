@@ -20972,7 +20972,10 @@ function pushByteplusV3AssetReference(auth, target, role, url, param, item = {})
   if (requestedAssetId && !localAsset) {
     throw byteplusHttpError(404, `The specified asset ${requestedAssetId} is not found.`, param, "ResourceNotFound");
   }
-  if (localAsset) {
+  const passthroughAssetUri = localAsset?.byteplusUpstreamAsset
+    ? String(localAsset.assetUri || localAsset.seedanceVideoAssetUri || localAsset.seedanceAudioAssetUri || value).trim()
+    : "";
+  if (localAsset && !passthroughAssetUri) {
     if (role === "first_frame") {
       target.firstFrameAssetId = localAssetId;
       return;
@@ -20993,23 +20996,29 @@ function pushByteplusV3AssetReference(auth, target, role, url, param, item = {})
     return;
   }
 
+  const directValue = passthroughAssetUri || value;
+
   if (role === "first_frame") {
-    target.image_url = value;
+    target.image_url = directValue;
     return;
   }
   if (role === "last_frame") {
-    target.end_image_url = value;
+    target.end_image_url = directValue;
     return;
   }
   if (role === "reference_video") {
-    target.referenceVideoUrls.push(value);
+    target.referenceVideoUrls.push(directValue);
     return;
   }
   if (role === "reference_audio") {
-    target.referenceAudioUrls.push(value);
+    target.referenceAudioUrls.push(directValue);
     return;
   }
-  target.referenceImages.push({ url: value, fileName: item.fileName || item.name || "" });
+  if (directValue.startsWith("asset://")) {
+    target.referenceImageAssetUris.push(directValue);
+    return;
+  }
+  target.referenceImages.push({ url: directValue, fileName: item.fileName || item.name || "" });
 }
 
 function byteplusSeedanceTierFromModel(model = "") {
@@ -21029,6 +21038,7 @@ function byteplusV3TaskToAdvancedBody(body = {}, auth = {}) {
   const promptParts = [];
   const target = {
     referenceImages: [],
+    referenceImageAssetUris: [],
     referenceVideoUrls: [],
     referenceVideoAssetIds: [],
     referenceAudioUrls: [],
@@ -21153,6 +21163,7 @@ function byteplusV3TaskToAdvancedBody(body = {}, auth = {}) {
   if (target.firstFrameAssetId) advancedBody.firstFrameAssetId = target.firstFrameAssetId;
   if (target.endImageAssetId) advancedBody.endImageAssetId = target.endImageAssetId;
   if (target.referenceImages.length) advancedBody.referenceImages = target.referenceImages;
+  if (target.referenceImageAssetUris.length) advancedBody.referenceImageAssetUris = target.referenceImageAssetUris;
   if (target.referenceVideoUrls.length) advancedBody.referenceVideoUrls = target.referenceVideoUrls;
   if (target.referenceVideoAssetIds.length) advancedBody.referenceVideoAssetIds = target.referenceVideoAssetIds;
   if (target.referenceAudioUrls.length) advancedBody.referenceAudioUrls = target.referenceAudioUrls;
@@ -21439,6 +21450,91 @@ function byteplusAssetTypeFromMime(mime = "") {
   return "Image";
 }
 
+function byteplusAssetTypeFromUrl(url = "", explicitType = "") {
+  const requested = String(explicitType || "").trim();
+  if (requested) return requested;
+  let pathname = "";
+  try {
+    pathname = new URL(String(url || "")).pathname;
+  } catch {}
+  if (videoMimeFromKnownPath(pathname)) return "Video";
+  if (audioMimeFromKnownPath(pathname)) return "Audio";
+  return "Image";
+}
+
+function byteplusMimeForUpstreamAsset(assetType = "Image", sourceUrl = "") {
+  let pathname = "";
+  try {
+    pathname = new URL(String(sourceUrl || "")).pathname;
+  } catch {}
+  if (assetType === "Video") return videoMimeFromKnownPath(pathname) || "video/mp4";
+  if (assetType === "Audio") return audioMimeFromKnownPath(pathname) || "audio/mpeg";
+  return imageMimeFromKnownPath(pathname) || "image/jpeg";
+}
+
+async function createByteplusUpstreamAsset(payload = {}) {
+  if (USE_GATEWAY_UPSTREAM) {
+    const response = await gatewayRequest("POST", "/?Action=CreateAsset&Version=2024-01-01", payload);
+    return response?.Result || response;
+  }
+  return arkOpenApiAction("CreateAsset", payload);
+}
+
+async function registerByteplusUpstreamAsset(auth, {
+  assetId = "",
+  assetType = "Image",
+  sourceUrl = "",
+  name = "",
+  groupId = "",
+  moderation = null,
+  projectName = "default",
+} = {}) {
+  const id = String(assetId || "").trim();
+  const now = new Date().toISOString();
+  const existing = (auth.db.userAssets || []).find((asset) => asset.id === id) || null;
+  if (existing && existing.userId !== auth.user.id) {
+    throw byteplusHttpError(409, "The upstream asset id is already registered.", "Id", "Conflict.asset_id");
+  }
+  const assetUri = `asset://${id}`;
+  const asset = {
+    ...(existing || {}),
+    id,
+    userId: auth.user.id,
+    username: auth.user.username || "",
+    name: String(name || path.basename(new URL(sourceUrl).pathname) || id).slice(0, 64),
+    mime: byteplusMimeForUpstreamAsset(assetType, sourceUrl),
+    localUrl: "",
+    publicUrl: sourceUrl,
+    sourceUrl,
+    originalUrl: sourceUrl,
+    assetUri,
+    assetId: id,
+    seedanceVideoAssetId: assetType === "Video" ? id : "",
+    seedanceVideoAssetUri: assetType === "Video" ? assetUri : "",
+    seedanceAudioAssetId: assetType === "Audio" ? id : "",
+    seedanceAudioAssetUri: assetType === "Audio" ? assetUri : "",
+    byteplusUpstreamAsset: true,
+    byteplusGroupId: groupId,
+    upstreamCreatedAt: now,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+    deletedAt: "",
+    meta: {
+      ...(existing?.meta && typeof existing.meta === "object" ? existing.meta : {}),
+      byteplusUpstreamAsset: true,
+      byteplusGroupId: groupId,
+      Moderation: moderation || { Strategy: "Skip" },
+      ProjectName: projectName,
+    },
+  };
+  auth.db.userAssets = existing
+    ? auth.db.userAssets.map((entry) => (entry.id === id ? asset : entry))
+    : [asset, ...(auth.db.userAssets || [])];
+  if (dbEnabled()) await upsertUserAssetInDb(asset);
+  else await writeDb(auth.db);
+  return asset;
+}
+
 function byteplusAssetGroupId(asset = {}) {
   return String(asset.byteplusGroupId || asset.groupId || asset.meta?.byteplusGroupId || asset.meta?.GroupId || "").trim();
 }
@@ -21552,34 +21648,35 @@ async function handleByteplusAssetAction(req, res, url) {
     if (actionKey === "createasset") {
       const sourceUrl = String(body.URL || body.Url || body.url || "").trim();
       if (!sourceUrl) throw byteplusHttpError(400, "URL is required.", "URL");
-      const assetType = String(body.AssetType || body.assetType || "").trim();
+      if (!isPublicHttpUrl(sourceUrl)) throw byteplusHttpError(400, "URL must be a public http(s) URL.", "URL");
+      const assetType = byteplusAssetTypeFromUrl(sourceUrl, body.AssetType || body.assetType);
       if (assetType && !["Image", "Video", "Audio"].includes(assetType)) {
         throw byteplusHttpError(400, "AssetType must be Image, Video, or Audio.", "AssetType");
       }
       const groupId = String(body.GroupId || body.groupId || "").trim();
-      const asset = await createUserMediaAssetFromPublicUrl(auth.db, auth.user, {
-        url: sourceUrl,
-        name: body.Name || body.name || path.basename(new URL(sourceUrl).pathname) || "reference asset",
-        fileName: body.Name || body.name || path.basename(new URL(sourceUrl).pathname) || "",
-        durationSeconds: firstPresent(body.DurationSeconds, body.durationSeconds, body.Duration, body.duration),
-        meta: {
-          byteplusGroupId: groupId,
-          Moderation: body.Moderation || body.moderation || { Strategy: "Default" },
-          ProjectName: body.ProjectName || body.projectName || "default",
-        },
+      const moderation = body.Moderation || body.moderation || { Strategy: "Skip" };
+      const projectName = String(body.ProjectName || body.projectName || ARK_OPENAPI.projectName || "default");
+      const assetName = String(body.Name || body.name || path.basename(new URL(sourceUrl).pathname) || "reference asset");
+      const created = await createByteplusUpstreamAsset({
+        GroupId: USE_GATEWAY_UPSTREAM ? "" : ARK_OPENAPI.groupId,
+        URL: sourceUrl,
+        AssetType: assetType,
+        Moderation: moderation,
+        Name: assetName,
+        ProjectName: USE_GATEWAY_UPSTREAM ? "" : ARK_OPENAPI.projectName,
       });
-      asset.byteplusGroupId = groupId;
-      asset.meta = {
-        ...(asset.meta && typeof asset.meta === "object" ? asset.meta : {}),
-        byteplusGroupId: groupId,
-        Moderation: body.Moderation || body.moderation || asset.meta?.Moderation || { Strategy: "Default" },
-        ProjectName: body.ProjectName || body.projectName || asset.meta?.ProjectName || "default",
-      };
-      asset.updatedAt = nowIso;
-      auth.db.userAssets = (auth.db.userAssets || []).map((entry) => (entry.id === asset.id ? asset : entry));
-      if (dbEnabled()) await upsertUserAssetInDb(asset);
-      else await writeDb(auth.db);
-      return sendJson(res, 200, byteplusActionEnvelope("CreateAsset", { Id: asset.id }));
+      const assetId = extractAssetId(created);
+      if (!assetId) throw byteplusHttpError(502, "Upstream CreateAsset did not return an asset id.", "Result.Id", "Upstream.InvalidResponse");
+      await registerByteplusUpstreamAsset(auth, {
+        assetId,
+        assetType,
+        sourceUrl,
+        name: assetName,
+        groupId,
+        moderation,
+        projectName,
+      });
+      return sendJson(res, 200, byteplusActionEnvelope("CreateAsset", { Id: assetId }));
     }
     if (actionKey === "getasset") {
       const id = String(body.Id || body.id || "").trim();
