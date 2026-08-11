@@ -70,6 +70,7 @@ SHARED_APP_FILES = (
     "test/aliyun-video.test.js",
     "test/media-inputs.test.js",
     "test/qwen-image3.test.js",
+    "test/referral-tools.test.js",
     "test/mobile-tool-ux.test.js",
     "test/seedance25.test.js",
     "test/seedance25-direct.test.js",
