@@ -118,6 +118,13 @@ test("the create dialog has three explicit generation types with matching upload
   assert.match(css, /\.undress-tool-type-switch[\s\S]*?grid-template-columns: repeat\(3/);
 });
 
+test("Undress home uses the localized fantasy headline and adult creation description", () => {
+  assert.match(frontend, /title: "\\u4f60\\u7684\\u5e7b\\u60f3\\uff0c\\u4f60\\u505a\\u4e3b\\u3002"/);
+  assert.match(frontend, /subtitle: "\\u521b\\u5efa\\u81ea\\u5b9a\\u4e49\\u7684\\u6210\\u4eba\\u5185\\u5bb9\\u56fe\\u7247/);
+  assert.match(frontend, /class="undress-tool-copy"[\s\S]*?undressToolText\("title"\)[\s\S]*?undressToolText\("subtitle"\)/);
+  assert.match(css, /\.undress-tool-copy p[\s\S]*?color: var\(--undress-muted\)/);
+});
+
 test("all three generation tabs show compact server-backed before and after examples", () => {
   assert.match(frontend, /UNDRESS_TOOL_EXAMPLE_MEDIA/);
   assert.match(frontend, /\/api\/undress-tool\/examples\/image\/input/);
@@ -210,7 +217,7 @@ test("Undress results expose a download action only after the result is unlocked
   assert.match(ui, /if \(legacyHref\) \{[\s\S]*?await saveDownloadFromFetch\(legacyHref, fileName\)[\s\S]*?return;/);
   assert.doesNotMatch(ui, /directSignedDownload/);
   assert.match(history, /data-history-download[\s\S]*?button\.disabled = true[\s\S]*?await downloadGenerationRecord\(record\)[\s\S]*?button\.disabled = false/);
-  assert.match(html, /platform\.js\?v=ai-361-undress-layout/);
+  assert.match(html, /platform\.js\?v=ai-\d+-[a-z0-9-]+/);
 });
 
 test("insufficient unlock balance opens a top-up dialog", () => {

@@ -26,6 +26,7 @@ test("Advanced engine list contains English model families, not task modes", () 
   assert.match(engine, /value="wan-animate">Wan Animate/);
   assert.match(engine, /value="happyhorse">HappyHorse/);
   assert.match(engine, /value="seedance">Seedance 2\.0/);
+  assert.match(engine, /value="seedance-nsfw">Seedance2\.5 \(NSFW\)/);
   assert.doesNotMatch(engine, /value="(?:wan27|happyhorse)-(?:t2v|i2v|r2v|video-edit)"/);
 });
 
@@ -33,6 +34,9 @@ test("Seedance keeps only the two product modes", () => {
   const mode = elementMarkup("advancedSeedanceMediaMode");
   const values = [...mode.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(values, ["reference_video", "first_last_frame"]);
+  assert.match(ui, /seedance25: Object\.freeze\(\[[\s\S]*?value: "omini"[\s\S]*?value: "first_last_frame"/);
+  assert.doesNotMatch(ui.match(/seedance25: Object\.freeze\(\[([\s\S]*?)\]\)/)?.[1] || "", /value: "(?:edit|extend)"/);
+  assert.match(server, /SEEDANCE25_DIRECT_RATIOS,[\s\S]*SEEDANCE25_DIRECT_RESOLUTIONS,[\s\S]*require\("\.\/seedance25-direct"\)/);
 });
 
 test("Wan and HappyHorse task modes live in the parameter capability map", () => {
@@ -46,7 +50,7 @@ test("Wan and HappyHorse task modes live in the parameter capability map", () =>
 test("only explicit frame modes use dedicated upload controls", () => {
   assert.match(html, /id="advancedWanFirstFrame" type="file" accept="image\/\*"/);
   assert.match(main, /advancedWanFirstFrame\?\.addEventListener\("change"/);
-  assert.match(create, /usesDedicatedFrameUpload = \["seedance", "seedance25", "wan30"\]\.includes\(provider\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.match(create, /usesDedicatedFrameUpload = \["seedance", "seedance25", "seedance-nsfw", "wan30"\]\.includes\(provider\) && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
   assert.doesNotMatch(create, /usesDedicatedAliyunUpload/);
 });
 
@@ -69,9 +73,10 @@ test("Wan, HappyHorse, and Animate modes use the shared multimodal uploader", ()
 
 test("Wan3.0 exposes free multimodal and frame controls without link fields", () => {
   assert.match(create, /provider === "wan30"\s*\? \["480p", "720p", "1080p"\]/);
-  assert.match(create, /provider === "wan30" \|\| provider === "seedance25"\s*\? \["adaptive", "16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
-  assert.match(create, /els\.advancedRatio\.value \|\| \(\["wan30", "seedance25"\]\.includes\(provider\) \? "adaptive" : "9:16"\)/);
-  assert.match(create, /\["wan30", "seedance25"\]\.includes\(provider\) && rawRatio === "adaptive" \? "adaptive"/);
+  assert.match(create, /provider === "seedance25"\s*\? \["16:9", "21:9", "9:16", "4:3", "3:4", "1:1"\]/);
+  assert.match(create, /const fallbackRatio = provider === "seedance25" \? "16:9"/);
+  assert.match(create, /\["wan30", "seedance-nsfw"\]\.includes\(provider\) && rawRatio === "adaptive" \? "adaptive"/);
+  assert.match(create, /provider === "seedance25" && normalizeAdvancedResolution[\s\S]*?=== "720p"\s*\? 29/);
   assert.match(create, /\? \[-1, \.\.\.Array\.from\(\{ length: 29 \}/);
   assert.match(create, /ADVANCED_WAN30_VIDEO_REFERENCE_LIMIT/);
   assert.doesNotMatch(html, /id="advancedWan30(?:Image|Video|Audio)Url"/);
@@ -86,6 +91,17 @@ test("Advanced image files enter the asset library before generation", () => {
   assert.match(main, /state\.advancedSeedanceLastFrameAssetId = ref\.assetId/);
   assert.match(ui, /assetId: item\.assetId \|\| "",[\s\S]*?dataUrl: url/);
   assert.match(ui, /id: "local-upload-character",[\s\S]*?assetId: ref\.assetId \|\| ""/);
+});
+
+test("prompt image paste and @ mentions follow the shared upload control for every model", () => {
+  assert.match(create, /function advancedPromptPasteImageRule\(\)/);
+  assert.match(create, /const imageTargets = advancedAssetTargetItems\(\)\.filter\(\(target\) => target\.type === "image"\)/);
+  assert.match(create, /else if \(\["wan27", "happyhorse"\]\.includes\(provider\)\) limit = advancedAliyunReferenceImageLimit\(capability\)/);
+  assert.match(create, /else if \(advancedUsesSharedReferenceUpload\(provider, capability\)\) limit = ADVANCED_SEEDANCE_REFERENCE_LIMIT/);
+  assert.match(create, /sharedFrameProvider && seedanceModeNeedsFirstFrame\(seedanceMode\)/);
+  assert.match(create, /rule\.target === "frames"/);
+  assert.match(create, /syncAdvancedPromptMentionLabels\(previousPromptRefs\)/);
+  assert.doesNotMatch(create, /if \(!\["seedance", "seedance25", "seedance-nsfw", "seedream5-image", "qwen-image3"\]\.includes\(currentAdvancedProvider\(\)\)\) return false/);
 });
 
 test("Wan2.7 video edit follows source duration instead of exposing a manual duration", () => {
@@ -107,11 +123,30 @@ test("video prompts are forwarded without a system negative prompt", () => {
 
 test("Seedance 2.5 server pricing migrates old rounded defaults and preserves six decimals", () => {
   assert.match(server, /const normalizeStoredCredits = \(value, fallback, digits = 4\)/);
-  assert.match(server, /const normalizeSeedance25Credits = \(value, fallback\)/);
-  assert.match(server, /numeric === legacyRoundedDefault \? fallback : value/);
+  assert.match(server, /const normalizeSeedance25Credits = \(value, fallback, resolution\)/);
+  assert.match(server, /const previousPointsPerSecond = resolution === "720p" \? 260 : 130/);
+  assert.match(server, /const previousIntegerDefault = Math\.round\(previousDefault\)/);
+  assert.match(server, /const previousLegacyUiDefault = resolution === "720p" \? 40 : 20/);
+  assert.match(server, /\[previousDefault, previousRoundedDefault, previousIntegerDefault, previousLegacyUiDefault\]\.some/);
+  assert.match(server, /const SEEDANCE25_MODEL_ID = SEEDANCE25_MODEL/);
   assert.match(server, /"480p": normalizeSeedance25Credits\(seedance25\["480p"\]/);
   assert.match(server, /"720p": normalizeSeedance25Credits\(seedance25\["720p"\]/);
-  assert.match(server, /key\.startsWith\("seedance25-"\) \? 6 : 4/);
+  assert.match(server, /key\.startsWith\("seedance25-"\) \|\| key\.startsWith\("seedance-nsfw-"\) \? 6 : 4/);
+});
+
+test("direct Seedance 2.5 waits until every uploaded Ark asset is available", () => {
+  assert.match(server, /function arkAssetStillProcessing\(error\)/);
+  assert.match(server, /asset is still processing\|not available yet/i);
+  assert.match(server, /async function submitArkTaskAfterAssetsReady\(payload, \{ attempts = 12, waitMs = 10000 \} = \{\}\)/);
+  assert.match(server, /submitted = await submitArkTaskAfterAssetsReady\(upstreamPayload\)/);
+});
+
+test("Safari duration pickers refresh pricing and deployments invalidate split frontend chunks", () => {
+  assert.match(main, /advancedDuration\?\.addEventListener\("input", handleAdvancedDurationSelection\)/);
+  assert.match(main, /advancedDuration\?\.addEventListener\("change", handleAdvancedDurationSelection\)/);
+  assert.match(server, /const PLATFORM_ASSET_FILES = Object\.freeze/);
+  assert.match(server, /function applyPlatformAssetVersion/);
+  assert.match(server, /applyPlatformAssetVersion\(html, await currentPlatformAssetVersion\(\)\)/);
 });
 
 test("shared video uploads use capability-specific duration limits", () => {

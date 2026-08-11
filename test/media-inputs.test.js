@@ -151,7 +151,8 @@ test("Seedance gateway URLs enter the upstream asset library without an old-site
 });
 
 test("Seedance 2.5 and Seedream use the gateway without copying new2 media into the old bucket", () => {
-  assert.match(server, /if \(!USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY\)/);
+  assert.match(server, /if \(!direct && !USE_GATEWAY_UPSTREAM && !SEEDANCE25_API_KEY\)/);
+  assert.match(server, /if \(direct && !ARK_API_KEY\)/);
   assert.match(server, /record\.provider === "seedance25" && record\.upstreamSource !== "gateway"/);
   assert.match(server, /provider: "seedance25",[\s\S]*?referenceImages: upstreamInput\.imageFiles\.map/);
   assert.match(server, /if \(!USE_GATEWAY_UPSTREAM && !ARK_API_KEY\)/);
