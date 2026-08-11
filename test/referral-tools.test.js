@@ -17,6 +17,7 @@ test("main site and both tool tenants use the 100-credit referral reward", () =>
   assert.match(server, /const REFERRAL_REWARD_CREDITS = 100;/);
   assert.match(server, /tenantId: "tool-undress-14vips"[\s\S]*?allowedTabs: \[[^\]]*"referral"[\s\S]*?disabledTabs: \[(?![^\]]*"referral")/);
   assert.match(server, /tenantId: "tool-video-123tops"[\s\S]*?allowedTabs: \[[^\]]*"referral"[\s\S]*?disabledTabs: \[(?![^\]]*"referral")/);
+  assert.match(server, /function undressToolApiPathAllowed[\s\S]*?pathValue === "\/api\/referral"/);
   assert.match(html, /class="menu-item" data-tab="referral"/);
   assert.match(server, /const rewardCount =[\s\S]*?const origin = pageOriginFromRequest\(req\);[\s\S]*?inviteUrl: `\$\{origin\}\/\?ref=/);
   assert.match(ui, /\["pricing", "referral"\]\.includes/);

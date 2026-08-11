@@ -17639,6 +17639,7 @@ function undressToolApiPathAllowed(method = "GET", pathname = "") {
     || pathValue.startsWith("/api/auth/")
     || pathValue.startsWith("/api/billing/")
     || pathValue.startsWith("/api/pay/")
+    || pathValue === "/api/referral"
     || (pathValue.startsWith("/api/generation-records") && undressToolGenerationRecordPathAllowed(method, pathValue))
     || pathValue.startsWith("/api/undress-tool/")
     || pathValue === "/api/analytics/web-vitals";
