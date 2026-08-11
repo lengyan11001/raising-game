@@ -157,6 +157,9 @@ test("Seedance image preprocessing is shared by the model family and remains opt
   assert.match(server, /a scene with no people must remain a scene with no people/);
   assert.match(server, /const preprocessVersion = "preserve-source-v2"/);
   assert.match(server, /preserveSourceComposition: true/);
+  assert.match(server, /function seedream5SubmitRetryPolicy\(error\)/);
+  assert.match(server, /timeout while downloading url\|timed\? out while downloading/);
+  assert.match(server, /attempts: 4, waitMs: 5000, reason: "reference-download"/);
 });
 
 test("Safari duration pickers refresh pricing and deployments invalidate split frontend chunks", () => {

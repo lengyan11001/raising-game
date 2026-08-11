@@ -22113,21 +22113,34 @@ function seedream5OutputImageUrls(raw = {}) {
   ].map((item) => String(item || "").trim()).filter(Boolean);
 }
 
+function seedream5SubmitRetryPolicy(error) {
+  const message = String(error?.message || error || "");
+  if (/asset is still processing|not available yet/i.test(message)) {
+    return { attempts: 18, waitMs: 10000, reason: "asset-processing" };
+  }
+  if (/timeout while downloading url|timed? out while downloading|failed to download[^\n]*(?:timeout|timed? out)/i.test(message)) {
+    return { attempts: 4, waitMs: 5000, reason: "reference-download" };
+  }
+  return null;
+}
+
 async function submitSeedream5ImageGeneration(payload = {}, label = "image") {
   console.log(`[seedream5-image-submit-${label || "image"}]`, JSON.stringify(payload, null, 2));
   let raw;
   let lastSubmitError = "";
-  for (let attempt = 0; attempt < 18; attempt += 1) {
+  for (let attempt = 1; attempt <= 18; attempt += 1) {
     try {
       raw = await arkRequest("POST", "/images/generations", payload);
       break;
     } catch (error) {
       lastSubmitError = error.message || String(error);
-      if (!/asset is still processing|not available yet/i.test(lastSubmitError)) {
+      const retry = seedream5SubmitRetryPolicy(error);
+      if (!retry || attempt >= retry.attempts) {
         error.upstreamPayload = payload;
         throw error;
       }
-      await delay(10000);
+      console.warn(`[seedream5-image-submit-retry] reason=${retry.reason} attempt=${attempt}/${retry.attempts} waitMs=${retry.waitMs}`);
+      await delay(retry.waitMs);
     }
   }
   if (!raw) {
