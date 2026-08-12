@@ -4464,39 +4464,31 @@ function renderWorkflowPanel({ focusNodeId = "" } = {}) {
   if (!els.workflowRoot) return;
   const viewport = captureWorkflowCanvasViewport();
   const workflow = ensureWorkflowState();
-  const selected = selectedWorkflowNode();
-  const selectedModel = workflowModelById(selected?.data?.modelId);
   const activePhysics = new Set(workflow.physics || []);
-  const selectedPrompt = workflowPromptPreview(selectedModel, selected?.data?.prompt);
   els.workflowRoot.innerHTML = `
     ${typeof renderWorkflowCanvasManager === "function" ? renderWorkflowCanvasManager() : ""}
-    <div class="workflow-toolbar">
-      <button class="workflow-run ${state.workflowRunning ? "is-cancel" : ""}" type="button" data-workflow-action="${state.workflowRunning ? "cancel" : "run"}"><i data-lucide="${state.workflowRunning ? "square" : "play"}"></i>${state.workflowRunning ? "Cancel" : "Run all"}</button>
-      <button type="button" data-workflow-action="clear-results" ${state.workflowRunning ? "disabled" : ""}><i data-lucide="eraser"></i>Clear results</button>
-      <button type="button" data-workflow-action="add-video"><i data-lucide="plus"></i>Video</button>
-      <button type="button" data-workflow-action="add-branch"><i data-lucide="git-branch"></i>Branch</button>
-      <button type="button" data-workflow-action="physics" class="${state.workflowShowPhysics ? "is-active" : ""}"><i data-lucide="zap"></i>Physics</button>
-      <button type="button" data-workflow-action="refiner"><i data-lucide="expand"></i>Refiner</button>
-      <button type="button" data-workflow-action="director"><i data-lucide="wand-sparkles"></i>Director</button>
-      <button type="button" data-workflow-action="reset"><i data-lucide="rotate-ccw"></i>Reset</button>
-      <span class="workflow-status">${escapeHtml(state.workflowMessage || `${workflowVideoNodes().length} video nodes`)}</span>
+    <div class="workflow-controls">
+      <div class="workflow-toolbar">
+        <button class="workflow-run ${state.workflowRunning ? "is-cancel" : ""}" type="button" data-workflow-action="${state.workflowRunning ? "cancel" : "run"}"><i data-lucide="${state.workflowRunning ? "square" : "play"}"></i>${state.workflowRunning ? "Cancel" : "Run all"}</button>
+        <button type="button" data-workflow-action="clear-results" ${state.workflowRunning ? "disabled" : ""}><i data-lucide="eraser"></i>Clear results</button>
+        <button type="button" data-workflow-action="add-video"><i data-lucide="plus"></i>Video</button>
+        <button type="button" data-workflow-action="physics" class="${state.workflowShowPhysics ? "is-active" : ""}"><i data-lucide="sliders-horizontal"></i>Modifiers</button>
+        <button type="button" data-workflow-action="reset"><i data-lucide="rotate-ccw"></i>Reset</button>
+        <span class="workflow-status">${escapeHtml(state.workflowMessage || `${workflowVideoNodes().length} video nodes`)}</span>
+      </div>
+      ${state.workflowShowPhysics ? `
+        <section class="workflow-physics">
+          <header><strong>Prompt modifiers</strong><span>${activePhysics.size}/3 selected</span></header>
+          <div>
+            ${WORKFLOW_PHYSICS_MODULES.map((module) => `
+              <button type="button" class="${activePhysics.has(module.id) ? "is-active" : ""}" data-workflow-physics="${escapeHtml(module.id)}">
+                <i data-lucide="${activePhysics.has(module.id) ? "check" : "circle"}"></i>${escapeHtml(module.label)}
+              </button>
+            `).join("")}
+          </div>
+        </section>
+      ` : ""}
     </div>
-    <div class="workflow-director">
-      <textarea rows="2" data-workflow-director placeholder="Describe your video workflow...">${escapeHtml(workflow.directorPrompt || "")}</textarea>
-      <button type="button" data-workflow-action="director-build"><i data-lucide="sparkles"></i>Generate</button>
-    </div>
-    ${state.workflowShowPhysics ? `
-      <section class="workflow-physics">
-        <header><strong>Physics Engine</strong><span>${activePhysics.size}/3 modules active</span></header>
-        <div>
-          ${WORKFLOW_PHYSICS_MODULES.map((module) => `
-            <button type="button" class="${activePhysics.has(module.id) ? "is-active" : ""}" data-workflow-physics="${escapeHtml(module.id)}">
-              <i data-lucide="${activePhysics.has(module.id) ? "check" : "circle"}"></i>${escapeHtml(module.label)}
-            </button>
-          `).join("")}
-        </div>
-      </section>
-    ` : ""}
     <div class="workflow-layout">
       <section class="workflow-canvas" aria-label="Workflow canvas">
         <div class="workflow-canvas-stage" style="${workflowCanvasStageStyle()}">
@@ -4510,34 +4502,6 @@ function renderWorkflowPanel({ focusNodeId = "" } = {}) {
           ${workflow.nodes.map((node) => `<span style="left:${Math.max(0, Number(node.x || 0) / 14)}px;top:${Math.max(0, Number(node.y || 0) / 12)}px"></span>`).join("")}
         </div>
       </section>
-      <aside class="workflow-side">
-        <section class="workflow-node-detail ${state.workflowDetailsCollapsed ? "is-collapsed" : ""}">
-          <div class="workflow-side-head">
-            <strong>${escapeHtml(selected?.type === "video" ? selectedModel.label : selected?.title || "Workflow")}</strong>
-            <span>${escapeHtml(selected?.type || "")}</span>
-            <button class="workflow-side-collapse" type="button" data-workflow-action="toggle-details" aria-expanded="${state.workflowDetailsCollapsed ? "false" : "true"}" title="${state.workflowDetailsCollapsed ? "Expand details" : "Collapse details"}" aria-label="${state.workflowDetailsCollapsed ? "Expand details" : "Collapse details"}"><i data-lucide="chevron-${state.workflowDetailsCollapsed ? "down" : "up"}"></i></button>
-          </div>
-          ${state.workflowDetailsCollapsed ? "" : `<div class="workflow-node-detail-body">
-            ${selected?.type === "video" ? `
-              <p>${escapeHtml(workflowCostLabel(selected))} credits - ${escapeHtml(selected.data?.resolution || "720p")} - ${escapeHtml(String(selected.data?.duration || 5))}s</p>
-              <button class="workflow-change-preset" type="button" data-workflow-open-picker="${escapeHtml(selected.id)}"><i data-lucide="layout-grid"></i>Choose scene</button>
-              <div class="workflow-prompt-preview">${escapeHtml(selectedPrompt || selectedModel.prompt || "")}</div>
-            ` : ""}
-          </div>`}
-        </section>
-        <section>
-          <div class="workflow-side-head"><strong>Quick nodes</strong></div>
-          <div class="workflow-quick-list">
-            ${WORKFLOW_QUICK_TEMPLATES.map((item) => `<button type="button" data-workflow-template="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>`).join("")}
-          </div>
-        </section>
-        <section>
-          <div class="workflow-side-head"><strong>Log</strong></div>
-          <div class="workflow-log">
-            ${(state.workflowLogs || []).length ? state.workflowLogs.map((log) => `<p><span>${escapeHtml(log.time)}</span>${escapeHtml(log.message)}</p>`).join("") : `<p>No runs yet.</p>`}
-          </div>
-        </section>
-      </aside>
     </div>
     ${renderWorkflowPicker()}
   `;
@@ -4623,47 +4587,6 @@ function addWorkflowVideoNode(modelId = "") {
   state.workflowSelectedNodeId = node.id;
   persistWorkflowState();
   renderWorkflowPanel({ focusNodeId: node.id });
-}
-
-function applyWorkflowTemplate(templateId = "") {
-  const template = WORKFLOW_QUICK_TEMPLATES.find((item) => item.id === templateId);
-  if (!template) return;
-  addWorkflowVideoNode(template.modelId);
-}
-
-function applyWorkflowDirectorPrompt() {
-  const workflow = ensureWorkflowState();
-  const text = String(workflow.directorPrompt || "").trim();
-  if (!text) return;
-  const parts = text.split(/[.;\n]+/).map((part) => part.trim()).filter(Boolean).slice(0, 4);
-  if (!parts.length) return;
-  const upload = workflowUploadNode();
-  const output = workflow.nodes.find((node) => node.type === "output");
-  workflow.nodes = [upload, ...parts.map((part, index) => {
-    const model = WORKFLOW_MODEL_LIBRARY[index % WORKFLOW_MODEL_LIBRARY.length];
-    return {
-      id: `video-${Date.now().toString(36)}-${index}`,
-      type: "video",
-      title: model.label,
-      x: 30 + (WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP) * (index + 1),
-      y: 150 + index * 16,
-      data: { modelId: model.id, prompt: part, duration: 5, resolution: "720p", ratio: "9:16", activeTab: "preview" },
-    };
-  }), output].filter(Boolean);
-  if (output) {
-    output.x = 30 + (WORKFLOW_NODE_WIDTH + WORKFLOW_NODE_GAP) * (parts.length + 1);
-    output.y = 150;
-  }
-  const ordered = workflowVideoNodes();
-  workflow.edges = [];
-  if (upload && ordered[0]) workflow.edges.push({ from: upload.id, to: ordered[0].id });
-  ordered.forEach((node, index) => {
-    const next = ordered[index + 1] || output;
-    if (next) workflow.edges.push({ from: node.id, to: next.id });
-  });
-  state.workflowSelectedNodeId = ordered[0]?.id || "video-1";
-  persistWorkflowState();
-  renderWorkflowPanel();
 }
 
 function workflowCanceledError() {
@@ -5524,23 +5447,12 @@ function handleWorkflowClick(event) {
     if (action === "run") runWorkflow();
     if (action === "cancel") requestWorkflowCancel();
     if (action === "clear-results") clearWorkflowExecutionResults();
-    if (action === "add-video" || action === "add-branch") addWorkflowVideoNode();
+    if (action === "add-video") addWorkflowVideoNode();
     if (action === "physics") {
       state.workflowShowPhysics = !state.workflowShowPhysics;
       renderWorkflowPanel();
     }
-    if (action === "refiner") addWorkflowVideoNode("imagine-realistic");
-    if (action === "director") {
-      const input = els.workflowRoot?.querySelector("[data-workflow-director]");
-      input?.focus();
-    }
-    if (action === "director-build") applyWorkflowDirectorPrompt();
     if (action === "reset") resetWorkflow();
-    if (action === "toggle-details") {
-      state.workflowDetailsCollapsed = !state.workflowDetailsCollapsed;
-      localStorage.setItem(WORKFLOW_DETAILS_COLLAPSED_KEY, state.workflowDetailsCollapsed ? "1" : "0");
-      renderWorkflowPanel();
-    }
     return;
   }
   const nodeEl = event.target.closest("[data-workflow-node]");
@@ -5560,8 +5472,6 @@ function handleWorkflowClick(event) {
     persistWorkflowState();
     renderWorkflowPanel();
   }
-  const templateButton = event.target.closest("[data-workflow-template]");
-  if (templateButton) applyWorkflowTemplate(templateButton.dataset.workflowTemplate || "");
 }
 
 function handleWorkflowInput(event) {
@@ -5575,11 +5485,6 @@ function handleWorkflowInput(event) {
       grid.innerHTML = renderWorkflowPickerCards(workflowFilteredPresets(state.workflowPickerSearch), workflowModelById(node?.data?.modelId));
       refreshIcons();
     }
-    return;
-  }
-  if (target.matches("[data-workflow-director]")) {
-    ensureWorkflowState().directorPrompt = target.value || "";
-    persistWorkflowState();
     return;
   }
   if (target.matches("[data-workflow-prompt]")) {

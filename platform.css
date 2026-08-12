@@ -5047,13 +5047,23 @@ select option:checked {
 }
 
 .workflow-panel {
-  min-height: calc(100vh - 48px);
+  height: calc(100dvh - 70px);
+  min-height: 560px;
 }
 
 .workflow-shell {
   display: grid;
-  gap: 14px;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
   color: #f8f8fb;
+}
+
+.workflow-controls {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
 }
 
 .workflow-canvas-manager {
@@ -5235,14 +5245,15 @@ select option:checked {
 
 .workflow-layout {
   display: grid;
-  grid-template-columns: minmax(720px, 1fr) 310px;
-  gap: 14px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
 }
 
 .workflow-canvas {
   position: relative;
-  min-height: 720px;
+  min-height: 0;
+  height: 100%;
   border: 1px solid rgba(255,255,255,.08);
   border-radius: 18px;
   background:
@@ -6116,15 +6127,6 @@ select option:checked {
   background: #ff43b6;
 }
 
-.workflow-side {
-  display: grid;
-  gap: 12px;
-  max-height: calc(100vh - 108px);
-  overflow: auto;
-  padding-right: 2px;
-}
-
-.workflow-side section,
 .workflow-physics {
   border: 1px solid rgba(255,255,255,.1);
   border-radius: 16px;
@@ -6132,7 +6134,6 @@ select option:checked {
   padding: 14px;
 }
 
-.workflow-side-head,
 .workflow-physics header {
   display: flex;
   align-items: center;
@@ -6141,17 +6142,10 @@ select option:checked {
   margin-bottom: 10px;
 }
 
-.workflow-side-head span,
 .workflow-physics header span {
   color: rgba(255,255,255,.54);
   font-size: .76rem;
   font-weight: 900;
-}
-
-.workflow-side p {
-  margin: 0;
-  color: rgba(255,255,255,.64);
-  font-size: .84rem;
 }
 
 .workflow-change-preset {
@@ -6421,8 +6415,9 @@ select option:checked {
 @media (max-width: 920px) {
   .advanced-workspace { grid-template-columns: 1fr; }
   .workflow-layout { grid-template-columns: 1fr; }
-  .workflow-side { max-height: none; }
   .workflow-canvas { min-height: 720px; }
+  .workflow-panel { height: auto; min-height: 0; }
+  .workflow-shell { display: grid; height: auto; }
   .workflow-toolbar { width: 100%; }
   .workflow-canvas-manager {
     grid-template-columns: minmax(0, 1fr) repeat(3, 38px);
@@ -6475,38 +6470,6 @@ textarea:focus, input:focus { border-color: rgba(15,148,139,.55); box-shadow: 0 
   width: min(390px, calc(100vw - 28px));
 }
 
-.workflow-node-detail.is-collapsed {
-  padding-block: 10px;
-}
-
-.workflow-node-detail.is-collapsed .workflow-side-head {
-  margin-bottom: 0;
-}
-
-.workflow-side-collapse {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 6px;
-  padding: 0;
-  color: rgba(255,255,255,.72);
-  background: rgba(255,255,255,.06);
-}
-
-.workflow-side-collapse:hover {
-  color: #fff;
-  border-color: rgba(255,71,173,.55);
-  background: rgba(255,71,173,.14);
-}
-
-.workflow-side-collapse svg {
-  width: 16px;
-  height: 16px;
-}
 .auth-modal .modal-body {
   gap: 12px;
 }
