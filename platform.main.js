@@ -531,6 +531,7 @@ els.refreshAdvancedResultBtn?.addEventListener("click", () => refreshAdvancedRes
 els.workflowRoot?.addEventListener("click", handleWorkflowClick);
 els.workflowRoot?.addEventListener("pointerdown", handleWorkflowPointerDown);
 els.workflowRoot?.addEventListener("wheel", handleWorkflowWheel, { passive: false });
+els.workflowRoot?.addEventListener("scroll", handleWorkflowCanvasScroll, { capture: true, passive: true });
 els.workflowRoot?.addEventListener("input", handleWorkflowInput);
 els.workflowRoot?.addEventListener("change", (event) => {
   const input = event.target.closest("[data-workflow-file]");

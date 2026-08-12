@@ -578,6 +578,8 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     state.workflowActiveCanvasId = "";
     state.workflowCanvasMessage = "";
     state.workflowCanvasSaving = false;
+    window.clearTimeout(state.workflowViewportSaveTimer);
+    state.workflowViewportSaveTimer = 0;
     state.workflowSelectedNodeId = "video-1";
     state.workflowPickerNodeId = "";
     state.workflowPickerSearch = "";
@@ -3282,6 +3284,10 @@ function cloneWorkflowDefault() {
     directorPrompt: "",
     zoom: 1,
     layoutVersion: WORKFLOW_NODE_LAYOUT_VERSION,
+    canvasWidth: WORKFLOW_CANVAS_BASE_WIDTH,
+    canvasHeight: WORKFLOW_CANVAS_BASE_HEIGHT,
+    scrollLeft: 0,
+    scrollTop: 0,
   };
 }
 
@@ -3381,6 +3387,10 @@ function ensureWorkflowState() {
         directorPrompt: saved.directorPrompt || "",
         zoom: normalizeWorkflowZoom(saved.zoom),
         layoutVersion: Number(saved.layoutVersion || 0),
+        canvasWidth: Number(saved.canvasWidth || WORKFLOW_CANVAS_BASE_WIDTH),
+        canvasHeight: Number(saved.canvasHeight || WORKFLOW_CANVAS_BASE_HEIGHT),
+        scrollLeft: Number(saved.scrollLeft || 0),
+        scrollTop: Number(saved.scrollTop || 0),
       };
       normalizeWorkflowLayout(state.workflow);
       return state.workflow;
@@ -3401,6 +3411,10 @@ function persistWorkflowState({ skipServer = false } = {}) {
       directorPrompt: workflow.directorPrompt || "",
       zoom: normalizeWorkflowZoom(workflow.zoom),
       layoutVersion: workflow.layoutVersion || WORKFLOW_NODE_LAYOUT_VERSION,
+      canvasWidth: Number(workflow.canvasWidth || WORKFLOW_CANVAS_BASE_WIDTH),
+      canvasHeight: Number(workflow.canvasHeight || WORKFLOW_CANVAS_BASE_HEIGHT),
+      scrollLeft: Number(workflow.scrollLeft || 0),
+      scrollTop: Number(workflow.scrollTop || 0),
     }));
   } catch (_) {}
   if (!skipServer && typeof scheduleWorkflowCanvasSave === "function") scheduleWorkflowCanvasSave();
@@ -3434,12 +3448,66 @@ function workflowCanvasLogicalSize() {
   const visibleWidth = canvas ? Math.ceil(canvas.clientWidth / zoom) : WORKFLOW_CANVAS_BASE_WIDTH;
   const visibleHeight = canvas ? Math.ceil(canvas.clientHeight / zoom) : WORKFLOW_CANVAS_BASE_HEIGHT;
   const nodes = state.workflow?.nodes || [];
+  const storedWidth = Math.min(WORKFLOW_CANVAS_MAX_WIDTH, Math.max(WORKFLOW_CANVAS_BASE_WIDTH, Number(state.workflow?.canvasWidth || 0)));
+  const storedHeight = Math.min(WORKFLOW_CANVAS_MAX_HEIGHT, Math.max(WORKFLOW_CANVAS_BASE_HEIGHT, Number(state.workflow?.canvasHeight || 0)));
   const nodeMaxX = nodes.reduce((max, node) => Math.max(max, Number(node.x || 0) + WORKFLOW_NODE_WIDTH + WORKFLOW_CANVAS_PADDING), 0);
   const nodeMaxY = nodes.reduce((max, node) => Math.max(max, Number(node.y || 0) + 420 + WORKFLOW_CANVAS_PADDING), 0);
-  return {
-    width: Math.min(WORKFLOW_CANVAS_MAX_WIDTH, Math.max(WORKFLOW_CANVAS_BASE_WIDTH, visibleWidth + WORKFLOW_CANVAS_PADDING, nodeMaxX)),
-    height: Math.min(WORKFLOW_CANVAS_MAX_HEIGHT, Math.max(WORKFLOW_CANVAS_BASE_HEIGHT, visibleHeight + WORKFLOW_CANVAS_PADDING, nodeMaxY)),
+  const size = {
+    width: Math.min(WORKFLOW_CANVAS_MAX_WIDTH, Math.max(WORKFLOW_CANVAS_BASE_WIDTH, storedWidth, visibleWidth + WORKFLOW_CANVAS_PADDING, nodeMaxX)),
+    height: Math.min(WORKFLOW_CANVAS_MAX_HEIGHT, Math.max(WORKFLOW_CANVAS_BASE_HEIGHT, storedHeight, visibleHeight + WORKFLOW_CANVAS_PADDING, nodeMaxY)),
   };
+  if (state.workflow) {
+    state.workflow.canvasWidth = size.width;
+    state.workflow.canvasHeight = size.height;
+  }
+  return size;
+}
+
+function workflowCanvasRenderId() {
+  return String(state.workflowActiveCanvasId || `local:${workflowUserStorageKey()}`);
+}
+
+function captureWorkflowCanvasViewport() {
+  const workflow = ensureWorkflowState();
+  const canvas = els.workflowRoot?.querySelector(".workflow-canvas");
+  const renderedId = String(els.workflowRoot?.dataset.workflowCanvasId || "");
+  const currentId = workflowCanvasRenderId();
+  if (canvas && renderedId && renderedId === currentId) {
+    return { left: canvas.scrollLeft, top: canvas.scrollTop };
+  }
+  return {
+    left: Math.max(0, Number(workflow.scrollLeft || 0)),
+    top: Math.max(0, Number(workflow.scrollTop || 0)),
+  };
+}
+
+function restoreWorkflowCanvasViewport(viewport = {}) {
+  const canvas = els.workflowRoot?.querySelector(".workflow-canvas");
+  const workflow = ensureWorkflowState();
+  const left = Math.max(0, Number(viewport.left || 0));
+  const top = Math.max(0, Number(viewport.top || 0));
+  if (canvas) {
+    suppressWorkflowViewportSaveUntil = Date.now() + 100;
+    canvas.scrollLeft = left;
+    canvas.scrollTop = top;
+  }
+  workflow.scrollLeft = canvas?.scrollLeft ?? left;
+  workflow.scrollTop = canvas?.scrollTop ?? top;
+  if (els.workflowRoot) els.workflowRoot.dataset.workflowCanvasId = workflowCanvasRenderId();
+}
+
+function handleWorkflowCanvasScroll(event) {
+  const canvas = event.target?.closest?.(".workflow-canvas");
+  if (!canvas || event.target !== canvas) return;
+  const workflow = ensureWorkflowState();
+  workflow.scrollLeft = canvas.scrollLeft;
+  workflow.scrollTop = canvas.scrollTop;
+  if (Date.now() < suppressWorkflowViewportSaveUntil) return;
+  window.clearTimeout(state.workflowViewportSaveTimer);
+  state.workflowViewportSaveTimer = window.setTimeout(() => {
+    state.workflowViewportSaveTimer = 0;
+    persistWorkflowState();
+  }, 300);
 }
 
 function workflowCanvasStageStyle() {
@@ -4138,6 +4206,7 @@ function renderWorkflowMediaPreview(node = {}, model = null) {
 let activeWorkflowConnection = null;
 let activeWorkflowNodeDrag = null;
 let suppressWorkflowClickUntil = 0;
+let suppressWorkflowViewportSaveUntil = 0;
 
 function workflowNodeAcceptsInput(node = null) {
   return Boolean(node && node.type !== "upload");
@@ -4368,6 +4437,7 @@ function renderWorkflowPickerCards(presets = [], selectedModel = {}) {
 
 function renderWorkflowPanel() {
   if (!els.workflowRoot) return;
+  const viewport = captureWorkflowCanvasViewport();
   const workflow = ensureWorkflowState();
   const selected = selectedWorkflowNode();
   const selectedModel = workflowModelById(selected?.data?.modelId);
@@ -4416,16 +4486,19 @@ function renderWorkflowPanel() {
         </div>
       </section>
       <aside class="workflow-side">
-        <section>
+        <section class="workflow-node-detail ${state.workflowDetailsCollapsed ? "is-collapsed" : ""}">
           <div class="workflow-side-head">
             <strong>${escapeHtml(selected?.type === "video" ? selectedModel.label : selected?.title || "Workflow")}</strong>
             <span>${escapeHtml(selected?.type || "")}</span>
+            <button class="workflow-side-collapse" type="button" data-workflow-action="toggle-details" aria-expanded="${state.workflowDetailsCollapsed ? "false" : "true"}" title="${state.workflowDetailsCollapsed ? "Expand details" : "Collapse details"}" aria-label="${state.workflowDetailsCollapsed ? "Expand details" : "Collapse details"}"><i data-lucide="chevron-${state.workflowDetailsCollapsed ? "down" : "up"}"></i></button>
           </div>
-          ${selected?.type === "video" ? `
-            <p>${escapeHtml(workflowCostLabel(selected))} credits - ${escapeHtml(selected.data?.resolution || "720p")} - ${escapeHtml(String(selected.data?.duration || 5))}s</p>
-            <button class="workflow-change-preset" type="button" data-workflow-open-picker="${escapeHtml(selected.id)}"><i data-lucide="layout-grid"></i>Choose scene</button>
-            <div class="workflow-prompt-preview">${escapeHtml(selectedPrompt || selectedModel.prompt || "")}</div>
-          ` : ""}
+          ${state.workflowDetailsCollapsed ? "" : `<div class="workflow-node-detail-body">
+            ${selected?.type === "video" ? `
+              <p>${escapeHtml(workflowCostLabel(selected))} credits - ${escapeHtml(selected.data?.resolution || "720p")} - ${escapeHtml(String(selected.data?.duration || 5))}s</p>
+              <button class="workflow-change-preset" type="button" data-workflow-open-picker="${escapeHtml(selected.id)}"><i data-lucide="layout-grid"></i>Choose scene</button>
+              <div class="workflow-prompt-preview">${escapeHtml(selectedPrompt || selectedModel.prompt || "")}</div>
+            ` : ""}
+          </div>`}
         </section>
         <section>
           <div class="workflow-side-head"><strong>Quick nodes</strong></div>
@@ -4444,6 +4517,7 @@ function renderWorkflowPanel() {
     ${renderWorkflowPicker()}
   `;
   refreshIcons();
+  restoreWorkflowCanvasViewport(viewport);
 }
 
 function updateWorkflowNodeFromControl(control) {
@@ -5430,6 +5504,11 @@ function handleWorkflowClick(event) {
     }
     if (action === "director-build") applyWorkflowDirectorPrompt();
     if (action === "reset") resetWorkflow();
+    if (action === "toggle-details") {
+      state.workflowDetailsCollapsed = !state.workflowDetailsCollapsed;
+      localStorage.setItem(WORKFLOW_DETAILS_COLLAPSED_KEY, state.workflowDetailsCollapsed ? "1" : "0");
+      renderWorkflowPanel();
+    }
     return;
   }
   const nodeEl = event.target.closest("[data-workflow-node]");

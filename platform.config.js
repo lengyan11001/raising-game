@@ -68,6 +68,7 @@ const ADVANCED_PRESET_SLOT_META = {
   scene: { labelKey: "advancedPreset.scene", icon: "image", required: false },
 };
 const WORKFLOW_STORAGE_KEY = "raisingGameWorkflowState";
+const WORKFLOW_DETAILS_COLLAPSED_KEY = "raisingGameWorkflowDetailsCollapsed";
 const WORKFLOW_NUDE_PROMPT = "Adult cinematic undress video. Keep the same consenting adult subject and identity. The subject naturally removes clothing during the shot. Smooth camera motion, realistic lighting, no subtitles, no watermark.";
 const WORKFLOW_MODEL_PROMPTS = {
   nude: WORKFLOW_NUDE_PROMPT,
@@ -796,6 +797,7 @@ const state = {
   workflowSelectedNodeId: "video-1",
   workflowActiveNodeId: "",
   workflowShowPhysics: false,
+  workflowDetailsCollapsed: localStorage.getItem(WORKFLOW_DETAILS_COLLAPSED_KEY) === "1",
   workflowModelSearch: "",
   workflowPickerNodeId: "",
   workflowPickerSearch: "",
@@ -809,6 +811,7 @@ const state = {
   workflowCanvasMessage: "",
   workflowCanvasSaveTimer: 0,
   workflowCanvasSaving: false,
+  workflowViewportSaveTimer: 0,
   workflowLogs: [],
   workflowPollTimers: {},
   advancedAssetTarget: "primary",
