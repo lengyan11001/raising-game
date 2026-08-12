@@ -3,6 +3,7 @@
     "platform.config.js",
     "platform.copy.js",
     "platform.ui.js",
+    "platform.workflow-canvases.js",
     "platform.explore.js",
     "platform.create.js",
     "platform.video-tools.js",

@@ -131,6 +131,7 @@ function setTab(tab) {
   if (nextTab === "workflow") {
     renderWorkflowPanel();
     loadWorkflowPresets();
+    loadWorkflowCanvases();
   }
   closeAccountMenu();
   closeMobileDrawer();

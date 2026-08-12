@@ -375,6 +375,25 @@ async function ensureSchemaInner() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS app_workflow_presets_sort_idx ON app_workflow_presets (sort_order ASC, updated_at DESC);`);
   await query(`
+    CREATE TABLE IF NOT EXISTS app_workflow_canvases (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await query(`
+    ALTER TABLE app_workflow_canvases
+      ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS app_workflow_canvases_user_updated_idx ON app_workflow_canvases (user_id, updated_at DESC, created_at DESC);`);
+  await query(`
     CREATE TABLE IF NOT EXISTS app_support_messages (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT '',
@@ -1598,6 +1617,104 @@ async function replaceWorkflowPresetsInDb(presets = []) {
   return normalized;
 }
 
+function workflowCanvasFromRow(row = {}) {
+  const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+  return {
+    id: String(row.id || payload.id || "").trim(),
+    userId: String(row.user_id || payload.userId || "").trim(),
+    name: String(row.name || payload.name || "").trim(),
+    workflow: payload.workflow && typeof payload.workflow === "object" ? payload.workflow : {},
+    createdAt: toIsoString(row.created_at || payload.createdAt),
+    updatedAt: toIsoString(row.updated_at || payload.updatedAt),
+  };
+}
+
+async function listWorkflowCanvasesFromDb(userId = "") {
+  if (!dbEnabled()) return null;
+  const ownerId = String(userId || "").trim();
+  if (!ownerId) return [];
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT id, user_id, name, created_at, updated_at FROM app_workflow_canvases
+      WHERE user_id = $1
+      ORDER BY updated_at DESC, created_at DESC
+    `,
+    [ownerId],
+  );
+  return rows.map(workflowCanvasFromRow);
+}
+
+async function getWorkflowCanvasFromDb({ id = "", userId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const canvasId = String(id || "").trim();
+  const ownerId = String(userId || "").trim();
+  if (!canvasId || !ownerId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `SELECT * FROM app_workflow_canvases WHERE id = $1 AND user_id = $2 LIMIT 1`,
+    [canvasId, ownerId],
+  );
+  return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
+}
+
+async function createWorkflowCanvasInDb({ id = "", userId = "", name = "", workflow = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const canvasId = String(id || "").trim();
+  const ownerId = String(userId || "").trim();
+  if (!canvasId || !ownerId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const payload = { id: canvasId, userId: ownerId, name, workflow, createdAt: now, updatedAt: now };
+  const { rows } = await query(
+    `
+      INSERT INTO app_workflow_canvases(id, user_id, name, payload, created_at, updated_at)
+      VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz, $5::timestamptz)
+      RETURNING *
+    `,
+    [canvasId, ownerId, name, JSON.stringify(payload), now],
+  );
+  return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
+}
+
+async function updateWorkflowCanvasInDb({ id = "", userId = "", name = "", workflow = {} } = {}) {
+  if (!dbEnabled()) return null;
+  const canvasId = String(id || "").trim();
+  const ownerId = String(userId || "").trim();
+  if (!canvasId || !ownerId) return null;
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const { rows } = await query(
+    `
+      UPDATE app_workflow_canvases
+      SET name = $3,
+          payload = payload || $4::jsonb,
+          updated_at = $5::timestamptz
+      WHERE id = $1 AND user_id = $2
+      RETURNING *
+    `,
+    [canvasId, ownerId, name, JSON.stringify({ name, workflow, updatedAt: now }), now],
+  );
+  return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
+}
+
+async function deleteWorkflowCanvasInDb({ id = "", userId = "" } = {}) {
+  if (!dbEnabled()) return null;
+  const canvasId = String(id || "").trim();
+  const ownerId = String(userId || "").trim();
+  if (!canvasId || !ownerId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      DELETE FROM app_workflow_canvases
+      WHERE id = $1 AND user_id = $2
+      RETURNING *
+    `,
+    [canvasId, ownerId],
+  );
+  return rows[0] ? workflowCanvasFromRow(rows[0]) : null;
+}
+
 async function findUserUnlockInDb({ userId = "", itemId = "", sceneId = "", sceneEntryId = "default" } = {}) {
   if (!dbEnabled()) return null;
   const cleanUserId = String(userId || "").trim();
@@ -2489,6 +2606,11 @@ module.exports = {
   listWorkflowPresetsFromDb,
   upsertWorkflowPresetInDb,
   replaceWorkflowPresetsInDb,
+  listWorkflowCanvasesFromDb,
+  getWorkflowCanvasFromDb,
+  createWorkflowCanvasInDb,
+  updateWorkflowCanvasInDb,
+  deleteWorkflowCanvasInDb,
   findUserUnlockInDb,
   normalizeApiSubtokenRecord,
   listApiSubtokensFromDb,

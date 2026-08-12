@@ -66,6 +66,14 @@ const {
   planVideoEditSegments,
 } = require("./video-tools");
 const {
+  WORKFLOW_CANVAS_LIMIT,
+  defaultWorkflowCanvasState,
+  normalizeWorkflowCanvasName,
+  normalizeWorkflowCanvasState,
+  publicWorkflowCanvasSummary,
+  publicWorkflowCanvasView,
+} = require("./workflow-canvases");
+const {
   SEEDANCE_REFERENCE_VIDEO_MIN_SECONDS,
   SEEDANCE_REFERENCE_VIDEO_MAX_SECONDS,
   minimumImageTargetDimensions,
@@ -111,6 +119,11 @@ const {
   replaceAdminHomeItemsInDb,
   softDeleteAdminHomeItemInDb,
   listWorkflowPresetsFromDb,
+  listWorkflowCanvasesFromDb,
+  getWorkflowCanvasFromDb,
+  createWorkflowCanvasInDb,
+  updateWorkflowCanvasInDb,
+  deleteWorkflowCanvasInDb,
   findUserUnlockInDb,
   getKv,
   setKv,
@@ -154,6 +167,7 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.config.js",
   "platform.copy.js",
   "platform.ui.js",
+  "platform.workflow-canvases.js",
   "platform.explore.js",
   "platform.create.js",
   "platform.video-tools.js",
@@ -2368,6 +2382,108 @@ async function handleWorkflowPresets(req, res) {
     .filter((preset) => preset.id && preset.label && preset.prompt && preset.previewUrl)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label));
   return sendJson(res, 200, { ok: true, presets: list });
+}
+
+async function createDefaultWorkflowCanvasForUser(userId = "") {
+  return createWorkflowCanvasInDb({
+    id: randomId("workflow"),
+    userId,
+    name: "Untitled workflow",
+    workflow: defaultWorkflowCanvasState(),
+  });
+}
+
+async function ensureUserWorkflowCanvases(userId = "") {
+  let canvases = await listWorkflowCanvasesFromDb(userId);
+  if (canvases === null) return null;
+  if (!canvases.length) {
+    const created = await createDefaultWorkflowCanvasForUser(userId);
+    canvases = created ? [created] : [];
+  }
+  return canvases;
+}
+
+function workflowCanvasListView(canvases = []) {
+  return (Array.isArray(canvases) ? canvases : []).map(publicWorkflowCanvasSummary);
+}
+
+function sendWorkflowCanvasValidationError(res, error) {
+  return sendJson(res, 400, {
+    ok: false,
+    code: "INVALID_WORKFLOW_CANVAS",
+    message: error?.message || "Workflow canvas is invalid.",
+  });
+}
+
+async function handleListWorkflowCanvases(req, res) {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const canvases = await ensureUserWorkflowCanvases(auth.user.id);
+  if (canvases === null) return sendJson(res, 503, { ok: false, message: "Workflow storage is unavailable." });
+  return sendJson(res, 200, { ok: true, canvases: workflowCanvasListView(canvases) });
+}
+
+async function handleCreateWorkflowCanvas(req, res) {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const existing = await listWorkflowCanvasesFromDb(auth.user.id);
+  if (existing === null) return sendJson(res, 503, { ok: false, message: "Workflow storage is unavailable." });
+  if (existing.length >= WORKFLOW_CANVAS_LIMIT) {
+    return sendJson(res, 400, { ok: false, code: "WORKFLOW_CANVAS_LIMIT", message: `You can save up to ${WORKFLOW_CANVAS_LIMIT} workflows.` });
+  }
+  try {
+    const body = await readJson(req);
+    const canvas = await createWorkflowCanvasInDb({
+      id: randomId("workflow"),
+      userId: auth.user.id,
+      name: normalizeWorkflowCanvasName(body.name),
+      workflow: normalizeWorkflowCanvasState(body.workflow || defaultWorkflowCanvasState()),
+    });
+    return sendJson(res, 201, { ok: true, canvas: publicWorkflowCanvasView(canvas) });
+  } catch (error) {
+    return sendWorkflowCanvasValidationError(res, error);
+  }
+}
+
+async function handleGetWorkflowCanvas(req, res, canvasId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const canvas = await getWorkflowCanvasFromDb({ id: canvasId, userId: auth.user.id });
+  if (!canvas) return sendJson(res, 404, { ok: false, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "Workflow not found." });
+  return sendJson(res, 200, { ok: true, canvas: publicWorkflowCanvasView(canvas) });
+}
+
+async function handleUpdateWorkflowCanvas(req, res, canvasId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  try {
+    const body = await readJson(req);
+    const canvas = await updateWorkflowCanvasInDb({
+      id: canvasId,
+      userId: auth.user.id,
+      name: normalizeWorkflowCanvasName(body.name),
+      workflow: normalizeWorkflowCanvasState(body.workflow),
+    });
+    if (!canvas) return sendJson(res, 404, { ok: false, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "Workflow not found." });
+    return sendJson(res, 200, { ok: true, canvas: publicWorkflowCanvasView(canvas) });
+  } catch (error) {
+    return sendWorkflowCanvasValidationError(res, error);
+  }
+}
+
+async function handleDeleteWorkflowCanvas(req, res, canvasId = "") {
+  if (requestTenantDescriptor(req).toolOnly) return sendJson(res, 404, { ok: false, message: "API not found." });
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const deleted = await deleteWorkflowCanvasInDb({ id: canvasId, userId: auth.user.id });
+  if (deleted === null && !dbEnabled()) return sendJson(res, 503, { ok: false, message: "Workflow storage is unavailable." });
+  if (!deleted) return sendJson(res, 404, { ok: false, code: "WORKFLOW_CANVAS_NOT_FOUND", message: "Workflow not found." });
+  const canvases = await ensureUserWorkflowCanvases(auth.user.id);
+  return sendJson(res, 200, { ok: true, canvases: workflowCanvasListView(canvases), deletedId: canvasId });
 }
 
 function compactPlainText(value = "", maxLength = 220) {
@@ -35072,6 +35188,25 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/workflow/presets") {
       return await handleWorkflowPresets(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/workflow/canvases") {
+      return await handleListWorkflowCanvases(req, res);
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/workflow/canvases") {
+      return await handleCreateWorkflowCanvas(req, res);
+    }
+
+    const workflowCanvasMatch = url.pathname.match(/^\/api\/workflow\/canvases\/([^/]+)\/?$/);
+    if (req.method === "GET" && workflowCanvasMatch) {
+      return await handleGetWorkflowCanvas(req, res, decodeURIComponent(workflowCanvasMatch[1]));
+    }
+    if (req.method === "PUT" && workflowCanvasMatch) {
+      return await handleUpdateWorkflowCanvas(req, res, decodeURIComponent(workflowCanvasMatch[1]));
+    }
+    if (req.method === "DELETE" && workflowCanvasMatch) {
+      return await handleDeleteWorkflowCanvas(req, res, decodeURIComponent(workflowCanvasMatch[1]));
     }
 
     if (req.method === "POST" && url.pathname === "/api/workflow/extract-frame") {
