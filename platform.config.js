@@ -68,7 +68,6 @@ const ADVANCED_PRESET_SLOT_META = {
   scene: { labelKey: "advancedPreset.scene", icon: "image", required: false },
 };
 const WORKFLOW_STORAGE_KEY = "raisingGameWorkflowState";
-const WORKFLOW_DETAILS_COLLAPSED_KEY = "raisingGameWorkflowDetailsCollapsed";
 const WORKFLOW_NUDE_PROMPT = "Adult cinematic undress video. Keep the same consenting adult subject and identity. The subject naturally removes clothing during the shot. Smooth camera motion, realistic lighting, no subtitles, no watermark.";
 const WORKFLOW_MODEL_PROMPTS = {
   nude: WORKFLOW_NUDE_PROMPT,
@@ -100,12 +99,6 @@ const WORKFLOW_MODEL_LIBRARY = WORKFLOW_MODEL_LABELS.map((label) => {
     prompt: WORKFLOW_MODEL_PROMPTS[id] || `Adult cinematic shot. Keep the same consenting adult subject and identity. Scene action: ${label}. Smooth camera motion, realistic lighting, no subtitles, no watermark.`,
   };
 });
-const WORKFLOW_QUICK_TEMPLATES = [
-  { id: "nude", label: "Undress Intro", modelId: "nude" },
-  { id: "deepthroat", label: "Deep Throat", modelId: "deepthroat-v2-1" },
-  { id: "cumshot", label: "Cumshot", modelId: "cumshot-v2" },
-  { id: "ahegao", label: "Ahegao Finish", modelId: "ahegao-v2" },
-];
 const WORKFLOW_PHYSICS_MODULES = [
   { id: "better-motion", label: "Better Motion", prompt: "more natural body movement and weight shift" },
   { id: "better-pussy", label: "Better Anatomy", prompt: "more coherent adult anatomy" },
@@ -797,7 +790,6 @@ const state = {
   workflowSelectedNodeId: "video-1",
   workflowActiveNodeId: "",
   workflowShowPhysics: false,
-  workflowDetailsCollapsed: localStorage.getItem(WORKFLOW_DETAILS_COLLAPSED_KEY) === "1",
   workflowModelSearch: "",
   workflowPickerNodeId: "",
   workflowPickerSearch: "",

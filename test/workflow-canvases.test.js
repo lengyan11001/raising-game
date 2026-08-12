@@ -82,19 +82,20 @@ test("workflow canvas UI supports migration, selection, create, save and delete"
   assert.match(explore, /loadWorkflowCanvases\(\);/);
 });
 
-test("workflow rerenders preserve the viewport and selected node details can collapse", () => {
-  const config = read("platform.config.js");
+test("workflow rerenders preserve the viewport without a side panel", () => {
   const ui = read("platform.ui.js");
   const main = read("platform.main.js");
+  const css = read("platform.css");
 
-  assert.match(config, /workflowDetailsCollapsed: localStorage\.getItem\(WORKFLOW_DETAILS_COLLAPSED_KEY\) === "1"/);
   assert.match(ui, /function captureWorkflowCanvasViewport/);
   assert.match(ui, /function restoreWorkflowCanvasViewport/);
   assert.match(ui, /const viewport = captureWorkflowCanvasViewport\(\);[\s\S]*?els\.workflowRoot\.innerHTML[\s\S]*?restoreWorkflowCanvasViewport\(viewport\);/);
   assert.match(ui, /Math\.max\(WORKFLOW_CANVAS_BASE_WIDTH, storedWidth/);
-  assert.match(ui, /data-workflow-action="toggle-details"/);
-  assert.match(ui, /workflow-node-detail \$\{state\.workflowDetailsCollapsed \? "is-collapsed" : ""\}/);
-  assert.match(ui, /if \(action === "toggle-details"\)/);
+  assert.doesNotMatch(ui, /<aside class="workflow-side">/);
+  assert.doesNotMatch(ui, /data-workflow-action="toggle-details"/);
+  assert.match(css, /\.workflow-shell \{[\s\S]*?height: 100%;[\s\S]*?grid-template-rows: auto auto minmax\(0, 1fr\)/);
+  assert.match(css, /\.workflow-layout \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(css, /\.workflow-canvas \{[\s\S]*?height: 100%/);
   assert.match(ui, /if \(Date\.now\(\) < suppressWorkflowViewportSaveUntil\) return/);
   assert.match(main, /addEventListener\("scroll", handleWorkflowCanvasScroll, \{ capture: true, passive: true \}\)/);
 });
@@ -106,4 +107,16 @@ test("workflow add and delete actions remain responsive after dragging", () => {
   assert.match(ui, /renderWorkflowPanel\(\{ focusNodeId: node\.id \}\)/);
   assert.match(ui, /suppressWorkflowClickUntil = Date\.now\(\) \+ 80/);
   assert.doesNotMatch(ui, /suppressWorkflowClickUntil = Date\.now\(\) \+ 250/);
+});
+
+test("workflow toolbar exposes only real controls", () => {
+  const ui = read("platform.ui.js");
+
+  assert.match(ui, /data-workflow-action="physics"[\s\S]*?>[\s\S]*?Modifiers<\/button>/);
+  assert.match(ui, /<strong>Prompt modifiers<\/strong>/);
+  assert.doesNotMatch(ui, /data-workflow-action="add-branch"/);
+  assert.doesNotMatch(ui, /data-workflow-action="refiner"/);
+  assert.doesNotMatch(ui, /data-workflow-action="director"/);
+  assert.doesNotMatch(ui, /class="workflow-director"/);
+  assert.doesNotMatch(ui, /<strong>Quick nodes<\/strong>/);
 });
