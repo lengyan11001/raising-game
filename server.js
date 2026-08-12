@@ -82,6 +82,12 @@ const {
   referenceVideoDurationViolation,
 } = require("./media-inputs");
 const {
+  LOCAL_MEDIA_RETENTION_MS,
+  markPublishedFile,
+  removeExpiredFiles,
+  removeExpiredPublishedFiles,
+} = require("./local-media-retention");
+const {
   DEFAULT_TENANT_ID,
   normalizeTenantId,
   dbEnabled,
@@ -16119,6 +16125,7 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
       mime: videoMimeFromPath(localVideoPath),
     });
     result.cdnVideoUrl = videoUpload.publicUrl;
+    await markPublishedFile(localVideoPath);
   }
   if (localPosterPath) {
     const posterBytes = await fs.readFile(localPosterPath);
@@ -16128,6 +16135,7 @@ async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, loc
       mime: "image/jpeg",
     });
     result.cdnPosterUrl = posterUpload.publicUrl;
+    await markPublishedFile(localPosterPath);
   }
   return result;
 }
@@ -16240,6 +16248,7 @@ async function saveGeneratedImageFile(taskId, bytes, mime = "image/png", { publi
       mime: imageMime,
     });
     result.cdnImageUrl = upload.publicUrl || "";
+    await markPublishedFile(localImagePath);
   }
   return result;
 }
@@ -17607,6 +17616,30 @@ async function cleanupStaleVideoToolUploads() {
 function startVideoToolUploadCleanupScheduler() {
   setTimeout(() => cleanupStaleVideoToolUploads(), 30000).unref?.();
   setInterval(() => cleanupStaleVideoToolUploads(), 6 * 60 * 60 * 1000).unref?.();
+}
+
+async function cleanupStaleLocalMedia() {
+  const cutoffMs = Date.now() - LOCAL_MEDIA_RETENTION_MS;
+  try {
+    const uploads = await removeExpiredFiles(USER_UPLOAD_DIR, cutoffMs);
+    const generated = objectStorageEnabled()
+      ? await removeExpiredPublishedFiles([
+          GENERATED_VIDEO_DIR,
+          GENERATED_POSTER_DIR,
+          GENERATED_IMAGE_DIR,
+        ], cutoffMs)
+      : { files: 0, bytes: 0 };
+    if (uploads.files || generated.files) {
+      console.log("[local-media-cleanup]", { uploads, generated, retentionHours: 24 });
+    }
+  } catch (error) {
+    console.warn("[local-media-cleanup-failed]", error.message || error);
+  }
+}
+
+function startLocalMediaCleanupScheduler() {
+  setTimeout(() => cleanupStaleLocalMedia(), 30000).unref?.();
+  setInterval(() => cleanupStaleLocalMedia(), 60 * 60 * 1000).unref?.();
 }
 
 async function handleVideoToolGenerate(req, res) {
@@ -35916,6 +35949,7 @@ async function bootstrap() {
   startActiveGenerationRecordScheduler();
   startVideoToolJobRecoveryScheduler();
   startVideoToolUploadCleanupScheduler();
+  startLocalMediaCleanupScheduler();
 
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`After Dark demo server: http://127.0.0.1:${PORT}/`);
