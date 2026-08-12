@@ -98,3 +98,12 @@ test("workflow rerenders preserve the viewport and selected node details can col
   assert.match(ui, /if \(Date\.now\(\) < suppressWorkflowViewportSaveUntil\) return/);
   assert.match(main, /addEventListener\("scroll", handleWorkflowCanvasScroll, \{ capture: true, passive: true \}\)/);
 });
+
+test("workflow add and delete actions remain responsive after dragging", () => {
+  const ui = read("platform.ui.js");
+
+  assert.match(ui, /function revealWorkflowNode/);
+  assert.match(ui, /renderWorkflowPanel\(\{ focusNodeId: node\.id \}\)/);
+  assert.match(ui, /suppressWorkflowClickUntil = Date\.now\(\) \+ 80/);
+  assert.doesNotMatch(ui, /suppressWorkflowClickUntil = Date\.now\(\) \+ 250/);
+});

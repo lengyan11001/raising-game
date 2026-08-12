@@ -4206,7 +4206,32 @@ function renderWorkflowMediaPreview(node = {}, model = null) {
 let activeWorkflowConnection = null;
 let activeWorkflowNodeDrag = null;
 let suppressWorkflowClickUntil = 0;
+let suppressWorkflowClickNodeId = "";
 let suppressWorkflowViewportSaveUntil = 0;
+
+function revealWorkflowNode(nodeId = "") {
+  const canvas = els.workflowRoot?.querySelector(".workflow-canvas");
+  const node = workflowNodeById(nodeId);
+  if (!canvas || !node) return;
+  const zoom = workflowZoom();
+  const padding = 32;
+  const left = Number(node.x || 0) * zoom;
+  const top = Number(node.y || 0) * zoom;
+  const right = left + WORKFLOW_NODE_WIDTH * zoom;
+  const bottom = top + 360 * zoom;
+  let nextLeft = canvas.scrollLeft;
+  let nextTop = canvas.scrollTop;
+  if (left < nextLeft + padding) nextLeft = Math.max(0, left - padding);
+  else if (right > nextLeft + canvas.clientWidth - padding) nextLeft = Math.max(0, right - canvas.clientWidth + padding);
+  if (top < nextTop + padding) nextTop = Math.max(0, top - padding);
+  else if (bottom > nextTop + canvas.clientHeight - padding) nextTop = Math.max(0, bottom - canvas.clientHeight + padding);
+  suppressWorkflowViewportSaveUntil = Date.now() + 100;
+  canvas.scrollLeft = nextLeft;
+  canvas.scrollTop = nextTop;
+  const workflow = ensureWorkflowState();
+  workflow.scrollLeft = canvas.scrollLeft;
+  workflow.scrollTop = canvas.scrollTop;
+}
 
 function workflowNodeAcceptsInput(node = null) {
   return Boolean(node && node.type !== "upload");
@@ -4435,7 +4460,7 @@ function renderWorkflowPickerCards(presets = [], selectedModel = {}) {
   }).join("");
 }
 
-function renderWorkflowPanel() {
+function renderWorkflowPanel({ focusNodeId = "" } = {}) {
   if (!els.workflowRoot) return;
   const viewport = captureWorkflowCanvasViewport();
   const workflow = ensureWorkflowState();
@@ -4518,6 +4543,7 @@ function renderWorkflowPanel() {
   `;
   refreshIcons();
   restoreWorkflowCanvasViewport(viewport);
+  if (focusNodeId) revealWorkflowNode(focusNodeId);
 }
 
 function updateWorkflowNodeFromControl(control) {
@@ -4596,7 +4622,7 @@ function addWorkflowVideoNode(modelId = "") {
   ));
   state.workflowSelectedNodeId = node.id;
   persistWorkflowState();
-  renderWorkflowPanel();
+  renderWorkflowPanel({ focusNodeId: node.id });
 }
 
 function applyWorkflowTemplate(templateId = "") {
@@ -5243,14 +5269,19 @@ function handleWorkflowWheel(event) {
 function stopWorkflowNodeDrag({ commit = true } = {}) {
   if (!activeWorkflowNodeDrag) return;
   const didMove = activeWorkflowNodeDrag.moved;
+  const draggedNodeId = activeWorkflowNodeDrag.nodeId || "";
   els.workflowRoot?.querySelectorAll(".workflow-node.is-dragging").forEach((node) => node.classList.remove("is-dragging"));
   els.workflowRoot?.classList.remove("is-dragging-node");
   activeWorkflowNodeDrag = null;
   if (didMove) {
-    suppressWorkflowClickUntil = Date.now() + 250;
+    suppressWorkflowClickNodeId = draggedNodeId;
+    suppressWorkflowClickUntil = Date.now() + 80;
     setTimeout(() => {
-      if (Date.now() >= suppressWorkflowClickUntil) suppressWorkflowClickUntil = 0;
-    }, 260);
+      if (Date.now() >= suppressWorkflowClickUntil) {
+        suppressWorkflowClickUntil = 0;
+        suppressWorkflowClickNodeId = "";
+      }
+    }, 90);
   }
   if (commit && didMove) {
     persistWorkflowState();
@@ -5387,7 +5418,8 @@ function handleWorkflowPointerCancel(event) {
 
 function handleWorkflowClick(event) {
   if (typeof handleWorkflowCanvasClick === "function" && handleWorkflowCanvasClick(event)) return;
-  if (Date.now() < suppressWorkflowClickUntil) {
+  const clickedNodeId = event.target.closest("[data-workflow-node]")?.dataset.workflowNode || "";
+  if (Date.now() < suppressWorkflowClickUntil && clickedNodeId && clickedNodeId === suppressWorkflowClickNodeId) {
     event.preventDefault();
     event.stopPropagation();
     return;
