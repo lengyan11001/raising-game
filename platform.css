@@ -5056,6 +5056,78 @@ select option:checked {
   color: #f8f8fb;
 }
 
+.workflow-canvas-manager {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: minmax(170px, 260px) minmax(180px, 320px) repeat(3, 38px) minmax(70px, auto);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 8px;
+  background: rgba(10,10,12,.92);
+}
+
+.workflow-canvas-manager select,
+.workflow-canvas-manager input {
+  height: 38px;
+  min-width: 0;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: rgba(255,255,255,.07);
+  color: #f8f8fb;
+}
+
+.workflow-canvas-manager select option {
+  background: #17171d;
+  color: #f8f8fb;
+}
+
+.workflow-canvas-manager button {
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: rgba(255,255,255,.08);
+  color: #f8f8fb;
+}
+
+.workflow-canvas-manager button:hover:not(:disabled) {
+  border-color: rgba(255,71,173,.8);
+  background: rgba(255,71,173,.18);
+}
+
+.workflow-canvas-manager button.is-danger:hover:not(:disabled) {
+  border-color: rgba(255,98,98,.82);
+  background: rgba(255,98,98,.18);
+}
+
+.workflow-canvas-manager button:disabled,
+.workflow-canvas-manager select:disabled,
+.workflow-canvas-manager input:disabled {
+  opacity: .55;
+}
+
+.workflow-canvas-manager svg {
+  width: 17px;
+  height: 17px;
+}
+
+.workflow-canvas-save-status {
+  color: rgba(255,255,255,.62);
+  font-size: .8rem;
+  font-weight: 800;
+  white-space: nowrap;
+  text-align: right;
+}
+
 .workflow-toolbar {
   position: relative;
   z-index: 4;
@@ -6352,6 +6424,11 @@ select option:checked {
   .workflow-side { max-height: none; }
   .workflow-canvas { min-height: 720px; }
   .workflow-toolbar { width: 100%; }
+  .workflow-canvas-manager {
+    grid-template-columns: minmax(0, 1fr) repeat(3, 38px);
+  }
+  .workflow-canvas-manager input { grid-column: 1 / -1; grid-row: 2; }
+  .workflow-canvas-save-status { display: none; }
   .workflow-director { grid-template-columns: 1fr; }
   .advanced-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wan-media-panel-head { display: grid; }

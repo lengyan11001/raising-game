@@ -32,6 +32,7 @@ SHARED_APP_FILES = (
     "platform.config.js",
     "platform.copy.js",
     "platform.ui.js",
+    "platform.workflow-canvases.js",
     "platform.explore.js",
     "platform.create.js",
     "platform.main.js",
@@ -65,6 +66,7 @@ SHARED_APP_FILES = (
     "seedance25.js",
     "seedance25-direct.js",
     "video-tools.js",
+    "workflow-canvases.js",
     "test/advanced-custom-ui.test.js",
     "test/advanced-pricing.test.js",
     "test/aliyun-video.test.js",
@@ -81,6 +83,8 @@ SHARED_APP_FILES = (
     "test/video-tool-actions.test.js",
     "test/wallet-scan.test.js",
     "test/web-vitals.test.js",
+    "test/workflow-access.test.js",
+    "test/workflow-canvases.test.js",
 )
 
 SHARED_TOOLING_FILES = (

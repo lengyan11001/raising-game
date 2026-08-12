@@ -802,6 +802,13 @@ const state = {
   workflowPresets: [],
   workflowPresetsLoaded: false,
   workflowPresetsLoading: false,
+  workflowCanvases: [],
+  workflowCanvasesLoaded: false,
+  workflowCanvasesLoading: false,
+  workflowActiveCanvasId: "",
+  workflowCanvasMessage: "",
+  workflowCanvasSaveTimer: 0,
+  workflowCanvasSaving: false,
   workflowLogs: [],
   workflowPollTimers: {},
   advancedAssetTarget: "primary",
@@ -841,6 +848,10 @@ function tenantFeature(name, fallback = true) {
   return Boolean(features[name]);
 }
 
+function canUseWorkflow() {
+  return tenantFeature("workflow", true);
+}
+
 function tenantStringFeature(name, fallback = "") {
   const value = tenantFeatures()[name];
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
@@ -875,7 +886,7 @@ function tenantDefaultTab() {
     if (disabled.includes(candidate)) continue;
     if (candidate === "assets" && !tenantFeature("assetLibrary", true)) continue;
     if (candidate === "access" && !tenantFeature("apiAccess", true)) continue;
-    if (candidate === "workflow" && !isWorkflowTester()) continue;
+    if (candidate === "workflow" && !canUseWorkflow()) continue;
     return candidate;
   }
   return DEFAULT_PLATFORM_TAB;
@@ -938,7 +949,7 @@ function isTabAllowed(tab) {
   if (allowed.length && !allowed.includes(normalized)) return false;
   if (tenantDisabledTabs().includes(normalized)) return false;
   if (normalized === "access" && !tenantFeature("apiAccess", true)) return false;
-  if (normalized === "workflow") return isWorkflowTester();
+  if (normalized === "workflow") return canUseWorkflow();
   if (normalized === "assets") return tenantFeature("assetLibrary", true);
   return true;
 }

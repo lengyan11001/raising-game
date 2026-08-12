@@ -462,7 +462,7 @@ function applyStaticTranslations() {
 
 function applyTenantFeatures() {
   const assetEnabled = tenantFeature("assetLibrary", true);
-  const workflowEnabled = isWorkflowTester();
+  const workflowEnabled = canUseWorkflow();
   const animeEnabled = canUseAnimeTemplates();
   const apiAccessEnabled = tenantFeature("apiAccess", true);
   const toolOnly = tenantFeature("toolOnly", false);
@@ -570,6 +570,14 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
     state.advancedAssetTotal = 0;
     state.advancedAssetTotalPages = 1;
     state.workflow = null;
+    window.clearTimeout(state.workflowCanvasSaveTimer);
+    state.workflowCanvasSaveTimer = 0;
+    state.workflowCanvases = [];
+    state.workflowCanvasesLoaded = false;
+    state.workflowCanvasesLoading = false;
+    state.workflowActiveCanvasId = "";
+    state.workflowCanvasMessage = "";
+    state.workflowCanvasSaving = false;
     state.workflowSelectedNodeId = "video-1";
     state.workflowPickerNodeId = "";
     state.workflowPickerSearch = "";
@@ -595,6 +603,7 @@ function setUser(user, { refreshHistory = false, skipReferralRefresh = false } =
   if (state.tab === "assets") loadUserAssets();
   if (state.tab === "advanced") loadAdvancedAssets();
   if (state.tab === "access") loadApiSubtokens({ force: true });
+  if (state.tab === "workflow") loadWorkflowCanvases({ force: true });
   if (state.tab === "referral") {
     if (state.user && !skipReferralRefresh) loadReferralSummary({ force: true });
     else renderReferral();
@@ -3382,7 +3391,7 @@ function ensureWorkflowState() {
   return state.workflow;
 }
 
-function persistWorkflowState() {
+function persistWorkflowState({ skipServer = false } = {}) {
   try {
     const workflow = ensureWorkflowState();
     localStorage.setItem(workflowUserStorageKey(), JSON.stringify({
@@ -3394,6 +3403,7 @@ function persistWorkflowState() {
       layoutVersion: workflow.layoutVersion || WORKFLOW_NODE_LAYOUT_VERSION,
     }));
   } catch (_) {}
+  if (!skipServer && typeof scheduleWorkflowCanvasSave === "function") scheduleWorkflowCanvasSave();
 }
 
 function workflowNodeById(nodeId = "") {
@@ -4364,6 +4374,7 @@ function renderWorkflowPanel() {
   const activePhysics = new Set(workflow.physics || []);
   const selectedPrompt = workflowPromptPreview(selectedModel, selected?.data?.prompt);
   els.workflowRoot.innerHTML = `
+    ${typeof renderWorkflowCanvasManager === "function" ? renderWorkflowCanvasManager() : ""}
     <div class="workflow-toolbar">
       <button class="workflow-run ${state.workflowRunning ? "is-cancel" : ""}" type="button" data-workflow-action="${state.workflowRunning ? "cancel" : "run"}"><i data-lucide="${state.workflowRunning ? "square" : "play"}"></i>${state.workflowRunning ? "Cancel" : "Run all"}</button>
       <button type="button" data-workflow-action="clear-results" ${state.workflowRunning ? "disabled" : ""}><i data-lucide="eraser"></i>Clear results</button>
@@ -5132,9 +5143,14 @@ function updateWorkflowNodeDrag(event) {
   updateWorkflowRenderedEdges();
 }
 
+function workflowWheelZoomBlockedTarget(target) {
+  return Boolean(target?.closest?.("[data-workflow-node]"));
+}
+
 function handleWorkflowWheel(event) {
   const canvas = event.target.closest?.(".workflow-canvas");
   if (!canvas) return;
+  if (workflowWheelZoomBlockedTarget(event.target)) return;
   const workflow = ensureWorkflowState();
   const current = workflowZoom();
   const direction = event.deltaY > 0 ? -1 : 1;
@@ -5296,6 +5312,7 @@ function handleWorkflowPointerCancel(event) {
 }
 
 function handleWorkflowClick(event) {
+  if (typeof handleWorkflowCanvasClick === "function" && handleWorkflowCanvasClick(event)) return;
   if (Date.now() < suppressWorkflowClickUntil) {
     event.preventDefault();
     event.stopPropagation();
@@ -5438,6 +5455,7 @@ function handleWorkflowClick(event) {
 
 function handleWorkflowInput(event) {
   const target = event.target;
+  if (typeof handleWorkflowCanvasInput === "function" && handleWorkflowCanvasInput(event)) return;
   if (target.matches("[data-workflow-picker-search]")) {
     state.workflowPickerSearch = target.value || "";
     const node = workflowNodeById(state.workflowPickerNodeId || "");
