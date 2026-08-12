@@ -28,11 +28,18 @@ function workflowCanvasStateFromPayload(value = {}) {
     directorPrompt: String(workflow.directorPrompt || ""),
     zoom: normalizeWorkflowZoom(workflow.zoom),
     layoutVersion: Number(workflow.layoutVersion || 0),
+    canvasWidth: Number(workflow.canvasWidth || WORKFLOW_CANVAS_BASE_WIDTH),
+    canvasHeight: Number(workflow.canvasHeight || WORKFLOW_CANVAS_BASE_HEIGHT),
+    scrollLeft: Number(workflow.scrollLeft || 0),
+    scrollTop: Number(workflow.scrollTop || 0),
   });
 }
 
 function workflowCanvasSnapshot() {
   const workflow = ensureWorkflowState();
+  const viewport = captureWorkflowCanvasViewport();
+  workflow.scrollLeft = viewport.left;
+  workflow.scrollTop = viewport.top;
   return {
     nodes: workflow.nodes,
     edges: workflow.edges,
@@ -40,6 +47,10 @@ function workflowCanvasSnapshot() {
     directorPrompt: workflow.directorPrompt || "",
     zoom: normalizeWorkflowZoom(workflow.zoom),
     layoutVersion: workflow.layoutVersion || WORKFLOW_NODE_LAYOUT_VERSION,
+    canvasWidth: Number(workflow.canvasWidth || WORKFLOW_CANVAS_BASE_WIDTH),
+    canvasHeight: Number(workflow.canvasHeight || WORKFLOW_CANVAS_BASE_HEIGHT),
+    scrollLeft: Number(workflow.scrollLeft || 0),
+    scrollTop: Number(workflow.scrollTop || 0),
   };
 }
 
@@ -53,6 +64,8 @@ function updateWorkflowCanvasSaveStatus() {
 }
 
 function setActiveWorkflowCanvas(canvas = {}) {
+  window.clearTimeout(state.workflowViewportSaveTimer);
+  state.workflowViewportSaveTimer = 0;
   const summary = workflowCanvasSummary(canvas);
   state.workflowCanvases = [
     summary,

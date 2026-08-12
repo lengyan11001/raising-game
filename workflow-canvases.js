@@ -52,6 +52,10 @@ function defaultWorkflowCanvasState() {
     directorPrompt: "",
     zoom: 1,
     layoutVersion: 3,
+    canvasWidth: 3200,
+    canvasHeight: 720,
+    scrollLeft: 0,
+    scrollTop: 0,
   };
 }
 
@@ -89,6 +93,10 @@ function normalizeWorkflowCanvasState(value = {}) {
     directorPrompt: String(value.directorPrompt || "").slice(0, WORKFLOW_DIRECTOR_PROMPT_LIMIT),
     zoom: boundedNumber(value.zoom, 1, 0.55, 1.8),
     layoutVersion: Math.max(0, Math.min(100, Math.trunc(Number(value.layoutVersion || 0) || 0))),
+    canvasWidth: boundedNumber(value.canvasWidth, 3200, 3200, 12000),
+    canvasHeight: boundedNumber(value.canvasHeight, 720, 720, 3200),
+    scrollLeft: boundedNumber(value.scrollLeft, 0, 0, 12000),
+    scrollTop: boundedNumber(value.scrollTop, 0, 0, 3200),
   };
   safeJsonClone(state);
   return state;

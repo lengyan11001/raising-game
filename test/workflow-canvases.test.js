@@ -23,9 +23,17 @@ test("workflow canvas state is normalized and bounded", () => {
     ...initial,
     zoom: 99,
     directorPrompt: "x".repeat(7000),
+    canvasWidth: 8000,
+    canvasHeight: 1800,
+    scrollLeft: 2400,
+    scrollTop: 320,
   });
   assert.equal(normalized.zoom, 1.8);
   assert.equal(normalized.directorPrompt.length, 6000);
+  assert.equal(normalized.canvasWidth, 8000);
+  assert.equal(normalized.canvasHeight, 1800);
+  assert.equal(normalized.scrollLeft, 2400);
+  assert.equal(normalized.scrollTop, 320);
   assert.throws(
     () => normalizeWorkflowCanvasState({ ...initial, nodes: Array.from({ length: 101 }, (_, index) => ({ id: `n-${index}` })) }),
     /100 nodes/,
@@ -72,4 +80,21 @@ test("workflow canvas UI supports migration, selection, create, save and delete"
   assert.match(manager, /data-workflow-canvas-select/);
   assert.match(ui, /scheduleWorkflowCanvasSave\(\);/);
   assert.match(explore, /loadWorkflowCanvases\(\);/);
+});
+
+test("workflow rerenders preserve the viewport and selected node details can collapse", () => {
+  const config = read("platform.config.js");
+  const ui = read("platform.ui.js");
+  const main = read("platform.main.js");
+
+  assert.match(config, /workflowDetailsCollapsed: localStorage\.getItem\(WORKFLOW_DETAILS_COLLAPSED_KEY\) === "1"/);
+  assert.match(ui, /function captureWorkflowCanvasViewport/);
+  assert.match(ui, /function restoreWorkflowCanvasViewport/);
+  assert.match(ui, /const viewport = captureWorkflowCanvasViewport\(\);[\s\S]*?els\.workflowRoot\.innerHTML[\s\S]*?restoreWorkflowCanvasViewport\(viewport\);/);
+  assert.match(ui, /Math\.max\(WORKFLOW_CANVAS_BASE_WIDTH, storedWidth/);
+  assert.match(ui, /data-workflow-action="toggle-details"/);
+  assert.match(ui, /workflow-node-detail \$\{state\.workflowDetailsCollapsed \? "is-collapsed" : ""\}/);
+  assert.match(ui, /if \(action === "toggle-details"\)/);
+  assert.match(ui, /if \(Date\.now\(\) < suppressWorkflowViewportSaveUntil\) return/);
+  assert.match(main, /addEventListener\("scroll", handleWorkflowCanvasScroll, \{ capture: true, passive: true \}\)/);
 });
