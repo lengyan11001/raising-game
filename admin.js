@@ -42,6 +42,7 @@ const ROUTES = [
   { id: "recharges", title: "充值流水", render: renderRecharges },
   { id: "wallet", title: "钱包订单", render: renderWallet },
   { id: "pricing", title: "价格配置", render: renderPricing },
+  { id: "undress-config", title: "Undress 配置", render: renderUndressConfig },
   { id: "config", title: "系统配置", render: renderConfig },
 ];
 ROUTES.splice(Math.max(0, ROUTES.findIndex((route) => route.id === "config")), 0, {
@@ -49,7 +50,7 @@ ROUTES.splice(Math.max(0, ROUTES.findIndex((route) => route.id === "config")), 0
   title: "GEO",
   render: renderGeo,
 });
-const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "config"]);
+const TENANT_HIDDEN_ADMIN_ROUTES = new Set(["characters", "videos", "scenes", "undress-config", "config"]);
 
 function isTenantAdminHost() {
   return /(^|\.)(cloudtoken\.ai|667zui\.video)$/i.test(window.location.hostname || "");
@@ -4572,6 +4573,100 @@ async function renderPlatform(options = {}) {
       await saveAdvanced(advanced.cases.filter((_, i) => i !== index));
     });
   });
+}
+
+/* ============ UNDRESS CONFIG ============ */
+async function renderUndressConfig() {
+  const payload = await api("/api/admin/undress-prompts");
+  if (!isActiveRoute("undress-config")) return;
+  const prompts = payload.prompts || {};
+  const defaults = payload.defaults || {};
+  els.adminContent.innerHTML = `
+    <section class="adm-page">
+      <div class="adm-page-head">
+        <h2>Undress 提示词</h2>
+        <div class="adm-page-actions">
+          <button class="adm-btn adm-btn-ghost" id="reloadUndressPromptsBtn" type="button"><i data-lucide="refresh-cw"></i>刷新</button>
+          <button class="adm-btn adm-btn-ghost" id="resetUndressPromptsBtn" type="button"><i data-lucide="rotate-ccw"></i>恢复默认</button>
+          <button class="adm-btn adm-btn-primary" id="saveUndressPromptsBtn" type="button"><i data-lucide="save"></i>保存</button>
+        </div>
+      </div>
+      <div class="adm-grid adm-undress-prompt-grid">
+        <div class="adm-card">
+          <div class="adm-card-body">
+            <label class="adm-undress-prompt-field">
+              <span>图片生成</span>
+              <textarea id="undressPromptImage" maxlength="6000">${escapeHtml(prompts.image || "")}</textarea>
+              <small class="adm-undress-prompt-count" data-count-for="undressPromptImage"></small>
+            </label>
+          </div>
+        </div>
+        <div class="adm-card">
+          <div class="adm-card-body">
+            <label class="adm-undress-prompt-field">
+              <span>图片转视频</span>
+              <textarea id="undressPromptImageVideo" maxlength="6000">${escapeHtml(prompts.imageVideo || "")}</textarea>
+              <small class="adm-undress-prompt-count" data-count-for="undressPromptImageVideo"></small>
+            </label>
+          </div>
+        </div>
+        <div class="adm-card is-wide">
+          <div class="adm-card-body">
+            <label class="adm-undress-prompt-field">
+              <span>视频处理</span>
+              <textarea id="undressPromptVideo" maxlength="6000">${escapeHtml(prompts.video || "")}</textarea>
+              <small class="adm-undress-prompt-count" data-count-for="undressPromptVideo"></small>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>`;
+
+  const fields = {
+    image: byId("undressPromptImage"),
+    imageVideo: byId("undressPromptImageVideo"),
+    video: byId("undressPromptVideo"),
+  };
+  const updateCounts = () => {
+    Object.values(fields).forEach((field) => {
+      const counter = els.adminContent.querySelector(`[data-count-for="${field.id}"]`);
+      if (counter) counter.textContent = `${field.value.length}/6000`;
+    });
+  };
+  const setFields = (values = {}) => {
+    Object.entries(fields).forEach(([key, field]) => { field.value = values[key] || ""; });
+    updateCounts();
+  };
+  Object.values(fields).forEach((field) => field.addEventListener("input", updateCounts));
+  updateCounts();
+
+  byId("reloadUndressPromptsBtn")?.addEventListener("click", () => renderUndressConfig());
+  byId("resetUndressPromptsBtn")?.addEventListener("click", () => {
+    setFields(defaults);
+    toast("已恢复默认内容，点击保存后生效。", "success");
+  });
+  byId("saveUndressPromptsBtn")?.addEventListener("click", async () => {
+    const next = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value.trim()]));
+    const invalid = Object.entries(next).find(([, value]) => !value || value.length > 6000);
+    if (invalid) {
+      toast(!invalid[1] ? "提示词不能为空。" : "提示词不能超过 6000 个字符。", "error");
+      fields[invalid[0]]?.focus();
+      return;
+    }
+    const button = byId("saveUndressPromptsBtn");
+    button.disabled = true;
+    try {
+      const saved = await api("/api/admin/undress-prompts", { method: "PUT", body: { prompts: next } });
+      setFields(saved.prompts || next);
+      state.config = null;
+      toast("Undress 提示词已保存。", "success");
+    } catch (error) {
+      toast(error.message || "保存失败。", "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+  refreshIcons();
 }
 
 /* ============ CONFIG ============ */

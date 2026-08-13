@@ -67,6 +67,12 @@ const {
   planVideoEditSegments,
 } = require("./video-tools");
 const {
+  DEFAULT_UNDRESS_PROMPTS,
+  normalizeUndressPrompts,
+  undressPromptForAction,
+  validateUndressPrompts,
+} = require("./undress-prompts");
+const {
   WORKFLOW_CANVAS_LIMIT,
   defaultWorkflowCanvasState,
   normalizeWorkflowCanvasName,
@@ -948,6 +954,7 @@ function decorateFullBodyLegPrompt(corePrompt, extraDirection = "") {
 
 const DEFAULT_CONFIG = {
   defaultCompanionId: "aria",
+  undressPrompts: { ...DEFAULT_UNDRESS_PROMPTS },
   prices: {
     meet: 12,
     photo: 18,
@@ -1698,6 +1705,7 @@ async function readAppConfig() {
     prices: { ...DEFAULT_CONFIG.prices, ...(saved.prices || {}) },
     wallet: { ...DEFAULT_CONFIG.wallet, ...(saved.wallet || {}) },
     video: { ...DEFAULT_CONFIG.video, ...(saved.video || {}), generateAudio: true },
+    undressPrompts: normalizeUndressPrompts(saved.undressPrompts),
     platform: normalizePlatformConfig(saved.platform || DEFAULT_CONFIG.platform),
     homeVideo: mergedHomeVideo,
     ifilm: { ...DEFAULT_CONFIG.ifilm, ...(saved.ifilm || {}) },
@@ -1707,7 +1715,10 @@ async function readAppConfig() {
 }
 
 async function writeAppConfig(config) {
-  const next = { ...config };
+  const next = {
+    ...config,
+    undressPrompts: normalizeUndressPrompts(config?.undressPrompts),
+  };
   if (Array.isArray(next.homeVideo?.items)) {
     await replaceAdminHomeItemsStore(next.homeVideo.items);
     next.homeVideo = { ...next.homeVideo, items: [] };
@@ -17210,7 +17221,7 @@ async function runVideoToolFaceSwap(job) {
         const submitted = await submitAliyunVideoTask({
           provider: "wan27",
           capability: "wan27-video-edit",
-          prompt: undressVideo ? VIDEO_TOOL_UNDRESS_EDIT_PROMPT : VIDEO_TOOL_FACE_SWAP_PROMPT,
+          prompt: undressVideo ? (job.prompt || VIDEO_TOOL_UNDRESS_EDIT_PROMPT) : VIDEO_TOOL_FACE_SWAP_PROMPT,
           media: [
             { type: "video", url: published.url },
             ...(imageAsset ? [{ type: "reference_image", url: publicUrlForLocalAsset(imageAsset) }] : []),
@@ -17297,7 +17308,7 @@ async function runVideoToolFaceSwap(job) {
 async function runVideoToolUndress(job) {
   return runVideoToolImageEdit(job, {
     inputs: [{ assetId: job.imageAssetId, label: "Source image" }],
-    prompt: VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
+    prompt: job.prompt || VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
     resultLabel: "undress image edit",
     successReason: "undress",
   });
@@ -17323,7 +17334,7 @@ async function runVideoToolUndressImageVideo(job) {
     const submitted = await submitAliyunVideoTask({
       provider: "wan27",
       capability: "wan27-i2v",
-      prompt: VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
+      prompt: job.prompt || VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
       media: [{ type: "first_frame", url: imageUrl }],
       body: {
         model: ALIYUN_WAN27_I2V_MODEL,
@@ -17421,7 +17432,7 @@ async function runVideoToolUndressVideoLegacy(job) {
   if (!targetAsset) {
     await updateVideoToolProgress(taskId, "target", { params: { upstreamTaskIds, keyframeAssetId: keyframeAsset.id } });
     const target = await generateVideoToolImageStage({
-      db, user, sourceAsset: keyframeAsset, prompt: VIDEO_TOOL_UNDRESS_TARGET_PROMPT, taskId, stage: "target", config,
+      db, user, sourceAsset: keyframeAsset, prompt: job.prompt || VIDEO_TOOL_UNDRESS_TARGET_PROMPT, taskId, stage: "target", config,
     });
     targetAsset = target.asset;
     if (target.upstreamTaskId && !upstreamTaskIds.includes(target.upstreamTaskId)) upstreamTaskIds.push(target.upstreamTaskId);
@@ -17586,6 +17597,7 @@ async function recoverVideoToolJobs(reason = "startup") {
       targetImageAssetId,
       videoAssetId,
       pricing: plainObject(record.pricingEstimate),
+      prompt: record.finalPrompt || record.prompt || "",
     });
     if (started) console.log("[video-tool-job-recovered]", { reason, taskId: record.taskId, action });
   });
@@ -17653,6 +17665,12 @@ async function handleVideoToolGenerate(req, res) {
   const action = videoToolAction(body.action);
   if (!action) return sendJson(res, 400, { ok: false, message: "Unsupported video tool action." });
   try {
+    const isImageFaceSwap = action === "image-face-swap";
+    const isImageAction = action === "undress" || isImageFaceSwap;
+    const appConfig = await readAppConfig();
+    const configuredUndressPrompt = undressPromptForAction(action, appConfig.undressPrompts);
+    const taskPrompt = configuredUndressPrompt
+      || (isImageFaceSwap ? IMAGE_TOOL_FACE_SWAP_PROMPT : VIDEO_TOOL_FACE_SWAP_PROMPT);
     const imageAsset = videoToolAsset(
       auth.db,
       auth.user.id,
@@ -17704,8 +17722,6 @@ async function handleVideoToolGenerate(req, res) {
       });
       if (!dbEnabled()) await writeDb(auth.db);
     }
-    const isImageFaceSwap = action === "image-face-swap";
-    const isImageAction = action === "undress" || isImageFaceSwap;
     const primaryAsset = targetImageAsset || imageAsset;
     const assetIds = isImageFaceSwap
       ? [targetImageAsset.id, imageAsset.id]
@@ -17732,12 +17748,8 @@ async function handleVideoToolGenerate(req, res) {
             { type: "reference_image", userAssetId: imageAsset.id, localUrl: imageAsset.localUrl || "" },
             ...(videoAsset ? [{ type: "video", userAssetId: videoAsset.id, localUrl: videoAsset.localUrl || "" }] : []),
           ],
-      prompt: isImageFaceSwap
-        ? IMAGE_TOOL_FACE_SWAP_PROMPT
-        : action === "undress" ? VIDEO_TOOL_UNDRESS_TARGET_PROMPT : VIDEO_TOOL_FACE_SWAP_PROMPT,
-      finalPrompt: isImageFaceSwap
-        ? IMAGE_TOOL_FACE_SWAP_PROMPT
-        : action === "undress" ? VIDEO_TOOL_UNDRESS_TARGET_PROMPT : VIDEO_TOOL_FACE_SWAP_PROMPT,
+      prompt: taskPrompt,
+      finalPrompt: taskPrompt,
       params: {
         toolAction: action,
         stage: "queued",
@@ -17771,6 +17783,7 @@ async function handleVideoToolGenerate(req, res) {
       targetImageAssetId: targetImageAsset?.id || "",
       videoAssetId: videoAsset?.id || "",
       pricing,
+      prompt: taskPrompt,
     });
     return sendJson(res, 202, {
       ok: true,
@@ -17865,8 +17878,9 @@ async function claimUndressToolFreeImage({ userId = "", tenantId = "", taskId = 
   });
 }
 
-function undressToolGenerationDefinition(value = "") {
+function undressToolGenerationDefinition(value = "", promptConfig = DEFAULT_UNDRESS_PROMPTS) {
   const generationType = String(value || "").trim().toLowerCase().replace(/-/g, "_");
+  const prompts = normalizeUndressPrompts(promptConfig);
   const definitions = {
     image: {
       generationType: "image",
@@ -17875,7 +17889,7 @@ function undressToolGenerationDefinition(value = "") {
       source: "undress-tool-image",
       kind: "image-tool-undress",
       provider: "wan27-image-edit",
-      prompt: VIDEO_TOOL_UNDRESS_TARGET_PROMPT,
+      prompt: prompts.image,
     },
     image_video: {
       generationType: "image_video",
@@ -17884,7 +17898,7 @@ function undressToolGenerationDefinition(value = "") {
       source: "undress-tool-image-video",
       kind: "video-tool-undress-image-video",
       provider: "wan27",
-      prompt: VIDEO_TOOL_UNDRESS_IMAGE_VIDEO_PROMPT,
+      prompt: prompts.imageVideo,
     },
     video: {
       generationType: "video",
@@ -17893,7 +17907,7 @@ function undressToolGenerationDefinition(value = "") {
       source: "undress-tool-video",
       kind: "video-tool-undress-video",
       provider: "video-tool",
-      prompt: VIDEO_TOOL_UNDRESS_EDIT_PROMPT,
+      prompt: prompts.video,
     },
   };
   return definitions[generationType] || null;
@@ -17997,7 +18011,8 @@ async function handleUndressToolGenerate(req, res) {
   if (!auth) return;
   if (!dbEnabled()) return sendJson(res, 503, { ok: false, message: "This tool requires database storage." });
   const body = await readJson(req);
-  const generation = undressToolGenerationDefinition(body.generationType);
+  const appConfig = await readAppConfig();
+  const generation = undressToolGenerationDefinition(body.generationType, appConfig.undressPrompts);
   if (!generation) return sendJson(res, 400, { ok: false, message: "Select a generation type." });
   const uploaded = (auth.db.userAssets || []).find((entry) => (
     entry.id === String(body.assetId || "").trim()
@@ -18134,6 +18149,7 @@ async function handleUndressToolGenerate(req, res) {
       imageAssetId: generation.mediaKind === "image" ? asset.id : "",
       videoAssetId: generation.mediaKind === "video" ? asset.id : "",
       pricing,
+      prompt: generation.prompt,
     });
     return sendJson(res, 202, {
       ok: true,
@@ -31600,6 +31616,42 @@ async function handleAdminGetConfig(req, res) {
   return sendJson(res, 200, { ok: true, config });
 }
 
+async function handleAdminGetUndressPrompts(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  return sendJson(res, 200, {
+    ok: true,
+    prompts: normalizeUndressPrompts(config.undressPrompts),
+    defaults: DEFAULT_UNDRESS_PROMPTS,
+  });
+}
+
+async function handleAdminSaveUndressPrompts(req, res) {
+  const auth = await requireAdmin(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  let prompts;
+  try {
+    prompts = validateUndressPrompts(body.prompts);
+  } catch (error) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: error.code || "INVALID_UNDRESS_PROMPT",
+      field: error.field || "",
+      message: error.message || "Invalid Undress prompt configuration.",
+    });
+  }
+  const current = await readAppConfig();
+  const next = {
+    ...current,
+    undressPrompts: prompts,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeAppConfig(next);
+  return sendJson(res, 200, { ok: true, prompts, defaults: DEFAULT_UNDRESS_PROMPTS });
+}
+
 const ADVANCED_PRICING_ROWS = [
   { key: "seedance25-480p", provider: "seedance25", providerLabel: "Seedance 2.5", model: SEEDANCE25_MODEL_ID, resolution: "480p", rateKind: "output", unit: "output_second", usageLabel: "References / first-last frames" },
   { key: "seedance25-720p", provider: "seedance25", providerLabel: "Seedance 2.5", model: SEEDANCE25_MODEL_ID, resolution: "720p", rateKind: "output", unit: "output_second", usageLabel: "References / first-last frames" },
@@ -32423,17 +32475,32 @@ async function handleAdminSaveConfig(req, res) {
   if (!auth) return;
   const body = await readJson(req);
   const current = await readAppConfig();
+  const configPatch = body.config || {};
+  let undressPrompts = current.undressPrompts;
+  if (Object.prototype.hasOwnProperty.call(configPatch, "undressPrompts")) {
+    try {
+      undressPrompts = validateUndressPrompts(configPatch.undressPrompts);
+    } catch (error) {
+      return sendJson(res, 400, {
+        ok: false,
+        code: error.code || "INVALID_UNDRESS_PROMPT",
+        field: error.field || "",
+        message: error.message || "Invalid Undress prompt configuration.",
+      });
+    }
+  }
   const next = {
     ...current,
-    ...(body.config || {}),
-    prices: { ...current.prices, ...((body.config || {}).prices || {}) },
-    wallet: { ...current.wallet, ...((body.config || {}).wallet || {}) },
-    video: { ...current.video, ...((body.config || {}).video || {}) },
-    platform: normalizePlatformConfig((body.config || {}).platform || current.platform || {}),
-    homeVideo: { ...current.homeVideo, ...((body.config || {}).homeVideo || {}) },
-    ifilm: { ...current.ifilm, ...((body.config || {}).ifilm || {}) },
-    characterImage: { ...current.characterImage, ...((body.config || {}).characterImage || {}) },
-    scenes: Array.isArray((body.config || {}).scenes) ? body.config.scenes : current.scenes,
+    ...configPatch,
+    prices: { ...current.prices, ...(configPatch.prices || {}) },
+    wallet: { ...current.wallet, ...(configPatch.wallet || {}) },
+    video: { ...current.video, ...(configPatch.video || {}) },
+    undressPrompts,
+    platform: normalizePlatformConfig(configPatch.platform || current.platform || {}),
+    homeVideo: { ...current.homeVideo, ...(configPatch.homeVideo || {}) },
+    ifilm: { ...current.ifilm, ...(configPatch.ifilm || {}) },
+    characterImage: { ...current.characterImage, ...(configPatch.characterImage || {}) },
+    scenes: Array.isArray(configPatch.scenes) ? configPatch.scenes : current.scenes,
     updatedAt: new Date().toISOString(),
   };
   await writeAppConfig(next);
@@ -35507,6 +35574,14 @@ async function handleRequest(req, res) {
 
     if (req.method === "PUT" && url.pathname === "/api/admin/config") {
       return await handleAdminSaveConfig(req, res);
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/admin/undress-prompts") {
+      return await handleAdminGetUndressPrompts(req, res);
+    }
+
+    if (req.method === "PUT" && url.pathname === "/api/admin/undress-prompts") {
+      return await handleAdminSaveUndressPrompts(req, res);
     }
 
     if (req.method === "GET" && url.pathname === "/api/admin/pricing") {
