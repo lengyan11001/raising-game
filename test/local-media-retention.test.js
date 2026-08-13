@@ -62,3 +62,26 @@ test("server schedules hourly local-media cleanup and marks R2 outputs", async (
   assert.match(server, /await markPublishedFile\(localPosterPath\)/);
   assert.match(server, /await markPublishedFile\(localImagePath\)/);
 });
+
+test("server rehydrates cleaned user-upload assets before upstream reuse", async () => {
+  const server = await fs.readFile(path.resolve(__dirname, "..", "server.js"), "utf8");
+  assert.match(server, /function restorablePublicUrlForUserAsset/);
+  assert.match(server, /async function ensureLocalUserAssetFile/);
+  assert.match(server, /downloadRemoteFileToBuffer\(remoteUrl/);
+  assert.match(server, /localRestoredAt/);
+  assert.match(server, /function missingUserAssetFileError/);
+  assert.match(server, /async function ensureLocalAssetUrlFile/);
+
+  const normalizeImage = server.indexOf("async function normalizeUserImageAssetForUpstream");
+  const seedanceCreateAsset = server.indexOf("async function ensureSeedanceAssetForUserAsset");
+  const publicMedia = server.indexOf("async function ensurePublicUrlForUserMediaAsset");
+  const wan30Mirror = server.indexOf("async function ensureWan30R2MirrorForUserMediaAsset");
+  const videoTool = server.indexOf("async function localVideoToolAssetPath");
+  const publishLocal = server.indexOf("async function publishLocalAssetUrlToObjectStorage");
+  assert.ok(server.indexOf("ensureLocalUserAssetFile(db, userAsset", normalizeImage) > normalizeImage);
+  assert.ok(server.indexOf("ensureLocalUserAssetFile(db, userAsset", seedanceCreateAsset) > seedanceCreateAsset);
+  assert.ok(server.indexOf("readLocalUserAssetBytes(db, userAsset", publicMedia) > publicMedia);
+  assert.ok(server.indexOf("readLocalUserAssetBytes(db, userAsset", wan30Mirror) > wan30Mirror);
+  assert.ok(server.indexOf("ensureLocalUserAssetFile(null, asset", videoTool) > videoTool);
+  assert.ok(server.indexOf("ensureLocalAssetUrlFile(value", publishLocal) > publishLocal);
+});

@@ -9032,6 +9032,139 @@ function userAssetHasConfiguredObjectStorageMirror(asset = {}) {
     && [asset.publicUrl, asset.cdnUrl].some((value) => publicUrlMatchesStorageBase(value, publicDomain));
 }
 
+function restorablePublicUrlForUserAsset(asset = {}) {
+  const candidates = [
+    asset.cdnUrl,
+    asset.publicUrl,
+    asset.wan30PublicUrl,
+    asset.objectStorageUrl,
+    asset.r2Url,
+    asset.syntheticReferencePublicUrl,
+    asset.sourcePublicUrl,
+    asset.sourceUrl,
+    asset.originalUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(isPublicHttpUrl) || "";
+}
+
+function restoreLimitBytesForUserAsset(asset = {}, fallbackBytes = 0) {
+  const mime = String(asset.mime || "").toLowerCase();
+  const storedSize = Number(firstPresent(asset.sizeBytes, asset.meta?.byteLength, asset.meta?.sizeBytes));
+  const defaultLimit = fallbackBytes
+    || (mime.startsWith("image/")
+      ? IMAGE_UPLOAD_MAX_BYTES
+      : mime.startsWith("video/")
+        ? VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES
+        : MEDIA_UPLOAD_MAX_BYTES);
+  const requestedLimit = Number.isFinite(storedSize) && storedSize > 0
+    ? Math.max(defaultLimit, storedSize + 1024 * 1024)
+    : defaultLimit;
+  return Math.min(Math.max(requestedLimit, defaultLimit), 500 * 1024 * 1024);
+}
+
+function missingUserAssetFileError(asset = {}, label = "Asset") {
+  return advancedValidationError(
+    "ASSET_FILE_MISSING",
+    `${label} source file is unavailable. Re-upload the asset before generating again.`,
+    { assetId: asset.id || "" },
+  );
+}
+
+async function persistRestoredUserAssetMetadata(db, userAsset, bytes, mime = "") {
+  if (!userAsset || !bytes) return userAsset;
+  const restoredAt = new Date().toISOString();
+  if (mime && !userAsset.mime) userAsset.mime = mime;
+  userAsset.sizeBytes = Number(bytes.byteLength || userAsset.sizeBytes || 0);
+  userAsset.meta = {
+    ...plainObject(userAsset.meta),
+    localRestoredAt: restoredAt,
+  };
+  userAsset.updatedAt = restoredAt;
+  if (db?.userAssets) db.userAssets = db.userAssets.map((asset) => (asset.id === userAsset.id ? userAsset : asset));
+  if (dbEnabled()) await upsertUserAssetInDb(userAsset);
+  else if (db) await writeDb(db);
+  return userAsset;
+}
+
+async function ensureLocalUserAssetFile(db, userAsset, {
+  label = "Asset",
+  maxBytes = 0,
+  requireFile = true,
+} = {}) {
+  const localPath = localPathForUserAsset(userAsset);
+  if (!localPath) {
+    if (!requireFile) return "";
+    throw missingUserAssetFileError(userAsset, label);
+  }
+  const stat = await fs.stat(localPath).catch(() => null);
+  if (stat?.isFile() && stat.size > 0) return localPath;
+
+  const remoteUrl = restorablePublicUrlForUserAsset(userAsset);
+  if (!remoteUrl) {
+    if (!requireFile) return "";
+    throw missingUserAssetFileError(userAsset, label);
+  }
+
+  const downloaded = await downloadRemoteFileToBuffer(remoteUrl, {
+    label,
+    maxBytes: restoreLimitBytesForUserAsset(userAsset, maxBytes),
+    timeoutMs: 2 * 60 * 1000,
+    retryCount: 2,
+  });
+  await fs.mkdir(path.dirname(localPath), { recursive: true });
+  const temporaryPath = `${localPath}.${process.pid}.${Date.now()}.restore.tmp`;
+  try {
+    await fs.writeFile(temporaryPath, downloaded.bytes);
+    await fs.rename(temporaryPath, localPath);
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => {});
+    const current = await fs.stat(localPath).catch(() => null);
+    if (!current?.isFile() || current.size <= 0) throw error;
+  }
+  await persistRestoredUserAssetMetadata(db, userAsset, downloaded.bytes, downloaded.mime);
+  return localPath;
+}
+
+async function readLocalUserAssetBytes(db, userAsset, options = {}) {
+  const localPath = await ensureLocalUserAssetFile(db, userAsset, options);
+  return {
+    localPath,
+    bytes: await fs.readFile(localPath),
+  };
+}
+
+async function findRestorableUserAssetByLocalUrl(localUrl = "") {
+  const target = String(localUrl || "").trim().split("?")[0];
+  if (!target.startsWith("/assets/user-uploads/")) return { db: null, asset: null };
+  const db = await readDb();
+  const asset = (db.userAssets || []).find((entry) => (
+    String(entry?.localUrl || "").trim().split("?")[0] === target
+    && !isSoftDeleted(entry)
+  )) || null;
+  return { db, asset };
+}
+
+async function ensureLocalAssetUrlFile(localUrl = "", {
+  label = "Asset",
+  maxBytes = 0,
+} = {}) {
+  const value = String(localUrl || "").trim().split("?")[0];
+  if (!value || !value.startsWith("/assets/")) return "";
+  const localPath = path.resolve(ROOT, value.replace(/^\/+/, ""));
+  const rootPath = path.resolve(ROOT);
+  const relative = path.relative(rootPath, localPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    const error = new Error("Asset path is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const stat = await fs.stat(localPath).catch(() => null);
+  if (stat?.isFile() && stat.size > 0) return localPath;
+  const { db, asset } = await findRestorableUserAssetByLocalUrl(value);
+  if (!asset) return "";
+  return ensureLocalUserAssetFile(db, asset, { label, maxBytes, requireFile: false });
+}
+
 function normalizedImageTempPath(sourcePath = "") {
   const parsed = path.parse(sourcePath);
   const extension = [".jpg", ".jpeg", ".png", ".webp", ".bmp"].includes(parsed.ext.toLowerCase()) ? parsed.ext : ".png";
@@ -9123,7 +9256,7 @@ async function normalizeUserImageAssetForUpstream(db, userAsset, {
   flattenTransparency = true,
 } = {}) {
   if (!userAsset || !String(userAsset.mime || "").toLowerCase().startsWith("image/")) return userAsset;
-  const localPath = localPathForUserAsset(userAsset);
+  const localPath = await ensureLocalUserAssetFile(db, userAsset, { label, maxBytes: IMAGE_UPLOAD_MAX_BYTES, requireFile: false });
   if (!localPath) return userAsset;
 
   const storedDimensions = storedImageDimensionsForAsset(userAsset);
@@ -9204,7 +9337,7 @@ async function validateSeedanceImageAssetForRequest(db, asset = {}, label = "See
   if (storedDimensions) return assertSeedanceImageAspectRatio(storedDimensions, label);
 
   let bytes = null;
-  const localPath = localPathForUserAsset(asset);
+  const localPath = await ensureLocalUserAssetFile(db, asset, { label, maxBytes: IMAGE_UPLOAD_MAX_BYTES, requireFile: false });
   if (localPath) {
     bytes = await fs.readFile(localPath);
   } else if (isPublicHttpUrl(asset.publicUrl)) {
@@ -9252,7 +9385,7 @@ function storedVideoDimensionsForAsset(asset = {}) {
 async function validateSeedanceVideoAssetForRequest(db, asset = {}, label = "Seedance video") {
   if (!asset) return null;
   validateWan27MediaKind(asset, "video", label);
-  const localPath = localPathForUserAsset(asset);
+  let localPath = localPathForUserAsset(asset);
   const storedDimensions = storedVideoDimensionsForAsset(asset);
   if (storedDimensions) {
     try {
@@ -9262,6 +9395,7 @@ async function validateSeedanceVideoAssetForRequest(db, asset = {}, label = "See
     }
   }
 
+  localPath = await ensureLocalUserAssetFile(db, asset, { label, maxBytes: VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES, requireFile: false });
   if (!localPath) {
     throw advancedValidationError("SEEDANCE_VIDEO_DIMENSIONS_UNREADABLE", `${label} dimensions could not be read. Re-upload the video before using it with Seedance.`, { assetId: asset.id || "" });
   }
@@ -9999,7 +10133,16 @@ async function publishLocalAssetUrlToObjectStorage(localUrl = "") {
     error.statusCode = 400;
     throw error;
   }
-  const bytes = await fs.readFile(localPath);
+  const restoredPath = await ensureLocalAssetUrlFile(value, { label: "Local asset", maxBytes: VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES });
+  let bytes = null;
+  try {
+    bytes = await fs.readFile(restoredPath || localPath);
+  } catch (error) {
+    if (error?.code === "ENOENT" && value.startsWith("/assets/user-uploads/")) {
+      throw missingUserAssetFileError({}, "Local asset");
+    }
+    throw error;
+  }
   const mime = imageMimeFromKnownPath(localPath)
     || videoMimeFromKnownPath(localPath)
     || audioMimeFromKnownPath(localPath)
@@ -11845,13 +11988,7 @@ function normalizeWan27MediaItem(item = {}) {
 
 async function dataUrlForUserAsset(asset = {}) {
   if (!asset?.localUrl) return "";
-  const localPath = path.normalize(path.join(ROOT, String(asset.localUrl || "").replace(/^\//, "")));
-  if (!localPath.startsWith(ROOT)) {
-    const error = new Error("Asset path is invalid.");
-    error.statusCode = 400;
-    throw error;
-  }
-  const bytes = await fs.readFile(localPath);
+  const { bytes } = await readLocalUserAssetBytes(null, asset, { label: "Asset", maxBytes: restoreLimitBytesForUserAsset(asset) });
   return `data:${asset.mime || "application/octet-stream"};base64,${bytes.toString("base64")}`;
 }
 
@@ -13856,8 +13993,10 @@ async function ensureWan30R2MirrorForUserMediaAsset(db, userAsset) {
     return userAsset;
   }
 
-  const localPath = localPathForUserAsset(userAsset);
-  const bytes = await fs.readFile(localPath);
+  const { localPath, bytes } = await readLocalUserAssetBytes(db, userAsset, {
+    label: "Wan 3.0 media",
+    maxBytes: restoreLimitBytesForUserAsset(userAsset),
+  });
   const uploaded = await uploadBufferToR2({
     userId: userAsset.userId,
     assetId: `${userAsset.id}-wan30`,
@@ -13900,8 +14039,10 @@ async function ensurePublicUrlForUserMediaAsset(db, userAsset, {
     return userAsset;
   }
 
-  const localPath = path.join(ROOT, String(userAsset.localUrl || "").replace(/^\//, ""));
-  const bytes = await fs.readFile(localPath);
+  const { localPath, bytes } = await readLocalUserAssetBytes(db, userAsset, {
+    label: "Upstream media",
+    maxBytes: restoreLimitBytesForUserAsset(userAsset),
+  });
   const uploaded = await uploadBufferToR2({
     userId: userAsset.userId,
     assetId: `${userAsset.id}-wan`,
@@ -13935,8 +14076,10 @@ async function ensureSeedanceGatewayPublicAsset(db, userAsset) {
     const dimensionsChanged = Number(before?.width || 0) !== Number(dimensions?.width || 0)
       || Number(before?.height || 0) !== Number(dimensions?.height || 0);
     if (dimensionsChanged || !userAssetHasConfiguredObjectStorageMirror(userAsset)) {
-      const localPath = localPathForUserAsset(userAsset);
-      const bytes = await fs.readFile(localPath);
+      const { localPath, bytes } = await readLocalUserAssetBytes(db, userAsset, {
+        label: "Seedance gateway video",
+        maxBytes: VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES,
+      });
       const uploaded = await uploadBufferToR2({
         userId: userAsset.userId,
         assetId: `${userAsset.id}-seedance-gateway`,
@@ -13977,8 +14120,10 @@ async function ensurePublicUrlForUserAsset(db, userAsset) {
     return userAsset;
   }
 
-  const localPath = path.join(ROOT, userAsset.localUrl.replace(/^\//, ""));
-  const bytes = await fs.readFile(localPath);
+  const { localPath, bytes } = await readLocalUserAssetBytes(db, userAsset, {
+    label: "Upstream image",
+    maxBytes: restoreLimitBytesForUserAsset(userAsset),
+  });
   const uploaded = await uploadBufferToR2({
     userId: userAsset.userId,
     assetId: `${userAsset.id}-apiz`,
@@ -14119,10 +14264,10 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
     }
   }
 
-  const localPath = localPathForUserAsset(userAsset);
-  if (!localPath) {
-    throw advancedValidationError("ASSET_FILE_MISSING", "Asset local file is missing. Re-upload the asset before using it with Seedance.", { assetId: userAsset.id || "" });
-  }
+  const localPath = await ensureLocalUserAssetFile(db, userAsset, {
+    label: "Seedance media asset",
+    maxBytes: restoreLimitBytesForUserAsset(userAsset),
+  });
   let bytes = null;
   if (assetType === "Image") {
     bytes = await fs.readFile(localPath);
@@ -16695,7 +16840,11 @@ async function handleVideoToolEstimate(req, res) {
 }
 
 async function localVideoToolAssetPath(asset = {}, workDir = "") {
-  const localPath = localPathForUserAsset(asset);
+  const localPath = await ensureLocalUserAssetFile(null, asset, {
+    label: "Uploaded video",
+    maxBytes: VIDEO_TOOL_SOURCE_UPLOAD_MAX_BYTES,
+    requireFile: false,
+  });
   if (localPath) {
     try {
       await fs.access(localPath);
