@@ -24,6 +24,7 @@ const {
   buildSeedance25TaskPayload,
   normalizeSeedance25Mode,
   purchaseSiteCreditsPerSecond: seedance25PurchaseSiteCreditsPerSecond,
+  seedance25TaskFailureMessage,
 } = require("./seedance25");
 const {
   SEEDANCE25_DIRECT_ENDPOINT_ID,
@@ -15138,6 +15139,9 @@ function publicGenerationRecord(record = {}, options = {}) {
   ].map((item) => String(item || "").trim()).filter(Boolean))];
   const publicImageUrls = providerOnlyImageUrl ? providerImageUrls : (storedImageUrls.length ? storedImageUrls : providerImageUrls);
   const publicDownloadUrl = publicVideoUrl || publicImageUrl || providerVideoUrl || providerImageUrl;
+  const recordError = String(record.provider || "").toLowerCase() === "seedance25" && isFailedStatus(record.status)
+    ? seedance25TaskFailureMessage(record.queryResponse || {}) || record.error || ""
+    : record.error || "";
   const publicRecord = {
     taskId: String(record.taskId || ""),
     upstreamTaskId: String(record.upstreamTaskId || ""),
@@ -15184,7 +15188,7 @@ function publicGenerationRecord(record = {}, options = {}) {
     providerImageUrls,
     upstreamImageUrl: providerImageUrl,
     remoteImageUrl: String(record.remoteImageUrl || ""),
-    error: publicModelText(record.error || ""),
+    error: publicModelText(recordError),
     cdnError: publicModelText(record.cdnError || ""),
     billing: publicBilling(record),
     createdAt: String(record.createdAt || ""),
@@ -26034,9 +26038,7 @@ async function refreshSeedance25GenerationRecord(record, reason = "query") {
     cdnVideoUrl: media.cdnVideoUrl || record.cdnVideoUrl || "",
     cdnPosterUrl: media.cdnPosterUrl || record.cdnPosterUrl || "",
     cdnError: media.cdnError || record.cdnError || "",
-    error: task?.error?.message
-      || (typeof task?.error === "string" ? task.error : "")
-      || (isFailedStatus(status) ? String(task?.message || "Seedance 2.5 generation failed.") : "")
+    error: (isFailedStatus(status) ? seedance25TaskFailureMessage(task) || "Seedance 2.5 generation failed." : "")
       || media.downloadError
       || "",
     queryResponse: task,

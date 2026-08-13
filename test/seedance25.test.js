@@ -6,8 +6,21 @@ const {
   SEEDANCE25_POINTS_PER_SECOND,
   buildSeedance25TaskPayload,
   purchaseSiteCreditsPerSecond,
+  seedance25TaskFailureMessage,
   validateSeedance25Input,
 } = require("../seedance25");
+
+test("reports the nested upstream Seedance failure instead of a generic message", () => {
+  assert.equal(seedance25TaskFailureMessage({
+    status: "failed",
+    output: {
+      error: {
+        code: "UPSTREAM_GENERATION_FAILED",
+        message: "We couldn't create your video. Your tokens have been credited back to your account.",
+      },
+    },
+  }), "UPSTREAM_GENERATION_FAILED: We couldn't create your video. Your tokens have been credited back to your account.");
+});
 
 const OUTER_MODEL = SEEDANCE25_MODEL;
 
