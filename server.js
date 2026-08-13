@@ -119,6 +119,7 @@ const {
   updateWalletOrderInDb,
   updateUserInDb,
   upsertUserAssetInDb,
+  getUserAssetFromDb,
   upsertUserCharacterInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
@@ -345,6 +346,7 @@ const PUBLIC_CHARACTER_PAGE_SIZE = 20;
 const REFERRAL_REWARD_CREDITS = 100;
 const USER_UPLOAD_DIR = path.join(ROOT, "assets", "user-uploads");
 const ADMIN_HOME_DIR = path.join(ROOT, "assets", "admin", "home");
+const UNDRESS_TOOL_EXAMPLE_DIR = path.join(ROOT, "assets", "admin", "undress-examples");
 const ADMIN_ADVANCED_CASE_DIR = path.join(ROOT, "assets", "admin", "advanced-cases");
 const ADMIN_PLATFORM_TEMPLATE_DIR = path.join(ROOT, "assets", "admin", "platform-templates");
 const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
@@ -17949,20 +17951,114 @@ function undressToolExampleLocalPath(record = {}, definition = {}, side = "input
   return "";
 }
 
+function undressToolExampleAsset(record = {}) {
+  const assetIds = [
+    record.userAssetId,
+    ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
+    ...(Array.isArray(record.mediaAssets) ? record.mediaAssets.map((asset) => asset?.userAssetId) : []),
+  ].map((id) => String(id || "").trim()).filter(Boolean);
+  return assetIds.length
+    ? (record.__userAssets || []).find((asset) => assetIds.includes(String(asset?.id || ""))) || null
+    : null;
+}
+
+function undressToolExampleAssetId(record = {}) {
+  return [
+    record.userAssetId,
+    ...(Array.isArray(record.userAssetIds) ? record.userAssetIds : []),
+    ...(Array.isArray(record.mediaAssets) ? record.mediaAssets.map((asset) => asset?.userAssetId) : []),
+  ].map((id) => String(id || "").trim()).find(Boolean) || "";
+}
+
+function undressToolExampleRemoteUrl(record = {}, definition = {}, side = "input") {
+  if (side === "result") {
+    const candidates = definition.resultType === "video"
+      ? [record.cdnVideoUrl, record.videoUrl, record.remoteVideoUrl]
+      : [record.cdnImageUrl, record.imageResultUrl, record.remoteImageUrl];
+    return candidates.map((value) => String(value || "").trim()).find(isPublicHttpUrl) || "";
+  }
+  const asset = undressToolExampleAsset(record);
+  const candidates = [
+    asset?.cdnUrl,
+    asset?.publicUrl,
+    asset?.objectStorageUrl,
+    asset?.r2Url,
+    record.sourceImageUrl,
+    record.imageUrl,
+  ];
+  return candidates.map((value) => String(value || "").trim()).find(isPublicHttpUrl) || "";
+}
+
+function undressToolExampleExtension(mediaType = "image", mime = "", source = "") {
+  return mediaType === "video"
+    ? videoExtFromMime(mime, source)
+    : imageExtFromMime(mime || imageMimeFromKnownPath(source) || "image/jpeg");
+}
+
+async function ensureUndressToolExampleFile(record = {}, definition = {}, generationType = "", side = "input") {
+  const mediaType = side === "input" ? definition.inputType : definition.resultType;
+  const existing = undressToolExampleLocalPath(record, definition, side);
+  let existingStat = null;
+  if (existing) existingStat = await fs.stat(existing).catch(() => null);
+  const existingMime = existingStat
+    ? (mediaType === "video" ? videoMimeFromKnownPath(existing) : imageMimeFromKnownPath(existing))
+    : "";
+  const remoteUrl = undressToolExampleRemoteUrl(record, definition, side);
+  const sourceHint = existing || remoteUrl;
+  const fallbackMime = mediaType === "video" ? "video/mp4" : "image/jpeg";
+  const extension = undressToolExampleExtension(mediaType, existingMime, sourceHint);
+  const targetPath = path.join(UNDRESS_TOOL_EXAMPLE_DIR, `${storagePathSegment(generationType)}-${side}${extension}`);
+  const targetStat = await fs.stat(targetPath).catch(() => null);
+  if (targetStat?.isFile() && targetStat.size > 0) {
+    return { filePath: targetPath, mime: existingMime || (mediaType === "video" ? videoMimeFromPath(targetPath) : imageMimeFromPath(targetPath)) };
+  }
+
+  await fs.mkdir(UNDRESS_TOOL_EXAMPLE_DIR, { recursive: true });
+  const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    let mime = existingMime || fallbackMime;
+    const sourcePath = existingStat?.isFile() && existingStat.size > 0 ? existing : "";
+    if (sourcePath) {
+      await fs.copyFile(sourcePath, temporaryPath);
+    } else {
+      if (!remoteUrl) return null;
+      const downloaded = await downloadRemoteFileToBuffer(remoteUrl, {
+        label: `Undress ${generationType} ${side} example`,
+        maxBytes: mediaType === "video" ? 300 * 1024 * 1024 : 25 * 1024 * 1024,
+        timeoutMs: 2 * 60 * 1000,
+        retryCount: 2,
+      });
+      mime = downloaded.mime || fallbackMime;
+      await fs.writeFile(temporaryPath, downloaded.bytes);
+    }
+    await fs.rename(temporaryPath, targetPath);
+    return { filePath: targetPath, mime };
+  } finally {
+    await fs.rm(temporaryPath, { force: true }).catch(() => {});
+  }
+}
+
 async function handleUndressToolExampleMedia(req, res, generationType, side) {
   if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
   const definition = UNDRESS_TOOL_EXAMPLES[generationType];
   if (!definition || !["input", "result"].includes(side)) return sendText(res, 404, "Not Found");
   const record = await getGenerationRecord(definition.taskId);
   if (!record || !isSucceededStatus(record.status)) return sendText(res, 404, "Not Found");
-  const mediaType = side === "input" ? definition.inputType : definition.resultType;
-  const filePath = undressToolExampleLocalPath(record, definition, side);
-  if (!filePath) return sendText(res, 404, "Not Found");
   try {
+    let example = await ensureUndressToolExampleFile(record, definition, generationType, side);
+    if (!example && side === "input") {
+      const asset = dbEnabled()
+        ? await getUserAssetFromDb(undressToolExampleAssetId(record))
+        : (await readDb()).userAssets.find((item) => item.id === undressToolExampleAssetId(record));
+      record.__userAssets = asset ? [asset] : [];
+      example = await ensureUndressToolExampleFile(record, definition, generationType, side);
+    }
+    const filePath = example?.filePath || "";
+    if (!filePath) return sendText(res, 404, "Not Found");
     const stat = await fs.stat(filePath);
-    const mime = mediaType === "video"
+    const mime = example.mime || (definition[side === "input" ? "inputType" : "resultType"] === "video"
       ? videoMimeFromKnownPath(filePath) || "video/mp4"
-      : imageMimeFromKnownPath(filePath) || "image/jpeg";
+      : imageMimeFromKnownPath(filePath) || "image/jpeg");
     if (sendInternalAsset(res, filePath, mime, stat)) return;
     res.writeHead(200, {
       "content-type": mime,

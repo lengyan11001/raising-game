@@ -147,6 +147,11 @@ test("all three generation tabs show compact server-backed before and after exam
   assert.match(server, /video-20260806194724-f15971/);
   assert.match(handler, /undressToolRequestAllowed\(req\)/);
   assert.match(handler, /getGenerationRecord\(definition\.taskId\)/);
+  assert.match(server, /UNDRESS_TOOL_EXAMPLE_DIR/);
+  assert.match(handler, /ensureUndressToolExampleFile/);
+  assert.match(server, /function undressToolExampleRemoteUrl/);
+  assert.match(server, /downloadRemoteFileToBuffer\(remoteUrl/);
+  assert.match(server, /fs\.copyFile\(sourcePath, temporaryPath\)/);
   assert.match(handler, /sendInternalAsset\(res, filePath, mime, stat\)/);
   assert.match(server, /undressToolExampleMatch[\s\S]*?handleUndressToolExampleMedia/);
   assert.match(server, /\(image\|image_video\|video\)/);

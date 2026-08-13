@@ -1259,6 +1259,15 @@ async function upsertUserAssetInDb(asset = {}) {
   return asset;
 }
 
+async function getUserAssetFromDb(assetId = "") {
+  if (!dbEnabled()) return null;
+  const id = String(assetId || "").trim();
+  if (!id) return null;
+  await ensureSchema();
+  const { rows } = await query(`SELECT * FROM app_user_assets WHERE id = $1 AND deleted_at IS NULL`, [id]);
+  return rows[0] ? recordFromPayloadRow(rows[0]) : null;
+}
+
 async function upsertUserCharacterInDb(character = {}) {
   if (!dbEnabled()) return null;
   const id = String(character.id || "").trim();
@@ -2591,6 +2600,7 @@ module.exports = {
   updateWalletOrderInDb,
   updateUserInDb,
   upsertUserAssetInDb,
+  getUserAssetFromDb,
   upsertUserCharacterInDb,
   upsertUserUnlockInDb,
   claimToolFreeGenerationInDb,
