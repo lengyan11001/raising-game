@@ -229,7 +229,8 @@ function loadLocalEnv(filePath) {
 loadLocalEnv(path.join(ROOT, ".env.local"));
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
-const BLOCK_MAINLAND_CHINA = false;
+const BLOCK_MAINLAND_CHINA = /^(1|true|yes|on)$/i.test(String(process.env.BLOCK_MAINLAND_CHINA || "1").trim());
+const PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || "0").trim());
 const MAINLAND_BYPASS_TOKEN = String(process.env.MAINLAND_BYPASS_TOKEN || "").trim();
 const MAINLAND_BYPASS_QUERY_PARAM = process.env.MAINLAND_BYPASS_QUERY_PARAM || "cnpass";
 const MAINLAND_BYPASS_COOKIE = process.env.MAINLAND_BYPASS_COOKIE || "cnpass";
@@ -1341,16 +1342,37 @@ function isMainlandChinaRequest(req) {
 }
 
 function isMainlandAdminAllowedRequest(req, url) {
-  const pathname = String(url.pathname || "");
-  if (isCmsHostRequest(req)) return true;
-  return (
-    pathname === "/admin.html" ||
-    pathname === "/admin.css" ||
-    pathname === "/admin.js" ||
-    pathname.startsWith("/api/admin/") ||
-    pathname === "/api/auth/login" ||
-    pathname === "/api/auth/me"
-  );
+  return isCmsHostRequest(req);
+}
+
+function publicAliyunModelHidden(value = "") {
+  if (PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) return false;
+  const raw = String(value || "").trim().toLowerCase();
+  const normalized = normalizeAdvancedProvider(value);
+  return ["wan30", "wan27", "happyhorse", "qwen-image3", "wan27-image-edit"].includes(normalized)
+    || raw.includes("wan-animate")
+    || raw.includes("wananimate")
+    || raw.includes("wan2.7")
+    || raw.includes("wan27")
+    || raw.includes("happyhorse")
+    || raw.includes("qwen-image-3");
+}
+
+function publicAliyunModelBlockedForRequest(req, value = "") {
+  if (!publicAliyunModelHidden(value)) return false;
+  const url = new URL(req.url || "/", "http://localhost");
+  if (isCmsHostRequest(req) || url.pathname.startsWith("/api/admin/")) return false;
+  const tenant = requestTenantDescriptor(req);
+  const configuredToolProvider = normalizeAdvancedProvider(tenant.videoProvider || "");
+  return !(tenant.toolId === "video" && configuredToolProvider === normalizeAdvancedProvider(value));
+}
+
+function sendPublicAliyunModelUnavailable(res) {
+  return sendJson(res, 404, {
+    ok: false,
+    code: "MODEL_TEMPORARILY_UNAVAILABLE",
+    message: "This model is temporarily unavailable.",
+  });
 }
 
 function sendMainlandBlocked(req, res, url) {
@@ -2082,7 +2104,7 @@ function publicAdvancedPricingView(pricing = {}) {
     0,
     6,
   );
-  return {
+  const view = {
     unit: "credits",
     creditsPerUsd: normalized.creditsPerUsd || DEFAULT_CREDITS_PER_USD,
     seedance25CreditsPerSecondByResolution: { ...normalized.seedance25CreditsPerSecondByResolution },
@@ -2133,6 +2155,15 @@ function publicAdvancedPricingView(pricing = {}) {
       },
     },
   };
+  if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) {
+    delete view.wan30CreditsPerSecondByResolution;
+    delete view.wan27CreditsPerSecondByResolution;
+    delete view.happyhorseCreditsPerSecondByResolution;
+    delete view.aliyunVideoCreditsPerSecondByCapability;
+    delete view.vipeak1Image;
+    delete view.qwenImage3;
+  }
+  return view;
 }
 
 function publicCharacterPageFromItems(items = [], auth = null, paging = {}) {
@@ -2184,6 +2215,7 @@ function publicTenantFeatures(tenant = {}) {
     allowedGalleryModes: Array.isArray(tenant.allowedGalleryModes) ? tenant.allowedGalleryModes : [],
     disabledTabs: Array.isArray(tenant.disabledTabs) ? tenant.disabledTabs : [],
     apiAccess: tenant.apiAccess !== false,
+    aliyunModels: PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED,
     assetLibrary: tenant.assetLibrary !== false,
     accountMenu: tenant.accountMenu !== false,
     subscriptions: Boolean(tenant.subscriptions),
@@ -2276,6 +2308,14 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
     brand: tenant.brand || platform.brand,
     accessCopy: tenantScopedAccessCopy(isLegacyAccessCopy(platform.accessCopy) ? DEFAULT_CONFIG.platform.accessCopy : platform.accessCopy, origin),
   };
+  if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) {
+    publicPlatform.advanced = {
+      ...publicPlatform.advanced,
+      cases: (publicPlatform.advanced?.cases || []).filter((item) => !publicAliyunModelHidden(
+        item.provider || item.model || item.params?.provider || item.params?.modelProvider || item.params?.model_provider || item.params?.model,
+      )),
+    };
+  }
   if (tenantPublic) {
     publicPlatform.advanced = {
       ...publicPlatform.advanced,
@@ -2292,7 +2332,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
     defaultCompanionId: config.defaultCompanionId,
     prices: { ...config.prices, unlockVideo: CHARACTER_UNLOCK_COST_CREDITS },
     tenantFeatures: publicTenantFeatures(tenant),
-    assetImageModify: {
+    assetImageModify: PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED ? {
       model: assetImageModifyPricing.model || WAN27_IMAGE_PRO_MODEL,
       costCredits: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) * Number(normalizedAdvancedPricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6),
       saleUsdPerImage: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
@@ -2300,7 +2340,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
       ratios: assetImageModifyPricing.ratios || ["1:1", "3:4", "4:3", "9:16", "16:9"],
       defaultResolution: assetImageModifyPricing.defaultResolution || "2K",
       defaultRatio: assetImageModifyPricing.defaultRatio || "9:16",
-    },
+    } : {},
     wallet: {
       asset: publicWalletDefault.asset || config.wallet.asset,
       network: publicWalletDefault.network || config.wallet.network,
@@ -2331,7 +2371,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
       hasMore: characterPage.hasMore,
     },
     platform: publicPlatform,
-    characterImage: config.characterImage,
+    characterImage: PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED ? config.characterImage : {},
     scenes: config.scenes
       .filter((scene) => scene.enabled !== false)
       .map((scene) => {
@@ -22061,6 +22101,7 @@ async function handleByteplusV3ImageGeneration(req, res) {
   try {
     const body = await readJson(req);
     const advancedBody = byteplusV3ImageGenerationToAdvancedBody(body);
+    if (publicAliyunModelBlockedForRequest(req, advancedBody.provider)) return sendPublicAliyunModelUnavailable(res);
     const captured = captureJsonResponse();
     if (advancedBody.provider === "qwen-image3") {
       await handleAdvancedQwenImage3Generate(withJsonBody(req, advancedBody), captured, { auth });
@@ -23499,6 +23540,7 @@ async function handleAdvancedGenerate(req, res) {
     providerHint,
     seedanceModelAliasKind(requestedModel) ? "seedance" : "",
   ));
+  if (publicAliyunModelBlockedForRequest(req, provider)) return sendPublicAliyunModelUnavailable(res);
   try {
     assertExplicitAdvancedProvider(providerHint);
   } catch (error) {
@@ -25570,6 +25612,7 @@ async function handleAdvancedEstimate(req, res) {
     ? (["seedance", "happyhorse", "wan27"].includes(tenant.videoProvider) ? tenant.videoProvider : "wan27")
     : rawProvider;
   const provider = isWan27ImageProvider(effectiveProvider) ? "wan27-image" : normalizeAdvancedProvider(effectiveProvider);
+  if (publicAliyunModelBlockedForRequest(req, provider)) return sendPublicAliyunModelUnavailable(res);
   if (isToolVideoTemplateEstimate) {
     params.videoCapability = toolVideoDefaultCapability(provider);
   }
@@ -25776,6 +25819,71 @@ async function buildModelDocs(req) {
       cases: advancedCases,
     },
   };
+}
+
+function publicModelDocsView(docs = {}) {
+  if (PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) return docs;
+  const view = JSON.parse(JSON.stringify(docs || {}));
+  const external = view.advancedExternalApi || {};
+  external.summary = "Seedance 2.0 uses the V3 task route. Seedream 5.0 Pro uses the V3 images route. Other temporarily unavailable model families are omitted from this public guide.";
+  external.supportedModels = (Array.isArray(external.supportedModels) ? external.supportedModels : [])
+    .filter((item) => !publicAliyunModelHidden(item.provider || item.model || item.name));
+  if (external.constraints && typeof external.constraints === "object") {
+    ["wan30", "wan27", "happyhorse", "wanAnimate", "wan27Image", "qwenImage3"].forEach((key) => delete external.constraints[key]);
+  }
+  ["qwenImage3Generate", "qwenImage3TaskDetail", "wan27ImageEdit"].forEach((key) => delete external.endpoints?.[key]);
+  ["qwenImage3ResponseShape", "qwenImage3Example", "wan30Example", "wan27Example", "happyhorseExample", "wanAnimateExample", "wan27ImageExample"].forEach((key) => delete external[key]);
+  view.advancedExternalApi = external;
+  ["qwenImage3Generate", "qwenImage3TaskDetail", "wan27ImageEdit"].forEach((key) => delete view.endpoints?.[key]);
+  if (view.advanced && Array.isArray(view.advanced.cases)) {
+    view.advanced.cases = view.advanced.cases.filter((item) => !publicAliyunModelHidden(item.provider || item.model || item.params?.provider || item.params?.model));
+  }
+  return view;
+}
+
+function buildRestrictedModelDocsMarkdown(docs = {}) {
+  const external = docs.advancedExternalApi || {};
+  const route = (url, fallback = "") => String(url || fallback || "").replace(String(external.baseUrl || docs.baseUrl || ""), "");
+  const supportedModels = Array.isArray(external.supportedModels) ? external.supportedModels : [];
+  const supportedModelTable = markdownTable(["Model", "Model / Provider", "Capability", "Create", "Result"], supportedModels.map((item) => ({
+    Model: item.name || "",
+    "Model / Provider": item.model || item.provider || "",
+    Capability: item.capability || "-",
+    Create: item.create || "",
+    Result: item.result || "",
+  })));
+  return [
+    `# ${docs.title}`,
+    "",
+    `Base URL: ${docs.baseUrl}`,
+    "",
+    "This is the caller-facing guide for currently available public models and request shapes.",
+    "",
+    "## Authentication",
+    "",
+    markdownCodeBlock("http", "Authorization: Bearer <user-token>"),
+    "",
+    "## Supported Models",
+    "",
+    supportedModelTable,
+    "",
+    "## Seedance V3",
+    "",
+    markdownCodeBlock("json", external.byteplusExample?.body || {}),
+    "",
+    `POST ${route(external.endpoints?.byteplusGenerate, "/api/v3/contents/generations/tasks")}`,
+    "",
+    "## Seedream 5.0 Image",
+    "",
+    markdownCodeBlock("json", external.seedream5ImageExample?.body || {}),
+    "",
+    `POST ${route(external.endpoints?.seedream5ImageGenerate, "/api/v3/images/generations")}`,
+    "",
+    "## Billing",
+    "",
+    docs.billing?.note || "Credits are deducted according to the selected model and configured public rates.",
+    "",
+  ].join("\\n");
 }
 
 function templateDocMarkdown(item) {
@@ -26181,6 +26289,7 @@ function externalAdvancedApiMarkdown(doc = {}) {
 }
 
 function buildModelDocsMarkdown(docs) {
+  if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) return buildRestrictedModelDocsMarkdown(docs);
   return [
     `# ${docs.title}`,
     "",
@@ -26261,12 +26370,12 @@ function buildModelDocsMarkdown(docs) {
 
 async function handleModelsJson(req, res) {
   const docs = await buildModelDocs(req);
-  return sendJson(res, 200, docs);
+  return sendJson(res, 200, publicModelDocsView(docs));
 }
 
 async function handleModelsMarkdown(req, res) {
   const docs = await buildModelDocs(req);
-  return sendMarkdown(res, 200, buildModelDocsMarkdown(docs));
+  return sendMarkdown(res, 200, buildModelDocsMarkdown(publicModelDocsView(docs)));
 }
 
 function apiAccessEnabledForRequest(req) {
@@ -35646,38 +35755,7 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/health") {
       if (undressToolRequestAllowed(req)) return sendJson(res, 200, { ok: true });
-      return sendJson(res, 200, {
-        ok: true,
-        upstreamMode: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
-        gatewayConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : false,
-        arkConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ARK_API_KEY),
-        aliyunConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ALIYUN_DASHSCOPE_API_KEY),
-        qwenImage3Configured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(ALIYUN_QWEN_IMAGE3_API_KEY),
-        wan30Configured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(ALIYUN_WAN30_API_KEY),
-        generationConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(APIZ_API_KEY),
-        r2Configured: r2Enabled(),
-        baseUrl: publicOriginFromRequest(req),
-        toolVideoProvider: TOOL_VIDEO_PROVIDER,
-        models: {
-          fast: MODEL_FAST,
-          quality: MODEL_QUALITY,
-          wan30: ALIYUN_WAN30_MODEL,
-          wan27: {
-            t2v: ALIYUN_WAN27_T2V_MODEL,
-            i2v: ALIYUN_WAN27_I2V_MODEL,
-            r2v: ALIYUN_WAN27_R2V_MODEL,
-            videoEdit: ALIYUN_WAN27_VIDEO_EDIT_MODEL,
-            animateMove: ALIYUN_WAN_ANIMATE_MOVE_MODEL,
-            animateMix: ALIYUN_WAN_ANIMATE_MIX_MODEL,
-          },
-          happyhorse: {
-            t2v: ALIYUN_HAPPYHORSE_T2V_MODEL,
-            i2v: ALIYUN_HAPPYHORSE_I2V_MODEL,
-            r2v: ALIYUN_HAPPYHORSE_R2V_MODEL,
-            videoEdit: ALIYUN_HAPPYHORSE_VIDEO_EDIT_MODEL,
-          },
-        },
-      });
+      return sendJson(res, 200, { ok: true });
     }
 
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/robots.txt") {
@@ -36042,6 +36120,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && (url.pathname === "/api/wan27/image-edit" || url.pathname === "/api/vipeak1/image-edit")) {
+      if (publicAliyunModelBlockedForRequest(req, "wan27-image-edit")) return sendPublicAliyunModelUnavailable(res);
       return await handleWan27ImageEdit(req, res);
     }
 

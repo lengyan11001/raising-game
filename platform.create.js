@@ -1283,8 +1283,27 @@ async function addAssetToAdvancedTarget(assetId = "") {
   if (els.advancedAssetNote) els.advancedAssetNote.textContent = t("advanced.assetAdded", { target: target.label });
 }
 
+function publicAliyunModelsEnabled() {
+  return state.config?.tenantFeatures?.aliyunModels !== false;
+}
+
+function syncAdvancedProviderExposure() {
+  if (!els.advancedProvider) return;
+  const hiddenProviders = new Set(["wan30", "wan27", "wan-animate", "happyhorse", "wan27-image-edit", "qwen-image3"]);
+  const enabled = publicAliyunModelsEnabled();
+  els.advancedProvider.querySelectorAll("option").forEach((option) => {
+    const raw = String(option.value || "").trim().toLowerCase();
+    option.hidden = !enabled && hiddenProviders.has(raw);
+  });
+  const current = String(els.advancedProvider.value || "").trim().toLowerCase();
+  if (!enabled && hiddenProviders.has(current)) {
+    els.advancedProvider.value = "seedance25";
+  }
+}
+
 function updateAdvancedModelControls() {
   applyAdvancedCreateMode();
+  syncAdvancedProviderExposure();
   const provider = currentAdvancedProvider();
   syncAdvancedVideoCapabilityOptions();
   syncAdvancedSeedanceModeOptions(provider);
