@@ -122,9 +122,12 @@ test("R2 failures are terminal and never silently fall back to the origin", () =
 
 test("Alibaba task polling cannot block generation status for minutes", () => {
   assert.match(server, /const queryRequest = normalizedMethod === "GET"/);
-  assert.match(server, /const maxAttempts = queryRequest \? 2 : 1/);
+  assert.match(server, /const submitRequest = normalizedMethod === "POST"/);
+  assert.match(server, /const maxAttempts = queryRequest \? 2 : \(submitRequest \? 3 : 2\)/);
   assert.match(server, /queryRequest \? 20000 : 180000/);
-  assert.match(server, /transientNetworkError = queryRequest/);
+  assert.match(server, /transientNetworkError = \(queryRequest \|\| submitRequest\)/);
+  assert.match(server, /\[aliyun-dashscope-retry\]/);
+  assert.match(server, /ALIYUN_DASHSCOPE_NETWORK_ERROR/);
   assert.match(server, /await Promise\.all\(activeRecords\.map\(async \(record\) => \{/);
 });
 

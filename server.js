@@ -11926,9 +11926,11 @@ async function aliyunDashscopeRequest(pathname, {
   }
   const normalizedMethod = String(method || "POST").toUpperCase();
   const queryRequest = normalizedMethod === "GET";
-  const maxAttempts = queryRequest ? 2 : 1;
+  const submitRequest = normalizedMethod === "POST";
+  const maxAttempts = queryRequest ? 2 : (submitRequest ? 3 : 2);
   const requestTimeoutMs = Math.max(5000, Number(timeoutMs || (queryRequest ? 20000 : 180000)) || 180000);
   let lastError = null;
+  const transientPattern = /fetch failed|timeout|timed out|abort|econn|network|socket|dns|tls|reset/i;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -11956,20 +11958,45 @@ async function aliyunDashscopeRequest(pathname, {
         error.statusCode = response.status || 502;
         error.payload = payload;
         error.code = payload.code || payload.error?.code || "";
-        error.retryable = queryRequest && (response.status === 429 || response.status >= 500);
+        error.retryable = (queryRequest || submitRequest) && (response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500);
         throw error;
       }
       return payload;
     } catch (error) {
       lastError = error;
-      const transientNetworkError = queryRequest
+      const causeCode = String(error?.cause?.code || error?.code || "");
+      const transientNetworkError = (queryRequest || submitRequest)
         && !error.statusCode
-        && /fetch failed|timeout|timed out|abort|econn|network|socket|dns/i.test(String(error.message || error));
-      if (attempt >= maxAttempts || (!error.retryable && !transientNetworkError)) throw error;
-      await delay(800 * attempt);
+        && transientPattern.test(`${String(error.message || error)} ${causeCode}`);
+      if (attempt >= maxAttempts || (!error.retryable && !transientNetworkError)) {
+        if (!error.statusCode && transientNetworkError) {
+          const wrapped = new Error(`Alibaba video request failed: ${error.message || "fetch failed"}${causeCode ? ` (${causeCode})` : ""}`);
+          wrapped.statusCode = 502;
+          wrapped.code = "ALIYUN_DASHSCOPE_NETWORK_ERROR";
+          wrapped.cause = error;
+          throw wrapped;
+        }
+        throw error;
+      }
+      console.warn("[aliyun-dashscope-retry]", JSON.stringify({
+        provider: normalizedProvider,
+        method: normalizedMethod,
+        path: pathname,
+        attempt,
+        maxAttempts,
+        statusCode: error.statusCode || 0,
+        code: causeCode || error.code || "",
+        message: String(error.message || error).slice(0, 180),
+      }));
+      await delay(700 * attempt);
     }
   }
-  throw lastError || new Error("Alibaba video request failed.");
+  const causeCode = String(lastError?.cause?.code || lastError?.code || "");
+  const wrapped = new Error(`Alibaba video request failed: ${lastError?.message || "unknown error"}${causeCode ? ` (${causeCode})` : ""}`);
+  wrapped.statusCode = lastError?.statusCode || 502;
+  wrapped.code = lastError?.code || "ALIYUN_DASHSCOPE_REQUEST_FAILED";
+  wrapped.cause = lastError;
+  throw wrapped;
 }
 
 function normalizeWan27MediaItem(item = {}) {
