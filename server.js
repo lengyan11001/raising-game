@@ -207,7 +207,8 @@ function loadLocalEnv(filePath) {
 loadLocalEnv(path.join(ROOT, ".env.local"));
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
-const BLOCK_MAINLAND_CHINA = false;
+const BLOCK_MAINLAND_CHINA = /^(1|true|yes|on)$/i.test(String(process.env.BLOCK_MAINLAND_CHINA || "1").trim());
+const PUBLIC_AI_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_AI_EXPOSURE_ENABLED || "0").trim());
 const MAINLAND_BYPASS_TOKEN = String(process.env.MAINLAND_BYPASS_TOKEN || "").trim();
 const MAINLAND_BYPASS_QUERY_PARAM = process.env.MAINLAND_BYPASS_QUERY_PARAM || "cnpass";
 const MAINLAND_BYPASS_COOKIE = process.env.MAINLAND_BYPASS_COOKIE || "cnpass";
@@ -1312,16 +1313,7 @@ function isMainlandChinaRequest(req) {
 }
 
 function isMainlandAdminAllowedRequest(req, url) {
-  const pathname = String(url.pathname || "");
-  if (isCmsHostRequest(req)) return true;
-  return (
-    pathname === "/admin.html" ||
-    pathname === "/admin.css" ||
-    pathname === "/admin.js" ||
-    pathname.startsWith("/api/admin/") ||
-    pathname === "/api/auth/login" ||
-    pathname === "/api/auth/me"
-  );
+  return isCmsHostRequest(req);
 }
 
 function sendMainlandBlocked(req, res, url) {
@@ -2137,6 +2129,8 @@ function publicCharacterPageFromItems(items = [], auth = null, paging = {}) {
 }
 
 function publicTenantFeatures(tenant = {}) {
+  const allowedTabs = Array.isArray(tenant.allowedTabs) ? tenant.allowedTabs : [];
+  const disabledTabs = Array.isArray(tenant.disabledTabs) ? tenant.disabledTabs : [];
   return {
     tenantPublic: Boolean(tenant.tenantPublic),
     tenantMode: tenant.tenantMode || "platform",
@@ -2147,9 +2141,13 @@ function publicTenantFeatures(tenant = {}) {
     title: tenant.title || "",
     defaultTab: tenant.defaultTab || "gallery",
     defaultGalleryMode: tenant.defaultGalleryMode || "characters",
-    allowedTabs: Array.isArray(tenant.allowedTabs) ? tenant.allowedTabs : [],
+    allowedTabs: PUBLIC_AI_EXPOSURE_ENABLED
+      ? allowedTabs
+      : allowedTabs.filter((tab) => !["advanced", "access"].includes(String(tab || "").toLowerCase())),
     allowedGalleryModes: Array.isArray(tenant.allowedGalleryModes) ? tenant.allowedGalleryModes : [],
-    disabledTabs: Array.isArray(tenant.disabledTabs) ? tenant.disabledTabs : [],
+    disabledTabs: PUBLIC_AI_EXPOSURE_ENABLED
+      ? disabledTabs
+      : Array.from(new Set([...disabledTabs, "advanced", "access"])),
     apiAccess: tenant.apiAccess !== false,
     assetLibrary: tenant.assetLibrary !== false,
     accountMenu: tenant.accountMenu !== false,
@@ -2252,6 +2250,13 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
       }),
     };
   }
+  if (!PUBLIC_AI_EXPOSURE_ENABLED) {
+    publicPlatform.advanced = { cases: [] };
+    publicPlatform.advancedPricing = {};
+    publicPlatform.allowedTabs = (publicPlatform.allowedTabs || [])
+      .filter((tab) => !["advanced", "access"].includes(String(tab || "").toLowerCase()));
+    publicPlatform.disabledTabs = Array.from(new Set([...(publicPlatform.disabledTabs || []), "advanced", "access"]));
+  }
   const normalizedAdvancedPricing = normalizeAdvancedPricing(publicPlatform.advancedPricing);
   const assetImageModifyPricing = normalizedAdvancedPricing.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro;
   publicPlatform.advancedPricing = publicAdvancedPricingView(normalizedAdvancedPricing);
@@ -2259,7 +2264,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
     defaultCompanionId: config.defaultCompanionId,
     prices: { ...config.prices, unlockVideo: CHARACTER_UNLOCK_COST_CREDITS },
     tenantFeatures: publicTenantFeatures(tenant),
-    assetImageModify: {
+    assetImageModify: PUBLIC_AI_EXPOSURE_ENABLED ? {
       model: assetImageModifyPricing.model || WAN27_IMAGE_PRO_MODEL,
       costCredits: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) * Number(normalizedAdvancedPricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY), 0, 0, 6),
       saleUsdPerImage: pricingNumber(Number(assetImageModifyPricing.saleCnyPerImage || 0) / INTERNAL_CNY_PER_USD, 0, 0, 6),
@@ -2267,7 +2272,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
       ratios: assetImageModifyPricing.ratios || ["1:1", "3:4", "4:3", "9:16", "16:9"],
       defaultResolution: assetImageModifyPricing.defaultResolution || "2K",
       defaultRatio: assetImageModifyPricing.defaultRatio || "9:16",
-    },
+    } : {},
     wallet: {
       asset: publicWalletDefault.asset || config.wallet.asset,
       network: publicWalletDefault.network || config.wallet.network,
@@ -2279,10 +2284,10 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
       creditsPerUsd: walletCreditsPerUsd(config.wallet),
       topupPackages: publicTopupPackages(),
     },
-    video: config.video,
+    video: PUBLIC_AI_EXPOSURE_ENABLED ? config.video : {},
     playfluxTemplates: Array.isArray(config.playfluxTemplates) ? config.playfluxTemplates : [],
     homeVideo: {
-      provider: homeVideo.provider || "seedance",
+      provider: PUBLIC_AI_EXPOSURE_ENABLED ? (homeVideo.provider || "seedance") : "",
       posterUrl: homeVideo.posterUrl || "",
       videoUrl: homeVideo.videoUrl || "",
       taskId: homeVideo.taskId || "",
@@ -2298,7 +2303,7 @@ function publicConfig(config, origin = "", auth = null, tenantOptions = null) {
       hasMore: characterPage.hasMore,
     },
     platform: publicPlatform,
-    characterImage: config.characterImage,
+    characterImage: PUBLIC_AI_EXPOSURE_ENABLED ? config.characterImage : {},
     scenes: config.scenes
       .filter((scene) => scene.enabled !== false)
       .map((scene) => {
@@ -25922,7 +25927,7 @@ async function handleModelsMarkdown(req, res) {
 }
 
 function apiAccessEnabledForRequest(req) {
-  return requestTenantOptions(req).apiAccess !== false;
+  return PUBLIC_AI_EXPOSURE_ENABLED && requestTenantOptions(req).apiAccess !== false;
 }
 
 function sendApiAccessDisabled(res) {
@@ -35055,39 +35060,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/health") {
-      if (undressToolRequestAllowed(req)) return sendJson(res, 200, { ok: true });
-      return sendJson(res, 200, {
-        ok: true,
-        upstreamMode: USE_GATEWAY_UPSTREAM ? "gateway" : "direct",
-        gatewayConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : false,
-        arkConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ARK_API_KEY),
-        aliyunConfigured: USE_GATEWAY_UPSTREAM ? false : Boolean(ALIYUN_DASHSCOPE_API_KEY),
-        qwenImage3Configured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(ALIYUN_QWEN_IMAGE3_API_KEY),
-        wan30Configured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(ALIYUN_WAN30_API_KEY),
-        generationConfigured: USE_GATEWAY_UPSTREAM ? Boolean(UPSTREAM_API_TOKEN) : Boolean(APIZ_API_KEY),
-        r2Configured: r2Enabled(),
-        baseUrl: publicOriginFromRequest(req),
-        toolVideoProvider: TOOL_VIDEO_PROVIDER,
-        models: {
-          fast: MODEL_FAST,
-          quality: MODEL_QUALITY,
-          wan30: ALIYUN_WAN30_MODEL,
-          wan27: {
-            t2v: ALIYUN_WAN27_T2V_MODEL,
-            i2v: ALIYUN_WAN27_I2V_MODEL,
-            r2v: ALIYUN_WAN27_R2V_MODEL,
-            videoEdit: ALIYUN_WAN27_VIDEO_EDIT_MODEL,
-            animateMove: ALIYUN_WAN_ANIMATE_MOVE_MODEL,
-            animateMix: ALIYUN_WAN_ANIMATE_MIX_MODEL,
-          },
-          happyhorse: {
-            t2v: ALIYUN_HAPPYHORSE_T2V_MODEL,
-            i2v: ALIYUN_HAPPYHORSE_I2V_MODEL,
-            r2v: ALIYUN_HAPPYHORSE_R2V_MODEL,
-            videoEdit: ALIYUN_HAPPYHORSE_VIDEO_EDIT_MODEL,
-          },
-        },
-      });
+      return sendJson(res, 200, { ok: true });
     }
 
     if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/robots.txt") {
@@ -35261,6 +35234,7 @@ async function handleRequest(req, res) {
     }
 
     if ((req.method === "GET" || req.method === "POST") && url.pathname === "/api/advanced/estimate") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleAdvancedEstimate(req, res);
     }
 
@@ -35395,6 +35369,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/user-assets") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleUploadUserAsset(req, res);
     }
 
@@ -35417,14 +35392,17 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/platform/generate") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handlePlatformGenerate(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/advanced/request-access") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleAdvancedAccessRequest(req, res);
     }
 
     if (req.method === "POST" && url.pathname === "/api/advanced/generate") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleAdvancedGenerate(req, res);
     }
     if (req.method === "POST" && url.pathname === "/api/admin/advanced/generate") {
@@ -35432,6 +35410,7 @@ async function handleRequest(req, res) {
     }
 
     if ((req.method === "GET" || req.method === "POST") && url.pathname === "/api/platform/estimates") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handlePlatformEstimates(req, res, url);
     }
 
@@ -35440,10 +35419,12 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && url.pathname === "/api/user-assets/resolve") {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleResolveUserAssets(req, res);
     }
 
     if (req.method === "POST" && (url.pathname === "/api/wan27/image-edit" || url.pathname === "/api/vipeak1/image-edit")) {
+      if (!apiAccessEnabledForRequest(req)) return sendApiAccessDisabled(res);
       return await handleWan27ImageEdit(req, res);
     }
 

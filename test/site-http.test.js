@@ -56,3 +56,16 @@ test("HTTPS responses receive HSTS and the shared security policy", () => {
   assert.match(headers.get("strict-transport-security"), /max-age=31536000/);
   assert.equal(headers.get("x-frame-options"), "DENY");
 });
+
+test("public mainland blocking is enabled by default and login is not an exception", () => {
+  assert.match(serverSource, /const BLOCK_MAINLAND_CHINA = \/\^\(1\|true\|yes\|on\)\$\/i\.test\(String\(process\.env\.BLOCK_MAINLAND_CHINA \|\| "1"\)/);
+  assert.match(serverSource, /function isMainlandAdminAllowedRequest\(req, url\) \{\s*return isCmsHostRequest\(req\);/);
+  assert.doesNotMatch(serverSource, /function isMainlandAdminAllowedRequest[\s\S]{0,300}api\/auth\/login/);
+});
+
+test("public AI exposure is feature-flagged and upstream details are not in health output", () => {
+  assert.match(serverSource, /const PUBLIC_AI_EXPOSURE_ENABLED = \/\^\(1\|true\|yes\|on\)\$\/i\.test\(String\(process\.env\.PUBLIC_AI_EXPOSURE_ENABLED \|\| "0"\)/);
+  assert.match(serverSource, /publicPlatform\.advanced = \{ cases: \[\] \};/);
+  assert.match(serverSource, /if \(!apiAccessEnabledForRequest\(req\)\) return sendApiAccessDisabled\(res\);\s*return await handleAdvancedGenerate/);
+  assert.match(serverSource, /return sendJson\(res, 200, \{ ok: true \}\);/);
+});
