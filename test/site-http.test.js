@@ -10,6 +10,7 @@ const {
 } = require("../site-http");
 
 const serverSource = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8");
+const createSource = fs.readFileSync(path.resolve(__dirname, "..", "platform.create.js"), "utf8");
 
 test("public security headers cover browser-facing responses", () => {
   assert.match(PUBLIC_SECURITY_HEADERS["content-security-policy"], /frame-ancestors 'none'/);
@@ -55,4 +56,12 @@ test("HTTPS responses receive HSTS and the shared security policy", () => {
   );
   assert.match(headers.get("strict-transport-security"), /max-age=31536000/);
   assert.equal(headers.get("x-frame-options"), "DENY");
+});
+
+test("Alibaba model exposure is independently switchable without disabling the API", () => {
+  assert.match(serverSource, /PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED/);
+  assert.match(serverSource, /apiAccessEnabledForRequest\(req\)[\s\S]*requestTenantOptions\(req\)\.apiAccess !== false/);
+  assert.match(serverSource, /MODEL_TEMPORARILY_UNAVAILABLE/);
+  assert.match(createSource, /publicAliyunModelsEnabled/);
+  assert.match(createSource, /hiddenProviders = new Set/);
 });
