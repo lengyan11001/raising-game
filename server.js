@@ -25830,6 +25830,9 @@ function publicModelDocsView(docs = {}) {
     .filter((item) => !publicAliyunModelHidden(item.provider || item.model || item.name));
   if (external.constraints && typeof external.constraints === "object") {
     ["wan30", "wan27", "happyhorse", "wanAnimate", "wan27Image", "qwenImage3"].forEach((key) => delete external.constraints[key]);
+    if (external.constraints.common && Array.isArray(external.constraints.common.routes)) {
+      external.constraints.common.routes = external.constraints.common.routes.filter((route) => !String(route || "").includes("/api/wan27/image-edit"));
+    }
   }
   ["qwenImage3Generate", "qwenImage3TaskDetail", "wan27ImageEdit"].forEach((key) => delete external.endpoints?.[key]);
   ["qwenImage3ResponseShape", "qwenImage3Example", "wan30Example", "wan27Example", "happyhorseExample", "wanAnimateExample", "wan27ImageExample"].forEach((key) => delete external[key]);
