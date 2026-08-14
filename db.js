@@ -990,6 +990,27 @@ async function getUserByUsernameInDb(username = "", tenantId = DEFAULT_TENANT_ID
   return rows[0] ? userFromRow(rows[0]) : null;
 }
 
+async function getUserByTelegramIdInDb(telegramUserId = "", tenantId = DEFAULT_TENANT_ID) {
+  if (!dbEnabled()) return null;
+  const cleanTelegramUserId = String(telegramUserId || "").trim();
+  const cleanTenantId = normalizeTenantId(tenantId);
+  if (!cleanTelegramUserId) return null;
+  await ensureSchema();
+  const { rows } = await query(
+    `
+      SELECT *
+      FROM app_users
+      WHERE tenant_id = $1
+        AND deleted_at IS NULL
+        AND payload->>'telegramUserId' = $2
+      ORDER BY created_at ASC
+      LIMIT 1
+    `,
+    [cleanTenantId, cleanTelegramUserId],
+  );
+  return rows[0] ? userFromRow(rows[0]) : null;
+}
+
 async function getKvUpdatedAt(key) {
   if (!dbEnabled()) return "";
   await ensureSchema();
@@ -2588,6 +2609,7 @@ module.exports = {
   createWalletOrderInDb,
   createManualWalletOrderInDb,
   getUserByUsernameInDb,
+  getUserByTelegramIdInDb,
   getUserByIdInDb,
   createSessionInDb,
   getSessionByTokenInDb,

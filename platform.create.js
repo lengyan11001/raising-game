@@ -5326,6 +5326,9 @@ function captureRegistrationAttributionFromUrl() {
 async function bootstrap() {
   captureReferralCodeFromUrl();
   captureRegistrationAttributionFromUrl();
+  await loadTelegramMiniAppAuth().catch((error) => {
+    console.warn("Telegram Mini App authentication failed", error.message || error);
+  });
   await loadMe();
   const payload = await requestJson("/api/config/public");
   const platform = payload.config?.platform || {};
@@ -5350,6 +5353,7 @@ async function bootstrap() {
   if (isTabAllowed("advanced")) await loadAdvancedPresets();
   applyTenantFeatures();
   normalizeTenantRouteAfterConfig();
+  applyTelegramMiniAppRoute();
   renderCategories();
   renderTemplates();
   renderAccessGuides();

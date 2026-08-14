@@ -107,6 +107,7 @@ const {
   createWalletOrderInDb,
   createManualWalletOrderInDb,
   getUserByUsernameInDb,
+  getUserByTelegramIdInDb,
   getUserByIdInDb,
   createSessionInDb,
   getSessionByTokenInDb,
@@ -173,6 +174,12 @@ const {
   applyPublicSecurityHeaders,
   httpsRedirectLocation,
 } = require("./site-http");
+const {
+  createTelegramBotClient,
+  parseTelegramWebAppInitData,
+  telegramStatusStage,
+  telegramUserLabel: telegramBotUserLabel,
+} = require("./telegram-bot");
 
 const ROOT = __dirname;
 const PLATFORM_ASSET_FILES = Object.freeze([
@@ -181,6 +188,7 @@ const PLATFORM_ASSET_FILES = Object.freeze([
   "platform.config.js",
   "platform.copy.js",
   "platform.ui.js",
+  "platform.telegram.js",
   "platform.workflow-canvases.js",
   "platform.explore.js",
   "platform.create.js",
@@ -338,6 +346,11 @@ const INDEXNOW_KEY = String(process.env.INDEXNOW_KEY || "").trim();
 const TELEGRAM_SUPPORT_BOT_TOKEN = String(process.env.TELEGRAM_SUPPORT_BOT_TOKEN || "").trim();
 const TELEGRAM_SUPPORT_ADMIN_CHAT_ID = String(process.env.TELEGRAM_SUPPORT_ADMIN_CHAT_ID || "").trim();
 const TELEGRAM_SUPPORT_WEBHOOK_SECRET = String(process.env.TELEGRAM_SUPPORT_WEBHOOK_SECRET || "").trim();
+const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_UNDRESS_BOT_TOKEN || "").trim();
+const TELEGRAM_BOT_WEBHOOK_SECRET = String(process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "").trim();
+const TELEGRAM_BOT_WEBAPP_URL = String(process.env.TELEGRAM_BOT_WEBAPP_URL || "https://undress.14vips.com/").trim();
+const TELEGRAM_BOT_WEBHOOK_PATH = String(process.env.TELEGRAM_BOT_WEBHOOK_PATH || "/api/telegram/webhook").trim().replace(/\/$/, "") || "/api/telegram/webhook";
+const TELEGRAM_BOT_NOTIFIER_INTERVAL_MS = Math.max(10000, Number(process.env.TELEGRAM_BOT_NOTIFIER_INTERVAL_MS || 15000) || 15000);
 const VIPEAK_X_URL = "https://x.com/VipeakAI";
 const VIPEAK_TELEGRAM_CHANNEL_URL = "https://t.me/VipeakAILab";
 const VIPEAK_TELEGRAM_SUPPORT_URL = "https://t.me/VipeakSupportBot";
@@ -15113,9 +15126,13 @@ async function writeGenerationRecords(records) {
 async function upsertGenerationRecord(nextRecord) {
   const storableRecord = storageGenerationRecord(nextRecord);
   if (dbEnabled()) {
-    return upsertGenerationRecordInDb(storableRecord);
+    const record = await upsertGenerationRecordInDb(storableRecord);
+    void notifyTelegramGenerationRecord(record).catch((error) => {
+      console.warn("[telegram-generation-notify-queue-failed]", record?.taskId || storableRecord.taskId, error.message || error);
+    });
+    return record;
   }
-  return withAppStateWriteLock(async () => {
+  const record = await withAppStateWriteLock(async () => {
     const records = await readGenerationRecords();
     const index = records.findIndex((record) => record.taskId === storableRecord.taskId);
     const now = new Date().toISOString();
@@ -15135,6 +15152,10 @@ async function upsertGenerationRecord(nextRecord) {
     await writeGenerationRecords(records.slice(0, 500));
     return record;
   });
+  void notifyTelegramGenerationRecord(record).catch((error) => {
+    console.warn("[telegram-generation-notify-queue-failed]", record?.taskId || storableRecord.taskId, error.message || error);
+  });
+  return record;
 }
 
 async function upsertAndSettleGenerationRecord(nextRecord, reason = "query") {
@@ -18014,6 +18035,8 @@ function undressToolApiPathAllowed(method = "GET", pathname = "") {
     || pathValue.startsWith("/api/billing/")
     || pathValue.startsWith("/api/pay/")
     || pathValue === "/api/referral"
+    || pathValue === "/api/telegram/webapp-auth"
+    || pathValue.startsWith("/api/telegram/webhook")
     || (pathValue.startsWith("/api/generation-records") && undressToolGenerationRecordPathAllowed(method, pathValue))
     || pathValue.startsWith("/api/undress-tool/")
     || pathValue === "/api/analytics/web-vitals";
@@ -27012,6 +27035,199 @@ async function handleMe(req, res) {
   return sendJson(res, 200, { ok: true, user });
 }
 
+const telegramBotClient = createTelegramBotClient({
+  token: TELEGRAM_BOT_TOKEN,
+  webAppUrl: TELEGRAM_BOT_WEBAPP_URL,
+});
+const telegramTaskNotificationStages = new Map();
+const telegramUserContextCache = new Map();
+
+function telegramBotEnabled() {
+  return Boolean(TELEGRAM_BOT_TOKEN && TELEGRAM_BOT_WEBHOOK_SECRET && telegramBotClient.enabled);
+}
+
+function telegramBotWebhookPathMatches(pathname = "") {
+  const basePath = TELEGRAM_BOT_WEBHOOK_PATH;
+  const pathValue = String(pathname || "");
+  return pathValue === basePath
+    || (TELEGRAM_BOT_WEBHOOK_SECRET && pathValue === `${basePath}/${TELEGRAM_BOT_WEBHOOK_SECRET}`);
+}
+
+function telegramUserFromDb(db, telegramUserId = "") {
+  const id = String(telegramUserId || "").trim();
+  if (!id) return null;
+  return (db?.users || []).find((user) => String(user.telegramUserId || "") === id && recordBelongsToTenant(user, UNDRESS_TOOL_TENANT_ID)) || null;
+}
+
+function telegramUsernameCandidate(telegramUser = {}) {
+  const source = String(telegramUser.username || `user_${telegramUser.id || ""}`).trim().toLowerCase();
+  const clean = source.replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 18) || `user_${String(telegramUser.id || "0")}`;
+  return `tg_${clean}`.slice(0, 24);
+}
+
+function uniqueTelegramUsername(db, telegramUser = {}) {
+  const base = telegramUsernameCandidate(telegramUser);
+  let candidate = base;
+  let suffix = 1;
+  while ((db.users || []).some((user) => user.username === candidate && recordBelongsToTenant(user, UNDRESS_TOOL_TENANT_ID))) {
+    const suffixText = `_${suffix}`;
+    candidate = `${base.slice(0, 24 - suffixText.length)}${suffixText}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+async function telegramUserSessionFromInitData(initData = "") {
+  const parsed = parseTelegramWebAppInitData(initData, TELEGRAM_BOT_TOKEN);
+  const telegramUser = parsed.user || {};
+  const telegramUserId = String(telegramUser.id || "").trim();
+  const now = new Date().toISOString();
+  const db = await readDb();
+  let user = await getUserByTelegramIdInDb(telegramUserId, UNDRESS_TOOL_TENANT_ID)
+    || telegramUserFromDb(db, telegramUserId);
+  if (!user) {
+    user = {
+      id: randomId("user"),
+      tenantId: UNDRESS_TOOL_TENANT_ID,
+      username: uniqueTelegramUsername(db, telegramUser),
+      passwordHash: hashPassword(crypto.randomBytes(32).toString("hex")),
+      role: "user",
+      credits: 0,
+      pricingMultiplier: 1,
+      apiPricingMultiplier: 1,
+      apiToken: makeUniqueApiToken(db),
+      registrationChannel: "telegram",
+      registrationAttribution: {
+        channel: "telegram",
+        medium: "telegram-mini-app",
+        landingPath: "/",
+        host: "undress.14vips.com",
+        registeredAt: now,
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.users.push(user);
+  }
+
+  user.tenantId = UNDRESS_TOOL_TENANT_ID;
+  user.telegramUserId = telegramUserId;
+  user.telegramChatId = telegramUserId;
+  user.telegramUsername = String(telegramUser.username || "").trim();
+  user.telegramFirstName = String(telegramUser.first_name || "").trim().slice(0, 80);
+  user.telegramLastName = String(telegramUser.last_name || "").trim().slice(0, 80);
+  user.telegramLanguageCode = String(telegramUser.language_code || "").trim().slice(0, 16);
+  user.telegramUpdatedAt = now;
+  user.updatedAt = now;
+  ensureUserApiToken(user, db);
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const session = { token, userId: user.id, tenantId: UNDRESS_TOOL_TENANT_ID, createdAt: now };
+  db.sessions.push(session);
+  if (dbEnabled()) {
+    await updateUserInDb(user);
+    await createSessionInDb(session);
+  } else {
+    await writeDb(db);
+  }
+  telegramUserContextCache.set(user.id, { user, expiresAt: Date.now() + 60000 });
+  return { token, user, telegram: { id: telegramUserId, label: telegramBotUserLabel(telegramUser) } };
+}
+
+async function handleTelegramWebAppAuth(req, res) {
+  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
+  if (!TELEGRAM_BOT_TOKEN) return sendJson(res, 503, { ok: false, message: "Telegram login is not configured." });
+  const body = await readJson(req);
+  const result = await telegramUserSessionFromInitData(body.initData || "");
+  return sendJson(res, 200, {
+    ok: true,
+    token: result.token,
+    user: userView(result.user),
+    tenantId: UNDRESS_TOOL_TENANT_ID,
+    telegram: result.telegram,
+  });
+}
+
+async function persistTelegramBotSupportMessage(message = {}) {
+  const record = await persistTelegramSupportMessage(message);
+  const telegramUserId = String(message.from?.id || "").trim();
+  if (!telegramUserId) return record;
+  const db = await readDb();
+  const user = await getUserByTelegramIdInDb(telegramUserId, UNDRESS_TOOL_TENANT_ID)
+    || telegramUserFromDb(db, telegramUserId);
+  if (!user) return record;
+  const stored = (db.supportMessages || []).find((item) => item.id === record.id);
+  const target = stored || record;
+  target.userId = user.id;
+  target.tenantId = UNDRESS_TOOL_TENANT_ID;
+  target.source = "telegram-undress";
+  target.updatedAt = new Date().toISOString();
+  if (dbEnabled()) await replaceAppDbTables(db);
+  else await writeDb(db);
+  return target;
+}
+
+async function handleTelegramBotWebhook(req, res) {
+  if (!undressToolRequestAllowed(req)) return sendJson(res, 404, { ok: false, message: "API not found." });
+  if (!telegramBotEnabled()) return sendJson(res, 404, { ok: false, message: "Telegram Undress bot is not enabled." });
+  const pathSecret = String(req.url || "").split("?")[0].split("/").pop() || "";
+  const headerSecret = String(req.headers["x-telegram-bot-api-secret-token"] || "");
+  if (pathSecret !== TELEGRAM_BOT_WEBHOOK_SECRET && headerSecret !== TELEGRAM_BOT_WEBHOOK_SECRET) {
+    return sendJson(res, 403, { ok: false, message: "Invalid Telegram webhook secret." });
+  }
+  const update = await readJson(req);
+  await telegramBotClient.processUpdate(update, {
+    onSupportMessage: (message) => persistTelegramBotSupportMessage(message),
+  });
+  return sendJson(res, 200, { ok: true });
+}
+
+async function telegramUserContextForGeneration(record = {}) {
+  if (recordTenantId(record) !== UNDRESS_TOOL_TENANT_ID || !record.userId || !TELEGRAM_BOT_TOKEN) return null;
+  const cached = telegramUserContextCache.get(record.userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.user;
+  const dbUser = await getUserByIdInDb(record.userId);
+  const db = dbUser ? null : await readDb();
+  const user = dbUser || (db?.users || []).find((item) => item.id === record.userId) || null;
+  if (!user || recordTenantId(user) !== UNDRESS_TOOL_TENANT_ID || !user.telegramChatId) return null;
+  telegramUserContextCache.set(record.userId, { user, expiresAt: Date.now() + 60000 });
+  return user;
+}
+
+async function notifyTelegramGenerationRecord(record = {}) {
+  if (!TELEGRAM_BOT_TOKEN || !telegramBotClient.enabled || !record?.taskId) return;
+  const user = await telegramUserContextForGeneration(record);
+  if (!user?.telegramChatId) return;
+  const stage = telegramStatusStage(record.status);
+  const key = String(record.taskId);
+  if (telegramTaskNotificationStages.get(key) === stage) return;
+  try {
+    await telegramBotClient.sendTaskLink(user.telegramChatId, key, stage);
+    telegramTaskNotificationStages.set(key, stage);
+  } catch (error) {
+    console.warn("[telegram-generation-notify-failed]", key, error.message || error);
+  }
+}
+
+let telegramGenerationScanRunning = false;
+async function scanTelegramGenerationNotifications() {
+  if (telegramGenerationScanRunning || !TELEGRAM_BOT_TOKEN || !telegramBotClient.enabled) return;
+  telegramGenerationScanRunning = true;
+  try {
+    const records = (await readGenerationRecords())
+      .filter((record) => recordTenantId(record) === UNDRESS_TOOL_TENANT_ID && record.userId && !record.deletedAt)
+      .sort((left, right) => String(right.updatedAt || right.createdAt || "").localeCompare(String(left.updatedAt || left.createdAt || "")))
+      .slice(0, 60);
+    for (const record of records) {
+      await notifyTelegramGenerationRecord(record);
+    }
+  } catch (error) {
+    console.warn("[telegram-generation-scan-failed]", error.message || error);
+  } finally {
+    telegramGenerationScanRunning = false;
+  }
+}
+
 async function handleReferralSummary(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
@@ -35659,6 +35875,14 @@ async function handleRequest(req, res) {
       return await handleMe(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/telegram/webapp-auth") {
+      return await handleTelegramWebAppAuth(req, res);
+    }
+
+    if (req.method === "POST" && telegramBotWebhookPathMatches(url.pathname)) {
+      return await handleTelegramBotWebhook(req, res);
+    }
+
     if (req.method === "GET" && url.pathname === "/api/referral") {
       return await handleReferralSummary(req, res);
     }
@@ -36281,6 +36505,12 @@ function startActiveGenerationRecordScheduler() {
   setInterval(() => scanActiveGenerationRecords("timer"), GENERATION_ACTIVE_SCAN_INTERVAL_MS).unref?.();
 }
 
+function startTelegramBotScheduler() {
+  if (!TELEGRAM_BOT_TOKEN || !telegramBotClient.enabled) return;
+  setTimeout(() => scanTelegramGenerationNotifications(), 10000).unref?.();
+  setInterval(() => scanTelegramGenerationNotifications(), TELEGRAM_BOT_NOTIFIER_INTERVAL_MS).unref?.();
+}
+
 async function bootstrap() {
   if (!dbEnabled()) {
     throw new Error("DATABASE_URL is required. Runtime data must be stored in PostgreSQL, not JSON files.");
@@ -36296,6 +36526,7 @@ async function bootstrap() {
   startWalletScanScheduler();
   startStaleSubmitGenerationRecordScheduler();
   startActiveGenerationRecordScheduler();
+  startTelegramBotScheduler();
   startVideoToolJobRecoveryScheduler();
   startVideoToolUploadCleanupScheduler();
   startLocalMediaCleanupScheduler();

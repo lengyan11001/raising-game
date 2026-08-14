@@ -154,3 +154,19 @@ python .\scripts\configure_wan27_env.py
 
 The helper updates `/etc/raising-game-demo.env`, creates a timestamped backup,
 restarts `raising-game-demo`, and prints only redacted key lengths.
+
+## Telegram Undress Mini App
+
+Telegram users open the existing `undress.14vips.com` tenant. The bot does not
+have a second generation or billing implementation. `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_BOT_WEBHOOK_SECRET` belong only in `/etc/raising-game-demo.env`.
+
+The webhook endpoint is:
+
+```text
+https://undress.14vips.com/api/telegram/webhook/<TELEGRAM_BOT_WEBHOOK_SECRET>
+```
+
+The Mini App validates Telegram `initData` on the server and creates a user in
+the `tool-undress-14vips` tenant. Generation notifications contain links back
+to the existing history page; generated media is not sent through Telegram.
