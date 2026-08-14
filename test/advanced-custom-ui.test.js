@@ -86,6 +86,9 @@ test("Advanced image files enter the asset library before generation", () => {
   assert.match(create, /async function uploadAdvancedImageReference/);
   assert.match(create, /requestJson\("\/api\/user-assets", \{[\s\S]*?provider,/);
   assert.match(create, /assetId: asset\.id,[\s\S]*?dataUrl: assetPreviewUrl\(asset\)/);
+  assert.match(create, /function assetPreviewUrl\(asset = \{\}\) \{[\s\S]*?asset\.publicUrl \|\| asset\.cdnUrl \|\| asset\.previewUrl \|\| asset\.localUrl/);
+  assert.match(create, /function restoreMediaUrl\(item = \{\}\) \{[\s\S]*?item\.publicUrl[\s\S]*?item\.localUrl/);
+  assert.match(ui, /function mediaAssetPreviewUrl\(asset = \{\}\) \{[\s\S]*?asset\.publicUrl[\s\S]*?asset\.localUrl/);
   assert.match(main, /const ref = await uploadAdvancedImageReference\(file, \{ provider \}\)/);
   assert.match(main, /state\.advancedSeedanceFirstFrameAssetId = ref\.assetId/);
   assert.match(main, /state\.advancedSeedanceLastFrameAssetId = ref\.assetId/);

@@ -1188,7 +1188,15 @@ function stripModelParams(value) {
 }
 
 function mediaAssetPreviewUrl(asset = {}) {
-  return asset.imageUrl || asset.videoUrl || asset.localUrl || asset.url || asset.sourceImageUrl || "";
+  return asset.imageUrl
+    || asset.videoUrl
+    || asset.publicUrl
+    || asset.cdnUrl
+    || asset.url
+    || asset.sourceImageUrl
+    || asset.previewUrl
+    || asset.localUrl
+    || "";
 }
 
 function mediaAssetLabel(asset = {}, index = 0) {

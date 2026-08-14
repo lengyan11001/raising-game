@@ -2607,7 +2607,7 @@ function isAudioAsset(asset = {}) {
 }
 
 function assetPreviewUrl(asset = {}) {
-  return asset.previewUrl || asset.localUrl || asset.publicUrl || "";
+  return asset.publicUrl || asset.cdnUrl || asset.previewUrl || asset.localUrl || "";
 }
 
 function absoluteHttpUrl(value = "") {
@@ -2654,7 +2654,17 @@ function recordParams(record = {}) {
 }
 
 function restoreMediaUrl(item = {}) {
-  return item.dataUrl || item.localUrl || item.imageUrl || item.videoUrl || item.audioUrl || item.url || item.sourceImageUrl || item.previewUrl || "";
+  return item.dataUrl
+    || item.imageUrl
+    || item.videoUrl
+    || item.audioUrl
+    || item.publicUrl
+    || item.cdnUrl
+    || item.url
+    || item.sourceImageUrl
+    || item.previewUrl
+    || item.localUrl
+    || "";
 }
 
 function restoreMediaAssetUri(item = {}) {
