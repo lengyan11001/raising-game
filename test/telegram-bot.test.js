@@ -2,6 +2,8 @@
 
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
@@ -10,6 +12,9 @@ const {
   telegramMiniAppUrl,
   telegramStatusStage,
 } = require("../telegram-bot");
+
+const PLATFORM_HTML = fs.readFileSync(path.join(__dirname, "..", "platform.html"), "utf8");
+const PLATFORM_TELEGRAM = fs.readFileSync(path.join(__dirname, "..", "platform.telegram.js"), "utf8");
 
 function signedInitData(token, user, authDate = Math.floor(Date.now() / 1000)) {
   const params = new URLSearchParams({
@@ -59,4 +64,10 @@ test("builds a Telegram menu with all Undress entry points", () => {
   assert.deepEqual(texts, ["Create", "History", "Recharge", "Support", "My"]);
   assert.equal(markup.keyboard[0][0].web_app.url.includes("tg_view=create"), true);
   assert.equal(markup.keyboard[1][1].web_app, undefined);
+});
+
+test("loads the Telegram SDK only on the Undress hostname", () => {
+  assert.doesNotMatch(PLATFORM_HTML, /telegram-web-app\.js/);
+  assert.match(PLATFORM_TELEGRAM, /window\.location\.hostname\.toLowerCase\(\) !== "undress\.14vips\.com"/);
+  assert.match(PLATFORM_TELEGRAM, /https:\/\/telegram\.org\/js\/telegram-web-app\.js\?63/);
 });

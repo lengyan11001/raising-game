@@ -1,7 +1,28 @@
 "use strict";
 
+let telegramSdkPromise = null;
+
 function telegramMiniApp() {
   return window.Telegram?.WebApp || null;
+}
+
+function ensureTelegramMiniAppSdk() {
+  if (window.location.hostname.toLowerCase() !== "undress.14vips.com") return Promise.resolve(null);
+  if (telegramMiniApp()) return Promise.resolve(telegramMiniApp());
+  if (telegramSdkPromise) return telegramSdkPromise;
+  telegramSdkPromise = new Promise((resolve) => {
+    const existing = document.querySelector('script[data-telegram-web-app-sdk="true"]');
+    const script = existing || document.createElement("script");
+    const finish = () => resolve(telegramMiniApp());
+    script.addEventListener("load", finish, { once: true });
+    script.addEventListener("error", () => resolve(null), { once: true });
+    if (!existing) {
+      script.src = "https://telegram.org/js/telegram-web-app.js?63";
+      script.dataset.telegramWebAppSdk = "true";
+      document.head.appendChild(script);
+    }
+  });
+  return telegramSdkPromise;
 }
 
 function telegramMiniAppView() {
@@ -53,6 +74,7 @@ function applyTelegramMiniAppRoute() {
 }
 
 async function loadTelegramMiniAppAuth() {
+  await ensureTelegramMiniAppSdk();
   const app = telegramMiniApp();
   if (!app || !String(app.initData || "").trim()) return false;
   state.telegramMiniApp = true;
