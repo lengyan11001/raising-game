@@ -170,19 +170,3 @@ https://undress.14vips.com/api/telegram/webhook/<TELEGRAM_BOT_WEBHOOK_SECRET>
 The Mini App validates Telegram `initData` on the server and creates a user in
 the `tool-undress-14vips` tenant. Generation notifications contain links back
 to the existing history page; generated media is not sent through Telegram.
-
-## Public access controls
-
-`BLOCK_MAINLAND_CHINA=1` blocks public requests whose country is reported as
-China (`CF-IPCountry=CN`) with HTTP 451, including page loads, registration,
-login, and API requests. The `cms.` host remains available for operations. A
-private `MAINLAND_BYPASS_TOKEN` may be configured in the systemd environment
-when emergency owner access is required; it is never committed or shown in
-the public configuration.
-
-`PUBLIC_AI_EXPOSURE_ENABLED=0` hides the Advanced model UI, model/provider
-details, public model documentation, generic AI API routes, and upstream names
-from the public health response. Internal tool routes keep their existing
-server-side orchestration so changing public model exposure does not change
-the Undress or Video tool contract. Set it to `1` only after replacement
-upstream endpoints and keys have been configured.
