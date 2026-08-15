@@ -818,6 +818,9 @@ const R2 = {
     process.env.CLOUDFLARE_R2_PUBLIC_BASE_URL ||
     process.env.CLOUDFLARE_R2_PUBLIC_DOMAIN,
 };
+const R2_UPLOAD_TIMEOUT_MS = Math.max(25000, Number(process.env.R2_UPLOAD_TIMEOUT_MS || 90000) || 90000);
+const R2_UPLOAD_MAX_TIMEOUT_MS = Math.max(R2_UPLOAD_TIMEOUT_MS, Number(process.env.R2_UPLOAD_MAX_TIMEOUT_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
+const R2_UPLOAD_MIN_BYTES_PER_SECOND = Math.max(64 * 1024, Number(process.env.R2_UPLOAD_MIN_BYTES_PER_SECOND || 256 * 1024) || 256 * 1024);
 const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
 const SITE_STORAGE_SLUG = storagePathSegment(
   process.env.SITE_STORAGE_SLUG || process.env.TENANT_SLUG || defaultStorageSlug(),
@@ -10134,6 +10137,12 @@ function localPublicAssetStorageEnabled() {
   return !objectStorageEnabled();
 }
 
+function r2UploadTimeoutMs(byteLength = 0) {
+  const bytes = Math.max(0, Number(byteLength) || 0);
+  const transferBudgetMs = Math.ceil((bytes / R2_UPLOAD_MIN_BYTES_PER_SECOND) * 1000) + 15000;
+  return Math.min(R2_UPLOAD_MAX_TIMEOUT_MS, Math.max(R2_UPLOAD_TIMEOUT_MS, transferBudgetMs));
+}
+
 async function uploadStaticAssetToR2({ key, bytes, mime }) {
   requireValue("R2_ACCESS_KEY_ID", R2.accessKey);
   requireValue("R2_SECRET_ACCESS_KEY", R2.secretKey);
@@ -10141,6 +10150,7 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
   requireValue("R2_BUCKET", R2.bucket);
   requireValue("R2_PUBLIC_BASE_URL", R2.publicDomain);
 
+  const uploadTimeoutMs = r2UploadTimeoutMs(bytes?.byteLength ?? bytes?.length ?? 0);
   let lastError = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
@@ -10149,7 +10159,7 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
         method: "PUT",
         headers: auth.headers,
         body: bytes,
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(uploadTimeoutMs),
       });
       const text = await response.text();
       if (response.ok) {
@@ -10166,10 +10176,10 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
       if (attempt >= 3 || !error.retryable) throw error;
     } catch (error) {
       const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
-      const uploadError = timeout ? new Error("R2 upload timed out after 25 seconds.") : error;
+      const uploadError = timeout ? new Error(`R2 upload timed out after ${Math.ceil(uploadTimeoutMs / 1000)} seconds.`) : error;
       if (timeout) {
         uploadError.code = "R2_UPLOAD_TIMEOUT";
-        uploadError.retryable = true;
+        uploadError.retryable = false;
       }
       if (!uploadError.statusCode) uploadError.statusCode = 502;
       lastError = uploadError;

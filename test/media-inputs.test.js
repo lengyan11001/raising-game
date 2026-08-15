@@ -115,8 +115,10 @@ test("R2 failures are terminal and never silently fall back to the origin", () =
   assert.doesNotMatch(server, /async function uploadLocalAssetMirrorToObjectStorage[\s\S]*?catch \(error\) \{[\s\S]*?publicUrl: ""/);
   assert.match(server, /async function uploadGeneratedMediaToObjectStorage[\s\S]*?const videoUpload = await uploadStaticAssetToObjectStorage/);
   assert.match(server, /async function saveGeneratedImageFile[\s\S]*?const upload = await uploadStaticAssetToObjectStorage/);
-  assert.match(server, /async function uploadStaticAssetToR2[\s\S]*?signal: AbortSignal\.timeout\(25000\)/);
-  assert.match(server, /R2 upload timed out after 25 seconds/);
+  assert.match(server, /function r2UploadTimeoutMs[\s\S]*?R2_UPLOAD_MIN_BYTES_PER_SECOND/);
+  assert.match(server, /async function uploadStaticAssetToR2[\s\S]*?signal: AbortSignal\.timeout\(uploadTimeoutMs\)/);
+  assert.match(server, /R2 upload timed out after \$\{Math\.ceil\(uploadTimeoutMs \/ 1000\)\} seconds/);
+  assert.match(server, /uploadError\.retryable = false/);
   assert.match(server, /publicUrlMatchesStorageBase\(userAsset\.publicUrl, R2\.publicDomain\)[\s\S]*?userAsset\.wan30PublicUrl = userAsset\.publicUrl/);
 });
 
