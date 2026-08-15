@@ -1287,16 +1287,30 @@ function publicAliyunModelsEnabled() {
   return state.config?.tenantFeatures?.aliyunModels !== false;
 }
 
+function publicWan27ModelsEnabled() {
+  return state.config?.tenantFeatures?.aliyunWan27Models === true;
+}
+
+function isPublicWan27ProviderOption(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  return ["wan27", "wan27-image-edit", "wan-animate"].includes(raw)
+    || raw.includes("wan2.7")
+    || raw.includes("wan27")
+    || raw.includes("wan-animate")
+    || raw.includes("wananimate");
+}
+
 function syncAdvancedProviderExposure() {
   if (!els.advancedProvider) return;
   const hiddenProviders = new Set(["wan30", "wan27", "wan-animate", "happyhorse", "wan27-image-edit", "qwen-image3"]);
   const enabled = publicAliyunModelsEnabled();
+  const wan27Enabled = publicWan27ModelsEnabled();
   els.advancedProvider.querySelectorAll("option").forEach((option) => {
     const raw = String(option.value || "").trim().toLowerCase();
-    option.hidden = !enabled && hiddenProviders.has(raw);
+    option.hidden = !enabled && hiddenProviders.has(raw) && !(wan27Enabled && isPublicWan27ProviderOption(raw));
   });
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
-  if (!enabled && hiddenProviders.has(current)) {
+  if (!enabled && hiddenProviders.has(current) && !(wan27Enabled && isPublicWan27ProviderOption(current))) {
     els.advancedProvider.value = "seedance25";
   }
 }

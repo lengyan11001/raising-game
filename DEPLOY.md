@@ -100,7 +100,7 @@ runtime configuration must not point at the old site's R2 bucket or CDN.
 
 Production sets `BLOCK_MAINLAND_CHINA=1` so public pages, login, and API requests carrying Cloudflare country code `CN` return `451`. CMS/admin traffic remains available on the configured CMS host.
 
-`PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED=0` hides the Alibaba Wan family, Qwen Image 3.0, HappyHorse, and Wan image/animate entries from public model controls and public model documentation. Seedance and Seedream remain available. Set it to `1` and restart the service to expose the hidden model family again; no code change is required.
+`PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED=0` keeps the full Alibaba model family hidden. `PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED=1` selectively exposes Wan2.7, Wan Animate, and Wan2.7 image editing while Wan3.0, Qwen Image 3.0, and HappyHorse remain hidden. Both values are runtime switches; restart the service after changing them.
 
 Recommended flow:
 
