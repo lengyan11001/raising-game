@@ -231,6 +231,7 @@ loadLocalEnv(path.join(ROOT, ".env.local"));
 const DATABASE_URL = process.env.DATABASE_URL || "";
 const BLOCK_MAINLAND_CHINA = /^(1|true|yes|on)$/i.test(String(process.env.BLOCK_MAINLAND_CHINA || "1").trim());
 const PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED || "0").trim());
+const PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED || "0").trim());
 const PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED || "0").trim());
 const PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED || "0").trim());
 const PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED || "0").trim());
@@ -1355,6 +1356,7 @@ function publicAliyunModelHidden(value = "") {
   if (PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) return false;
   const raw = String(value || "").trim().toLowerCase();
   const normalized = normalizeAdvancedProvider(value);
+  const wan30Value = normalized === "wan30" || raw.includes("wan3.0") || raw.includes("wan30");
   const wan27Value = normalized === "wan27"
     || normalized === "wan27-image"
     || normalized === "wan27-image-edit"
@@ -1366,6 +1368,7 @@ function publicAliyunModelHidden(value = "") {
   const qwenImage3Value = normalized === "qwen-image3"
     || raw.includes("qwen-image-3")
     || raw.includes("qwenimage3");
+  if (PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED && wan30Value) return false;
   if (PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED && wan27Value) return false;
   if (PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED && happyhorseValue) return false;
   if (PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED && qwenImage3Value) return false;
@@ -2175,7 +2178,8 @@ function publicAdvancedPricingView(pricing = {}) {
       },
     },
   };
-  const selectiveAliyunExposureEnabled = PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED
+  const selectiveAliyunExposureEnabled = PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED
+    || PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED
     || PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED
     || PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED;
   if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED && !selectiveAliyunExposureEnabled) {
@@ -2186,7 +2190,7 @@ function publicAdvancedPricingView(pricing = {}) {
     delete view.vipeak1Image;
     delete view.qwenImage3;
   } else if (!PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED) {
-    delete view.wan30CreditsPerSecondByResolution;
+    if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) delete view.wan30CreditsPerSecondByResolution;
     if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) {
       delete view.wan27CreditsPerSecondByResolution;
       delete view.vipeak1Image;
@@ -2248,6 +2252,7 @@ function publicTenantFeatures(tenant = {}) {
     disabledTabs: Array.isArray(tenant.disabledTabs) ? tenant.disabledTabs : [],
     apiAccess: tenant.apiAccess !== false,
     aliyunModels: PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED,
+    aliyunWan30Models: PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED,
     aliyunWan27Models: PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED,
     aliyunHappyHorseModels: PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED,
     aliyunQwenImage3Models: PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED,
@@ -25870,6 +25875,7 @@ function publicModelDocsView(docs = {}) {
   const publicModelFamilies = [
     "Seedance 2.0 uses the V3 task route.",
     "Seedream 5.0 Pro uses the V3 images route.",
+    ...(PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED ? ["Wan3.0 uses the Advanced route."] : []),
     ...(PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED ? ["Wan2.7 and Wan Animate use the Advanced route."] : []),
     ...(PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED ? ["HappyHorse uses the Advanced route."] : []),
     ...(PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED ? ["Qwen Image 3.0 uses the image generation route."] : []),
@@ -25878,7 +25884,8 @@ function publicModelDocsView(docs = {}) {
   external.supportedModels = (Array.isArray(external.supportedModels) ? external.supportedModels : [])
     .filter((item) => !publicAliyunModelHidden(item.provider || item.model || item.name));
   if (external.constraints && typeof external.constraints === "object") {
-    const restrictedConstraintKeys = ["wan30"];
+    const restrictedConstraintKeys = [];
+    if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("wan30");
     if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("wan27", "wanAnimate", "wan27Image");
     if (!PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED) restrictedConstraintKeys.push("happyhorse");
     if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) restrictedConstraintKeys.push("qwenImage3");
@@ -25890,7 +25897,7 @@ function publicModelDocsView(docs = {}) {
   if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) ["qwenImage3Generate", "qwenImage3TaskDetail"].forEach((key) => delete external.endpoints?.[key]);
   if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) delete external.endpoints?.wan27ImageEdit;
   if (!PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED) ["qwenImage3ResponseShape", "qwenImage3Example"].forEach((key) => delete external[key]);
-  ["wan30Example"].forEach((key) => delete external[key]);
+  if (!PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED) ["wan30Example"].forEach((key) => delete external[key]);
   if (!PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED) delete external.happyhorseExample;
   if (!PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED) {
     ["wan27Example", "wanAnimateExample", "wan27ImageExample"].forEach((key) => delete external[key]);

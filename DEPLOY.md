@@ -100,7 +100,7 @@ runtime configuration must not point at the old site's R2 bucket or CDN.
 
 Production sets `BLOCK_MAINLAND_CHINA=1` so public pages, login, and API requests carrying Cloudflare country code `CN` return `451`. CMS/admin traffic remains available on the configured CMS host.
 
-`PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED=0` keeps Wan3.0 hidden while the family-specific switches control the other Alibaba models. `PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED=1` exposes Wan2.7, Wan Animate, and Wan2.7 image editing. `PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED=1` exposes HappyHorse. `PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED=1` exposes Qwen Image 3.0. These values are runtime switches; restart the service after changing them.
+`PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED=0` keeps legacy Alibaba models hidden while the family-specific switches control public exposure. `PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED=1` exposes Wan3.0 only. `PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED=1` exposes Wan2.7, Wan Animate, and Wan2.7 image editing. `PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED=1` exposes HappyHorse. `PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED=1` exposes Qwen Image 3.0. These values are runtime switches; restart the service after changing them.
 
 Qwen uses `ALIYUN_QWEN_IMAGE3_BASE_URL` and `ALIYUN_QWEN_IMAGE3_API_KEY` when set, otherwise it falls back to `ALIYUN_DASHSCOPE_BASE_URL` and `ALIYUN_DASHSCOPE_API_KEY`. This permits one Singapore Maas credential set for Wan2.7, HappyHorse, and Qwen while preserving an explicit override for a future Qwen-only account.
 
