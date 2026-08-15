@@ -40,6 +40,11 @@ generated media, or database content. `server.js` and `video-tools.js` are inclu
 in the default sync. Do not patch new2's shared backend separately; change old-site
 first and sync it.
 
+The old-site production package is now authoritative on replacement server
+`47.84.76.131`. The former host is only a temporary reverse-proxy rollback path
+while DNS changes propagate; do not deploy application code or database changes to
+the former host.
+
 ## Fixed deploy commands
 
 Old site:
@@ -49,10 +54,8 @@ $env:OLD_SITE_SSH_PASSWORD="..."
 python .\scripts\deploy_site.py --site old
 ```
 
-On this dev machine, if `OLD_SITE_SSH_PASSWORD` is not set, the helper also
-reads the old root SSH password from `D:\raising-game\scripts\fyshark_tail_log.py`
-without printing it. That local legacy file is not a deploy mechanism; it is only
-a credential source for `deploy_site.py`.
+The deploy helper requires the replacement server password through the environment;
+it does not read passwords from legacy files.
 
 New2:
 
@@ -127,7 +130,7 @@ Fixed production target:
 
 - site: `old`
 - domain: `https://123vips.com`
-- host: `101.47.76.188`
+- host: `47.84.76.131`
 - SSH port: `22`
 - branch: `old-site`
 - remote root: `/opt/raising-game-demo`

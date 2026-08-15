@@ -18,7 +18,7 @@ from pathlib import Path
 
 TARGETS = {
     "old": {
-        "host": "101.47.76.188",
+        "host": "47.84.76.131",
         "port": 22,
         "branch": "old-site",
         "remote_root": "/opt/raising-game-demo",
@@ -27,12 +27,6 @@ TARGETS = {
         "env_file": "/etc/raising-game-demo.env",
         "required_file_counts": (("/opt/raising-game-demo/assets/ourdream/characters", 1000),),
         "password_env": ("OLD_SITE_SSH_PASSWORD", "FYSHARK_SSH_PASSWORD", "DEPLOY_SSH_PASSWORD"),
-        "local_password_files": (
-            {
-                "path": r"D:\raising-game\scripts\fyshark_tail_log.py",
-                "pattern": r'(?m)^PASSWORD\s*=\s*"([^"]+)"',
-            },
-        ),
         "forbidden_env_patterns": (r"^TOS_",),
         "required_env_patterns": (
             r"^R2_ACCESS_KEY_ID=.+$",
