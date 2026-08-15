@@ -45,6 +45,27 @@ The old-site production package is now authoritative on replacement server
 while DNS changes propagate; do not deploy application code or database changes to
 the former host.
 
+## Replacement server DNS cutover
+
+Keep the existing Cloudflare proxy setting and change the origin address for these
+records to `47.84.76.131`:
+
+- `123vips.com`
+- `www.123vips.com`
+- `api.123vips.com`
+- `admin.123vips.com`
+- `123tops.com`
+- `www.123tops.com`
+- `video.123tops.com`
+- `undress.14vips.com`
+
+Verify the HTTPS health endpoint and each public page after the records update.
+The former host at `101.47.76.188` currently keeps Nginx and a temporary SSH
+reverse proxy enabled, so it must remain online until DNS propagation is complete.
+Only then disable `raising-game-new-proxy` and Nginx on the former host. Do not
+remove its backup or database until the new origin has been observed serving all
+domains successfully.
+
 ## Fixed deploy commands
 
 Old site:
