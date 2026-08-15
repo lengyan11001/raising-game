@@ -61,9 +61,15 @@ test("HTTPS responses receive HSTS and the shared security policy", () => {
 test("Alibaba model exposure is independently switchable without disabling the API", () => {
   assert.match(serverSource, /PUBLIC_ALIYUN_MODEL_EXPOSURE_ENABLED/);
   assert.match(serverSource, /PUBLIC_WAN27_MODEL_EXPOSURE_ENABLED/);
+  assert.match(serverSource, /PUBLIC_HAPPYHORSE_MODEL_EXPOSURE_ENABLED/);
+  assert.match(serverSource, /PUBLIC_QWEN_IMAGE3_EXPOSURE_ENABLED/);
+  assert.match(serverSource, /ALIYUN_QWEN_IMAGE3_BASE_URL \|\| ALIYUN_DASHSCOPE_BASE_URL/);
+  assert.match(serverSource, /ALIYUN_QWEN_IMAGE3_API_KEY \|\| ALIYUN_DASHSCOPE_API_KEY/);
   assert.match(serverSource, /apiAccessEnabledForRequest\(req\)[\s\S]*requestTenantOptions\(req\)\.apiAccess !== false/);
   assert.match(serverSource, /MODEL_TEMPORARILY_UNAVAILABLE/);
   assert.match(createSource, /publicAliyunModelsEnabled/);
   assert.match(createSource, /publicWan27ModelsEnabled/);
+  assert.match(createSource, /publicHappyhorseModelsEnabled/);
+  assert.match(createSource, /publicQwenImage3ModelsEnabled/);
   assert.match(createSource, /hiddenProviders = new Set/);
 });

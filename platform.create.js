@@ -1291,6 +1291,14 @@ function publicWan27ModelsEnabled() {
   return state.config?.tenantFeatures?.aliyunWan27Models === true;
 }
 
+function publicHappyhorseModelsEnabled() {
+  return state.config?.tenantFeatures?.aliyunHappyHorseModels === true;
+}
+
+function publicQwenImage3ModelsEnabled() {
+  return state.config?.tenantFeatures?.aliyunQwenImage3Models === true;
+}
+
 function isPublicWan27ProviderOption(value = "") {
   const raw = String(value || "").trim().toLowerCase();
   return ["wan27", "wan27-image-edit", "wan-animate"].includes(raw)
@@ -1300,17 +1308,35 @@ function isPublicWan27ProviderOption(value = "") {
     || raw.includes("wananimate");
 }
 
+function isPublicHappyhorseProviderOption(value = "") {
+  return String(value || "").trim().toLowerCase() === "happyhorse";
+}
+
+function isPublicQwenImage3ProviderOption(value = "") {
+  return String(value || "").trim().toLowerCase() === "qwen-image3";
+}
+
 function syncAdvancedProviderExposure() {
   if (!els.advancedProvider) return;
   const hiddenProviders = new Set(["wan30", "wan27", "wan-animate", "happyhorse", "wan27-image-edit", "qwen-image3"]);
   const enabled = publicAliyunModelsEnabled();
   const wan27Enabled = publicWan27ModelsEnabled();
+  const happyhorseEnabled = publicHappyhorseModelsEnabled();
+  const qwenImage3Enabled = publicQwenImage3ModelsEnabled();
   els.advancedProvider.querySelectorAll("option").forEach((option) => {
     const raw = String(option.value || "").trim().toLowerCase();
-    option.hidden = !enabled && hiddenProviders.has(raw) && !(wan27Enabled && isPublicWan27ProviderOption(raw));
+    option.hidden = !enabled && hiddenProviders.has(raw) && !(
+      (wan27Enabled && isPublicWan27ProviderOption(raw))
+      || (happyhorseEnabled && isPublicHappyhorseProviderOption(raw))
+      || (qwenImage3Enabled && isPublicQwenImage3ProviderOption(raw))
+    );
   });
   const current = String(els.advancedProvider.value || "").trim().toLowerCase();
-  if (!enabled && hiddenProviders.has(current) && !(wan27Enabled && isPublicWan27ProviderOption(current))) {
+  if (!enabled && hiddenProviders.has(current) && !(
+    (wan27Enabled && isPublicWan27ProviderOption(current))
+    || (happyhorseEnabled && isPublicHappyhorseProviderOption(current))
+    || (qwenImage3Enabled && isPublicQwenImage3ProviderOption(current))
+  )) {
     els.advancedProvider.value = "seedance25";
   }
 }
