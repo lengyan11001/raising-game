@@ -43,6 +43,8 @@ test("workflow canvas state is normalized and bounded", () => {
 test("workflow canvas database operations are owner scoped", () => {
   const db = read("db.js");
 
+  assert.match(db, /pool\.on\("error", \(error\) =>/);
+  assert.match(db, /\[db-pool-error\]/);
   assert.match(db, /CREATE TABLE IF NOT EXISTS app_workflow_canvases/);
   assert.match(db, /CREATE INDEX IF NOT EXISTS app_workflow_canvases_user_updated_idx ON app_workflow_canvases \(user_id, updated_at DESC/);
   assert.match(db, /SELECT id, user_id, name, created_at, updated_at FROM app_workflow_canvases/);

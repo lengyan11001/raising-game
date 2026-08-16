@@ -22723,11 +22723,18 @@ function seedream5OutputImageUrls(raw = {}) {
 
 function seedream5SubmitRetryPolicy(error) {
   const message = String(error?.message || error || "");
+  const statusCode = Number(error?.statusCode || 0);
   if (/asset is still processing|not available yet/i.test(message)) {
     return { attempts: 18, waitMs: 10000, reason: "asset-processing" };
   }
   if (/timeout while downloading url|timed? out while downloading|failed to download[^\n]*(?:timeout|timed? out)/i.test(message)) {
     return { attempts: 4, waitMs: 5000, reason: "reference-download" };
+  }
+  if (
+    [408, 425, 429, 500, 502, 503, 504, 520, 522].includes(statusCode)
+    || /unexpected internal error|internal server error|temporarily unavailable/i.test(message)
+  ) {
+    return { attempts: 3, waitMs: 3000, reason: "upstream-transient" };
   }
   return null;
 }

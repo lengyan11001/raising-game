@@ -34,6 +34,13 @@ function getPool() {
       connectionTimeoutMillis: Number(process.env.PGPOOL_CONNECTION_TIMEOUT_MS || 5000),
       maxUses: Number(process.env.PGPOOL_MAX_USES || 7500),
     });
+    pool.on("error", (error) => {
+      // PostgreSQL can terminate an idle connection during a planned restart.
+      // Keep that asynchronous pool event from taking down the HTTP server.
+      const code = String(error?.code || "").trim();
+      const message = String(error?.message || error || "database connection error").trim();
+      console.error(`[db-pool-error]${code ? ` ${code}` : ""} ${message}`);
+    });
   }
   return pool;
 }

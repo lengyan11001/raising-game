@@ -163,6 +163,8 @@ test("Seedance image preprocessing is shared by the model family and remains opt
   assert.match(server, /function seedream5SubmitRetryPolicy\(error\)/);
   assert.match(server, /timeout while downloading url\|timed\? out while downloading/);
   assert.match(server, /attempts: 4, waitMs: 5000, reason: "reference-download"/);
+  assert.match(server, /\[408, 425, 429, 500, 502, 503, 504, 520, 522\]\.includes\(statusCode\)/);
+  assert.match(server, /attempts: 3, waitMs: 3000, reason: "upstream-transient"/);
 });
 
 test("Safari duration pickers refresh pricing and deployments invalidate split frontend chunks", () => {
