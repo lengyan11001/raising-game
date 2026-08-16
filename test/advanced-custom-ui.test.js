@@ -158,13 +158,25 @@ test("Seedance image preprocessing is shared by the model family and remains opt
   assert.match(server, /function makeSeedancePreprocessedReferencePrompt\(item = \{\}\)/);
   assert.match(server, /A male person must remain male, a female person must remain female/);
   assert.match(server, /a scene with no people must remain a scene with no people/);
-  assert.match(server, /const preprocessVersion = "preserve-source-v2"/);
+  assert.match(server, /const SEEDANCE_PREPROCESS_REFERENCE_VERSION = "preserve-source-v2"/);
+  assert.match(server, /const preprocessVersion = SEEDANCE_PREPROCESS_REFERENCE_VERSION/);
   assert.match(server, /preserveSourceComposition: true/);
   assert.match(server, /function seedream5SubmitRetryPolicy\(error\)/);
   assert.match(server, /timeout while downloading url\|timed\? out while downloading/);
   assert.match(server, /attempts: 4, waitMs: 5000, reason: "reference-download"/);
   assert.match(server, /\[408, 425, 429, 500, 502, 503, 504, 520, 522\]\.includes\(statusCode\)/);
   assert.match(server, /attempts: 3, waitMs: 3000, reason: "upstream-transient"/);
+});
+
+test("Seedance reference preprocessing is included in configured billing and cached references are not charged again", () => {
+  assert.match(server, /function seedancePreprocessPricingForAssets\(auth = \{\}, config = \{\}, assets = \[\], enabled = false\)/);
+  assert.match(server, /asset\.syntheticReferenceAssetUri[\s\S]*?asset\.syntheticReferenceVersion === SEEDANCE_PREPROCESS_REFERENCE_VERSION/);
+  assert.match(server, /advancedModelPricing\("seedream5-image", \{[\s\S]*?referenceImageCount: 1,[\s\S]*?outputImageCount: 1/);
+  assert.match(server, /preprocessCredits: preprocessPricing\.credits/);
+  assert.match(server, /originalPreprocessCredits: preprocessPricing\.originalCredits/);
+  assert.match(server, /credits: creditsAmount\(videoPricing\.credits \+ preprocessPricing\.credits\)/);
+  assert.match(server, /type: "advanced_generation"[\s\S]*?preprocessImageCount: preprocessPricing\.imageCount/);
+  assert.match(server, /preprocessAssetIds: preprocessPricing\.items\.map/);
 });
 
 test("Safari duration pickers refresh pricing and deployments invalidate split frontend chunks", () => {

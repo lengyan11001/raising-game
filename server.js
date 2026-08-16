@@ -766,6 +766,7 @@ const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_M
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_REFERENCE_LIMIT || process.env.ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT, 9, 1, 9));
 const ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_VIDEO_REFERENCE_LIMIT, 3, 1, 3));
 const ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_AUDIO_REFERENCE_LIMIT, 3, 1, 3));
+const SEEDANCE_PREPROCESS_REFERENCE_VERSION = "preserve-source-v2";
 const JSON_BODY_MAX_BYTES = Math.floor(clampNumber(process.env.JSON_BODY_MAX_MB, 140, 1, 200) * 1024 * 1024);
 const IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
 const MEDIA_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
@@ -7256,6 +7257,83 @@ function seedream5ImagePricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICIN
     credits,
     markup: 1,
     source: "byteplus_seedream5_official_image_pricing",
+  };
+}
+
+function seedancePreprocessPricingForAssets(auth = {}, config = {}, assets = [], enabled = false) {
+  const empty = {
+    enabled: false,
+    imageCount: 0,
+    resolution: "",
+    tier: "",
+    credits: 0,
+    baseCredits: 0,
+    originalCredits: 0,
+    perImageCredits: 0,
+    perImageBaseCredits: 0,
+    perImageOriginalCredits: 0,
+    source: "",
+    items: [],
+  };
+  if (!enabled || USE_GATEWAY_UPSTREAM) return empty;
+
+  const uniqueAssets = [];
+  const seen = new Set();
+  for (const asset of Array.isArray(assets) ? assets : []) {
+    const id = String(asset?.id || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const reusable = Boolean(
+      asset.syntheticReferenceAssetUri
+      && asset.syntheticReferenceVersion === SEEDANCE_PREPROCESS_REFERENCE_VERSION,
+    );
+    if (!reusable) uniqueAssets.push(asset);
+  }
+  if (!uniqueAssets.length) return empty;
+
+  const advancedPricing = config?.platform?.advancedPricing;
+  const resolution = normalizeSeedream5Resolution(
+    process.env.HOME_REFERENCE_SEEDREAM_SIZE
+    || process.env.CHARACTER_SEEDREAM_SIZE
+    || advancedPricing?.seedream5Image?.defaultResolution
+    || "2K",
+  );
+  const tier = normalizeSeedream5Tier(
+    process.env.HOME_REFERENCE_SEEDREAM_TIER
+    || process.env.CHARACTER_SEEDREAM_TIER
+    || advancedPricing?.seedream5Image?.defaultTier
+    || "pro",
+  );
+  const rawPerImage = advancedModelPricing("seedream5-image", {
+    advancedPricing,
+    seedreamTier: tier,
+    resolution,
+    referenceImageCount: 1,
+    outputImageCount: 1,
+  });
+  const perImage = applyUserPricingToEstimate(rawPerImage, auth.user || 1, pricingContextForAuth(auth));
+  const imageCount = uniqueAssets.length;
+  const credits = creditsAmount(perImage.credits * imageCount);
+  const baseCredits = creditsAmount(perImage.baseCredits * imageCount);
+  const originalCredits = creditsAmount(perImage.originalCredits * imageCount);
+  return {
+    enabled: true,
+    imageCount,
+    resolution,
+    tier,
+    credits,
+    baseCredits,
+    originalCredits,
+    perImageCredits: perImage.credits,
+    perImageBaseCredits: perImage.baseCredits,
+    perImageOriginalCredits: perImage.originalCredits,
+    source: perImage.source || "byteplus_seedream5_official_image_pricing",
+    items: uniqueAssets.map((asset) => ({
+      assetId: asset.id,
+      credits: perImage.credits,
+      baseCredits: perImage.baseCredits,
+      originalCredits: perImage.originalCredits,
+    })),
   };
 }
 
@@ -14502,7 +14580,7 @@ async function ensureSeedanceAssetForUserAsset(db, userAsset) {
 
 async function ensureSyntheticReferenceForUserAsset(db, userAsset) {
   if (!userAsset) return null;
-  const preprocessVersion = "preserve-source-v2";
+  const preprocessVersion = SEEDANCE_PREPROCESS_REFERENCE_VERSION;
   const reusable = userAsset.syntheticReferenceAssetUri
     && userAsset.syntheticReferenceVersion === preprocessVersion;
   if (reusable) return userAsset;
@@ -24156,7 +24234,29 @@ async function handleAdvancedGenerate(req, res) {
     ...requestParams,
     advancedPricing: config.platform?.advancedPricing,
   });
-  const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+  const videoPricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+  const preprocessPricing = seedancePreprocessPricingForAssets(
+    auth,
+    config,
+    provider === "seedance"
+      ? [userAsset, ...extraUserAssets, seedanceFirstFrameAsset, seedanceEndFrameAsset]
+      : [],
+    provider === "seedance" && requestParams.preprocessReference === true,
+  );
+  const pricing = {
+    ...videoPricing,
+    videoCredits: videoPricing.credits,
+    baseVideoCredits: videoPricing.baseCredits,
+    originalVideoCredits: videoPricing.originalCredits,
+    preprocessReference: requestParams.preprocessReference === true,
+    preprocessPricing,
+    preprocessCredits: preprocessPricing.credits,
+    basePreprocessCredits: preprocessPricing.baseCredits,
+    originalPreprocessCredits: preprocessPricing.originalCredits,
+    credits: creditsAmount(videoPricing.credits + preprocessPricing.credits),
+    baseCredits: creditsAmount(videoPricing.baseCredits + preprocessPricing.baseCredits),
+    originalCredits: creditsAmount(videoPricing.originalCredits + preprocessPricing.originalCredits),
+  };
   const cost = pricing.credits;
   if (auth.user.credits < cost) {
     return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
@@ -24256,6 +24356,12 @@ async function handleAdvancedGenerate(req, res) {
         inputVideoSeconds: pricing.videoInputSeconds || 0,
         videoInputCreditsPerSecond: pricing.videoInputCreditsPerSecond || 0,
         videoInputCredits: pricing.videoInputCredits || 0,
+        videoCredits: pricing.videoCredits || 0,
+        preprocessCredits: pricing.preprocessCredits || 0,
+        preprocessImageCount: preprocessPricing.imageCount || 0,
+        preprocessResolution: preprocessPricing.resolution || "",
+        preprocessTier: preprocessPricing.tier || "",
+        preprocessAssetIds: preprocessPricing.items.map((item) => item.assetId),
         baseCredits: pricing.baseCredits,
         originalCost: pricing.originalCredits,
         pricingMultiplier: pricing.userPricingMultiplier,
@@ -24317,6 +24423,13 @@ async function handleAdvancedGenerate(req, res) {
     error: "",
     preDeductedCredits: cost,
     originalPreDeductedCredits: pricing.originalCredits,
+    videoCredits: pricing.videoCredits || 0,
+    originalVideoCredits: pricing.originalVideoCredits || 0,
+    preprocessReference: pricing.preprocessReference,
+    preprocessCredits: pricing.preprocessCredits || 0,
+    originalPreprocessCredits: pricing.originalPreprocessCredits || 0,
+    preprocessImageCount: preprocessPricing.imageCount || 0,
+    preprocessAssetIds: preprocessPricing.items.map((item) => item.assetId),
     finalCredits: pricing.adaptiveDuration ? null : cost,
     originalFinalCredits: pricing.adaptiveDuration ? null : pricing.originalCredits,
     userPricingMultiplier: pricing.userPricingMultiplier,
