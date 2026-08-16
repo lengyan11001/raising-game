@@ -48,14 +48,13 @@ def configure_telegram_api(token: str, webapp_url: str, webhook_url: str, webhoo
     telegram_api(token, "setWebhook", {
         "url": webhook_url,
         "secret_token": webhook_secret,
-        "allowed_updates": ["message"],
+        "allowed_updates": ["message", "callback_query"],
         "drop_pending_updates": False,
     })
     telegram_api(token, "setChatMenuButton", {
         "menu_button": {
-            "type": "web_app",
-            "text": "Undress",
-            "web_app": {"url": webapp_url},
+            "type": "commands",
+            "text": "Menu",
         },
     })
     telegram_api(token, "setMyCommands", {

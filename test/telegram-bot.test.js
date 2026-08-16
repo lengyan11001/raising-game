@@ -62,8 +62,17 @@ test("builds a Telegram menu with all Undress entry points", () => {
   const markup = client.menuMarkup();
   const texts = markup.keyboard.flat().map((button) => button.text);
   assert.deepEqual(texts, ["Create", "History", "Recharge", "Support", "My"]);
-  assert.equal(markup.keyboard[0][0].web_app.url.includes("tg_view=create"), true);
+  assert.equal(markup.keyboard[0][0].web_app, undefined);
+  assert.equal(markup.keyboard[0][1].web_app, undefined);
   assert.equal(markup.keyboard[1][1].web_app, undefined);
+  const createMarkup = client.createMarkup();
+  assert.equal(createMarkup.inline_keyboard[0][0].callback_data, "tg:create:image");
+  assert.equal(createMarkup.inline_keyboard[0][1].callback_data, "tg:create:image_video");
+  const rechargeMarkup = client.rechargeMarkup([
+    { id: "usd-10", amount: 10, credits: 1000 },
+    { id: "usd-20", amount: 20, credits: 2000 },
+  ]);
+  assert.equal(rechargeMarkup.inline_keyboard[0][0].callback_data, "tg:topup:usd-10");
 });
 
 test("loads the Telegram SDK only on the Undress hostname", () => {

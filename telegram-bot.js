@@ -112,18 +112,42 @@ function telegramMiniAppUrl(baseUrl = "https://undress.14vips.com/", view = "cre
   return url.toString();
 }
 
-function telegramMenuMarkup(baseUrl = "https://undress.14vips.com/") {
-  const webAppButton = (text, view) => ({ text, web_app: { url: telegramMiniAppUrl(baseUrl, view) } });
+function telegramMenuMarkup(_baseUrl = "https://undress.14vips.com/") {
   return {
     keyboard: [
-      [webAppButton("Create", "create"), webAppButton("History", "history")],
-      [webAppButton("Recharge", "topups"), { text: "Support" }],
-      [webAppButton("My", "account")],
+      [{ text: "Create" }, { text: "History" }],
+      [{ text: "Recharge" }, { text: "Support" }],
+      [{ text: "My" }],
     ],
     resize_keyboard: true,
     is_persistent: true,
     input_field_placeholder: "Choose an action",
   };
+}
+
+function telegramCreateMarkup() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "Image", callback_data: "tg:create:image" },
+        { text: "Image to Video", callback_data: "tg:create:image_video" },
+      ],
+      [{ text: "Video", callback_data: "tg:create:video" }],
+    ],
+  };
+}
+
+function telegramRechargeMarkup(packages = []) {
+  const buttons = (Array.isArray(packages) ? packages : [])
+    .filter((item) => item && item.id && Number(item.amount) > 0)
+    .slice(0, 6)
+    .map((item) => ({
+      text: `$${Number(item.amount).toFixed(0)} / ${Number(item.credits || 0).toFixed(0)} credits`,
+      callback_data: `tg:topup:${String(item.id).slice(0, 48)}`,
+    }));
+  const rows = [];
+  for (let index = 0; index < buttons.length; index += 2) rows.push(buttons.slice(index, index + 2));
+  return { inline_keyboard: rows };
 }
 
 function createTelegramBotClient({ token = "", webAppUrl = "https://undress.14vips.com/", timeoutMs = TELEGRAM_API_TIMEOUT_MS } = {}) {
@@ -159,14 +183,44 @@ function createTelegramBotClient({ token = "", webAppUrl = "https://undress.14vi
     });
   }
 
+  async function sendPhoto(chatId, photo, caption = "", extra = {}) {
+    return call("sendPhoto", {
+      chat_id: String(chatId || ""),
+      photo: String(photo || ""),
+      caption: String(caption || "").slice(0, 1024),
+      ...extra,
+    });
+  }
+
+  async function downloadFile(fileId, { maxBytes = 20 * 1024 * 1024 } = {}) {
+    const file = (await call("getFile", { file_id: String(fileId || "") })).result || {};
+    const filePath = String(file.file_path || "").trim();
+    if (!filePath) throw new Error("Telegram file path is unavailable.");
+    const response = await fetch(`https://api.telegram.org/file/bot${botToken}/${filePath}`, {
+      signal: AbortSignal.timeout(Math.max(timeoutMs, 30000)),
+    });
+    if (!response.ok) throw new Error(`Telegram file download failed (${response.status}).`);
+    const contentLength = Number(response.headers.get("content-length") || 0);
+    if (contentLength > maxBytes) throw new Error(`Telegram media must be ${Math.round(maxBytes / 1024 / 1024)}MB or smaller.`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > maxBytes) throw new Error(`Telegram media must be ${Math.round(maxBytes / 1024 / 1024)}MB or smaller.`);
+    return { bytes, filePath, mime: String(response.headers.get("content-type") || "").split(";")[0].trim() };
+  }
+
+  async function answerCallbackQuery(callbackQueryId, text = "") {
+    return call("answerCallbackQuery", {
+      callback_query_id: String(callbackQueryId || ""),
+      ...(text ? { text: String(text).slice(0, 200) } : {}),
+    });
+  }
+
   async function sendTaskLink(chatId, taskId, stage = "processing") {
-    const link = telegramMiniAppUrl(baseUrl, "history", taskId);
     const normalizedStage = telegramStatusStage(stage);
     const text = normalizedStage === "completed"
-      ? `Generation complete\n${link}`
+      ? `Generation complete\nTask: ${String(taskId || "")}`
       : normalizedStage === "failed"
-      ? `Generation failed\n${link}`
-      : `Generation in progress\n${link}`;
+      ? `Generation failed\nTask: ${String(taskId || "")}`
+      : `Generation in progress\nTask: ${String(taskId || "")}`;
     return sendMessage(chatId, text);
   }
 
@@ -183,11 +237,29 @@ function createTelegramBotClient({ token = "", webAppUrl = "https://undress.14vi
     });
   }
 
-  async function processUpdate(update = {}, { onSupportMessage = null, onUnknownMessage = null } = {}) {
+  async function processUpdate(update = {}, {
+    onSupportMessage = null,
+    onUnknownMessage = null,
+    onCallbackQuery = null,
+    onMessage = null,
+  } = {}) {
+    const callbackQuery = update.callback_query;
+    if (callbackQuery && !callbackQuery.from?.is_bot) {
+      await answerCallbackQuery(callbackQuery.id).catch(() => {});
+      if (typeof onCallbackQuery === "function") {
+        await onCallbackQuery(callbackQuery);
+        return { handled: true, action: "callback" };
+      }
+      return { handled: false };
+    }
     const message = update.message || update.edited_message;
     if (!message || message.from?.is_bot) return { handled: false };
     const chatId = String(message.chat?.id || "");
     if (!chatId || (message.chat?.type && message.chat.type !== "private")) return { handled: false };
+    if (typeof onMessage === "function") {
+      const handled = await onMessage(message);
+      if (handled) return { handled: true, action: "native-message" };
+    }
     const text = String(message.text || "").trim();
     const command = text.split(/\s+/)[0].replace(/@\w+$/, "").toLowerCase();
     if (["/start", "/menu", "/create"].includes(command)) {
@@ -195,15 +267,15 @@ function createTelegramBotClient({ token = "", webAppUrl = "https://undress.14vi
       return { handled: true, action: "menu" };
     }
     if (command === "/history") {
-      await sendMessage(chatId, telegramMiniAppUrl(baseUrl, "history"));
+      await sendStart(chatId);
       return { handled: true, action: "history" };
     }
     if (["/recharge", "/topup"].includes(command)) {
-      await sendMessage(chatId, telegramMiniAppUrl(baseUrl, "topups"));
+      await sendStart(chatId);
       return { handled: true, action: "topups" };
     }
     if (["/me", "/account"].includes(command)) {
-      await sendMessage(chatId, telegramMiniAppUrl(baseUrl, "account"));
+      await sendStart(chatId);
       return { handled: true, action: "account" };
     }
     if (["/support", "support"].includes(command) || text === "Support") {
@@ -225,10 +297,15 @@ function createTelegramBotClient({ token = "", webAppUrl = "https://undress.14vi
   return {
     enabled: Boolean(botToken),
     call,
+    answerCallbackQuery,
+    downloadFile,
     sendMessage,
+    sendPhoto,
     sendStart,
     sendTaskLink,
     processUpdate,
+    createMarkup: telegramCreateMarkup,
+    rechargeMarkup: telegramRechargeMarkup,
     menuMarkup: () => telegramMenuMarkup(baseUrl),
     miniAppUrl: (view, taskId) => telegramMiniAppUrl(baseUrl, view, taskId),
   };
@@ -239,6 +316,8 @@ module.exports = {
   createTelegramBotClient,
   parseTelegramWebAppInitData,
   telegramMenuMarkup,
+  telegramCreateMarkup,
+  telegramRechargeMarkup,
   telegramMiniAppUrl,
   telegramStatusStage,
   telegramUserLabel,

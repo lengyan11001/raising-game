@@ -27432,10 +27432,14 @@ function uniqueTelegramUsername(db, telegramUser = {}) {
   return candidate;
 }
 
-async function telegramUserSessionFromInitData(initData = "") {
-  const parsed = parseTelegramWebAppInitData(initData, TELEGRAM_BOT_TOKEN);
-  const telegramUser = parsed.user || {};
+async function ensureTelegramUserAccount(telegramUser = {}) {
   const telegramUserId = String(telegramUser.id || "").trim();
+  if (!telegramUserId) {
+    const error = new Error("Telegram user information is missing.");
+    error.statusCode = 401;
+    error.code = "TELEGRAM_USER_MISSING";
+    throw error;
+  }
   const now = new Date().toISOString();
   const db = await readDb();
   let user = await getUserByTelegramIdInDb(telegramUserId, UNDRESS_TOOL_TENANT_ID)
@@ -27476,17 +27480,22 @@ async function telegramUserSessionFromInitData(initData = "") {
   user.updatedAt = now;
   ensureUserApiToken(user, db);
 
-  const token = crypto.randomBytes(32).toString("hex");
-  const session = { token, userId: user.id, tenantId: UNDRESS_TOOL_TENANT_ID, createdAt: now };
-  db.sessions.push(session);
-  if (dbEnabled()) {
-    await updateUserInDb(user);
-    await createSessionInDb(session);
-  } else {
-    await writeDb(db);
-  }
+  if (dbEnabled()) await updateUserInDb(user);
+  else await writeDb(db);
   telegramUserContextCache.set(user.id, { user, expiresAt: Date.now() + 60000 });
-  return { token, user, telegram: { id: telegramUserId, label: telegramBotUserLabel(telegramUser) } };
+  return { db, user, telegram: { id: telegramUserId, label: telegramBotUserLabel(telegramUser) } };
+}
+
+async function telegramUserSessionFromInitData(initData = "") {
+  const parsed = parseTelegramWebAppInitData(initData, TELEGRAM_BOT_TOKEN);
+  const account = await ensureTelegramUserAccount(parsed.user || {});
+  const now = new Date().toISOString();
+  const token = crypto.randomBytes(32).toString("hex");
+  const session = { token, userId: account.user.id, tenantId: UNDRESS_TOOL_TENANT_ID, createdAt: now };
+  account.db.sessions.push(session);
+  if (dbEnabled()) await createSessionInDb(session);
+  else await writeDb(account.db);
+  return { token, user: account.user, telegram: account.telegram };
 }
 
 async function handleTelegramWebAppAuth(req, res) {
@@ -27531,10 +27540,379 @@ async function handleTelegramBotWebhook(req, res) {
     return sendJson(res, 403, { ok: false, message: "Invalid Telegram webhook secret." });
   }
   const update = await readJson(req);
-  await telegramBotClient.processUpdate(update, {
-    onSupportMessage: (message) => persistTelegramBotSupportMessage(message),
-  });
+  const updateId = Number(update.update_id || 0);
+  if (updateId > 0) {
+    const now = Date.now();
+    for (const [id, seenAt] of telegramProcessedUpdateIds) {
+      if (now - seenAt > 60 * 60 * 1000) telegramProcessedUpdateIds.delete(id);
+    }
+    if (telegramProcessedUpdateIds.has(updateId)) return sendJson(res, 200, { ok: true, duplicate: true });
+    telegramProcessedUpdateIds.set(updateId, now);
+  }
+  try {
+    await telegramBotClient.processUpdate(update, {
+      onSupportMessage: (message) => persistTelegramBotSupportMessage(message),
+      onCallbackQuery: (callbackQuery) => handleTelegramNativeCallback(callbackQuery),
+      onMessage: async (message) => {
+        const account = await ensureTelegramUserAccount(message.from || {});
+        const nativeMedia = telegramNativeMediaDescriptor(message);
+        if (nativeMedia) return handleTelegramNativeMedia(message, account.user);
+        return handleTelegramNativeText(message, account.user);
+      },
+    });
+  } catch (error) {
+    if (updateId > 0) telegramProcessedUpdateIds.delete(updateId);
+    throw error;
+  }
   return sendJson(res, 200, { ok: true });
+}
+
+const telegramNativeChatStates = new Map();
+const telegramProcessedUpdateIds = new Map();
+
+function telegramNativeRequest(user, method = "GET", pathname = "/") {
+  return {
+    method,
+    url: pathname,
+    headers: {
+      host: "undress.14vips.com",
+      authorization: `Bearer ${String(user?.apiToken || "")}`,
+      "x-forwarded-proto": "https",
+    },
+    socket: { encrypted: true },
+  };
+}
+
+async function invokeTelegramJsonHandler(handler, user, { method = "GET", pathname = "/", body = {}, args = [] } = {}) {
+  const request = telegramNativeRequest(user, method, pathname);
+  const captured = captureJsonResponse();
+  const prepared = method === "GET" ? request : withJsonBody(request, body);
+  await handler(prepared, captured, ...args);
+  return { statusCode: captured.statusCode, payload: capturedJsonPayload(captured) };
+}
+
+function telegramNativeMediaMime(filePath = "", fallback = "") {
+  const extension = path.extname(String(filePath || "").split("?")[0]).toLowerCase();
+  if ([".jpg", ".jpeg"].includes(extension)) return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".mp4") return "video/mp4";
+  if (extension === ".mov") return "video/quicktime";
+  if (extension === ".webm") return "video/webm";
+  return String(fallback || "").toLowerCase().split(";")[0].trim();
+}
+
+function telegramNativeMediaDescriptor(message = {}) {
+  if (Array.isArray(message.photo) && message.photo.length) {
+    const photo = [...message.photo].sort((left, right) => Number(left.file_size || 0) - Number(right.file_size || 0))[message.photo.length - 1];
+    return { fileId: String(photo?.file_id || ""), mime: "image/jpeg", fileName: `telegram-${Date.now()}.jpg`, kind: "image" };
+  }
+  if (message.video?.file_id) {
+    return {
+      fileId: String(message.video.file_id),
+      mime: String(message.video.mime_type || "video/mp4"),
+      fileName: String(message.video.file_name || `telegram-${Date.now()}.mp4`),
+      kind: "video",
+    };
+  }
+  if (message.document?.file_id) {
+    const mime = telegramNativeMediaMime(message.document.file_name, message.document.mime_type);
+    const kind = mime.startsWith("video/") ? "video" : mime.startsWith("image/") ? "image" : "";
+    if (!kind) return null;
+    return {
+      fileId: String(message.document.file_id),
+      mime,
+      fileName: String(message.document.file_name || `telegram-${Date.now()}`),
+      kind,
+    };
+  }
+  return null;
+}
+
+function telegramNativeState(chatId = "") {
+  const key = String(chatId || "").trim();
+  if (!key) return null;
+  const current = telegramNativeChatStates.get(key);
+  if (current && Date.now() - Number(current.updatedAt || 0) < 30 * 60 * 1000) return current;
+  const next = { updatedAt: Date.now(), waitingFor: "", generationType: "", orderId: "" };
+  telegramNativeChatStates.set(key, next);
+  return next;
+}
+
+function clearTelegramNativeState(chatId = "") {
+  const state = telegramNativeState(chatId);
+  if (!state) return;
+  state.waitingFor = "";
+  state.generationType = "";
+  state.orderId = "";
+  state.updatedAt = Date.now();
+}
+
+function telegramNativePublicUrl(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return publicUrlForAssetPath(text) || (isPublicHttpUrl(text) ? text : "");
+}
+
+function telegramNativeTaskLinks(record = {}) {
+  const values = [
+    record.videoUrl,
+    record.imageResultUrl,
+    record.downloadUrl,
+    record.cdnVideoUrl,
+    record.localVideoUrl,
+    record.cdnImageUrl,
+    record.localImageUrl,
+  ];
+  return [...new Set(values.map(telegramNativePublicUrl).filter(Boolean))];
+}
+
+function telegramNativeModeLabel(generationType = "") {
+  return generationType === "video" ? "Video" : generationType === "image_video" ? "Image to Video" : "Image";
+}
+
+async function sendTelegramNativeCreateMenu(chatId) {
+  return telegramBotClient.sendMessage(chatId, "Choose a generation type, then send the requested media.", {
+    reply_markup: telegramBotClient.createMarkup(),
+  });
+}
+
+async function sendTelegramNativeRechargeMenu(chatId, user) {
+  const plan = await getBillingPlanInDb(UNDRESS_TOOL_TENANT_ID);
+  const packages = toolTopupPackagesForPlan(plan);
+  return telegramBotClient.sendMessage(
+    chatId,
+    `Recharge\nCurrent balance: ${Number(user?.credits || 0).toFixed(2)} credits\nChoose a package:`,
+    { reply_markup: telegramBotClient.rechargeMarkup(packages) },
+  );
+}
+
+async function sendTelegramNativeHistory(chatId, user) {
+  const records = await listGenerationRecordsForUser(user.id, 12);
+  if (!records.length) return telegramBotClient.sendMessage(chatId, "No generation records yet.");
+  for (const record of records) {
+    let latest = record;
+    try {
+      await invokeTelegramJsonHandler(handleGetGenerationRecord, user, {
+        method: "GET",
+        pathname: `/api/generation-records/${encodeURIComponent(record.taskId)}`,
+        args: [record.taskId],
+      });
+      latest = await getGenerationRecord(record.taskId) || record;
+    } catch (error) {
+      console.warn("[telegram-history-refresh-failed]", record.taskId, error.message || error);
+    }
+    const view = publicGenerationRecord(latest, {
+      preferProviderVideoUrl: false,
+      providerOnlyVideoUrl: false,
+      includeStoredVideoUrls: true,
+      providerOnlyImageUrl: false,
+      includeStoredImageUrls: true,
+      includeLockedMedia: true,
+    });
+    const stage = telegramStatusStage(view.status);
+    const lines = [`${telegramNativeModeLabel(latest.telegramGenerationType || latest.params?.generationType || "")} · ${stage}`, `Task: ${view.taskId}`];
+    if (stage === "failed") lines.push(`Error: ${String(view.error || "Generation failed.").slice(0, 400)}`);
+    if (view.resultLocked === true) {
+      lines.push(`Unlock: ${Number(view.unlockCredits || 0).toFixed(2)} credits`);
+      await telegramBotClient.sendMessage(chatId, lines.join("\n"), {
+        reply_markup: { inline_keyboard: [[{ text: "Unlock result", callback_data: `tg:unlock:${view.taskId}` }]] },
+      });
+      continue;
+    }
+    const links = telegramNativeTaskLinks(view);
+    if (links.length) lines.push(...links);
+    await telegramBotClient.sendMessage(chatId, lines.join("\n"));
+  }
+}
+
+async function telegramNativeGenerate(user, chatId, asset, generationType) {
+  const result = await invokeTelegramJsonHandler(handleUndressToolGenerate, user, {
+    method: "POST",
+    pathname: "/api/undress-tool/generate",
+    body: { assetId: asset.id, generationType },
+  });
+  if (result.statusCode >= 400 || !result.payload?.taskId) {
+    const error = new Error(result.payload?.message || "Generation submission failed.");
+    error.statusCode = result.statusCode || 400;
+    error.payload = result.payload;
+    throw error;
+  }
+  await upsertGenerationRecord({
+    taskId: result.payload.taskId,
+    telegramChatId: String(chatId || ""),
+    telegramSource: "telegram-bot",
+    telegramGenerationType: generationType,
+  });
+  return result.payload;
+}
+
+async function handleTelegramNativeMedia(message, user) {
+  const chatId = String(message.chat?.id || "");
+  const state = telegramNativeState(chatId);
+  const descriptor = telegramNativeMediaDescriptor(message);
+  if (!descriptor) return false;
+  if (!state?.waitingFor) {
+    await telegramBotClient.sendMessage(chatId, "Choose Create first, then send an image or video.");
+    return true;
+  }
+  const expectedKind = state.waitingFor === "video" ? "video" : "image";
+  if (descriptor.kind !== expectedKind) {
+    await telegramBotClient.sendMessage(chatId, expectedKind === "video" ? "Please send a video for this mode." : "Please send an image for this mode.");
+    return true;
+  }
+  try {
+    await telegramBotClient.sendMessage(chatId, "Uploading your media...");
+    const downloaded = await telegramBotClient.downloadFile(descriptor.fileId, { maxBytes: 20 * 1024 * 1024 });
+    const mime = descriptor.mime.startsWith(`${descriptor.kind}/`) ? descriptor.mime : telegramNativeMediaMime(downloaded.filePath, downloaded.mime);
+    const asset = await createUserMediaAssetFromBytes((await readDb()), user, {
+      bytes: downloaded.bytes,
+      mime: mime || (descriptor.kind === "video" ? "video/mp4" : "image/jpeg"),
+      name: `Telegram ${descriptor.kind}`,
+      fileName: descriptor.fileName,
+      maxBytes: descriptor.kind === "video" ? MEDIA_UPLOAD_MAX_BYTES : IMAGE_UPLOAD_MAX_BYTES,
+    });
+    const generationType = state.generationType || (descriptor.kind === "video" ? "video" : "image");
+    const payload = await telegramNativeGenerate(user, chatId, asset, generationType);
+    clearTelegramNativeState(chatId);
+    await telegramBotClient.sendMessage(chatId, `Submitted\nTask: ${payload.taskId}\nProgress will be sent here.`);
+  } catch (error) {
+    await telegramBotClient.sendMessage(chatId, String(error.message || "Upload or generation failed.").slice(0, 700), {
+      reply_markup: error.statusCode === 402
+        ? { inline_keyboard: [[{ text: "Recharge", callback_data: "tg:recharge" }]] }
+        : telegramBotClient.menuMarkup(),
+    });
+  }
+  return true;
+}
+
+async function telegramNativeCreateOrder(user, chatId, packageId) {
+  const result = await invokeTelegramJsonHandler(handleCreatePaymentOrder, user, {
+    method: "POST",
+    pathname: "/api/pay/orders",
+    body: { packageId },
+  });
+  if (result.statusCode >= 400 || !result.payload?.order) {
+    throw new Error(result.payload?.message || "Unable to create a recharge order.");
+  }
+  const order = result.payload.order;
+  const lines = [
+    "USDT recharge",
+    `Pay: ${order.payableAmountText || order.payableAmount} ${order.asset || "USDT"}`,
+    `Network: ${order.network || order.chain || ""}`,
+    `Address: ${order.address || ""}`,
+    `Credits after payment: ${Number(order.creditAmount || 0).toFixed(2)}`,
+    `Order: ${order.id}`,
+    "After payment, tap the button and send the transaction hash.",
+  ];
+  const markup = { inline_keyboard: [[{ text: "I paid / submit hash", callback_data: `tg:order:confirm:${order.id}` }]] };
+  await telegramBotClient.sendMessage(chatId, lines.join("\n"), { reply_markup: markup });
+  const qrUrl = telegramNativePublicUrl(order.qrUrl);
+  if (qrUrl) await telegramBotClient.sendPhoto(chatId, qrUrl, `Scan to pay ${order.payableAmountText || order.payableAmount} ${order.asset || "USDT"}`).catch(() => {});
+}
+
+async function handleTelegramNativeText(message, user) {
+  const chatId = String(message.chat?.id || "");
+  const text = String(message.text || "").trim();
+  const lower = text.toLowerCase();
+  const state = telegramNativeState(chatId);
+  if (state?.waitingFor === "payment_hash" && text && !lower.startsWith("/")) {
+    try {
+      const result = await invokeTelegramJsonHandler(handleConfirmPaymentOrder, user, {
+        method: "POST",
+        pathname: `/api/pay/orders/${encodeURIComponent(state.orderId)}/confirm`,
+        body: { transactionHash: text },
+        args: [state.orderId],
+      });
+      if (result.statusCode >= 400) throw new Error(result.payload?.message || "Transaction hash was not accepted.");
+      clearTelegramNativeState(chatId);
+      await telegramBotClient.sendMessage(chatId, "Transaction hash received. The order will be credited after verification.", { reply_markup: telegramBotClient.menuMarkup() });
+    } catch (error) {
+      await telegramBotClient.sendMessage(chatId, String(error.message || "Invalid transaction hash.").slice(0, 500));
+    }
+    return true;
+  }
+  if (["create", "/create"].includes(lower)) {
+    await sendTelegramNativeCreateMenu(chatId);
+    return true;
+  }
+  if (["history", "/history"].includes(lower)) {
+    await sendTelegramNativeHistory(chatId, user);
+    return true;
+  }
+  if (["recharge", "/recharge", "topup", "/topup"].includes(lower)) {
+    await sendTelegramNativeRechargeMenu(chatId, user);
+    return true;
+  }
+  if (["my", "/me", "/account"].includes(lower)) {
+    await telegramBotClient.sendMessage(chatId, `Telegram account\nUser ID: ${user.telegramUserId}\nBalance: ${Number(user.credits || 0).toFixed(2)} credits`, { reply_markup: telegramBotClient.menuMarkup() });
+    return true;
+  }
+  if (lower === "cancel") {
+    clearTelegramNativeState(chatId);
+    await telegramBotClient.sendStart(chatId);
+    return true;
+  }
+  return false;
+}
+
+async function handleTelegramNativeCallback(callbackQuery) {
+  const chatId = String(callbackQuery.message?.chat?.id || callbackQuery.from?.id || "");
+  const account = await ensureTelegramUserAccount(callbackQuery.from || {});
+  const user = account.user;
+  const data = String(callbackQuery.data || "").trim();
+  if (data === "tg:create") {
+    await sendTelegramNativeCreateMenu(chatId);
+    return;
+  }
+  const mode = data.match(/^tg:create:(image|image_video|video)$/)?.[1] || "";
+  if (mode) {
+    const state = telegramNativeState(chatId);
+    state.generationType = mode;
+    state.waitingFor = mode === "video" ? "video" : "image";
+    state.updatedAt = Date.now();
+    await telegramBotClient.sendMessage(chatId, mode === "video" ? "Send one video." : "Send one image.", { reply_markup: telegramBotClient.menuMarkup() });
+    return;
+  }
+  if (data === "tg:recharge") {
+    await sendTelegramNativeRechargeMenu(chatId, user);
+    return;
+  }
+  const packageId = data.match(/^tg:topup:([a-z0-9_-]+)$/i)?.[1] || "";
+  if (packageId) {
+    try {
+      await telegramNativeCreateOrder(user, chatId, packageId);
+    } catch (error) {
+      await telegramBotClient.sendMessage(chatId, String(error.message || "Unable to create a recharge order.").slice(0, 500));
+    }
+    return;
+  }
+  const orderId = data.match(/^tg:order:confirm:([a-z0-9_-]+)$/i)?.[1] || "";
+  if (orderId) {
+    const state = telegramNativeState(chatId);
+    state.waitingFor = "payment_hash";
+    state.orderId = orderId;
+    state.updatedAt = Date.now();
+    await telegramBotClient.sendMessage(chatId, "Send the transaction hash for this order.");
+    return;
+  }
+  const taskId = data.match(/^tg:unlock:(.+)$/i)?.[1] || "";
+  if (taskId) {
+    const result = await invokeTelegramJsonHandler(handleUnlockUndressToolResult, user, {
+      method: "POST",
+      pathname: `/api/undress-tool/tasks/${encodeURIComponent(taskId)}/unlock`,
+      args: [taskId],
+    });
+    if (result.statusCode >= 400) {
+      await telegramBotClient.sendMessage(chatId, String(result.payload?.message || "Unable to unlock this result.").slice(0, 500), {
+        reply_markup: result.statusCode === 402 ? { inline_keyboard: [[{ text: "Recharge", callback_data: "tg:recharge" }]] } : undefined,
+      });
+      return;
+    }
+    const record = result.payload.record || await getGenerationRecord(taskId);
+    const links = telegramNativeTaskLinks(publicGenerationRecord(record || {}, { includeLockedMedia: true, includeStoredVideoUrls: true, includeStoredImageUrls: true }));
+    await telegramBotClient.sendMessage(chatId, links.length ? `Unlocked\n${links.join("\n")}` : "Unlocked, but the result link is not ready yet.");
+  }
 }
 
 async function telegramUserContextForGeneration(record = {}) {
@@ -27551,13 +27929,42 @@ async function telegramUserContextForGeneration(record = {}) {
 
 async function notifyTelegramGenerationRecord(record = {}) {
   if (!TELEGRAM_BOT_TOKEN || !telegramBotClient.enabled || !record?.taskId) return;
+  if (String(record.telegramSource || record.params?.telegramSource || "") !== "telegram-bot") return;
   const user = await telegramUserContextForGeneration(record);
   if (!user?.telegramChatId) return;
   const stage = telegramStatusStage(record.status);
   const key = String(record.taskId);
   if (telegramTaskNotificationStages.get(key) === stage) return;
   try {
-    await telegramBotClient.sendTaskLink(user.telegramChatId, key, stage);
+    if (stage === "processing") {
+      await telegramBotClient.sendMessage(user.telegramChatId, `Generation in progress\nTask: ${key}`);
+    } else if (stage === "failed") {
+      await telegramBotClient.sendMessage(user.telegramChatId, `Generation failed\nTask: ${key}\n${String(record.error || "Generation failed.").slice(0, 600)}`);
+    } else if (stage === "completed") {
+      const latest = await getGenerationRecord(key) || record;
+      const view = publicGenerationRecord(latest, {
+        preferProviderVideoUrl: false,
+        providerOnlyVideoUrl: false,
+        includeStoredVideoUrls: true,
+        providerOnlyImageUrl: false,
+        includeStoredImageUrls: true,
+        includeLockedMedia: true,
+      });
+      if (view.resultLocked === true) {
+        const previewUrl = telegramNativePublicUrl(view.lockedPreviewUrl);
+        const markup = { inline_keyboard: [[{ text: "Unlock result", callback_data: `tg:unlock:${key}` }]] };
+        if (previewUrl) {
+          await telegramBotClient.sendPhoto(user.telegramChatId, previewUrl, `Generation complete\nUnlock for ${Number(view.unlockCredits || 0).toFixed(2)} credits`, { reply_markup: markup });
+        } else {
+          await telegramBotClient.sendMessage(user.telegramChatId, `Generation complete\nUnlock for ${Number(view.unlockCredits || 0).toFixed(2)} credits`, { reply_markup: markup });
+        }
+      } else {
+        const links = telegramNativeTaskLinks(view);
+        await telegramBotClient.sendMessage(user.telegramChatId, links.length ? `Generation complete\n${links.join("\n")}` : `Generation complete\nTask: ${key}`);
+      }
+    } else {
+      await telegramBotClient.sendMessage(user.telegramChatId, `Generation status: ${stage}\nTask: ${key}`);
+    }
     telegramTaskNotificationStages.set(key, stage);
   } catch (error) {
     console.warn("[telegram-generation-notify-failed]", key, error.message || error);
