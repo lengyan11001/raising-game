@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import secrets
+import shlex
 import urllib.request
 
 from configure_wan27_env import (
@@ -69,6 +70,43 @@ def configure_telegram_api(token: str, webapp_url: str, webhook_url: str, webhoo
     print("Telegram webhook, menu button, and commands configured.")
 
 
+def configure_telegram_api_via_server(client, token: str, webapp_url: str, webhook_url: str, webhook_secret: str) -> None:
+    """Use the production host for Telegram API calls when local egress is blocked."""
+    requests = [
+        ("getMe", {}),
+        ("setWebhook", {
+            "url": webhook_url,
+            "secret_token": webhook_secret,
+            "allowed_updates": ["message", "callback_query"],
+            "drop_pending_updates": False,
+        }),
+        ("setChatMenuButton", {
+            "menu_button": {"type": "commands", "text": "Menu"},
+        }),
+        ("setMyCommands", {
+            "commands": [
+                {"command": "start", "description": "Open Undress"},
+                {"command": "history", "description": "View generation history"},
+                {"command": "recharge", "description": "Recharge credits"},
+                {"command": "support", "description": "Contact support"},
+                {"command": "me", "description": "View account"},
+            ],
+        }),
+    ]
+    for method, payload in requests:
+        command = (
+            "curl --fail --silent --show-error --max-time 30 "
+            f"-X POST {shlex.quote(f'https://api.telegram.org/bot{token}/{method}')} "
+            "-H 'Content-Type: application/json' "
+            f"--data {shlex.quote(json.dumps(payload, separators=(',', ':')))}"
+        )
+        result = remote_run(client, command)
+        if result.rc != 0:
+            raise RuntimeError(f"Remote Telegram {method} failed: {result.err.strip() or result.out.strip()}")
+        print(f"remote {method}: {result.out.strip()}")
+    print("Telegram webhook, menu button, and commands configured via the production host.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Configure the Undress Telegram bot.")
     parser.add_argument("--host", default=os.environ.get("FYSHARK_HOST", DEFAULT_HOST))
@@ -82,6 +120,7 @@ def main() -> None:
     parser.add_argument("--check-only", action="store_true")
     parser.add_argument("--no-restart", action="store_true")
     parser.add_argument("--skip-api-config", action="store_true")
+    parser.add_argument("--api-via-server", action="store_true")
     args = parser.parse_args()
 
     ssh_password = os.environ.get("FYSHARK_SSH_PASSWORD") or os.environ.get("DEPLOY_SSH_PASSWORD")
@@ -121,7 +160,16 @@ def main() -> None:
         client.close()
 
     if not args.skip_api_config:
-        configure_telegram_api(token, args.webapp_url, webhook_url, secret)
+        if args.api_via_server:
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(args.host, username=args.user, password=ssh_password, timeout=20)
+            try:
+                configure_telegram_api_via_server(client, token, args.webapp_url, webhook_url, secret)
+            finally:
+                client.close()
+        else:
+            configure_telegram_api(token, args.webapp_url, webhook_url, secret)
 
 
 if __name__ == "__main__":
