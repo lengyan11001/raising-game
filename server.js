@@ -819,7 +819,7 @@ const R2 = {
     process.env.CLOUDFLARE_R2_PUBLIC_BASE_URL ||
     process.env.CLOUDFLARE_R2_PUBLIC_DOMAIN,
 };
-const R2_UPLOAD_TIMEOUT_MS = Math.max(25000, Number(process.env.R2_UPLOAD_TIMEOUT_MS || 90000) || 90000);
+const R2_UPLOAD_TIMEOUT_MS = Math.max(25000, Number(process.env.R2_UPLOAD_TIMEOUT_MS || 120000) || 120000);
 const R2_UPLOAD_MAX_TIMEOUT_MS = Math.max(R2_UPLOAD_TIMEOUT_MS, Number(process.env.R2_UPLOAD_MAX_TIMEOUT_MS || 15 * 60 * 1000) || 15 * 60 * 1000);
 const R2_UPLOAD_MIN_BYTES_PER_SECOND = Math.max(64 * 1024, Number(process.env.R2_UPLOAD_MIN_BYTES_PER_SECOND || 256 * 1024) || 256 * 1024);
 const DISABLE_R2_STORAGE = /^(1|true|yes|on)$/i.test(String(process.env.DISABLE_R2_STORAGE || process.env.DISABLE_OBJECT_STORAGE || ""));
@@ -10148,6 +10148,39 @@ function r2UploadTimeoutMs(byteLength = 0) {
   return Math.min(R2_UPLOAD_MAX_TIMEOUT_MS, Math.max(R2_UPLOAD_TIMEOUT_MS, transferBudgetMs));
 }
 
+function r2PublicUrlForKey(key = "") {
+  const value = String(key || "").replace(/^\/+/, "");
+  return value ? `${R2.publicDomain.replace(/\/$/, "")}/${value}` : "";
+}
+
+async function findUploadedR2Object(key = "") {
+  const publicUrl = r2PublicUrlForKey(key);
+  if (!publicUrl) return null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const auth = makeR2Auth({
+        method: "HEAD",
+        key,
+        body: Buffer.alloc(0),
+        contentType: "application/octet-stream",
+      });
+      const response = await fetch(auth.url, {
+        method: "HEAD",
+        headers: auth.headers,
+        signal: AbortSignal.timeout(10000),
+      });
+      if (response.ok) {
+        return { key, r2Url: auth.url, publicUrl };
+      }
+      if (response.status === 404) return null;
+    } catch {
+      // The upload may still be settling after the client-side timeout.
+    }
+    if (attempt < 3) await delay(1000 * attempt);
+  }
+  return null;
+}
+
 async function uploadStaticAssetToR2({ key, bytes, mime }) {
   requireValue("R2_ACCESS_KEY_ID", R2.accessKey);
   requireValue("R2_SECRET_ACCESS_KEY", R2.secretKey);
@@ -10181,6 +10214,10 @@ async function uploadStaticAssetToR2({ key, bytes, mime }) {
       if (attempt >= 3 || !error.retryable) throw error;
     } catch (error) {
       const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
+      if (timeout) {
+        const published = await findUploadedR2Object(key);
+        if (published) return published;
+      }
       const uploadError = timeout ? new Error(`R2 upload timed out after ${Math.ceil(uploadTimeoutMs / 1000)} seconds.`) : error;
       if (timeout) {
         uploadError.code = "R2_UPLOAD_TIMEOUT";
@@ -15212,6 +15249,13 @@ async function writeGenerationRecords(records) {
 
 async function upsertGenerationRecord(nextRecord) {
   const storableRecord = storageGenerationRecord(nextRecord);
+  if (
+    /^(?:R2 upload timed out after \d+ seconds\.)$/.test(String(storableRecord.error || "").trim())
+    && /^(?:succeeded|completed|success)$/i.test(String(storableRecord.status || "").trim())
+    && (storableRecord.localVideoUrl || storableRecord.cdnVideoUrl)
+  ) {
+    storableRecord.error = "";
+  }
   if (dbEnabled()) {
     const record = await upsertGenerationRecordInDb(storableRecord);
     void notifyTelegramGenerationRecord(record).catch((error) => {
@@ -16413,27 +16457,39 @@ async function createGeneratedVideoPoster(taskId, videoPath) {
 async function uploadGeneratedMediaToObjectStorage({ taskId, localVideoPath, localPosterPath = "" } = {}) {
   const result = { cdnVideoUrl: "", cdnPosterUrl: "", cdnError: "" };
   if (!objectStorageEnabled()) return result;
+  const errors = [];
   if (localVideoPath) {
-    const videoBytes = await fs.readFile(localVideoPath);
-    const videoExt = path.extname(localVideoPath) || ".mp4";
-    const videoUpload = await uploadStaticAssetToObjectStorage({
-      key: objectStoragePath("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
-      bytes: videoBytes,
-      mime: videoMimeFromPath(localVideoPath),
-    });
-    result.cdnVideoUrl = videoUpload.publicUrl;
-    await markPublishedFile(localVideoPath);
+    try {
+      const videoBytes = await fs.readFile(localVideoPath);
+      const videoExt = path.extname(localVideoPath) || ".mp4";
+      const videoUpload = await uploadStaticAssetToObjectStorage({
+        key: objectStoragePath("generated", "videos", `${storagePathSegment(taskId || "video")}${videoExt}`),
+        bytes: videoBytes,
+        mime: videoMimeFromPath(localVideoPath),
+      });
+      result.cdnVideoUrl = videoUpload.publicUrl;
+      await markPublishedFile(localVideoPath);
+    } catch (error) {
+      errors.push(error.message || "Generated video R2 upload failed.");
+      console.warn("[generated-video-r2-upload-failed]", taskId, error.message || error);
+    }
   }
   if (localPosterPath) {
-    const posterBytes = await fs.readFile(localPosterPath);
-    const posterUpload = await uploadStaticAssetToObjectStorage({
-      key: objectStoragePath("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
-      bytes: posterBytes,
-      mime: "image/jpeg",
-    });
-    result.cdnPosterUrl = posterUpload.publicUrl;
-    await markPublishedFile(localPosterPath);
+    try {
+      const posterBytes = await fs.readFile(localPosterPath);
+      const posterUpload = await uploadStaticAssetToObjectStorage({
+        key: objectStoragePath("generated", "posters", `${storagePathSegment(taskId || "poster")}.jpg`),
+        bytes: posterBytes,
+        mime: "image/jpeg",
+      });
+      result.cdnPosterUrl = posterUpload.publicUrl;
+      await markPublishedFile(localPosterPath);
+    } catch (error) {
+      errors.push(error.message || "Generated poster R2 upload failed.");
+      console.warn("[generated-poster-r2-upload-failed]", taskId, error.message || error);
+    }
   }
+  result.cdnError = errors.join("; ");
   return result;
 }
 
