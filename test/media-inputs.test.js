@@ -125,6 +125,20 @@ test("R2 failures are terminal and never silently fall back to the origin", () =
   assert.match(server, /publicUrlMatchesStorageBase\(userAsset\.publicUrl, R2\.publicDomain\)[\s\S]*?userAsset\.wan30PublicUrl = userAsset\.publicUrl/);
 });
 
+test("generation record queries never wait for R2 publication", () => {
+  assert.match(server, /function generationRecordIsApiTask\(record = \{\}\)/);
+  assert.match(server, /if \(record\.localVideoUrl && isSucceededStatus\(status\)\)[\s\S]*?return false;/);
+  assert.match(server, /const GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS = 3/);
+  assert.match(server, /const GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS = 30 \* 60 \* 1000/);
+  assert.match(server, /const generatedMediaMaintenanceQueued = new Set\(\)/);
+  assert.match(server, /async function drainGenerationRecordMediaMaintenance\(\)/);
+  assert.match(server, /generationRecordIsApiTask\(record\)\) return false/);
+  assert.match(server, /if \(record\.localVideoUrl\) queueGenerationRecordMediaMaintenance\(record\)/);
+  assert.match(server, /if \(nextRecord\.localVideoUrl\) queueGenerationRecordMediaMaintenance\(nextRecord\)/);
+  assert.match(server, /if \(download && !generationRecordIsApiTask\(record\)/);
+  assert.match(server, /if \(generationRecordIsApiTask\(existing \|\| \{\}\)\)/);
+});
+
 test("Alibaba task polling cannot block generation status for minutes", () => {
   assert.match(server, /const queryRequest = normalizedMethod === "GET"/);
   assert.match(server, /const submitRequest = normalizedMethod === "POST"/);

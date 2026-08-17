@@ -12543,7 +12543,7 @@ async function refreshWan27GenerationRecord(record = {}, { download = false, rea
   let cdnError = record.cdnError || "";
   let downloadError = "";
   const remoteVideoUrl = task.videoUrl || record.remoteVideoUrl || "";
-  if (download && isSucceededStatus(task.status) && remoteVideoUrl) {
+  if (download && !generationRecordIsApiTask(record) && isSucceededStatus(task.status) && remoteVideoUrl) {
     try {
       const localVideo = await downloadGeneratedVideo(record.taskId, remoteVideoUrl);
       localVideoUrl = localVideo.localVideoUrl;
@@ -15528,6 +15528,11 @@ function generationRecordResponseOptionsForAuth(auth = {}) {
   };
 }
 
+function generationRecordIsApiTask(record = {}) {
+  const source = String(record.apiTokenSource || record.tokenSource || "").toLowerCase();
+  return source === "api_token" || source === "subtoken";
+}
+
 function publicGenerationRecord(record = {}, options = {}) {
   const undressToolRecord = String(record.source || "").startsWith("undress-tool-")
     || String(record.kind || "").includes("tool-undress");
@@ -15755,8 +15760,11 @@ function shouldRefreshGenerationRecord(record = {}) {
   if (isImageGenerationRecord(record)) return false;
   if (record.awaitingUpstreamTask && !record.upstreamTaskId) return false;
   if (record.provider === "apiz" && !record.billingSettledAt && (record.upstreamTaskId || record.taskId) && !String(record.upstreamTaskId || record.taskId).startsWith("demo-")) return true;
-  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) return true;
   const status = String(record.status || "").toLowerCase();
+  if (record.localVideoUrl && isSucceededStatus(status)) {
+    if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.upstreamTaskId || record.taskId);
+    return false;
+  }
   if (isFailedStatus(status)) return false;
   if (isSucceededStatus(status)) {
     if (seedanceUsesTokenPricing(record) && !record.billingSettledAt) return Boolean(record.upstreamTaskId || record.taskId);
@@ -15822,12 +15830,11 @@ function generationRecordCreatedTime(record = {}) {
 function shouldRefreshGenerationRecordFromList(record = {}) {
   if (isStalePreSubmitGenerationRecord(record)) return true;
   if (!shouldRefreshGenerationRecord(record)) return false;
-  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) return true;
   const time = generationRecordTime(record);
   return !time || Date.now() - time <= GENERATION_LIST_REFRESH_MAX_AGE_MS;
 }
 
-async function ensureGenerationRecordMediaOptimized(record = {}) {
+async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectStorageUpload = true } = {}) {
   if (!record?.taskId || !record.localVideoUrl) return record;
   const localVideoPath = record.localVideoPath || path.join(ROOT, String(record.localVideoUrl || "").replace(/^\//, ""));
   const currentVideoUrl = generationRecordVideoUrl(record);
@@ -15853,13 +15860,13 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
     localPosterPath = poster.localPosterPath || localPosterPath;
     localPosterUrl = poster.localPosterUrl || localPosterUrl;
   }
-  if (objectStorageEnabled() && (fastStartUpdated || !cdnVideoUrl || (localPosterPath && !cdnPosterUrl))) {
+  if (allowObjectStorageUpload && objectStorageEnabled() && (fastStartUpdated || !cdnVideoUrl || (localPosterPath && !cdnPosterUrl))) {
     const cdn = await uploadGeneratedMediaToObjectStorage({ taskId: record.taskId, localVideoPath, localPosterPath });
     cdnVideoUrl = fastStartUpdated
       ? cacheBustedMediaUrl(cdn.cdnVideoUrl || cdnVideoUrl, Date.now())
       : (cdn.cdnVideoUrl || cdnVideoUrl);
     cdnPosterUrl = cdn.cdnPosterUrl || cdnPosterUrl;
-    cdnError = cdn.cdnError || cdnError;
+    cdnError = cdn.cdnError || "";
   }
   if (
     localPosterUrl === (record.localPosterUrl || "") &&
@@ -15887,6 +15894,84 @@ async function ensureGenerationRecordMediaOptimized(record = {}) {
     cdnError,
     playbackOptimizedAt,
   });
+}
+
+const GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS = 3;
+const GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS = 30 * 60 * 1000;
+const generatedMediaMaintenanceQueue = [];
+const generatedMediaMaintenanceQueued = new Set();
+let generatedMediaMaintenanceRunning = false;
+
+function generationRecordNeedsMediaMaintenance(record = {}) {
+  if (!record?.taskId || !record.localVideoUrl || generationRecordIsApiTask(record)) return false;
+  return !record.localPosterUrl
+    || !record.playbackOptimizedAt
+    || (objectStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl)));
+}
+
+function generationRecordCanRetryR2(record = {}) {
+  if (!objectStorageEnabled() || generationRecordIsApiTask(record)) return false;
+  const attempts = Number(record.cdnRetryCount || 0);
+  if (attempts >= GENERATED_MEDIA_R2_RETRY_MAX_ATTEMPTS) return false;
+  const retryAt = Date.parse(record.cdnRetryAt || "");
+  return !retryAt || Date.now() - retryAt >= GENERATED_MEDIA_R2_RETRY_COOLDOWN_MS;
+}
+
+function queueGenerationRecordMediaMaintenance(record = {}) {
+  if (!generationRecordNeedsMediaMaintenance(record)) return false;
+  const needsR2 = objectStorageEnabled() && (!record.cdnVideoUrl || (record.localPosterUrl && !record.cdnPosterUrl));
+  const allowObjectStorageUpload = needsR2 && generationRecordCanRetryR2(record);
+  if (!allowObjectStorageUpload && needsR2 && record.localPosterUrl && record.playbackOptimizedAt) return false;
+  const taskId = String(record.taskId || "");
+  if (!taskId || generatedMediaMaintenanceQueued.has(taskId)) return false;
+  generatedMediaMaintenanceQueued.add(taskId);
+  generatedMediaMaintenanceQueue.push({ taskId, record, allowObjectStorageUpload });
+  setImmediate(() => drainGenerationRecordMediaMaintenance().catch((error) => {
+    console.warn("[generation-record-media-maintenance-failed]", error.message || error);
+  }));
+  return true;
+}
+
+async function drainGenerationRecordMediaMaintenance() {
+  if (generatedMediaMaintenanceRunning) return;
+  generatedMediaMaintenanceRunning = true;
+  try {
+    while (generatedMediaMaintenanceQueue.length) {
+      const item = generatedMediaMaintenanceQueue.shift();
+      const taskId = item.taskId;
+      try {
+        const current = await getGenerationRecord(taskId) || item.record;
+        if (!generationRecordNeedsMediaMaintenance(current)) continue;
+        const allowObjectStorageUpload = item.allowObjectStorageUpload && generationRecordCanRetryR2(current);
+        const retryCount = Number(current.cdnRetryCount || 0) + (allowObjectStorageUpload ? 1 : 0);
+        await ensureGenerationRecordMediaOptimized(current, { allowObjectStorageUpload });
+        if (allowObjectStorageUpload) {
+          await upsertGenerationRecord({
+            taskId,
+            cdnRetryCount: retryCount,
+            cdnRetryAt: new Date().toISOString(),
+          });
+        }
+      } catch (error) {
+        console.warn("[generation-record-media-maintenance-task-failed]", taskId, error.message || error);
+        if (item.allowObjectStorageUpload) {
+          const current = await getGenerationRecord(taskId).catch(() => null);
+          if (current) {
+            await upsertGenerationRecord({
+              taskId,
+              cdnRetryCount: Number(current.cdnRetryCount || 0) + 1,
+              cdnRetryAt: new Date().toISOString(),
+              cdnError: error.message || "Generated media R2 upload failed.",
+            }).catch(() => {});
+          }
+        }
+      } finally {
+        generatedMediaMaintenanceQueued.delete(taskId);
+      }
+    }
+  } finally {
+    generatedMediaMaintenanceRunning = false;
+  }
 }
 
 async function refreshPivoxGenerationRecord(record = {}, reason = "pivox-query") {
@@ -16057,14 +16142,6 @@ async function refreshGenerationRecordStatus(record = {}) {
   }
   if (isStalePreSubmitGenerationRecord(record)) {
     return failStalePreSubmitGenerationRecord(record, "refresh-stale-submit");
-  }
-  if (record.localVideoUrl && (!record.localPosterUrl || (objectStorageEnabled() && !record.cdnVideoUrl))) {
-    try {
-      return await ensureGenerationRecordMediaOptimized(record);
-    } catch (error) {
-      console.warn("[generation-record-media-optimize-failed]", record.taskId, error.message || error);
-      return record;
-    }
   }
   if (
     String(record.provider || "").toLowerCase() === "seedream5-image" &&
@@ -16606,10 +16683,8 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
     try {
       const existingVideoPath = existing.localVideoPath || path.join(ROOT, existing.localVideoUrl.replace(/^\//, ""));
       await fs.access(existingVideoPath);
-      let optimized = existing;
-      if (!existing.localPosterUrl || (objectStorageEnabled() && !existing.cdnVideoUrl)) {
-        optimized = await ensureGenerationRecordMediaOptimized(existing);
-      }
+      const optimized = existing;
+      if (!generationRecordIsApiTask(existing)) queueGenerationRecordMediaMaintenance(existing);
       return {
         localVideoPath: optimized.localVideoPath || existingVideoPath,
         localVideoUrl: optimized.localVideoUrl || existing.localVideoUrl,
@@ -16623,6 +16698,19 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
     } catch {
       // Fall through and re-download if the record points to a missing file.
     }
+  }
+
+  if (generationRecordIsApiTask(existing || {})) {
+    return {
+      localVideoPath: existing?.localVideoPath || "",
+      localVideoUrl: existing?.localVideoUrl || "",
+      localPosterPath: existing?.localPosterPath || "",
+      localPosterUrl: existing?.localPosterUrl || "",
+      cdnVideoUrl: existing?.cdnVideoUrl || "",
+      cdnPosterUrl: existing?.cdnPosterUrl || "",
+      cdnError: existing?.cdnError || "",
+      playbackOptimizedAt: existing?.playbackOptimizedAt || "",
+    };
   }
 
   await fs.mkdir(GENERATED_VIDEO_DIR, { recursive: true });
@@ -35590,10 +35678,8 @@ async function handleListGenerationRecords(req, res, url) {
   if (undressToolRequestAllowed(req)) {
     const optimizedRecords = [];
     for (const record of ownRecords) {
-      const optimized = record.localVideoUrl && !record.playbackOptimizedAt
-        ? await ensureGenerationRecordMediaOptimized(record)
-        : record;
-      optimizedRecords.push(await ensureUndressLockedPreview(optimized));
+      if (record.localVideoUrl) queueGenerationRecordMediaMaintenance(record);
+      optimizedRecords.push(await ensureUndressLockedPreview(record));
     }
     optimizedRecords.forEach((record, index) => { ownRecords[index] = record; });
   }
@@ -35694,7 +35780,7 @@ async function handleGetGenerationRecord(req, res, taskId) {
   }
 
   if (undressToolRequestAllowed(req)) {
-    if (nextRecord.localVideoUrl) nextRecord = await ensureGenerationRecordMediaOptimized(nextRecord);
+    if (nextRecord.localVideoUrl) queueGenerationRecordMediaMaintenance(nextRecord);
     nextRecord = await ensureUndressLockedPreview(nextRecord);
   }
 
