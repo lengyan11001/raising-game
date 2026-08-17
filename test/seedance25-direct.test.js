@@ -31,6 +31,13 @@ test("direct Seedance 2.5 purchase rates match official token pricing", () => {
   assert.equal(directEstimatedCompletionTokens({ resolution: "480p", outputSeconds: 5, inputVideoSeconds: 3 }), 76860);
 });
 
+test("Seedance 2.5 NSFW customer billing stays at the configured sale price", () => {
+  assert.match(serverSource, /function seedanceUsesConfiguredSalePrice/);
+  assert.match(serverSource, /const finalCredits = configuredSalePrice \? preDeducted : usage\.credits/);
+  assert.match(serverSource, /billingPriceSource: configuredSalePrice \? "configured_sale_price" : "upstream_token_usage"/);
+  assert.match(serverSource, /upstreamCalculatedCredits: usage\.credits/);
+});
+
 test("direct payload keeps ordered multimodal references and required upstream flags", () => {
   const payload = buildSeedance25DirectTaskPayload({
     mode: "reference",

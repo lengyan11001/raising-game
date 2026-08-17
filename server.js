@@ -19979,6 +19979,14 @@ function seedanceUsesTokenPricing(record = {}) {
   return String(record.source || "").includes("advanced") && record.billingSettledAt === "";
 }
 
+// Seedance 2.5 NSFW is sold from the configured duration price. The upstream
+// token usage is retained for cost auditing, but must not change the customer
+// charge after the configured sale price was pre-deducted.
+function seedanceUsesConfiguredSalePrice(record = {}) {
+  if (String(record.provider || "").toLowerCase() !== SEEDANCE25_DIRECT_PROVIDER) return false;
+  return creditsAmount(record.preDeductedCredits || 0) > 0;
+}
+
 function extractUsageCompletionTokens(value, depth = 0) {
   if (value === null || value === undefined || depth > 30) return null;
   if (typeof value === "string") {
@@ -20154,7 +20162,11 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
   ) {
     const usage = seedanceFinalCreditsFromUsage(record);
     if (!usage) return record;
-    const finalCredits = usage.credits;
+    const configuredSalePrice = seedanceUsesConfiguredSalePrice(record);
+    const finalCredits = configuredSalePrice ? preDeducted : usage.credits;
+    const originalFinalCredits = configuredSalePrice
+      ? creditsAmount(record.originalPreDeductedCredits ?? preDeducted)
+      : usage.originalCredits;
     const delta = preDeducted - finalCredits;
     let billingStatus = "settled";
     const db = await readDb();
@@ -20167,7 +20179,9 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           preDeducted,
           baseCredits: usage.baseCredits,
           finalCredits,
-          originalFinalCredits: usage.originalCredits,
+          originalFinalCredits,
+          upstreamCalculatedCredits: usage.credits,
+          upstreamOriginalCredits: usage.originalCredits,
           pricingMultiplier: usage.pricingMultiplier,
           markup: usage.markup,
           completionTokens: usage.completionTokens,
@@ -20181,7 +20195,9 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
             reason,
             preDeducted,
             finalCredits,
-            originalFinalCredits: usage.originalCredits,
+            originalFinalCredits,
+            upstreamCalculatedCredits: usage.credits,
+            upstreamOriginalCredits: usage.originalCredits,
           },
         });
         if (!dbEnabled()) await writeDb(db);
@@ -20193,7 +20209,9 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
           preDeducted,
           baseCredits: usage.baseCredits,
           finalCredits,
-          originalFinalCredits: usage.originalCredits,
+          originalFinalCredits,
+          upstreamCalculatedCredits: usage.credits,
+          upstreamOriginalCredits: usage.originalCredits,
           pricingMultiplier: usage.pricingMultiplier,
           markup: usage.markup,
           completionTokens: usage.completionTokens,
@@ -20207,7 +20225,9 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
             reason,
             preDeducted,
             finalCredits,
-            originalFinalCredits: usage.originalCredits,
+            originalFinalCredits,
+            upstreamCalculatedCredits: usage.credits,
+            upstreamOriginalCredits: usage.originalCredits,
           },
         });
         if (!dbEnabled()) await writeDb(db);
@@ -20218,12 +20238,15 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
         return upsertGenerationRecord({
           taskId: record.taskId,
           finalCredits,
-          originalFinalCredits: usage.originalCredits,
+          originalFinalCredits,
           userPricingMultiplier: usage.pricingMultiplier,
           billingStatus,
           billingError: error.message || "Not enough credits or sub token quota for final settlement.",
           usageCompletionTokens: usage.completionTokens,
           usageBaseCredits: usage.baseCredits,
+          upstreamCalculatedCredits: usage.credits,
+          upstreamOriginalCredits: usage.originalCredits,
+          billingPriceSource: configuredSalePrice ? "configured_sale_price" : "upstream_token_usage",
         });
       }
       throw error;
@@ -20231,13 +20254,16 @@ async function settleSeedanceGenerationRecord(record = {}, reason = "query") {
     return upsertGenerationRecord({
       taskId: record.taskId,
       finalCredits,
-      originalFinalCredits: usage.originalCredits,
+      originalFinalCredits,
       userPricingMultiplier: usage.pricingMultiplier,
       billingStatus,
       billingSettledAt: new Date().toISOString(),
       billingError: "",
       usageCompletionTokens: usage.completionTokens,
       usageBaseCredits: usage.baseCredits,
+      upstreamCalculatedCredits: usage.credits,
+      upstreamOriginalCredits: usage.originalCredits,
+      billingPriceSource: configuredSalePrice ? "configured_sale_price" : "upstream_token_usage",
     });
   }
 
