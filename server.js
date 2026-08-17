@@ -26403,9 +26403,9 @@ async function handleAdvancedEstimate(req, res) {
     params.inputTokens = firstPresent(
       body.inputTokens,
       body.promptTokens,
-      Math.max(1, Buffer.byteLength(String(body.prompt || bodyParams.prompt || ""), "utf8") + 64),
+      Math.max(1, Buffer.byteLength(String(params.prompt || ""), "utf8") + 64),
     );
-    params.outputTokens = firstPresent(body.outputTokens, body.max_tokens, body.maxTokens, bodyParams.max_tokens, 1024);
+    params.outputTokens = firstPresent(params.outputTokens, params.max_tokens, params.maxTokens, 1024);
   }
   const pricing = await buildUserAdvancedEstimate(provider, params, auth.user, pricingContextForAuth(auth));
   const publicPricing = tenantPublic

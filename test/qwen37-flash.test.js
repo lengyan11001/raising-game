@@ -41,3 +41,12 @@ test("Qwen3.7 Flash bills from actual token usage and exposes text results", () 
   assert.match(create, /function renderAdvancedResultPanel\(\)[\s\S]*?querySelectorAll\("\[data-advanced-result-copy\]"\)/);
   assert.match(ui, /normalizedProvider === "qwen37-flash"/);
 });
+
+test("Qwen3.7 Flash estimate uses the estimate request parameters", () => {
+  const start = server.indexOf("async function handleAdvancedEstimate(");
+  const end = server.indexOf("async function buildTemplateModelDoc(", start);
+  const handler = server.slice(start, end);
+  assert.match(handler, /Buffer\.byteLength\(String\(params\.prompt \|\| ""\)/);
+  assert.match(handler, /firstPresent\(params\.outputTokens, params\.max_tokens, params\.maxTokens, 1024\)/);
+  assert.doesNotMatch(handler, /bodyParams/);
+});
