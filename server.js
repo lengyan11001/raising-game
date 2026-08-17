@@ -34089,8 +34089,8 @@ async function advancedPurchaseCreditsPerSecond(provider = "seedance", resolutio
     return {
       creditsPerSecond: pricingNumber(usdPerSecond * DEFAULT_CREDITS_PER_USD, 0, 0, 6),
       usdPerSecond,
-      source: "byteplus_official_seedance25_token_pricing",
-      message: `BytePlus official Seedance 2.5 price: $${usdPerMillionTokens}/million tokens (${hasVideoInput ? "with input video" : "without input video"}); the displayed per-second purchase price uses ${publicResolution} 16:9 at 24fps. Actual upstream billing uses completion_tokens.`,
+      source: "seedance25_direct_endpoint_token_pricing",
+      message: `Seedance 2.5 direct-endpoint contract price: $${usdPerMillionTokens}/million tokens (${hasVideoInput ? "with input video" : "without input video"}); the displayed per-second purchase price uses ${publicResolution} 16:9 at 24fps. Actual upstream billing uses completion_tokens.`,
     };
   }
   if (normalizedProvider === "seedance25") {

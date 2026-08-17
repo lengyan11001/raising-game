@@ -22,7 +22,7 @@ test("generated videos retry upstream downloads when the saved file is shorter t
   assert.match(serverSource, /fs\.rename\(temporaryPath, localVideoPath\)/);
 });
 
-test("direct Seedance 2.5 purchase rates match official token pricing", () => {
+test("direct Seedance 2.5 purchase rates match the endpoint contract", () => {
   assert.equal(directPurchaseUsdPerSecond("480p"), 0.10280025);
   assert.equal(directPurchaseUsdPerSecond("720p"), 0.23112);
   assert.equal(directPurchaseUsdPerSecond("480p", { hasVideoInput: true }), 0.061488);
