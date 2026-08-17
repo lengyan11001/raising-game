@@ -24,6 +24,7 @@ test("Qwen3.7 Flash uses the Singapore OpenAI-compatible endpoint", () => {
   assert.match(server, /ALIYUN_QWEN37_BASE_URL/);
   assert.match(server, /\/compatible-mode\/v1\/chat\/completions/);
   assert.match(server, /authorization: `Bearer \$\{ALIYUN_QWEN37_API_KEY\}`/);
+  assert.match(server, /"X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER/);
   assert.match(server, /model: QWEN37_FLASH_MODEL,[\s\S]*messages: \[\{ role: "user", content: prompt \}\]/);
   assert.match(server, /enable_thinking: enableThinking === true/);
   assert.match(server, /max_tokens: maxTokens/);

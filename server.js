@@ -12349,6 +12349,7 @@ async function aliyunQwen37FlashRequest(body = {}, { timeoutMs = 180000 } = {}) 
           authorization: `Bearer ${ALIYUN_QWEN37_API_KEY}`,
           accept: "application/json",
           "content-type": "application/json",
+          "X-DashScope-DataInspection": ALIYUN_DASHSCOPE_DATA_INSPECTION_HEADER,
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(Math.max(5000, Number(timeoutMs || 180000) || 180000)),
