@@ -561,6 +561,7 @@ const ADVANCED_SEEDANCE_FAST_DISCOUNT = clampNumber(process.env.ADVANCED_SEEDANC
 const ADVANCED_WAN27_720P_CREDITS_PER_SECOND = 100;
 const ADVANCED_WAN27_1080P_CREDITS_PER_SECOND = 250;
 const ALIYUN_VIDEO_DEFAULT_MARKUP = 1.5;
+const SEEDANCE25_DIRECT_TOKEN_USAGE_BUFFER = 1.02;
 const ALIYUN_WAN30_CNY_PER_USD = pricingNumber(process.env.ALIYUN_WAN30_CNY_PER_USD, 6.67, 0.0001, 6);
 const ALIYUN_WAN30_OFFICIAL_CNY_PER_SECOND = Object.freeze({
   "480p": 0.3,
@@ -602,12 +603,11 @@ function defaultWan30SaleCreditsPerSecond(resolution = "1080p") {
 }
 
 function defaultSeedance25DirectSaleCreditsPerSecond(resolution = "480p", { hasVideoInput = false } = {}) {
-  return pricingNumber(
-    directPurchaseUsdPerSecond(resolution, { hasVideoInput }) * DEFAULT_CREDITS_PER_USD * ALIYUN_VIDEO_DEFAULT_MARKUP,
-    0,
-    0,
-    6,
-  );
+  const bufferedSaleCredits = directPurchaseUsdPerSecond(resolution, { hasVideoInput })
+    * DEFAULT_CREDITS_PER_USD
+    * ALIYUN_VIDEO_DEFAULT_MARKUP
+    * SEEDANCE25_DIRECT_TOKEN_USAGE_BUFFER;
+  return Math.ceil(bufferedSaleCredits);
 }
 
 function defaultAliyunLegacySaleCreditsByModel() {
