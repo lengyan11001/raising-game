@@ -368,6 +368,9 @@ const UNDRESS_TOOL_EXAMPLE_DIR = path.join(ROOT, "assets", "admin", "undress-exa
 const ADMIN_ADVANCED_CASE_DIR = path.join(ROOT, "assets", "admin", "advanced-cases");
 const ADMIN_PLATFORM_TEMPLATE_DIR = path.join(ROOT, "assets", "admin", "platform-templates");
 const GENERATED_VIDEO_DIR = path.join(ROOT, "assets", "generated", "videos");
+const GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS = 4;
+const GENERATED_VIDEO_DURATION_TOLERANCE_SECONDS = 0.75;
+const GENERATED_VIDEO_DOWNLOAD_RETRY_DELAY_MS = 2500;
 const GENERATED_POSTER_DIR = path.join(ROOT, "assets", "generated", "posters");
 const GENERATED_IMAGE_DIR = path.join(ROOT, "assets", "generated", "images");
 const GENERATED_LOCKED_PREVIEW_DIR = path.join(ROOT, "assets", "generated", "locked-previews");
@@ -16719,6 +16722,29 @@ function videoFileName(taskId) {
   return `${String(taskId).replace(/[^a-z0-9_-]/gi, "_")}.mp4`;
 }
 
+function expectedGeneratedVideoDurationSeconds(record = {}) {
+  const candidates = [
+    record.expectedDurationSeconds,
+    record.duration,
+    record.params?.duration,
+    record.pricingEstimate?.requestedDuration,
+    record.queryResponse?.duration,
+    record.queryResponse?.output?.duration,
+    record.queryResponse?.data?.duration,
+  ];
+  for (const candidate of candidates) {
+    const seconds = durationSecondsFromValue(candidate);
+    if (seconds > 0) return seconds;
+  }
+  return 0;
+}
+
+function generatedVideoIsTooShort(actualSeconds, expectedSeconds) {
+  return actualSeconds > 0
+    && expectedSeconds > 0
+    && actualSeconds + GENERATED_VIDEO_DURATION_TOLERANCE_SECONDS < expectedSeconds;
+}
+
 function posterFileName(taskId) {
   return `${String(taskId).replace(/[^a-z0-9_-]/gi, "_")}.jpg`;
 }
@@ -16865,22 +16891,32 @@ function sendInternalAsset(res, filePath, contentType, stat, { privateCache = fa
 
 async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
   const existing = await getGenerationRecord(taskId);
+  const expectedDurationSeconds = expectedGeneratedVideoDurationSeconds(existing || {});
   if (existing?.localVideoUrl) {
     try {
       const existingVideoPath = existing.localVideoPath || path.join(ROOT, existing.localVideoUrl.replace(/^\//, ""));
       await fs.access(existingVideoPath);
-      const optimized = existing;
-      if (!generationRecordIsApiTask(existing)) queueGenerationRecordMediaMaintenance(existing);
-      return {
-        localVideoPath: optimized.localVideoPath || existingVideoPath,
-        localVideoUrl: optimized.localVideoUrl || existing.localVideoUrl,
-        localPosterPath: optimized.localPosterPath || "",
-        localPosterUrl: optimized.localPosterUrl || "",
-        cdnVideoUrl: optimized.cdnVideoUrl || "",
-        cdnPosterUrl: optimized.cdnPosterUrl || "",
-        cdnError: optimized.cdnError || "",
-        playbackOptimizedAt: optimized.playbackOptimizedAt || "",
-      };
+      const actualDurationSeconds = expectedDurationSeconds > 0
+        ? await probeLocalVideoDurationSeconds(existingVideoPath)
+        : 0;
+      const canRedownload = Boolean(String(remoteVideoUrl || "").trim());
+      if (!canRedownload || !generatedVideoIsTooShort(actualDurationSeconds, expectedDurationSeconds)) {
+        const optimized = existing;
+        if (!generationRecordIsApiTask(existing)) queueGenerationRecordMediaMaintenance(existing);
+        return {
+          localVideoPath: optimized.localVideoPath || existingVideoPath,
+          localVideoUrl: optimized.localVideoUrl || existing.localVideoUrl,
+          localPosterPath: optimized.localPosterPath || "",
+          localPosterUrl: optimized.localPosterUrl || "",
+          cdnVideoUrl: optimized.cdnVideoUrl || "",
+          cdnPosterUrl: optimized.cdnPosterUrl || "",
+          cdnError: optimized.cdnError || "",
+          playbackOptimizedAt: optimized.playbackOptimizedAt || "",
+        };
+      }
+      console.warn(
+        `[generated-video-too-short] ${taskId}: stored ${actualDurationSeconds}s, expected ${expectedDurationSeconds}s; retrying upstream download`,
+      );
     } catch {
       // Fall through and re-download if the record points to a missing file.
     }
@@ -16903,16 +16939,46 @@ async function downloadGeneratedVideo(taskId, remoteVideoUrl) {
   const fileName = videoFileName(taskId);
   const localVideoPath = path.join(GENERATED_VIDEO_DIR, fileName);
   const localVideoUrl = `/assets/generated/videos/${fileName}`;
-
-  const response = await fetch(remoteVideoUrl, { signal: AbortSignal.timeout(15 * 60 * 1000) });
-  if (!response.ok) {
-    throw new Error(`Failed to download generated video: ${response.status}`);
+  let downloadedDurationSeconds = 0;
+  let fastStartReady = false;
+  let lastDownloadError = null;
+  for (let attempt = 0; attempt < GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS; attempt += 1) {
+    const temporaryPath = `${localVideoPath}.${process.pid}.${Date.now()}.download`;
+    try {
+      const response = await fetch(remoteVideoUrl, { signal: AbortSignal.timeout(15 * 60 * 1000) });
+      if (!response.ok) {
+        throw new Error(`Failed to download generated video: ${response.status}`);
+      }
+      const bytes = Buffer.from(await response.arrayBuffer());
+      await fs.writeFile(temporaryPath, bytes);
+      downloadedDurationSeconds = expectedDurationSeconds > 0
+        ? await probeLocalVideoDurationSeconds(temporaryPath)
+        : 0;
+      if (generatedVideoIsTooShort(downloadedDurationSeconds, expectedDurationSeconds) && attempt + 1 < GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS) {
+        console.warn(
+          `[generated-video-download-retry] ${taskId}: attempt ${attempt + 1} returned ${downloadedDurationSeconds}s, expected ${expectedDurationSeconds}s`,
+        );
+        await fs.rm(temporaryPath, { force: true });
+        await delay(GENERATED_VIDEO_DOWNLOAD_RETRY_DELAY_MS * (attempt + 1));
+        continue;
+      }
+      const fastStartNeeded = await generatedVideoNeedsFastStart(temporaryPath);
+      fastStartReady = !fastStartNeeded || await ensureGeneratedVideoFastStart(temporaryPath);
+      await fs.rename(temporaryPath, localVideoPath);
+      break;
+    } catch (error) {
+      lastDownloadError = error;
+      await fs.rm(temporaryPath, { force: true }).catch(() => {});
+      if (attempt + 1 >= GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS) throw error;
+      await delay(GENERATED_VIDEO_DOWNLOAD_RETRY_DELAY_MS * (attempt + 1));
+    }
   }
-
-  const bytes = Buffer.from(await response.arrayBuffer());
-  await fs.writeFile(localVideoPath, bytes);
-  const fastStartNeeded = await generatedVideoNeedsFastStart(localVideoPath);
-  const fastStartReady = !fastStartNeeded || await ensureGeneratedVideoFastStart(localVideoPath);
+  if (generatedVideoIsTooShort(downloadedDurationSeconds, expectedDurationSeconds)) {
+    console.warn(
+      `[generated-video-duration-mismatch] ${taskId}: stored ${downloadedDurationSeconds}s after ${GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS} attempts, expected ${expectedDurationSeconds}s`,
+    );
+  }
+  if (!fastStartReady && lastDownloadError) throw lastDownloadError;
   const poster = await createGeneratedVideoPoster(taskId, localVideoPath);
   const cdn = await uploadGeneratedMediaToObjectStorage({
     taskId,

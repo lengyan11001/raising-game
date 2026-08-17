@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
@@ -9,6 +11,16 @@ const {
   directPurchaseUsdPerSecond,
   validateSeedance25DirectInput,
 } = require("../seedance25-direct");
+
+const serverSource = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+
+test("generated videos retry upstream downloads when the saved file is shorter than requested", () => {
+  assert.match(serverSource, /expectedGeneratedVideoDurationSeconds/);
+  assert.match(serverSource, /generatedVideoIsTooShort/);
+  assert.match(serverSource, /GENERATED_VIDEO_DOWNLOAD_MAX_ATTEMPTS/);
+  assert.match(serverSource, /generated-video-download-retry/);
+  assert.match(serverSource, /fs\.rename\(temporaryPath, localVideoPath\)/);
+});
 
 test("direct Seedance 2.5 purchase rates match official token pricing", () => {
   assert.equal(directPurchaseUsdPerSecond("480p"), 0.10280025);
