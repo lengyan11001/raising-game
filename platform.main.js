@@ -770,6 +770,12 @@ els.advancedSeedreamTier?.addEventListener("change", () => {
     updateAdvancedButtonCost();
   });
 });
+[els.advancedQwen37Thinking, els.advancedQwen37MaxTokens, els.advancedQwen37Temperature].forEach((control) => {
+  control?.addEventListener("change", () => {
+    state.advancedEstimateKey = "";
+    updateAdvancedButtonCost();
+  });
+});
 els.advancedWanMediaMode?.addEventListener("change", () => {
   state.advancedAssetTarget = "primary";
   updateAdvancedModelControls();

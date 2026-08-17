@@ -621,6 +621,14 @@ function defaultAliyunLegacySaleCreditsByModel() {
   ]));
 }
 
+const QWEN37_FLASH_MODEL = String(process.env.ALIYUN_QWEN37_MODEL || "qwen3.7-flash").trim() || "qwen3.7-flash";
+const QWEN37_FLASH_MAX_OUTPUT_TOKENS = Math.floor(clampNumber(process.env.QWEN37_FLASH_MAX_OUTPUT_TOKENS, 8192, 1, 32768));
+const QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS = Object.freeze([
+  Object.freeze({ maxInputTokens: 32768, input: 0.225, output: 0.974 }),
+  Object.freeze({ maxInputTokens: 262144, input: 0.749, output: 2.998 }),
+  Object.freeze({ maxInputTokens: 1000000, input: 1.499, output: 5.995 }),
+]);
+
 const DEFAULT_ADVANCED_PRICING = {
   unit: "credits",
   creditsPerCny: ADVANCED_CREDITS_PER_CNY,
@@ -761,6 +769,14 @@ const DEFAULT_ADVANCED_PRICING = {
     defaultResolution: "2K",
     defaultTier: "pro",
   },
+  qwen37Flash: {
+    model: QWEN37_FLASH_MODEL,
+    inputCnyPerMillionTokens: QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS[0].input,
+    outputCnyPerMillionTokens: QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS[0].output,
+    defaultMaxTokens: 1024,
+    defaultTemperature: 0.7,
+    defaultThinking: false,
+  },
 };
 const ADVANCED_GENERATION_MARKUP = clampNumber(process.env.ADVANCED_GENERATION_MARKUP, 1.5, 1, 100);
 const ADVANCED_SEEDANCE_REFERENCE_LIMIT = Math.floor(clampNumber(process.env.ADVANCED_SEEDANCE_REFERENCE_LIMIT || process.env.ADVANCED_SEEDANCE_EXTRA_REFERENCE_LIMIT, 9, 1, 9));
@@ -779,6 +795,8 @@ const ALIYUN_DASHSCOPE_API_KEY =
   process.env.DASHSCOPE_API_KEY ||
   process.env.BAILIAN_API_KEY ||
   "";
+const ALIYUN_QWEN37_BASE_URL = (process.env.ALIYUN_QWEN37_BASE_URL || ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
+const ALIYUN_QWEN37_API_KEY = String(process.env.ALIYUN_QWEN37_API_KEY || ALIYUN_DASHSCOPE_API_KEY || "").trim();
 const QWEN_IMAGE3_SINGAPORE_BASE_URL = (process.env.ALIYUN_QWEN_IMAGE3_BASE_URL || ALIYUN_DASHSCOPE_BASE_URL || "https://dashscope-intl.aliyuncs.com").replace(/\/+$/, "");
 const ALIYUN_QWEN_IMAGE3_API_KEY = String(process.env.ALIYUN_QWEN_IMAGE3_API_KEY || ALIYUN_DASHSCOPE_API_KEY || "").trim();
 const ALIYUN_WAN30_BASE_URL = (process.env.ALIYUN_WAN30_BASE_URL || "https://dashscope.aliyuncs.com").replace(/\/+$/, "");
@@ -1885,6 +1903,9 @@ function normalizeAdvancedPricing(pricing = {}) {
   const rawQwenImage3Source = source.qwenImage3 && typeof source.qwenImage3 === "object" && !Array.isArray(source.qwenImage3)
     ? source.qwenImage3
     : {};
+  const rawQwen37FlashSource = source.qwen37Flash && typeof source.qwen37Flash === "object" && !Array.isArray(source.qwen37Flash)
+    ? source.qwen37Flash
+    : {};
   const wan27ImageSource = { ...rawWan27ImageSource };
   if (Number(wan27ImageSource.saleCnyPerImage) === 0.8432 && !rawWan27ImageSource.userConfigured) {
     wan27ImageSource.saleCnyPerImage = WAN27_IMAGE_PRO_SALE_CNY;
@@ -2114,6 +2135,36 @@ function normalizeAdvancedPricing(pricing = {}) {
       defaultResolution: normalizeQwenImage3Resolution(rawQwenImage3Source.defaultResolution || qwenImage3Default.defaultResolution || "2K"),
       defaultTier: normalizeQwenImage3Tier(rawQwenImage3Source.defaultTier || qwenImage3Default.defaultTier || "pro"),
     },
+    qwen37Flash: {
+      ...DEFAULT_ADVANCED_PRICING.qwen37Flash,
+      ...rawQwen37FlashSource,
+      model: QWEN37_FLASH_MODEL,
+      inputCnyPerMillionTokens: pricingNumber(
+        rawQwen37FlashSource.inputCnyPerMillionTokens,
+        DEFAULT_ADVANCED_PRICING.qwen37Flash.inputCnyPerMillionTokens,
+        0,
+        6,
+      ),
+      outputCnyPerMillionTokens: pricingNumber(
+        rawQwen37FlashSource.outputCnyPerMillionTokens,
+        DEFAULT_ADVANCED_PRICING.qwen37Flash.outputCnyPerMillionTokens,
+        0,
+        6,
+      ),
+      defaultMaxTokens: Math.floor(clampNumber(
+        rawQwen37FlashSource.defaultMaxTokens,
+        DEFAULT_ADVANCED_PRICING.qwen37Flash.defaultMaxTokens,
+        1,
+        QWEN37_FLASH_MAX_OUTPUT_TOKENS,
+      )),
+      defaultTemperature: clampNumber(
+        rawQwen37FlashSource.defaultTemperature,
+        DEFAULT_ADVANCED_PRICING.qwen37Flash.defaultTemperature,
+        0,
+        2,
+      ),
+      defaultThinking: boolFromRequest(rawQwen37FlashSource.defaultThinking, false),
+    },
   };
 }
 
@@ -2122,6 +2173,7 @@ function publicAdvancedPricingView(pricing = {}) {
   const imagePricing = normalized.wan27ImagePro || DEFAULT_ADVANCED_PRICING.wan27ImagePro || {};
   const seedreamPricing = normalized.seedream5Image || DEFAULT_ADVANCED_PRICING.seedream5Image || {};
   const qwenPricing = normalized.qwenImage3 || DEFAULT_ADVANCED_PRICING.qwenImage3 || {};
+  const qwen37Pricing = normalized.qwen37Flash || DEFAULT_ADVANCED_PRICING.qwen37Flash || {};
   const imageCostCredits = pricingNumber(
     Number(imagePricing.saleCnyPerImage || 0) * Number(normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY),
     0,
@@ -2131,6 +2183,7 @@ function publicAdvancedPricingView(pricing = {}) {
   const view = {
     unit: "credits",
     creditsPerUsd: normalized.creditsPerUsd || DEFAULT_CREDITS_PER_USD,
+    creditsPerCny: normalized.creditsPerCny || ADVANCED_CREDITS_PER_CNY,
     seedance25CreditsPerSecondByResolution: { ...normalized.seedance25CreditsPerSecondByResolution },
     seedanceNsfwCreditsPerSecondByResolution: { ...normalized.seedanceNsfwCreditsPerSecondByResolution },
     seedanceNsfwVideoCreditsPerSecondByResolution: { ...normalized.seedanceNsfwVideoCreditsPerSecondByResolution },
@@ -2177,6 +2230,14 @@ function publicAdvancedPricingView(pricing = {}) {
         saleUsdPerImageByResolution: { ...qwenPricing.standard.saleUsdPerImageByResolution },
         saleUsdPerReferenceImage: qwenPricing.standard.saleUsdPerReferenceImage,
       },
+    },
+    qwen37Flash: {
+      model: QWEN37_FLASH_MODEL,
+      inputCnyPerMillionTokens: qwen37Pricing.inputCnyPerMillionTokens,
+      outputCnyPerMillionTokens: qwen37Pricing.outputCnyPerMillionTokens,
+      defaultMaxTokens: qwen37Pricing.defaultMaxTokens,
+      defaultTemperature: qwen37Pricing.defaultTemperature,
+      defaultThinking: qwen37Pricing.defaultThinking === true,
     },
   };
   const selectiveAliyunExposureEnabled = PUBLIC_WAN30_MODEL_EXPOSURE_ENABLED
@@ -6233,9 +6294,17 @@ function isQwenImage3Provider(value = "") {
     || normalized.includes("qwenimage3.0");
 }
 
+function isQwen37FlashProvider(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  return ["qwen37flash", "qwen3.7flash", "qwen3.7flash20260715"].includes(normalized)
+    || normalized.includes("qwen37flash")
+    || normalized.includes("qwen3.7flash");
+}
+
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "wan27";
+  if (isQwen37FlashProvider(value)) return "qwen37-flash";
   if (isQwenImage3Provider(value)) return "qwen-image3";
   if (isSeedream5ImageProvider(value)) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return SEEDANCE25_DIRECT_PROVIDER;
@@ -6256,6 +6325,7 @@ function publicProviderId(value = "") {
   const raw = String(value || "").trim();
   const normalized = raw.toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return "";
+  if (isQwen37FlashProvider(raw)) return "qwen37-flash";
   if (isQwenImage3Provider(raw)) return "qwen-image3";
   if (isSeedream5ImageProvider(raw)) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return SEEDANCE25_DIRECT_PROVIDER;
@@ -6270,6 +6340,7 @@ function publicProviderId(value = "") {
 
 function publicProviderLabel(value = "") {
   const id = publicProviderId(value);
+  if (id === "qwen37-flash") return "Qwen3.7 Flash";
   if (id === "qwen-image3") return "Qwen Image 3.0";
   if (id === "seedream5-image") return "Seedream 5.0 Image";
   if (id === SEEDANCE25_DIRECT_PROVIDER) return SEEDANCE25_DIRECT_LABEL;
@@ -6512,6 +6583,7 @@ function sendReferenceAssetNotFound(res, kind = "image", assetId = "") {
 function isExplicitAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return true;
+  if (isQwen37FlashProvider(value)) return true;
   if (isQwenImage3Provider(value)) return true;
   if (isSeedream5ImageProvider(value)) return true;
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return true;
@@ -6526,7 +6598,7 @@ function isExplicitAdvancedProvider(value = "") {
 function assertExplicitAdvancedProvider(value = "") {
   if (value === undefined || value === null || value === "") return;
   if (!isExplicitAdvancedProvider(value)) {
-    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedream5-image, or qwen-image3.", { provider: value });
+    throw advancedValidationError("INVALID_PROVIDER", "provider must be wan30, wan27/vipeak1, happyhorse, seedance, seedance25, seedance-nsfw, seedream5-image, qwen-image3, or qwen37-flash.", { provider: value });
   }
 }
 
@@ -6940,7 +7012,7 @@ function seedanceTokenPricing(options = {}) {
 
 function advancedDurationBounds(provider = "seedance") {
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedream5-image", "qwen-image3"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
+  if (["seedream5-image", "qwen-image3", "qwen37-flash"].includes(normalizedProvider)) return { fallback: 1, min: 1, max: 1 };
   if (normalizedProvider === "wan30") return { fallback: 5, min: 2, max: 30 };
   if (["seedance25", SEEDANCE25_DIRECT_PROVIDER].includes(normalizedProvider)) return { fallback: 4, min: 4, max: 30 };
   if (normalizedProvider === "happyhorse") return { fallback: 5, min: 3, max: 15 };
@@ -6949,9 +7021,47 @@ function advancedDurationBounds(provider = "seedance") {
     : { fallback: 5, min: 5, max: 15 };
 }
 
+function qwen37FlashPricingEstimate(advancedPricing = DEFAULT_ADVANCED_PRICING, options = {}) {
+  const pricing = normalizeAdvancedPricing(advancedPricing);
+  const configured = pricing.qwen37Flash || DEFAULT_ADVANCED_PRICING.qwen37Flash;
+  const inputTokens = Math.max(1, Math.min(1000000, Math.floor(Number(options.inputTokens || options.promptTokens || 1) || 1)));
+  const outputTokens = Math.max(0, Math.min(QWEN37_FLASH_MAX_OUTPUT_TOKENS, Math.floor(Number(options.outputTokens ?? options.completionTokens ?? options.maxTokens ?? configured.defaultMaxTokens) || 0)));
+  const officialTier = QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS.find((tier) => inputTokens <= tier.maxInputTokens)
+    || QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS[QWEN37_FLASH_SINGAPORE_CNY_PER_MILLION_TOKENS.length - 1];
+  const inputCnyPerMillionTokens = inputTokens <= 32768
+    ? pricingNumber(configured.inputCnyPerMillionTokens, officialTier.input, 0, 6)
+    : officialTier.input;
+  const outputCnyPerMillionTokens = inputTokens <= 32768
+    ? pricingNumber(configured.outputCnyPerMillionTokens, officialTier.output, 0, 6)
+    : officialTier.output;
+  const inputCny = (inputTokens * inputCnyPerMillionTokens) / 1000000;
+  const outputCny = (outputTokens * outputCnyPerMillionTokens) / 1000000;
+  const totalCny = inputCny + outputCny;
+  const baseCredits = creditsAmount(totalCny * Number(pricing.creditsPerCny || ADVANCED_CREDITS_PER_CNY));
+  return {
+    provider: "qwen37-flash",
+    providerLabel: "Qwen3.7 Flash",
+    model: QWEN37_FLASH_MODEL,
+    inputTokens,
+    outputTokens,
+    inputCnyPerMillionTokens,
+    outputCnyPerMillionTokens,
+    inputCny: pricingNumber(inputCny, 0, 0, 8),
+    outputCny: pricingNumber(outputCny, 0, 0, 8),
+    totalCny: pricingNumber(totalCny, 0, 0, 8),
+    baseCredits,
+    credits: baseCredits,
+    markup: 1,
+    source: "aliyun_singapore_official_token_pricing",
+  };
+}
+
 function advancedModelPricing(provider = "seedance", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
   const advancedPricing = normalizeAdvancedPricing(options.advancedPricing || options.pricing || DEFAULT_ADVANCED_PRICING);
+  if (normalizedProvider === "qwen37-flash") {
+    return qwen37FlashPricingEstimate(advancedPricing, options);
+  }
   if (normalizedProvider === "wan30") {
     const requestedDuration = Number(options.duration ?? options.durationSeconds ?? 5);
     const adaptiveDuration = requestedDuration === -1;
@@ -12214,6 +12324,78 @@ async function aliyunDashscopeRequest(pathname, {
   throw wrapped;
 }
 
+function qwen37FlashChatCompletionsUrl() {
+  if (/\/compatible-mode\/v1$/i.test(ALIYUN_QWEN37_BASE_URL)) {
+    return `${ALIYUN_QWEN37_BASE_URL}/chat/completions`;
+  }
+  return `${ALIYUN_QWEN37_BASE_URL}/compatible-mode/v1/chat/completions`;
+}
+
+async function aliyunQwen37FlashRequest(body = {}, { timeoutMs = 180000 } = {}) {
+  if (!ALIYUN_QWEN37_API_KEY) {
+    const error = new Error("Qwen3.7 Flash is not configured.");
+    error.statusCode = 503;
+    error.code = "MISSING_ALIYUN_QWEN37_API_KEY";
+    throw error;
+  }
+  const maxAttempts = 3;
+  const transientPattern = /fetch failed|timeout|timed out|abort|econn|network|socket|dns|tls|reset/i;
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(qwen37FlashChatCompletionsUrl(), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${ALIYUN_QWEN37_API_KEY}`,
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(Math.max(5000, Number(timeoutMs || 180000) || 180000)),
+      });
+      const responseText = await response.text();
+      let payload = {};
+      try {
+        payload = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        payload = { text: responseText };
+      }
+      if (!response.ok || Number(payload.code || 0) >= 400 || payload.error) {
+        const error = new Error(payload.error?.message || payload.message || `Qwen3.7 Flash request failed: ${response.status}`);
+        error.statusCode = response.status || 502;
+        error.code = payload.error?.code || payload.code || "QWEN37_FLASH_REQUEST_FAILED";
+        error.payload = payload;
+        error.retryable = [408, 425, 429, 500, 502, 503, 504, 520, 522].includes(response.status);
+        throw error;
+      }
+      return payload;
+    } catch (error) {
+      lastError = error;
+      const causeCode = String(error?.cause?.code || error?.code || "");
+      const transientNetworkError = !error.statusCode && transientPattern.test(`${String(error.message || error)} ${causeCode}`);
+      if (attempt >= maxAttempts || (!error.retryable && !transientNetworkError)) {
+        if (!error.statusCode && transientNetworkError) {
+          const wrapped = new Error(`Qwen3.7 Flash request failed: ${error.message || "fetch failed"}${causeCode ? ` (${causeCode})` : ""}`);
+          wrapped.statusCode = 502;
+          wrapped.code = "QWEN37_FLASH_NETWORK_ERROR";
+          wrapped.cause = error;
+          throw wrapped;
+        }
+        throw error;
+      }
+      console.warn("[qwen37-flash-retry]", JSON.stringify({
+        attempt,
+        maxAttempts,
+        statusCode: error.statusCode || 0,
+        code: causeCode || error.code || "",
+        message: String(error.message || error).slice(0, 180),
+      }));
+      await delay(700 * attempt);
+    }
+  }
+  throw lastError || Object.assign(new Error("Qwen3.7 Flash request failed."), { statusCode: 502 });
+}
+
 function normalizeWan27MediaItem(item = {}) {
   const type = String(item.type || "").trim();
   const url = String(item.url || "").trim();
@@ -15608,6 +15790,9 @@ function publicGenerationRecord(record = {}, options = {}) {
     providerImageUrls,
     upstreamImageUrl: providerImageUrl,
     remoteImageUrl: String(record.remoteImageUrl || ""),
+    textResult: publicModelText(record.textResult || record.responseText || ""),
+    responseText: publicModelText(record.responseText || record.textResult || ""),
+    usage: listGenerationRecordValue(record.usage || null),
     error: publicModelText(recordError),
     cdnError: publicModelText(record.cdnError || ""),
     billing: publicBilling(record),
@@ -23530,6 +23715,271 @@ function queueQwenImage3Submit(submit) {
   return run;
 }
 
+function qwen37FlashResponseText(raw = {}) {
+  const content = raw?.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => typeof item === "string" ? item : String(item?.text || item?.content || ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  return String(raw?.choices?.[0]?.text || raw?.output?.text || "").trim();
+}
+
+function qwen37FlashUsage(raw = {}) {
+  const usage = plainObject(raw.usage);
+  return {
+    promptTokens: Math.max(0, Math.floor(Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0)),
+    completionTokens: Math.max(0, Math.floor(Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0)),
+    totalTokens: Math.max(0, Math.floor(Number(usage.total_tokens ?? 0) || 0)),
+  };
+}
+
+async function settleQwen37FlashUsage({ taskId = "", userId = "", cost = 0, pricing = {}, advancedPricing = {}, usage = {} } = {}) {
+  const rawFinalPricing = qwen37FlashPricingEstimate(advancedPricing, {
+    inputTokens: Math.max(1, usage.promptTokens || pricing.inputTokens || 1),
+    outputTokens: Math.max(0, usage.completionTokens || 0),
+  });
+  const finalPricing = applyUserPricingToEstimate(rawFinalPricing, pricing.userPricingMultiplier || 1);
+  const finalCost = finalPricing.credits;
+  const adjustment = creditsAmount(Math.abs(Number(cost || 0) - finalCost));
+  if (adjustment > 0) {
+    const refund = Number(cost || 0) > finalCost;
+    const db = await readDb();
+    await changeUserCredits(db, userId, refund ? adjustment : -adjustment, "advanced_qwen37_flash_settlement", {
+      taskId,
+      preDeductedCredits: cost,
+      finalCredits: finalCost,
+      promptTokens: usage.promptTokens || 0,
+      completionTokens: usage.completionTokens || 0,
+    });
+    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
+    await recordSubtokenAdjustment(currentRecord || { taskId, userId }, {
+      taskId,
+      type: "advanced_qwen37_flash_settlement",
+      amount: refund ? -adjustment : adjustment,
+      meta: { preDeductedCredits: cost, finalCredits: finalCost },
+    });
+    if (!dbEnabled()) await writeDb(db);
+  }
+  return { finalCost, finalPricing };
+}
+
+async function runQwen37FlashGenerationJob(job = {}) {
+  const {
+    taskId = "",
+    userId = "",
+    prompt = "",
+    enableThinking = false,
+    maxTokens = 1024,
+    temperature = 0.7,
+    pricing = {},
+    advancedPricing = {},
+    cost = 0,
+  } = job;
+  if (!taskId || !userId) return;
+  let upstreamPayload = null;
+  try {
+    await upsertGenerationRecord({ taskId, status: "running", awaitingUpstreamTask: true, error: "" });
+    upstreamPayload = {
+      model: QWEN37_FLASH_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      enable_thinking: enableThinking === true,
+      max_tokens: maxTokens,
+      temperature,
+    };
+    await upsertGenerationRecord({ taskId, upstreamPayload });
+    const raw = await aliyunQwen37FlashRequest(upstreamPayload);
+    const textResult = qwen37FlashResponseText(raw);
+    if (!textResult) {
+      const error = new Error("Qwen3.7 Flash returned no text.");
+      error.statusCode = 502;
+      error.payload = raw;
+      throw error;
+    }
+    const usage = qwen37FlashUsage(raw);
+    const { finalCost, finalPricing } = await settleQwen37FlashUsage({
+      taskId,
+      userId,
+      cost,
+      pricing,
+      advancedPricing,
+      usage,
+    });
+    await upsertGenerationRecord({
+      taskId,
+      upstreamTaskId: String(raw.id || raw.request_id || raw.requestId || ""),
+      status: "succeeded",
+      awaitingUpstreamTask: false,
+      createResponse: raw,
+      textResult,
+      responseText: textResult,
+      usage,
+      finalCredits: finalCost,
+      originalFinalCredits: finalPricing.originalCredits ?? finalCost,
+      pricingEstimate: finalPricing,
+      billingStatus: finalCost > 0 ? "settled" : "free",
+      billingSettledAt: new Date().toISOString(),
+      error: "",
+    });
+  } catch (error) {
+    const errorInfo = normalizeErrorPayload(error);
+    console.warn("[qwen37-flash-error]", taskId, errorInfo.message || error.message || error);
+    const currentRecord = await getGenerationRecord(taskId).catch(() => null);
+    if (cost > 0 && currentRecord?.billingStatus !== "refunded") {
+      try {
+        const db = await readDb();
+        await changeUserCredits(db, userId, cost, "advanced_qwen37_flash_refund", { taskId, error: error.message || "Qwen3.7 Flash failed." });
+        await recordSubtokenAdjustment(currentRecord || { taskId, userId }, {
+          taskId,
+          type: "advanced_qwen37_flash_refund",
+          amount: -cost,
+          meta: { error: error.message || "Qwen3.7 Flash failed." },
+        });
+        if (!dbEnabled()) await writeDb(db);
+      } catch (refundError) {
+        console.error("[qwen37-flash-refund-failed]", taskId, refundError.message || refundError);
+      }
+    }
+    await upsertGenerationRecord({
+      taskId,
+      status: "failed",
+      awaitingUpstreamTask: false,
+      error: errorInfo.message || "Qwen3.7 Flash failed.",
+      code: errorInfo.code || "",
+      errorPayload: errorInfo.payload || null,
+      createResponse: errorInfo.payload || null,
+      upstreamPayload,
+      finalCredits: 0,
+      originalFinalCredits: 0,
+      billingStatus: cost > 0 ? "refunded" : "free",
+      billingSettledAt: new Date().toISOString(),
+      failedAt: new Date().toISOString(),
+    });
+  }
+}
+
+function startQwen37FlashGenerationJob(job = {}) {
+  setImmediate(() => runQwen37FlashGenerationJob(job).catch((error) => {
+    console.error("[qwen37-flash-job-unhandled]", job.taskId || "", error.message || error);
+  }));
+}
+
+async function handleAdvancedQwen37FlashGenerate(req, res, context = {}) {
+  const auth = context.auth || await requireUser(req, res);
+  if (!auth) return;
+  if (!ALIYUN_QWEN37_API_KEY) {
+    return sendJson(res, 503, { ok: false, code: "MISSING_ALIYUN_QWEN37_API_KEY", message: "Qwen3.7 Flash is not configured." });
+  }
+  const body = context.body || await readJson(req);
+  const bodyParams = context.bodyParams || requestParamsFromBody(body);
+  const caseParams = context.caseParams || {};
+  const config = context.config || await readAppConfig();
+  const merged = { ...plainObject(caseParams.parameters), ...plainObject(bodyParams.parameters), ...plainObject(body.parameters) };
+  const prompt = String(context.prompt || firstPresent(body.prompt, bodyParams.prompt, caseParams.prompt, "")).trim();
+  if (!prompt) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  if (prompt.length > 250000) return sendJson(res, 400, { ok: false, code: "PROMPT_TOO_LONG", message: "Prompt must be 250000 characters or fewer." });
+  const configuredPricing = normalizeAdvancedPricing(config.platform?.advancedPricing || DEFAULT_ADVANCED_PRICING).qwen37Flash;
+  const enableThinking = boolFromRequest(firstPresent(body.enable_thinking, body.enableThinking, bodyParams.enable_thinking, merged.enable_thinking), false);
+  const maxTokens = Math.floor(clampNumber(
+    firstPresent(body.max_tokens, body.maxTokens, bodyParams.max_tokens, merged.max_tokens),
+    configuredPricing.defaultMaxTokens || 1024,
+    1,
+    QWEN37_FLASH_MAX_OUTPUT_TOKENS,
+  ));
+  const temperature = clampNumber(
+    firstPresent(body.temperature, bodyParams.temperature, merged.temperature),
+    configuredPricing.defaultTemperature ?? 0.7,
+    0,
+    2,
+  );
+  const estimatedInputTokens = Math.max(1, Math.min(1000000, Buffer.byteLength(prompt, "utf8") + 64));
+  const rawPricing = qwen37FlashPricingEstimate(config.platform?.advancedPricing, {
+    inputTokens: estimatedInputTokens,
+    outputTokens: maxTokens,
+  });
+  const pricing = applyUserPricingToEstimate(rawPricing, auth.user, pricingContextForAuth(auth));
+  const cost = pricing.credits;
+  if (auth.user.credits < cost) return sendJson(res, 402, insufficientCreditsPayload(cost, auth.user.credits));
+  try {
+    assertSubtokenCanSpend(auth, cost);
+  } catch (error) {
+    return sendJson(res, error.statusCode || 402, error.payload || { ok: false, code: error.code, message: error.message });
+  }
+  const taskId = localGenerationTaskId("txt");
+  const requestTrace = requestTraceForGeneration(req);
+  const params = {
+    provider: "qwen37-flash",
+    model: QWEN37_FLASH_MODEL,
+    enable_thinking: enableThinking,
+    max_tokens: maxTokens,
+    temperature,
+  };
+  const initialRecord = {
+    taskId,
+    status: "submitting",
+    model: QWEN37_FLASH_MODEL,
+    source: "advanced-qwen37-flash",
+    kind: "advanced-text",
+    provider: "qwen37-flash",
+    upstreamSource: "aliyun-openai-compatible",
+    userId: auth.user.id,
+    prompt,
+    finalPrompt: prompt,
+    params,
+    preDeductedCredits: cost,
+    originalPreDeductedCredits: pricing.originalCredits ?? cost,
+    finalCredits: null,
+    originalFinalCredits: null,
+    userPricingMultiplier: pricing.userPricingMultiplier ?? 1,
+    billingStatus: cost > 0 ? "pre_deducted" : "free",
+    billingSettledAt: "",
+    pricingEstimate: pricing,
+    awaitingUpstreamTask: true,
+    error: "",
+    apiTokenId: auth.tokenRecord?.id || "",
+    apiTokenName: auth.tokenRecord?.name || "",
+    apiTokenType: auth.tokenRecord?.quotaType || "",
+    apiTokenSource: auth.tokenSource || "",
+    ...requestTrace,
+  };
+  await upsertGenerationRecord(initialRecord);
+  if (cost > 0) {
+    await chargeUserWithSubtoken(auth, {
+      cost,
+      type: "advanced_qwen37_flash",
+      taskId,
+      meta: { taskId, provider: "qwen37-flash", model: QWEN37_FLASH_MODEL, maxTokens, enableThinking, pricingSource: pricing.source },
+    });
+    if (!dbEnabled()) await writeDb(auth.db);
+  }
+  startQwen37FlashGenerationJob({
+    taskId,
+    userId: auth.user.id,
+    prompt,
+    enableThinking,
+    maxTokens,
+    temperature,
+    pricing,
+    advancedPricing: config.platform?.advancedPricing,
+    cost,
+  });
+  const latestDb = await readDb();
+  const latestUser = (latestDb.users || []).find((entry) => entry.id === auth.user.id) || auth.user;
+  return sendJson(res, 200, {
+    ok: true,
+    async: true,
+    taskId,
+    user: userView(latestUser),
+    pricing,
+    cost,
+    record: publicGenerationRecord(initialRecord, generationRecordResponseOptionsForAuth(auth)),
+    params,
+  });
+}
+
 async function runQwenImage3GenerationJob(job = {}) {
   const { taskId = "", userId = "", body = {}, bodyParams = {}, initialParams = {}, prompt = "", tier = "pro", model = "", resolution = "2K", ratio = "1:1", size = "", outputImageCount = 1, negativePrompt = "", promptExtend = true, promptExtendMode = "direct", watermark = false, seed = null, pricing = {}, cost = 0 } = job;
   if (!taskId || !userId) return;
@@ -23855,6 +24305,17 @@ async function handleAdvancedGenerate(req, res) {
     "",
   )).trim();
   if (!prompt && !["wan30", SEEDANCE25_DIRECT_PROVIDER].includes(provider)) return sendJson(res, 400, { ok: false, message: "Prompt is required." });
+  if (provider === "qwen37-flash") {
+    return await handleAdvancedQwen37FlashGenerate(req, res, {
+      auth,
+      body,
+      bodyParams,
+      caseParams,
+      selectedCase,
+      config,
+      prompt,
+    });
+  }
   if (provider === "qwen-image3") {
     return await handleAdvancedQwenImage3Generate(req, res, {
       auth,
@@ -25895,6 +26356,8 @@ async function buildUserAdvancedEstimate(provider = "seedance", params = {}, use
     mode: firstPresent(params.mode, params.functionMode, params.seedanceMode),
     seedreamTier: firstPresent(params.seedreamTier, params.seedream5Tier, params.seedanceTier),
     qwenTier: firstPresent(params.qwenTier, params.qwenImageTier, params.tier),
+    inputTokens: firstPresent(params.inputTokens, params.promptTokens),
+    outputTokens: firstPresent(params.outputTokens, params.completionTokens, params.max_tokens, params.maxTokens),
     size: params.size,
     outputImageCount: firstPresent(params.outputImageCount, params.n),
     referenceImageCount: firstPresent(params.referenceImageCount, params.imageCount),
@@ -25935,6 +26398,14 @@ async function handleAdvancedEstimate(req, res) {
     url.searchParams.get("inputVideoSeconds"),
     url.searchParams.get("referenceVideoDurationSeconds"),
   );
+  if (provider === "qwen37-flash") {
+    params.inputTokens = firstPresent(
+      body.inputTokens,
+      body.promptTokens,
+      Math.max(1, Buffer.byteLength(String(body.prompt || bodyParams.prompt || ""), "utf8") + 64),
+    );
+    params.outputTokens = firstPresent(body.outputTokens, body.max_tokens, body.maxTokens, bodyParams.max_tokens, 1024);
+  }
   const pricing = await buildUserAdvancedEstimate(provider, params, auth.user, pricingContextForAuth(auth));
   const publicPricing = tenantPublic
     ? {

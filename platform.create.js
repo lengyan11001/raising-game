@@ -119,6 +119,7 @@ function advancedAudioReferenceLimit(provider = currentAdvancedProvider()) {
 function advancedAssetTargetItems() {
   if (!advancedCreateModeAllowsManualReferenceUpload()) return [];
   const provider = currentAdvancedProvider();
+  if (provider === "qwen37-flash") return [];
   const capability = currentAdvancedVideoCapability();
   const wanMode = normalizeWanMediaMode(els.advancedWanMediaMode?.value || "multimodal");
   const seedanceMode = normalizeSeedanceMediaMode(els.advancedSeedanceMediaMode?.value || "reference_video");
@@ -403,7 +404,7 @@ function syncAdvancedResultTaskId() {
 
 function advancedResultHistoryFallbackRecords() {
   return (Array.isArray(state.historyRecords) ? state.historyRecords : [])
-    .filter((record) => generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl)
+    .filter((record) => generationVideoUrl(record) || generationImageResultUrl(record) || record?.downloadUrl || record?.textResult || record?.responseText)
     .slice(0, 1);
 }
 
@@ -424,7 +425,8 @@ function renderAdvancedResultPanel() {
     const videoUrl = generationVideoUrl(record);
     const imageUrls = generationImageResultUrls(record);
     const imageUrl = imageUrls[0] || "";
-    const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageUrl);
+    const textResult = String(record.textResult || record.responseText || "").trim();
+    const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageUrl || textResult);
     const posterUrl = videoUrl || imageUrl ? generationPosterUrl(record) : "";
     const status = statusLabel(record.status);
     const taskId = record.taskId || "";
@@ -435,6 +437,8 @@ function renderAdvancedResultPanel() {
       ? `<button class="advanced-result-media" type="button" data-advanced-result-video="${escapeHtml(String(index))}" style="${escapeHtml(ratioStyle(ratio))}">${posterUrl ? `<img src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(status)}</span>`}<i data-lucide="play"></i></button>`
       : imageUrl
         ? `<div class="advanced-result-image-grid${imageUrls.length > 1 ? " is-multiple" : ""}">${imageUrls.map((url, imageIndex) => `<button class="advanced-result-media" type="button" data-advanced-result-image="${escapeHtml(`${index}:${imageIndex}`)}"><img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" /></button>`).join("")}</div>`
+        : textResult
+          ? `<div class="advanced-result-text">${escapeHtml(textResult)}</div>`
         : `<div class="advanced-result-media is-placeholder"><i data-lucide="${statusClass(record.status) === "failed" ? "circle-alert" : "loader-circle"}"></i><span>${escapeHtml(status)}</span></div>`;
     return `
       <article class="advanced-result-card is-${escapeHtml(statusClass(record.status))}">
@@ -443,6 +447,7 @@ function renderAdvancedResultPanel() {
           <strong>${escapeHtml(publicModelText(record.templateTitle || record.sceneName || record.model || "Generation"))}</strong>
           <span>${escapeHtml(status)}${visibleTaskId ? ` - ${escapeHtml(visibleTaskId)}` : ""}</span>
           ${record.error ? `<p>${escapeHtml(record.error)}</p>` : ""}
+          ${textResult ? `<button class="history-download advanced-result-copy" type="button" data-advanced-result-copy="${escapeHtml(String(index))}"><i data-lucide="copy"></i>Copy</button>` : ""}
           ${canDownload ? `
             <button class="history-download advanced-result-download" type="button" data-advanced-result-download="${escapeHtml(String(index))}">
               <i data-lucide="download"></i>${escapeHtml(t("history.download"))}
@@ -470,6 +475,16 @@ function renderAdvancedResultPanel() {
       const imageUrl = generationImageResultUrls(record)[imageIndex || 0] || generationImageResultUrl(record);
       if (!imageUrl) return;
       previewImage({ title: publicModelText(record.templateTitle || record.taskId || t("common.preview")), imageUrl });
+    });
+  });
+  els.advancedResultList.querySelectorAll("[data-advanced-result-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const record = advancedResultVisibleRecords()[Number(button.dataset.advancedResultCopy || 0)];
+      const textResult = String(record?.textResult || record?.responseText || "");
+      if (!textResult) return;
+      await navigator.clipboard.writeText(textResult);
+      button.innerHTML = `<i data-lucide="check"></i>Copied`;
+      refreshIcons();
     });
   });
   els.advancedResultList.querySelectorAll("[data-advanced-result-download]").forEach((button) => {
@@ -1367,6 +1382,7 @@ function updateAdvancedModelControls() {
   const isImageEdit = provider === "wan27-image-edit";
   const isSeedreamImage = provider === "seedream5-image";
   const isQwenImage = provider === "qwen-image3";
+  const isQwenText = provider === "qwen37-flash";
   const isStandaloneImage = isSeedreamImage || isQwenImage;
   const simpleEdit = advancedCreateModeIsSimpleEdit();
   const simpleAction = state.advancedCreateKind === "video" && advancedCreateModeUsesAutoPrompt();
@@ -1384,12 +1400,12 @@ function updateAdvancedModelControls() {
       ? 29
       : bounds.max;
     const rawDuration = Number(els.advancedDuration.value || bounds.fallback);
-    const selectedDuration = isImageEdit || isStandaloneImage
+    const selectedDuration = isImageEdit || isStandaloneImage || isQwenText
       ? "1"
       : provider === "wan30" && rawDuration === -1
         ? "-1"
         : String(Math.min(durationMax, Math.max(provider === "wan30" ? 2 : bounds.min, Number.isFinite(rawDuration) ? rawDuration : bounds.fallback)));
-    const durationValues = isImageEdit || isStandaloneImage
+    const durationValues = isImageEdit || isStandaloneImage || isQwenText
       ? [1]
       : provider === "wan30"
         ? [-1, ...Array.from({ length: 29 }, (_, index) => index + 2)]
@@ -1413,7 +1429,7 @@ function updateAdvancedModelControls() {
     const current = normalizeAdvancedResolution(els.advancedResolution.value, provider);
     els.advancedResolution.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedResolution.value = options[0];
-    els.advancedResolution.closest(".field")?.toggleAttribute("hidden", animateCapability);
+    els.advancedResolution.closest(".field")?.toggleAttribute("hidden", animateCapability || isQwenText);
   }
   if (els.advancedSeedanceTier) {
     const active = provider === "seedance";
@@ -1430,6 +1446,9 @@ function updateAdvancedModelControls() {
   document.querySelectorAll(".advanced-qwen-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !isQwenImage;
   });
+  document.querySelectorAll(".advanced-qwen37-option").forEach((item) => {
+    item.hidden = simpleAction || simpleEdit || !isQwenText;
+  });
   if (els.advancedRatio) {
     const imageRatios = ["1:1", "3:4", "4:3", "9:16", "16:9"];
     const seedanceNsfwReferenceMode = provider === "seedance-nsfw" && seedanceMode === "omini";
@@ -1445,7 +1464,7 @@ function updateAdvancedModelControls() {
     const current = ["wan30", "seedance-nsfw"].includes(provider) && rawRatio === "adaptive" ? "adaptive" : normalizeVideoRatio(rawRatio);
     els.advancedRatio.innerHTML = options.map((value) => `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`).join("");
     if (!options.includes(current)) els.advancedRatio.value = fallbackRatio;
-    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode));
+    els.advancedRatio.closest(".field")?.toggleAttribute("hidden", isSeedreamImage || isQwenText || simpleAction || animateCapability || (provider === "seedance-nsfw" && !seedanceNsfwReferenceMode));
   }
   document.querySelectorAll(".advanced-wan-option").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !capabilityNeedsMedia;
@@ -1480,7 +1499,7 @@ function updateAdvancedModelControls() {
     item.hidden = simpleAction;
   });
   document.querySelectorAll(".advanced-duration-field").forEach((item) => {
-    item.hidden = isImageEdit || isStandaloneImage || simpleEdit || animateCapability || advancedVideoEditUsesSourceDuration(capability) || (provider === "seedance-nsfw" && seedanceMode === "edit");
+    item.hidden = isImageEdit || isStandaloneImage || isQwenText || simpleEdit || animateCapability || advancedVideoEditUsesSourceDuration(capability) || (provider === "seedance-nsfw" && seedanceMode === "edit");
   });
   document.querySelectorAll(".advanced-seedance-audio-field").forEach((item) => {
     item.hidden = simpleAction || simpleEdit || !["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider);
@@ -1518,6 +1537,11 @@ function updateAdvancedModelControls() {
     item.hidden = true;
   });
   renderAdvancedAssetTargets();
+  const assetsSideTab = els.advancedSideTabs?.querySelector('[data-advanced-side-tab="assets"]');
+  const assetsMobileTab = els.advancedMobileTabs?.querySelector('[data-advanced-mobile-tab="assets"]');
+  if (assetsSideTab) assetsSideTab.hidden = isQwenText;
+  if (assetsMobileTab) assetsMobileTab.hidden = isQwenText;
+  if (isQwenText && state.advancedSideTab !== "result") setAdvancedSideTab("result", { silent: true });
   if (els.advancedUploadBox) {
     const uploadIsVideo = advancedCreateUploadIsVideo();
     const mixedUpload = advancedCreateModeAcceptsVideoUpload() && advancedCreateModeAcceptsImageUpload();
@@ -1541,6 +1565,7 @@ function updateAdvancedModelControls() {
     const forceUpload = allowManualReferenceUpload && (simpleAction || simpleEdit || advancedCreateModeNeedsVideoUpload());
     const usesDedicatedFrameUpload = ["seedance", "seedance25", "seedance-nsfw", "wan30"].includes(provider) && seedanceModeNeedsFirstFrame(seedanceMode);
     els.advancedUploadBox.hidden = hidePresetUploadBox
+      || isQwenText
       || usesDedicatedFrameUpload
       || (aliyunVideo && !capabilityNeedsMedia);
     els.advancedUploadBox.classList.toggle("is-wan", aliyunVideo);
@@ -1847,6 +1872,64 @@ async function submitAdvancedGenerate() {
   const seedanceTier = currentSeedanceTier();
   const seedreamTier = currentSeedreamTier();
   const advancedPresetSelection = usingPresetFlow ? advancedPresetSelectionPayload() : undefined;
+  if (provider === "qwen37-flash") {
+    const enableThinking = els.advancedQwen37Thinking?.value === "true";
+    const maxTokens = Math.max(1, Math.min(8192, Number(els.advancedQwen37MaxTokens?.value || 1024) || 1024));
+    const temperature = Math.max(0, Math.min(2, Number(els.advancedQwen37Temperature?.value || 0.7)));
+    const pendingTaskId = `pending-text-${Date.now().toString(36)}`;
+    mergeAdvancedResultRecord({
+      taskId: pendingTaskId,
+      status: "submitting",
+      model: "qwen3.7-flash",
+      provider,
+      source: "advanced-qwen37-flash",
+      kind: "advanced-text",
+      prompt,
+      params: { enable_thinking: enableThinking, max_tokens: maxTokens, temperature },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    state.advancedResultTaskId = pendingTaskId;
+    setAdvancedSideTab("result", { syncMobile: true });
+    renderAdvancedResultPanel();
+    if (els.advancedNote) els.advancedNote.textContent = "";
+    try {
+      const payload = await requestJson("/api/advanced/generate", {
+        method: "POST",
+        body: {
+          provider,
+          model: "qwen3.7-flash",
+          prompt,
+          enable_thinking: enableThinking,
+          max_tokens: maxTokens,
+          temperature,
+        },
+      });
+      if (payload.user) setUser(payload.user);
+      state.advancedResultRecords = (state.advancedResultRecords || []).filter((record) => record.taskId !== pendingTaskId);
+      if (payload.record) {
+        state.historyRecords = [payload.record, ...(state.historyRecords || []).filter((record) => record.taskId !== payload.record.taskId)];
+        mergeAdvancedResultRecord(payload.record);
+      }
+      state.advancedResultTaskId = payload.taskId || payload.record?.taskId || "";
+      clearAdvancedCreationInputs();
+      setAdvancedSideTab("result", { syncMobile: true });
+      renderAdvancedResultPanel();
+      if (state.advancedResultTaskId) scheduleAdvancedResultRefresh({ delayMs: 800, force: true });
+    } catch (error) {
+      state.advancedResultRecords = (state.advancedResultRecords || []).map((record) => (
+        record.taskId === pendingTaskId
+          ? { ...record, status: "failed", error: error.message || String(error), updatedAt: new Date().toISOString() }
+          : record
+      ));
+      if (state.advancedResultTaskId === pendingTaskId) state.advancedResultTaskId = "";
+      renderAdvancedResultPanel();
+    } finally {
+      els.advancedSubmitBtn.disabled = false;
+      updateAdvancedButtonCost();
+    }
+    return;
+  }
   if (["seedream5-image", "qwen-image3"].includes(provider)) {
     const qwenImage = provider === "qwen-image3";
     const qwenTier = qwenImage ? currentQwenImage3Tier() : "";
@@ -2865,6 +2948,11 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
     if (els.advancedQwenPromptExtend) els.advancedQwenPromptExtend.value = advancedBoolFromValue(params.prompt_extend ?? params.promptExtend, true) ? "true" : "false";
     if (els.advancedQwenWatermark) els.advancedQwenWatermark.value = advancedBoolFromValue(params.watermark, false) ? "true" : "false";
   }
+  if (provider === "qwen37-flash") {
+    if (els.advancedQwen37Thinking) els.advancedQwen37Thinking.value = advancedBoolFromValue(params.enable_thinking ?? params.enableThinking, false) ? "true" : "false";
+    if (els.advancedQwen37MaxTokens) els.advancedQwen37MaxTokens.value = String(Math.max(1, Math.min(8192, Number(params.max_tokens || params.maxTokens || 1024))));
+    if (els.advancedQwen37Temperature) els.advancedQwen37Temperature.value = String(Math.max(0, Math.min(2, Number(params.temperature ?? 0.7))));
+  }
   if (els.advancedSeedanceMediaMode) els.advancedSeedanceMediaMode.value = seedanceMode;
   if (els.advancedWanMediaMode) els.advancedWanMediaMode.value = wanMode;
   state.advancedSeedanceGenerateAudio = advancedBoolFromValue(params.generateAudio ?? params.generate_audio ?? record.generateAudio ?? record.generate_audio, true);
@@ -2874,6 +2962,8 @@ function restoreRecordToAdvancedCreate(record = {}, button = null) {
     ? references.slice(1)
     : provider === "qwen-image3"
     ? references.slice(0, ADVANCED_QWEN_IMAGE3_REFERENCE_LIMIT)
+    : provider === "qwen37-flash"
+    ? []
     : references;
   state.advancedUploadDataUrl = restoredSeedanceFirstFrame ? "" : (references[0]?.dataUrl || "");
   if (provider === "wan27-image-edit") {
@@ -4311,8 +4401,9 @@ function renderHistory(records = []) {
   els.historyList.innerHTML = `${sortedRecords.map((record, index) => {
     const videoUrl = generationVideoUrl(record);
     const imageResultUrl = generationImageResultUrl(record);
+    const textResult = String(record.textResult || record.responseText || "").trim();
     const resultLocked = record.resultLocked === true;
-    const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageResultUrl);
+    const isSucceeded = isSucceededGenerationStatus(record.status) || Boolean(videoUrl || imageResultUrl || textResult);
     const taskId = record.taskId || "";
     const mediaKey = `history-video-${Math.random().toString(36).slice(2)}`;
     const recordRatio = record.ratio || record.params?.ratio || record.params?.aspect_ratio;
@@ -4405,7 +4496,7 @@ function renderHistory(records = []) {
               <i data-lucide="play"></i>
             </button>
             <video data-src="${escapeHtml(videoUrl)}" ${posterUrl ? `poster="${escapeHtml(posterUrl)}"` : ""} muted loop playsinline preload="none" data-history-video="${escapeHtml(mediaKey)}" hidden></video>
-          ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : `<div class="history-placeholder"><i data-lucide="${recordStatusIcon}"></i><span>${escapeHtml(recordStatusLabel)}</span></div>`}
+          ` : imageResultUrl ? `<img class="history-result-image" data-history-image="${index}" src="${escapeHtml(imageResultUrl)}" alt="" loading="lazy" decoding="async" />` : textResult ? `<div class="history-result-text">${escapeHtml(textResult)}</div>` : `<div class="history-placeholder"><i data-lucide="${recordStatusIcon}"></i><span>${escapeHtml(recordStatusLabel)}</span></div>`}
         </div>
         ${isUndressHistory ? `<div class="undress-history-footer">
           <div class="undress-history-meta">

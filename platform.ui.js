@@ -1383,6 +1383,7 @@ function advancedCaseDuration(item = {}) {
 function normalizeAdvancedProvider(value = "") {
   const normalized = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
   if (!normalized) return DEFAULT_ADVANCED_PROVIDER;
+  if (["qwen37flash", "qwen3.7flash", "qwen3.7flash20260715"].includes(normalized) || normalized.includes("qwen37flash") || normalized.includes("qwen3.7flash")) return "qwen37-flash";
   if (["qwenimage3", "qwenimage30", "qwenimage3pro", "qwenimage30pro"].includes(normalized) || normalized.includes("qwenimage3.0")) return "qwen-image3";
   if (["seedream", "seedream5", "seedream50", "seedreamimage", "seedream5image", "seedream50image", "seedream5img", "seedream5imageedit"].includes(normalized) || normalized.includes("seedream5") || normalized.includes("seedream50")) return "seedream5-image";
   if (["seedancensfw", "seedance25nsfw", "seedance2.5nsfw"].includes(normalized) || (normalized.includes("seedance") && normalized.includes("nsfw"))) return "seedance-nsfw";
@@ -1399,6 +1400,7 @@ function normalizeAdvancedProvider(value = "") {
 function advancedProviderLabel(provider = currentAdvancedProvider()) {
   const normalized = normalizeAdvancedProvider(provider);
   const capability = currentAdvancedVideoCapability(provider);
+  if (normalized === "qwen37-flash") return "Qwen3.7 Flash";
   if (normalized === "qwen-image3") return "Qwen Image 3.0";
   if (normalized === "seedream5-image") return "Seedream 5.0 Image";
   if (normalized === "wan27-image-edit") return "Wan 2.7 Image";
@@ -1468,7 +1470,7 @@ function advancedEngineValue(provider = els.advancedProvider?.value || "", capab
   if (normalizedCapability.startsWith("wan30-")) return "wan30";
   if (normalizedCapability.startsWith("wan27-")) return "wan27";
   const raw = String(provider || "").trim().toLowerCase().replace(/[\s_]+/g, "-");
-  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "seedance-nsfw", "wan30", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3"].includes(raw)) return raw;
+  if (["wan-legacy", "wan-animate", "happyhorse", "seedance", "seedance25", "seedance-nsfw", "wan30", "wan27", "wan27-image-edit", "seedream5-image", "qwen-image3", "qwen37-flash"].includes(raw)) return raw;
   if (ADVANCED_ALIYUN_VIDEO_CAPABILITIES.has(raw)) return advancedEngineValue("", raw);
   return normalizeAdvancedProvider(provider);
 }
@@ -1598,6 +1600,7 @@ function normalizeAdvancedResolution(value = "", provider = "seedance") {
 
 function advancedDurationBounds(provider = "seedance", capability = "") {
   const normalized = normalizeAdvancedProvider(provider);
+  if (normalized === "qwen37-flash") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "qwen-image3") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "seedream5-image") return { min: 1, max: 1, fallback: 1 };
   if (normalized === "wan27-image-edit") return { min: 1, max: 1, fallback: 1 };
@@ -1713,6 +1716,31 @@ function currentSeedanceEstimateReferenceVideoUrls(provider = currentAdvancedPro
 
 function advancedPricing(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "qwen37-flash") {
+    const configPricing = state.config?.platform?.advancedPricing || {};
+    const qwenPricing = configPricing.qwen37Flash || {};
+    const inputTokens = Math.max(1, Math.min(1000000, Math.floor(Number(options.inputTokens || 1) || 1)));
+    const outputTokens = Math.max(0, Math.min(8192, Math.floor(Number(options.outputTokens ?? options.maxTokens ?? els.advancedQwen37MaxTokens?.value ?? 1024) || 0)));
+    const inputRate = Number(qwenPricing.inputCnyPerMillionTokens ?? 0.225);
+    const outputRate = Number(qwenPricing.outputCnyPerMillionTokens ?? 0.974);
+    const creditsPerCny = Number(configPricing.creditsPerCny || 20) || 20;
+    const originalCredits = creditsAmount(((inputTokens * inputRate + outputTokens * outputRate) / 1000000) * creditsPerCny);
+    const multiplier = userPricingMultiplier();
+    return {
+      provider: "qwen37-flash",
+      model: "qwen3.7-flash",
+      inputTokens,
+      outputTokens,
+      inputCnyPerMillionTokens: inputRate,
+      outputCnyPerMillionTokens: outputRate,
+      baseCredits: originalCredits,
+      originalCredits,
+      credits: creditsAmount(originalCredits * multiplier),
+      markup: 1,
+      userPricingMultiplier: multiplier,
+      source: "aliyun_singapore_official_token_pricing",
+    };
+  }
   if (normalizedProvider === "wan30") {
     const requestedDuration = Number(duration ?? 5);
     const adaptiveDuration = requestedDuration === -1;
@@ -2029,6 +2057,7 @@ function currentAdvancedResolution() {
 
 function advancedVideoSettingsVisible() {
   return state.advancedCreateKind === "video"
+    && currentAdvancedProvider() !== "qwen37-flash"
     && !advancedCreateModeIsSimpleEdit()
     && !["wan-animate-move", "wan-animate-mix"].includes(currentAdvancedVideoCapability())
     && !advancedVideoEditUsesSourceDuration()
@@ -3102,7 +3131,7 @@ function advancedButtonCostLabel(duration, provider = "seedance", resolution = "
   const fullLabel = advancedCostLabel(duration, provider, resolution, ratio, options);
   if (state.advancedCreateKind === "custom") return fullLabel;
   const normalizedProvider = normalizeAdvancedProvider(provider);
-  if (["seedream5-image", "qwen-image3"].includes(normalizedProvider)) return fullLabel;
+  if (["seedream5-image", "qwen-image3", "qwen37-flash"].includes(normalizedProvider)) return fullLabel;
   if (normalizedProvider === "wan27-image-edit") return assetImageModifyCostLabel();
   const pricing = state.advancedEstimate && state.advancedEstimateKey === advancedEstimateKey(duration, provider, resolution, ratio, options)
     ? state.advancedEstimate
@@ -3112,6 +3141,16 @@ function advancedButtonCostLabel(duration, provider = "seedance", resolution = "
 
 function advancedEstimateKey(duration, provider = "seedance", resolution = "720p", ratio = "16:9", options = {}) {
   const normalizedProvider = normalizeAdvancedProvider(provider);
+  if (normalizedProvider === "qwen37-flash") {
+    return [
+      normalizedProvider,
+      Math.max(1, Number(options.inputTokens || 1) || 1),
+      Math.max(1, Number(options.outputTokens ?? options.maxTokens ?? els.advancedQwen37MaxTokens?.value ?? 1024) || 1024),
+      String(options.enableThinking ?? els.advancedQwen37Thinking?.value ?? "false"),
+      String(options.temperature ?? els.advancedQwen37Temperature?.value ?? "0.7"),
+      Number(state.user?.pricingMultiplier || 1),
+    ].join("|");
+  }
   if (normalizedProvider === "qwen-image3") {
     return [
       normalizedProvider,
@@ -3189,6 +3228,9 @@ function requestAdvancedEstimate(duration, provider = "seedance", resolution = "
           mode: options.mode || options.animateMode,
           seedreamTier: options.seedreamTier || options.seedream5Tier,
           qwenTier: options.qwenTier,
+          inputTokens: options.inputTokens,
+          outputTokens: options.outputTokens ?? options.maxTokens,
+          max_tokens: options.outputTokens ?? options.maxTokens,
           outputImageCount: Math.max(1, Number(options.outputImageCount || 1) || 1),
           n: Math.max(1, Number(options.outputImageCount || 1) || 1),
           referenceImageCount: Math.max(0, Number(options.referenceImageCount || 0) || 0),
@@ -3241,6 +3283,10 @@ function updateAdvancedButtonCost() {
     seedanceTier: provider === "seedream5-image" ? currentSeedreamTier() : seedanceTier,
     qwenTier: provider === "qwen-image3" ? currentQwenImage3Tier() : undefined,
     outputImageCount: provider === "qwen-image3" ? Number(els.advancedQwenOutputCount?.value || 1) : 1,
+    inputTokens: provider === "qwen37-flash" ? Math.max(1, new TextEncoder().encode(String(els.advancedPrompt?.value || "")).length + 64) : undefined,
+    outputTokens: provider === "qwen37-flash" ? Number(els.advancedQwen37MaxTokens?.value || 1024) : undefined,
+    enableThinking: provider === "qwen37-flash" ? els.advancedQwen37Thinking?.value === "true" : undefined,
+    temperature: provider === "qwen37-flash" ? Number(els.advancedQwen37Temperature?.value || 0.7) : undefined,
     referenceImageCount: ["seedream5-image", "qwen-image3"].includes(provider) ? selectedAdvancedReferenceImages(provider).length : 0,
     videoCapability,
     model: videoCapability === "wan-legacy" ? String(els.advancedLegacyWanModel?.value || "") : undefined,
