@@ -26098,12 +26098,12 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     Create: item.create || "",
     Result: item.result || "",
   })));
-  return [
+  const lines = [
     `# ${docs.title}`,
     "",
     `Base URL: ${docs.baseUrl}`,
     "",
-    "This is the caller-facing guide for currently available public models and request shapes.",
+    "This is the caller-facing source of truth for currently available models, request fields, media combinations, and result polling.",
     "",
     "## Authentication",
     "",
@@ -26113,23 +26113,171 @@ function buildRestrictedModelDocsMarkdown(docs = {}) {
     "",
     supportedModelTable,
     "",
-    "## Seedance V3",
+    "## Reusable Media",
     "",
-    markdownCodeBlock("json", external.byteplusExample?.body || {}),
+    "For V3 requests, create an asset with the BytePlus-compatible action and use `asset://<asset-id>`. For Advanced requests, upload with `/api/user-assets` and use the returned `asset.id` without the `asset://` prefix.",
     "",
-    `POST ${route(external.endpoints?.byteplusGenerate, "/api/v3/contents/generations/tasks")}`,
+    markdownCodeBlock("http", [
+      `POST ${route(external.endpoints?.byteplusAssetAction, "/?Action=CreateAsset&Version=2024-01-01")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify({
+        URL: "https://example.com/reference.png",
+        AssetType: "Image",
+        Name: "reference image",
+        Moderation: { Strategy: "Skip" },
+      }, null, 2),
+    ].join("\n")),
     "",
-    "## Seedream 5.0 Image",
+    markdownCodeBlock("http", [
+      `POST ${route(external.endpoints?.userAssets, "/api/user-assets")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify({
+        videoUrl: "https://example.com/reference.mp4",
+        fileName: "reference.mp4",
+        durationSeconds: 8,
+      }, null, 2),
+    ].join("\n")),
     "",
-    markdownCodeBlock("json", external.seedream5ImageExample?.body || {}),
+    "**Advanced asset fields**",
     "",
-    `POST ${route(external.endpoints?.seedream5ImageGenerate, "/api/v3/images/generations")}`,
+    docsParameterMarkdown(advancedAssetParameterFields()),
     "",
+    "## Seedance 2.0 V3",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(external.endpoints?.byteplusGenerate, "/api/v3/contents/generations/tasks")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(external.byteplusExample?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Request fields and limits**",
+    "",
+    byteplusV3ParameterMarkdown(),
+    "",
+    "The create response returns `id`. Poll the V3 task endpoint until `status` is `succeeded` or `failed`.",
+    "",
+    markdownCodeBlock("http", [
+      `GET ${route(external.endpoints?.byteplusTaskDetail, "/api/v3/contents/generations/tasks/<taskId>")}`,
+      "Authorization: Bearer <user-token>",
+    ].join("\n")),
+    "",
+    "## Seedream 5.0 Pro Image",
+    "",
+    markdownCodeBlock("http", [
+      `POST ${route(external.endpoints?.seedream5ImageGenerate, "/api/v3/images/generations")}`,
+      "Authorization: Bearer <user-token>",
+      "Content-Type: application/json",
+      "",
+      JSON.stringify(external.seedream5ImageExample?.body || {}, null, 2),
+    ].join("\n")),
+    "",
+    "**Request fields and limits**",
+    "",
+    docsParameterMarkdown(seedream5ImageParameterFields()),
+    "",
+    "The create response returns `id`/`task_id`. Poll the V3 task endpoint and read `content.image_url` after success.",
+    "",
+  ];
+
+  if (external.qwenImage3Example) {
+    lines.push(
+      "## Qwen Image 3.0",
+      "",
+      markdownCodeBlock("http", [
+        `POST ${route(external.endpoints?.qwenImage3Generate, "/api/v3/images/generations")}`,
+        "Authorization: Bearer <user-token>",
+        "Content-Type: application/json",
+        "",
+        JSON.stringify(external.qwenImage3Example.body || {}, null, 2),
+      ].join("\n")),
+      "",
+      "**Request fields and limits**",
+      "",
+      docsParameterMarkdown(qwenImage3ParameterFields()),
+      "",
+      "The create response is asynchronous. Poll the V3 task endpoint and read `content.image_url`, `content.image_urls`, or `data[].url` after success.",
+      "",
+    );
+  }
+
+  const advancedSections = [
+    { title: "Wan 3.0 Video", example: external.wan30Example, fields: wan30VideoParameterFields },
+    { title: "Seedance 2.5 Video", example: external.seedance25Example, fields: seedance25VideoParameterFields },
+    { title: "Seedance2.5 (NSFW) Video", example: external.seedanceNsfwExample, fields: seedanceNsfwVideoParameterFields },
+    { title: "Wan2.7 Video", example: external.wan27Example, fields: wan27VideoParameterFields },
+    { title: "HappyHorse Video", example: external.happyhorseExample, fields: happyhorseVideoParameterFields },
+    { title: "Wan Animate", example: external.wanAnimateExample, fields: wanAnimateVideoParameterFields },
+  ];
+  for (const section of advancedSections) {
+    if (!section.example) continue;
+    lines.push(
+      `## ${section.title}`,
+      "",
+      markdownCodeBlock("http", [
+        `POST ${route(section.example.url || external.endpoints?.advancedGenerate, "/api/advanced/generate")}`,
+        "Authorization: Bearer <user-token>",
+        "Content-Type: application/json",
+        "",
+        JSON.stringify(section.example.body || {}, null, 2),
+      ].join("\n")),
+      "",
+      "**Request fields and limits**",
+      "",
+      docsParameterMarkdown(section.fields()),
+      "",
+    );
+  }
+
+  if (advancedSections.some((section) => section.example)) {
+    lines.push(
+      "## Advanced Task Polling",
+      "",
+      "Advanced video tasks return `taskId`. Poll the generation record until its status is `succeeded` or `failed`.",
+      "",
+      markdownCodeBlock("http", [
+        `GET ${route(external.endpoints?.generationRecordDetail, "/api/generation-records/<taskId>")}`,
+        "Authorization: Bearer <user-token>",
+      ].join("\n")),
+      "",
+    );
+  }
+
+  if (external.wan27ImageExample) {
+    lines.push(
+      "## Wan2.7 Image Generation and Edit",
+      "",
+      markdownCodeBlock("http", [
+        `POST ${route(external.endpoints?.wan27ImageEdit, "/api/wan27/image-edit")}`,
+        "Authorization: Bearer <user-token>",
+        "Content-Type: application/json",
+        "",
+        JSON.stringify(external.wan27ImageExample.body || {}, null, 2),
+      ].join("\n")),
+      "",
+      "**Request fields and limits**",
+      "",
+      docsParameterMarkdown(wan27ImageParameterFields()),
+      "",
+    );
+  }
+
+  lines.push(
     "## Billing",
     "",
     docs.billing?.note || "Credits are deducted according to the selected model and configured public rates.",
     "",
-  ].join("\\n");
+    "## Endpoints",
+    "",
+    markdownCodeBlock("json", docs.endpoints || {}),
+    "",
+  );
+  return lines.join("\n");
 }
 
 function templateDocMarkdown(item) {

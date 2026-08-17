@@ -45,6 +45,28 @@ test("external docs cover advanced request fields and polling without internal c
   assert.doesNotMatch(serverSource.slice(serverSource.indexOf("function externalAdvancedApiDoc"), serverSource.indexOf("function docsPricingView")), /API_KEY|Secret Access Key|ep-\d/);
 });
 
+test("selective model exposure still produces complete and valid Markdown", () => {
+  const start = serverSource.indexOf("function buildRestrictedModelDocsMarkdown");
+  const end = serverSource.indexOf("function templateDocMarkdown", start);
+  const source = serverSource.slice(start, end);
+  assert.doesNotMatch(source, /\.join\("\\\\n"\)/);
+  for (const marker of [
+    "byteplusV3ParameterMarkdown()",
+    "seedream5ImageParameterFields()",
+    "qwenImage3ParameterFields()",
+    "wan30VideoParameterFields",
+    "seedance25VideoParameterFields",
+    "seedanceNsfwVideoParameterFields",
+    "wan27VideoParameterFields",
+    "happyhorseVideoParameterFields",
+    "wanAnimateVideoParameterFields",
+    "wan27ImageParameterFields()",
+    "Advanced Task Polling",
+  ]) {
+    assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+
 test("Copy token plus docs advertises all model routes and loads the live markdown source", () => {
   assert.match(copySource, /const ADVANCED_VIDEO_ACCESS_COPY/);
   assert.match(copySource, /Wan 3\.0, Seedance 2\.5, Seedance2\.5 \(NSFW\), Wan2\.7, HappyHorse, and Wan Animate/);
