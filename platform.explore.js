@@ -3899,8 +3899,6 @@ function advancedCaseTabLabel(tab = "hot") {
 }
 
 let paypalConfigPromise = null;
-let paypalSdkPromise = null;
-let paypalButtonsRendered = false;
 
 function payPalCheckoutVisible() {
   return Boolean(
@@ -4179,7 +4177,7 @@ function renderWalletOptions() {
 }
 
 function setTopupMethod(method = "usdt", options = {}) {
-  const next = "usdt";
+  const next = String(method || "").toLowerCase() === "paypal" ? "paypal" : "usdt";
   state.topupMethod = next;
   els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
     const active = button.dataset.topupMethod === next;
@@ -4308,7 +4306,7 @@ function renderTopupSummary() {
       ? state.topupStep === "packages"
         ? t("topup.packages")
         : state.topupMethod === "paypal"
-        ? t("topup.paypalRate")
+        ? t("topup.paypalReady", {}, "Continue on the secure payment page.")
         : t("topup.rate", { amount: amount || 0, asset, network })
       : t("topup.login");
   }
@@ -4379,99 +4377,74 @@ async function loadPayPalConfig() {
   return paypalConfigPromise;
 }
 
-function loadPayPalSdk(config) {
-  if (window.paypal?.Buttons) return Promise.resolve(window.paypal);
-  if (paypalSdkPromise) return paypalSdkPromise;
-  paypalSdkPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    const params = new URLSearchParams({
-      "client-id": config.clientId,
-      currency: config.currency || "USD",
-      intent: "capture",
-      components: "buttons",
+async function startPayPalRedirectCheckout() {
+  if (!state.user) return openLogin();
+  const topupPackage = selectedTopupPackage();
+  const amount = Number(topupPackage?.amount || 0);
+  if (!topupPackage || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
+    if (els.paypalStatus) els.paypalStatus.textContent = t("topup.invalid");
+    return;
+  }
+  const button = els.paypalButtons?.querySelector("[data-paypal-start]");
+  if (button) button.disabled = true;
+  if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalCreating");
+  try {
+    const returnUrl = `${window.location.origin}${window.location.pathname}#topups`;
+    const payload = await requestJson("/api/pay/paypal/checkout-sessions", {
+      method: "POST",
+      body: {
+        amount,
+        packageId: topupPackage.id,
+        returnUrl,
+        cancelUrl: returnUrl,
+      },
     });
-    script.src = `https://www.paypal.com/sdk/js?${params.toString()}`;
-    script.async = true;
-    script.onload = () => resolve(window.paypal);
-    script.onerror = () => reject(new Error("Failed to load PayPal."));
-    document.head.appendChild(script);
-  });
-  return paypalSdkPromise;
+    const checkoutUrl = String(payload.checkoutUrl || payload.session?.checkoutUrl || "").trim();
+    if (!checkoutUrl) throw new Error("PayPal checkout page was not created.");
+    window.location.href = checkoutUrl;
+  } catch (error) {
+    if (els.paypalStatus) els.paypalStatus.textContent = error.message || String(error);
+    if (button) button.disabled = false;
+  }
 }
 
 async function renderPayPalCheckout() {
   if (!els.paypalBox || !els.paypalButtons) return;
   if (!payPalCheckoutVisible()) return;
-  if (paypalButtonsRendered && els.paypalButtons.childElementCount > 0) return;
-  paypalButtonsRendered = false;
   try {
     const config = await loadPayPalConfig();
-    if (!config.enabled || !config.clientId) {
+    const topupPackage = selectedTopupPackage();
+    const amount = Number(topupPackage?.amount || 0);
+    if (!config.enabled) {
       els.paypalBox.hidden = false;
-      els.paypalButtons.hidden = true;
+      els.paypalButtons.hidden = false;
+      els.paypalButtons.innerHTML = "";
       if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalUnavailable");
       return;
     }
     els.paypalBox.hidden = false;
-    if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalLoading");
-    const paypal = await loadPayPalSdk(config);
-    if (!paypal?.Buttons) throw new Error("PayPal is unavailable.");
-    els.paypalButtons.innerHTML = "";
+    if (els.paypalStatus) {
+      els.paypalStatus.textContent = amount
+        ? `${t("topup.paypalReady")} ${formatCredits(amount)} ${config.currency || "USD"}`
+        : t("topup.paypalReady");
+    }
+    els.paypalButtons.innerHTML = `
+      <button class="paypal-redirect-button" type="button" data-paypal-start>
+        <i data-lucide="external-link"></i>
+        <span>${escapeHtml(t("topup.paypalContinue", {}, "Continue to PayPal"))}</span>
+      </button>
+      <p class="paypal-redirect-note">${escapeHtml(t("topup.paypalRedirectNote", {}, "You will continue on the secure payment page."))}</p>
+    `;
     els.paypalButtons.hidden = false;
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    if (!payPalCheckoutVisible()) return;
-    const buttons = paypal.Buttons({
-      style: {
-        layout: "horizontal",
-        height: 40,
-        tagline: false,
-      },
-      onInit: () => {
-        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalReady");
-      },
-      createOrder: async () => {
-        if (!state.user) {
-          openLogin();
-          throw new Error(t("topup.login"));
-        }
-        const topupPackage = selectedTopupPackage();
-        const amount = Number(topupPackage?.amount || 0);
-        if (!topupPackage || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
-          if (els.paypalStatus) els.paypalStatus.textContent = t("topup.invalid");
-          throw new Error(t("topup.invalid"));
-        }
-        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalCreating");
-        const payload = await requestJson("/api/pay/paypal/orders", {
-          method: "POST",
-          body: { amount, packageId: topupPackage.id },
-        });
-        renderTopupOrder(payload.order);
-        return payload.paypalOrderId;
-      },
-      onApprove: async (data) => {
-        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalApproved");
-        const paypalOrderId = data.orderID || data.orderId;
-        const payload = await requestJson(`/api/pay/paypal/orders/${encodeURIComponent(paypalOrderId)}/capture`, {
-          method: "POST",
-        });
-        if (payload.user) setUser(payload.user);
-        renderTopupOrder(payload.order);
-        renderTopupSummary();
-        if (state.tab === "topups") loadTopupRecords(1);
-        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalPaid");
-      },
-      onCancel: () => {
-        if (els.paypalStatus) els.paypalStatus.textContent = t("topup.paypalCancelled");
-      },
-      onError: (error) => {
-        if (els.paypalStatus) els.paypalStatus.textContent = error?.message || String(error || "PayPal error");
-      },
-    });
-    await buttons.render(els.paypalButtons);
-    paypalButtonsRendered = true;
+    const button = els.paypalButtons.querySelector("[data-paypal-start]");
+    if (button) {
+      button.disabled = false;
+      button.onclick = startPayPalRedirectCheckout;
+    }
   } catch (error) {
     els.paypalBox.hidden = false;
-    els.paypalButtons.hidden = true;
+    els.paypalButtons.hidden = false;
+    els.paypalButtons.innerHTML = "";
     if (els.paypalStatus) els.paypalStatus.textContent = error.message || String(error);
   }
 }

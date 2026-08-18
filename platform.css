@@ -2071,6 +2071,35 @@ dialog.tool-download-modal {
   width: 100%;
   max-width: 360px;
 }
+.paypal-redirect-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  color: #07142f;
+  background: linear-gradient(135deg, #ffffff, #dbeafe);
+  font-weight: 900;
+  box-shadow: 0 14px 30px rgba(37, 99, 235, .22);
+  cursor: pointer;
+}
+.paypal-redirect-button:disabled {
+  cursor: wait;
+  opacity: .68;
+}
+.paypal-redirect-button svg {
+  width: 16px;
+  height: 16px;
+}
+.paypal-redirect-note {
+  margin: 8px 0 0;
+  color: rgba(247,247,251,.58);
+  font-size: .8rem;
+  line-height: 1.35;
+}
 .topup-wallet-options {
   display: grid;
   gap: 10px;

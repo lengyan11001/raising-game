@@ -251,6 +251,7 @@ const GOOGLE_SITE_VERIFICATION_BY_HOST = String(process.env.GOOGLE_SITE_VERIFICA
 const PRIMARY_PLATFORM_HOSTS = new Set(parseCsvList(process.env.PRIMARY_PLATFORM_HOSTS || "123vips.com,www.123vips.com"));
 const PRIMARY_PLATFORM_ROOT_HOSTS = new Set(parseCsvList(process.env.PRIMARY_PLATFORM_ROOT_HOSTS || "123vips.com"));
 const PUBLIC_TENANT_ROOT_HOSTS = new Set(parseCsvList(process.env.PUBLIC_TENANT_ROOT_HOSTS || "cloudtoken.ai,667zui.video"));
+const PAYMENT_HOSTS = new Set(parseCsvList(process.env.PAYMENT_HOSTS || "pay.seed2.io"));
 const TOOL_TENANT_SUBDOMAIN_ALIASES = Object.freeze({
   undress: "undress",
   video: "video",
@@ -467,6 +468,15 @@ const PAYPAL_CLIENT_SECRET = String(process.env.PAYPAL_CLIENT_SECRET || "").trim
 const PAYPAL_WEBHOOK_ID = String(process.env.PAYPAL_WEBHOOK_ID || "").trim();
 const PAYPAL_CURRENCY = String(process.env.PAYPAL_CURRENCY || "USD").trim().toUpperCase() || "USD";
 const PAYPAL_BRAND_NAME = String(process.env.PAYPAL_BRAND_NAME || "Vipeak AI").trim() || "Vipeak AI";
+const PAYPAL_CHECKOUT_BASE_URL = String(
+  process.env.PAYPAL_CHECKOUT_BASE_URL ||
+  process.env.PAYMENT_BASE_URL ||
+  "https://pay.seed2.io",
+).trim().replace(/\/+$/, "");
+const PAYPAL_CHECKOUT_SESSION_TTL_MS = Math.max(
+  15 * 60 * 1000,
+  Number(process.env.PAYPAL_CHECKOUT_SESSION_TTL_MS || 2 * 60 * 60 * 1000) || 2 * 60 * 60 * 1000,
+);
 const MIN_TOPUP_AMOUNT = clampNumber(process.env.MIN_TOPUP_AMOUNT, 1, 1, 100000);
 const PAYPAL_MIN_AMOUNT = clampNumber(process.env.PAYPAL_MIN_AMOUNT, MIN_TOPUP_AMOUNT, 0.01, 100000);
 const PAYPAL_MAX_AMOUNT = clampNumber(process.env.PAYPAL_MAX_AMOUNT, 10000, PAYPAL_MIN_AMOUNT, 1000000);
@@ -1516,6 +1526,15 @@ function requestHostname(req) {
 
 function isCmsHostRequest(req) {
   return requestHostname(req).startsWith("cms.");
+}
+
+function paymentCheckoutHostname() {
+  return normalizeHostname(PAYPAL_CHECKOUT_BASE_URL);
+}
+
+function isPaymentHostRequest(req) {
+  const host = requestHostname(req);
+  return Boolean(host && (PAYMENT_HOSTS.has(host) || host === paymentCheckoutHostname()));
 }
 
 function configuredPublicBaseUrl() {
@@ -8797,7 +8816,52 @@ function startWalletScanScheduler() {
 }
 
 function paypalEnabled() {
-  return false;
+  return Boolean(PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
+}
+
+function randomSecretToken(prefix = "token") {
+  return `${prefix}-${Date.now()}-${crypto.randomBytes(18).toString("hex")}`;
+}
+
+function paypalCheckoutUrl(pathname = "/", params = {}) {
+  const base = PAYPAL_CHECKOUT_BASE_URL || "https://pay.seed2.io";
+  const url = new URL(pathname || "/", `${base}/`);
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const text = String(value ?? "").trim();
+    if (text) url.searchParams.set(key, text);
+  });
+  return url.toString();
+}
+
+function safePayPalReturnUrl(req, value = "") {
+  const fallback = `${pageOriginFromRequest(req)}/#topups`;
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  try {
+    const origin = pageOriginFromRequest(req);
+    if (text.startsWith("#")) return `${origin}/${text}`;
+    if (text.startsWith("/")) return `${origin}${text}`;
+    const parsed = new URL(text);
+    const allowed = new URL(origin);
+    return parsed.host === allowed.host ? parsed.toString() : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function paypalCheckoutSessionExpired(order = {}) {
+  const createdMs = Date.parse(order.paypalCheckoutSessionCreatedAt || order.createdAt || "");
+  if (!Number.isFinite(createdMs)) return false;
+  return Date.now() - createdMs > PAYPAL_CHECKOUT_SESSION_TTL_MS;
+}
+
+function findPayPalCheckoutSessionOrder(db = {}, sessionId = "") {
+  const sid = String(sessionId || "").trim();
+  if (!sid) return null;
+  return (db.walletOrders || []).find((order) => (
+    order.paymentProvider === "paypal" &&
+    String(order.paypalCheckoutSessionId || "") === sid
+  )) || null;
 }
 
 function paypalApiBaseUrl() {
@@ -29477,19 +29541,106 @@ async function handlePayPalConfig(req, res) {
   return sendJson(res, 200, { ok: true, paypal: paypalPublicConfig() });
 }
 
-async function handleCreatePayPalOrder(req, res) {
+async function paypalTopupPackagesForRequest(req) {
+  const tenant = requestTenantDescriptor(req);
+  if (tenant.subscriptions) {
+    const plan = await getBillingPlanInDb(tenant.tenantId);
+    return toolTopupPackagesForPlan(plan);
+  }
+  return publicTopupPackages();
+}
+
+async function paypalTopupPackageForRequest(req, body = {}) {
+  const tenant = requestTenantDescriptor(req);
+  if (tenant.subscriptions) {
+    return await toolTopupPackageForRequest(req, body);
+  }
+  return findTopupPackage(body);
+}
+
+function publicPayPalCheckoutSession(order = {}, config = {}, options = {}) {
+  const publicOrder = publicTopupOrder(order, config.wallet, options);
+  const createdMs = Date.parse(order.paypalCheckoutSessionCreatedAt || order.createdAt || "");
+  return {
+    id: String(order.id || ""),
+    sessionId: String(order.paypalCheckoutSessionId || ""),
+    status: String(order.paypalCheckoutSessionStatus || order.status || "pending"),
+    paymentStatus: String(order.paypalStatus || ""),
+    paypalOrderId: String(order.paypalOrderId || ""),
+    approvalUrl: String(order.approvalUrl || ""),
+    returnUrl: String(order.paypalReturnUrl || ""),
+    cancelUrl: String(order.paypalCancelUrl || ""),
+    expiresAt: Number.isFinite(createdMs) ? new Date(createdMs + PAYPAL_CHECKOUT_SESSION_TTL_MS).toISOString() : "",
+    order: publicOrder,
+    createdAt: String(order.paypalCheckoutSessionCreatedAt || order.createdAt || ""),
+    startedAt: String(order.paypalCheckoutStartedAt || ""),
+  };
+}
+
+function paypalOrderBodyForCheckout(order = {}, { returnUrl = "", cancelUrl = "" } = {}) {
+  const amountValue = paypalMoneyValue(order.baseAmount || 0);
+  const purchaseUnit = {
+    reference_id: order.id || order.paypalCheckoutSessionId || randomSecretToken("paypal"),
+    custom_id: order.id || order.paypalCheckoutSessionId || "",
+    description: `${PAYPAL_BRAND_NAME} credits`,
+    amount: {
+      currency_code: PAYPAL_CURRENCY,
+      value: amountValue,
+    },
+  };
+  if (order.paypalInvoiceId) purchaseUnit.invoice_id = String(order.paypalInvoiceId).slice(0, 127);
+  return {
+    intent: "CAPTURE",
+    purchase_units: [purchaseUnit],
+    payment_source: {
+      paypal: {
+        experience_context: {
+          brand_name: PAYPAL_BRAND_NAME,
+          landing_page: "LOGIN",
+          shipping_preference: "NO_SHIPPING",
+          user_action: "PAY_NOW",
+          return_url: returnUrl || paypalCheckoutUrl("/paypal-return", { sid: order.paypalCheckoutSessionId || "" }),
+          cancel_url: cancelUrl || paypalCheckoutUrl("/paypal-cancel", { sid: order.paypalCheckoutSessionId || "" }),
+        },
+      },
+    },
+  };
+}
+
+async function createAndStorePayPalOrder(req, auth, order, { returnUrl = "", cancelUrl = "", requestId = "" } = {}) {
+  const paypalOrder = await paypalRequest("/v2/checkout/orders", {
+    method: "POST",
+    headers: {
+      "paypal-request-id": requestId || order.id || randomId("paypal"),
+    },
+    body: paypalOrderBodyForCheckout(order, { returnUrl, cancelUrl }),
+  });
+  order.paypalOrderId = paypalOrder.id || order.paypalOrderId || "";
+  order.paypalStatus = paypalOrder.status || order.paypalStatus || "";
+  order.approvalUrl = findPayPalApprovalLink(paypalOrder);
+  order.updatedAt = new Date().toISOString();
+  auth.db.walletOrders.unshift(order);
+  if (dbEnabled()) {
+    await createWalletOrderInDb(order);
+  } else {
+    await writeDb(auth.db);
+  }
+  return paypalOrder;
+}
+
+async function createPayPalCheckoutSession(req, res) {
   const auth = await requireUser(req, res);
   if (!auth) return;
   const body = await readJson(req);
   const config = await readAppConfig();
   const tenantOptions = requestTenantOptions(req);
-  const topupPackage = findTopupPackage(body);
+  const topupPackage = await paypalTopupPackageForRequest(req, body);
   if (!topupPackage) {
     return sendJson(res, 400, {
       ok: false,
       code: "INVALID_TOPUP_PACKAGE",
       message: "Please select one of the available top-up packages.",
-      packages: publicTopupPackages(),
+      packages: await paypalTopupPackagesForRequest(req),
     });
   }
   const rawAmount = topupPackage.amount;
@@ -29505,43 +29656,11 @@ async function handleCreatePayPalOrder(req, res) {
 
   const amountValue = paypalMoneyValue(rawAmount);
   const amount = Number(amountValue);
-  const localOrderId = randomId("paypal");
-  const origin = publicOriginFromRequest(req);
-  const paypalOrder = await paypalRequest("/v2/checkout/orders", {
-    method: "POST",
-    headers: {
-      "paypal-request-id": localOrderId,
-    },
-    body: {
-      intent: "CAPTURE",
-      purchase_units: [{
-        reference_id: localOrderId,
-        custom_id: localOrderId,
-        invoice_id: localOrderId,
-        description: `${PAYPAL_BRAND_NAME} credits`,
-        amount: {
-          currency_code: PAYPAL_CURRENCY,
-          value: amountValue,
-        },
-      }],
-      payment_source: {
-        paypal: {
-          experience_context: {
-            brand_name: PAYPAL_BRAND_NAME,
-            landing_page: "LOGIN",
-            shipping_preference: "NO_SHIPPING",
-            user_action: "PAY_NOW",
-            return_url: `${origin}/#topups`,
-            cancel_url: `${origin}/#topups`,
-          },
-        },
-      },
-    },
-  });
-
   const rate = paypalCnyCentsPerUnit(config.wallet);
+  const sessionId = randomSecretToken("ppsid");
   const order = {
-    id: localOrderId,
+    id: randomId("paypal"),
+    tenantId: tenantOptions.tenant?.tenantId || DEFAULT_TENANT_ID,
     userId: auth.user.id,
     paymentProvider: "paypal",
     baseAmount: amount,
@@ -29558,9 +29677,12 @@ async function handleCreatePayPalOrder(req, res) {
     chain: "paypal",
     address: "",
     status: "pending",
-    paypalOrderId: paypalOrder.id || "",
-    paypalStatus: paypalOrder.status || "",
-    approvalUrl: findPayPalApprovalLink(paypalOrder),
+    paypalCheckoutSessionId: sessionId,
+    paypalCheckoutSessionStatus: "created",
+    paypalCheckoutSessionCreatedAt: new Date().toISOString(),
+    paypalReturnUrl: safePayPalReturnUrl(req, body.returnUrl || body.return_url || ""),
+    paypalCancelUrl: safePayPalReturnUrl(req, body.cancelUrl || body.cancel_url || body.returnUrl || body.return_url || ""),
+    sourceOrigin: pageOriginFromRequest(req),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -29572,31 +29694,112 @@ async function handleCreatePayPalOrder(req, res) {
   }
   return sendJson(res, 200, {
     ok: true,
+    checkoutUrl: paypalCheckoutUrl("/", { sid: sessionId }),
+    session: publicPayPalCheckoutSession(order, config, tenantOptions),
+    order: publicTopupOrder(order, config.wallet, tenantOptions),
+  });
+}
+
+async function handleCreatePayPalOrder(req, res) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const topupPackage = await paypalTopupPackageForRequest(req, body);
+  if (!topupPackage) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "INVALID_TOPUP_PACKAGE",
+      message: "Please select one of the available top-up packages.",
+      packages: await paypalTopupPackagesForRequest(req),
+    });
+  }
+  const rawAmount = topupPackage.amount;
+  if (!Number.isFinite(rawAmount) || rawAmount < PAYPAL_MIN_AMOUNT || rawAmount > PAYPAL_MAX_AMOUNT) {
+    return sendJson(res, 400, {
+      ok: false,
+      message: `PayPal amount must be between ${PAYPAL_MIN_AMOUNT} and ${PAYPAL_MAX_AMOUNT} ${PAYPAL_CURRENCY}.`,
+    });
+  }
+  if (!paypalEnabled()) {
+    return sendJson(res, 503, { ok: false, code: "PAYPAL_NOT_CONFIGURED", message: "PayPal is not configured." });
+  }
+
+  const amountValue = paypalMoneyValue(rawAmount);
+  const amount = Number(amountValue);
+  const rate = paypalCnyCentsPerUnit(config.wallet);
+  const localOrderId = randomId("paypal");
+  const origin = publicOriginFromRequest(req);
+  const order = {
+    id: localOrderId,
+    tenantId: tenantOptions.tenant?.tenantId || DEFAULT_TENANT_ID,
+    userId: auth.user.id,
+    paymentProvider: "paypal",
+    baseAmount: amount,
+    creditAmount: creditsAmount(topupPackage.credits),
+    packageId: topupPackage.id,
+    packageCredits: topupPackage.credits,
+    creditsPerUsd: walletCreditsPerUsd(config.wallet),
+    cnyCentsPerUnit: rate,
+    currency: PAYPAL_CURRENCY,
+    payableAmount: amount,
+    payableAmountText: amountValue,
+    asset: PAYPAL_CURRENCY,
+    network: "PayPal",
+    chain: "paypal",
+    address: "",
+    status: "pending",
+    paypalCheckoutSessionId: randomSecretToken("ppsid"),
+    paypalCheckoutSessionStatus: "legacy-direct",
+    paypalCheckoutSessionCreatedAt: new Date().toISOString(),
+    paypalInvoiceId: localOrderId,
+    paypalReturnUrl: safePayPalReturnUrl(req, body.returnUrl || body.return_url || ""),
+    paypalCancelUrl: safePayPalReturnUrl(req, body.cancelUrl || body.cancel_url || body.returnUrl || body.return_url || ""),
+    sourceOrigin: pageOriginFromRequest(req),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await createAndStorePayPalOrder(req, auth, order, {
+    requestId: localOrderId,
+    returnUrl: `${origin}/#topups`,
+    cancelUrl: `${origin}/#topups`,
+  });
+  return sendJson(res, 200, {
+    ok: true,
     paypalOrderId: order.paypalOrderId,
     approvalUrl: order.approvalUrl,
     order: publicTopupOrder(order, config.wallet, tenantOptions),
   });
 }
 
-async function handleCapturePayPalOrder(req, res, paypalOrderId) {
-  const auth = await requireUser(req, res);
-  if (!auth) return;
-  const config = await readAppConfig();
-  const tenantOptions = requestTenantOptions(req);
-  const order = await getWalletOrderByPaypalIdInDb(paypalOrderId) || (auth.db.walletOrders || []).find((entry) => (
-    entry.userId === auth.user.id &&
-    entry.paymentProvider === "paypal" &&
-    entry.paypalOrderId === paypalOrderId
-  ));
-  if (!order) return sendJson(res, 404, { ok: false, message: "PayPal order not found." });
-
+async function capturePayPalWalletOrder(db, order, config, { paypalOrderId = "" } = {}) {
+  if (!order) {
+    const error = new Error("PayPal order not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+  const expectedPaypalOrderId = String(order.paypalOrderId || "").trim();
+  const requestedPaypalOrderId = String(paypalOrderId || expectedPaypalOrderId || "").trim();
+  if (!expectedPaypalOrderId && requestedPaypalOrderId) order.paypalOrderId = requestedPaypalOrderId;
+  if (expectedPaypalOrderId && requestedPaypalOrderId && expectedPaypalOrderId !== requestedPaypalOrderId) {
+    const error = new Error("PayPal order mismatch.");
+    error.statusCode = 409;
+    throw error;
+  }
+  const orderIdForCapture = String(order.paypalOrderId || requestedPaypalOrderId || "").trim();
+  if (!orderIdForCapture) {
+    const error = new Error("PayPal order is missing.");
+    error.statusCode = 409;
+    throw error;
+  }
   if (order.status === "paid") {
-    return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet, tenantOptions), user: userView(auth.user) });
+    return { order, user: (db.users || []).find((u) => u.id === order.userId) || null, capturePayload: null, capture: null };
   }
 
   let capturePayload;
   try {
-    capturePayload = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}/capture`, {
+    capturePayload = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(orderIdForCapture)}/capture`, {
       method: "POST",
       headers: {
         "paypal-request-id": `${order.id}-capture`,
@@ -29605,7 +29808,7 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
     });
   } catch (error) {
     if (error.statusCode !== 422) throw error;
-    capturePayload = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(paypalOrderId)}`);
+    capturePayload = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(orderIdForCapture)}`);
   }
 
   const capture = paypalCaptureFromOrder(capturePayload);
@@ -29619,13 +29822,12 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
     String(capture?.status || "").toUpperCase() === "COMPLETED";
   if (!completed) {
     await updateWalletOrderInDb(order);
-    if (!dbEnabled()) await writeDb(auth.db);
-    return sendJson(res, 409, {
-      ok: false,
-      code: "PAYPAL_NOT_COMPLETED",
-      message: "PayPal payment is not completed yet.",
-      order: publicTopupOrder(order, config.wallet, tenantOptions),
-    });
+    if (!dbEnabled()) await writeDb(db);
+    const error = new Error("PayPal payment is not completed yet.");
+    error.statusCode = 409;
+    error.code = "PAYPAL_NOT_COMPLETED";
+    error.order = order;
+    throw error;
   }
 
   const capturedAmount = Number(capture?.amount?.value || 0);
@@ -29634,23 +29836,198 @@ async function handleCapturePayPalOrder(req, res, paypalOrderId) {
     order.status = "pending";
     order.note = "PayPal capture amount mismatch. Manual review required.";
     await updateWalletOrderInDb(order);
-    if (!dbEnabled()) await writeDb(auth.db);
-    return sendJson(res, 409, {
-      ok: false,
-      code: "PAYPAL_AMOUNT_MISMATCH",
-      message: "PayPal payment amount does not match the top-up order.",
-      order: publicTopupOrder(order, config.wallet, tenantOptions),
-    });
+    if (!dbEnabled()) await writeDb(db);
+    const error = new Error("PayPal payment amount does not match the top-up order.");
+    error.statusCode = 409;
+    error.code = "PAYPAL_AMOUNT_MISMATCH";
+    error.order = order;
+    throw error;
   }
 
-  const { user } = await settleWalletOrderPayment(auth.db, order, config, {
+  const { user } = await settleWalletOrderPayment(db, order, config, {
     paypalCaptureId: order.paypalCaptureId,
     paypalPayerEmail: order.paypalPayerEmail,
     paypalStatus: order.paypalStatus,
   });
+  order.paypalCheckoutSessionStatus = "paid";
   await updateWalletOrderInDb(order);
-  if (!dbEnabled()) await writeDb(auth.db);
-  return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet, tenantOptions), user: userView(user) });
+  if (!dbEnabled()) await writeDb(db);
+  return { order, user, capturePayload, capture };
+}
+
+async function handleCapturePayPalOrder(req, res, paypalOrderId) {
+  const auth = await requireUser(req, res);
+  if (!auth) return;
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const order = await getWalletOrderByPaypalIdInDb(paypalOrderId) || (auth.db.walletOrders || []).find((entry) => (
+    entry.userId === auth.user.id &&
+    entry.paymentProvider === "paypal" &&
+    entry.paypalOrderId === paypalOrderId
+  ));
+  if (!order) return sendJson(res, 404, { ok: false, message: "PayPal order not found." });
+  if (String(order.userId || "") !== String(auth.user.id || "")) {
+    return sendJson(res, 403, { ok: false, message: "PayPal order not found." });
+  }
+  if (order.status === "paid") {
+    return sendJson(res, 200, { ok: true, order: publicTopupOrder(order, config.wallet, tenantOptions), user: userView(auth.user) });
+  }
+
+  try {
+    const result = await capturePayPalWalletOrder(auth.db, order, config, { paypalOrderId });
+    return sendJson(res, 200, { ok: true, order: publicTopupOrder(result.order, config.wallet, tenantOptions), user: userView(result.user) });
+  } catch (error) {
+    if (error.code === "PAYPAL_NOT_COMPLETED" || error.code === "PAYPAL_AMOUNT_MISMATCH") {
+      return sendJson(res, error.statusCode || 409, {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        order: publicTopupOrder(error.order || order, config.wallet, tenantOptions),
+      });
+    }
+    throw error;
+  }
+}
+
+async function handlePayPalCheckoutSessionDetails(req, res, sessionId) {
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const order = await readDb().then((db) => findPayPalCheckoutSessionOrder(db, sessionId));
+  if (!order) return sendJson(res, 404, { ok: false, message: "PayPal checkout session not found." });
+  return sendJson(res, 200, {
+    ok: true,
+    session: publicPayPalCheckoutSession(order, config, tenantOptions),
+  });
+}
+
+async function handleStartPayPalCheckoutSession(req, res, sessionId) {
+  const body = await readJson(req);
+  const config = await readAppConfig();
+  const tenantOptions = requestTenantOptions(req);
+  const db = await readDb();
+  const order = findPayPalCheckoutSessionOrder(db, sessionId);
+  if (!order) return sendJson(res, 404, { ok: false, message: "PayPal checkout session not found." });
+  if (paypalCheckoutSessionExpired(order) && !order.paypalOrderId && order.status !== "paid") {
+    order.paypalCheckoutSessionStatus = "expired";
+    order.note = "PayPal checkout session expired before start.";
+    order.updatedAt = new Date().toISOString();
+    await updateWalletOrderInDb(order);
+    if (!dbEnabled()) await writeDb(db);
+    return sendJson(res, 410, {
+      ok: false,
+      code: "PAYPAL_CHECKOUT_EXPIRED",
+      message: "This payment session has expired. Please create a new top-up order.",
+      session: publicPayPalCheckoutSession(order, config, tenantOptions),
+    });
+  }
+  if (order.status === "paid") {
+    return sendJson(res, 200, {
+      ok: true,
+      approvalUrl: "",
+      session: publicPayPalCheckoutSession(order, config, tenantOptions),
+    });
+  }
+  if (order.approvalUrl && order.paypalOrderId) {
+    return sendJson(res, 200, {
+      ok: true,
+      approvalUrl: order.approvalUrl,
+      session: publicPayPalCheckoutSession(order, config, tenantOptions),
+    });
+  }
+  if (!paypalEnabled()) {
+    return sendJson(res, 503, { ok: false, code: "PAYPAL_NOT_CONFIGURED", message: "PayPal is not configured." });
+  }
+  const checkoutAttempt = Number(order.paypalCheckoutAttempt || 0) || 0;
+  order.paypalInvoiceId = `${order.id}-${checkoutAttempt}`;
+  const paypalOrder = await paypalRequest("/v2/checkout/orders", {
+    method: "POST",
+    headers: {
+      "paypal-request-id": `${order.id}-${order.paypalCheckoutSessionId}-${checkoutAttempt}`,
+    },
+    body: paypalOrderBodyForCheckout(order),
+  });
+  order.paypalOrderId = paypalOrder.id || order.paypalOrderId || "";
+  order.approvalUrl = findPayPalApprovalLink(paypalOrder);
+  order.paypalStatus = paypalOrder.status || order.paypalStatus || "";
+  order.paypalCheckoutSessionStatus = "started";
+  order.paypalCheckoutStartedAt = new Date().toISOString();
+  order.updatedAt = new Date().toISOString();
+  await updateWalletOrderInDb(order);
+  if (!dbEnabled()) await writeDb(db);
+  return sendJson(res, 200, {
+    ok: true,
+    approvalUrl: order.approvalUrl,
+    session: publicPayPalCheckoutSession(order, config, tenantOptions),
+  });
+}
+
+async function handlePayPalCheckoutReturn(req, res, url) {
+  const sid = String(url.searchParams.get("sid") || "").trim();
+  const paypalOrderId = String(url.searchParams.get("token") || url.searchParams.get("orderID") || "").trim();
+  const payerId = String(url.searchParams.get("PayerID") || "").trim();
+  if (!sid) {
+    res.writeHead(302, { location: paypalCheckoutUrl("/", { status: "error" }), "cache-control": "no-store" });
+    return res.end();
+  }
+  const config = await readAppConfig();
+  const db = await readDb();
+  const order = findPayPalCheckoutSessionOrder(db, sid);
+  if (!order) {
+    res.writeHead(302, { location: paypalCheckoutUrl("/", { sid, status: "missing" }), "cache-control": "no-store" });
+    return res.end();
+  }
+  if (paypalOrderId && !order.paypalOrderId) order.paypalOrderId = paypalOrderId;
+  if (paypalOrderId && order.paypalOrderId && order.paypalOrderId !== paypalOrderId) {
+    res.writeHead(302, { location: paypalCheckoutUrl("/", { sid, status: "error", code: "paypal-order-mismatch" }), "cache-control": "no-store" });
+    return res.end();
+  }
+  if (!order.paypalOrderId && !payerId) {
+    res.writeHead(302, { location: paypalCheckoutUrl("/", { sid, status: "error", code: "missing-token" }), "cache-control": "no-store" });
+    return res.end();
+  }
+  try {
+    const result = await capturePayPalWalletOrder(db, order, config, { paypalOrderId: order.paypalOrderId || paypalOrderId });
+    const redirectUrl = paypalCheckoutUrl("/", {
+      sid,
+      status: "paid",
+      order: result.order.id || order.id || "",
+      paypal: result.order.paypalOrderId || "",
+    });
+    res.writeHead(302, { location: redirectUrl, "cache-control": "no-store" });
+    return res.end();
+  } catch (error) {
+    const code = String(error.code || error.message || "error").toLowerCase().replace(/\s+/g, "-").slice(0, 64);
+    const redirectUrl = paypalCheckoutUrl("/", {
+      sid,
+      status: "error",
+      code,
+    });
+    res.writeHead(302, { location: redirectUrl, "cache-control": "no-store" });
+    return res.end();
+  }
+}
+
+async function handlePayPalCheckoutCancel(req, res, url) {
+  const sid = String(url.searchParams.get("sid") || "").trim();
+  if (sid) {
+    const db = await readDb();
+    const order = findPayPalCheckoutSessionOrder(db, sid);
+    if (order && order.status !== "paid") {
+      order.paypalCheckoutSessionStatus = "cancelled";
+      order.paypalStatus = "CANCELLED";
+      order.paypalOrderId = "";
+      order.paypalInvoiceId = "";
+      order.paypalCheckoutAttempt = (Number(order.paypalCheckoutAttempt || 0) || 0) + 1;
+      order.approvalUrl = "";
+      order.note = order.note || "PayPal checkout cancelled.";
+      order.updatedAt = new Date().toISOString();
+      await updateWalletOrderInDb(order);
+      if (!dbEnabled()) await writeDb(db);
+    }
+  }
+  const redirectUrl = paypalCheckoutUrl("/", sid ? { sid, status: "cancelled" } : { status: "cancelled" });
+  res.writeHead(302, { location: redirectUrl, "cache-control": "no-store" });
+  return res.end();
 }
 
 async function verifyPayPalWebhookEvent(req, event) {
@@ -37061,9 +37438,18 @@ function privateStaticPath(pathname = "") {
 }
 
 async function serveStatic(req, res, url) {
-  let pathname = decodeURIComponent(url.pathname === "/" ? (isCmsHostRequest(req) ? "/admin.html" : "/platform.html") : url.pathname);
+  let pathname = decodeURIComponent(url.pathname === "/" ? (isPaymentHostRequest(req) ? "/pay.html" : isCmsHostRequest(req) ? "/admin.html" : "/platform.html") : url.pathname);
   if (pathname === "/game" || pathname === "/game/") pathname = "/game.html";
   if (privateStaticPath(pathname)) return sendText(res, 404, "Not Found");
+  if (isPaymentHostRequest(req)) {
+    const allowedPaymentPath = pathname === "/pay.html"
+      || pathname === "/pay.css"
+      || pathname === "/pay.js"
+      || pathname.startsWith("/assets/brand/")
+      || pathname === "/favicon.ico"
+      || pathname === "/favicon.svg";
+    if (!allowedPaymentPath) return sendText(res, 404, "Not Found");
+  }
   const lockedUndressImageMatch = pathname.match(/^\/assets\/generated\/images\/([^/]+)\.[a-z0-9]+$/i);
   if (lockedUndressImageMatch) {
     const lockedRecord = await getGenerationRecord(lockedUndressImageMatch[1]);
@@ -37453,9 +37839,31 @@ async function handleRequest(req, res) {
       return await handleCreatePayPalOrder(req, res);
     }
 
+    if (req.method === "POST" && url.pathname === "/api/pay/paypal/checkout-sessions") {
+      return await createPayPalCheckoutSession(req, res);
+    }
+
+    const paypalCheckoutSessionMatch = url.pathname.match(/^\/api\/pay\/paypal\/checkout-sessions\/([^/]+)$/);
+    if (req.method === "GET" && paypalCheckoutSessionMatch) {
+      return await handlePayPalCheckoutSessionDetails(req, res, decodeURIComponent(paypalCheckoutSessionMatch[1]));
+    }
+
+    const paypalCheckoutSessionStartMatch = url.pathname.match(/^\/api\/pay\/paypal\/checkout-sessions\/([^/]+)\/start$/);
+    if (req.method === "POST" && paypalCheckoutSessionStartMatch) {
+      return await handleStartPayPalCheckoutSession(req, res, decodeURIComponent(paypalCheckoutSessionStartMatch[1]));
+    }
+
     const paypalCaptureMatch = url.pathname.match(/^\/api\/pay\/paypal\/orders\/([^/]+)\/capture$/);
     if (req.method === "POST" && paypalCaptureMatch) {
       return await handleCapturePayPalOrder(req, res, decodeURIComponent(paypalCaptureMatch[1]));
+    }
+
+    if (req.method === "GET" && url.pathname === "/paypal-return") {
+      return await handlePayPalCheckoutReturn(req, res, url);
+    }
+
+    if (req.method === "GET" && url.pathname === "/paypal-cancel") {
+      return await handlePayPalCheckoutCancel(req, res, url);
     }
 
     if (req.method === "POST" && url.pathname === "/api/pay/paypal/webhook") {

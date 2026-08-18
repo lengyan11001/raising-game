@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Secure Payment</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg?v=old-brand-1" />
+    <link rel="stylesheet" href="/pay.css?v=paypal-redirect-1" />
+    <script src="/pay.js?v=paypal-redirect-1" defer></script>
+  </head>
+  <body>
+    <main class="pay-shell">
+      <section class="pay-panel" aria-live="polite">
+        <div class="pay-brand">
+          <span class="pay-mark">S2</span>
+          <div>
+            <p>Secure checkout</p>
+            <h1>PayPal payment</h1>
+          </div>
+        </div>
+        <div class="pay-summary" id="paySummary">
+          <span>Loading payment session...</span>
+        </div>
+        <button class="pay-button" id="payButton" type="button" disabled>
+          Continue to PayPal
+        </button>
+        <a class="pay-return" id="returnLink" href="https://123vips.com/#topups">Return to site</a>
+        <p class="pay-status" id="payStatus"></p>
+      </section>
+    </main>
+  </body>
+</html>
