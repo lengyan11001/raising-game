@@ -22,6 +22,7 @@ test("PayPal redirect checkout uses a dedicated payment host and keeps the legac
   assert.match(server, /"payer-action", "approve"/);
   assert.match(server, /order\.paypalOrderId\s*\? await paypalRequest\(`\/v2\/checkout\/orders\/\$\{encodeURIComponent\(order\.paypalOrderId\)\}`\)/);
   assert.match(server, /billingPlanId/);
+  assert.doesNotMatch(server, /async function handleCreatePayPalOrder[\s\S]*?orderKind: selection\.kind/);
 });
 
 test("PayPal is the default payment method while USDT remains selectable", () => {
