@@ -16,6 +16,8 @@ test("PayPal redirect checkout uses a dedicated payment host and keeps the legac
   assert.match(server, /\/paypal-cancel/);
   assert.match(server, /async function handleCreatePayPalOrder/);
   assert.match(server, /paypalOrderId: order\.paypalOrderId/);
+  assert.match(server, /"payer-action", "approve"/);
+  assert.match(server, /order\.paypalOrderId\s*\? await paypalRequest\(`\/v2\/checkout\/orders\/\$\{encodeURIComponent\(order\.paypalOrderId\)\}`\)/);
 });
 
 test("Top-up UI redirects to the payment session page instead of embedding PayPal SDK", () => {

@@ -8947,7 +8947,11 @@ async function paypalRequest(pathname, { method = "GET", body, headers = {} } = 
 
 function findPayPalApprovalLink(orderPayload = {}) {
   const links = Array.isArray(orderPayload.links) ? orderPayload.links : [];
-  return links.find((link) => String(link.rel || "").toLowerCase() === "approve")?.href || "";
+  const approvalRels = new Set(["payer-action", "approve"]);
+  return links.find((link) => (
+    approvalRels.has(String(link.rel || "").trim().toLowerCase())
+    && String(link.href || "").trim()
+  ))?.href || "";
 }
 
 function paypalCaptureFromOrder(payload = {}) {
@@ -29939,13 +29943,15 @@ async function handleStartPayPalCheckoutSession(req, res, sessionId) {
   }
   const checkoutAttempt = Number(order.paypalCheckoutAttempt || 0) || 0;
   order.paypalInvoiceId = `${order.id}-${checkoutAttempt}`;
-  const paypalOrder = await paypalRequest("/v2/checkout/orders", {
-    method: "POST",
-    headers: {
-      "paypal-request-id": `${order.id}-${order.paypalCheckoutSessionId}-${checkoutAttempt}`,
-    },
-    body: paypalOrderBodyForCheckout(order),
-  });
+  const paypalOrder = order.paypalOrderId
+    ? await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(order.paypalOrderId)}`)
+    : await paypalRequest("/v2/checkout/orders", {
+        method: "POST",
+        headers: {
+          "paypal-request-id": `${order.id}-${order.paypalCheckoutSessionId}-${checkoutAttempt}`,
+        },
+        body: paypalOrderBodyForCheckout(order),
+      });
   order.paypalOrderId = paypalOrder.id || order.paypalOrderId || "";
   order.approvalUrl = findPayPalApprovalLink(paypalOrder);
   order.paypalStatus = paypalOrder.status || order.paypalStatus || "";
