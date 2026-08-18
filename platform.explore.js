@@ -4042,7 +4042,7 @@ function selectBillingPlan(planId = "") {
   if (!plan) return;
   state.selectedBillingPlanId = plan.id;
   state.selectedTopupPackageId = "";
-  setTopupMethod("usdt", { skipSummary: true });
+  setTopupMethod("paypal", { skipSummary: true });
   setTopupStep("payment");
 }
 
@@ -4100,7 +4100,7 @@ function selectTopupPackage(packageId = "") {
   if (!selected) return;
   state.selectedBillingPlanId = "";
   state.selectedTopupPackageId = selected.id;
-  setTopupMethod("usdt", { skipSummary: true });
+  setTopupMethod("paypal", { skipSummary: true });
   setTopupStep("payment");
 }
 
@@ -4176,7 +4176,7 @@ function renderWalletOptions() {
   });
 }
 
-function setTopupMethod(method = "usdt", options = {}) {
+function setTopupMethod(method = "paypal", options = {}) {
   const next = String(method || "").toLowerCase() === "paypal" ? "paypal" : "usdt";
   state.topupMethod = next;
   els.topupMethodTabs?.querySelectorAll("[data-topup-method]").forEach((button) => {
@@ -4379,9 +4379,10 @@ async function loadPayPalConfig() {
 
 async function startPayPalRedirectCheckout() {
   if (!state.user) return openLogin();
+  const billingPlan = selectedBillingPlan();
   const topupPackage = selectedTopupPackage();
-  const amount = Number(topupPackage?.amount || 0);
-  if (!topupPackage || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
+  const amount = Number(billingPlan?.amount || topupPackage?.amount || 0);
+  if ((!billingPlan && !topupPackage) || !Number.isFinite(amount) || amount < MIN_TOPUP_AMOUNT) {
     if (els.paypalStatus) els.paypalStatus.textContent = t("topup.invalid");
     return;
   }
@@ -4394,7 +4395,7 @@ async function startPayPalRedirectCheckout() {
       method: "POST",
       body: {
         amount,
-        packageId: topupPackage.id,
+        ...(billingPlan ? { billingPlanId: billingPlan.id } : { packageId: topupPackage.id }),
         returnUrl,
         cancelUrl: returnUrl,
       },
@@ -4413,8 +4414,9 @@ async function renderPayPalCheckout() {
   if (!payPalCheckoutVisible()) return;
   try {
     const config = await loadPayPalConfig();
+    const billingPlan = selectedBillingPlan();
     const topupPackage = selectedTopupPackage();
-    const amount = Number(topupPackage?.amount || 0);
+    const amount = Number(billingPlan?.amount || topupPackage?.amount || 0);
     if (!config.enabled) {
       els.paypalBox.hidden = false;
       els.paypalButtons.hidden = false;

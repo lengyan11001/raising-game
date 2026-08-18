@@ -72,7 +72,11 @@ test("builds a Telegram menu with all Undress entry points", () => {
     { id: "usd-10", amount: 10, credits: 1000 },
     { id: "usd-20", amount: 20, credits: 2000 },
   ]);
-  assert.equal(rechargeMarkup.inline_keyboard[0][0].callback_data, "tg:topup:usd-10");
+  assert.equal(rechargeMarkup.inline_keyboard[0][0].callback_data, "tg:topup:paypal:usd-10");
+  assert.equal(rechargeMarkup.inline_keyboard.at(-1)[0].callback_data, "tg:payment:paypal");
+  const usdtMarkup = client.rechargeMarkup([{ id: "usd-10", amount: 10, credits: 1000 }], "usdt");
+  assert.equal(usdtMarkup.inline_keyboard[0][0].callback_data, "tg:topup:usdt:usd-10");
+  assert.equal(usdtMarkup.inline_keyboard.at(-1)[1].callback_data, "tg:payment:usdt");
 });
 
 test("loads the Telegram SDK only on the Undress hostname", () => {

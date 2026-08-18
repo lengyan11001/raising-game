@@ -653,7 +653,7 @@ function openTopupDialog() {
   prepareModalOpen();
   state.selectedBillingPlanId = "";
   setTopupStep("packages");
-  setTopupMethod("usdt");
+  setTopupMethod("paypal");
   renderTopupSummary();
   if (!els.topupDialog?.open) els.topupDialog?.showModal();
   syncTopupAutoRefresh();

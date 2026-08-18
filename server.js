@@ -28545,13 +28545,14 @@ async function sendTelegramNativeCreateMenu(chatId) {
   });
 }
 
-async function sendTelegramNativeRechargeMenu(chatId, user) {
+async function sendTelegramNativeRechargeMenu(chatId, user, paymentMethod = "paypal") {
+  const method = String(paymentMethod || "").trim().toLowerCase() === "usdt" ? "usdt" : "paypal";
   const plan = await getBillingPlanInDb(UNDRESS_TOOL_TENANT_ID);
   const packages = toolTopupPackagesForPlan(plan);
   return telegramBotClient.sendMessage(
     chatId,
-    `Recharge\nCurrent balance: ${Number(user?.credits || 0).toFixed(2)} credits\nChoose a package:`,
-    { reply_markup: telegramBotClient.rechargeMarkup(packages) },
+    `Recharge\nCurrent balance: ${Number(user?.credits || 0).toFixed(2)} credits\nPayment: ${method === "paypal" ? "PayPal" : "USDT"}\nChoose a package:`,
+    { reply_markup: telegramBotClient.rechargeMarkup(packages, method) },
   );
 }
 
@@ -28654,7 +28655,35 @@ async function handleTelegramNativeMedia(message, user) {
   return true;
 }
 
-async function telegramNativeCreateOrder(user, chatId, packageId) {
+async function telegramNativeCreatePayPalOrder(user, chatId, packageId) {
+  const returnUrl = telegramBotClient.miniAppUrl("topups");
+  const result = await invokeTelegramJsonHandler(createPayPalCheckoutSession, user, {
+    method: "POST",
+    pathname: "/api/pay/paypal/checkout-sessions",
+    body: { packageId, returnUrl, cancelUrl: returnUrl },
+  });
+  if (result.statusCode >= 400 || !result.payload?.checkoutUrl) {
+    throw new Error(result.payload?.message || "Unable to create a PayPal recharge order.");
+  }
+  const order = result.payload.order || result.payload.session?.order || {};
+  const lines = [
+    "PayPal recharge",
+    `Pay: ${order.payableAmountText || order.payableAmount || order.amount} ${order.asset || "USD"}`,
+    `Credits after payment: ${Number(order.creditAmount || 0).toFixed(2)}`,
+    `Order: ${order.id || ""}`,
+    "Tap the button below to continue on the secure payment page.",
+  ];
+  return telegramBotClient.sendMessage(chatId, lines.join("\n"), {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "Continue to PayPal", url: result.payload.checkoutUrl }],
+        [{ text: "Use USDT instead", callback_data: `tg:topup:usdt:${String(packageId).slice(0, 48)}` }],
+      ],
+    },
+  });
+}
+
+async function telegramNativeCreateUsdtOrder(user, chatId, packageId) {
   const result = await invokeTelegramJsonHandler(handleCreatePaymentOrder, user, {
     method: "POST",
     pathname: "/api/pay/orders",
@@ -28677,6 +28706,13 @@ async function telegramNativeCreateOrder(user, chatId, packageId) {
   await telegramBotClient.sendMessage(chatId, lines.join("\n"), { reply_markup: markup });
   const qrUrl = telegramNativePublicUrl(order.qrUrl);
   if (qrUrl) await telegramBotClient.sendPhoto(chatId, qrUrl, `Scan to pay ${order.payableAmountText || order.payableAmount} ${order.asset || "USDT"}`).catch(() => {});
+}
+
+async function telegramNativeCreateOrder(user, chatId, packageId, paymentMethod = "paypal") {
+  if (String(paymentMethod || "").trim().toLowerCase() === "usdt") {
+    return telegramNativeCreateUsdtOrder(user, chatId, packageId);
+  }
+  return telegramNativeCreatePayPalOrder(user, chatId, packageId);
 }
 
 async function handleTelegramNativeText(message, user) {
@@ -28746,10 +28782,17 @@ async function handleTelegramNativeCallback(callbackQuery) {
     await sendTelegramNativeRechargeMenu(chatId, user);
     return;
   }
-  const packageId = data.match(/^tg:topup:([a-z0-9_-]+)$/i)?.[1] || "";
+  const paymentMethod = data.match(/^tg:payment:(paypal|usdt)$/i)?.[1]?.toLowerCase() || "";
+  if (paymentMethod) {
+    await sendTelegramNativeRechargeMenu(chatId, user, paymentMethod);
+    return;
+  }
+  const packageMatch = data.match(/^tg:topup:(paypal|usdt):([a-z0-9_-]+)$/i);
+  const legacyPackageId = data.match(/^tg:topup:([a-z0-9_-]+)$/i)?.[1] || "";
+  const packageId = packageMatch?.[2] || legacyPackageId;
   if (packageId) {
     try {
-      await telegramNativeCreateOrder(user, chatId, packageId);
+      await telegramNativeCreateOrder(user, chatId, packageId, packageMatch?.[1] || "usdt");
     } catch (error) {
       await telegramBotClient.sendMessage(chatId, String(error.message || "Unable to create a recharge order.").slice(0, 500));
     }
@@ -29562,6 +29605,32 @@ async function paypalTopupPackageForRequest(req, body = {}) {
   return findTopupPackage(body);
 }
 
+async function paypalCheckoutSelectionForRequest(req, body = {}) {
+  const tenant = requestTenantDescriptor(req);
+  const billingPlanId = String(body.billingPlanId || body.billing_plan_id || body.planId || body.plan_id || "").trim();
+  if (billingPlanId) {
+    if (!tenant.subscriptions) return null;
+    const plan = await getBillingPlanInDb(tenant.tenantId, billingPlanId);
+    if (!plan) return null;
+    return {
+      kind: "subscription",
+      id: plan.id,
+      amount: Number(plan.amount || 0),
+      credits: creditsAmount(plan.includedCredits || 0),
+      plan,
+    };
+  }
+  const topupPackage = await paypalTopupPackageForRequest(req, body);
+  if (!topupPackage) return null;
+  return {
+    kind: "topup",
+    id: topupPackage.id,
+    amount: Number(topupPackage.amount || 0),
+    credits: creditsAmount(topupPackage.credits || 0),
+    topupPackage,
+  };
+}
+
 function publicPayPalCheckoutSession(order = {}, config = {}, options = {}) {
   const publicOrder = publicTopupOrder(order, config.wallet, options);
   const createdMs = Date.parse(order.paypalCheckoutSessionCreatedAt || order.createdAt || "");
@@ -29586,7 +29655,9 @@ function paypalOrderBodyForCheckout(order = {}, { returnUrl = "", cancelUrl = ""
   const purchaseUnit = {
     reference_id: order.id || order.paypalCheckoutSessionId || randomSecretToken("paypal"),
     custom_id: order.id || order.paypalCheckoutSessionId || "",
-    description: `${PAYPAL_BRAND_NAME} credits`,
+    description: order.orderKind === "subscription"
+      ? `${PAYPAL_BRAND_NAME} ${order.billingPlanName || "subscription"}`
+      : `${PAYPAL_BRAND_NAME} credits`,
     amount: {
       currency_code: PAYPAL_CURRENCY,
       value: amountValue,
@@ -29638,16 +29709,17 @@ async function createPayPalCheckoutSession(req, res) {
   const body = await readJson(req);
   const config = await readAppConfig();
   const tenantOptions = requestTenantOptions(req);
-  const topupPackage = await paypalTopupPackageForRequest(req, body);
-  if (!topupPackage) {
+  const selection = await paypalCheckoutSelectionForRequest(req, body);
+  if (!selection) {
+    const requestedPlan = Boolean(body.billingPlanId || body.billing_plan_id || body.planId || body.plan_id);
     return sendJson(res, 400, {
       ok: false,
-      code: "INVALID_TOPUP_PACKAGE",
-      message: "Please select one of the available top-up packages.",
+      code: requestedPlan ? "BILLING_PLAN_NOT_FOUND" : "INVALID_TOPUP_PACKAGE",
+      message: requestedPlan ? "Subscription plan not found." : "Please select one of the available top-up packages.",
       packages: await paypalTopupPackagesForRequest(req),
     });
   }
-  const rawAmount = topupPackage.amount;
+  const rawAmount = selection.amount;
   if (!Number.isFinite(rawAmount) || rawAmount < PAYPAL_MIN_AMOUNT || rawAmount > PAYPAL_MAX_AMOUNT) {
     return sendJson(res, 400, {
       ok: false,
@@ -29740,10 +29812,15 @@ async function handleCreatePayPalOrder(req, res) {
     tenantId: tenantOptions.tenant?.tenantId || DEFAULT_TENANT_ID,
     userId: auth.user.id,
     paymentProvider: "paypal",
+    orderKind: selection.kind,
     baseAmount: amount,
-    creditAmount: creditsAmount(topupPackage.credits),
-    packageId: topupPackage.id,
-    packageCredits: topupPackage.credits,
+    creditAmount: selection.credits,
+    packageId: selection.kind === "topup" ? selection.id : "",
+    packageCredits: selection.credits,
+    billingPlanId: selection.plan?.id || "",
+    billingPlanName: selection.plan?.name || "",
+    billingIntervalUnit: selection.plan?.intervalUnit || "",
+    billingIntervalCount: selection.plan?.intervalCount || 0,
     creditsPerUsd: walletCreditsPerUsd(config.wallet),
     cnyCentsPerUnit: rate,
     currency: PAYPAL_CURRENCY,

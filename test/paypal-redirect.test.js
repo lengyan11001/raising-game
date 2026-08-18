@@ -5,6 +5,9 @@ const test = require("node:test");
 
 const server = fs.readFileSync(path.resolve(__dirname, "..", "server.js"), "utf8");
 const explore = fs.readFileSync(path.resolve(__dirname, "..", "platform.explore.js"), "utf8");
+const config = fs.readFileSync(path.resolve(__dirname, "..", "platform.config.js"), "utf8");
+const main = fs.readFileSync(path.resolve(__dirname, "..", "platform.main.js"), "utf8");
+const platformHtml = fs.readFileSync(path.resolve(__dirname, "..", "platform.html"), "utf8");
 const payHtml = fs.readFileSync(path.resolve(__dirname, "..", "pay.html"), "utf8");
 const payJs = fs.readFileSync(path.resolve(__dirname, "..", "pay.js"), "utf8");
 
@@ -18,6 +21,14 @@ test("PayPal redirect checkout uses a dedicated payment host and keeps the legac
   assert.match(server, /paypalOrderId: order\.paypalOrderId/);
   assert.match(server, /"payer-action", "approve"/);
   assert.match(server, /order\.paypalOrderId\s*\? await paypalRequest\(`\/v2\/checkout\/orders\/\$\{encodeURIComponent\(order\.paypalOrderId\)\}`\)/);
+  assert.match(server, /billingPlanId/);
+});
+
+test("PayPal is the default payment method while USDT remains selectable", () => {
+  assert.match(config, /topupMethod: "paypal"/);
+  assert.match(main, /setTopupMethod\("paypal"\)/);
+  assert.match(explore, /setTopupMethod\("paypal", \{ skipSummary: true \}\)/);
+  assert.ok(platformHtml.indexOf('data-topup-method="paypal"') < platformHtml.indexOf('data-topup-method="usdt"'));
 });
 
 test("Top-up UI redirects to the payment session page instead of embedding PayPal SDK", () => {
