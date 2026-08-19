@@ -103,11 +103,14 @@ test("Telegram start welcome includes the community links", async () => {
 test("tool navigation exposes community and support entries", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "platform.html"), "utf8");
   const undressCss = fs.readFileSync(path.join(__dirname, "..", "tool-undress.css"), "utf8");
+  const videoCss = fs.readFileSync(path.join(__dirname, "..", "tool-video.css"), "utf8");
   assert.match(html, /href="https:\/\/t\.me\/VipeakAILab"/);
   assert.match(html, /href="https:\/\/x\.com\/VipeakAI"/);
   assert.match(html, /id="supportNavBtn"/);
   assert.doesNotMatch(undressCss, /body\.tenant-tool-undress \.side-utility-nav,\nbody\.tenant-tool-undress \.support-fab/);
   assert.match(undressCss, /body\.tenant-tool-undress \.side-utility-nav \{[\s\S]*?display: flex/);
+  assert.doesNotMatch(videoCss, /body\.tenant-tool-video \.side-utility-nav,\n  body\.tenant-tool-video \.mobile-drawer-account/);
+  assert.match(videoCss, /body\.tenant-tool-video \.side-utility-nav \{[\s\S]*?display: flex/);
 });
 
 test("loads the Telegram SDK only on the Undress hostname", () => {
