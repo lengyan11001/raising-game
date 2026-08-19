@@ -136,13 +136,14 @@ test("all three generation tabs show compact server-backed before and after exam
   assert.match(frontend, /data-undress-example-play/);
   assert.match(frontend, /const playback = video\.play\(\)/);
   assert.match(frontend, /bindUndressToolExampleVideos\(body\)/);
-  assert.doesNotMatch(frontend, /undress-20260806121918-0726d2|cgt-20260728161747-915edb/);
+  assert.doesNotMatch(frontend, /image-20260819115156-587c60|undress-20260806121918-0726d2|cgt-20260728161747-915edb/);
   assert.match(css, /\.undress-tool-example-media[\s\S]*?aspect-ratio: 9 \/ 14/);
   assert.match(css, /\.undress-tool-example-media img,[\s\S]*?object-fit: contain/);
   assert.match(css, /\.undress-tool-example-play[\s\S]*?width: 44px[\s\S]*?height: 44px/);
 
   const handler = server.slice(server.indexOf("async function handleUndressToolExampleMedia"), server.indexOf("async function handleUndressToolEstimate"));
-  assert.match(server, /undress-20260806121918-0726d2/);
+  assert.match(server, /image-20260819115156-587c60/);
+  assert.doesNotMatch(server, /undress-20260806121918-0726d2/);
   assert.match(server, /cgt-20260728161747-915edb/);
   assert.match(server, /video-20260806194724-f15971/);
   assert.match(handler, /undressToolRequestAllowed\(req\)/);

@@ -18629,7 +18629,7 @@ async function handleVideoToolGenerate(req, res) {
 const UNDRESS_TOOL_TENANT_ID = "tool-undress-14vips";
 const UNDRESS_TOOL_EXAMPLES = Object.freeze({
   image: Object.freeze({
-    taskId: "undress-20260806121918-0726d2",
+    taskId: "image-20260819115156-587c60",
     inputType: "image",
     resultType: "image",
   }),
@@ -18835,7 +18835,8 @@ async function ensureUndressToolExampleFile(record = {}, definition = {}, genera
   const sourceHint = existing || remoteUrl;
   const fallbackMime = mediaType === "video" ? "video/mp4" : "image/jpeg";
   const extension = undressToolExampleExtension(mediaType, existingMime, sourceHint);
-  const targetPath = path.join(UNDRESS_TOOL_EXAMPLE_DIR, `${storagePathSegment(generationType)}-${side}${extension}`);
+  const cacheKey = storagePathSegment(record.taskId || generationType, generationType);
+  const targetPath = path.join(UNDRESS_TOOL_EXAMPLE_DIR, `${cacheKey}-${side}${extension}`);
   const targetStat = await fs.stat(targetPath).catch(() => null);
   if (targetStat?.isFile() && targetStat.size > 0) {
     return { filePath: targetPath, mime: existingMime || (mediaType === "video" ? videoMimeFromPath(targetPath) : imageMimeFromPath(targetPath)) };
