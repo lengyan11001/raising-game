@@ -18823,6 +18823,26 @@ function undressToolExampleExtension(mediaType = "image", mime = "", source = ""
     : imageExtFromMime(mime || imageMimeFromKnownPath(source) || "image/jpeg");
 }
 
+async function optimizeUndressToolExampleImage(sourcePath = "", targetPath = "") {
+  await execFileQuiet("ffmpeg", [
+    "-y",
+    "-i",
+    sourcePath,
+    "-vf",
+    "scale=w='min(960,iw)':h='min(960,ih)':force_original_aspect_ratio=decrease:flags=lanczos",
+    "-frames:v",
+    "1",
+    "-an",
+    "-c:v",
+    "libwebp",
+    "-quality",
+    "82",
+    "-compression_level",
+    "4",
+    targetPath,
+  ], { timeout: 120000 });
+}
+
 async function ensureUndressToolExampleFile(record = {}, definition = {}, generationType = "", side = "input") {
   const mediaType = side === "input" ? definition.inputType : definition.resultType;
   const existing = undressToolExampleLocalPath(record, definition, side);
@@ -18836,18 +18856,31 @@ async function ensureUndressToolExampleFile(record = {}, definition = {}, genera
   const fallbackMime = mediaType === "video" ? "video/mp4" : "image/jpeg";
   const extension = undressToolExampleExtension(mediaType, existingMime, sourceHint);
   const cacheKey = storagePathSegment(record.taskId || generationType, generationType);
-  const targetPath = path.join(UNDRESS_TOOL_EXAMPLE_DIR, `${cacheKey}-${side}${extension}`);
-  const targetStat = await fs.stat(targetPath).catch(() => null);
-  if (targetStat?.isFile() && targetStat.size > 0) {
-    return { filePath: targetPath, mime: existingMime || (mediaType === "video" ? videoMimeFromPath(targetPath) : imageMimeFromPath(targetPath)) };
+  const optimizedTargetPath = path.join(UNDRESS_TOOL_EXAMPLE_DIR, `${cacheKey}-${side}${mediaType === "image" ? ".webp" : extension}`);
+  const fallbackTargetPath = path.join(UNDRESS_TOOL_EXAMPLE_DIR, `${cacheKey}-${side}${extension}`);
+  const optimizedTargetStat = await fs.stat(optimizedTargetPath).catch(() => null);
+  if (optimizedTargetStat?.isFile() && optimizedTargetStat.size > 0) {
+    return { filePath: optimizedTargetPath, mime: mediaType === "image" ? "image/webp" : (existingMime || videoMimeFromPath(optimizedTargetPath)) };
   }
 
   await fs.mkdir(UNDRESS_TOOL_EXAMPLE_DIR, { recursive: true });
-  const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  const temporaryPath = `${optimizedTargetPath}.${process.pid}.${Date.now()}.tmp${mediaType === "image" ? ".webp" : ""}`;
+  let downloadedSourcePath = "";
   try {
     let mime = existingMime || fallbackMime;
     const sourcePath = existingStat?.isFile() && existingStat.size > 0 ? existing : "";
     if (sourcePath) {
+      if (mediaType === "image") {
+        try {
+          await optimizeUndressToolExampleImage(sourcePath, temporaryPath);
+          await fs.rename(temporaryPath, optimizedTargetPath);
+          return { filePath: optimizedTargetPath, mime: "image/webp" };
+        } catch (error) {
+          console.warn("[undress-example-image-optimize-failed]", error.message || error);
+          await fs.copyFile(sourcePath, fallbackTargetPath);
+          return { filePath: fallbackTargetPath, mime: mime || imageMimeFromPath(fallbackTargetPath) };
+        }
+      }
       await fs.copyFile(sourcePath, temporaryPath);
     } else {
       if (!remoteUrl) return null;
@@ -18858,12 +18891,26 @@ async function ensureUndressToolExampleFile(record = {}, definition = {}, genera
         retryCount: 2,
       });
       mime = downloaded.mime || fallbackMime;
-      await fs.writeFile(temporaryPath, downloaded.bytes);
+      downloadedSourcePath = `${optimizedTargetPath}.${process.pid}.${Date.now()}.source${extension}`;
+      await fs.writeFile(downloadedSourcePath, downloaded.bytes);
+      if (mediaType === "image") {
+        try {
+          await optimizeUndressToolExampleImage(downloadedSourcePath, temporaryPath);
+          await fs.rename(temporaryPath, optimizedTargetPath);
+          return { filePath: optimizedTargetPath, mime: "image/webp" };
+        } catch (error) {
+          console.warn("[undress-example-image-optimize-failed]", error.message || error);
+          await fs.copyFile(downloadedSourcePath, fallbackTargetPath);
+          return { filePath: fallbackTargetPath, mime: mime || imageMimeFromPath(fallbackTargetPath) };
+        }
+      }
+      await fs.copyFile(downloadedSourcePath, temporaryPath);
     }
-    await fs.rename(temporaryPath, targetPath);
-    return { filePath: targetPath, mime };
+    await fs.rename(temporaryPath, optimizedTargetPath);
+    return { filePath: optimizedTargetPath, mime };
   } finally {
     await fs.rm(temporaryPath, { force: true }).catch(() => {});
+    if (downloadedSourcePath) await fs.rm(downloadedSourcePath, { force: true }).catch(() => {});
   }
 }
 

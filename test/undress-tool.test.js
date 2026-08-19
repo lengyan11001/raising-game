@@ -127,12 +127,14 @@ test("Undress home uses the localized fantasy headline and adult creation descri
 
 test("all three generation tabs show compact server-backed before and after examples", () => {
   assert.match(frontend, /UNDRESS_TOOL_EXAMPLE_MEDIA/);
-  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/input\?v=image-20260819115156-587c60/);
-  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/result\?v=image-20260819115156-587c60/);
+  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/input\?v=image-20260819115156-587c60-webp1/);
+  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/result\?v=image-20260819115156-587c60-webp1/);
   assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/image-video-result\.mp4/);
   assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/video-input\.mp4/);
   assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/video-result\.mp4/);
   assert.match(frontend, /controls playsinline preload="auto"/);
+  assert.match(frontend, /loading="lazy" decoding="async" fetchpriority="low"/);
+  assert.doesNotMatch(frontend, /loading="eager"/);
   assert.match(frontend, /undress-tool-example-arrow[\s\S]*?data-lucide="arrow-right"/);
   assert.match(frontend, /data-undress-example-play/);
   assert.match(frontend, /const playback = video\.play\(\)/);
@@ -152,6 +154,9 @@ test("all three generation tabs show compact server-backed before and after exam
   assert.match(server, /UNDRESS_TOOL_EXAMPLE_DIR/);
   assert.match(handler, /ensureUndressToolExampleFile/);
   assert.match(server, /function undressToolExampleRemoteUrl/);
+  assert.match(server, /async function optimizeUndressToolExampleImage/);
+  assert.match(server, /libwebp/);
+  assert.match(server, /image\/webp/);
   assert.match(server, /downloadRemoteFileToBuffer\(remoteUrl/);
   assert.match(server, /fs\.copyFile\(sourcePath, temporaryPath\)/);
   assert.match(handler, /sendInternalAsset\(res, filePath, mime, stat\)/);
