@@ -127,7 +127,8 @@ test("Undress home uses the localized fantasy headline and adult creation descri
 
 test("all three generation tabs show compact server-backed before and after examples", () => {
   assert.match(frontend, /UNDRESS_TOOL_EXAMPLE_MEDIA/);
-  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/input/);
+  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/input\?v=image-20260819115156-587c60/);
+  assert.match(frontend, /\/api\/undress-tool\/examples\/image\/result\?v=image-20260819115156-587c60/);
   assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/image-video-result\.mp4/);
   assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/video-input\.mp4/);
   assert.match(frontend, /media\.123vips\.com\/undress-tool\/examples\/v1\/video-result\.mp4/);
@@ -136,7 +137,7 @@ test("all three generation tabs show compact server-backed before and after exam
   assert.match(frontend, /data-undress-example-play/);
   assert.match(frontend, /const playback = video\.play\(\)/);
   assert.match(frontend, /bindUndressToolExampleVideos\(body\)/);
-  assert.doesNotMatch(frontend, /image-20260819115156-587c60|undress-20260806121918-0726d2|cgt-20260728161747-915edb/);
+  assert.doesNotMatch(frontend, /undress-20260806121918-0726d2|cgt-20260728161747-915edb/);
   assert.match(css, /\.undress-tool-example-media[\s\S]*?aspect-ratio: 9 \/ 14/);
   assert.match(css, /\.undress-tool-example-media img,[\s\S]*?object-fit: contain/);
   assert.match(css, /\.undress-tool-example-play[\s\S]*?width: 44px[\s\S]*?height: 44px/);
