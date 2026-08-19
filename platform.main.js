@@ -920,6 +920,7 @@ els.copyTokenBtn?.addEventListener("click", async () => {
   }, 1600);
 });
 function openSupportDialog() {
+  if (!state.user) return openLogin();
   prepareModalOpen();
   if (els.supportEmail) els.supportEmail.value = "";
   if (els.supportSubject) els.supportSubject.value = "";
@@ -942,6 +943,7 @@ document.querySelectorAll("[data-analytics-event]").forEach((element) => {
   });
 });
 els.supportFab?.addEventListener("click", openSupportDialog);
+els.supportNavBtn?.addEventListener("click", openSupportDialog);
 els.supportSubmitBtn?.addEventListener("click", submitSupportMessage);
 els.mobileDrawerTopupBtn?.addEventListener("click", () => {
   closeMobileDrawer();

@@ -79,6 +79,37 @@ test("builds a Telegram menu with all Undress entry points", () => {
   assert.equal(usdtMarkup.inline_keyboard.at(-1)[1].callback_data, "tg:payment:usdt");
 });
 
+test("Telegram start welcome includes the community links", async () => {
+  const calls = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (_url, options = {}) => {
+    calls.push(JSON.parse(options.body || "{}"));
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const client = createTelegramBotClient({ token: "123456:unit-test-token" });
+    await client.sendStart("42");
+    assert.match(calls[0].text, /Welcome to Vipeak AI/);
+    assert.match(calls[0].text, /https:\/\/t\.me\/VipeakAILab/);
+    assert.match(calls[0].text, /https:\/\/x\.com\/VipeakAI/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("tool navigation exposes community and support entries", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "platform.html"), "utf8");
+  const undressCss = fs.readFileSync(path.join(__dirname, "..", "tool-undress.css"), "utf8");
+  assert.match(html, /href="https:\/\/t\.me\/VipeakAILab"/);
+  assert.match(html, /href="https:\/\/x\.com\/VipeakAI"/);
+  assert.match(html, /id="supportNavBtn"/);
+  assert.doesNotMatch(undressCss, /body\.tenant-tool-undress \.side-utility-nav,\nbody\.tenant-tool-undress \.support-fab/);
+  assert.match(undressCss, /body\.tenant-tool-undress \.side-utility-nav \{[\s\S]*?display: flex/);
+});
+
 test("loads the Telegram SDK only on the Undress hostname", () => {
   assert.doesNotMatch(PLATFORM_HTML, /telegram-web-app\.js/);
   assert.match(PLATFORM_TELEGRAM, /window\.location\.hostname\.toLowerCase\(\) !== "undress\.14vips\.com"/);

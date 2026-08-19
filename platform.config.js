@@ -1079,6 +1079,7 @@ const els = {
   previewImage: document.querySelector("#previewImage"),
   previewVideo: document.querySelector("#previewVideo"),
   supportFab: document.querySelector("#supportFab"),
+  supportNavBtn: document.querySelector("#supportNavBtn"),
   supportDialog: document.querySelector("#supportDialog"),
   supportEmail: document.querySelector("#supportEmail"),
   supportSubject: document.querySelector("#supportSubject"),

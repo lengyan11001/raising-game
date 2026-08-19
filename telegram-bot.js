@@ -155,9 +155,17 @@ function telegramRechargeMarkup(packages = [], paymentMethod = "paypal") {
   return { inline_keyboard: rows };
 }
 
-function createTelegramBotClient({ token = "", webAppUrl = "https://undress.14vips.com/", timeoutMs = TELEGRAM_API_TIMEOUT_MS } = {}) {
+function createTelegramBotClient({
+  token = "",
+  webAppUrl = "https://undress.14vips.com/",
+  telegramChannelUrl = "https://t.me/VipeakAILab",
+  xUrl = "https://x.com/VipeakAI",
+  timeoutMs = TELEGRAM_API_TIMEOUT_MS,
+} = {}) {
   const botToken = String(token || "").trim();
   const baseUrl = String(webAppUrl || "https://undress.14vips.com/").trim();
+  const channelUrl = String(telegramChannelUrl || "https://t.me/VipeakAILab").trim();
+  const socialXUrl = String(xUrl || "https://x.com/VipeakAI").trim();
   const supportModeChats = new Set();
 
   async function call(method, payload = {}) {
@@ -230,7 +238,15 @@ function createTelegramBotClient({ token = "", webAppUrl = "https://undress.14vi
   }
 
   async function sendStart(chatId) {
-    return sendMessage(chatId, "Undress is ready. Choose an action below.", {
+    return sendMessage(chatId, [
+      "Welcome to Vipeak AI.",
+      "Create AI images and videos directly in Telegram.",
+      "",
+      `Telegram: ${channelUrl}`,
+      `X: ${socialXUrl}`,
+      "",
+      "Choose an action below.",
+    ].join("\n"), {
       reply_markup: telegramMenuMarkup(baseUrl),
     });
   }

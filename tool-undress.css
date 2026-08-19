@@ -12,7 +12,6 @@ body.tenant-tool-undress {
 }
 
 body.tenant-tool-undress .aurora,
-body.tenant-tool-undress .side-utility-nav,
 body.tenant-tool-undress .support-fab,
 body.tenant-tool-undress .video-tool-fabs,
 body.tenant-tool-undress .tool-download-trigger,
@@ -737,6 +736,22 @@ body.tenant-tool-undress .inline-modal.is-undress-unlock .inline-actions {
   body.tenant-tool-undress .top-tab.is-active {
     color: #0b0c0f;
     background: var(--undress-teal);
+  }
+
+  body.tenant-tool-undress .side-utility-nav {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  body.tenant-tool-undress .side-utility-link {
+    width: auto;
+    min-height: 34px;
+    padding: 7px 9px;
+    font-size: 0.82rem;
   }
 
   body.tenant-tool-undress .mobile-drawer-account {

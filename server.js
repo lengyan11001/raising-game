@@ -28262,6 +28262,8 @@ async function handleMe(req, res) {
 const telegramBotClient = createTelegramBotClient({
   token: TELEGRAM_BOT_TOKEN,
   webAppUrl: TELEGRAM_BOT_WEBAPP_URL,
+  telegramChannelUrl: VIPEAK_TELEGRAM_CHANNEL_URL,
+  xUrl: VIPEAK_X_URL,
 });
 const telegramTaskNotificationStages = new Map();
 const telegramUserContextCache = new Map();
