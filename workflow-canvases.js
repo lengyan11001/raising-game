@@ -5,19 +5,9 @@ const WORKFLOW_CANVAS_EDGE_LIMIT = 200;
 const WORKFLOW_DIRECTOR_PROMPT_LIMIT = 6000;
 const WORKFLOW_CANVAS_PAYLOAD_BYTES = 64 * 1024 * 1024;
 
-const DEFAULT_NODES = Object.freeze([
-  { id: "upload-1", type: "upload", title: "Image Upload", x: 30, y: 150, data: { startImage: "", endImage: "", faceImage: "" } },
-  { id: "prompt-1", type: "prompt", title: "Story Prompt", x: 500, y: 150, data: { prompt: "" } },
-  { id: "video-1", type: "video", title: "Nude", x: 970, y: 150, data: { modelId: "nude", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview", stripFirst: true, faceSwapMode: true, addSound: true } },
-  { id: "video-2", type: "video", title: "Nude Video", x: 1440, y: 150, data: { modelId: "nude-video", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview", stripFirst: true, faceSwapMode: true, addSound: true } },
-  { id: "output-1", type: "output", title: "Final Output", x: 1910, y: 150, data: {} },
-]);
-const DEFAULT_EDGES = Object.freeze([
-  { from: "upload-1", to: "prompt-1" },
-  { from: "prompt-1", to: "video-1" },
-  { from: "video-1", to: "video-2" },
-  { from: "video-2", to: "output-1" },
-]);
+// New canvases start empty. Nodes are added explicitly, as in the reference editor.
+const DEFAULT_NODES = Object.freeze([]);
+const DEFAULT_EDGES = Object.freeze([]);
 
 function plainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -53,7 +43,7 @@ function defaultWorkflowCanvasState() {
     physics: [],
     directorPrompt: "",
     zoom: 1,
-    layoutVersion: 4,
+    layoutVersion: 5,
     canvasWidth: 3200,
     canvasHeight: 720,
     scrollLeft: 0,

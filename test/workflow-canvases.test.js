@@ -14,9 +14,8 @@ test("workflow canvas state is normalized and bounded", () => {
   } = require("../workflow-canvases");
 
   const initial = defaultWorkflowCanvasState();
-  assert.equal(initial.nodes.length, 5);
-  assert.equal(initial.edges.length, 4);
-  assert.equal(initial.nodes.find((node) => node.type === "prompt")?.title, "Story Prompt");
+  assert.equal(initial.nodes.length, 0);
+  assert.equal(initial.edges.length, 0);
   assert.equal(normalizeWorkflowCanvasName("  My workflow  "), "My workflow");
   assert.equal(normalizeWorkflowCanvasName(" "), "Untitled workflow");
 
@@ -80,6 +79,7 @@ test("workflow canvas UI supports selection, create, save and delete", () => {
   assert.match(manager, /function createWorkflowCanvas/);
   assert.match(manager, /function saveWorkflowCanvas/);
   assert.match(manager, /function deleteWorkflowCanvas/);
+  assert.match(manager, /button\.disabled/);
   assert.match(manager, /data-workflow-canvas-select/);
   assert.match(ui, /scheduleWorkflowCanvasSave\(\);/);
   assert.match(explore, /loadWorkflowCanvases\(\);/);
@@ -115,11 +115,30 @@ test("workflow add and delete actions remain responsive after dragging", () => {
 test("workflow toolbar exposes only real controls", () => {
   const ui = read("platform.ui.js");
 
-  assert.match(ui, /data-workflow-action="physics"[\s\S]*?>[\s\S]*?Modifiers<\/button>/);
-  assert.match(ui, /<strong>Prompt modifiers<\/strong>/);
+  assert.match(ui, /data-workflow-action="add-image"/);
+  assert.match(ui, /data-workflow-action="add-video"/);
   assert.doesNotMatch(ui, /data-workflow-action="add-branch"/);
   assert.doesNotMatch(ui, /data-workflow-action="refiner"/);
-  assert.doesNotMatch(ui, /data-workflow-action="director"/);
-  assert.doesNotMatch(ui, /class="workflow-director"/);
-  assert.doesNotMatch(ui, /<strong>Quick nodes<\/strong>/);
+  assert.doesNotMatch(ui, /data-workflow-action="add-prompt"/);
+  assert.doesNotMatch(ui, /data-workflow-action="physics"/);
+});
+
+test("workflow nodes are freeform image and video nodes", () => {
+  const ui = read("platform.ui.js");
+  assert.match(ui, /function addWorkflowImageNode\(\)/);
+  assert.match(ui, /type: "imageReference"/);
+  assert.match(ui, /function addWorkflowVideoNode/);
+  assert.match(ui, /workflowImageNodes\(\)\.length/);
+  assert.match(ui, /type: "videoReference"/);
+  assert.match(ui, /if \(!node\) return false;/);
+  assert.match(ui, /async function handleWorkflowDrop\(event\)/);
+  assert.match(ui, /type: isImage \? "imageReference" : "videoReference"/);
+});
+
+test("inline workflow dialogs use an explicit async confirm handler", () => {
+  const ui = read("platform.ui.js");
+  const manager = read("platform.workflow-canvases.js");
+  assert.match(ui, /els\.inlineDialogConfirm\.type = "button"/);
+  assert.match(ui, /if \(els\.inlineDialogConfirm\) els\.inlineDialogConfirm\.onclick = submitHandler/);
+  assert.match(manager, /if \(button\.disabled\) return true;/);
 });
