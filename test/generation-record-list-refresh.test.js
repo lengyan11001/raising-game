@@ -1,0 +1,38 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const server = fs.readFileSync(path.join(__dirname, "..", "server.js"), "utf8");
+
+function functionSource(name, nextName) {
+  const start = server.indexOf(`async function ${name}`);
+  const end = server.indexOf(`async function ${nextName}`, start + 1);
+  assert.notEqual(start, -1, `${name} should exist`);
+  assert.notEqual(end, -1, `${nextName} should follow ${name}`);
+  return server.slice(start, end);
+}
+
+test("generation record lists enqueue refreshes without waiting for upstream", () => {
+  const adminList = functionSource("handleAdminListGenerationRecords", "handleAdminGetGenerationRecord");
+  const userList = functionSource("handleListGenerationRecords", "handleGetGenerationRecord");
+  for (const source of [adminList, userList]) {
+    assert.match(source, /queueGenerationRecordStatusRefreshes\(/);
+    assert.doesNotMatch(source, /await\s+(?:Promise\.all\([^)]*refreshGenerationRecordStatus|refreshGenerationRecordStatus\()/);
+  }
+});
+
+test("background list refreshes are deduplicated, cooled down, and concurrency limited", () => {
+  assert.match(server, /const generationRecordRefreshQueued = new Set\(\)/);
+  assert.match(server, /generationRecordRefreshQueued\.has\(taskId\)/);
+  assert.match(server, /GENERATION_RECORD_REFRESH_COOLDOWN_MS/);
+  assert.match(server, /generationRecordRefreshActive < GENERATION_RECORD_REFRESH_CONCURRENCY/);
+  assert.match(server, /setImmediate\(\(\) => \{/);
+});
+
+test("single-task detail polling still waits for an upstream refresh", () => {
+  const detail = functionSource("handleGetGenerationRecord", "handleGenerationRecordDownloadUrl");
+  assert.match(detail, /nextRecord = await refreshGenerationRecordStatus\(record\)/);
+});

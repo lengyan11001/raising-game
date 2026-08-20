@@ -16104,6 +16104,8 @@ function generationListRefreshRequested(url) {
 }
 
 const GENERATION_LIST_REFRESH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const GENERATION_RECORD_REFRESH_CONCURRENCY = Math.max(1, Math.min(10, Number(process.env.GENERATION_RECORD_REFRESH_CONCURRENCY || 3) || 3));
+const GENERATION_RECORD_REFRESH_COOLDOWN_MS = Math.max(1000, Number(process.env.GENERATION_RECORD_REFRESH_COOLDOWN_MS || 12 * 1000) || 12 * 1000);
 
 function generationRecordTime(record = {}) {
   const value = Date.parse(record.updatedAt || record.createdAt || "");
@@ -16120,6 +16122,72 @@ function shouldRefreshGenerationRecordFromList(record = {}) {
   if (!shouldRefreshGenerationRecord(record)) return false;
   const time = generationRecordTime(record);
   return !time || Date.now() - time <= GENERATION_LIST_REFRESH_MAX_AGE_MS;
+}
+
+const generationRecordRefreshQueue = [];
+const generationRecordRefreshQueued = new Set();
+const generationRecordRefreshLastStartedAt = new Map();
+let generationRecordRefreshActive = 0;
+let generationRecordRefreshDrainScheduled = false;
+
+function scheduleGenerationRecordRefreshDrain() {
+  if (generationRecordRefreshDrainScheduled) return;
+  generationRecordRefreshDrainScheduled = true;
+  setImmediate(() => {
+    generationRecordRefreshDrainScheduled = false;
+    drainGenerationRecordRefreshQueue();
+  });
+}
+
+function queueGenerationRecordStatusRefresh(record = {}, { priority = false, reason = "list" } = {}) {
+  const taskId = String(record.taskId || "");
+  if (!taskId || generationRecordRefreshQueued.has(taskId)) return false;
+  const lastStartedAt = generationRecordRefreshLastStartedAt.get(taskId) || 0;
+  if (Date.now() - lastStartedAt < GENERATION_RECORD_REFRESH_COOLDOWN_MS) return false;
+  generationRecordRefreshQueued.add(taskId);
+  const item = { taskId, record, reason };
+  if (priority) generationRecordRefreshQueue.unshift(item);
+  else generationRecordRefreshQueue.push(item);
+  scheduleGenerationRecordRefreshDrain();
+  return true;
+}
+
+function queueGenerationRecordStatusRefreshes(records = [], { reason = "list" } = {}) {
+  let queued = 0;
+  for (const record of records) {
+    if (queueGenerationRecordStatusRefresh(record, {
+      priority: needsApizFailureRefund(record) || needsSeedanceFailureRefund(record) || isStalePreSubmitGenerationRecord(record),
+      reason,
+    })) queued += 1;
+  }
+  return queued;
+}
+
+function drainGenerationRecordRefreshQueue() {
+  while (generationRecordRefreshActive < GENERATION_RECORD_REFRESH_CONCURRENCY && generationRecordRefreshQueue.length) {
+    const item = generationRecordRefreshQueue.shift();
+    generationRecordRefreshActive += 1;
+    const startedAt = Date.now();
+    generationRecordRefreshLastStartedAt.set(item.taskId, startedAt);
+    setTimeout(() => {
+      if (generationRecordRefreshLastStartedAt.get(item.taskId) === startedAt) {
+        generationRecordRefreshLastStartedAt.delete(item.taskId);
+      }
+    }, GENERATION_RECORD_REFRESH_COOLDOWN_MS).unref?.();
+    Promise.resolve().then(async () => {
+      const current = await getGenerationRecord(item.taskId) || item.record;
+      const nextRecord = await refreshGenerationRecordStatus(current);
+      if (nextRecord && (nextRecord.status !== current.status || nextRecord.billingStatus !== current.billingStatus)) {
+        console.log("[generation-record-background-refresh]", item.reason, item.taskId, `${current.status || ""}->${nextRecord.status || ""}`, `${current.billingStatus || ""}->${nextRecord.billingStatus || ""}`);
+      }
+    }).catch((error) => {
+      console.warn("[generation-record-background-refresh-failed]", item.reason, item.taskId, error.message || error);
+    }).finally(() => {
+      generationRecordRefreshActive -= 1;
+      generationRecordRefreshQueued.delete(item.taskId);
+      scheduleGenerationRecordRefreshDrain();
+    });
+  }
 }
 
 async function ensureGenerationRecordMediaOptimized(record = {}, { allowObjectStorageUpload = true } = {}) {
@@ -36673,17 +36741,14 @@ async function handleAdminListGenerationRecords(req, res, url) {
       status,
       kind,
     });
-    let result = await loadPage();
+    const result = await loadPage();
     if (refreshRequested) {
       const refreshable = result.records
         .filter((record) => needsApizFailureRefund(record)
           || needsSeedanceFailureRefund(record)
           || shouldRefreshGenerationRecordFromList(record))
         .slice(0, 20);
-      if (refreshable.length) {
-        await Promise.all(refreshable.map(refreshGenerationRecordStatus));
-        result = await loadPage();
-      }
+      queueGenerationRecordStatusRefreshes(refreshable, { reason: "admin-list" });
     }
     return sendJson(res, 200, {
       ok: true,
@@ -36695,7 +36760,7 @@ async function handleAdminListGenerationRecords(req, res, url) {
       totalPages: result.totalPages,
     });
   }
-  let records = await readGenerationRecords();
+  const records = await readGenerationRecords();
   const refundable = refreshRequested
     ? records.filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record)).slice(0, 20)
     : [];
@@ -36706,12 +36771,7 @@ async function handleAdminListGenerationRecords(req, res, url) {
       .slice(0, 4)
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
-  if (refreshable.length) {
-    const refreshedByTask = new Map(
-      (await Promise.all(refreshable.map(refreshGenerationRecordStatus))).map((record) => [record.taskId, record]),
-    );
-    records = records.map((record) => refreshedByTask.get(record.taskId) || record);
-  }
+  queueGenerationRecordStatusRefreshes(refreshable, { reason: "admin-list" });
   const enriched = records.map((record) => adminGenerationRecordListView(record, userMap));
   const filtered = enriched.filter((record) => {
     if (provider && record.provider !== provider) return false;
@@ -36787,14 +36847,7 @@ async function handleListGenerationRecords(req, res, url) {
       .slice(0, 8)
     : [];
   const refreshable = [...refundable, ...statusRefreshable];
-  if (refreshable.length) {
-    const refreshedByTask = new Map(
-      (await Promise.all(refreshable.map(refreshGenerationRecordStatus))).map((record) => [record.taskId, record]),
-    );
-    ownRecords.forEach((record, index) => {
-      if (refreshedByTask.has(record.taskId)) ownRecords[index] = refreshedByTask.get(record.taskId);
-    });
-  }
+  queueGenerationRecordStatusRefreshes(refreshable, { reason: "user-list" });
 
   if (undressToolRequestAllowed(req)) {
     const optimizedRecords = [];
@@ -38581,40 +38634,14 @@ async function scanActiveGenerationRecords(reason = "timer") {
     const refundableRecords = records
       .filter((record) => needsApizFailureRefund(record) || needsSeedanceFailureRefund(record))
       .slice(0, 10);
-    const refunded = [];
-    for (const record of refundableRecords) {
-      try {
-        const nextRecord = await refreshGenerationRecordStatus(record);
-        if (nextRecord && nextRecord.billingStatus !== record.billingStatus) {
-          refunded.push(`${record.taskId}:${record.billingStatus || ""}->${nextRecord.billingStatus || ""}`);
-        }
-      } catch (error) {
-        console.warn("[failed-generation-record-refund-failed]", record.taskId, error.message || error);
-      }
-    }
-    if (refunded.length) {
-      console.log("[failed-generation-records-refunded]", { reason, count: refunded.length, records: refunded });
-    }
+    queueGenerationRecordStatusRefreshes(refundableRecords, { reason: `${reason}-refund-scan` });
     const activeRecords = records
       .filter((record) => isActiveGenerationRecordForScan(record))
       .filter((record) => !refundableRecords.some((item) => item.taskId === record.taskId))
       .sort((a, b) => generationRecordTime(a) - generationRecordTime(b))
       .slice(0, GENERATION_ACTIVE_SCAN_BATCH_SIZE);
     if (!activeRecords.length) return;
-    const refreshed = [];
-    await Promise.all(activeRecords.map(async (record) => {
-      try {
-        const nextRecord = await refreshGenerationRecordStatus(record);
-        if (nextRecord && nextRecord.status !== record.status) {
-          refreshed.push(`${record.taskId}:${record.status}->${nextRecord.status}`);
-        }
-      } catch (error) {
-        console.warn("[active-generation-record-refresh-failed]", record.taskId, error.message || error);
-      }
-    }));
-    if (refreshed.length) {
-      console.log("[active-generation-records-refreshed]", { reason, count: refreshed.length, records: refreshed });
-    }
+    queueGenerationRecordStatusRefreshes(activeRecords, { reason: `${reason}-active-scan` });
   } catch (error) {
     console.warn("[active-generation-record-scan-failed]", error.message || error);
   } finally {

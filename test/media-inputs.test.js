@@ -147,7 +147,8 @@ test("Alibaba task polling cannot block generation status for minutes", () => {
   assert.match(server, /transientNetworkError = \(queryRequest \|\| submitRequest\)/);
   assert.match(server, /\[aliyun-dashscope-retry\]/);
   assert.match(server, /ALIYUN_DASHSCOPE_NETWORK_ERROR/);
-  assert.match(server, /await Promise\.all\(activeRecords\.map\(async \(record\) => \{/);
+  assert.match(server, /queueGenerationRecordStatusRefreshes\(activeRecords, \{ reason: `\$\{reason\}-active-scan` \}\)/);
+  assert.match(server, /generationRecordRefreshActive < GENERATION_RECORD_REFRESH_CONCURRENCY/);
 });
 
 test("new2 gateway preserves its own R2 URLs for every video provider", () => {
