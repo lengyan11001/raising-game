@@ -531,6 +531,15 @@ els.refreshAdvancedResultBtn?.addEventListener("click", () => refreshAdvancedRes
 els.workflowRoot?.addEventListener("click", handleWorkflowClick);
 els.workflowRoot?.addEventListener("pointerdown", handleWorkflowPointerDown);
 els.workflowRoot?.addEventListener("wheel", handleWorkflowWheel, { passive: false });
+els.workflowRoot?.addEventListener("dragover", (event) => {
+  if (event.target.closest?.(".workflow-canvas") && event.dataTransfer?.types?.includes("Files")) event.preventDefault();
+});
+els.workflowRoot?.addEventListener("drop", (event) => {
+  handleWorkflowDrop(event).catch((error) => {
+    state.workflowMessage = error.message || String(error);
+    renderWorkflowPanel();
+  });
+});
 els.workflowRoot?.addEventListener("scroll", handleWorkflowCanvasScroll, { capture: true, passive: true });
 els.workflowRoot?.addEventListener("input", handleWorkflowInput);
 els.workflowRoot?.addEventListener("change", (event) => {

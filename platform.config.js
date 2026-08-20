@@ -107,22 +107,11 @@ const WORKFLOW_PHYSICS_MODULES = [
   { id: "better-dick", label: "Better Detail", prompt: "more coherent explicit detail when relevant" },
   { id: "bouncing-boobs", label: "Bouncing Boobs", prompt: "stronger natural bounce and secondary motion" },
 ];
-const WORKFLOW_NODE_LAYOUT_VERSION = 4;
+const WORKFLOW_NODE_LAYOUT_VERSION = 5;
 const WORKFLOW_NODE_WIDTH = 414;
 const WORKFLOW_NODE_GAP = 56;
-const WORKFLOW_DEFAULT_NODES = [
-  { id: "upload-1", type: "upload", title: "Image Upload", x: 30, y: 150, data: { startImage: "", endImage: "", faceImage: "" } },
-  { id: "prompt-1", type: "prompt", title: "Story Prompt", x: 500, y: 150, data: { prompt: "" } },
-  { id: "video-1", type: "video", title: "Nude", x: 970, y: 150, data: { modelId: "nude", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview", stripFirst: true, faceSwapMode: true, addSound: true } },
-  { id: "video-2", type: "video", title: "Nude Video", x: 1440, y: 150, data: { modelId: "nude-video", duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview", stripFirst: true, faceSwapMode: true, addSound: true } },
-  { id: "output-1", type: "output", title: "Final Output", x: 1910, y: 150, data: {} },
-];
-const WORKFLOW_DEFAULT_EDGES = [
-  ["upload-1", "prompt-1"],
-  ["prompt-1", "video-1"],
-  ["video-1", "video-2"],
-  ["video-2", "output-1"],
-];
+const WORKFLOW_DEFAULT_NODES = [];
+const WORKFLOW_DEFAULT_EDGES = [];
 const MIN_TOPUP_AMOUNT = 1;
 const DEFAULT_TOPUP_AMOUNT = 100;
 const DEFAULT_TOPUP_PACKAGES = [

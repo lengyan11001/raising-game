@@ -157,7 +157,9 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
   els.inlineDialogTitle.textContent = title || "";
   els.inlineDialogBody.innerHTML = body || "";
   if (els.inlineDialogConfirm) {
-    els.inlineDialogConfirm.type = "submit";
+    // Handle the button explicitly so dialog's native method=dialog behavior
+    // cannot close the modal before the async action finishes.
+    els.inlineDialogConfirm.type = "button";
     els.inlineDialogConfirm.onclick = null;
     els.inlineDialogConfirm.disabled = false;
     els.inlineDialogConfirm.innerHTML = `<i data-lucide="sparkles"></i>${escapeHtml(confirmText || t("common.generate"))}`;
@@ -166,6 +168,7 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
   return new Promise((resolve) => {
     const cleanup = () => {
       els.inlineDialogForm.removeEventListener("submit", submitHandler);
+      if (els.inlineDialogConfirm?.onclick === submitHandler) els.inlineDialogConfirm.onclick = null;
       els.inlineDialogClose?.removeEventListener("click", closeHandler);
       els.inlineDialog.removeEventListener("close", dialogCloseHandler);
       els.inlineDialog.classList.remove("is-media-action", "is-frame-action", "is-playflux-template", "is-undress-unlock");
@@ -194,6 +197,7 @@ function showInlineDialog({ title = "", body = "", confirmText = "", dialogClass
       }
     };
     els.inlineDialogForm.addEventListener("submit", submitHandler);
+    if (els.inlineDialogConfirm) els.inlineDialogConfirm.onclick = submitHandler;
     els.inlineDialogClose?.addEventListener("click", closeHandler);
     els.inlineDialog.addEventListener("close", dialogCloseHandler);
     els.inlineDialog.showModal();
@@ -3396,7 +3400,7 @@ function workflowUserStorageKey() {
 }
 
 function ensureWorkflowState() {
-  if (state.workflow?.nodes?.length) {
+  if (state.workflow && Array.isArray(state.workflow.nodes)) {
     return state.workflow;
   }
   state.workflow = cloneWorkflowDefault();
@@ -3534,6 +3538,18 @@ function workflowVideoNodes() {
     .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
 }
 
+function workflowImageNodes() {
+  return ensureWorkflowState().nodes
+    .filter((node) => ["imageReference", "image", "upload"].includes(node.type))
+    .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
+}
+
+function workflowVideoReferenceNodes() {
+  return ensureWorkflowState().nodes
+    .filter((node) => node.type === "videoReference")
+    .sort((left, right) => Number(left.x || 0) - Number(right.x || 0));
+}
+
 function workflowNodeByType(type = "") {
   return ensureWorkflowState().nodes.find((node) => node.type === type) || null;
 }
@@ -3641,7 +3657,7 @@ function workflowFirstVideoNode() {
 }
 
 function workflowUploadNode() {
-  return workflowNodeByType("upload");
+  return workflowImageNodes()[0] || null;
 }
 
 function selectedWorkflowNode() {
@@ -4288,11 +4304,11 @@ function revealWorkflowNode(nodeId = "") {
 }
 
 function workflowNodeAcceptsInput(node = null) {
-  return Boolean(node && node.type !== "upload");
+  return Boolean(node && !["imageReference", "image", "upload"].includes(node.type));
 }
 
 function workflowNodeAcceptsOutput(node = null) {
-  return Boolean(node && node.type !== "output");
+  return Boolean(node);
 }
 
 function workflowNodeAnchor(node = {}, side = "out") {
@@ -4321,24 +4337,43 @@ function renderWorkflowNode(node = {}) {
   const selected = selectedWorkflowNode()?.id === node.id;
   const statusClassName = statusClass(node.data?.status || "ready");
   const style = `left:${Number(node.x || 0)}px;top:${Number(node.y || 0)}px`;
-  if (node.type === "upload") {
-    const runState = workflowNodeRunState(node);
+  if (["imageReference", "image", "upload"].includes(node.type)) {
+    const value = node.data?.imageUrl || node.data?.startImage || "";
     return `
-      <article class="workflow-node workflow-node-upload ${selected ? "is-selected" : ""}" style="${style}" data-workflow-node="${escapeHtml(node.id)}">
+      <article class="workflow-node workflow-node-upload workflow-node-image workflow-node-reference ${selected ? "is-selected" : ""}" style="${style}" data-workflow-node="${escapeHtml(node.id)}">
         ${renderWorkflowConnectors(node)}
         <header>
           <span class="workflow-node-title-icon"><i data-lucide="image"></i></span>
-          <strong>${escapeHtml(node.title || "Image Upload")}</strong>
-          <button class="workflow-node-header-run ${state.workflowActiveNodeId === node.id ? "is-running" : ""}" type="button" data-workflow-run-node="${escapeHtml(node.id)}" title="${escapeHtml(runState.reason)}" ${runState.disabled ? "disabled" : ""}>
-            <i data-lucide="${escapeHtml(runState.icon)}"></i><span>${escapeHtml(runState.label)}</span>
-          </button>
+          <strong>${escapeHtml(node.title || "Image reference")}</strong>
+          <button type="button" data-workflow-delete="${escapeHtml(node.id)}" aria-label="Delete image node"><i data-lucide="trash-2"></i></button>
         </header>
-        <div class="workflow-upload-grid">
-          ${renderWorkflowUploadSlot(node, "startImage", "Start", "image-up")}
-          ${renderWorkflowUploadSlot(node, "endImage", "End", "image")}
-          ${renderWorkflowUploadSlot(node, "faceImage", "Face", "scan-face")}
-        </div>
-        ${renderWorkflowUploadPreparedPreview(node)}
+        <label class="workflow-reference-dropzone">
+          <input type="file" accept="image/*" data-workflow-file="imageUrl" data-node-id="${escapeHtml(node.id)}" />
+          ${value
+            ? `<img src="${escapeHtml(value)}" alt="" loading="lazy" decoding="async" />`
+            : `<span><i data-lucide="upload"></i><strong>Add image</strong><small>Click or drop an image</small></span>`}
+        </label>
+        <footer><span>${value ? "Ready" : "Waiting for image"}</span><strong>Image reference</strong></footer>
+      </article>
+    `;
+  }
+  if (node.type === "videoReference") {
+    const value = node.data?.videoUrl || "";
+    return `
+      <article class="workflow-node workflow-node-upload workflow-node-video-reference workflow-node-reference ${selected ? "is-selected" : ""}" style="${style}" data-workflow-node="${escapeHtml(node.id)}">
+        ${renderWorkflowConnectors(node)}
+        <header>
+          <span class="workflow-node-title-icon"><i data-lucide="video"></i></span>
+          <strong>${escapeHtml(node.title || "Video reference")}</strong>
+          <button type="button" data-workflow-delete="${escapeHtml(node.id)}" aria-label="Delete video node"><i data-lucide="trash-2"></i></button>
+        </header>
+        <label class="workflow-reference-dropzone">
+          <input type="file" accept="video/*" data-workflow-file="videoUrl" data-node-id="${escapeHtml(node.id)}" />
+          ${value
+            ? `<video src="${escapeHtml(value)}" controls playsinline preload="metadata"></video>`
+            : `<span><i data-lucide="upload"></i><strong>Add video</strong><small>Click or drop a video</small></span>`}
+        </label>
+        <footer><span>${value ? "Ready" : "Waiting for video"}</span><strong>Video reference</strong></footer>
       </article>
     `;
   }
@@ -4367,7 +4402,7 @@ function renderWorkflowNode(node = {}) {
     return `
       <article class="workflow-node workflow-node-output ${selected ? "is-selected" : ""}" style="${style}" data-workflow-node="${escapeHtml(node.id)}">
         ${renderWorkflowConnectors(node)}
-        <header><i data-lucide="sparkles"></i><strong>${escapeHtml(node.title || "Final Output")}</strong></header>
+        <header><i data-lucide="sparkles"></i><strong>${escapeHtml(node.title || "Final Output")}</strong><button type="button" data-workflow-delete="${escapeHtml(node.id)}" aria-label="Delete output node"><i data-lucide="trash-2"></i></button></header>
         ${finalVideoUrl ? `
           <div class="workflow-node-media">
             <button class="workflow-node-preview-button" type="button" data-workflow-preview="${escapeHtml(node.id)}">
@@ -4536,31 +4571,14 @@ function renderWorkflowPanel({ focusNodeId = "" } = {}) {
   if (!els.workflowRoot) return;
   const viewport = captureWorkflowCanvasViewport();
   const workflow = ensureWorkflowState();
-  const activePhysics = new Set(workflow.physics || []);
   els.workflowRoot.innerHTML = `
     ${typeof renderWorkflowCanvasManager === "function" ? renderWorkflowCanvasManager() : ""}
     <div class="workflow-controls">
       <div class="workflow-toolbar">
-        <button class="workflow-run ${state.workflowRunning ? "is-cancel" : ""}" type="button" data-workflow-action="${state.workflowRunning ? "cancel" : "run"}"><i data-lucide="${state.workflowRunning ? "square" : "play"}"></i>${state.workflowRunning ? "Cancel" : "Run all"}</button>
-        <button type="button" data-workflow-action="clear-results" ${state.workflowRunning ? "disabled" : ""}><i data-lucide="eraser"></i>Clear results</button>
-        <button type="button" data-workflow-action="add-video"><i data-lucide="plus"></i>Video</button>
-        <button type="button" data-workflow-action="add-prompt"><i data-lucide="notebook-pen"></i>Prompt</button>
-        <button type="button" data-workflow-action="physics" class="${state.workflowShowPhysics ? "is-active" : ""}"><i data-lucide="sliders-horizontal"></i>Modifiers</button>
-        <button type="button" data-workflow-action="reset"><i data-lucide="rotate-ccw"></i>Reset</button>
-        <span class="workflow-status">${escapeHtml(state.workflowMessage || `${workflowVideoNodes().length} video nodes`)}</span>
+        <button type="button" data-workflow-action="add-image"><i data-lucide="image-plus"></i>Image</button>
+        <button type="button" data-workflow-action="add-video"><i data-lucide="video"></i>Video</button>
+        <span class="workflow-status">${escapeHtml(state.workflowMessage || `${workflowImageNodes().length} image / ${workflowVideoReferenceNodes().length} video nodes`)}</span>
       </div>
-      ${state.workflowShowPhysics ? `
-        <section class="workflow-physics">
-          <header><strong>Prompt modifiers</strong><span>${activePhysics.size}/3 selected</span></header>
-          <div>
-            ${WORKFLOW_PHYSICS_MODULES.map((module) => `
-              <button type="button" class="${activePhysics.has(module.id) ? "is-active" : ""}" data-workflow-physics="${escapeHtml(module.id)}">
-                <i data-lucide="${activePhysics.has(module.id) ? "check" : "circle"}"></i>${escapeHtml(module.label)}
-              </button>
-            `).join("")}
-          </div>
-        </section>
-      ` : ""}
     </div>
     <div class="workflow-layout">
       <section class="workflow-canvas" aria-label="Workflow canvas">
@@ -4625,6 +4643,37 @@ async function handleWorkflowFileInput(input) {
   if (field === "startImage") workflowLog("Source image ready.");
 }
 
+async function handleWorkflowDrop(event) {
+  const canvas = event.target.closest?.(".workflow-canvas");
+  const files = Array.from(event.dataTransfer?.files || []);
+  if (!canvas || !files.length) return;
+  event.preventDefault();
+  const point = workflowCanvasPointFromEvent(event);
+  let offset = 0;
+  for (const file of files) {
+    const mime = String(file.type || "").toLowerCase();
+    const isImage = mime.startsWith("image/");
+    const isVideo = mime.startsWith("video/");
+    if (!isImage && !isVideo) continue;
+    const dataUrl = await readFileAsDataUrl(file);
+    const node = {
+      id: `${isImage ? "image" : "video"}-${Date.now().toString(36)}-${offset}`,
+      type: isImage ? "imageReference" : "videoReference",
+      title: `${isImage ? "Image" : "Video"} ${isImage ? workflowImageNodes().length + 1 : workflowVideoReferenceNodes().length + 1}`,
+      x: point.x + offset,
+      y: point.y + offset,
+      data: isImage ? { imageUrl: dataUrl } : { videoUrl: dataUrl },
+    };
+    ensureWorkflowState().nodes.push(node);
+    state.workflowSelectedNodeId = node.id;
+    offset += 34;
+  }
+  if (offset) {
+    persistWorkflowState();
+    renderWorkflowPanel({ focusNodeId: state.workflowSelectedNodeId });
+  }
+}
+
 function workflowInsertionPreviousNode() {
   const workflow = ensureWorkflowState();
   const output = workflowNodeByType("output");
@@ -4636,6 +4685,33 @@ function workflowInsertionPreviousNode() {
     : outputPrevious && outputPrevious.type !== "output"
       ? outputPrevious
       : workflowVideoNodes()[workflowVideoNodes().length - 1] || workflowUploadNode();
+}
+
+function workflowNewNodePosition() {
+  const canvas = els.workflowRoot?.querySelector(".workflow-canvas");
+  const workflow = ensureWorkflowState();
+  const zoom = workflowZoom();
+  const index = workflow.nodes.length;
+  const visibleX = (canvas?.scrollLeft || 0) / zoom + (canvas?.clientWidth || 900) / zoom / 2 - WORKFLOW_NODE_WIDTH / 2;
+  const visibleY = (canvas?.scrollTop || 0) / zoom + (canvas?.clientHeight || 520) / zoom / 2 - 150;
+  const offset = (index % 5) * 34;
+  return clampWorkflowNodePosition(visibleX + offset, visibleY + Math.floor(index / 5) * 34);
+}
+
+function addWorkflowImageNode() {
+  const position = workflowNewNodePosition();
+  const node = {
+    id: `image-${Date.now().toString(36)}`,
+    type: "imageReference",
+    title: `Image ${workflowImageNodes().length + 1}`,
+    x: position.x,
+    y: position.y,
+    data: { imageUrl: "" },
+  };
+  ensureWorkflowState().nodes.push(node);
+  state.workflowSelectedNodeId = node.id;
+  persistWorkflowState();
+  renderWorkflowPanel({ focusNodeId: node.id });
 }
 
 function insertWorkflowNodeAfter(node = {}, previous = null) {
@@ -4682,20 +4758,21 @@ function addWorkflowPromptNode() {
   }, previous);
 }
 
-function addWorkflowVideoNode(modelId = "") {
-  const videoNodes = workflowVideoNodes();
-  const index = videoNodes.length + 1;
-  const previous = workflowInsertionPreviousNode();
-  const model = workflowModelById(modelId || WORKFLOW_MODEL_LIBRARY[index % WORKFLOW_MODEL_LIBRARY.length]?.id || "");
+function addWorkflowVideoNode() {
+  const videoNodes = workflowVideoReferenceNodes();
+  const position = workflowNewNodePosition();
   const node = {
     id: `video-${Date.now().toString(36)}`,
-    type: "video",
-    title: model.label,
-    x: 0,
-    y: 150 + Math.max(0, index - 2) * 38,
-    data: { modelId: model.id, duration: 5, resolution: "720p", ratio: "9:16", prompt: "", activeTab: "preview" },
+    type: "videoReference",
+    title: `Video ${videoNodes.length + 1}`,
+    x: position.x,
+    y: position.y,
+    data: { videoUrl: "" },
   };
-  insertWorkflowNodeAfter(node, previous);
+  ensureWorkflowState().nodes.push(node);
+  state.workflowSelectedNodeId = node.id;
+  persistWorkflowState();
+  renderWorkflowPanel({ focusNodeId: node.id });
 }
 
 function workflowCanceledError() {
@@ -4783,7 +4860,7 @@ async function workflowContinuationFromPrevious(previousNode = null) {
 async function runWorkflowNode(node = {}, { previousFrameUrl = "", previousVideoUrl = "", firstNode = false } = {}) {
   const workflow = ensureWorkflowState();
   const upload = workflowUploadNode();
-  const sourceImage = upload?.data?.startImage || "";
+  const sourceImage = upload?.data?.imageUrl || upload?.data?.startImage || "";
   const endImage = upload?.data?.endImage || "";
   const faceImage = workflowNodeOptionEnabled(node, "faceSwapMode") ? (upload?.data?.faceImage || "") : "";
   if (!node?.id) throw new Error("Video node not found.");
@@ -5051,7 +5128,7 @@ async function runWorkflowSingleNode(nodeId = "") {
 async function runWorkflow() {
   if (!state.user) return openLogin();
   const upload = workflowUploadNode();
-  const sourceImage = upload?.data?.startImage || "";
+  const sourceImage = upload?.data?.imageUrl || upload?.data?.startImage || "";
   const nodes = workflowOrderedVideoNodes();
   if (!nodes.length) {
     state.workflowMessage = "Add a video node first.";
@@ -5345,7 +5422,7 @@ function reconnectWorkflowEdge(oldFromId = "", oldToId = "", nextFromId = "", ne
 function removeWorkflowNode(nodeId = "") {
   const workflow = ensureWorkflowState();
   const node = workflow.nodes.find((item) => item.id === nodeId);
-  if (!node || !["prompt", "video"].includes(node.type)) return false;
+  if (!node) return false;
   const incoming = workflow.edges
     .filter((edge) => edge.to === nodeId)
     .map((edge) => workflowNodeById(edge.from))
@@ -5363,7 +5440,7 @@ function removeWorkflowNode(nodeId = "") {
     edge.from && edge.to
     && edges.findIndex((item) => item.from === edge.from && item.to === edge.to) === edgeIndex
   ));
-  state.workflowSelectedNodeId = workflowVideoNodes()[0]?.id || workflowUploadNode()?.id || "";
+  state.workflowSelectedNodeId = workflowVideoNodes()[0]?.id || workflowImageNodes()[0]?.id || workflow.nodes[0]?.id || "";
   persistWorkflowState();
   return true;
 }
@@ -5576,13 +5653,8 @@ function handleWorkflowClick(event) {
     if (action === "run") runWorkflow();
     if (action === "cancel") requestWorkflowCancel();
     if (action === "clear-results") clearWorkflowExecutionResults();
+    if (action === "add-image") addWorkflowImageNode();
     if (action === "add-video") addWorkflowVideoNode();
-    if (action === "add-prompt") addWorkflowPromptNode();
-    if (action === "physics") {
-      state.workflowShowPhysics = !state.workflowShowPhysics;
-      renderWorkflowPanel();
-    }
-    if (action === "reset") resetWorkflow();
     return;
   }
   const nodeEl = event.target.closest("[data-workflow-node]");

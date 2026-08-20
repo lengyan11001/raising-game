@@ -2928,6 +2928,43 @@ dialog.tool-download-modal {
   font-size: .82rem;
 }
 .referral-membership-progress .referral-progress { grid-column: auto; }
+
+/* Referral uses the dark tool surface; keep the membership controls readable. */
+.referral-panel .membership-card {
+  background: rgba(18, 18, 22, .94);
+  color: #f8f8fb;
+  border-color: rgba(97, 230, 198, .28);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, .24);
+}
+.referral-panel .membership-card .membership-state {
+  border-color: rgba(255, 255, 255, .2);
+  color: rgba(255, 255, 255, .72);
+}
+.referral-panel .membership-card .membership-benefits span {
+  border-color: rgba(255, 255, 255, .12);
+  background: rgba(255, 255, 255, .06);
+  color: rgba(255, 255, 255, .88);
+}
+.referral-panel .membership-card .membership-code-form input {
+  border-color: rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .08);
+  color: #fff;
+}
+.referral-panel .membership-card .membership-code-form input::placeholder,
+.referral-panel .membership-card > .job-note {
+  color: rgba(255, 255, 255, .58);
+}
+.referral-panel .membership-card #buyMembershipBtn,
+.referral-panel .membership-card #redeemMembershipCodeBtn {
+  min-height: 42px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  color: #fff;
+  background: #ff4fa3;
+  box-shadow: 0 8px 22px rgba(255, 79, 163, .2);
+}
+.referral-panel .membership-card #redeemMembershipCodeBtn {
+  background: rgba(255, 255, 255, .1);
+}
 .referral-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -5547,6 +5584,59 @@ select option:checked {
 .workflow-node-upload {
   height: auto;
   min-height: 272px;
+}
+
+.workflow-node-image {
+  width: 300px;
+  min-height: 250px;
+}
+.workflow-node-image .workflow-upload-grid {
+  min-height: 150px;
+}
+.workflow-node-reference {
+  min-height: 300px;
+}
+.workflow-reference-dropzone {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  overflow: hidden;
+  border: 1px dashed rgba(255,255,255,.24);
+  border-radius: 12px;
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.78);
+  cursor: pointer;
+}
+.workflow-reference-dropzone input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.workflow-reference-dropzone > img,
+.workflow-reference-dropzone > video {
+  display: block;
+  width: 100%;
+  height: 180px;
+  object-fit: contain;
+  background: #09090c;
+}
+.workflow-reference-dropzone > span {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  pointer-events: none;
+}
+.workflow-reference-dropzone > span svg { width: 22px; height: 22px; color: #61e6c6; }
+.workflow-reference-dropzone > span strong { color: #fff; }
+.workflow-reference-dropzone > span small { color: rgba(255,255,255,.52); }
+.workflow-reference-dropzone:hover,
+.workflow-reference-dropzone:focus-within {
+  border-color: #61e6c6;
+  background: rgba(97,230,198,.08);
 }
 
 .workflow-node-prompt {

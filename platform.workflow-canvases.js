@@ -71,7 +71,9 @@ function setActiveWorkflowCanvas(canvas = {}) {
     ...(state.workflowCanvases || []).filter((item) => item.id !== summary.id),
   ].sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
   state.workflowActiveCanvasId = summary.id;
-  state.workflow = canvas.workflow?.nodes?.length ? workflowCanvasStateFromPayload(canvas.workflow) : cloneWorkflowDefault();
+  state.workflow = canvas.workflow && Array.isArray(canvas.workflow.nodes)
+    ? workflowCanvasStateFromPayload(canvas.workflow)
+    : cloneWorkflowDefault();
   state.workflowSelectedNodeId = state.workflow.nodes.find((node) => node.type === "video")?.id || state.workflow.nodes[0]?.id || "";
   state.workflowPickerNodeId = "";
   state.workflowPickerSearch = "";
@@ -104,10 +106,15 @@ async function loadWorkflowCanvases({ force = false } = {}) {
     state.workflowCanvases = (payload.canvases || []).map(workflowCanvasSummary).filter((canvas) => canvas.id);
     const preferredId = localStorage.getItem(workflowCanvasScopedKey(WORKFLOW_CANVAS_ACTIVE_KEY)) || "";
     const selected = state.workflowCanvases.find((canvas) => canvas.id === preferredId) || state.workflowCanvases[0];
-    if (!selected) throw new Error("No workflow is available.");
-    const canvas = await fetchWorkflowCanvas(selected.id);
-    if (!canvas) throw new Error("Workflow could not be loaded.");
-    setActiveWorkflowCanvas(canvas);
+    if (selected) {
+      const canvas = await fetchWorkflowCanvas(selected.id);
+      if (!canvas) throw new Error("Workflow could not be loaded.");
+      setActiveWorkflowCanvas(canvas);
+    } else {
+      state.workflowActiveCanvasId = "";
+      state.workflow = cloneWorkflowDefault();
+      state.workflowSelectedNodeId = "";
+    }
     state.workflowCanvasMessage = "Saved";
     state.workflowCanvasesLoaded = true;
   } catch (error) {
@@ -193,7 +200,6 @@ async function createWorkflowCanvas() {
     confirmText: "Create",
     onOpen: (root) => root.querySelector("[data-workflow-new-name]")?.select(),
     onConfirm: async (root) => {
-      await saveWorkflowCanvas({ quiet: true });
       const name = root.querySelector("[data-workflow-new-name]")?.value || "Untitled workflow";
       const payload = await requestJson("/api/workflow/canvases", {
         method: "POST",
@@ -250,6 +256,7 @@ function renderWorkflowCanvasManager() {
 function handleWorkflowCanvasClick(event) {
   const button = event.target.closest("[data-workflow-canvas-action]");
   if (!button) return false;
+  if (button.disabled) return true;
   event.preventDefault();
   event.stopPropagation();
   const action = button.dataset.workflowCanvasAction || "";
