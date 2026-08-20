@@ -20,6 +20,23 @@ function workflowCanvasSummary(canvas = {}) {
 
 function workflowCanvasStateFromPayload(value = {}) {
   const workflow = value && typeof value === "object" ? value : {};
+  const layoutVersion = Number(workflow.layoutVersion || 0);
+  const hasLegacyFixedNodes = Array.isArray(workflow.nodes)
+    && workflow.nodes.some((node) => ["upload", "prompt", "video", "output"].includes(String(node?.type || "")));
+  if (layoutVersion < WORKFLOW_NODE_LAYOUT_VERSION || hasLegacyFixedNodes) {
+    return {
+      nodes: [],
+      edges: [],
+      physics: [],
+      directorPrompt: "",
+      zoom: normalizeWorkflowZoom(1),
+      layoutVersion: WORKFLOW_NODE_LAYOUT_VERSION,
+      canvasWidth: Number(WORKFLOW_CANVAS_BASE_WIDTH),
+      canvasHeight: Number(WORKFLOW_CANVAS_BASE_HEIGHT),
+      scrollLeft: 0,
+      scrollTop: 0,
+    };
+  }
   return {
     nodes: Array.isArray(workflow.nodes) ? workflow.nodes.map((node) => ({ ...node, data: { ...(node.data || {}) } })) : [],
     edges: Array.isArray(workflow.edges) ? workflow.edges.map((edge) => ({ ...edge })) : [],

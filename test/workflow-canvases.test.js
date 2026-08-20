@@ -79,6 +79,7 @@ test("workflow canvas UI supports selection, create, save and delete", () => {
   assert.match(manager, /function createWorkflowCanvas/);
   assert.match(manager, /function saveWorkflowCanvas/);
   assert.match(manager, /function deleteWorkflowCanvas/);
+  assert.match(manager, /layoutVersion < WORKFLOW_NODE_LAYOUT_VERSION \|\| hasLegacyFixedNodes/);
   assert.match(manager, /button\.disabled/);
   assert.match(manager, /data-workflow-canvas-select/);
   assert.match(ui, /scheduleWorkflowCanvasSave\(\);/);
